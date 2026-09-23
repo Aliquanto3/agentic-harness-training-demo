@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 Actor = Literal["model", "harness", "user"]
 Trigger = Literal["model", "user", "harness", "hook"]
@@ -46,10 +46,40 @@ class SessionStatePayload(BaseModel):
     reason_fr: str | None = None
 
 
-# Maps each story-1 kind to its payload model, so `Envelope` can validate it.
+class ArchitectureNode(BaseModel):
+    """A node of the architecture schema (AD-12).
+
+    Only `core.harness` and `core.model` exist for this story; `kind` will
+    grow (brick, tool, mcp_server, ...) once bricks are emitted (story 4+).
+    """
+
+    id: str
+    kind: Literal["harness", "model"]
+    hosting: Literal["local", "network"]
+    label_fr: str
+    wanted: bool
+    available: bool
+    reason_fr: str | None = None
+
+
+class ArchitectureEdge(BaseModel):
+    from_: str = Field(alias="from")
+    to: str
+    crosses_boundary: bool
+
+    model_config = {"populate_by_name": True}
+
+
+class ArchitectureChangedPayload(BaseModel):
+    nodes: list[ArchitectureNode]
+    edges: list[ArchitectureEdge]
+
+
+# Maps each story-1/2 kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
     "outbound_request": OutboundRequestPayload,
     "harness_error": HarnessErrorPayload,
     "session_state": SessionStatePayload,
+    "architecture_changed": ArchitectureChangedPayload,
 }

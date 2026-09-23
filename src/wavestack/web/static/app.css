@@ -1,0 +1,337 @@
+/* Governs: EXPERIENCE.md > Information Architecture (5 volets masquables),
+   Masquage des volets, Component Patterns (pane, pane-chip, pane-menu).
+   Hiding a pane relies on flexbox naturally redistributing the freed space
+   to its visible siblings: no manual grid recomputation needed. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--typography-body-font-family);
+  font-size: var(--typography-body-font-size);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- top bar ---------- */
+
+.top-bar {
+  flex: 0 0 var(--spacing-top-bar-height);
+  height: var(--spacing-top-bar-height);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+  padding: 0 var(--spacing-4);
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.top-bar-title {
+  font-family: var(--typography-heading-font-family);
+  font-weight: var(--typography-heading-font-weight);
+  color: var(--color-primary-deep);
+}
+
+.pane-chips {
+  display: flex;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+
+.pane-chip {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) / var(--typography-label-line-height)
+    var(--typography-label-font-family);
+  letter-spacing: var(--typography-label-letter-spacing);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  border: 1px dashed var(--color-primary);
+  border-radius: var(--rounded-full);
+  padding: var(--spacing-1) var(--spacing-3);
+  min-height: var(--spacing-hit-target-min);
+  cursor: pointer;
+}
+
+.pane-chip.is-linked::before {
+  content: "● ";
+  color: var(--color-ink);
+}
+
+.pane-menu {
+  margin-left: auto;
+  position: relative;
+}
+
+.pane-menu button#pane-menu-toggle {
+  min-height: var(--spacing-hit-target-min);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  padding: 0 var(--spacing-3);
+  cursor: pointer;
+}
+
+.pane-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--spacing-1));
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  list-style: none;
+  margin: 0;
+  padding: var(--spacing-2);
+  box-shadow: 0 6px 20px rgba(37, 15, 107, 0.12);
+  z-index: 10;
+}
+
+.pane-menu-list li {
+  padding: var(--spacing-1) var(--spacing-2);
+  white-space: nowrap;
+}
+
+.pane-menu-list label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  cursor: pointer;
+}
+
+/* ---------- layout ---------- */
+
+.layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  gap: 1px;
+  background: var(--color-line);
+}
+
+.layout > .pane[data-pane="bricks"] {
+  flex: 0 0 var(--spacing-brick-panel-width);
+}
+
+.right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--color-line);
+  min-width: 0;
+}
+
+.top-row {
+  flex: 1;
+  display: flex;
+  gap: 1px;
+  background: var(--color-line);
+  min-height: 0;
+}
+
+.top-row .pane {
+  flex: 1;
+}
+
+.right > .pane[data-pane="schema"] {
+  flex: 0 0 var(--spacing-architecture-band-height);
+}
+
+.pane {
+  background: var(--color-surface-raised);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane.is-hidden {
+  display: none;
+}
+
+.pane.is-selected {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.pane-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-pane-padding);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.pane-title {
+  margin: 0;
+  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
+    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
+  letter-spacing: var(--typography-pane-title-letter-spacing);
+  text-transform: uppercase;
+  color: var(--color-ink-soft);
+}
+
+.pane-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--spacing-1);
+}
+
+.pane-actions button {
+  min-width: var(--spacing-hit-target-min);
+  min-height: var(--spacing-hit-target-min);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-soft);
+  cursor: pointer;
+}
+
+.pane-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-pane-padding);
+}
+
+.empty-note {
+  color: var(--color-ink-soft);
+}
+
+/* ---------- human composer (disabled until story 3) ---------- */
+
+.pane-body-human {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.composer {
+  margin-top: auto;
+  display: flex;
+  gap: var(--spacing-2);
+}
+
+.composer input {
+  flex: 1;
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  padding: var(--spacing-2) var(--spacing-3);
+}
+
+.composer button {
+  border-radius: var(--rounded-sm);
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  padding: 0 var(--spacing-4);
+}
+
+.composer button:disabled,
+.composer input:disabled {
+  opacity: 0.5;
+}
+
+/* ---------- orchestration journal ---------- */
+
+.journal {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.journal li {
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  padding: var(--spacing-2);
+  font-size: var(--typography-body-sm-font-size);
+}
+
+.journal .kind {
+  font-family: var(--typography-label-font-family);
+  font-weight: var(--typography-label-font-weight);
+  color: var(--color-primary-deep);
+}
+
+.journal pre {
+  margin: var(--spacing-1) 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--typography-code-font-family);
+  font-size: var(--typography-code-font-size);
+}
+
+/* ---------- architecture schema ---------- */
+
+.pane-body-schema {
+  display: flex;
+  padding: var(--spacing-2);
+}
+
+#schema-svg {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+}
+
+.arch-node rect {
+  fill: var(--color-hosting-local);
+  stroke: var(--color-hosting-local);
+  rx: 8;
+}
+
+.arch-node text {
+  fill: var(--color-on-primary);
+  font-family: var(--typography-body-font-family);
+  font-size: 13px;
+}
+
+.arch-node {
+  cursor: pointer;
+}
+
+.arch-node.is-selected rect {
+  stroke: var(--color-ink);
+  stroke-width: var(--spacing-stroke-min);
+}
+
+/* ---------- focus mode: collapse every pane but the focused one ---------- */
+
+body.focus-mode .layout,
+body.focus-mode .right,
+body.focus-mode .top-row {
+  flex-direction: column;
+}
+
+body.focus-mode .pane:not(.is-hidden) {
+  flex: 0 0 auto;
+}
+
+body.focus-mode .pane:not(.is-hidden) .pane-body {
+  flex: 0 0 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body.focus-mode .pane.is-focused {
+  flex: 1 1 auto !important;
+}
+
+body.focus-mode .pane.is-focused .pane-body {
+  flex: 1 1 auto;
+  padding: var(--spacing-pane-padding);
+  overflow: auto;
+}

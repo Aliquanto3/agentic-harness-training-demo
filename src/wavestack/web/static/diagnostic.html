@@ -23,6 +23,7 @@
 </head>
 <body>
   <h1>Diagnostic de démarrage WaveStack</h1>
+  <p id="open-link" style="display: none;"><a href="/">Ouvrir WaveStack</a></p>
   <ul id="checks"></ul>
 
   <h2>Modèles détectés</h2>
@@ -88,6 +89,7 @@
       const response = await fetch("/api/diagnostic");
       const body = await response.json();
       renderCandidates(body.candidates || []);
+      document.getElementById("open-link").style.display = body.ready ? "block" : "none";
     }
     loadDiagnostic();
 

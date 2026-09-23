@@ -1,8 +1,7 @@
-"""FastAPI app for this story: health, `/diagnostic`, `/api/diagnostic`, SSE, `select_model`.
+"""FastAPI app: health, `/diagnostic`, `/`, `/api/*`, SSE, `select_model`.
 
-No 5-volet interface, no full `tokens.css` (story 2). Protected per AD-18's
-subset: `TrustedHostMiddleware` on `127.0.0.1`/`localhost`, POST restricted
-to same-origin JSON, no CORS.
+Protected per AD-18's subset: `TrustedHostMiddleware` on
+`127.0.0.1`/`localhost`, POST restricted to same-origin JSON, no CORS.
 """
 
 from __future__ import annotations
@@ -13,8 +12,10 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from wavestack.session.app_session import AppSession
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.envelope import Envelope
 from wavestack.trace.journal import get_journal
@@ -44,13 +45,41 @@ def create_app(session: DiagnosticSession, *, port: int, version: str) -> FastAP
                 return JSONResponse({"detail": "JSON attendu."}, status_code=415)
         return await call_next(request)
 
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "version": version}
 
+    @app.get("/")
+    def index_page() -> FileResponse:
+        return FileResponse(STATIC_DIR / "index.html")
+
     @app.get("/diagnostic")
     def diagnostic_page() -> FileResponse:
         return FileResponse(STATIC_DIR / "diagnostic.html")
+
+    @app.get("/api/state")
+    def api_state() -> dict[str, object]:
+        """AD-1: what the front's store needs to boot without waiting on SSE.
+
+        `seq` is the journal's current tip: the front resumes `/api/stream`
+        from there (`Last-Event-ID`), so it never replays what this snapshot
+        already gave it.
+        """
+        journal = get_journal()
+        events = journal.all_events()
+        session_state = next(
+            (e.payload for e in reversed(events) if e.kind == "session_state"), None
+        )
+        architecture = next(
+            (e.payload for e in reversed(events) if e.kind == "architecture_changed"), None
+        )
+        return {
+            "session_state": session_state,
+            "architecture_changed": architecture,
+            "seq": journal.last_seq(),
+        }
 
     @app.get("/api/diagnostic")
     def diagnostic_state() -> dict[str, object]:
@@ -65,41 +94,52 @@ def create_app(session: DiagnosticSession, *, port: int, version: str) -> FastAP
     @app.post("/api/intentions/select_model")
     def select_model(intention: SelectModelIntention) -> dict[str, object]:
         result = session.select_model(intention.path)
+        if result.ready:
+            AppSession().emit_initial()
         return {"ready": result.ready, "blocking_checks": result.blocking_checks}
 
     @app.get("/api/diagnostic/stream")
     async def diagnostic_stream(request: Request) -> StreamingResponse:
-        journal = get_journal()
-        last_event_id = request.headers.get("last-event-id")
-        try:
-            since_seq = int(last_event_id) if last_event_id else 0
-        except ValueError:
-            since_seq = 0
-        loop = asyncio.get_running_loop()
-        queue: asyncio.Queue[Envelope] = asyncio.Queue()
+        return _sse_stream(request)
 
-        def _on_event(envelope: Envelope) -> None:
-            loop.call_soon_threadsafe(queue.put_nowait, envelope)
-
-        async def _generate():  # noqa: ANN202
-            for envelope in journal.events_since(since_seq):
-                yield _format_sse(envelope)
-            journal.subscribe(_on_event)
-            try:
-                while True:
-                    if await request.is_disconnected():
-                        break
-                    try:
-                        envelope = await asyncio.wait_for(queue.get(), timeout=15)
-                        yield _format_sse(envelope)
-                    except TimeoutError:
-                        yield ": keep-alive\n\n"
-            finally:
-                journal.unsubscribe(_on_event)
-
-        return StreamingResponse(_generate(), media_type="text/event-stream")
+    @app.get("/api/stream")
+    async def stream(request: Request) -> StreamingResponse:
+        """AD-1: same generic replay/subscribe logic, every event kind."""
+        return _sse_stream(request)
 
     return app
+
+
+def _sse_stream(request: Request) -> StreamingResponse:
+    journal = get_journal()
+    last_event_id = request.headers.get("last-event-id")
+    try:
+        since_seq = int(last_event_id) if last_event_id else 0
+    except ValueError:
+        since_seq = 0
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[Envelope] = asyncio.Queue()
+
+    def _on_event(envelope: Envelope) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, envelope)
+
+    async def _generate():  # noqa: ANN202
+        for envelope in journal.events_since(since_seq):
+            yield _format_sse(envelope)
+        journal.subscribe(_on_event)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    envelope = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield _format_sse(envelope)
+                except TimeoutError:
+                    yield ": keep-alive\n\n"
+        finally:
+            journal.unsubscribe(_on_event)
+
+    return StreamingResponse(_generate(), media_type="text/event-stream")
 
 
 def _format_sse(envelope: Envelope) -> str:

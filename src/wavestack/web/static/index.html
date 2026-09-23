@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>WaveStack</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/tokens.css" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="top-bar">
+    <span class="top-bar-title">WaveStack</span>
+    <div class="pane-chips" id="pane-chips"></div>
+    <div class="pane-menu">
+      <button id="pane-menu-toggle" type="button" aria-haspopup="true" aria-expanded="false">
+        Volets ▾
+      </button>
+      <ul id="pane-menu-list" class="pane-menu-list" hidden></ul>
+    </div>
+  </header>
+
+  <main class="layout" id="layout">
+    <section class="pane" data-pane="bricks">
+      <header class="pane-header">
+        <h2 class="pane-title">Panneau des briques</h2>
+        <div class="pane-actions">
+          <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
+          <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
+        </div>
+      </header>
+      <div class="pane-body">
+        <p class="empty-note">
+          Aucune brique active. Le panneau des briques arrive à la story 4.
+        </p>
+      </div>
+    </section>
+
+    <div class="right">
+      <div class="top-row">
+        <section class="pane" data-pane="human">
+          <header class="pane-header">
+            <h2 class="pane-title">Vue humain</h2>
+            <div class="pane-actions">
+              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
+              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
+            </div>
+          </header>
+          <div class="pane-body pane-body-human">
+            <p class="empty-note">
+              Aucun tour pour l'instant. Envoyez un message : le contexte envoyé au modèle
+              apparaîtra ici.
+            </p>
+            <div class="composer">
+              <input type="text" disabled placeholder="Le champ de saisie arrive à la story 3." />
+              <button type="button" disabled>Envoyer</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="ctx">
+          <header class="pane-header">
+            <h2 class="pane-title">Contexte LLM</h2>
+            <div class="pane-actions">
+              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
+              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
+            </div>
+          </header>
+          <div class="pane-body">
+            <p class="empty-note">
+              Aucun tour pour l'instant. Envoyez un message : le contexte envoyé au modèle
+              apparaîtra ici.
+            </p>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="orch">
+          <header class="pane-header">
+            <h2 class="pane-title">Orchestration</h2>
+            <div class="pane-actions">
+              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
+              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
+            </div>
+          </header>
+          <div class="pane-body">
+            <ul class="journal" id="journal"></ul>
+          </div>
+        </section>
+      </div>
+
+      <section class="pane" data-pane="schema">
+        <header class="pane-header">
+          <h2 class="pane-title">Schéma d'architecture</h2>
+          <div class="pane-actions">
+            <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
+            <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
+          </div>
+        </header>
+        <div class="pane-body pane-body-schema">
+          <svg id="schema-svg" viewBox="0 0 480 140" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>
