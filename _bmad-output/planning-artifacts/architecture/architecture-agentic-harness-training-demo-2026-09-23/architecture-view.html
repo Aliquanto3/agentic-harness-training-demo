@@ -1,0 +1,767 @@
+<title>Architecture WaveStack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --primary: #451DC7;
+    --primary-deep: #250F6B;
+    --primary-soft: #EDE7FE;
+    --accent: #04F06A;
+    --ink: #0A0A14;
+    --ink-soft: #4A4A5E;
+    --muted: #8A8A9E;
+    --line: #E6E6EC;
+    --surface: #F6F5FA;
+    --raised: #FFFFFF;
+    --network: #FFCA4A;
+    --danger: #FF2A49;
+    --seg-system: #6B4EE6;
+    --seg-memory: #27B060;
+    --seg-tools: #2A78D6;
+    --seg-history: #B39CF7;
+    --seg-rag: #0E8C7E;
+    --seg-results: #E0762B;
+    --seg-message: #9C5BB5;
+    --font-ui: Aptos, Inter, system-ui, sans-serif;
+    --font-label: Manrope, Inter, system-ui, sans-serif;
+    --font-mono: 'Cascadia Mono', Consolas, 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--surface);
+    color: var(--ink);
+    font: 15px/1.55 var(--font-ui);
+    padding-inline: 16px;
+    padding-block: 0 64px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+  h1, h2, h3 { font-family: var(--font-label); text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 800; letter-spacing: -0.01em; }
+  h2 { font-size: 22px; font-weight: 800; }
+  h3 { font-size: 15px; font-weight: 700; }
+  p { margin: 0; max-width: 68ch; }
+  code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+  .eyebrow {
+    font: 700 12px/1 var(--font-label);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .num { font-family: var(--font-label); font-variant-numeric: tabular-nums; font-weight: 700; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  /* En-tête */
+  header.top {
+    display: grid;
+    gap: 20px;
+    padding-block: 40px 28px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .thesis { font-size: 18px; color: var(--ink-soft); max-width: 60ch; }
+  .thesis strong { color: var(--ink); }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--ink-soft); }
+  .meta span b { color: var(--ink); font-weight: 600; }
+
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px; padding-block: 16px; }
+  nav.toc a {
+    font: 600 13px/1 var(--font-label);
+    color: var(--primary-deep);
+    background: var(--primary-soft);
+    text-decoration: none;
+    padding: 8px 12px;
+    border-radius: 999px;
+  }
+  nav.toc a:hover { background: #DCD1FD; }
+
+  section { padding-block: 40px 8px; display: grid; gap: 18px; }
+  .lead { color: var(--ink-soft); }
+  .panel {
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 20px;
+  }
+  .note { font-size: 13px; color: var(--ink-soft); }
+  .tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    font: 700 11px/1 var(--font-label); letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 5px 8px; border-radius: 999px;
+  }
+  .tag.local { background: var(--primary); color: #fff; }
+  .tag.net { background: var(--network); color: var(--ink); border: 1.5px dashed var(--ink); }
+  .tag.file { background: var(--primary-soft); color: var(--primary-deep); }
+
+  /* Schéma */
+  .diagram-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+  .svg-scroll { overflow-x: auto; }
+  .svg-scroll svg { display: block; min-width: 760px; width: 100%; height: auto; }
+  .node { cursor: pointer; }
+  .node rect { transition: stroke-width .15s; }
+  .node:hover rect, .node:focus-visible rect { stroke-width: 3.5; }
+  .node.sel rect { stroke: var(--ink) !important; stroke-width: 3.5; }
+  .node:focus { outline: none; }
+  .node-label { font: 700 13px var(--font-label); fill: var(--ink); }
+  .node-label.inv { fill: #fff; }
+  .node-sub { font: 400 11px var(--font-ui); fill: var(--ink-soft); }
+  .node-sub.inv { fill: #E6E0FF; }
+  .zone-label { font: 800 12px var(--font-label); letter-spacing: .12em; fill: var(--ink-soft); }
+  .edge { fill: none; stroke: var(--ink-soft); stroke-width: 1.6; }
+  .edge.out { stroke: var(--ink); stroke-width: 2.4; stroke-dasharray: 7 5; }
+  .edge-label { font: 500 10.5px var(--font-ui); fill: var(--ink-soft); }
+  .detail h3 { font-size: 17px; margin-bottom: 6px; }
+  .detail p { font-size: 14px; }
+  .detail .ads { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip {
+    font: 600 12px/1 var(--font-label); padding: 5px 8px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--line); color: var(--ink);
+  }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  /* Déroulé d'un tour */
+  .seg-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg-tabs button {
+    border: 1px solid var(--line); background: var(--raised); padding: 8px 12px; border-radius: 12px;
+    font: 600 13px var(--font-label); cursor: pointer;
+  }
+  .seg-tabs button[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .turn { display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr); gap: 16px; }
+  .rail { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .rail button {
+    width: 100%; text-align: left; border: 1px solid transparent; background: transparent; cursor: pointer;
+    padding: 9px 10px 9px 34px; border-radius: 12px; position: relative; font-size: 14px;
+  }
+  .rail button::before {
+    content: attr(data-i); position: absolute; left: 8px; top: 9px;
+    width: 18px; height: 18px; border-radius: 50%; background: var(--line); color: var(--ink-soft);
+    font: 700 10px/18px var(--font-label); text-align: center;
+  }
+  .rail button:hover { background: var(--surface); }
+  .rail button[aria-current="step"] { background: var(--primary-soft); border-color: #D6CBFC; }
+  .rail button[aria-current="step"]::before { background: var(--accent); color: var(--ink); }
+  .rail button.stop::before { background: var(--danger); color: var(--ink); }
+  .rail .who { display: block; font-size: 12px; color: var(--ink-soft); }
+  .step-card { display: grid; gap: 12px; align-content: start; }
+  .step-card .phase { font: 700 17px var(--font-label); }
+  pre.events {
+    margin: 0; background: #14122B; color: #E9E6FF; border-radius: 12px; padding: 14px 16px;
+    font: 12.5px/1.6 var(--font-mono); overflow-x: auto; white-space: pre;
+  }
+  pre.events .k { color: #B7A8FF; }
+  pre.events .s { color: #9FF3C3; }
+  .step-nav { display: flex; gap: 8px; }
+  .btn {
+    border: 1px solid var(--ink); background: var(--raised); border-radius: 12px; padding: 8px 14px;
+    font: 700 13px var(--font-label); cursor: pointer;
+  }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* Jauge */
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; }
+  .switch { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+  .switch input { width: 18px; height: 18px; accent-color: var(--primary); }
+  .gauge-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .gauge-head .big { font-size: 26px; }
+  .gauge {
+    position: relative; height: 34px; border-radius: 999px; overflow: hidden;
+    background: repeating-linear-gradient(135deg, var(--surface) 0 6px, #ECEAF3 6px 12px);
+    border: 1px solid var(--line); display: flex;
+  }
+  .gauge .seg { height: 100%; transition: width .3s; }
+  .gauge .reserve {
+    position: absolute; top: 0; right: 0; height: 100%;
+    background: repeating-linear-gradient(90deg, rgba(10,10,20,.12) 0 2px, transparent 2px 6px);
+    border-left: 2px solid var(--ink);
+  }
+  .gauge.over { outline: 3px solid var(--danger); outline-offset: 2px; }
+  .gauge-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+  .gauge-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .verdict {
+    border-radius: 12px; padding: 12px 14px; font-size: 14px; display: flex; gap: 10px; align-items: flex-start;
+    border: 1px solid var(--line); background: var(--surface);
+  }
+  .verdict.ok { border-left: 6px solid var(--accent); }
+  .verdict.warn { border-left: 6px solid var(--seg-results); }
+  .verdict.bad { border-left: 6px solid var(--danger); }
+  .verdict b { font-family: var(--font-label); }
+  select {
+    font: 600 14px var(--font-label); padding: 7px 10px; border-radius: 12px; border: 1px solid var(--ink);
+    background: var(--raised); color: var(--ink);
+  }
+
+  /* Budget */
+  .budget { display: grid; gap: 10px; }
+  .bar {
+    display: flex; height: 30px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+    background: var(--surface); position: relative;
+  }
+  .bar .part { height: 100%; transition: width .3s; }
+  .bar .limit { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); }
+  .parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+  .part-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); font-size: 14px;
+  }
+  .part-row label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+  .part-row i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  /* Décisions §11 */
+  .table-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; background: var(--raised); }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 700 12px var(--font-label); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); background: var(--surface); }
+  td:first-child { font-weight: 600; width: 30%; }
+  td .who { display: block; font-size: 12px; color: var(--ink-soft); font-weight: 400; margin-top: 4px; }
+
+  /* ADs */
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ad-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+  details.ad {
+    background: var(--raised); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+  }
+  details.ad summary { cursor: pointer; list-style: none; display: grid; gap: 4px; }
+  details.ad summary::-webkit-details-marker { display: none; }
+  details.ad .id { font: 800 12px var(--font-label); color: var(--primary); letter-spacing: .04em; }
+  details.ad .t { font: 700 14.5px/1.35 var(--font-label); }
+  details.ad .r { font-size: 13.5px; color: var(--ink-soft); }
+  details.ad[open] { border-color: #CFC3FA; }
+  details.ad .body { margin-top: 10px; font-size: 13.5px; display: grid; gap: 6px; }
+  details.ad .body b { font-family: var(--font-label); }
+
+  .deferred { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+  .deferred .panel { padding: 14px 16px; }
+  .deferred h3 { margin-bottom: 4px; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-soft); }
+
+  @media (max-width: 860px) {
+    .diagram-grid, .turn { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">Spine d’architecture · WaveStack V1</div>
+    <h1>Architecture WaveStack</h1>
+    <p class="thesis"><strong>Le harnais publie un journal ; l’écran n’en est qu’une lecture.</strong> Chaque décision ci-dessous découle de cette règle : ce que la salle voit est, par construction, ce que le harnais a réellement envoyé, décidé et exécuté.</p>
+    <div class="meta">
+      <span><b>Paradigme</b> moteur de tour à journal d’événements, ports et adaptateurs</span>
+      <span><b>25</b> décisions (AD-1 à AD-25)</span>
+      <span><b>Source</b> <code>ARCHITECTURE-SPINE.md</code>, 2026-09-23</span>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Sommaire">
+    <a href="#schema">Où tourne quoi</a>
+    <a href="#tour">Un tour, événement par événement</a>
+    <a href="#fenetre">Fenêtre de contexte</a>
+    <a href="#budget">Budget de 4 Go</a>
+    <a href="#decisions">Points tranchés du PRD</a>
+    <a href="#ads">Les 25 décisions</a>
+    <a href="#suite">Ce qui reste à mesurer</a>
+  </nav>
+
+  <!-- 1. Schéma -->
+  <section id="schema" aria-labelledby="h-schema">
+    <div class="eyebrow">1 · Processus et lieux d’hébergement</div>
+    <h2 id="h-schema">Où tourne quoi</h2>
+    <p class="lead">Tout tient dans un seul processus Python, sauf deux processus enfants et un serveur de modèle facultatif. Seuls les composants de la zone Réseau font sortir des données, toujours par le même point de passage, qui les trace avant l’envoi. Cliquez sur un composant.</p>
+    <div class="legend">
+      <span class="tag local">Processus local</span>
+      <span class="tag file">Fichier local</span>
+      <span class="tag net">Service réseau</span>
+    </div>
+    <div class="diagram-grid">
+      <div class="panel svg-scroll">
+        <svg id="arch" viewBox="0 0 1000 540" role="group" aria-label="Schéma des processus de WaveStack">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#4A4A5E"/>
+            </marker>
+            <marker id="arrow-out" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#0A0A14"/>
+            </marker>
+          </defs>
+          <!-- zones -->
+          <rect x="8" y="8" width="712" height="524" rx="16" fill="#FBFAFE" stroke="#E6E6EC"/>
+          <text class="zone-label" x="26" y="34">POSTE DE TRAVAIL</text>
+          <rect x="744" y="8" width="248" height="524" rx="16" fill="#FFFBF0" stroke="#E6E6EC"/>
+          <text class="zone-label" x="762" y="34">RÉSEAU</text>
+          <line x1="732" y1="8" x2="732" y2="532" stroke="#0A0A14" stroke-width="2.5"/>
+          <!-- processus WaveStack -->
+          <rect x="190" y="56" width="340" height="300" rx="14" fill="none" stroke="#451DC7" stroke-width="1.5" stroke-dasharray="3 4"/>
+          <text class="node-sub" x="204" y="76">Processus WaveStack · uv run wavestack</text>
+
+          <!-- arêtes -->
+          <path class="edge" d="M150,130 L214,130" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+          <text class="edge-label" x="152" y="120">SSE + POST</text>
+          <path class="edge" d="M360,168 L360,196" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+          <path class="edge" d="M360,268 L360,288" marker-end="url(#arrow)"/>
+          <path class="edge" d="M506,118 L566,118" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+          <text class="edge-label" x="530" y="108">stdio</text>
+          <path class="edge" d="M506,232 L566,232" marker-end="url(#arrow)"/>
+          <path class="edge" d="M506,244 C 540,260 540,318 566,330" marker-end="url(#arrow)"/>
+          <text class="edge-label" x="540" y="300">boucle locale</text>
+          <path class="edge" d="M300,268 C 280,330 260,380 250,400" marker-end="url(#arrow)"/>
+          <path class="edge" d="M420,268 C 440,330 460,380 470,400" marker-end="url(#arrow)"/>
+          <path class="edge out" d="M506,106 C 620,80 680,90 766,100" marker-end="url(#arrow-out)"/>
+          <path class="edge out" d="M506,222 C 620,215 690,225 766,232" marker-end="url(#arrow-out)"/>
+          <path class="edge out" d="M506,254 C 640,300 690,360 766,372" marker-end="url(#arrow-out)"/>
+          <text class="edge-label" x="600" y="200">net · données sortantes tracées</text>
+
+          <!-- nœuds -->
+          <g class="node" data-id="browser" tabindex="0" role="button" aria-label="Navigateur">
+            <rect x="26" y="100" width="124" height="62" rx="12" fill="#FFFFFF" stroke="#451DC7" stroke-width="2"/>
+            <text class="node-label" x="40" y="126">Navigateur</text>
+            <text class="node-sub" x="40" y="146">5 volets, projection</text>
+          </g>
+          <g class="node" data-id="loop" tabindex="0" role="button" aria-label="Boucle asyncio">
+            <rect x="214" y="92" width="292" height="76" rx="12" fill="#451DC7" stroke="#451DC7" stroke-width="2"/>
+            <text class="node-label inv" x="230" y="120">Boucle asyncio</text>
+            <text class="node-sub inv" x="230" y="140">FastAPI 127.0.0.1 · flux SSE · intentions</text>
+            <text class="node-sub inv" x="230" y="156">clients MCP</text>
+          </g>
+          <g class="node" data-id="worker" tabindex="0" role="button" aria-label="Thread de travail">
+            <rect x="214" y="196" width="292" height="72" rx="12" fill="#451DC7" stroke="#451DC7" stroke-width="2"/>
+            <text class="node-label inv" x="230" y="224">Thread de travail</text>
+            <text class="node-sub inv" x="230" y="244">session · briques · exécuteur d’outils</text>
+            <text class="node-sub inv" x="230" y="259">hooks · journal d’événements</text>
+          </g>
+          <g class="node" data-id="engine" tabindex="0" role="button" aria-label="llama-cpp-python">
+            <rect x="214" y="288" width="292" height="56" rx="12" fill="#451DC7" stroke="#451DC7" stroke-width="2"/>
+            <text class="node-label inv" x="230" y="312">llama-cpp-python</text>
+            <text class="node-sub inv" x="230" y="331">modèle · embedding · reranker</text>
+          </g>
+          <g class="node" data-id="mcplocal" tabindex="0" role="button" aria-label="Serveur MCP local">
+            <rect x="566" y="90" width="148" height="58" rx="12" fill="#451DC7" stroke="#451DC7" stroke-width="2"/>
+            <text class="node-label inv" x="580" y="114">MCP local</text>
+            <text class="node-sub inv" x="580" y="134">processus enfant</text>
+          </g>
+          <g class="node" data-id="probe" tabindex="0" role="button" aria-label="Sonde GGUF">
+            <rect x="566" y="200" width="148" height="58" rx="12" fill="#451DC7" stroke="#451DC7" stroke-width="2"/>
+            <text class="node-label inv" x="580" y="224">Sonde GGUF</text>
+            <text class="node-sub inv" x="580" y="244">enfant, ponctuel</text>
+          </g>
+          <g class="node" data-id="ext" tabindex="0" role="button" aria-label="Ollama ou llama-server">
+            <rect x="566" y="300" width="148" height="62" rx="12" fill="#FFFFFF" stroke="#451DC7" stroke-width="2" stroke-dasharray="2 3"/>
+            <text class="node-label" x="580" y="324">Ollama / llama-server</text>
+            <text class="node-sub" x="580" y="344">facultatif, palier 2</text>
+          </g>
+          <g class="node" data-id="files" tabindex="0" role="button" aria-label="Données d’exécution">
+            <rect x="150" y="400" width="200" height="104" rx="12" fill="#EDE7FE" stroke="#451DC7" stroke-width="1.5"/>
+            <text class="node-label" x="166" y="426">Données d’exécution</text>
+            <text class="node-sub" x="166" y="446">%LOCALAPPDATA%\WaveStack</text>
+            <text class="node-sub" x="166" y="466">models/ · memory.json</text>
+            <text class="node-sub" x="166" y="484">audit.log · settings.json</text>
+          </g>
+          <g class="node" data-id="repo" tabindex="0" role="button" aria-label="Dépôt">
+            <rect x="380" y="400" width="200" height="104" rx="12" fill="#EDE7FE" stroke="#451DC7" stroke-width="1.5"/>
+            <text class="node-label" x="396" y="426">Dépôt</text>
+            <text class="node-sub" x="396" y="446">content/ (en français)</text>
+            <text class="node-sub" x="396" y="466">index sqlite-vec</text>
+            <text class="node-sub" x="396" y="484">wavestack.toml · uv.lock</text>
+          </g>
+          <g class="node" data-id="mcppub" tabindex="0" role="button" aria-label="Serveurs MCP publics">
+            <rect x="766" y="70" width="210" height="70" rx="12" fill="#FFCA4A" stroke="#0A0A14" stroke-width="2" stroke-dasharray="7 5"/>
+            <text class="node-label" x="782" y="96">MCP publics</text>
+            <text class="node-sub" x="782" y="116">data.gouv.fr · Microsoft Learn</text>
+            <text class="node-sub" x="782" y="132">contactés à l’activation</text>
+          </g>
+          <g class="node" data-id="apis" tabindex="0" role="button" aria-label="API publiques">
+            <rect x="766" y="200" width="210" height="70" rx="12" fill="#FFCA4A" stroke="#0A0A14" stroke-width="2" stroke-dasharray="7 5"/>
+            <text class="node-label" x="782" y="226">API publiques</text>
+            <text class="node-sub" x="782" y="246">jours fériés · Wikipedia</text>
+            <text class="node-sub" x="782" y="262">pages web autorisées</text>
+          </g>
+          <g class="node" data-id="hf" tabindex="0" role="button" aria-label="Hugging Face">
+            <rect x="766" y="340" width="210" height="62" rx="12" fill="#FFCA4A" stroke="#0A0A14" stroke-width="2" stroke-dasharray="7 5"/>
+            <text class="node-label" x="782" y="366">Hugging Face</text>
+            <text class="node-sub" x="782" y="386">téléchargement du modèle</text>
+          </g>
+        </svg>
+      </div>
+      <aside class="panel detail" id="detail" aria-live="polite"></aside>
+    </div>
+  </section>
+
+  <!-- 2. Tour -->
+  <section id="tour" aria-labelledby="h-tour">
+    <div class="eyebrow">2 · Le journal en action</div>
+    <h2 id="h-tour">Un tour, événement par événement</h2>
+    <p class="lead">Chaque étape du harnais émet des événements dans une enveloppe commune. Les volets de l’écran ne font que les lire. Choisissez un cas, puis parcourez ses étapes : à droite, les événements exacts que les volets recevraient.</p>
+    <div class="seg-tabs" role="group" aria-label="Cas de démonstration" id="cases"></div>
+    <div class="panel turn">
+      <ol class="rail" id="rail"></ol>
+      <div class="step-card">
+        <div>
+          <div class="eyebrow" id="step-who"></div>
+          <div class="phase" id="step-phase"></div>
+        </div>
+        <p id="step-note"></p>
+        <pre class="events" id="step-events" aria-label="Événements émis"></pre>
+        <div class="step-nav">
+          <button class="btn" id="prev">Étape précédente</button>
+          <button class="btn primary" id="next">Étape suivante</button>
+        </div>
+      </div>
+    </div>
+    <p class="note">Enveloppe commune (AD-2) : <code>seq, ts, session_epoch, turn_id, context_id, call_id, step_id, parent_step, kind, actor, trigger, brick, component, edge, payload</code>. Les événements sont abrégés ici ; les charges utiles réelles sont plus complètes.</p>
+  </section>
+
+  <!-- 3. Fenêtre -->
+  <section id="fenetre" aria-labelledby="h-fenetre">
+    <div class="eyebrow">3 · AD-4, AD-9</div>
+    <h2 id="h-fenetre">Fenêtre de contexte : 4 096 tokens, et ce qu’il en reste</h2>
+    <p class="lead">La fenêtre est plafonnée pour tenir la borne de 30 s au premier token. Une partie est réservée à la réponse : 512 tokens, ou 1 536 quand le raisonnement est actif. La jauge se calcule sur ce qui reste, la <em>fenêtre utile</em>. Au-delà, l’appel n’est pas envoyé : le dépassement devient une leçon.</p>
+    <div class="panel" style="display:grid; gap:16px">
+      <div class="controls">
+        <label for="scenario" class="eyebrow">Configuration</label>
+        <select id="scenario"></select>
+        <label class="switch"><input type="checkbox" id="reasoning"> Brique raisonnement active</label>
+      </div>
+      <div class="gauge-head">
+        <div><span class="num big" id="g-used">0</span> <span class="note">/ <span class="num" id="g-usable">0</span> tokens utiles</span></div>
+        <div class="note">Fenêtre <span class="num">4 096</span> · réserve de sortie <span class="num" id="g-reserve">512</span> · <span class="num" id="g-pct">0 %</span></div>
+      </div>
+      <div class="gauge" id="gauge" role="img" aria-label="Jauge de remplissage du contexte"></div>
+      <div class="gauge-legend" id="g-legend"></div>
+      <div class="verdict" id="g-verdict"></div>
+      <p class="note">Ordres de grandeur pour illustrer les règles, pas des mesures : les vrais comptes viendront du tokenizer du modèle par défaut. Chaque scénario fourni déclare s’il doit déborder, et un test le vérifie.</p>
+    </div>
+  </section>
+
+  <!-- 4. Budget -->
+  <section id="budget" aria-labelledby="h-budget">
+    <div class="eyebrow">4 · AD-8</div>
+    <h2 id="h-budget">Budget de 4 Go : mesurer, puis refuser</h2>
+    <p class="lead">Tout composant lourd passe par un seul registre de chargement. Il ajoute la mémoire mesurée de WaveStack et de ses processus enfants au coût estimé du composant, et refuse le chargement si le total dépasse 4 Go. Un modèle servi par Ollama ou llama-server compte aussi : c’est le même modèle, où qu’il tourne.</p>
+    <div class="panel budget">
+      <div class="controls">
+        <label for="model" class="eyebrow">Modèle</label>
+        <select id="model"></select>
+      </div>
+      <div class="gauge-head">
+        <div><span class="num big" id="b-total">0</span> <span class="note">Go sur 4,0 Go</span></div>
+        <div class="note">cible 2 à 3 Go</div>
+      </div>
+      <div class="bar" id="b-bar" role="img" aria-label="Répartition du budget mémoire"></div>
+      <div class="parts" id="b-parts"></div>
+      <div class="verdict" id="b-verdict"></div>
+      <p class="note">Estimations : taille du fichier plus marge d’exécution. En production, le registre utilise la mémoire mesurée par la sonde (AD-7) et <code>psutil</code>.</p>
+    </div>
+  </section>
+
+  <!-- 5. Décisions §11 -->
+  <section id="decisions" aria-labelledby="h-dec">
+    <div class="eyebrow">5 · PRD §11</div>
+    <h2 id="h-dec">Points tranchés du PRD</h2>
+    <p class="lead">Le PRD confiait à l’architecture cinq questions. Toutes sont tranchées, en séance avec Anaël le 2026-09-23.</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Question</th><th>Décision</th></tr></thead>
+        <tbody>
+          <tr><td>Moteur d’inférence<span class="who">addendum du PRD</span></td><td><b>llama-cpp-python 0.3.35</b>, dans le processus. Roue CPU précompilée sur l’index d’abetlen, épinglée, sans compilation. Testé avec Qwen3.5-2B : texte brut, tokenizer, gabarit lu dans le GGUF, mémoire libérée à la fermeture. <span class="note">(AD-5, AD-21)</span></td></tr>
+          <tr><td>FR-34 : modèles d’Ollama<span class="who">détection</span></td><td>Lecture directe des manifestes sur le disque, sans lancer Ollama. La couche <code>image.model</code> est un GGUF, chargé par WaveStack lui-même : transparence complète, et aucun second modèle en mémoire. <span class="note">(AD-7)</span></td></tr>
+          <tr><td>FR-34 : texte brut vers un serveur local<span class="who">palier 2</span></td><td>Seulement les points d’entrée natifs en texte brut : <code>/api/generate</code> avec <code>raw: true</code> chez Ollama, <code>/completion</code> chez llama-server. <b>Pas d’interface « compatible OpenAI »</b> en V1 : celle d’Ollama réapplique son propre gabarit. <span class="note">(AD-5)</span></td></tr>
+          <tr><td>NFR-2 : serveur externe dans les 4 Go</td><td>Il compte dans le budget. WaveStack libère alors son propre modèle, et <b>refuse</b> un modèle qui ferait dépasser 4 Go. <span class="note">(AD-8)</span></td></tr>
+          <tr><td>NFR-8 : appels au modèle par tour</td><td><b>6</b> dans le contexte principal, dont 2 nouveaux essais au plus après un appel mal formé ; <b>4</b> pour le sous-agent, sur un compteur propre. Une action forcée ne compte pas. Réglable dans l’interface, pour provoquer la limite en démonstration. <span class="note">(AD-10)</span></td></tr>
+          <tr><td>NFR-1 : plafond de la fenêtre</td><td><b>4 096 tokens</b>, dont 512 réservés à la sortie (1 536 avec le raisonnement), réglable dans l’interface. La documentation complète s’illustre avec Microsoft Learn ; data.gouv.fr en documentation complète est le dépassement volontaire qui mène au lazy loading. Valeur définitive après le banc de mesure. <span class="note">(AD-9)</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 6. ADs -->
+  <section id="ads" aria-labelledby="h-ads">
+    <div class="eyebrow">6 · Le contrat</div>
+    <h2 id="h-ads">Les 25 décisions</h2>
+    <p class="lead">Chaque décision fixe un point où deux stories construites séparément pourraient diverger. Dépliez une carte pour voir ce qu’elle lie et ce qu’elle empêche. Le texte qui fait foi est dans <code>ARCHITECTURE-SPINE.md</code>.</p>
+    <div class="filters seg-tabs" id="filters" role="group" aria-label="Filtrer par thème"></div>
+    <div class="ad-list" id="ad-list"></div>
+  </section>
+
+  <!-- 7. Suite -->
+  <section id="suite" aria-labelledby="h-suite">
+    <div class="eyebrow">7 · Reporté, avec sa condition</div>
+    <h2 id="h-suite">Ce qui reste à mesurer</h2>
+    <div class="deferred">
+      <div class="panel"><h3>Banc sur le poste de référence</h3><p class="note">Lecture à froid de 4 096 tokens, gain du préfixe entre deux appels, sauvegarde de l’état du modèle hybride. Fixe la fenêtre et le choix entre 0.8B et 2B.</p></div>
+      <div class="panel"><h3>Test préalable de Headroom</h3><p class="note">Hors ligne, sans torch, dans le budget, sans connexion propre. Sinon, un compresseur maison minimal prend le relais.</p></div>
+      <div class="panel"><h3>Embedding et reranking</h3><p class="note">Candidats GGUF sous Apache-2.0 ; reranking par llama-cpp-python à confirmer, avec fastembed en repli.</p></div>
+      <div class="panel"><h3>AppLocker et WDAC</h3><p class="note">Comportement face aux DLL non signées, à vérifier lors de la session pilote. Repli : démonstration pilotée par le formateur.</p></div>
+    </div>
+  </section>
+
+  <footer>Vue lisible dérivée du spine d’architecture de WaveStack, 2026-09-23. En cas d’écart, le spine fait foi.</footer>
+</div>
+
+<script>
+(function () {
+  // ---------- 1. Schéma ----------
+  const NODES = {
+    browser: { t: 'Navigateur', tag: 'local', d: 'Edge ou Chrome du poste. Projette les cinq volets à partir du flux d’événements : il ne recalcule ni tokens, ni contexte, ni disponibilité. Son seul état propre : sélection, volets masqués, mode focus, taille de texte.', ads: ['AD-1', 'AD-18'] },
+    loop: { t: 'Boucle asyncio', tag: 'local', d: 'FastAPI n’écoute que sur 127.0.0.1. Elle sert le flux SSE (reprise par Last-Event-ID), reçoit les intentions en JSON après contrôle de l’Origin et de l’hôte, et héberge les clients MCP. Elle ne touche jamais l’état de la session.', ads: ['AD-2', 'AD-18', 'AD-24'] },
+    worker: { t: 'Thread de travail', tag: 'local', d: 'Un seul thread exécute les tours, les chargements de modèle, la réinitialisation et le diagnostic. La session est le seul écrivain de l’état. Les briques renvoient des contributions et des effets, qu’elle applique.', ads: ['AD-3', 'AD-13', 'AD-14', 'AD-23', 'AD-24'] },
+    engine: { t: 'llama-cpp-python', tag: 'local', d: 'Le modèle tourne dans le processus. Il reçoit les ids de tokens déjà rendus par le harnais, gabarit compris : rien n’y est ajouté. Le sous-agent réutilise la même instance, avec son propre contexte.', ads: ['AD-4', 'AD-5', 'AD-6', 'AD-11'] },
+    mcplocal: { t: 'Serveur MCP local', tag: 'local', d: 'Processus Python séparé, en stdio, lancé à l’activation de la brique MCP et arrêté à sa désactivation. Il montre qu’un serveur MCP est un processus distinct du harnais, même sur le poste.', ads: ['AD-21', 'AD-14'] },
+    probe: { t: 'Sonde GGUF', tag: 'local', d: 'Tout GGUF jamais chargé est d’abord ouvert dans un processus enfant, qui mesure sa mémoire. Un fichier qui plante la sonde ne plante pas la démonstration.', ads: ['AD-7', 'AD-8'] },
+    ext: { t: 'Ollama ou llama-server', tag: 'local', d: 'Facultatif, déjà lancé par l’utilisateur, jamais par WaveStack. Utilisé seulement par ses points d’entrée en texte brut. Sa mémoire compte dans le budget de 4 Go.', ads: ['AD-5', 'AD-7', 'AD-8'] },
+    files: { t: 'Données d’exécution', tag: 'file', d: 'Un seul dossier, hors du dépôt et hors de OneDrive. Seule la session y écrit, par des effets typés. Le schéma de l’application montre la mémoire globale et le journal d’audit comme fichiers locaux.', ads: ['AD-20', 'AD-23'] },
+    repo: { t: 'Dépôt', tag: 'file', d: 'Tout le contenu pédagogique est en français, sous forme de données : scénarios, explications, skills, corpus, mémoire de démonstration. Ajouter un scénario métier revient à ajouter un fichier. L’index RAG y est livré, déjà calculé.', ads: ['AD-19', 'AD-22'] },
+    mcppub: { t: 'Serveurs MCP publics', tag: 'net', d: 'Contactés seulement à l’activation de leur sous-option. Chaque requête JSON-RPC est tracée avec son adresse et son contenu exact avant l’envoi. Un serveur injoignable reste dessiné, marqué indisponible.', ads: ['AD-15', 'AD-12'] },
+    apis: { t: 'API publiques', tag: 'net', d: 'Outils réseau sans clé. La liste d’adresses autorisées vient de la configuration, jamais d’une commande de l’interface. H5 montre la requête exacte et attend l’accord de l’utilisateur.', ads: ['AD-14', 'AD-15', 'AD-13'] },
+    hf: { t: 'Hugging Face', tag: 'net', d: 'Téléchargement du modèle par défaut, à la demande, par le même client tracé que le reste (Xet et télémétrie désactivés). Voie hors ligne : copier un GGUF, ou choisir un modèle déjà présent.', ads: ['AD-15', 'AD-21'] }
+  };
+  const TAGS = { local: '<span class="tag local">Processus local</span>', file: '<span class="tag file">Fichier local</span>', net: '<span class="tag net">Service réseau</span>' };
+  const detail = document.getElementById('detail');
+  const nodes = document.querySelectorAll('#arch .node');
+  function showNode(id) {
+    const n = NODES[id];
+    nodes.forEach(g => g.classList.toggle('sel', g.dataset.id === id));
+    detail.innerHTML = TAGS[n.tag] + '<h3 style="margin-top:10px">' + n.t + '</h3><p>' + n.d + '</p><div class="ads">' + n.ads.map(a => '<a class="chip" href="#' + a + '">' + a + '</a>').join('') + '</div>';
+  }
+  nodes.forEach(g => {
+    g.addEventListener('click', () => showNode(g.dataset.id));
+    g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showNode(g.dataset.id); } });
+  });
+  showNode('worker');
+
+  // ---------- 2. Tour ----------
+  const E = (o) => JSON.stringify(o).replace(/"(\w+)":/g, '<span class="k">$1</span>: ').replace(/: "([^"]*)"/g, ': <span class="s">"$1"</span>');
+  const CASES = {
+    heure: {
+      label: 'Outil « heure »',
+      steps: [
+        { who: 'Utilisateur', phase: 'Intention « envoyer »', note: 'Le navigateur envoie une intention. La session prend l’instantané conversationnel et passe à l’état « turn ».', ev: [{ seq: 41, kind: 'session_state', actor: 'harness', payload: { state: 'turn' } }, { seq: 42, kind: 'turn_started', turn_id: 't3', actor: 'user', trigger: 'user', payload: { replay_of: null } }] },
+        { who: 'Harnais', phase: 'Assemblage et rendu du contexte', note: 'Les briques actives renvoient leurs segments. Le harnais applique le gabarit du modèle, tokenise une fois et attribue chaque token à son segment. La jauge est calculée ici, pas dans le navigateur.', ev: [{ seq: 43, kind: 'context_rendered', call_id: 't3.main.c1', payload: { used: 1240, usable: 3584, percent: 0.35, by_kind: { system_prompt: 250, tool_catalog: 520, history: 380, user_message: 30, template: 60 } } }] },
+        { who: 'Modèle', phase: 'Appel au modèle', note: 'Le texte brut part au moteur. Les fragments arrivent par canal ; l’événement de fin fait foi.', ev: [{ seq: 44, kind: 'model_call_started', call_id: 't3.main.c1', component: 'core.model', payload: { phase_label: 'Lecture du contexte (1 240 tokens)' } }, { seq: 45, kind: 'model_first_token', call_id: 't3.main.c1' }, { seq: 46, kind: 'model_call_ended', call_id: 't3.main.c1', payload: { tool_calls: [{ name: 'clock', arguments: {} }], output_tokens: 18, duration_ms: 9120 } }] },
+        { who: 'Harnais', phase: 'Exécution de l’outil', note: 'Un seul exécuteur pour tous les outils. Les hooks s’exécutent avant et après ; ici, aucun n’est actif.', ev: [{ seq: 47, kind: 'tool_started', step_id: 't3.main.s2', trigger: 'model', component: 'tools.clock', payload: { phase_label: 'Exécution de l’outil heure' } }, { seq: 48, kind: 'tool_ended', step_id: 't3.main.s2', payload: { result: '2026-09-23T10:42', duration_ms: 3 } }] },
+        { who: 'Modèle', phase: 'Second appel, en ajout seul', note: 'Le texte du second appel commence exactement par celui du premier. Le préfixe peut donc être réutilisé.', ev: [{ seq: 49, kind: 'context_rendered', call_id: 't3.main.c2', payload: { used: 1290, percent: 0.36 } }, { seq: 50, kind: 'model_call_ended', call_id: 't3.main.c2', payload: { text: 'Il est 10 h 42.', stop_reason: 'stop' } }] },
+        { who: 'Harnais', phase: 'Fin du tour', note: 'Le tour terminé entre dans l’historique de la branche active.', ev: [{ seq: 51, kind: 'turn_ended', turn_id: 't3', payload: { status: 'completed', calls: 2, duration_ms: 14870 } }] }
+      ]
+    },
+    h1: {
+      label: 'Garde-fou H1',
+      steps: [
+        { who: 'Utilisateur', phase: 'Action armée : lire un fichier sensible', note: 'Le modèle ne tente pas l’appel : l’utilisateur l’arme. L’action forcée suivra tout le cycle, hooks compris.', ev: [{ seq: 60, kind: 'action_armed', actor: 'user', payload: { kind: 'tool_call', target: 'read_file', args: { path: 'confidentiel/salaires.md' } } }] },
+        { who: 'Harnais', phase: 'Consommation de l’action', note: 'Après on_user_message, l’action passe par l’exécuteur. Elle est rendue dans le contexte comme un appel d’outil de l’assistant, avec trigger = user.', ev: [{ seq: 63, kind: 'tool_started', step_id: 't4.main.s1', trigger: 'user', component: 'tools.read_file' }] },
+        { who: 'Hook H1', phase: 'before_tool : bloqué', note: 'Le hook compare le chemin résolu, pas le nom de l’outil. C’est du code déterministe : ni le modèle ni l’utilisateur ne décident.', ev: [{ seq: 64, kind: 'hook_decided', actor: 'harness', trigger: 'user', component: 'hooks.h1', edge: 'hooks.h1->tools.read_file', payload: { point: 'before_tool', decision: 'block', detail_fr: 'Dossier confidentiel' } }] },
+        { who: 'Harnais', phase: 'Refus réinjecté, tour qui continue', note: 'Le refus devient une réponse d’outil. Le modèle répond ensuite sans maquillage.', ev: [{ seq: 65, kind: 'tool_ended', step_id: 't4.main.s1', payload: { status: 'blocked' } }, { seq: 66, kind: 'model_call_started', call_id: 't4.main.c1' }] },
+        { who: 'Hook H2', phase: 'Journal d’audit', note: 'H2 ne touche pas au fichier : il renvoie un effet, et la session l’écrit. Le nœud audit.log s’allume dans le schéma.', ev: [{ seq: 70, kind: 'effect_applied', component: 'file.audit', payload: { effect: 'AuditAppend', lines: 1 } }, { seq: 71, kind: 'turn_ended', payload: { status: 'completed' } }] }
+      ]
+    },
+    over: {
+      label: 'Dépassement data.gouv.fr',
+      steps: [
+        { who: 'Utilisateur', phase: 'Activation de data.gouv.fr', note: 'Le serveur public n’est contacté qu’à cet instant. La poignée de main est une sortie tracée, puis un aperçu de contexte est émis pour la jauge.', ev: [{ seq: 80, kind: 'outbound_request', turn_id: null, component: 'mcp.datagouv', payload: { url: 'https://mcp.data.gouv.fr/mcp', method: 'tools/list' } }, { seq: 82, kind: 'context_preview', turn_id: null, payload: { used: 4860, usable: 3584, overflow: true } }] },
+        { who: 'Harnais', phase: 'Contrôle de la fenêtre', note: 'Le contexte dépasse la fenêtre utile : l’appel n’est pas envoyé. Pas de plantage ; une carte explique la cause et les pistes.', ev: [{ seq: 86, kind: 'context_rendered', call_id: 't5.main.c1', payload: { used: 4860, usable: 3584, overflow: true } }, { seq: 87, kind: 'context_overflow', payload: { heaviest: [{ kind: 'tool_catalog', brick: 'mcp', tokens: 2900 }] } }] },
+        { who: 'Harnais', phase: 'Fin du tour, statut overflow', note: 'Le tour reste dans la trace, mais pas dans l’historique. Le formateur passe en lazy loading et rejoue.', ev: [{ seq: 88, kind: 'turn_ended', turn_id: 't5', payload: { status: 'overflow' } }] },
+        { who: 'Utilisateur', phase: 'Rejeu en lazy loading', note: 'Le rejeu repart de l’historique d’avant t5, avec la configuration courante. Une ligne par outil MCP, plus load_tool_doc.', ev: [{ seq: 92, kind: 'turn_started', turn_id: 't6', payload: { replay_of: 't5' } }, { seq: 93, kind: 'context_rendered', call_id: 't6.main.c1', payload: { used: 2270, percent: 0.63 } }] }
+      ]
+    }
+  };
+  const casesEl = document.getElementById('cases'), railEl = document.getElementById('rail');
+  let curCase = 'heure', cur = 0;
+  function renderCases() {
+    casesEl.innerHTML = '';
+    Object.entries(CASES).forEach(([k, c]) => {
+      const b = document.createElement('button');
+      b.textContent = c.label; b.setAttribute('aria-pressed', k === curCase);
+      b.addEventListener('click', () => { curCase = k; cur = 0; renderCases(); renderTurn(); });
+      casesEl.appendChild(b);
+    });
+  }
+  function renderTurn() {
+    const steps = CASES[curCase].steps;
+    railEl.innerHTML = '';
+    steps.forEach((s, i) => {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.dataset.i = i + 1;
+      b.innerHTML = s.phase + '<span class="who">' + s.who + '</span>';
+      if (/bloqué|overflow|Contrôle/.test(s.phase)) b.classList.add('stop');
+      if (i === cur) b.setAttribute('aria-current', 'step');
+      b.addEventListener('click', () => { cur = i; renderTurn(); });
+      li.appendChild(b); railEl.appendChild(li);
+    });
+    const s = steps[cur];
+    document.getElementById('step-who').textContent = 'Étape ' + (cur + 1) + ' sur ' + steps.length + ' · ' + s.who;
+    document.getElementById('step-phase').textContent = s.phase;
+    document.getElementById('step-note').textContent = s.note;
+    document.getElementById('step-events').innerHTML = s.ev.map(E).join('\n');
+    document.getElementById('prev').disabled = cur === 0;
+    document.getElementById('next').disabled = cur === steps.length - 1;
+  }
+  document.getElementById('prev').addEventListener('click', () => { if (cur > 0) { cur--; renderTurn(); } });
+  document.getElementById('next').addEventListener('click', () => { if (cur < CASES[curCase].steps.length - 1) { cur++; renderTurn(); } });
+  renderCases(); renderTurn();
+
+  // ---------- 3. Fenêtre ----------
+  const SEGS = [
+    ['system_prompt', 'Prompt système', 'var(--seg-system)'],
+    ['global_memory', 'Mémoire globale', 'var(--seg-memory)'],
+    ['tools', 'Descriptions d’outils et de skills', 'var(--seg-tools)'],
+    ['history', 'Historique', 'var(--seg-history)'],
+    ['rag', 'Extraits RAG', 'var(--seg-rag)'],
+    ['results', 'Résultats d’outils', 'var(--seg-results)'],
+    ['message', 'Message et gabarit', 'var(--seg-message)']
+  ];
+  const SCEN = [
+    { n: 'LLM nu', v: { message: 90 } },
+    { n: 'Outils natifs, mémoire, prompt système', v: { system_prompt: 250, global_memory: 120, tools: 520, history: 380, message: 90 } },
+    { n: 'MCP Microsoft Learn, documentation complète', v: { system_prompt: 250, global_memory: 120, tools: 1920, history: 400, rag: 450, message: 90 } },
+    { n: 'MCP data.gouv.fr, documentation complète', v: { system_prompt: 250, global_memory: 120, tools: 3570, history: 400, rag: 450, message: 90 } },
+    { n: 'MCP data.gouv.fr, lazy loading', v: { system_prompt: 250, global_memory: 120, tools: 960, history: 400, rag: 450, message: 90 } }
+  ];
+  const WINDOW = 4096;
+  const scenEl = document.getElementById('scenario'), reasEl = document.getElementById('reasoning');
+  SCEN.forEach((s, i) => { const o = document.createElement('option'); o.value = i; o.textContent = s.n; scenEl.appendChild(o); });
+  scenEl.value = 2;
+  const fmt = n => n.toLocaleString('fr-FR');
+  function renderGauge() {
+    const s = SCEN[+scenEl.value], reserve = reasEl.checked ? 1536 : 512, usable = WINDOW - reserve;
+    const used = Object.values(s.v).reduce((a, b) => a + b, 0), pct = used / usable;
+    const g = document.getElementById('gauge');
+    g.innerHTML = '';
+    let acc = 0;
+    SEGS.forEach(([k, , c]) => {
+      const t = s.v[k] || 0; if (!t) return;
+      const w = Math.max(0, Math.min(t, WINDOW - acc)); acc += t;
+      const d = document.createElement('div'); d.className = 'seg'; d.style.width = (w / WINDOW * 100) + '%'; d.style.background = c;
+      g.appendChild(d);
+    });
+    const r = document.createElement('div'); r.className = 'reserve'; r.style.width = (reserve / WINDOW * 100) + '%';
+    r.title = 'Réserve de sortie : ' + fmt(reserve) + ' tokens'; g.appendChild(r);
+    g.classList.toggle('over', used > usable);
+    document.getElementById('g-used').textContent = fmt(used);
+    document.getElementById('g-usable').textContent = fmt(usable);
+    document.getElementById('g-reserve').textContent = fmt(reserve);
+    document.getElementById('g-pct').textContent = Math.round(pct * 100) + ' %';
+    document.getElementById('g-legend').innerHTML = SEGS.filter(([k]) => s.v[k]).map(([k, l, c]) => '<span><i style="background:' + c + '"></i>' + l + ' <span class="num">' + fmt(s.v[k]) + '</span></span>').join('') + '<span><i style="background:repeating-linear-gradient(90deg,#0A0A14 0 1px,transparent 1px 3px)"></i>Réserve de sortie</span>';
+    const v = document.getElementById('g-verdict');
+    if (used > usable) {
+      v.className = 'verdict bad';
+      v.innerHTML = '<b>Contexte dépassé : l’appel au modèle n’est pas envoyé.</b> ' + fmt(used) + ' tokens + ' + fmt(reserve) + ' réservés à la réponse, pour une fenêtre de 4 096. Pour continuer la démonstration : passer en lazy loading, désactiver un serveur ou vider la conversation.';
+    } else if (pct >= 0.8) {
+      v.className = 'verdict warn';
+      v.innerHTML = '<b>Contexte plein à ' + Math.round(pct * 100) + ' %.</b> Les prochains tours risquent de dépasser la fenêtre.';
+    } else {
+      v.className = 'verdict ok';
+      v.innerHTML = '<b>L’appel part.</b> Il reste ' + fmt(usable - used) + ' tokens utiles.';
+    }
+  }
+  scenEl.addEventListener('change', renderGauge); reasEl.addEventListener('change', renderGauge);
+  renderGauge();
+
+  // ---------- 4. Budget ----------
+  const MODELS = [
+    { n: 'Qwen3.5-2B · Q4_K_M · 1,28 Go', gb: 1.7 },
+    { n: 'Qwen3.5-0.8B · Q4_K_M · 0,53 Go', gb: 0.8 },
+    { n: 'Gemma 4 E2B · Q4_K_M · 3,11 Go', gb: 3.5 }
+  ];
+  const PARTS = [
+    { k: 'socle', n: 'Socle Python et serveur web', gb: 0.3, c: '#4A4A5E', fixed: true },
+    { k: 'model', n: 'Modèle de langage et son contexte', gb: 1.7, c: '#451DC7', fixed: true },
+    { k: 'mcp', n: 'Serveur MCP local (enfant)', gb: 0.06, c: '#6B4EE6', on: true },
+    { k: 'emb', n: 'Embedding (Qwen3-Embedding 0.6B)', gb: 0.74, c: '#0E8C7E', on: true },
+    { k: 'rer', n: 'Reranker (bge-reranker-v2-m3)', gb: 0.54, c: '#27B060', on: false }
+  ];
+  const modelEl = document.getElementById('model');
+  MODELS.forEach((m, i) => { const o = document.createElement('option'); o.value = i; o.textContent = m.n; modelEl.appendChild(o); });
+  const partsEl = document.getElementById('b-parts');
+  PARTS.forEach(p => {
+    const row = document.createElement('div'); row.className = 'part-row';
+    const id = 'part-' + p.k;
+    row.innerHTML = '<label for="' + id + '"><input type="checkbox" id="' + id + '"' + (p.fixed ? ' checked disabled' : (p.on ? ' checked' : '')) + '><i style="background:' + p.c + '"></i>' + p.n + '</label><span class="num" id="gb-' + p.k + '"></span>';
+    partsEl.appendChild(row);
+    if (!p.fixed) row.querySelector('input').addEventListener('change', renderBudget);
+  });
+  function renderBudget() {
+    PARTS[1].gb = MODELS[+modelEl.value].gb;
+    const active = PARTS.filter(p => p.fixed || document.getElementById('part-' + p.k).checked);
+    const total = active.reduce((a, p) => a + p.gb, 0), scale = Math.max(4.5, total + 0.2);
+    const bar = document.getElementById('b-bar'); bar.innerHTML = '';
+    active.forEach(p => { const d = document.createElement('div'); d.className = 'part'; d.style.width = (p.gb / scale * 100) + '%'; d.style.background = p.c; d.title = p.n; bar.appendChild(d); });
+    const lim = document.createElement('div'); lim.className = 'limit'; lim.style.left = (4 / scale * 100) + '%'; bar.appendChild(lim);
+    PARTS.forEach(p => { document.getElementById('gb-' + p.k).textContent = p.gb.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Go'; });
+    document.getElementById('b-total').textContent = total.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const v = document.getElementById('b-verdict');
+    if (total > 4) {
+      v.className = 'verdict bad';
+      v.innerHTML = '<b>Refusé.</b> ' + total.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' Go dépasseraient le budget de 4 Go. Le modèle et les composants déjà chargés restent actifs.';
+    } else if (total > 3) {
+      v.className = 'verdict warn';
+      v.innerHTML = '<b>Accepté, au-dessus de la cible.</b> ' + total.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' Go : sous le plafond, mais hors de la cible de 2 à 3 Go.';
+    } else {
+      v.className = 'verdict ok';
+      v.innerHTML = '<b>Accepté.</b> ' + total.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' Go, dans la cible.';
+    }
+  }
+  modelEl.addEventListener('change', renderBudget);
+  renderBudget();
+
+  // ---------- 6. ADs ----------
+  const THEMES = { journal: 'Journal et session', contexte: 'Contexte et modèle', outils: 'Outils, hooks, réseau', exploit: 'Web et exploitation' };
+  const ADS = [
+    ['AD-1', 'journal', 'Journal d’événements, interface en projection', 'Tout ce qui s’affiche vient du journal ; le front ne recalcule rien.', 'FR-1 à FR-4, FR-7, FR-30, FR-41', 'Des volets qui divergent de ce que le harnais a fait.'],
+    ['AD-2', 'journal', 'Enveloppe, catalogue et flux des événements', 'Une enveloppe commune, un catalogue unique, des paires *_started/*_ended, SSE reprenable.', 'Tous les émetteurs, le front', 'Des événements qu’on ne peut rattacher à leur appel, étape ou nœud.'],
+    ['AD-3', 'journal', 'Un seul écrivain, un verrou, trois classes d’intentions', 'La session seule modifie l’état ; les commandes sont acceptées, refusées avec raison, ou préemptives.', 'session, web, FR-5, FR-42', 'Deux chemins de mutation ; des clics refusés sans raison.'],
+    ['AD-4', 'contexte', 'Contexte : segments typés, tokens exacts', 'Types de segment fermés, rendu du gabarit par le harnais, une seule tokenisation, ajout seul pendant un tour.', 'FR-2, FR-30, FR-41, FR-34', 'Un contexte affiché différent du contexte envoyé.'],
+    ['AD-5', 'contexte', 'Port moteur : texte déjà rendu', 'Trois adaptateurs en texte brut ; aucun format chat ni « compatible OpenAI ».', 'FR-32, FR-34', 'Un moteur qui réapplique son gabarit.'],
+    ['AD-6', 'contexte', 'Registre des capacités par famille', 'Parseur d’outils, séquences d’arrêt, séparation du raisonnement, par famille de modèle.', 'FR-9, FR-33', 'Un parsing improvisé dans chaque brique.'],
+    ['AD-7', 'contexte', 'Découverte et sonde des modèles', 'Une seule recherche des GGUF, Ollama lu sur disque, sonde en processus enfant.', 'FR-34, FR-37', 'Un GGUF inconnu qui plante la session.'],
+    ['AD-8', 'contexte', 'Budget mesuré, registre de chargement', 'Mémoire mesurée + coût estimé > 4 Go : refus chiffré.', 'NFR-2, FR-32', 'Des composants qui se chargent sans se voir.'],
+    ['AD-9', 'contexte', 'Fenêtre, réserve, jauge, aperçu', '4 096 tokens, réserve 512 ou 1 536, jauge sur la fenêtre utile, dépassement non envoyé.', 'NFR-1, NFR-8, FR-41', 'Une jauge fausse ou un appel qui déborde.'],
+    ['AD-10', 'journal', 'Bornes de la boucle de tour', '6 appels, 2 nouveaux essais, 4 pour le sous-agent, réglables.', 'NFR-8, FR-15, FR-29', 'Une boucle infinie ; des compteurs divergents.'],
+    ['AD-11', 'contexte', 'Sous-agent : même modèle, contexte minimal', 'Pas un tour, pas de second modèle, seul son résultat revient.', 'FR-29', 'Un sous-agent qui hérite de tout le contexte.'],
+    ['AD-12', 'journal', 'Contrat de brique, schéma dérivé', 'Identifiants de composants, état voulu et disponible, schéma calculé par la session.', 'FR-3, FR-5, FR-6', 'Un schéma maintenu à la main.'],
+    ['AD-13', 'outils', 'Points d’accroche et hooks', 'Sept points fixes, une matrice de décisions, H5 en attente sans délai.', 'FR-26 à FR-28', 'Des hooks qui écrivent eux-mêmes.'],
+    ['AD-14', 'outils', 'Registre et exécuteur d’outils uniques', 'Noms uniques, drapeaux, hooks sur drapeaux, outils locaux confinés.', 'FR-13 à FR-15, FR-42', 'Une collision de noms ; la lecture de tout le disque.'],
+    ['AD-15', 'outils', 'Sorties réseau : une fabrique, tout est tracé', 'Deux clients configurés à l’identique, trace avant envoi, liste autorisée figée.', 'NFR-3, NFR-4, FR-22', 'Une donnée qui sort sans être affichée.'],
+    ['AD-16', 'journal', 'Défaillances contenues', 'Toute erreur devient un événement en français ; le tour se termine proprement.', 'NFR-8', 'Un plantage en pleine session.'],
+    ['AD-17', 'journal', 'Instantané conversationnel et rejeu', 'Seul l’historique est restauré ; tout le reste est la configuration courante.', 'FR-7, FR-39', 'Un rejeu qui annule le changement à comparer.'],
+    ['AD-18', 'exploit', 'Interface web sans compilation, API protégée', 'JS natif, tout en local, contrôle de l’Origin et de l’hôte, Aptos jamais embarquée.', 'NFR-3, NFR-4, NFR-9', 'Une page tierce qui pilote WaveStack.'],
+    ['AD-19', 'exploit', 'Contenus en données, en français', 'Scénarios, skills, corpus en fichiers validés ; un scénario métier = un fichier.', 'FR-38, FR-40, NFR-7', 'Des textes pédagogiques en dur dans le code.'],
+    ['AD-20', 'exploit', 'Données d’exécution hors du dépôt', 'Un seul dossier, résolu par config, écrit par la session seule.', 'FR-12, H2', 'Des modèles dans OneDrive.'],
+    ['AD-21', 'exploit', 'Installation, lancement, diagnostic', 'uv verrouillé, port d’abord, diagnostic dans le terminal et le navigateur.', 'FR-35 à FR-37, NFR-5', 'Une compilation sur un poste verrouillé.'],
+    ['AD-22', 'contexte', 'Compression et RAG derrière des ports', 'Compression à une étape fixe, sur deux types de segment ; index livré avec son modèle.', 'FR-16 à FR-18, FR-31', 'Des segments compressés en double.'],
+    ['AD-23', 'journal', 'Effets typés, appliqués par la session', 'Outils et hooks renvoient des effets ; la session écrit mémoire et audit.', 'FR-12, FR-24, H2', 'Plusieurs écrivains du même fichier.'],
+    ['AD-24', 'journal', 'Modèle d’exécution et annulation', 'Un thread de travail, une boucle asyncio, un jeton d’annulation partout.', 'NFR-1, NFR-8', 'Une boucle bloquée ; un arrêt qui n’arrête rien.'],
+    ['AD-25', 'outils', 'Méta-outils et actions forcées', 'Mémoire, lazy loading, skills et délégation passent par l’exécuteur ; une action forcée est un appel d’outil.', 'FR-42, FR-21, FR-24', 'Des actions qui échappent aux hooks.']
+  ];
+  const filtersEl = document.getElementById('filters'), listEl = document.getElementById('ad-list');
+  let theme = 'all';
+  function renderFilters() {
+    filtersEl.innerHTML = '';
+    [['all', 'Toutes']].concat(Object.entries(THEMES)).forEach(([k, l]) => {
+      const b = document.createElement('button'); b.textContent = l; b.setAttribute('aria-pressed', k === theme);
+      b.addEventListener('click', () => { theme = k; renderFilters(); renderAds(); });
+      filtersEl.appendChild(b);
+    });
+  }
+  function renderAds() {
+    listEl.innerHTML = ADS.filter(a => theme === 'all' || a[1] === theme).map(a =>
+      '<details class="ad" id="' + a[0] + '"><summary><span class="id">' + a[0] + ' · ' + THEMES[a[1]] + '</span><span class="t">' + a[2] + '</span><span class="r">' + a[3] + '</span></summary><div class="body"><div><b>Lie</b> ' + a[4] + '</div><div><b>Empêche</b> ' + a[5] + '</div></div></details>'
+    ).join('');
+  }
+  renderFilters(); renderAds();
+  function openHash() {
+    const id = location.hash.slice(1);
+    if (/^AD-\d+$/.test(id)) {
+      if (!document.getElementById(id)) { theme = 'all'; renderFilters(); renderAds(); }
+      const el = document.getElementById(id); if (el) { el.open = true; el.scrollIntoView({ block: 'center' }); }
+    }
+  }
+  window.addEventListener('hashchange', openHash);
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a.chip'); if (!a) return;
+    const id = a.getAttribute('href').slice(1);
+    e.preventDefault(); theme = 'all'; renderFilters(); renderAds();
+    const el = document.getElementById(id); if (el) { el.open = true; el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  });
+})();
+</script>

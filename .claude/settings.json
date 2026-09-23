@@ -1,0 +1,23 @@
+{
+  "extraKnownMarketplaces": {
+    "ponytail": {
+      "source": { "source": "github", "repo": "DietrichGebert/ponytail" }
+    }
+  },
+  "enabledPlugins": {
+    "ponytail@ponytail": true
+  },
+  "permissions": {
+    "deny": [
+      "Read(./.venv/**)",
+      "Read(./**/__pycache__/**)",
+      "Read(./node_modules/**)",
+      "Read(./models/**)",
+      "Read(./data/indexes/**)",
+      "Read(./**/*.gguf)",
+      "Read(./**/*.safetensors)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  }
+}

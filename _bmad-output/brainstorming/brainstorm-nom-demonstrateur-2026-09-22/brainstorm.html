@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brainstorming — Nom du démonstrateur</title>
+<style>
+  :root{
+    --bg:#f4f1ea;
+    --paper:#fffdf8;
+    --ink:#2b241b;
+    --ink-soft:#5c5346;
+    --brass:#b8863b;
+    --brass-dark:#8a6226;
+    --layer1:#ffe9c7;
+    --layer2:#ffd3a6;
+    --layer3:#f6b98f;
+    --glass:#dbe9ea;
+    --glass-line:#7fa8ab;
+    --forge:#e7d3c9;
+    --forge-line:#b8623f;
+    --metaphor:#dfe6c9;
+    --metaphor-line:#7f9a4a;
+    --gold:#c9972f;
+    --shadow: 0 10px 30px rgba(70,50,20,0.12);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 10% 5%, #fffef9 0%, transparent 40%),
+      repeating-linear-gradient(135deg, rgba(184,134,59,0.04) 0px, rgba(184,134,59,0.04) 2px, transparent 2px, transparent 24px),
+      var(--bg);
+    color:var(--ink);
+    font-family: Georgia, 'Times New Roman', serif;
+    line-height:1.5;
+  }
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 20px 100px;}
+
+  header.hero{
+    text-align:center;
+    padding:60px 20px 40px;
+    position:relative;
+  }
+  header.hero .kicker{
+    font-family: Verdana, Geneva, sans-serif;
+    letter-spacing:0.3em;
+    text-transform:uppercase;
+    font-size:12px;
+    color:var(--brass-dark);
+    margin-bottom:18px;
+  }
+  header.hero h1{
+    font-size:clamp(2rem, 5vw, 3.4rem);
+    margin:0 0 14px;
+    color:var(--ink);
+    font-weight:700;
+  }
+  header.hero p.sub{
+    max-width:640px;
+    margin:0 auto;
+    color:var(--ink-soft);
+    font-size:1.05rem;
+  }
+  .layers-deco{
+    display:flex;
+    justify-content:center;
+    gap:6px;
+    margin:26px 0 0;
+  }
+  .layers-deco span{
+    width:70px;height:14px;border-radius:3px;
+    box-shadow: var(--shadow);
+    transform: skewX(-12deg);
+  }
+  .layers-deco span:nth-child(1){background:var(--layer1);}
+  .layers-deco span:nth-child(2){background:var(--layer2);}
+  .layers-deco span:nth-child(3){background:var(--layer3);}
+  .layers-deco span:nth-child(4){background:var(--glass); border:1px solid var(--glass-line);}
+  .layers-deco span:nth-child(5){background:var(--metaphor);}
+
+  .meta-bar{
+    display:flex;flex-wrap:wrap;gap:14px;justify-content:center;
+    margin-top:28px;
+    font-family: Verdana, Geneva, sans-serif;
+    font-size:12.5px;
+    color:var(--ink-soft);
+  }
+  .meta-bar .pill{
+    background:var(--paper);
+    border:1px solid rgba(0,0,0,0.08);
+    border-radius:999px;
+    padding:6px 14px;
+    box-shadow: var(--shadow);
+  }
+
+  section.technique{
+    margin:70px 0;
+    position:relative;
+  }
+  .technique-head{
+    display:flex;
+    align-items:baseline;
+    gap:16px;
+    margin-bottom:8px;
+    flex-wrap:wrap;
+  }
+  .technique-num{
+    font-family: Verdana, Geneva, sans-serif;
+    font-size:12px;
+    color:#fff;
+    background:var(--brass);
+    border-radius:50%;
+    width:30px;height:30px;
+    display:inline-flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+  }
+  .technique-head h2{
+    margin:0;
+    font-size:1.6rem;
+  }
+  .technique-tag{
+    font-family: Verdana, Geneva, sans-serif;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--ink-soft);
+  }
+  .technique-desc{
+    max-width:760px;
+    color:var(--ink-soft);
+    font-style:italic;
+    margin:6px 0 26px;
+  }
+
+  /* HMW section — X-ray / glass panes */
+  .hmw-panel{
+    background: linear-gradient(180deg, #fdfbf6, #f3ede0);
+    border:1px solid rgba(0,0,0,0.07);
+    border-radius:14px;
+    padding:26px 26px 30px;
+    box-shadow: var(--shadow);
+  }
+  .hmw-questions{
+    list-style:none;
+    margin:0 0 26px;
+    padding:0;
+    display:grid;
+    gap:10px;
+  }
+  .hmw-questions li{
+    font-size:0.98rem;
+    padding:10px 16px;
+    background:var(--paper);
+    border-left:4px solid var(--glass-line);
+    border-radius:4px;
+    color:var(--ink);
+  }
+  .hmw-questions li.chosen{
+    border-left-color: var(--gold);
+    background: linear-gradient(90deg, #fff8e8, #fffdf8);
+    font-weight:bold;
+  }
+  .chip-cloud{
+    display:flex;flex-wrap:wrap;gap:10px;
+  }
+  .chip{
+    font-family: Verdana, Geneva, sans-serif;
+    font-size:0.86rem;
+    padding:9px 16px;
+    border-radius:20px;
+    background: rgba(255,255,255,0.55);
+    backdrop-filter: blur(2px);
+    border:1px solid rgba(0,0,0,0.08);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    color:var(--ink);
+    transition: transform 0.15s ease;
+  }
+  .chip:hover{ transform: translateY(-2px) scale(1.03); }
+  .hmw-panel .chip{ background: linear-gradient(135deg, var(--glass), #fff); border-color: var(--glass-line); }
+
+  /* Portmanteau Forge — anvil sparks */
+  .forge-panel{
+    background: linear-gradient(180deg, #fbf2ea, #f6e2d3);
+    border:1px solid rgba(0,0,0,0.07);
+    border-radius:14px;
+    padding:26px;
+    box-shadow: var(--shadow);
+  }
+  .forge-note{
+    background:var(--paper);
+    border:1px dashed var(--forge-line);
+    border-radius:10px;
+    padding:14px 18px;
+    font-size:0.92rem;
+    color:var(--ink-soft);
+    margin-bottom:22px;
+  }
+  .forge-panel .chip{
+    background: linear-gradient(135deg, var(--forge), #fff);
+    border-color: var(--forge-line);
+    font-weight:600;
+  }
+  .forge-panel .chip::before{ content:"⚒ "; opacity:0.6; }
+
+  /* Metaphor mapping — stacked mille-feuille cards */
+  .metaphor-panel{
+    background: linear-gradient(180deg, #f2f5e6, #e9edd8);
+    border:1px solid rgba(0,0,0,0.07);
+    border-radius:14px;
+    padding:26px;
+    box-shadow: var(--shadow);
+  }
+  .metaphor-panel .chip{
+    background: linear-gradient(135deg, var(--metaphor), #fff);
+    border-color: var(--metaphor-line);
+  }
+
+  /* Synthesis — climax */
+  .synthesis{
+    margin-top:90px;
+    padding:50px 26px 60px;
+    border-radius:20px;
+    background:
+      linear-gradient(180deg, #fffaf0, #fdf3e0);
+    border:2px solid var(--gold);
+    box-shadow: 0 20px 50px rgba(120,80,20,0.2);
+    position:relative;
+    overflow:hidden;
+  }
+  .synthesis::before{
+    content:"";
+    position:absolute; inset:0;
+    background: repeating-linear-gradient(
+      -20deg,
+      rgba(201,151,47,0.06) 0px, rgba(201,151,47,0.06) 40px,
+      transparent 40px, transparent 80px
+    );
+    pointer-events:none;
+  }
+  .synthesis-head{
+    text-align:center;
+    margin-bottom:36px;
+    position:relative;
+  }
+  .synthesis-head .kicker{
+    font-family: Verdana, Geneva, sans-serif;
+    letter-spacing:0.25em;
+    text-transform:uppercase;
+    font-size:12px;
+    color:var(--brass-dark);
+  }
+  .synthesis-head h2{
+    font-size:clamp(1.6rem,4vw,2.4rem);
+    margin:10px 0 0;
+  }
+
+  .clusters{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(240px,1fr));
+    gap:20px;
+    margin:0 0 46px;
+    position:relative;
+  }
+  .cluster{
+    background:var(--paper);
+    border-radius:12px;
+    padding:20px;
+    box-shadow: var(--shadow);
+    border-top:6px solid var(--glass-line);
+  }
+  .cluster.forge{ border-top-color: var(--forge-line); }
+  .cluster.metaphor{ border-top-color: var(--metaphor-line); }
+  .cluster h3{
+    margin:0 0 10px;
+    font-size:1.05rem;
+  }
+  .cluster ul{
+    margin:0; padding-left:18px;
+    font-size:0.92rem;
+    color:var(--ink-soft);
+  }
+  .cluster li{ margin-bottom:4px; }
+
+  .thread{
+    text-align:center;
+    max-width:760px;
+    margin:0 auto 50px;
+    font-size:1.05rem;
+    color:var(--ink);
+    padding:18px 22px;
+    background: rgba(255,255,255,0.5);
+    border-radius:10px;
+    position:relative;
+  }
+
+  .shortlist-title{
+    text-align:center;
+    font-family: Verdana, Geneva, sans-serif;
+    text-transform:uppercase;
+    letter-spacing:0.2em;
+    font-size:13px;
+    color:var(--brass-dark);
+    margin-bottom:22px;
+  }
+  .shortlist{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(200px,1fr));
+    gap:24px;
+    position:relative;
+  }
+  .shortlist-card{
+    background: linear-gradient(180deg, #fffef9, #fff3d9);
+    border:2px solid var(--gold);
+    border-radius:16px;
+    padding:26px 18px;
+    text-align:center;
+    box-shadow: 0 14px 30px rgba(180,130,30,0.25);
+    position:relative;
+    transform: translateY(0);
+    transition: transform 0.2s ease;
+  }
+  .shortlist-card:hover{ transform: translateY(-6px); }
+  .shortlist-card .rank{
+    position:absolute; top:-14px; left:50%; transform:translateX(-50%);
+    background:var(--gold);
+    color:#fff;
+    font-family: Verdana, Geneva, sans-serif;
+    font-size:11px;
+    padding:3px 10px;
+    border-radius:999px;
+  }
+  .shortlist-card .name{
+    font-size:1.35rem;
+    font-weight:700;
+    color:var(--ink);
+    margin-top:8px;
+  }
+
+  .vigilance{
+    text-align:center;
+    margin-top:40px;
+    font-size:0.88rem;
+    color:var(--ink-soft);
+    font-family: Verdana, Geneva, sans-serif;
+    position:relative;
+  }
+  .vigilance b{ color:var(--forge-line); }
+
+  footer{
+    text-align:center;
+    margin-top:70px;
+    font-family: Verdana, Geneva, sans-serif;
+    font-size:11.5px;
+    color:var(--ink-soft);
+    letter-spacing:0.05em;
+  }
+
+  @media (max-width:600px){
+    header.hero{padding:40px 12px 30px;}
+    .technique-head h2{font-size:1.3rem;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">Session de brainstorming · BMAD · 22 septembre 2026</div>
+    <h1>Trouver le nom du démonstrateur</h1>
+    <p class="sub">Une identité mémorable pour un harnais agentique pédagogique : transparence, brique par brique, local &amp; souverain, et suffisamment joueur pour survivre à la machine à café — et un jour, à la clientèle.</p>
+    <div class="layers-deco"><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="meta-bar">
+      <span class="pill">Mode : autonome ("Ideate for me")</span>
+      <span class="pill">3 techniques</span>
+      <span class="pill">74 idées générées</span>
+      <span class="pill">Statut : terminé</span>
+    </div>
+  </header>
+
+  <!-- TECHNIQUE 1 : HOW MIGHT WE -->
+  <section class="technique">
+    <div class="technique-head">
+      <span class="technique-num">1</span>
+      <h2>How Might We</h2>
+      <span class="technique-tag">Sous le capot / vision aux rayons X</span>
+    </div>
+    <p class="technique-desc">On part de questions ouvertes pour cadrer l'angle du nom, puis on retient la plus tranchante avant de générer librement autour d'elle.</p>
+    <div class="hmw-panel">
+      <ul class="hmw-questions">
+        <li>HMW nommer quelque chose qui montre ce qu'il y a sous le capot d'une IA ?</li>
+        <li>HMW nommer quelque chose qui signale progressivité, brique par brique ?</li>
+        <li>HMW nommer quelque chose qui évoque local/souverain/sans cloud sans être austère ?</li>
+        <li>HMW nommer quelque chose d'assez mémorable pour circuler à la machine à café ?</li>
+        <li>HMW nommer quelque chose qui marche à la fois en interne et un jour en clientèle ?</li>
+        <li>HMW nommer quelque chose de joueur qui désamorce l'intimidation de l'agentique ?</li>
+        <li>HMW nommer quelque chose bâti sur le vocabulaire du harnais (brique, skill, MCP) sans être trop jargonneux ?</li>
+        <li class="chosen">HMW nommer quelque chose qui évoque une vision aux rayons X dans une boîte noire ? — question retenue</li>
+      </ul>
+      <div class="chip-cloud">
+        <span class="chip">Sous le Capot</span>
+        <span class="chip">Capot Ouvert</span>
+        <span class="chip">Boîte de Verre</span>
+        <span class="chip">La Boîte Vitrée</span>
+        <span class="chip">Vitrine IA</span>
+        <span class="chip">Radio IA</span>
+        <span class="chip">Radiographe</span>
+        <span class="chip">L'IA à Nu</span>
+        <span class="chip">LLM à Nu</span>
+        <span class="chip">Rayons X</span>
+        <span class="chip">RadioAgent</span>
+        <span class="chip">Backstage IA</span>
+        <span class="chip">Coulisses</span>
+        <span class="chip">Les Coulisses du Harnais</span>
+        <span class="chip">Harnais Vivant</span>
+        <span class="chip">Le Harnais Visible</span>
+        <span class="chip">Voir le Harnais</span>
+        <span class="chip">Transparence Machine</span>
+        <span class="chip">Machine Ouverte</span>
+        <span class="chip">L'Envers du Prompt</span>
+        <span class="chip">L'Envers de l'IA</span>
+        <span class="chip">Contexte Visible</span>
+        <span class="chip">Double Vue</span>
+        <span class="chip">Miroir du Harnais</span>
+        <span class="chip">Le Squelette de l'IA</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- TECHNIQUE 2 : PORTMANTEAU FORGE -->
+  <section class="technique">
+    <div class="technique-head">
+      <span class="technique-num">2</span>
+      <h2>Portmanteau Forge</h2>
+      <span class="technique-tag">Technique inventée pour la session</span>
+    </div>
+    <p class="technique-desc">On prend deux racines dans un vocabulaire commun et on les fait fusionner en un mot-valise.</p>
+    <div class="forge-panel">
+      <div class="forge-note">
+        <b>Méthode :</b> prendre 2 racines parmi harnais / brique / local / souverain / cru / atelier / forge / transparence / dévoiler, les fusionner en un mot-valise, filtrer sur la prononçabilité FR/EN et l'absence de collision avec une marque connue.
+      </div>
+      <div class="chip-cloud">
+        <span class="chip">Harnex <small>(harnais + expose)</small></span>
+        <span class="chip">Briqueo <small>(brique + LLM)</small></span>
+        <span class="chip">Souveria <small>(souverain + IA)</small></span>
+        <span class="chip">LocalIA</span>
+        <span class="chip">Transparia</span>
+        <span class="chip">Harnova <small>(harnais + nova)</small></span>
+        <span class="chip">CruBrut <small>(LLM cru/brut)</small></span>
+        <span class="chip">Brikko</span>
+        <span class="chip">Atelia <small>(atelier + IA)</small></span>
+        <span class="chip">Forjia <small>(forge + IA)</small></span>
+        <span class="chip">Souvra <small>(souverain + local)</small></span>
+        <span class="chip">Harnaché <small>(jeu de mot français)</small></span>
+        <span class="chip">Bricoteur <small>(bricoler + IA)</small></span>
+        <span class="chip">Bricolab</span>
+        <span class="chip">CPU Cru</span>
+        <span class="chip">Dévoilia <small>(dévoiler + IA)</small></span>
+        <span class="chip">Harnais.local</span>
+        <span class="chip">OpenHarnais</span>
+        <span class="chip">Souverai <small>(souverain + vrai)</small></span>
+        <span class="chip">Atelier Agentique</span>
+        <span class="chip">Briquette IA</span>
+        <span class="chip">Nudia <small>(nu + IA)</small></span>
+        <span class="chip">Rustique IA</span>
+        <span class="chip">Cruo</span>
+        <span class="chip">Forgeron d'Agents</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- TECHNIQUE 3 : METAPHOR MAPPING -->
+  <section class="technique">
+    <div class="technique-head">
+      <span class="technique-num">3</span>
+      <h2>Metaphor Mapping</h2>
+      <span class="technique-tag">Atelier · couches · anatomie</span>
+    </div>
+    <p class="technique-desc">On explore des familles de métaphores concrètes — construction, pâtisserie, théâtre, dissection — pour trouver l'image qui porte le mieux l'idée de couches assemblées.</p>
+    <div class="metaphor-panel">
+      <div class="chip-cloud">
+        <span class="chip">Brique par Brique</span>
+        <span class="chip">L'Assembleur</span>
+        <span class="chip">Kit Harnais</span>
+        <span class="chip">Boîte à Briques</span>
+        <span class="chip">Notice de Montage</span>
+        <span class="chip">Le Constructeur d'Agent</span>
+        <span class="chip">Bâtisseur d'Agent</span>
+        <span class="chip">L'Établi</span>
+        <span class="chip">Établi IA</span>
+        <span class="chip">Les Couches</span>
+        <span class="chip">Mille-Feuille IA</span>
+        <span class="chip">Le Mille-Feuille Agentique</span>
+        <span class="chip">Poupées Russes du Harnais</span>
+        <span class="chip">Mille-Feuille</span>
+        <span class="chip">Anatomie d'un Agent</span>
+        <span class="chip">Dissection IA</span>
+        <span class="chip">L'Anatomie du Harnais</span>
+        <span class="chip">Répétition Générale</span>
+        <span class="chip">Backstage</span>
+        <span class="chip">Les Coulisses de l'Agent</span>
+        <span class="chip">La Console</span>
+        <span class="chip">Le Pupitre</span>
+        <span class="chip">Pupitre Agentique</span>
+        <span class="chip">L'Établi de l'Agent</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- SYNTHESE -->
+  <section class="synthesis">
+    <div class="synthesis-head">
+      <div class="kicker">Insight final</div>
+      <h2>Trois clusters, un fil rouge, cinq noms</h2>
+    </div>
+
+    <div class="clusters">
+      <div class="cluster glass">
+        <h3>① Transparence / rayons-X</h3>
+        <ul>
+          <li>Sous le Capot</li>
+          <li>Boîte de Verre</li>
+          <li>Le Squelette de l'IA</li>
+        </ul>
+      </div>
+      <div class="cluster forge">
+        <h3>② Mots-valises harnais + souverain/local</h3>
+        <ul>
+          <li>Harnex</li>
+          <li>Souveria</li>
+          <li>Harnaché</li>
+          <li>Bricoteur</li>
+        </ul>
+      </div>
+      <div class="cluster metaphor">
+        <h3>③ Atelier / couches</h3>
+        <ul>
+          <li>Mille-Feuille IA</li>
+          <li>L'Établi</li>
+          <li>Brique par Brique</li>
+          <li>Anatomie d'un Agent</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="thread">
+      Le fil rouge : <strong>Mille-Feuille IA</strong>, <strong>Sous le Capot</strong> et <strong>Bricoteur</strong> pointent tous vers la même idée forte — une transparence <em>en couches</em>, activables une à une, racontée avec une métaphore française, comestible et non-intimidante. Elle colle à la fois au vocabulaire du brief ("brique par brique") et à la culture d'atelier Wavestone.
+    </div>
+
+    <div class="shortlist-title">Shortlist retenue</div>
+    <div class="shortlist">
+      <div class="shortlist-card">
+        <span class="rank">1</span>
+        <div class="name">Mille-Feuille (Agentique)</div>
+      </div>
+      <div class="shortlist-card">
+        <span class="rank">2</span>
+        <div class="name">Sous le Capot</div>
+      </div>
+      <div class="shortlist-card">
+        <span class="rank">3</span>
+        <div class="name">L'Établi (de l'Agent)</div>
+      </div>
+      <div class="shortlist-card">
+        <span class="rank">4</span>
+        <div class="name">Harnaché</div>
+      </div>
+      <div class="shortlist-card">
+        <span class="rank">5</span>
+        <div class="name">Boîte de Verre / La Boîte Vitrée</div>
+      </div>
+    </div>
+
+    <div class="vigilance">
+      ⚠ Point de vigilance : <b>éviter tout nom dérivé de marques déposées</b> (ex. LEGO).
+    </div>
+  </section>
+
+  <footer>
+    Session de brainstorming BMAD — Sous le Capot · Mille-Feuille · Harnaché — 22 septembre 2026
+  </footer>
+
+</div>
+</body>
+</html>

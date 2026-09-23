@@ -1,0 +1,466 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>WaveStack — 5 volets masquables</title>
+<style>
+/* Governs: EXPERIENCE.md > Information Architecture (5 volets masquables), Component Patterns (jauge, schéma, événement de dépassement),
+   Responsive & Platform (projection). DESIGN.md > Colors (charte Wavestone, codage local/réseau, palette des 7 segments validée).
+   Frames = 1280×720 (EliteBook 14 pouces à 150 %). Remplace layouts-4-vs-5-volets.html (option B retenue le 2026-09-23). */
+:root{
+  --ws-purple:#451DC7;--ws-purple-dark:#250F6B;--ws-purple-soft:#EDE7FE;--ws-green:#04F06A;--ws-green-light:#CAFEE0;
+  --ws-ink:#0A0A14;--ws-ink-soft:#4A4A5E;--ws-gray:#8A8A9E;--ws-line:#E6E6EC;--ws-cream:#F6F5FA;--ws-yellow:#FFCA4A;--ws-red:#FF2A49;
+  --net:#FFCA4A;--net-ink:#7A5A00;--live:#04F06A;
+  --s-sys:#6B4EE6;--s-mem:#27B060;--s-tools:#2A78D6;--s-hist:#B39CF7;--s-rag:#0E8C7E;--s-res:#E0762B;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Aptos,Inter,system-ui,sans-serif;background:#DCDAE6;color:var(--ws-ink)}
+.doc{max-width:1320px;margin:0 auto;padding:32px 20px 80px}
+.doc>h1{font-size:30px;letter-spacing:-.02em}
+.lead{margin:8px 0 8px;color:var(--ws-ink-soft);max-width:900px;line-height:1.45}
+.sec{margin:40px 0 6px;font-size:20px;letter-spacing:-.01em}
+.sec .eyebrow{display:block;margin-bottom:4px}
+.note{color:var(--ws-ink-soft);font-size:14px;margin-bottom:12px;max-width:980px;line-height:1.45}
+.eyebrow{font-family:Manrope,Inter,sans-serif;font-size:.72em;letter-spacing:.14em;text-transform:uppercase;color:var(--ws-purple);font-weight:700}
+.muted{color:var(--ws-gray);font-weight:400}
+code,pre{font-family:"Cascadia Mono",Consolas,monospace}
+.ico{width:1em;height:1em;vertical-align:-.12em;margin-left:.3em;fill:none;stroke:currentColor;stroke-width:2}
+
+/* ---------- frame 1280×720 ---------- */
+.frame{width:1280px;height:720px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(37,15,107,.18);
+  display:flex;flex-direction:column;font-size:14px}
+.frame.proj{font-size:17.5px}
+.grid{flex:1;display:grid;gap:1px;background:var(--ws-line);min-height:0}
+.a4 .grid{grid-template-columns:232px 400px 1fr;grid-template-rows:1fr 212px;
+  grid-template-areas:"bricks human harness" "bricks schema schema"}
+.a4.proj .grid{grid-template-columns:52px 400px 1fr;grid-template-rows:1fr 230px;grid-template-areas:"bricks human harness" "bricks schema schema"}
+.b5 .grid{grid-template-columns:232px 318px 1fr 1fr;grid-template-rows:1fr 212px;
+  grid-template-areas:"bricks human ctx orch" "bricks schema schema schema"}
+.bricks,.rail{grid-area:bricks}.human{grid-area:human}.harness{grid-area:harness}.schema{grid-area:schema}.ctx{grid-area:ctx}.orch{grid-area:orch}
+.pane{background:#fff;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.pane>h2{font-size:.86em;font-weight:700;padding:.55em .9em;border-bottom:1px solid var(--ws-line);display:flex;align-items:center;gap:.6em;white-space:nowrap}
+.pane>h2 .muted{font-size:.95em}
+
+/* ---------- top bar ---------- */
+.top{height:56px;display:flex;align-items:center;gap:18px;padding:0 14px;border-bottom:1px solid var(--ws-line);background:#fff;font-size:14px}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{height:13px;width:auto}
+.prod{font-weight:800;letter-spacing:-.02em;font-size:17px;color:var(--ws-purple-dark);border-left:1px solid var(--ws-line);padding-left:10px}
+.scen{display:flex;flex-direction:column;line-height:1.15;padding:4px 10px;border:1px solid var(--ws-line);border-radius:10px;position:relative;padding-right:24px}
+.scen .eyebrow{font-size:10px}.scen b{font-size:13px}.caret{position:absolute;right:8px;top:14px;color:var(--ws-gray)}
+.gauge{flex:1;max-width:360px;cursor:pointer}
+.glabel{display:flex;align-items:baseline;gap:8px;font-size:12px;margin-bottom:4px}
+.glabel b{font-size:15px}.glabel .eyebrow{font-size:10px}
+.gbar{height:14px;display:flex;gap:2px;border-radius:4px;overflow:hidden}
+.seg{display:block;height:100%}
+.s-sys{background:var(--s-sys)}.s-mem{background:var(--s-mem)}.s-tools{background:var(--s-tools)}.s-hist{background:var(--s-hist)}.s-rag{background:var(--s-rag)}.s-res{background:var(--s-res)}
+.s-free{flex:1;background:repeating-linear-gradient(45deg,var(--ws-cream) 0 4px,#E9E7F1 4px 6px)}
+.model{display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.2}
+.model span span{display:block}.model .ico{width:22px;height:22px;color:var(--ws-purple)}
+.tools{margin-left:auto;display:flex;gap:4px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:.35em .7em;border-radius:8px;font-size:.86em;font-weight:600;border:1px solid var(--ws-line);white-space:nowrap}
+.btn.ghost{background:#fff;color:var(--ws-ink-soft)}.btn.ghost.on{background:var(--ws-purple-soft);color:var(--ws-purple);border-color:var(--ws-purple-soft)}
+.btn.primary{background:var(--ws-purple);color:#fff;border-color:var(--ws-purple)}
+.btn.danger{color:var(--ws-purple-dark)}
+.btn.sm{font-size:.78em;margin-left:auto}
+
+/* ---------- bricks ---------- */
+.bl{list-style:none;overflow:auto;padding:.3em 0}
+.brick{display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:0 6px;padding:.32em .8em;font-size:.9em;color:var(--ws-ink-soft)}
+.brick.on{color:var(--ws-ink);font-weight:600}
+.tgl{width:24px;height:14px;border-radius:7px;background:#D6D4E0;position:relative}
+.tgl::after{content:"";position:absolute;left:2px;top:2px;width:10px;height:10px;border-radius:50%;background:#fff}
+.brick.on .tgl{background:var(--ws-purple)}.brick.on .tgl::after{left:12px}
+.cat{font-family:Manrope,Inter,sans-serif;font-size:.62em;font-weight:700;letter-spacing:.06em;padding:1px 5px;border-radius:4px}
+.c-p{background:#F0ECFF;color:#4A34B8}.c-c{background:#E5F6EE;color:#136B45}.c-h{background:#E8EFFA;color:#1D548F}
+.subl{grid-column:2/4;list-style:none;font-size:.9em;font-weight:400;margin:.2em 0 .3em;border-left:2px solid var(--ws-purple-soft);padding-left:.5em}
+.subl li{padding:.12em 0;display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.ck{display:inline-block;width:1.1em;color:var(--ws-purple);font-weight:700}
+.host{font-size:.8em;color:var(--ws-gray);margin-left:auto}
+.host.net{background:var(--net);color:var(--ws-ink);padding:0 4px;border-radius:3px;font-weight:700}
+.subl .off-reason{color:var(--ws-gray)}
+.why{flex-basis:100%;font-size:.82em;color:#9A3412;padding-left:1.1em}
+.seg-ctl{gap:0 !important;margin-top:.2em}
+.seg-ctl span{border:1px solid var(--ws-line);padding:.1em .5em;font-size:.82em}
+.seg-ctl .sel{background:var(--ws-purple);color:#fff;border-color:var(--ws-purple);border-radius:6px 0 0 6px}
+.seg-ctl span:last-child{border-radius:0 6px 6px 0}
+.rail ul{list-style:none;display:flex;flex-direction:column;gap:4px;padding:8px 6px}
+.rail li{font-family:Manrope,Inter,sans-serif;font-size:.66em;font-weight:700;text-align:center;padding:.45em 0;border-radius:6px;color:var(--ws-gray);border:1px solid var(--ws-line)}
+.rail li.on{background:var(--ws-purple);color:#fff;border-color:var(--ws-purple)}
+.rail>.muted{text-align:center}
+
+/* ---------- human ---------- */
+.chat{flex:1;overflow:auto;padding:.8em;display:flex;flex-direction:column;gap:.6em;background:var(--ws-cream)}
+.msg{max-width:85%;padding:.55em .8em;border-radius:12px;line-height:1.4;font-size:.95em}
+.msg.u{align-self:flex-end;background:var(--ws-purple);color:#fff;border-bottom-right-radius:4px}
+.msg.a{align-self:flex-start;background:#fff;border:1px solid var(--ws-line);border-bottom-left-radius:4px}
+.caretc{color:var(--ws-purple);animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.working{align-self:flex-start;font-size:.85em;color:var(--ws-ink-soft);display:flex;align-items:center;gap:.4em}
+.pulse{width:.7em;height:.7em;border-radius:50%;background:var(--live);box-shadow:0 0 0 3px rgba(4,240,106,.25)}
+.netmark{background:var(--net);font-size:.78em;font-weight:700;padding:0 .35em;border-radius:3px;border:1px dashed #B8860B}
+.composer{display:flex;gap:6px;padding:.6em;border-top:1px solid var(--ws-line);align-items:center}
+.input{flex:1;color:var(--ws-gray);border:1px solid var(--ws-line);border-radius:8px;padding:.4em .6em;font-size:.9em}
+
+/* ---------- harness ---------- */
+.tourpick{font-size:.9em;color:var(--ws-purple);font-weight:600}
+.hbody{flex:1;display:grid;grid-template-columns:190px 1fr;min-height:0}
+.proj .hbody{grid-template-columns:210px 1fr}
+.rail-steps{list-style:none;border-right:1px solid var(--ws-line);overflow:auto;padding:.3em 0}
+.rail-steps li{display:flex;gap:.5em;padding:.4em .7em;font-size:.84em;line-height:1.25;border-left:3px solid transparent}
+.rail-steps li span span{display:block;font-size:.9em}
+.rail-steps .n{flex:none;width:1.5em;height:1.5em;border-radius:50%;background:var(--ws-cream);display:grid;place-items:center;font-size:.8em;font-weight:700;color:var(--ws-ink-soft)}
+.rail-steps .done .n{background:var(--ws-purple-soft);color:var(--ws-purple)}
+.rail-steps .net .n{background:var(--net);color:var(--ws-ink);outline:1px dashed #B8860B}
+.rail-steps .sel{background:var(--ws-purple-soft);border-left-color:var(--ws-purple)}
+.rail-steps .live .n{background:var(--live);color:var(--ws-ink)}
+.rail-steps .live b::after{content:" ●";color:#0A9B47}
+.rail-steps.wide{border-right:0;border-bottom:1px solid var(--ws-line);display:grid;grid-template-columns:1fr 1fr}
+.detail{overflow:auto;padding:.7em .9em;font-size:.88em;display:flex;flex-direction:column;gap:.5em}
+.dh{display:flex;flex-wrap:wrap;gap:.4em;align-items:center}
+.dh b{margin-right:auto;flex-basis:100%}
+.tag{font-size:.8em;font-weight:700;padding:.1em .45em;border-radius:5px}
+.tag.net{background:var(--net);border:1px dashed #B8860B}
+.tag.who{background:var(--ws-purple-soft);color:var(--ws-purple)}
+.out{border:2px dashed #D9A514;background:#FFF9E6;border-radius:10px;padding:.5em .7em}
+.out .eyebrow{color:var(--net-ink)}
+.dest{font-family:"Cascadia Mono",Consolas,monospace;font-weight:700;font-size:.95em;margin:.2em 0}
+pre{font-size:.86em;background:var(--ws-cream);border-radius:8px;padding:.5em .6em;white-space:pre-wrap;word-break:break-word;line-height:1.4}
+.out pre{background:#fff}
+.reinj{font-size:.9em}.reinj .sw{margin-right:.4em;vertical-align:-.1em}
+.sw{display:inline-block;width:.9em;height:.9em;border-radius:3px;flex:none}
+
+/* ---------- 5-pane specific ---------- */
+.scroll{flex:1;overflow:auto;min-height:0}
+.cb{display:grid;grid-template-columns:5px 1fr;gap:.6em;padding:.55em .7em;border-bottom:1px solid var(--ws-line);font-size:.88em}
+.cb .bar{border-radius:3px}.cb .bar.s-hist{background:var(--s-hist)}
+.cbh{display:flex;justify-content:space-between;margin-bottom:.25em}
+.cb pre{max-height:5.2em;overflow:hidden}
+.orch .detail{overflow:visible}
+
+/* ---------- schema ---------- */
+.schema h2 .legend{margin-left:auto;font-weight:400;font-size:.9em;color:var(--ws-ink-soft);display:flex;align-items:center;gap:.4em}
+.lg{display:inline-block;width:1.4em;height:.85em;border-radius:3px;margin-left:.6em}
+.lg.loc{background:#fff;border:2px solid var(--ws-purple)}
+.lg.file{background:#fff;border:2px solid var(--ws-purple);border-radius:0 0 6px 6px}
+.lg.net{background:var(--net);border:2px dashed #B8860B}
+.lg.live{background:#fff;border:2px solid var(--live);box-shadow:0 0 0 2px rgba(4,240,106,.35)}
+.schema-svg{flex:1 1 0;width:100%;height:100%;min-height:0;padding:4px 8px}
+.schema-svg text{font-family:Aptos,Inter,system-ui,sans-serif}
+.zone{font-family:Manrope,Inter,sans-serif !important;font-size:11px;font-weight:800;letter-spacing:.12em;fill:var(--ws-purple-dark)}
+.border{font-family:Manrope,Inter,sans-serif !important;font-size:9px;font-weight:800;letter-spacing:.12em;fill:var(--ws-ink)}
+.node rect{fill:#fff;stroke:var(--ws-purple);stroke-width:2}
+.node.harn>rect:first-child{fill:var(--ws-purple-soft)}
+.node .brk{fill:#fff;stroke:#B9A8F5;stroke-width:1}
+.nt{font-size:14px;font-weight:700;fill:var(--ws-ink)}
+.ns{font-size:11.5px;fill:var(--ws-ink-soft)}
+.bt{font-size:11px;fill:var(--ws-purple-dark);font-weight:600}
+.node.net rect{fill:var(--net);stroke:#8A6400;stroke-dasharray:7 4}
+.node.net.live rect{stroke:#0A9B47;stroke-width:3;stroke-dasharray:none;filter:drop-shadow(0 0 6px rgba(4,240,106,.9))}
+.node.net.off rect{fill:#F1F0F4;stroke:#A9A7B6}
+.node.net.off .nt,.node.net.off .ns{fill:#8A8A9E}
+.ed{stroke:#4A4A5E;stroke-width:1.6;fill:none}
+.netedge{stroke:#0A0A14;stroke-width:2.6;stroke-dasharray:8 5}
+.payload{font-size:11px;font-weight:700;fill:var(--ws-ink)}
+
+/* ---------- context detail ---------- */
+.cdrow{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:start}
+.cdetail{background:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(37,15,107,.18);padding:16px 18px;width:760px}
+.cdh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;font-size:15px}
+.cdb{display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:start}
+.cgrid{display:grid;grid-template-columns:repeat(20,14px);gap:3px}
+.cell{width:14px;height:14px;border-radius:3px;display:block}
+.cell.s-free{background:#fff;border:1.5px dashed #C9C6D6}
+.ctab{border-collapse:collapse;font-size:14px;width:100%}
+.ctab th{text-align:left;font-size:11px;color:var(--ws-gray);text-transform:uppercase;letter-spacing:.08em;padding-bottom:6px}
+.ctab td{padding:4px 0;border-top:1px solid var(--ws-line)}
+.ctab td .sw{margin-right:8px;vertical-align:-1px}
+.ctab .sw.s-free{background:#fff;border:1.5px dashed #C9C6D6}
+.ctab .num{text-align:right;font-variant-numeric:tabular-nums;padding-left:12px}
+.ctab tr.free td{color:var(--ws-ink-soft)}
+.cdcol{display:flex;flex-direction:column;gap:14px}
+.warnbar{background:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 6px 20px rgba(37,15,107,.12)}
+.alert{margin-left:auto;background:#FFF1F3;color:#B0102B;font-weight:700;border:1px solid var(--ws-red);border-radius:6px;padding:0 6px}
+
+/* ---------- v2 : 5 volets masquables ---------- */
+:root{--s-msg:#9C5BB5}
+.s-msg{background:var(--s-msg)}
+.b5.deep .grid{grid-template-columns:1fr 1fr;grid-template-areas:"ctx orch" "schema schema"}
+.b5.room .grid{grid-template-columns:400px 1fr;grid-template-rows:1fr 250px;grid-template-areas:"human orch" "schema schema"}
+.b5.deep .rail-steps.wide{grid-template-columns:1fr 1fr 1fr}
+.hide{margin-left:auto;color:var(--ws-gray);font-weight:700;padding:0 .3em;border-radius:4px;border:1px solid var(--ws-line);line-height:1.1}
+.pane>h2 .legend+.hide,.pane>h2 .btn.sm+.hide{margin-left:.4em}
+.btn.chip{background:var(--ws-purple-soft);color:var(--ws-purple);border:1px dashed var(--ws-purple)}
+.event.err{background:#FFF1F3;border:2px solid var(--ws-red);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.45}
+.event.err .dh b{color:#B0102B}
+.event.err ul{margin:2px 0 6px 18px}
+.event.err .eyebrow{display:block;margin-top:8px;color:#8A1026}
+</style></head><body>
+<div class="doc">
+<h1>WaveStack — 5 volets masquables</h1>
+<p class="lead">Option B retenue. Même instant du parcours UJ-1 : le modèle vient d'appeler le serveur MCP public data.gouv.fr. Chaque volet se masque par le tiret de son en-tête ; un volet masqué devient une puce « + Nom » dans la barre haute, qui le réaffiche. Le menu « Volets » fait la même chose. Cadres de 1280 × 720 px (EliteBook à 150 %).</p>
+
+<h2 class="sec"><span class="eyebrow">1 · Tous les volets</span> Briques · Humain · Contexte LLM · Orchestration · Schéma</h2>
+<p class="note">Vue complète, utile en préparation ou sur un grand écran. Nouveau segment « Message et gabarit » : le message courant et le gabarit de conversation, seul segment présent en LLM nu.</p>
+<div class="frame b5 ">
+<header class="top ">
+  <div class="brand"><svg class="logo" viewBox="0 0 307 42" aria-label="Wavestone"><g fill="#451DC7">
+<path d="M-3.843-8.349h16.891l-2.409 3.746-12.447-.019-2.035-3.727Z" transform="scale(2 -2) rotate(-61.367 .264 -10.29)"/>
+<path d="M0 12.081c-3.666 0-5.343-2.682-5.343-6.041C-5.343 2.682-3.666 0 0 0s5.343 2.682 5.343 6.04c0 3.359-1.677 6.041-5.343 6.041M0-1.617c-4.933 0-8.833 2.907-8.833 7.657 0 4.751 3.9 7.658 8.833 7.658 4.932 0 8.833-2.907 8.833-7.658 0-4.75-3.901-7.657-8.833-7.657" transform="matrix(2 0 0 2 221.951 14.024)"/>
+<path d="M0-10.554h5.34V2.011h3.329v-12.565h5.34v-2.011H0v2.011Z" transform="matrix(2 0 0 2 173.832 36.636)"/>
+<path d="M0-3.449c-2.126-.554-4.134-1.078-4.134-2.391 0-1.323 1.848-1.915 3.679-1.915 1.82 0 3.546.456 5.278 1.392l.42.227v-1.927l-.165-.082C3.516-8.92 1.457-9.383-.429-9.383c-3.162 0-6.54 1.165-6.54 4.436 0 3.154 3.247 4.013 6.112 4.772C1.3.395 3.336.934 3.336 2.334c0 1.338-1.927 1.98-3.717 1.98-2.118 0-4.221-.665-6.248-1.957l-.227-.145-.942 1.367.255.173c2.018 1.367 4.779 2.182 7.384 2.182 3.945 0 6.493-1.756 6.493-4.439 0-3.292-3.512-4.208-6.334-4.944" transform="matrix(2 0 0 2 156.98 29.542)"/>
+<path d="M0 2h8.257l.006-2.016H0v-4.251h8.904l.006-2.017H-3.329V8.284H9.035l.006-2.016H0V2Z" transform="matrix(2 0 0 2 117.545 24.063)"/>
+<path d="M0 10.535V6.267h8.257l.006-2.016H0V0h8.905l.005-2.016H-3.329v14.567H9.035l.006-2.016H0Z" transform="matrix(2 0 0 2 288.814 15.528)"/>
+<path d="M0 5.542 2.493.901l2.542 4.641H0Zm-4.823 4.64 2.329.003 1.411-2.627H6.14l1.438 2.624h3.783L3.267-4.643l-8.09 14.825Z" transform="matrix(2 0 0 2 54.77 20.265)"/>
+<path d="m0 3.74-5.085-9.281h-3.784L-.775 9.284l8.09-14.825-2.33-.003L0 3.74Z" transform="matrix(2 0 0 2 90.655 22.593)"/>
+<path d="m0-14.575.004 9.072-12.051-9.333V-.003h2.014l.014-9.063L2.014.261l.002-14.836H0Z" transform="matrix(2 0 0 2 270.249 40.645)"/>
+<path d="M0-20.58h-2.653c-2.896 3.035-5.583 6.249-7.672 9.626a51.752 51.752 0 0 0-2.356 4.236l-4.442-8.107h-4.246L-13.275 0l.002-.008C-10.777-7.504-6.209-14.46 0-20.58" transform="matrix(2 0 0 2 60.381 41.16)"/>
+</g></svg><span class="prod">WaveStack</span></div>
+  <div class="scen"><span class="eyebrow">Module 4 · MCP</span><b>Où vont mes données ?</b><span class="caret">▾</span></div>
+  <div class="gauge" title="Cliquer pour le détail (façon /context)">
+    <div class="glabel"><span class="eyebrow">Contexte</span><b>54 %</b><span class="muted">4 450 / 8 192 tokens</span></div>
+    <div class="gbar"><i class="seg s-sys" style="width:2.20%" title="Prompt système · 180 tokens"></i><i class="seg s-tools" style="width:38.33%" title="Descriptions d'outils et MCP · 3 140 tokens"></i><i class="seg s-hist" style="width:5.62%" title="Historique · 460 tokens"></i><i class="seg s-res" style="width:7.45%" title="Résultats d'outils · 610 tokens"></i><i class="seg s-msg" style="width:0.73%" title="Message et gabarit · 60 tokens"></i><i class="seg s-free"></i></div>
+  </div>
+  <div class="model"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span><b>Qwen3.5 2B</b><span class="muted">CPU · local</span></span></div>
+  <div class="tools"><span class="btn ghost" title="Afficher ou masquer des volets">Volets ▾</span><span class="btn ghost" title="Taille du texte">Aa 100 %</span><span class="btn ghost" title="Mode focus">⛶</span><span class="btn danger">⟲ Réinitialiser</span></div>
+</header><div class="grid"><section class="pane bricks"><h2>Briques <span class="muted">4 actives</span><span class="hide" title="Masquer ce volet">—</span></h2><ul class="bl"><li class="brick  "><span class="tgl"></span><span class="bn">Raisonnement</span><span class="cat c-p">PROMPT</span></li><li class="brick on "><span class="tgl"></span><span class="bn">Mémoire courte</span><span class="cat c-c">CONTEXTE</span></li><li class="brick on "><span class="tgl"></span><span class="bn">Prompt système</span><span class="cat c-p">PROMPT</span></li><li class="brick  "><span class="tgl"></span><span class="bn">Mémoire globale</span><span class="cat c-c">CONTEXTE</span></li><li class="brick on "><span class="tgl"></span><span class="bn">Outils</span><span class="cat c-h">HARNAIS</span><ul class="subl">
+  <li class="on"><span class="ck">✓</span>Heure et date</li>
+  <li><span class="ck"></span>Calculatrice</li>
+  <li class="net"><span class="ck"></span>Jours fériés <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg></li>
+</ul></li><li class="brick  "><span class="tgl"></span><span class="bn">RAG</span><span class="cat c-c">CONTEXTE</span></li><li class="brick on "><span class="tgl"></span><span class="bn">MCP</span><span class="cat c-h">HARNAIS</span><ul class="subl">
+  <li class="on"><span class="ck">✓</span>Serveur MCP local <span class="host">processus local</span></li>
+  <li class="on net"><span class="ck">✓</span>data.gouv.fr <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg><span class="host net">réseau</span></li>
+  <li class="off-reason"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>Microsoft Learn <span class="why">Indisponible : pas de réponse au démarrage</span></li>
+  <li class="seg-ctl"><span class="sel">Doc. complète</span><span>Lazy loading</span></li>
+</ul></li><li class="brick  "><span class="tgl"></span><span class="bn">Skills</span><span class="cat c-c">CONTEXTE</span></li><li class="brick  "><span class="tgl"></span><span class="bn">Hooks</span><span class="cat c-h">HARNAIS</span></li><li class="brick  "><span class="tgl"></span><span class="bn">Sous-agent</span><span class="cat c-h">HARNAIS</span></li><li class="brick  "><span class="tgl"></span><span class="bn">Compression</span><span class="cat c-c">CONTEXTE</span></li></ul></section><section class="pane human"><h2>Vue humain<span class="hide" title="Masquer ce volet">—</span></h2>
+<div class="chat">
+  <div class="msg u">Quelle heure est-il ?</div>
+  <div class="msg a">Il est 14 h 32.</div>
+  <div class="msg u">Quels jeux de données publics existent sur la cybersécurité ?</div>
+  <div class="working"><span class="pulse"></span>Le harnais interroge <b>data.gouv.fr</b> <span class="netmark">réseau</span> · 1,2 s</div>
+  <div class="msg a stream">J'ai trouvé plusieurs jeux de données sur data.gouv.fr, notamment<span class="caretc">▍</span></div>
+</div>
+<div class="composer"><span class="input">Écrire un message…</span><span class="btn ghost">↻ Rejouer</span><span class="btn primary">Envoyer</span></div>
+</section><section class="pane ctx"><h2>Contexte LLM <span class="muted">appel n° 2 · 4 450 tok</span><span class="hide" title="Masquer ce volet">—</span></h2><div class="scroll"><div class="cb"><i class="bar s-sys"></i><div><div class="cbh"><b>Prompt système</b><span class="muted">180 tok</span></div><pre>&lt;|im_start|>system
+Tu es l'assistant de démonstration WaveStack. Réponds en français…</pre></div></div><div class="cb"><i class="bar s-tools"></i><div><div class="cbh"><b>Descriptions d'outils et MCP</b><span class="muted">3 140 tok</span></div><pre># Outils
+{"name": "get_time"  …}
+{"name": "search_datasets"  "description": "Recherche des jeux de données…"}
+… 8 autres outils data.gouv.fr</pre></div></div><div class="cb"><i class="bar s-hist"></i><div><div class="cbh"><b>Historique</b><span class="muted">460 tok</span></div><pre>&lt;|im_start|>user
+Quelle heure est-il ?&lt;|im_end|>
+&lt;|im_start|>assistant
+Il est 14 h 32.&lt;|im_end|>…</pre></div></div><div class="cb"><i class="bar s-res"></i><div><div class="cbh"><b>Résultats d'outils</b><span class="muted">610 tok</span></div><pre>&lt;tool_response>
+{"results": [{"title": "Jeu de données A (exemple)"  …</pre></div></div><div class="cb"><i class="bar s-msg"></i><div><div class="cbh"><b>Message et gabarit</b><span class="muted">60 tok</span></div><pre>&lt;|im_start|>user
+Quels jeux de données publics existent sur la cybersécurité ?&lt;|im_end|>
+&lt;|im_start|>assistant</pre></div></div></div></section><section class="pane orch"><h2>Orchestration <span class="tourpick">◀ Tour 2 ▶</span><span class="hide" title="Masquer ce volet">—</span></h2><div class="scroll"><ol class="rail-steps wide"><li class="done"><span class="n">1</span><span><b>Contexte assemblé</b><span class="muted">4 450 tok</span></span></li><li class="done"><span class="n">2</span><span><b>Appel modèle n° 1</b><span class="muted">3,8 s · 38 tok</span></span></li><li class="done"><span class="n">3</span><span><b>Interprétation</b><span class="muted">appel d'outil valide</span></span></li><li class="net sel"><span class="n">4</span><span><b>Exécution MCP</b><span class="muted">data.gouv.fr · 1,2 s</span></span></li><li class="done"><span class="n">5</span><span><b>Réinjection</b><span class="muted">+610 tok</span></span></li><li class="live"><span class="n">6</span><span><b>Appel modèle n° 2</b><span class="muted">en cours…</span></span></li></ol><div class="detail">
+  <div class="dh"><b>④ Exécution — <code>search_datasets</code></b>
+    <span class="tag net"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg> Serveur MCP public · réseau</span><span class="tag who">Décidé par le modèle</span></div>
+  <div class="out"><div class="eyebrow">Données envoyées hors du poste</div>
+    <div class="dest">POST https://mcp.data.gouv.fr/mcp</div>
+<pre>{"method": "tools/call",
+ "params": {"name": "search_datasets",
+            "arguments": {"query": "cybersécurité"}}}</pre></div>
+  <div class="eyebrow">Réponse reçue · 1,2 s</div>
+<pre class="resp">{"results": [{"title": "Jeu de données A (exemple)", …},
+             {"title": "Jeu de données B (exemple)", …}, …]}</pre>
+  <div class="reinj"><i class="sw s-res"></i>Réinjectée dans le contexte comme segment <b>Résultats d'outils</b> · 610 tokens</div>
+</div></div></section><section class="pane schema"><h2>Schéma d'architecture
+<span class="legend"><span class="lg loc"></span>processus local <span class="lg file"></span>fichier local <span class="lg net"></span>service réseau <span class="lg live"></span>en action</span><span class="hide" title="Masquer ce volet">—</span></h2><svg class="schema-svg" viewBox="0 0 1040 190" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4A4A5E"/></marker>
+    <marker id="ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#0A0A14"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FFF6DC"/><line x1="0" y1="0" x2="0" y2="8" stroke="#FFE7A3" stroke-width="3"/></pattern>
+  </defs>
+  <rect x="4" y="4" width="700" height="182" rx="14" fill="#F6F5FA" stroke="#E6E6EC"/>
+  <text x="20" y="26" class="zone">POSTE DE TRAVAIL · local</text>
+  <rect x="736" y="4" width="300" height="182" rx="14" fill="url(#hatch)" stroke="#E0B63A" stroke-dasharray="6 5"/>
+  <text x="752" y="26" class="zone">RÉSEAU · Internet</text>
+  <line x1="720" y1="10" x2="720" y2="182" stroke="#0A0A14" stroke-width="2" stroke-dasharray="4 4"/>
+  <text x="714" y="100" class="border" transform="rotate(-90 714 100)" text-anchor="middle">FRONTIÈRE DU POSTE</text>
+
+  <g class="node"><rect x="20" y="70" width="110" height="54" rx="10"/><text x="75" y="93" text-anchor="middle" class="nt">Navigateur</text><text x="75" y="111" text-anchor="middle" class="ns">vue humain</text></g>
+  <g class="node harn"><rect x="170" y="40" width="250" height="120" rx="12"/><text x="186" y="62" class="nt">Harnais WaveStack</text><text x="186" y="78" class="ns">processus local</text>
+    <rect x="186" y="90" width="104" height="26" rx="6" class="brk"/><text x="238" y="107" text-anchor="middle" class="bt">Prompt système</text>
+    <rect x="298" y="90" width="108" height="26" rx="6" class="brk"/><text x="352" y="107" text-anchor="middle" class="bt">Mémoire courte</text>
+    <rect x="186" y="122" width="104" height="26" rx="6" class="brk"/><text x="238" y="139" text-anchor="middle" class="bt">Outil heure</text>
+    <rect x="298" y="122" width="108" height="26" rx="6" class="brk"/><text x="352" y="139" text-anchor="middle" class="bt">Client MCP</text></g>
+  <g class="node"><rect x="470" y="34" width="210" height="54" rx="10"/><text x="484" y="57" class="nt">Modèle Qwen3.5 2B</text><text x="484" y="75" class="ns">processus local · CPU</text></g>
+  <g class="node"><rect x="470" y="110" width="210" height="54" rx="10"/><text x="484" y="133" class="nt">Serveur MCP local</text><text x="484" y="151" class="ns">processus local</text></g>
+
+  <g class="node net live"><rect x="756" y="40" width="262" height="58" rx="10"/><text x="772" y="63" class="nt">MCP data.gouv.fr</text><text x="772" y="82" class="ns">service réseau · en cours 1,2 s</text></g>
+  <g class="node net off"><rect x="756" y="116" width="262" height="54" rx="10"/><text x="772" y="139" class="nt">MCP Microsoft Learn</text><text x="772" y="157" class="ns">service réseau · indisponible</text></g>
+
+  <line x1="130" y1="97" x2="168" y2="97" class="ed" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <line x1="420" y1="70" x2="468" y2="62" class="ed" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <line x1="420" y1="130" x2="468" y2="137" class="ed" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <path d="M420 100 C 560 100, 600 69, 754 69" class="ed netedge" marker-end="url(#ahn)"/>
+  <rect x="545" y="91" width="130" height="18" rx="4" fill="#FFCA4A" stroke="#0A0A14"/><text x="610" y="104" text-anchor="middle" class="payload">« cybersécurité »</text>
+</svg></section></div></div>
+
+<h2 class="sec"><span class="eyebrow">2 · Briques et Humain masqués</span> Plongée dans le harnais</h2>
+<p class="note">Le contexte et l'orchestration récupèrent la largeur : les blocs de contexte et le JSON envoyé hors du poste se lisent sans retour à la ligne forcé.</p>
+<div class="frame b5 deep ">
+<header class="top ">
+  <div class="brand"><svg class="logo" viewBox="0 0 307 42" aria-label="Wavestone"><g fill="#451DC7">
+<path d="M-3.843-8.349h16.891l-2.409 3.746-12.447-.019-2.035-3.727Z" transform="scale(2 -2) rotate(-61.367 .264 -10.29)"/>
+<path d="M0 12.081c-3.666 0-5.343-2.682-5.343-6.041C-5.343 2.682-3.666 0 0 0s5.343 2.682 5.343 6.04c0 3.359-1.677 6.041-5.343 6.041M0-1.617c-4.933 0-8.833 2.907-8.833 7.657 0 4.751 3.9 7.658 8.833 7.658 4.932 0 8.833-2.907 8.833-7.658 0-4.75-3.901-7.657-8.833-7.657" transform="matrix(2 0 0 2 221.951 14.024)"/>
+<path d="M0-10.554h5.34V2.011h3.329v-12.565h5.34v-2.011H0v2.011Z" transform="matrix(2 0 0 2 173.832 36.636)"/>
+<path d="M0-3.449c-2.126-.554-4.134-1.078-4.134-2.391 0-1.323 1.848-1.915 3.679-1.915 1.82 0 3.546.456 5.278 1.392l.42.227v-1.927l-.165-.082C3.516-8.92 1.457-9.383-.429-9.383c-3.162 0-6.54 1.165-6.54 4.436 0 3.154 3.247 4.013 6.112 4.772C1.3.395 3.336.934 3.336 2.334c0 1.338-1.927 1.98-3.717 1.98-2.118 0-4.221-.665-6.248-1.957l-.227-.145-.942 1.367.255.173c2.018 1.367 4.779 2.182 7.384 2.182 3.945 0 6.493-1.756 6.493-4.439 0-3.292-3.512-4.208-6.334-4.944" transform="matrix(2 0 0 2 156.98 29.542)"/>
+<path d="M0 2h8.257l.006-2.016H0v-4.251h8.904l.006-2.017H-3.329V8.284H9.035l.006-2.016H0V2Z" transform="matrix(2 0 0 2 117.545 24.063)"/>
+<path d="M0 10.535V6.267h8.257l.006-2.016H0V0h8.905l.005-2.016H-3.329v14.567H9.035l.006-2.016H0Z" transform="matrix(2 0 0 2 288.814 15.528)"/>
+<path d="M0 5.542 2.493.901l2.542 4.641H0Zm-4.823 4.64 2.329.003 1.411-2.627H6.14l1.438 2.624h3.783L3.267-4.643l-8.09 14.825Z" transform="matrix(2 0 0 2 54.77 20.265)"/>
+<path d="m0 3.74-5.085-9.281h-3.784L-.775 9.284l8.09-14.825-2.33-.003L0 3.74Z" transform="matrix(2 0 0 2 90.655 22.593)"/>
+<path d="m0-14.575.004 9.072-12.051-9.333V-.003h2.014l.014-9.063L2.014.261l.002-14.836H0Z" transform="matrix(2 0 0 2 270.249 40.645)"/>
+<path d="M0-20.58h-2.653c-2.896 3.035-5.583 6.249-7.672 9.626a51.752 51.752 0 0 0-2.356 4.236l-4.442-8.107h-4.246L-13.275 0l.002-.008C-10.777-7.504-6.209-14.46 0-20.58" transform="matrix(2 0 0 2 60.381 41.16)"/>
+</g></svg><span class="prod">WaveStack</span></div>
+  <div class="scen"><span class="eyebrow">Module 4 · MCP</span><b>Où vont mes données ?</b><span class="caret">▾</span></div>
+  <div class="gauge" title="Cliquer pour le détail (façon /context)">
+    <div class="glabel"><span class="eyebrow">Contexte</span><b>54 %</b><span class="muted">4 450 / 8 192 tokens</span></div>
+    <div class="gbar"><i class="seg s-sys" style="width:2.20%" title="Prompt système · 180 tokens"></i><i class="seg s-tools" style="width:38.33%" title="Descriptions d'outils et MCP · 3 140 tokens"></i><i class="seg s-hist" style="width:5.62%" title="Historique · 460 tokens"></i><i class="seg s-res" style="width:7.45%" title="Résultats d'outils · 610 tokens"></i><i class="seg s-msg" style="width:0.73%" title="Message et gabarit · 60 tokens"></i><i class="seg s-free"></i></div>
+  </div>
+  <div class="model"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span><b>Qwen3.5 2B</b><span class="muted">CPU · local</span></span></div>
+  <div class="tools"><span class="btn chip">+ Briques</span><span class="btn chip">+ Humain</span><span class="btn ghost" title="Afficher ou masquer des volets">Volets ▾</span><span class="btn ghost" title="Taille du texte">Aa 100 %</span><span class="btn ghost" title="Mode focus">⛶</span><span class="btn danger">⟲ Réinitialiser</span></div>
+</header><div class="grid"><section class="pane ctx"><h2>Contexte LLM <span class="muted">appel n° 2 · 4 450 tok</span><span class="hide" title="Masquer ce volet">—</span></h2><div class="scroll"><div class="cb"><i class="bar s-sys"></i><div><div class="cbh"><b>Prompt système</b><span class="muted">180 tok</span></div><pre>&lt;|im_start|>system
+Tu es l'assistant de démonstration WaveStack. Réponds en français…</pre></div></div><div class="cb"><i class="bar s-tools"></i><div><div class="cbh"><b>Descriptions d'outils et MCP</b><span class="muted">3 140 tok</span></div><pre># Outils
+{"name": "get_time"  …}
+{"name": "search_datasets"  "description": "Recherche des jeux de données…"}
+… 8 autres outils data.gouv.fr</pre></div></div><div class="cb"><i class="bar s-hist"></i><div><div class="cbh"><b>Historique</b><span class="muted">460 tok</span></div><pre>&lt;|im_start|>user
+Quelle heure est-il ?&lt;|im_end|>
+&lt;|im_start|>assistant
+Il est 14 h 32.&lt;|im_end|>…</pre></div></div><div class="cb"><i class="bar s-res"></i><div><div class="cbh"><b>Résultats d'outils</b><span class="muted">610 tok</span></div><pre>&lt;tool_response>
+{"results": [{"title": "Jeu de données A (exemple)"  …</pre></div></div><div class="cb"><i class="bar s-msg"></i><div><div class="cbh"><b>Message et gabarit</b><span class="muted">60 tok</span></div><pre>&lt;|im_start|>user
+Quels jeux de données publics existent sur la cybersécurité ?&lt;|im_end|>
+&lt;|im_start|>assistant</pre></div></div></div></section><section class="pane orch"><h2>Orchestration <span class="tourpick">◀ Tour 2 ▶</span><span class="hide" title="Masquer ce volet">—</span></h2><div class="scroll"><ol class="rail-steps wide"><li class="done"><span class="n">1</span><span><b>Contexte assemblé</b><span class="muted">4 450 tok</span></span></li><li class="done"><span class="n">2</span><span><b>Appel modèle n° 1</b><span class="muted">3,8 s · 38 tok</span></span></li><li class="done"><span class="n">3</span><span><b>Interprétation</b><span class="muted">appel d'outil valide</span></span></li><li class="net sel"><span class="n">4</span><span><b>Exécution MCP</b><span class="muted">data.gouv.fr · 1,2 s</span></span></li><li class="done"><span class="n">5</span><span><b>Réinjection</b><span class="muted">+610 tok</span></span></li><li class="live"><span class="n">6</span><span><b>Appel modèle n° 2</b><span class="muted">en cours…</span></span></li></ol><div class="detail">
+  <div class="dh"><b>④ Exécution — <code>search_datasets</code></b>
+    <span class="tag net"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg> Serveur MCP public · réseau</span><span class="tag who">Décidé par le modèle</span></div>
+  <div class="out"><div class="eyebrow">Données envoyées hors du poste</div>
+    <div class="dest">POST https://mcp.data.gouv.fr/mcp</div>
+<pre>{"method": "tools/call",
+ "params": {"name": "search_datasets",
+            "arguments": {"query": "cybersécurité"}}}</pre></div>
+  <div class="eyebrow">Réponse reçue · 1,2 s</div>
+<pre class="resp">{"results": [{"title": "Jeu de données A (exemple)", …},
+             {"title": "Jeu de données B (exemple)", …}, …]}</pre>
+  <div class="reinj"><i class="sw s-res"></i>Réinjectée dans le contexte comme segment <b>Résultats d'outils</b> · 610 tokens</div>
+</div></div></section><section class="pane schema"><h2>Schéma d'architecture
+<span class="legend"><span class="lg loc"></span>processus local <span class="lg file"></span>fichier local <span class="lg net"></span>service réseau <span class="lg live"></span>en action</span><span class="hide" title="Masquer ce volet">—</span></h2><svg class="schema-svg" viewBox="0 0 1040 190" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4A4A5E"/></marker>
+    <marker id="ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#0A0A14"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FFF6DC"/><line x1="0" y1="0" x2="0" y2="8" stroke="#FFE7A3" stroke-width="3"/></pattern>
+  </defs>
+  <rect x="4" y="4" width="700" height="182" rx="14" fill="#F6F5FA" stroke="#E6E6EC"/>
+  <text x="20" y="26" class="zone">POSTE DE TRAVAIL · local</text>
+  <rect x="736" y="4" width="300" height="182" rx="14" fill="url(#hatch)" stroke="#E0B63A" stroke-dasharray="6 5"/>
+  <text x="752" y="26" class="zone">RÉSEAU · Internet</text>
+  <line x1="720" y1="10" x2="720" y2="182" stroke="#0A0A14" stroke-width="2" stroke-dasharray="4 4"/>
+  <text x="714" y="100" class="border" transform="rotate(-90 714 100)" text-anchor="middle">FRONTIÈRE DU POSTE</text>
+
+  <g class="node"><rect x="20" y="70" width="110" height="54" rx="10"/><text x="75" y="93" text-anchor="middle" class="nt">Navigateur</text><text x="75" y="111" text-anchor="middle" class="ns">vue humain</text></g>
+  <g class="node harn"><rect x="170" y="40" width="250" height="120" rx="12"/><text x="186" y="62" class="nt">Harnais WaveStack</text><text x="186" y="78" class="ns">processus local</text>
+    <rect x="186" y="90" width="104" height="26" rx="6" class="brk"/><text x="238" y="107" text-anchor="middle" class="bt">Prompt système</text>
+    <rect x="298" y="90" width="108" height="26" rx="6" class="brk"/><text x="352" y="107" text-anchor="middle" class="bt">Mémoire courte</text>
+    <rect x="186" y="122" width="104" height="26" rx="6" class="brk"/><text x="238" y="139" text-anchor="middle" class="bt">Outil heure</text>
+    <rect x="298" y="122" width="108" height="26" rx="6" class="brk"/><text x="352" y="139" text-anchor="middle" class="bt">Client MCP</text></g>
+  <g class="node"><rect x="470" y="34" width="210" height="54" rx="10"/><text x="484" y="57" class="nt">Modèle Qwen3.5 2B</text><text x="484" y="75" class="ns">processus local · CPU</text></g>
+  <g class="node"><rect x="470" y="110" width="210" height="54" rx="10"/><text x="484" y="133" class="nt">Serveur MCP local</text><text x="484" y="151" class="ns">processus local</text></g>
+
+  <g class="node net live"><rect x="756" y="40" width="262" height="58" rx="10"/><text x="772" y="63" class="nt">MCP data.gouv.fr</text><text x="772" y="82" class="ns">service réseau · en cours 1,2 s</text></g>
+  <g class="node net off"><rect x="756" y="116" width="262" height="54" rx="10"/><text x="772" y="139" class="nt">MCP Microsoft Learn</text><text x="772" y="157" class="ns">service réseau · indisponible</text></g>
+
+  <line x1="130" y1="97" x2="168" y2="97" class="ed" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <line x1="420" y1="70" x2="468" y2="62" class="ed" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <line x1="420" y1="130" x2="468" y2="137" class="ed" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <path d="M420 100 C 560 100, 600 69, 754 69" class="ed netedge" marker-end="url(#ahn)"/>
+  <rect x="545" y="91" width="130" height="18" rx="4" fill="#FFCA4A" stroke="#0A0A14"/><text x="610" y="104" text-anchor="middle" class="payload">« cybersécurité »</text>
+</svg></section></div></div>
+
+<h2 class="sec"><span class="eyebrow">3 · Configuration salle</span> Humain · Orchestration · Schéma, texte 125 %</h2>
+<p class="note">Pour la projection : ce que voit l'utilisateur, ce que fait le harnais, et où ça s'exécute. Le formateur rouvre les briques d'un clic sur « + Briques ».</p>
+<div class="frame b5 room proj">
+<header class="top proj">
+  <div class="brand"><svg class="logo" viewBox="0 0 307 42" aria-label="Wavestone"><g fill="#451DC7">
+<path d="M-3.843-8.349h16.891l-2.409 3.746-12.447-.019-2.035-3.727Z" transform="scale(2 -2) rotate(-61.367 .264 -10.29)"/>
+<path d="M0 12.081c-3.666 0-5.343-2.682-5.343-6.041C-5.343 2.682-3.666 0 0 0s5.343 2.682 5.343 6.04c0 3.359-1.677 6.041-5.343 6.041M0-1.617c-4.933 0-8.833 2.907-8.833 7.657 0 4.751 3.9 7.658 8.833 7.658 4.932 0 8.833-2.907 8.833-7.658 0-4.75-3.901-7.657-8.833-7.657" transform="matrix(2 0 0 2 221.951 14.024)"/>
+<path d="M0-10.554h5.34V2.011h3.329v-12.565h5.34v-2.011H0v2.011Z" transform="matrix(2 0 0 2 173.832 36.636)"/>
+<path d="M0-3.449c-2.126-.554-4.134-1.078-4.134-2.391 0-1.323 1.848-1.915 3.679-1.915 1.82 0 3.546.456 5.278 1.392l.42.227v-1.927l-.165-.082C3.516-8.92 1.457-9.383-.429-9.383c-3.162 0-6.54 1.165-6.54 4.436 0 3.154 3.247 4.013 6.112 4.772C1.3.395 3.336.934 3.336 2.334c0 1.338-1.927 1.98-3.717 1.98-2.118 0-4.221-.665-6.248-1.957l-.227-.145-.942 1.367.255.173c2.018 1.367 4.779 2.182 7.384 2.182 3.945 0 6.493-1.756 6.493-4.439 0-3.292-3.512-4.208-6.334-4.944" transform="matrix(2 0 0 2 156.98 29.542)"/>
+<path d="M0 2h8.257l.006-2.016H0v-4.251h8.904l.006-2.017H-3.329V8.284H9.035l.006-2.016H0V2Z" transform="matrix(2 0 0 2 117.545 24.063)"/>
+<path d="M0 10.535V6.267h8.257l.006-2.016H0V0h8.905l.005-2.016H-3.329v14.567H9.035l.006-2.016H0Z" transform="matrix(2 0 0 2 288.814 15.528)"/>
+<path d="M0 5.542 2.493.901l2.542 4.641H0Zm-4.823 4.64 2.329.003 1.411-2.627H6.14l1.438 2.624h3.783L3.267-4.643l-8.09 14.825Z" transform="matrix(2 0 0 2 54.77 20.265)"/>
+<path d="m0 3.74-5.085-9.281h-3.784L-.775 9.284l8.09-14.825-2.33-.003L0 3.74Z" transform="matrix(2 0 0 2 90.655 22.593)"/>
+<path d="m0-14.575.004 9.072-12.051-9.333V-.003h2.014l.014-9.063L2.014.261l.002-14.836H0Z" transform="matrix(2 0 0 2 270.249 40.645)"/>
+<path d="M0-20.58h-2.653c-2.896 3.035-5.583 6.249-7.672 9.626a51.752 51.752 0 0 0-2.356 4.236l-4.442-8.107h-4.246L-13.275 0l.002-.008C-10.777-7.504-6.209-14.46 0-20.58" transform="matrix(2 0 0 2 60.381 41.16)"/>
+</g></svg><span class="prod">WaveStack</span></div>
+  <div class="scen"><span class="eyebrow">Module 4 · MCP</span><b>Où vont mes données ?</b><span class="caret">▾</span></div>
+  <div class="gauge" title="Cliquer pour le détail (façon /context)">
+    <div class="glabel"><span class="eyebrow">Contexte</span><b>54 %</b><span class="muted">4 450 / 8 192 tokens</span></div>
+    <div class="gbar"><i class="seg s-sys" style="width:2.20%" title="Prompt système · 180 tokens"></i><i class="seg s-tools" style="width:38.33%" title="Descriptions d'outils et MCP · 3 140 tokens"></i><i class="seg s-hist" style="width:5.62%" title="Historique · 460 tokens"></i><i class="seg s-res" style="width:7.45%" title="Résultats d'outils · 610 tokens"></i><i class="seg s-msg" style="width:0.73%" title="Message et gabarit · 60 tokens"></i><i class="seg s-free"></i></div>
+  </div>
+  <div class="model"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span><b>Qwen3.5 2B</b><span class="muted">CPU · local</span></span></div>
+  <div class="tools"><span class="btn chip">+ Briques</span><span class="btn chip">+ Contexte</span><span class="btn ghost" title="Afficher ou masquer des volets">Volets ▾</span><span class="btn ghost" title="Taille du texte">Aa 125 %</span><span class="btn ghost" title="Mode focus">⛶</span><span class="btn danger">⟲ Réinitialiser</span></div>
+</header><div class="grid"><section class="pane human"><h2>Vue humain<span class="hide" title="Masquer ce volet">—</span></h2>
+<div class="chat">
+  <div class="msg u">Quelle heure est-il ?</div>
+  <div class="msg a">Il est 14 h 32.</div>
+  <div class="msg u">Quels jeux de données publics existent sur la cybersécurité ?</div>
+  <div class="working"><span class="pulse"></span>Le harnais interroge <b>data.gouv.fr</b> <span class="netmark">réseau</span> · 1,2 s</div>
+  <div class="msg a stream">J'ai trouvé plusieurs jeux de données sur data.gouv.fr, notamment<span class="caretc">▍</span></div>
+</div>
+<div class="composer"><span class="input">Écrire un message…</span><span class="btn ghost">↻ Rejouer</span><span class="btn primary">Envoyer</span></div>
+</section><section class="pane orch"><h2>Orchestration <span class="tourpick">◀ Tour 2 ▶</span><span class="hide" title="Masquer ce volet">—</span></h2><div class="scroll"><ol class="rail-steps wide"><li class="done"><span class="n">1</span><span><b>Contexte assemblé</b><span class="muted">4 450 tok</span></span></li><li class="done"><span class="n">2</span><span><b>Appel modèle n° 1</b><span class="muted">3,8 s · 38 tok</span></span></li><li class="done"><span class="n">3</span><span><b>Interprétation</b><span class="muted">appel d'outil valide</span></span></li><li class="net sel"><span class="n">4</span><span><b>Exécution MCP</b><span class="muted">data.gouv.fr · 1,2 s</span></span></li><li class="done"><span class="n">5</span><span><b>Réinjection</b><span class="muted">+610 tok</span></span></li><li class="live"><span class="n">6</span><span><b>Appel modèle n° 2</b><span class="muted">en cours…</span></span></li></ol><div class="detail">
+  <div class="dh"><b>④ Exécution — <code>search_datasets</code></b>
+    <span class="tag net"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg> Serveur MCP public · réseau</span><span class="tag who">Décidé par le modèle</span></div>
+  <div class="out"><div class="eyebrow">Données envoyées hors du poste</div>
+    <div class="dest">POST https://mcp.data.gouv.fr/mcp</div>
+<pre>{"method": "tools/call",
+ "params": {"name": "search_datasets",
+            "arguments": {"query": "cybersécurité"}}}</pre></div>
+  <div class="eyebrow">Réponse reçue · 1,2 s</div>
+<pre class="resp">{"results": [{"title": "Jeu de données A (exemple)", …},
+             {"title": "Jeu de données B (exemple)", …}, …]}</pre>
+  <div class="reinj"><i class="sw s-res"></i>Réinjectée dans le contexte comme segment <b>Résultats d'outils</b> · 610 tokens</div>
+</div></div></section><section class="pane schema"><h2>Schéma d'architecture
+<span class="legend"><span class="lg loc"></span>processus local <span class="lg file"></span>fichier local <span class="lg net"></span>service réseau <span class="lg live"></span>en action</span><span class="hide" title="Masquer ce volet">—</span></h2><svg class="schema-svg" viewBox="0 0 1040 190" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4A4A5E"/></marker>
+    <marker id="ahn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#0A0A14"/></marker>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FFF6DC"/><line x1="0" y1="0" x2="0" y2="8" stroke="#FFE7A3" stroke-width="3"/></pattern>
+  </defs>
+  <rect x="4" y="4" width="700" height="182" rx="14" fill="#F6F5FA" stroke="#E6E6EC"/>
+  <text x="20" y="26" class="zone">POSTE DE TRAVAIL · local</text>
+  <rect x="736" y="4" width="300" height="182" rx="14" fill="url(#hatch)" stroke="#E0B63A" stroke-dasharray="6 5"/>
+  <text x="752" y="26" class="zone">RÉSEAU · Internet</text>
+  <line x1="720" y1="10" x2="720" y2="182" stroke="#0A0A14" stroke-width="2" stroke-dasharray="4 4"/>
+  <text x="714" y="100" class="border" transform="rotate(-90 714 100)" text-anchor="middle">FRONTIÈRE DU POSTE</text>
+
+  <g class="node"><rect x="20" y="70" width="110" height="54" rx="10"/><text x="75" y="93" text-anchor="middle" class="nt">Navigateur</text><text x="75" y="111" text-anchor="middle" class="ns">vue humain</text></g>
+  <g class="node harn"><rect x="170" y="40" width="250" height="120" rx="12"/><text x="186" y="62" class="nt">Harnais WaveStack</text><text x="186" y="78" class="ns">processus local</text>
+    <rect x="186" y="90" width="104" height="26" rx="6" class="brk"/><text x="238" y="107" text-anchor="middle" class="bt">Prompt système</text>
+    <rect x="298" y="90" width="108" height="26" rx="6" class="brk"/><text x="352" y="107" text-anchor="middle" class="bt">Mémoire courte</text>
+    <rect x="186" y="122" width="104" height="26" rx="6" class="brk"/><text x="238" y="139" text-anchor="middle" class="bt">Outil heure</text>
+    <rect x="298" y="122" width="108" height="26" rx="6" class="brk"/><text x="352" y="139" text-anchor="middle" class="bt">Client MCP</text></g>
+  <g class="node"><rect x="470" y="34" width="210" height="54" rx="10"/><text x="484" y="57" class="nt">Modèle Qwen3.5 2B</text><text x="484" y="75" class="ns">processus local · CPU</text></g>
+  <g class="node"><rect x="470" y="110" width="210" height="54" rx="10"/><text x="484" y="133" class="nt">Serveur MCP local</text><text x="484" y="151" class="ns">processus local</text></g>
+
+  <g class="node net live"><rect x="756" y="40" width="262" height="58" rx="10"/><text x="772" y="63" class="nt">MCP data.gouv.fr</text><text x="772" y="82" class="ns">service réseau · en cours 1,2 s</text></g>
+  <g class="node net off"><rect x="756" y="116" width="262" height="54" rx="10"/><text x="772" y="139" class="nt">MCP Microsoft Learn</text><text x="772" y="157" class="ns">service réseau · indisponible</text></g>
+
+  <line x1="130" y1="97" x2="168" y2="97" class="ed" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <line x1="420" y1="70" x2="468" y2="62" class="ed" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <line x1="420" y1="130" x2="468" y2="137" class="ed" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <path d="M420 100 C 560 100, 600 69, 754 69" class="ed netedge" marker-end="url(#ahn)"/>
+  <rect x="545" y="91" width="130" height="18" rx="4" fill="#FFCA4A" stroke="#0A0A14"/><text x="610" y="104" text-anchor="middle" class="payload">« cybersécurité »</text>
+</svg></section></div></div>
+
+<h2 class="sec"><span class="eyebrow">4 · Jauge de contexte</span> Détail façon <code>/context</code> et dépassement</h2>
+<div class="cdrow">
+<div class="cdetail"><div class="cdh"><b>Contexte · appel n° 2 · 4 450 / 8 192 tokens (54 %)</b><span class="muted">Un carré ≈ 41 tokens</span></div>
+<div class="cdb"><div class="cgrid"><i class="cell s-sys"></i><i class="cell s-sys"></i><i class="cell s-sys"></i><i class="cell s-sys"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-tools"></i><i class="cell s-hist"></i><i class="cell s-hist"></i><i class="cell s-hist"></i><i class="cell s-hist"></i><i class="cell s-hist"></i><i class="cell s-hist"></i><i class="cell s-hist"></i><i class="cell s-hist"></i><i class="cell s-hist"></i><i class="cell s-hist"></i><i class="cell s-hist"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-res"></i><i class="cell s-msg"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i><i class="cell s-free"></i></div><table class="ctab"><thead><tr><th>Segment (brique)</th><th>Tokens</th><th>Part</th></tr></thead><tbody><tr><td><i class="sw s-sys"></i>Prompt système</td><td class="num">180</td><td class="num">2 %</td></tr><tr><td><i class="sw s-mem"></i>Mémoire globale</td><td class="num">0</td><td class="num">0 %</td></tr><tr><td><i class="sw s-tools"></i>Descriptions d'outils et MCP</td><td class="num">3 140</td><td class="num">38 %</td></tr><tr><td><i class="sw s-hist"></i>Historique</td><td class="num">460</td><td class="num">6 %</td></tr><tr><td><i class="sw s-rag"></i>Extraits RAG</td><td class="num">0</td><td class="num">0 %</td></tr><tr><td><i class="sw s-res"></i>Résultats d'outils</td><td class="num">610</td><td class="num">7 %</td></tr><tr><td><i class="sw s-msg"></i>Message et gabarit</td><td class="num">60</td><td class="num">1 %</td></tr><tr class="free"><td><i class="sw s-free"></i>Espace libre</td><td class="num">3 742</td><td class="num">46 %</td></tr></tbody></table></div></div>
+<div class="cdcol">
+<div class="warnbar"><div class="glabel"><span class="eyebrow">Contexte</span><b>92 %</b><span class="muted">7 500 / 8 192 tokens</span><span class="alert">⚠ Proche de la limite</span></div><div class="gbar"><i class="seg s-sys" style="width:2.20%" title="Prompt système · 180 tokens"></i><i class="seg s-mem" style="width:2.93%" title="Mémoire globale · 240 tokens"></i><i class="seg s-tools" style="width:75.68%" title="Descriptions d'outils et MCP · 6 200 tokens"></i><i class="seg s-hist" style="width:10.01%" title="Historique · 820 tokens"></i><i class="seg s-msg" style="width:0.73%" title="Message et gabarit · 60 tokens"></i><i class="seg s-free"></i></div></div>
+<div class="event err">
+  <div class="dh"><b>⛔ Contexte dépassé — l'appel au modèle n'a pas été envoyé</b></div>
+  <p><b>9 140 / 8 192 tokens.</b> Les descriptions d'outils de trois serveurs MCP publics (data.gouv.fr, Microsoft Learn, Hugging Face) dépassent à elles seules la fenêtre de ce modèle.</p>
+  <p class="eyebrow">En production, un harnais pourrait</p>
+  <ul><li>tronquer les messages les plus anciens (fenêtre glissante) ;</li><li>résumer l'historique (compaction) ;</li><li>retirer les anciens résultats d'outils ;</li><li>ne charger la documentation des outils qu'à la demande (lazy loading).</li></ul>
+  <p class="eyebrow">Pour continuer la démo</p>
+  <p>Passer le MCP en lazy loading, désactiver un serveur ou vider la conversation.</p>
+</div>
+</div></div>
+<p class="note" style="margin-top:14px"><b>Palette des segments</b>, ordre d'empilement fixe, validée pour les segments voisins : prompt système, mémoire globale, descriptions d'outils et MCP, historique, extraits RAG, résultats d'outils, message et gabarit, puis l'espace libre hachuré. Le jaune reste réservé au <b>réseau</b>.</p>
+</div></body></html>

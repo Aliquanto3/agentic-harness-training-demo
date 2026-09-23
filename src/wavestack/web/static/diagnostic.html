@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>WaveStack — Diagnostic de démarrage</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.4rem; }
+    ul { list-style: none; padding: 0; }
+    li { padding: 0.6rem; border-radius: 6px; margin-bottom: 0.5rem; }
+    li.ok { background: #e6f4ea; }
+    li.warn { background: #fff4e0; }
+    li.fail, li.incompatible { background: #fce8e6; }
+    li.found, li.server { background: #e6f4ea; }
+    .action { font-size: 0.9rem; color: #444; }
+    #select-model { margin-top: 1.5rem; display: none; }
+    input[type="text"] { width: 100%; padding: 0.4rem; box-sizing: border-box; }
+    button { margin-top: 0.5rem; padding: 0.4rem 1rem; }
+    #select-model-status { font-size: 0.9rem; }
+    h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Diagnostic de démarrage WaveStack</h1>
+  <ul id="checks"></ul>
+
+  <h2>Modèles détectés</h2>
+  <ul id="candidates"></ul>
+
+  <div id="select-model">
+    <p>Aucun modèle utilisable n'a été trouvé. Indiquez le chemin d'un fichier GGUF :</p>
+    <input type="text" id="model-path" placeholder="C:\chemin\vers\modele.gguf" />
+    <button id="submit-path">Vérifier ce fichier</button>
+    <p id="select-model-status"></p>
+  </div>
+
+  <script type="module">
+    const checksEl = document.getElementById("checks");
+    const candidatesEl = document.getElementById("candidates");
+    const selectModelEl = document.getElementById("select-model");
+    const selectStatusEl = document.getElementById("select-model-status");
+    const items = new Map();
+
+    function renderCheck(payload) {
+      let li = items.get(payload.check);
+      if (!li) {
+        li = document.createElement("li");
+        items.set(payload.check, li);
+        checksEl.appendChild(li);
+      }
+      li.className = payload.status;
+      li.innerHTML = `<strong>${payload.check}</strong> — ${payload.message_fr}` +
+        (payload.action_fr ? `<div class="action">${payload.action_fr}</div>` : "");
+      if (payload.check === "model") {
+        selectModelEl.style.display = payload.status === "fail" ? "block" : "none";
+        loadDiagnostic();
+      }
+    }
+
+    function renderHarnessError(payload) {
+      const li = document.createElement("li");
+      li.className = "fail";
+      li.innerHTML = `<strong>erreur</strong> — ${payload.message_fr}` +
+        (payload.cause ? `<div class="action">${payload.cause}</div>` : "");
+      checksEl.appendChild(li);
+    }
+
+    function renderCandidates(candidates) {
+      candidatesEl.innerHTML = "";
+      if (!candidates.length) {
+        const li = document.createElement("li");
+        li.textContent = "Aucun candidat trouvé.";
+        candidatesEl.appendChild(li);
+        return;
+      }
+      for (const c of candidates) {
+        const li = document.createElement("li");
+        li.className = c.status;
+        li.textContent = `${c.source} — ${c.status}` +
+          (c.reason ? ` : ${c.reason}` : "") +
+          (c.path ? ` (${c.path})` : c.server_url ? ` (${c.server_url})` : "");
+        candidatesEl.appendChild(li);
+      }
+    }
+
+    async function loadDiagnostic() {
+      const response = await fetch("/api/diagnostic");
+      const body = await response.json();
+      renderCandidates(body.candidates || []);
+    }
+    loadDiagnostic();
+
+    const source = new EventSource("/api/diagnostic/stream");
+    source.addEventListener("diagnostic_check", (event) => {
+      renderCheck(JSON.parse(event.data).payload);
+    });
+    source.addEventListener("harness_error", (event) => {
+      renderHarnessError(JSON.parse(event.data).payload);
+    });
+
+    document.getElementById("submit-path").addEventListener("click", async () => {
+      const path = document.getElementById("model-path").value.trim();
+      if (!path) return;
+      selectStatusEl.textContent = "Vérification en cours…";
+      const response = await fetch("/api/intentions/select_model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const body = await response.json();
+      selectStatusEl.textContent = body.ready
+        ? "Modèle prêt."
+        : `Toujours bloqué : ${(body.blocking_checks || []).join(", ") || "voir ci-dessus"}.`;
+      loadDiagnostic();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# Configuration par défaut de WaveStack.
+# Surchargée par settings.json (dans le dossier de données, AD-20), jamais l'inverse.
+
+[server]
+port = 8420
+
+[net]
+# Hôtes autorisés pour toute sortie réseau (AD-15). Les suffixes "*.host" sont acceptés.
+allowed_hosts = [
+    "huggingface.co",
+    "*.hf.co",
+]
+# Adresse fixe utilisée par la sonde de connectivité du diagnostic (CAP-39).
+connectivity_probe_host = "huggingface.co"
+
+[net.loopback_ports]
+# Serveurs locaux déjà lancés, sondés jamais lancés (AD-7).
+ollama = 11434
+llama_server = 8080
+
+[context]
+window = 4096
+near_limit_ratio = 0.8

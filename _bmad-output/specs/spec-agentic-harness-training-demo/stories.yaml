@@ -1,0 +1,120 @@
+- id: "1"
+  title: Fondations : lancement, diagnostic, modèle local
+  description: >-
+    Installation sans droits admin, lancement en une commande, diagnostic de démarrage,
+    et détection d'un modèle depuis un fichier ou déjà présent sur le poste (CAP-36 à
+    CAP-39). Pas encore de brique ni d'interface : cli, config et models seulement.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter cli/config/models selon AD-7 (découverte + sonde GGUF), AD-20 (dossier
+    de données hors dépôt), AD-21 (lancement, diagnostic bloquant terminal + navigateur).
+
+- id: "2"
+  title: Interface à volets et journal d'événements
+  description: >-
+    Les 5 volets synchronisés (vue humain, contexte LLM, orchestration, schéma
+    d'architecture, panneau des briques) et le journal d'événements qui les alimente
+    (CAP-1 à CAP-4), sans encore de brique active.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter trace (AD-2, enveloppe et catalogue d'événements) et web (AD-18,
+    FastAPI + SSE + front JS natif sans compilation) ; respecter AD-1 (l'interface
+    ne recalcule rien, tout vient du journal).
+
+- id: "3"
+  title: LLM nu, compteur de tokens, jauge
+  description: >-
+    Premier tour de bout en bout sans aucune brique : contexte rendu et attribué
+    exactement, compteur de tokens et jauge de remplissage (CAP-9, CAP-31, CAP-33,
+    CAP-35).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter context (AD-4, segments et rendu par sentinelles), le port Engine
+    (AD-5, llama-cpp-python), le registre de capacités (AD-6) et la fenêtre/jauge
+    (AD-9). C'est le tour minimal dont tout le reste dépend.
+
+- id: "4"
+  title: Mémoire courte, prompt système, activation des briques
+  description: >-
+    Premières briques activables/désactivables depuis le panneau, avec leur
+    explication pédagogique (CAP-5, CAP-6, CAP-11, CAP-12).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter le contrat de brique et sa disponibilité au point unique (AD-12),
+    et l'instantané conversationnel (AD-17) pour que la mémoire courte survive au
+    rejeu (rejeu lui-même en story 9).
+
+- id: "5"
+  title: Outils natifs
+  description: >-
+    Catalogue d'outils hors ligne (heure, calculatrice, lecture de fichier confiné)
+    et réseau (jours fériés, Wikipedia, page web), avec cycle d'appel et échecs
+    visibles (CAP-14 à CAP-16).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter le registre et l'exécuteur d'outils uniques avec confinement
+    (AD-14), et la fabrique réseau tracée (AD-15) pour les outils réseau — premier
+    usage de la garde réseau, à vérifier avant d'ouvrir MCP en story 6.
+
+- id: "6"
+  title: MCP local et public
+  description: >-
+    Serveur MCP local en stdio, connexion à data.gouv.fr et Microsoft Learn,
+    bascule documentation complète / lazy loading (CAP-20 à CAP-23).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter mcp (client stdio et Streamable HTTP), l'intégration à l'exécuteur
+    unique et au lazy loading (AD-14, AD-25), et étendre la garde réseau au second
+    transport (AD-15).
+
+- id: "7"
+  title: Skills, dont Caveman
+  description: >-
+    Catalogue de skills avec chargement progressif visible, dont le skill Caveman
+    (CAP-24 à CAP-26).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter le méta-outil load_skill (AD-25) et le contenu content/skills
+    (AD-19) ; réutilise le mécanisme de chargement progressif déjà posé pour MCP.
+
+- id: "8"
+  title: Hooks H1/H2/H3/H5
+  description: >-
+    Quatre hooks démonstratifs activables séparément — garde-fou fichier sensible,
+    journal d'audit, injection de contexte, validation humaine (CAP-27 à CAP-29).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter les points d'accroche et la signature de hook (AD-13), en
+    particulier ask_human/awaiting_human (AD-3, AD-13) pour H5. Point sensible
+    (garde-fou, human-in-the-loop) : à faire vérifier avant la story suivante.
+
+- id: "9"
+  title: Déclenchement forcé et rejeu
+  description: >-
+    L'utilisateur peut forcer toute action (outil, mémoire, skill, MCP) et rejouer
+    le dernier prompt avec une autre configuration (CAP-7, CAP-8).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter les actions armées (AD-3), les méta-outils remember/load_tool_doc/
+    delegate restants (AD-25) et l'instantané/rejeu complet (AD-17). Dépend des
+    stories 4 à 8 pour être démontrable sur toutes les briques du palier 1.
+
+- id: "10"
+  title: Scénarios par brique, programme, réinitialisation
+  description: >-
+    Au moins un scénario par brique, programme en modules, réinitialisation rapide
+    (CAP-40, CAP-41) — clôture le palier 1.
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter le schéma de contenu des scénarios (AD-19) et la réinitialisation
+    (AD-17). Un scénario par brique construite dans les stories 1 à 9.

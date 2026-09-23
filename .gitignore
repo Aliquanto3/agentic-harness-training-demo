@@ -1,0 +1,34 @@
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Front
+node_modules/
+
+# Secrets & local config
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+
+# Local models, indexes, runtime data (repo-root only: /models/ would also
+# match src/wavestack/models/, the Python package, without the leading slash)
+/models/
+data/indexes/
+*.gguf
+*.safetensors
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
