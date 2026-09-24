@@ -1,20 +1,30 @@
-"""Story 8: hooks H1, H2, H3 at the turn's points, decisions and effects (AD-13, AD-14, AD-23)."""
+"""Stories 8 and 8b: hooks H1, H2, H3, H5 at the turn's points, decisions and effects (AD-13,
+AD-14, AD-23), H5's human validation included."""
 
 from __future__ import annotations
 
+import json
 import shutil
+import time
 from datetime import datetime
+from types import SimpleNamespace
 
+import httpx
+import httpx2
 import pytest
 from fake_engine import CHATML, FakeEngine
 from test_bricks import HEADERS, _client
+from test_mcp import MSLEARN_TOOLS, McpWeb, enable, loop, mcp_session  # noqa: F401 - fixture
 from test_mcp_lazy import exact
-from test_tools import QWEN, _segments, call
+from test_tools import QWEN, _segments, call, web  # noqa: F401 - fixture
 from test_turn import _run
 
 from wavestack import config
 from wavestack.bricks.registry import HOOKS
-from wavestack.hooks import DEMO_HOOKS, Hook, HookContext, HookResult, date_fr, guard
+from wavestack.hooks import DEMO_HOOKS, Hook, HookContext, HookResult, ask, date_fr, guard
+from wavestack.mcp import connection
+from wavestack.mcp.servers import McpServer
+from wavestack.net.factory import create_async_client
 from wavestack.session.app_session import AppSession
 from wavestack.tools.native import NATIVE_TOOLS, demo_dir
 from wavestack.tools.parser import ToolCall
@@ -73,7 +83,7 @@ def fake_hooks(hook_id: str, point: str, decision: str, arguments=None) -> tuple
 # ---------- I/O matrix ----------
 
 
-def test_activation_enables_the_three_hooks_and_draws_them_with_the_audit_log():
+def test_activation_enables_three_hooks_of_four_and_draws_them_with_the_audit_log():
     mark = get_journal().last_seq()
     _, session = hooks_session(tools=False)
 
@@ -81,12 +91,14 @@ def test_activation_enables_the_three_hooks_and_draws_them_with_the_audit_log():
         b for b in since(mark, "bricks_changed")[-1].payload["bricks"] if b["id"] == "hooks"
     )
     assert card["available"] and card["category"] == "harness"
-    assert [(o["id"], o["enabled"]) for o in card["options"]] == [(h, True) for h in HOOKS]
+    # Q1 (8b): H5 starts disabled, « Hooks : 3 activés sur 4 ».
+    assert [(o["id"], o["enabled"]) for o in card["options"]] == [(h, h != "h5") for h in HOOKS]
+    assert card["options"][3]["label_fr"] == "Validation humaine"
     assert card["options"][0]["label_fr"] == "Garde-fou fichier sensible"
     arch = since(mark, "architecture_changed")[-1].payload
     nodes = {n["id"]: n for n in arch["nodes"]}
     assert [n for n in nodes if n.startswith("hooks.")] == ["hooks.h1", "hooks.h2", "hooks.h3"]
-    assert {nodes[f"hooks.{h}"]["kind"] for h in HOOKS} == {"hook"}
+    assert {nodes[f"hooks.{h}"]["kind"] for h in ("h1", "h2", "h3")} == {"hook"}
     assert nodes["hooks.h1"]["detail_fr"].startswith("Avant l'exécution d'un outil")
     audit = nodes["file.audit"]
     assert audit["label_fr"] == "Journal d'audit" and audit["kind"] == "file"
@@ -419,10 +431,340 @@ def test_hook_sub_option_is_pending_kept_across_the_brick_and_http():
     card = next(
         b for b in since(mark, "bricks_changed")[-1].payload["bricks"] if b["id"] == "hooks"
     )
-    assert card["pending"] and [o["enabled"] for o in card["options"]] == [True, False, True]
+    assert card["pending"] and [o["enabled"] for o in card["options"]] == [True, False, True, False]
     nodes = {n["id"] for n in since(mark, "architecture_changed")[-1].payload["nodes"]}
     assert "hooks.h2" not in nodes and "file.audit" not in nodes
     session.set_brick("hooks", False)
     session.set_brick("hooks", True)  # Q1: the choices stay
     assert session.build_turn_state().hooks == ("h1", "h3")
+    session.close()
+
+
+# ---------- story 8b: H5, human validation before any network call ----------
+
+ASKED = "awaiting_human"
+HOLIDAYS = {"2026-01-01": "1er janvier"}
+HOLIDAYS_HOST = "calendrier.api.gouv.fr"
+
+
+def h5_session(outputs, tool="public_holidays", *, h5=True):
+    _, session = hooks_session(outputs)
+    session.set_tool(tool, True)
+    if h5:
+        session.set_hook("h5", True)
+    session.join()
+    return session
+
+
+def wait_asked(mark: int, n: int = 1):
+    """The `n`-th `approval_requested` since `mark`, once the session waits for it."""
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        waiting = [e for e in since(mark, "session_state") if e.payload["state"] == ASKED]
+        if len(waiting) >= n:
+            return since(mark, "approval_requested")[n - 1]
+        time.sleep(0.01)
+    raise AssertionError("no validation asked")
+
+
+def run_asked(session, message: str, *answers) -> dict[str, list[dict]]:
+    """Send `message`; each `answer(asked)` runs on this thread once the n-th validation
+    waits, as the user's click would; then waits for the turn. Payloads by kind."""
+    mark = get_journal().last_seq()
+    session.send(message)
+    for n, answer in enumerate(answers, 1):
+        answer(wait_asked(mark, n))
+    session.join()
+    events: dict[str, list[dict]] = {}
+    for envelope in get_journal().events_since(mark):
+        events.setdefault(envelope.kind, []).append(envelope.payload)
+    return events
+
+
+def answer(session, approved: bool, disable_hook: bool = False):
+    return lambda asked: session.answer_approval(
+        asked.payload["approval_id"], approved, disable_hook
+    )
+
+
+def test_h5_approved_the_request_leaves_only_after_the_click(web):  # noqa: F811
+    sent = web(lambda r: httpx.Response(200, json=HOLIDAYS))
+    session = h5_session([call("public_holidays", year="2026"), "Le 1er janvier."])
+    mark = get_journal().last_seq()
+    before_click = []
+
+    def look_then_approve(asked):
+        before_click.extend(sent)
+        assert session.state == ASKED
+        answer(session, True)(asked)
+
+    events = run_asked(session, "Jours fériés 2026 ?", look_then_approve)
+
+    assert before_click == []  # AD-13: nothing leaves before the answer
+    assert ("h5", "before_tool", "ask_human") in decisions(events)
+    (asked,) = since(mark, "approval_requested")
+    preview = session._registry.get("public_holidays").preview(year=2026)
+    assert asked.payload == {
+        "approval_id": "t1.a1",
+        "tool": "public_holidays",
+        "destination": HOLIDAYS_HOST,
+        "preview": preview,
+    }
+    assert (asked.brick, asked.component) == ("hooks", "hooks.h5")
+    decided = next(e for e in since(mark, "hook_decided") if e.payload["hook"] == "h5")
+    (resolved,) = since(mark, "approval_resolved")
+    assert asked.step_id == decided.step_id == resolved.step_id  # the hook's own step
+    assert resolved.actor == "user"
+    assert resolved.payload == {
+        "approval_id": "t1.a1",
+        "decision": "approved",
+        "hook_disabled": False,
+    }
+    assert [p["state"] for p in events["session_state"]] == ["turn", ASKED, "turn", "idle"]
+    assert len(sent) == 1 and events["tool_ended"][0]["status"] == "ok"
+    (outbound,) = events["outbound_request"]
+    assert {k: outbound[k] for k in ("method", "url", "body")} == preview
+    assert ("h2", "after_tool", "allow") in decisions(events)
+    assert events["turn_ended"][0]["status"] == "completed"
+    (line,) = [line for line in audit_lines() if "validation humaine" in line]
+    assert line.endswith(f"| validation humaine | public_holidays vers {HOLIDAYS_HOST} | autorisé")
+    check(events, mark)
+    session.close()
+
+
+def test_h5_refused_nothing_leaves_and_the_refusal_is_reinjected(web):  # noqa: F811
+    sent = web(lambda r: httpx.Response(200, json=HOLIDAYS))
+    session = h5_session([call("public_holidays", year="2026"), "Je n'ai pas pu vérifier."])
+    mark = get_journal().last_seq()
+
+    events = run_asked(session, "Jours fériés 2026 ?", answer(session, False))
+
+    assert sent == [] and "outbound_request" not in events
+    assert "tool_started" not in events and "tool_ended" not in events
+    assert events["approval_resolved"][0]["decision"] == "refused"
+    (refusal,) = _segments(events["context_rendered"][1], "tool_result")
+    assert refusal["text"] == (
+        "Refusé par l'utilisateur (validation humaine) : l'appel à « public_holidays » vers "
+        f"{HOLIDAYS_HOST} n'a pas été envoyé."
+    )
+    assert (refusal["brick"], refusal["component"]) == ("hooks", "hooks.h5")
+    assert "tool_call_malformed" not in events and "limit_reached" not in events  # no retry
+    assert events["turn_ended"][0]["status"] == "completed"
+    assert events["model_call_ended"][-1]["text"] == "Je n'ai pas pu vérifier."
+    (line,) = [line for line in audit_lines() if "validation humaine" in line]
+    assert line.endswith(f"| validation humaine | public_holidays vers {HOLIDAYS_HOST} | refusé")
+    check(events, mark)
+    session.close()
+
+
+def test_h5_approve_and_stop_asking_disables_it_for_the_rest_of_the_turn(web):  # noqa: F811
+    sent = web(lambda r: httpx.Response(200, json=HOLIDAYS))
+    outputs = [call("public_holidays", year="2026"), call("public_holidays", year="2027"), "Ok."]
+    session = h5_session(outputs)
+    mark = get_journal().last_seq()
+
+    events = run_asked(session, "Jours fériés 2026 et 2027 ?", answer(session, True, True))
+
+    assert len(events["approval_requested"]) == 1 and len(sent) == 2
+    assert events["approval_resolved"][0]["hook_disabled"] is True
+    assert [p["hook"] for p in events["hook_decided"]].count("h5") == 1
+    card = next(b for b in events["bricks_changed"][-1]["bricks"] if b["id"] == "hooks")
+    assert [o["enabled"] for o in card["options"]] == [True, True, True, False]
+    assert not card["pending"]  # no « Prend effet au prochain tour »
+    nodes = {n["id"] for n in events["architecture_changed"][-1]["nodes"]}
+    assert "hooks.h5" not in nodes
+    assert session.build_turn_state().hooks == ("h1", "h2", "h3")
+    check(events, mark)
+    session.set_hook("h5", True)  # the next turn asks again: nothing left switched off
+    session._engine.outputs += [call("public_holidays", year="2028"), "Ok."]
+    again = run_asked(session, "Et 2028 ?", answer(session, True))
+    assert len(again["approval_requested"]) == 1 and len(sent) == 3
+    session.close()
+
+
+def test_h5_stop_while_waiting_cancels_and_sends_nothing(web):  # noqa: F811
+    sent = web(lambda r: httpx.Response(200, json=HOLIDAYS))
+    session = h5_session([call("public_holidays", year="2026"), "Jamais lu."])
+
+    events = run_asked(session, "Jours fériés 2026 ?", lambda asked: session.stop())
+
+    assert sent == [] and "tool_started" not in events
+    assert events["approval_resolved"][0]["decision"] == "cancelled"
+    assert events["turn_ended"][0]["status"] == "cancelled"
+    assert session.state == "idle"
+    assert any(line.endswith("| annulé") for line in audit_lines())
+    session.close()
+
+
+def test_h5_stop_just_before_the_wait_cancels_without_waiting(web):  # noqa: F811
+    sent = web(lambda r: httpx.Response(200, json=HOLIDAYS))
+    session = h5_session([call("public_holidays", year="2026"), "Jamais lu."])
+
+    def stop_when_asking(envelope) -> None:
+        if envelope.kind == "hook_decided" and envelope.payload["decision"] == "ask_human":
+            session.stop()  # still in `turn`: the wait must not begin
+
+    get_journal().subscribe(stop_when_asking)
+    try:
+        events = _run(session, "Jours fériés 2026 ?")
+    finally:
+        get_journal().unsubscribe(stop_when_asking)
+
+    assert events["approval_resolved"][0]["decision"] == "cancelled"
+    assert events["turn_ended"][0]["status"] == "cancelled"
+    assert ASKED not in [p["state"] for p in events["session_state"]]
+    assert sent == [] and "tool_started" not in events
+    session.close()
+
+
+def test_h5_asks_with_the_host_the_sender_parses(web):  # noqa: F811
+    sent = web(lambda r: httpx.Response(200, text="page"))
+    url = "https://x]@fr.wikipedia.org/"  # `urlsplit` rejects it, httpx sends it
+    session = h5_session([call("fetch_page", url=url), "Non."], "fetch_page")
+    before_answer = []
+
+    def look_then_refuse(asked):
+        before_answer.extend(sent)
+        answer(session, False)(asked)
+
+    events = run_asked(session, "Lis cette page", look_then_refuse)
+
+    (asked,) = events["approval_requested"]
+    assert asked["destination"] == "fr.wikipedia.org"
+    assert before_answer == [] and sent == []
+    assert "harness_error" not in events  # H5 did not fail open
+    session.close()
+
+
+def test_h5_close_while_waiting_never_hangs(web):  # noqa: F811
+    web(lambda r: httpx.Response(200, json=HOLIDAYS))
+    session = h5_session([call("public_holidays", year="2026"), "Jamais lu."])
+    mark = get_journal().last_seq()
+    session.send("Jours fériés 2026 ?")
+    wait_asked(mark)
+
+    session.close()  # through `stop()`
+
+    assert since(mark, "turn_ended")[0].payload["status"] == "cancelled"
+
+
+def test_h5_http_first_answer_wins_and_state_shows_the_pending_validation(web):  # noqa: F811
+    web(lambda r: httpx.Response(200, json=HOLIDAYS))
+    session = h5_session([call("public_holidays", year="2026"), "Voilà."])
+    client = _client(session)
+    mark = get_journal().last_seq()
+    assert client.get("/api/state").json()["pending_approval"] is None
+    session.send("Jours fériés 2026 ?")
+    asked = wait_asked(mark)
+
+    def post(**body):
+        return client.post("/api/intentions/approval", json=body, headers=HEADERS)
+
+    assert client.get("/api/state").json()["pending_approval"] == asked.payload
+    unknown = post(approval_id="t9.a1", approved=True)
+    assert unknown.status_code == 409 and "t9.a1" in unknown.json()["detail"]
+    approval_id = asked.payload["approval_id"]
+    first = post(approval_id=approval_id, approved=False, disable_hook=True)
+    second = post(approval_id=approval_id, approved=True)
+    session.join()
+
+    assert first.status_code == 200 and first.json() == {"accepted": True}
+    assert second.status_code == 409 and second.json()["detail"]
+    (resolved,) = since(mark, "approval_resolved")
+    # The first answer wins; `disable_hook` only counts with `approved`.
+    assert resolved.payload["decision"] == "refused" and not resolved.payload["hook_disabled"]
+    assert "h5" in session.build_turn_state().hooks
+    assert client.get("/api/state").json()["pending_approval"] is None
+    assert post(approval_id=approval_id, approved=True).status_code == 409  # out of any wait
+    session.close()
+
+
+def test_h5_host_outside_the_list_is_left_to_the_executor(web):  # noqa: F811
+    sent = web(lambda r: httpx.Response(200, text="page"))
+    session = h5_session([call("fetch_page", url="https://exemple.com"), "Non."], "fetch_page")
+    mark = get_journal().last_seq()
+
+    events = _run(session, "Lis https://exemple.com")
+
+    assert "approval_requested" not in events and sent == []
+    assert all(hook != "h5" for hook, _, _ in decisions(events))
+    assert events["tool_ended"][0]["status"] == "error"
+    assert "Adresse refusée" in events["tool_ended"][0]["error_fr"]
+    check(events, mark)
+    session.close()
+
+
+def test_h5_does_not_ask_for_a_local_tool():
+    session = h5_session([call("get_datetime"), "Il est midi."], "get_datetime")
+    mark = get_journal().last_seq()
+
+    events = _run(session, "Quelle heure est-il ?")
+
+    assert "approval_requested" not in events
+    assert all(hook != "h5" for hook, _, _ in decisions(events))
+    assert events["tool_ended"][0]["status"] == "ok"
+    check(events, mark)
+    session.close()
+
+
+def test_h5_off_the_network_call_leaves_without_asking(web):  # noqa: F811
+    sent = web(lambda r: httpx.Response(200, json=HOLIDAYS))
+    session = h5_session([call("public_holidays", year="2026"), "Voilà."], h5=False)
+
+    events = _run(session, "Jours fériés 2026 ?")
+
+    assert "approval_requested" not in events and len(sent) == 1
+    session.close()
+
+
+def test_h5_public_mcp_preview_is_the_tools_call_body(loop, monkeypatch):  # noqa: F811
+    server = McpWeb(MSLEARN_TOOLS)
+    monkeypatch.setattr(
+        connection,
+        "create_async_client",
+        lambda **kw: create_async_client(transport=httpx2.MockTransport(server), **kw),
+    )
+    outputs = [call("mslearn__microsoft_docs_search", query="accès conditionnel"), "Voilà."]
+    session = mcp_session(loop, outputs)
+    session.set_mcp_server("local", False)
+    enable(session, "mslearn")
+    session.set_brick("hooks", True)
+    session.set_hook("h5", True)
+    session.join()
+    posted = []
+
+    def look_then_approve(asked):
+        posted.extend(r for r in server.sent if b"tools/call" in r.content)
+        answer(session, True)(asked)
+
+    events = run_asked(session, "Accès conditionnel ?", look_then_approve)
+
+    assert posted == []
+    (asked,) = events["approval_requested"]
+    url = session._mcp_servers["mslearn"].url
+    assert asked["destination"] == httpx.URL(url).host
+    assert (asked["preview"]["method"], asked["preview"]["url"]) == ("POST", url)
+    body = json.loads(asked["preview"]["body"])
+    assert body == {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+            "name": "microsoft_docs_search",  # the server's own name
+            "arguments": {"query": "accès conditionnel"},
+            "_meta": {},
+        },
+    }
+    (outbound,) = [p for p in events["outbound_request"] if "tools/call" in p["body"]]
+    sent_body = json.loads(outbound["body"])
+    assert {k: v for k, v in sent_body.items() if k != "id"} == body  # but the JSON-RPC id
+    assert events["tool_ended"][0]["status"] == "ok"
+    session.close()
+
+
+def test_h5_is_not_concerned_by_the_local_mcp_server():
+    _, session = hooks_session(tools=False)
+    tool = SimpleNamespace(name="define_term", input_schema={}, description="Définit un terme.")
+    spec = session._mcp_spec(McpServer("local", None), None, tool)
+    ctx = HookContext("before_tool", "t1", call=ToolCall("local__define_term", {}), spec=spec)
+    assert spec.preview is None and ask(ctx) is None
     session.close()

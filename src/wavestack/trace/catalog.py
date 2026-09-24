@@ -287,11 +287,10 @@ class McpConnectEndedPayload(BaseModel):
 
 
 # AD-13: `assemble_context` and `transform_context` stay brick steps (RAG, compression).
-# Story 8b adds `ask_human` to the decisions.
 HookPoint = Literal[
     "on_user_message", "before_model_call", "before_tool", "after_tool", "on_turn_end"
 ]
-HookDecision = Literal["allow", "modify", "block"]
+HookDecision = Literal["allow", "modify", "block", "ask_human"]  # ask_human: H5 (8b)
 
 
 class HookDecidedPayload(BaseModel):
@@ -307,6 +306,30 @@ class HookDecidedPayload(BaseModel):
 class EffectAppliedPayload(BaseModel):
     effect: Literal["audit_append"]
     lines: list[str]
+
+
+# ---------- story 8b: human validation (AD-13, AD-14) ----------
+
+
+class ApprovalPreview(BaseModel):
+    """Exactly what would leave the workstation (the tool's `preview`)."""
+
+    method: str
+    url: str
+    body: str
+
+
+class ApprovalRequestedPayload(BaseModel):
+    approval_id: str
+    tool: str
+    destination: str  # the URL's host
+    preview: ApprovalPreview
+
+
+class ApprovalResolvedPayload(BaseModel):
+    approval_id: str
+    decision: Literal["approved", "refused", "cancelled"]
+    hook_disabled: bool
 
 
 # Maps each kind to its payload model, so `Envelope` can validate it.
@@ -338,4 +361,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "mcp_connect_ended": McpConnectEndedPayload,
     "hook_decided": HookDecidedPayload,
     "effect_applied": EffectAppliedPayload,
+    "approval_requested": ApprovalRequestedPayload,
+    "approval_resolved": ApprovalResolvedPayload,
 }

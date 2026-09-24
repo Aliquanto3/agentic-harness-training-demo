@@ -560,6 +560,10 @@ body {
   margin: var(--spacing-1) 0 0;
 }
 
+.approval-actions {
+  margin-top: var(--spacing-2);
+}
+
 .overflow-card {
   border: var(--spacing-stroke-min) solid var(--color-danger);
   border-radius: var(--rounded-md);

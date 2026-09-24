@@ -63,6 +63,12 @@ class HookIntention(BaseModel):
     enabled: bool
 
 
+class ApprovalIntention(BaseModel):
+    approval_id: str
+    approved: bool
+    disable_hook: bool = False  # « Autoriser et ne plus demander »: only with `approved`
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -145,12 +151,17 @@ def create_app(
         preview = _latest(events, "context_preview")
         rendered = _latest(events, "context_rendered")
         bricks = _latest(events, "bricks_changed")
+        # H5: the last validation asked, while no resolution follows it (one at a time).
+        asked = _latest(events, "approval_requested")
+        resolved = _latest(events, "approval_resolved")
+        pending = asked.payload if asked and (not resolved or resolved.seq < asked.seq) else None
         return {
             "session_state": session_state.payload if session_state else None,
             "architecture_changed": architecture.payload if architecture else None,
             "context_preview": preview.model_dump(mode="json") if preview else None,
             "context_rendered": rendered.model_dump(mode="json") if rendered else None,
             "bricks_changed": bricks.payload if bricks else None,
+            "pending_approval": pending,
             "seq": seq,
         }
 
@@ -194,6 +205,17 @@ def create_app(
     def stop() -> dict[str, bool]:
         """Class (c): preemptive, arms the turn's CancelToken; no effect outside a turn."""
         return {"stopping": app_session.stop()}
+
+    @app.post("/api/intentions/approval")
+    def approval(intention: ApprovalIntention) -> dict[str, bool]:
+        """Class (c): answers the pending human validation (H5); the first answer wins."""
+        try:
+            app_session.answer_approval(
+                intention.approval_id, intention.approved, intention.disable_hook
+            )
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"accepted": True}
 
     @app.post("/api/intentions/brick")
     def brick(intention: BrickIntention) -> dict[str, bool]:

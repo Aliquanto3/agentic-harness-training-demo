@@ -237,6 +237,25 @@ function applyEnvelope(envelope) {
       if (step) step.lines.push(...p.lines);
       break;
     }
+    case "approval_requested": {
+      // H5: the validation asked, shown in its hook's step; the indicator waits for it.
+      const step = turn?.steps.filter((s) => s.type === "hook").at(-1);
+      if (step) step.approval = p;
+      if (turn) {
+        Object.assign(turn, {
+          phaseLabel: "En attente de validation",
+          callStartedAt: Date.parse(envelope.ts),
+          firstToken: false,
+        });
+      }
+      break;
+    }
+    case "approval_resolved": {
+      const step = turn?.steps.find((s) => s.approval?.approval_id === p.approval_id);
+      if (step) step.resolved = p;
+      if (turn) turn.phaseLabel = null;
+      break;
+    }
     case "tool_call_malformed":
     case "prefix_not_reused":
       if (turn) turn.steps.push({ type: envelope.kind, payload: p });
@@ -680,7 +699,7 @@ function renderComposer() {
   clear.disabled = state?.state !== "idle"; // class (b)
   clear.title = clear.disabled ? state?.reason_fr || "Disponible hors d'un tour." : "";
   const stop = document.getElementById("composer-stop");
-  stop.hidden = state?.state !== "turn";
+  stop.hidden = state?.state !== "turn" && state?.state !== "awaiting_human";
   stop.disabled = Boolean(activeTurn()?.stopRequested);
   const reason = document.getElementById("composer-reason");
   const text = store.composerError || (ready ? null : state?.reason_fr || "En attente du modèle…");
@@ -919,13 +938,76 @@ function outboundPayload(request) {
   return details;
 }
 
-const HOOK_DECISIONS = { allow: "laissé passer", modify: "modifié", block: "bloqué" };
+const HOOK_DECISIONS = {
+  allow: "laissé passer",
+  modify: "modifié",
+  block: "bloqué",
+  ask_human: "validation humaine demandée",
+};
+const APPROVAL_DECISIONS = { approved: "Autorisé", refused: "Refusé", cancelled: "Annulé : tour arrêté" };
+
+function approvalLines(step) {
+  // H5: tool, destination, exactly what would leave the workstation, then the three buttons
+  // while it waits, or the decision once answered (EXPERIENCE: human validation).
+  const a = step.approval;
+  const lines = [
+    el("p", "", `Outil : ${a.tool} · Destination : ${a.destination}`),
+    outboundPayload({ ...a.preview, seq: a.approval_id }),
+  ];
+  if (step.resolved) {
+    const r = step.resolved;
+    const text = `Décision : ${APPROVAL_DECISIONS[r.decision]}${r.hook_disabled ? " · H5 désactivé" : ""}`;
+    lines.push(el("p", "", text));
+    return lines;
+  }
+  const actions = el("div", "drawer-actions approval-actions");
+  const answer = async (approved, disableHook) => {
+    step.answering = true; // one answer per click, even across re-renders
+    render();
+    try {
+      const response = await postIntention("/api/intentions/approval", {
+        approval_id: a.approval_id,
+        approved,
+        disable_hook: disableHook,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        store.composerError = typeof body.detail === "string" ? body.detail : "Réponse refusée.";
+        step.answering = false;
+      }
+    } catch {
+      store.composerError = "WaveStack ne répond pas : la réponse n'a pas été transmise.";
+      step.answering = false;
+    }
+    render();
+  };
+  const waiting = store.sessionState?.state === "awaiting_human";
+  for (const [label, approved, disableHook, primary] of [
+    ["Autoriser", true, false, true],
+    ["Refuser", false, false, false],
+    ["Autoriser et ne plus demander", true, true, false],
+  ]) {
+    const button = el("button", primary ? "primary" : "", label);
+    button.type = "button";
+    button.disabled = !waiting || Boolean(step.answering);
+    button.addEventListener("click", () => answer(approved, disableHook));
+    actions.appendChild(button);
+  }
+  lines.push(actions);
+  return lines;
+}
 
 function hookCard(step) {
-  // EXPERIENCE: violet when the hook lets through or modifies, red when it blocks.
+  // EXPERIENCE: violet when the hook lets through, modifies or asks, red when it blocks.
   const p = step.payload;
   const block = p.decision === "block";
-  const title = block ? `Bloqué par le hook ${p.hook_fr.toLowerCase()}` : `Hook : ${p.point_fr.toLowerCase()}`;
+  const title = step.approval
+    ? step.resolved
+      ? "Validation humaine"
+      : "En attente de votre validation"
+    : block
+      ? `Bloqué par le hook ${p.hook_fr.toLowerCase()}`
+      : `Hook : ${p.point_fr.toLowerCase()}`;
   const lines = [
     el("p", "", `Point d'accroche : ${p.point_fr} · Hook : ${p.hook_fr}`),
     el("p", "", `Décision : ${HOOK_DECISIONS[p.decision]}. ${p.detail_fr}`),
@@ -937,10 +1019,14 @@ function hookCard(step) {
         : "Effet sur le tour : le tour s'arrête ici.";
     lines.push(el("p", "", effect));
   }
+  if (step.approval) lines.push(...approvalLines(step));
   if (step.lines.length) {
     lines.push(el("p", "label", "Lignes ajoutées au journal d'audit"), el("pre", "step-code", step.lines.join("\n")));
   }
-  lines.push(el("p", "label", "Décision du harnais (code), pas du modèle"));
+  const origin = step.approval
+    ? "Décision demandée par le harnais (code), pas par le modèle"
+    : "Décision du harnais (code), pas du modèle";
+  lines.push(el("p", "label", origin));
   return harnessEvent(title, block ? "error" : "info", lines);
 }
 

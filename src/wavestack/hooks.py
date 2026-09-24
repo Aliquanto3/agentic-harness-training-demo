@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import PurePath
 from typing import Any, NamedTuple, get_args
 
+import httpx
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
@@ -21,17 +22,16 @@ from wavestack import config
 from wavestack.session.effects import AuditAppend, Effect
 from wavestack.tools.native import _WEEKDAYS_FR, demo_dir, resolve_demo_path
 from wavestack.tools.parser import ToolCall
-from wavestack.tools.registry import ToolSpec
+from wavestack.tools.registry import ToolError, ToolSpec
 from wavestack.trace.catalog import HookDecision, HookPoint
 from wavestack.trace.envelope import Envelope
 
 POINTS: tuple[HookPoint, ...] = get_args(HookPoint)
 # AD-13: the decisions each point accepts; any other is traced and counts as `allow`.
-# `ask_human` joins `before_tool` with H5 (story 8b).
 ALLOWED: dict[HookPoint, frozenset[HookDecision]] = {
     "on_user_message": frozenset({"allow", "modify"}),
     "before_model_call": frozenset({"allow", "block"}),
-    "before_tool": frozenset({"allow", "block", "modify"}),
+    "before_tool": frozenset({"allow", "block", "modify", "ask_human"}),
     "after_tool": frozenset({"allow"}),
     "on_turn_end": frozenset({"allow", "block"}),
 }
@@ -51,6 +51,7 @@ _MONTHS_FR = (
     "novembre",
     "décembre",
 )
+_APPROVAL_FR = {"approved": "autorisé", "refused": "refusé", "cancelled": "annulé"}
 
 
 class HookText(BaseModel):
@@ -106,6 +107,7 @@ class HookResult:
     effects: tuple[Effect, ...] = ()
     injection: str | None = None  # on_user_message `modify`: the text placed before it
     arguments: dict[str, Any] | None = None  # before_tool `modify`: the new arguments
+    preview: dict[str, str] | None = None  # before_tool `ask_human`: {method, url, body}
 
 
 class Hook(NamedTuple):
@@ -159,6 +161,9 @@ def audit(ctx: HookContext) -> HookResult | None:
     )
     lines = []
     tool = "?"
+    asked = {  # a refused call has no `tool_started`: its tool and host come from here
+        e.payload["approval_id"]: e.payload for e in events if e.kind == "approval_requested"
+    }
     for event in events[last + 1 :]:
         p = event.payload
         if event.kind == "model_call_ended":
@@ -175,6 +180,11 @@ def audit(ctx: HookContext) -> HookResult | None:
         elif event.kind == "hook_decided" and p["decision"] == "block":
             what = f"appel bloqué par {p['hook'].upper()}"
             lines.append(_line(event.ts, ctx.turn_id, what, p["detail_fr"], "bloqué"))
+        elif event.kind == "approval_resolved":
+            request = asked.get(p["approval_id"], {"tool": "?", "destination": "?"})
+            detail = f"{request['tool']} vers {request['destination']}"
+            status = _APPROVAL_FR[p["decision"]]
+            lines.append(_line(event.ts, ctx.turn_id, "validation humaine", detail, status))
     if ctx.point == "on_turn_end":
         lines.append(_line(ctx.now, ctx.turn_id, "fin du tour", "", ctx.status or "?"))
     if not lines:
@@ -206,8 +216,35 @@ def inject(ctx: HookContext) -> HookResult | None:
     )
 
 
+# ---------- H5: human validation ----------
+
+
+def ask(ctx: HookContext) -> HookResult | None:
+    """Asks a human before any network tool sends its request, showing exactly what would
+    leave the workstation. A refused preview sends nothing: the executor refuses the call."""
+    spec, call = ctx.spec, ctx.call
+    if spec is None or call is None or not spec.network or spec.preview is None:
+        return None
+    try:
+        preview = spec.preview(**call.arguments)
+    except ToolError:
+        return None
+    return HookResult(
+        "ask_human",
+        f"L'appel à « {call.name} » enverrait une requête vers {host(preview['url'])} : le "
+        "harnais demande votre accord avant tout envoi.",
+        preview=preview,
+    )
+
+
+def host(url: str) -> str:
+    """The destination as the sender parses it (`httpx`), never another parser."""
+    return httpx.URL(url).host or url
+
+
 DEMO_HOOKS = (
     Hook("h1", frozenset({"before_tool"}), guard),
     Hook("h2", frozenset({"after_tool", "on_turn_end"}), audit),
     Hook("h3", frozenset({"on_user_message"}), inject),
+    Hook("h5", frozenset({"before_tool"}), ask),
 )

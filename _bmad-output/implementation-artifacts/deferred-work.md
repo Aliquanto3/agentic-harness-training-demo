@@ -100,3 +100,11 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8-hooks-h1-h2-h3-h5.md`
   summary: Les nœuds du schéma d'architecture (dont « Journal d'audit », seul accès au journal entier) ne sont atteignables qu'à la souris : pas de `tabindex` ni de gestion du clavier sur les `<g>` SVG.
   evidence: Préexistant pour tous les nœuds de `renderSchema` (`app.js`) ; la story 8 ajoute le clic sur `file.audit` qui ouvre le tiroir du journal. À traiter pour tout le schéma (accessibilité de base), avec la refonte de disposition déjà différée en story 6c.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8b-hook-h5-validation-humaine.md`
+  summary: Aucun test ne vérifie qu'un hook `before_tool` qui modifie les arguments avant H5 fait porter à l'aperçu (`approval_requested.preview`) et à l'envoi (`outbound_request`) les mêmes arguments modifiés.
+  evidence: `_hook` recopie les arguments modifiés dans le résultat `ask_human` ; retirer ce `replace` ferait approuver un aperçu et envoyer d'autres arguments sans qu'un test échoue. Inatteignable avec les hooks de démonstration (aucun ne modifie en `before_tool`) ; à ajouter avec le premier hook qui modifie, ou avec la story 9. Relevé par la couche verification-gap de la revue de la story 8b.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8b-hook-h5-validation-humaine.md`
+  summary: Le rendu front de la story 8b (carte « En attente de votre validation », trois boutons actifs seulement en `awaiting_human`, décision affichée après résolution, « Arrêter » visible pendant l'attente, indicateur « En attente de validation ») n'est vérifié par aucun test automatique.
+  evidence: Même écart que pour les stories 5b à 8 : le dépôt n'a aucun banc de test JS (`app.js` seulement passé à `node --check`) ; relevé par la couche verification-gap de la revue de la story 8b.

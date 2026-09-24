@@ -27,8 +27,8 @@ SKILLS = (
     "working_days",
 )
 
-# Story 8: the hooks of the `hooks` brick, in the order they are called (AD-13).
-HOOKS = ("h1", "h2", "h3")
+# Story 8: the hooks of the `hooks` brick, in the order they are called (AD-13); H5: 8b.
+HOOKS = ("h1", "h2", "h3", "h5")
 
 BRICKS = [
     BrickDeclaration(

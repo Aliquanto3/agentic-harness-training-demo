@@ -42,6 +42,7 @@ from wavestack.hooks import (
     HookPoint,
     HookResult,
     HooksContent,
+    host,
     load_hooks_content,
 )
 from wavestack.mcp.connection import McpConnection, describe_error
@@ -93,6 +94,8 @@ _CORE_MODEL = {
     "reason_fr": None,
 }
 
+_TURN_FR = "Un tour est en cours : attendez sa fin ou arrêtez-le."
+_AWAITING_FR = "En attente de votre validation : autorisez ou refusez l'appel réseau."
 _SERVER_ONLY_FR = (
     "Envoi indisponible : seul un serveur local (Ollama ou llama-server) a été trouvé, et son "
     "adaptateur arrive au palier 2. Indiquez le chemin d'un fichier GGUF sur la page de "
@@ -198,6 +201,17 @@ class TurnState:
     injection: str = ""
 
 
+@dataclass
+class _Approval:
+    """H5's pending (then answered) human validation (AD-13): the HTTP thread answers, the
+    turn's thread waits on `answered`, without delay."""
+
+    id: str
+    decision: str | None = None  # approved | refused | cancelled
+    disable_hook: bool = False
+    answered: threading.Event = field(default_factory=threading.Event)
+
+
 class SendRefused(Exception):
     def __init__(self, reason_fr: str) -> None:
         super().__init__(reason_fr)
@@ -277,8 +291,13 @@ class AppSession:
         # conversation (AD-17), and wait while their skill is disabled.
         self._skills_enabled = set(self._skill_ids())
         self._loaded_skills: set[str] = set()
-        # Hooks (story 8): H1, H2 and H3 enabled at first (Q1).
-        self._hooks_enabled = set(self._hook_ids())
+        # Hooks (story 8): H1, H2 and H3 enabled at first, H5 disabled (8b, Q1).
+        self._hooks_enabled = set(self._hook_ids()) - {"h5"}
+        # H5 (8b): the last validation asked, and the hooks switched off for the rest of the
+        # running turn (« Autoriser et ne plus demander »), since its state is frozen.
+        self._approval: _Approval | None = None
+        self._approvals = 0
+        self._hooks_off: set[str] = set()
         # Configuration frozen by the last `send`: `pending` is measured against it.
         self._sent: tuple[
             frozenset[str],
@@ -1092,10 +1111,7 @@ class AppSession:
             turn_id = f"t{self._turns}"
             cancel = self._cancel = CancelToken()
             # Switched under the lock, so a second `send` racing this one is refused.
-            self.state, self.reason_fr = (
-                "turn",
-                "Un tour est en cours : attendez sa fin ou arrêtez-le.",
-            )
+            self.state, self.reason_fr = "turn", _TURN_FR
         get_journal().emit("session_state", {"state": self.state, "reason_fr": self.reason_fr})
         state = self.build_turn_state()  # frozen now: a later toggle waits for the next turn
         had_pending = bool(self._pending_ids())
@@ -1406,9 +1422,19 @@ class AppSession:
             for arg, prop in properties.items()
         }
         name = tool.name
+
+        def preview(**arguments: Any) -> dict[str, str]:
+            """What the client posts, but the JSON-RPC `id` it assigns when sending (the
+            client adds an empty `_meta`, so it is shown too)."""
+            params = {"name": name, "arguments": arguments, "_meta": {}}
+            body = {"jsonrpc": "2.0", "method": "tools/call", "params": params}
+            body_text = json.dumps(body, ensure_ascii=False)
+            return {"method": "POST", "url": server.url, "body": body_text}
+
         return ToolSpec(
             name=name,
             run=lambda **arguments: conn.call(name, arguments),
+            preview=preview if server.network else None,
             params=params,
             component=server.component,
             source=server.source,
@@ -1475,12 +1501,34 @@ class AppSession:
         return "Aucun modèle n'est chargé : terminez le diagnostic de démarrage."
 
     def stop(self) -> bool:
-        """Intention class (c): arms the turn's `CancelToken`; no effect outside a turn."""
+        """Intention class (c): arms the turn's `CancelToken`; no effect outside a turn. A
+        pending human validation is resolved as `cancelled`."""
         with self._lock:
-            if self.state != "turn" or self._cancel is None:
+            if self.state not in ("turn", "awaiting_human") or self._cancel is None:
                 return False
             self._cancel.cancel()
-            return True
+            approval = self._approval
+            if approval is None or approval.decision is not None:
+                return True
+            approval.decision = "cancelled"
+        approval.answered.set()
+        return True
+
+    def answer_approval(self, approval_id: str, approved: bool, disable_hook: bool) -> None:
+        """Intention class (c): answers the pending validation; the first answer wins.
+        `disable_hook` only counts with `approved`. Raises `SendRefused` otherwise."""
+        with self._lock:
+            approval = self._approval
+            if approval is None or approval.id != approval_id:
+                raise SendRefused(
+                    f"Aucune validation « {approval_id} » n'est en attente : elle n'existe pas "
+                    "ou a déjà reçu une réponse."
+                )
+            if approval.decision is not None:
+                raise SendRefused("Cette validation a déjà reçu une réponse : la première compte.")
+            approval.decision = "approved" if approved else "refused"
+            approval.disable_hook = approved and disable_hook
+        approval.answered.set()
 
     # ---------- turn ----------
 
@@ -1489,6 +1537,8 @@ class AppSession:
         status = "error"
         journal = get_journal()
         self._hook_steps = 0
+        self._approvals = 0
+        self._hooks_off.clear()
         steps: list[dict[str, Any]] = []
         text = reasoning = ""
         with scoped(turn_id=turn_id, context_id="main", trigger="user"):
@@ -1674,7 +1724,7 @@ class AppSession:
         """AD-14: the single path of a checked call, `before_tool`, execution, `after_tool`.
         Returns the text reinjected and the id of the hook that blocked the call (then the tool
         never runs, and has no step), or `None` when the turn is stopped. H5's `ask_human`
-        (story 8b), the forced action and the sub-agent (story 9) go through here."""
+        (story 8b) waits here; the forced action and the sub-agent (story 9) go through here."""
         decided = self._hook("before_tool", state, call=call, spec=spec)
         if decided is not None:
             hook_id, result = decided
@@ -1682,6 +1732,16 @@ class AppSession:
                 return result.detail_fr, hook_id
             if result.arguments is not None:
                 call = replace(call, arguments=result.arguments)
+            if result.decision == "ask_human" and result.preview is not None:
+                answer = self._await_human(hook_id, call, result.preview)
+                if answer == "cancelled":
+                    return None
+                if answer == "refused":  # nothing sent; not a new attempt either
+                    return (
+                        "Refusé par l'utilisateur (validation humaine) : l'appel à "
+                        f"« {call.name} » vers {host(result.preview['url'])} n'a pas été envoyé.",
+                        hook_id,
+                    )
         with scoped(step_id=step_id, brick=brick, component=spec.component):
             text = self._tool_executor.run(call, cancel, effects)
         if spec.is_mcp and text is not None:
@@ -1693,14 +1753,68 @@ class AppSession:
         self._hook("after_tool", state, call=call, spec=spec, result=text)
         return text, None
 
+    def _await_human(self, hook_id: str, call: ToolCall, preview: dict[str, str]) -> str:
+        """H5 (AD-13): `awaiting_human` until the user answers or stops the turn, without
+        delay; on the hook's own step. Returns `approved`, `refused` or `cancelled`."""
+        journal = get_journal()
+        turn_id = current().turn_id or ""
+        self._approvals += 1
+        approval = _Approval(f"{turn_id}.a{self._approvals}")
+        step = f"{turn_id}.main.h{self._hook_steps}"  # the step of H5's `hook_decided`
+        with scoped(step_id=step, brick="hooks", component=f"hooks.{hook_id}"):
+            # Answerable before its id is published, so no answer to it is ever refused.
+            with self._lock:
+                self._approval = approval
+                waiting = self._cancel is None or not self._cancel.cancelled
+                if waiting:
+                    self.state, self.reason_fr = "awaiting_human", _AWAITING_FR
+                else:  # stopped just before
+                    approval.decision = "cancelled"
+            journal.emit(
+                "approval_requested",
+                {
+                    "approval_id": approval.id,
+                    "tool": call.name,
+                    "destination": host(preview["url"]),
+                    "preview": preview,
+                },
+            )
+            if waiting:
+                journal.emit(
+                    "session_state", {"state": "awaiting_human", "reason_fr": _AWAITING_FR}
+                )
+                approval.answered.wait()  # AD-13: no delay; `answer_approval` or `stop` wakes it
+            with self._lock:
+                decision, disable = approval.decision or "cancelled", approval.disable_hook
+            journal.emit(
+                "approval_resolved",
+                {"approval_id": approval.id, "decision": decision, "hook_disabled": disable},
+                actor="user",
+            )
+        if decision != "cancelled":  # stopped: the turn ends, no flash back to `turn`
+            self._set_state("turn", _TURN_FR)
+        if disable:  # off now, and for the rest of this turn despite its frozen state
+            self._hooks_off.add(hook_id)
+            with self._lock:
+                self._hooks_enabled.discard(hook_id)
+                self._sent = (*self._sent[:6], self._sent[6] - {hook_id})  # nothing pending
+            self._emit_bricks()
+            self._emit_architecture()
+        return decision
+
     def _hook(
         self, point: HookPoint, state: TurnState, **ctx: Any
     ) -> tuple[str, HookResult] | None:
         """AD-13: calls the turn's active hooks of `point` in order, each decision emitted on
-        a step of its own and its effects applied; the first `block` stops there. Returns the
-        deciding hook and its result: the blocking one, else the last that modified. A
-        failing hook or a decision not allowed at `point` is traced and counts as `allow`."""
-        hooks = [h for h in self._hooks if h.id in state.hooks and point in h.points]
+        a step of its own and its effects applied; the first `block` or `ask_human` stops
+        there. Returns the deciding hook and its result: the blocking or asking one, else the
+        last that modified. A failing hook or a decision not allowed at `point` is traced and
+        counts as `allow`."""
+        hooks = [
+            h
+            for h in self._hooks
+            if h.id in state.hooks and h.id not in self._hooks_off and point in h.points
+        ]
         if not hooks:
             return None
         journal = get_journal()
@@ -1751,6 +1865,9 @@ class AppSession:
                         self._apply_audit(effect.lines)
             if result.decision == "block":
                 return hook.id, result
+            if result.decision == "ask_human":  # with the arguments modified before it
+                call = ctx.get("call")
+                return hook.id, replace(result, arguments=call.arguments if call else None)
             if result.decision == "modify":
                 decided = (hook.id, result)
                 if result.arguments is not None and ctx.get("call") is not None:
