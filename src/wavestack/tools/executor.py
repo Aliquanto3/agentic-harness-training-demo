@@ -11,7 +11,7 @@ from typing import Literal
 
 from wavestack.models.engine import CancelToken
 from wavestack.tools.parser import ToolCall
-from wavestack.tools.registry import ToolError, ToolRegistry
+from wavestack.tools.registry import ToolError, ToolRegistry, Unreachable
 from wavestack.trace.journal import get_journal
 
 _JSON_TYPES: dict[str, tuple[type, ...]] = {
@@ -32,9 +32,14 @@ _TYPES_FR = {
 }
 
 
+Contact = tuple[Literal["available", "unavailable"], str | None]
+
+
 class ToolExecutor:
     def __init__(self, registry: ToolRegistry) -> None:
         self.registry = registry
+        # Network tools (AD-12): the state left by the last call actually sent, and its reason.
+        self.contact: dict[str, Contact] = {}
 
     def check(self, call: ToolCall, enabled: Sequence[str]) -> str | None:
         """Why `call` cannot run, in French (unknown or disabled tool, invalid arguments)."""
@@ -88,12 +93,21 @@ class ToolExecutor:
             },
         )
         result = error_fr = None
+        sent = unreachable = False
         try:
+            if spec.preview is not None:
+                spec.preview(**call.arguments)  # a refusal raises here, before anything is sent
+                sent = True
             result = spec.run(**call.arguments)
         except ToolError as exc:
             error_fr = exc.message_fr
+            unreachable = isinstance(exc, Unreachable)
         except Exception as exc:  # noqa: BLE001 - AD-16: an execution error is reinjected
             error_fr = f"L'outil a échoué ({type(exc).__name__} : {exc})."
+        if sent:
+            self.contact[call.name] = (
+                ("unavailable", error_fr) if unreachable else ("available", None)
+            )
         journal.emit(
             "tool_ended",
             {

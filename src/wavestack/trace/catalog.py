@@ -28,6 +28,7 @@ class OutboundRequestPayload(BaseModel):
     origin: Literal["brick", "diagnostic", "download"]
     method: str
     url: str
+    body: str = ""
 
 
 class HarnessErrorPayload(BaseModel):
@@ -59,6 +60,8 @@ class ArchitectureNode(BaseModel):
     wanted: bool
     available: bool
     reason_fr: str | None = None
+    # Network tools only (AD-12): the state left by the last call actually sent.
+    contact: Literal["not_contacted", "available", "unavailable"] | None = None
 
 
 class ArchitectureEdge(BaseModel):

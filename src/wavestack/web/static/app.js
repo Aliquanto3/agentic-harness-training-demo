@@ -25,6 +25,7 @@ const store = {
   composerError: null,
   bricks: null, // last `bricks_changed` payload: cards and system prompt, as the session computed them
   openExplanations: new Set(), // brick ids whose explanation is unfolded (UI state only)
+  closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
 };
 
 // Gauge group -> DESIGN.md segment colour token (formatting only).
@@ -191,6 +192,12 @@ function applyEnvelope(envelope) {
     case "tool_ended": {
       const tool = turn?.steps.filter((s) => s.type === "tool").at(-1);
       if (tool) tool.ended = p;
+      break;
+    }
+    case "outbound_request": {
+      // What a network tool sends out, shown in the step of the tool running it.
+      const tool = turn?.steps.filter((s) => s.type === "tool").at(-1);
+      if (tool && p.origin === "brick") (tool.outbound ||= []).push({ ...p, seq: envelope.seq });
       break;
     }
     case "tool_call_malformed":
@@ -777,6 +784,7 @@ function toolCard(step) {
   const card = stepCard(`3. Exécution par le harnais · ${step.started.tool}`);
   const asked = { name: step.started.tool, arguments: step.started.arguments };
   card.appendChild(el("pre", "step-code", formatCall(asked)));
+  for (const request of step.outbound || []) card.appendChild(outboundPayload(request));
   if (!ended) {
     const running = `En cours… ${seconds(Date.now() - step.startedAt)}`;
     card.appendChild(el("div", "token-counter number", running));
@@ -793,6 +801,21 @@ function toolCard(step) {
     );
   }
   return card;
+}
+
+function outboundPayload(request) {
+  // DESIGN.md outbound-payload: exactly what leaves the workstation, open by default.
+  const details = el("details", "outbound-payload");
+  details.open = !store.closedPayloads.has(request.seq);
+  details.addEventListener("toggle", () => {
+    if (details.open) store.closedPayloads.delete(request.seq);
+    else store.closedPayloads.add(request.seq);
+  });
+  const head = el("summary", "outbound-head");
+  head.append(el("span", "outbound-tag", "🌐 RÉSEAU"), ` ${request.method} ${request.url}`);
+  const body = request.body || "Aucun corps : seule l'adresse sort du poste.";
+  details.append(head, el("pre", "step-code", body));
+  return details;
 }
 
 function malformedCard(p) {
@@ -983,13 +1006,30 @@ function renderSchema() {
     g.dataset.component = node.id;
     g.classList.toggle("is-network", node.hosting === "network");
     g.classList.toggle("is-unavailable", !node.available);
+    const notContacted = node.contact === "not_contacted";
+    g.classList.toggle("is-not-contacted", notContacted);
     if (store.selection === node.id) g.classList.add("is-selected");
     g.addEventListener("click", () => select(node.id));
     const title = svgEl("title", {});
     title.textContent = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
-    const text = svgEl("text", { x: x + W / 2, y: y + H / 2 + 5, "text-anchor": "middle" });
-    text.textContent = node.label_fr;
+    if (notContacted) title.textContent += " : non contacté";
+    const network = node.hosting === "network";
+    // A network node shows its globe; its contact state stays visible under the label.
+    const state = notContacted ? "non contacté" : node.contact === "unavailable" ? "indisponible" : "";
+    const labelY = y + (state ? H / 2 - 2 : H / 2 + 5);
+    const text = svgEl("text", { x: x + W / 2, y: labelY, "text-anchor": "middle" });
+    text.textContent = network ? `🌐 ${node.label_fr}` : node.label_fr;
     g.append(title, svgEl("rect", { x, y, width: W, height: H }), text);
+    if (state) {
+      const sub = svgEl("text", {
+        x: x + W / 2,
+        y: y + H - 8,
+        "text-anchor": "middle",
+        class: "arch-node-state",
+      });
+      sub.textContent = state;
+      g.appendChild(sub);
+    }
     svg.appendChild(g);
   }
 }

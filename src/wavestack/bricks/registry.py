@@ -46,6 +46,7 @@ BRICKS = [
         id="tools",
         category="harness",
         capabilities=["tool_call_parser"],
+        network=True,
         components=[
             Component(
                 id="tools.get_datetime",
@@ -64,6 +65,15 @@ BRICKS = [
                 kind="tool",
                 hosting="local_process",
                 edges_to=["core.harness", "file.demo_dir"],
+            ),
+            *(
+                Component(
+                    id=f"tools.{name}",
+                    kind="tool",
+                    hosting="network_service",
+                    edges_to=["core.harness"],
+                )
+                for name in ("public_holidays", "wikipedia_summary", "fetch_page")
             ),
         ],
     ),

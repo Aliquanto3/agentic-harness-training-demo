@@ -41,6 +41,7 @@ from wavestack.models.discovery import ModelCandidate
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
 from wavestack.tools.executor import ToolExecutor
 from wavestack.tools.native import NATIVE_TOOLS
+from wavestack.tools.network import network_tools
 from wavestack.tools.parser import Malformed, ToolCall, parse_tool_calls
 from wavestack.tools.registry import ToolRegistry, ToolsContent, load_tools_content
 from wavestack.trace.journal import get_journal
@@ -202,9 +203,9 @@ class AppSession:
         self._default_prompt = ""
         self._tools_content: ToolsContent | None = None
         self._load_content()
-        self._registry = ToolRegistry(NATIVE_TOOLS, self._tools_content)
+        self._registry = ToolRegistry(NATIVE_TOOLS + network_tools(self.cfg), self._tools_content)
         self._tool_executor = ToolExecutor(self._registry)
-        # Offline tools start enabled; network tools (story 5b) will start disabled.
+        # Offline tools start enabled; network tools start disabled (story 5b).
         self._tools_enabled = {n for n in self._registry.names if not self._registry.get(n).network}
         # Configuration frozen by the last `send`: `pending` is measured against it.
         self._sent: tuple[frozenset[str], str, frozenset[str]] = (
@@ -262,21 +263,26 @@ class AppSession:
             for component in components[brick.id]:
                 hosting = "network" if component.hosting == "network_service" else "local"
                 is_tool = component.kind == "tool"
-                nodes.append(
-                    {
-                        "id": component.id,
-                        "kind": "tool" if is_tool else "brick",
-                        "hosting": hosting,
-                        "label_fr": (
-                            self._registry.label(component.id.removeprefix("tools."))
-                            if is_tool
-                            else self._label(brick.id)
-                        ),
-                        "wanted": True,
-                        "available": available,
-                        "reason_fr": reason_fr,
-                    }
-                )
+                node = {
+                    "id": component.id,
+                    "kind": "tool" if is_tool else "brick",
+                    "hosting": hosting,
+                    "label_fr": (
+                        self._registry.label(component.id.removeprefix("tools."))
+                        if is_tool
+                        else self._label(brick.id)
+                    ),
+                    "wanted": True,
+                    "available": available,
+                    "reason_fr": reason_fr,
+                }
+                if is_tool and hosting == "network":
+                    name = component.id.removeprefix("tools.")
+                    contact, why = self._tool_executor.contact.get(name, ("not_contacted", None))
+                    node["contact"] = contact
+                    if available and contact == "unavailable":
+                        node["available"], node["reason_fr"] = False, why
+                nodes.append(node)
                 edges += [
                     {"from": component.id, "to": target, "crosses_boundary": hosting == "network"}
                     for target in component.edges_to
@@ -308,7 +314,7 @@ class AppSession:
                     "id": name,
                     "label_fr": self._registry.label(name),
                     "enabled": name in enabled,
-                    "hosting_fr": "Réseau" if spec.network else "Local",
+                    "hosting_fr": "RÉSEAU" if spec.network else "Local",
                     "network": spec.network,
                 }
             )
@@ -861,6 +867,8 @@ class AppSession:
                                 )
                             else:
                                 result = self._tool_executor.run(call, cancel)
+                        if detail is None and self._registry.get(call.name).network:
+                            self._emit_architecture()  # its contact state may have changed
                         if result is None:
                             return "cancelled", "", ""
                         steps.append(

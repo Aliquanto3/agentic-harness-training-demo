@@ -24,6 +24,10 @@ class ToolError(Exception):
         self.message_fr = message_fr
 
 
+class Unreachable(ToolError):
+    """A network tool could not reach its service (connection failed or refused)."""
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
@@ -34,6 +38,8 @@ class ToolSpec:
     hosting: Hosting = "local_process"
     network: bool = False
     reads_local_path: str | None = None  # the argument holding a path, if any
+    # Network tools (AD-14): `preview(**args) -> {method, url, body}`, exactly what `run` sends.
+    preview: Callable[..., dict[str, str]] | None = None
 
 
 class ToolText(BaseModel):

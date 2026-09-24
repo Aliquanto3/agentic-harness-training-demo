@@ -1,10 +1,11 @@
-"""Story 5a: native tools, the bounded turn loop, attribution of `tools` and `tool_calls`."""
+"""Stories 5a-5b: native and network tools, the bounded turn loop, attribution."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
+import httpx
 import pytest
 from fake_engine import FakeEngine, booted_session
 from test_bricks import HEADERS, _client
@@ -12,7 +13,9 @@ from test_turn import _run
 
 from wavestack import config
 from wavestack.models.capabilities import TOOL_CALL_TAGS, ChannelSplitter
+from wavestack.net.factory import create_client
 from wavestack.session.app_session import AppSession
+from wavestack.tools import network
 from wavestack.tools.native import calculator, read_file
 from wavestack.tools.parser import ToolCall, parse_tool_calls
 from wavestack.tools.registry import ToolError
@@ -250,6 +253,9 @@ def test_tool_sub_options_are_cards_nodes_and_pending():
         ("get_datetime", True, False),
         ("calculator", True, False),
         ("read_file", True, False),
+        ("public_holidays", False, True),
+        ("wikipedia_summary", False, True),
+        ("fetch_page", False, True),
     ]
     assert "6 appels" in card["limits_fr"] and "2 nouveaux essais" in card["limits_fr"]
     nodes = {n["id"]: n for n in _architecture(session)["nodes"]}
@@ -426,3 +432,273 @@ def test_configured_bounds_apply_and_show_on_the_card():
 def test_bounds_below_the_minimum_are_clamped():
     cfg = config.Config(values={"tools": {"max_calls": 0, "max_retries": -3}})
     assert (cfg.tool_max_calls, cfg.tool_max_retries) == (1, 0)
+
+
+# ---------- story 5b: network tools (AD-14, AD-15), never the real network ----------
+
+HOLIDAYS_URL = "https://calendrier.api.gouv.fr/jours-feries/metropole/2026.json"
+
+
+@pytest.fixture
+def web(monkeypatch):
+    """Network tools answer from `handler` through the real factory (`MockTransport`).
+
+    Returns the requests that actually reached the transport.
+    """
+    sent: list[httpx.Request] = []
+
+    def install(handler):
+        def transport(request):
+            sent.append(request)
+            return handler(request)
+
+        monkeypatch.setattr(
+            network,
+            "create_client",
+            lambda **kw: create_client(transport=httpx.MockTransport(transport), **kw),
+        )
+        return sent
+
+    return install
+
+
+def network_session(tool: str, outputs: list[str]):
+    engine, session = tool_session(outputs)
+    session.set_tool(tool, True)
+    return engine, session
+
+
+def _node(session, node_id: str) -> dict:
+    return next(n for n in _architecture(session)["nodes"] if n["id"] == node_id)
+
+
+def test_network_tools_start_disabled_and_absent_from_the_catalog():
+    _, session = tool_session(["ok"])
+
+    events = _run(session, "Bonjour")
+
+    assert session.build_turn_state().tools == ("get_datetime", "calculator", "read_file")
+    catalog = _segments(events["context_rendered"][0], "tool_catalog")
+    assert [s["component"] for s in catalog] == [
+        "tools.get_datetime",
+        "tools.calculator",
+        "tools.read_file",
+    ]
+    assert not any(n["hosting"] == "network" for n in _architecture(session)["nodes"])
+
+
+def test_public_holidays_traces_the_exact_request_then_the_node_is_available(web):
+    days = {"2026-01-01": "1er janvier", "2026-05-01": "1er mai"}
+    sent = web(lambda r: httpx.Response(200, json=days))
+    outputs = [call("public_holidays", year="2026"), "Voilà."]
+    _, session = network_session("public_holidays", outputs)
+    node = _node(session, "tools.public_holidays")
+    assert (node["hosting"], node["contact"], node["available"]) == (
+        "network",
+        "not_contacted",
+        True,
+    )
+    assert {"from": "tools.public_holidays", "to": "core.harness", "crosses_boundary": True} in (
+        _architecture(session)["edges"]
+    )
+    mark = get_journal().last_seq()
+
+    events = _run(session, "Quels sont les jours fériés en 2026 ?")
+
+    (outbound,) = events["outbound_request"]
+    preview = session._registry.get("public_holidays").preview(year=2026)
+    assert preview == {"method": "GET", "url": HOLIDAYS_URL, "body": ""}
+    assert {k: outbound[k] for k in ("method", "url", "body")} == preview  # traced = previewed
+    assert (sent[0].method, str(sent[0].url), sent[0].content) == ("GET", HOLIDAYS_URL, b"")
+    kinds = [e.kind for e in get_journal().events_since(mark)]
+    started = kinds.index("tool_started")
+    assert started < kinds.index("outbound_request") < kinds.index("tool_ended")
+    assert events["tool_ended"][0]["result"] == "2026-01-01 : 1er janvier\n2026-05-01 : 1er mai"
+    assert _node(session, "tools.public_holidays")["contact"] == "available"
+
+
+def test_wikipedia_summary_and_absent_page(web):
+    def handler(request):
+        if request.url.path.endswith("/Tour_Eiffel"):
+            return httpx.Response(200, json={"title": "Tour Eiffel", "extract": "Tour de fer."})
+        return httpx.Response(404, json={})
+
+    sent = web(handler)
+    outputs = [
+        call("wikipedia_summary", title="Tour Eiffel"),
+        call("wikipedia_summary", title="Nulle part"),
+        "Voilà.",
+    ]
+    _, session = network_session("wikipedia_summary", outputs)
+
+    events = _run(session, "Parle-moi de la tour Eiffel")
+
+    assert str(sent[0].url) == "https://fr.wikipedia.org/api/rest_v1/page/summary/Tour_Eiffel"
+    ok, absent = events["tool_ended"]
+    assert ok["status"] == "ok" and ok["result"] == "Tour Eiffel\nTour de fer."
+    assert absent["status"] == "error" and "Page absente" in absent["error_fr"]
+    node = _node(session, "tools.wikipedia_summary")
+    assert node["contact"] == "available" and node["available"]  # the service did answer
+
+
+def test_fetch_page_converts_html_to_text_and_cuts_it(web):
+    html = (
+        "<html><head><style>p {color: red}</style><script>var x = 1;</script></head>"
+        "<body><h1>Paris</h1>\n<p>Capitale de la <b>France</b>.</p>\n<p>" + "x" * 5000 + "</p>"
+    )
+    web(lambda r: httpx.Response(200, text=html, headers={"content-type": "text/html"}))
+    outputs = [call("fetch_page", url="https://fr.wikipedia.org/wiki/Paris"), "Voilà."]
+    _, session = network_session("fetch_page", outputs)
+
+    events = _run(session, "Lis la page Paris")
+
+    result = events["tool_ended"][0]["result"]
+    assert result.startswith("Paris\nCapitale de la France.\nxxx")
+    assert "<" not in result and "color" not in result and "var x" not in result
+    assert "[Texte coupé à 4000 caractères sur" in result
+    assert len(result.split("\n[Texte coupé")[0]) == 4000
+
+
+@pytest.mark.parametrize("url", ["https://example.com", "http://fr.wikipedia.org/wiki/Paris"])
+def test_fetch_page_refuses_before_sending_and_leaves_the_state(web, url):
+    sent = web(lambda r: httpx.Response(200))
+    _, session = network_session("fetch_page", [call("fetch_page", url=url), "Refusé."])
+
+    events = _run(session, "Lis cette page")
+
+    ended = events["tool_ended"][0]
+    assert ended["status"] == "error" and "Adresse refusée" in ended["error_fr"]
+    assert sent == [] and "outbound_request" not in events
+    assert _node(session, "tools.fetch_page")["contact"] == "not_contacted"
+    assert events["turn_ended"][0]["status"] == "completed"
+
+
+def test_redirect_outside_the_list_is_refused_and_the_node_unavailable(web):
+    web(lambda r: httpx.Response(302, headers={"location": "https://example.com/"}))
+    outputs = [call("wikipedia_summary", title="Paris"), "Pardon."]
+    _, session = network_session("wikipedia_summary", outputs)
+
+    events = _run(session, "Paris ?")
+
+    assert [o["url"] for o in events["outbound_request"]] == [
+        "https://fr.wikipedia.org/api/rest_v1/page/summary/Paris"
+    ]
+    ended = events["tool_ended"][0]
+    assert ended["status"] == "error" and "example.com" in ended["error_fr"]
+    node = _node(session, "tools.wikipedia_summary")
+    assert node["contact"] == "unavailable" and not node["available"]
+    assert node["reason_fr"] == ended["error_fr"]
+
+
+def test_offline_error_is_reinjected_and_local_tools_still_work(web):
+    def offline(request):
+        raise httpx.ConnectError("no route", request=request)
+
+    web(offline)
+    outputs = [call("public_holidays", year="2026"), call("get_datetime"), "Voilà."]
+    _, session = network_session("public_holidays", outputs)
+
+    events = _run(session, "Prochain jour férié ?")
+
+    network_end, local_end = events["tool_ended"]
+    assert network_end["status"] == "error" and "injoignable" in network_end["error_fr"]
+    tool_result = _segments(events["context_rendered"][1], "tool_result")[0]["text"]
+    assert tool_result.startswith("Erreur : Service injoignable")
+    assert local_end["status"] == "ok"
+    node = _node(session, "tools.public_holidays")
+    assert node["contact"] == "unavailable" and "injoignable" in node["reason_fr"]
+    assert events["turn_ended"][0]["status"] == "completed"
+
+
+def test_fetch_page_redirect_is_checked_again_on_every_hop(web):
+    def handler(request):
+        return httpx.Response(302, headers={"location": "http://fr.wikipedia.org/wiki/Paris"})
+
+    sent = web(handler)
+    outputs = [call("fetch_page", url="https://fr.wikipedia.org/wiki/Paris"), "Pardon."]
+    _, session = network_session("fetch_page", outputs)
+
+    events = _run(session, "Lis la page Paris")
+
+    assert [str(r.url) for r in sent] == ["https://fr.wikipedia.org/wiki/Paris"]
+    assert [o["url"] for o in events["outbound_request"]] == [str(sent[0].url)]
+    ended = events["tool_ended"][0]
+    assert ended["status"] == "error" and "Adresse refusée" in ended["error_fr"]
+    assert "http://fr.wikipedia.org" in ended["error_fr"]
+
+
+def test_html_to_text_breaks_blocks_and_skips_page_chrome():
+    html = (
+        "<header>Menu</header><nav><ul><li>Accueil</li></ul></nav><noscript>JS</noscript>"
+        "<svg><text>logo</text></svg><h2>Titre</h2><ul><li>A</li><li>B</li></ul>"
+        "<div>C<br>D</div><table><tr><td>E</td></tr></table><footer>Pied</footer>"
+    )
+
+    assert network.html_to_text(html) == "Titre\nA\nB\nC\nD\nE"
+
+
+def test_contact_state_follows_the_last_sent_call(web):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            raise httpx.ConnectError("no route", request=request)
+        return httpx.Response(200, json={"2026-01-01": "1er janvier"})
+
+    web(handler)
+    outputs = [
+        call("public_holidays", year="2026"),
+        call("public_holidays", year="2026"),
+        call("fetch_page", url="https://example.com"),
+        "Voilà.",
+    ]
+    _, session = network_session("public_holidays", outputs)
+    session.set_tool("fetch_page", True)
+
+    events = _run(session, "Jours fériés ?")
+
+    states = [
+        next(n for n in a["nodes"] if n["id"] == "tools.public_holidays")
+        for a in events["architecture_changed"]
+    ]
+    assert [(n["contact"], n["available"]) for n in states] == [
+        ("unavailable", False),
+        ("available", True),
+        ("available", True),
+    ]
+    assert states[1]["reason_fr"] is None and states[2]["reason_fr"] is None
+    assert events["tool_ended"][2]["status"] == "error"  # the refused fetch_page
+    assert _node(session, "tools.fetch_page")["contact"] == "not_contacted"
+
+
+def test_configured_fetch_page_hosts_and_cut_apply(web):
+    web(lambda r: httpx.Response(200, text="y" * 100, headers={"content-type": "text/plain"}))
+    engine = FakeEngine(
+        outputs=[
+            call("fetch_page", url="https://calendrier.api.gouv.fr/page"),
+            call("fetch_page", url="https://fr.wikipedia.org/wiki/Paris"),
+            "Voilà.",
+        ],
+        template=QWEN.decode("utf-8"),
+        architecture="qwen35",
+    )
+    values = {
+        "context": {"window": 4096, "near_limit_ratio": 0.8},
+        "tools": {"fetch_page_hosts": ["calendrier.api.gouv.fr"], "fetch_page_max_chars": 30},
+    }
+    session = AppSession(config.Config(values=values), engine_factory=lambda path, n_ctx: engine)
+    session.boot("fake.gguf").result()
+    session.set_brick("tools", True)
+    session.set_tool("fetch_page", True)
+
+    events = _run(session, "Lis ces pages")
+
+    accepted, refused = events["tool_ended"]
+    assert accepted["result"] == "y" * 30 + "\n[Texte coupé à 30 caractères sur 100.]"
+    assert refused["status"] == "error" and "Adresse refusée" in refused["error_fr"]
+    assert "calendrier.api.gouv.fr" in refused["error_fr"]
+
+
+def test_fetch_page_max_chars_below_the_minimum_is_clamped():
+    assert config.Config(values={"tools": {"fetch_page_max_chars": 0}}).fetch_page_max_chars == 1

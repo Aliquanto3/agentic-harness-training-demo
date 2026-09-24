@@ -103,6 +103,16 @@ class Config:
         """AD-10: new attempts per turn after a refused call, counted in `tool_max_calls`."""
         return max(0, self._int("tools", "max_retries", default=2))
 
+    @property
+    def fetch_page_hosts(self) -> list[str]:
+        """The only hosts `fetch_page` may request, over https."""
+        default = ["fr.wikipedia.org", "calendrier.api.gouv.fr"]
+        return list(self.get("tools", "fetch_page_hosts", default=default))
+
+    @property
+    def fetch_page_max_chars(self) -> int:
+        return max(1, self._int("tools", "fetch_page_max_chars", default=4000))
+
 
 def load_config() -> Config:
     """Load wavestack.toml, then overlay settings.json from the data dir."""

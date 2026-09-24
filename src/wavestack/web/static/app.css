@@ -686,7 +686,8 @@ body.focus-mode .pane.is-focused .pane-body {
 }
 
 .category-chip,
-.hosting-tag-local {
+.hosting-tag-local,
+.hosting-tag-network {
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
     var(--typography-label-line-height) var(--typography-label-font-family);
   letter-spacing: var(--typography-label-letter-spacing);
@@ -707,6 +708,16 @@ body.focus-mode .pane.is-focused .pane-body {
   background: var(--color-hosting-local);
   color: var(--color-on-primary);
   border: 1px solid var(--color-hosting-local);
+}
+
+.hosting-tag-network {
+  background: var(--color-hosting-network);
+  color: var(--color-ink);
+  border: 1px dashed var(--color-ink);
+}
+
+.hosting-tag-network::before {
+  content: "🌐 ";
 }
 
 .brick-reason,
@@ -873,4 +884,40 @@ body.focus-mode .pane.is-focused .pane-body {
 
 .arch-node.is-unavailable text {
   fill: var(--color-ink-soft);
+}
+
+.arch-node.is-not-contacted rect {
+  fill-opacity: 0.5; /* still yellow (network), paler until the first call is sent */
+}
+
+.arch-node .arch-node-state {
+  font-size: var(--typography-body-sm-font-size);
+  font-style: italic;
+}
+
+/* ---------- outbound payload: what a network tool sends (DESIGN.md > outbound-payload) ---------- */
+
+.outbound-payload {
+  margin-top: var(--spacing-2);
+  background: var(--color-surface-raised);
+  border: var(--spacing-stroke-min) dashed var(--color-ink);
+  border-radius: var(--rounded-sm);
+}
+
+.outbound-head {
+  background: var(--color-hosting-network);
+  color: var(--color-ink);
+  padding: var(--spacing-1) var(--spacing-2);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.outbound-tag {
+  font-weight: 700;
+}
+
+.outbound-payload .step-code {
+  margin: 0;
+  padding: var(--spacing-2);
+  font-family: var(--typography-code-font-family);
 }

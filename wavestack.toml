@@ -9,6 +9,9 @@ port = 8420
 allowed_hosts = [
     "huggingface.co",
     "*.hf.co",
+    # Outils réseau (story 5b).
+    "fr.wikipedia.org",
+    "calendrier.api.gouv.fr",
 ]
 # Adresse fixe utilisée par la sonde de connectivité du diagnostic (CAP-39).
 connectivity_probe_host = "huggingface.co"
@@ -27,3 +30,7 @@ near_limit_ratio = 0.8
 # Appels au modèle par tour, dont les nouveaux essais après un appel mal formé.
 max_calls = 6
 max_retries = 2
+# Outil fetch_page : https uniquement, vers ces hôtes seulement (aussi présents dans
+# [net] allowed_hosts). Le texte de la page est coupé à fetch_page_max_chars caractères.
+fetch_page_hosts = ["fr.wikipedia.org", "calendrier.api.gouv.fr"]
+fetch_page_max_chars = 4000

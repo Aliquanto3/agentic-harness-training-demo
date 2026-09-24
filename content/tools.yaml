@@ -24,3 +24,25 @@ tools:
       chemin pour lister les fichiers disponibles.
     parameters:
       path: Chemin relatif du fichier dans le dossier de démonstration, par exemple notes_reunion.txt.
+  public_holidays:
+    label_fr: Jours fériés
+    description: >-
+      Donne la liste des jours fériés en France métropolitaine pour une année,
+      au format « date : nom ». Interroge un service public sur Internet.
+    parameters:
+      year: Année voulue, par exemple 2026.
+  wikipedia_summary:
+    label_fr: Résumé Wikipédia
+    description: >-
+      Donne le résumé d'une page de Wikipédia en français. Interroge Wikipédia
+      sur Internet.
+    parameters:
+      title: Titre exact de la page, par exemple Tour Eiffel.
+  fetch_page:
+    label_fr: Lecture de page web
+    description: >-
+      Lit le texte d'une page web (sans balises), coupé s'il est trop long.
+      Seules les adresses https:// de fr.wikipedia.org et calendrier.api.gouv.fr
+      sont acceptées.
+    parameters:
+      url: Adresse complète de la page, par exemple https://fr.wikipedia.org/wiki/Paris.
