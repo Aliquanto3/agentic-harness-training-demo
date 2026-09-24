@@ -14,8 +14,15 @@ class ToolDocLoaded(BaseModel):
     tool: str
 
 
-# A one-member union today; each new harness tool adds its own effect here (AD-23).
-Effect = ToolDocLoaded
+class SkillLoaded(BaseModel):
+    """`load_skill` loaded the skill `skill_id` (AD-25)."""
+
+    kind: Literal["skill_loaded"] = "skill_loaded"
+    skill_id: str
+
+
+# Each new harness tool adds its own effect here (AD-23), discriminated by `kind`.
+Effect = ToolDocLoaded | SkillLoaded
 
 
 class ToolReply(NamedTuple):

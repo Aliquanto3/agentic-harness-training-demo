@@ -345,6 +345,7 @@ def test_boot_emits_bare_llm_cards_without_any_toggle():
             "system_prompt": False,
             "tools": False,
             "mcp": False,
+            "skills": False,
         }
         assert cards["system_prompt"]["is_default"] is True
 

@@ -54,7 +54,7 @@ class ArchitectureNode(BaseModel):
     """
 
     id: str
-    kind: Literal["harness", "model", "brick", "tool", "file", "mcp_server"]
+    kind: Literal["harness", "model", "brick", "tool", "file", "mcp_server", "skill"]
     hosting: Literal["local", "network"]
     label_fr: str
     wanted: bool
@@ -65,6 +65,9 @@ class ArchitectureNode(BaseModel):
     contact: Literal["not_contacted", "available", "unavailable"] | None = None
     tools: list[str] = []  # MCP servers: the names of the tools they expose
     model: str | None = None  # `core.model`: file name (no extension) of the loaded model
+    # Skills (story 7): loaded in the conversation or not, and their description.
+    loaded: bool | None = None
+    detail_fr: str | None = None
 
 
 class ArchitectureEdge(BaseModel):

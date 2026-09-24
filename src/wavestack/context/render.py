@@ -219,7 +219,7 @@ def render_context(
 ) -> RenderedContext:
     """Render the prompt to send, and attribute each of its tokens to one segment.
 
-    `messages` carry their content as a list of `Part`. Any other value, in a message
+    `messages` carry their content as a list of `Part` (or `Joined`). Any other value, in a message
     (`tool_calls`) or in `tools`, may itself be a `Part` at any depth: its text is
     attributed the same way (step 3: sentinels on the strings of a definition). A
     `Joined` is one string whose parts are attributed each on its own.
@@ -264,7 +264,7 @@ def render_context(
     plain: list[dict[str, Any]] = []
     marked: list[dict[str, Any]] = []
     for message in messages:
-        texts = [add(part) for part in message["content"]]
+        texts = [prepare(part) for part in message["content"]]  # a `Part` or a `Joined`
         rest = {key: value for key, value in message.items() if key != "content"}
         plain_rest, marked_rest = prepare(rest)
         plain.append({**plain_rest, "content": PART_SEPARATOR.join(p for p, _ in texts if p)})

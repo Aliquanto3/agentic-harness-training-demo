@@ -42,7 +42,8 @@ from wavestack.models.capabilities import (
     capabilities_for,
 )
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
-from wavestack.session.effects import Effect, ToolDocLoaded, ToolReply
+from wavestack.session.effects import Effect, SkillLoaded, ToolDocLoaded, ToolReply
+from wavestack.skills import SkillsContent, SkillText, load_skills_content
 from wavestack.tools.executor import ToolExecutor
 from wavestack.tools.native import NATIVE_TOOLS
 from wavestack.tools.network import network_tools
@@ -60,6 +61,7 @@ from wavestack.trace.scope import scoped
 DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
 LOAD_TOOL_DOC = "load_tool_doc"  # the harness meta-tool of the lazy loading mode (AD-25)
 DOC_LINE_MAX = 120  # characters of a tool's first description line in `load_tool_doc`
+LOAD_SKILL = "load_skill"  # the harness meta-tool of the skills brick (AD-25)
 
 _CORE_HARNESS = {
     "id": "core.harness",
@@ -175,6 +177,9 @@ class TurnState:
     tools: tuple[str, ...] = ()  # enabled tools of the effective tools and mcp bricks
     # Lazy loading (AD-25): the available MCP tools whose documentation is not loaded yet.
     loadable: tuple[str, ...] = ()
+    # Skills (AD-25), in the registry's order: loaded and enabled, then enabled not loaded.
+    skills: tuple[str, ...] = ()
+    skill_catalog: tuple[str, ...] = ()
 
 
 class SendRefused(Exception):
@@ -223,6 +228,7 @@ class AppSession:
         self._default_prompt = ""
         self._tools_content: ToolsContent | None = None
         self._mcp_content: McpContent | None = None
+        self._skills_content: SkillsContent | None = None
         self._load_content()
         self._registry = ToolRegistry(
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
@@ -246,13 +252,20 @@ class AppSession:
         # the conversation (AD-17), and wait while their server is off.
         self._mcp_lazy = False
         self._loaded_docs: set[str] = set()
+        # Skills (story 7): all enabled at first; the skills loaded belong to the
+        # conversation (AD-17), and wait while their skill is disabled.
+        self._skills_enabled = set(self._skill_ids())
+        self._loaded_skills: set[str] = set()
         # Configuration frozen by the last `send`: `pending` is measured against it.
-        self._sent: tuple[frozenset[str], str, frozenset[str], frozenset[str], bool] = (
+        self._sent: tuple[
+            frozenset[str], str, frozenset[str], frozenset[str], bool, frozenset[str]
+        ] = (
             frozenset(),
             self._default_prompt,
             frozenset(),
             frozenset(),
             False,
+            frozenset(self._skills_enabled),
         )
 
     # ---------- state ----------
@@ -274,6 +287,8 @@ class AppSession:
                 enabled = {f"tools.{name}" for name in self._tools_enabled}
             elif brick.id == "mcp":
                 enabled = {f"mcp.{server}" for server in self._mcp_enabled}
+            elif brick.id == "skills":
+                enabled = {f"skills.{skill}" for skill in self._skills_enabled}
             else:
                 return list(brick.components)
         return [c for c in brick.components if c.id in enabled]
@@ -281,6 +296,18 @@ class AppSession:
     def _mcp_label(self, server_id: str) -> str:
         text = self._mcp_content.servers.get(server_id) if self._mcp_content else None
         return text.label_fr if text else server_id
+
+    def _skill_ids(self) -> list[str]:
+        """The declared skills, in the registry's order."""
+        brick = self._bricks.get("skills")
+        return [c.id.removeprefix("skills.") for c in brick.components] if brick else []
+
+    def _skill_text(self, skill_id: str) -> SkillText | None:
+        return self._skills_content.skills.get(skill_id) if self._skills_content else None
+
+    def _skill_label(self, skill_id: str) -> str:
+        text = self._skill_text(skill_id)
+        return text.label_fr if text else skill_id
 
     def _mcp_tools(self, server_id: str) -> list[str]:
         """The names the registry exposes for `server_id`'s tools."""
@@ -328,13 +355,16 @@ class AppSession:
             for component in components[brick.id]:
                 hosting = "network" if component.hosting == "network_service" else "local"
                 is_tool = component.kind == "tool"
+                is_skill = component.kind == "skill"
                 node = {
                     "id": component.id,
-                    "kind": "tool" if is_tool else "brick",
+                    "kind": component.kind if is_tool or is_skill else "brick",
                     "hosting": hosting,
                     "label_fr": (
                         self._registry.label(component.id.removeprefix("tools."))
                         if is_tool
+                        else self._skill_label(component.id.removeprefix("skills."))
+                        if is_skill
                         else self._label(brick.id)
                     ),
                     "wanted": True,
@@ -349,6 +379,12 @@ class AppSession:
                         node["available"], node["reason_fr"] = False, why
                 if component.kind == "mcp_server":
                     self._mcp_node(node, component.id.removeprefix("mcp."))
+                if is_skill:  # its tooltip gives its description and state (FR-3)
+                    skill_id = component.id.removeprefix("skills.")
+                    text = self._skill_text(skill_id)
+                    with self._lock:
+                        node["loaded"] = skill_id in self._loaded_skills
+                    node["detail_fr"] = text.description if text else None
                 nodes.append(node)
                 edges += [
                     {"from": component.id, "to": target, "crosses_boundary": hosting == "network"}
@@ -361,7 +397,7 @@ class AppSession:
         """Bricks whose effect on the next turn differs from what the last `send` froze."""
         mcp_tools = frozenset(self._mcp_tool_names())
         with self._lock:
-            sent_wanted, sent_prompt, sent_tools, sent_mcp, sent_lazy = self._sent
+            sent_wanted, sent_prompt, sent_tools, sent_mcp, sent_lazy, sent_skills = self._sent
             pending = set(self._wanted) ^ sent_wanted
             prompt = self._custom_prompt or self._default_prompt
             if "system_prompt" in self._wanted and prompt != sent_prompt:
@@ -371,6 +407,8 @@ class AppSession:
             mcp_changed = mcp_tools != sent_mcp or self._mcp_lazy != sent_lazy
             if "mcp" in self._wanted and mcp_changed:
                 pending.add("mcp")
+            if "skills" in self._wanted and self._skills_enabled != sent_skills:
+                pending.add("skills")
         return pending
 
     def _mcp_options(self) -> list[dict[str, Any]]:
@@ -385,6 +423,20 @@ class AppSession:
                 "network": server.network,
             }
             for server in self._mcp_servers.values()
+        ]
+
+    def _skill_options(self) -> list[dict[str, Any]]:
+        with self._lock:
+            enabled = set(self._skills_enabled)
+        return [
+            {
+                "id": skill_id,
+                "label_fr": self._skill_label(skill_id),
+                "enabled": skill_id in enabled,
+                "hosting_fr": "Local",
+                "network": False,
+            }
+            for skill_id in self._skill_ids()
         ]
 
     def _tool_options(self) -> list[dict[str, Any]]:
@@ -441,6 +493,8 @@ class AppSession:
                         if brick.id == "tools"
                         else self._mcp_options()
                         if brick.id == "mcp"
+                        else self._skill_options()
+                        if brick.id == "skills"
                         else []
                     ),
                     "limits_fr": self._limits_fr() if brick.id == "tools" else None,
@@ -588,6 +642,19 @@ class AppSession:
                     exc,
                     "La brique « MCP » est indisponible ; le reste de WaveStack fonctionne.",
                 )
+        if "skills" in self._bricks:
+            try:
+                self._skills_content = load_skills_content(self._skill_ids())
+            except Exception as exc:  # noqa: BLE001
+                self._content_errors["skills"] = (
+                    "Un fichier des skills (content/skills.yaml ou content/skills/*/SKILL.md) "
+                    "est absent ou invalide : corrigez-le puis relancez WaveStack."
+                )
+                self._error(
+                    "Les skills sont invalides.",
+                    exc,
+                    "La brique « Skills » est indisponible ; le reste de WaveStack fonctionne.",
+                )
         if "system_prompt" not in self._bricks:
             return
         try:
@@ -655,6 +722,7 @@ class AppSession:
         with self._lock:
             enabled = set(self._tools_enabled)
             lazy, loaded = self._mcp_lazy, set(self._loaded_docs)
+            skills_enabled, skills_loaded = set(self._skills_enabled), set(self._loaded_skills)
         tools = [n for n in self._registry.names if n in enabled] if "tools" in effective else []
         loadable: list[str] = []
         if "mcp" in effective:
@@ -664,12 +732,21 @@ class AppSession:
                 tools += [n for n in mcp if n in loaded] + ([LOAD_TOOL_DOC] if loadable else [])
             else:
                 tools += mcp
+        skills: list[str] = []
+        catalog: list[str] = []
+        if "skills" in effective:  # AD-25: bodies loaded, the others in the catalog
+            enabled_skills = [s for s in self._skill_ids() if s in skills_enabled]
+            skills = [s for s in enabled_skills if s in skills_loaded]
+            catalog = [s for s in enabled_skills if s not in skills_loaded]
+            tools += [LOAD_SKILL] if catalog else []
         return TurnState(
             history=tuple(history),
             system_prompt=prompt if prompt is not None else self._default_prompt,
             effective=effective,
             tools=tuple(tools),
             loadable=tuple(loadable),
+            skills=tuple(skills),
+            skill_catalog=tuple(catalog),
         )
 
     # ---------- rendering ----------
@@ -723,30 +800,57 @@ class AppSession:
             messages.append(answer)
         return messages
 
-    @classmethod
+    def _system_parts(self, state: TurnState) -> list[Part | Joined]:
+        """AD-4: the system prompt, then the skills catalog (its intro and one line per
+        skill), then the bodies of the skills loaded (AD-25)."""
+        parts: list[Part | Joined] = []
+        if "system_prompt" in state.effective:
+            parts.append(
+                Part(
+                    SegmentKind.SYSTEM_PROMPT,
+                    state.system_prompt,
+                    "system_prompt",
+                    "system_prompt.prompt",
+                )
+            )
+        content = self._skills_content
+        if content is None:  # invalid content: the skills brick is unavailable anyway
+            return parts
+        if state.skill_catalog:
+            intro = Part(SegmentKind.SKILL_CATALOG, content.catalog_intro, "skills", "core.harness")
+            lines = [
+                Part(
+                    SegmentKind.SKILL_CATALOG,
+                    f"- {s} : {content.skills[s].description}",
+                    "skills",
+                    f"skills.{s}",
+                )
+                for s in state.skill_catalog
+            ]
+            parts.append(Joined((intro, *lines), sep="\n"))
+        for s in state.skills:  # each body named by a header line, so they stay apart
+            text = content.skills[s]
+            body = f"Skill « {text.label_fr} » ({s}) :\n{text.body}"
+            parts.append(Part(SegmentKind.SKILL_BODY, body, "skills", f"skills.{s}"))
+        return parts
+
     def _messages(
-        cls, state: TurnState, message: str, steps: list[dict[str, Any]] | None = None
+        self, state: TurnState, message: str, steps: list[dict[str, Any]] | None = None
     ) -> list[dict[str, Any]]:
         """AD-4 slots: system message, history, the turn's user message, then the turn's steps.
 
         Every brick off gives the bare LLM's single user message, byte for byte.
         """
         messages: list[dict[str, Any]] = []
-        if "system_prompt" in state.effective:
-            part = Part(
-                SegmentKind.SYSTEM_PROMPT,
-                state.system_prompt,
-                "system_prompt",
-                "system_prompt.prompt",
-            )
-            messages.append({"role": "system", "content": [part]})
+        if system := self._system_parts(state):
+            messages.append({"role": "system", "content": system})
         if "short_memory" in state.effective:
             for ex in state.history:
                 memory = ("short_memory", "short_memory.history")
                 messages.append(
                     {"role": "user", "content": [Part(SegmentKind.HISTORY, ex.user, *memory)]}
                 )
-                messages += cls._step_messages(ex.steps, history=True, group=ex.turn_id)
+                messages += self._step_messages(ex.steps, history=True, group=ex.turn_id)
                 answer: dict[str, Any] = {
                     "role": "assistant",
                     "content": [Part(SegmentKind.HISTORY, ex.text, *memory)],
@@ -757,7 +861,7 @@ class AppSession:
                     answer["reasoning_content"] = ex.reasoning
                 messages.append(answer)
         messages.append({"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, message)]})
-        messages += cls._step_messages(steps or [], history=False, group="turn")
+        messages += self._step_messages(steps or [], history=False, group="turn")
         return messages
 
     def _tool_definitions(self, state: TurnState) -> list[dict[str, Any]] | None:
@@ -878,6 +982,7 @@ class AppSession:
                 frozenset(self._tools_enabled),
                 mcp_tools,
                 self._mcp_lazy,
+                frozenset(self._skills_enabled),
             )
         if had_pending:  # « Prend effet au prochain tour » is over for what this turn reads
             self._emit_bricks()
@@ -921,6 +1026,22 @@ class AppSession:
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
 
+    def set_skill(self, skill_id: str, enabled: bool) -> None:
+        """Class (a): a skill sub-option, effective from the next turn. `KeyError` if unknown.
+        A loaded skill disabled leaves the context, and comes back once enabled again."""
+        if skill_id not in self._skill_ids():
+            raise KeyError(skill_id)
+        with self._lock:
+            if (skill_id in self._skills_enabled) == enabled:
+                return
+            if enabled:
+                self._skills_enabled.add(skill_id)
+            else:
+                self._skills_enabled.discard(skill_id)
+        self._emit_bricks()
+        self._emit_architecture()
+        self._executor.submit(self._emit_preview)
+
     # ---------- MCP servers (story 6, AD-15, AD-24) ----------
 
     def set_mcp_mode(self, lazy: bool) -> None:
@@ -935,28 +1056,52 @@ class AppSession:
         self._executor.submit(self._emit_preview)
 
     def _harness_tools(self) -> list[ToolSpec]:
-        """`load_tool_doc`, registered once; the turn state decides when it is offered."""
-        if self._mcp_content is None:
-            return []  # invalid content: the mcp brick is unavailable anyway
-        text = self._mcp_content.load_tool_doc
-        return [
-            ToolSpec(
-                name=LOAD_TOOL_DOC,
-                run=self._load_tool_doc,
-                params={"tool": "string"},
-                component="core.harness",
-                source="harness",
-                brick="mcp",
-                label_fr=text.label_fr,
-                description=text.intro,  # the lines of the loadable tools follow, per turn
-                schema={
-                    "type": "object",
-                    "properties": {"tool": {"type": "string", "description": text.tool}},
-                    "required": ["tool"],
-                },
-                required=("tool",),
+        """`load_tool_doc` and `load_skill`, registered once; the turn state decides when
+        they are offered. Invalid content: their brick is unavailable anyway."""
+        specs = []
+        if self._mcp_content is not None:
+            specs.append(self._load_tool_doc_spec())
+        if self._skills_content is not None:
+            text = self._skills_content.load_skill
+            specs.append(
+                ToolSpec(
+                    name=LOAD_SKILL,
+                    run=self._load_skill,
+                    params={"skill": "string"},
+                    component="core.harness",
+                    source="harness",
+                    brick="skills",
+                    label_fr=text.label_fr,
+                    description=text.description,  # the catalog is in the system message
+                    schema={
+                        "type": "object",
+                        "properties": {"skill": {"type": "string", "description": text.skill}},
+                        "required": ["skill"],
+                    },
+                    required=("skill",),
+                )
             )
-        ]
+        return specs
+
+    def _load_tool_doc_spec(self) -> ToolSpec:
+        assert self._mcp_content is not None
+        text = self._mcp_content.load_tool_doc
+        return ToolSpec(
+            name=LOAD_TOOL_DOC,
+            run=self._load_tool_doc,
+            params={"tool": "string"},
+            component="core.harness",
+            source="harness",
+            brick="mcp",
+            label_fr=text.label_fr,
+            description=text.intro,  # the lines of the loadable tools follow, per turn
+            schema={
+                "type": "object",
+                "properties": {"tool": {"type": "string", "description": text.tool}},
+                "required": ["tool"],
+            },
+            required=("tool",),
+        )
 
     def _load_tool_doc(self, tool: str) -> ToolReply | str:
         """AD-25: reads the registry, writes nothing; the session applies the effect (AD-23)."""
@@ -973,6 +1118,21 @@ class AppSession:
             )
         definition = json.dumps(self._registry.definition(tool), ensure_ascii=False)
         return ToolReply(definition, (ToolDocLoaded(tool=tool),))
+
+    def _load_skill(self, skill: str) -> ToolReply | str:
+        """AD-25: reads the skills, writes nothing; the session applies the effect (AD-23)."""
+        with self._lock:
+            enabled, loaded = set(self._skills_enabled), set(self._loaded_skills)
+        if skill in enabled and skill in loaded:
+            return f"Le skill « {skill} » est déjà chargé."
+        text = self._skill_text(skill)
+        if skill not in enabled or text is None:
+            loadable = [s for s in self._skill_ids() if s in enabled and s not in loaded]
+            raise ToolError(
+                f"Aucun skill activé ne s'appelle « {skill} ». Skills chargeables : "
+                f"{', '.join(loadable) or 'aucun'}."
+            )
+        return ToolReply(text.body, (SkillLoaded(skill_id=skill),))
 
     def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """The asyncio loop MCP clients live on (FastAPI's); set once, before any intention."""
@@ -1161,7 +1321,9 @@ class AppSession:
                 raise SendRefused(self._refusal_reason())
             self._history.clear()
             self._loaded_docs.clear()  # AD-25: the documentations leave with the conversation
+            self._loaded_skills.clear()  # and so do the skills
         get_journal().emit("conversation_cleared", {})
+        self._emit_architecture()
         self._executor.submit(self._emit_preview)
 
     def _refusal_reason(self) -> str:
@@ -1246,7 +1408,9 @@ class AppSession:
             # A failed call earns a new attempt while retries and calls remain (AD-10, AD-14).
             reaction = "retry" if retries < max_retries and n < max_calls else "stop"
             failed = False
-            harness_brick = "tools" if "tools" in state.effective else "mcp"
+            harness_brick = next(
+                (b for b in ("tools", "mcp", "skills") if b in state.effective), "tools"
+            )
             with scoped(call_id=call_id, brick=harness_brick, component="core.harness"):
                 if out.malformed is not None:
                     failed = True
@@ -1282,12 +1446,18 @@ class AppSession:
                         detail = self._tool_executor.check(
                             call, state.tools + tuple(loaded_in_turn), state.loadable
                         )
-                        spec = self._registry.get(call.name) if detail is None else None
+                        named = self._registry.get(call.name)
+                        spec = named if detail is None else None
                         if detail is not None:
                             failed = True
-                        # AD-4: the step and its result belong to the tool's own brick.
+                        # AD-4: the step and its result belong to the named tool's own brick,
+                        # even refused; an unknown name to the harness brick.
                         component = spec.component if spec else "core.harness"
-                        brick = (spec.brick or component.split(".")[0]) if spec else harness_brick
+                        brick = (
+                            (named.brick or named.component.split(".")[0])
+                            if named
+                            else harness_brick
+                        )
                         effects: list[Effect] = []
                         with scoped(
                             step_id=f"{turn_id}.main.s{step}", brick=brick, component=component
@@ -1312,7 +1482,10 @@ class AppSession:
                             "brick": brick,
                         }
                         for effect in effects:  # AD-23: the session applies them
-                            tool_step |= self._apply_doc_loaded(effect.tool, loaded_in_turn)
+                            if isinstance(effect, ToolDocLoaded):
+                                tool_step |= self._apply_doc_loaded(effect.tool, loaded_in_turn)
+                            elif isinstance(effect, SkillLoaded):
+                                tool_step |= self._apply_skill_loaded(effect.skill_id)
                         steps.append(tool_step)
             if failed:
                 retries += 1
@@ -1338,6 +1511,20 @@ class AppSession:
             "brick": "mcp",
             "component": spec.component if spec else "core.harness",
             "stub": f"Documentation de « {tool} » chargée.",
+        }
+
+    def _apply_skill_loaded(self, skill_id: str) -> dict[str, Any]:
+        """`SkillLoaded`: the skill is loaded for the conversation. Its body answers the call
+        in this turn and joins the system message from the next one, the history keeping a
+        stub in its place (AD-25)."""
+        with self._lock:
+            self._loaded_skills.add(skill_id)
+        self._emit_architecture()  # the node shows « chargé »
+        return {
+            "kind": SegmentKind.SKILL_BODY,
+            "brick": "skills",
+            "component": f"skills.{skill_id}",
+            "stub": f"Skill « {self._skill_label(skill_id)} » chargé.",
         }
 
     def _after_mcp_call(self, name: str, spec: ToolSpec) -> None:

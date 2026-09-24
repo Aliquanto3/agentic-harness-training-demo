@@ -425,7 +425,7 @@ function brickOptions(brick) {
     else store.openExplanations.delete(key);
   });
   const on = brick.options.filter((o) => o.enabled).length;
-  const noun = brick.id === "mcp" ? "Serveurs" : "Outils";
+  const noun = { mcp: "Serveurs", skills: "Skills" }[brick.id] || "Outils";
   // The closed card still shows the MCP documentation mode.
   const mode = brick.mode === "lazy" ? ` · ${brick.lazy_label_fr}` : "";
   details.appendChild(
@@ -466,13 +466,16 @@ function brickOptions(brick) {
 }
 
 async function setOption(brickId, id, enabled) {
-  // A tool of the tools brick, a server of the MCP brick, or the MCP documentation mode.
+  // A tool of the tools brick, a server of the MCP brick, the MCP documentation mode, or a
+  // skill of the skills brick.
   const [path, body] =
     brickId === "mcp_mode"
       ? ["/api/intentions/mcp_mode", { lazy: enabled }]
       : brickId === "mcp"
         ? ["/api/intentions/mcp_server", { server: id, enabled }]
-        : ["/api/intentions/tool", { tool: id, enabled }];
+        : brickId === "skills"
+          ? ["/api/intentions/skill", { skill: id, enabled }]
+          : ["/api/intentions/tool", { tool: id, enabled }];
   try {
     const response = await postIntention(path, body);
     if (response.ok) return; // `bricks_changed` redraws the card
@@ -828,12 +831,21 @@ function modelCallCards(turn, step, index, calls) {
 
 function toolCard(step) {
   const ended = step.ended;
-  // A harness tool (`load_tool_doc`) shows its own step, e.g. « Chargement de la documentation ».
+  // A harness tool (`load_tool_doc`, `load_skill`) shows its own step, e.g. « Chargement de
+  // la documentation », and says the model triggered it (EXPERIENCE: trigger badge).
   const harness = step.started.source === "harness";
   const title = harness ? step.started.phase_label : "Exécution par le harnais";
   const card = stepCard(`3. ${title} · ${step.started.tool}`);
   if (step.started.source?.startsWith("mcp") || (harness && step.brick === "mcp")) {
     card.appendChild(el("span", "step-badge is-mcp", "MCP"));
+  }
+  if (step.brick === "skills") card.appendChild(el("span", "step-badge is-skill", "Skill"));
+  if (harness) {
+    const icon = el("span", "", "🤖 ");
+    icon.setAttribute("aria-hidden", "true"); // the label alone is read aloud
+    const badge = el("span", "trigger-badge-model");
+    badge.append(icon, "Déclenché par le modèle");
+    card.appendChild(badge);
   }
   const asked = { name: step.started.tool, arguments: step.started.arguments };
   card.appendChild(el("pre", "step-code", formatCall(asked)));
@@ -1048,7 +1060,7 @@ function svgEl(tag, attrs) {
 }
 
 // Brick id -> chip icon in the harness frame (formatting only).
-const BRICK_ICONS = { short_memory: "🧠", system_prompt: "📜", tools: "🔧", mcp: "🔌" };
+const BRICK_ICONS = { short_memory: "🧠", system_prompt: "📜", tools: "🔧", mcp: "🔌", skills: "📘" };
 const POSE_LABELS = { idle: "au repos", thinking: "réfléchit", tool: "utilise un outil" };
 
 // The robot's pose, derived from the turn's events only (AD-1).
@@ -1237,9 +1249,15 @@ function renderSchema() {
     if (notContacted) tooltip += " : non contacté";
     // An MCP server lists its tools in its tooltip (AD-12).
     if (node.tools?.length) tooltip += `\nOutils : ${node.tools.join(", ")}`;
+    // A skill gives its description, and its loaded state under the label (FR-3).
+    const skill = node.kind === "skill";
+    if (skill && node.detail_fr) tooltip += `\n${node.detail_fr}`;
     const network = node.hosting === "network";
     // A network node shows its globe; its contact state stays visible under the label.
-    const state = notContacted ? "non contacté" : node.contact === "unavailable" ? "indisponible" : "";
+    const contactState = notContacted ? "non contacté" : node.contact === "unavailable" ? "indisponible" : "";
+    const state = skill ? (node.loaded ? "chargé" : "non chargé") : contactState;
+    if (skill) tooltip += `\n${state}`;
+    g.classList.toggle("is-loaded", skill && node.loaded);
     const text = svgText(network ? `🌐 ${node.label_fr}` : node.label_fr, {
       x: x + W / 2,
       y: y + (state ? 16 : H / 2 + 4),

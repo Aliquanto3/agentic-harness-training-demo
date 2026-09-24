@@ -500,8 +500,22 @@ body {
   font-size: var(--typography-label-font-size);
 }
 
-/* A step run by an MCP server (story 6): the tool is not the harness's own. */
-.step-badge.is-mcp {
+/* DESIGN.md trigger-badge-model: a harness action the model decided (story 7). */
+.trigger-badge-model {
+  display: inline-block;
+  margin: 0 0 var(--spacing-1) var(--spacing-1);
+  border-radius: var(--rounded-full);
+  padding: 0 var(--spacing-2);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-deep);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+/* A step run by an MCP server (story 6): the tool is not the harness's own. A skill
+   loaded (story 7) is shown the same way. */
+.step-badge.is-mcp,
+.step-badge.is-skill {
   margin: 0 0 var(--spacing-1);
   background: var(--color-primary);
   border-color: var(--color-primary);
@@ -973,6 +987,11 @@ body.focus-mode .pane.is-focused .pane-body {
 
 .arch-node.is-not-contacted rect {
   fill-opacity: 0.5; /* still yellow (network), paler until the first call is sent */
+}
+
+/* A skill loaded in the conversation (story 7): its state reads « chargé » too. */
+.arch-node.is-loaded rect {
+  stroke: var(--color-primary-deep);
 }
 
 .arch-node .arch-node-state {

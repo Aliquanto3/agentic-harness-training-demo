@@ -81,3 +81,10 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6c-refonte-visuelle-atelier-de-construction.md`
   summary: Sous le robot, un modèle chargé depuis un blob Ollama s'affiche `sha256-…` au lieu de son nom lisible.
   evidence: `boot(model_path)` ne reçoit que le chemin ; la découverte (`models/discovery.py`) connaît le nom affiché par le sélecteur du diagnostic. Transmettre ce nom demande de le faire passer par `boot` et `settings.json`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/7-skills-dont-caveman.md`
+  summary: Aucun test ne vérifie que les vraies briques `skills`, `tools` et `mcp` sont indisponibles sur un modèle sans `tool_call_parser`.
+  evidence: Supprimer `capabilities=["tool_call_parser"]` d'une déclaration de `bricks/registry.py` ne fait échouer aucun test ; seul le mécanisme générique est testé (`tests/test_bricks.py:371`).
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/7-skills-dont-caveman.md`
+  summary: Le basculement d'un skill dans l'interface (`setOption("skills", …)` vers `/api/intentions/skill`) et l'état « chargé » du schéma n'ont aucun test front.
+  evidence: Le dépôt n'a aucun banc de test JS ; seul l'endpoint serveur est testé (`tests/test_skills.py`, `test_skill_intention_http`).

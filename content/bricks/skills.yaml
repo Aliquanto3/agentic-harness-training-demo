@@ -1,0 +1,19 @@
+# Brique « Skills » (AD-12, AD-19).
+label_fr: Skills
+category_fr: context engineering
+hosting_fr: Local
+explanation_fr: >-
+  Un skill est un paquet d'instructions pour un type de tâche, rangé dans un
+  fichier. Ce n'est pas un outil : il n'exécute rien, il dit au modèle comment
+  s'y prendre, et peut lui conseiller des outils. Ce n'est pas un serveur MCP :
+  aucun programme ne tourne à côté du harnais. Ce n'est pas non plus le prompt
+  système : tant que le modèle ne le déclenche pas, seuls son nom et sa
+  description occupent le contexte, sur une ligne du message système. Quand une
+  demande s'y prête, le modèle appelle le méta-outil load_skill : le harnais lui
+  répond avec les instructions complètes, qui s'appliquent aussitôt, puis les
+  place dans le message système aux tours suivants (l'historique n'en garde qu'un
+  court talon). C'est le chargement progressif : on paie les tokens d'un skill
+  seulement quand il sert. Une fois chargé, il se paie à chaque tour suivant,
+  jusqu'à ce qu'on le décoche ou qu'on clique sur « Vider la conversation ». Comparez les tokens de sortie d'une même question avec
+  et sans le skill Caveman : ses réponses télégraphiques en produisent moins.
+  « Vider la conversation » décharge tous les skills.

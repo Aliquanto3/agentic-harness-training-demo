@@ -52,6 +52,11 @@ class McpModeIntention(BaseModel):
     lazy: bool
 
 
+class SkillIntention(BaseModel):
+    skill: str
+    enabled: bool
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -215,6 +220,15 @@ def create_app(
     def mcp_mode(intention: McpModeIntention) -> dict[str, bool]:
         """Class (a): documentation complète or lazy loading, from the next turn (AD-25)."""
         app_session.set_mcp_mode(intention.lazy)
+        return {"accepted": True}
+
+    @app.post("/api/intentions/skill")
+    def skill(intention: SkillIntention) -> dict[str, bool]:
+        """Class (a): a skill sub-option, effective from the next turn (AD-3)."""
+        try:
+            app_session.set_skill(intention.skill, intention.enabled)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Skill inconnu.") from None
         return {"accepted": True}
 
     @app.post("/api/intentions/system_prompt")

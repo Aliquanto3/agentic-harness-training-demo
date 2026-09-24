@@ -17,6 +17,16 @@ RESERVED_NODES = frozenset(
     }
 )
 
+# Story 7: the skills of the `skills` brick, in display order; one SKILL.md each (AD-19).
+SKILLS = (
+    "caveman",
+    "meeting_minutes",
+    "pirate",
+    "explain_like_ten",
+    "budget_review",
+    "working_days",
+)
+
 BRICKS = [
     BrickDeclaration(
         id="short_memory",
@@ -99,6 +109,21 @@ BRICKS = [
                 )
                 for server in ("datagouv", "mslearn")
             ),
+        ],
+    ),
+    # Story 7: one component per skill, a local file; no dependency on another brick.
+    BrickDeclaration(
+        id="skills",
+        category="context",
+        capabilities=["tool_call_parser"],
+        components=[
+            Component(
+                id=f"skills.{skill}",
+                kind="skill",
+                hosting="local_file",
+                edges_to=["core.harness"],
+            )
+            for skill in SKILLS
         ],
     ),
 ]
