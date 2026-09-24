@@ -18,9 +18,8 @@ _DESIGN_MD_MATCHES = list(
 )
 assert len(_DESIGN_MD_MATCHES) == 1, f"expected exactly one DESIGN.md, found {_DESIGN_MD_MATCHES}"
 DESIGN_MD = _DESIGN_MD_MATCHES[0]
-TOKENS_CSS = (
-    Path(__file__).resolve().parents[1] / "src" / "wavestack" / "web" / "static" / "tokens.css"
-)
+STATIC_DIR = Path(__file__).resolve().parents[1] / "src" / "wavestack" / "web" / "static"
+TOKENS_CSS = STATIC_DIR / "tokens.css"
 
 _ATTR_TO_CSS = {
     "fontFamily": "font-family",
@@ -71,3 +70,26 @@ def test_tokens_css_matches_design_frontmatter():
         if expected[name].strip("'\"") != actual[name].strip("'\"")
     }
     assert not mismatched, f"tokens.css values differ from DESIGN.md: {mismatched}"
+
+
+def test_tokens_css_declares_no_orphan_token():
+    orphans = _css_custom_properties().keys() - _expected_tokens(_design_frontmatter()).keys()
+    assert not orphans, f"tokens.css declares tokens absent from DESIGN.md: {sorted(orphans)}"
+
+
+def test_no_static_file_loads_google_fonts():
+    offenders = [
+        path.name
+        for path in STATIC_DIR.rglob("*")
+        if path.suffix in {".html", ".css", ".js"}
+        and "fonts.googleapis.com" in path.read_text(encoding="utf-8")
+    ]
+    assert not offenders, f"static files reference fonts.googleapis.com: {offenders}"
+
+
+def test_every_font_url_exists():
+    text = (STATIC_DIR / "fonts.css").read_text(encoding="utf-8")
+    urls = re.findall(r"url\(\s*['\"]?([^'\")]+)['\"]?\s*\)", text)
+    assert len(urls) == 5, urls
+    missing = [url for url in urls if not (STATIC_DIR / url).is_file()]
+    assert not missing, f"fonts.css points to missing files: {missing}"

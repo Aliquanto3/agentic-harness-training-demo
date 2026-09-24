@@ -291,6 +291,8 @@ def test_wanted_brick_is_drawn_linked_to_the_harness():
     arch = _latest("architecture_changed", mark)
     node = next(n for n in arch["nodes"] if n["id"] == "short_memory.history")
     assert node["kind"] == "brick" and node["label_fr"] == "Mémoire courte"
+    model = next(n for n in arch["nodes"] if n["id"] == "core.model")
+    assert model["model"] == "fake"
     assert arch["edges"] == [
         {"from": "short_memory.history", "to": "core.harness", "crosses_boundary": False}
     ]
@@ -356,6 +358,10 @@ def test_toggle_without_engine_raises_no_harness_error():
     session.join()
 
     assert _harness_errors(mark) == []
+    model = next(
+        n for n in _latest("architecture_changed", mark)["nodes"] if n["id"] == "core.model"
+    )
+    assert model["model"] is None  # no model loaded: the robot shows no file name
 
 
 def test_missing_capability_is_unavailable_with_reason(monkeypatch):

@@ -64,6 +64,7 @@ class ArchitectureNode(BaseModel):
     # state of their connection (AD-12).
     contact: Literal["not_contacted", "available", "unavailable"] | None = None
     tools: list[str] = []  # MCP servers: the names of the tools they expose
+    model: str | None = None  # `core.model`: file name (no extension) of the loaded model
 
 
 class ArchitectureEdge(BaseModel):

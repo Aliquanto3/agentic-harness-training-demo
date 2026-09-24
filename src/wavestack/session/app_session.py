@@ -207,6 +207,7 @@ class AppSession:
         self.state = "diagnostic"
         self.reason_fr: str | None = "Diagnostic de démarrage en cours."
         self._engine: Engine | None = None
+        self._model_name: str | None = None  # file stem of the loaded GGUF, shown in the schema
         self._caps: Capabilities | None = None
         self._window = self.cfg.context_window
         self._labels: SegmentLabels | None = None
@@ -302,7 +303,7 @@ class AppSession:
         """AD-12: a component is drawn as soon as its brick is `wanted`, even unavailable."""
         with self._lock:
             wanted = [b for b in self._bricks.values() if b.id in self._wanted]
-        nodes: list[dict[str, Any]] = [_CORE_HARNESS, _CORE_MODEL]
+        nodes: list[dict[str, Any]] = [_CORE_HARNESS, {**_CORE_MODEL, "model": self._model_name}]
         edges: list[dict[str, Any]] = []
         components = {b.id: self._drawn_components(b) for b in wanted}
         # The demo files node is drawn once a drawn component points to it.
@@ -506,6 +507,7 @@ class AppSession:
             self._emit_bricks()
             return
         try:
+            self._model_name = None  # no engine from here until this load succeeds
             self._set_state("model_load", f"Chargement du modèle {Path(model_path).name}…")
             self._emit_architecture()
             self._emit_bricks()
@@ -522,6 +524,7 @@ class AppSession:
                 self._set_state("idle", caps.incompatible_reason)
                 return
             self._engine, self._caps = engine, caps
+            self._model_name = Path(model_path).stem
             self._window = effective_window(self.cfg.context_window, caps.native_context)
             self._labels = self._load_labels()
         except Exception as exc:  # noqa: BLE001 - AD-16

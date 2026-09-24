@@ -1047,40 +1047,183 @@ function svgEl(tag, attrs) {
   return node;
 }
 
+// Brick id -> chip icon in the harness frame (formatting only).
+const BRICK_ICONS = { short_memory: "🧠", system_prompt: "📜", tools: "🔧", mcp: "🔌" };
+const POSE_LABELS = { idle: "au repos", thinking: "réfléchit", tool: "utilise un outil" };
+
+// The robot's pose, derived from the turn's events only (AD-1).
+function robotPose() {
+  // Only calls and tools: e.g. a `prefix_not_reused` step lands between a call and its start.
+  const step = activeTurn()?.steps.filter((s) => s.type === "call" || s.type === "tool").at(-1);
+  if (!step || step.ended) return "idle";
+  if (step.type === "tool") return "tool";
+  return step.type === "call" && step.startedAt ? "thinking" : "idle";
+}
+
+function svgText(text, attrs) {
+  const node = svgEl("text", attrs);
+  node.textContent = text;
+  return node;
+}
+
+function svgTitle(text) {
+  const title = svgEl("title", {});
+  title.textContent = text;
+  return title;
+}
+
+// The robot mascot (DESIGN.md > arch-model), centred on `cx`.
+function robot(cx, pose, modelNode) {
+  const g = svgEl("g", { class: `robot${pose === "idle" ? "" : " is-active"}`, role: "img" });
+  g.dataset.component = "core.model";
+  const name = modelNode?.model ?? null;
+  const label = `Modèle${name ? ` ${name}` : ""} : ${POSE_LABELS[pose]}`;
+  g.setAttribute("aria-label", label);
+  if (store.selection === "core.model") g.classList.add("is-selected");
+  g.addEventListener("click", () => select("core.model"));
+  const stroke = { class: "robot-face", fill: "none" };
+  const face =
+    pose === "idle"
+      ? [
+          svgEl("path", { ...stroke, d: `M${cx - 12} 52 q4 3 8 0` }),
+          svgEl("path", { ...stroke, d: `M${cx + 4} 52 q4 3 8 0` }),
+        ]
+      : [
+          svgEl("circle", { class: "robot-eye", cx: cx - 7, cy: 50, r: 2.5 }),
+          svgEl("circle", { class: "robot-eye", cx: cx + 7, cy: 50, r: 2.5 }),
+        ];
+  if (pose === "thinking") {
+    for (const dx of [-5, 0, 5]) {
+      face.push(svgEl("circle", { class: "robot-eye", cx: cx + dx, cy: 58, r: 1.3 }));
+    }
+  }
+  if (pose === "tool") face.push(svgEl("path", { ...stroke, d: `M${cx - 6} 56 q6 5 12 0` }));
+  g.append(
+    svgTitle(label),
+    svgEl("rect", { class: "robot-stick", x: cx - 1.5, y: 24, width: 3, height: 11, rx: 1.5 }),
+    svgEl("circle", { class: "robot-antenna", cx, cy: 22, r: 5 }),
+    svgEl("rect", { class: "robot-ear", x: cx - 34, y: 44, width: 9, height: 20, rx: 4.5 }),
+    svgEl("rect", { class: "robot-ear", x: cx + 25, y: 44, width: 9, height: 20, rx: 4.5 }),
+    svgEl("rect", { class: "robot-body", x: cx - 26, y: 34, width: 52, height: 40, rx: 14 }),
+    svgEl("rect", { class: "robot-visor", x: cx - 19, y: 41, width: 38, height: 24, rx: 10 }),
+    ...face
+  );
+  if (pose === "tool") {
+    g.append(
+      svgEl("circle", { class: "robot-badge", cx: cx + 26, cy: 72, r: 9 }),
+      svgText("🔧", { x: cx + 26, y: 76, "text-anchor": "middle", class: "robot-badge-icon" })
+    );
+  }
+  g.appendChild(svgText("Modèle", { x: cx, y: 91, "text-anchor": "middle", class: "robot-label" }));
+  if (name) {
+    // The frame is narrow: a long file name is cut, the tooltip keeps it whole.
+    const short = name.length > 20 ? `${name.slice(0, 19)}…` : name;
+    g.appendChild(svgText(short, { x: cx, y: 105, "text-anchor": "middle", class: "robot-model" }));
+  }
+  return g;
+}
+
+let renderedSchemaKey = null;
+
 function renderSchema() {
-  // Layout only: nodes, edges and availability all come from `architecture_changed` (AD-12).
+  // Layout only: nodes, edges and availability come from `architecture_changed` (AD-12),
+  // the frame's chips from `bricks_changed`.
+  const wanted = (store.bricks?.bricks || []).filter((b) => b.wanted);
+  const pose = robotPose();
+  // `render()` runs on every `model_delta`: rebuilding would restart the antenna blink.
+  const key = JSON.stringify([
+    store.architecture,
+    wanted.map((b) => [b.id, b.label_fr, b.available, b.reason_fr]),
+    pose,
+    store.selection,
+  ]);
+  if (key === renderedSchemaKey) return;
+  renderedSchemaKey = key;
+
   const svg = document.getElementById("schema-svg");
   svg.innerHTML = "";
   const nodes = store.architecture.nodes || [];
-  const W = 180;
-  const H = 44;
-  const GAP = 24;
-  const fixed = (n) => n.kind === "harness" || n.kind === "model";
-  const rows = [nodes.filter(fixed), nodes.filter((n) => !fixed(n))];
-  const widest = Math.max(...rows.map((row) => row.length), 1);
-  const width = Math.max(480, 40 + widest * W + (widest - 1) * GAP);
-  svg.setAttribute("viewBox", `0 0 ${width} 140`);
+  const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+  // Brick components are the frame's chips; the harness and the model, the frame and the robot.
+  const outside = nodes.filter((n) => !["harness", "model", "brick"].includes(n.kind));
+  outside.sort((a, b) => (a.kind === "file") - (b.kind === "file"));
+
+  const FX = 4; // harness frame
+  const FY = 12;
+  const FW = 360;
+  const FH = 120;
+  const RELIEF = 4;
+  const W = 170; // outside nodes: a grid of 3 rows right of the frame, files last
+  const H = 38;
+  const GAP = 4;
+  const COL_GAP = 12;
+  const x0 = FX + FW + 40;
   const pos = {};
-  rows.forEach((row, r) => {
-    const x0 = (width - (row.length * W + Math.max(row.length - 1, 0) * GAP)) / 2;
-    row.forEach((node, i) => (pos[node.id] = { x: x0 + i * (W + GAP), y: 12 + r * (H + 28) }));
+  outside.forEach((node, i) => {
+    pos[node.id] = { x: x0 + Math.floor(i / 3) * (W + COL_GAP), y: FY + (i % 3) * (H + GAP) };
   });
+  const cols = Math.ceil(outside.length / 3);
+  const width = cols ? x0 + cols * (W + COL_GAP) : FX + FW + RELIEF;
+  svg.setAttribute("viewBox", `0 0 ${width} 140`);
+
+  // Edges first: the nodes drawn after mask them.
   for (const edge of store.architecture.edges || []) {
     const a = pos[edge.from];
+    if (!a) continue;
+    const cls = `arch-edge${edge.crosses_boundary ? " is-network" : ""}`;
+    if (edge.to === "core.harness") {
+      const y = a.y + H / 2;
+      svg.appendChild(svgEl("line", { class: cls, x1: FX + FW, y1: y, x2: a.x, y2: y }));
+      continue;
+    }
     const b = pos[edge.to];
-    if (!a || !b) continue;
-    const down = a.y < b.y;
+    if (!b) continue;
     svg.appendChild(
-      svgEl("line", {
-        class: `arch-edge${edge.crosses_boundary ? " is-network" : ""}`,
-        x1: a.x + W / 2,
-        y1: down ? a.y + H : a.y,
-        x2: b.x + W / 2,
-        y2: down ? b.y : b.y + H,
+      svgEl("line", { class: cls, x1: a.x + W / 2, y1: a.y + H / 2, x2: b.x + W / 2, y2: b.y + H / 2 })
+    );
+  }
+
+  const frame = svgEl("g", { class: "arch-harness" });
+  frame.dataset.component = "core.harness";
+  if (store.selection === "core.harness") frame.classList.add("is-selected");
+  frame.addEventListener("click", () => select("core.harness"));
+  frame.append(
+    svgTitle(byId["core.harness"]?.label_fr || "Harnais"),
+    svgEl("rect", { class: "arch-harness-relief", x: FX, y: FY + RELIEF, width: FW, height: FH }),
+    svgEl("rect", { class: "arch-harness-frame", x: FX, y: FY, width: FW, height: FH }),
+    svgEl("rect", { class: "arch-harness-tag", x: FX + 18, y: FY - 10, width: 72, height: 20 }),
+    svgText("Harnais", { x: FX + 54, y: FY + 4, "text-anchor": "middle", class: "arch-harness-tag-text" })
+  );
+  // Chips alternate left and right of the robot, 3 per column.
+  // ponytail: 6 chips at most (3 rows x 2), 124 units wide, labels not truncated; grow FH
+  // and the viewBox when a later story adds bricks.
+  const CW = 124;
+  const CH = 26;
+  wanted.forEach((brick, i) => {
+    const x = i % 2 ? FX + FW - 12 - CW : FX + 12;
+    const y = FY + 16 + Math.floor(i / 2) * (CH + 8);
+    const chip = svgEl("g", { class: `arch-chip${brick.available ? "" : " is-unavailable"}` });
+    const icon = BRICK_ICONS[brick.id] || "🧩";
+    chip.append(
+      svgTitle(brick.available ? brick.label_fr : `${brick.label_fr} : ${brick.reason_fr}`),
+      svgEl("rect", { x, y, width: CW, height: CH }),
+      svgText(`${icon} ${brick.label_fr}`, { x: x + CW / 2, y: y + 17, "text-anchor": "middle" })
+    );
+    frame.appendChild(chip);
+  });
+  if (!wanted.length) {
+    frame.appendChild(
+      svgText("Aucune brique : LLM nu", {
+        x: FX + FW / 2,
+        y: FY + FH - 7,
+        "text-anchor": "middle",
+        class: "arch-harness-empty",
       })
     );
   }
-  for (const node of nodes) {
+  svg.append(frame, robot(FX + FW / 2, pose, byId["core.model"]));
+
+  for (const node of outside) {
     const { x, y } = pos[node.id];
     const g = svgEl("g", { class: "arch-node" });
     g.dataset.component = node.id;
@@ -1090,27 +1233,23 @@ function renderSchema() {
     g.classList.toggle("is-not-contacted", notContacted);
     if (store.selection === node.id) g.classList.add("is-selected");
     g.addEventListener("click", () => select(node.id));
-    const title = svgEl("title", {});
-    title.textContent = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
-    if (notContacted) title.textContent += " : non contacté";
+    let tooltip = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
+    if (notContacted) tooltip += " : non contacté";
     // An MCP server lists its tools in its tooltip (AD-12).
-    if (node.tools?.length) title.textContent += `\nOutils : ${node.tools.join(", ")}`;
+    if (node.tools?.length) tooltip += `\nOutils : ${node.tools.join(", ")}`;
     const network = node.hosting === "network";
     // A network node shows its globe; its contact state stays visible under the label.
     const state = notContacted ? "non contacté" : node.contact === "unavailable" ? "indisponible" : "";
-    const labelY = y + (state ? H / 2 - 2 : H / 2 + 5);
-    const text = svgEl("text", { x: x + W / 2, y: labelY, "text-anchor": "middle" });
-    text.textContent = network ? `🌐 ${node.label_fr}` : node.label_fr;
-    g.append(title, svgEl("rect", { x, y, width: W, height: H }), text);
+    const text = svgText(network ? `🌐 ${node.label_fr}` : node.label_fr, {
+      x: x + W / 2,
+      y: y + (state ? 16 : H / 2 + 4),
+      "text-anchor": "middle",
+    });
+    g.append(svgTitle(tooltip), svgEl("rect", { x, y, width: W, height: H }), text);
     if (state) {
-      const sub = svgEl("text", {
-        x: x + W / 2,
-        y: y + H - 8,
-        "text-anchor": "middle",
-        class: "arch-node-state",
-      });
-      sub.textContent = state;
-      g.appendChild(sub);
+      g.appendChild(
+        svgText(state, { x: x + W / 2, y: y + H - 7, "text-anchor": "middle", class: "arch-node-state" })
+      );
     }
     svg.appendChild(g);
   }

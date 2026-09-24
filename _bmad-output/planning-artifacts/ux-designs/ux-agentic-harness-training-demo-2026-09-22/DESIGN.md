@@ -2,12 +2,12 @@
 title: DESIGN — WaveStack
 status: draft
 created: 2026-09-22
-updated: 2026-09-23
+updated: 2026-09-24
 sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/addendum.md
 name: WaveStack
-description: Démonstrateur pédagogique local de harnais agentique, à la charte Wavestone, pensé pour la projection. Thème clair uniquement en V1.
+description: Démonstrateur pédagogique local de harnais agentique, à la charte Wavestone, dans une direction « atelier de construction » pensée pour la projection. Thème clair uniquement en V1.
 colors:
   # Charte Wavestone
   primary: '#451DC7'
@@ -24,6 +24,10 @@ colors:
   warning: '#FFCA4A'
   danger: '#FF2A49'
   on-primary: '#FFFFFF'
+  # Relief et fond à pois (teintes du violet de charte, sans autre usage)
+  relief: '#D9D0F6'
+  relief-active: '#C9BCF5'
+  dot: '#D6CCF5'
   # Codage local / réseau (lieu d'hébergement)
   hosting-local: '#451DC7'
   hosting-network: '#FFCA4A'
@@ -46,56 +50,59 @@ colors:
 typography:
   # Base à 100 % ; les paliers 125 % et 150 % (NFR-9) multiplient toutes les tailles.
   pane-title:
-    fontFamily: 'Manrope, Inter, system-ui, sans-serif'
+    fontFamily: 'Fredoka, system-ui, sans-serif'
+    fontSize: 19px
+    fontWeight: '600'
+    lineHeight: '1.15'
+  pane-subtitle:
+    fontFamily: "'Atkinson Hyperlegible', system-ui, sans-serif"
     fontSize: 13px
-    fontWeight: '700'
-    lineHeight: '1.2'
-    letterSpacing: 0.06em
+    fontWeight: '400'
+    lineHeight: '1.3'
   heading:
-    fontFamily: 'Aptos, Inter, system-ui, sans-serif'
+    fontFamily: 'Fredoka, system-ui, sans-serif'
     fontSize: 18px
     fontWeight: '600'
     lineHeight: '1.3'
   chat:
-    fontFamily: 'Aptos, Inter, system-ui, sans-serif'
+    fontFamily: "'Atkinson Hyperlegible', system-ui, sans-serif"
     fontSize: 16px
     fontWeight: '400'
     lineHeight: '1.5'
   body:
-    fontFamily: 'Aptos, Inter, system-ui, sans-serif'
+    fontFamily: "'Atkinson Hyperlegible', system-ui, sans-serif"
     fontSize: 14px
     fontWeight: '400'
     lineHeight: '1.5'
   body-sm:
-    fontFamily: 'Aptos, Inter, system-ui, sans-serif'
+    fontFamily: "'Atkinson Hyperlegible', system-ui, sans-serif"
     fontSize: 13px
     fontWeight: '400'
     lineHeight: '1.4'
   label:
-    fontFamily: 'Manrope, Inter, system-ui, sans-serif'
+    fontFamily: 'Fredoka, system-ui, sans-serif'
     fontSize: 12px
-    fontWeight: '700'
+    fontWeight: '500'
     lineHeight: '1.2'
-    letterSpacing: 0.04em
   number:
-    fontFamily: 'Manrope, Inter, system-ui, sans-serif'
+    fontFamily: 'Fredoka, system-ui, sans-serif'
     fontSize: 14px
-    fontWeight: '700'
+    fontWeight: '600'
     lineHeight: '1.2'
   number-lg:
-    fontFamily: 'Manrope, Inter, system-ui, sans-serif'
+    fontFamily: 'Fredoka, system-ui, sans-serif'
     fontSize: 20px
-    fontWeight: '800'
+    fontWeight: '600'
     lineHeight: '1.1'
   code:
-    fontFamily: "'Cascadia Mono', Consolas, ui-monospace, monospace"
+    fontFamily: "'JetBrains Mono', 'Cascadia Mono', Consolas, ui-monospace, monospace"
     fontSize: 13px
     fontWeight: '400'
     lineHeight: '1.5'
 rounded:
   sm: 12px
-  md: 16px
-  lg: 22px
+  md: 18px
+  lg: 26px
   full: 9999px
 spacing:
   '1': 4px
@@ -111,46 +118,59 @@ spacing:
   architecture-band-height: 200px
   stroke-min: 2px
   hit-target-min: 32px
+  relief-offset: 4px
+  relief-offset-pressed: 1px
+  relief-offset-overlay: 6px
+  dot-grid: 18px
 components:
+  page:
+    background: '{colors.surface}'
+    dot: '{colors.dot}'
+    dot-grid: '{spacing.dot-grid}'
   top-bar:
     background: '{colors.surface-raised}'
     foreground: '{colors.ink}'
-    border-bottom: '{colors.line}'
+    shadow: '{colors.relief}'
+    radius: '{rounded.lg}'
     height: '{spacing.top-bar-height}'
   pane:
     background: '{colors.surface-raised}'
-    border: '{colors.line}'
-    radius: '{rounded.md}'
+    shadow: '{colors.relief}'
+    radius: '{rounded.lg}'
     padding: '{spacing.pane-padding}'
     title-typography: '{typography.pane-title}'
-    title-color: '{colors.ink-soft}'
+    title-color: '{colors.ink}'
+    subtitle-typography: '{typography.pane-subtitle}'
+    subtitle-color: '{colors.ink-soft}'
   pane-focused:
     border: '{colors.primary}'
   button-primary:
     background: '{colors.primary}'
     foreground: '{colors.on-primary}'
-    radius: '{rounded.sm}'
+    shadow: '{colors.primary-deep}'
+    radius: '{rounded.md}'
     min-height: '{spacing.hit-target-min}'
   button-secondary:
     background: '{colors.surface-raised}'
     foreground: '{colors.primary}'
     border: '{colors.primary}'
-    radius: '{rounded.sm}'
+    shadow: '{colors.relief-active}'
+    radius: '{rounded.md}'
     min-height: '{spacing.hit-target-min}'
   reset-button:
     background: '{colors.surface-raised}'
     foreground: '{colors.ink}'
     border: '{colors.line}'
-    radius: '{rounded.sm}'
+    radius: '{rounded.md}'
   scenario-picker:
     background: '{colors.primary-soft}'
     foreground: '{colors.primary-deep}'
-    radius: '{rounded.sm}'
+    radius: '{rounded.full}'
   model-picker:
     background: '{colors.surface-raised}'
     foreground: '{colors.ink}'
     border: '{colors.line}'
-    radius: '{rounded.sm}'
+    radius: '{rounded.md}'
   text-size-control:
     background: '{colors.surface}'
     foreground: '{colors.ink}'
@@ -174,7 +194,8 @@ components:
     background: '{colors.surface-raised}'
     foreground: '{colors.ink}'
     border: '{colors.line}'
-    radius: '{rounded.sm}'
+    shadow: '{colors.relief}'
+    radius: '{rounded.md}'
   context-gauge:
     track: '{colors.segment-free}'
     border: '{colors.line}'
@@ -188,9 +209,9 @@ components:
     cell-border: '{colors.line}'
     legend-typography: '{typography.body-sm}'
     number-typography: '{typography.number}'
-    radius: '{rounded.md}'
+    radius: '{rounded.lg}'
   context-segment:
-    radius: '{rounded.sm}'
+    radius: '{rounded.md}'
     label-color: '{colors.ink}'
     label-typography: '{typography.label}'
     body-typography: '{typography.code}'
@@ -198,9 +219,11 @@ components:
   brick-card:
     background: '{colors.surface-raised}'
     border: '{colors.line}'
+    shadow: '{colors.relief}'
     radius: '{rounded.md}'
     active-border: '{colors.primary}'
     active-background: '{colors.primary-soft}'
+    active-shadow: '{colors.relief-active}'
     unavailable-foreground: '{colors.muted}'
     reason-color: '{colors.ink-soft}'
   brick-toggle:
@@ -226,17 +249,18 @@ components:
   edit-drawer:
     background: '{colors.surface-raised}'
     border: '{colors.line}'
+    shadow: '{colors.relief}'
     radius: '{rounded.lg}'
   chat-message-user:
     background: '{colors.primary-soft}'
     foreground: '{colors.ink}'
-    radius: '{rounded.md}'
+    radius: '{rounded.lg}'
     typography: '{typography.chat}'
   chat-message-model:
     background: '{colors.surface-raised}'
     foreground: '{colors.ink}'
     border: '{colors.line}'
-    radius: '{rounded.md}'
+    radius: '{rounded.lg}'
     typography: '{typography.chat}'
   reasoning-block:
     background: '{colors.surface}'
@@ -248,7 +272,7 @@ components:
     foreground: '{colors.ink}'
     border: '{colors.line}'
     focus-border: '{colors.primary}'
-    radius: '{rounded.md}'
+    radius: '{rounded.full}'
     typography: '{typography.chat}'
   suggested-prompt-chip:
     background: '{colors.surface-raised}'
@@ -289,7 +313,7 @@ components:
   harness-event:
     background: '{colors.surface-raised}'
     border: '{colors.line}'
-    radius: '{rounded.sm}'
+    radius: '{rounded.md}'
     blocked-accent: '{colors.state-blocked}'
     error-accent: '{colors.state-error}'
     info-accent: '{colors.primary}'
@@ -307,7 +331,7 @@ components:
     header-background: '{colors.hosting-network}'
     header-foreground: '{colors.ink}'
     body-typography: '{typography.code}'
-    radius: '{rounded.sm}'
+    radius: '{rounded.md}'
   turn-compare:
     background: '{colors.surface-raised}'
     diff-increase: '{colors.ink}'
@@ -316,9 +340,31 @@ components:
   arch-zone-local:
     background: '{colors.surface-raised}'
     label-color: '{colors.primary}'
+    radius: '{rounded.lg}'
   arch-zone-network:
     background: '{colors.surface}'
     label-color: '{colors.ink}'
+    radius: '{rounded.lg}'
+  arch-harness:
+    background: '{colors.surface-raised}'
+    border: '{colors.primary}'
+    border-width: '{spacing.stroke-min}'
+    shadow: '{colors.relief-active}'
+    label-background: '{colors.primary}'
+    label-foreground: '{colors.on-primary}'
+    label-typography: '{typography.label}'
+    brick-background: '{colors.primary-soft}'
+    brick-foreground: '{colors.primary-deep}'
+    radius: '{rounded.lg}'
+  arch-model:
+    body: '{colors.primary}'
+    ears: '{colors.primary-deep}'
+    visor: '{colors.surface-raised}'
+    face: '{colors.ink}'
+    antenna-idle: '{colors.muted}'
+    antenna-active: '{colors.state-active}'
+    tool-badge: '{colors.state-active}'
+    label-typography: '{typography.label}'
   arch-boundary:
     stroke: '{colors.hosting-boundary}'
     stroke-width: '{spacing.stroke-min}'
@@ -359,7 +405,9 @@ components:
 
 WaveStack est un tableau de démonstration, pas une vitrine. Il vit dans une salle de formation, projeté sur un écran qu'on ne choisit pas, ou sur l'écran d'un EliteBook tourné vers trois personnes. Son esthétique sert une seule chose : que la salle voie ce que le harnais fait au modèle.
 
-L'identité reprend la charte Wavestone (violet ancre, vert en unique accent secondaire, crème, encre) avec la sobriété d'un outil d'ingénierie. Les surfaces sont claires, les traits nets, l'information dense mais rangée. Les couleurs vives ont chacune un rôle précis : violet = local et marque, jaune = réseau, vert = « en train d'agir » et « OK », rouge = « bloqué / en échec ». Rien n'est décoratif.
+**Direction « atelier de construction ».** Le harnais se construit brique par brique autour du modèle ; l'interface le dit par sa forme. Elle ressemble à un jeu de construction posé sur un cahier : pièces aux grands arrondis, relief de jouet par une ombre pleine, fond de page à pois. Le modèle est un petit robot, et le harnais, tout ce qu'on branche autour de lui. Chaque volet porte sous son titre une phrase qui dit ce qu'il montre (« Ce que le modèle lit »). Le ton est ludique, mais l'écran reste un outil : le jeu sert la lecture en projection, jamais l'inverse. Référence : maquette canvas « WaveStack, refonte ludique » ([planches Écran principal et Planche de style](https://claude.ai/artifact/7fM7Cy2UiEnPXiNGvtX7Sq)). Cette spine l'emporte sur la maquette en cas d'écart, notamment sur les couleurs (voir Colors).
+
+L'identité reste celle de la charte Wavestone : violet ancre, vert en unique accent secondaire, crème, encre. L'information est dense mais rangée. Les couleurs vives ont chacune un rôle précis : violet = local et marque, jaune = réseau, vert = « en train d'agir » et « OK », rouge = « bloqué / en échec ». Le fond à pois est la seule ornementation, et il reste derrière les volets.
 
 Les composants vitrine de la charte (curseur personnalisé, révélations au scroll, compteurs animés) ne s'appliquent pas : une application qui s'anime pour elle-même vole l'attention que la démonstration doit capter.
 
@@ -375,6 +423,9 @@ Thème clair uniquement en V1 `[ASSUMPTION]` : plus robuste en projection dans u
 - **Vert clair (`#CAFEE0`)** : réserve de la charte, sans usage assigné en V1.
 - **Encre (`#0A0A14`)**, **encre douce (`#4A4A5E`)** : texte principal et secondaire. **Gris (`#8A8A9E`)** : 3,4:1, donc réservé à l'état indisponible et aux éléments non textuels ; jamais pour un texte à lire.
 - **Ligne (`#E6E6EC`)**, **crème (`#F6F5FA`)**, **blanc (`#FFFFFF`)** : séparateurs, fond de page, fond des volets. Le blanc n'est pas listé dans la charte relevée au memlog `[ASSUMPTION]`.
+- **Relief (`#D9D0F6`)**, **relief actif (`#C9BCF5`)**, **pois (`#D6CCF5`)** : trois teintes du violet de charte, ajoutées pour la direction « atelier de construction ». Elles ne servent qu'à l'ombre pleine (`{colors.relief}` sous volets et cartes, `{colors.relief-active}` sous pièces actives et bouton secondaire) et aux pois du fond de page (`{colors.dot}`). Jamais en texte, en fond de contenu ni en trait porteur de sens.
+
+La maquette de référence teinte aussi les neutres en lilas (encre `#1C1535`, encre douce `#4E4868`, violet doux `#EAE3FF`, page `#EFEBFB`, ligne `#E4DEF5`, violet clair `#8E73F0` dans le logo). Ces écarts ne sont pas repris : les tokens de charte ci-dessus s'appliquent.
 - **Jaune (`#FFCA4A`)** et **rouge (`#FF2A49`)** : avec parcimonie, chacun avec une seule signification (ci-dessous).
 
 **Codage local / réseau** `[ASSUMPTION]`. Il porte le message sur la souveraineté (FR-3, SM-3) et doit se lire en une seconde, projeté.
@@ -408,14 +459,14 @@ Validation (`validate_palette.js`, mode clair) : les paires de segments **voisin
 
 ## Typography
 
-- **Aptos** (repli Inter, puis `system-ui`) : voix de l'interface, messages, explications. Aptos est présent sur les postes Windows équipés d'Office ; Inter est embarqué localement en repli.
-- **Manrope** : étiquettes (`label`, `pane-title`) et nombres (`number`, `number-lg`). Chiffres tabulaires pour que les compteurs de tokens ne sautent pas pendant la mise à jour.
-- **Cascadia Mono** (repli Consolas) `[ASSUMPTION]` : contenu brut du contexte et des sorties du modèle, en `{typography.code}`. Le memlog ne fixe pas de police à chasse fixe ; Cascadia Mono est livrée avec Windows 11, donc disponible hors ligne.
-- Toutes les polices non système sont servies en local : aucune requête vers un service de polices (NFR-3, NFR-4).
+- **Fredoka** (graisses 500 et 600) : titres de volet (`pane-title`), titres (`heading`), étiquettes (`label`) et nombres (`number`, `number-lg`). Ses formes rondes portent le ton « jeu de construction ». Chiffres tabulaires (`font-variant-numeric: tabular-nums`) pour que les compteurs de tokens ne sautent pas pendant la mise à jour. `[ASSUMPTION]` Le fichier servi doit contenir la fonction OpenType `tnum` ; sinon, chaque compteur reçoit une largeur fixe.
+- **Atkinson Hyperlegible** (400 et 700) : voix de l'interface, messages, explications, sous-titres de volet. Dessinée pour les lecteurs malvoyants : chaque lettre se distingue, même projetée au fond d'une salle.
+- **JetBrains Mono** (400, repli Cascadia Mono puis Consolas) : contenu brut du contexte et des sorties du modèle, en `{typography.code}`.
+- Les trois familles sont sous licence OFL et servies en local depuis l'application (fichiers WOFF2 et `@font-face`) : aucune requête vers un service de polices (NFR-3, NFR-4). La maquette de référence les charge depuis Google Fonts ; l'application, non.
 
-Rampe à 100 % : `pane-title` 13 px, `heading` 18 px, `chat` 16 px, `body` 14 px, `body-sm` et `code` 13 px, `label` 12 px, `number` 14 px, `number-lg` 20 px. Les paliers 125 % et 150 % (NFR-9), choisis par le contrôle unique « Aa 100 % », multiplient toute la rampe ; aucun texte ne descend sous 12 px au palier 100 %. `[ASSUMPTION]` Rampe dimensionnée pour la fenêtre utile de 1280×650.
+Rampe à 100 % : `pane-title` 19 px, `heading` 18 px, `chat` 16 px, `body` 14 px, `pane-subtitle`, `body-sm` et `code` 13 px, `label` 12 px, `number` 14 px, `number-lg` 20 px. Les paliers 125 % et 150 % (NFR-9), choisis par le contrôle unique « Aa 100 % », multiplient toute la rampe ; aucun texte ne descend sous 12 px au palier 100 %. `[ASSUMPTION]` Rampe dimensionnée pour la fenêtre utile de 1280×650.
 
-Titres de volet en capitales espacées (`pane-title`), en `{colors.ink-soft}`. Pas de tailles « display » : l'écran appartient au contenu de la démonstration.
+Titres de volet en casse normale, en `{colors.ink}`, suivis d'un sous-titre pédagogique d'une ligne en `pane-subtitle`, `{colors.ink-soft}`. Pas de tailles « display » : l'écran appartient au contenu de la démonstration.
 
 ## Layout & Spacing
 
@@ -429,15 +480,38 @@ Grille retenue : 5 volets masquables (référence : [`.working/layout-5-volets-v
 
 Un volet masqué libère sa place : les volets visibles de la même rangée se la partagent ; si le panneau des briques est masqué, les autres volets prennent toute la largeur ; si le schéma est masqué, la rangée du haut prend toute la hauteur. Le mode focus redistribue la grille sans changer l'ordre des volets (voir EXPERIENCE.md). Le comportement par taille d'écran est dans EXPERIENCE.md, section Responsive & Platform.
 
+Fond de page (`page`) : `{colors.surface}` semé de pois `{colors.dot}` de 1,3 px sur une grille de `{spacing.dot-grid}`, comme un papier de cahier. Les pois restent dans les gouttières et autour des volets ; aucun volet, aucune carte n'en porte.
+
+`[ASSUMPTION]` L'en-tête de volet grandit (titre de 19 px et sous-titre) : le budget vertical dans 1280×650 est à vérifier à l'implémentation, les tokens d'espacement restant inchangés. Si la place manque, le sous-titre est le premier élément à masquer au palier 150 %, pas le contenu.
+
 ## Elevation & Depth
 
-Pas d'ombres portées pour la hiérarchie : un vidéoprojecteur les écrase et la visio les floute. La profondeur passe par le ton : page `{colors.surface}`, volets `{colors.surface-raised}` bordés de `{colors.line}`. Seule exception : le tiroir d'édition (`edit-drawer`) et les menus déroulants portent une ombre courte et nette pour se détacher du volet qu'ils recouvrent.
+**Relief de jouet.** Les pièces posées sur la page ont du volume, donné par une ombre **pleine, sans flou**, décalée vers le bas : `box-shadow: 0 {spacing.relief-offset} 0 <couleur>`. Une ombre floue disparaît au vidéoprojecteur et bave en visio ; une ombre pleine reste nette, comme l'arête d'une brique de jeu.
 
-Le halo vert du composant en cours d'action (`arch-node-active`) n'est pas une ombre mais un signal d'état.
+| Pièce | Décalage | Couleur |
+|---|---|---|
+| Barre haute, volets, cartes de brique | `{spacing.relief-offset}` (4 px) | `{colors.relief}` |
+| Carte de brique active, bouton secondaire, cadre du harnais | `{spacing.relief-offset}` | `{colors.relief-active}` |
+| Bouton primaire | `{spacing.relief-offset}` | `{colors.primary-deep}` |
+| Bouton enfoncé (au clic) | `{spacing.relief-offset-pressed}` (1 px), le bouton descend d'autant | inchangée |
+| Tiroir d'édition, menus déroulants | `{spacing.relief-offset-overlay}` (6 px) `[ASSUMPTION]` | `{colors.relief}` |
+
+Sans relief : éléments indisponibles (ils sont « posés à plat »), bouton Réinitialiser (neutre, pour ne pas attirer le clic), contenu à l'intérieur d'un volet (messages, segments, étapes), qui se distingue par le ton et la bordure `{colors.line}`.
+
+Le relief ne hiérarchise pas l'information : tous les volets ont le même. Le halo vert du composant en cours d'action (`arch-node-active`) n'est pas une ombre mais un signal d'état.
 
 ## Shapes
 
-Rayons de la charte : `{rounded.sm}` (12 px) pour boutons, champs, étapes, nœuds du schéma et segments ; `{rounded.md}` (16 px) pour volets, cartes de brique et messages ; `{rounded.lg}` (22 px) pour le tiroir d'édition. `{rounded.full}` pour la jauge, les badges, les puces et le réglage de taille de texte.
+Grands arrondis, sur une échelle de trois rayons et la pilule :
+
+- `{rounded.lg}` (26 px) : volets, barre haute, zones du schéma, cadre du harnais, tiroir d'édition, détail de la jauge, bulles de message.
+- `{rounded.md}` (18 px) : cartes de brique, boutons texte, sélecteur de modèle, segments de contexte, événements du harnais, cartes de dépassement et de données sortantes.
+- `{rounded.sm}` (12 px) : boutons icônes (focus, masquer), tuiles d'icône, nœuds du schéma, étapes, bloc de raisonnement.
+- `{rounded.full}` : jauge, badges, puces, interrupteurs, sélecteur de scénario, réglage de taille de texte, champ de saisie et bouton d'envoi.
+
+Les bulles de message ont un coin de 6 px du côté du locuteur (bas droit pour l'utilisateur, bas gauche pour le modèle), pour se lire comme une conversation.
+
+Le robot du modèle (`arch-model`) est dessiné avec les mêmes arrondis : corps et visière en rectangles très arrondis, oreilles et antenne en pilules. Pas d'angle vif dans le schéma.
 
 Les nœuds réseau gardent le même rayon que les nœuds locaux : seule la bordure (continue ou en tirets) et la couleur changent, pour que la comparaison porte sur le lieu d'hébergement et rien d'autre.
 
@@ -445,25 +519,36 @@ Les nœuds réseau gardent le même rayon que les nœuds locaux : seule la bordu
 
 Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 
-- **Barre haute (`top-bar`)** : fond blanc, filet bas `{colors.line}`. De gauche à droite : sélecteur de scénario, jauge de contexte (élément le plus large), puces des volets masqués et menu « Volets ▾ », sélecteur de modèle, réglage de taille de texte, bouton Réinitialiser.
-- **Volet (`pane`)** : titre `pane-title` en haut à gauche ; en haut à droite, bouton ⛶ (mode focus) puis bouton « — » (`pane-hide-button`, masquer). Volet en mode focus : bordure `{colors.primary}`.
+- **Fond de page (`page`)** : crème à pois, voir Layout & Spacing.
+- **Barre haute (`top-bar`)** : carte blanche flottante, rayon `{rounded.lg}`, relief `{colors.relief}`. De gauche à droite : sélecteur de scénario, jauge de contexte (élément le plus large), puces des volets masqués et menu « Volets ▾ », sélecteur de modèle, réglage de taille de texte, bouton Réinitialiser.
+- **Volet (`pane`)** : carte blanche sans bordure, rayon `{rounded.lg}`, relief `{colors.relief}`. En haut à gauche, titre `pane-title` en encre et, dessous, sous-titre pédagogique `pane-subtitle` en encre douce, qui dit en quatre ou cinq mots ce que le volet montre :
+
+  | Volet | Sous-titre |
+  |---|---|
+  | Briques | Branchez des pièces sur le modèle |
+  | Vue humain | Ce que vous voyez |
+  | Contexte LLM | Ce que le modèle lit |
+  | Orchestration | Ce que fait le harnais |
+  | Schéma d'architecture | Où chaque pièce tourne |
+
+  En haut à droite, bouton ⛶ (mode focus) puis bouton « — » (`pane-hide-button`, masquer). Volet en mode focus : bordure `{colors.primary}`.
 - **Puce de volet masqué (`pane-chip`)** : « + Nom du volet » sur violet doux, bordure en tirets violette. Quand le volet masqué contient un élément correspondant à la sélection, la puce porte un point encre et le libellé « lié ».
 - **Menu Volets (`pane-menu`)** : bouton « Volets ▾ » ; liste déroulante des cinq volets avec case à cocher chacun.
-- **Boutons (`button-primary`, `button-secondary`, `reset-button`)** : primaire violet plein ; secondaire contour violet ; Réinitialiser neutre, pour ne pas attirer le clic par erreur. Hauteur minimale `{spacing.hit-target-min}`.
+- **Boutons (`button-primary`, `button-secondary`, `reset-button`)** : primaire violet plein sur relief violet foncé, qui s'enfonce au clic (relief de 4 px à 1 px) ; secondaire contour violet sur relief actif ; Réinitialiser neutre et sans relief, pour ne pas attirer le clic par erreur. Libellés en `label` Fredoka. Hauteur minimale `{spacing.hit-target-min}`.
 - **Sélecteur de scénario (`scenario-picker`)** : pastille violet doux avec le nom du module et du scénario en cours.
 - **Sélecteur de modèle (`model-picker`)** : liste déroulante neutre, nom du modèle et taille (ex. « 2B »).
 - **Réglage de taille de texte (`text-size-control`)** : contrôle unique « Aa 100 % », pastille neutre ; le nombre affiche le palier courant (100, 125 ou 150 %).
 - **Jauge de contexte (`context-gauge`)** : barre horizontale empilée, rayons pleins, segments dans l'ordre de la palette catégorielle, espace libre en crème hachuré. À droite : `number` « 1 840 / 4 096 tokens · 45 % ». Un marqueur vertical en encre indique le seuil d'alerte. Au dépassement, le pourcentage passe sur pastille rouge avec icône.
 - **Détail de la jauge (`context-gauge-detail`)** : grille de cellules à la manière de `/context`, une cellule par tranche de tokens, colorée selon la palette catégorielle, cellules libres en crème hachuré. Légende à droite : pastille, nom du segment, tokens et pourcentage en `number`.
 - **Segment de contexte (`context-segment`)** : bloc de texte brut en `{typography.code}`, filet latéral gauche de 4 px dans la couleur du segment, étiquette `label` en encre avec pastille de couleur et nombre de tokens. Segment sélectionné : contour encre de 2 px.
-- **Carte de brique (`brick-card`)** : nom, interrupteur (`brick-toggle`), puce de catégorie (`category-chip` : « prompt engineering », « context engineering », « harness engineering »), étiquette de lieu d'hébergement (`hosting-tag-local` ou `hosting-tag-network`), explication dépliable. Active : fond violet doux, bordure violette. Indisponible : texte gris, interrupteur désactivé, raison toujours visible en `{colors.ink-soft}`.
+- **Carte de brique (`brick-card`)** : nom, interrupteur (`brick-toggle`), puce de catégorie (`category-chip` : « prompt engineering », « context engineering », « harness engineering »), étiquette de lieu d'hébergement (`hosting-tag-local` ou `hosting-tag-network`), explication dépliable. Relief `{colors.relief}`. Active : fond violet doux, bordure violette, relief `{colors.relief-active}`. Indisponible : posée à plat (sans relief), bordure en tirets, texte gris, interrupteur désactivé, raison toujours visible en `{colors.ink-soft}`.
 - **Tiroir d'édition (`edit-drawer`)** : panneau qui glisse par-dessus le panneau des briques pour éditer le prompt système ou la mémoire globale ; champ en `{typography.code}`.
-- **Messages (`chat-message-user`, `chat-message-model`)** : utilisateur sur violet doux, modèle sur blanc bordé. Typographie `chat`. Bloc de raisonnement (`reasoning-block`) replié sur crème, en `body-sm`.
-- **Champ de saisie (`composer`)** : zone de texte en `chat`, bordure `{colors.line}`, `{colors.primary}` au focus ; bouton d'envoi primaire à droite.
+- **Messages (`chat-message-user`, `chat-message-model`)** : bulles `{rounded.lg}` à coin de 6 px côté locuteur ; utilisateur sur violet doux, modèle sur blanc bordé. Typographie `chat`. Bloc de raisonnement (`reasoning-block`) replié sur crème, en `body-sm`.
+- **Champ de saisie (`composer`)** : pilule en `chat`, bordure `{colors.line}`, `{colors.primary}` au focus ; bouton d'envoi primaire rond à droite.
 - **Prompt suggéré (`suggested-prompt-chip`)** : puce contour violet au-dessus du champ de saisie.
 - **Indicateur de travail (`working-indicator`)** : point vert pulsé, libellé de phase et chronomètre en `body-sm`.
 - **Rail d'étapes (`turn-rail`, `turn-step`)** : colonne verticale d'étapes reliées par un filet ; étape courante marquée d'un point vert, étape sélectionnée sur violet doux.
-- **Compteur de tokens (`token-counter`)** : nombres Manrope tabulaires ; entrée, sortie, temps écoulé.
+- **Compteur de tokens (`token-counter`)** : nombres Fredoka tabulaires ; entrée, sortie, temps écoulé.
 - **Badge de déclenchement (`trigger-badge-model`, `trigger-badge-user`)** : « Déclenché par le modèle » sur violet doux avec icône puce ; « Forcé par l'utilisateur » en contour encre avec icône main. La différence tient à l'icône et au libellé, pas seulement au style.
 - **Bouton Forcer (`force-button`)** : contour encre, icône main, pour rappeler le badge « Forcé par l'utilisateur ».
 - **Événement du harnais (`harness-event`)** : carte avec filet latéral épais et icône ; rouge pour blocage et échec, violet pour information (hook qui laisse passer, compression, limite d'appels atteinte).
@@ -471,6 +556,15 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Données sortantes (`outbound-payload`)** : en-tête jaune « RÉSEAU » avec icône globe et adresse de destination ; corps en `{typography.code}`, bordure en tirets encre.
 - **Comparaison de tours (`turn-compare`)** : deux colonnes alignées segment par segment, écarts signalés par un signe (+ / −) et une valeur, jamais par la couleur seule.
 - **Schéma d'architecture (`arch-zone-local`, `arch-zone-network`, `arch-boundary`, `arch-node-local`, `arch-node-network`, `arch-node-unavailable`, `arch-node-active`, `arch-flow`)** : deux zones séparées par la frontière verticale ; nœuds locaux violets à trait continu, nœuds réseau jaunes à tirets encre avec globe et « RÉSEAU ». Processus local et fichier local se distinguent par l'icône (engrenage / document) et le libellé `[ASSUMPTION]`. Nœud indisponible : fond crème, tirets gris, icône barrée et raison. Nœud en action : halo vert. Flux : trait `{spacing.stroke-min}` encre douce, vert quand il est parcouru.
+- **Harnais et modèle dans le schéma (`arch-harness`, `arch-model`)** : dans la zone locale, un cadre « Harnais » (bordure violette `{spacing.stroke-min}`, étiquette pilule violette en haut à gauche, relief `{colors.relief-active}`) entoure le modèle et liste les briques actives en puces violet doux, avec leur icône. Sans brique active, le cadre affiche « Aucune brique : LLM nu ». Au centre du cadre, le modèle est un **robot-mascotte** : corps violet, oreilles violet foncé, visière blanche, visage encre, nom « Modèle » en `label` et nom du modèle chargé dessous. Il signifie le modèle et rien d'autre : c'est la pièce autour de laquelle on branche le harnais. Trois poses, pilotées par l'état du tour :
+
+  | Pose | Visage | Antenne |
+  |---|---|---|
+  | Au repos | yeux fermés | `{colors.muted}`, fixe |
+  | Réfléchit (génération en cours) | yeux ouverts, trois points | `{colors.state-active}`, clignote |
+  | Utilise un outil | sourire, pastille verte à clé | `{colors.state-active}`, clignote |
+
+  L'antenne verte suit la règle du vert : elle ne s'allume que quand le modèle travaille. La pose est aussi dite par un libellé accessible (le robot est une image avec texte alternatif), jamais par l'antenne seule.
 - **Ligne de diagnostic (`diagnostic-row`)** : pastille d'état (vert « OK », rouge « Échec ») avec texte encre, libellé de la vérification, action corrective en dessous.
 
 ## Do's and Don'ts
@@ -481,6 +575,13 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 | Icône + libellé + couleur pour tout état et tout lieu d'hébergement | Coder un état ou le local / réseau par la seule couleur |
 | Étiquettes de segment hors du segment, en encre, avec légende | Écrire en blanc sur les segments bleu ou vert d'eau |
 | Traits d'au moins 2 px dans le schéma | Traits fins ou gris clair, illisibles en projection et en visio |
-| Polices servies localement | Charger une police depuis un CDN |
-| Surfaces claires, ton sur ton, bordures `{colors.line}` | Ombres portées pour hiérarchiser, dégradés, mode sombre |
-| Animations réservées au signal « en action » | Curseur personnalisé, révélations au scroll, compteurs animés de la charte vitrine |
+| Fredoka, Atkinson Hyperlegible et JetBrains Mono servies en local (WOFF2 + `@font-face`) | Charger une police depuis un CDN, comme le fait la maquette de référence |
+| Tokens de charte pour l'encre, les neutres et les violets | Reprendre les neutres teintés lilas de la maquette (`#1C1535`, `#EFEBFB`…) |
+| Relief jouet : ombre pleine sans flou, 4 px (1 px enfoncé, 6 px pour tiroir et menus), dans les couleurs de relief | Ombre floue, ombre en `rgba`, dégradé pour donner du volume, ou relief qui varie selon l'importance |
+| Relief pour les pièces posées sur la page ; éléments indisponibles et contenu interne à plat | Relief sur les messages, les segments ou une pièce indisponible |
+| Grands arrondis sur l'échelle 12 / 18 / 26 px et la pilule | Rayons hors échelle ou angles vifs |
+| Pois uniquement sur le fond de page, en `{colors.dot}` | Pois ou motif derrière du texte, dans un volet ou une carte |
+| Un sous-titre par volet, qui dit ce qu'il montre | Sous-titre décoratif, slogan, ou qui répète le titre |
+| Le robot représente le modèle, et seulement lui | Robot comme décoration, sur un autre composant ou dans un état sans rapport avec le modèle |
+| Animations réservées au signal « en action » (pouls, flux, antenne) et coupées sous `prefers-reduced-motion` | Curseur personnalisé, révélations au scroll, compteurs animés de la charte vitrine, robot animé au repos |
+| Thème clair uniquement | Mode sombre en V1 |

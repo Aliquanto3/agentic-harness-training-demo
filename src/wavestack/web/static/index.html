@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <title>WaveStack</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/fonts.css" />
   <link rel="stylesheet" href="/static/tokens.css" />
   <link rel="stylesheet" href="/static/app.css" />
 </head>
@@ -28,7 +29,10 @@
   <main class="layout" id="layout">
     <section class="pane" data-pane="bricks">
       <header class="pane-header">
-        <h2 class="pane-title">Panneau des briques</h2>
+        <div class="pane-heading">
+          <h2 class="pane-title">Panneau des briques</h2>
+          <p class="pane-subtitle">Branchez des pièces sur le modèle</p>
+        </div>
         <div class="pane-actions">
           <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
           <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
@@ -56,7 +60,10 @@
       <div class="top-row">
         <section class="pane" data-pane="human">
           <header class="pane-header">
-            <h2 class="pane-title">Vue humain</h2>
+            <div class="pane-heading">
+              <h2 class="pane-title">Vue humain</h2>
+              <p class="pane-subtitle">Ce que vous voyez</p>
+            </div>
             <div class="pane-actions">
               <button type="button" id="clear-conversation" class="pane-text-action">Vider la conversation</button>
               <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
@@ -78,7 +85,10 @@
 
         <section class="pane" data-pane="ctx">
           <header class="pane-header">
-            <h2 class="pane-title">Contexte LLM</h2>
+            <div class="pane-heading">
+              <h2 class="pane-title">Contexte LLM</h2>
+              <p class="pane-subtitle">Ce que le modèle lit</p>
+            </div>
             <div class="pane-actions">
               <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
               <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
@@ -89,7 +99,10 @@
 
         <section class="pane" data-pane="orch">
           <header class="pane-header">
-            <h2 class="pane-title">Orchestration</h2>
+            <div class="pane-heading">
+              <h2 class="pane-title">Orchestration</h2>
+              <p class="pane-subtitle">Ce que fait le harnais</p>
+            </div>
             <div class="pane-actions">
               <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
               <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
@@ -104,14 +117,17 @@
 
       <section class="pane" data-pane="schema">
         <header class="pane-header">
-          <h2 class="pane-title">Schéma d'architecture</h2>
+          <div class="pane-heading">
+            <h2 class="pane-title">Schéma d'architecture</h2>
+            <p class="pane-subtitle">Où chaque pièce tourne</p>
+          </div>
           <div class="pane-actions">
             <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
             <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
           </div>
         </header>
         <div class="pane-body pane-body-schema">
-          <svg id="schema-svg" viewBox="0 0 480 140" preserveAspectRatio="xMidYMid meet"></svg>
+          <svg id="schema-svg" viewBox="0 0 480 140" preserveAspectRatio="xMinYMid meet"></svg>
         </div>
       </section>
     </div>

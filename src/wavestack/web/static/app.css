@@ -12,10 +12,67 @@ body {
   font-family: var(--typography-body-font-family);
   font-size: var(--typography-body-font-size);
   color: var(--color-ink);
-  background: var(--color-surface);
+  /* DESIGN.md > page: notebook dots, seen only in the gutters around the panes. */
+  background: radial-gradient(circle, var(--color-dot) 1.3px, transparent 1.3px) 0 0 /
+      var(--spacing-dot-grid) var(--spacing-dot-grid),
+    var(--color-surface);
   height: 100vh;
   display: flex;
   flex-direction: column;
+  gap: var(--spacing-gutter);
+  padding: var(--spacing-gutter);
+  /* Fredoka has no `tnum`: its live counters get a fixed width instead (.gauge-figures). */
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- toy relief (DESIGN.md > Elevation & Depth): solid offset shadow, never blurred ---------- */
+
+.composer button:not(.composer-stop),
+.drawer-actions button.primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-primary-deep);
+}
+
+.pane-menu button#pane-menu-toggle,
+.brick-edit,
+.drawer-actions button:not(.primary),
+.composer .composer-stop {
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief-active);
+}
+
+/* Pressed: the relief drops from 4 px to 1 px and the button goes down by the difference. */
+.composer button:active:not(:disabled),
+.drawer-actions button:active:not(:disabled),
+.brick-edit:active:not(:disabled),
+.pane-menu button#pane-menu-toggle:active {
+  transform: translateY(calc(var(--spacing-relief-offset) - var(--spacing-relief-offset-pressed)));
+  box-shadow: 0 var(--spacing-relief-offset-pressed) 0 var(--color-primary-deep);
+}
+
+.composer .composer-stop:active:not(:disabled),
+.drawer-actions button:not(.primary):active:not(:disabled),
+.brick-edit:active:not(:disabled),
+.pane-menu button#pane-menu-toggle:active {
+  box-shadow: 0 var(--spacing-relief-offset-pressed) 0 var(--color-relief-active);
+}
+
+/* Unavailable pieces lie flat. */
+.composer button:disabled,
+.drawer-actions button:disabled,
+.brick-edit:disabled {
+  box-shadow: none;
+}
+
+/* Destructive: neutral and flat, not to draw the click by mistake (DESIGN.md > reset-button). */
+.pane-actions .pane-text-action {
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
 }
 
 /* ---------- top bar ---------- */
@@ -28,7 +85,8 @@ body {
   gap: var(--spacing-4);
   padding: 0 var(--spacing-4);
   background: var(--color-surface-raised);
-  border-bottom: 1px solid var(--color-line);
+  border-radius: var(--rounded-lg);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
 }
 
 .top-bar-title {
@@ -46,7 +104,6 @@ body {
 .pane-chip {
   font: var(--typography-label-font-weight) var(--typography-label-font-size) / var(--typography-label-line-height)
     var(--typography-label-font-family);
-  letter-spacing: var(--typography-label-letter-spacing);
   background: var(--color-primary-soft);
   color: var(--color-primary);
   border: 1px dashed var(--color-primary);
@@ -68,9 +125,9 @@ body {
 
 .pane-menu button#pane-menu-toggle {
   min-height: var(--spacing-hit-target-min);
-  border: 1px solid var(--color-line);
-  border-radius: var(--rounded-sm);
-  background: var(--color-surface-raised);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
   padding: 0 var(--spacing-3);
   cursor: pointer;
 }
@@ -81,11 +138,11 @@ body {
   top: calc(100% + var(--spacing-1));
   background: var(--color-surface-raised);
   border: 1px solid var(--color-line);
-  border-radius: var(--rounded-sm);
+  border-radius: var(--rounded-md);
   list-style: none;
   margin: 0;
   padding: var(--spacing-2);
-  box-shadow: 0 6px 20px rgba(37, 15, 107, 0.12);
+  box-shadow: 0 var(--spacing-relief-offset-overlay) 0 var(--color-relief);
   z-index: 10;
 }
 
@@ -107,8 +164,7 @@ body {
   flex: 1;
   display: flex;
   min-height: 0;
-  gap: 1px;
-  background: var(--color-line);
+  gap: var(--spacing-gutter);
 }
 
 .layout > .pane[data-pane="bricks"] {
@@ -119,16 +175,14 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  background: var(--color-line);
+  gap: var(--spacing-gutter);
   min-width: 0;
 }
 
 .top-row {
   flex: 1;
   display: flex;
-  gap: 1px;
-  background: var(--color-line);
+  gap: var(--spacing-gutter);
   min-height: 0;
 }
 
@@ -142,6 +196,8 @@ body {
 
 .pane {
   background: var(--color-surface-raised);
+  border-radius: var(--rounded-lg);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -167,13 +223,25 @@ body {
   border-bottom: 1px solid var(--color-line);
 }
 
+.pane-heading {
+  flex: 1 1 auto; /* never narrower than its title: the subtitle wraps instead */
+}
+
 .pane-title {
   margin: 0;
   font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
     var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
-  letter-spacing: var(--typography-pane-title-letter-spacing);
-  text-transform: uppercase;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.pane-subtitle {
+  margin: 0;
+  font: var(--typography-pane-subtitle-font-weight) var(--typography-pane-subtitle-font-size) /
+    var(--typography-pane-subtitle-line-height) var(--typography-pane-subtitle-font-family);
   color: var(--color-ink-soft);
+  width: 0; /* adds nothing to the heading's intrinsic width */
+  min-width: 100%;
 }
 
 .pane-actions {
@@ -253,6 +321,7 @@ body {
   font: var(--typography-number-font-weight) var(--typography-number-font-size) /
     var(--typography-number-line-height) var(--typography-number-font-family);
   white-space: nowrap;
+  min-width: 46ch; /* Fredoka digits are proportional: a fixed width keeps the bar still */
 }
 
 .gauge.is-overflow .gauge-figures {
@@ -285,7 +354,7 @@ body {
 
 .bubble {
   max-width: 85%;
-  border-radius: var(--rounded-md);
+  border-radius: var(--rounded-lg);
   padding: var(--spacing-2) var(--spacing-3);
   font: var(--typography-chat-font-weight) var(--typography-chat-font-size) /
     var(--typography-chat-line-height) var(--typography-chat-font-family);
@@ -296,11 +365,13 @@ body {
 .bubble-user {
   align-self: flex-end;
   background: var(--color-primary-soft);
+  border-bottom-right-radius: 6px; /* the speaker's corner */
 }
 
 .bubble-model {
   align-self: flex-start;
-  background: var(--color-surface);
+  background: var(--color-surface-raised);
+  border-bottom-left-radius: 6px;
   border: 1px solid var(--color-line);
 }
 
@@ -356,7 +427,7 @@ body {
 
 .ctx-segment {
   border-left: 4px solid var(--segment-color);
-  border-radius: var(--rounded-sm);
+  border-radius: var(--rounded-md);
   background: var(--color-surface);
   padding: var(--spacing-2);
   margin-bottom: var(--spacing-2);
@@ -388,9 +459,8 @@ body {
 }
 
 .ctx-heading {
-  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
-    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
-  text-transform: uppercase;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
   color: var(--color-ink-soft);
 }
 
@@ -464,7 +534,7 @@ body {
   background: var(--color-surface-raised);
   border: 1px solid var(--color-line);
   border-left: 4px solid var(--color-primary);
-  border-radius: var(--rounded-sm);
+  border-radius: var(--rounded-md);
   padding: var(--spacing-2);
 }
 
@@ -478,7 +548,7 @@ body {
 
 .overflow-card {
   border: var(--spacing-stroke-min) solid var(--color-danger);
-  border-radius: var(--rounded-sm);
+  border-radius: var(--rounded-md);
   padding: var(--spacing-3);
 }
 
@@ -489,16 +559,22 @@ body {
 
 .composer input {
   flex: 1;
+  min-width: 0; /* the send and stop buttons stay inside a narrow pane */
   border: 1px solid var(--color-line);
-  border-radius: var(--rounded-md);
+  border-radius: var(--rounded-full);
   padding: var(--spacing-2) var(--spacing-3);
+  font: inherit;
+}
+
+.composer input:focus {
+  outline: 2px solid transparent; /* still visible in forced-colors mode */
+  border-color: var(--color-primary);
 }
 
 .composer button {
-  border-radius: var(--rounded-sm);
-  border: none;
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  border-radius: var(--rounded-full);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
   padding: 0 var(--spacing-4);
 }
 
@@ -555,7 +631,8 @@ body {
 .arch-node rect {
   fill: var(--color-hosting-local);
   stroke: var(--color-hosting-local);
-  rx: 8;
+  stroke-width: var(--spacing-stroke-min);
+  rx: var(--rounded-sm);
 }
 
 .arch-node text {
@@ -618,6 +695,7 @@ body.focus-mode .pane.is-focused .pane-body {
   background: var(--color-surface-raised);
   border: 1px solid var(--color-line);
   border-radius: var(--rounded-md);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
   padding: var(--spacing-3);
   display: flex;
   flex-direction: column;
@@ -627,6 +705,12 @@ body.focus-mode .pane.is-focused .pane-body {
 .brick-card.is-active {
   background: var(--color-primary-soft);
   border-color: var(--color-primary);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief-active);
+}
+
+.brick-card.is-unavailable {
+  border-style: dashed;
+  box-shadow: none; /* posed flat */
 }
 
 .brick-card.is-unavailable .brick-name {
@@ -699,7 +783,6 @@ body.focus-mode .pane.is-focused .pane-body {
 .hosting-tag-network {
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
     var(--typography-label-line-height) var(--typography-label-font-family);
-  letter-spacing: var(--typography-label-letter-spacing);
   border-radius: var(--rounded-full);
   padding: 2px var(--spacing-2);
 }
@@ -782,10 +865,9 @@ body.focus-mode .pane.is-focused .pane-body {
 .pane-actions .pane-text-action,
 .drawer-actions button {
   min-height: var(--spacing-hit-target-min);
-  border: 1px solid var(--color-line);
-  border-radius: var(--rounded-sm);
-  background: var(--color-surface-raised);
-  color: var(--color-ink);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
   padding: 0 var(--spacing-3);
   cursor: pointer;
 }
@@ -800,12 +882,6 @@ body.focus-mode .pane.is-focused .pane-body {
   cursor: not-allowed;
 }
 
-.drawer-actions button.primary {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: var(--color-on-primary);
-}
-
 .edit-drawer {
   position: absolute;
   inset: 0;
@@ -817,7 +893,7 @@ body.focus-mode .pane.is-focused .pane-body {
   background: var(--color-surface-raised);
   border: 1px solid var(--color-line);
   border-radius: var(--rounded-lg);
-  box-shadow: 0 6px 20px rgba(37, 15, 107, 0.12);
+  box-shadow: 0 var(--spacing-relief-offset-overlay) 0 var(--color-relief);
 }
 
 .edit-drawer[hidden] {
@@ -910,7 +986,8 @@ body.focus-mode .pane.is-focused .pane-body {
   margin-top: var(--spacing-2);
   background: var(--color-surface-raised);
   border: var(--spacing-stroke-min) dashed var(--color-ink);
-  border-radius: var(--rounded-sm);
+  border-radius: var(--rounded-md);
+  overflow: hidden; /* the yellow header follows the rounded corners */
 }
 
 .outbound-head {
@@ -929,4 +1006,136 @@ body.focus-mode .pane.is-focused .pane-body {
   margin: 0;
   padding: var(--spacing-2);
   font-family: var(--typography-code-font-family);
+}
+
+/* ---------- harness frame, brick chips, robot (DESIGN.md > arch-harness, arch-model) ---------- */
+
+.arch-harness {
+  cursor: pointer;
+}
+
+.arch-harness-relief {
+  fill: var(--color-relief-active);
+  rx: var(--rounded-lg);
+}
+
+.arch-harness-frame {
+  fill: var(--color-surface-raised);
+  stroke: var(--color-primary);
+  stroke-width: var(--spacing-stroke-min);
+  rx: var(--rounded-lg);
+}
+
+.arch-harness.is-selected .arch-harness-frame {
+  stroke: var(--color-ink);
+}
+
+.arch-harness-tag {
+  fill: var(--color-primary);
+  rx: 10px;
+}
+
+.arch-harness-tag-text,
+.arch-chip text,
+.robot-label {
+  font-family: var(--typography-label-font-family);
+  font-weight: var(--typography-label-font-weight);
+  font-size: var(--typography-label-font-size);
+}
+
+.arch-harness-tag-text {
+  fill: var(--color-on-primary);
+}
+
+.arch-harness-empty,
+.robot-model {
+  font-family: var(--typography-body-sm-font-family);
+  font-size: var(--typography-label-font-size);
+  fill: var(--color-ink-soft);
+}
+
+.arch-chip rect {
+  fill: var(--color-primary-soft);
+  rx: 13px;
+}
+
+.arch-chip text {
+  fill: var(--color-primary-deep);
+}
+
+.arch-chip.is-unavailable rect {
+  fill: var(--color-surface);
+  stroke: var(--color-muted);
+  stroke-width: var(--spacing-stroke-min);
+  stroke-dasharray: 6 4;
+}
+
+.arch-chip.is-unavailable text {
+  fill: var(--color-ink-soft);
+}
+
+.robot {
+  cursor: pointer;
+}
+
+.robot-body {
+  fill: var(--color-primary);
+}
+
+.robot.is-selected .robot-body {
+  stroke: var(--color-ink);
+  stroke-width: var(--spacing-stroke-min);
+}
+
+.robot-ear,
+.robot-stick {
+  fill: var(--color-primary-deep);
+}
+
+.robot-visor {
+  fill: var(--color-surface-raised);
+}
+
+.robot-eye {
+  fill: var(--color-ink);
+}
+
+.robot-face {
+  stroke: var(--color-ink);
+  stroke-width: var(--spacing-stroke-min);
+  stroke-linecap: round;
+}
+
+.robot-antenna {
+  fill: var(--color-muted);
+}
+
+/* The antenna lights up only while the model works (the green rule), and blinks. */
+.robot.is-active .robot-antenna {
+  fill: var(--color-state-active);
+  animation: antenna-blink 1s steps(1, end) infinite;
+}
+
+.robot-badge {
+  fill: var(--color-state-active);
+}
+
+.robot-badge-icon {
+  font-size: 10px;
+}
+
+.robot-label {
+  fill: var(--color-ink);
+}
+
+@keyframes antenna-blink {
+  50% {
+    fill: var(--color-muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .robot.is-active .robot-antenna {
+    animation: none;
+  }
 }

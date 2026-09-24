@@ -69,3 +69,15 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6b-lazy-loading-mcp.md`
   summary: Au rejeu (story 9, `build_turn_state(origin_turn)`), les documentations MCP chargées (`_loaded_docs`) doivent suivre la branche rejouée et non la conversation entière.
   evidence: `_loaded_docs` est un ensemble au niveau de la session ; un rejeu depuis un tour antérieur proposerait des outils chargés après le point de branchement. AD-17 range les documentations chargées dans l'instantané conversationnel : à traiter avec l'instantané complet de la story 9.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6c-refonte-visuelle-atelier-de-construction.md`
+  summary: Dans le schéma, l'arête d'un nœud de la colonne 2 vers le cadre Harnais passe sous le nœud de la colonne 1 de la même ligne, ce qui se lit comme une chaîne (cadre → A → B).
+  evidence: Visible dès 4 nœuds hors cadre (outils + serveurs MCP) ; à reprendre avec les zones Local / Réseau et la frontière de DESIGN.md, qui imposent de toute façon de refaire la disposition.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6c-refonte-visuelle-atelier-de-construction.md`
+  summary: `robotPose()` et la clé de mémorisation de `renderSchema()` (`app.js`) ne sont couverts par aucun test automatique.
+  evidence: Le dépôt n'a aucun banc de test JS ; oublier `pose` dans la clé figerait le robot sans qu'un test échoue. Poses vérifiées à la main pendant un vrai tour (story 6c). Même écart que la story 5b ; à fermer si un banc de test front est introduit.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6c-refonte-visuelle-atelier-de-construction.md`
+  summary: Sous le robot, un modèle chargé depuis un blob Ollama s'affiche `sha256-…` au lieu de son nom lisible.
+  evidence: `boot(model_path)` ne reçoit que le chemin ; la découverte (`models/discovery.py`) connaît le nom affiché par le sélecteur du diagnostic. Transmettre ce nom demande de le faire passer par `boot` et `settings.json`.
