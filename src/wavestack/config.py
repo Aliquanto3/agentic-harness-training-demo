@@ -113,6 +113,12 @@ class Config:
     def fetch_page_max_chars(self) -> int:
         return max(1, self._int("tools", "fetch_page_max_chars", default=4000))
 
+    @property
+    def selected_model(self) -> str | None:
+        """The GGUF chosen on the diagnostic page, loaded at every launch (story 1b)."""
+        value = self.get("selected_model")
+        return str(value) if value else None
+
 
 def load_config() -> Config:
     """Load wavestack.toml, then overlay settings.json from the data dir."""
@@ -124,15 +130,28 @@ def load_config() -> Config:
         except tomllib.TOMLDecodeError:
             defaults = {}
 
-    settings_path = data_dir() / "settings.json"
-    overrides: dict[str, Any] = {}
-    if settings_path.exists():
-        try:
-            overrides = json.loads(settings_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            overrides = {}
+    return Config(values=_deep_merge(defaults, read_settings()))
 
-    return Config(values=_deep_merge(defaults, overrides))
+
+def read_settings() -> dict[str, Any]:
+    """The raw settings.json overrides; empty when absent or unreadable."""
+    path = settings_path()
+    if not path.exists():
+        return {}
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return settings if isinstance(settings, dict) else {}
+
+
+def save_setting(key: str, value: Any) -> None:
+    """Read-modify-write one top-level key of settings.json. Raises OSError on write failure."""
+    settings = read_settings()
+    settings[key] = value
+    path = settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def content_dir() -> Path:

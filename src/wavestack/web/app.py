@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from wavestack.session.app_session import AppSession, SendRefused, first_model_path
+from wavestack.session.app_session import AppSession, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.envelope import Envelope
 from wavestack.trace.journal import get_journal
@@ -132,14 +132,25 @@ def create_app(
             "ready": result.ready if result else False,
             "blocking_checks": result.blocking_checks if result else [],
             "candidates": [c.model_dump() for c in result.candidates] if result else [],
+            "selected_model": session.selected_model_path,
+            "loaded_model": session.booted_path,
         }
 
     @app.post("/api/intentions/select_model")
     def select_model(intention: SelectModelIntention) -> dict[str, object]:
+        """Loads the chosen file only if none was loaded yet; else saved for next launch."""
         result = session.select_model(intention.path)
-        if result.ready:
-            app_session.boot(first_model_path(result.candidates))
-        return {"ready": result.ready, "blocking_checks": result.blocking_checks}
+        if result.model_path:
+            app_session.boot(result.model_path).add_done_callback(
+                lambda _: session.boot_finished(app_session.model_loaded)
+            )
+        return {
+            "ready": result.ready,
+            "blocking_checks": result.blocking_checks,
+            "saved": result.saved,
+            "next_launch": result.saved and not result.model_path,
+            "message_fr": result.message_fr,
+        }
 
     @app.post("/api/intentions/send")
     def send(intention: SendIntention) -> dict[str, str]:

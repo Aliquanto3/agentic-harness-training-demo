@@ -28,6 +28,8 @@ class ModelCandidate(BaseModel):
     path: str | None = None
     server_url: str | None = None
     reason: str | None = None
+    name: str | None = None  # readable: `model:tag` for Ollama, the file name otherwise
+    architecture: str | None = None  # from the probe cache, once probed
 
 
 def _glob_gguf(root: Path) -> list[Path]:
@@ -55,6 +57,16 @@ def _ollama_root() -> Path:
     return Path(override) if override else Path.home() / ".ollama" / "models"
 
 
+def _ollama_name(manifest_path: Path, manifests_dir: Path) -> str:
+    """`registry.ollama.ai/library/qwen3.5/9b` -> `qwen3.5:9b`, as `ollama list` shows it."""
+    parts = list(manifest_path.relative_to(manifests_dir).parts)
+    if parts[:1] == ["registry.ollama.ai"]:
+        parts = parts[1:]
+        if parts[:1] == ["library"]:
+            parts = parts[1:]
+    return "/".join(parts[:-1]) + ":" + parts[-1] if len(parts) > 1 else parts[-1]
+
+
 def _ollama_candidates() -> list[ModelCandidate]:
     root = _ollama_root()
     manifests_dir = root / "manifests"
@@ -69,6 +81,7 @@ def _ollama_candidates() -> list[ModelCandidate]:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
+        name = _ollama_name(manifest_path, manifests_dir)
         for layer in manifest.get("layers", []):
             media_type = layer.get("mediaType", "")
             digest = layer.get("digest", "")
@@ -76,7 +89,9 @@ def _ollama_candidates() -> list[ModelCandidate]:
             if media_type == "application/vnd.ollama.image.model":
                 if blob_path.exists():
                     candidates.append(
-                        ModelCandidate(source="ollama", status="found", path=str(blob_path))
+                        ModelCandidate(
+                            source="ollama", status="found", path=str(blob_path), name=name
+                        )
                     )
             elif media_type == "application/vnd.ollama.image.tensor":
                 candidates.append(
@@ -84,6 +99,7 @@ def _ollama_candidates() -> list[ModelCandidate]:
                         source="ollama",
                         status="incompatible",
                         path=str(blob_path),
+                        name=name,
                         reason="Format de tenseur Ollama, non chargeable en processus.",
                     )
                 )
@@ -117,21 +133,6 @@ def _server_candidates(cfg: config.Config) -> list[ModelCandidate]:
 def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
     """List every model candidate, in AD-7 order. Never raises on a missing location."""
     candidates: list[ModelCandidate] = []
-
-    if explicit_path:
-        path = Path(explicit_path)
-        if path.is_file():
-            candidates.append(ModelCandidate(source="explicit", status="found", path=str(path)))
-        else:
-            candidates.append(
-                ModelCandidate(
-                    source="explicit",
-                    status="incompatible",
-                    path=str(path),
-                    reason="Fichier introuvable.",
-                )
-            )
-
     candidates += [
         ModelCandidate(source="models_dir", status="found", path=str(p))
         for p in _glob_gguf(config.models_dir())
@@ -151,4 +152,22 @@ def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
 
     candidates += _ollama_candidates()
     candidates += _server_candidates(config.load_config())
+
+    # The explicit path comes first (AD-7), unless it is already listed (e.g. an Ollama blob).
+    if explicit_path and str(Path(explicit_path)) not in {c.path for c in candidates}:
+        path = Path(explicit_path)
+        if path.is_file():
+            explicit = ModelCandidate(source="explicit", status="found", path=str(path))
+        else:
+            explicit = ModelCandidate(
+                source="explicit",
+                status="incompatible",
+                path=str(path),
+                reason="Fichier introuvable.",
+            )
+        candidates.insert(0, explicit)
+
+    for candidate in candidates:
+        if candidate.path and candidate.name is None:
+            candidate.name = Path(candidate.path).name
     return candidates

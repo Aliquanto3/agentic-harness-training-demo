@@ -93,7 +93,11 @@ def test_select_model_emits_initial_state_so_api_state_is_populated(monkeypatch,
     """A manually picked model (no auto-detected candidate) must still boot
     the front: `/api/state` cannot stay null forever after a ready select_model."""
     app = _build(monkeypatch, tmp_path)
-    monkeypatch.setattr(DiagnosticSession, "check_model", lambda self: DiagnosticResult(ready=True))
+    monkeypatch.setattr(
+        DiagnosticSession,
+        "select_model",
+        lambda self, path: DiagnosticResult(ready=True, model_path="/fake/model.gguf"),
+    )
 
     response = _client(app).post(
         "/api/intentions/select_model",
@@ -104,7 +108,7 @@ def test_select_model_emits_initial_state_so_api_state_is_populated(monkeypatch,
     app.state.app_session.join()
 
     body = _client(app).get("/api/state").json()
-    # No candidate with a file path: idle, but sending is unavailable with the reason.
+    # The fake path cannot load: idle, but sending is unavailable with the reason.
     assert body["session_state"]["state"] == "idle"
     assert "Envoi indisponible" in body["session_state"]["reason_fr"]
     assert body["architecture_changed"] is not None
@@ -146,11 +150,10 @@ def test_select_model_boots_the_found_candidate_path(monkeypatch, tmp_path):
         received.append(path)
         return FakeEngine()
 
-    found = discovery.ModelCandidate(source="explicit", status="found", path="/fake/model.gguf")
     monkeypatch.setattr(
         DiagnosticSession,
-        "check_model",
-        lambda self: DiagnosticResult(ready=True, candidates=[found]),
+        "select_model",
+        lambda self, path: DiagnosticResult(ready=True, model_path=path),
     )
     app_session = AppSession(config.load_config(), engine_factory=recording_factory)
     app = create_app(

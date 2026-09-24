@@ -37,7 +37,6 @@ from wavestack.models.capabilities import (
     ChannelSplitter,
     capabilities_for,
 )
-from wavestack.models.discovery import ModelCandidate
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
 from wavestack.tools.executor import ToolExecutor
 from wavestack.tools.native import NATIVE_TOOLS
@@ -157,11 +156,6 @@ class SendRefused(Exception):
     def __init__(self, reason_fr: str) -> None:
         super().__init__(reason_fr)
         self.reason_fr = reason_fr
-
-
-def first_model_path(candidates: list[ModelCandidate]) -> str | None:
-    """The first usable candidate with a file path; a server alone gives none (palier 2)."""
-    return next((c.path for c in candidates if c.status == "found" and c.path), None)
 
 
 def _fr(n: int) -> str:
@@ -379,6 +373,10 @@ class AppSession:
             self._engine = None
 
     # ---------- model load ----------
+
+    @property
+    def model_loaded(self) -> bool:
+        return self._engine is not None
 
     def boot(self, model_path: str | None) -> Future[None]:
         """Load `model_path` on the worker thread: `model_load` → `idle`, then `context_preview`."""

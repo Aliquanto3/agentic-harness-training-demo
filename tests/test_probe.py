@@ -14,7 +14,7 @@ def test_probe_missing_file_reports_reason():
     assert result.reason
 
 
-def test_record_success_and_already_probed_roundtrip(monkeypatch, tmp_path):
+def test_record_success_and_probed_entry_roundtrip(monkeypatch, tmp_path):
     monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path / "data"))
     model_file = tmp_path / "model.gguf"
     model_file.write_bytes(b"fake bytes")
@@ -30,12 +30,12 @@ def test_record_success_and_already_probed_roundtrip(monkeypatch, tmp_path):
         mtime=stat.st_mtime,
     )
 
-    assert probe.already_probed(str(model_file)) is False
+    assert probe.probed_entry(str(model_file)) is None
     probe.record_success(result)
-    assert probe.already_probed(str(model_file)) is True
+    assert probe.probed_entry(str(model_file)) is not None
 
 
-def test_already_probed_false_when_file_changed(monkeypatch, tmp_path):
+def test_probed_entry_none_when_file_changed(monkeypatch, tmp_path):
     monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path / "data"))
     model_file = tmp_path / "model.gguf"
     model_file.write_bytes(b"fake bytes")
@@ -48,7 +48,7 @@ def test_already_probed_false_when_file_changed(monkeypatch, tmp_path):
     )
 
     model_file.write_bytes(b"changed content, different size")
-    assert probe.already_probed(str(model_file)) is False
+    assert probe.probed_entry(str(model_file)) is None
 
 
 @pytest.mark.model

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
 import subprocess
+from pathlib import Path
 
+from fake_engine import FakeEngine
 from starlette.testclient import TestClient
 
 from wavestack import config
-from wavestack.models import discovery
+from wavestack.models import discovery, probe
 from wavestack.session import diagnostic as diagnostic_module
+from wavestack.session.app_session import AppSession
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.journal import get_journal
 from wavestack.web.app import create_app
@@ -18,8 +22,15 @@ def _client(app):
     return TestClient(app, base_url="http://127.0.0.1:8420")
 
 
-def _build(monkeypatch, tmp_path):
+def _build(monkeypatch, tmp_path, *, models=(), saved=None, app_session=None):
+    """`models`: GGUF file names created in the models dir; `saved`: the stored choice."""
     monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path / "data"))
+    if models:
+        config.models_dir().mkdir(parents=True)
+    for name in models:
+        (config.models_dir() / name).write_bytes(b"placeholder")
+    if saved:
+        config.save_setting("selected_model", str(config.models_dir() / saved))
     # Isolate discovery from whatever Ollama/LM Studio/HF cache happens to be
     # installed on the machine running the tests: this story's diagnostic
     # tests must be deterministic regardless of the dev's local setup.
@@ -35,7 +46,7 @@ def _build(monkeypatch, tmp_path):
     # test_probe.py); this file checks the diagnostic session/API wiring.
     monkeypatch.setattr(session, "check_network", lambda: None)
     monkeypatch.setattr(session, "_probe_candidate", lambda candidate: None)
-    app = create_app(session, port=8420, version="test")
+    app = create_app(session, port=8420, version="test", app_session=app_session)
     return session, app
 
 
@@ -203,3 +214,370 @@ def test_full_run_emits_all_checks(monkeypatch, tmp_path):
         if e.kind == "diagnostic_check"
     }
     assert kinds_checked == {"memory", "model", "port"}
+
+
+# ---------- story 1b: model choice at the diagnostic ----------
+
+
+def _recording_app_session(received):
+    def factory(path, n_ctx):
+        received.append(path)
+        return FakeEngine()
+
+    return AppSession(config.load_config(), engine_factory=factory)
+
+
+def _select(app, path):
+    return (
+        _client(app)
+        .post(
+            "/api/intentions/select_model",
+            json={"path": str(path)},
+            headers={"Origin": "http://127.0.0.1:8420"},
+        )
+        .json()
+    )
+
+
+def _last_model_check(before):
+    checks = [
+        e.payload
+        for e in get_journal().events_since(before)
+        if e.kind == "diagnostic_check" and e.payload["check"] == "model"
+    ]
+    return checks[-1]
+
+
+def _fake_probe_ok(monkeypatch, session, architecture="qwen35"):
+    """Restore the real `_probe_candidate`, with a child process that always succeeds."""
+    monkeypatch.setattr(
+        session, "_probe_candidate", DiagnosticSession._probe_candidate.__get__(session)
+    )
+    calls = []
+
+    def _run(cmd, **kwargs):
+        path = cmd[-1]
+        calls.append(path)
+        stat = Path(path).stat()
+
+        class _Done:
+            stdout = probe.ProbeResult(
+                ok=True,
+                path=path,
+                architecture=architecture,
+                size_bytes=stat.st_size,
+                mtime=stat.st_mtime,
+            ).model_dump_json()
+
+        return _Done()
+
+    monkeypatch.setattr(diagnostic_module.subprocess, "run", _run)
+    return calls
+
+
+def test_saved_choice_is_loaded_at_startup(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"), saved="b.gguf")
+
+    result = session.check_model()
+
+    assert result.ready is True
+    assert result.model_path == str(config.models_dir() / "b.gguf")
+
+
+def test_saved_choice_gone_warns_then_applies_startup_rule(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"), saved="gone.gguf")
+    before = get_journal().last_seq()
+
+    result = session.check_model()
+
+    assert result.model_path is None and result.blocking_checks == ["model"]
+    check = _last_model_check(before)
+    assert "gone.gguf" in check["message_fr"]
+    assert "Plusieurs modèles trouvés" in check["message_fr"]
+
+
+def test_saved_choice_gone_with_single_file_loads_it_with_warning(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf",), saved="gone.gguf")
+    before = get_journal().last_seq()
+
+    result = session.check_model()
+
+    assert result.model_path == str(config.models_dir() / "a.gguf")
+    check = _last_model_check(before)
+    assert check["status"] == "warn" and "gone.gguf" in check["message_fr"]
+
+
+def test_single_candidate_is_loaded_at_startup(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf",))
+
+    result = session.check_model()
+
+    assert result.ready is True
+    assert result.model_path == str(config.models_dir() / "a.gguf")
+
+
+def test_several_candidates_block_until_a_choice(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"))
+    before = get_journal().last_seq()
+
+    result = session.check_model()
+
+    assert result.ready is False and result.model_path is None
+    assert result.blocking_checks == ["model"]
+    check = _last_model_check(before)
+    assert check["status"] == "warn" and check["blocking"] is True
+    assert check["message_fr"] == "Plusieurs modèles trouvés : choisissez-en un."
+
+
+def test_choose_before_load_saves_and_loads_exactly_that_file(monkeypatch, tmp_path):
+    received = []
+    session, app = _build(
+        monkeypatch,
+        tmp_path,
+        models=("a.gguf", "b.gguf"),
+        app_session=_recording_app_session(received),
+    )
+    session.check_model()  # blocked: several candidates
+    chosen = config.models_dir() / "b.gguf"
+
+    body = _select(app, chosen)
+    app.state.app_session.join()
+
+    assert body["ready"] is True and body["saved"] is True and body["next_launch"] is False
+    assert received == [str(chosen)]
+    assert config.read_settings()["selected_model"] == str(chosen)
+    assert _client(app).get("/api/diagnostic").json()["ready"] is True  # "Ouvrir WaveStack"
+
+    # Relaunch: the saved choice is loaded with no further action.
+    relaunched = DiagnosticSession(config.load_config(), port=8420)
+    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate: None)
+    assert relaunched.check_model().model_path == str(chosen)
+
+
+def test_typed_path_outside_locations_is_probed_saved_and_loaded(monkeypatch, tmp_path):
+    received = []
+    session, app = _build(
+        monkeypatch,
+        tmp_path,
+        models=("a.gguf", "b.gguf"),
+        app_session=_recording_app_session(received),
+    )
+    probed = _fake_probe_ok(monkeypatch, session)
+    elsewhere = tmp_path / "elsewhere" / "picked.gguf"
+    elsewhere.parent.mkdir()
+    elsewhere.write_bytes(b"placeholder")
+
+    body = _select(app, elsewhere)
+    app.state.app_session.join()
+
+    assert probed == [str(elsewhere)]  # only the chosen file, never the other candidates
+    assert body["saved"] is True and received == [str(elsewhere)]
+    assert config.read_settings()["selected_model"] == str(elsewhere)
+    listed = _client(app).get("/api/diagnostic").json()
+    picked = next(c for c in listed["candidates"] if c["path"] == str(elsewhere))
+    assert picked["name"] == "picked.gguf" and picked["architecture"] == "qwen35"
+    assert listed["selected_model"] == str(elsewhere)
+
+
+def test_invalid_path_is_neither_saved_nor_loaded(monkeypatch, tmp_path):
+    received = []
+    session, app = _build(
+        monkeypatch,
+        tmp_path,
+        models=("a.gguf", "b.gguf"),
+        app_session=_recording_app_session(received),
+    )
+    session.check_model()
+
+    missing = _select(app, tmp_path / "missing.gguf")
+
+    monkeypatch.setattr(
+        session, "_probe_candidate", DiagnosticSession._probe_candidate.__get__(session)
+    )
+
+    class _Refused:
+        stdout = '{"ok": false, "path": "bad.gguf", "reason": "Architecture inconnue."}'
+
+    monkeypatch.setattr(diagnostic_module.subprocess, "run", lambda *a, **k: _Refused())
+    bad = tmp_path / "bad.gguf"
+    bad.write_bytes(b"not a gguf")
+    incompatible = _select(app, bad)
+    app.state.app_session.join()
+
+    assert "Fichier introuvable" in missing["message_fr"]
+    assert "Architecture inconnue." in incompatible["message_fr"]
+    for body in (missing, incompatible):
+        assert body["saved"] is False and body["ready"] is False
+    assert received == []  # no other candidate loaded instead
+    assert "selected_model" not in config.read_settings()
+
+
+def test_choice_after_load_is_saved_for_next_launch_only(monkeypatch, tmp_path):
+    received = []
+    session, app = _build(
+        monkeypatch, tmp_path, models=("a.gguf",), app_session=_recording_app_session(received)
+    )
+    first = session.check_model()
+    assert first.model_path  # handed out at startup (cli.py boots it)
+    probed = _fake_probe_ok(monkeypatch, session)
+    other = tmp_path / "other.gguf"
+    other.write_bytes(b"placeholder")
+
+    body = _select(app, other)
+    app.state.app_session.join()
+
+    assert body["saved"] is True and body["next_launch"] is True
+    assert "prochain lancement" in body["message_fr"]
+    assert received == [] and probed == []  # no reload, no second model's weights in RAM
+    assert config.read_settings()["selected_model"] == str(other)
+
+
+def test_settings_write_failure_is_traced_and_model_still_loads(monkeypatch, tmp_path):
+    received = []
+    session, app = _build(
+        monkeypatch,
+        tmp_path,
+        models=("a.gguf", "b.gguf"),
+        app_session=_recording_app_session(received),
+    )
+    session.check_model()
+
+    def _refuse(key, value):
+        raise PermissionError("settings.json en lecture seule")
+
+    monkeypatch.setattr(config, "save_setting", _refuse)
+    before = get_journal().last_seq()
+    chosen = config.models_dir() / "a.gguf"
+
+    body = _select(app, chosen)
+    app.state.app_session.join()
+
+    assert body["ready"] is True and received == [str(chosen)]
+    assert body["saved"] is False and "pas pu être mémorisé" in body["message_fr"]
+    errors = [e for e in get_journal().events_since(before) if e.kind == "harness_error"]
+    assert any("lecture seule" in e.payload["cause"] for e in errors)
+
+
+def _ollama_blob(tmp_path, *tags):
+    """One Ollama blob, listed under `library/qwen3.5/<tag>` for each tag."""
+    ollama = tmp_path / "no-ollama"  # the OLLAMA_MODELS root set by _build
+    manifest_dir = ollama / "manifests" / "registry.ollama.ai" / "library" / "qwen3.5"
+    manifest_dir.mkdir(parents=True)
+    (ollama / "blobs").mkdir()
+    blob = ollama / "blobs" / "sha256-aaaa"
+    blob.write_bytes(b"fake gguf bytes")
+    layer = {"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:aaaa"}
+    for tag in tags:
+        (manifest_dir / tag).write_text(json.dumps({"layers": [layer]}), encoding="utf-8")
+    return blob
+
+
+def test_ollama_candidate_named_from_manifest_with_cached_architecture(monkeypatch, tmp_path):
+    session, app = _build(monkeypatch, tmp_path)
+    blob = _ollama_blob(tmp_path, "9b")
+    stat = blob.stat()
+    probe.record_success(
+        probe.ProbeResult(
+            ok=True,
+            path=str(blob),
+            architecture="qwen35",
+            size_bytes=stat.st_size,
+            mtime=stat.st_mtime,
+        )
+    )
+
+    session.check_model()
+    listed = _client(app).get("/api/diagnostic").json()["candidates"]
+
+    assert [(c["name"], c["architecture"], c["status"]) for c in listed] == [
+        ("qwen3.5:9b", "qwen35", "found")
+    ]
+
+
+def test_selected_ollama_blob_is_listed_once_under_its_name(monkeypatch, tmp_path):
+    received = []
+    session, app = _build(monkeypatch, tmp_path, app_session=_recording_app_session(received))
+    blob = _ollama_blob(tmp_path, "9b")
+    before = get_journal().last_seq()
+
+    _select(app, blob)
+    app.state.app_session.join()
+
+    listed = _client(app).get("/api/diagnostic").json()
+    assert [c["name"] for c in listed["candidates"] if c["path"] == str(blob)] == ["qwen3.5:9b"]
+    assert listed["loaded_model"] == str(blob) and received == [str(blob)]
+    assert "Modèle retenu : qwen3.5:9b" in _last_model_check(before)["message_fr"]
+
+    # Relaunch with the saved blob: still listed once.
+    relaunched = DiagnosticSession(config.load_config(), port=8420)
+    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate: None)
+    result = relaunched.check_model()
+    assert result.model_path == str(blob)
+    assert [c.path for c in result.candidates].count(str(blob)) == 1
+
+
+def test_ollama_tags_sharing_one_blob_count_as_one_file(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path)
+    blob = _ollama_blob(tmp_path, "9b", "latest")
+
+    result = session.check_model()
+
+    assert result.ready is True and result.model_path == str(blob)
+
+
+def test_server_only_is_ready_without_a_file_to_load(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path)
+    server = discovery.ModelCandidate(
+        source="server", status="server", server_url="http://127.0.0.1:11434"
+    )
+    monkeypatch.setattr(discovery, "_server_candidates", lambda cfg: [server])
+    before = get_journal().last_seq()
+
+    result = session.check_model()
+
+    assert result.ready is True and result.model_path is None
+    assert _last_model_check(before)["blocking"] is False
+
+
+def test_failed_load_lets_a_new_choice_load(monkeypatch, tmp_path):
+    received = []
+
+    def factory(path, n_ctx):
+        received.append(path)
+        if path.endswith("a.gguf"):
+            raise RuntimeError("chargement impossible")
+        return FakeEngine()
+
+    app_session = AppSession(config.load_config(), engine_factory=factory)
+    session, app = _build(
+        monkeypatch, tmp_path, models=("a.gguf", "b.gguf"), app_session=app_session
+    )
+    session.check_model()
+    first, second = config.models_dir() / "a.gguf", config.models_dir() / "b.gguf"
+
+    _select(app, first)
+    app_session.join()
+    assert not app_session.model_loaded and session.booted_path is None
+
+    body = _select(app, second)
+    app_session.join()
+
+    assert body["next_launch"] is False
+    assert received == [str(first), str(second)] and app_session.model_loaded
+
+
+def test_quoted_pasted_path_is_accepted(monkeypatch, tmp_path):
+    received = []
+    session, app = _build(
+        monkeypatch,
+        tmp_path,
+        models=("a.gguf", "b.gguf"),
+        app_session=_recording_app_session(received),
+    )
+    chosen = config.models_dir() / "b.gguf"
+
+    body = _select(app, f'  "{chosen}" ')
+    app.state.app_session.join()
+
+    assert body["saved"] is True and received == [str(chosen)]
+    assert config.read_settings()["selected_model"] == str(chosen)

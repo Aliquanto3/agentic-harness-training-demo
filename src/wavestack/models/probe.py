@@ -74,15 +74,7 @@ def record_success(result: ProbeResult) -> None:
     """Persist a successful probe (path, size, mtime) in settings.json (AD-7, AD-20)."""
     if not result.ok:
         return
-    path = config.settings_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    settings: dict[str, Any] = {}
-    if path.exists():
-        try:
-            settings = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            settings = {}
-    probed = settings.setdefault("probed_models", {})
+    probed = config.read_settings().get("probed_models", {})
     probed[result.path] = {
         "size_bytes": result.size_bytes,
         "mtime": result.mtime,
@@ -90,26 +82,19 @@ def record_success(result: ProbeResult) -> None:
         "has_chat_template": result.has_chat_template,
         "probed_at": time.time(),
     }
-    path.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
+    config.save_setting("probed_models", probed)
 
 
-def already_probed(path: str) -> bool:
-    """True if `path` was probed successfully before, with a matching size/mtime."""
-    settings_file = config.settings_path()
-    if not settings_file.exists():
-        return False
-    try:
-        settings = json.loads(settings_file.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return False
-    entry = settings.get("probed_models", {}).get(path)
-    if not entry:
-        return False
+def probed_entry(path: str) -> dict[str, Any] | None:
+    """The probe cache entry for `path` (architecture...), if still valid (same size/mtime)."""
+    entry = config.read_settings().get("probed_models", {}).get(path)
     file_path = Path(path)
-    if not file_path.is_file():
-        return False
+    if not entry or not file_path.is_file():
+        return None
     stat = file_path.stat()
-    return entry.get("size_bytes") == stat.st_size and entry.get("mtime") == stat.st_mtime
+    if entry.get("size_bytes") == stat.st_size and entry.get("mtime") == stat.st_mtime:
+        return entry
+    return None
 
 
 def main() -> int:

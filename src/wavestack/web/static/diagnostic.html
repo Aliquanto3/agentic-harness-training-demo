@@ -14,7 +14,8 @@
     li.fail, li.incompatible { background: #fce8e6; }
     li.found, li.server { background: #e6f4ea; }
     .action { font-size: 0.9rem; color: #444; }
-    #select-model { margin-top: 1.5rem; display: none; }
+    #select-model { margin-top: 1.5rem; }
+    .saved-mark { font-size: 0.85rem; font-weight: bold; margin-left: 0.5rem; }
     input[type="text"] { width: 100%; padding: 0.4rem; box-sizing: border-box; }
     button { margin-top: 0.5rem; padding: 0.4rem 1rem; }
     #select-model-status { font-size: 0.9rem; }
@@ -30,18 +31,33 @@
   <ul id="candidates"></ul>
 
   <div id="select-model">
-    <p>Aucun modèle utilisable n'a été trouvé. Indiquez le chemin d'un fichier GGUF :</p>
+    <p>Ou indiquez le chemin d'un fichier GGUF :</p>
     <input type="text" id="model-path" placeholder="C:\chemin\vers\modele.gguf" />
-    <button id="submit-path">Vérifier ce fichier</button>
+    <button id="submit-path" class="choose">Choisir ce fichier</button>
     <p id="select-model-status"></p>
   </div>
 
   <script type="module">
     const checksEl = document.getElementById("checks");
     const candidatesEl = document.getElementById("candidates");
-    const selectModelEl = document.getElementById("select-model");
     const selectStatusEl = document.getElementById("select-model-status");
     const items = new Map();
+    let selectedModel = null;
+    let loadedModel = null;
+    let busy = false;  // one select_model request at a time
+
+    // Messages carry file names and paths: build nodes, never innerHTML.
+    function fillLine(li, label, text, detail) {
+      const strong = document.createElement("strong");
+      strong.textContent = label;
+      li.replaceChildren(strong, ` — ${text}`);
+      if (detail) {
+        const div = document.createElement("div");
+        div.className = "action";
+        div.textContent = detail;
+        li.appendChild(div);
+      }
+    }
 
     function renderCheck(payload) {
       let li = items.get(payload.check);
@@ -51,19 +67,14 @@
         checksEl.appendChild(li);
       }
       li.className = payload.status;
-      li.innerHTML = `<strong>${payload.check}</strong> — ${payload.message_fr}` +
-        (payload.action_fr ? `<div class="action">${payload.action_fr}</div>` : "");
-      if (payload.check === "model") {
-        selectModelEl.style.display = payload.status === "fail" ? "block" : "none";
-        loadDiagnostic();
-      }
+      fillLine(li, payload.check, payload.message_fr, payload.action_fr);
+      if (payload.check === "model") loadDiagnostic();
     }
 
     function renderHarnessError(payload) {
       const li = document.createElement("li");
       li.className = "fail";
-      li.innerHTML = `<strong>erreur</strong> — ${payload.message_fr}` +
-        (payload.cause ? `<div class="action">${payload.cause}</div>` : "");
+      fillLine(li, "erreur", payload.message_fr, payload.cause);
       checksEl.appendChild(li);
     }
 
@@ -78,9 +89,35 @@
       for (const c of candidates) {
         const li = document.createElement("li");
         li.className = c.status;
-        li.textContent = `${c.source} — ${c.status}` +
-          (c.reason ? ` : ${c.reason}` : "") +
-          (c.path ? ` (${c.path})` : c.server_url ? ` (${c.server_url})` : "");
+        const title = document.createElement("strong");
+        title.textContent = c.name || c.server_url || c.source;
+        li.appendChild(title);
+        const details = [
+          c.architecture ? `architecture ${c.architecture}` : null,
+          c.source,
+          c.status === "server" ? "serveur local, utilisable au palier 2" : null,
+          c.reason,
+        ].filter(Boolean).join(" · ");
+        li.append(` — ${details}`);
+        for (const [path, text] of [[loadedModel, "chargé"], [selectedModel, "choix enregistré"]]) {
+          if (!c.path || c.path !== path) continue;
+          const mark = document.createElement("span");
+          mark.className = "saved-mark";
+          mark.textContent = text;
+          li.appendChild(mark);
+        }
+        const where = document.createElement("div");
+        where.className = "action";
+        where.textContent = c.path || c.server_url || "";
+        li.appendChild(where);
+        if (c.status === "found" && c.path && c.path !== loadedModel) {
+          const button = document.createElement("button");
+          button.className = "choose";
+          button.disabled = busy;
+          button.textContent = "Choisir";
+          button.addEventListener("click", () => chooseModel(c.path));
+          li.appendChild(button);
+        }
         candidatesEl.appendChild(li);
       }
     }
@@ -88,6 +125,8 @@
     async function loadDiagnostic() {
       const response = await fetch("/api/diagnostic");
       const body = await response.json();
+      selectedModel = body.selected_model;
+      loadedModel = body.loaded_model;
       renderCandidates(body.candidates || []);
       document.getElementById("open-link").style.display = body.ready ? "block" : "none";
     }
@@ -101,20 +140,35 @@
       renderHarnessError(JSON.parse(event.data).payload);
     });
 
-    document.getElementById("submit-path").addEventListener("click", async () => {
-      const path = document.getElementById("model-path").value.trim();
-      if (!path) return;
+    function setBusy(value) {
+      busy = value;
+      for (const button of document.querySelectorAll("button.choose")) button.disabled = value;
+    }
+
+    async function chooseModel(path) {
+      if (busy) return;
+      setBusy(true);
       selectStatusEl.textContent = "Vérification en cours…";
-      const response = await fetch("/api/intentions/select_model", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path }),
-      });
-      const body = await response.json();
-      selectStatusEl.textContent = body.ready
-        ? "Modèle prêt."
-        : `Toujours bloqué : ${(body.blocking_checks || []).join(", ") || "voir ci-dessus"}.`;
-      loadDiagnostic();
+      try {
+        const response = await fetch("/api/intentions/select_model", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path }),
+        });
+        const body = await response.json();
+        selectStatusEl.textContent = body.message_fr || body.detail ||
+          (body.ready ? "Modèle prêt." : "Voir ci-dessus.");
+      } catch (error) {
+        selectStatusEl.textContent = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
+      } finally {
+        setBusy(false);
+        loadDiagnostic();
+      }
+    }
+
+    document.getElementById("submit-path").addEventListener("click", () => {
+      const path = document.getElementById("model-path").value.trim();
+      if (path) chooseModel(path);
     });
   </script>
 </body>

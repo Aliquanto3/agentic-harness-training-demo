@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import pytest
 
 from wavestack import config
 from wavestack.models import discovery
@@ -72,3 +75,16 @@ def test_ollama_manifest_layers_classified(monkeypatch, tmp_path):
     assert found[0].path == str(blobs_dir / "sha256-aaaa")
     assert len(incompatible) == 1
     assert incompatible[0].reason
+
+
+@pytest.mark.parametrize(
+    ("relative", "expected"),
+    [
+        ("registry.ollama.ai/library/qwen3.5/9b", "qwen3.5:9b"),
+        ("registry.ollama.ai/user/model/tag", "user/model:tag"),
+        ("hf.co/org/repo/tag", "hf.co/org/repo:tag"),
+    ],
+)
+def test_ollama_name_matches_ollama_list(relative, expected):
+    manifests = Path("manifests")
+    assert discovery._ollama_name(manifests / relative, manifests) == expected

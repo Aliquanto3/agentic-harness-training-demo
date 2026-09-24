@@ -4,6 +4,11 @@ Before a model is confirmed usable, WaveStack has exactly one session state:
 `diagnostic`. It only handles the `select_model` intention. Later stories add
 the other states (`idle`, `turn`, ...); this module is not to be pre-built
 for them.
+
+Startup rule (story 1b): the saved `selected_model` if still usable; else the
+only usable file; with several, block until the user picks one. Once a file is
+handed out for loading, a new choice is only saved for the next launch (AD-21:
+no hot model switch before palier 2).
 """
 
 from __future__ import annotations
@@ -11,7 +16,9 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import httpx
 import psutil
@@ -37,6 +44,9 @@ class DiagnosticResult:
     ready: bool
     blocking_checks: list[str] = field(default_factory=list)
     candidates: list[discovery.ModelCandidate] = field(default_factory=list)
+    model_path: str | None = None  # the file the caller must load now, if any
+    saved: bool = False  # `select_model`: the choice was recorded in settings.json
+    message_fr: str | None = None  # `select_model`: the outcome, in French
 
 
 class DiagnosticSession:
@@ -45,7 +55,8 @@ class DiagnosticSession:
     def __init__(self, cfg: config.Config, port: int) -> None:
         self.cfg = cfg
         self.port = port
-        self.selected_model_path: str | None = None
+        self.selected_model_path: str | None = cfg.selected_model
+        self.booted_path: str | None = None  # set once a file is handed out for loading
         self.state = "diagnostic"
         self.last_result: DiagnosticResult | None = None
         self._lock = threading.Lock()
@@ -138,7 +149,8 @@ class DiagnosticSession:
             return
 
         if result.ok:
-            probe.record_success(result)
+            candidate.architecture = result.architecture
+            self._persist(lambda: probe.record_success(result))
             return
 
         get_journal().emit(
@@ -151,6 +163,22 @@ class DiagnosticSession:
         )
         candidate.status = "incompatible"
         candidate.reason = result.reason
+
+    def _persist(self, write: Callable[[], None]) -> bool:
+        """AD-16: a settings.json write failure is traced, never fatal. True if written."""
+        try:
+            write()
+            return True
+        except OSError as exc:
+            get_journal().emit(
+                "harness_error",
+                {
+                    "message_fr": "Impossible d'écrire le fichier de réglages settings.json.",
+                    "cause": str(exc),
+                    "effect_fr": "Le diagnostic continue ; ce réglage ne sera pas mémorisé.",
+                },
+            )
+            return False
 
     def _handle_unexpected(self, exc: Exception) -> DiagnosticResult:
         """AD-16: no exception crosses the session boundary, not even an unforeseen one."""
@@ -179,32 +207,62 @@ class DiagnosticSession:
             except Exception as exc:  # noqa: BLE001 - AD-16: never let the thread die silently
                 return self._handle_unexpected(exc)
 
-    def _check_model_locked(self) -> DiagnosticResult:
-        candidates = discovery.discover(self.selected_model_path)
-
+    def _discover(
+        self, explicit_path: str | None, probe_only: set[str] | None = None
+    ) -> list[discovery.ModelCandidate]:
+        """Every candidate, architecture from the probe cache. Unprobed files are probed
+        in a child process, all of them or only those in `probe_only`."""
+        candidates = discovery.discover(explicit_path)
         for candidate in candidates:
-            if (
-                candidate.status == "found"
-                and candidate.path
-                and not probe.already_probed(candidate.path)
-            ):
+            if candidate.status != "found" or not candidate.path:
+                continue
+            entry = probe.probed_entry(candidate.path)
+            if entry is not None:
+                candidate.architecture = entry.get("architecture")
+            elif probe_only is None or candidate.path in probe_only:
                 self._probe_candidate(candidate)
+        return candidates
 
-        usable = [c for c in candidates if c.status in ("found", "server")]
-        if not usable:
-            if candidates:
-                details = "; ".join(
-                    f"{c.source} ({c.path or c.server_url or '?'}) : {c.reason or c.status}"
-                    for c in candidates
-                )
-            else:
-                details = "aucun candidat trouvé dans ces emplacements"
+    def _hand_out(
+        self,
+        chosen: discovery.ModelCandidate,
+        candidates: list[discovery.ModelCandidate],
+        notice_fr: str = "",
+    ) -> DiagnosticResult:
+        """`chosen` is the file to load now; from here on, choices wait for the next launch."""
+        self.booted_path = chosen.path
+        self._emit_check(
+            "model",
+            "warn" if notice_fr else "ok",
+            f"{notice_fr}Modèle retenu : {chosen.name} ({chosen.path}).",
+            blocking=False,
+        )
+        self.last_result = DiagnosticResult(
+            ready=True, candidates=candidates, model_path=chosen.path
+        )
+        return self.last_result
+
+    def _check_model_locked(self) -> DiagnosticResult:
+        saved = self.selected_model_path
+        candidates = self._discover(saved)
+        notice_fr = ""
+        if saved:
+            chosen = _usable(candidates, saved)
+            if chosen:
+                return self._hand_out(chosen, candidates)
+            notice_fr = f"Le modèle enregistré n'est plus utilisable : {saved}. "
+
+        files = [c for c in candidates if c.status == "found" and c.path]
+        distinct = {c.path for c in files}  # several Ollama tags may share one blob
+        if len(distinct) == 1:
+            return self._hand_out(files[0], candidates, notice_fr)
+        if len(distinct) > 1:
             self._emit_check(
                 "model",
-                "fail",
-                f"Aucun modèle utilisable trouvé. Emplacements recherchés : {SEARCHED_SOURCES_FR}.",
-                f"{details}. Indiquez le chemin d'un fichier GGUF ou copiez-en un dans le "
-                f"dossier de modèles.",
+                "warn",
+                f"{notice_fr}Plusieurs modèles trouvés : choisissez-en un.",
+                "Cliquez sur « Choisir » en face d'un modèle, ou indiquez le chemin d'un "
+                "fichier GGUF.",
                 blocking=True,
             )
             self.last_result = DiagnosticResult(
@@ -212,18 +270,96 @@ class DiagnosticSession:
             )
             return self.last_result
 
-        found = usable[0].path or usable[0].server_url
-        self._emit_check("model", "ok", f"Modèle trouvé : {found}.", blocking=False)
-        self.last_result = DiagnosticResult(ready=True, candidates=candidates)
+        servers = [c for c in candidates if c.status == "server"]
+        if servers:
+            self._emit_check(
+                "model",
+                "warn" if notice_fr else "ok",
+                f"{notice_fr}Serveur local trouvé : {servers[0].server_url}.",
+                blocking=False,
+            )
+            self.last_result = DiagnosticResult(ready=True, candidates=candidates)
+            return self.last_result
+
+        if candidates:
+            details = "; ".join(
+                f"{c.source} ({c.path or c.server_url or '?'}) : {c.reason or c.status}"
+                for c in candidates
+            )
+        else:
+            details = "aucun candidat trouvé dans ces emplacements"
+        self._emit_check(
+            "model",
+            "fail",
+            f"{notice_fr}Aucun modèle utilisable trouvé. Emplacements recherchés : "
+            f"{SEARCHED_SOURCES_FR}.",
+            f"{details}. Indiquez le chemin d'un fichier GGUF ou copiez-en un dans le "
+            f"dossier de modèles.",
+            blocking=True,
+        )
+        self.last_result = DiagnosticResult(
+            ready=False, blocking_checks=["model"], candidates=candidates
+        )
         return self.last_result
 
     def select_model(self, path: str) -> DiagnosticResult:
-        """Intention `select_model` (AD-3, class a): re-runs the model check with this path."""
-        try:
-            self.selected_model_path = path
-            return self.check_model()
-        except Exception as exc:  # noqa: BLE001 - AD-16: never let the thread die silently
-            return self._handle_unexpected(exc)
+        """Intention `select_model` (AD-3, class a): exactly this file, or its reason."""
+        with self._lock:
+            try:
+                return self._select_model_locked(_normalize(path))
+            except Exception as exc:  # noqa: BLE001 - AD-16: never let the thread die silently
+                return self._handle_unexpected(exc)
+
+    def _select_model_locked(self, path: str) -> DiagnosticResult:
+        # Probe only the chosen file, and none once a model is loaded: a probe loads full
+        # weights, next to the loaded model's. The next launch's probe decides then.
+        loaded = self.booted_path is not None
+        candidates = self._discover(path, probe_only=set() if loaded else {path})
+        previous = self.last_result or DiagnosticResult(ready=False, blocking_checks=["model"])
+        known = {c.path: c for c in previous.candidates if c.status == "incompatible"}
+        for candidate in candidates:  # keep earlier probe failures of the unprobed others
+            if candidate.path != path and candidate.path in known:
+                candidate.status, candidate.reason = "incompatible", known[candidate.path].reason
+        chosen = _usable(candidates, path)
+        if chosen is None:
+            listed = next((c for c in candidates if c.path == path), None)
+            reason = (listed.reason if listed else None) or "Fichier introuvable."
+            # Nothing saved, nothing loaded: the diagnostic stays as it was.
+            self.last_result = DiagnosticResult(
+                ready=previous.ready,
+                blocking_checks=previous.blocking_checks,
+                candidates=candidates,
+                message_fr=f"Modèle non retenu ({path}) : {reason}",
+            )
+            return self.last_result
+
+        self.selected_model_path = chosen.path
+        saved = self._persist(lambda: config.save_setting("selected_model", chosen.path))
+        if not loaded:
+            result = self._hand_out(chosen, candidates)
+            result.saved = saved
+            result.message_fr = f"Modèle choisi : {chosen.name}. Chargement en cours." + (
+                "" if saved else " Ce choix n'a pas pu être mémorisé pour les prochains lancements."
+            )
+            return result
+        self.last_result = DiagnosticResult(
+            ready=previous.ready,
+            blocking_checks=previous.blocking_checks,
+            candidates=candidates,
+            saved=saved,
+            message_fr=(
+                f"Choix enregistré : {chosen.name}, pris en compte au prochain lancement."
+                if saved
+                else f"Choix non enregistré ({chosen.name}) : settings.json n'a pas pu être écrit."
+            ),
+        )
+        return self.last_result
+
+    def boot_finished(self, loaded: bool) -> None:
+        """A load that failed frees the choice: the next `select_model` loads again."""
+        if not loaded:
+            with self._lock:
+                self.booted_path = None
 
     def run(self) -> DiagnosticResult:
         """Run every diagnostic check once, in the order the story mandates."""
@@ -235,3 +371,16 @@ class DiagnosticSession:
             return model_result
         except Exception as exc:  # noqa: BLE001 - AD-16: never let the thread die silently
             return self._handle_unexpected(exc)
+
+
+def _usable(
+    candidates: list[discovery.ModelCandidate], path: str
+) -> discovery.ModelCandidate | None:
+    return next((c for c in candidates if c.path == path and c.status == "found"), None)
+
+
+def _normalize(path: str) -> str:
+    """A pasted path: surrounding quotes (Windows « Copier en tant que chemin d'accès »),
+    `~`, relative. `absolute()`, not `resolve()`: a resolved symlink or junction (e.g. an
+    OLLAMA_MODELS link) would no longer match the discovered candidate's path."""
+    return str(Path(path.strip().strip('"').strip("'")).expanduser().absolute())
