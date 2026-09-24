@@ -1,4 +1,4 @@
-"""FastAPI app: health, `/diagnostic`, `/`, `/api/*`, SSE, `select_model`.
+"""FastAPI app: health, `/diagnostic`, `/`, `/api/*`, SSE, intentions.
 
 Protected per AD-18's subset: `TrustedHostMiddleware` on
 `127.0.0.1`/`localhost`, POST restricted to same-origin JSON, no CORS.
@@ -7,15 +7,17 @@ Protected per AD-18's subset: `TrustedHostMiddleware` on
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from wavestack.session.app_session import AppSession
+from wavestack.session.app_session import AppSession, SendRefused, first_model_path
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.envelope import Envelope
 from wavestack.trace.journal import get_journal
@@ -27,8 +29,31 @@ class SelectModelIntention(BaseModel):
     path: str
 
 
-def create_app(session: DiagnosticSession, *, port: int, version: str) -> FastAPI:
-    app = FastAPI(title="WaveStack", version=version)
+class SendIntention(BaseModel):
+    message: str = Field(min_length=1)
+
+
+def _latest(events: list[Envelope], kind: str) -> Envelope | None:
+    return next((e for e in reversed(events) if e.kind == kind), None)
+
+
+def create_app(
+    session: DiagnosticSession,
+    *,
+    port: int,
+    version: str,
+    app_session: AppSession | None = None,
+) -> FastAPI:
+    """`app_session` is the single application session; built here only when a test omits it."""
+    app_session = app_session or AppSession(session.cfg)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        app_session.close()  # AD-21: engines are closed on shutdown
+
+    app = FastAPI(title="WaveStack", version=version, lifespan=lifespan)
+    app.state.app_session = app_session
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=[f"127.0.0.1:{port}", f"localhost:{port}", "127.0.0.1", "localhost"],
@@ -69,16 +94,18 @@ def create_app(session: DiagnosticSession, *, port: int, version: str) -> FastAP
         """
         journal = get_journal()
         events = journal.all_events()
-        session_state = next(
-            (e.payload for e in reversed(events) if e.kind == "session_state"), None
-        )
-        architecture = next(
-            (e.payload for e in reversed(events) if e.kind == "architecture_changed"), None
-        )
+        seq = events[-1].seq if events else 0  # the snapshot's own tip, no gap nor overlap
+        session_state = _latest(events, "session_state")
+        architecture = _latest(events, "architecture_changed")
+        # Whole envelopes: the front shows whichever of the two is the most recent (`seq`).
+        preview = _latest(events, "context_preview")
+        rendered = _latest(events, "context_rendered")
         return {
-            "session_state": session_state,
-            "architecture_changed": architecture,
-            "seq": journal.last_seq(),
+            "session_state": session_state.payload if session_state else None,
+            "architecture_changed": architecture.payload if architecture else None,
+            "context_preview": preview.model_dump(mode="json") if preview else None,
+            "context_rendered": rendered.model_dump(mode="json") if rendered else None,
+            "seq": seq,
         }
 
     @app.get("/api/diagnostic")
@@ -95,8 +122,21 @@ def create_app(session: DiagnosticSession, *, port: int, version: str) -> FastAP
     def select_model(intention: SelectModelIntention) -> dict[str, object]:
         result = session.select_model(intention.path)
         if result.ready:
-            AppSession().emit_initial()
+            app_session.boot(first_model_path(result.candidates))
         return {"ready": result.ready, "blocking_checks": result.blocking_checks}
+
+    @app.post("/api/intentions/send")
+    def send(intention: SendIntention) -> dict[str, str]:
+        """Class (b): refused outside `idle`, with the French reason (AD-3)."""
+        try:
+            return {"turn_id": app_session.send(intention.message)}
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+
+    @app.post("/api/intentions/stop")
+    def stop() -> dict[str, bool]:
+        """Class (c): preemptive, arms the turn's CancelToken; no effect outside a turn."""
+        return {"stopping": app_session.stop()}
 
     @app.get("/api/diagnostic/stream")
     async def diagnostic_stream(request: Request) -> StreamingResponse:

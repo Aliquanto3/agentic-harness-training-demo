@@ -10,6 +10,12 @@
 <body>
   <header class="top-bar">
     <span class="top-bar-title">WaveStack</span>
+    <div class="gauge" id="gauge">
+      <div class="gauge-bar" id="gauge-bar" role="img" aria-label="Jauge de contexte">
+        <span class="gauge-threshold" id="gauge-threshold" hidden></span>
+      </div>
+      <span class="gauge-figures" id="gauge-figures">Contexte : en attente du modèle</span>
+    </div>
     <div class="pane-chips" id="pane-chips"></div>
     <div class="pane-menu">
       <button id="pane-menu-toggle" type="button" aria-haspopup="true" aria-expanded="false">
@@ -46,14 +52,15 @@
             </div>
           </header>
           <div class="pane-body pane-body-human">
-            <p class="empty-note">
-              Aucun tour pour l'instant. Envoyez un message : le contexte envoyé au modèle
-              apparaîtra ici.
-            </p>
-            <div class="composer">
-              <input type="text" disabled placeholder="Le champ de saisie arrive à la story 3." />
-              <button type="button" disabled>Envoyer</button>
-            </div>
+            <div class="chat" id="chat"></div>
+            <div class="sr-only" id="chat-live" aria-live="polite"></div>
+            <p class="composer-reason" id="composer-reason" hidden></p>
+            <form class="composer" id="composer">
+              <input id="composer-input" type="text" autocomplete="off"
+                     aria-label="Message" placeholder="Écrivez un message, puis Entrée" />
+              <button type="submit" id="composer-send">Envoyer</button>
+              <button type="button" id="composer-stop" class="composer-stop" hidden>Arrêter</button>
+            </form>
           </div>
         </section>
 
@@ -65,12 +72,7 @@
               <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
             </div>
           </header>
-          <div class="pane-body">
-            <p class="empty-note">
-              Aucun tour pour l'instant. Envoyez un message : le contexte envoyé au modèle
-              apparaîtra ici.
-            </p>
-          </div>
+          <div class="pane-body" id="ctx"></div>
         </section>
 
         <section class="pane" data-pane="orch">
@@ -82,6 +84,7 @@
             </div>
           </header>
           <div class="pane-body">
+            <div class="steps" id="steps"></div>
             <ul class="journal" id="journal"></ul>
           </div>
         </section>

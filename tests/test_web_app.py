@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+from fake_engine import FakeEngine, booted_session
 from starlette.testclient import TestClient
 
 from wavestack import config
@@ -47,7 +48,7 @@ def test_diagnostic_route_still_works(monkeypatch, tmp_path):
 
 def test_api_state_reflects_last_known_session_state_and_architecture(monkeypatch, tmp_path):
     app = _build(monkeypatch, tmp_path)
-    AppSession().emit_initial()
+    booted_session(FakeEngine())
 
     body = _client(app).get("/api/state").json()
 
@@ -100,9 +101,12 @@ def test_select_model_emits_initial_state_so_api_state_is_populated(monkeypatch,
         headers={"origin": "http://127.0.0.1:8421"},
     )
     assert response.json()["ready"] is True
+    app.state.app_session.join()
 
     body = _client(app).get("/api/state").json()
+    # No candidate with a file path: idle, but sending is unavailable with the reason.
     assert body["session_state"]["state"] == "idle"
+    assert "Envoi indisponible" in body["session_state"]["reason_fr"]
     assert body["architecture_changed"] is not None
 
 
@@ -132,3 +136,36 @@ def test_stream_resumes_from_last_event_id_without_duplicates():
 
     assert f"id: {after.seq}" in body
     assert f"id: {before.seq}" not in body
+
+
+def test_select_model_boots_the_found_candidate_path(monkeypatch, tmp_path):
+    _build(monkeypatch, tmp_path)
+    received = []
+
+    def recording_factory(path, n_ctx):
+        received.append(path)
+        return FakeEngine()
+
+    found = discovery.ModelCandidate(source="explicit", status="found", path="/fake/model.gguf")
+    monkeypatch.setattr(
+        DiagnosticSession,
+        "check_model",
+        lambda self: DiagnosticResult(ready=True, candidates=[found]),
+    )
+    app_session = AppSession(config.load_config(), engine_factory=recording_factory)
+    app = create_app(
+        DiagnosticSession(config.load_config(), port=8421),
+        port=8421,
+        version="test",
+        app_session=app_session,
+    )
+
+    _client(app).post(
+        "/api/intentions/select_model",
+        json={"path": "/fake/model.gguf"},
+        headers={"origin": "http://127.0.0.1:8421"},
+    )
+    app_session.join()
+
+    assert received == ["/fake/model.gguf"]
+    assert app_session.state == "idle" and app_session.reason_fr is None

@@ -1,0 +1,20 @@
+# Libellés français des types de segment du contexte (AD-4, AD-19).
+# Une clé par SegmentKind, dans l'ordre d'empilement de la jauge.
+kinds:
+  system_prompt: Prompt système
+  global_memory: Mémoire globale
+  tool_catalog: Descriptions d'outils
+  skill_catalog: Descriptions de skills
+  skill_body: Skill chargé
+  history: Historique
+  rag_excerpt: Extraits RAG
+  tool_result: Résultats d'outils
+  subagent_result: Résultat du sous-agent
+  hook_injection: Ajout d'un hook
+  user_message: Message de l'utilisateur
+  assistant_turn: Sortie du modèle dans le tour
+  template: Gabarit de conversation
+
+# Groupes de la jauge qui réunissent plusieurs types.
+groups:
+  message: Message et gabarit

@@ -80,6 +80,13 @@ class Config:
         except (TypeError, ValueError):
             return 4096
 
+    @property
+    def near_limit_ratio(self) -> float:
+        try:
+            return float(self.get("context", "near_limit_ratio", default=0.8))
+        except (TypeError, ValueError):
+            return 0.8
+
 
 def load_config() -> Config:
     """Load wavestack.toml, then overlay settings.json from the data dir."""
@@ -100,6 +107,11 @@ def load_config() -> Config:
             overrides = {}
 
     return Config(values=_deep_merge(defaults, overrides))
+
+
+def content_dir() -> Path:
+    """French pedagogical content shipped with the repo (AD-19)."""
+    return repo_root() / "content"
 
 
 def models_dir() -> Path:

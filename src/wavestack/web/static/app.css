@@ -208,7 +208,65 @@ body {
   color: var(--color-ink-soft);
 }
 
-/* ---------- human composer (disabled until story 3) ---------- */
+/* ---------- context gauge (DESIGN.md > context-gauge) ---------- */
+
+.gauge {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  min-width: 0;
+}
+
+.gauge-bar {
+  position: relative;
+  display: flex;
+  width: 220px;
+  height: 12px;
+  border-radius: var(--rounded-full);
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  background: var(--color-segment-free);
+}
+
+.gauge-seg {
+  flex-basis: 0;
+  min-width: 0;
+}
+
+.gauge-free {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-segment-free) 0 4px,
+    var(--color-line) 4px 5px
+  ) !important;
+}
+
+.gauge-threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-ink);
+}
+
+.gauge-figures {
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  white-space: nowrap;
+}
+
+.gauge.is-overflow .gauge-figures {
+  background: var(--color-danger);
+  color: var(--color-on-primary);
+  border-radius: var(--rounded-full);
+  padding: 2px var(--spacing-2);
+}
+
+.gauge.is-overflow .gauge-bar {
+  border-color: var(--color-danger);
+}
+
+/* ---------- human view: bubbles, working indicator, composer ---------- */
 
 .pane-body-human {
   display: flex;
@@ -216,10 +274,171 @@ body {
   gap: var(--spacing-3);
 }
 
+.chat {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.bubble {
+  max-width: 85%;
+  border-radius: var(--rounded-md);
+  padding: var(--spacing-2) var(--spacing-3);
+  font: var(--typography-chat-font-weight) var(--typography-chat-font-size) /
+    var(--typography-chat-line-height) var(--typography-chat-font-family);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bubble-user {
+  align-self: flex-end;
+  background: var(--color-primary-soft);
+}
+
+.bubble-model {
+  align-self: flex-start;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+}
+
+.bubble-note,
+.working-indicator {
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+  margin-top: var(--spacing-1);
+}
+
+.bubble-note.is-overflow,
+.bubble-note.is-error {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.composer-reason {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
 .composer {
-  margin-top: auto;
   display: flex;
   gap: var(--spacing-2);
+}
+
+.composer .composer-stop {
+  background: var(--color-surface-raised);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+
+/* ---------- LLM context pane (DESIGN.md > context-segment) ---------- */
+
+.ctx-total {
+  margin: 0 0 var(--spacing-2);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+.ctx-segment {
+  border-left: 4px solid var(--segment-color);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface);
+  padding: var(--spacing-2);
+  margin-bottom: var(--spacing-2);
+}
+
+.ctx-segment-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink);
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--rounded-full);
+  background: var(--segment-color);
+}
+
+.ctx-segment pre,
+.ctx-raw {
+  margin: var(--spacing-1) 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--typography-code-font-family);
+  font-size: var(--typography-code-font-size);
+}
+
+.ctx-heading {
+  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
+    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
+  text-transform: uppercase;
+  color: var(--color-ink-soft);
+}
+
+/* ---------- orchestration: model-call step, overflow card ---------- */
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-3);
+}
+
+.step {
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  padding: var(--spacing-2);
+}
+
+.step-title,
+.overflow-card .label {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-primary-deep);
+}
+
+.number {
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+.step-badge {
+  display: inline-block;
+  margin-top: var(--spacing-1);
+  border-radius: var(--rounded-full);
+  border: 1px solid var(--color-ink-soft);
+  padding: 0 var(--spacing-2);
+  font-size: var(--typography-label-font-size);
+}
+
+.overflow-card {
+  border: var(--spacing-stroke-min) solid var(--color-danger);
+  border-radius: var(--rounded-sm);
+  padding: var(--spacing-3);
+}
+
+.overflow-card h3 {
+  margin: 0 0 var(--spacing-2);
+  font-size: var(--typography-body-font-size);
 }
 
 .composer input {

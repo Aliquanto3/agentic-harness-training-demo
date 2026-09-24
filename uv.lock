@@ -433,9 +433,11 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "jinja2" },
     { name = "llama-cpp-python" },
     { name = "psutil" },
     { name = "pydantic" },
+    { name = "pyyaml" },
     { name = "truststore" },
     { name = "uvicorn" },
 ]
@@ -443,7 +445,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
-    { name = "pyyaml" },
     { name = "ruff" },
     { name = "starlette" },
 ]
@@ -452,9 +453,11 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.141,<0.142" },
     { name = "httpx", specifier = ">=0.28,<0.29" },
+    { name = "jinja2", specifier = ">=3.1.6,<4" },
     { name = "llama-cpp-python", specifier = ">=0.3.35,<0.4", index = "https://abetlen.github.io/llama-cpp-python/whl/cpu" },
     { name = "psutil", specifier = ">=7.2,<8" },
     { name = "pydantic", specifier = ">=2.13,<3" },
+    { name = "pyyaml", specifier = ">=6.0.3,<7" },
     { name = "truststore", specifier = ">=0.10,<0.11" },
     { name = "uvicorn", specifier = ">=0.53,<0.54" },
 ]
@@ -462,7 +465,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=9.1,<10" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "ruff", specifier = ">=0.16,<0.17" },
     { name = "starlette", specifier = ">=1.7,<2" },
 ]

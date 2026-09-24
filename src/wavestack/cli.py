@@ -34,7 +34,7 @@ truststore.inject_into_ssl()
 
 import uvicorn  # noqa: E402
 
-from wavestack.session.app_session import AppSession  # noqa: E402
+from wavestack.session.app_session import AppSession, first_model_path  # noqa: E402
 from wavestack.session.diagnostic import DiagnosticSession  # noqa: E402
 from wavestack.trace.journal import get_journal  # noqa: E402
 from wavestack.web.app import create_app  # noqa: E402
@@ -103,14 +103,15 @@ def main(argv: list[str] | None = None) -> int:
     reserved.close()
 
     session = DiagnosticSession(_cfg, args.port)
-    app = create_app(session, port=args.port, version=VERSION)
+    app_session = AppSession(_cfg)
+    app = create_app(session, port=args.port, version=VERSION, app_session=app_session)
 
     get_journal().subscribe(_print_journal_event)
 
     def _run_diagnostic_then_boot() -> None:
         result = session.run()
         if result.ready:
-            AppSession().emit_initial()
+            app_session.boot(first_model_path(result.candidates))
 
     threading.Thread(
         target=_run_diagnostic_then_boot, name="wavestack-diagnostic", daemon=True

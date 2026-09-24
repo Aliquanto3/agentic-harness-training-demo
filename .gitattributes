@@ -1,0 +1,2 @@
+# Byte-exact reference fixtures (AD-4 render test): never convert line endings.
+tests/fixtures/** -text
