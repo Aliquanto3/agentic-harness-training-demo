@@ -34,11 +34,22 @@
           <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
         </div>
       </header>
-      <div class="pane-body">
-        <p class="empty-note">
-          Aucune brique active. Le panneau des briques arrive à la story 4.
-        </p>
-      </div>
+      <div class="pane-body" id="bricks"></div>
+      <aside class="edit-drawer" id="edit-drawer" hidden role="dialog" aria-modal="true" aria-labelledby="edit-drawer-title">
+        <h3 id="edit-drawer-title">Prompt système</h3>
+        <p class="drawer-help">Placé avant la conversation, relu par le modèle à chaque appel. Prend effet au prochain tour.</p>
+        <textarea id="drawer-text" aria-label="Texte du prompt système" spellcheck="false"></textarea>
+        <p class="drawer-alert" id="drawer-alert" role="alert" hidden></p>
+        <div class="drawer-actions">
+          <button type="button" id="drawer-save" class="primary">Enregistrer</button>
+          <button type="button" id="drawer-reset">Rétablir le prompt par défaut</button>
+          <button type="button" id="drawer-close">Fermer</button>
+        </div>
+        <div class="drawer-actions" id="drawer-dirty" hidden>
+          <button type="button" id="drawer-dirty-save" class="primary">Enregistrer</button>
+          <button type="button" id="drawer-dirty-discard">Abandonner</button>
+        </div>
+      </aside>
     </section>
 
     <div class="right">
@@ -47,6 +58,7 @@
           <header class="pane-header">
             <h2 class="pane-title">Vue humain</h2>
             <div class="pane-actions">
+              <button type="button" id="clear-conversation" class="pane-text-action">Vider la conversation</button>
               <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
               <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
             </div>

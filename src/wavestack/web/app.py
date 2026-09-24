@@ -33,6 +33,15 @@ class SendIntention(BaseModel):
     message: str = Field(min_length=1)
 
 
+class BrickIntention(BaseModel):
+    brick: str
+    wanted: bool
+
+
+class SystemPromptIntention(BaseModel):
+    text: str | None  # null: restore the default
+
+
 def _latest(events: list[Envelope], kind: str) -> Envelope | None:
     return next((e for e in reversed(events) if e.kind == kind), None)
 
@@ -100,11 +109,13 @@ def create_app(
         # Whole envelopes: the front shows whichever of the two is the most recent (`seq`).
         preview = _latest(events, "context_preview")
         rendered = _latest(events, "context_rendered")
+        bricks = _latest(events, "bricks_changed")
         return {
             "session_state": session_state.payload if session_state else None,
             "architecture_changed": architecture.payload if architecture else None,
             "context_preview": preview.model_dump(mode="json") if preview else None,
             "context_rendered": rendered.model_dump(mode="json") if rendered else None,
+            "bricks_changed": bricks.payload if bricks else None,
             "seq": seq,
         }
 
@@ -137,6 +148,29 @@ def create_app(
     def stop() -> dict[str, bool]:
         """Class (c): preemptive, arms the turn's CancelToken; no effect outside a turn."""
         return {"stopping": app_session.stop()}
+
+    @app.post("/api/intentions/brick")
+    def brick(intention: BrickIntention) -> dict[str, bool]:
+        """Class (a): accepted even during a turn, effective from the next one (AD-3)."""
+        try:
+            app_session.set_brick(intention.brick, intention.wanted)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Brique inconnue.") from None
+        return {"accepted": True}
+
+    @app.post("/api/intentions/system_prompt")
+    def system_prompt(intention: SystemPromptIntention) -> dict[str, object]:
+        """Class (a): the saved prompt applies from the next turn (AD-3)."""
+        return app_session.save_system_prompt(intention.text)
+
+    @app.post("/api/intentions/clear_conversation")
+    def clear_conversation() -> dict[str, bool]:
+        """Class (b): refused outside `idle`, with the French reason (AD-3)."""
+        try:
+            app_session.clear_conversation()
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"cleared": True}
 
     @app.get("/api/diagnostic/stream")
     async def diagnostic_stream(request: Request) -> StreamingResponse:

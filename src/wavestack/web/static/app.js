@@ -21,7 +21,10 @@ const store = {
   // Gauge source: the most recent of `context_preview` / `context_rendered` (AD-9).
   gauge: null, // { payload, preview }
   turns: [], // one projection per turn, filled only from its events
+  chatFrom: 0, // index of the first turn shown as a bubble (`conversation_cleared`)
   composerError: null,
+  bricks: null, // last `bricks_changed` payload: cards and system prompt, as the session computed them
+  openExplanations: new Set(), // brick ids whose explanation is unfolded (UI state only)
 };
 
 // Gauge group -> DESIGN.md segment colour token (formatting only).
@@ -107,6 +110,13 @@ function applyEnvelope(envelope) {
       break;
     case "context_preview":
       store.gauge = { payload: p, preview: true };
+      break;
+    case "bricks_changed":
+      store.bricks = p;
+      break;
+    case "conversation_cleared":
+      // The trace keeps past turns (orchestration, context pane); only bubbles are hidden.
+      store.chatFrom = store.turns.length;
       break;
     case "turn_started":
       store.turns.push({
@@ -228,6 +238,7 @@ function select(componentId) {
 // ---------- rendering ----------
 
 function render() {
+  renderBricks();
   renderChips();
   renderMenu();
   renderPaneVisibility();
@@ -253,6 +264,142 @@ function emptyNote(text) {
 
 const NO_TURN_FR =
   "Aucun tour pour l'instant. Envoyez un message : le contexte envoyé au modèle apparaîtra ici.";
+const CLEARED_FR =
+  "Conversation vidée : le prochain message repart sans historique. Les tours précédents restent dans la trace.";
+
+// ---------- bricks panel: cards, toggles, system prompt drawer ----------
+
+let renderedBricks = null;
+
+function renderBricks() {
+  // Rebuilt only when the session sends new cards, so an unfolded explanation stays open.
+  if (renderedBricks === store.bricks) return;
+  renderedBricks = store.bricks;
+  const pane = document.getElementById("bricks");
+  // The rebuild would drop keyboard focus: note it, restore it on the new element.
+  const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  pane.innerHTML = "";
+  if (!store.bricks) {
+    pane.appendChild(emptyNote("En attente du harnais…"));
+    return;
+  }
+  for (const brick of store.bricks.bricks) {
+    const card = el("article", "brick-card");
+    card.classList.toggle("is-active", brick.wanted && brick.available);
+    card.classList.toggle("is-unavailable", !brick.available);
+
+    const head = el("label", "brick-head");
+    const toggle = el("input", "brick-toggle");
+    toggle.type = "checkbox";
+    toggle.setAttribute("role", "switch");
+    toggle.checked = brick.wanted;
+    toggle.disabled = !brick.available && !brick.wanted; // a wanted brick can always be turned off
+    toggle.dataset.focusKey = `toggle:${brick.id}`;
+    toggle.addEventListener("change", () => setBrick(brick.id, toggle.checked));
+    head.append(toggle, el("span", "brick-name", brick.label_fr));
+
+    const tags = el("div", "brick-tags");
+    tags.appendChild(el("span", "category-chip", brick.category_fr));
+    // ponytail: every brick so far is local; the network tag comes with the first network brick.
+    if (brick.hosting_fr) tags.appendChild(el("span", "hosting-tag-local", brick.hosting_fr));
+    card.append(head, tags);
+
+    if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
+    if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
+
+    if (brick.explanation_fr) {
+      const details = el("details", "brick-explanation");
+      details.open = store.openExplanations.has(brick.id);
+      details.addEventListener("toggle", () => {
+        if (details.open) store.openExplanations.add(brick.id);
+        else store.openExplanations.delete(brick.id);
+      });
+      details.append(el("summary", "", "Ce que la brique ajoute"), el("p", "", brick.explanation_fr));
+      card.appendChild(details);
+    }
+    if (brick.id === "system_prompt") {
+      const edit = el("button", "brick-edit", "Modifier le prompt");
+      edit.type = "button";
+      edit.disabled = !brick.available;
+      edit.id = "edit-system-prompt";
+      edit.dataset.focusKey = "edit";
+      edit.addEventListener("click", openDrawer);
+      card.appendChild(edit);
+    }
+    pane.appendChild(card);
+  }
+  if (focusKey) pane.querySelector(`[data-focus-key="${focusKey}"]`)?.focus();
+}
+
+async function setBrick(brick, wanted) {
+  try {
+    const response = await postIntention("/api/intentions/brick", { brick, wanted });
+    if (response.ok) return; // `bricks_changed` redraws the card
+  } catch {
+    // Fall through: redraw from the last state the session sent.
+  }
+  renderedBricks = null;
+  scheduleRender();
+}
+
+const drawer = () => document.getElementById("edit-drawer");
+const drawerText = () => document.getElementById("drawer-text");
+
+function drawerAlert(text, dirtyChoice = false) {
+  const alert = document.getElementById("drawer-alert");
+  alert.hidden = !text;
+  alert.textContent = text || "";
+  document.getElementById("drawer-dirty").hidden = !dirtyChoice;
+}
+
+function openDrawer() {
+  drawerText().value = store.bricks?.system_prompt.text ?? "";
+  drawerAlert(null);
+  drawer().hidden = false;
+  document.getElementById("bricks").inert = true; // cards under the drawer leave the Tab order
+  drawerText().focus();
+}
+
+function closeDrawer(force = false) {
+  if (!force && drawerText().value !== store.bricks?.system_prompt.text) {
+    drawerAlert("Modification non enregistrée. Enregistrer ou abandonner ?", true);
+    return;
+  }
+  drawerAlert(null);
+  drawer().hidden = true;
+  document.getElementById("bricks").inert = false;
+  document.getElementById("edit-system-prompt")?.focus();
+}
+
+async function saveSystemPrompt(text) {
+  try {
+    const response = await postIntention("/api/intentions/system_prompt", { text });
+    if (!response.ok) throw new Error();
+    const saved = await response.json();
+    // The session's answer, so closing right away is not flagged as unsaved.
+    if (store.bricks) store.bricks.system_prompt = saved;
+    drawerText().value = saved.text;
+    drawerAlert(null);
+    return true;
+  } catch {
+    drawerAlert("Enregistrement refusé : WaveStack ne répond pas. Réessayez.");
+    return false;
+  }
+}
+
+async function clearConversation() {
+  store.composerError = null;
+  try {
+    const response = await postIntention("/api/intentions/clear_conversation", {});
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      store.composerError = typeof body.detail === "string" ? body.detail : "Action refusée.";
+    }
+  } catch {
+    store.composerError = "WaveStack ne répond pas : la conversation n'a pas été vidée.";
+  }
+  render();
+}
 
 // ---------- context gauge (top bar) ----------
 
@@ -318,11 +465,12 @@ function renderChat() {
   const chat = document.getElementById("chat");
   const followTail = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
   chat.innerHTML = "";
-  if (store.turns.length === 0) {
-    chat.appendChild(emptyNote(NO_TURN_FR));
+  const turns = store.turns.slice(store.chatFrom);
+  if (turns.length === 0) {
+    chat.appendChild(emptyNote(store.chatFrom ? CLEARED_FR : NO_TURN_FR));
     return;
   }
-  for (const turn of store.turns) {
+  for (const turn of turns) {
     chat.appendChild(el("div", "bubble bubble-user", turn.message));
     const answer = el("div", "bubble bubble-model");
     if (turn.reasoning) {
@@ -358,6 +506,9 @@ function renderComposer() {
   const ready = state?.state === "idle" && !state.reason_fr;
   document.getElementById("composer-input").disabled = !ready;
   document.getElementById("composer-send").disabled = !ready;
+  const clear = document.getElementById("clear-conversation");
+  clear.disabled = state?.state !== "idle"; // class (b)
+  clear.title = clear.disabled ? state?.reason_fr || "Disponible hors d'un tour." : "";
   const stop = document.getElementById("composer-stop");
   stop.hidden = state?.state !== "turn";
   stop.disabled = Boolean(activeTurn()?.stopRequested);
@@ -566,35 +717,61 @@ function renderJournal() {
   }
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgEl(tag, attrs) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  return node;
+}
+
 function renderSchema() {
+  // Layout only: nodes, edges and availability all come from `architecture_changed` (AD-12).
   const svg = document.getElementById("schema-svg");
   svg.innerHTML = "";
   const nodes = store.architecture.nodes || [];
-  const width = 200;
-  const gap = 40;
-  nodes.forEach((node, index) => {
-    const x = 20 + index * (width + gap);
-    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    g.setAttribute("class", "arch-node");
+  const W = 180;
+  const H = 44;
+  const GAP = 24;
+  const rows = [nodes.filter((n) => n.kind !== "brick"), nodes.filter((n) => n.kind === "brick")];
+  const widest = Math.max(...rows.map((row) => row.length), 1);
+  const width = Math.max(480, 40 + widest * W + (widest - 1) * GAP);
+  svg.setAttribute("viewBox", `0 0 ${width} 140`);
+  const pos = {};
+  rows.forEach((row, r) => {
+    const x0 = (width - (row.length * W + Math.max(row.length - 1, 0) * GAP)) / 2;
+    row.forEach((node, i) => (pos[node.id] = { x: x0 + i * (W + GAP), y: 12 + r * (H + 28) }));
+  });
+  for (const edge of store.architecture.edges || []) {
+    const a = pos[edge.from];
+    const b = pos[edge.to];
+    if (!a || !b) continue;
+    const down = a.y < b.y;
+    svg.appendChild(
+      svgEl("line", {
+        class: `arch-edge${edge.crosses_boundary ? " is-network" : ""}`,
+        x1: a.x + W / 2,
+        y1: down ? a.y + H : a.y,
+        x2: b.x + W / 2,
+        y2: down ? b.y : b.y + H,
+      })
+    );
+  }
+  for (const node of nodes) {
+    const { x, y } = pos[node.id];
+    const g = svgEl("g", { class: "arch-node" });
     g.dataset.component = node.id;
+    g.classList.toggle("is-network", node.hosting === "network");
+    g.classList.toggle("is-unavailable", !node.available);
     if (store.selection === node.id) g.classList.add("is-selected");
     g.addEventListener("click", () => select(node.id));
-
-    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    rect.setAttribute("x", String(x));
-    rect.setAttribute("y", "40");
-    rect.setAttribute("width", String(width));
-    rect.setAttribute("height", "60");
-
-    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    text.setAttribute("x", String(x + width / 2));
-    text.setAttribute("y", "75");
-    text.setAttribute("text-anchor", "middle");
+    const title = svgEl("title", {});
+    title.textContent = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
+    const text = svgEl("text", { x: x + W / 2, y: y + H / 2 + 5, "text-anchor": "middle" });
     text.textContent = node.label_fr;
-
-    g.append(rect, text);
+    g.append(title, svgEl("rect", { x, y, width: W, height: H }), text);
     svg.appendChild(g);
-  });
+  }
 }
 
 // ---------- boot ----------
@@ -630,6 +807,16 @@ async function boot() {
 
   document.getElementById("composer").addEventListener("submit", sendMessage);
   document.getElementById("composer-stop").addEventListener("click", stopTurn);
+  document.getElementById("clear-conversation").addEventListener("click", clearConversation);
+  document.getElementById("drawer-save").addEventListener("click", () =>
+    saveSystemPrompt(drawerText().value)
+  );
+  document.getElementById("drawer-reset").addEventListener("click", () => saveSystemPrompt(null));
+  document.getElementById("drawer-close").addEventListener("click", () => closeDrawer());
+  document.getElementById("drawer-dirty-save").addEventListener("click", async () => {
+    if (await saveSystemPrompt(drawerText().value)) closeDrawer(true);
+  });
+  document.getElementById("drawer-dirty-discard").addEventListener("click", () => closeDrawer(true));
   // Local stopwatch anchored on the `*_started` ts, replaced by `duration_ms` (AD-1).
   setInterval(() => {
     if (activeTurn()) {
@@ -640,7 +827,9 @@ async function boot() {
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    if (!document.getElementById("pane-menu-list").hidden) {
+    if (!drawer().hidden) {
+      closeDrawer();
+    } else if (!document.getElementById("pane-menu-list").hidden) {
       closePaneMenu();
     } else if (store.focusedPane !== null) {
       store.focusedPane = null;
@@ -653,6 +842,7 @@ async function boot() {
     const body = await response.json();
     store.sessionState = body.session_state;
     store.architecture = body.architecture_changed || { nodes: [], edges: [] };
+    store.bricks = body.bricks_changed;
     const preview = body.context_preview;
     const rendered = body.context_rendered;
     const latest = [preview, rendered].filter(Boolean).sort((a, b) => b.seq - a.seq)[0];

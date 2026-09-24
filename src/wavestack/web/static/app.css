@@ -554,3 +554,257 @@ body.focus-mode .pane.is-focused .pane-body {
   padding: var(--spacing-pane-padding);
   overflow: auto;
 }
+
+/* ---------- bricks panel (DESIGN.md > brick-card, brick-toggle, category-chip,
+   hosting-tag-local, edit-drawer) ---------- */
+
+.pane[data-pane="bricks"] {
+  position: relative; /* the edit drawer slides over this pane only */
+}
+
+.pane-body#bricks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.brick-card {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  padding: var(--spacing-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.brick-card.is-active {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+}
+
+.brick-card.is-unavailable .brick-name {
+  color: var(--color-muted);
+}
+
+.brick-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-height: var(--spacing-hit-target-min);
+  cursor: pointer;
+}
+
+.brick-name {
+  font-weight: 600;
+}
+
+/* A native checkbox drawn as a switch: keyboard and screen readers come for free. */
+.brick-toggle {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  border-radius: var(--rounded-full);
+  background: var(--color-line);
+  position: relative;
+  cursor: pointer;
+}
+
+.brick-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--rounded-full);
+  background: var(--color-surface-raised);
+  transition: left 0.15s;
+}
+
+.brick-toggle:checked {
+  background: var(--color-primary);
+}
+
+.brick-toggle:checked::after {
+  left: 18px;
+}
+
+.brick-toggle:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+.brick-toggle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.brick-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+}
+
+.category-chip,
+.hosting-tag-local {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  letter-spacing: var(--typography-label-letter-spacing);
+  border-radius: var(--rounded-full);
+  padding: 2px var(--spacing-2);
+}
+
+.category-chip {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-deep);
+}
+
+.brick-card.is-active .category-chip {
+  background: var(--color-surface-raised);
+}
+
+.hosting-tag-local {
+  background: var(--color-hosting-local);
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-hosting-local);
+}
+
+.brick-reason,
+.brick-pending,
+.brick-explanation {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.brick-pending {
+  font-style: italic;
+}
+
+.brick-explanation summary {
+  cursor: pointer;
+}
+
+.brick-explanation p {
+  margin: var(--spacing-1) 0 0;
+}
+
+.brick-edit,
+.pane-actions .pane-text-action,
+.drawer-actions button {
+  min-height: var(--spacing-hit-target-min);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  padding: 0 var(--spacing-3);
+  cursor: pointer;
+}
+
+.brick-edit {
+  align-self: flex-start;
+}
+
+.brick-edit:disabled,
+.pane-actions .pane-text-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.drawer-actions button.primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.edit-drawer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-pane-padding);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-lg);
+  box-shadow: 0 6px 20px rgba(37, 15, 107, 0.12);
+}
+
+.edit-drawer[hidden] {
+  display: none;
+}
+
+.edit-drawer h3 {
+  margin: 0;
+  font-size: var(--typography-body-font-size);
+}
+
+.drawer-help {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.edit-drawer textarea {
+  flex: 1;
+  min-height: 120px;
+  resize: none;
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  padding: var(--spacing-2);
+  font-family: var(--typography-code-font-family);
+  font-size: var(--typography-code-font-size);
+  line-height: var(--typography-code-line-height);
+}
+
+.drawer-alert {
+  margin: 0;
+  border-left: var(--spacing-stroke-min) solid var(--color-danger);
+  padding-left: var(--spacing-2);
+  font-weight: 600;
+}
+
+.drawer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.drawer-actions[hidden] {
+  display: none;
+}
+
+/* ---------- architecture schema: edges, network and unavailable nodes (DESIGN.md > arch-*) ---------- */
+
+.arch-edge {
+  stroke: var(--color-ink-soft);
+  stroke-width: var(--spacing-stroke-min);
+}
+
+.arch-edge.is-network {
+  stroke-dasharray: 6 4;
+}
+
+.arch-node.is-network rect {
+  fill: var(--color-hosting-network);
+  stroke: var(--color-ink);
+  stroke-dasharray: 6 4;
+}
+
+.arch-node.is-network text {
+  fill: var(--color-ink);
+}
+
+.arch-node.is-unavailable rect {
+  fill: var(--color-surface);
+  stroke: var(--color-muted);
+  stroke-dasharray: 6 4;
+}
+
+.arch-node.is-unavailable text {
+  fill: var(--color-ink-soft);
+}

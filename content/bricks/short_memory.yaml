@@ -1,0 +1,9 @@
+# Brique « Mémoire courte » (AD-12, AD-19).
+label_fr: Mémoire courte
+category_fr: context engineering
+hosting_fr: Local
+explanation_fr: >-
+  Sans mémoire, le modèle ne voit que votre dernier message : il a tout oublié du
+  tour précédent. Le harnais garde les échanges terminés et les renvoie au modèle à
+  chaque appel, dans le segment « Historique ». Le contexte grossit donc à chaque
+  tour : c'est le prix de la mémoire.

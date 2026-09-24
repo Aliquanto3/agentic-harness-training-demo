@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 Actor = Literal["model", "harness", "user"]
 Trigger = Literal["model", "user", "harness", "hook"]
@@ -47,14 +47,13 @@ class SessionStatePayload(BaseModel):
 
 
 class ArchitectureNode(BaseModel):
-    """A node of the architecture schema (AD-12).
+    """A node of the architecture schema (AD-12): a fixed `core.*` node or a brick component.
 
-    Only `core.harness` and `core.model` exist for this story; `kind` will
-    grow (brick, tool, mcp_server, ...) once bricks are emitted (story 4+).
+    `kind` will grow (tool, mcp_server, ...) with later stories.
     """
 
     id: str
-    kind: Literal["harness", "model"]
+    kind: Literal["harness", "model", "brick"]
     hosting: Literal["local", "network"]
     label_fr: str
     wanted: bool
@@ -73,6 +72,14 @@ class ArchitectureEdge(BaseModel):
 class ArchitectureChangedPayload(BaseModel):
     nodes: list[ArchitectureNode]
     edges: list[ArchitectureEdge]
+
+    @model_validator(mode="after")
+    def _edges_join_listed_nodes(self) -> ArchitectureChangedPayload:
+        ids = {node.id for node in self.nodes}
+        for edge in self.edges:
+            if edge.from_ not in ids or edge.to not in ids:
+                raise ValueError(f"edge {edge.from_!r} -> {edge.to!r} targets an absent node")
+        return self
 
 
 # ---------- story 3: bare LLM turn, context, gauge (AD-2, AD-4, AD-9) ----------
@@ -169,6 +176,38 @@ class SpecialTokenNeutralizedPayload(BaseModel):
     message_fr: str
 
 
+# ---------- story 4: bricks, system prompt, conversation (AD-3, AD-12, AD-17) ----------
+
+
+class BrickState(BaseModel):
+    """One brick card: its content, and `available`/`pending` as computed by the session."""
+
+    id: str
+    label_fr: str
+    category: Literal["prompt", "context", "harness"]
+    category_fr: str
+    hosting_fr: str
+    explanation_fr: str
+    wanted: bool
+    available: bool
+    reason_fr: str | None = None
+    pending: bool
+
+
+class SystemPromptState(BaseModel):
+    text: str
+    is_default: bool
+
+
+class BricksChangedPayload(BaseModel):
+    bricks: list[BrickState]
+    system_prompt: SystemPromptState
+
+
+class ConversationClearedPayload(BaseModel):
+    pass
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -187,4 +226,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "model_delta": ModelDeltaPayload,
     "model_call_ended": ModelCallEndedPayload,
     "special_token_neutralized": SpecialTokenNeutralizedPayload,
+    "bricks_changed": BricksChangedPayload,
+    "conversation_cleared": ConversationClearedPayload,
 }

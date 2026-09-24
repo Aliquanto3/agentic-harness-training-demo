@@ -67,7 +67,7 @@ def test_payload_model_parses_edge_from_alias():
 
 
 def test_unknown_node_kind_is_rejected():
-    bad_node = {**NODES[0], "kind": "brick"}
+    bad_node = {**NODES[0], "kind": "tool"}  # not emitted yet
     with pytest.raises(ValidationError):
         _envelope({"nodes": [bad_node], "edges": []})
 
@@ -75,3 +75,9 @@ def test_unknown_node_kind_is_rejected():
 def test_missing_required_field_is_rejected():
     with pytest.raises(ValidationError):
         _envelope({"nodes": [{"id": "core.harness"}], "edges": []})
+
+
+def test_edge_to_an_absent_node_is_rejected():
+    edge = {"from": "short_memory.history", "to": "core.harness", "crosses_boundary": False}
+    with pytest.raises(ValidationError):
+        _envelope({"nodes": NODES, "edges": [edge]})
