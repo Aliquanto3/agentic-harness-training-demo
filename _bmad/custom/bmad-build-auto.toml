@@ -1,0 +1,7 @@
+# Override d'équipe pour bmad-build-auto (versionné).
+# Le seuil de taille des specs n'est pas un champ exposé : il passe par persistent_facts.
+
+[workflow]
+persistent_facts = [
+  "Seuil de taille des specs pour ce projet : n'ajouter l'avertissement `oversized` au frontmatter (step-02) que si la spec dépasse 4000 tokens, au lieu de 1600. La règle « un seul objectif » reste inchangée.",
+]

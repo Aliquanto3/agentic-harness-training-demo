@@ -1,0 +1,7 @@
+# Override d'équipe pour bmad-build (versionné).
+# Le seuil de taille des specs n'est pas un champ exposé : il passe par persistent_facts.
+
+[workflow]
+persistent_facts = [
+  "Seuil de taille des specs pour ce projet (remplace le SCOPE STANDARD) : viser 900 à 4000 tokens. N'afficher le compte ni proposer « Split / Keep full spec » (step-02) que si la spec dépasse 4000 tokens ; entre 1600 et 4000, continuer sans poser la question. La règle « un seul objectif » reste inchangée.",
+]
