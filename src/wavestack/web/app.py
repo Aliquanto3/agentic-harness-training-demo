@@ -43,6 +43,11 @@ class ToolIntention(BaseModel):
     enabled: bool
 
 
+class McpServerIntention(BaseModel):
+    server: str
+    enabled: bool
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -63,7 +68,9 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        app_session.attach_loop(asyncio.get_running_loop())  # AD-24: MCP clients live here
         yield
+        await app_session.aclose_mcp()  # AD-21: no local MCP server outlives WaveStack
         app_session.close()  # AD-21: engines are closed on shutdown
 
     app = FastAPI(title="WaveStack", version=version, lifespan=lifespan)
@@ -189,6 +196,15 @@ def create_app(
             app_session.set_tool(intention.tool, intention.enabled)
         except KeyError:
             raise HTTPException(status_code=404, detail="Outil inconnu.") from None
+        return {"accepted": True}
+
+    @app.post("/api/intentions/mcp_server")
+    def mcp_server(intention: McpServerIntention) -> dict[str, bool]:
+        """Class (a): an MCP server sub-option; contacted now if the brick is wanted (AD-15)."""
+        try:
+            app_session.set_mcp_server(intention.server, intention.enabled)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Serveur MCP inconnu.") from None
         return {"accepted": True}
 
     @app.post("/api/intentions/system_prompt")

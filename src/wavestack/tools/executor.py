@@ -38,7 +38,8 @@ Contact = tuple[Literal["available", "unavailable"], str | None]
 class ToolExecutor:
     def __init__(self, registry: ToolRegistry) -> None:
         self.registry = registry
-        # Network tools (AD-12): the state left by the last call actually sent, and its reason.
+        # Network and MCP tools (AD-12): the state left by the last call actually sent, and
+        # its reason.
         self.contact: dict[str, Contact] = {}
 
     def check(self, call: ToolCall, enabled: Sequence[str]) -> str | None:
@@ -53,9 +54,11 @@ class ToolExecutor:
         problems = [
             f"argument inconnu « {arg} »" for arg in call.arguments if arg not in spec.params
         ]
+        required = spec.params if spec.required is None else spec.required
         for arg, kind in spec.params.items():
             if arg not in call.arguments:
-                problems.append(f"argument « {arg} » manquant")
+                if arg in required:
+                    problems.append(f"argument « {arg} » manquant")
                 continue
             value = call.arguments[arg]
             wrong_bool = isinstance(value, bool) and kind != "boolean"
@@ -90,10 +93,12 @@ class ToolExecutor:
                 "tool": call.name,
                 "arguments": call.arguments,
                 "phase_label": f"Exécution de l'outil {self.registry.label(call.name)}",
+                "source": spec.source,
             },
         )
         result = error_fr = None
-        sent = unreachable = False
+        sent = spec.is_mcp  # an MCP call always reaches its server's connection
+        unreachable = False
         try:
             if spec.preview is not None:
                 spec.preview(**call.arguments)  # a refusal raises here, before anything is sent

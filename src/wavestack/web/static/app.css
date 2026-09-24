@@ -430,6 +430,15 @@ body {
   font-size: var(--typography-label-font-size);
 }
 
+/* A step run by an MCP server (story 6): the tool is not the harness's own. */
+.step-badge.is-mcp {
+  margin: 0 0 var(--spacing-1);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 700;
+}
+
 .step.is-error {
   border-color: var(--color-state-error);
 }

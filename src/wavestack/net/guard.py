@@ -60,6 +60,22 @@ def is_host_allowed(host: str, allowed_hosts: list[str]) -> bool:
     return any(_matches(host, pattern) for pattern in allowed_hosts)
 
 
+def find_blocked(exc: BaseException | None) -> NetworkBlocked | None:
+    """The `NetworkBlocked` behind `exc`: its causes, contexts and exception groups."""
+    seen: set[int] = set()
+    stack = [exc]
+    while stack:
+        current = stack.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, NetworkBlocked):
+            return current
+        stack += [current.__cause__, current.__context__]
+        stack += getattr(current, "exceptions", ())
+    return None
+
+
 def install(allowed_hosts: list[str]) -> None:
     """Install the audit hook and wrap `socket.getaddrinfo` for the whole process.
 

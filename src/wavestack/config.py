@@ -114,6 +114,29 @@ class Config:
         return max(1, self._int("tools", "fetch_page_max_chars", default=4000))
 
     @property
+    def mcp_urls(self) -> dict[str, str]:
+        """Public MCP servers (story 6): server id -> Streamable HTTP endpoint."""
+        default = {
+            "datagouv": "https://mcp.data.gouv.fr/mcp",
+            "mslearn": "https://learn.microsoft.com/api/mcp",
+        }
+        return {**default, **dict(self.get("mcp", "urls", default={}))}
+
+    def _seconds(self, *path: str, default: float) -> float:
+        try:
+            return max(0.1, float(self.get(*path, default=default)))
+        except (TypeError, ValueError):
+            return default
+
+    @property
+    def mcp_connect_timeout_s(self) -> float:
+        return self._seconds("mcp", "connect_timeout_s", default=15.0)
+
+    @property
+    def mcp_call_timeout_s(self) -> float:
+        return self._seconds("mcp", "call_timeout_s", default=30.0)
+
+    @property
     def selected_model(self) -> str | None:
         """The GGUF chosen on the diagnostic page, loaded at every launch (story 1b)."""
         value = self.get("selected_model")

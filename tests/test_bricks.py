@@ -342,6 +342,7 @@ def test_boot_emits_bare_llm_cards_without_any_toggle():
             "short_memory": False,
             "system_prompt": False,
             "tools": False,
+            "mcp": False,
         }
         assert cards["system_prompt"]["is_default"] is True
 

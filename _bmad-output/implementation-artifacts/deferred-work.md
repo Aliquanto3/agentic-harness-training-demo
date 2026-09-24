@@ -53,3 +53,11 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1d-correctif-cache-navigateur-et-echecs-de-sonde.md`
   summary: Permettre de forcer une nouvelle sonde d'un fichier mémorisé en échec (par exemple, un choix explicite qui contourne `failed_probes`).
   evidence: Un `ok: false` transitoire (mémoire insuffisante au chargement) resterait mémorisé jusqu'à un changement du fichier ou de llama-cpp-python. Seule issue aujourd'hui : modifier settings.json à la main. Non vérifié : il faudrait constater un échec d'allocation de llama.cpp sur un poste CPU chargé.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6-mcp-local-et-public.md`
+  summary: Story 6b — lazy loading MCP (CAP-22) : bascule documentation complète / lazy loading dans la carte MCP, méta-outil `load_tool_doc` (source `harness`) dont la description liste une ligne par outil MCP (un segment `tool_catalog` par outil, rendu étendu par un type `Joined` de plusieurs `Part`), réponse de type `tool_catalog`, effet `ToolDocLoaded` (`session/effects.py`, AD-23), outil appelable dans le même tour (`loaded_in_turn`) puis dans `tools` aux tours suivants, talon court dans l'historique, documentations déchargées par « Vider la conversation », appel d'un outil non documenté refusé et réinjecté ; la carte de dépassement propose alors le lazy loading.
+  evidence: Scindée de la story 6 sur décision d'Anaël (2026-09-24), spec entière à ~4 100 tokens ; la story 6 livre serveurs, registre et documentation complète que 6b réutilise. Tant que 6b n'est pas livrée, data.gouv.fr en documentation complète ne sert qu'au dépassement volontaire (AD-9).
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6-mcp-local-et-public.md`
+  summary: Le rendu front de la story 6 (cartes de connexion MCP hors tour et leur appariement, `setOption` vers `/api/intentions/mcp_server`, badge « MCP », outils dans l'infobulle du nœud serveur) n'est vérifié par aucun test automatique.
+  evidence: Même écart que pour la story 5b : le dépôt n'a aucun banc de test JS (`app.js` seulement passé à `node --check`) ; relevé par la couche verification-gap de la revue de la story 6.

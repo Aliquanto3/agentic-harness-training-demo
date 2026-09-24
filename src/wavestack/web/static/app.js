@@ -26,6 +26,8 @@ const store = {
   bricks: null, // last `bricks_changed` payload: cards and system prompt, as the session computed them
   openExplanations: new Set(), // brick ids whose explanation is unfolded (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
+  // Harness steps outside any turn (MCP discovery), each placed after the turns seen so far.
+  offTurn: [],
 };
 
 // Gauge group -> DESIGN.md segment colour token (formatting only).
@@ -195,9 +197,26 @@ function applyEnvelope(envelope) {
       break;
     }
     case "outbound_request": {
-      // What a network tool sends out, shown in the step of the tool running it.
-      const tool = turn?.steps.filter((s) => s.type === "tool").at(-1);
-      if (tool && p.origin === "brick") (tool.outbound ||= []).push({ ...p, seq: envelope.seq });
+      // What a network tool sends out, shown in the step of the tool running it; out of a
+      // turn, what an MCP server's discovery sends, shown in its connection step.
+      const step = turn
+        ? turn.steps.filter((s) => s.type === "tool").at(-1)
+        : store.offTurn.filter((s) => `mcp.${s.started.server}` === envelope.component).at(-1);
+      if (step && p.origin === "brick") (step.outbound ||= []).push({ ...p, seq: envelope.seq });
+      break;
+    }
+    case "mcp_connect_started":
+      store.offTurn.push({
+        started: p,
+        startedAt: Date.parse(envelope.ts),
+        ended: null,
+        afterTurn: store.turns.length,
+      });
+      break;
+    case "mcp_connect_ended": {
+      // The oldest pending card: connections of one server end in the order they started.
+      const step = store.offTurn.find((s) => s.started.server === p.server && !s.ended);
+      if (step) step.ended = p;
       break;
     }
     case "tool_call_malformed":
@@ -400,8 +419,9 @@ function brickOptions(brick) {
     else store.openExplanations.delete(key);
   });
   const on = brick.options.filter((o) => o.enabled).length;
+  const noun = brick.id === "mcp" ? "Serveurs" : "Outils";
   details.appendChild(
-    el("summary", "", `Outils : ${on} activé${on > 1 ? "s" : ""} sur ${brick.options.length}`)
+    el("summary", "", `${noun} : ${on} activé${on > 1 ? "s" : ""} sur ${brick.options.length}`)
   );
   const list = el("ul", "brick-option-list");
   for (const option of brick.options) {
@@ -411,7 +431,7 @@ function brickOptions(brick) {
     toggle.setAttribute("role", "switch");
     toggle.checked = option.enabled;
     toggle.dataset.focusKey = `option:${brick.id}:${option.id}`;
-    toggle.addEventListener("change", () => setTool(option.id, toggle.checked));
+    toggle.addEventListener("change", () => setOption(brick.id, option.id, toggle.checked));
     row.append(
       toggle,
       el("span", "brick-option-name", option.label_fr),
@@ -425,9 +445,14 @@ function brickOptions(brick) {
   return details;
 }
 
-async function setTool(tool, enabled) {
+async function setOption(brickId, id, enabled) {
+  // A tool of the tools brick, or a server of the MCP brick.
+  const [path, body] =
+    brickId === "mcp"
+      ? ["/api/intentions/mcp_server", { server: id, enabled }]
+      : ["/api/intentions/tool", { tool: id, enabled }];
   try {
-    const response = await postIntention("/api/intentions/tool", { tool, enabled });
+    const response = await postIntention(path, body);
     if (response.ok) return; // `bricks_changed` redraws the card
   } catch {
     // Fall through: redraw from the last state the session sent.
@@ -782,6 +807,9 @@ function modelCallCards(turn, step, index, calls) {
 function toolCard(step) {
   const ended = step.ended;
   const card = stepCard(`3. Exécution par le harnais · ${step.started.tool}`);
+  if (step.started.source?.startsWith("mcp")) {
+    card.appendChild(el("span", "step-badge is-mcp", "MCP"));
+  }
   const asked = { name: step.started.tool, arguments: step.started.arguments };
   card.appendChild(el("pre", "step-code", formatCall(asked)));
   for (const request of step.outbound || []) card.appendChild(outboundPayload(request));
@@ -799,6 +827,28 @@ function toolCard(step) {
       el("span", "step-badge", "erreur d'exécution"),
       el("p", "", `${ended.error_fr} L'erreur est réinjectée au modèle ; ce n'est pas un nouvel essai.`)
     );
+  }
+  return card;
+}
+
+function connectCard(step) {
+  // MCP discovery, outside any turn: connection, then the tools the server lists.
+  const ended = step.ended;
+  const card = stepCard(step.started.phase_label);
+  card.appendChild(el("span", "step-badge is-mcp", "MCP"));
+  for (const request of step.outbound || []) card.appendChild(outboundPayload(request));
+  if (!ended) {
+    card.appendChild(el("div", "token-counter number", "Connexion en cours…"));
+    return card;
+  }
+  card.appendChild(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  if (ended.status === "ok") {
+    const count = ended.tools.length;
+    card.appendChild(el("p", "label", `Outils trouvés : ${count}`));
+    if (count) card.appendChild(el("pre", "step-code", ended.tools.join("\n")));
+  } else {
+    card.classList.add("is-error");
+    card.append(el("span", "step-badge", "serveur indisponible"), el("p", "", ended.error_fr));
   }
   return card;
 }
@@ -843,7 +893,11 @@ function malformedCard(p) {
 function renderSteps() {
   const steps = document.getElementById("steps");
   steps.innerHTML = "";
-  for (const turn of store.turns) {
+  const offTurn = (index) => {
+    for (const step of store.offTurn) if (step.afterTurn === index) steps.appendChild(connectCard(step));
+  };
+  store.turns.forEach((turn, index) => {
+    offTurn(index);
     const calls = turn.steps.filter((s) => s.type === "call");
     for (const step of turn.steps) {
       if (step.type === "call") {
@@ -875,7 +929,8 @@ function renderSteps() {
       card.appendChild(list);
       steps.appendChild(card);
     }
-  }
+  });
+  offTurn(store.turns.length);
 }
 
 function renderChips() {
@@ -1013,6 +1068,8 @@ function renderSchema() {
     const title = svgEl("title", {});
     title.textContent = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
     if (notContacted) title.textContent += " : non contacté";
+    // An MCP server lists its tools in its tooltip (AD-12).
+    if (node.tools?.length) title.textContent += `\nOutils : ${node.tools.join(", ")}`;
     const network = node.hosting === "network";
     // A network node shows its globe; its contact state stays visible under the label.
     const state = notContacted ? "non contacté" : node.contact === "unavailable" ? "indisponible" : "";

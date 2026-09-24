@@ -3,33 +3,35 @@
 A destination outside `allowed_hosts` and the loopback range is refused
 (`NetworkBlocked`) before anything is sent or traced. Every other destination
 outside the loopback range emits `outbound_request` (address and exact body)
-via the journal, before the request is sent, tagged with the current scope's
-`origin`. The hook runs again on every redirect hop.
+via the journal, before the request is sent, tagged with the scope's `origin`.
+The hook runs again on every redirect hop. Two clients share this setup: a
+synchronous `httpx.Client` and an `httpx2.AsyncClient` (MCP Streamable HTTP).
 """
 
 from __future__ import annotations
 
 import ssl
+from collections.abc import Callable
 
 import httpx
+import httpx2
 import truststore
 
 from wavestack.config import load_config
 from wavestack.net.guard import NetworkBlocked, is_host_allowed, is_loopback
 from wavestack.trace.journal import get_journal
-from wavestack.trace.scope import current
+from wavestack.trace.scope import TraceScope, current
 
 # Wikimedia refuses generic user agents; header values must stay ASCII.
 USER_AGENT = "WaveStack/0.1 (demonstrateur pedagogique)"
 
 
-def _trace_request(request: httpx.Request) -> None:
+def _check_and_trace(request: httpx.Request | httpx2.Request, scope: TraceScope) -> None:
     host = request.url.host
     if not is_host_allowed(host, load_config().allowed_hosts):
         raise NetworkBlocked(f"Hôte réseau non autorisé : {host}")
     if is_loopback(host):
         return  # AD-15: only destinations outside the loopback range are traced
-    scope = current()
     get_journal().emit(
         "outbound_request",
         {
@@ -38,7 +40,16 @@ def _trace_request(request: httpx.Request) -> None:
             "url": str(request.url),
             "body": request.content.decode("utf-8", "replace"),
         },
+        scope=scope,
     )
+
+
+def _trace_request(request: httpx.Request) -> None:
+    _check_and_trace(request, current())
+
+
+def _ssl_context() -> ssl.SSLContext:
+    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 
 def create_client(
@@ -48,12 +59,38 @@ def create_client(
 
     `transport` is for tests only (`httpx.MockTransport`): nothing leaves the machine.
     """
-    ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     return httpx.Client(
-        verify=ctx,
+        verify=_ssl_context(),
         timeout=timeout,
         trust_env=True,
         transport=transport,
         headers={"User-Agent": USER_AGENT},
         event_hooks={"request": [_trace_request]},
+    )
+
+
+def create_async_client(
+    scope: Callable[[], TraceScope],
+    transport: httpx2.AsyncBaseTransport | None = None,
+    *,
+    timeout: float = 30.0,
+) -> httpx2.AsyncClient:
+    """Asynchronous httpx2 client, same configuration as `create_client`.
+
+    Requests may leave from a task that does not see the caller's `TraceScope`
+    (the MCP transport's writer task): `scope()` gives the one to trace with.
+    The read timeout stays long, since a server may hold an event stream open;
+    each MCP call is bounded by its own deadline.
+    """
+
+    async def trace(request: httpx2.Request) -> None:
+        _check_and_trace(request, scope())
+
+    return httpx2.AsyncClient(
+        verify=_ssl_context(),
+        timeout=httpx2.Timeout(timeout, read=300.0),
+        trust_env=True,
+        transport=transport,
+        headers={"User-Agent": USER_AGENT},
+        event_hooks={"request": [trace]},
     )

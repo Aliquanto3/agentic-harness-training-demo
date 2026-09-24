@@ -1,0 +1,47 @@
+# Glossaire servi par le serveur MCP local (story 6), en français.
+# Une entrée par notion du démonstrateur : clé = terme, valeur = définition.
+terms:
+  harnais: >-
+    Tout le code autour du modèle : il assemble le contexte, appelle le modèle,
+    interprète sa sortie, exécute des actions et décide de continuer ou de s'arrêter.
+  LLM nu: >-
+    Le modèle sollicité sans aucune brique : chaque message est envoyé seul, avec le
+    seul gabarit de conversation du modèle.
+  contexte: >-
+    L'ensemble exact des tokens envoyés au modèle lors d'un appel. Il est composé de
+    segments, chacun attribué à la brique qui l'a produit.
+  fenêtre de contexte: >-
+    Le nombre maximal de tokens que le contexte peut atteindre, réponse comprise.
+  token: >-
+    Le morceau de texte (mot, partie de mot, ponctuation) que le modèle lit et écrit.
+    La taille du contexte et le coût d'un appel se comptent en tokens.
+  outil: >-
+    Une fonction exécutée par le harnais à la demande du modèle, dont le résultat est
+    réinjecté dans le contexte.
+  MCP: >-
+    Model Context Protocol : un protocole standard par lequel un serveur, processus
+    séparé local ou service sur Internet, expose des outils à un harnais. Le harnais
+    s'y connecte, liste ses outils et les appelle pour le modèle.
+  serveur MCP: >-
+    Un processus séparé qui expose des outils via le protocole MCP, sur le poste
+    (local) ou accessible par le réseau (public).
+  skill: >-
+    Un ensemble d'instructions et de ressources que le harnais charge dans le contexte
+    à la demande. Seuls le nom et la description sont présents tant que le skill n'est
+    pas déclenché.
+  hook: >-
+    Du code du harnais, déterministe, exécuté automatiquement à un événement du tour.
+    Le modèle ne le décide pas.
+  RAG: >-
+    Retrieval-Augmented Generation : le harnais recherche des extraits de documents
+    pertinents et les ajoute au contexte avant d'appeler le modèle.
+  sous-agent: >-
+    Un second agent, qui réutilise le même modèle avec son propre contexte, auquel le
+    harnais délègue une sous-tâche. Seul son résultat revient dans le contexte principal.
+  lazy loading: >-
+    Ne charger la documentation complète d'un outil dans le contexte qu'au moment où
+    le modèle en a besoin, pour économiser des tokens.
+  mémoire courte: >-
+    La réinjection des messages précédents de la conversation en cours.
+  prompt système: >-
+    Les instructions placées par le harnais en tête du contexte, avant la conversation.

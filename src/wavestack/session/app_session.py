@@ -11,6 +11,7 @@ exception (AD-16).
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from collections.abc import Callable
@@ -31,6 +32,8 @@ from wavestack.bricks.registry import BRICKS, check_unique_ids
 from wavestack.context.render import RenderedContext, render_context
 from wavestack.context.segments import Part, SegmentKind, SegmentLabels, load_labels
 from wavestack.context.window import OUTPUT_RESERVE, effective_window, gauge
+from wavestack.mcp.connection import McpConnection, describe_error
+from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
 from wavestack.models.capabilities import (
     TOOL_CALL_TAGS,
     Capabilities,
@@ -42,7 +45,7 @@ from wavestack.tools.executor import ToolExecutor
 from wavestack.tools.native import NATIVE_TOOLS
 from wavestack.tools.network import network_tools
 from wavestack.tools.parser import Malformed, ToolCall, parse_tool_calls
-from wavestack.tools.registry import ToolRegistry, ToolsContent, load_tools_content
+from wavestack.tools.registry import ToolRegistry, ToolsContent, ToolSpec, load_tools_content
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import scoped
 
@@ -90,6 +93,11 @@ _OVERFLOW_CAUSES_FR = {
         "Cause : le prompt système occupe la plus grande part du contexte. "
         "Pour continuer la démo : raccourcissez le prompt système ou rétablissez le prompt "
         "par défaut."
+    ),
+    SegmentKind.TOOL_CATALOG: (
+        "Cause : les descriptions d'outils occupent la plus grande part du contexte, chaque "
+        "outil y entrant avec sa documentation complète. Pour continuer la démo : désactivez un "
+        "serveur MCP (ou des outils) dans le panneau des briques."
     ),
 }
 # AD-6: the French name of a model capability a brick requires.
@@ -149,7 +157,7 @@ class TurnState:
     history: tuple[Exchange, ...]
     system_prompt: str
     effective: frozenset[str]  # brick ids, `wanted` and `available`
-    tools: tuple[str, ...] = ()  # enabled tools, empty unless the tools brick is effective
+    tools: tuple[str, ...] = ()  # enabled tools of the effective tools and mcp bricks
 
 
 class SendRefused(Exception):
@@ -196,15 +204,24 @@ class AppSession:
         self._content_errors: dict[str, str] = {}
         self._default_prompt = ""
         self._tools_content: ToolsContent | None = None
+        self._mcp_content: McpContent | None = None
         self._load_content()
         self._registry = ToolRegistry(NATIVE_TOOLS + network_tools(self.cfg), self._tools_content)
         self._tool_executor = ToolExecutor(self._registry)
         # Offline tools start enabled; network tools start disabled (story 5b).
         self._tools_enabled = {n for n in self._registry.names if not self._registry.get(n).network}
+        # MCP servers (story 6): the local one starts enabled, the public ones disabled. A
+        # server is contacted only while enabled with the brick wanted (AD-15).
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._mcp_servers = mcp_servers(self.cfg)
+        self._mcp_enabled = {"local"}
+        self._mcp_conns: dict[str, McpConnection] = {}
+        self._mcp_state: dict[str, tuple[str, str | None]] = {}  # contact, reason_fr
         # Configuration frozen by the last `send`: `pending` is measured against it.
-        self._sent: tuple[frozenset[str], str, frozenset[str]] = (
+        self._sent: tuple[frozenset[str], str, frozenset[str], frozenset[str]] = (
             frozenset(),
             self._default_prompt,
+            frozenset(),
             frozenset(),
         )
 
@@ -221,12 +238,36 @@ class AppSession:
         self._emit_bricks()
 
     def _drawn_components(self, brick: BrickDeclaration) -> list[Component]:
-        """A tool is drawn only while its sub-option is enabled."""
-        if brick.id != "tools":
-            return list(brick.components)
+        """A tool or an MCP server is drawn only while its sub-option is enabled."""
         with self._lock:
-            enabled = {f"tools.{name}" for name in self._tools_enabled}
+            if brick.id == "tools":
+                enabled = {f"tools.{name}" for name in self._tools_enabled}
+            elif brick.id == "mcp":
+                enabled = {f"mcp.{server}" for server in self._mcp_enabled}
+            else:
+                return list(brick.components)
         return [c for c in brick.components if c.id in enabled]
+
+    def _mcp_label(self, server_id: str) -> str:
+        text = self._mcp_content.servers.get(server_id) if self._mcp_content else None
+        return text.label_fr if text else server_id
+
+    def _mcp_tools(self, server_id: str) -> list[str]:
+        """The names the registry exposes for `server_id`'s tools."""
+        return [n for n in self._registry.names if n.startswith(f"{server_id}__")]
+
+    def _mcp_node(self, node: dict[str, Any], server_id: str) -> None:
+        """AD-12: an MCP server node carries its connection state and its tools."""
+        with self._lock:
+            contact, why = self._mcp_state.get(server_id, ("not_contacted", None))
+        node.update(
+            kind="mcp_server",
+            label_fr=self._mcp_label(server_id),
+            contact=contact,
+            tools=self._mcp_tools(server_id) if contact == "available" else [],
+        )
+        if node["available"] and contact == "unavailable":
+            node["available"], node["reason_fr"] = False, why
 
     def _emit_architecture(self) -> None:
         """AD-12: a component is drawn as soon as its brick is `wanted`, even unavailable."""
@@ -276,6 +317,8 @@ class AppSession:
                     node["contact"] = contact
                     if available and contact == "unavailable":
                         node["available"], node["reason_fr"] = False, why
+                if component.kind == "mcp_server":
+                    self._mcp_node(node, component.id.removeprefix("mcp."))
                 nodes.append(node)
                 edges += [
                     {"from": component.id, "to": target, "crosses_boundary": hosting == "network"}
@@ -286,15 +329,32 @@ class AppSession:
 
     def _pending_ids(self) -> set[str]:
         """Bricks whose effect on the next turn differs from what the last `send` froze."""
+        mcp_tools = frozenset(self._mcp_tool_names())
         with self._lock:
-            sent_wanted, sent_prompt, sent_tools = self._sent
+            sent_wanted, sent_prompt, sent_tools, sent_mcp = self._sent
             pending = set(self._wanted) ^ sent_wanted
             prompt = self._custom_prompt or self._default_prompt
             if "system_prompt" in self._wanted and prompt != sent_prompt:
                 pending.add("system_prompt")
             if "tools" in self._wanted and self._tools_enabled != sent_tools:
                 pending.add("tools")
+            if "mcp" in self._wanted and mcp_tools != sent_mcp:
+                pending.add("mcp")
         return pending
+
+    def _mcp_options(self) -> list[dict[str, Any]]:
+        with self._lock:
+            enabled = set(self._mcp_enabled)
+        return [
+            {
+                "id": server.id,
+                "label_fr": self._mcp_label(server.id),
+                "enabled": server.id in enabled,
+                "hosting_fr": "RÉSEAU" if server.network else "Local",
+                "network": server.network,
+            }
+            for server in self._mcp_servers.values()
+        ]
 
     def _tool_options(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -302,7 +362,8 @@ class AppSession:
         options = []
         for name in self._registry.names:
             spec = self._registry.get(name)
-            assert spec is not None
+            if spec is None or spec.is_mcp:  # MCP tools are the mcp brick's servers
+                continue
             options.append(
                 {
                     "id": name,
@@ -342,7 +403,13 @@ class AppSession:
                     "available": available,
                     "reason_fr": reason_fr,
                     "pending": brick.id in pending,
-                    "options": self._tool_options() if brick.id == "tools" else [],
+                    "options": (
+                        self._tool_options()
+                        if brick.id == "tools"
+                        else self._mcp_options()
+                        if brick.id == "mcp"
+                        else []
+                    ),
                     "limits_fr": self._limits_fr() if brick.id == "tools" else None,
                 }
             )
@@ -367,10 +434,21 @@ class AppSession:
 
     def close(self) -> None:
         self.stop()
+        with self._lock:
+            conns = list(self._mcp_conns.values())
+            self._mcp_conns.clear()
+        for conn in conns:  # AD-21: no local server outlives WaveStack
+            conn.close(wait=not self._on_loop())
         self._executor.shutdown(wait=True, cancel_futures=True)
         if self._engine is not None:
             self._engine.close()
             self._engine = None
+
+    def _on_loop(self) -> bool:
+        try:
+            return asyncio.get_running_loop() is self._loop
+        except RuntimeError:
+            return False
 
     # ---------- model load ----------
 
@@ -455,6 +533,19 @@ class AppSession:
                     exc,
                     "La brique « Outils » est indisponible ; le reste de WaveStack fonctionne.",
                 )
+        if "mcp" in self._bricks:
+            try:
+                self._mcp_content = load_mcp_content()
+            except Exception as exc:  # noqa: BLE001
+                self._content_errors["mcp"] = (
+                    "Le fichier content/mcp.yaml est absent ou invalide : corrigez-le puis "
+                    "relancez WaveStack."
+                )
+                self._error(
+                    "Les libellés des serveurs MCP sont invalides.",
+                    exc,
+                    "La brique « MCP » est indisponible ; le reste de WaveStack fonctionne.",
+                )
         if "system_prompt" not in self._bricks:
             return
         try:
@@ -499,6 +590,14 @@ class AppSession:
             wanted = set(self._wanted)
         return frozenset(b for b in wanted if self._availability(b)[0])
 
+    def _mcp_tool_names(self) -> list[str]:
+        """The tools of the enabled servers that are `available` (in documentation complète)."""
+        with self._lock:
+            ready = {
+                s for s in self._mcp_enabled if self._mcp_state.get(s, ("",))[0] == "available"
+            }
+        return [n for s in self._mcp_servers if s in ready for n in self._mcp_tools(s)]
+
     def build_turn_state(self, origin_turn: str | None = None) -> TurnState:
         """AD-17: the conversational snapshot (branch history) plus the current configuration.
 
@@ -514,6 +613,8 @@ class AppSession:
         with self._lock:
             enabled = set(self._tools_enabled)
         tools = [n for n in self._registry.names if n in enabled] if "tools" in effective else []
+        if "mcp" in effective:
+            tools += self._mcp_tool_names()
         return TurnState(
             history=tuple(history),
             system_prompt=prompt if prompt is not None else self._default_prompt,
@@ -534,7 +635,9 @@ class AppSession:
         for i, step in enumerate(steps):
             if step["role"] == "tool":
                 kind, brick, component = (
-                    memory if history else (SegmentKind.TOOL_RESULT, "tools", step["component"])
+                    memory
+                    if history
+                    else (SegmentKind.TOOL_RESULT, step.get("brick", "tools"), step["component"])
                 )
                 messages.append(
                     {"role": "tool", "content": [Part(kind, step["content"], brick, component)]}
@@ -608,14 +711,22 @@ class AppSession:
         if not state.tools:
             return None
 
-        def wrap(value: Any, name: str, key: str | None = None) -> Any:
+        def wrap(value: Any, name: str, component: str, key: str | None = None) -> Any:
             if isinstance(value, dict):
-                return {k: wrap(v, name, k) for k, v in value.items()}
+                return {k: wrap(v, name, component, k) for k, v in value.items()}
+            if isinstance(value, list):
+                return [wrap(v, name, component) for v in value]
             if isinstance(value, str) and key in ("name", "description"):
-                return Part(SegmentKind.TOOL_CATALOG, value, "tools", f"tools.{name}", name)
+                brick = component.split(".")[0]  # `tools` or `mcp` (AD-4)
+                return Part(SegmentKind.TOOL_CATALOG, value, brick, component, name)
             return value
 
-        return [wrap(self._registry.definition(name), name) for name in state.tools]
+        definitions = []
+        for name in state.tools:
+            spec = self._registry.get(name)
+            if spec is not None:  # a server closed since the turn started: nothing to describe
+                definitions.append(wrap(self._registry.definition(name), name, spec.component))
+        return definitions or None
 
     def _render(
         self,
@@ -683,11 +794,13 @@ class AppSession:
         get_journal().emit("session_state", {"state": self.state, "reason_fr": self.reason_fr})
         state = self.build_turn_state()  # frozen now: a later toggle waits for the next turn
         had_pending = bool(self._pending_ids())
+        mcp_tools = frozenset(self._mcp_tool_names())
         with self._lock:
             self._sent = (
                 frozenset(self._wanted),
                 self._custom_prompt or self._default_prompt,
                 frozenset(self._tools_enabled),
+                mcp_tools,
             )
         if had_pending:  # « Prend effet au prochain tour » is over for what this turn reads
             self._emit_bricks()
@@ -705,13 +818,20 @@ class AppSession:
                 self._wanted.add(brick_id)
             else:
                 self._wanted.discard(brick_id)
+            servers = sorted(self._mcp_enabled) if brick_id == "mcp" else []
+        for server_id in servers:  # AD-15: servers are contacted only once the brick is wanted
+            if wanted:
+                self._mcp_connect(server_id)
+            else:
+                self._mcp_disconnect(server_id)
         self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
 
     def set_tool(self, name: str, enabled: bool) -> None:
         """Class (a): a tool sub-option, effective from the next turn. `KeyError` if unknown."""
-        if name not in self._registry.names:
+        spec = self._registry.get(name)
+        if spec is None or spec.is_mcp:
             raise KeyError(name)
         with self._lock:
             if (name in self._tools_enabled) == enabled:
@@ -723,6 +843,178 @@ class AppSession:
         self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
+
+    # ---------- MCP servers (story 6, AD-15, AD-24) ----------
+
+    def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """The asyncio loop MCP clients live on (FastAPI's); set once, before any intention."""
+        self._loop = loop
+
+    def set_mcp_server(self, server_id: str, enabled: bool) -> None:
+        """Class (a): an MCP server sub-option. Enabled with the brick wanted, the server is
+        contacted now; disabled, its connection closes. `KeyError` if unknown."""
+        if server_id not in self._mcp_servers:
+            raise KeyError(server_id)
+        with self._lock:
+            if (server_id in self._mcp_enabled) == enabled:
+                return
+            if enabled:
+                self._mcp_enabled.add(server_id)
+            else:
+                self._mcp_enabled.discard(server_id)
+            brick_wanted = "mcp" in self._wanted
+        if brick_wanted:
+            if enabled:
+                self._mcp_connect(server_id)
+            else:
+                self._mcp_disconnect(server_id)
+        self._emit_bricks()
+        self._emit_architecture()
+        self._executor.submit(self._emit_preview)
+
+    def _mcp_connect(self, server_id: str) -> None:
+        """Start contacting `server_id` on the loop; `_mcp_connected` applies the outcome."""
+        server = self._mcp_servers[server_id]
+        with self._lock:
+            if server_id in self._mcp_conns:
+                return
+            self._mcp_state[server_id] = ("not_contacted", None)
+            loop = self._loop
+            conn = (
+                McpConnection(
+                    server,
+                    loop,
+                    connect_timeout=self.cfg.mcp_connect_timeout_s,
+                    call_timeout=self.cfg.mcp_call_timeout_s,
+                )
+                if loop is not None
+                else None
+            )
+            if conn is not None:
+                self._mcp_conns[server_id] = conn
+        journal = get_journal()
+        with scoped(brick="mcp", component=server.component):
+            journal.emit(
+                "mcp_connect_started",
+                {
+                    "server": server_id,
+                    "phase_label": f"Connexion au serveur MCP {self._mcp_label(server_id)}",
+                },
+            )
+        started = time.monotonic()
+        if conn is None:
+            reason = "Connexion impossible : la boucle asyncio de WaveStack n'est pas démarrée."
+            self._executor.submit(
+                self._mcp_apply, server_id, None, started, started, None, RuntimeError(reason)
+            )
+            return
+        future = asyncio.run_coroutine_threadsafe(conn.start(), conn.loop)
+
+        def done(_: Any) -> None:
+            ended = time.monotonic()  # not counting any wait behind a turn on the worker
+            try:
+                self._executor.submit(self._mcp_connected, server_id, conn, started, ended, future)
+            except RuntimeError:  # the session is closing
+                pass
+
+        future.add_done_callback(done)
+
+    def _mcp_connected(self, server_id, conn, started, ended, future) -> None:  # noqa: ANN001
+        """On the worker: the connection's outcome becomes a state, tools and events."""
+        try:
+            tools, error = future.result(), None
+        except BaseException as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+            tools, error = None, exc
+        self._mcp_apply(server_id, conn, started, ended, tools, error)
+
+    def _mcp_apply(self, server_id, conn, started, ended, tools, error) -> None:  # noqa: ANN001
+        server = self._mcp_servers[server_id]
+        with self._lock:
+            current_conn = self._mcp_conns.get(server_id)
+        names: list[str] = []
+        error_fr = None
+        if error is not None:
+            error_fr = (
+                str(error)
+                if conn is None
+                else describe_error(error, self.cfg.mcp_connect_timeout_s)
+            )
+        if conn is not current_conn:  # disabled or closed meanwhile: nothing to apply
+            error_fr = "Connexion abandonnée : le serveur a été désactivé."
+        elif error_fr is not None:
+            with self._lock:
+                self._mcp_conns.pop(server_id, None)
+                self._mcp_state[server_id] = ("unavailable", error_fr)
+        else:
+            specs = [self._mcp_spec(server, conn, tool) for tool in tools]
+            self._registry.remove(f"{server_id}__")
+            names = self._registry.add(specs)
+            with self._lock:
+                self._mcp_state[server_id] = ("available", None)
+        with scoped(brick="mcp", component=server.component):
+            get_journal().emit(
+                "mcp_connect_ended",
+                {
+                    "server": server_id,
+                    "status": "ok" if error_fr is None else "error",
+                    "tools": names,
+                    "error_fr": error_fr,
+                    "duration_ms": _ms(ended - started),
+                },
+            )
+        self._emit_architecture()
+        self._emit_bricks()
+        self._emit_preview()
+
+    def _mcp_spec(self, server, conn: McpConnection, tool) -> ToolSpec:  # noqa: ANN001
+        """A listed MCP tool as a registry entry, in documentation complète (AD-14)."""
+        schema = dict(tool.input_schema or {})
+        properties = schema.get("properties") or {}
+        params = {  # a boolean schema (`true`) or an untyped one: any value
+            arg: kind
+            if isinstance(prop, dict) and isinstance(kind := prop.get("type"), str)
+            else ""
+            for arg, prop in properties.items()
+        }
+        name = tool.name
+        return ToolSpec(
+            name=name,
+            run=lambda **arguments: conn.call(name, arguments),
+            params=params,
+            component=server.component,
+            source=server.source,
+            hosting="network_service" if server.network else "local_process",
+            network=server.network,
+            description=tool.description or "",
+            schema=schema,
+            required=tuple(schema.get("required") or ()),
+        )
+
+    def _mcp_disconnect(self, server_id: str) -> None:
+        """Close the connection (the local process stops); tools leave from the next turn."""
+        with self._lock:
+            conn = self._mcp_conns.pop(server_id, None)
+            self._mcp_state.pop(server_id, None)  # drawn again as « non contacté »
+        if conn is not None:
+            conn.close(wait=False)
+        self._executor.submit(self._registry.remove, f"{server_id}__")
+
+    def _mcp_failed(self, server_id: str, reason_fr: str | None) -> None:
+        """On the worker: a call could not reach its server, which becomes `unavailable`."""
+        with self._lock:
+            conn = self._mcp_conns.pop(server_id, None)
+            if conn is None:  # disabled during the call: it stays « non contacté »
+                return
+            self._mcp_state[server_id] = ("unavailable", reason_fr)
+        conn.close(wait=False)
+        self._registry.remove(f"{server_id}__")
+
+    async def aclose_mcp(self) -> None:
+        """On the loop, at shutdown: close every connection before `close` (AD-21)."""
+        with self._lock:
+            conns = list(self._mcp_conns.values())
+            self._mcp_conns.clear()
+        await asyncio.gather(*(conn.aclose() for conn in conns), return_exceptions=True)
 
     def save_system_prompt(self, text: str | None) -> dict[str, Any]:
         """Class (a): `None` (or a blank text) restores the default. Returns the saved state."""
@@ -822,7 +1114,8 @@ class AppSession:
             # A failed call earns a new attempt while retries and calls remain (AD-10, AD-14).
             reaction = "retry" if retries < max_retries and n < max_calls else "stop"
             failed = False
-            with scoped(call_id=call_id, brick="tools", component="core.harness"):
+            harness_brick = "tools" if "tools" in state.effective else "mcp"
+            with scoped(call_id=call_id, brick=harness_brick, component="core.harness"):
                 if out.malformed is not None:
                     failed = True
                     step += 1
@@ -838,6 +1131,7 @@ class AppSession:
                             "name": None,
                             "content": error,
                             "component": "core.harness",
+                            "brick": harness_brick,
                         }
                     )
                 else:
@@ -853,19 +1147,25 @@ class AppSession:
                     )
                     for call in out.calls:
                         step += 1
-                        component = f"tools.{call.name}"
                         detail = self._tool_executor.check(call, state.tools)
+                        spec = self._registry.get(call.name) if detail is None else None
                         if detail is not None:
                             failed = True
-                            component = "core.harness"
-                        with scoped(step_id=f"{turn_id}.main.s{step}", component=component):
-                            if detail is not None:
+                        # AD-4: the step and its result belong to the tool's own brick.
+                        component = spec.component if spec else "core.harness"
+                        brick = component.split(".")[0] if spec else harness_brick
+                        with scoped(
+                            step_id=f"{turn_id}.main.s{step}", brick=brick, component=component
+                        ):
+                            if spec is None:
                                 result = self._tool_executor.reject(
                                     out.raw, call.source, detail, reaction
                                 )
                             else:
                                 result = self._tool_executor.run(call, cancel)
-                        if detail is None and self._registry.get(call.name).network:
+                        if spec is not None and spec.is_mcp and result is not None:
+                            self._after_mcp_call(call.name, spec)
+                        if spec is not None and (spec.network or spec.is_mcp):
                             self._emit_architecture()  # its contact state may have changed
                         if result is None:
                             return "cancelled", "", ""
@@ -875,6 +1175,7 @@ class AppSession:
                                 "name": call.name,
                                 "content": result,
                                 "component": component,
+                                "brick": brick,
                             }
                         )
             if failed:
@@ -886,6 +1187,12 @@ class AppSession:
                 return "cancelled", "", ""
         self._emit_limit("calls", max_calls)
         return "limit", "", ""
+
+    def _after_mcp_call(self, name: str, spec: ToolSpec) -> None:
+        """A call that could not reach its server (transport, delay) makes it unavailable."""
+        contact, why = self._tool_executor.contact.get(name, ("available", None))
+        if contact == "unavailable":
+            self._mcp_failed(spec.component.removeprefix("mcp."), why)
 
     def _emit_limit(self, limit: str, n: int) -> None:
         get_journal().emit(

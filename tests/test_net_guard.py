@@ -9,7 +9,7 @@ import textwrap
 
 import pytest
 
-from wavestack.net.guard import NetworkBlocked, is_host_allowed
+from wavestack.net.guard import NetworkBlocked, find_blocked, is_host_allowed
 
 
 def test_loopback_always_allowed():
@@ -45,6 +45,38 @@ def test_guard_blocks_under_proactor_event_loop():
             asyncio.run(_resolve())
     finally:
         asyncio.set_event_loop_policy(None)
+
+
+def test_find_blocked_walks_causes_contexts_and_groups():
+    blocked = NetworkBlocked("Hôte réseau non autorisé : x")
+    try:
+        try:
+            raise blocked
+        except NetworkBlocked as exc:
+            raise RuntimeError("wrapped") from exc
+    except RuntimeError as exc:
+        wrapped = exc
+    assert find_blocked(ExceptionGroup("g", [ValueError(), wrapped])) is blocked
+    assert find_blocked(ValueError()) is None and find_blocked(None) is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="ProactorEventLoop is Windows-only")
+def test_guard_blocks_the_real_mcp_client_under_proactor_event_loop():
+    """AD-15: the MCP SDK's own HTTP client (no factory) is still refused by the guard."""
+    from mcp import Client
+
+    async def _connect() -> None:
+        async with Client("https://blocked.example.test/mcp", mode="legacy", cache=None):
+            pass
+
+    policy = asyncio.WindowsProactorEventLoopPolicy()
+    asyncio.set_event_loop_policy(policy)
+    try:
+        with pytest.raises(Exception) as raised:  # noqa: B017 - the SDK wraps it in a group
+            asyncio.run(asyncio.wait_for(_connect(), 20))
+    finally:
+        asyncio.set_event_loop_policy(None)
+    assert find_blocked(raised.value) is not None
 
 
 # The session guard (conftest) cannot be uninstalled: each case below runs in a

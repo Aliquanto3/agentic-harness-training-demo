@@ -50,18 +50,20 @@ class SessionStatePayload(BaseModel):
 class ArchitectureNode(BaseModel):
     """A node of the architecture schema (AD-12): a fixed `core.*` node or a brick component.
 
-    `kind` will grow (mcp_server, ...) with later stories.
+    `kind` will grow with later stories.
     """
 
     id: str
-    kind: Literal["harness", "model", "brick", "tool", "file"]
+    kind: Literal["harness", "model", "brick", "tool", "file", "mcp_server"]
     hosting: Literal["local", "network"]
     label_fr: str
     wanted: bool
     available: bool
     reason_fr: str | None = None
-    # Network tools only (AD-12): the state left by the last call actually sent.
+    # Network tools: the state left by the last call actually sent. MCP servers: the
+    # state of their connection (AD-12).
     contact: Literal["not_contacted", "available", "unavailable"] | None = None
+    tools: list[str] = []  # MCP servers: the names of the tools they expose
 
 
 class ArchitectureEdge(BaseModel):
@@ -230,6 +232,7 @@ class ToolStartedPayload(BaseModel):
     tool: str
     arguments: dict[str, object]
     phase_label: str
+    source: Literal["native", "harness", "mcp_local", "mcp_public"] = "native"
 
 
 class ToolEndedPayload(BaseModel):
@@ -254,6 +257,22 @@ class LimitReachedPayload(BaseModel):
 class PrefixNotReusedPayload(BaseModel):
     common_tokens: int
     message_fr: str
+
+
+# ---------- story 6: MCP servers (AD-12, AD-15) ----------
+
+
+class McpConnectStartedPayload(BaseModel):
+    server: str
+    phase_label: str
+
+
+class McpConnectEndedPayload(BaseModel):
+    server: str
+    status: Literal["ok", "error"]
+    tools: list[str]
+    error_fr: str | None = None
+    duration_ms: int
 
 
 # Maps each kind to its payload model, so `Envelope` can validate it.
@@ -281,4 +300,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "tool_call_malformed": ToolCallMalformedPayload,
     "limit_reached": LimitReachedPayload,
     "prefix_not_reused": PrefixNotReusedPayload,
+    "mcp_connect_started": McpConnectStartedPayload,
+    "mcp_connect_ended": McpConnectEndedPayload,
 }

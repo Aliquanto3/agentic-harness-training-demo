@@ -77,6 +77,30 @@ BRICKS = [
             ),
         ],
     ),
+    # Story 6: one component per MCP server; the brick does not require `tools`.
+    BrickDeclaration(
+        id="mcp",
+        category="harness",
+        capabilities=["tool_call_parser"],
+        network=True,
+        components=[
+            Component(
+                id="mcp.local",
+                kind="mcp_server",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            ),
+            *(
+                Component(
+                    id=f"mcp.{server}",
+                    kind="mcp_server",
+                    hosting="network_service",
+                    edges_to=["core.harness"],
+                )
+                for server in ("datagouv", "mslearn")
+            ),
+        ],
+    ),
 ]
 
 

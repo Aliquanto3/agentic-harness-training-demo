@@ -40,6 +40,16 @@ class ToolSpec:
     reads_local_path: str | None = None  # the argument holding a path, if any
     # Network tools (AD-14): `preview(**args) -> {method, url, body}`, exactly what `run` sends.
     preview: Callable[..., dict[str, str]] | None = None
+    # MCP tools (story 6): their own documentation, as the server lists it. `params` then maps
+    # each argument to its schema type ("" when not a plain type), `required` names the
+    # required ones (None: all of `params`).
+    description: str | None = None
+    schema: dict[str, Any] | None = None
+    required: tuple[str, ...] | None = None
+
+    @property
+    def is_mcp(self) -> bool:
+        return self.source in ("mcp_local", "mcp_public")
 
 
 class ToolText(BaseModel):
@@ -70,8 +80,20 @@ class ToolRegistry:
     _by_name: dict[str, ToolSpec] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
-        for spec in self.specs:
-            name = spec.name  # native or harness tool: the bare name; MCP arrives with story 6
+        self.add(self.specs)
+
+    @staticmethod
+    def exposed_name(spec: ToolSpec) -> str:
+        """Native or harness tool: the bare name; MCP tool: `{server_id}__{tool}`."""
+        if spec.is_mcp:
+            return f"{spec.component.removeprefix('mcp.')}__{spec.name}"
+        return spec.name
+
+    def add(self, specs: list[ToolSpec]) -> list[str]:
+        """Register `specs`; returns the names exposed. A colliding name stays unavailable."""
+        added = []
+        for spec in specs:
+            name = self.exposed_name(spec)
             if name in self._by_name:
                 get_journal().emit(
                     "harness_error",
@@ -83,9 +105,17 @@ class ToolRegistry:
                     },
                 )
                 continue
+            # A native tool without content cannot be described to the model.
+            if spec.description is None and self.content and name not in self.content.tools:
+                continue
             self._by_name[name] = spec
-        if self.content is not None:  # a tool without content cannot be described to the model
-            self._by_name = {n: s for n, s in self._by_name.items() if n in self.content.tools}
+            added.append(name)
+        return added
+
+    def remove(self, prefix: str) -> None:
+        """Unregister every tool whose exposed name starts with `prefix` (e.g. `local__`)."""
+        for name in [n for n in self._by_name if n.startswith(prefix)]:
+            del self._by_name[name]
 
     @property
     def names(self) -> list[str]:
@@ -106,6 +136,15 @@ class ToolRegistry:
         `tool_catalog` segment and almost nothing is left to `template`.
         """
         spec = self._by_name[name]
+        if spec.description is not None:  # MCP: the server's documentation, schema as is
+            return {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "parameters": spec.schema or {"type": "object", "properties": {}},
+                    "description": spec.description,
+                },
+            }
         text = (
             self.content.tools[name] if self.content else ToolText(label_fr=name, description=name)
         )

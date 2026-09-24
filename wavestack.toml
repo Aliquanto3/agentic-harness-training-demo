@@ -12,6 +12,9 @@ allowed_hosts = [
     # Outils réseau (story 5b).
     "fr.wikipedia.org",
     "calendrier.api.gouv.fr",
+    # Serveurs MCP publics (story 6).
+    "mcp.data.gouv.fr",
+    "learn.microsoft.com",
 ]
 # Adresse fixe utilisée par la sonde de connectivité du diagnostic (CAP-39).
 connectivity_probe_host = "huggingface.co"
@@ -34,3 +37,14 @@ max_retries = 2
 # [net] allowed_hosts). Le texte de la page est coupé à fetch_page_max_chars caractères.
 fetch_page_hosts = ["fr.wikipedia.org", "calendrier.api.gouv.fr"]
 fetch_page_max_chars = 4000
+
+[mcp]
+# Serveurs MCP (story 6) : un serveur n'est contacté qu'à l'activation de sa sous-option.
+# Délai de connexion (initialize puis tools/list) et délai d'un appel d'outil, en secondes.
+connect_timeout_s = 15
+call_timeout_s = 30
+
+[mcp.urls]
+# Serveurs publics en Streamable HTTP ; leurs hôtes sont aussi dans [net] allowed_hosts.
+datagouv = "https://mcp.data.gouv.fr/mcp"
+mslearn = "https://learn.microsoft.com/api/mcp"

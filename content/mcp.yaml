@@ -1,0 +1,9 @@
+# Serveurs MCP de la brique « MCP » (story 6, AD-19).
+# `label_fr` s'affiche dans la carte de la brique et sur le nœud du schéma.
+servers:
+  local:
+    label_fr: Glossaire WaveStack
+  datagouv:
+    label_fr: data.gouv.fr
+  mslearn:
+    label_fr: Microsoft Learn
