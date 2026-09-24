@@ -136,27 +136,72 @@ function applyEnvelope(envelope) {
         notices: [],
         errors: [],
         status: null,
+        limit: null,
+        // Orchestration, in the real order: model calls, tool executions, harness events.
+        steps: [],
       });
       break;
     case "context_rendered":
       store.gauge = { payload: p, preview: false };
-      if (turn) turn.context = p;
+      if (turn) {
+        turn.context = p;
+        turn.steps.push({ type: "call", id: envelope.call_id, context: p, startedAt: null, ended: null });
+      }
       break;
     case "context_overflow":
       if (turn) turn.overflow = p;
       break;
     case "model_call_started":
-      if (turn) Object.assign(turn, { phaseLabel: p.phase_label, callStartedAt: Date.parse(envelope.ts) });
+      if (turn) {
+        // A new call of the same turn: the indicator comes back until its first token.
+        Object.assign(turn, {
+          phaseLabel: p.phase_label,
+          callStartedAt: Date.parse(envelope.ts),
+          firstToken: false,
+          text: "",
+          reasoning: "",
+        });
+        lastCall(turn).startedAt = Date.parse(envelope.ts);
+      }
       break;
     case "model_first_token":
       if (turn) turn.firstToken = true;
       break;
     case "model_delta":
-      if (turn) turn[p.channel === "reasoning" ? "reasoning" : "text"] += p.text;
+      // A tool call is shown in Orchestration, never as chat text.
+      if (turn && p.channel !== "tool_call") turn[p.channel] += p.text;
       break;
     case "model_call_ended":
       // AD-2: the `*_ended` payload is authoritative and replaces the deltas.
-      if (turn) Object.assign(turn, { callEnded: p, text: p.text, reasoning: p.reasoning });
+      if (turn) {
+        Object.assign(turn, { callEnded: p, text: p.text, reasoning: p.reasoning });
+        lastCall(turn).ended = p;
+      }
+      break;
+    case "tool_started":
+      if (turn) {
+        Object.assign(turn, {
+          phaseLabel: p.phase_label,
+          callStartedAt: Date.parse(envelope.ts),
+          firstToken: false,
+        });
+        turn.steps.push({ type: "tool", started: p, startedAt: Date.parse(envelope.ts), ended: null });
+      }
+      break;
+    case "tool_ended": {
+      const tool = turn?.steps.filter((s) => s.type === "tool").at(-1);
+      if (tool) tool.ended = p;
+      break;
+    }
+    case "tool_call_malformed":
+    case "prefix_not_reused":
+      if (turn) turn.steps.push({ type: envelope.kind, payload: p });
+      break;
+    case "limit_reached":
+      if (turn) {
+        turn.limit = p;
+        turn.steps.push({ type: envelope.kind, payload: p });
+      }
       break;
     case "output_truncated":
       if (turn) turn.truncated = p;
@@ -186,6 +231,10 @@ function scheduleRender() {
     renderPending = false;
     render();
   });
+}
+
+function lastCall(turn) {
+  return turn.steps.filter((s) => s.type === "call").at(-1) || {};
 }
 
 function activeTurn() {
@@ -307,6 +356,9 @@ function renderBricks() {
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
     if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
 
+    if (brick.options?.length) card.appendChild(brickOptions(brick));
+    if (brick.limits_fr) card.appendChild(el("p", "brick-limits", brick.limits_fr));
+
     if (brick.explanation_fr) {
       const details = el("details", "brick-explanation");
       details.open = store.openExplanations.has(brick.id);
@@ -329,6 +381,52 @@ function renderBricks() {
     pane.appendChild(card);
   }
   if (focusKey) pane.querySelector(`[data-focus-key="${focusKey}"]`)?.focus();
+}
+
+function brickOptions(brick) {
+  // Sub-options (EXPERIENCE: brick-card): one switch per tool, with its hosting tag.
+  const key = `options:${brick.id}`;
+  const details = el("details", "brick-options");
+  details.open = store.openExplanations.has(key);
+  details.addEventListener("toggle", () => {
+    if (details.open) store.openExplanations.add(key);
+    else store.openExplanations.delete(key);
+  });
+  const on = brick.options.filter((o) => o.enabled).length;
+  details.appendChild(
+    el("summary", "", `Outils : ${on} activé${on > 1 ? "s" : ""} sur ${brick.options.length}`)
+  );
+  const list = el("ul", "brick-option-list");
+  for (const option of brick.options) {
+    const row = el("label", "brick-option");
+    const toggle = el("input", "brick-toggle");
+    toggle.type = "checkbox";
+    toggle.setAttribute("role", "switch");
+    toggle.checked = option.enabled;
+    toggle.dataset.focusKey = `option:${brick.id}:${option.id}`;
+    toggle.addEventListener("change", () => setTool(option.id, toggle.checked));
+    row.append(
+      toggle,
+      el("span", "brick-option-name", option.label_fr),
+      el("span", option.network ? "hosting-tag-network" : "hosting-tag-local", option.hosting_fr)
+    );
+    const li = el("li");
+    li.appendChild(row);
+    list.appendChild(li);
+  }
+  details.appendChild(list);
+  return details;
+}
+
+async function setTool(tool, enabled) {
+  try {
+    const response = await postIntention("/api/intentions/tool", { tool, enabled });
+    if (response.ok) return; // `bricks_changed` redraws the card
+  } catch {
+    // Fall through: redraw from the last state the session sent.
+  }
+  renderedBricks = null;
+  scheduleRender();
 }
 
 async function setBrick(brick, wanted) {
@@ -451,6 +549,7 @@ function turnNote(turn) {
     case "overflow":
       return "Contexte dépassé : le modèle n'a pas été appelé.";
     case "limit":
+      if (turn.limit) return turn.limit.message_fr;
       return `Sortie coupée : la réponse a atteint la limite de ${fmt(turn.truncated?.max_tokens ?? 0)} tokens. Le texte reçu est conservé.`;
     case "cancelled":
       return "Arrêté à votre demande : le texte déjà reçu est conservé.";
@@ -600,12 +699,146 @@ function renderContext() {
   );
 }
 
-// ---------- orchestration: model-call step with its counter, overflow card ----------
+// ---------- orchestration: the turn's steps in their real order (CAP-15, CAP-16) ----------
+
+function stepCard(title, className = "step") {
+  const card = el("div", className);
+  card.appendChild(el("div", "step-title", title));
+  return card;
+}
+
+function groupTokens(context, group) {
+  return context?.breakdown.find((item) => item.group === group)?.tokens ?? 0;
+}
+
+function formatCall(call) {
+  const args = Object.entries(call.arguments)
+    .map(([name, value]) => `${name}=${JSON.stringify(value)}`)
+    .join(", ");
+  return `${call.name}(${args})`;
+}
+
+function harnessEvent(title, tone, lines) {
+  // DESIGN.md harness-event: red for a failure, violet for information.
+  const card = el("div", `harness-event is-${tone}`);
+  card.appendChild(el("div", "step-title", `${tone === "error" ? "✖" : "ℹ"} ${title}`));
+  card.append(...lines);
+  return card;
+}
+
+function modelCallCards(turn, step, index, calls) {
+  const cards = [];
+  const context = step.context;
+  const catalog = groupTokens(context, "tool_catalog");
+  const results = groupTokens(context, "tool_result");
+  if (index === 0 && catalog) {
+    const count = context.segments.filter((s) => s.kind === "tool_catalog").length;
+    const card = stepCard("1. Description des outils");
+    const plural = count > 1 ? "s" : "";
+    card.appendChild(
+      el("p", "", `${count} outil${plural} décrit${plural} au modèle dans le contexte : ${fmt(catalog)} tokens.`)
+    );
+    cards.push(card);
+  }
+  if (index > 0 && results) {
+    const card = stepCard("4. Réinjection");
+    card.appendChild(
+      el("p", "", `Résultats d'outils ajoutés au contexte de cet appel : ${fmt(results)} tokens.`)
+    );
+    cards.push(card);
+  }
+  const ended = step.ended;
+  const last = index === calls.length - 1;
+  const isFinal = catalog && ended && !ended.tool_calls.length && last && turn.status === "completed";
+  const title = isFinal ? "5. Réponse finale · appel au modèle" : "Appel au modèle";
+  const card = stepCard(`${title} · ${step.id ?? turn.id}`);
+  let counter = `Entrée : ${fmt(context?.used ?? 0)} tokens`;
+  if (ended) {
+    counter = `Entrée : ${fmt(ended.prompt_tokens)} tokens · Sortie : ${fmt(ended.output_tokens)} tokens · Temps : ${seconds(ended.duration_ms)}`;
+  } else if (step.startedAt) {
+    counter += ` · Sortie : … · Temps : ${seconds(Date.now() - step.startedAt)} (en cours)`;
+  }
+  card.appendChild(el("div", "token-counter number", counter));
+  if (ended && ended.stop_reason !== "stop") {
+    const reasons = { length: "sortie coupée", cancelled: "arrêté", error: "erreur" };
+    card.appendChild(el("span", "step-badge", reasons[ended.stop_reason]));
+  }
+  cards.push(card);
+  if (ended?.tool_calls.length) {
+    const ask = stepCard("2. Demande d'outil (décidée par le modèle)");
+    for (const call of ended.tool_calls) ask.appendChild(el("pre", "step-code", formatCall(call)));
+    cards.push(ask);
+  }
+  return cards;
+}
+
+function toolCard(step) {
+  const ended = step.ended;
+  const card = stepCard(`3. Exécution par le harnais · ${step.started.tool}`);
+  const asked = { name: step.started.tool, arguments: step.started.arguments };
+  card.appendChild(el("pre", "step-code", formatCall(asked)));
+  if (!ended) {
+    const running = `En cours… ${seconds(Date.now() - step.startedAt)}`;
+    card.appendChild(el("div", "token-counter number", running));
+    return card;
+  }
+  card.appendChild(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  if (ended.status === "ok") {
+    card.append(el("p", "label", "Résultat"), el("pre", "step-code", ended.result));
+  } else {
+    card.classList.add("is-error");
+    card.append(
+      el("span", "step-badge", "erreur d'exécution"),
+      el("p", "", `${ended.error_fr} L'erreur est réinjectée au modèle ; ce n'est pas un nouvel essai.`)
+    );
+  }
+  return card;
+}
+
+function malformedCard(p) {
+  // The raw output with the faulty part marked (EXPERIENCE: malformed tool call).
+  const raw = el("pre", "step-code");
+  const at = p.raw.indexOf(p.fragment);
+  if (at >= 0) {
+    raw.append(p.raw.slice(0, at), el("mark", "", p.fragment), p.raw.slice(at + p.fragment.length));
+  } else {
+    raw.append(p.raw, "\n", el("mark", "", p.fragment));
+  }
+  const reaction =
+    p.reaction === "retry"
+      ? "Réaction du harnais : erreur réinjectée au modèle, nouvel essai."
+      : "Réaction du harnais : arrêt du tour, le modèle n'est plus rappelé (plus d'essai possible).";
+  return harnessEvent("Appel d'outil mal formé", "error", [
+    el("p", "", `Partie fautive : ${p.detail_fr}`),
+    el("p", "label", "Sortie brute du modèle"),
+    raw,
+    el("p", "", reaction),
+    el("p", "label", "Décision du harnais (code), pas du modèle"),
+  ]);
+}
 
 function renderSteps() {
   const steps = document.getElementById("steps");
   steps.innerHTML = "";
   for (const turn of store.turns) {
+    const calls = turn.steps.filter((s) => s.type === "call");
+    for (const step of turn.steps) {
+      if (step.type === "call") {
+        if (turn.overflow && step === calls.at(-1)) continue; // the overflow card replaces it
+        steps.append(...modelCallCards(turn, step, calls.indexOf(step), calls));
+      } else if (step.type === "tool") {
+        steps.appendChild(toolCard(step));
+      } else if (step.type === "tool_call_malformed") {
+        steps.appendChild(malformedCard(step.payload));
+      } else if (step.type === "limit_reached") {
+        const text = el("p", "", step.payload.message_fr);
+        const tone = step.payload.limit === "retries" ? "error" : "info";
+        steps.appendChild(harnessEvent("Borne du tour atteinte", tone, [text]));
+      } else if (step.type === "prefix_not_reused") {
+        const text = el("p", "", step.payload.message_fr);
+        steps.appendChild(harnessEvent("Préfixe non réutilisé", "info", [text]));
+      }
+    }
     if (turn.overflow) {
       const card = el("div", "overflow-card");
       card.append(
@@ -618,21 +851,7 @@ function renderSteps() {
       for (const strategy of turn.overflow.strategies_fr) list.appendChild(el("li", "", strategy));
       card.appendChild(list);
       steps.appendChild(card);
-      continue;
     }
-    if (turn.callStartedAt === null) continue;
-    const step = el("div", "step");
-    step.appendChild(el("div", "step-title", `Appel au modèle · ${turn.id}`));
-    const ended = turn.callEnded;
-    const counter = ended
-      ? `Entrée : ${fmt(ended.prompt_tokens)} tokens · Sortie : ${fmt(ended.output_tokens)} tokens · Temps : ${seconds(ended.duration_ms)}`
-      : `Entrée : ${fmt(turn.context?.used ?? 0)} tokens · Sortie : … · Temps : ${seconds(Date.now() - turn.callStartedAt)} (en cours)`;
-    step.appendChild(el("div", "token-counter number", counter));
-    if (ended && ended.stop_reason !== "stop") {
-      const reasons = { length: "sortie coupée", cancelled: "arrêté", error: "erreur" };
-      step.appendChild(el("span", "step-badge", reasons[ended.stop_reason]));
-    }
-    steps.appendChild(step);
   }
 }
 
@@ -733,7 +952,8 @@ function renderSchema() {
   const W = 180;
   const H = 44;
   const GAP = 24;
-  const rows = [nodes.filter((n) => n.kind !== "brick"), nodes.filter((n) => n.kind === "brick")];
+  const fixed = (n) => n.kind === "harness" || n.kind === "model";
+  const rows = [nodes.filter(fixed), nodes.filter((n) => !fixed(n))];
   const widest = Math.max(...rows.map((row) => row.length), 1);
   const width = Math.max(480, 40 + widest * W + (widest - 1) * GAP);
   svg.setAttribute("viewBox", `0 0 ${width} 140`);

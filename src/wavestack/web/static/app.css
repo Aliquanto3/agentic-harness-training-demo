@@ -430,6 +430,43 @@ body {
   font-size: var(--typography-label-font-size);
 }
 
+.step.is-error {
+  border-color: var(--color-state-error);
+}
+
+.step-code {
+  margin: var(--spacing-1) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--typography-body-sm-font-size);
+}
+
+.step-code mark {
+  background: var(--color-state-error);
+  color: var(--color-on-primary);
+}
+
+.step p {
+  margin: var(--spacing-1) 0 0;
+}
+
+/* DESIGN.md harness-event: thick side rule, red for failure, violet for information. */
+.harness-event {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--rounded-sm);
+  padding: var(--spacing-2);
+}
+
+.harness-event.is-error {
+  border-left-color: var(--color-state-error);
+}
+
+.harness-event p {
+  margin: var(--spacing-1) 0 0;
+}
+
 .overflow-card {
   border: var(--spacing-stroke-min) solid var(--color-danger);
   border-radius: var(--rounded-sm);
@@ -682,6 +719,35 @@ body.focus-mode .pane.is-focused .pane-body {
 
 .brick-pending {
   font-style: italic;
+}
+
+.brick-limits {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.brick-options summary {
+  cursor: pointer;
+  font-size: var(--typography-body-sm-font-size);
+}
+
+.brick-option-list {
+  list-style: none;
+  margin: var(--spacing-1) 0 0;
+  padding: 0;
+}
+
+.brick-option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-height: var(--spacing-hit-target-min);
+  cursor: pointer;
+}
+
+.brick-option-name {
+  flex: 1;
 }
 
 .brick-explanation summary {

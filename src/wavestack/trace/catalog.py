@@ -49,11 +49,11 @@ class SessionStatePayload(BaseModel):
 class ArchitectureNode(BaseModel):
     """A node of the architecture schema (AD-12): a fixed `core.*` node or a brick component.
 
-    `kind` will grow (tool, mcp_server, ...) with later stories.
+    `kind` will grow (mcp_server, ...) with later stories.
     """
 
     id: str
-    kind: Literal["harness", "model", "brick"]
+    kind: Literal["harness", "model", "brick", "tool", "file"]
     hosting: Literal["local", "network"]
     label_fr: str
     wanted: bool
@@ -179,6 +179,16 @@ class SpecialTokenNeutralizedPayload(BaseModel):
 # ---------- story 4: bricks, system prompt, conversation (AD-3, AD-12, AD-17) ----------
 
 
+class BrickOption(BaseModel):
+    """A sub-option of a brick card (story 5: one native tool)."""
+
+    id: str
+    label_fr: str
+    enabled: bool
+    hosting_fr: str
+    network: bool
+
+
 class BrickState(BaseModel):
     """One brick card: its content, and `available`/`pending` as computed by the session."""
 
@@ -192,6 +202,8 @@ class BrickState(BaseModel):
     available: bool
     reason_fr: str | None = None
     pending: bool
+    options: list[BrickOption] = []
+    limits_fr: str | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -206,6 +218,39 @@ class BricksChangedPayload(BaseModel):
 
 class ConversationClearedPayload(BaseModel):
     pass
+
+
+# ---------- story 5: native tools, bounded turn loop (AD-4, AD-10, AD-14) ----------
+
+
+class ToolStartedPayload(BaseModel):
+    tool: str
+    arguments: dict[str, object]
+    phase_label: str
+
+
+class ToolEndedPayload(BaseModel):
+    status: Literal["ok", "error", "blocked", "limit", "overflow"]
+    result: str | None = None
+    error_fr: str | None = None
+    duration_ms: int
+
+
+class ToolCallMalformedPayload(BaseModel):
+    raw: str
+    fragment: str
+    detail_fr: str
+    reaction: Literal["retry", "stop"]
+
+
+class LimitReachedPayload(BaseModel):
+    limit: Literal["calls", "retries", "sub_calls"]
+    message_fr: str
+
+
+class PrefixNotReusedPayload(BaseModel):
+    common_tokens: int
+    message_fr: str
 
 
 # Maps each kind to its payload model, so `Envelope` can validate it.
@@ -228,4 +273,9 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "special_token_neutralized": SpecialTokenNeutralizedPayload,
     "bricks_changed": BricksChangedPayload,
     "conversation_cleared": ConversationClearedPayload,
+    "tool_started": ToolStartedPayload,
+    "tool_ended": ToolEndedPayload,
+    "tool_call_malformed": ToolCallMalformedPayload,
+    "limit_reached": LimitReachedPayload,
+    "prefix_not_reused": PrefixNotReusedPayload,
 }

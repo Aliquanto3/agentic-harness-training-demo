@@ -37,6 +37,9 @@ class Part(NamedTuple):
     text: str
     brick: str | None = None
     component: str | None = None
+    # Parts sharing a group (the texts of one tool definition, or of one call) become a
+    # single segment, with the template pieces enclosed between them (AD-4).
+    group: str | None = None
 
 
 class Segment(BaseModel):

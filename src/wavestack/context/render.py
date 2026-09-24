@@ -185,6 +185,28 @@ def _locate_in_order(prompt: str, parts: list[Part]) -> list[tuple[int | None, s
     return pieces
 
 
+def _merge_groups(
+    pieces: list[tuple[int | None, str]], parts: list[Part]
+) -> list[tuple[int | None, str]]:
+    """A template piece enclosed between two texts of one group joins it, and a group's
+    consecutive pieces form one segment (one `tool_catalog` per tool, one piece per call)."""
+
+    def group(owner: int | None) -> str | None:
+        return None if owner is None else parts[owner].group
+
+    merged: list[list[Any]] = []  # [owner, text, group]
+    for i, (owner, text) in enumerate(pieces):
+        if owner is None and 0 < i < len(pieces) - 1:
+            before, after = pieces[i - 1][0], pieces[i + 1][0]
+            if group(before) is not None and group(before) == group(after):
+                owner = before
+        if merged and group(owner) is not None and merged[-1][2] == group(owner):
+            merged[-1][1] += text
+        else:
+            merged.append([owner, text, group(owner)])
+    return [(owner, text) for owner, text, _ in merged]
+
+
 def render_context(
     engine: Engine,
     template: str,
@@ -192,11 +214,14 @@ def render_context(
     *,
     call_id: str | None,
     special_tokens: list[str] | tuple[str, ...] = (),
+    tools: list[dict[str, Any]] | None = None,
     **template_vars: Any,
 ) -> RenderedContext:
     """Render the prompt to send, and attribute each of its tokens to one segment.
 
-    `messages` carry their content as a list of `Part`; every other key is passed as is.
+    `messages` carry their content as a list of `Part`. Any other value, in a message
+    (`tool_calls`) or in `tools`, may itself be a `Part` at any depth: its text is
+    attributed the same way (step 3: sentinels on the strings of a definition).
     """
     # A 1-char token cannot be broken by an inserted character: the loop would never end.
     special_tokens = [t for t in special_tokens if len(t) >= 2]
@@ -207,23 +232,40 @@ def render_context(
     )
 
     parts: list[Part] = []
+
+    def add(part: Part) -> tuple[str, str]:
+        part = _neutralize(part, special)
+        if not part.text:
+            return "", ""  # step 3: an empty text gets no sentinels and no segment
+        parts.append(part)
+        return part.text, f"{_START}{len(parts) - 1}{_MID}{part.text}{_END}"
+
+    def prepare(value: Any) -> tuple[Any, Any]:
+        """(plain, marked) copies of `value`, every nested `Part` replaced by its text."""
+        if isinstance(value, Part):
+            return add(value)
+        if isinstance(value, dict):
+            pairs = {key: prepare(item) for key, item in value.items()}
+            return {k: p for k, (p, _) in pairs.items()}, {k: m for k, (_, m) in pairs.items()}
+        if isinstance(value, list):
+            pairs_list = [prepare(item) for item in value]
+            return [p for p, _ in pairs_list], [m for _, m in pairs_list]
+        return value, value
+
+    plain_tools, marked_tools = prepare(
+        tools
+    )  # before the messages: the template renders them first
     plain: list[dict[str, Any]] = []
     marked: list[dict[str, Any]] = []
     for message in messages:
-        plain_texts: list[str] = []
-        marked_texts: list[str] = []
-        for part in message["content"]:
-            part = _neutralize(part, special)
-            if not part.text:
-                continue  # step 3: an empty text gets no sentinels and no segment
-            marked_texts.append(f"{_START}{len(parts)}{_MID}{part.text}{_END}")
-            plain_texts.append(part.text)
-            parts.append(part)
-        plain.append({**message, "content": PART_SEPARATOR.join(plain_texts)})
-        marked.append({**message, "content": PART_SEPARATOR.join(marked_texts)})
+        texts = [add(part) for part in message["content"]]
+        rest = {key: value for key, value in message.items() if key != "content"}
+        plain_rest, marked_rest = prepare(rest)
+        plain.append({**plain_rest, "content": PART_SEPARATOR.join(p for p, _ in texts if p)})
+        marked.append({**marked_rest, "content": PART_SEPARATOR.join(m for _, m in texts if m)})
 
-    prompt = render_template(template, plain, **template_vars)  # step 1
-    marked_render = render_template(template, marked, **template_vars)  # step 3
+    prompt = render_template(template, plain, tools=plain_tools, **template_vars)  # step 1
+    marked_render = render_template(template, marked, tools=marked_tools, **template_vars)  # 3
 
     if _MARKER.sub("", marked_render) == prompt:  # step 4
         pieces = _split_marked(marked_render)
@@ -239,6 +281,7 @@ def render_context(
             },
         )
         pieces = _locate_in_order(prompt, parts)
+    pieces = _merge_groups(pieces, parts)
 
     prefix = call_id or "preview"
     segments = [

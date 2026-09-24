@@ -42,6 +42,31 @@ BRICKS = [
             )
         ],
     ),
+    BrickDeclaration(
+        id="tools",
+        category="harness",
+        capabilities=["tool_call_parser"],
+        components=[
+            Component(
+                id="tools.get_datetime",
+                kind="tool",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            ),
+            Component(
+                id="tools.calculator",
+                kind="tool",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            ),
+            Component(
+                id="tools.read_file",
+                kind="tool",
+                hosting="local_process",
+                edges_to=["core.harness", "file.demo_dir"],
+            ),
+        ],
+    ),
 ]
 
 

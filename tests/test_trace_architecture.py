@@ -67,7 +67,7 @@ def test_payload_model_parses_edge_from_alias():
 
 
 def test_unknown_node_kind_is_rejected():
-    bad_node = {**NODES[0], "kind": "tool"}  # not emitted yet
+    bad_node = {**NODES[0], "kind": "mcp_server"}  # not emitted yet
     with pytest.raises(ValidationError):
         _envelope({"nodes": [bad_node], "edges": []})
 

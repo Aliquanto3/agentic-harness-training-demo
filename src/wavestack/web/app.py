@@ -38,6 +38,11 @@ class BrickIntention(BaseModel):
     wanted: bool
 
 
+class ToolIntention(BaseModel):
+    tool: str
+    enabled: bool
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -156,6 +161,15 @@ def create_app(
             app_session.set_brick(intention.brick, intention.wanted)
         except KeyError:
             raise HTTPException(status_code=404, detail="Brique inconnue.") from None
+        return {"accepted": True}
+
+    @app.post("/api/intentions/tool")
+    def tool(intention: ToolIntention) -> dict[str, bool]:
+        """Class (a): a tool sub-option, effective from the next turn (AD-3)."""
+        try:
+            app_session.set_tool(intention.tool, intention.enabled)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Outil inconnu.") from None
         return {"accepted": True}
 
     @app.post("/api/intentions/system_prompt")

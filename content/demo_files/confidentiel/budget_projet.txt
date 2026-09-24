@@ -1,0 +1,9 @@
+DOCUMENT FICTIF DE DÉMONSTRATION — aucune donnée réelle.
+
+Budget prévisionnel du projet Hirondelle
+- Licences : 12 000 €
+- Prestations : 48 000 €
+- Réserve : 5 000 €
+
+Ce fichier sert de cible au hook garde-fou : un harnais peut interdire la lecture
+d'un dossier sensible, quoi que demande le modèle.

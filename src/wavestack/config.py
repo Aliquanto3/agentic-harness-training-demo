@@ -87,6 +87,22 @@ class Config:
         except (TypeError, ValueError):
             return 0.8
 
+    def _int(self, *path: str, default: int) -> int:
+        try:
+            return int(self.get(*path, default=default))
+        except (TypeError, ValueError):
+            return default
+
+    @property
+    def tool_max_calls(self) -> int:
+        """AD-10: model calls per turn in the main context."""
+        return max(1, self._int("tools", "max_calls", default=6))
+
+    @property
+    def tool_max_retries(self) -> int:
+        """AD-10: new attempts per turn after a refused call, counted in `tool_max_calls`."""
+        return max(0, self._int("tools", "max_retries", default=2))
+
 
 def load_config() -> Config:
     """Load wavestack.toml, then overlay settings.json from the data dir."""

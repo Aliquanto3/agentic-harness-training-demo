@@ -23,13 +23,17 @@ class FakeEngine:
         self,
         *,
         output: str = "Bonjour !",
+        outputs: list[str] | None = None,
         template: str | None = CHATML,
+        architecture: str = "fake",
         fail: bool = False,
         gate: threading.Event | None = None,
         delay: float = 0.0,
     ) -> None:
         self.output = output
+        self.outputs = outputs  # one per call, the last one repeated
         self.template = template
+        self.architecture = architecture
         self.fail = fail
         self.gate = gate
         self.delay = delay
@@ -43,7 +47,7 @@ class FakeEngine:
 
     def metadata(self) -> EngineMetadata:
         return EngineMetadata(
-            architecture="fake",
+            architecture=self.architecture,
             chat_template=self.template,
             native_context=None,
             bos_token="",
@@ -59,8 +63,10 @@ class FakeEngine:
             self.gate.wait(timeout=5)
         if self.fail:
             raise RuntimeError("moteur en panne")
+        n = len(self.calls) - 1
+        output = self.outputs[min(n, len(self.outputs) - 1)] if self.outputs else self.output
         count = 0
-        for char in self.output:
+        for char in output:
             time.sleep(self.delay)
             if cancel.cancelled:
                 yield Fragment("", count, "cancelled")

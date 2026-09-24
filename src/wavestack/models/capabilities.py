@@ -18,7 +18,7 @@ _THINK_TAGS = ("<think>", "</think>")
 class Capabilities:
     family: str
     chat_template: str | None
-    tool_call_parser: str | None  # name only: the parser itself arrives with the tools story
+    tool_call_parser: str | None  # a format of `wavestack.tools.parser`
     stop_sequences: tuple[str, ...]
     reasoning_variable: str | None
     native_context: int | None
@@ -66,43 +66,66 @@ def capabilities_for(meta: EngineMetadata) -> Capabilities:
     )
 
 
+TOOL_CALL_TAGS = ("<tool_call>", "</tool_call>")  # shared by `qwen3_coder` and `hermes`
+
+
 class ChannelSplitter:
-    """Incremental separator of the output stream into `reasoning` / `text` (AD-6).
+    """Incremental separator of the output stream into `reasoning` / `text` / `tool_call` (AD-6).
 
     Tags are dropped from the channels (they stay in the raw output); a
     possibly partial tag at the end of a chunk is held back until the next one.
     """
 
-    def __init__(self, tags: tuple[str, str] | None, *, in_reasoning: bool = False) -> None:
-        self._tags = tags
-        self._in_reasoning = in_reasoning
+    def __init__(
+        self,
+        tags: tuple[str, str] | None,
+        *,
+        in_reasoning: bool = False,
+        tool_tags: tuple[str, str] | None = None,
+    ) -> None:
+        self._pairs = {
+            channel: pair
+            for channel, pair in (("reasoning", tags), ("tool_call", tool_tags))
+            if pair is not None
+        }
+        self._channel = "reasoning" if in_reasoning else "text"
         self._buffer = ""
 
     @property
     def channel(self) -> str:
-        return "reasoning" if self._in_reasoning else "text"
+        return self._channel
 
     def feed(self, text: str) -> list[tuple[str, str]]:
-        if self._tags is None:
-            return [("text", text)] if text else []
         self._buffer += text
         out: list[tuple[str, str]] = []
         while True:
-            tag = self._tags[1] if self._in_reasoning else self._tags[0]
-            at = self._buffer.find(tag)
-            if at < 0:
-                break
+            if self._channel == "text":  # the earliest opening tag wins
+                markers = [pair[0] for pair in self._pairs.values()]
+                hits = [
+                    (at, channel, pair[0])
+                    for channel, pair in self._pairs.items()
+                    if (at := self._buffer.find(pair[0])) >= 0
+                ]
+                if not hits:
+                    break
+                at, following, tag = min(hits)
+            else:
+                tag = self._pairs[self._channel][1]
+                markers = [tag]
+                at, following = self._buffer.find(tag), "text"
+                if at < 0:
+                    break
             if at:
-                out.append((self.channel, self._buffer[:at]))
+                out.append((self._channel, self._buffer[:at]))
             self._buffer = self._buffer[at + len(tag) :]
-            self._in_reasoning = not self._in_reasoning
-        keep = partial_suffix_len(self._buffer, [tag])
+            self._channel = following
+        keep = partial_suffix_len(self._buffer, markers)
         if len(self._buffer) > keep:
-            out.append((self.channel, self._buffer[: len(self._buffer) - keep]))
+            out.append((self._channel, self._buffer[: len(self._buffer) - keep]))
             self._buffer = self._buffer[len(self._buffer) - keep :]
         return out
 
     def flush(self) -> list[tuple[str, str]]:
-        out = [(self.channel, self._buffer)] if self._buffer else []
+        out = [(self._channel, self._buffer)] if self._buffer else []
         self._buffer = ""
         return out

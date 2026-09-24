@@ -1,0 +1,26 @@
+# Outils natifs (AD-14, AD-19).
+# `description` et les descriptions de paramètres sont envoyées au modèle, dans la
+# variable `tools` du gabarit : ce sont elles qui lui apprennent à quoi sert l'outil.
+# `label_fr` s'affiche dans le panneau des briques et le schéma.
+demo_dir_label_fr: Fichiers de démonstration
+tools:
+  get_datetime:
+    label_fr: Heure et date
+    description: >-
+      Donne le jour, la date et l'heure locales du poste. À utiliser dès qu'une
+      question porte sur l'heure, la date ou le jour de la semaine.
+    parameters: {}
+  calculator:
+    label_fr: Calculatrice
+    description: >-
+      Calcule exactement une expression arithmétique : nombres, + - * / // %
+      ** et parenthèses. À utiliser pour tout calcul au lieu de calculer de tête.
+    parameters:
+      expression: Expression à calculer, par exemple 12*37 ou (3+4)**2.
+  read_file:
+    label_fr: Lecture de fichier
+    description: >-
+      Lit un fichier texte du dossier de démonstration. Indiquer « . » comme
+      chemin pour lister les fichiers disponibles.
+    parameters:
+      path: Chemin relatif du fichier dans le dossier de démonstration, par exemple notes_reunion.txt.

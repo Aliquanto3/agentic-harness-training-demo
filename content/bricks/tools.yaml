@@ -1,0 +1,11 @@
+# Brique « Outils » (AD-12, AD-19).
+label_fr: Outils
+category_fr: harness engineering
+hosting_fr: Local
+explanation_fr: >-
+  Un modèle ne fait qu'écrire du texte : il ne connaît pas l'heure, calcule
+  approximativement et ne lit aucun fichier. Le harnais lui décrit des outils ; le
+  modèle répond par une demande d'appel, que le harnais vérifie, exécute, puis
+  réinjecte dans le contexte avant de rappeler le modèle. Les cinq étapes
+  (description, demande, exécution, réinjection, réponse) et chaque échec
+  s'affichent dans le volet Orchestration.

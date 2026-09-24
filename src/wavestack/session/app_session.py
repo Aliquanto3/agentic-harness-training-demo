@@ -15,7 +15,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -23,6 +23,7 @@ from wavestack import config
 from wavestack.bricks.contract import (
     BrickContent,
     BrickDeclaration,
+    Component,
     load_brick_content,
     load_default_system_prompt,
 )
@@ -30,9 +31,18 @@ from wavestack.bricks.registry import BRICKS, check_unique_ids
 from wavestack.context.render import RenderedContext, render_context
 from wavestack.context.segments import Part, SegmentKind, SegmentLabels, load_labels
 from wavestack.context.window import OUTPUT_RESERVE, effective_window, gauge
-from wavestack.models.capabilities import Capabilities, ChannelSplitter, capabilities_for
+from wavestack.models.capabilities import (
+    TOOL_CALL_TAGS,
+    Capabilities,
+    ChannelSplitter,
+    capabilities_for,
+)
 from wavestack.models.discovery import ModelCandidate
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
+from wavestack.tools.executor import ToolExecutor
+from wavestack.tools.native import NATIVE_TOOLS
+from wavestack.tools.parser import Malformed, ToolCall, parse_tool_calls
+from wavestack.tools.registry import ToolRegistry, ToolsContent, load_tools_content
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import scoped
 
@@ -82,6 +92,23 @@ _OVERFLOW_CAUSES_FR = {
         "par défaut."
     ),
 }
+# AD-6: the French name of a model capability a brick requires.
+_CAPABILITIES_FR = {
+    "tool_call_parser": (
+        "l'appel d'outils (aucun format d'appel connu pour cette famille de modèle)"
+    ),
+}
+_LIMITS_FR = {
+    "calls": (
+        "Borne atteinte : {n} appels au modèle dans ce tour. Le harnais arrête la boucle pour "
+        "éviter qu'un modèle n'appelle des outils sans fin."
+    ),
+    "retries": (
+        "Le modèle n'a pas pu utiliser l'outil : {n} appels refusés dans ce tour (mal formés, "
+        "outil inconnu ou arguments invalides). Le harnais arrête là au lieu de relancer "
+        "indéfiniment."
+    ),
+}
 _OVERFLOW_STRATEGIES_FR = [
     "Fenêtre glissante : ne garder que les échanges les plus récents.",
     "Compaction : résumer les anciens échanges en quelques lignes.",
@@ -91,12 +118,28 @@ _OVERFLOW_STRATEGIES_FR = [
 
 
 class Exchange(NamedTuple):
-    """One `completed` turn of the active branch, as stored for the history (AD-4, AD-17)."""
+    """One `completed` turn of the active branch, as stored for the history (AD-4, AD-17).
+
+    `steps` are the turn's intermediate messages, before the final answer:
+    `{role: assistant, content, reasoning, tool_calls: [{name, arguments}]}` and
+    `{role: tool, name, content, component}`.
+    """
 
     turn_id: str
     user: str
     text: str
     reasoning: str
+    steps: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass
+class _ModelOutput:
+    status: str  # completed | cancelled | limit
+    raw: str = ""
+    text: str = ""
+    reasoning: str = ""
+    calls: list[ToolCall] = field(default_factory=list)
+    malformed: Malformed | None = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +149,7 @@ class TurnState:
     history: tuple[Exchange, ...]
     system_prompt: str
     effective: frozenset[str]  # brick ids, `wanted` and `available`
+    tools: tuple[str, ...] = ()  # enabled tools, empty unless the tools brick is effective
 
 
 class SendRefused(Exception):
@@ -156,9 +200,18 @@ class AppSession:
         self._content: dict[str, BrickContent] = {}
         self._content_errors: dict[str, str] = {}
         self._default_prompt = ""
+        self._tools_content: ToolsContent | None = None
         self._load_content()
+        self._registry = ToolRegistry(NATIVE_TOOLS, self._tools_content)
+        self._tool_executor = ToolExecutor(self._registry)
+        # Offline tools start enabled; network tools (story 5b) will start disabled.
+        self._tools_enabled = {n for n in self._registry.names if not self._registry.get(n).network}
         # Configuration frozen by the last `send`: `pending` is measured against it.
-        self._sent: tuple[frozenset[str], str] = (frozenset(), self._default_prompt)
+        self._sent: tuple[frozenset[str], str, frozenset[str]] = (
+            frozenset(),
+            self._default_prompt,
+            frozenset(),
+        )
 
     # ---------- state ----------
 
@@ -172,23 +225,53 @@ class AppSession:
         self._emit_architecture()
         self._emit_bricks()
 
+    def _drawn_components(self, brick: BrickDeclaration) -> list[Component]:
+        """A tool is drawn only while its sub-option is enabled."""
+        if brick.id != "tools":
+            return list(brick.components)
+        with self._lock:
+            enabled = {f"tools.{name}" for name in self._tools_enabled}
+        return [c for c in brick.components if c.id in enabled]
+
     def _emit_architecture(self) -> None:
         """AD-12: a component is drawn as soon as its brick is `wanted`, even unavailable."""
         with self._lock:
             wanted = [b for b in self._bricks.values() if b.id in self._wanted]
         nodes: list[dict[str, Any]] = [_CORE_HARNESS, _CORE_MODEL]
         edges: list[dict[str, Any]] = []
-        drawn = {n["id"] for n in nodes} | {c.id for b in wanted for c in b.components}
+        components = {b.id: self._drawn_components(b) for b in wanted}
+        # The demo files node is drawn once a drawn component points to it.
+        targets = {t for cs in components.values() for c in cs for t in c.edges_to}
+        if "file.demo_dir" in targets:
+            label = self._tools_content.demo_dir_label_fr if self._tools_content else "demo_files"
+            available, reason_fr = self._availability("tools")
+            nodes.append(
+                {
+                    "id": "file.demo_dir",
+                    "kind": "file",
+                    "hosting": "local",
+                    "label_fr": label,
+                    "wanted": True,
+                    "available": available,
+                    "reason_fr": reason_fr,
+                }
+            )
+        drawn = {n["id"] for n in nodes} | {c.id for cs in components.values() for c in cs}
         for brick in wanted:
             available, reason_fr = self._availability(brick.id)
-            for component in brick.components:
+            for component in components[brick.id]:
                 hosting = "network" if component.hosting == "network_service" else "local"
+                is_tool = component.kind == "tool"
                 nodes.append(
                     {
                         "id": component.id,
-                        "kind": "brick",
+                        "kind": "tool" if is_tool else "brick",
                         "hosting": hosting,
-                        "label_fr": self._label(brick.id),
+                        "label_fr": (
+                            self._registry.label(component.id.removeprefix("tools."))
+                            if is_tool
+                            else self._label(brick.id)
+                        ),
                         "wanted": True,
                         "available": available,
                         "reason_fr": reason_fr,
@@ -204,12 +287,39 @@ class AppSession:
     def _pending_ids(self) -> set[str]:
         """Bricks whose effect on the next turn differs from what the last `send` froze."""
         with self._lock:
-            sent_wanted, sent_prompt = self._sent
+            sent_wanted, sent_prompt, sent_tools = self._sent
             pending = set(self._wanted) ^ sent_wanted
             prompt = self._custom_prompt or self._default_prompt
             if "system_prompt" in self._wanted and prompt != sent_prompt:
                 pending.add("system_prompt")
+            if "tools" in self._wanted and self._tools_enabled != sent_tools:
+                pending.add("tools")
         return pending
+
+    def _tool_options(self) -> list[dict[str, Any]]:
+        with self._lock:
+            enabled = set(self._tools_enabled)
+        options = []
+        for name in self._registry.names:
+            spec = self._registry.get(name)
+            assert spec is not None
+            options.append(
+                {
+                    "id": name,
+                    "label_fr": self._registry.label(name),
+                    "enabled": name in enabled,
+                    "hosting_fr": "Réseau" if spec.network else "Local",
+                    "network": spec.network,
+                }
+            )
+        return options
+
+    def _limits_fr(self) -> str:
+        return (
+            f"Bornes du tour : {self.cfg.tool_max_calls} appels au modèle au plus, dont "
+            f"{self.cfg.tool_max_retries} nouveaux essais après un appel refusé (mal formé, "
+            "outil inconnu ou arguments invalides)."
+        )
 
     def _emit_bricks(self) -> None:
         pending = self._pending_ids()
@@ -232,6 +342,8 @@ class AppSession:
                     "available": available,
                     "reason_fr": reason_fr,
                     "pending": brick.id in pending,
+                    "options": self._tool_options() if brick.id == "tools" else [],
+                    "limits_fr": self._limits_fr() if brick.id == "tools" else None,
                 }
             )
         text = custom if custom is not None else self._default_prompt
@@ -326,6 +438,19 @@ class AppSession:
                     exc,
                     "La brique est indisponible ; le reste de WaveStack fonctionne.",
                 )
+        if "tools" in self._bricks:
+            try:
+                self._tools_content = load_tools_content()
+            except Exception as exc:  # noqa: BLE001
+                self._content_errors["tools"] = (
+                    "Le fichier content/tools.yaml est absent ou invalide : corrigez-le puis "
+                    "relancez WaveStack."
+                )
+                self._error(
+                    "Les descriptions des outils sont invalides.",
+                    exc,
+                    "La brique « Outils » est indisponible ; le reste de WaveStack fonctionne.",
+                )
         if "system_prompt" not in self._bricks:
             return
         try:
@@ -359,10 +484,8 @@ class AppSession:
                 return False, f"Nécessite la brique « {self._label(dep)} » : activez-la d'abord."
         missing = [c for c in brick.capabilities if not getattr(self._caps, c, None)]
         if missing:
-            return False, (
-                "Le modèle chargé n'offre pas ce dont la brique a besoin "
-                f"({', '.join(missing)}) : choisissez un autre modèle."
-            )
+            needs = ", ".join(_CAPABILITIES_FR.get(c, c) for c in missing)
+            return False, f"Le modèle chargé n'offre pas {needs} : choisissez un autre modèle."
         if brick_id in self._content_errors:
             return False, self._content_errors[brick_id]
         return True, None
@@ -383,17 +506,67 @@ class AppSession:
         if origin_turn is not None:
             ids = [e.turn_id for e in history]
             history = history[: ids.index(origin_turn)] if origin_turn in ids else history
+        effective = self._effective()
+        with self._lock:
+            enabled = set(self._tools_enabled)
+        tools = [n for n in self._registry.names if n in enabled] if "tools" in effective else []
         return TurnState(
             history=tuple(history),
             system_prompt=prompt if prompt is not None else self._default_prompt,
-            effective=self._effective(),
+            effective=effective,
+            tools=tuple(tools),
         )
 
     # ---------- rendering ----------
 
     @staticmethod
-    def _messages(state: TurnState, message: str) -> list[dict[str, Any]]:
-        """AD-4 slots: system message, history, then the turn's user message.
+    def _step_messages(
+        steps: tuple[dict[str, Any], ...] | list[dict[str, Any]], *, history: bool, group: str
+    ) -> list[dict[str, Any]]:
+        """Intermediate messages of a turn: `assistant_turn`/`tool_result` in the turn itself,
+        `history` afterwards. Each call's name and string arguments form one group (AD-4)."""
+        memory = (SegmentKind.HISTORY, "short_memory", "short_memory.history")
+        messages: list[dict[str, Any]] = []
+        for i, step in enumerate(steps):
+            if step["role"] == "tool":
+                kind, brick, component = (
+                    memory if history else (SegmentKind.TOOL_RESULT, "tools", step["component"])
+                )
+                messages.append(
+                    {"role": "tool", "content": [Part(kind, step["content"], brick, component)]}
+                )
+                continue
+            kind, brick, component = (
+                memory if history else (SegmentKind.ASSISTANT_TURN, None, "core.model")
+            )
+            answer: dict[str, Any] = {
+                "role": "assistant",
+                "content": [Part(kind, step["content"], brick, component)],
+            }
+            if step.get("reasoning"):
+                answer["reasoning_content"] = step["reasoning"]  # plain, as for the history
+            if step["tool_calls"]:
+                answer["tool_calls"] = []
+                for j, call in enumerate(step["tool_calls"]):
+                    in_call = (brick, component, f"{group}.{i}.{j}")
+                    # ponytail: only string values are wrapped; a number or an object stays
+                    # plain (template), since a template may `tojson` them.
+                    arguments = {
+                        arg: Part(kind, value, *in_call) if isinstance(value, str) else value
+                        for arg, value in call["arguments"].items()
+                    }
+                    name = Part(kind, call["name"], *in_call)
+                    answer["tool_calls"].append(
+                        {"type": "function", "function": {"name": name, "arguments": arguments}}
+                    )
+            messages.append(answer)
+        return messages
+
+    @classmethod
+    def _messages(
+        cls, state: TurnState, message: str, steps: list[dict[str, Any]] | None = None
+    ) -> list[dict[str, Any]]:
+        """AD-4 slots: system message, history, the turn's user message, then the turn's steps.
 
         Every brick off gives the bare LLM's single user message, byte for byte.
         """
@@ -412,6 +585,7 @@ class AppSession:
                 messages.append(
                     {"role": "user", "content": [Part(SegmentKind.HISTORY, ex.user, *memory)]}
                 )
+                messages += cls._step_messages(ex.steps, history=True, group=ex.turn_id)
                 answer: dict[str, Any] = {
                     "role": "assistant",
                     "content": [Part(SegmentKind.HISTORY, ex.text, *memory)],
@@ -422,10 +596,29 @@ class AppSession:
                     answer["reasoning_content"] = ex.reasoning
                 messages.append(answer)
         messages.append({"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, message)]})
+        messages += cls._step_messages(steps or [], history=False, group="turn")
         return messages
 
+    def _tool_definitions(self, state: TurnState) -> list[dict[str, Any]] | None:
+        """AD-4: the `tools` variable, one `tool_catalog` group per tool; `None` when off."""
+        if not state.tools:
+            return None
+
+        def wrap(value: Any, name: str, key: str | None = None) -> Any:
+            if isinstance(value, dict):
+                return {k: wrap(v, name, k) for k, v in value.items()}
+            if isinstance(value, str) and key in ("name", "description"):
+                return Part(SegmentKind.TOOL_CATALOG, value, "tools", f"tools.{name}", name)
+            return value
+
+        return [wrap(self._registry.definition(name), name) for name in state.tools]
+
     def _render(
-        self, state: TurnState, message: str, call_id: str | None
+        self,
+        state: TurnState,
+        message: str,
+        call_id: str | None,
+        steps: list[dict[str, Any]] | None = None,
     ) -> tuple[RenderedContext, dict[str, Any]]:
         assert self._engine is not None and self._caps is not None and self._labels is not None
         meta = self._engine.metadata()
@@ -435,9 +628,10 @@ class AppSession:
         rendered = render_context(
             self._engine,
             self._caps.chat_template or "",
-            self._messages(state, message),
+            self._messages(state, message, steps),
             call_id=call_id,
             special_tokens=meta.special_tokens,
+            tools=self._tool_definitions(state),
             bos_token=meta.bos_token,
             eos_token=meta.eos_token,
             add_generation_prompt=True,
@@ -486,7 +680,11 @@ class AppSession:
         state = self.build_turn_state()  # frozen now: a later toggle waits for the next turn
         had_pending = bool(self._pending_ids())
         with self._lock:
-            self._sent = (frozenset(self._wanted), self._custom_prompt or self._default_prompt)
+            self._sent = (
+                frozenset(self._wanted),
+                self._custom_prompt or self._default_prompt,
+                frozenset(self._tools_enabled),
+            )
         if had_pending:  # « Prend effet au prochain tour » is over for what this turn reads
             self._emit_bricks()
         self._executor.submit(self._run_turn, turn_id, message, cancel, state)
@@ -503,6 +701,21 @@ class AppSession:
                 self._wanted.add(brick_id)
             else:
                 self._wanted.discard(brick_id)
+        self._emit_bricks()
+        self._emit_architecture()
+        self._executor.submit(self._emit_preview)
+
+    def set_tool(self, name: str, enabled: bool) -> None:
+        """Class (a): a tool sub-option, effective from the next turn. `KeyError` if unknown."""
+        if name not in self._registry.names:
+            raise KeyError(name)
+        with self._lock:
+            if (name in self._tools_enabled) == enabled:
+                return
+            if enabled:
+                self._tools_enabled.add(name)
+            else:
+                self._tools_enabled.discard(name)
         self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
@@ -550,10 +763,12 @@ class AppSession:
         with scoped(turn_id=turn_id, context_id="main", trigger="user"):
             try:
                 journal.emit("turn_started", {"replay_of": None, "message": message}, actor="user")
-                status, text, reasoning = self._turn(turn_id, message, cancel, state)
+                steps: list[dict[str, Any]] = []
+                status, text, reasoning = self._turn(turn_id, message, cancel, state, steps)
                 if status == "completed":  # AD-17: recorded even with short memory off
+                    exchange = Exchange(turn_id, message, text, reasoning, tuple(steps))
                     with self._lock:
-                        self._history.append(Exchange(turn_id, message, text, reasoning))
+                        self._history.append(exchange)
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error(
                     "Le tour s'est interrompu sur une erreur.",
@@ -570,17 +785,128 @@ class AppSession:
                 self._set_state("idle")
 
     def _turn(
-        self, turn_id: str, message: str, cancel: CancelToken, state: TurnState
+        self,
+        turn_id: str,
+        message: str,
+        cancel: CancelToken,
+        state: TurnState,
+        steps: list[dict[str, Any]],
     ) -> tuple[str, str, str]:
-        """Returns `(status, text, reasoning)`."""
-        call_id = f"{turn_id}.main.c1"
-        with scoped(call_id=call_id, step_id=f"{turn_id}.main.s1", component="core.model"):
-            rendered, payload = self._render(state, message, call_id)
-            get_journal().emit("context_rendered", payload)
-            if payload["overflow"]:
-                self._emit_overflow(payload)
-                return "overflow", "", ""
-            return self._call_model(rendered, cancel)
+        """The bounded loop of AD-10. Returns `(status, text, reasoning)`; fills `steps`."""
+        journal = get_journal()
+        max_calls, max_retries = self.cfg.tool_max_calls, self.cfg.tool_max_retries
+        retries = step = 0
+        previous: tuple[list[int], str] | None = None  # last call's ids and raw output
+        for n in range(1, max_calls + 1):
+            call_id = f"{turn_id}.main.c{n}"
+            step += 1
+            with scoped(call_id=call_id, step_id=f"{turn_id}.main.s{step}", component="core.model"):
+                rendered, payload = self._render(state, message, call_id, steps)
+                journal.emit("context_rendered", payload)
+                if previous is not None:
+                    self._check_prefix(*previous, rendered.ids)
+                if payload["overflow"]:
+                    self._emit_overflow(payload)
+                    return "overflow", "", ""
+                out = self._call_model(rendered, cancel, state.tools)
+            if out.status != "completed":
+                return out.status, "", ""
+            if not out.calls and out.malformed is None:
+                return "completed", out.text, out.reasoning
+            previous = (rendered.ids, out.raw)
+
+            # A failed call earns a new attempt while retries and calls remain (AD-10, AD-14).
+            reaction = "retry" if retries < max_retries and n < max_calls else "stop"
+            failed = False
+            with scoped(call_id=call_id, brick="tools", component="core.harness"):
+                if out.malformed is not None:
+                    failed = True
+                    step += 1
+                    with scoped(step_id=f"{turn_id}.main.s{step}"):
+                        error = self._tool_executor.reject(
+                            out.raw, out.malformed.fragment, out.malformed.detail_fr, reaction
+                        )
+                    # The raw output already holds any reasoning: not passed twice.
+                    steps.append({"role": "assistant", "content": out.raw, "tool_calls": []})
+                    steps.append(
+                        {
+                            "role": "tool",
+                            "name": None,
+                            "content": error,
+                            "component": "core.harness",
+                        }
+                    )
+                else:
+                    steps.append(
+                        {
+                            "role": "assistant",
+                            "content": out.text,
+                            "tool_calls": [
+                                {"name": c.name, "arguments": c.arguments} for c in out.calls
+                            ],
+                        }
+                        | ({"reasoning": out.reasoning} if out.reasoning else {})
+                    )
+                    for call in out.calls:
+                        step += 1
+                        component = f"tools.{call.name}"
+                        detail = self._tool_executor.check(call, state.tools)
+                        if detail is not None:
+                            failed = True
+                            component = "core.harness"
+                        with scoped(step_id=f"{turn_id}.main.s{step}", component=component):
+                            if detail is not None:
+                                result = self._tool_executor.reject(
+                                    out.raw, call.source, detail, reaction
+                                )
+                            else:
+                                result = self._tool_executor.run(call, cancel)
+                        if result is None:
+                            return "cancelled", "", ""
+                        steps.append(
+                            {
+                                "role": "tool",
+                                "name": call.name,
+                                "content": result,
+                                "component": component,
+                            }
+                        )
+            if failed:
+                retries += 1
+                if retries > max_retries:
+                    self._emit_limit("retries", retries)
+                    return "limit", "", ""
+            if cancel.cancelled:
+                return "cancelled", "", ""
+        self._emit_limit("calls", max_calls)
+        return "limit", "", ""
+
+    def _emit_limit(self, limit: str, n: int) -> None:
+        get_journal().emit(
+            "limit_reached", {"limit": limit, "message_fr": _LIMITS_FR[limit].format(n=n)}
+        )
+
+    def _check_prefix(self, previous_ids: list[int], raw: str, ids: list[int]) -> None:
+        """AD-4: within a turn, call n+1 should extend call n and its output (append only)."""
+        assert self._engine is not None
+        expected = previous_ids + self._engine.tokenize(raw)
+        common = next(
+            (i for i, (a, b) in enumerate(zip(expected, ids, strict=False)) if a != b),
+            min(len(expected), len(ids)),
+        )
+        if common < len(expected):
+            get_journal().emit(
+                "prefix_not_reused",
+                {
+                    "common_tokens": common,
+                    "message_fr": (
+                        f"Cet appel ne prolonge pas exactement le précédent : seuls "
+                        f"{_fr(common)} tokens sur {_fr(len(expected))} sont réutilisés, le "
+                        "modèle relit le reste. Le gabarit réécrit la sortie du modèle "
+                        "autrement qu'elle a été produite."
+                    ),
+                },
+            )
 
     def _emit_overflow(self, payload: dict[str, Any]) -> None:
         used, usable = payload["used"], payload["usable"]
@@ -603,7 +929,10 @@ class AppSession:
             },
         )
 
-    def _call_model(self, rendered: RenderedContext, cancel: CancelToken) -> tuple[str, str, str]:
+    def _call_model(
+        self, rendered: RenderedContext, cancel: CancelToken, tools: tuple[str, ...]
+    ) -> _ModelOutput:
+        """One streamed call; with tools on, its `<tool_call>` blocks are parsed (AD-6)."""
         assert self._engine is not None and self._caps is not None
         journal = get_journal()
         started = time.monotonic()
@@ -613,10 +942,12 @@ class AppSession:
         )
         tags = self._caps.reasoning_tags
         splitter = ChannelSplitter(
-            tags, in_reasoning=bool(tags) and rendered.prompt.rstrip().endswith(tags[0])
+            tags,
+            in_reasoning=bool(tags) and rendered.prompt.rstrip().endswith(tags[0]),
+            tool_tags=TOOL_CALL_TAGS if tools else None,
         )
         raw: list[str] = []
-        channels: dict[str, list[str]] = {"reasoning": [], "text": []}
+        channels: dict[str, list[str]] = {"reasoning": [], "text": [], "tool_call": []}
         pending: list[tuple[str, str]] = []
         first_at: float | None = None
         last_flush = started
@@ -638,7 +969,7 @@ class AppSession:
                 channels[channel].append(text)
                 pending.append((channel, text))
 
-        def end(reason: str) -> None:
+        def end(reason: str, tool_calls: list[ToolCall] = ()) -> None:
             ended = time.monotonic()
             first = first_at or ended
             journal.emit(
@@ -647,7 +978,7 @@ class AppSession:
                     "raw_output": "".join(raw),
                     "reasoning": "".join(channels["reasoning"]),
                     "text": "".join(channels["text"]),
-                    "tool_calls": [],
+                    "tool_calls": [{"name": c.name, "arguments": c.arguments} for c in tool_calls],
                     "prompt_tokens": len(rendered.ids),
                     "output_tokens": output_tokens,
                     "prompt_ms": _ms(first - started),
@@ -678,7 +1009,19 @@ class AppSession:
             flush()
             end("error")
             raise
-        end(stop_reason)
+        out = _ModelOutput(
+            status="cancelled" if stop_reason == "cancelled" else "completed",
+            raw="".join(raw),
+            text="".join(channels["text"]),
+            reasoning="".join(channels["reasoning"]),
+        )
+        if tools and out.status == "completed":
+            assert self._caps.tool_call_parser is not None  # the brick requires it (AD-6)
+            schemas = {name: spec.params for name in tools if (spec := self._registry.get(name))}
+            out.calls, out.malformed = parse_tool_calls(
+                out.raw, self._caps.tool_call_parser, schemas
+            )
+        end(stop_reason, out.calls)
 
         if stop_reason == "length":
             journal.emit(
@@ -689,6 +1032,15 @@ class AppSession:
                     "max_tokens": OUTPUT_RESERVE,
                 },
             )
-            return "limit", "", ""
-        status = "cancelled" if stop_reason == "cancelled" else "completed"
-        return status, "".join(channels["text"]), "".join(channels["reasoning"])
+            if splitter.channel != "tool_call":
+                return _ModelOutput("limit")
+            # AD-9: cut inside a tool call, the output follows the malformed-call path.
+            fragment = out.malformed.fragment if out.malformed else out.raw
+            out.calls, out.malformed = (
+                [],
+                Malformed(
+                    fragment,
+                    f"la sortie a été coupée à {_fr(OUTPUT_RESERVE)} tokens au milieu de l'appel",
+                ),
+            )
+        return out

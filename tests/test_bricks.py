@@ -341,6 +341,7 @@ def test_boot_emits_bare_llm_cards_without_any_toggle():
         assert {b["id"]: b["wanted"] for b in cards["bricks"]} == {
             "short_memory": False,
             "system_prompt": False,
+            "tools": False,
         }
         assert cards["system_prompt"]["is_default"] is True
 
@@ -366,7 +367,7 @@ def test_missing_capability_is_unavailable_with_reason(monkeypatch):
     session.boot("fake.gguf").result()  # the fake model has no tool-call parser
 
     available, reason = session._availability("tools")
-    assert available is False and "tool_call_parser" in reason
+    assert available is False and "l'appel d'outils" in reason
 
 
 def test_edge_to_an_undrawn_node_is_dropped(monkeypatch):

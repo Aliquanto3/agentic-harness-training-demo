@@ -21,3 +21,9 @@ llama_server = 8080
 [context]
 window = 4096
 near_limit_ratio = 0.8
+
+[tools]
+# Bornes de la boucle de tour (AD-10), affichées sur la carte de la brique outils.
+# Appels au modèle par tour, dont les nouveaux essais après un appel mal formé.
+max_calls = 6
+max_retries = 2
