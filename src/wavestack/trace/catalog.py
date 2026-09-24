@@ -209,6 +209,9 @@ class BrickState(BaseModel):
     pending: bool
     options: list[BrickOption] = []
     limits_fr: str | None = None
+    # Story 6b, `mcp` brick only: documentation complète or lazy loading (AD-25).
+    mode: Literal["full", "lazy"] | None = None
+    lazy_label_fr: str | None = None
 
 
 class SystemPromptState(BaseModel):

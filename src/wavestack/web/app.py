@@ -48,6 +48,10 @@ class McpServerIntention(BaseModel):
     enabled: bool
 
 
+class McpModeIntention(BaseModel):
+    lazy: bool
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -205,6 +209,12 @@ def create_app(
             app_session.set_mcp_server(intention.server, intention.enabled)
         except KeyError:
             raise HTTPException(status_code=404, detail="Serveur MCP inconnu.") from None
+        return {"accepted": True}
+
+    @app.post("/api/intentions/mcp_mode")
+    def mcp_mode(intention: McpModeIntention) -> dict[str, bool]:
+        """Class (a): documentation complète or lazy loading, from the next turn (AD-25)."""
+        app_session.set_mcp_mode(intention.lazy)
         return {"accepted": True}
 
     @app.post("/api/intentions/system_prompt")

@@ -12,6 +12,7 @@ exception (AD-16).
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import time
 from collections.abc import Callable
@@ -30,7 +31,7 @@ from wavestack.bricks.contract import (
 )
 from wavestack.bricks.registry import BRICKS, check_unique_ids
 from wavestack.context.render import RenderedContext, render_context
-from wavestack.context.segments import Part, SegmentKind, SegmentLabels, load_labels
+from wavestack.context.segments import Joined, Part, SegmentKind, SegmentLabels, load_labels
 from wavestack.context.window import OUTPUT_RESERVE, effective_window, gauge
 from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
@@ -41,15 +42,24 @@ from wavestack.models.capabilities import (
     capabilities_for,
 )
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
+from wavestack.session.effects import Effect, ToolDocLoaded, ToolReply
 from wavestack.tools.executor import ToolExecutor
 from wavestack.tools.native import NATIVE_TOOLS
 from wavestack.tools.network import network_tools
 from wavestack.tools.parser import Malformed, ToolCall, parse_tool_calls
-from wavestack.tools.registry import ToolRegistry, ToolsContent, ToolSpec, load_tools_content
+from wavestack.tools.registry import (
+    ToolError,
+    ToolRegistry,
+    ToolsContent,
+    ToolSpec,
+    load_tools_content,
+)
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import scoped
 
 DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
+LOAD_TOOL_DOC = "load_tool_doc"  # the harness meta-tool of the lazy loading mode (AD-25)
+DOC_LINE_MAX = 120  # characters of a tool's first description line in `load_tool_doc`
 
 _CORE_HARNESS = {
     "id": "core.harness",
@@ -94,12 +104,17 @@ _OVERFLOW_CAUSES_FR = {
         "Pour continuer la démo : raccourcissez le prompt système ou rétablissez le prompt "
         "par défaut."
     ),
-    SegmentKind.TOOL_CATALOG: (
-        "Cause : les descriptions d'outils occupent la plus grande part du contexte, chaque "
-        "outil y entrant avec sa documentation complète. Pour continuer la démo : désactivez un "
-        "serveur MCP (ou des outils) dans le panneau des briques."
+    SegmentKind.TOOL_CATALOG: (  # in lazy loading; see `_TOOL_CATALOG_FULL_FR`
+        "Cause : les descriptions d'outils occupent la plus grande part du contexte. Pour "
+        "continuer la démo : désactivez un serveur MCP (ou des outils) dans le panneau des "
+        "briques, ou videz la conversation pour décharger les documentations chargées."
     ),
 }
+_TOOL_CATALOG_FULL_FR = (
+    "Cause : les descriptions d'outils occupent la plus grande part du contexte, chaque outil "
+    "y entrant avec sa documentation complète. Pour continuer la démo : passez la carte MCP en "
+    "lazy loading, ou désactivez un serveur MCP (ou des outils) dans le panneau des briques."
+)
 # AD-6: the French name of a model capability a brick requires.
 _CAPABILITIES_FR = {
     "tool_call_parser": (
@@ -158,6 +173,8 @@ class TurnState:
     system_prompt: str
     effective: frozenset[str]  # brick ids, `wanted` and `available`
     tools: tuple[str, ...] = ()  # enabled tools of the effective tools and mcp bricks
+    # Lazy loading (AD-25): the available MCP tools whose documentation is not loaded yet.
+    loadable: tuple[str, ...] = ()
 
 
 class SendRefused(Exception):
@@ -206,10 +223,17 @@ class AppSession:
         self._tools_content: ToolsContent | None = None
         self._mcp_content: McpContent | None = None
         self._load_content()
-        self._registry = ToolRegistry(NATIVE_TOOLS + network_tools(self.cfg), self._tools_content)
+        self._registry = ToolRegistry(
+            NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
+        )
         self._tool_executor = ToolExecutor(self._registry)
-        # Offline tools start enabled; network tools start disabled (story 5b).
-        self._tools_enabled = {n for n in self._registry.names if not self._registry.get(n).network}
+        # Offline tools start enabled; network tools start disabled (story 5b). Harness tools
+        # are no sub-option: the session alone decides when they are offered.
+        self._tools_enabled = {
+            n
+            for n in self._registry.names
+            if not self._registry.get(n).network and self._registry.get(n).source != "harness"
+        }
         # MCP servers (story 6): the local one starts enabled, the public ones disabled. A
         # server is contacted only while enabled with the brick wanted (AD-15).
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -217,12 +241,17 @@ class AppSession:
         self._mcp_enabled = {"local"}
         self._mcp_conns: dict[str, McpConnection] = {}
         self._mcp_state: dict[str, tuple[str, str | None]] = {}  # contact, reason_fr
+        # Story 6b: documentation complète by default; the documentations loaded belong to
+        # the conversation (AD-17), and wait while their server is off.
+        self._mcp_lazy = False
+        self._loaded_docs: set[str] = set()
         # Configuration frozen by the last `send`: `pending` is measured against it.
-        self._sent: tuple[frozenset[str], str, frozenset[str], frozenset[str]] = (
+        self._sent: tuple[frozenset[str], str, frozenset[str], frozenset[str], bool] = (
             frozenset(),
             self._default_prompt,
             frozenset(),
             frozenset(),
+            False,
         )
 
     # ---------- state ----------
@@ -331,14 +360,15 @@ class AppSession:
         """Bricks whose effect on the next turn differs from what the last `send` froze."""
         mcp_tools = frozenset(self._mcp_tool_names())
         with self._lock:
-            sent_wanted, sent_prompt, sent_tools, sent_mcp = self._sent
+            sent_wanted, sent_prompt, sent_tools, sent_mcp, sent_lazy = self._sent
             pending = set(self._wanted) ^ sent_wanted
             prompt = self._custom_prompt or self._default_prompt
             if "system_prompt" in self._wanted and prompt != sent_prompt:
                 pending.add("system_prompt")
             if "tools" in self._wanted and self._tools_enabled != sent_tools:
                 pending.add("tools")
-            if "mcp" in self._wanted and mcp_tools != sent_mcp:
+            mcp_changed = mcp_tools != sent_mcp or self._mcp_lazy != sent_lazy
+            if "mcp" in self._wanted and mcp_changed:
                 pending.add("mcp")
         return pending
 
@@ -362,7 +392,8 @@ class AppSession:
         options = []
         for name in self._registry.names:
             spec = self._registry.get(name)
-            if spec is None or spec.is_mcp:  # MCP tools are the mcp brick's servers
+            # MCP tools are the mcp brick's servers; harness tools are no sub-option.
+            if spec is None or spec.is_mcp or spec.source == "harness":
                 continue
             options.append(
                 {
@@ -387,6 +418,7 @@ class AppSession:
         with self._lock:
             wanted = set(self._wanted)
             custom = self._custom_prompt
+            lazy = self._mcp_lazy
         bricks = []
         for brick in self._bricks.values():
             available, reason_fr = self._availability(brick.id)
@@ -413,6 +445,13 @@ class AppSession:
                     "limits_fr": self._limits_fr() if brick.id == "tools" else None,
                 }
             )
+            if brick.id == "mcp":
+                bricks[-1] |= {
+                    "mode": "lazy" if lazy else "full",
+                    "lazy_label_fr": (
+                        self._mcp_content.lazy_label_fr if self._mcp_content else "Lazy loading"
+                    ),
+                }
         text = custom if custom is not None else self._default_prompt
         get_journal().emit(
             "bricks_changed",
@@ -612,14 +651,22 @@ class AppSession:
         effective = self._effective()
         with self._lock:
             enabled = set(self._tools_enabled)
+            lazy, loaded = self._mcp_lazy, set(self._loaded_docs)
         tools = [n for n in self._registry.names if n in enabled] if "tools" in effective else []
+        loadable: list[str] = []
         if "mcp" in effective:
-            tools += self._mcp_tool_names()
+            mcp = self._mcp_tool_names()
+            if lazy:  # AD-25: loaded documentations only, the others through `load_tool_doc`
+                loadable = [n for n in mcp if n not in loaded]
+                tools += [n for n in mcp if n in loaded] + ([LOAD_TOOL_DOC] if loadable else [])
+            else:
+                tools += mcp
         return TurnState(
             history=tuple(history),
             system_prompt=prompt if prompt is not None else self._default_prompt,
             effective=effective,
             tools=tuple(tools),
+            loadable=tuple(loadable),
         )
 
     # ---------- rendering ----------
@@ -628,8 +675,9 @@ class AppSession:
     def _step_messages(
         steps: tuple[dict[str, Any], ...] | list[dict[str, Any]], *, history: bool, group: str
     ) -> list[dict[str, Any]]:
-        """Intermediate messages of a turn: `assistant_turn`/`tool_result` in the turn itself,
-        `history` afterwards. Each call's name and string arguments form one group (AD-4)."""
+        """Intermediate messages of a turn: `assistant_turn`/`tool_result` in the turn itself
+        (or the step's own `kind`), `history` afterwards, where a step's `stub` replaces its
+        content. Each call's name and string arguments form one group (AD-4)."""
         memory = (SegmentKind.HISTORY, "short_memory", "short_memory.history")
         messages: list[dict[str, Any]] = []
         for i, step in enumerate(steps):
@@ -637,11 +685,14 @@ class AppSession:
                 kind, brick, component = (
                     memory
                     if history
-                    else (SegmentKind.TOOL_RESULT, step.get("brick", "tools"), step["component"])
+                    else (
+                        step.get("kind", SegmentKind.TOOL_RESULT),
+                        step.get("brick", "tools"),
+                        step["component"],
+                    )
                 )
-                messages.append(
-                    {"role": "tool", "content": [Part(kind, step["content"], brick, component)]}
-                )
+                text = step.get("stub", step["content"]) if history else step["content"]
+                messages.append({"role": "tool", "content": [Part(kind, text, brick, component)]})
                 continue
             kind, brick, component = (
                 memory if history else (SegmentKind.ASSISTANT_TURN, None, "core.model")
@@ -711,22 +762,44 @@ class AppSession:
         if not state.tools:
             return None
 
-        def wrap(value: Any, name: str, component: str, key: str | None = None) -> Any:
+        def wrap(value: Any, name: str, spec: ToolSpec, key: str | None = None) -> Any:
             if isinstance(value, dict):
-                return {k: wrap(v, name, component, k) for k, v in value.items()}
+                return {k: wrap(v, name, spec, k) for k, v in value.items()}
             if isinstance(value, list):
-                return [wrap(v, name, component) for v in value]
+                return [wrap(v, name, spec) for v in value]
             if isinstance(value, str) and key in ("name", "description"):
-                brick = component.split(".")[0]  # `tools` or `mcp` (AD-4)
-                return Part(SegmentKind.TOOL_CATALOG, value, brick, component, name)
+                brick = spec.brick or spec.component.split(".")[0]  # `tools` or `mcp` (AD-4)
+                return Part(SegmentKind.TOOL_CATALOG, value, brick, spec.component, name)
             return value
 
         definitions = []
         for name in state.tools:
             spec = self._registry.get(name)
-            if spec is not None:  # a server closed since the turn started: nothing to describe
-                definitions.append(wrap(self._registry.definition(name), name, spec.component))
+            if spec is None:  # a server closed since the turn started: nothing to describe
+                continue
+            definition = wrap(self._registry.definition(name), name, spec)
+            if name == LOAD_TOOL_DOC:
+                definition["function"]["description"] = self._doc_catalog(spec, state.loadable)
+            definitions.append(definition)
         return definitions or None
+
+    def _doc_catalog(self, spec: ToolSpec, loadable: tuple[str, ...]) -> Joined:
+        """AD-25: `load_tool_doc`'s description, its intro then one line per loadable tool,
+        each line a `tool_catalog` segment of its own server's component."""
+        lines = []
+        for name in loadable:
+            tool = self._registry.get(name)
+            if tool is None:
+                continue
+            first = next(iter((tool.description or "").strip().splitlines()), "").strip()
+            if len(first) > DOC_LINE_MAX:
+                first = first[:DOC_LINE_MAX].rstrip() + "…"
+            text = f"- {name} : {first}" if first else f"- {name}"
+            lines.append(Part(SegmentKind.TOOL_CATALOG, text, "mcp", tool.component, name))
+        intro = Part(
+            SegmentKind.TOOL_CATALOG, spec.description or "", "mcp", spec.component, LOAD_TOOL_DOC
+        )
+        return Joined((intro, *lines), sep="\n")
 
     def _render(
         self,
@@ -801,6 +874,7 @@ class AppSession:
                 self._custom_prompt or self._default_prompt,
                 frozenset(self._tools_enabled),
                 mcp_tools,
+                self._mcp_lazy,
             )
         if had_pending:  # « Prend effet au prochain tour » is over for what this turn reads
             self._emit_bricks()
@@ -831,7 +905,7 @@ class AppSession:
     def set_tool(self, name: str, enabled: bool) -> None:
         """Class (a): a tool sub-option, effective from the next turn. `KeyError` if unknown."""
         spec = self._registry.get(name)
-        if spec is None or spec.is_mcp:
+        if spec is None or spec.is_mcp or spec.source == "harness":
             raise KeyError(name)
         with self._lock:
             if (name in self._tools_enabled) == enabled:
@@ -845,6 +919,57 @@ class AppSession:
         self._executor.submit(self._emit_preview)
 
     # ---------- MCP servers (story 6, AD-15, AD-24) ----------
+
+    def set_mcp_mode(self, lazy: bool) -> None:
+        """Class (a): documentation complète or lazy loading, for every MCP server (AD-25).
+        Effective from the next turn; the preview shows the difference now. No server is
+        contacted again."""
+        with self._lock:
+            if self._mcp_lazy == lazy:
+                return
+            self._mcp_lazy = lazy
+        self._emit_bricks()
+        self._executor.submit(self._emit_preview)
+
+    def _harness_tools(self) -> list[ToolSpec]:
+        """`load_tool_doc`, registered once; the turn state decides when it is offered."""
+        if self._mcp_content is None:
+            return []  # invalid content: the mcp brick is unavailable anyway
+        text = self._mcp_content.load_tool_doc
+        return [
+            ToolSpec(
+                name=LOAD_TOOL_DOC,
+                run=self._load_tool_doc,
+                params={"tool": "string"},
+                component="core.harness",
+                source="harness",
+                brick="mcp",
+                label_fr=text.label_fr,
+                description=text.intro,  # the lines of the loadable tools follow, per turn
+                schema={
+                    "type": "object",
+                    "properties": {"tool": {"type": "string", "description": text.tool}},
+                    "required": ["tool"],
+                },
+                required=("tool",),
+            )
+        ]
+
+    def _load_tool_doc(self, tool: str) -> ToolReply | str:
+        """AD-25: reads the registry, writes nothing; the session applies the effect (AD-23)."""
+        available = self._mcp_tool_names()
+        with self._lock:
+            loaded = set(self._loaded_docs)
+        if tool in available and tool in loaded:
+            return f"La documentation de « {tool} » est déjà chargée."
+        if tool not in available:
+            loadable = ", ".join(n for n in available if n not in loaded) or "aucun"
+            raise ToolError(
+                f"Aucun outil MCP disponible ne s'appelle « {tool} ». Outils chargeables : "
+                f"{loadable}."
+            )
+        definition = json.dumps(self._registry.definition(tool), ensure_ascii=False)
+        return ToolReply(definition, (ToolDocLoaded(tool=tool),))
 
     def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """The asyncio loop MCP clients live on (FastAPI's); set once, before any intention."""
@@ -1032,6 +1157,7 @@ class AppSession:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
             self._history.clear()
+            self._loaded_docs.clear()  # AD-25: the documentations leave with the conversation
         get_journal().emit("conversation_cleared", {})
         self._executor.submit(self._emit_preview)
 
@@ -1093,6 +1219,9 @@ class AppSession:
         max_calls, max_retries = self.cfg.tool_max_calls, self.cfg.tool_max_retries
         retries = step = 0
         previous: tuple[list[int], str] | None = None  # last call's ids and raw output
+        # AD-25: documentations loaded in this turn are callable at once, but enter `tools`
+        # only from the next turn (the prefix stays append only).
+        loaded_in_turn: list[str] = []
         for n in range(1, max_calls + 1):
             call_id = f"{turn_id}.main.c{n}"
             step += 1
@@ -1104,7 +1233,7 @@ class AppSession:
                 if payload["overflow"]:
                     self._emit_overflow(payload)
                     return "overflow", "", ""
-                out = self._call_model(rendered, cancel, state.tools)
+                out = self._call_model(rendered, cancel, state.tools + tuple(loaded_in_turn))
             if out.status != "completed":
                 return out.status, "", ""
             if not out.calls and out.malformed is None:
@@ -1147,13 +1276,16 @@ class AppSession:
                     )
                     for call in out.calls:
                         step += 1
-                        detail = self._tool_executor.check(call, state.tools)
+                        detail = self._tool_executor.check(
+                            call, state.tools + tuple(loaded_in_turn), state.loadable
+                        )
                         spec = self._registry.get(call.name) if detail is None else None
                         if detail is not None:
                             failed = True
                         # AD-4: the step and its result belong to the tool's own brick.
                         component = spec.component if spec else "core.harness"
-                        brick = component.split(".")[0] if spec else harness_brick
+                        brick = (spec.brick or component.split(".")[0]) if spec else harness_brick
+                        effects: list[Effect] = []
                         with scoped(
                             step_id=f"{turn_id}.main.s{step}", brick=brick, component=component
                         ):
@@ -1162,22 +1294,23 @@ class AppSession:
                                     out.raw, call.source, detail, reaction
                                 )
                             else:
-                                result = self._tool_executor.run(call, cancel)
+                                result = self._tool_executor.run(call, cancel, effects)
                         if spec is not None and spec.is_mcp and result is not None:
                             self._after_mcp_call(call.name, spec)
                         if spec is not None and (spec.network or spec.is_mcp):
                             self._emit_architecture()  # its contact state may have changed
                         if result is None:
                             return "cancelled", "", ""
-                        steps.append(
-                            {
-                                "role": "tool",
-                                "name": call.name,
-                                "content": result,
-                                "component": component,
-                                "brick": brick,
-                            }
-                        )
+                        tool_step = {
+                            "role": "tool",
+                            "name": call.name,
+                            "content": result,
+                            "component": component,
+                            "brick": brick,
+                        }
+                        for effect in effects:  # AD-23: the session applies them
+                            tool_step |= self._apply_doc_loaded(effect.tool, loaded_in_turn)
+                        steps.append(tool_step)
             if failed:
                 retries += 1
                 if retries > max_retries:
@@ -1187,6 +1320,22 @@ class AppSession:
                 return "cancelled", "", ""
         self._emit_limit("calls", max_calls)
         return "limit", "", ""
+
+    def _apply_doc_loaded(self, tool: str, loaded_in_turn: list[str]) -> dict[str, Any]:
+        """`ToolDocLoaded`: the documentation is loaded for the conversation and callable now.
+        Returns what its reply step becomes: documentation of its server's tool (AD-4), and a
+        stub in the history of the next turns."""
+        with self._lock:
+            self._loaded_docs.add(tool)
+        if tool not in loaded_in_turn:
+            loaded_in_turn.append(tool)
+        spec = self._registry.get(tool)
+        return {
+            "kind": SegmentKind.TOOL_CATALOG,
+            "brick": "mcp",
+            "component": spec.component if spec else "core.harness",
+            "stub": f"Documentation de « {tool} » chargée.",
+        }
 
     def _after_mcp_call(self, name: str, spec: ToolSpec) -> None:
         """A call that could not reach its server (transport, delay) makes it unavailable."""
@@ -1227,7 +1376,11 @@ class AppSession:
         for segment in payload["segments"]:
             if segment["kind"] in tokens:
                 tokens[segment["kind"]] += segment["tokens"]
-        cause = _OVERFLOW_CAUSES_FR[max(tokens, key=tokens.__getitem__)]  # ties: the message
+        heaviest = max(tokens, key=tokens.__getitem__)  # ties: the message
+        with self._lock:
+            lazy = self._sent[4]  # the mode frozen for this turn by `send`
+        full = heaviest == SegmentKind.TOOL_CATALOG and not lazy
+        cause = _TOOL_CATALOG_FULL_FR if full else _OVERFLOW_CAUSES_FR[heaviest]
         get_journal().emit(
             "context_overflow",
             {

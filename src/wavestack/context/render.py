@@ -28,7 +28,7 @@ from jinja2.exceptions import TemplateError
 from jinja2.ext import Extension, loopcontrols
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
-from wavestack.context.segments import Part, Segment, SegmentKind
+from wavestack.context.segments import Joined, Part, Segment, SegmentKind
 from wavestack.models.engine import Engine
 from wavestack.trace.journal import get_journal
 
@@ -221,7 +221,8 @@ def render_context(
 
     `messages` carry their content as a list of `Part`. Any other value, in a message
     (`tool_calls`) or in `tools`, may itself be a `Part` at any depth: its text is
-    attributed the same way (step 3: sentinels on the strings of a definition).
+    attributed the same way (step 3: sentinels on the strings of a definition). A
+    `Joined` is one string whose parts are attributed each on its own.
     """
     # A 1-char token cannot be broken by an inserted character: the loop would never end.
     special_tokens = [t for t in special_tokens if len(t) >= 2]
@@ -244,6 +245,11 @@ def render_context(
         """(plain, marked) copies of `value`, every nested `Part` replaced by its text."""
         if isinstance(value, Part):
             return add(value)
+        if isinstance(value, Joined):
+            texts = [add(part) for part in value.parts]
+            return value.sep.join(p for p, _ in texts if p), value.sep.join(
+                m for _, m in texts if m
+            )
         if isinstance(value, dict):
             pairs = {key: prepare(item) for key, item in value.items()}
             return {k: p for k, (p, _) in pairs.items()}, {k: m for k, (_, m) in pairs.items()}

@@ -44,10 +44,20 @@ class ServerText(BaseModel):
     label_fr: str = Field(min_length=1)
 
 
+class LoadToolDocText(BaseModel):
+    """The harness meta-tool of the lazy loading mode (AD-25)."""
+
+    label_fr: str = Field(min_length=1)
+    intro: str = Field(min_length=1)  # seen by the model, before one line per tool
+    tool: str = Field(min_length=1)  # the `tool` parameter's description
+
+
 class McpContent(BaseModel):
     """`content/mcp.yaml`."""
 
     servers: dict[str, ServerText]
+    lazy_label_fr: str = Field(min_length=1)
+    load_tool_doc: LoadToolDocText
 
 
 def load_mcp_content() -> McpContent:

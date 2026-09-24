@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from wavestack import config
+from wavestack.session.effects import ToolReply
 from wavestack.trace.journal import get_journal
 
 Source = Literal["native", "harness", "mcp_local", "mcp_public"]
@@ -31,7 +32,7 @@ class Unreachable(ToolError):
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
-    run: Callable[..., str]
+    run: Callable[..., str | ToolReply]
     params: dict[str, str]  # argument -> JSON schema type, all required
     component: str
     source: Source = "native"
@@ -46,6 +47,10 @@ class ToolSpec:
     description: str | None = None
     schema: dict[str, Any] | None = None
     required: tuple[str, ...] | None = None
+    # Harness tools (AD-25): the brick they belong to when it is not the component's own
+    # (`load_tool_doc`: brick `mcp`, component `core.harness`), and their French label.
+    brick: str | None = None
+    label_fr: str | None = None
 
     @property
     def is_mcp(self) -> bool:
@@ -125,6 +130,9 @@ class ToolRegistry:
         return self._by_name.get(name)
 
     def label(self, name: str) -> str:
+        spec = self._by_name.get(name)
+        if spec is not None and spec.label_fr:
+            return spec.label_fr
         text = self.content.tools.get(name) if self.content else None
         return text.label_fr if text else name
 
@@ -136,7 +144,7 @@ class ToolRegistry:
         `tool_catalog` segment and almost nothing is left to `template`.
         """
         spec = self._by_name[name]
-        if spec.description is not None:  # MCP: the server's documentation, schema as is
+        if spec.description is not None:  # MCP (or harness): its own documentation, as is
             return {
                 "type": "function",
                 "function": {

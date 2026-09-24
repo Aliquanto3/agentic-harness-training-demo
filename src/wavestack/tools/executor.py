@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 from wavestack.models.engine import CancelToken
+from wavestack.session.effects import Effect, ToolReply
 from wavestack.tools.parser import ToolCall
 from wavestack.tools.registry import ToolError, ToolRegistry, Unreachable
 from wavestack.trace.journal import get_journal
@@ -42,9 +43,17 @@ class ToolExecutor:
         # its reason.
         self.contact: dict[str, Contact] = {}
 
-    def check(self, call: ToolCall, enabled: Sequence[str]) -> str | None:
-        """Why `call` cannot run, in French (unknown or disabled tool, invalid arguments)."""
+    def check(
+        self, call: ToolCall, enabled: Sequence[str], loadable: Sequence[str] = ()
+    ) -> str | None:
+        """Why `call` cannot run, in French (unknown or disabled tool, documentation not
+        loaded, invalid arguments). `loadable`: the MCP tools `load_tool_doc` offers (AD-25)."""
         spec = self.registry.get(call.name)
+        if call.name in loadable and call.name not in enabled:
+            return (
+                f"La documentation de « {call.name} » n'est pas chargée : appelle d'abord "
+                f'load_tool_doc avec tool="{call.name}".'
+            )
         if spec is None or call.name not in enabled:
             available = ", ".join(enabled) or "aucun"
             return (
@@ -79,8 +88,12 @@ class ToolExecutor:
         sentence = detail_fr if detail_fr.endswith(".") else f"{detail_fr}."
         return f"Erreur : {sentence} Corrige l'appel ou réponds sans outil."
 
-    def run(self, call: ToolCall, cancel: CancelToken) -> str | None:
-        """Execute a checked call; returns the text reinjected, or `None` if the turn is stopped."""
+    def run(
+        self, call: ToolCall, cancel: CancelToken, effects: list[Effect] | None = None
+    ) -> str | None:
+        """Execute a checked call; returns the text reinjected, or `None` if the turn is stopped.
+
+        A `ToolReply`'s effects go to `effects`, for the session to apply (AD-23)."""
         if cancel.cancelled:
             return None
         spec = self.registry.get(call.name)
@@ -92,7 +105,11 @@ class ToolExecutor:
             {
                 "tool": call.name,
                 "arguments": call.arguments,
-                "phase_label": f"Exécution de l'outil {self.registry.label(call.name)}",
+                "phase_label": (
+                    self.registry.label(call.name)
+                    if spec.source == "harness"
+                    else f"Exécution de l'outil {self.registry.label(call.name)}"
+                ),
                 "source": spec.source,
             },
         )
@@ -104,6 +121,10 @@ class ToolExecutor:
                 spec.preview(**call.arguments)  # a refusal raises here, before anything is sent
                 sent = True
             result = spec.run(**call.arguments)
+            if isinstance(result, ToolReply):
+                if effects is not None:
+                    effects.extend(result.effects)
+                result = result.text
         except ToolError as exc:
             error_fr = exc.message_fr
             unreachable = isinstance(exc, Unreachable)

@@ -42,6 +42,13 @@ class Part(NamedTuple):
     group: str | None = None
 
 
+class Joined(NamedTuple):
+    """One string made of several parts, each its own segment; `sep` goes to `template`."""
+
+    parts: tuple[Part, ...]
+    sep: str
+
+
 class Segment(BaseModel):
     id: str
     kind: SegmentKind

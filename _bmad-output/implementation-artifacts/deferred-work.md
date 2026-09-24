@@ -61,3 +61,11 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6-mcp-local-et-public.md`
   summary: Le rendu front de la story 6 (cartes de connexion MCP hors tour et leur appariement, `setOption` vers `/api/intentions/mcp_server`, badge « MCP », outils dans l'infobulle du nœud serveur) n'est vérifié par aucun test automatique.
   evidence: Même écart que pour la story 5b : le dépôt n'a aucun banc de test JS (`app.js` seulement passé à `node --check`) ; relevé par la couche verification-gap de la revue de la story 6.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6b-lazy-loading-mcp.md`
+  summary: Le rendu front de la story 6b (interrupteur « Lazy loading », `setOption("mcp_mode")` vers `/api/intentions/mcp_mode`, carte d'étape « Chargement de la documentation » avec badge MCP) n'est vérifié par aucun test automatique.
+  evidence: Même écart que pour les stories 5b et 6 : le dépôt n'a aucun banc de test JS (`app.js` seulement passé à `node --check`) ; relevé par la couche verification-gap de la revue de la story 6b.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6b-lazy-loading-mcp.md`
+  summary: Au rejeu (story 9, `build_turn_state(origin_turn)`), les documentations MCP chargées (`_loaded_docs`) doivent suivre la branche rejouée et non la conversation entière.
+  evidence: `_loaded_docs` est un ensemble au niveau de la session ; un rejeu depuis un tour antérieur proposerait des outils chargés après le point de branchement. AD-17 range les documentations chargées dans l'instantané conversationnel : à traiter avec l'instantané complet de la story 9.

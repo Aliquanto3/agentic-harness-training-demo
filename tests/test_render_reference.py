@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from wavestack.context.render import render_context, render_template
-from wavestack.context.segments import Part, SegmentKind
+from wavestack.context.segments import Joined, Part, SegmentKind
 from wavestack.models.capabilities import capabilities_for
 from wavestack.trace.journal import get_journal
 
@@ -86,5 +86,43 @@ def test_real_gguf_passes_checks_4_and_6():
         assert [s.text for s in rendered.segments if s.kind == SegmentKind.USER_MESSAGE] == [
             message
         ]
+
+        # AD-25: `load_tool_doc` with two servers, one `tool_catalog` segment per line.
+        catalog = SegmentKind.TOOL_CATALOG
+        lines = [
+            Part(catalog, "- local__define_term : Donne la définition d'une notion.", "mcp",
+                 "mcp.local", "local__define_term"),
+            Part(catalog, "- datagouv__search_datasets : Cherche des jeux « publics »…", "mcp",
+                 "mcp.datagouv", "datagouv__search_datasets"),
+        ]  # fmt: skip
+        intro = Part(catalog, "Charge une documentation :", "mcp", "core.harness", "load_tool_doc")
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": Part(catalog, "load_tool_doc", "mcp", "core.harness", "load_tool_doc"),
+                    "parameters": {"type": "object", "properties": {"tool": {"type": "string"}}},
+                    "description": Joined((intro, *lines), sep="\n"),
+                },
+            }
+        ]
+        mark = get_journal().last_seq()
+        rendered = render_context(
+            engine,
+            caps.chat_template or "",
+            [{"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, "Bonjour")]}],
+            call_id="t0.main.c2",
+            special_tokens=meta.special_tokens,
+            tools=tools,
+            bos_token=meta.bos_token,
+            eos_token=meta.eos_token,
+            add_generation_prompt=True,
+            **template_vars,
+        )
+        errors = [e for e in get_journal().events_since(mark) if e.kind == "harness_error"]
+        assert errors == []
+        assert sum(s.tokens for s in rendered.segments) == len(rendered.ids)
+        found = [(s.component, s.text) for s in rendered.segments if s.kind == catalog]
+        assert found[1:] == [(p.component, p.text) for p in lines]
     finally:
         engine.close()

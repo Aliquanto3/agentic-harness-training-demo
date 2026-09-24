@@ -6,7 +6,14 @@ explanation_fr: >-
   Un serveur MCP est un programme séparé du harnais, sur le poste ou sur Internet,
   qui expose ses propres outils. À l'activation d'un serveur, le harnais s'y
   connecte, lui demande la liste de ses outils, puis la décrit au modèle comme ses
-  outils natifs, sous le nom « serveur__outil ». La documentation complète de
-  chaque outil entre dans le contexte : la jauge montre ce qu'elle pèse, serveur
-  par serveur. Un serveur public reçoit les données de chaque appel : elles
-  s'affichent dans le volet Orchestration avant le résultat.
+  outils natifs, sous le nom « serveur__outil ». Deux modes : en documentation
+  complète, la documentation de chaque outil entre dans le contexte, et la jauge
+  montre ce qu'elle pèse, serveur par serveur ; en lazy loading, le modèle ne voit
+  qu'une ligne par outil dans le méta-outil load_tool_doc, et le harnais ne charge
+  une documentation que lorsque le modèle la demande. Une documentation chargée
+  répond à l'appel pendant le tour, puis rejoint la liste des outils au tour
+  suivant (l'historique n'en garde qu'un court talon), et reste chargée jusqu'à
+  « Vider la conversation ». Cocher « Lazy loading » montre
+  aussitôt dans la jauge l'écart de tokens entre les deux modes. Un serveur public
+  reçoit les données de chaque appel : elles s'affichent dans le volet
+  Orchestration avant le résultat.

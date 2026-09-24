@@ -7,3 +7,13 @@ servers:
     label_fr: data.gouv.fr
   mslearn:
     label_fr: Microsoft Learn
+# Interrupteur de la carte MCP (story 6b, FR-21).
+lazy_label_fr: Lazy loading
+# Méta-outil du harnais en lazy loading (AD-25). `intro` et `tool` sont lus par le modèle ;
+# la description de l'outil ajoute ensuite une ligne par outil MCP chargeable.
+load_tool_doc:
+  label_fr: Chargement de la documentation
+  intro: >-
+    Charge la documentation complète d'un outil MCP, qui devient alors appelable.
+    Appelle cet outil avant tout outil de la liste suivante :
+  tool: Nom exact de l'outil, tel qu'il figure dans la liste.

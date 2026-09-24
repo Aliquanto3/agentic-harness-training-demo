@@ -188,7 +188,13 @@ function applyEnvelope(envelope) {
           callStartedAt: Date.parse(envelope.ts),
           firstToken: false,
         });
-        turn.steps.push({ type: "tool", started: p, startedAt: Date.parse(envelope.ts), ended: null });
+        turn.steps.push({
+          type: "tool",
+          started: p,
+          brick: envelope.brick,
+          startedAt: Date.parse(envelope.ts),
+          ended: null,
+        });
       }
       break;
     case "tool_ended": {
@@ -420,8 +426,10 @@ function brickOptions(brick) {
   });
   const on = brick.options.filter((o) => o.enabled).length;
   const noun = brick.id === "mcp" ? "Serveurs" : "Outils";
+  // The closed card still shows the MCP documentation mode.
+  const mode = brick.mode === "lazy" ? ` · ${brick.lazy_label_fr}` : "";
   details.appendChild(
-    el("summary", "", `${noun} : ${on} activé${on > 1 ? "s" : ""} sur ${brick.options.length}`)
+    el("summary", "", `${noun} : ${on} activé${on > 1 ? "s" : ""} sur ${brick.options.length}${mode}`)
   );
   const list = el("ul", "brick-option-list");
   for (const option of brick.options) {
@@ -442,15 +450,29 @@ function brickOptions(brick) {
     list.appendChild(li);
   }
   details.appendChild(list);
+  if (brick.id === "mcp") {
+    // Story 6b: the documentation mode of every server, under the list of servers.
+    const row = el("label", "brick-option");
+    const toggle = el("input", "brick-toggle");
+    toggle.type = "checkbox";
+    toggle.setAttribute("role", "switch");
+    toggle.checked = brick.mode === "lazy";
+    toggle.dataset.focusKey = "option:mcp:lazy";
+    toggle.addEventListener("change", () => setOption("mcp_mode", null, toggle.checked));
+    row.append(toggle, el("span", "brick-option-name", brick.lazy_label_fr));
+    details.appendChild(row);
+  }
   return details;
 }
 
 async function setOption(brickId, id, enabled) {
-  // A tool of the tools brick, or a server of the MCP brick.
+  // A tool of the tools brick, a server of the MCP brick, or the MCP documentation mode.
   const [path, body] =
-    brickId === "mcp"
-      ? ["/api/intentions/mcp_server", { server: id, enabled }]
-      : ["/api/intentions/tool", { tool: id, enabled }];
+    brickId === "mcp_mode"
+      ? ["/api/intentions/mcp_mode", { lazy: enabled }]
+      : brickId === "mcp"
+        ? ["/api/intentions/mcp_server", { server: id, enabled }]
+        : ["/api/intentions/tool", { tool: id, enabled }];
   try {
     const response = await postIntention(path, body);
     if (response.ok) return; // `bricks_changed` redraws the card
@@ -806,8 +828,11 @@ function modelCallCards(turn, step, index, calls) {
 
 function toolCard(step) {
   const ended = step.ended;
-  const card = stepCard(`3. Exécution par le harnais · ${step.started.tool}`);
-  if (step.started.source?.startsWith("mcp")) {
+  // A harness tool (`load_tool_doc`) shows its own step, e.g. « Chargement de la documentation ».
+  const harness = step.started.source === "harness";
+  const title = harness ? step.started.phase_label : "Exécution par le harnais";
+  const card = stepCard(`3. ${title} · ${step.started.tool}`);
+  if (step.started.source?.startsWith("mcp") || (harness && step.brick === "mcp")) {
     card.appendChild(el("span", "step-badge is-mcp", "MCP"));
   }
   const asked = { name: step.started.tool, arguments: step.started.arguments };
