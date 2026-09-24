@@ -180,6 +180,76 @@ def test_probe_subprocess_crash_marks_candidate_incompatible(monkeypatch, tmp_pa
     assert result.blocking_checks == ["model"]
 
 
+def test_probe_failure_is_remembered_and_not_reprobed(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("bad.gguf",))
+    monkeypatch.setattr(
+        session, "_probe_candidate", DiagnosticSession._probe_candidate.__get__(session)
+    )
+    runs = []
+
+    class _FakeCompletedProcess:
+        stdout = '{"ok": false, "path": "bad.gguf", "reason": "Fichier corrompu."}'
+
+    def _run(*args, **kwargs):
+        runs.append(args)
+        return _FakeCompletedProcess()
+
+    monkeypatch.setattr(diagnostic_module.subprocess, "run", _run)
+
+    session.check_model()
+    result = session.check_model()  # next launch: same file, same size and date
+
+    assert len(runs) == 1
+    assert result.candidates[0].status == "incompatible"
+    assert result.candidates[0].reason == "Fichier corrompu."
+
+
+def test_native_crash_is_remembered_python_error_is_not(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("crash.gguf",))
+    monkeypatch.setattr(
+        session, "_probe_candidate", DiagnosticSession._probe_candidate.__get__(session)
+    )
+    path = str(config.models_dir() / "crash.gguf")
+
+    class _Died:
+        stdout = ""
+        returncode = 1  # Python error in the child: environment, not the file
+
+    monkeypatch.setattr(diagnostic_module.subprocess, "run", lambda *a, **k: _Died())
+    session.check_model()
+    assert "failed_probes" not in config.read_settings()
+
+    _Died.returncode = 3221225477  # Windows access violation while loading
+    session.check_model()
+    assert path in config.read_settings()["failed_probes"]
+
+
+def test_explicit_choice_of_a_remembered_failure_is_not_reprobed(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("bad.gguf",))
+    path = str(config.models_dir() / "bad.gguf")
+    probe.record_failure(path, "Fichier corrompu.")
+
+    result = session.select_model(path)
+
+    assert result.saved is False
+    assert "Fichier corrompu." in result.message_fr
+
+
+def test_probe_timeout_is_not_remembered(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("slow.gguf",))
+    monkeypatch.setattr(
+        session, "_probe_candidate", DiagnosticSession._probe_candidate.__get__(session)
+    )
+
+    def _raise(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="probe", timeout=1)
+
+    monkeypatch.setattr(diagnostic_module.subprocess, "run", _raise)
+    session.check_model()
+
+    assert "failed_probes" not in config.read_settings()
+
+
 def test_network_unreachable_warns_without_blocking(monkeypatch, tmp_path):
     # The session-wide guard fixture (conftest.py) allows only loopback hosts,
     # so this real check_network() call is refused by the guard exactly like

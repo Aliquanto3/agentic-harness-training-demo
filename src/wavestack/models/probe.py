@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import time
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -83,18 +84,59 @@ def record_success(result: ProbeResult) -> None:
         "probed_at": time.time(),
     }
     config.save_setting("probed_models", probed)
+    failed = config.read_settings().get("failed_probes", {})
+    if failed.pop(result.path, None) is not None:
+        config.save_setting("failed_probes", failed)
+
+
+def _llama_cpp_version() -> str | None:
+    try:
+        return metadata.version("llama-cpp-python")
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def _same_file(entry: dict[str, Any], path: str) -> bool:
+    file_path = Path(path)
+    if not file_path.is_file():
+        return False
+    stat = file_path.stat()
+    return entry.get("size_bytes") == stat.st_size and entry.get("mtime") == stat.st_mtime
+
+
+def record_failure(path: str, reason: str) -> None:
+    """Remember a deterministic probe failure so the file is not reprobed at every launch.
+
+    Skipped when the file is gone or llama-cpp-python is missing: neither says
+    anything about the file itself. A llama-cpp-python upgrade invalidates the entry.
+    """
+    version = _llama_cpp_version()
+    file_path = Path(path)
+    if version is None or not file_path.is_file():
+        return
+    stat = file_path.stat()
+    failed = config.read_settings().get("failed_probes", {})
+    failed[path] = {
+        "size_bytes": stat.st_size,
+        "mtime": stat.st_mtime,
+        "reason": reason,
+        "llama_cpp_version": version,
+    }
+    config.save_setting("failed_probes", failed)
+
+
+def failed_entry(path: str) -> dict[str, Any] | None:
+    """The remembered failure for `path`, if still valid (same size, mtime, llama-cpp-python)."""
+    entry = config.read_settings().get("failed_probes", {}).get(path)
+    if not entry or entry.get("llama_cpp_version") != _llama_cpp_version():
+        return None
+    return entry if _same_file(entry, path) else None
 
 
 def probed_entry(path: str) -> dict[str, Any] | None:
     """The probe cache entry for `path` (architecture...), if still valid (same size/mtime)."""
     entry = config.read_settings().get("probed_models", {}).get(path)
-    file_path = Path(path)
-    if not entry or not file_path.is_file():
-        return None
-    stat = file_path.stat()
-    if entry.get("size_bytes") == stat.st_size and entry.get("mtime") == stat.st_mtime:
-        return entry
-    return None
+    return entry if entry and _same_file(entry, path) else None
 
 
 def main() -> int:

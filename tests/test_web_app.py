@@ -46,6 +46,13 @@ def test_diagnostic_route_still_works(monkeypatch, tmp_path):
     assert response.status_code == 200
 
 
+def test_pages_and_static_files_are_revalidated_but_api_is_not(monkeypatch, tmp_path):
+    client = _client(_build(monkeypatch, tmp_path))
+    for path in ("/", "/diagnostic", "/static/app.js"):
+        assert client.get(path).headers["cache-control"] == "no-cache", path
+    assert "cache-control" not in client.get("/api/health").headers
+
+
 def test_api_state_reflects_last_known_session_state_and_architecture(monkeypatch, tmp_path):
     app = _build(monkeypatch, tmp_path)
     booted_session(FakeEngine())

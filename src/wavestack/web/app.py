@@ -84,6 +84,14 @@ def create_app(
                 return JSONResponse({"detail": "JSON attendu."}, status_code=415)
         return await call_next(request)
 
+    @app.middleware("http")
+    async def _revalidate_pages(request: Request, call_next):  # noqa: ANN001, ANN202
+        """Pages and static files are revalidated, never served stale from the browser cache."""
+        response = await call_next(request)
+        if not request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/api/health")

@@ -126,6 +126,7 @@ class DiagnosticSession:
 
     def _probe_candidate(self, candidate: discovery.ModelCandidate) -> None:
         assert candidate.path is not None
+        proc = None
         try:
             proc = subprocess.run(
                 [sys.executable, "-m", "wavestack.models.probe", candidate.path],
@@ -136,6 +137,14 @@ class DiagnosticSession:
             last_line = proc.stdout.strip().splitlines()[-1]
             result = probe.ProbeResult.model_validate_json(last_line)
         except Exception as exc:  # noqa: BLE001 - any probe failure marks the file incompatible
+            # Only a native crash of the load says something about the file. Exit code 1 is
+            # a Python error (config, guard...); no process or a timeout, the environment.
+            if proc is not None and proc.returncode not in (0, 1):
+                self._persist(
+                    lambda: probe.record_failure(
+                        candidate.path, "La sonde n'a pas pu confirmer ce fichier."
+                    )
+                )
             get_journal().emit(
                 "harness_error",
                 {
@@ -163,6 +172,11 @@ class DiagnosticSession:
         )
         candidate.status = "incompatible"
         candidate.reason = result.reason
+        self._persist(
+            lambda: probe.record_failure(
+                candidate.path, result.reason or "La sonde n'a pas pu confirmer ce fichier."
+            )
+        )
 
     def _persist(self, write: Callable[[], None]) -> bool:
         """AD-16: a settings.json write failure is traced, never fatal. True if written."""
@@ -219,6 +233,9 @@ class DiagnosticSession:
             entry = probe.probed_entry(candidate.path)
             if entry is not None:
                 candidate.architecture = entry.get("architecture")
+            elif (failed := probe.failed_entry(candidate.path)) is not None:
+                # Remembered failure: no reprobe, same reason.
+                candidate.status, candidate.reason = "incompatible", failed.get("reason")
             elif probe_only is None or candidate.path in probe_only:
                 self._probe_candidate(candidate)
         return candidates
