@@ -133,6 +133,16 @@
     </div>
   </main>
 
+  <dialog class="audit-dialog" id="audit-dialog" aria-labelledby="audit-dialog-title">
+    <h3 id="audit-dialog-title">Journal d'audit</h3>
+    <p class="drawer-help">Écrit par le hook de journalisation, en lecture seule. Le modèle ne le voit pas.</p>
+    <p class="drawer-help" id="audit-path"></p>
+    <pre class="audit-text" id="audit-text" tabindex="0"></pre>
+    <div class="drawer-actions">
+      <button type="button" id="audit-close" class="primary">Fermer</button>
+    </div>
+  </dialog>
+
   <script type="module" src="/static/app.js"></script>
 </body>
 </html>

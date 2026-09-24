@@ -88,3 +88,15 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/7-skills-dont-caveman.md`
   summary: Le basculement d'un skill dans l'interface (`setOption("skills", …)` vers `/api/intentions/skill`) et l'état « chargé » du schéma n'ont aucun test front.
   evidence: Le dépôt n'a aucun banc de test JS ; seul l'endpoint serveur est testé (`tests/test_skills.py`, `test_skill_intention_http`).
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8-hooks-h1-h2-h3-h5.md`
+  summary: Story 8b — hook H5, validation humaine avant tout outil réseau (outils réseau natifs et outils des serveurs MCP publics) : décision `ask_human` en `before_tool`, état `awaiting_human`, `approval_requested{approval_id, tool, destination, preview}` où `preview` est exactement ce qui sortirait (`preview_request`, ou corps JSON-RPC `tools/call` vers l'URL du serveur MCP), intention de classe (c) `approval {approval_id, approved, disable_hook}` (la première réponse l'emporte), `approval_resolved{decision: approved|refused|cancelled, hook_disabled}`, refus réinjecté et tour poursuivi, « Arrêter » pendant l'attente → `cancelled`, carte violette « En attente de votre validation » à trois boutons, indicateur « En attente de validation », `pending_approval` dans `/api/state`.
+  evidence: Scindée de la story 8 sur décision d'Anaël (2026-09-24), spec entière à ~5 000 tokens. Décisions déjà prises : H5 désactivé à l'activation de la brique (Q1) ; trois boutons « Autoriser », « Refuser », « Autoriser et ne plus demander », ce dernier autorisant l'appel puis désactivant H5, y compris pour les appels réseau suivants du même tour (Q2). La story 8 livre les points d'accroche, `_run_tool` et la sous-option `h5` absente ; 8b ajoute le composant `hooks.h5` et `ask_human` à `ALLOWED`. Si l'aperçu est refusé (hôte hors liste), H5 ne demande rien.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8-hooks-h1-h2-h3-h5.md`
+  summary: Aucun test ne vérifie que H2 reprend, à son déclenchement suivant dans le même tour, les lignes d'une écriture d'`audit.log` échouée (échec en `after_tool`, succès en `on_turn_end`).
+  evidence: `test_h2_write_failure_is_traced_and_the_turn_goes_on` n'a qu'un déclenchement (`tools=False`) ; avancer le curseur de H2 même en cas d'échec perdrait des lignes sans qu'aucun test n'échoue. Il faut injecter un échec ponctuel (monkeypatch de `_apply_audit` ou de `config.audit_path`) ; chemin d'erreur secondaire, relevé par la couche verification-gap de la revue de la story 8.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8-hooks-h1-h2-h3-h5.md`
+  summary: Les nœuds du schéma d'architecture (dont « Journal d'audit », seul accès au journal entier) ne sont atteignables qu'à la souris : pas de `tabindex` ni de gestion du clavier sur les `<g>` SVG.
+  evidence: Préexistant pour tous les nœuds de `renderSchema` (`app.js`) ; la story 8 ajoute le clic sur `file.audit` qui ouvre le tiroir du journal. À traiter pour tout le schéma (accessibilité de base), avec la refonte de disposition déjà différée en story 6c.

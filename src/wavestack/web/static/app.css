@@ -954,6 +954,42 @@ body.focus-mode .pane.is-focused .pane-body {
   display: none;
 }
 
+/* The whole audit log (story 8), read only, over the page. */
+.audit-dialog {
+  width: min(760px, 90vw);
+  max-height: 80vh;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding: var(--spacing-pane-padding);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-lg);
+  box-shadow: 0 var(--spacing-relief-offset-overlay) 0 var(--color-relief);
+}
+
+.audit-dialog[open] {
+  display: flex;
+}
+
+.audit-dialog h3 {
+  margin: 0;
+  font-size: var(--typography-body-font-size);
+}
+
+.audit-text {
+  flex: 1;
+  min-height: 120px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  padding: var(--spacing-2);
+  white-space: pre;
+  font-family: var(--typography-code-font-family);
+  font-size: var(--typography-code-font-size);
+  line-height: var(--typography-code-line-height);
+}
+
 /* ---------- architecture schema: edges, network and unavailable nodes (DESIGN.md > arch-*) ---------- */
 
 .arch-edge {
@@ -992,6 +1028,12 @@ body.focus-mode .pane.is-focused .pane-body {
 /* A skill loaded in the conversation (story 7): its state reads « chargé » too. */
 .arch-node.is-loaded rect {
   stroke: var(--color-primary-deep);
+}
+
+/* A hook that blocked in the last turn (story 8): the flow stops at it, on a red rule. */
+.arch-node.is-blocked rect {
+  stroke: var(--color-state-error);
+  stroke-width: calc(var(--spacing-stroke-min) * 2);
 }
 
 .arch-node .arch-node-state {

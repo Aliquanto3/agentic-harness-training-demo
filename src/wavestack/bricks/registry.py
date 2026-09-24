@@ -27,6 +27,9 @@ SKILLS = (
     "working_days",
 )
 
+# Story 8: the hooks of the `hooks` brick, in the order they are called (AD-13).
+HOOKS = ("h1", "h2", "h3")
+
 BRICKS = [
     BrickDeclaration(
         id="short_memory",
@@ -124,6 +127,20 @@ BRICKS = [
                 edges_to=["core.harness"],
             )
             for skill in SKILLS
+        ],
+    ),
+    # Story 8: one component per hook; H2 also writes the audit log.
+    BrickDeclaration(
+        id="hooks",
+        category="harness",
+        components=[
+            Component(
+                id=f"hooks.{hook}",
+                kind="hook",
+                hosting="local_process",
+                edges_to=["core.harness"] + (["file.audit"] if hook == "h2" else []),
+            )
+            for hook in HOOKS
         ],
     ),
 ]

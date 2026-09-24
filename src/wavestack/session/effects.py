@@ -21,8 +21,15 @@ class SkillLoaded(BaseModel):
     skill_id: str
 
 
-# Each new harness tool adds its own effect here (AD-23), discriminated by `kind`.
-Effect = ToolDocLoaded | SkillLoaded
+class AuditAppend(BaseModel):
+    """H2 asks for `lines` to be appended to `audit.log` (story 8)."""
+
+    kind: Literal["audit_append"] = "audit_append"
+    lines: list[str]
+
+
+# Each new harness tool or hook adds its own effect here (AD-23), discriminated by `kind`.
+Effect = ToolDocLoaded | SkillLoaded | AuditAppend
 
 
 class ToolReply(NamedTuple):

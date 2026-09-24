@@ -1,0 +1,15 @@
+# Brique « Hooks » (AD-12, AD-13, AD-19).
+label_fr: Hooks
+category_fr: harness engineering
+hosting_fr: Local
+explanation_fr: >-
+  Un hook est du code déterministe que le harnais exécute à un point fixe du tour :
+  réception du message, avant l'appel au modèle, avant et après un outil, fin du
+  tour. Ce n'est pas le modèle qui décide : le hook laisse passer, modifie ou
+  bloque, et chaque décision s'affiche dans Orchestration. Le garde-fou empêche la
+  lecture du dossier confidentiel même quand le modèle la demande (sécurité, DLP) ;
+  la journalisation écrit un journal d'audit que le modèle ne voit pas ;
+  l'injection de contexte ajoute la date et les règles de la mission avant chaque
+  message. Comparez avec l'outil « Heure et date » : pour le même besoin, l'outil
+  laisse le modèle choisir de demander l'heure, le hook la lui donne à chaque tour,
+  qu'il en ait besoin ou non. Deux architectures, deux coûts en tokens.

@@ -41,6 +41,8 @@ const GROUP_COLORS = {
   rag_excerpt: "--color-segment-rag",
   tool_result: "--color-segment-tool-results",
   subagent_result: "--color-segment-tool-results",
+  // ponytail: DESIGN.md has no hook colour yet; the harness violet keeps it apart from the message.
+  hook_injection: "--color-primary",
   message: "--color-segment-message",
 };
 
@@ -223,6 +225,16 @@ function applyEnvelope(envelope) {
       // The oldest pending card: connections of one server end in the order they started.
       const step = store.offTurn.find((s) => s.started.server === p.server && !s.ended);
       if (step) step.ended = p;
+      break;
+    }
+    case "hook_decided":
+      // A hook decision is a step of its own (AD-13): a blocked tool has no step at all.
+      if (turn) turn.steps.push({ type: "hook", payload: p, lines: [] });
+      break;
+    case "effect_applied": {
+      // The lines H2 appended to the audit log, shown in its own step.
+      const step = turn?.steps.filter((s) => s.type === "hook").at(-1);
+      if (step) step.lines.push(...p.lines);
       break;
     }
     case "tool_call_malformed":
@@ -425,7 +437,7 @@ function brickOptions(brick) {
     else store.openExplanations.delete(key);
   });
   const on = brick.options.filter((o) => o.enabled).length;
-  const noun = { mcp: "Serveurs", skills: "Skills" }[brick.id] || "Outils";
+  const noun = { mcp: "Serveurs", skills: "Skills", hooks: "Hooks" }[brick.id] || "Outils";
   // The closed card still shows the MCP documentation mode.
   const mode = brick.mode === "lazy" ? ` · ${brick.lazy_label_fr}` : "";
   details.appendChild(
@@ -466,8 +478,8 @@ function brickOptions(brick) {
 }
 
 async function setOption(brickId, id, enabled) {
-  // A tool of the tools brick, a server of the MCP brick, the MCP documentation mode, or a
-  // skill of the skills brick.
+  // A tool of the tools brick, a server of the MCP brick, the MCP documentation mode, a
+  // skill of the skills brick, or a hook of the hooks brick.
   const [path, body] =
     brickId === "mcp_mode"
       ? ["/api/intentions/mcp_mode", { lazy: enabled }]
@@ -475,7 +487,9 @@ async function setOption(brickId, id, enabled) {
         ? ["/api/intentions/mcp_server", { server: id, enabled }]
         : brickId === "skills"
           ? ["/api/intentions/skill", { skill: id, enabled }]
-          : ["/api/intentions/tool", { tool: id, enabled }];
+          : brickId === "hooks"
+            ? ["/api/intentions/hook", { hook: id, enabled }]
+            : ["/api/intentions/tool", { tool: id, enabled }];
   try {
     const response = await postIntention(path, body);
     if (response.ok) return; // `bricks_changed` redraws the card
@@ -905,6 +919,31 @@ function outboundPayload(request) {
   return details;
 }
 
+const HOOK_DECISIONS = { allow: "laissé passer", modify: "modifié", block: "bloqué" };
+
+function hookCard(step) {
+  // EXPERIENCE: violet when the hook lets through or modifies, red when it blocks.
+  const p = step.payload;
+  const block = p.decision === "block";
+  const title = block ? `Bloqué par le hook ${p.hook_fr.toLowerCase()}` : `Hook : ${p.point_fr.toLowerCase()}`;
+  const lines = [
+    el("p", "", `Point d'accroche : ${p.point_fr} · Hook : ${p.hook_fr}`),
+    el("p", "", `Décision : ${HOOK_DECISIONS[p.decision]}. ${p.detail_fr}`),
+  ];
+  if (block) {
+    const effect =
+      p.point === "before_tool"
+        ? "Effet sur le tour : l'outil ne s'exécute pas ; le refus est réinjecté au modèle, qui reprend la main (ce n'est pas un nouvel essai)."
+        : "Effet sur le tour : le tour s'arrête ici.";
+    lines.push(el("p", "", effect));
+  }
+  if (step.lines.length) {
+    lines.push(el("p", "label", "Lignes ajoutées au journal d'audit"), el("pre", "step-code", step.lines.join("\n")));
+  }
+  lines.push(el("p", "label", "Décision du harnais (code), pas du modèle"));
+  return harnessEvent(title, block ? "error" : "info", lines);
+}
+
 function malformedCard(p) {
   // The raw output with the faulty part marked (EXPERIENCE: malformed tool call).
   const raw = el("pre", "step-code");
@@ -942,6 +981,8 @@ function renderSteps() {
         steps.append(...modelCallCards(turn, step, calls.indexOf(step), calls));
       } else if (step.type === "tool") {
         steps.appendChild(toolCard(step));
+      } else if (step.type === "hook") {
+        steps.appendChild(hookCard(step));
       } else if (step.type === "tool_call_malformed") {
         steps.appendChild(malformedCard(step.payload));
       } else if (step.type === "limit_reached") {
@@ -1060,7 +1101,14 @@ function svgEl(tag, attrs) {
 }
 
 // Brick id -> chip icon in the harness frame (formatting only).
-const BRICK_ICONS = { short_memory: "🧠", system_prompt: "📜", tools: "🔧", mcp: "🔌", skills: "📘" };
+const BRICK_ICONS = {
+  short_memory: "🧠",
+  system_prompt: "📜",
+  tools: "🔧",
+  mcp: "🔌",
+  skills: "📘",
+  hooks: "🪝",
+};
 const POSE_LABELS = { idle: "au repos", thinking: "réfléchit", tool: "utilise un outil" };
 
 // The robot's pose, derived from the turn's events only (AD-1).
@@ -1142,12 +1190,17 @@ function renderSchema() {
   // the frame's chips from `bricks_changed`.
   const wanted = (store.bricks?.bricks || []).filter((b) => b.wanted);
   const pose = robotPose();
+  // The hooks that blocked in the last turn: their node sits on a red rule.
+  const blocked = (store.turns.at(-1)?.steps || [])
+    .filter((s) => s.type === "hook" && s.payload.decision === "block")
+    .map((s) => `hooks.${s.payload.hook}`);
   // `render()` runs on every `model_delta`: rebuilding would restart the antenna blink.
   const key = JSON.stringify([
     store.architecture,
     wanted.map((b) => [b.id, b.label_fr, b.available, b.reason_fr]),
     pose,
     store.selection,
+    blocked,
   ]);
   if (key === renderedSchemaKey) return;
   renderedSchemaKey = key;
@@ -1243,15 +1296,18 @@ function renderSchema() {
     g.classList.toggle("is-unavailable", !node.available);
     const notContacted = node.contact === "not_contacted";
     g.classList.toggle("is-not-contacted", notContacted);
+    g.classList.toggle("is-blocked", blocked.includes(node.id));
     if (store.selection === node.id) g.classList.add("is-selected");
     g.addEventListener("click", () => select(node.id));
+    if (node.id === "file.audit") g.addEventListener("click", openAudit); // the whole log
     let tooltip = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
     if (notContacted) tooltip += " : non contacté";
     // An MCP server lists its tools in its tooltip (AD-12).
     if (node.tools?.length) tooltip += `\nOutils : ${node.tools.join(", ")}`;
-    // A skill gives its description, and its loaded state under the label (FR-3).
+    // A skill or a hook gives its description, the audit log its path; a skill shows its
+    // loaded state under the label (FR-3).
     const skill = node.kind === "skill";
-    if (skill && node.detail_fr) tooltip += `\n${node.detail_fr}`;
+    if (node.detail_fr) tooltip += `\n${node.detail_fr}`;
     const network = node.hosting === "network";
     // A network node shows its globe; its contact state stays visible under the label.
     const contactState = notContacted ? "non contacté" : node.contact === "unavailable" ? "indisponible" : "";
@@ -1270,6 +1326,28 @@ function renderSchema() {
       );
     }
     svg.appendChild(g);
+  }
+}
+
+// ---------- audit log: the whole file, read only (story 8) ----------
+
+async function openAudit() {
+  const dialog = document.getElementById("audit-dialog");
+  const text = document.getElementById("audit-text");
+  document.getElementById("audit-path").textContent = "";
+  text.textContent = "Lecture du journal…";
+  if (!dialog.open) dialog.showModal();
+  try {
+    const response = await fetch("/api/audit");
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      text.textContent = `Lecture impossible : ${body.detail || response.status}.`;
+      return;
+    }
+    document.getElementById("audit-path").textContent = `Fichier : ${body.path}`;
+    text.textContent = body.text || "Journal vide";
+  } catch {
+    text.textContent = "Lecture impossible : WaveStack ne répond pas.";
   }
 }
 
@@ -1316,6 +1394,9 @@ async function boot() {
     if (await saveSystemPrompt(drawerText().value)) closeDrawer(true);
   });
   document.getElementById("drawer-dirty-discard").addEventListener("click", () => closeDrawer(true));
+  document.getElementById("audit-close").addEventListener("click", () =>
+    document.getElementById("audit-dialog").close()
+  );
   // Local stopwatch anchored on the `*_started` ts, replaced by `duration_ms` (AD-1).
   setInterval(() => {
     if (activeTurn()) {
@@ -1326,6 +1407,7 @@ async function boot() {
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
+    if (document.getElementById("audit-dialog").open) return; // the dialog closes itself
     if (!drawer().hidden) {
       closeDrawer();
     } else if (!document.getElementById("pane-menu-list").hidden) {

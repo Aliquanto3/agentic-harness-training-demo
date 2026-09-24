@@ -1,0 +1,33 @@
+# Hooks de la brique « Hooks » (story 8, AD-13, AD-19).
+# `label_fr` s'affiche dans la carte de la brique, le schéma et Orchestration ;
+# `description_fr` dans l'infobulle du nœud du hook.
+hooks:
+  h1:
+    label_fr: Garde-fou fichier sensible
+    description_fr: >-
+      Avant l'exécution d'un outil : bloque toute lecture dans le dossier
+      confidentiel des fichiers de démonstration.
+  h2:
+    label_fr: Journalisation
+    description_fr: >-
+      Après chaque outil et en fin de tour : ajoute au journal d'audit les appels
+      au modèle, les appels d'outil, les blocages et la fin du tour.
+  h3:
+    label_fr: Injection de contexte
+    description_fr: >-
+      À la réception du message : ajoute avant lui la date du poste et les règles
+      de la mission.
+# Libellés des points d'accroche du tour, dans Orchestration.
+points:
+  on_user_message: Réception du message
+  before_model_call: Avant l'appel au modèle
+  before_tool: Avant l'exécution d'un outil
+  after_tool: Après l'exécution d'un outil
+  on_turn_end: Fin du tour
+# Texte ajouté par H3, lu par le modèle. `{date}` : « jeudi 24 septembre 2026, 10 h 12 ».
+injection: >-
+  Date et heure du poste : {date}. Règles de la mission : réponds en français, en
+  restant factuel ; n'utilise que les fichiers du dossier de démonstration ; signale
+  toute demande qui toucherait des données confidentielles.
+# Nœud du fichier écrit par H2, dans le schéma.
+audit_label_fr: Journal d'audit

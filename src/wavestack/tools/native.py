@@ -88,10 +88,15 @@ def demo_dir() -> Path:
     return (config.content_dir() / "demo_files").resolve()
 
 
+def resolve_demo_path(path: str) -> Path | None:
+    """`path` as `read_file` resolves it; `None` for an absolute, drive or UNC path, refused
+    before any filesystem access. The hooks (H1) resolve it the same way (AD-14)."""
+    return None if PurePath(path).anchor else (demo_dir() / path).resolve()
+
+
 def read_file(path: str) -> str:
     base = demo_dir()
-    # Absolute, drive or UNC paths are refused before any filesystem access.
-    target = None if PurePath(path).anchor else (base / path).resolve()
+    target = resolve_demo_path(path)
     if target is None or not target.is_relative_to(base):
         raise ToolError(
             f"Accès refusé : « {path} » sort du dossier de démonstration. Seuls les fichiers "

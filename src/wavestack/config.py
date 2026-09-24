@@ -188,3 +188,8 @@ def models_dir() -> Path:
 
 def settings_path() -> Path:
     return data_dir() / "settings.json"
+
+
+def audit_path() -> Path:
+    """The audit log H2 feeds, written by the session only (AD-20, AD-23)."""
+    return data_dir() / "audit.log"

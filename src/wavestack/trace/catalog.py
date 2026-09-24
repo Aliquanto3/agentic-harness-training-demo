@@ -54,7 +54,7 @@ class ArchitectureNode(BaseModel):
     """
 
     id: str
-    kind: Literal["harness", "model", "brick", "tool", "file", "mcp_server", "skill"]
+    kind: Literal["harness", "model", "brick", "tool", "file", "mcp_server", "skill", "hook"]
     hosting: Literal["local", "network"]
     label_fr: str
     wanted: bool
@@ -65,7 +65,8 @@ class ArchitectureNode(BaseModel):
     contact: Literal["not_contacted", "available", "unavailable"] | None = None
     tools: list[str] = []  # MCP servers: the names of the tools they expose
     model: str | None = None  # `core.model`: file name (no extension) of the loaded model
-    # Skills (story 7): loaded in the conversation or not, and their description.
+    # Skills (story 7): loaded in the conversation or not. Any node: what its tooltip adds
+    # (a skill's or a hook's description, the audit log's path).
     loaded: bool | None = None
     detail_fr: str | None = None
 
@@ -93,7 +94,7 @@ class ArchitectureChangedPayload(BaseModel):
 
 # ---------- story 3: bare LLM turn, context, gauge (AD-2, AD-4, AD-9) ----------
 
-TurnStatus = Literal["completed", "cancelled", "limit", "overflow", "error"]
+TurnStatus = Literal["completed", "cancelled", "limit", "overflow", "error", "blocked"]
 StopReason = Literal["stop", "length", "cancelled", "error"]
 Channel = Literal["reasoning", "text", "tool_call"]
 
@@ -282,6 +283,32 @@ class McpConnectEndedPayload(BaseModel):
     duration_ms: int
 
 
+# ---------- story 8: hooks (AD-13, AD-23) ----------
+
+
+# AD-13: `assemble_context` and `transform_context` stay brick steps (RAG, compression).
+# Story 8b adds `ask_human` to the decisions.
+HookPoint = Literal[
+    "on_user_message", "before_model_call", "before_tool", "after_tool", "on_turn_end"
+]
+HookDecision = Literal["allow", "modify", "block"]
+
+
+class HookDecidedPayload(BaseModel):
+    hook: str
+    point: HookPoint
+    decision: HookDecision
+    detail_fr: str
+    # French labels from content/hooks.yaml, so the front formats without a table (AD-1).
+    hook_fr: str
+    point_fr: str
+
+
+class EffectAppliedPayload(BaseModel):
+    effect: Literal["audit_append"]
+    lines: list[str]
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -309,4 +336,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "prefix_not_reused": PrefixNotReusedPayload,
     "mcp_connect_started": McpConnectStartedPayload,
     "mcp_connect_ended": McpConnectEndedPayload,
+    "hook_decided": HookDecidedPayload,
+    "effect_applied": EffectAppliedPayload,
 }

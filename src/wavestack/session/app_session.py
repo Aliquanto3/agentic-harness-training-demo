@@ -17,7 +17,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -33,6 +33,17 @@ from wavestack.bricks.registry import BRICKS, check_unique_ids
 from wavestack.context.render import RenderedContext, render_context
 from wavestack.context.segments import Joined, Part, SegmentKind, SegmentLabels, load_labels
 from wavestack.context.window import OUTPUT_RESERVE, effective_window, gauge
+from wavestack.hooks import (
+    ALLOWED,
+    AUDIT,
+    DEMO_HOOKS,
+    Hook,
+    HookContext,
+    HookPoint,
+    HookResult,
+    HooksContent,
+    load_hooks_content,
+)
 from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
 from wavestack.models.capabilities import (
@@ -42,7 +53,7 @@ from wavestack.models.capabilities import (
     capabilities_for,
 )
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
-from wavestack.session.effects import Effect, SkillLoaded, ToolDocLoaded, ToolReply
+from wavestack.session.effects import AuditAppend, Effect, SkillLoaded, ToolDocLoaded, ToolReply
 from wavestack.skills import SkillsContent, SkillText, load_skills_content
 from wavestack.tools.executor import ToolExecutor
 from wavestack.tools.native import NATIVE_TOOLS
@@ -56,7 +67,7 @@ from wavestack.tools.registry import (
     load_tools_content,
 )
 from wavestack.trace.journal import get_journal
-from wavestack.trace.scope import scoped
+from wavestack.trace.scope import current, scoped
 
 DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
 LOAD_TOOL_DOC = "load_tool_doc"  # the harness meta-tool of the lazy loading mode (AD-25)
@@ -147,7 +158,8 @@ class Exchange(NamedTuple):
 
     `steps` are the turn's intermediate messages, before the final answer:
     `{role: assistant, content, reasoning, tool_calls: [{name, arguments}]}` and
-    `{role: tool, name, content, component}`.
+    `{role: tool, name, content, component}`. `injection`: H3's text placed before the
+    message, kept with it in the history (story 8).
     """
 
     turn_id: str
@@ -155,6 +167,7 @@ class Exchange(NamedTuple):
     text: str
     reasoning: str
     steps: tuple[dict[str, Any], ...] = ()
+    injection: str = ""
 
 
 @dataclass
@@ -180,6 +193,9 @@ class TurnState:
     # Skills (AD-25), in the registry's order: loaded and enabled, then enabled not loaded.
     skills: tuple[str, ...] = ()
     skill_catalog: tuple[str, ...] = ()
+    # Hooks (AD-13): the active ones, in call order; H3's text, set by `on_user_message`.
+    hooks: tuple[str, ...] = ()
+    injection: str = ""
 
 
 class SendRefused(Exception):
@@ -204,6 +220,7 @@ class AppSession:
         cfg: config.Config | None = None,
         engine_factory: Callable[..., Engine] = LlamaCppEngine,
         bricks: list[BrickDeclaration] | None = None,
+        hooks: tuple[Hook, ...] = DEMO_HOOKS,
     ) -> None:
         self.cfg = cfg or config.load_config()
         self._engine_factory = engine_factory
@@ -229,6 +246,10 @@ class AppSession:
         self._tools_content: ToolsContent | None = None
         self._mcp_content: McpContent | None = None
         self._skills_content: SkillsContent | None = None
+        self._hooks = hooks  # tests replace them to reach every point (CAP-27)
+        self._hooks_content: HooksContent | None = None
+        self._hook_steps = 0  # hook steps of the running turn, for their step ids
+        self._turn_seq = 0  # seq of the running turn's `turn_started`: its events follow it
         self._load_content()
         self._registry = ToolRegistry(
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
@@ -256,9 +277,17 @@ class AppSession:
         # conversation (AD-17), and wait while their skill is disabled.
         self._skills_enabled = set(self._skill_ids())
         self._loaded_skills: set[str] = set()
+        # Hooks (story 8): H1, H2 and H3 enabled at first (Q1).
+        self._hooks_enabled = set(self._hook_ids())
         # Configuration frozen by the last `send`: `pending` is measured against it.
         self._sent: tuple[
-            frozenset[str], str, frozenset[str], frozenset[str], bool, frozenset[str]
+            frozenset[str],
+            str,
+            frozenset[str],
+            frozenset[str],
+            bool,
+            frozenset[str],
+            frozenset[str],
         ] = (
             frozenset(),
             self._default_prompt,
@@ -266,6 +295,7 @@ class AppSession:
             frozenset(),
             False,
             frozenset(self._skills_enabled),
+            frozenset(self._hooks_enabled),
         )
 
     # ---------- state ----------
@@ -289,6 +319,8 @@ class AppSession:
                 enabled = {f"mcp.{server}" for server in self._mcp_enabled}
             elif brick.id == "skills":
                 enabled = {f"skills.{skill}" for skill in self._skills_enabled}
+            elif brick.id == "hooks":
+                enabled = {f"hooks.{hook}" for hook in self._hooks_enabled}
             else:
                 return list(brick.components)
         return [c for c in brick.components if c.id in enabled]
@@ -296,6 +328,15 @@ class AppSession:
     def _mcp_label(self, server_id: str) -> str:
         text = self._mcp_content.servers.get(server_id) if self._mcp_content else None
         return text.label_fr if text else server_id
+
+    def _hook_ids(self) -> list[str]:
+        """The declared hooks, in the registry's order, which is their call order."""
+        brick = self._bricks.get("hooks")
+        return [c.id.removeprefix("hooks.") for c in brick.components] if brick else []
+
+    def _hook_label(self, hook_id: str) -> str:
+        text = self._hooks_content.hooks.get(hook_id) if self._hooks_content else None
+        return text.label_fr if text else hook_id
 
     def _skill_ids(self) -> list[str]:
         """The declared skills, in the registry's order."""
@@ -333,20 +374,35 @@ class AppSession:
         nodes: list[dict[str, Any]] = [_CORE_HARNESS, {**_CORE_MODEL, "model": self._model_name}]
         edges: list[dict[str, Any]] = []
         components = {b.id: self._drawn_components(b) for b in wanted}
-        # The demo files node is drawn once a drawn component points to it.
+        # A file node is drawn once a drawn component points to it: its brick, its label
+        # and what its tooltip adds.
         targets = {t for cs in components.values() for c in cs for t in c.edges_to}
-        if "file.demo_dir" in targets:
-            label = self._tools_content.demo_dir_label_fr if self._tools_content else "demo_files"
-            available, reason_fr = self._availability("tools")
+        files = {
+            "file.demo_dir": (
+                "tools",
+                self._tools_content.demo_dir_label_fr if self._tools_content else "demo_files",
+                None,
+            ),
+            AUDIT: (
+                "hooks",
+                self._hooks_content.audit_label_fr if self._hooks_content else "audit.log",
+                str(config.audit_path()),
+            ),
+        }
+        for file_id, (brick_id, label, detail_fr) in files.items():
+            if file_id not in targets:
+                continue
+            available, reason_fr = self._availability(brick_id)
             nodes.append(
                 {
-                    "id": "file.demo_dir",
+                    "id": file_id,
                     "kind": "file",
                     "hosting": "local",
                     "label_fr": label,
                     "wanted": True,
                     "available": available,
                     "reason_fr": reason_fr,
+                    "detail_fr": detail_fr,
                 }
             )
         drawn = {n["id"] for n in nodes} | {c.id for cs in components.values() for c in cs}
@@ -356,15 +412,18 @@ class AppSession:
                 hosting = "network" if component.hosting == "network_service" else "local"
                 is_tool = component.kind == "tool"
                 is_skill = component.kind == "skill"
+                is_hook = component.kind == "hook"
                 node = {
                     "id": component.id,
-                    "kind": component.kind if is_tool or is_skill else "brick",
+                    "kind": component.kind if is_tool or is_skill or is_hook else "brick",
                     "hosting": hosting,
                     "label_fr": (
                         self._registry.label(component.id.removeprefix("tools."))
                         if is_tool
                         else self._skill_label(component.id.removeprefix("skills."))
                         if is_skill
+                        else self._hook_label(component.id.removeprefix("hooks."))
+                        if is_hook
                         else self._label(brick.id)
                     ),
                     "wanted": True,
@@ -385,6 +444,9 @@ class AppSession:
                     with self._lock:
                         node["loaded"] = skill_id in self._loaded_skills
                     node["detail_fr"] = text.description if text else None
+                if is_hook and self._hooks_content:  # its tooltip says when it acts
+                    hook = self._hooks_content.hooks.get(component.id.removeprefix("hooks."))
+                    node["detail_fr"] = hook.description_fr if hook else None
                 nodes.append(node)
                 edges += [
                     {"from": component.id, "to": target, "crosses_boundary": hosting == "network"}
@@ -397,7 +459,15 @@ class AppSession:
         """Bricks whose effect on the next turn differs from what the last `send` froze."""
         mcp_tools = frozenset(self._mcp_tool_names())
         with self._lock:
-            sent_wanted, sent_prompt, sent_tools, sent_mcp, sent_lazy, sent_skills = self._sent
+            (
+                sent_wanted,
+                sent_prompt,
+                sent_tools,
+                sent_mcp,
+                sent_lazy,
+                sent_skills,
+                sent_hooks,
+            ) = self._sent
             pending = set(self._wanted) ^ sent_wanted
             prompt = self._custom_prompt or self._default_prompt
             if "system_prompt" in self._wanted and prompt != sent_prompt:
@@ -409,6 +479,8 @@ class AppSession:
                 pending.add("mcp")
             if "skills" in self._wanted and self._skills_enabled != sent_skills:
                 pending.add("skills")
+            if "hooks" in self._wanted and self._hooks_enabled != sent_hooks:
+                pending.add("hooks")
         return pending
 
     def _mcp_options(self) -> list[dict[str, Any]]:
@@ -437,6 +509,20 @@ class AppSession:
                 "network": False,
             }
             for skill_id in self._skill_ids()
+        ]
+
+    def _hook_options(self) -> list[dict[str, Any]]:
+        with self._lock:
+            enabled = set(self._hooks_enabled)
+        return [
+            {
+                "id": hook_id,
+                "label_fr": self._hook_label(hook_id),
+                "enabled": hook_id in enabled,
+                "hosting_fr": "Local",
+                "network": False,
+            }
+            for hook_id in self._hook_ids()
         ]
 
     def _tool_options(self) -> list[dict[str, Any]]:
@@ -495,6 +581,8 @@ class AppSession:
                         if brick.id == "mcp"
                         else self._skill_options()
                         if brick.id == "skills"
+                        else self._hook_options()
+                        if brick.id == "hooks"
                         else []
                     ),
                     "limits_fr": self._limits_fr() if brick.id == "tools" else None,
@@ -655,6 +743,19 @@ class AppSession:
                     exc,
                     "La brique « Skills » est indisponible ; le reste de WaveStack fonctionne.",
                 )
+        if "hooks" in self._bricks:
+            try:
+                self._hooks_content = load_hooks_content(self._hook_ids())
+            except Exception as exc:  # noqa: BLE001
+                self._content_errors["hooks"] = (
+                    "Le fichier content/hooks.yaml est absent ou invalide : corrigez-le puis "
+                    "relancez WaveStack."
+                )
+                self._error(
+                    "Les textes des hooks sont invalides.",
+                    exc,
+                    "La brique « Hooks » est indisponible ; le reste de WaveStack fonctionne.",
+                )
         if "system_prompt" not in self._bricks:
             return
         try:
@@ -723,6 +824,7 @@ class AppSession:
             enabled = set(self._tools_enabled)
             lazy, loaded = self._mcp_lazy, set(self._loaded_docs)
             skills_enabled, skills_loaded = set(self._skills_enabled), set(self._loaded_skills)
+            hooks_enabled = set(self._hooks_enabled)
         tools = [n for n in self._registry.names if n in enabled] if "tools" in effective else []
         loadable: list[str] = []
         if "mcp" in effective:
@@ -739,6 +841,7 @@ class AppSession:
             skills = [s for s in enabled_skills if s in skills_loaded]
             catalog = [s for s in enabled_skills if s not in skills_loaded]
             tools += [LOAD_SKILL] if catalog else []
+        hooks = [h for h in self._hook_ids() if h in hooks_enabled] if "hooks" in effective else []
         return TurnState(
             history=tuple(history),
             system_prompt=prompt if prompt is not None else self._default_prompt,
@@ -747,6 +850,7 @@ class AppSession:
             loadable=tuple(loadable),
             skills=tuple(skills),
             skill_catalog=tuple(catalog),
+            hooks=tuple(hooks),
         )
 
     # ---------- rendering ----------
@@ -847,9 +951,10 @@ class AppSession:
         if "short_memory" in state.effective:
             for ex in state.history:
                 memory = ("short_memory", "short_memory.history")
-                messages.append(
-                    {"role": "user", "content": [Part(SegmentKind.HISTORY, ex.user, *memory)]}
-                )
+                user = [Part(SegmentKind.HISTORY, ex.user, *memory)]
+                if ex.injection:  # H3's text stays before its message
+                    user.insert(0, Part(SegmentKind.HISTORY, ex.injection, *memory))
+                messages.append({"role": "user", "content": user})
                 messages += self._step_messages(ex.steps, history=True, group=ex.turn_id)
                 answer: dict[str, Any] = {
                     "role": "assistant",
@@ -860,7 +965,10 @@ class AppSession:
                     # past reasoning counts it as `template`; attribute it once one does.
                     answer["reasoning_content"] = ex.reasoning
                 messages.append(answer)
-        messages.append({"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, message)]})
+        user = [Part(SegmentKind.USER_MESSAGE, message)]
+        if state.injection:  # AD-13: added before the message, never rewriting it
+            user.insert(0, Part(SegmentKind.HOOK_INJECTION, state.injection, "hooks", "hooks.h3"))
+        messages.append({"role": "user", "content": user})
         messages += self._step_messages(steps or [], history=False, group="turn")
         return messages
 
@@ -945,8 +1053,10 @@ class AppSession:
         """AD-9: the next-turn gauge, rendered without any message. Runs on the worker."""
         if self._engine is None:
             return  # no model: nothing to preview
+        state = self.build_turn_state()
+        state = replace(state, injection=self._preview_injection(state))
         try:
-            _, payload = self._render(self.build_turn_state(), "", None)
+            _, payload = self._render(state, "", None)
         except Exception as exc:  # noqa: BLE001 - AD-16
             self._error(
                 "L'aperçu du contexte n'a pas pu être calculé.",
@@ -955,6 +1065,21 @@ class AppSession:
             )
             return
         get_journal().emit("context_preview", payload)
+
+    def _preview_injection(self, state: TurnState) -> str:
+        """What the active `on_user_message` hooks would add, for the gauge only: no
+        decision emitted, a failing hook left out."""
+        texts = []
+        for hook in self._hooks:
+            if hook.id not in state.hooks or "on_user_message" not in hook.points:
+                continue
+            try:
+                result = hook.fn(HookContext("on_user_message", "", content=self._hooks_content))
+            except Exception:  # noqa: BLE001, S112 - the turn traces it, not the preview
+                continue
+            if result is not None and result.decision == "modify" and result.injection:
+                texts.append(result.injection)
+        return texts[-1] if texts else ""  # as in a turn: the last hook that modified
 
     # ---------- intentions ----------
 
@@ -983,6 +1108,7 @@ class AppSession:
                 mcp_tools,
                 self._mcp_lazy,
                 frozenset(self._skills_enabled),
+                frozenset(self._hooks_enabled),
             )
         if had_pending:  # « Prend effet au prochain tour » is over for what this turn reads
             self._emit_bricks()
@@ -1038,6 +1164,21 @@ class AppSession:
                 self._skills_enabled.add(skill_id)
             else:
                 self._skills_enabled.discard(skill_id)
+        self._emit_bricks()
+        self._emit_architecture()
+        self._executor.submit(self._emit_preview)
+
+    def set_hook(self, hook_id: str, enabled: bool) -> None:
+        """Class (a): a hook sub-option, effective from the next turn. `KeyError` if unknown."""
+        if hook_id not in self._hook_ids():
+            raise KeyError(hook_id)
+        with self._lock:
+            if (hook_id in self._hooks_enabled) == enabled:
+                return
+            if enabled:
+                self._hooks_enabled.add(hook_id)
+            else:
+                self._hooks_enabled.discard(hook_id)
         self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
@@ -1347,15 +1488,18 @@ class AppSession:
         started = time.monotonic()
         status = "error"
         journal = get_journal()
+        self._hook_steps = 0
+        steps: list[dict[str, Any]] = []
+        text = reasoning = ""
         with scoped(turn_id=turn_id, context_id="main", trigger="user"):
             try:
-                journal.emit("turn_started", {"replay_of": None, "message": message}, actor="user")
-                steps: list[dict[str, Any]] = []
+                self._turn_seq = journal.emit(
+                    "turn_started", {"replay_of": None, "message": message}, actor="user"
+                ).seq
+                decided = self._hook("on_user_message", state)
+                if decided is not None and decided[1].injection:  # computed once for the turn
+                    state = replace(state, injection=decided[1].injection)
                 status, text, reasoning = self._turn(turn_id, message, cancel, state, steps)
-                if status == "completed":  # AD-17: recorded even with short memory off
-                    exchange = Exchange(turn_id, message, text, reasoning, tuple(steps))
-                    with self._lock:
-                        self._history.append(exchange)
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error(
                     "Le tour s'est interrompu sur une erreur.",
@@ -1363,6 +1507,23 @@ class AppSession:
                     "Le tour est terminé ; WaveStack reste utilisable.",
                 )
             finally:
+                try:
+                    ended = self._hook("on_turn_end", state, status=status)
+                except Exception as exc:  # noqa: BLE001 - AD-16: the turn still ends
+                    ended = None
+                    self._error(
+                        "Les hooks de fin de tour se sont interrompus.",
+                        exc,
+                        "Le tour se termine sans eux.",
+                    )
+                if status == "completed" and ended is not None and ended[1].decision == "block":
+                    status = "blocked"  # the answer stays out of the history
+                if status == "completed":  # AD-17: recorded even with short memory off
+                    exchange = Exchange(
+                        turn_id, message, text, reasoning, tuple(steps), state.injection
+                    )
+                    with self._lock:
+                        self._history.append(exchange)
                 journal.emit(
                     "turn_ended",
                     {"status": status, "duration_ms": _ms(time.monotonic() - started)},
@@ -1389,6 +1550,10 @@ class AppSession:
         loaded_in_turn: list[str] = []
         for n in range(1, max_calls + 1):
             call_id = f"{turn_id}.main.c{n}"
+            with scoped(call_id=call_id):
+                decided = self._hook("before_model_call", state)
+            if decided is not None and decided[1].decision == "block":
+                return "blocked", "", ""
             step += 1
             with scoped(call_id=call_id, step_id=f"{turn_id}.main.s{step}", component="core.model"):
                 rendered, payload = self._render(state, message, call_id, steps)
@@ -1459,21 +1624,18 @@ class AppSession:
                             else harness_brick
                         )
                         effects: list[Effect] = []
-                        with scoped(
-                            step_id=f"{turn_id}.main.s{step}", brick=brick, component=component
-                        ):
-                            if spec is None:
+                        step_id = f"{turn_id}.main.s{step}"
+                        blocker = None
+                        if spec is None:
+                            with scoped(step_id=step_id, brick=brick, component=component):
                                 result = self._tool_executor.reject(
                                     out.raw, call.source, detail, reaction
                                 )
-                            else:
-                                result = self._tool_executor.run(call, cancel, effects)
-                        if spec is not None and spec.is_mcp and result is not None:
-                            self._after_mcp_call(call.name, spec)
-                        if spec is not None and (spec.network or spec.is_mcp):
-                            self._emit_architecture()  # its contact state may have changed
-                        if result is None:
-                            return "cancelled", "", ""
+                        else:
+                            ran = self._run_tool(call, spec, state, cancel, effects, step_id, brick)
+                            if ran is None:
+                                return "cancelled", "", ""
+                            result, blocker = ran
                         tool_step = {
                             "role": "tool",
                             "name": call.name,
@@ -1481,6 +1643,8 @@ class AppSession:
                             "component": component,
                             "brick": brick,
                         }
+                        if blocker is not None:  # AD-4: the refusal is the hook's text
+                            tool_step |= {"component": f"hooks.{blocker}", "brick": "hooks"}
                         for effect in effects:  # AD-23: the session applies them
                             if isinstance(effect, ToolDocLoaded):
                                 tool_step |= self._apply_doc_loaded(effect.tool, loaded_in_turn)
@@ -1496,6 +1660,121 @@ class AppSession:
                 return "cancelled", "", ""
         self._emit_limit("calls", max_calls)
         return "limit", "", ""
+
+    def _run_tool(
+        self,
+        call: ToolCall,
+        spec: ToolSpec,
+        state: TurnState,
+        cancel: CancelToken,
+        effects: list[Effect],
+        step_id: str,
+        brick: str,
+    ) -> tuple[str, str | None] | None:
+        """AD-14: the single path of a checked call, `before_tool`, execution, `after_tool`.
+        Returns the text reinjected and the id of the hook that blocked the call (then the tool
+        never runs, and has no step), or `None` when the turn is stopped. H5's `ask_human`
+        (story 8b), the forced action and the sub-agent (story 9) go through here."""
+        decided = self._hook("before_tool", state, call=call, spec=spec)
+        if decided is not None:
+            hook_id, result = decided
+            if result.decision == "block":  # not a new attempt (AD-10)
+                return result.detail_fr, hook_id
+            if result.arguments is not None:
+                call = replace(call, arguments=result.arguments)
+        with scoped(step_id=step_id, brick=brick, component=spec.component):
+            text = self._tool_executor.run(call, cancel, effects)
+        if spec.is_mcp and text is not None:
+            self._after_mcp_call(call.name, spec)
+        if spec.network or spec.is_mcp:
+            self._emit_architecture()  # its contact state may have changed
+        if text is None:
+            return None
+        self._hook("after_tool", state, call=call, spec=spec, result=text)
+        return text, None
+
+    def _hook(
+        self, point: HookPoint, state: TurnState, **ctx: Any
+    ) -> tuple[str, HookResult] | None:
+        """AD-13: calls the turn's active hooks of `point` in order, each decision emitted on
+        a step of its own and its effects applied; the first `block` stops there. Returns the
+        deciding hook and its result: the blocking one, else the last that modified. A
+        failing hook or a decision not allowed at `point` is traced and counts as `allow`."""
+        hooks = [h for h in self._hooks if h.id in state.hooks and point in h.points]
+        if not hooks:
+            return None
+        journal = get_journal()
+        turn_id = current().turn_id or ""
+        texts = self._hooks_content
+        decided: tuple[str, HookResult] | None = None
+        for hook in hooks:
+            # From this turn's start: another session's turn may share its id (AD-2).
+            since = journal.events_since(self._turn_seq - 1)
+            events = tuple(e for e in since if e.turn_id == turn_id)
+            view = HookContext(point, turn_id, events=events, content=texts, **ctx)
+            self._hook_steps += 1
+            step_id = f"{turn_id}.main.h{self._hook_steps}"
+            label = self._hook_label(hook.id)
+            with scoped(step_id=step_id, brick="hooks", component=f"hooks.{hook.id}"):
+                try:
+                    result = hook.fn(view)
+                except Exception as exc:  # noqa: BLE001 - AD-16
+                    self._error(
+                        f"Le hook « {label} » a échoué.",
+                        exc,
+                        "Il laisse passer : le tour continue.",
+                    )
+                    continue
+                if result is None:  # not concerned: nothing is emitted
+                    continue
+                if result.decision not in ALLOWED[point]:
+                    self._error(
+                        f"Le hook « {label} » a rendu la décision « {result.decision} », non "
+                        f"permise au point « {point} ».",
+                        "Décision hors de la liste permise (AD-13).",
+                        "Elle vaut « allow » : le tour continue.",
+                    )
+                    result = replace(result, decision="allow")
+                journal.emit(
+                    "hook_decided",
+                    {
+                        "hook": hook.id,
+                        "point": point,
+                        "decision": result.decision,
+                        "detail_fr": result.detail_fr,
+                        "hook_fr": label,
+                        "point_fr": texts.points[point] if texts else point,
+                    },
+                )
+                for effect in result.effects:  # AD-23: the session alone writes
+                    if isinstance(effect, AuditAppend):
+                        self._apply_audit(effect.lines)
+            if result.decision == "block":
+                return hook.id, result
+            if result.decision == "modify":
+                decided = (hook.id, result)
+                if result.arguments is not None and ctx.get("call") is not None:
+                    ctx["call"] = replace(ctx["call"], arguments=result.arguments)
+        return decided
+
+    def _apply_audit(self, lines: list[str]) -> None:
+        """`AuditAppend`: appended to `audit.log` in the data folder (AD-20, AD-23)."""
+        path = config.audit_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as file:
+                file.write("".join(f"{line}\n" for line in lines))
+        except OSError as exc:
+            self._error(
+                "Le journal d'audit n'a pas pu être écrit.",
+                exc,
+                "Ces lignes ne sont pas écrites ; le tour continue. La journalisation les "
+                "reprendra à son prochain déclenchement dans ce tour, s'il y en a un ; sinon "
+                "elles sont perdues.",
+            )
+            return
+        with scoped(component=AUDIT):
+            get_journal().emit("effect_applied", {"effect": "audit_append", "lines": lines})
 
     def _apply_doc_loaded(self, tool: str, loaded_in_turn: list[str]) -> dict[str, Any]:
         """`ToolDocLoaded`: the documentation is loaded for the conversation and callable now.

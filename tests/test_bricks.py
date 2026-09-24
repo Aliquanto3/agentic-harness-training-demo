@@ -346,6 +346,7 @@ def test_boot_emits_bare_llm_cards_without_any_toggle():
             "tools": False,
             "mcp": False,
             "skills": False,
+            "hooks": False,
         }
         assert cards["system_prompt"]["is_default"] is True
 
@@ -387,7 +388,7 @@ def test_edge_to_an_undrawn_node_is_dropped(monkeypatch):
         id="audit.log",
         kind="fake",
         hosting="local_process",
-        edges_to=["core.harness", "file.audit"],
+        edges_to=["core.harness", "file.rag_index"],
     )
     brick = BrickDeclaration(id="audit", category="harness", components=[component])
     session = AppSession(config.Config(values={}), bricks=[brick])

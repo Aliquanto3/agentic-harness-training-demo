@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from wavestack import config
 from wavestack.session.app_session import AppSession, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.envelope import Envelope
@@ -54,6 +55,11 @@ class McpModeIntention(BaseModel):
 
 class SkillIntention(BaseModel):
     skill: str
+    enabled: bool
+
+
+class HookIntention(BaseModel):
+    hook: str
     enabled: bool
 
 
@@ -230,6 +236,30 @@ def create_app(
         except KeyError:
             raise HTTPException(status_code=404, detail="Skill inconnu.") from None
         return {"accepted": True}
+
+    @app.post("/api/intentions/hook")
+    def hook(intention: HookIntention) -> dict[str, bool]:
+        """Class (a): a hook sub-option, effective from the next turn (AD-3)."""
+        try:
+            app_session.set_hook(intention.hook, intention.enabled)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Hook inconnu.") from None
+        return {"accepted": True}
+
+    @app.get("/api/audit")
+    def audit() -> dict[str, str]:
+        """The whole audit log H2 feeds, read only; empty text while it does not exist."""
+        path = config.audit_path()
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except FileNotFoundError:
+            text = ""
+        except OSError as exc:  # a folder in its place, a locked file
+            raise HTTPException(
+                status_code=500,
+                detail=f"Le journal d'audit ({path}) est illisible : {exc.strerror or exc}",
+            ) from None
+        return {"path": str(path), "text": text}
 
     @app.post("/api/intentions/system_prompt")
     def system_prompt(intention: SystemPromptIntention) -> dict[str, object]:
