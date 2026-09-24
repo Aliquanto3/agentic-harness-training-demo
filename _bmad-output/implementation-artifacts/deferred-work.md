@@ -45,3 +45,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1b-choix-du-modele-au-diagnostic.md`
   summary: Le démarrage CLI (`_run_diagnostic_then_boot` → `app_session.boot(result.model_path)`) n'est exercé par aucun test.
   evidence: Remplacer l'appel par `boot(None)` ne ferait échouer aucun test ; la fermeture vit dans `main()`, bloqué par `uvicorn.run`. Même écart que celui déjà consigné pour la story 2 ; se ferme en extrayant la fonction pour l'injecter.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1c-correctif-garde-reseau.md`
+  summary: La garde réseau ne filtre ni `socket.gethostbyname`/`gethostbyname_ex` ni `socket.sendto` : une résolution hors liste ou un envoi UDP vers une IP quelconque lui échappent.
+  evidence: AD-15 ne filtre que `socket.getaddrinfo` et `socket.connect` ; relevé par la revue de la story 1c (préexistant). À traiter avant d'adopter une dépendance qui résout par `gethostbyname` ou parle UDP, en ajoutant ces événements au hook.
