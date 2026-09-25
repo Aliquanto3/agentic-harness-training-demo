@@ -32,6 +32,20 @@ const store = {
   openApprovalPayloads: new Set(), // approval ids whose payload is unfolded in the Vue humain card
   // Harness steps outside any turn (MCP discovery), each placed after the turns seen so far.
   offTurn: [],
+  // Orchestration, UI state only (story 8d): the rail follows the live turn until a click
+  // freezes it; what the user unfolded; the event log, folded until asked.
+  orch: {
+    live: true,
+    userOpen: new Set(), // step keys unfolded by the user (frozen view)
+    turnOpen: new Map(), // turn id -> unfolded, when the user chose
+    selected: null, // the step key last clicked
+    current: null, // the live step's key, computed at each render
+    currentSticky: false,
+    prepGroupOpen: true,
+    prepOpen: new Set(), // MCP connection lines unfolded
+    logOpen: false,
+    logRowsOpen: new Set(), // event log rows whose JSON is shown, by first seq
+  },
 };
 
 // Gauge group -> DESIGN.md segment colour token (formatting only).
@@ -383,7 +397,7 @@ function emptyNote(text) {
 const NO_TURN_FR =
   "Aucun tour pour l'instant. Envoyez un message : le contexte envoyé au modèle apparaîtra ici.";
 const CLEARED_FR =
-  "Conversation vidée : le prochain message repart sans historique. Les tours précédents restent dans la liste des événements, en bas d'Orchestration.";
+  "Conversation vidée : le prochain message repart sans historique. Les tours précédents restent dans le journal des événements (replié, en bas d'Orchestration).";
 
 // The turns still shown after the last `conversation_cleared`, and whether one happened.
 const shownTurns = () => store.turns.slice(store.chatFrom);
@@ -839,13 +853,9 @@ function renderContext() {
   );
 }
 
-// ---------- orchestration: the turn's steps in their real order (CAP-15, CAP-16) ----------
-
-function stepCard(title, className = "step") {
-  const card = el("div", className);
-  card.appendChild(el("div", "step-title", title));
-  return card;
-}
+// ---------- orchestration: steps grouped by turn, in their real order (CAP-15, CAP-16, story 8d) ----------
+// The bodies below are the content of the former step cards: each is now the unfolded part
+// of one line of the rail.
 
 function groupTokens(context, group) {
   return context?.breakdown.find((item) => item.group === group)?.tokens ?? 0;
@@ -866,110 +876,126 @@ function harnessEvent(title, tone, lines) {
   return card;
 }
 
-function modelCallCards(turn, step, index, calls) {
-  const cards = [];
-  const context = step.context;
-  const catalog = groupTokens(context, "tool_catalog");
-  const results = groupTokens(context, "tool_result");
-  if (index === 0 && catalog) {
-    const count = context.segments.filter((s) => s.kind === "tool_catalog").length;
-    const card = stepCard("1. Description des outils");
-    const plural = count > 1 ? "s" : "";
-    card.appendChild(
-      el("p", "", `${count} outil${plural} décrit${plural} au modèle dans le contexte : ${fmt(catalog)} tokens.`)
-    );
-    cards.push(card);
-  }
-  if (index > 0 && results) {
-    const card = stepCard("4. Réinjection");
-    card.appendChild(
-      el("p", "", `Résultats d'outils ajoutés au contexte de cet appel : ${fmt(results)} tokens.`)
-    );
-    cards.push(card);
-  }
-  const ended = step.ended;
-  const last = index === calls.length - 1;
-  const isFinal = catalog && ended && !ended.tool_calls.length && last && turn.status === "completed";
-  const title = isFinal ? "5. Réponse finale · appel au modèle" : "Appel au modèle";
-  const card = stepCard(`${title} · ${step.id ?? turn.id}`);
-  let counter = `Entrée : ${fmt(context?.used ?? 0)} tokens`;
-  if (ended) {
-    counter = `Entrée : ${fmt(ended.prompt_tokens)} tokens · Sortie : ${fmt(ended.output_tokens)} tokens · Temps : ${seconds(ended.duration_ms)}`;
-  } else if (step.startedAt) {
-    counter += ` · Sortie : … · Temps : ${seconds(Date.now() - step.startedAt)} (en cours)`;
-  }
-  card.appendChild(el("div", "token-counter number", counter));
-  if (ended && ended.stop_reason !== "stop") {
-    const reasons = { length: "sortie coupée", cancelled: "arrêté", error: "erreur" };
-    card.appendChild(el("span", "step-badge", reasons[ended.stop_reason]));
-  }
-  cards.push(card);
-  if (ended?.tool_calls.length) {
-    const ask = stepCard("2. Demande d'outil (décidée par le modèle)");
-    for (const call of ended.tool_calls) ask.appendChild(el("pre", "step-code", formatCall(call)));
-    cards.push(ask);
-  }
-  return cards;
+// A stopwatch inside an unfolded body: its text is refreshed in place (`refreshTicks`), so
+// the 250 ms tick never rebuilds the body under the pointer.
+function tick(since) {
+  const span = el("span", "tick", seconds(Date.now() - since));
+  span.dataset.since = String(since);
+  return span;
 }
 
-function toolCard(step) {
-  const ended = step.ended;
-  // A harness tool (`load_tool_doc`, `load_skill`) shows its own step, e.g. « Chargement de
-  // la documentation », and says the model triggered it (EXPERIENCE: trigger badge).
-  const harness = step.started.source === "harness";
-  const title = harness ? step.started.phase_label : "Exécution par le harnais";
-  const card = stepCard(`3. ${title} · ${step.started.tool}`);
-  if (step.started.source?.startsWith("mcp") || (harness && step.brick === "mcp")) {
-    card.appendChild(el("span", "step-badge is-mcp", "MCP"));
+function refreshTicks(root) {
+  for (const node of root.querySelectorAll("[data-since]")) {
+    setText(node, seconds(Date.now() - Number(node.dataset.since)));
   }
-  if (step.brick === "skills") card.appendChild(el("span", "step-badge is-skill", "Skill"));
+}
+
+function setText(node, text) {
+  if (node.textContent !== text) node.textContent = text;
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+function catalogBody(context, tokens) {
+  const count = context.segments.filter((s) => s.kind === "tool_catalog").length;
+  const plural = count > 1 ? "s" : "";
+  return [el("p", "", `${count} outil${plural} décrit${plural} au modèle dans le contexte : ${fmt(tokens)} tokens.`)];
+}
+
+function callBody(turn, step) {
+  const context = step.context;
+  const ended = step.ended;
+  const counter = el("div", "token-counter number");
+  if (ended) {
+    counter.textContent = `Entrée : ${fmt(ended.prompt_tokens)} tokens · Sortie : ${fmt(ended.output_tokens)} tokens · Temps : ${seconds(ended.duration_ms)}`;
+  } else if (step.startedAt) {
+    counter.append(`Entrée : ${fmt(context?.used ?? 0)} tokens · Sortie : … · Temps : `, tick(step.startedAt), " (en cours)");
+  } else {
+    counter.textContent = `Entrée : ${fmt(context?.used ?? 0)} tokens`;
+  }
+  const nodes = [el("p", "label", `Appel ${step.id ?? turn.id}`), counter];
+  if (ended && ended.stop_reason !== "stop") {
+    const reasons = { length: "sortie coupée", cancelled: "arrêté", error: "erreur" };
+    nodes.push(el("span", "step-badge", reasons[ended.stop_reason]));
+  }
+  return nodes;
+}
+
+function toolBody(step) {
+  const ended = step.ended;
+  // A harness tool (`load_tool_doc`, `load_skill`) says the model triggered it (EXPERIENCE:
+  // trigger badge).
+  const harness = step.started.source === "harness";
+  const nodes = [];
+  if (step.started.source?.startsWith("mcp") || (harness && step.brick === "mcp")) {
+    nodes.push(el("span", "step-badge is-mcp", "MCP"));
+  }
+  if (step.brick === "skills") nodes.push(el("span", "step-badge is-skill", "Skill"));
   if (harness) {
     const icon = el("span", "", "🤖 ");
     icon.setAttribute("aria-hidden", "true"); // the label alone is read aloud
     const badge = el("span", "trigger-badge-model");
     badge.append(icon, "Déclenché par le modèle");
-    card.appendChild(badge);
+    nodes.push(badge);
   }
   const asked = { name: step.started.tool, arguments: step.started.arguments };
-  card.appendChild(el("pre", "step-code", formatCall(asked)));
-  for (const request of step.outbound || []) card.appendChild(outboundPayload(request));
+  nodes.push(el("pre", "step-code", formatCall(asked)));
+  for (const request of step.outbound || []) nodes.push(outboundPayload(request));
   if (!ended) {
-    const running = `En cours… ${seconds(Date.now() - step.startedAt)}`;
-    card.appendChild(el("div", "token-counter number", running));
-    return card;
+    const running = el("div", "token-counter number", "En cours… ");
+    running.appendChild(tick(step.startedAt));
+    nodes.push(running);
+    return nodes;
   }
-  card.appendChild(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
   if (ended.status === "ok") {
-    card.append(el("p", "label", "Résultat"), el("pre", "step-code", ended.result));
+    nodes.push(el("p", "label", "Résultat"), el("pre", "step-code", ended.result));
   } else {
-    card.classList.add("is-error");
-    card.append(
+    nodes.push(
       el("span", "step-badge", "erreur d'exécution"),
       el("p", "", `${ended.error_fr} L'erreur est réinjectée au modèle ; ce n'est pas un nouvel essai.`)
     );
   }
-  return card;
+  return nodes;
 }
 
-function connectCard(step) {
+function connectBody(step) {
   // MCP discovery, outside any turn: connection, then the tools the server lists.
   const ended = step.ended;
-  const card = stepCard(step.started.phase_label);
-  card.appendChild(el("span", "step-badge is-mcp", "MCP"));
-  for (const request of step.outbound || []) card.appendChild(outboundPayload(request));
+  const nodes = [el("span", "step-badge is-mcp", "MCP"), el("p", "", step.started.phase_label)];
+  for (const request of step.outbound || []) nodes.push(outboundPayload(request));
   if (!ended) {
-    card.appendChild(el("div", "token-counter number", "Connexion en cours…"));
-    return card;
+    nodes.push(el("div", "token-counter number", "Connexion en cours…"));
+    return nodes;
   }
-  card.appendChild(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
   if (ended.status === "ok") {
     const count = ended.tools.length;
-    card.appendChild(el("p", "label", `Outils trouvés : ${count}`));
-    if (count) card.appendChild(el("pre", "step-code", ended.tools.join("\n")));
+    nodes.push(el("p", "label", `Outils trouvés : ${count}`));
+    if (count) nodes.push(el("pre", "step-code", ended.tools.join("\n")));
   } else {
-    card.classList.add("is-error");
-    card.append(el("span", "step-badge", "serveur indisponible"), el("p", "", ended.error_fr));
+    nodes.push(el("span", "step-badge", "serveur indisponible"), el("p", "", ended.error_fr));
   }
+  return nodes;
+}
+
+function overflowCard(overflow) {
+  const card = el("div", "overflow-card");
+  card.append(
+    el("h3", "", "⚠ Contexte dépassé — l'appel au modèle n'a pas été envoyé"),
+    el("p", "number", `${fmt(overflow.used)} / ${fmt(overflow.usable)} tokens`),
+    el("p", "", overflow.message_fr),
+    el("p", "label", "En production, un harnais pourrait")
+  );
+  const list = el("ul");
+  for (const strategy of overflow.strategies_fr) list.appendChild(el("li", "", strategy));
+  card.appendChild(list);
   return card;
 }
 
@@ -1140,55 +1166,502 @@ function malformedCard(p) {
   ]);
 }
 
-function renderSteps() {
-  const steps = document.getElementById("steps");
-  steps.innerHTML = "";
-  // Only what follows the last clearing (Q1: MCP connections before it are hidden too).
-  const offTurn = (index) => {
-    for (const step of store.offTurn) {
-      const after = !cleared() || step.seq > store.clearedSeq;
-      if (step.afterTurn === index && after) steps.appendChild(connectCard(step));
-    }
-  };
-  if (cleared() && store.turns.length === store.chatFrom) steps.appendChild(emptyNote(CLEARED_FR));
-  store.turns.forEach((turn, index) => {
-    if (index < store.chatFrom) return;
-    offTurn(index);
-    const calls = turn.steps.filter((s) => s.type === "call");
-    for (const step of turn.steps) {
-      if (step.type === "call") {
-        if (turn.overflow && step === calls.at(-1)) continue; // the overflow card replaces it
-        steps.append(...modelCallCards(turn, step, calls.indexOf(step), calls));
-      } else if (step.type === "tool") {
-        steps.appendChild(toolCard(step));
-      } else if (step.type === "hook") {
-        steps.appendChild(hookCard(step));
-      } else if (step.type === "tool_call_malformed") {
-        steps.appendChild(malformedCard(step.payload));
-      } else if (step.type === "limit_reached") {
-        const text = el("p", "", step.payload.message_fr);
-        const tone = step.payload.limit === "retries" ? "error" : "info";
-        steps.appendChild(harnessEvent("Borne du tour atteinte", tone, [text]));
-      } else if (step.type === "prefix_not_reused") {
-        const text = el("p", "", step.payload.message_fr);
-        steps.appendChild(harnessEvent("Préfixe non réutilisé", "info", [text]));
+// ---------- orchestration rail (EXPERIENCE: turn-rail, turn-group, turn-step, harness-prep) ----------
+
+const ACTORS = {
+  model: ["is-model", "🤖 modèle"],
+  harness: ["is-harness", "⚙ harnais"],
+  user: ["is-user", "👤 vous"],
+};
+const HOOK_ICONS = { h1: "🛡", h2: "📝", h3: "💉", h5: "✋" };
+const TURN_STATUS = {
+  completed: ["is-done", "terminé"],
+  cancelled: ["is-done", "arrêté"],
+  overflow: ["is-failed", "contexte dépassé"],
+  limit: ["is-failed", "limite atteinte"],
+  blocked: ["is-failed", "bloqué"],
+  error: ["is-failed", "erreur"],
+};
+const LIMITS = { calls: "limite d'appels", retries: "limite d'essais", sub_calls: "limite de sous-appels" };
+const APPROVAL_FIGURES = { approved: "autorisé", refused: "refusé", cancelled: "annulé" };
+
+function plural(count, word) {
+  return `${fmt(count)} ${word}${count > 1 ? "s" : ""}`;
+}
+
+// One line per step (DESIGN.md turn-step). A row: key (stable across renders), icon, title,
+// actor, key figure, network host, tone, `sticky` (stays unfolded whatever happens), `sig`
+// (the body is rebuilt only when it changes) and `body` (the former card's content).
+function turnRows(turn) {
+  const rows = [];
+  const calls = turn.steps.filter((s) => s.type === "call");
+  turn.steps.forEach((step, i) => {
+    const key = `${turn.id}:${i}`;
+    if (step.type === "call") {
+      if (turn.overflow && step === calls.at(-1)) return; // the overflow row replaces it
+      const index = calls.indexOf(step);
+      const context = step.context;
+      const catalog = groupTokens(context, "tool_catalog");
+      const results = groupTokens(context, "tool_result");
+      if (index === 0 && catalog) {
+        rows.push({
+          key: `${key}:catalog`,
+          icon: "🧰",
+          title: "Description des outils",
+          actor: "harness",
+          figure: `${fmt(catalog)} tokens`,
+          sig: catalog,
+          body: () => catalogBody(context, catalog),
+        });
       }
-    }
-    if (turn.overflow) {
-      const card = el("div", "overflow-card");
-      card.append(
-        el("h3", "", "⚠ Contexte dépassé — l'appel au modèle n'a pas été envoyé"),
-        el("p", "number", `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`),
-        el("p", "", turn.overflow.message_fr),
-        el("p", "label", "En production, un harnais pourrait")
-      );
-      const list = el("ul");
-      for (const strategy of turn.overflow.strategies_fr) list.appendChild(el("li", "", strategy));
-      card.appendChild(list);
-      steps.appendChild(card);
+      if (index > 0 && results) {
+        rows.push({
+          key: `${key}:reinject`,
+          icon: "↩",
+          title: "Réinjection",
+          actor: "harness",
+          figure: `+${fmt(results)} tokens`,
+          sig: results,
+          body: () => [el("p", "", `Résultats d'outils ajoutés au contexte de cet appel : ${fmt(results)} tokens.`)],
+        });
+      }
+      const ended = step.ended;
+      const last = index === calls.length - 1;
+      const isFinal = catalog && ended && !ended.tool_calls.length && last && turn.status === "completed";
+      let figure = `${fmt(context?.used ?? 0)} lus`;
+      if (ended) {
+        figure = `${fmt(ended.prompt_tokens)} lus · ${fmt(ended.output_tokens)} écrits · ${seconds(ended.duration_ms)}`;
+        const stopped = { length: "sortie coupée", cancelled: "arrêté" }[ended.stop_reason];
+        if (stopped) figure += ` · ${stopped}`;
+      } else if (step.startedAt) {
+        figure += ` · ${seconds(Date.now() - step.startedAt)}`;
+      }
+      rows.push({
+        key: `${key}:call`,
+        icon: isFinal ? "💬" : "🤖",
+        title: isFinal ? "Réponse finale" : "Appel au modèle",
+        actor: "model",
+        figure,
+        tone: ended && ended.stop_reason === "error" ? "error" : null,
+        sticky: Boolean(ended && ended.stop_reason === "error"),
+        sig: [Boolean(ended), step.startedAt],
+        body: () => callBody(turn, step),
+      });
+      if (ended?.tool_calls.length) {
+        const asked = ended.tool_calls;
+        rows.push({
+          key: `${key}:ask`,
+          icon: "🗨",
+          title: "Demande d'outil",
+          actor: "model",
+          figure: asked.length > 1 ? plural(asked.length, "outil") : asked[0].name,
+          sig: asked.length,
+          body: () => asked.map((call) => el("pre", "step-code", formatCall(call))),
+        });
+      }
+    } else if (step.type === "tool") {
+      const ended = step.ended;
+      const harness = step.started.source === "harness";
+      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+      if (ended) figure = `${ended.status === "ok" ? "OK" : "erreur"} · ${seconds(ended.duration_ms)}`;
+      rows.push({
+        key,
+        icon: harness ? (step.brick === "skills" ? "📘" : "📖") : "🔧",
+        title: harness ? step.started.phase_label : `Exécution · ${toolLabel(step.started.tool)}`,
+        actor: harness ? "model" : "harness",
+        figure,
+        net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
+        tone: ended && ended.status !== "ok" ? "error" : null,
+        sticky: Boolean(ended && ended.status !== "ok"),
+        sig: [Boolean(ended), ended?.status, step.outbound?.length ?? 0],
+        body: () => toolBody(step),
+      });
+    } else if (step.type === "hook") {
+      const p = step.payload;
+      const block = p.decision === "block";
+      const pending = Boolean(step.approval && !step.resolved);
+      let figure = HOOK_DECISIONS[p.decision];
+      if (step.approval) figure = step.resolved ? APPROVAL_FIGURES[step.resolved.decision] : "en attente";
+      rows.push({
+        key,
+        icon: HOOK_ICONS[p.hook] || "🪝",
+        title: step.approval ? "Validation humaine" : `Hook ${p.hook.toUpperCase()} · ${p.hook_fr}`,
+        actor: step.approval ? "user" : "harness",
+        figure,
+        net: step.approval ? step.approval.destination : null,
+        tone: block ? "error" : pending ? "pending" : "hook",
+        sticky: block || pending,
+        sig: [p, step.approval, step.resolved, step.lines.length, toolLabel(step.approval?.tool ?? "")],
+        body: () => [hookCard(step)],
+      });
+    } else if (step.type === "tool_call_malformed") {
+      rows.push({
+        key,
+        icon: "✖",
+        title: "Appel d'outil mal formé",
+        actor: "harness",
+        figure: step.payload.reaction === "retry" ? "nouvel essai" : "tour arrêté",
+        tone: "error",
+        sticky: true,
+        sig: 1,
+        body: () => [malformedCard(step.payload)],
+      });
+    } else if (step.type === "limit_reached") {
+      const retries = step.payload.limit === "retries";
+      rows.push({
+        key,
+        icon: retries ? "✖" : "⏹",
+        title: "Borne du tour atteinte",
+        actor: "harness",
+        figure: LIMITS[step.payload.limit] || step.payload.limit,
+        tone: retries ? "error" : "hook",
+        sticky: retries,
+        sig: 1,
+        body: () => [harnessEvent("Borne du tour atteinte", retries ? "error" : "info", [el("p", "", step.payload.message_fr)])],
+      });
+    } else if (step.type === "prefix_not_reused") {
+      rows.push({
+        key,
+        icon: "ℹ",
+        title: "Préfixe non réutilisé",
+        actor: "harness",
+        figure: `${fmt(step.payload.common_tokens)} tokens communs`,
+        tone: "hook",
+        sig: 1,
+        body: () => [harnessEvent("Préfixe non réutilisé", "info", [el("p", "", step.payload.message_fr)])],
+      });
     }
   });
-  offTurn(store.turns.length);
+  if (turn.overflow) {
+    rows.push({
+      key: `${turn.id}:overflow`,
+      icon: "✖",
+      title: "Contexte dépassé",
+      actor: "harness",
+      figure: `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`,
+      tone: "error",
+      sticky: true,
+      sig: 1,
+      body: () => [overflowCard(turn.overflow)],
+    });
+  }
+  return rows;
+}
+
+function mcpServerLabel(server) {
+  const option = store.bricks?.bricks.find((b) => b.id === "mcp")?.options?.find((o) => o.id === server);
+  return option?.label_fr ?? server;
+}
+
+function connectRow(step) {
+  // The same line in the harness preparation and between two turns (EXPERIENCE: harness-prep).
+  const ended = step.ended;
+  const failed = ended?.status === "error";
+  let figure = "connexion…";
+  if (ended) figure = failed ? "indisponible" : `connecté · ${plural(ended.tools.length, "outil")}`;
+  return {
+    key: `mcp:${step.seq}`,
+    icon: failed ? "⊘" : "🔌",
+    title: mcpServerLabel(step.started.server),
+    note: failed ? ended.error_fr : "",
+    actor: "harness",
+    figure,
+    net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
+    tone: failed ? "unavailable" : null,
+    sig: [ended, step.outbound?.length ?? 0],
+    body: () => connectBody(step),
+  };
+}
+
+// DOM nodes kept from one render to the next, by stable key: the 250 ms tick only updates
+// their text, so a click or a key press on a line is never lost and the focus stays on it.
+const railNodes = new Map(); // row key -> line and body nodes
+const groupNodes = new Map(); // turn id (or "prep", "off:N") -> group nodes
+const turnDurations = new WeakMap(); // turn -> `turn_ended.payload.duration_ms`
+let seenTurns = 0;
+let wasRunning = false; // the last turn ran at the previous render
+
+function stepNode(row, open, flags) {
+  let node = railNodes.get(row.key);
+  if (!node) {
+    const root = el("div", "turn-step");
+    const line = el("button", "turn-step-line");
+    line.type = "button";
+    const parts = {
+      tile: el("span", "turn-step-tile"),
+      title: el("span", "turn-step-title"),
+      actor: el("span", "turn-step-actor"),
+      netMark: el("span", "net-mark", "🌐 RÉSEAU →"),
+      netHost: el("span", "net-host"),
+      figure: el("span", "turn-step-figure"),
+      chevron: el("span", "turn-step-chevron"),
+    };
+    parts.tile.setAttribute("aria-hidden", "true");
+    parts.chevron.setAttribute("aria-hidden", "true");
+    line.append(...Object.values(parts));
+    // Name and note share one span: they truncate together, before the host (A10).
+    parts.name = el("span", "turn-step-name");
+    parts.note = el("span", "turn-step-note");
+    parts.title.append(parts.name, parts.note);
+    const key = row.key;
+    line.addEventListener("click", () => toggleStep(key));
+    root.appendChild(line);
+    node = { root, line, ...parts, body: null, bodySig: null };
+    railNodes.set(key, node);
+  }
+  node.seen = true;
+  node.sticky = Boolean(row.sticky);
+  setText(node.tile, row.icon);
+  setText(node.name, row.title);
+  setText(node.note, row.note ? ` · ${row.note}` : "");
+  node.note.hidden = !row.note;
+  const [actorClass, actorLabel] = ACTORS[row.actor];
+  node.actor.className = `turn-step-actor ${actorClass}`;
+  setText(node.actor, actorLabel);
+  node.netMark.hidden = !row.net;
+  node.netHost.hidden = !row.net;
+  setText(node.netHost, row.net || "");
+  setText(node.figure, row.figure);
+  setText(node.chevron, open ? "▾" : "▸");
+  // The whole title in the tooltip: the line truncates it first (A10).
+  const tooltip = [row.title, row.note, row.net ? `RÉSEAU → ${row.net}` : "", row.figure].filter(Boolean).join(" · ");
+  if (node.line.title !== tooltip) node.line.title = tooltip;
+  node.line.setAttribute("aria-expanded", String(open));
+  const classes = ["turn-step"];
+  if (row.tone) classes.push(`tone-${row.tone}`);
+  if (flags.current) classes.push("is-current");
+  if (flags.selected) classes.push("is-selected");
+  const className = classes.join(" ");
+  if (node.root.className !== className) node.root.className = className;
+  if (open) {
+    const sig = JSON.stringify(row.sig);
+    if (!node.body || node.bodySig !== sig) {
+      const body = el("div", "turn-step-body");
+      body.append(...row.body());
+      if (node.body) node.body.replaceWith(body);
+      else node.root.appendChild(body);
+      node.body = body;
+      node.bodySig = sig;
+    }
+    refreshTicks(node.body);
+  } else if (node.body) {
+    node.body.remove();
+    node.body = null;
+    node.bodySig = null;
+  }
+  return node.root;
+}
+
+function groupNode(id, className, onToggle) {
+  let node = groupNodes.get(id);
+  if (!node) {
+    const root = el("section", className);
+    const head = el("button", "turn-group-head");
+    head.type = "button";
+    const chevron = el("span", "turn-group-chevron");
+    chevron.setAttribute("aria-hidden", "true");
+    head.appendChild(chevron);
+    head.addEventListener("click", onToggle);
+    const list = el("div", "turn-steps");
+    root.appendChild(head);
+    node = { root, head, chevron, list };
+    groupNodes.set(id, node);
+  }
+  node.seen = true;
+  return node;
+}
+
+function fillGroup(node, open, rowNodes) {
+  setText(node.chevron, open ? "▾" : "▸");
+  node.head.setAttribute("aria-expanded", String(open));
+  if (open) {
+    patchChildren(node.list, rowNodes);
+    if (!node.list.isConnected) node.root.appendChild(node.list);
+  } else {
+    node.list.remove();
+  }
+}
+
+function headParts(node, parts) {
+  // The head's spans, created once: [className, text] each, `null` text hides the span.
+  node.parts ||= parts.map(([className]) => {
+    const span = el("span", className);
+    node.head.appendChild(span);
+    return span;
+  });
+  parts.forEach(([className, text], i) => {
+    const span = node.parts[i];
+    if (span.className !== className) span.className = className;
+    span.hidden = text === null;
+    setText(span, text ?? "");
+  });
+}
+
+function turnDuration(turn) {
+  if (turn.status === null) return Date.now() - turn.startedAt;
+  if (!turnDurations.has(turn)) {
+    // Formatting only: the duration the session measured, read back from the journal.
+    const ended = store.journal.findLast((e) => e.kind === "turn_ended" && e.turn_id === turn.id);
+    turnDurations.set(turn, ended?.payload.duration_ms ?? null);
+  }
+  return turnDurations.get(turn);
+}
+
+function toggleSet(set, key) {
+  if (set.has(key)) set.delete(key);
+  else set.add(key);
+}
+
+function toggleStep(key) {
+  const o = store.orch;
+  if (key.startsWith("mcp:")) {
+    toggleSet(o.prepOpen, key); // a connection line: no live to freeze
+  } else if (railNodes.get(key)?.sticky) {
+    o.selected = key; // stays unfolded whatever happens: no toggle, the live view goes on
+  } else {
+    // A click freezes the view (EXPERIENCE: direct par défaut); the live step stays open.
+    if (o.live) {
+      o.live = false;
+      o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+    }
+    toggleSet(o.userOpen, key);
+    o.selected = key;
+  }
+  renderSteps();
+}
+
+function toggleTurn(id, open) {
+  store.orch.turnOpen.set(id, !open);
+  renderSteps();
+}
+
+function followLive() {
+  const o = store.orch;
+  o.live = true;
+  o.userOpen.clear();
+  o.turnOpen.clear();
+  o.selected = null;
+  renderSteps();
+  const scroll = document.getElementById("orch-scroll");
+  scroll.scrollTop = scroll.scrollHeight;
+}
+
+function renderOrchWorking() {
+  // EXPERIENCE: working-indicator, also in Orchestration's header, phase and stopwatch.
+  const box = document.getElementById("orch-working");
+  const turn = activeTurn();
+  box.hidden = !turn;
+  if (!turn) return;
+  let label = turn.phaseLabel || "Préparation du contexte";
+  if (turn.stopRequested) label = "Arrêt demandé";
+  else if (turn.firstToken) label = "Génération de la réponse";
+  const since = turn.callStartedAt ?? turn.startedAt;
+  setText(document.getElementById("orch-working-label"), `${label}… ${seconds(Date.now() - since)}`);
+}
+
+let orchEmptyNote = null;
+
+function renderSteps() {
+  const o = store.orch;
+  const scroll = document.getElementById("orch-scroll");
+  const atBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 40;
+  const shown = shownTurns();
+  // A new turn in live mode: the previous one folds back to its head.
+  if (store.turns.length > seenTurns && o.live) o.turnOpen.clear();
+  seenTurns = store.turns.length;
+  for (const node of railNodes.values()) node.seen = false;
+  for (const node of groupNodes.values()) node.seen = false;
+
+  // Only what follows the last clearing (Q1: MCP connections before it are hidden too).
+  const connections = (index) =>
+    store.offTurn.filter((s) => s.afterTurn === index && (!cleared() || s.seq > store.clearedSeq));
+  const connectNodes = (steps) => steps.map((s) => stepNode(connectRow(s), o.prepOpen.has(`mcp:${s.seq}`), {}));
+
+  // The current step: the last line of the last turn shown, unfolded and followed in live.
+  const lastTurn = shown.at(-1);
+  const lastOpen = lastTurn && (o.turnOpen.has(lastTurn.id) ? o.turnOpen.get(lastTurn.id) : true);
+  const lastRows = lastOpen ? turnRows(lastTurn) : [];
+  const currentRow = lastRows.at(-1);
+  o.current = currentRow?.key ?? null;
+  o.currentSticky = Boolean(currentRow?.sticky);
+  const running = Boolean(lastTurn && lastTurn.status === null);
+
+  const top = [];
+  const prep = connections(store.chatFrom);
+  if (prep.length) {
+    const node = groupNode("prep", "turn-group harness-prep", () => {
+      o.prepGroupOpen = !o.prepGroupOpen;
+      renderSteps();
+    });
+    const down = prep.filter((s) => s.ended?.status === "error").length;
+    headParts(node, [
+      ["turn-group-title", "Préparation du harnais"],
+      ["turn-group-summary", `${plural(prep.length, "connexion")} MCP${down ? ` · ${down} indisponible${down > 1 ? "s" : ""}` : ""}`],
+    ]);
+    fillGroup(node, o.prepGroupOpen, connectNodes(prep));
+    top.push(node.root);
+  }
+  if (!shown.length) {
+    orchEmptyNote ||= emptyNote("");
+    setText(
+      orchEmptyNote,
+      cleared() ? CLEARED_FR : "Aucun tour pour l'instant. Envoyez un message : les étapes du harnais apparaîtront ici."
+    );
+    top.push(orchEmptyNote);
+  }
+  shown.forEach((turn, i) => {
+    const index = store.chatFrom + i;
+    if (index > store.chatFrom) {
+      const between = connections(index);
+      if (between.length) {
+        const node = groupNode(`off:${index}`, "turn-off", () => {});
+        node.head.hidden = true; // a connection between two turns: the lines alone, in place
+        fillGroup(node, true, connectNodes(between));
+        top.push(node.root);
+      }
+    }
+    const isLast = turn === lastTurn;
+    const open = o.turnOpen.has(turn.id) ? o.turnOpen.get(turn.id) : isLast;
+    const node = groupNode(turn.id, "turn-group", () => toggleTurn(turn.id, node.head.getAttribute("aria-expanded") === "true"));
+    node.root.classList.toggle("is-live", turn.status === null);
+    const [statusClass, statusLabel] = TURN_STATUS[turn.status] || ["is-running", "en cours"];
+    const calls = turn.steps.filter((s) => s.type === "call" && s.startedAt).length;
+    const duration = turnDuration(turn);
+    const figures = [duration === null ? null : seconds(duration), `${plural(calls, "appel")} au modèle`];
+    headParts(node, [
+      ["turn-group-title", `Tour ${index + 1}`],
+      [`turn-group-status ${statusClass}`, statusLabel],
+      ["turn-group-figures", figures.filter(Boolean).join(" · ")],
+      ["turn-group-message", `« ${turn.message} »`],
+    ]);
+    node.head.title = turn.message;
+    const rowNodes = open
+      ? (isLast ? lastRows : turnRows(turn)).map((row) => {
+          const isCurrent = isLast && row.key === o.current;
+          const unfolded = row.sticky || (o.live ? isCurrent : o.userOpen.has(row.key));
+          return stepNode(row, unfolded, { current: isCurrent && running, selected: row.key === o.selected });
+        })
+      : [];
+    fillGroup(node, open, rowNodes);
+    top.push(node.root);
+  });
+  const trailing = shown.length ? connections(store.chatFrom + shown.length) : [];
+  if (trailing.length) {
+    const node = groupNode(`off:${store.chatFrom + shown.length}`, "turn-off", () => {});
+    node.head.hidden = true;
+    fillGroup(node, true, connectNodes(trailing));
+    top.push(node.root);
+  }
+  patchChildren(scroll, top);
+  for (const [key, node] of railNodes) if (!node.seen) railNodes.delete(key);
+  for (const [key, node] of groupNodes) if (!node.seen) groupNodes.delete(key);
+
+  // Followed while the user stays at the bottom; a manual scroll up is never taken back.
+  // Also on the render where it just stopped: its last rows may land in the same frame.
+  if (o.live && (running || wasRunning) && atBottom) scroll.scrollTop = scroll.scrollHeight;
+  wasRunning = running;
+  document.getElementById("follow-live").hidden = o.live;
+  renderOrchWorking();
 }
 
 function renderChips() {
@@ -1254,26 +1727,212 @@ function renderPaneVisibility() {
   }
 }
 
+// ---------- event log: every event the harness emits, folded at the bottom of Orchestration ----------
+
+const KIND_LABELS = {
+  diagnostic_check: "Vérification du diagnostic",
+  outbound_request: "Données sortantes",
+  harness_error: "Erreur du harnais",
+  session_state: "État de la session",
+  architecture_changed: "Schéma mis à jour",
+  turn_started: "Tour commencé",
+  turn_ended: "Tour terminé",
+  context_rendered: "Contexte rendu",
+  context_preview: "Aperçu du contexte",
+  context_overflow: "Contexte dépassé",
+  output_truncated: "Sortie coupée",
+  model_call_started: "Appel au modèle commencé",
+  model_first_token: "Premier token",
+  model_delta: "Morceau de réponse",
+  model_call_ended: "Appel au modèle terminé",
+  special_token_neutralized: "Token spécial neutralisé",
+  bricks_changed: "Briques modifiées",
+  conversation_cleared: "Conversation vidée",
+  tool_started: "Outil lancé",
+  tool_ended: "Outil terminé",
+  tool_call_malformed: "Appel d'outil mal formé",
+  limit_reached: "Borne du tour atteinte",
+  prefix_not_reused: "Préfixe non réutilisé",
+  mcp_connect_started: "Connexion MCP commencée",
+  mcp_connect_ended: "Connexion MCP terminée",
+  hook_decided: "Décision d'un hook",
+  effect_applied: "Effet appliqué",
+  approval_requested: "Validation demandée",
+  approval_resolved: "Validation résolue",
+};
+const SESSION_STATES = {
+  idle: "prête",
+  turn: "tour en cours",
+  awaiting_human: "attente de validation",
+  model_load: "chargement du modèle",
+  download: "téléchargement",
+  reset: "réinitialisation",
+  diagnostic: "diagnostic",
+};
+
+function eventSummary(group) {
+  // One line per event, formatting only (AD-1).
+  const e = group.events[0];
+  const p = e.payload;
+  switch (e.kind) {
+    case "model_delta":
+      return group.events.map((d) => d.payload.text).join("");
+    case "session_state":
+      return [SESSION_STATES[p.state] || p.state, p.reason_fr].filter(Boolean).join(" · ");
+    case "architecture_changed":
+      return `${plural(p.nodes.length, "nœud")}, ${plural(p.edges.length, "liaison")}`;
+    case "bricks_changed":
+      return `${p.bricks.filter((b) => b.wanted).length} sur ${p.bricks.length} briques voulues`;
+    case "context_rendered":
+    case "context_preview":
+      return `${fmt(p.used)} / ${fmt(p.usable)} tokens · ${plural(p.segments.length, "segment")}`;
+    case "context_overflow":
+      return `${fmt(p.used)} / ${fmt(p.usable)} tokens`;
+    case "turn_started":
+      return `« ${p.message} »`;
+    case "turn_ended":
+      return [TURN_STATUS[p.status]?.[1] ?? p.status, p.duration_ms == null ? null : seconds(p.duration_ms)]
+        .filter(Boolean)
+        .join(" · ");
+    case "model_call_started":
+    case "mcp_connect_started":
+      return p.phase_label;
+    case "model_call_ended":
+      return `${fmt(p.prompt_tokens)} lus · ${fmt(p.output_tokens)} écrits · ${seconds(p.duration_ms)} · ${p.stop_reason}`;
+    case "tool_started":
+      return formatCall({ name: p.tool, arguments: p.arguments });
+    case "tool_ended":
+      return `${p.status} · ${seconds(p.duration_ms)}`;
+    case "outbound_request":
+      return `${p.method} ${p.url}`;
+    case "mcp_connect_ended":
+      return p.status === "ok"
+        ? `${mcpServerLabel(p.server)} : ${plural(p.tools.length, "outil")} · ${seconds(p.duration_ms)}`
+        : `${mcpServerLabel(p.server)} : ${p.error_fr}`;
+    case "hook_decided":
+      return `${p.hook.toUpperCase()} · ${p.point_fr} · ${HOOK_DECISIONS[p.decision]}`;
+    case "effect_applied":
+      return `${plural(p.lines.length, "ligne")} au journal d'audit`;
+    case "approval_requested":
+      return `${p.tool} → ${p.destination}`;
+    case "approval_resolved":
+      return approvalDecision(p);
+    case "tool_call_malformed":
+      return p.detail_fr;
+    case "output_truncated":
+      return `${fmt(p.output_tokens)} / ${fmt(p.max_tokens)} tokens`;
+    case "diagnostic_check":
+      return `${p.check} : ${p.status} · ${p.message_fr}`;
+    case "conversation_cleared":
+      return "les tours précédents restent dans ce journal";
+    default:
+      return p.message_fr ?? "";
+  }
+}
+
+// Rows are built only once the log is unfolded, then kept: consecutive `model_delta` of one
+// call share a row (« Morceaux de réponse × N »), every other event has its own.
+const eventLog = { groups: [], processed: 0, rows: [], list: null };
+
+function syncLogGroups() {
+  for (; eventLog.processed < store.journal.length; eventLog.processed++) {
+    const e = store.journal[eventLog.processed];
+    const last = eventLog.groups.at(-1);
+    const first = last?.events[0];
+    if (e.kind === "model_delta" && first?.kind === "model_delta" && first.call_id === e.call_id && first.turn_id === e.turn_id) {
+      last.events.push(e);
+    } else {
+      eventLog.groups.push({ key: e.seq, kind: e.kind, events: [e] });
+    }
+  }
+}
+
+function logRow(i) {
+  const group = eventLog.groups[i];
+  let row = eventLog.rows[i];
+  if (!row) {
+    const li = el("li", "event-log-item");
+    const line = el("button", "event-log-line");
+    line.type = "button";
+    const parts = {
+      time: el("span", "event-log-time"),
+      name: el("span", "event-log-name"),
+      kind: el("code", "event-log-kind", group.kind),
+      summary: el("span", "event-log-summary"),
+      chevron: el("span", "event-log-chevron"),
+    };
+    parts.chevron.setAttribute("aria-hidden", "true");
+    line.append(...Object.values(parts));
+    line.addEventListener("click", () => {
+      toggleSet(store.orch.logRowsOpen, group.key);
+      logRow(i);
+    });
+    li.appendChild(line);
+    setText(parts.time, new Date(group.events[0].ts).toLocaleTimeString("fr-FR"));
+    row = { li, line, ...parts, json: null, count: 0 };
+    eventLog.rows[i] = row;
+  }
+  const count = group.events.length;
+  const open = store.orch.logRowsOpen.has(group.key);
+  if (row.count !== count) {
+    const merged = group.kind === "model_delta" && count > 1;
+    setText(row.name, merged ? `Morceaux de réponse × ${fmt(count)}` : KIND_LABELS[group.kind] || group.kind);
+    const summary = eventSummary(group);
+    setText(row.summary, summary);
+    row.line.title = summary;
+  }
+  setText(row.chevron, open ? "▾" : "▸");
+  row.line.setAttribute("aria-expanded", String(open));
+  if (open && (!row.json || row.count !== count)) {
+    // The raw JSON, on demand: the whole envelope, or one line per chunk of a merged row.
+    const text =
+      count > 1
+        ? group.events.map((e) => JSON.stringify(e)).join("\n")
+        : JSON.stringify(group.events[0], null, 2);
+    const json = el("pre", "event-log-json", text);
+    if (row.json) row.json.replaceWith(json);
+    else row.li.appendChild(json);
+    row.json = json;
+  } else if (!open && row.json) {
+    row.json.remove();
+    row.json = null;
+  }
+  row.count = count;
+  return row.li;
+}
+
 function renderJournal() {
-  const list = document.getElementById("journal");
-  list.innerHTML = "";
-  if (store.journal.length === 0) {
-    const li = document.createElement("li");
-    li.className = "empty-note";
-    li.textContent = "Aucun événement pour l'instant.";
-    list.appendChild(li);
+  const o = store.orch;
+  const head = document.getElementById("event-log-head");
+  setText(document.getElementById("event-log-chevron"), o.logOpen ? "▾" : "▸");
+  setText(document.getElementById("event-log-title"), `Journal des événements (${fmt(store.journal.length)})`);
+  head.setAttribute("aria-expanded", String(o.logOpen));
+  if (!o.logOpen) {
+    eventLog.list?.remove();
     return;
   }
-  for (const envelope of store.journal) {
-    const li = document.createElement("li");
-    const kind = document.createElement("span");
-    kind.className = "kind";
-    kind.textContent = envelope.kind;
-    const pre = document.createElement("pre");
-    pre.textContent = JSON.stringify(envelope.payload, null, 2);
-    li.append(kind, pre);
-    list.appendChild(li);
+  if (!eventLog.list) {
+    eventLog.list = el("ol", "event-log-list");
+    eventLog.list.id = "event-log-list";
+    eventLog.empty = el("li", "empty-note", "Aucun événement pour l'instant.");
   }
+  const list = eventLog.list;
+  const atBottom = !list.isConnected || list.scrollHeight - list.scrollTop - list.clientHeight < 30;
+  if (!list.isConnected) document.getElementById("event-log").appendChild(list);
+  syncLogGroups();
+  // Groups only grow at the end: the last known row is updated, new ones are appended.
+  for (let i = Math.max(eventLog.rows.length - 1, 0); i < eventLog.groups.length; i++) {
+    const li = logRow(i);
+    if (!li.isConnected) list.appendChild(li);
+  }
+  if (eventLog.groups.length) eventLog.empty.remove();
+  else list.appendChild(eventLog.empty);
+  if (atBottom) list.scrollTop = list.scrollHeight;
+}
+
+function toggleJournal() {
+  store.orch.logOpen = !store.orch.logOpen;
+  renderJournal();
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -1569,6 +2228,8 @@ async function boot() {
   document.getElementById("composer").addEventListener("submit", sendMessage);
   document.getElementById("composer-stop").addEventListener("click", stopTurn);
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
+  document.getElementById("follow-live").addEventListener("click", followLive);
+  document.getElementById("event-log-head").addEventListener("click", toggleJournal);
   document.getElementById("drawer-save").addEventListener("click", () =>
     saveSystemPrompt(drawerText().value)
   );

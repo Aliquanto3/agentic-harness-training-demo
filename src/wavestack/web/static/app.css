@@ -464,20 +464,7 @@ body {
   color: var(--color-ink-soft);
 }
 
-/* ---------- orchestration: model-call step, overflow card ---------- */
-
-.steps {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-  margin-bottom: var(--spacing-3);
-}
-
-.step {
-  border: 1px solid var(--color-line);
-  border-radius: var(--rounded-sm);
-  padding: var(--spacing-2);
-}
+/* ---------- orchestration: step bodies, harness events, overflow card ---------- */
 
 .step-title,
 .overflow-card .label {
@@ -523,10 +510,6 @@ body {
   font-weight: 700;
 }
 
-.step.is-error {
-  border-color: var(--color-state-error);
-}
-
 .step-code {
   margin: var(--spacing-1) 0 0;
   white-space: pre-wrap;
@@ -537,10 +520,6 @@ body {
 .step-code mark {
   background: var(--color-state-error);
   color: var(--color-on-primary);
-}
-
-.step p {
-  margin: var(--spacing-1) 0 0;
 }
 
 /* DESIGN.md harness-event: thick side rule, red for failure, violet for information. */
@@ -608,36 +587,571 @@ body {
   opacity: 0.5;
 }
 
-/* ---------- orchestration journal ---------- */
+/* ---------- orchestration rail (DESIGN.md > turn-rail, turn-step, harness-prep, event-log) ---------- */
 
-.journal {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.pane-body-orch {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2);
+  padding: 0;
+  overflow: hidden;
 }
 
-.journal li {
-  border: 1px solid var(--color-line);
-  border-radius: var(--rounded-sm);
-  padding: var(--spacing-2);
+.orch-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-pane-padding);
+  container-type: inline-size; /* the step lines adapt to the rail's width */
+}
+
+/* Header: the working indicator gives way first when the pane is narrow. */
+.pane[data-pane="orch"] .pane-actions {
+  min-width: 0;
+  align-items: center;
+}
+
+.pane[data-pane="orch"] .pane-actions button {
+  flex: 0 0 auto;
+}
+
+.orch-working {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  min-width: 0;
+  margin: 0;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.orch-working[hidden] {
+  display: none;
+}
+
+.orch-working > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.working-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--rounded-full);
+  background: var(--color-state-active);
+  box-shadow: 0 0 0 2px var(--color-ink);
+  animation: working-pulse 1s ease-in-out infinite;
+}
+
+.pane-actions .follow-live {
+  padding: 0 var(--spacing-3);
+  border-color: var(--color-primary);
+  border-radius: var(--rounded-md);
+  color: var(--color-primary);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+}
+
+/* A turn, or the harness preparation: a group on the rail, without relief. */
+.turn-group {
+  margin-bottom: var(--spacing-2);
+  background: var(--color-surface-raised);
+  border: var(--spacing-stroke-min) solid var(--color-line);
+  border-radius: var(--rounded-md);
+}
+
+.turn-group.is-live {
+  border-color: var(--color-primary);
+}
+
+.turn-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1) var(--spacing-2);
+  width: 100%;
+  min-height: var(--spacing-hit-target-min);
+  padding: var(--spacing-1) var(--spacing-2);
+  background: none;
+  border: 0;
+  border-radius: var(--rounded-md);
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.turn-group-head[hidden] {
+  display: none; /* a connection between two turns: its lines alone */
+}
+
+.turn-group-head:hover {
+  background: var(--color-surface);
+}
+
+.turn-step-chevron {
+  grid-area: chevron;
+}
+
+.turn-group-chevron,
+.turn-step-chevron,
+.event-log-chevron {
+  flex: 0 0 12px;
+  color: var(--color-ink-soft);
+  font-size: var(--typography-label-font-size);
+}
+
+.turn-group-title {
+  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.harness-prep .turn-group-title {
+  font-size: var(--typography-body-font-size);
+}
+
+.turn-group-summary {
   font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
 }
 
-.journal .kind {
-  font-family: var(--typography-label-font-family);
-  font-weight: var(--typography-label-font-weight);
+.turn-group-status {
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-full);
+  padding: 1px var(--spacing-2);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+}
+
+.turn-group-status.is-running {
+  background: var(--color-state-active);
+  border-color: var(--color-state-active);
+  color: var(--color-ink);
+}
+
+.turn-group-status.is-running::before {
+  content: "● ";
+}
+
+.turn-group-status.is-done {
+  background: var(--color-surface);
+}
+
+.turn-group-status.is-failed {
+  background: var(--color-state-error);
+  border-color: var(--color-state-error);
+  color: var(--color-ink);
+}
+
+.turn-group-status.is-failed::before {
+  content: "✖ ";
+}
+
+.turn-group-figures {
+  margin-left: auto;
+  font: var(--typography-number-font-weight) var(--typography-label-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  white-space: nowrap;
+}
+
+.turn-group-message {
+  order: 10;
+  flex: 1 0 100%;
+  min-width: 0;
+  padding-left: 20px;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The steps, tied by a 2 px vertical rule through their tiles. */
+.turn-steps {
+  position: relative;
+  padding: 0 var(--spacing-2) var(--spacing-2);
+}
+
+.turn-steps::before {
+  content: "";
+  position: absolute;
+  left: 26px; /* the tiles' centre: list padding + line padding + half a tile */
+  top: var(--spacing-1);
+  bottom: var(--spacing-4);
+  width: var(--spacing-stroke-min);
+  background: var(--color-line);
+}
+
+.turn-off {
+  margin-bottom: var(--spacing-2);
+}
+
+.turn-off .turn-steps {
+  padding-bottom: 0;
+}
+
+/* A grid, so that the title's column (1fr) only gets what the others leave: the title
+   truncates first, then the host (minmax(0, auto)); the RÉSEAU mark, the actor and the key
+   figure keep their width. Empty columns (no host, no mark) take no room. */
+.turn-step-line {
+  display: grid;
+  grid-template-columns: 26px minmax(2.5em, 1fr) auto auto minmax(0, auto) auto 12px;
+  grid-template-areas: "tile title actor mark host figure chevron";
+  align-items: center;
+  width: 100%;
+  min-height: var(--spacing-hit-target-min);
+  padding: 3px 6px;
+  background: none;
+  border: 0;
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The button is always the click target: its text is refreshed while the pointer is down. */
+.turn-step-line > *,
+.event-log-line > * {
+  pointer-events: none;
+}
+
+.turn-step-line:hover {
+  background: var(--color-surface);
+}
+
+.turn-step.is-selected > .turn-step-line {
+  background: var(--color-primary-soft);
+}
+
+.turn-step-line:focus-visible,
+.turn-group-head:focus-visible,
+.event-log-head:focus-visible,
+.event-log-line:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.turn-step-tile {
+  grid-area: tile;
+  position: relative;
+  z-index: 1; /* over the rule */
+  flex: 0 0 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: var(--color-surface-raised);
+  border: var(--spacing-stroke-min) solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  font-size: 13px;
+}
+
+/* The current step: a green dot on its tile. */
+.turn-step.is-current .turn-step-tile {
+  border-color: var(--color-ink);
+}
+
+.turn-step.is-current .turn-step-tile::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--rounded-full);
+  background: var(--color-state-active);
+  box-shadow: 0 0 0 2px var(--color-ink);
+  animation: working-pulse 1s ease-in-out infinite;
+}
+
+.turn-step.tone-error .turn-step-tile {
+  background: var(--color-state-error);
+  border-color: var(--color-state-error);
+}
+
+.turn-step.tone-pending .turn-step-tile {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+}
+
+.turn-step.tone-unavailable .turn-step-tile {
+  border-style: dashed;
+  border-color: var(--color-state-unavailable);
+}
+
+/* Truncation order (A10): the title first, then the host; never the RÉSEAU mark, the
+   actor or the key figure. */
+.turn-step-title {
+  grid-area: title;
+  min-width: 0;
+  margin: 0 var(--spacing-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--typography-label-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.turn-step.tone-error .turn-step-name {
+  font-weight: 600;
+}
+
+.turn-step-note {
+  color: var(--color-ink-soft);
+}
+
+.turn-step-actor {
+  grid-area: actor;
+  margin-right: var(--spacing-1);
+  border: 1px solid transparent;
+  border-radius: var(--rounded-full);
+  padding: 0 var(--spacing-2);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+}
+
+.turn-step-actor.is-model {
+  background: var(--color-primary-soft);
   color: var(--color-primary-deep);
 }
 
-.journal pre {
+.turn-step-actor.is-harness {
+  border-color: var(--color-ink-soft);
+}
+
+.turn-step-actor.is-user {
+  border-color: var(--color-ink);
+  background: var(--color-surface-raised);
+}
+
+/* « 🌐 RÉSEAU → host »: one yellow pill in two parts, so only the host can shrink. */
+.net-mark,
+.net-host {
+  background: var(--color-hosting-network);
+  color: var(--color-ink);
+  border: 1.5px dashed var(--color-ink);
+  padding: 0 var(--spacing-1);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+}
+
+.net-mark {
+  grid-area: mark;
+  border-right: 0;
+  border-radius: var(--rounded-full) 0 0 var(--rounded-full);
+  padding-left: var(--spacing-2);
+}
+
+.net-host {
+  grid-area: host;
+  min-width: 0;
+  border-left: 0;
+  border-radius: 0 var(--rounded-full) var(--rounded-full) 0;
+  padding-right: var(--spacing-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.turn-step-figure {
+  grid-area: figure;
+  justify-self: end;
+  margin-left: var(--spacing-2);
+  font: var(--typography-number-font-weight) var(--typography-label-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  white-space: nowrap;
+}
+
+/* A narrow rail cannot hold the whole line: the key figure goes under the title, still whole. */
+@container (max-width: 460px) {
+  .turn-step-line {
+    grid-template-columns: 26px minmax(2.5em, 1fr) auto auto minmax(0, auto) 12px;
+    grid-template-areas:
+      "tile title actor mark host chevron"
+      "tile figure figure figure figure chevron";
+  }
+}
+
+/* The unfolded step: its former card, flat, on cream with a side rule. */
+.turn-step-body {
+  margin: 0 0 var(--spacing-2) 40px;
+  padding: var(--spacing-2) 10px;
+  background: var(--color-surface);
+  border-left: 4px solid var(--color-line);
+  border-radius: 0 var(--rounded-sm) var(--rounded-sm) 0;
+  font-size: var(--typography-body-sm-font-size);
+  overflow-wrap: anywhere;
+}
+
+.turn-step.tone-hook .turn-step-body,
+.turn-step.tone-pending .turn-step-body {
+  border-left-color: var(--color-primary);
+}
+
+.turn-step.tone-error .turn-step-body {
+  border-left-color: var(--color-state-error);
+}
+
+.turn-step-body > :first-child {
+  margin-top: 0;
+}
+
+.turn-step-body p {
   margin: var(--spacing-1) 0 0;
+}
+
+.turn-step-body .label {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+}
+
+.turn-step-body > .step-code,
+.turn-step-body .harness-event > .step-code {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  padding: 6px var(--spacing-2);
+  font-family: var(--typography-code-font-family);
+}
+
+/* A harness event is the body itself: the body already carries its side rule. */
+.turn-step-body > .harness-event {
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.turn-step-body > .overflow-card {
+  background: var(--color-surface-raised);
+}
+
+/* The event log: folded at the bottom, no state or segment colour. */
+.event-log {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  max-height: 45%;
+  border-top: var(--spacing-stroke-min) solid var(--color-line);
+}
+
+.event-log-head {
+  flex: 0 0 auto; /* the unfolded list scrolls, the head never shrinks under it */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1) var(--spacing-2);
+  min-height: var(--spacing-hit-target-min);
+  padding: var(--spacing-1) var(--spacing-pane-padding);
+  background: none;
+  border: 0;
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.event-log-head:hover {
+  background: var(--color-surface);
+}
+
+.event-log-title {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.event-log-sub {
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.event-log-list {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--spacing-pane-padding) var(--spacing-2);
+}
+
+.event-log-line {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--spacing-2);
+  width: 100%;
+  padding: 2px var(--spacing-1);
+  background: none;
+  border: 0;
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink);
+  font-family: var(--typography-body-sm-font-family);
+  font-size: var(--typography-body-sm-font-size);
+  text-align: left;
+  cursor: pointer;
+}
+
+.event-log-line:hover {
+  background: var(--color-surface);
+}
+
+.event-log-time,
+.event-log-kind {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-family: var(--typography-code-font-family);
+  font-size: var(--typography-label-font-size);
+  color: var(--color-ink-soft);
+}
+
+.event-log-name {
+  flex: 0 0 auto;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Narrow: the technical name gives way after the summary, the French name stays whole. */
+.event-log-kind {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event-log-summary {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink-soft);
+}
+
+.event-log-json {
+  margin: 2px 0 var(--spacing-2) 20px;
+  padding: 6px 10px;
+  background: var(--color-surface);
+  border-radius: var(--rounded-sm);
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--typography-code-font-family);
   font-size: var(--typography-code-font-size);
+  line-height: var(--typography-code-line-height);
+}
+
+@keyframes working-pulse {
+  50% {
+    transform: scale(0.7);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working-dot,
+  .turn-step.is-current .turn-step-tile::after {
+    animation: none;
+  }
 }
 
 /* ---------- architecture schema ---------- */
@@ -701,6 +1215,12 @@ body.focus-mode .pane.is-focused .pane-body {
   flex: 1 1 auto;
   padding: var(--spacing-pane-padding);
   overflow: auto;
+}
+
+/* Orchestration scrolls its rail and its event log on their own. */
+body.focus-mode .pane.is-focused .pane-body-orch {
+  padding: 0;
+  overflow: hidden;
 }
 
 /* ---------- bricks panel (DESIGN.md > brick-card, brick-toggle, category-chip,

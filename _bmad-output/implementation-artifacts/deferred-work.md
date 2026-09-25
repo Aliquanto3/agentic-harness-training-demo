@@ -73,6 +73,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6c-refonte-visuelle-atelier-de-construction.md`
   summary: Dans le schéma, l'arête d'un nœud de la colonne 2 vers le cadre Harnais passe sous le nœud de la colonne 1 de la même ligne, ce qui se lit comme une chaîne (cadre → A → B).
   evidence: Visible dès 4 nœuds hors cadre (outils + serveurs MCP) ; à reprendre avec les zones Local / Réseau et la frontière de DESIGN.md, qui imposent de toute façon de refaire la disposition.
+  resolution: Repris par la story 8e (tronc et rails, zones et frontière), sprint-change-proposal-2026-09-25.md.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6c-refonte-visuelle-atelier-de-construction.md`
   summary: `robotPose()` et la clé de mémorisation de `renderSchema()` (`app.js`) ne sont couverts par aucun test automatique.
@@ -116,3 +117,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8c-validation-h5-vue-humain-et-vider-la-conversation.md`
   summary: Le rendu front de la story 8c (carte H5 de la Vue humain gardée entre deux rendus, clic unique, focus, trace d'Orchestration sans bouton, libellé des outils, puce liée, masquage après `conversation_cleared` dans Contexte LLM, Orchestration, cartes MCP et schéma, réponse refusée en 409) n'est vérifié par aucun test automatique.
   evidence: Même écart que pour les stories 5b à 8b : aucun banc de test JS ; vérifié seulement à la main dans Chrome contre une API simulée hors dépôt, sans le cas 409 ni le filet rouge après vidage ; relevé par la couche verification-gap de la revue de la story 8c.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8d-orchestration-lisible-rail-par-tour.md`
+  summary: Le rail d'Orchestration et le journal des événements de la story 8d (lignes qui restent dépliées, direct et vue figée, « Suivre le direct », repli du tour précédent, fusion des `model_delta` et compte du journal, correspondance de `KIND_LABELS` et `eventSummary` avec le catalogue) ne sont vérifiés par aucun test automatique.
+  evidence: Même écart que pour les stories 5b à 8c : aucun banc de test JS, et la spec interdit toute nouvelle dépendance ; vérifié seulement dans Chrome contre un rejeu SSE scripté hors dépôt ; relevé par les couches verification-gap et blind-hunter de la revue de la story 8d. Piste sans dépendance : `node:test` avec `node:vm` pour exécuter `turnRows` et `syncLogGroups` sur des enveloppes conformes au catalogue.

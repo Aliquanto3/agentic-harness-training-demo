@@ -104,13 +104,24 @@
               <p class="pane-subtitle">Ce que fait le harnais</p>
             </div>
             <div class="pane-actions">
+              <span class="working-indicator orch-working" id="orch-working" hidden>
+                <span class="working-dot" aria-hidden="true"></span>
+                <span id="orch-working-label"></span>
+              </span>
+              <button type="button" id="follow-live" class="follow-live" hidden>● Suivre le direct</button>
               <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
               <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
             </div>
           </header>
-          <div class="pane-body">
-            <div class="steps" id="steps"></div>
-            <ul class="journal" id="journal"></ul>
+          <div class="pane-body pane-body-orch">
+            <div class="orch-scroll" id="orch-scroll"></div>
+            <section class="event-log" id="event-log" aria-label="Journal des événements">
+              <button type="button" class="event-log-head" id="event-log-head" aria-expanded="false">
+                <span class="event-log-chevron" id="event-log-chevron" aria-hidden="true">▸</span>
+                <span class="event-log-title" id="event-log-title">Journal des événements (0)</span>
+                <span class="event-log-sub">tout ce que le harnais émet, brut</span>
+              </button>
+            </section>
           </div>
         </section>
       </div>
