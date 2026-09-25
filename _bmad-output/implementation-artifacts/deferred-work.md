@@ -187,3 +187,11 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-10b-corrections-test-manuel-story-10.md`
   summary: Le bouton d'aide « ? » et sa bulle (`popover` natif) des cartes de briques, ainsi que le vidage de `store.openExplanations` par « ⟲ Réinitialiser », n'ont aucun test automatique.
   evidence: Même écart que pour les stories 5b à 10 : aucun banc de test JS. Relevé par la couche verification-gap de la revue de la story 10b. Piste sans dépendance : `node:test` avec `node:vm`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/11-modeles-cloud-via-api-groq-mistral.md`
+  summary: Non vérifié (medium si réel) — deux appels d'outils parallèles d'une même réponse seraient fusionnés si le fournisseur envoie le même `index` (ou aucun) pour chacun ; l'accumulation de `openai_chat._channels` se fait par `index`, puis `id`.
+  evidence: Relevé par la revue de la story 11 (couche aveugle). À trancher au test manuel : demander à Groq puis à Mistral deux outils en un tour (ex. `get_datetime` et `calculator`) et lire `model_call_ended.tool_calls` ; si un seul appel aux noms collés apparaît, ouvrir un nouvel appel dès qu'un `id` différent arrive sur une clé déjà prise.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/11-modeles-cloud-via-api-groq-mistral.md`
+  summary: Non vérifié (medium si réel) — en mode chat, un échange d'historique sans texte (réponse de raisonnement seul) part en message `assistant` au `content` vide et sans `tool_calls`, que Mistral pourrait refuser (400) aux tours suivants.
+  evidence: Relevé par la revue de la story 11 (couche cas limites), `AppSession._messages`. À trancher : obtenir un tour terminé sans texte avec Mistral, puis envoyer un second message et lire la réponse du fournisseur ; si 400, omettre `content` vide ou sauter l'échange dans le corps chat.

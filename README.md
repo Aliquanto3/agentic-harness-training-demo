@@ -56,6 +56,64 @@ poste, l'accès réseau et la disponibilité du port — chaque résultat s'affi
 terminal et sur la page de diagnostic. Si aucun modèle n'est trouvé, la page propose de saisir le
 chemin d'un fichier `.gguf` (partage, clé USB, cache Hugging Face, LM Studio, Ollama).
 
+## Modèle cloud (Groq, Mistral)
+
+Un modèle cloud compatible OpenAI peut remplacer le SLM local : plus rapide, meilleur avec les
+outils, et il montre un vrai appel hors du poste. Les préréglages Groq (`openai/gpt-oss-120b`) et
+Mistral (`mistral-small-latest`) sont déclarés dans `wavestack.toml` ; Google, NVIDIA et
+OpenRouter y figurent en exemples commentés, avec leur avertissement.
+
+1. **Clé.** Créez une clé API dans la console du fournisseur, puis collez-la sur la page de
+   diagnostic, dans la ligne du modèle (« Enregistrer la clé »). Elle est stockée sur ce poste
+   seulement (`api_keys.json` dans le dossier de données), jamais affichée ni tracée, et envoyée au
+   seul hôte déclaré. Si l'adresse du fournisseur change, la clé est à ressaisir.
+2. **Tester avant chaque séance.** « Tester » envoie une invite et un outil fixes, sans vos données
+   (deux appels au plus), et affiche la réponse, l'appel d'outil reçu et le débit. Les offres
+   gratuites et leurs quotas changent souvent : seul ce test prouve que la clé et le préréglage
+   fonctionnent le jour J.
+3. **Choisir.** « Choisir » affiche l'avertissement (ce qui part, ce qu'en fait le fournisseur, ce
+   que le harnais ne voit plus) ; « Utiliser ce modèle » le confirme. Le choix est repris aux
+   lancements suivants, sans nouvel avertissement. Choisi après le chargement d'un modèle, il vaut
+   pour le prochain lancement.
+
+**Fenêtre de Groq.** Son quota gratuit (8 000 tokens par minute) limite la fenêtre à 4 000 tokens,
+dont 1 536 réservés à la réponse : il reste **2 464 tokens utilisables**. Les scénarios lourds
+(MCP en documentation complète, longue conversation) dépassent : passez en lazy loading, videz la
+conversation, ou préférez Mistral.
+
+**Revenir au modèle local.** Sur la page de diagnostic, cliquez sur « Choisir » en face d'un
+fichier GGUF (ou indiquez son chemin) : le choix s'applique au prochain lancement.
+
+**Hôtes à autoriser** sur le réseau de l'entreprise : `api.groq.com` et `api.mistral.ai` (plus
+l'hôte de tout modèle ajouté dans `settings.json`).
+
+**Ajouter un modèle.** Les exemples Google, NVIDIA et OpenRouter de `wavestack.toml` sont en TOML :
+recopiez-en les champs, en JSON, dans `settings.json` (dossier de données, WaveStack arrêté). Une
+entrée nouvelle doit être complète :
+
+```json
+{
+  "cloud": {
+    "models": [
+      {
+        "id": "openrouter",
+        "provider": "OpenRouter",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "tools": true,
+        "context": 131072,
+        "hosting_fr": "Selon le fournisseur routé par OpenRouter",
+        "training": "yes",
+        "notes_fr": "Catalogue gratuit instable : vérifiez le nom du modèle avant la séance."
+      }
+    ]
+  }
+}
+```
+
+Une entrée de même `id` qu'un préréglage le modifie champ par champ (par exemple
+`{"id": "groq", "tpm": 6000}`), et `"enabled": false` le masque.
+
 ## Développement
 
 ```bash

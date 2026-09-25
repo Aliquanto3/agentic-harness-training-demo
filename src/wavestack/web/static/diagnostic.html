@@ -20,6 +20,21 @@
     button { margin-top: 0.5rem; padding: 0.4rem 1rem; }
     #select-model-status { font-size: 0.9rem; }
     h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+    li.cloud { background: #fff8e1; border: 2px dashed #0A0A14; }
+    .hosting-tag-network, .hosting-tag-local {
+      display: inline-block; font-size: 0.75rem; font-weight: bold; padding: 0 0.4rem;
+      border-radius: 4px; margin-right: 0.4rem;
+    }
+    .hosting-tag-network { background: #ffe082; border: 1px dashed #0A0A14; }
+    .hosting-tag-network::before { content: "🌐 "; }
+    .hosting-tag-local { background: #ede7f6; border: 1px solid #5e35b1; }
+    .cloud-key { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.4rem; }
+    .cloud-key input { flex: 1; padding: 0.4rem; }
+    .cloud-result { font-size: 0.9rem; margin-top: 0.3rem; }
+    .cloud-result.ok { color: #1b5e20; }
+    .cloud-result.warn { color: #8a5a00; }
+    .cloud-result.fail { color: #b71c1c; }
+    dialog#cloud-warning { max-width: 560px; border: 2px solid #0A0A14; border-radius: 8px; }
   </style>
 </head>
 <body>
@@ -29,6 +44,17 @@
 
   <h2>Modèles détectés</h2>
   <ul id="candidates"></ul>
+
+  <h2>Modèles cloud</h2>
+  <p class="action">Hors du poste : chaque appel envoie tout le contexte au fournisseur.</p>
+  <ul id="cloud-models"></ul>
+
+  <dialog id="cloud-warning" aria-labelledby="cloud-warning-title">
+    <h3 id="cloud-warning-title"></h3>
+    <ul id="cloud-warning-points"></ul>
+    <button type="button" id="cloud-warning-confirm"></button>
+    <button type="button" id="cloud-warning-cancel"></button>
+  </dialog>
 
   <div id="select-model">
     <p>Ou indiquez le chemin d'un fichier GGUF :</p>
@@ -60,10 +86,16 @@
     }
 
     function renderCheck(payload) {
-      let li = items.get(payload.check);
+      if (payload.check === "cloud_test") {
+        testResults.set(payload.model_id, payload);
+        renderCloud();
+        return;
+      }
+      const key = payload.check === "cloud" ? `cloud:${payload.message_fr}` : payload.check;
+      let li = items.get(key);
       if (!li) {
         li = document.createElement("li");
-        items.set(payload.check, li);
+        items.set(key, li);
         checksEl.appendChild(li);
       }
       li.className = payload.status;
@@ -122,11 +154,161 @@
       }
     }
 
+    // ---------- cloud models (story 11): key, « Tester », « Choisir » behind the warning ----------
+    const cloudEl = document.getElementById("cloud-models");
+    const warningEl = document.getElementById("cloud-warning");
+    const testResults = new Map(); // model id -> last `diagnostic_check{check: cloud_test}`
+    const cloudStatus = new Map(); // model id -> the last intention's message
+    let cloud = { models: [], key_hint_fr: "" };
+    let warningFor = null;
+    let warningOpener = null; // the « Choisir » button that opened the warning
+
+    function node(tag, className, text) {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      if (text !== undefined) element.textContent = text;
+      return element;
+    }
+
+    function renderCloud() {
+      cloudEl.replaceChildren();
+      if (!cloud.models.length) {
+        cloudEl.appendChild(node("li", "", "Aucun modèle cloud déclaré (voir wavestack.toml)."));
+        return;
+      }
+      for (const m of cloud.models) {
+        const li = node("li", "cloud");
+        const d = m.disclosure;
+        li.title = [
+          `Hébergement : ${d.hosting_fr}`,
+          `Entraînement : ${m.training_fr}`,
+          d.trial ? "Offre d'essai" : null,
+          d.notes_fr,
+        ].filter(Boolean).join("\n");
+        li.append(node("span", "hosting-tag-network", "RÉSEAU"), node("strong", "", `${m.provider} · ${m.model}`));
+        for (const [on, text] of [[m.loaded, "actif"], [m.selected && !m.loaded, "choix enregistré"]]) {
+          if (on) li.appendChild(node("span", "saved-mark", text));
+        }
+        li.appendChild(node("div", "action", `Hébergement : ${d.hosting_fr} · Entraînement : ${m.training_fr}${d.trial ? " · offre d'essai" : ""}`));
+        const keyRow = node("div", "cloud-key");
+        const input = node("input");
+        input.type = "password";
+        input.autocomplete = "off";
+        input.placeholder = m.key_set ? "Clé enregistrée (la saisir de nouveau pour la remplacer)" : "Clé API";
+        input.setAttribute("aria-label", `Clé API ${m.provider}`);
+        const save = node("button", "choose", "Enregistrer la clé");
+        save.type = "button";
+        save.disabled = busy;
+        save.addEventListener("click", () => {
+          if (input.value.trim()) setApiKey(m, input.value);
+        });
+        keyRow.append(input, save);
+        li.append(keyRow, node("div", "action", cloud.key_hint_fr));
+        const test = node("button", "choose", "Tester");
+        const choose = node("button", "choose", "Choisir");
+        for (const button of [test, choose]) {
+          button.type = "button";
+          button.disabled = busy || Boolean(m.disabled_fr);
+          if (m.disabled_fr) button.title = m.disabled_fr;
+        }
+        test.addEventListener("click", () => testCloud(m));
+        choose.addEventListener("click", () => openWarning(m, choose));
+        li.append(test, " ", choose);
+        if (m.disabled_fr) li.appendChild(node("div", "action", m.disabled_fr));
+        li.appendChild(node("div", "action", m.test_hint_fr));
+        const result = testResults.get(m.id);
+        if (result) {
+          const parts = [result.message_fr];
+          if (result.answer) parts.push(`Réponse : « ${result.answer} »`);
+          if (result.tool_call) parts.push(`Appel d'outil reçu : ${result.tool_call.name} ${result.tool_call.arguments ?? ""}`);
+          if (result.action_fr) parts.push(result.action_fr);
+          li.appendChild(node("div", `cloud-result ${result.status}`, parts.join(" · ")));
+        }
+        if (cloudStatus.has(m.id)) li.appendChild(node("div", "cloud-result", cloudStatus.get(m.id)));
+        cloudEl.appendChild(li);
+      }
+    }
+
+    async function post(path, payload) {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json();
+      return { ok: response.ok, body };
+    }
+
+    async function cloudIntention(m, path, payload, pending) {
+      if (busy) return;
+      setBusy(true);
+      cloudStatus.set(m.id, pending);
+      renderCloud();
+      try {
+        const { body } = await post(path, payload);
+        cloudStatus.set(m.id, body.message_fr || body.detail || "");
+      } catch (error) {
+        cloudStatus.set(m.id, `La demande n'a pas abouti : ${error.message}. Réessayez.`);
+      } finally {
+        setBusy(false);
+        loadDiagnostic();
+      }
+    }
+
+    function setApiKey(m, key) {
+      // The key goes out once, in this request; it is never shown nor sent back (AD-15).
+      cloudIntention(m, "/api/intentions/set_api_key", { id: m.id, key }, "Enregistrement de la clé…");
+    }
+
+    function testCloud(m) {
+      testResults.delete(m.id);
+      cloudIntention(m, "/api/intentions/test_cloud_model", { id: m.id }, "Test en cours…");
+    }
+
+    function openWarning(m, opener) {
+      if (!m.warning) return;
+      warningFor = m;
+      warningOpener = opener;
+      document.getElementById("cloud-warning-title").textContent = m.warning.title_fr;
+      const points = document.getElementById("cloud-warning-points");
+      points.replaceChildren(...["sent_fr", "provider_fr", "unseen_fr"].map((k) => node("li", "", m.warning[k])));
+      document.getElementById("cloud-warning-confirm").textContent = m.warning.confirm_fr;
+      document.getElementById("cloud-warning-cancel").textContent = m.warning.cancel_fr;
+      // In the page, never a browser dialog (EXPERIENCE.md cloud-warning); modal, so Échap
+      // closes it and the rows behind wait.
+      warningEl.showModal();
+      document.getElementById("cloud-warning-confirm").focus();
+    }
+
+    // Échap, « Annuler » or « Utiliser ce modèle »: the warning is no longer pending.
+    warningEl.addEventListener("close", () => {
+      warningFor = null;
+      if (warningOpener?.isConnected) warningOpener.focus();
+      warningOpener = null;
+    });
+    document.getElementById("cloud-warning-cancel").addEventListener("click", () => {
+      warningEl.close();
+    });
+    document.getElementById("cloud-warning-confirm").addEventListener("click", () => {
+      const m = warningFor;
+      warningEl.close();
+      if (m) {
+        cloudIntention(
+          m,
+          "/api/intentions/select_model",
+          { kind: "cloud", ref: m.id, acknowledged: true },
+          "Choix en cours…"
+        );
+      }
+    });
+
     async function loadDiagnostic() {
       const response = await fetch("/api/diagnostic");
       const body = await response.json();
       selectedModel = body.selected_model;
       loadedModel = body.loaded_model;
+      cloud = body.cloud || cloud;
+      renderCloud();
       renderCandidates(body.candidates || []);
       document.getElementById("open-link").style.display = body.ready ? "block" : "none";
     }
@@ -153,7 +335,7 @@
         const response = await fetch("/api/intentions/select_model", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path }),
+          body: JSON.stringify({ kind: "file", ref: path }),
         });
         const body = await response.json();
         selectStatusEl.textContent = body.message_fr || body.detail ||

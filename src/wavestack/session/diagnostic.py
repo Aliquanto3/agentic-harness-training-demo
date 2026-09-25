@@ -19,14 +19,31 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import httpx
 import psutil
+from pydantic import SecretStr
 
 from wavestack import config
+from wavestack.cloud import (
+    CloudContent,
+    chat_fields,
+    disclosure,
+    fill,
+    load_cloud_content,
+    warning_fr,
+)
+from wavestack.config import CloudModel
+from wavestack.context.render import render_chat_body
+from wavestack.context.segments import Part, SegmentKind
 from wavestack.models import discovery, probe
+from wavestack.models.engine import CancelToken
+from wavestack.models.openai_chat import ChatBody, OpenAIChatEngine, ProviderError, run_call
 from wavestack.net.factory import create_client
 from wavestack.net.guard import NetworkBlocked
+from wavestack.session.effects import ApiKeySet, SettingWrite, apply_setting
+from wavestack.tools.parser import tool_call_id
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import scoped
 
@@ -47,19 +64,49 @@ class DiagnosticResult:
     model_path: str | None = None  # the file the caller must load now, if any
     saved: bool = False  # `select_model`: the choice was recorded in settings.json
     message_fr: str | None = None  # `select_model`: the outcome, in French
+    cloud_model: CloudModel | None = None  # the cloud model the caller must boot now, if any
+
+
+class Refused(Exception):
+    """A diagnostic intention refused with its French reason; nothing was written."""
+
+    def __init__(self, reason_fr: str) -> None:
+        super().__init__(reason_fr)
+        self.reason_fr = reason_fr
+
+
+CloudFactory = Callable[[CloudModel, SecretStr], OpenAIChatEngine]
 
 
 class DiagnosticSession:
     """The only session that exists while WaveStack has no confirmed model."""
 
-    def __init__(self, cfg: config.Config, port: int) -> None:
+    def __init__(
+        self, cfg: config.Config, port: int, cloud_factory: CloudFactory | None = None
+    ) -> None:
         self.cfg = cfg
         self.port = port
-        self.selected_model_path: str | None = cfg.selected_model
+        selected = cfg.selected_model or {}
+        self.selected_model_path: str | None = (
+            selected["ref"] if selected.get("kind") == "file" else None
+        )
+        self.selected_cloud: str | None = (
+            selected["ref"] if selected.get("kind") == "cloud" else None
+        )
         self.booted_path: str | None = None  # set once a file is handed out for loading
+        self.booted_cloud: str | None = None  # set once a cloud model is handed out
         self.state = "diagnostic"
         self.last_result: DiagnosticResult | None = None
         self._lock = threading.Lock()
+        self._tests = 0  # « Tester » runs, for their `diag.{n}` ids (AD-21)
+        self._cloud_factory = cloud_factory or (
+            lambda entry, key: OpenAIChatEngine(
+                entry,
+                key,
+                connect_timeout_s=cfg.cloud_connect_timeout_s,
+                read_timeout_s=cfg.cloud_read_timeout_s,
+            )
+        )
         self._emit_state("Diagnostic de démarrage en cours.")
 
     def _emit_state(self, reason_fr: str) -> None:
@@ -260,9 +307,28 @@ class DiagnosticSession:
         return self.last_result
 
     def _check_model_locked(self) -> DiagnosticResult:
+        for error_fr in self.cfg.cloud_models[1]:  # AD-20: left out, never blocking
+            self._emit_check("cloud", "warn", error_fr, blocking=False)
         saved = self.selected_model_path
         candidates = self._discover(saved)
         notice_fr = ""
+        if self.selected_cloud:
+            entry = self.cfg.cloud_model(self.selected_cloud)
+            reason = self._cloud_refusal(entry, self.selected_cloud)
+            if entry is not None and reason is None:  # AD-21: no request, no new warning
+                self.booted_cloud = entry.id
+                self._emit_check(
+                    "model",
+                    "ok",
+                    f"Modèle retenu : {entry.model} chez {entry.provider} (modèle cloud, choisi "
+                    "lors d'un lancement précédent).",
+                    blocking=False,
+                )
+                self.last_result = DiagnosticResult(
+                    ready=True, candidates=candidates, cloud_model=entry
+                )
+                return self.last_result
+            notice_fr = f"Le modèle cloud enregistré n'est plus utilisable : {reason} "
         if saved:
             chosen = _usable(candidates, saved)
             if chosen:
@@ -330,7 +396,7 @@ class DiagnosticSession:
     def _select_model_locked(self, path: str) -> DiagnosticResult:
         # Probe only the chosen file, and none once a model is loaded: a probe loads full
         # weights, next to the loaded model's. The next launch's probe decides then.
-        loaded = self.booted_path is not None
+        loaded = self.booted_path is not None or self.booted_cloud is not None
         candidates = self._discover(path, probe_only=set() if loaded else {path})
         previous = self.last_result or DiagnosticResult(ready=False, blocking_checks=["model"])
         known = {c.path: c for c in previous.candidates if c.status == "incompatible"}
@@ -350,8 +416,8 @@ class DiagnosticSession:
             )
             return self.last_result
 
-        self.selected_model_path = chosen.path
-        saved = self._persist(lambda: config.save_setting("selected_model", chosen.path))
+        self.selected_model_path, self.selected_cloud = chosen.path, None
+        saved = self._save_choice("file", chosen.path)
         if not loaded:
             result = self._hand_out(chosen, candidates)
             result.saved = saved
@@ -372,11 +438,287 @@ class DiagnosticSession:
         )
         return self.last_result
 
+    def _save_choice(self, kind: str, ref: str) -> bool:
+        """AD-20: `selected_model = {kind, ref}`, by the single applier (AD-23)."""
+        value = {"kind": kind, "ref": ref}
+        return self._persist(lambda: apply_setting(SettingWrite(key="selected_model", value=value)))
+
+    def hand_to(self, app_session: Any, result: DiagnosticResult, *, launch: bool = False) -> None:
+        """Boot the model `result` hands out on `app_session`: the cloud model, else the file.
+        At launch (`launch`), a ready result without file still boots (a server only), so the
+        session leaves `diagnostic` with its reason. The same path for the cli and the web."""
+        if result.cloud_model is not None:
+            future = app_session.boot_cloud(result.cloud_model)
+        elif result.model_path or (launch and result.ready):
+            future = app_session.boot(result.model_path)
+        else:
+            return
+        future.add_done_callback(lambda _: self.boot_finished(app_session.model_loaded))
+
     def boot_finished(self, loaded: bool) -> None:
         """A load that failed frees the choice: the next `select_model` loads again."""
         if not loaded:
             with self._lock:
-                self.booted_path = None
+                self.booted_path = self.booted_cloud = None
+
+    # ---------- cloud models (story 11, AD-20, AD-21) ----------
+
+    def _cloud_refusal(self, entry: CloudModel | None, model_id: str) -> str | None:
+        """Why `entry` can be neither tested nor chosen, in French; `None` when it can."""
+        if entry is None:
+            return f"le modèle cloud « {model_id} » n'est pas déclaré (ou est désactivé)."
+        if config.cloud_key(entry) is None:
+            content = self._cloud_content()
+            if config.api_key_host_changed(entry):
+                return content.host_changed_fr if content else "Clé à ressaisir."
+            return fill(content.no_key_fr, entry, content) if content else "Clé absente."
+        return config.cloud_unavailable_fr(entry)
+
+    def _cloud_content(self) -> CloudContent | None:
+        try:
+            return load_cloud_content()
+        except Exception as exc:  # noqa: BLE001 - AD-19: traced, never fatal
+            get_journal().emit(
+                "harness_error",
+                {
+                    "message_fr": "Le fichier content/cloud.yaml est absent ou invalide.",
+                    "cause": str(exc),
+                    "effect_fr": "Les modèles cloud s'affichent sans leurs textes.",
+                },
+            )
+            return None
+
+    def cloud_rows(self) -> dict[str, object]:
+        """`/api/diagnostic`: each declared cloud model, its key state (never the key), why
+        its buttons are disabled, its mentions and the warning's text; and the common texts."""
+        content = self._cloud_content()
+        rows = []
+        for entry in self.cfg.cloud_models[0]:
+            reason = self._cloud_refusal(entry, entry.id)
+            rows.append(
+                {
+                    "id": entry.id,
+                    "provider": entry.provider,
+                    "model": entry.model,
+                    "host": entry.host,
+                    "disclosure": disclosure(entry),
+                    "training_fr": (
+                        content.training_fr.get(entry.training, entry.training)
+                        if content
+                        else entry.training
+                    ),
+                    "key_set": config.cloud_key(entry) is not None,
+                    "disabled_fr": reason,
+                    "selected": entry.id == self.selected_cloud,
+                    "loaded": entry.id == self.booted_cloud,
+                    "test_hint_fr": fill(content.test_hint_fr, entry, content) if content else "",
+                    "warning": warning_fr(entry, content) if content else None,
+                }
+            )
+        return {"models": rows, "key_hint_fr": content.key_hint_fr if content else ""}
+
+    def select_cloud(self, model_id: str, acknowledged: bool) -> DiagnosticResult:
+        """Intention `select_model{kind: cloud}` (AD-21): refused without the warning's
+        confirmation or a usable key, nothing written then (`Refused`). Before any model is
+        loaded, the caller boots it; after, it is saved for the next launch."""
+        with self._lock:
+            entry = self.cfg.cloud_model(model_id)
+            if entry is not None and not acknowledged:
+                raise Refused(
+                    "Choix refusé : avertissement non confirmé. Lisez l'avertissement, puis "
+                    "cliquez sur « Utiliser ce modèle »."
+                )
+            reason = self._cloud_refusal(entry, model_id)
+            if entry is None or reason is not None:
+                raise Refused(f"Choix refusé : {reason}")
+            loaded = self.booted_path is not None or self.booted_cloud is not None
+            self.selected_cloud, self.selected_model_path = entry.id, None
+            saved = self._save_choice("cloud", entry.id)
+            previous = self.last_result or DiagnosticResult(ready=False)
+            label = f"{entry.model} chez {entry.provider}"
+            if not loaded:
+                self.booted_cloud = entry.id
+                self._emit_check(
+                    "model", "ok", f"Modèle retenu : {label} (modèle cloud).", blocking=False
+                )
+                self.last_result = DiagnosticResult(
+                    ready=True,
+                    candidates=previous.candidates,
+                    saved=saved,
+                    cloud_model=entry,
+                    message_fr=f"Modèle choisi : {label}. Préparation en cours."
+                    + ("" if saved else " Ce choix n'a pas pu être mémorisé."),
+                )
+                return self.last_result
+            self.last_result = DiagnosticResult(
+                ready=previous.ready,
+                blocking_checks=previous.blocking_checks,
+                candidates=previous.candidates,
+                saved=saved,
+                message_fr=(
+                    f"Prochain lancement : {label}. Le changement de modèle à chaud n'existe "
+                    "pas encore."
+                    if saved
+                    else f"Choix non enregistré ({label}) : settings.json n'a pas pu être écrit."
+                ),
+            )
+            return self.last_result
+
+    def set_api_key(self, model_id: str, key: SecretStr) -> dict[str, object]:
+        """Intention `set_api_key` (AD-20): saved with the host declared now, by the single
+        applier. The answer never carries what it received (AD-15)."""
+        entry = self.cfg.cloud_model(model_id)
+        if entry is None:
+            raise Refused(f"Le modèle cloud « {model_id} » n'est pas déclaré (ou est désactivé).")
+        if not key.get_secret_value().strip():
+            raise Refused("Clé vide : collez la clé API fournie par la console du fournisseur.")
+        key = SecretStr(key.get_secret_value().strip())
+        effect = ApiKeySet(id=entry.id, host=entry.host, key=key)
+        try:
+            apply_setting(effect)
+        except OSError as exc:
+            raise Refused(
+                f"La clé n'a pas pu être enregistrée ({config.api_keys_path()}) : "
+                f"{exc.strerror or type(exc).__name__}."
+            ) from None
+        return {
+            "key_set": True,
+            "message_fr": f"Clé enregistrée pour {entry.provider}. Cliquez sur « Tester ».",
+        }
+
+    def test_cloud_model(self, model_id: str) -> dict[str, object]:
+        """Intention `test_cloud_model` (AD-21): the fixed prompt and tool of `content/`, the
+        model's real body, two calls at most, scope `diag`, `origin = model`. Emits the
+        `model_call_*` events, then `diagnostic_check{check: cloud_test}`. Never trains the
+        estimate ratio (the application session's own)."""
+        entry = self.cfg.cloud_model(model_id)
+        reason = self._cloud_refusal(entry, model_id)
+        content = self._cloud_content()
+        if entry is None or reason is not None:
+            raise Refused(f"Test refusé : {reason}")
+        if content is None:
+            raise Refused("Test impossible : le fichier content/cloud.yaml est invalide.")
+        key = config.cloud_key(entry)
+        assert key is not None
+        with self._lock:
+            self._tests += 1
+            n = self._tests
+        test = content.test
+        messages: list[dict[str, Any]] = [
+            {"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, test.prompt)]}
+        ]
+        tools = (
+            [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": test.tool.name,
+                        "description": test.tool.description,
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ]
+            if entry.tools
+            else None
+        )
+        engine = self._cloud_factory(entry, key)
+        answer, tool_call, tps = "", None, None
+        try:
+            for k in (1, 2):
+                step_id = f"diag.{n}.s{k}"
+                scope = {
+                    "turn_id": None,
+                    "context_id": "diag",
+                    "call_id": f"diag.{n}.c{k}",
+                    "step_id": step_id,
+                    "component": "core.model",
+                    "origin": "model",
+                }
+                with scoped(**scope):
+                    rendered = render_chat_body(
+                        messages,
+                        tools,
+                        call_id=scope["call_id"],
+                        fields=chat_fields(entry, entry.reserve),
+                        markers=self.cfg.cloud_markers,
+                        estimate=lambda t: config.estimate_tokens(t, self.cfg.chars_per_token),
+                        provider_label_fr=content.provider_segment_fr,
+                    )
+                    out = run_call(
+                        engine,
+                        ChatBody(rendered.body.encode("utf-8")),
+                        CancelToken(),
+                        phase_label=f"Test de {entry.model} chez {entry.provider}",
+                        estimated_prompt=rendered.raw_total,
+                        chars_per_token=self.cfg.chars_per_token,
+                        call_id=lambda i, s=step_id: tool_call_id(s, i),
+                    )
+                tps = out.output_tps if out.output_tps is not None else tps
+                if k == 1 and out.calls and all("id" in c for c in out.calls):
+                    call = out.calls[0]
+                    tool_call = {"name": call["name"], "arguments": call["arguments"]}
+                    assistant: dict[str, Any] = {"role": "assistant"}
+                    if out.text:
+                        assistant["content"] = [Part(SegmentKind.ASSISTANT_TURN, out.text)]
+                    assistant["tool_calls"] = [
+                        {
+                            "id": call["id"],
+                            "type": "function",
+                            "function": {"name": call["name"], "arguments": call["arguments"]},
+                        }
+                    ]
+                    reply = [Part(SegmentKind.TOOL_RESULT, test.tool_reply)]
+                    messages += [
+                        assistant,
+                        {"role": "tool", "tool_call_id": call["id"], "content": reply},
+                    ]
+                    continue
+                answer = out.text or out.reasoning
+                break
+        except ProviderError as error:
+            self._emit_test(entry, "fail", f"Test en échec : {error.message_fr}", error.hints_fr)
+            return {"ok": False, "message_fr": error.message_fr}
+        finally:
+            engine.close()
+        rate = f", {tps} tokens/s" if tps is not None else ""
+        if entry.tools and tool_call is None:
+            message = (
+                f"{entry.provider} répond{rate}, mais le modèle n'a pas appelé l'outil de test : "
+                "l'appel d'outils risque d'échouer pendant la séance."
+            )
+            status = "warn"
+        else:
+            called = f" Appel d'outil reçu : {tool_call['name']}." if tool_call else ""
+            message = f"Test réussi : {entry.provider} répond{rate}.{called}"
+            status = "ok"
+        self._emit_test(entry, status, message, [], answer=answer, tool_call=tool_call, tps=tps)
+        return {"ok": status == "ok", "message_fr": message}
+
+    def _emit_test(
+        self,
+        entry: CloudModel,
+        status: str,
+        message_fr: str,
+        hints_fr: list[str],
+        *,
+        answer: str | None = None,
+        tool_call: dict[str, object] | None = None,
+        tps: int | None = None,
+    ) -> None:
+        get_journal().emit(
+            "diagnostic_check",
+            {
+                "check": "cloud_test",
+                "status": status,
+                "message_fr": message_fr,
+                "action_fr": " ".join(hints_fr) or None,
+                "blocking": False,
+                "model_id": entry.id,
+                "answer": answer,
+                "tool_call": tool_call,
+                "output_tps": tps,
+            },
+        )
 
     def run(self) -> DiagnosticResult:
         """Run every diagnostic check once, in the order the story mandates."""

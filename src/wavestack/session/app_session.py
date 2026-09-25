@@ -30,7 +30,15 @@ from wavestack.bricks.contract import (
     load_default_system_prompt,
 )
 from wavestack.bricks.registry import BRICKS, check_unique_ids
-from wavestack.context.render import RenderedContext, render_context
+from wavestack.cloud import active_model, chat_fields, load_cloud_content
+from wavestack.config import CloudModel
+from wavestack.context.render import (
+    RenderedChat,
+    RenderedContext,
+    render_chat_body,
+    render_context,
+    with_total,
+)
 from wavestack.context.segments import Joined, Part, SegmentKind, SegmentLabels, load_labels
 from wavestack.context.window import OUTPUT_RESERVE, effective_window, gauge
 from wavestack.hooks import (
@@ -54,6 +62,13 @@ from wavestack.models.capabilities import (
     capabilities_for,
 )
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
+from wavestack.models.openai_chat import (
+    ChatBody,
+    OpenAIChatEngine,
+    ProviderError,
+    output_tps,
+    run_call,
+)
 from wavestack.scenarios import EMPTY_PROGRAM, ScenariosContent, load_scenarios
 from wavestack.session.effects import (
     ArmConsumed,
@@ -67,7 +82,13 @@ from wavestack.skills import SkillsContent, SkillText, load_skills_content
 from wavestack.tools.executor import ToolExecutor
 from wavestack.tools.native import NATIVE_TOOLS
 from wavestack.tools.network import network_tools
-from wavestack.tools.parser import Malformed, ToolCall, convert_value, parse_tool_calls
+from wavestack.tools.parser import (
+    Malformed,
+    ToolCall,
+    convert_value,
+    parse_tool_calls,
+    tool_call_id,
+)
 from wavestack.tools.registry import (
     ToolError,
     ToolRegistry,
@@ -189,6 +210,10 @@ class _ModelOutput:
     reasoning: str = ""
     calls: list[ToolCall] = field(default_factory=list)
     malformed: Malformed | None = None
+    # The session's `tool_call_id` of each call (AD-4), and, in chat mode, each call's
+    # `arguments` as the provider emitted them.
+    ids: list[str] = field(default_factory=list)
+    arguments: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -277,9 +302,26 @@ class AppSession:
         engine_factory: Callable[..., Engine] = LlamaCppEngine,
         bricks: list[BrickDeclaration] | None = None,
         hooks: tuple[Hook, ...] = DEMO_HOOKS,
+        cloud_factory: Callable[..., Any] | None = None,
     ) -> None:
         self.cfg = cfg or config.load_config()
         self._engine_factory = engine_factory
+        # Story 11: the cloud model's adapter (`openai_chat`), a fake one in tests.
+        self._cloud_factory = cloud_factory or (
+            lambda entry, key: OpenAIChatEngine(
+                entry,
+                key,
+                connect_timeout_s=self.cfg.cloud_connect_timeout_s,
+                read_timeout_s=self.cfg.cloud_read_timeout_s,
+            )
+        )
+        self._cloud: CloudModel | None = None  # the active cloud model: chat mode (AD-4)
+        self._window_source = "configured"
+        self._reserve = OUTPUT_RESERVE
+        # AD-4: the last real `usage.prompt_tokens / Σ estimates` of the main context.
+        self._ratio = self.cfg.estimate_ratio
+        self._call_ids: set[str] = set()  # the running turn's `tool_call_id`s (AD-4)
+        self._cloud_content = None  # `content/cloud.yaml`, read when a cloud model boots
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="wavestack-worker")
         self._lock = threading.Lock()
         self.state = "diagnostic"
@@ -392,10 +434,26 @@ class AppSession:
     def _set_state(self, state: str, reason_fr: str | None = None) -> None:
         with self._lock:
             self.state, self.reason_fr = state, reason_fr
-        get_journal().emit("session_state", {"state": state, "reason_fr": reason_fr})
+        self._emit_state()
+
+    def active_model(self) -> dict[str, Any] | None:
+        """AD-12: the model indicator's only source, from the file or the cloud entry."""
+        if self._cloud is not None:
+            return active_model(self._cloud)
+        if self._model_name is None:
+            return None
+        return {"id": self._model_name, "label": self._model_name, "hosting": "local"}
+
+    def _emit_state(self) -> None:
+        with self._lock:
+            state, reason_fr = self.state, self.reason_fr
+        get_journal().emit(
+            "session_state",
+            {"state": state, "reason_fr": reason_fr, "active_model": self.active_model()},
+        )
 
     def emit_initial(self) -> None:
-        get_journal().emit("session_state", {"state": self.state, "reason_fr": self.reason_fr})
+        self._emit_state()
         self._emit_architecture()
         self._emit_bricks()
 
@@ -460,8 +518,12 @@ class AppSession:
         """AD-12: a component is drawn as soon as its brick is `wanted`, even unavailable."""
         with self._lock:
             wanted = [b for b in self._bricks.values() if b.id in self._wanted]
-        nodes: list[dict[str, Any]] = [_CORE_HARNESS, {**_CORE_MODEL, "model": self._model_name}]
+        model = {**_CORE_MODEL, "model": self._model_name}
         edges: list[dict[str, Any]] = []
+        if self._cloud is not None:  # AD-12: drawn in the network zone, with its provider
+            model |= {"hosting": "network", "provider": self._cloud.provider}
+            edges.append({"from": "core.harness", "to": "core.model", "crosses_boundary": True})
+        nodes: list[dict[str, Any]] = [_CORE_HARNESS, model]
         components = {b.id: self._drawn_components(b) for b in wanted}
         # A file node is drawn once a drawn component points to it: its brick, its label
         # and what its tooltip adds.
@@ -764,9 +826,13 @@ class AppSession:
                 )
                 self._set_state("idle", caps.incompatible_reason)
                 return
-            self._engine, self._caps = engine, caps
+            self._engine, self._caps, self._cloud = engine, caps, None
             self._model_name = Path(model_path).stem
             self._window = effective_window(self.cfg.context_window, caps.native_context)
+            self._window_source = (
+                "configured" if self._window == self.cfg.context_window else "native"
+            )
+            self._reserve = OUTPUT_RESERVE
             self._labels = self._load_labels()
         except Exception as exc:  # noqa: BLE001 - AD-16
             self._error("Le modèle n'a pas pu être chargé.", exc, "Aucun tour possible.")
@@ -774,6 +840,76 @@ class AppSession:
             return
         self._set_state("idle")
         self._emit_architecture()  # availability may depend on the loaded model's capabilities
+        self._emit_bricks()
+        self._emit_preview()
+
+    def hold(self, state: str, reason_fr: str, run: Callable[[], Any]) -> Any:
+        """AD-3: runs `run` holding the operation lock in `state` (`test_cloud_model`:
+        `model_load`), then gives the previous state back. Refused (`SendRefused`) outside
+        `idle` and `diagnostic`."""
+        with self._lock:
+            if self.state not in ("idle", "diagnostic"):
+                raise SendRefused(self._refusal_reason())
+            previous = (self.state, self.reason_fr)
+            self.state, self.reason_fr = state, reason_fr
+        self._emit_state()
+        try:
+            return run()
+        finally:
+            with self._lock:  # a boot may have moved the session meanwhile: leave it there
+                mine = (self.state, self.reason_fr) == (state, reason_fr)
+            if mine:
+                self._set_state(*previous)
+
+    def boot_cloud(self, entry: CloudModel) -> Future[None]:
+        """Prepare the cloud model `entry` on the worker thread, without any request (AD-21):
+        `model_load` → `idle`, then `context_preview`. No local model stays loaded (AD-8)."""
+        return self._executor.submit(self._boot_cloud, entry)
+
+    def _boot_cloud(self, entry: CloudModel) -> None:
+        label = f"{entry.model} chez {entry.provider}"
+        try:
+            self._model_name = None
+            self._set_state("model_load", f"Préparation du modèle cloud {label}…")
+            if self._engine is not None:
+                self._engine.close()
+                self._engine = None
+            key = config.cloud_key(entry)
+            if key is None:
+                raise ValueError("aucune clé enregistrée pour cette adresse")
+            unavailable = config.cloud_unavailable_fr(entry)
+            if unavailable:
+                raise ValueError(unavailable)
+            self._cloud_content = load_cloud_content()
+            engine = self._cloud_factory(entry, key)
+        except Exception as exc:  # noqa: BLE001 - AD-16
+            self._error(
+                f"Le modèle cloud {label} n'a pas pu être préparé.", exc, "Aucun tour possible."
+            )
+            self._set_state(
+                "idle",
+                "Envoi indisponible : le modèle cloud n'a pas pu être préparé. Choisissez un "
+                "modèle sur la page de diagnostic.",
+            )
+            return
+        # AD-6: declared capabilities; the API's structured format parses the tool calls.
+        self._caps = Capabilities(
+            family="openai_chat",
+            chat_template=None,
+            tool_call_parser="openai_chat" if entry.tools else None,
+            stop_sequences=(),
+            reasoning_variable=None,
+            native_context=entry.context,
+            reasoning_tags=None,
+        )
+        self._engine, self._cloud = engine, entry
+        self._model_name = entry.model
+        self._window, self._window_source = config.cloud_window(entry, self.cfg.context_window)
+        self._reserve = entry.reserve
+        self._ratio = self.cfg.estimate_ratio
+        self._labels = self._load_labels()
+        self._set_state("idle")
+        self._emit_architecture()
         self._emit_bricks()
         self._emit_preview()
 
@@ -887,6 +1023,12 @@ class AppSession:
             if dep not in wanted or not self._availability(dep)[0]:
                 return False, f"Nécessite la brique « {self._label(dep)} » : activez-la d'abord."
         missing = [c for c in brick.capabilities if not getattr(self._caps, c, None)]
+        if missing and self._cloud is not None:  # AD-6: a capability not declared is absent
+            return False, (
+                f"Le modèle cloud « {self._cloud.id} » ne déclare pas l'appel d'outils (tools) : "
+                "aucune action d'outil, pas même forcée. Déclarez tools = true si le modèle le "
+                "gère, ou choisissez un autre modèle."
+            )
         if missing:
             needs = ", ".join(_CAPABILITIES_FR.get(c, c) for c in missing)
             return False, f"Le modèle chargé n'offre pas {needs} : choisissez un autre modèle."
@@ -951,11 +1093,18 @@ class AppSession:
 
     @staticmethod
     def _step_messages(
-        steps: tuple[dict[str, Any], ...] | list[dict[str, Any]], *, history: bool, group: str
+        steps: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+        *,
+        history: bool,
+        group: str,
+        chat: bool = False,
     ) -> list[dict[str, Any]]:
         """Intermediate messages of a turn: `assistant_turn`/`tool_result` in the turn itself
         (or the step's own `kind`), `history` afterwards, where a step's `stub` replaces its
-        content. Each call's name and string arguments form one group (AD-4)."""
+        content. Each call's name and arguments form one group (AD-4). Calls carry their
+        session `id`, replies its `tool_call_id`. Chat mode (AD-4): no reasoning sent back,
+        an empty `content` omitted, `arguments` as the string emitted, a reply without
+        `name`, and a malformed call's error sent as a `user` message."""
         memory = (SegmentKind.HISTORY, "short_memory", "short_memory.history")
         messages: list[dict[str, Any]] = []
         for i, step in enumerate(steps):
@@ -970,7 +1119,14 @@ class AppSession:
                     )
                 )
                 text = step.get("stub", step["content"]) if history else step["content"]
-                messages.append({"role": "tool", "content": [Part(kind, text, brick, component)]})
+                content = [Part(kind, text, brick, component)]
+                if chat and step.get("id") is None:  # a malformed call's error (AD-10)
+                    messages.append({"role": "user", "content": content})
+                    continue
+                reply: dict[str, Any] = {"role": "tool"}
+                if step.get("id") is not None:
+                    reply["tool_call_id"] = step["id"]
+                messages.append(reply | {"content": content})
                 continue
             # A forced action's call is attributed to its brick (AD-25), the model's to it.
             kind, brick, component = (
@@ -982,25 +1138,28 @@ class AppSession:
                     step.get("component", "core.model"),
                 )
             )
-            answer: dict[str, Any] = {
-                "role": "assistant",
-                "content": [Part(kind, step["content"], brick, component)],
-            }
-            if step.get("reasoning"):
+            answer: dict[str, Any] = {"role": "assistant"}
+            if step["content"] or not chat:
+                answer["content"] = [Part(kind, step["content"], brick, component)]
+            if step.get("reasoning") and not chat:  # AD-4: never sent back in V1 (`resend`)
                 answer["reasoning_content"] = step["reasoning"]  # plain, as for the history
             if step["tool_calls"]:
                 answer["tool_calls"] = []
                 for j, call in enumerate(step["tool_calls"]):
                     in_call = (brick, component, f"{group}.{i}.{j}")
-                    # ponytail: only string values are wrapped; a number or an object stays
-                    # plain (template), since a template may `tojson` them.
-                    arguments = {
-                        arg: Part(kind, value, *in_call) if isinstance(value, str) else value
-                        for arg, value in call["arguments"].items()
-                    }
+                    if chat:  # the string emitted, or serialized once by the session
+                        arguments: Any = Part(kind, call["arguments_json"], *in_call)
+                    else:
+                        # ponytail: only string values are wrapped; a number or an object
+                        # stays plain (template), since a template may `tojson` them.
+                        arguments = {
+                            arg: Part(kind, value, *in_call) if isinstance(value, str) else value
+                            for arg, value in call["arguments"].items()
+                        }
                     name = Part(kind, call["name"], *in_call)
+                    function = {"name": name, "arguments": arguments}
                     answer["tool_calls"].append(
-                        {"type": "function", "function": {"name": name, "arguments": arguments}}
+                        {"id": call.get("id"), "type": "function", "function": function}
                     )
             messages.append(answer)
         return messages
@@ -1040,7 +1199,12 @@ class AppSession:
         return parts
 
     def _messages(
-        self, state: TurnState, message: str, steps: list[dict[str, Any]] | None = None
+        self,
+        state: TurnState,
+        message: str,
+        steps: list[dict[str, Any]] | None = None,
+        *,
+        chat: bool = False,
     ) -> list[dict[str, Any]]:
         """AD-4 slots: system message, history, the turn's user message, then the turn's steps.
 
@@ -1056,12 +1220,12 @@ class AppSession:
                 if ex.injection:  # H3's text stays before its message
                     user.insert(0, Part(SegmentKind.HISTORY, ex.injection, *memory))
                 messages.append({"role": "user", "content": user})
-                messages += self._step_messages(ex.steps, history=True, group=ex.turn_id)
+                messages += self._step_messages(ex.steps, history=True, group=ex.turn_id, chat=chat)
                 answer: dict[str, Any] = {
                     "role": "assistant",
                     "content": [Part(SegmentKind.HISTORY, ex.text, *memory)],
                 }
-                if ex.reasoning:
+                if ex.reasoning and not chat:
                     # ponytail: passed as a plain template variable, so a template that keeps
                     # past reasoning counts it as `template`; attribute it once one does.
                     answer["reasoning_content"] = ex.reasoning
@@ -1070,7 +1234,7 @@ class AppSession:
         if state.injection:  # AD-13: added before the message, never rewriting it
             user.insert(0, Part(SegmentKind.HOOK_INJECTION, state.injection, "hooks", "hooks.h3"))
         messages.append({"role": "user", "content": user})
-        messages += self._step_messages(steps or [], history=False, group="turn")
+        messages += self._step_messages(steps or [], history=False, group="turn", chat=chat)
         return messages
 
     def _tool_definitions(self, state: TurnState) -> list[dict[str, Any]] | None:
@@ -1123,8 +1287,10 @@ class AppSession:
         message: str,
         call_id: str | None,
         steps: list[dict[str, Any]] | None = None,
-    ) -> tuple[RenderedContext, dict[str, Any]]:
+    ) -> tuple[RenderedContext | RenderedChat, dict[str, Any]]:
         assert self._engine is not None and self._caps is not None and self._labels is not None
+        if self._cloud is not None:
+            return self._render_chat(state, message, call_id, steps)
         meta = self._engine.metadata()
         template_vars: dict[str, Any] = {}
         if self._caps.reasoning_variable:
@@ -1144,11 +1310,52 @@ class AppSession:
         payload = gauge(
             rendered.segments,
             window=self._window,
-            reserve=OUTPUT_RESERVE,
+            reserve=self._reserve,
             near_limit_ratio=self.cfg.near_limit_ratio,
             labels=self._labels,
+            window_source=self._window_source,
         )
         return rendered, payload
+
+    def _render_chat(
+        self,
+        state: TurnState,
+        message: str,
+        call_id: str | None,
+        steps: list[dict[str, Any]] | None,
+    ) -> tuple[RenderedChat, dict[str, Any]]:
+        """AD-4, chat mode: `context` writes the body; before the call, the total is the
+        estimates × `ratio`, and only their raw sum can block the call."""
+        entry, content = self._cloud, self._cloud_content
+        assert entry is not None and content is not None
+        rendered = render_chat_body(
+            self._messages(state, message, steps, chat=True),
+            self._tool_definitions(state),
+            call_id=call_id,
+            fields=chat_fields(entry, self._reserve),
+            markers=self.cfg.cloud_markers,
+            estimate=lambda text: config.estimate_tokens(text, self.cfg.chars_per_token),
+            provider_label_fr=content.provider_segment_fr,
+        )
+        payload = self._chat_gauge(rendered, round(rendered.raw_total * self._ratio), "estimate")
+        if not payload["overflow"] and payload["used"] > payload["usable"]:
+            payload["uncertain_fr"] = content.uncertain_fr
+        return rendered, payload
+
+    def _chat_gauge(self, rendered: RenderedChat, total: int, source: str) -> dict[str, Any]:
+        """The gauge fields of a chat call for `total`: before the call (`estimate`) or once
+        `usage` came back (`api`); one function for both (AD-9)."""
+        assert self._labels is not None
+        payload = gauge(
+            with_total(rendered, total),
+            window=self._window,
+            reserve=self._reserve,
+            near_limit_ratio=self.cfg.near_limit_ratio,
+            labels=self._labels,
+            window_source=self._window_source,
+            raw_used=rendered.raw_total,
+        )
+        return payload | {"body": rendered.body, "usage_source": source}
 
     def _emit_preview(self) -> None:
         """AD-9: the next-turn gauge, rendered without any message. Runs on the worker."""
@@ -1219,7 +1426,7 @@ class AppSession:
                 frozenset(self._loaded_skills),
                 frozenset(self._loaded_docs),
             )
-        get_journal().emit("session_state", {"state": self.state, "reason_fr": self.reason_fr})
+        self._emit_state()
         # Frozen now: a later toggle waits for the next turn.
         state = replace(self.build_turn_state(), armed=armed)
         had_pending = bool(self._pending_ids())
@@ -1821,6 +2028,7 @@ class AppSession:
         self._hook_steps = 0
         self._approvals = 0
         self._hooks_off.clear()
+        self._call_ids.clear()
         steps: list[dict[str, Any]] = []
         text = reasoning = ""
         with scoped(turn_id=turn_id, context_id="main", trigger="user"):
@@ -1896,17 +2104,18 @@ class AppSession:
             with scoped(call_id=call_id, step_id=f"{turn_id}.main.s{step}", component="core.model"):
                 rendered, payload = self._render(state, message, call_id, steps)
                 journal.emit("context_rendered", payload)
-                if previous is not None:
+                if previous is not None:  # not in chat mode, which has no ids (AD-4)
                     self._check_prefix(*previous, rendered.ids)
                 if payload["overflow"]:
-                    self._emit_overflow(payload)
+                    self._emit_overflow(payload, getattr(rendered, "raw_total", None))
                     return "overflow", "", ""
                 out = self._call_model(rendered, cancel, state.tools + tuple(loaded_in_turn))
             if out.status != "completed":
                 return out.status, "", ""
             if not out.calls and out.malformed is None:
                 return "completed", out.text, out.reasoning
-            previous = (rendered.ids, out.raw)
+            if isinstance(rendered, RenderedContext):
+                previous = (rendered.ids, out.raw)
 
             # A failed call earns a new attempt while retries and calls remain (AD-10, AD-14).
             reaction = "retry" if retries < max_retries and n < max_calls else "stop"
@@ -1942,12 +2151,25 @@ class AppSession:
                             "role": "assistant",
                             "content": out.text,
                             "tool_calls": [
-                                {"name": c.name, "arguments": c.arguments} for c in out.calls
+                                {
+                                    "id": call_ref,
+                                    "name": c.name,
+                                    "arguments": c.arguments,
+                                    # AD-4: as emitted in chat mode, else serialized once.
+                                    "arguments_json": (
+                                        out.arguments[j]
+                                        if out.arguments
+                                        else json.dumps(c.arguments, ensure_ascii=False)
+                                    ),
+                                }
+                                for j, (c, call_ref) in enumerate(
+                                    zip(out.calls, out.ids, strict=True)
+                                )
                             ],
                         }
                         | ({"reasoning": out.reasoning} if out.reasoning else {})
                     )
-                    for call in out.calls:
+                    for call, call_ref in zip(out.calls, out.ids, strict=True):
                         step += 1
                         detail = self._tool_executor.check(
                             call, state.tools + tuple(loaded_in_turn), state.loadable
@@ -1979,6 +2201,7 @@ class AppSession:
                             result, blocker = ran
                         tool_step = {
                             "role": "tool",
+                            "id": call_ref,
                             "name": call.name,
                             "content": result,
                             "component": component,
@@ -2090,6 +2313,7 @@ class AppSession:
                 continue
             step += 1
             step_id = f"{turn_id}.main.s{step}"
+            call_ref = self._new_call_id(step_id, 0)  # AD-4: index 0, its own step
             target = self._registry.get(action.target) if action.kind == "tool_doc" else spec
             component = (
                 f"skills.{action.target}" if action.kind == "skill" else (target or spec).component
@@ -2104,13 +2328,21 @@ class AppSession:
                 {
                     "role": "assistant",
                     "content": "",
-                    "tool_calls": [{"name": call.name, "arguments": call.arguments}],
+                    "tool_calls": [
+                        {
+                            "id": call_ref,
+                            "name": call.name,
+                            "arguments": call.arguments,
+                            "arguments_json": json.dumps(call.arguments, ensure_ascii=False),
+                        }
+                    ],
                     "brick": action.brick,
                     "component": component,
                 }
             )
             tool_step = {
                 "role": "tool",
+                "id": call_ref,
                 "name": call.name,
                 "content": result,
                 "component": component,
@@ -2194,9 +2426,7 @@ class AppSession:
                 },
             )
             if waiting:
-                journal.emit(
-                    "session_state", {"state": "awaiting_human", "reason_fr": _AWAITING_FR}
-                )
+                self._emit_state()
                 approval.answered.wait()  # AD-13: no delay; `answer_approval` or `stop` wakes it
             with self._lock:
                 decision, disable = approval.decision or "cancelled", approval.disable_hook
@@ -2343,6 +2573,18 @@ class AppSession:
         if contact == "unavailable":
             self._mcp_failed(spec.component.removeprefix("mcp."), why)
 
+    def _new_call_id(self, step_id: str, index: int) -> str:
+        """AD-4: the session's `tool_call_id`, checked unique within the turn."""
+        call_ref = tool_call_id(step_id, index)
+        if call_ref in self._call_ids:
+            self._error(
+                "Identifiant d'appel d'outil en double dans ce tour.",
+                f"{step_id}#{index} donne {call_ref}, déjà attribué.",
+                "Le tour continue ; deux réponses d'outil partagent cet identifiant.",
+            )
+        self._call_ids.add(call_ref)
+        return call_ref
+
     def _emit_limit(self, limit: str, n: int) -> None:
         get_journal().emit(
             "limit_reached", {"limit": limit, "message_fr": _LIMITS_FR[limit].format(n=n)}
@@ -2370,8 +2612,11 @@ class AppSession:
                 },
             )
 
-    def _emit_overflow(self, payload: dict[str, Any]) -> None:
+    def _emit_overflow(self, payload: dict[str, Any], raw_used: int | None = None) -> None:
+        """`raw_used` (chat mode): the raw sum of the estimates, which decided the block
+        (AD-4), cited « ≈ »."""
         used, usable = payload["used"], payload["usable"]
+        shown = f"≈ {_fr(raw_used)}" if raw_used is not None else _fr(used)
         tokens = dict.fromkeys(_OVERFLOW_CAUSES_FR, 0)
         for segment in payload["segments"]:
             if segment["kind"] in tokens:
@@ -2384,10 +2629,10 @@ class AppSession:
         get_journal().emit(
             "context_overflow",
             {
-                "used": used,
+                "used": used if raw_used is None else raw_used,
                 "usable": usable,
                 "message_fr": (
-                    f"Le contexte compte {_fr(used)} tokens pour {_fr(usable)} utilisables "
+                    f"Le contexte compte {shown} tokens pour {_fr(usable)} utilisables "
                     f"(fenêtre de {_fr(payload['window'])} moins {_fr(payload['reserve'])} "
                     f"réservés à la réponse). {cause}"
                 ),
@@ -2396,10 +2641,16 @@ class AppSession:
         )
 
     def _call_model(
-        self, rendered: RenderedContext, cancel: CancelToken, tools: tuple[str, ...]
+        self,
+        rendered: RenderedContext | RenderedChat,
+        cancel: CancelToken,
+        tools: tuple[str, ...],
     ) -> _ModelOutput:
         """One streamed call; with tools on, its `<tool_call>` blocks are parsed (AD-6)."""
         assert self._engine is not None and self._caps is not None
+        if isinstance(rendered, RenderedChat):
+            return self._call_model_chat(rendered, cancel)
+        step_id = current().step_id or ""
         journal = get_journal()
         started = time.monotonic()
         journal.emit(
@@ -2438,6 +2689,7 @@ class AppSession:
         def end(reason: str, tool_calls: list[ToolCall] = ()) -> None:
             ended = time.monotonic()
             first = first_at or ended
+            gen_ms = _ms(ended - first)
             journal.emit(
                 "model_call_ended",
                 {
@@ -2448,9 +2700,11 @@ class AppSession:
                     "prompt_tokens": len(rendered.ids),
                     "output_tokens": output_tokens,
                     "prompt_ms": _ms(first - started),
-                    "gen_ms": _ms(ended - first),
+                    "gen_ms": gen_ms,
                     "stop_reason": reason,
                     "duration_ms": _ms(ended - started),
+                    "output_tps": output_tps(output_tokens, gen_ms),
+                    "usage_source": "engine",
                 },
                 actor="model",
             )
@@ -2487,6 +2741,8 @@ class AppSession:
             out.calls, out.malformed = parse_tool_calls(
                 out.raw, self._caps.tool_call_parser, schemas
             )
+        if stop_reason != "length":
+            out.ids = [self._new_call_id(step_id, j) for j in range(len(out.calls))]
         end(stop_reason, out.calls)
 
         if stop_reason == "length":
@@ -2502,11 +2758,80 @@ class AppSession:
                 return _ModelOutput("limit")
             # AD-9: cut inside a tool call, the output follows the malformed-call path.
             fragment = out.malformed.fragment if out.malformed else out.raw
-            out.calls, out.malformed = (
+            out.calls, out.ids, out.malformed = (
+                [],
                 [],
                 Malformed(
                     fragment,
                     f"la sortie a été coupée à {_fr(OUTPUT_RESERVE)} tokens au milieu de l'appel",
                 ),
+            )
+        return out
+
+    def _call_model_chat(self, rendered: RenderedChat, cancel: CancelToken) -> _ModelOutput:
+        """AD-5, chat mode: the body sent as is, under `origin = model`; a provider's refusal
+        becomes `harness_error` (AD-16); `usage` reconciles the gauge (AD-4)."""
+        entry = self._cloud
+        assert entry is not None
+        journal = get_journal()
+        scope = current()
+        step_id = scope.step_id or ""
+        total = round(rendered.raw_total * self._ratio)
+        try:
+            with scoped(origin="model"):  # AD-15: traced with the call's scope, no header
+                call = run_call(
+                    self._engine,
+                    ChatBody(rendered.body.encode("utf-8")),
+                    cancel,
+                    phase_label=f"Envoi du contexte à {entry.provider} (≈ {_fr(total)} tokens)",
+                    estimated_prompt=total,
+                    chars_per_token=self.cfg.chars_per_token,
+                    call_id=lambda index: self._new_call_id(step_id, index),
+                )
+        except ProviderError as error:
+            journal.emit(
+                "harness_error",
+                error.payload("Le tour est terminé ; WaveStack reste utilisable."),
+            )
+            return _ModelOutput("error")
+        prompt_tokens = int((call.usage or {}).get("prompt_tokens") or 0)
+        if prompt_tokens:  # AD-4: `usage` is the total; the ratio learns from real calls only
+            payload = self._chat_gauge(rendered, prompt_tokens, "api")
+            journal.emit("context_reconciled", payload | {"call_id": scope.call_id or ""})
+            if rendered.raw_total:
+                self._ratio = min(1.5, max(0.8, prompt_tokens / rendered.raw_total))
+        if call.stop_reason == "cancelled":
+            return _ModelOutput("cancelled")
+        out = _ModelOutput("completed", text=call.text, reasoning=call.reasoning)
+        # AD-10: what a malformed output reinjects: `failed_generation`, else the text and
+        # each call's name and arguments as emitted.
+        out.raw = "\n".join(
+            [call.text, *(f"{c['name']} {c['arguments']}" for c in call.calls)]
+        ).strip()
+        if call.malformed is not None:
+            out.raw, detail = call.malformed
+            out.malformed = Malformed(out.raw, detail)
+        elif call.stop_reason == "stop":
+            out.calls = [
+                ToolCall(c["name"], c["parsed"], f"{c['name']} {c['arguments']}")
+                for c in call.calls
+            ]
+            out.ids = [c["id"] for c in call.calls]
+            out.arguments = [c["arguments"] for c in call.calls]
+        if call.stop_reason == "length":
+            journal.emit(
+                "output_truncated",
+                {
+                    "channel": call.channel,
+                    "output_tokens": call.output_tokens,
+                    "max_tokens": self._reserve,
+                },
+            )
+            if call.channel != "tool_call":
+                return _ModelOutput("limit")
+            out.calls, out.ids, out.arguments = [], [], []
+            out.malformed = Malformed(
+                out.raw,
+                f"la sortie a été coupée à {_fr(self._reserve)} tokens au milieu de l'appel",
             )
         return out

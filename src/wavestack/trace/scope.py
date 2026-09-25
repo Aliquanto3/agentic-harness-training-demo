@@ -12,7 +12,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import Literal
 
-Origin = Literal["brick", "diagnostic", "download"]
+Origin = Literal["brick", "diagnostic", "download", "model"]
 
 
 @dataclass(frozen=True)

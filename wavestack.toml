@@ -48,3 +48,98 @@ call_timeout_s = 30
 # Serveurs publics en Streamable HTTP ; leurs hôtes sont aussi dans [net] allowed_hosts.
 datagouv = "https://mcp.data.gouv.fr/mcp"
 mslearn = "https://learn.microsoft.com/api/mcp"
+
+[cloud]
+# Modèles cloud compatibles OpenAI (story 11, AD-4, AD-5, AD-20). Aucune clé ici : la clé
+# se saisit au diagnostic et reste dans api_keys.json, dans le dossier de données.
+# Tokens estimés en mode chat : caractères / chars_per_token, puis corrigés par le ratio
+# réel usage.prompt_tokens / estimation (borné à [0,8 ; 1,5], initialisé à estimate_ratio).
+chars_per_token = 4
+estimate_ratio = 1.0
+# Délais de l'appel au modèle cloud, en secondes : connexion, puis lecture du flux.
+connect_timeout_s = 10
+read_timeout_s = 60
+# Marqueurs de gabarit neutralisés dans tout texte du harnais (AD-4, étape 2).
+neutralize_markers = [
+    "<|im_start|>", "<|im_end|>", "<|endoftext|>", "<|start|>", "<|end|>", "<|message|>",
+    "<|channel|>", "<|return|>", "<|call|>", "<|begin_of_text|>", "<|eot_id|>",
+    "<|start_header_id|>", "<|end_header_id|>", "[INST]", "[/INST]", "<s>", "</s>",
+]
+
+# Préréglage Groq : le plus rapide ; tous ses modèles gèrent l'appel d'outils.
+# gpt-oss raisonne toujours : réserve de 1 536 tokens. Quota de 8 000 tokens par minute :
+# fenêtre de 4 000 (tpm // 2), donc 2 464 tokens utilisables.
+[[cloud.models]]
+id = "groq"
+provider = "Groq"
+base_url = "https://api.groq.com/openai/v1"
+model = "openai/gpt-oss-120b"
+stream_usage = true
+tools = true
+context = 131072
+tpm = 8000
+hosting_fr = "États-Unis (Groq)"
+training = "no"
+notes_fr = "Aucune rétention des entrées et sorties par défaut, 30 jours au plus pour le débogage ou la lutte contre les abus. Quotas à lire dans la console Groq."
+reasoning = { format = "field", always = true, on = { reasoning_effort = "low" }, resend = false }
+
+# Préréglage Mistral : fournisseur français, plan gratuit toujours actif (décision du
+# 2026-09-25 : mistral-small-latest).
+[[cloud.models]]
+id = "mistral"
+provider = "Mistral AI"
+base_url = "https://api.mistral.ai/v1"
+model = "mistral-small-latest"
+stream_usage = false
+tools = true
+context = 131072
+hosting_fr = "Mistral AI, France (hébergement dans l'UE plausible, non confirmé)"
+training = "opt_out"
+notes_fr = "Sur le plan gratuit, les prompts servent à l'entraînement par défaut : décochez l'option dans Admin Console > Privacy. Quotas à lire dans la console Mistral."
+reasoning = { format = "content_blocks", on = { reasoning_effort = "high" }, off = { reasoning_effort = "none" } }
+
+# Exemples à recopier dans settings.json (entrée complète, enabled = true), avec leur
+# avertissement. Leur hôte rejoint alors la liste d'adresses autorisées.
+#
+# Google AI Studio : clause EEE. « You may use only Paid Services when making API Clients
+# available to users in the European Economic Area, Switzerland, or the United Kingdom. »
+# Sur l'offre gratuite, les contenus servent à améliorer les produits Google et peuvent
+# être lus par des relecteurs humains, sans opt-out possible.
+# [[cloud.models]]
+# id = "google"
+# provider = "Google AI Studio"
+# base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+# model = "gemini-2.5-flash"
+# tools = true
+# context = 1048576
+# hosting_fr = "Google (hébergement non précisé)"
+# training = "yes"
+# notes_fr = "Clause EEE : l'offre gratuite ne doit pas servir à des utilisateurs de l'EEE, de Suisse ou du Royaume-Uni. Contenus lus par des relecteurs humains, sans opt-out."
+#
+# NVIDIA : offre d'essai, « limited trial purposes only », hors production ; les contenus
+# sont collectés (§3.3 des conditions).
+# [[cloud.models]]
+# id = "nvidia"
+# provider = "NVIDIA"
+# base_url = "https://integrate.api.nvidia.com/v1"
+# model = "meta/llama-3.3-70b-instruct"
+# tools = true
+# context = 131072
+# hosting_fr = "NVIDIA (hébergement non précisé)"
+# training = "yes"
+# trial = true
+# notes_fr = "Offre d'essai réservée à l'évaluation interne, pas à un usage durable. Environ 40 requêtes par minute."
+#
+# OpenRouter : le catalogue « :free » change presque chaque jour, et la politique de
+# données dépend du fournisseur vers lequel la requête est routée. 50 requêtes par jour
+# sans crédits achetés.
+# [[cloud.models]]
+# id = "openrouter"
+# provider = "OpenRouter"
+# base_url = "https://openrouter.ai/api/v1"
+# model = "meta-llama/llama-3.3-70b-instruct:free"
+# tools = true
+# context = 131072
+# hosting_fr = "Selon le fournisseur routé par OpenRouter"
+# training = "yes"
+# notes_fr = "Catalogue gratuit instable : vérifiez le nom du modèle avant la séance. Politique de données propre à chaque fournisseur routé. 50 requêtes par jour sans crédits."

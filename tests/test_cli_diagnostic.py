@@ -415,7 +415,7 @@ def test_choose_before_load_saves_and_loads_exactly_that_file(monkeypatch, tmp_p
 
     assert body["ready"] is True and body["saved"] is True and body["next_launch"] is False
     assert received == [str(chosen)]
-    assert config.read_settings()["selected_model"] == str(chosen)
+    assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(chosen)}
     assert _client(app).get("/api/diagnostic").json()["ready"] is True  # "Ouvrir WaveStack"
 
     # Relaunch: the saved choice is loaded with no further action.
@@ -442,7 +442,7 @@ def test_typed_path_outside_locations_is_probed_saved_and_loaded(monkeypatch, tm
 
     assert probed == [str(elsewhere)]  # only the chosen file, never the other candidates
     assert body["saved"] is True and received == [str(elsewhere)]
-    assert config.read_settings()["selected_model"] == str(elsewhere)
+    assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(elsewhere)}
     listed = _client(app).get("/api/diagnostic").json()
     picked = next(c for c in listed["candidates"] if c["path"] == str(elsewhere))
     assert picked["name"] == "picked.gguf" and picked["architecture"] == "qwen35"
@@ -499,7 +499,7 @@ def test_choice_after_load_is_saved_for_next_launch_only(monkeypatch, tmp_path):
     assert body["saved"] is True and body["next_launch"] is True
     assert "prochain lancement" in body["message_fr"]
     assert received == [] and probed == []  # no reload, no second model's weights in RAM
-    assert config.read_settings()["selected_model"] == str(other)
+    assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(other)}
 
 
 def test_settings_write_failure_is_traced_and_model_still_loads(monkeypatch, tmp_path):
@@ -650,4 +650,4 @@ def test_quoted_pasted_path_is_accepted(monkeypatch, tmp_path):
     app.state.app_session.join()
 
     assert body["saved"] is True and received == [str(chosen)]
-    assert config.read_settings()["selected_model"] == str(chosen)
+    assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(chosen)}

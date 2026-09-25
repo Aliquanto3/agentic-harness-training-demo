@@ -23,8 +23,12 @@ def gauge(
     reserve: int,
     near_limit_ratio: float,
     labels: SegmentLabels,
+    window_source: str = "configured",
+    raw_used: int | None = None,
 ) -> dict[str, Any]:
-    """The `context_rendered` / `context_preview` payload: figures and per-group breakdown."""
+    """The `context_rendered` / `context_preview` / `context_reconciled` payload: figures and
+    per-group breakdown. `raw_used` (chat mode): the raw sum of the estimates, which alone
+    decides the overflow (AD-4); `used` is then the corrected total."""
     usable = window - reserve
     used = sum(s.tokens for s in segments)
     groups: dict[str, dict[str, Any]] = {}
@@ -42,15 +46,17 @@ def gauge(
     ratio = used / usable if usable > 0 else float("inf")
     return {
         "segments": [
-            {**s.model_dump(mode="json"), "label_fr": labels.kinds[s.kind]} for s in segments
+            {**s.model_dump(mode="json"), "label_fr": s.label_fr or labels.kinds[s.kind]}
+            for s in segments
         ],
         "window": window,
+        "window_source": window_source,
         "reserve": reserve,
         "usable": usable,
         "used": used,
         "percent": round(ratio * 100, 1) if usable > 0 else 100.0,
         "near_limit": ratio >= near_limit_ratio,
         "near_limit_ratio": near_limit_ratio,
-        "overflow": used > usable,
+        "overflow": (used if raw_used is None else raw_used) > usable,
         "breakdown": list(groups.values()),
     }

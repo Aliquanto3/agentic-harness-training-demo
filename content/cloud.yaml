@@ -1,0 +1,48 @@
+# Modèles cloud (story 11, AD-19). Textes communs à tous les fournisseurs ; les mentions
+# propres à un fournisseur sont dans sa déclaration [[cloud.models]] (wavestack.toml).
+# {fournisseur}, {hebergement}, {entrainement}, {essai} et {modele} sont remplacés.
+
+# Avertissement affiché au clic sur « Choisir », repris dans l'infobulle de l'indicateur.
+warning:
+  title_fr: Ce modèle tourne hors de votre poste
+  sent_fr: >-
+    Ce qui part : chaque appel envoie tout le contexte (messages, prompt système, résultats
+    d'outils, mémoire) à {fournisseur}, {hebergement}.
+  provider_fr: "Ce qu'en fait le fournisseur : entraînement {entrainement}.{essai}"
+  unseen_fr: >-
+    Ce que le harnais ne voit plus : le gabarit et l'analyse des appels d'outils sont
+    appliqués chez le fournisseur, et les tokens par segment sont estimés.
+  confirm_fr: Utiliser ce modèle
+  cancel_fr: Annuler
+
+# Valeurs de `training` et mention d'une offre d'essai.
+training_fr:
+  "yes": "oui, les prompts servent à entraîner ses modèles"
+  "no": "non"
+  opt_out: "oui par défaut, désactivable dans la console du fournisseur"
+trial_fr: " Offre d'essai : pas conçue pour un usage durable."
+
+key_hint_fr: Stockée sur ce poste, jamais affichée ni tracée.
+no_key_fr: "Désactivé : saisissez d'abord la clé API de {fournisseur}."
+host_changed_fr: "Clé à ressaisir : l'adresse du fournisseur a changé."
+test_hint_fr: >-
+  Envoie une invite fixe, sans vos données. La clé et l'adresse du poste partent vers
+  {fournisseur}.
+
+# Bandeau du volet Contexte LLM quand le modèle actif est cloud.
+banner_fr: >-
+  Modèle cloud : ce contexte est le corps JSON envoyé à {fournisseur}. Le gabarit y est
+  appliqué hors du poste ; les tokens par segment sont estimés (≈).
+provider_segment_fr: Gabarit appliqué chez le fournisseur (estimé)
+uncertain_fr: "Estimation incertaine : le fournisseur tranchera."
+
+# Test d'un modèle cloud (« Tester ») : invite, outil et réponse fixes, sans donnée de
+# l'utilisateur. Deux appels au plus : le second renvoie la réponse fixe de l'outil.
+test:
+  prompt: >-
+    Test de connexion WaveStack. Appelle l'outil get_datetime, puis réponds en une phrase
+    courte avec la date obtenue.
+  tool:
+    name: get_datetime
+    description: Donne la date et l'heure actuelles.
+  tool_reply: "2026-01-01T09:00:00+01:00"

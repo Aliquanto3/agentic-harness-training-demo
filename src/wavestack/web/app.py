@@ -13,14 +13,15 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from wavestack import config
 from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
-from wavestack.session.diagnostic import DiagnosticSession
+from wavestack.session.diagnostic import DiagnosticSession, Refused
 from wavestack.trace.envelope import Envelope
 from wavestack.trace.journal import get_journal
 
@@ -28,7 +29,21 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 
 class SelectModelIntention(BaseModel):
-    path: str
+    """AD-21: `{kind, ref, acknowledged}`; `path` (story 1b) still names a file."""
+
+    kind: Literal["file", "cloud"] = "file"
+    ref: str | None = None
+    path: str | None = None
+    acknowledged: bool = False  # a cloud model: the `cloud-warning` was confirmed
+
+
+class SetApiKeyIntention(BaseModel):
+    id: str
+    key: SecretStr  # AD-15: a secret from the intention to the adapter
+
+
+class CloudTestIntention(BaseModel):
+    id: str
 
 
 class SendIntention(BaseModel):
@@ -113,6 +128,23 @@ def create_app(
 
     app = FastAPI(title="WaveStack", version=version, lifespan=lifespan)
     app.state.app_session = app_session
+
+    @app.exception_handler(RequestValidationError)
+    async def _invalid_intention(_: Request, exc: RequestValidationError) -> JSONResponse:
+        """AD-18: a French message with `loc` and `type`, never `input` nor `ctx` (a key)."""
+        errors = [{"loc": list(e["loc"]), "type": e["type"]} for e in exc.errors()]
+        fields = ", ".join(".".join(str(p) for p in e["loc"][1:]) or "corps" for e in errors)
+        return JSONResponse(
+            {"detail": f"Intention invalide : vérifiez {fields}.", "errors": errors},
+            status_code=422,
+        )
+
+    def _diagnostic_class_b() -> None:
+        """AD-3: the diagnostic's intentions are refused outside `diagnostic` and `idle`."""
+        if app_session.state not in ("idle", "diagnostic"):
+            reason = app_session.reason_fr or "WaveStack est occupé."
+            raise HTTPException(status_code=409, detail=f"Refusé pour l'instant : {reason}")
+
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=[f"127.0.0.1:{port}", f"localhost:{port}", "127.0.0.1", "localhost"],
@@ -167,6 +199,7 @@ def create_app(
         # Whole envelopes: the front shows whichever of the two is the most recent (`seq`).
         preview = _latest(events, "context_preview")
         rendered = _latest(events, "context_rendered")
+        reconciled = _latest(events, "context_reconciled")  # chat mode (AD-4)
         bricks = _latest(events, "bricks_changed")
         # H5: the last validation asked, while no resolution follows it (one at a time).
         asked = _latest(events, "approval_requested")
@@ -176,9 +209,12 @@ def create_app(
         scenario = _latest(events, "scenario_changed")  # story 10: programme and active one
         return {
             "session_state": session_state.payload if session_state else None,
+            # AD-12: the model indicator, rebuilt from the session on every reload.
+            "active_model": app_session.active_model(),
             "architecture_changed": architecture.payload if architecture else None,
             "context_preview": preview.model_dump(mode="json") if preview else None,
             "context_rendered": rendered.model_dump(mode="json") if rendered else None,
+            "context_reconciled": reconciled.model_dump(mode="json") if reconciled else None,
             "bricks_changed": bricks.payload if bricks else None,
             "pending_approval": pending,
             "armed_actions_changed": armed.payload if armed else None,
@@ -196,23 +232,60 @@ def create_app(
             "candidates": [c.model_dump() for c in result.candidates] if result else [],
             "selected_model": session.selected_model_path,
             "loaded_model": session.booted_path,
+            # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
+            "cloud": session.cloud_rows(),
         }
 
     @app.post("/api/intentions/select_model")
     def select_model(intention: SelectModelIntention) -> dict[str, object]:
-        """Loads the chosen file only if none was loaded yet; else saved for next launch."""
-        result = session.select_model(intention.path)
-        if result.model_path:
-            app_session.boot(result.model_path).add_done_callback(
-                lambda _: session.boot_finished(app_session.model_loaded)
+        """Loads the chosen model only if none was loaded yet; else saved for next launch.
+        A cloud model needs the warning's confirmation and a key (AD-21)."""
+        _diagnostic_class_b()
+        ref = intention.ref or intention.path or ""
+        if not ref.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="Intention invalide : indiquez le modèle choisi (ref) ou le chemin (path).",
             )
+        if intention.kind == "cloud":
+            try:
+                result = session.select_cloud(ref, intention.acknowledged)
+            except Refused as refused:
+                raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        else:
+            result = session.select_model(ref)
+        session.hand_to(app_session, result)
         return {
             "ready": result.ready,
             "blocking_checks": result.blocking_checks,
             "saved": result.saved,
-            "next_launch": result.saved and not result.model_path,
+            "next_launch": result.saved and not (result.model_path or result.cloud_model),
             "message_fr": result.message_fr,
         }
+
+    @app.post("/api/intentions/set_api_key")
+    def set_api_key(intention: SetApiKeyIntention) -> dict[str, object]:
+        """Class (b): the key is saved with its host; the answer never repeats it (AD-15)."""
+        _diagnostic_class_b()
+        try:
+            return session.set_api_key(intention.id, intention.key)
+        except Refused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+
+    @app.post("/api/intentions/test_cloud_model")
+    def test_cloud_model(intention: CloudTestIntention) -> dict[str, object]:
+        """Class (b): holds `model_load` (« Test de {modèle} ») for its duration (AD-3)."""
+        _diagnostic_class_b()
+        entry = session.cfg.cloud_model(intention.id)
+        label = f"{entry.model} chez {entry.provider}" if entry else intention.id
+        try:
+            return app_session.hold(
+                "model_load", f"Test de {label}", lambda: session.test_cloud_model(intention.id)
+            )
+        except Refused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
 
     @app.post("/api/intentions/send")
     def send(intention: SendIntention) -> dict[str, str]:

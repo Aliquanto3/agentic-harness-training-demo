@@ -8,6 +8,7 @@ are imported and used at module load time, ahead of everything else.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import socket
 import sys
@@ -29,6 +30,10 @@ os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 # later, explicit model download (AD-15).
 
 import truststore  # noqa: E402 - must follow the guard install above
+
+# AD-15: a request line at INFO/DEBUG could carry a cloud model's header; never below WARNING.
+for _name in ("httpx", "httpcore"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
 
 truststore.inject_into_ssl()
 
@@ -81,6 +86,12 @@ def _existing_instance_healthy(port: int) -> bool:
         return False
 
 
+def _run_diagnostic_then_boot(session: DiagnosticSession, app_session: AppSession) -> None:
+    """The launch's diagnostic, then its model: a cloud model chosen at an earlier launch is
+    prepared without any request (AD-21)."""
+    session.hand_to(app_session, session.run(), launch=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wavestack", description="Lance WaveStack.")
     parser.add_argument(
@@ -108,15 +119,11 @@ def main(argv: list[str] | None = None) -> int:
 
     get_journal().subscribe(_print_journal_event)
 
-    def _run_diagnostic_then_boot() -> None:
-        result = session.run()
-        if result.ready:
-            app_session.boot(result.model_path).add_done_callback(
-                lambda _: session.boot_finished(app_session.model_loaded)
-            )
-
     threading.Thread(
-        target=_run_diagnostic_then_boot, name="wavestack-diagnostic", daemon=True
+        target=_run_diagnostic_then_boot,
+        args=(session, app_session),
+        name="wavestack-diagnostic",
+        daemon=True,
     ).start()
 
     def _open_browser() -> None:

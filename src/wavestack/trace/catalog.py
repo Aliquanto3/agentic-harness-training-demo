@@ -17,15 +17,21 @@ Trigger = Literal["model", "user", "harness", "hook"]
 
 
 class DiagnosticCheckPayload(BaseModel):
-    check: Literal["memory", "model", "network", "port"]
+    # `cloud`: an invalid or unusable cloud declaration; `cloud_test`: « Tester » (story 11).
+    check: Literal["memory", "model", "network", "port", "cloud", "cloud_test"]
     status: Literal["ok", "warn", "fail"]
     message_fr: str
     action_fr: str | None = None
     blocking: bool
+    # Story 11, `cloud_test`: the model tested, its answer, the tool call received, the rate.
+    model_id: str | None = None
+    answer: str | None = None
+    tool_call: dict[str, object] | None = None
+    output_tps: int | None = None
 
 
 class OutboundRequestPayload(BaseModel):
-    origin: Literal["brick", "diagnostic", "download"]
+    origin: Literal["brick", "diagnostic", "download", "model"]
     method: str
     url: str
     body: str = ""
@@ -35,6 +41,11 @@ class HarnessErrorPayload(BaseModel):
     message_fr: str
     cause: str | None = None
     effect_fr: str | None = None
+    # AD-16, a cloud provider's outcome: what to try, and the figures built in Python.
+    hints_fr: list[str] = []
+    http_status: int | None = None
+    retry_after_s: float | None = None
+    quota_scope: Literal["minute", "day", "unknown"] | None = None
 
 
 SessionState = Literal[
@@ -42,9 +53,22 @@ SessionState = Literal[
 ]
 
 
+class ActiveModel(BaseModel):
+    """AD-12: the model indicator's only source, built by the session."""
+
+    id: str
+    label: str
+    hosting: Literal["local", "network"]
+    provider: str | None = None
+    disclosure: dict[str, object] | None = None
+    warning_fr: str | None = None  # the `cloud-warning`'s text, the indicator's tooltip
+    banner_fr: str | None = None  # Contexte LLM's banner (chat mode)
+
+
 class SessionStatePayload(BaseModel):
     state: SessionState
     reason_fr: str | None = None
+    active_model: ActiveModel | None = None
 
 
 class ArchitectureNode(BaseModel):
@@ -65,6 +89,7 @@ class ArchitectureNode(BaseModel):
     contact: Literal["not_contacted", "available", "unavailable"] | None = None
     tools: list[str] = []  # MCP servers: the names of the tools they expose
     model: str | None = None  # `core.model`: file name (no extension) of the loaded model
+    provider: str | None = None  # `core.model` of a cloud model: its provider (story 11)
     # Skills (story 7): loaded in the conversation or not. Any node: what its tooltip adds
     # (a skill's or a hook's description, the audit log's path).
     loaded: bool | None = None
@@ -117,6 +142,7 @@ class SegmentPayload(BaseModel):
     component: str | None = None
     text: str
     tokens: int
+    estimated: bool = False  # chat mode: an estimate, shown with « ≈ » (AD-4)
 
 
 class BreakdownItem(BaseModel):
@@ -127,10 +153,12 @@ class BreakdownItem(BaseModel):
 
 
 class ContextWindowPayload(BaseModel):
-    """Shared by `context_rendered` and `context_preview`: every figure comes from the session."""
+    """Shared by `context_rendered`, `context_preview` and `context_reconciled`: every figure
+    comes from the session (AD-9)."""
 
     segments: list[SegmentPayload]
     window: int
+    window_source: Literal["configured", "native", "server", "tpm", "override"] = "configured"
     reserve: int
     usable: int
     used: int
@@ -139,6 +167,17 @@ class ContextWindowPayload(BaseModel):
     near_limit_ratio: float
     overflow: bool
     breakdown: list[BreakdownItem]
+    # Chat mode (AD-4): the body sent, the source of `used`, and the warning of an estimate
+    # that only exceeds `usable` once corrected.
+    body: str | None = None
+    usage_source: Literal["engine", "api", "estimate"] = "engine"
+    uncertain_fr: str | None = None
+
+
+class ContextReconciledPayload(ContextWindowPayload):
+    """AD-4, chat mode: after the call, `usage.prompt_tokens` is the total."""
+
+    call_id: str
 
 
 class ContextOverflowPayload(BaseModel):
@@ -178,6 +217,8 @@ class ModelCallEndedPayload(BaseModel):
     gen_ms: int
     stop_reason: StopReason
     duration_ms: int
+    output_tps: int | None = None  # computed by the session (AD-2); `None` when `gen_ms` is 0
+    usage_source: Literal["engine", "api", "estimate"] = "engine"
 
 
 class SpecialTokenNeutralizedPayload(BaseModel):
@@ -317,8 +358,12 @@ class HookDecidedPayload(BaseModel):
 
 
 class EffectAppliedPayload(BaseModel):
-    effect: Literal["audit_append"]
-    lines: list[str]
+    effect: Literal["audit_append", "setting_write", "api_key_set"]
+    lines: list[str] = []
+    key: str | None = None  # `setting_write`: the settings.json key, never a secret
+    # `api_key_set` (AD-23): only the cloud model's id and whether a key is now set.
+    id: str | None = None
+    key_set: bool | None = None
 
 
 # ---------- story 8b: human validation (AD-13, AD-14) ----------
@@ -409,6 +454,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "turn_ended": TurnEndedPayload,
     "context_rendered": ContextWindowPayload,
     "context_preview": ContextWindowPayload,
+    "context_reconciled": ContextReconciledPayload,
     "context_overflow": ContextOverflowPayload,
     "output_truncated": OutputTruncatedPayload,
     "model_call_started": ModelCallStartedPayload,

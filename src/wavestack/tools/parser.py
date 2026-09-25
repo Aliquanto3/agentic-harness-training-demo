@@ -9,14 +9,30 @@ A parse never raises: it returns the calls, or what is malformed and why, in Fre
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import string
 from dataclasses import dataclass, field
 from typing import Any
 
 from wavestack.models.capabilities import TOOL_CALL_TAGS
 
 OPEN, CLOSE = TOOL_CALL_TAGS
+_BASE62 = string.digits + string.ascii_uppercase + string.ascii_lowercase
+
+
+def tool_call_id(step_id: str, index: int) -> str:
+    """AD-4: 9 base-62 characters of the hash of `"{step_id}#{index}"`, attributed by the
+    session to every call it creates (model output, forced action)."""
+    n = int.from_bytes(hashlib.sha256(f"{step_id}#{index}".encode()).digest(), "big")
+    digits = []
+    for _ in range(9):
+        n, r = divmod(n, 62)
+        digits.append(_BASE62[r])
+    return "".join(digits)
+
+
 _FUNCTION = re.compile(r"\s*<function=([^>\s]+)>(.*)</function>\s*", re.DOTALL)
 _PARAMETER = re.compile(r"<parameter=([^>\s]+)>(.*?)</parameter>", re.DOTALL)
 

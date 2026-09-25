@@ -56,6 +56,8 @@ class Segment(BaseModel):
     component: str | None = None
     text: str
     tokens: int = 0
+    estimated: bool = False  # chat mode: tokens estimated, then reconciled (AD-4)
+    label_fr: str | None = None  # a label of its own, else its kind's
 
 
 class SegmentLabels(BaseModel):

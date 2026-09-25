@@ -13,6 +13,8 @@ const PANE_LABELS = {
 
 const store = {
   sessionState: null,
+  // AD-12: the model indicator's only source (`session_state.active_model`, `/api/state`).
+  activeModel: null,
   architecture: { nodes: [], edges: [] },
   journal: [],
   selection: null,
@@ -148,6 +150,8 @@ function applyEnvelope(envelope) {
   switch (envelope.kind) {
     case "session_state":
       store.sessionState = p;
+      // The diagnostic session's own states carry no model: the last known one stays.
+      if (p.active_model !== undefined) store.activeModel = p.active_model;
       if (p.state === "idle") store.composerError = null;
       break;
     case "architecture_changed":
@@ -219,6 +223,15 @@ function applyEnvelope(envelope) {
       if (turn) {
         turn.context = p;
         turn.steps.push({ type: "call", id: envelope.call_id, context: p, startedAt: null, ended: null });
+      }
+      break;
+    case "context_reconciled":
+      // AD-4, chat mode: `usage` came back; its figures replace the estimate of that call.
+      store.gauge = { payload: p, preview: false };
+      if (turn) {
+        const call = turn.steps.find((s) => s.type === "call" && s.id === envelope.call_id);
+        if (call) call.context = p;
+        if (lastCall(turn) === call) turn.context = p;
       }
       break;
     case "context_overflow":
@@ -349,7 +362,8 @@ function applyEnvelope(envelope) {
       if (turn) turn.notices.push(p.message_fr);
       break;
     case "harness_error":
-      if (turn) turn.errors.push(p.message_fr);
+      // A cloud provider's refusal carries what to try (AD-16).
+      if (turn) turn.errors.push([p.message_fr, ...(p.hints_fr ?? [])].join(" "));
       break;
     case "turn_ended":
       if (turn) {
@@ -433,6 +447,7 @@ function render() {
   renderMenu();
   renderPaneVisibility();
   renderGauge();
+  renderModelIndicator();
   renderChat();
   renderComposer();
   renderContext();
@@ -1060,14 +1075,41 @@ function renderGauge() {
   threshold.style.left = `${p.near_limit_ratio * 100}%`;
   threshold.title = `Seuil d'alerte : ${fmt(p.near_limit_ratio * 100)} %`;
 
-  let text = `${fmt(p.used)} / ${fmt(p.usable)} tokens · ${fmt(p.percent)} %`;
+  let text = `${approxTotal(p)}${fmt(p.used)} / ${fmt(p.usable)} tokens · ${fmt(p.percent)} %`;
   if (p.overflow) text = `⚠ ${text} · contexte dépassé`;
   else if (p.near_limit) text = `⚠ ${text} · Contexte plein à ${fmt(p.percent)} %`;
+  if (p.uncertain_fr) text += ` · ${p.uncertain_fr}`;
   if (gauge.preview) text += " · prochain tour";
   figures.textContent = text;
   root.title =
     `Fenêtre de ${fmt(p.window)} tokens, dont ${fmt(p.reserve)} réservés à la réponse : ` +
     `${fmt(p.usable)} utilisables.`;
+}
+
+// AD-4: « ≈ » on an estimate; the total loses it once it comes from the API.
+const approx = (estimated) => (estimated ? "≈ " : "");
+const approxTotal = (p) =>
+  approx(p.usage_source !== "api" && (p.segments ?? []).some((s) => s.estimated));
+
+// The model indicator (EXPERIENCE.md model-indicator): tag, name; tooltip = the cloud warning.
+function renderModelIndicator() {
+  const button = document.getElementById("model-indicator");
+  const model = store.activeModel;
+  button.hidden = !model;
+  if (!model) return;
+  const network = model.hosting === "network";
+  const key = JSON.stringify(model);
+  if (button.dataset.key === key) return;
+  button.dataset.key = key;
+  const tag = el(
+    "span",
+    network ? "hosting-tag-network" : "hosting-tag-local",
+    network ? `RÉSEAU · ${model.provider}` : "Local"
+  );
+  button.replaceChildren(tag, el("span", "model-indicator-name", model.label));
+  button.title =
+    model.warning_fr ?? `Modèle local ${model.label}, sur ce poste. Cliquez pour ouvrir le diagnostic.`;
+  button.setAttribute("aria-label", `Modèle actif : ${model.label}. ${button.title}`);
 }
 
 // ---------- human view: bubbles, working indicator, composer ----------
@@ -1379,14 +1421,21 @@ function renderContext() {
     return;
   }
   const p = turn.context;
+  if (p.body !== undefined && p.body !== null) {
+    // Chat mode: the context is the JSON body sent to the provider (FR-43).
+    const banner = store.activeModel?.banner_fr ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
+    pane.appendChild(el("p", "ctx-banner", banner));
+  }
+  const source = p.usage_source === "api" ? " (total renvoyé par le fournisseur)" : "";
   pane.appendChild(
     el(
       "p",
       "ctx-total",
-      `Tour ${turn.id} · ${fmt(p.used)} tokens envoyés (somme des segments) · ` +
+      `Tour ${turn.id} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments)${source} · ` +
         `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
     )
   );
+  if (p.uncertain_fr) pane.appendChild(el("p", "bubble-note", p.uncertain_fr));
   for (const segment of p.segments) {
     const group = p.breakdown.find((item) => item.kinds.includes(segment.kind));
     const box = el("div", "ctx-segment");
@@ -1398,7 +1447,7 @@ function renderContext() {
     label.append(
       el("span", "swatch"),
       `${segment.label_fr}${segment.brick ? ` (${segment.brick})` : ""} · ` +
-        `${fmt(segment.tokens)} ${segment.tokens > 1 ? "tokens" : "token"}`
+        `${approx(segment.estimated)}${fmt(segment.tokens)} ${segment.tokens > 1 ? "tokens" : "token"}`
     );
     box.append(label, el("pre", "", segment.text));
     pane.appendChild(box);
@@ -1613,11 +1662,14 @@ function callBody(turn, step) {
   const ended = step.ended;
   const counter = el("div", "token-counter number");
   if (ended) {
-    counter.textContent = `Entrée : ${fmt(ended.prompt_tokens)} tokens · Sortie : ${fmt(ended.output_tokens)} tokens · Temps : ${seconds(ended.duration_ms)}`;
+    // FR-30, FR-43: the rate (tokens/s) from the session; « ≈ » on what was estimated.
+    const guess = approx(ended.usage_source === "estimate");
+    const rate = ended.output_tps != null ? ` · Débit : ${fmt(ended.output_tps)} tokens/s` : "";
+    counter.textContent = `Entrée : ${guess}${fmt(ended.prompt_tokens)} tokens · Sortie : ${guess}${fmt(ended.output_tokens)} tokens · Temps : ${seconds(ended.duration_ms)}${rate}`;
   } else if (step.startedAt) {
-    counter.append(`Entrée : ${fmt(context?.used ?? 0)} tokens · Sortie : … · Temps : `, tick(step.startedAt), " (en cours)");
+    counter.append(`Entrée : ${context ? approxTotal(context) : ""}${fmt(context?.used ?? 0)} tokens · Sortie : … · Temps : `, tick(step.startedAt), " (en cours)");
   } else {
-    counter.textContent = `Entrée : ${fmt(context?.used ?? 0)} tokens`;
+    counter.textContent = `Entrée : ${context ? approxTotal(context) : ""}${fmt(context?.used ?? 0)} tokens`;
   }
   const nodes = [el("p", "label", `Appel ${step.id ?? turn.id}`), counter];
   if (ended && ended.stop_reason !== "stop") {
@@ -1931,7 +1983,8 @@ function turnRows(turn) {
       const isFinal = catalog && ended && !ended.tool_calls.length && last && turn.status === "completed";
       let figure = `${fmt(context?.used ?? 0)} lus`;
       if (ended) {
-        figure = `${fmt(ended.prompt_tokens)} lus · ${fmt(ended.output_tokens)} écrits · ${seconds(ended.duration_ms)}`;
+        const guess = approx(ended.usage_source === "estimate");
+        figure = `${guess}${fmt(ended.prompt_tokens)} lus · ${guess}${fmt(ended.output_tokens)} écrits · ${seconds(ended.duration_ms)}`;
         const stopped = { length: "sortie coupée", cancelled: "arrêté" }[ended.stop_reason];
         if (stopped) figure += ` · ${stopped}`;
       } else if (step.startedAt) {
@@ -3168,7 +3221,10 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
     chips.appendChild(chip);
   }
   if (!anyBrick) chips.appendChild(el("p", "arch-harness-empty", "Aucune brique : LLM nu"));
-  core.append(robotNode, chips);
+  // AD-12: a cloud model is drawn in the network zone, with its provider.
+  const model = byId["core.model"];
+  const cloud = model?.hosting === "network";
+  core.append(...(cloud ? [chips] : [robotNode, chips]));
   frame.append(tag, core);
   if (hooks) frame.appendChild(hookStrip(hooks, byId, blocked));
 
@@ -3183,6 +3239,12 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
   const network = el("div", "arch-zone arch-zone-network");
   const networkRow = el("div", "arch-zone-row");
   const networkCols = schemaColumns("network", nodes);
+  if (cloud) {
+    const box = el("div", "arch-cloud-model");
+    box.title = `${model.provider} · service réseau : chaque appel franchit la frontière du poste.`;
+    box.append(robotNode, el("span", "arch-node-name", `🌐 ${model.provider}`));
+    networkCols.unshift(box);
+  }
   if (networkCols.length) networkRow.append(...networkCols);
   else networkRow.appendChild(el("p", "arch-zone-empty", "Aucun composant réseau : rien ne sort du poste."));
   network.append(el("span", "arch-zone-label", "🌐 RÉSEAU · hors du poste"), networkRow);
@@ -3508,13 +3570,15 @@ async function boot() {
     const response = await fetch("/api/state");
     const body = await response.json();
     store.sessionState = body.session_state;
+    store.activeModel = body.active_model ?? null;
     store.architecture = body.architecture_changed || { nodes: [], edges: [] };
     store.bricks = body.bricks_changed;
     store.armed = body.armed_actions_changed?.actions ?? [];
     store.scenarios = body.scenario_changed;
     const preview = body.context_preview;
     const rendered = body.context_rendered;
-    const latest = [preview, rendered].filter(Boolean).sort((a, b) => b.seq - a.seq)[0];
+    const reconciled = body.context_reconciled;
+    const latest = [preview, rendered, reconciled].filter(Boolean).sort((a, b) => b.seq - a.seq)[0];
     if (latest) store.gauge = { payload: latest.payload, preview: latest === preview };
   } catch {
     // AD-16: a failed boot fetch still lets the live stream take over.

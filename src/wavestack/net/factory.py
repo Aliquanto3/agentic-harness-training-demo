@@ -53,15 +53,18 @@ def _ssl_context() -> ssl.SSLContext:
 
 
 def create_client(
-    *, timeout: float = 5.0, transport: httpx.BaseTransport | None = None
+    *, timeout: float | httpx.Timeout = 5.0, transport: httpx.BaseTransport | None = None
 ) -> httpx.Client:
     """Synchronous httpx client: truststore certs, env proxy, traced requests.
 
+    Redirects are never followed (AD-15): a caller that accepts one re-checks it by hand,
+    and a 3xx from a cloud model is an error, so its key never reaches another host.
     `transport` is for tests only (`httpx.MockTransport`): nothing leaves the machine.
     """
     return httpx.Client(
         verify=_ssl_context(),
         timeout=timeout,
+        follow_redirects=False,
         trust_env=True,
         transport=transport,
         headers={"User-Agent": USER_AGENT},
