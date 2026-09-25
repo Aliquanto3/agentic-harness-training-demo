@@ -18,6 +18,9 @@ const store = {
   selection: null,
   hiddenPanes: new Set(),
   focusedPane: null,
+  // Sizes the user dragged (story 8f), absent until then: `bricks` width and `schema` height
+  // in px, `human` / `ctx` / `orch` as flex-grow weights. Saved with `hiddenPanes`.
+  paneSizes: {},
   // Gauge source: the most recent of `context_preview` / `context_rendered` (AD-9).
   gauge: null, // { payload, preview }
   turns: [], // one projection per turn, filled only from its events
@@ -339,11 +342,13 @@ function announce(turn) {
 function hidePane(paneId) {
   if (store.hiddenPanes.size >= PANES.length - 1) return; // at least one stays visible
   store.hiddenPanes.add(paneId);
+  savePaneLayout();
   render();
 }
 
 function showPane(paneId) {
   store.hiddenPanes.delete(paneId);
+  savePaneLayout();
   render();
 }
 
@@ -1729,6 +1734,254 @@ function renderPaneVisibility() {
       : `Masquer le volet ${PANE_LABELS[paneId]}`;
     hideButton.setAttribute("aria-label", hideButton.title);
   }
+  // A handle only stands between two visible neighbours, never in focus mode.
+  for (const handle of document.querySelectorAll(".pane-resize-handle")) {
+    const pair = store.focusedPane === null ? handleNeighbours(handle.dataset.handle) : null;
+    handle.hidden = !pair;
+    if (pair) handle.setAttribute("aria-label", pair.label);
+  }
+  scheduleHandleValues();
+}
+
+// ---------- pane resizing (story 8f): gutter handles, mouse and keyboard ----------
+
+const PANES_STORAGE_KEY = "wavestack.panes";
+const TOP_ROW = ["human", "ctx", "orch"];
+const PANE_SIZE_VARS = {
+  bricks: "--pane-bricks-width",
+  schema: "--pane-schema-height",
+  human: "--pane-human-grow",
+  ctx: "--pane-ctx-grow",
+  orch: "--pane-orch-grow",
+};
+const PANE_MIN_WIDTH = 240; // same minimums as app.css (--pane-min-width / --pane-min-height)
+const PANE_MIN_HEIGHT = 160;
+const RESIZE_STEP = 16;
+// One handle after each of these; "schema" sits between the top row and the schema.
+const RESIZE_HANDLES = ["bricks", "human", "ctx", "schema"];
+
+function paneSection(paneId) {
+  return document.querySelector(`.pane[data-pane="${paneId}"]`);
+}
+
+function isPaneVisible(paneId) {
+  return !store.hiddenPanes.has(paneId);
+}
+
+// The two neighbours a handle moves the boundary between, or null when it has no place (one
+// side hidden). `before` / `after` are the elements measured; `label` names both panes.
+function handleNeighbours(handleId) {
+  if (handleId === "bricks") {
+    if (!isPaneVisible("bricks") || ![...TOP_ROW, "schema"].some(isPaneVisible)) return null;
+    return {
+      before: paneSection("bricks"),
+      after: document.querySelector(".right"),
+      label: `Redimensionner entre ${PANE_LABELS.bricks} et les autres volets`,
+    };
+  }
+  if (handleId === "schema") {
+    const top = TOP_ROW.filter(isPaneVisible);
+    if (!top.length || !isPaneVisible("schema")) return null;
+    const names = top.map((p) => PANE_LABELS[p]).join(", ");
+    return {
+      before: document.querySelector(".top-row"),
+      after: paneSection("schema"),
+      label: `Redimensionner entre la rangée du haut (${names}) et ${PANE_LABELS.schema}`,
+    };
+  }
+  const next = TOP_ROW.slice(TOP_ROW.indexOf(handleId) + 1).find(isPaneVisible);
+  if (!isPaneVisible(handleId) || !next) return null;
+  return {
+    before: paneSection(handleId),
+    after: paneSection(next),
+    beforeId: handleId,
+    afterId: next,
+    label: `Redimensionner entre ${PANE_LABELS[handleId]} et ${PANE_LABELS[next]}`,
+  };
+}
+
+// Current sizes along the handle's axis. For a top-row handle, also the width and the weight
+// shared by the visible columns, to turn pixels back into weights.
+function measureHandle(handleId) {
+  const pair = handleNeighbours(handleId);
+  if (!pair) return null;
+  const vertical = handleId === "schema";
+  const size = (el) => {
+    const rect = el.getBoundingClientRect();
+    return vertical ? rect.height : rect.width;
+  };
+  const m = { handleId, pair, a: size(pair.before), b: size(pair.after) };
+  m.min = vertical ? PANE_MIN_HEIGHT : PANE_MIN_WIDTH;
+  m.minAfter = m.min;
+  if (handleId === "bricks") {
+    // Every visible top-row column keeps its minimum, not just the right side as a whole: the
+    // narrowest share (smallest weight) sets the width the columns need together.
+    const weights = TOP_ROW.filter(isPaneVisible).map((p) => store.paneSizes[p] ?? 1);
+    if (weights.length > 1) {
+      const gutter = parseFloat(getComputedStyle(document.querySelector(".top-row")).columnGap) || 0;
+      const sum = weights.reduce((total, w) => total + w, 0);
+      m.minAfter = (PANE_MIN_WIDTH * sum) / Math.min(...weights) + (weights.length - 1) * gutter;
+    }
+  }
+  if (TOP_ROW.includes(handleId)) {
+    const visible = TOP_ROW.filter(isPaneVisible);
+    m.total = visible.reduce((sum, p) => sum + size(paneSection(p)), 0);
+    m.weight = visible.reduce((sum, p) => sum + (store.paneSizes[p] ?? 1), 0);
+  }
+  return m;
+}
+
+// Moves the boundary `delta` px from the measured position, within the minimums. A side already
+// under its minimum (shrunk window) is never pushed further down, nor snapped up.
+function moveBoundary(m, delta) {
+  const lo = Math.min(m.min, m.a);
+  const hi = Math.max(m.a + m.b - m.minAfter, m.a);
+  const a = Math.min(hi, Math.max(lo, m.a + delta));
+  const round = (value) => Math.round(value * 10000) / 10000;
+  if (m.handleId === "bricks") {
+    store.paneSizes.bricks = Math.round(a);
+  } else if (m.handleId === "schema") {
+    store.paneSizes.schema = Math.round(m.a + m.b - a);
+  } else if (m.total > 0) {
+    // Weights of the two neighbours only, their sum unchanged: the other columns do not move.
+    store.paneSizes[m.pair.beforeId] = round((a / m.total) * m.weight);
+    store.paneSizes[m.pair.afterId] = round(((m.a + m.b - a) / m.total) * m.weight);
+  }
+  applyPaneSizes();
+  updateHandleValues();
+}
+
+// Double-click: default proportions for what this handle moves.
+function resetBoundary(handleId) {
+  if (handleId === "bricks" || handleId === "schema") delete store.paneSizes[handleId];
+  else for (const p of TOP_ROW) delete store.paneSizes[p];
+  applyPaneSizes();
+  savePaneLayout();
+  updateHandleValues();
+}
+
+function applyPaneSizes() {
+  const layout = document.getElementById("layout");
+  for (const [key, name] of Object.entries(PANE_SIZE_VARS)) {
+    const value = store.paneSizes[key];
+    if (value === undefined) layout.style.removeProperty(name);
+    else layout.style.setProperty(name, key === "bricks" || key === "schema" ? `${value}px` : String(value));
+  }
+}
+
+// aria-valuenow: share (%) of what precedes the handle, out of both neighbours.
+function updateHandleValues() {
+  for (const handle of document.querySelectorAll(".pane-resize-handle")) {
+    if (handle.hidden) continue;
+    const m = measureHandle(handle.dataset.handle);
+    const total = m ? m.a + m.b : 0;
+    if (!total) continue;
+    const pct = (value) => String(Math.round((value / total) * 100));
+    handle.setAttribute("aria-valuenow", pct(m.a));
+    handle.setAttribute("aria-valuemin", pct(Math.min(m.min, m.a)));
+    handle.setAttribute("aria-valuemax", pct(Math.max(total - m.minAfter, m.a)));
+  }
+}
+
+let handleValuesFrame = 0;
+
+function scheduleHandleValues() {
+  if (handleValuesFrame) return;
+  handleValuesFrame = requestAnimationFrame(() => {
+    handleValuesFrame = 0;
+    updateHandleValues();
+  });
+}
+
+// Sizes and hidden panes survive a reload (not the focus mode). Missing, unreadable or corrupt
+// storage leaves the defaults, silently.
+function loadPaneLayout() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(PANES_STORAGE_KEY));
+  } catch {
+    return;
+  }
+  if (!saved || typeof saved !== "object") return;
+  const sizes = saved.sizes && typeof saved.sizes === "object" ? saved.sizes : {};
+  for (const key of Object.keys(PANE_SIZE_VARS)) {
+    const value = sizes[key];
+    const max = key === "bricks" || key === "schema" ? 100000 : 100;
+    if (typeof value === "number" && Number.isFinite(value) && value > 0 && value <= max) {
+      store.paneSizes[key] = value;
+    }
+  }
+  if (Array.isArray(saved.hidden)) {
+    const hidden = new Set(saved.hidden.filter((p) => PANES.includes(p)));
+    if (hidden.size < PANES.length) store.hiddenPanes = hidden; // at least one stays visible
+  }
+}
+
+function savePaneLayout() {
+  try {
+    localStorage.setItem(
+      PANES_STORAGE_KEY,
+      JSON.stringify({ hidden: [...store.hiddenPanes], sizes: store.paneSizes })
+    );
+  } catch {
+    // No storage (private window, blocked site data): the layout just won't be remembered.
+  }
+}
+
+function createResizeHandles() {
+  for (const handleId of RESIZE_HANDLES) {
+    const horizontal = handleId === "schema";
+    const handle = document.createElement("div");
+    handle.className = "pane-resize-handle";
+    handle.dataset.handle = handleId;
+    handle.setAttribute("role", "separator");
+    handle.setAttribute("aria-orientation", horizontal ? "horizontal" : "vertical");
+    handle.tabIndex = 0;
+    handle.hidden = true;
+    (horizontal ? document.querySelector(".top-row") : paneSection(handleId)).after(handle);
+
+    let drag = null;
+    const endDrag = () => {
+      if (!drag) return;
+      if (drag.moved) savePaneLayout();
+      drag = null;
+      handle.classList.remove("is-dragging");
+      document.body.classList.remove("is-resizing-x", "is-resizing-y");
+    };
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const m = measureHandle(handleId);
+      if (!m) return;
+      event.preventDefault(); // no text selection; focus is given explicitly
+      handle.focus({ preventScroll: true });
+      handle.setPointerCapture(event.pointerId);
+      drag = { m, x: event.clientX, y: event.clientY, moved: false };
+      handle.classList.add("is-dragging");
+      document.body.classList.add(horizontal ? "is-resizing-y" : "is-resizing-x");
+    });
+    handle.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      const delta = horizontal ? event.clientY - drag.y : event.clientX - drag.x;
+      if (!delta && !drag.moved) return;
+      drag.moved = true;
+      moveBoundary(drag.m, delta);
+    });
+    handle.addEventListener("pointerup", endDrag);
+    handle.addEventListener("pointercancel", endDrag);
+    handle.addEventListener("lostpointercapture", endDrag);
+    handle.addEventListener("dblclick", () => resetBoundary(handleId));
+    handle.addEventListener("keydown", (event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey) return; // browser shortcuts (Alt+←)
+      const keys = horizontal ? ["ArrowUp", "ArrowDown"] : ["ArrowLeft", "ArrowRight"];
+      const direction = keys.indexOf(event.key);
+      if (direction < 0) return;
+      event.preventDefault();
+      const m = measureHandle(handleId);
+      if (!m) return;
+      moveBoundary(m, direction ? RESIZE_STEP : -RESIZE_STEP);
+      savePaneLayout();
+    });
+  }
 }
 
 // ---------- event log: every event the harness emits, folded at the bottom of Orchestration ----------
@@ -2426,6 +2679,16 @@ function closePaneMenu() {
 }
 
 async function boot() {
+  // Remembered pane layout first, so the page does not open on the defaults then jump.
+  loadPaneLayout();
+  createResizeHandles();
+  applyPaneSizes();
+  renderChips();
+  renderMenu();
+  renderPaneVisibility();
+  // aria-valuenow follows the window too (bricks and schema are in px).
+  new ResizeObserver(scheduleHandleValues).observe(document.getElementById("layout"));
+
   document.getElementById("pane-menu-toggle").addEventListener("click", () => {
     const list = document.getElementById("pane-menu-list");
     const expanded = !list.hidden;

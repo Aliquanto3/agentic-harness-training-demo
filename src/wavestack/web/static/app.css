@@ -165,10 +165,27 @@ body {
   display: flex;
   min-height: 0;
   gap: var(--spacing-gutter);
+  /* Pane sizes (story 8f): the tokens until the user drags a handle; app.js then sets these
+     inline on #layout (and removes them on double-click). Bricks and schema in px; the top-row
+     columns as flex-grow weights, so hiding one shares its place pro rata and showing it back
+     returns its share. Minimums (EXPERIENCE.md > Masquage des volets): 240 px wide, 160 px high. */
+  --pane-bricks-width: var(--spacing-brick-panel-width);
+  --pane-schema-height: var(--spacing-architecture-band-height);
+  --pane-human-grow: 1;
+  --pane-ctx-grow: 1;
+  --pane-orch-grow: 1;
+  --pane-min-width: 240px;
+  --pane-min-height: 160px;
 }
 
 .layout > .pane[data-pane="bricks"] {
-  flex: 0 0 var(--spacing-brick-panel-width);
+  /* 100% = the layout: a shrunk window still leaves the rest its minimum width. */
+  flex: 0 0
+    clamp(
+      var(--pane-min-width),
+      var(--pane-bricks-width),
+      calc(100% - var(--pane-min-width) - var(--spacing-gutter))
+    );
 }
 
 .right {
@@ -187,11 +204,125 @@ body {
 }
 
 .top-row .pane {
-  flex: 1;
+  flex: 1 1 0%;
+}
+
+.top-row .pane[data-pane="human"] {
+  flex-grow: var(--pane-human-grow);
+}
+
+.top-row .pane[data-pane="ctx"] {
+  flex-grow: var(--pane-ctx-grow);
+}
+
+.top-row .pane[data-pane="orch"] {
+  flex-grow: var(--pane-orch-grow);
 }
 
 .right > .pane[data-pane="schema"] {
-  flex: 0 0 var(--spacing-architecture-band-height);
+  /* 100% = the right column: the schema always leaves the top row its minimum height. */
+  flex: 0 0
+    clamp(
+      var(--pane-min-height),
+      var(--pane-schema-height),
+      calc(100% - var(--pane-min-height) - var(--spacing-gutter))
+    );
+}
+
+/* ---------- gutter handles (DESIGN.md > pane-resize-handle), inserted by app.js ----------
+   Zero footprint: the handle is exactly the gutter (its negative margins cancel its own size
+   and one of the two gaps around it), so spacing is unchanged. Invisible at rest; a primary
+   pill of 4 x 32 px on hover, keyboard focus and while dragging. No animation. */
+
+.pane-resize-handle {
+  position: relative;
+  z-index: 1; /* its widened hit area overlaps the panes' edges */
+  flex: 0 0 var(--spacing-gutter);
+  touch-action: none;
+  outline: none; /* the pill is the focus indicator */
+}
+
+.pane-resize-handle[hidden],
+body.focus-mode .pane-resize-handle {
+  display: none;
+}
+
+.pane-resize-handle[aria-orientation="vertical"] {
+  margin: 0 calc(-1 * var(--spacing-gutter));
+  cursor: col-resize;
+}
+
+.pane-resize-handle[aria-orientation="horizontal"] {
+  margin: calc(-1 * var(--spacing-gutter)) 0;
+  cursor: row-resize;
+}
+
+/* Hit area of hit-target-min (8 + 6 + 18 = 32 px): it reaches only 6 px into the pane on the
+   left, whose vertical scrollbar sits on that edge, and 18 px into the pane on the right: its
+   12 px padding plus 6 px of content (accepted trade-off). */
+.pane-resize-handle[aria-orientation="vertical"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 calc(var(--spacing-gutter) - var(--spacing-hit-target-min) + 6px) 0 -6px;
+}
+
+.pane-resize-handle[aria-orientation="horizontal"]::before {
+  content: "";
+  position: absolute;
+  inset: calc((var(--spacing-gutter) - var(--spacing-hit-target-min)) / 2) 0;
+}
+
+.pane-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--spacing-1);
+  height: var(--spacing-6);
+  transform: translate(-50%, -50%);
+  border-radius: var(--rounded-full);
+  background: var(--color-primary);
+  visibility: hidden;
+}
+
+.pane-resize-handle[aria-orientation="horizontal"]::after {
+  width: var(--spacing-6);
+  height: var(--spacing-1);
+}
+
+.pane-resize-handle:hover::after,
+.pane-resize-handle:focus-visible::after,
+.pane-resize-handle.is-dragging::after {
+  visibility: visible;
+}
+
+/* Windows high contrast: keep the pill (the handle's only focus indicator) visible. */
+@media (forced-colors: active) {
+  .pane-resize-handle::after {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+}
+
+/* Pane controls win over the handles' widened hit area (the schema handle reaches 12 px into
+   the bottom of the top row, where the event-log head sits, and into the schema's header). */
+.pane-header,
+.event-log-head {
+  position: relative;
+  z-index: 2;
+}
+
+/* While dragging, the cursor stays put and no text gets selected on the way. */
+body.is-resizing-x,
+body.is-resizing-x * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.is-resizing-y,
+body.is-resizing-y * {
+  cursor: row-resize !important;
+  user-select: none;
 }
 
 .pane {
