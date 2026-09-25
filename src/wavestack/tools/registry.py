@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from wavestack import config
 from wavestack.session.effects import ToolReply
@@ -57,10 +57,28 @@ class ToolSpec:
         return self.source in ("mcp_local", "mcp_public")
 
 
+class ToolPreset(BaseModel):
+    """Arguments that prefill the form of a forced call (story 9), shown by `label_fr`."""
+
+    label_fr: str = Field(min_length=1)
+    args: dict[str, Any]
+
+
 class ToolText(BaseModel):
     label_fr: str = Field(min_length=1)
     description: str = Field(min_length=1)  # seen by the model
     parameters: dict[str, str] = {}
+    presets: list[ToolPreset] = []
+
+    @model_validator(mode="after")
+    def _presets_use_declared_parameters(self) -> ToolText:
+        for preset in self.presets:
+            unknown = sorted(set(preset.args) - set(self.parameters))
+            if unknown:
+                raise ValueError(
+                    f"preset {preset.label_fr!r}: arguments {unknown} are not declared parameters"
+                )
+        return self
 
 
 class ToolsContent(BaseModel):

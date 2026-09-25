@@ -189,6 +189,13 @@ class SpecialTokenNeutralizedPayload(BaseModel):
 # ---------- story 4: bricks, system prompt, conversation (AD-3, AD-12, AD-17) ----------
 
 
+class ToolPresetState(BaseModel):
+    """A preset of a forced tool call's arguments (story 9), from `content/tools.yaml`."""
+
+    label_fr: str
+    args: dict[str, object]
+
+
 class BrickOption(BaseModel):
     """A sub-option of a brick card (story 5: one native tool)."""
 
@@ -197,6 +204,12 @@ class BrickOption(BaseModel):
     enabled: bool
     hosting_fr: str
     network: bool
+    # Story 9, tools: the parameters of a forced call (name -> French description, in the
+    # call's order) and the presets that fill its form.
+    parameters: dict[str, str] | None = None
+    presets: list[ToolPresetState] = []
+    # Story 9, MCP servers: the tools whose documentation can be loaded by force.
+    tools: list[str] = []
 
 
 class BrickState(BaseModel):
@@ -332,6 +345,29 @@ class ApprovalResolvedPayload(BaseModel):
     hook_disabled: bool
 
 
+# ---------- story 9: forced actions (AD-3, AD-25) ----------
+
+
+class ArmedActionState(BaseModel):
+    """An armed action, as the session holds it (AD-3): the front projects its chips."""
+
+    armed_id: str
+    kind: Literal["tool", "skill", "tool_doc"]
+    brick: str
+    target: str
+    args: dict[str, object] = {}
+    label_fr: str
+
+
+class ArmedActionsChangedPayload(BaseModel):
+    actions: list[ArmedActionState]
+
+
+class ActionDroppedPayload(BaseModel):
+    armed_id: str
+    reason_fr: str
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -363,4 +399,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "effect_applied": EffectAppliedPayload,
     "approval_requested": ApprovalRequestedPayload,
     "approval_resolved": ApprovalResolvedPayload,
+    "armed_actions_changed": ArmedActionsChangedPayload,
+    "action_dropped": ActionDroppedPayload,
 }

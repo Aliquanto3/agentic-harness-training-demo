@@ -10,6 +10,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -18,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from wavestack import config
-from wavestack.session.app_session import AppSession, SendRefused
+from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.envelope import Envelope
 from wavestack.trace.journal import get_journal
@@ -67,6 +68,18 @@ class ApprovalIntention(BaseModel):
     approval_id: str
     approved: bool
     disable_hook: bool = False  # « Autoriser et ne plus demander »: only with `approved`
+
+
+class ArmIntention(BaseModel):
+    """Story 9: a native tool call with its arguments, a skill, or an MCP documentation."""
+
+    kind: Literal["tool", "skill", "tool_doc"]
+    target: str
+    args: dict[str, Any] = {}
+
+
+class DisarmIntention(BaseModel):
+    armed_id: str
 
 
 class SystemPromptIntention(BaseModel):
@@ -155,6 +168,7 @@ def create_app(
         asked = _latest(events, "approval_requested")
         resolved = _latest(events, "approval_resolved")
         pending = asked.payload if asked and (not resolved or resolved.seq < asked.seq) else None
+        armed = _latest(events, "armed_actions_changed")  # story 9: the chips after a reload
         return {
             "session_state": session_state.payload if session_state else None,
             "architecture_changed": architecture.payload if architecture else None,
@@ -162,6 +176,7 @@ def create_app(
             "context_rendered": rendered.model_dump(mode="json") if rendered else None,
             "bricks_changed": bricks.payload if bricks else None,
             "pending_approval": pending,
+            "armed_actions_changed": armed.payload if armed else None,
             "seq": seq,
         }
 
@@ -266,6 +281,25 @@ def create_app(
             app_session.set_hook(intention.hook, intention.enabled)
         except KeyError:
             raise HTTPException(status_code=404, detail="Hook inconnu.") from None
+        return {"accepted": True}
+
+    @app.post("/api/intentions/arm")
+    def arm(intention: ArmIntention) -> dict[str, str]:
+        """Class (a): arms an action for the next turn (AD-3); unknown target: 404."""
+        try:
+            armed_id = app_session.arm(intention.kind, intention.target, intention.args)
+        except ArmRefused as refused:
+            status = 404 if refused.not_found else 422
+            raise HTTPException(status_code=status, detail=refused.reason_fr) from None
+        return {"armed_id": armed_id}
+
+    @app.post("/api/intentions/disarm")
+    def disarm(intention: DisarmIntention) -> dict[str, bool]:
+        """Class (a): removes an armed action; one no longer armed: 404."""
+        try:
+            app_session.disarm(intention.armed_id)
+        except ArmRefused as refused:
+            raise HTTPException(status_code=404, detail=refused.reason_fr) from None
         return {"accepted": True}
 
     @app.get("/api/audit")

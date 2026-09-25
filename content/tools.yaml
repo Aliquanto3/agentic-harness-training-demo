@@ -2,6 +2,9 @@
 # `description` et les descriptions de paramètres sont envoyées au modèle, dans la
 # variable `tools` du gabarit : ce sont elles qui lui apprennent à quoi sert l'outil.
 # `label_fr` s'affiche dans le panneau des briques et le schéma.
+# `presets` (facultatif) préremplit le formulaire d'un appel forcé par l'utilisateur
+# (story 9) : `label_fr` s'affiche dans la liste, `args` n'utilise que des paramètres
+# déclarés.
 demo_dir_label_fr: Fichiers de démonstration
 tools:
   get_datetime:
@@ -17,6 +20,9 @@ tools:
       ** et parenthèses. À utiliser pour tout calcul au lieu de calculer de tête.
     parameters:
       expression: Expression à calculer, par exemple 12*37 ou (3+4)**2.
+    presets:
+      - label_fr: Multiplication
+        args: {expression: "12*37"}
   read_file:
     label_fr: Lecture de fichier
     description: >-
@@ -24,6 +30,13 @@ tools:
       chemin pour lister les fichiers disponibles.
     parameters:
       path: Chemin relatif du fichier dans le dossier de démonstration, par exemple notes_reunion.txt.
+    presets:
+      - label_fr: Fichier sensible
+        args: {path: confidentiel/budget_projet.txt}
+      - label_fr: Notes de réunion
+        args: {path: notes_reunion.txt}
+      - label_fr: Liste des fichiers
+        args: {path: "."}
   public_holidays:
     label_fr: Jours fériés
     description: >-
@@ -31,6 +44,9 @@ tools:
       au format « date : nom ». Interroge un service public sur Internet.
     parameters:
       year: Année voulue, par exemple 2026.
+    presets:
+      - label_fr: Année 2026
+        args: {year: 2026}
   wikipedia_summary:
     label_fr: Résumé Wikipédia
     description: >-
@@ -38,6 +54,9 @@ tools:
       sur Internet.
     parameters:
       title: Titre exact de la page, par exemple Tour Eiffel.
+    presets:
+      - label_fr: Tour Eiffel
+        args: {title: Tour Eiffel}
   fetch_page:
     label_fr: Lecture de page web
     description: >-
@@ -46,3 +65,6 @@ tools:
       sont acceptées.
     parameters:
       url: Adresse complète de la page, par exemple https://fr.wikipedia.org/wiki/Paris.
+    presets:
+      - label_fr: Page Paris
+        args: {url: "https://fr.wikipedia.org/wiki/Paris"}

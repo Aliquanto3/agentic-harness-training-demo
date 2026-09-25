@@ -34,7 +34,7 @@ class Malformed:
     detail_fr: str
 
 
-def _convert(value: str, kind: str | None) -> Any:
+def convert_value(value: str, kind: str | None) -> Any:
     """`qwen3_coder` values are text: convert them per the schema, keep the text on failure."""
     try:
         match kind:
@@ -63,7 +63,7 @@ def _qwen3_coder(inner: str, schemas: dict[str, dict[str, str]]) -> ToolCall | s
     arguments = {}
     for arg, value in params:
         value = value.removeprefix("\n").removesuffix("\n")
-        arguments[arg] = _convert(value, schema.get(arg))
+        arguments[arg] = convert_value(value, schema.get(arg))
     return ToolCall(name, arguments)
 
 

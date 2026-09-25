@@ -33,6 +33,16 @@ const store = {
   openExplanations: new Set(), // brick ids whose explanation is unfolded (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
   openApprovalPayloads: new Set(), // approval ids whose payload is unfolded in the Vue humain card
+  // Story 9: the armed actions as the session last sent them (AD-3), and every label seen, so
+  // an `action_dropped` still names its action once the list moved on.
+  armed: [],
+  armedLabels: new Map(),
+  // UI state only: « Afficher les actions forcées » (remembered by the browser), the forced
+  // call form open under one option, and the last refusal of an arming.
+  showForced: false,
+  forceForm: null, // { brick, id, preset, values, error }
+  forceFocus: null, // the focus key to restore once a form closes
+  armError: null,
   // Harness steps outside any turn (MCP discovery), each placed after the turns seen so far.
   offTurn: [],
   // Orchestration, UI state only (story 8d): the rail follows the live turn until a click
@@ -140,6 +150,14 @@ function applyEnvelope(envelope) {
     case "bricks_changed":
       store.bricks = p;
       break;
+    case "armed_actions_changed":
+      // AD-1: the chips are this list, never a local computation.
+      store.armed = p.actions;
+      for (const action of p.actions) store.armedLabels.set(action.armed_id, action.label_fr);
+      break;
+    case "action_dropped":
+      if (turn) turn.steps.push({ type: envelope.kind, payload: p, label: store.armedLabels.get(p.armed_id) });
+      break;
     case "conversation_cleared":
       // Past turns leave the Vue humain, Contexte LLM and Orchestration; the event list keeps them.
       store.chatFrom = store.turns.length;
@@ -217,6 +235,7 @@ function applyEnvelope(envelope) {
           started: p,
           brick: envelope.brick,
           component: envelope.component, // the schema node in action
+          trigger: envelope.trigger, // AD-2: `model`, or `user` for a forced action
           startedAt: Date.parse(envelope.ts),
           ended: null,
         });
@@ -253,7 +272,9 @@ function applyEnvelope(envelope) {
     }
     case "hook_decided":
       // A hook decision is a step of its own (AD-13): a blocked tool has no step at all.
-      if (turn) turn.steps.push({ type: "hook", payload: p, component: envelope.component, lines: [] });
+      if (turn) {
+        turn.steps.push({ type: "hook", payload: p, component: envelope.component, trigger: envelope.trigger, lines: [] });
+      }
       break;
     case "effect_applied": {
       // The lines H2 appended to the audit log, shown in its own step.
@@ -415,18 +436,45 @@ const cleared = () => store.clearedSeq !== null;
 // ---------- bricks panel: cards, toggles, system prompt drawer ----------
 
 let renderedBricks = null;
+let renderedArmed = null;
+let renderedForceUi = null;
+
+// Story 9: the forced actions' UI changed (toggle, form): the panel is rebuilt at next render.
+function forceUiChanged() {
+  renderedForceUi = null;
+  scheduleRender();
+}
 
 function renderBricks() {
-  // Rebuilt only when the session sends new cards, so an unfolded explanation stays open.
-  if (renderedBricks === store.bricks) return;
+  // Rebuilt only when the session sends new cards or armed actions, or the forced actions' UI
+  // changes, so an unfolded explanation stays open.
+  if (renderedBricks === store.bricks && renderedArmed === store.armed && renderedForceUi === store.forceForm) return;
   renderedBricks = store.bricks;
+  renderedArmed = store.armed;
+  renderedForceUi = store.forceForm;
   const pane = document.getElementById("bricks");
-  // The rebuild would drop keyboard focus: note it, restore it on the new element.
-  const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  // The rebuild would drop keyboard focus: note it, restore it on the new element. A closed
+  // forced-call form gives it back to its Forcer button.
+  let focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  // A card chip disarmed leaves: the focus goes to the next chip of that card, else its toggle.
+  const nextChipKey = focusKey?.startsWith("card:")
+    ? document.activeElement.nextElementSibling?.dataset.focusKey ?? null
+    : null;
+  if (store.forceFocus) {
+    const lost = !document.activeElement || document.activeElement === document.body;
+    if (focusKey?.startsWith("forceform:") || lost) focusKey = store.forceFocus;
+    store.forceFocus = null;
+  }
   pane.innerHTML = "";
   if (!store.bricks) {
     pane.appendChild(emptyNote("En attente du harnais…"));
     return;
+  }
+  pane.appendChild(forcedToggle());
+  if (store.armError) {
+    const error = el("p", "force-error", store.armError);
+    error.setAttribute("role", "alert");
+    pane.appendChild(error);
   }
   for (const brick of store.bricks.bricks) {
     const card = el("article", "brick-card");
@@ -451,6 +499,9 @@ function renderBricks() {
 
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
     if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
+    // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
+    const armed = store.armed.filter((a) => a.brick === brick.id);
+    if (armed.length) card.appendChild(armedChips(armed, `card:${brick.id}`));
 
     if (brick.options?.length) card.appendChild(brickOptions(brick));
     if (brick.limits_fr) card.appendChild(el("p", "brick-limits", brick.limits_fr));
@@ -476,7 +527,15 @@ function renderBricks() {
     }
     pane.appendChild(card);
   }
-  if (focusKey) pane.querySelector(`[data-focus-key="${focusKey}"]`)?.focus();
+  if (focusKey) {
+    const find = (key) => (key ? pane.querySelector(`[data-focus-key="${cssEscape(key)}"]`) : null);
+    let target = find(focusKey);
+    if (!target && focusKey.startsWith("card:")) {
+      const brickId = focusKey.split(":")[1];
+      target = find(nextChipKey) || find(`toggle:${brickId}`);
+    }
+    target?.focus();
+  }
 }
 
 function brickOptions(brick) {
@@ -509,8 +568,14 @@ function brickOptions(brick) {
       el("span", "brick-option-name", option.label_fr),
       el("span", option.network ? "hosting-tag-network" : "hosting-tag-local", option.hosting_fr)
     );
-    const li = el("li");
+    const li = el("li", "brick-option-item");
     li.appendChild(row);
+    const force = store.showForced ? forceButton(brick, option) : null;
+    if (force) {
+      li.appendChild(force);
+      const open = store.forceForm?.brick === brick.id && store.forceForm?.id === option.id;
+      if (open) li.appendChild(forceForm(brick, option));
+    }
     list.appendChild(li);
   }
   details.appendChild(list);
@@ -527,6 +592,283 @@ function brickOptions(brick) {
     details.appendChild(row);
   }
   return details;
+}
+
+// ---------- forced actions (story 9, FR-42): toggle, Forcer, form with presets, chips ----------
+
+const FORCED_STORAGE_KEY = "wavestack.forcedActions";
+// EXPERIENCE: force-button labels, by brick; a native tool has none there: « Forcer l'appel ».
+const FORCE_LABELS = {
+  tools: "Forcer l'appel",
+  skills: "Déclencher le skill",
+  mcp: "Charger la documentation",
+};
+
+// Hidden by default: the SLMs are meant to act on their own. Remembered like the panes'
+// layout; unreadable storage leaves the default, silently.
+function loadShowForced() {
+  try {
+    store.showForced = localStorage.getItem(FORCED_STORAGE_KEY) === "1";
+  } catch {
+    store.showForced = false;
+  }
+}
+
+function saveShowForced() {
+  try {
+    localStorage.setItem(FORCED_STORAGE_KEY, store.showForced ? "1" : "0");
+  } catch {
+    // No storage: the choice lasts until the page is reloaded.
+  }
+}
+
+function forcedToggle() {
+  const row = el("label", "force-toggle");
+  const toggle = el("input", "brick-toggle");
+  toggle.type = "checkbox";
+  toggle.setAttribute("role", "switch");
+  toggle.checked = store.showForced;
+  toggle.dataset.focusKey = "force-toggle";
+  toggle.addEventListener("change", () => {
+    store.showForced = toggle.checked;
+    if (!store.showForced) {
+      store.forceForm = null;
+      store.armError = null;
+    }
+    saveShowForced();
+    renderedBricks = null; // the Forcer buttons appear or leave
+    scheduleRender();
+  });
+  row.append(toggle, el("span", "", "Afficher les actions forcées"));
+  return row;
+}
+
+function handIcon() {
+  const icon = el("span", "", "👆 ");
+  icon.setAttribute("aria-hidden", "true"); // the label alone is read aloud
+  return icon;
+}
+
+function isFormOpen(brickId, optionId) {
+  return store.forceForm?.brick === brickId && store.forceForm?.id === optionId;
+}
+
+function forceButton(brick, option) {
+  // Tools, skills, and in lazy loading only, the documentation of an MCP server's tool.
+  const label = FORCE_LABELS[brick.id];
+  if (!label) return null;
+  if (brick.id === "mcp" && (brick.mode !== "lazy" || !option.tools?.length)) return null;
+  const button = el("button", "force-button");
+  button.type = "button";
+  button.append(handIcon(), label);
+  button.setAttribute("aria-label", `${label} : ${option.label_fr}`);
+  button.dataset.focusKey = `force:${brick.id}:${option.id}`;
+  // A tool without parameter and a skill are armed at once; the others open their form.
+  const needsForm =
+    brick.id === "mcp" || (brick.id === "tools" && Object.keys(option.parameters || {}).length > 0);
+  if (needsForm) button.setAttribute("aria-expanded", String(isFormOpen(brick.id, option.id)));
+  button.addEventListener("click", () => {
+    if (!needsForm) {
+      armAction(brick.id === "skills" ? "skill" : "tool", option.id, {});
+      return;
+    }
+    store.forceForm = isFormOpen(brick.id, option.id) ? null : newForceForm(brick, option);
+    forceUiChanged();
+  });
+  return button;
+}
+
+function presetValues(option, index) {
+  // The form's fields are text; the session converts them per the tool's schema.
+  const args = option.presets?.[index]?.args || {};
+  return Object.fromEntries(
+    Object.keys(option.parameters || {}).map((name) => {
+      const value = args[name];
+      return [name, value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value)];
+    })
+  );
+}
+
+function newForceForm(brick, option) {
+  if (brick.id === "mcp") return { brick: brick.id, id: option.id, values: { tool: option.tools[0] }, error: null };
+  const preset = option.presets?.length ? 0 : -1; // prefilled by the first preset
+  return { brick: brick.id, id: option.id, preset, values: presetValues(option, preset), error: null };
+}
+
+function forceField(name, control, help = null) {
+  const field = el("label", "force-field");
+  field.append(el("span", "force-field-name", name), control);
+  if (help) field.appendChild(help);
+  return field;
+}
+
+function forceForm(brick, option) {
+  // One field per parameter, its description as help, prefilled by a chosen preset.
+  const form = store.forceForm;
+  const base = `forceform:${brick.id}:${option.id}`;
+  const box = el("div", "force-form");
+  box.setAttribute("role", "group");
+  const arm = () =>
+    brick.id === "mcp"
+      ? armAction("tool_doc", form.values.tool, {}, form)
+      : armAction("tool", option.id, { ...form.values }, form);
+  if (brick.id === "mcp") {
+    box.setAttribute("aria-label", `Charger la documentation d'un outil de ${option.label_fr}`);
+    const select = el("select");
+    select.dataset.focusKey = `${base}:tool`;
+    for (const name of option.tools) {
+      const choice = el("option", "", name);
+      choice.value = name;
+      select.appendChild(choice);
+    }
+    select.value = form.values.tool;
+    select.addEventListener("change", () => {
+      form.values.tool = select.value;
+    });
+    box.appendChild(forceField("Outil", select));
+  } else {
+    box.setAttribute("aria-label", `Arguments de l'appel forcé : ${option.label_fr}`);
+    if (option.presets?.length) {
+      const select = el("select");
+      select.dataset.focusKey = `${base}:preset`;
+      option.presets.forEach((preset, i) => {
+        const choice = el("option", "", preset.label_fr);
+        choice.value = String(i);
+        select.appendChild(choice);
+      });
+      const free = el("option", "", "Saisie libre");
+      free.value = "-1";
+      select.appendChild(free);
+      select.value = String(form.preset);
+      select.addEventListener("change", () => {
+        const preset = Number(select.value);
+        const values = preset >= 0 ? presetValues(option, preset) : form.values;
+        store.forceForm = { ...form, preset, values, error: null };
+        forceUiChanged();
+      });
+      box.appendChild(forceField("Préréglage", select));
+    }
+    for (const [name, description] of Object.entries(option.parameters)) {
+      const input = el("input");
+      input.type = "text";
+      input.value = form.values[name] ?? "";
+      input.dataset.focusKey = `${base}:arg:${name}`;
+      const help = el("span", "force-help", description);
+      help.id = `force-help-${brick.id}-${option.id}-${name}`;
+      input.setAttribute("aria-describedby", help.id);
+      input.addEventListener("input", () => {
+        form.values[name] = input.value; // kept in place: typing never rebuilds the panel
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          arm();
+        }
+      });
+      box.appendChild(forceField(name, input, help));
+    }
+  }
+  if (form.error) {
+    const error = el("p", "force-error", form.error);
+    error.setAttribute("role", "alert");
+    box.appendChild(error);
+  }
+  const actions = el("div", "force-actions");
+  const armButton = el("button", "force-arm", "Armer");
+  armButton.type = "button";
+  armButton.dataset.focusKey = `${base}:arm`;
+  armButton.addEventListener("click", arm);
+  const cancel = el("button", "force-cancel", "Annuler");
+  cancel.type = "button";
+  cancel.dataset.focusKey = `${base}:cancel`;
+  cancel.addEventListener("click", () => {
+    store.forceForm = null;
+    store.forceFocus = `force:${brick.id}:${option.id}`;
+    forceUiChanged();
+  });
+  actions.append(armButton, cancel);
+  box.appendChild(actions);
+  return box;
+}
+
+// Arm requests in flight, by form or button: a double click or a repeated Enter arms once.
+const armsPending = new Set();
+
+async function armAction(kind, target, args, form = null) {
+  // Class (a): accepted at any time; the chip comes from `armed_actions_changed` (AD-1).
+  const pendingKey = form ? `form:${form.brick}:${form.id}` : `${kind}:${target}`;
+  if (armsPending.has(pendingKey)) return;
+  armsPending.add(pendingKey);
+  let error = null;
+  try {
+    const response = await postIntention("/api/intentions/arm", { kind, target, args });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      error = typeof body.detail === "string" ? body.detail : "Armement refusé : vérifiez les arguments.";
+    }
+  } catch {
+    error = "WaveStack ne répond pas : l'action n'a pas été armée.";
+  } finally {
+    armsPending.delete(pendingKey);
+  }
+  if (!error && store.armError) {
+    store.armError = null; // any successful arming clears the panel's last refusal
+    renderedBricks = null;
+  }
+  if (form) {
+    if (store.forceForm !== form) return; // closed or replaced meanwhile
+    if (error) {
+      store.forceForm = { ...form, error };
+    } else {
+      store.forceForm = null;
+      store.forceFocus = `force:${form.brick}:${form.id}`;
+    }
+  } else {
+    store.armError = error;
+    renderedBricks = null;
+  }
+  forceUiChanged();
+}
+
+async function disarmAction(armedId) {
+  try {
+    await postIntention("/api/intentions/disarm", { armed_id: armedId });
+  } catch {
+    // The chip stays until the session says otherwise.
+  }
+}
+
+function armedChips(actions, keyPrefix) {
+  // EXPERIENCE: « Armé : … », a click disarms; named « Désarmer … » for screen readers.
+  const row = el("div", "armed-chips");
+  for (const action of actions) {
+    const chip = el("button", "armed-chip");
+    chip.type = "button";
+    const close = el("span", "armed-chip-close", "✕");
+    close.setAttribute("aria-hidden", "true");
+    chip.append(handIcon(), `Armé : ${action.label_fr}`, close);
+    chip.setAttribute("aria-label", `Désarmer ${action.label_fr}`);
+    chip.dataset.focusKey = `${keyPrefix}:${action.armed_id}`;
+    chip.addEventListener("click", () => disarmAction(action.armed_id));
+    row.appendChild(chip);
+  }
+  return row;
+}
+
+function triggerBadge(trigger) {
+  // DESIGN.md trigger-badge-*: who caused the action, told by the icon and the label.
+  if (trigger !== "user" && trigger !== "model") return null;
+  const user = trigger === "user";
+  const badge = el("span", user ? "trigger-badge-user" : "trigger-badge-model");
+  const icon = el("span", "", user ? "👆 " : "🤖 ");
+  icon.setAttribute("aria-hidden", "true");
+  badge.append(icon, user ? "Forcé par l'utilisateur" : "Déclenché par le modèle");
+  return badge;
+}
+
+function hookTrigger(step) {
+  // A hook deciding on a tool call (H1 blocking it, H5 asking): who caused that call.
+  return ["before_tool", "after_tool"].includes(step.payload.point) ? step.trigger : null;
 }
 
 async function setOption(brickId, id, enabled) {
@@ -763,6 +1105,8 @@ function patchChildren(parent, nodes) {
   });
 }
 
+let renderedComposerArmed = null;
+
 function renderComposer() {
   const state = store.sessionState;
   const ready = state?.state === "idle" && !state.reason_fr;
@@ -778,6 +1122,21 @@ function renderComposer() {
   const text = store.composerError || (ready ? null : state?.reason_fr || "En attente du modèle…");
   reason.hidden = !text;
   reason.textContent = text || "";
+  // Story 9: the armed actions above the composer, rebuilt only when the list changes.
+  if (renderedComposerArmed !== store.armed) {
+    renderedComposerArmed = store.armed;
+    const row = document.getElementById("armed-chips");
+    const focusKey = row.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+    row.replaceChildren(...(store.armed.length ? [armedChips(store.armed, "composer")] : []));
+    row.hidden = !store.armed.length;
+    if (focusKey) {
+      // A disarmed chip leaves: the focus goes to the next one, else to the message field
+      // when enabled (the states above are current), else to « Arrêter ».
+      const target = row.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`) || row.querySelector("button");
+      const input = document.getElementById("composer-input");
+      (target || (input.disabled ? document.getElementById("composer-stop") : input)).focus();
+    }
+  }
 }
 
 async function postIntention(path, body) {
@@ -938,21 +1297,15 @@ function callBody(turn, step) {
 
 function toolBody(step) {
   const ended = step.ended;
-  // A harness tool (`load_tool_doc`, `load_skill`) says the model triggered it (EXPERIENCE:
-  // trigger badge).
   const harness = step.started.source === "harness";
   const nodes = [];
   if (step.started.source?.startsWith("mcp") || (harness && step.brick === "mcp")) {
     nodes.push(el("span", "step-badge is-mcp", "MCP"));
   }
   if (step.brick === "skills") nodes.push(el("span", "step-badge is-skill", "Skill"));
-  if (harness) {
-    const icon = el("span", "", "🤖 ");
-    icon.setAttribute("aria-hidden", "true"); // the label alone is read aloud
-    const badge = el("span", "trigger-badge-model");
-    badge.append(icon, "Déclenché par le modèle");
-    nodes.push(badge);
-  }
+  // EXPERIENCE: trigger badge, read from the envelope's `trigger` (story 9).
+  const badge = triggerBadge(step.trigger);
+  if (badge) nodes.push(badge);
   const asked = { name: step.started.tool, arguments: step.started.arguments };
   nodes.push(el("pre", "step-code", formatCall(asked)));
   for (const request of step.outbound || []) nodes.push(outboundPayload(request));
@@ -1135,6 +1488,8 @@ function hookCard(step) {
     el("p", "", `Point d'accroche : ${p.point_fr} · Hook : ${p.hook_fr}`),
     el("p", "", `Décision : ${HOOK_DECISIONS[p.decision]}. ${p.detail_fr}`),
   ];
+  const badge = triggerBadge(hookTrigger(step)); // on a tool call: forced or the model's
+  if (badge) lines.unshift(badge);
   if (block) {
     const effect =
       p.point === "before_tool"
@@ -1181,6 +1536,11 @@ const ACTORS = {
   model: ["is-model", "🤖 modèle"],
   harness: ["is-harness", "⚙ harnais"],
   user: ["is-user", "👤 vous"],
+};
+// The trigger badge of a line (story 9): class, icon, label.
+const TRIGGERS = {
+  user: ["trigger-badge-user", "👆 ", "Forcé par l'utilisateur"],
+  model: ["trigger-badge-model", "🤖 ", "Déclenché par le modèle"],
 };
 const HOOK_ICONS = { h1: "🛡", h2: "📝", h3: "💉", h5: "✋" };
 const TURN_STATUS = {
@@ -1273,11 +1633,13 @@ function turnRows(turn) {
       const harness = step.started.source === "harness";
       let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
       if (ended) figure = `${ended.status === "ok" ? "OK" : "erreur"} · ${seconds(ended.duration_ms)}`;
+      const forced = step.trigger === "user";
       rows.push({
         key,
         icon: harness ? (step.brick === "skills" ? "📘" : "📖") : "🔧",
         title: harness ? step.started.phase_label : `Exécution · ${toolLabel(step.started.tool)}`,
-        actor: harness ? "model" : "harness",
+        actor: forced ? "user" : harness ? "model" : "harness",
+        trigger: step.trigger,
         figure,
         net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
         tone: ended && ended.status !== "ok" ? "error" : null,
@@ -1296,12 +1658,32 @@ function turnRows(turn) {
         icon: HOOK_ICONS[p.hook] || "🪝",
         title: step.approval ? "Validation humaine" : `Hook ${p.hook.toUpperCase()} · ${p.hook_fr}`,
         actor: step.approval ? "user" : "harness",
+        trigger: hookTrigger(step),
         figure,
         net: step.approval ? step.approval.destination : null,
         tone: block ? "error" : pending ? "pending" : "hook",
         sticky: block || pending,
         sig: [p, step.approval, step.resolved, step.lines.length, toolLabel(step.approval?.tool ?? "")],
         body: () => [hookCard(step)],
+      });
+    } else if (step.type === "action_dropped") {
+      const label = step.label || "action forcée";
+      rows.push({
+        key,
+        icon: "⊘",
+        title: `Action forcée abandonnée · ${label}`,
+        actor: "harness",
+        trigger: "user",
+        figure: "abandonnée",
+        tone: "unavailable",
+        sig: 1,
+        body: () => [
+          harnessEvent("Action forcée abandonnée", "info", [
+            triggerBadge("user"),
+            el("p", "", step.payload.reason_fr),
+            el("p", "label", "Décision du harnais (code) : la cible n'est plus disponible au moment du tour."),
+          ]),
+        ],
       });
     } else if (step.type === "tool_call_malformed") {
       rows.push({
@@ -1399,6 +1781,7 @@ function stepNode(row, open, flags) {
     const parts = {
       tile: el("span", "turn-step-tile"),
       title: el("span", "turn-step-title"),
+      trigger: el("span", "turn-step-trigger"),
       actor: el("span", "turn-step-actor"),
       netMark: el("span", "net-mark", "🌐 RÉSEAU →"),
       netHost: el("span", "net-host"),
@@ -1408,6 +1791,11 @@ function stepNode(row, open, flags) {
     parts.tile.setAttribute("aria-hidden", "true");
     parts.chevron.setAttribute("aria-hidden", "true");
     line.append(...Object.values(parts));
+    // Story 9: « Forcé par l'utilisateur » / « Déclenché par le modèle », icon then label.
+    parts.triggerIcon = el("span");
+    parts.triggerIcon.setAttribute("aria-hidden", "true");
+    parts.triggerLabel = el("span");
+    parts.trigger.append(parts.triggerIcon, parts.triggerLabel);
     // Name and note share one span: they truncate together, before the host (A10).
     parts.name = el("span", "turn-step-name");
     parts.note = el("span", "turn-step-note");
@@ -1424,6 +1812,12 @@ function stepNode(row, open, flags) {
   setText(node.name, row.title);
   setText(node.note, row.note ? ` · ${row.note}` : "");
   node.note.hidden = !row.note;
+  const trigger = TRIGGERS[row.trigger] || null;
+  node.trigger.hidden = !trigger;
+  const triggerClass = `turn-step-trigger ${trigger ? trigger[0] : ""}`;
+  if (node.trigger.className !== triggerClass) node.trigger.className = triggerClass;
+  setText(node.triggerIcon, trigger ? trigger[1] : "");
+  setText(node.triggerLabel, trigger ? trigger[2] : "");
   const [actorClass, actorLabel] = ACTORS[row.actor];
   node.actor.className = `turn-step-actor ${actorClass}`;
   setText(node.actor, actorLabel);
@@ -1433,7 +1827,9 @@ function stepNode(row, open, flags) {
   setText(node.figure, row.figure);
   setText(node.chevron, open ? "▾" : "▸");
   // The whole title in the tooltip: the line truncates it first (A10).
-  const tooltip = [row.title, row.note, row.net ? `RÉSEAU → ${row.net}` : "", row.figure].filter(Boolean).join(" · ");
+  const tooltip = [row.title, row.note, trigger?.[2], row.net ? `RÉSEAU → ${row.net}` : "", row.figure]
+    .filter(Boolean)
+    .join(" · ");
   if (node.line.title !== tooltip) node.line.title = tooltip;
   node.line.setAttribute("aria-expanded", String(open));
   const classes = ["turn-step"];
@@ -2016,6 +2412,8 @@ const KIND_LABELS = {
   effect_applied: "Effet appliqué",
   approval_requested: "Validation demandée",
   approval_resolved: "Validation résolue",
+  armed_actions_changed: "Actions armées",
+  action_dropped: "Action forcée abandonnée",
 };
 const SESSION_STATES = {
   idle: "prête",
@@ -2074,6 +2472,10 @@ function eventSummary(group) {
       return `${p.tool} → ${p.destination}`;
     case "approval_resolved":
       return approvalDecision(p);
+    case "armed_actions_changed":
+      return p.actions.length ? p.actions.map((a) => a.label_fr).join(" · ") : "aucune action armée";
+    case "action_dropped":
+      return p.reason_fr;
     case "tool_call_malformed":
       return p.detail_fr;
     case "output_truncated":
@@ -2681,6 +3083,7 @@ function closePaneMenu() {
 async function boot() {
   // Remembered pane layout first, so the page does not open on the defaults then jump.
   loadPaneLayout();
+  loadShowForced();
   createResizeHandles();
   applyPaneSizes();
   renderChips();
@@ -2757,6 +3160,7 @@ async function boot() {
     store.sessionState = body.session_state;
     store.architecture = body.architecture_changed || { nodes: [], edges: [] };
     store.bricks = body.bricks_changed;
+    store.armed = body.armed_actions_changed?.actions ?? [];
     const preview = body.context_preview;
     const rendered = body.context_rendered;
     const latest = [preview, rendered].filter(Boolean).sort((a, b) => b.seq - a.seq)[0];

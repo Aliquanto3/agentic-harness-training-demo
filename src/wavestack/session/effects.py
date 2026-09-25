@@ -28,8 +28,16 @@ class AuditAppend(BaseModel):
     lines: list[str]
 
 
+class ArmConsumed(BaseModel):
+    """A turn took the armed action `armed_id` at its sending: it leaves the list at the
+    turn's end, whatever its status (AD-3, story 9)."""
+
+    kind: Literal["arm_consumed"] = "arm_consumed"
+    armed_id: str
+
+
 # Each new harness tool or hook adds its own effect here (AD-23), discriminated by `kind`.
-Effect = ToolDocLoaded | SkillLoaded | AuditAppend
+Effect = ToolDocLoaded | SkillLoaded | AuditAppend | ArmConsumed
 
 
 class ToolReply(NamedTuple):

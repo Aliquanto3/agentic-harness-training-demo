@@ -630,6 +630,20 @@ body.is-resizing-y * {
     var(--typography-label-line-height) var(--typography-label-font-family);
 }
 
+/* DESIGN.md trigger-badge-user: an action the user forced (story 9), ink outline and hand
+   icon: it differs from the model's badge by its icon and label, not only its style. */
+.trigger-badge-user {
+  display: inline-block;
+  margin: 0 0 var(--spacing-1) var(--spacing-1);
+  border: 1px solid var(--color-ink);
+  border-radius: var(--rounded-full);
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
 /* A step run by an MCP server (story 6): the tool is not the harness's own. A skill
    loaded (story 7) is shown the same way. */
 .step-badge.is-mcp,
@@ -928,8 +942,8 @@ body.is-resizing-y * {
    figure keep their width. Empty columns (no host, no mark) take no room. */
 .turn-step-line {
   display: grid;
-  grid-template-columns: 26px minmax(2.5em, 1fr) auto auto minmax(0, auto) auto 12px;
-  grid-template-areas: "tile title actor mark host figure chevron";
+  grid-template-columns: 26px minmax(2.5em, 1fr) auto auto auto minmax(0, auto) auto 12px;
+  grid-template-areas: "tile title trigger actor mark host figure chevron";
   align-items: center;
   width: 100%;
   min-height: var(--spacing-hit-target-min);
@@ -1033,6 +1047,13 @@ body.is-resizing-y * {
   color: var(--color-ink-soft);
 }
 
+/* Story 9: who caused the step (trigger badge), never truncated, like the actor. */
+.turn-step-line .turn-step-trigger {
+  grid-area: trigger;
+  margin: 0 var(--spacing-1) 0 0;
+  white-space: nowrap;
+}
+
 .turn-step-actor {
   grid-area: actor;
   margin-right: var(--spacing-1);
@@ -1102,7 +1123,12 @@ body.is-resizing-y * {
     grid-template-columns: 26px minmax(2.5em, 1fr) auto auto minmax(0, auto) 12px;
     grid-template-areas:
       "tile title actor mark host chevron"
-      "tile figure figure figure figure chevron";
+      "tile trigger figure figure figure chevron";
+  }
+
+  .turn-step-line .turn-step-trigger {
+    justify-self: start;
+    margin-left: var(--spacing-2);
   }
 }
 
@@ -1492,6 +1518,133 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .brick-option-name {
   flex: 1;
+}
+
+/* Story 9: an option's row, its Forcer button beside it, its form under both. */
+.brick-option-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--spacing-2);
+}
+
+.brick-option-item > .brick-option {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+
+.force-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-height: var(--spacing-hit-target-min);
+  font-size: var(--typography-body-sm-font-size);
+  cursor: pointer;
+}
+
+/* DESIGN.md force-button: ink outline, hand icon, as the « Forcé par l'utilisateur » badge. */
+.force-button,
+.force-form button,
+.armed-chip {
+  min-height: var(--spacing-hit-target-min);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.force-button,
+.force-form button {
+  border-radius: var(--rounded-sm);
+  padding: 0 var(--spacing-2);
+}
+
+.force-form button.force-arm {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.force-button:focus-visible,
+.force-form :focus-visible,
+.armed-chip:focus-visible,
+.force-toggle input:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.force-form {
+  flex: 1 0 100%;
+  display: grid;
+  gap: var(--spacing-2);
+  margin: var(--spacing-1) 0 var(--spacing-2);
+  padding: var(--spacing-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-ink);
+  border-radius: var(--rounded-md);
+}
+
+.force-field {
+  display: grid;
+  gap: 2px;
+  font-size: var(--typography-body-sm-font-size);
+}
+
+.force-field-name {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.force-field input,
+.force-field select {
+  min-height: var(--spacing-hit-target-min);
+  min-width: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font: inherit;
+}
+
+.force-help {
+  color: var(--color-ink-soft);
+}
+
+.force-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.force-error {
+  margin: 0;
+  color: var(--color-state-error);
+  font-size: var(--typography-body-sm-font-size);
+}
+
+/* EXPERIENCE: « Armé : … » chips, on the brick card and above the composer; a click disarms. */
+.armed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+}
+
+.armed-chip {
+  border-radius: var(--rounded-full);
+  padding: 0 var(--spacing-3);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.armed-chip-close {
+  margin-left: var(--spacing-2);
+}
+
+.armed-chips-row[hidden] {
+  display: none;
 }
 
 .brick-explanation summary {
