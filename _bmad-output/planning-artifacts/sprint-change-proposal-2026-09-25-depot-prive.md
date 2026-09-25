@@ -4,7 +4,7 @@ date: 2026-09-25
 author: Anaël (avec Claude, workflow bmad-correct-course)
 trigger: forge de l'idée V2 (`_bmad-output/forge/wavestack-v2-demo-client-vente-formations/forged-idea.md`)
 scope: mineur
-status: proposée
+status: approuvée et appliquée le 2026-09-25 (avec P13, voir sprint-change-proposal-2026-09-25-story-9b.md)
 ---
 
 # Sprint Change Proposal — dépôt privé et règle des modèles génératifs
@@ -288,10 +288,22 @@ NEW :
 - Doit s'installer depuis le dépôt privé (GitHub, puis GitLab interne) ou une archive zip, sur un PC pro sans droits administrateur (objectif).
 ```
 
+### Stories du palier 2 — `stories.yaml`
+
+**P13 — « publiable » (ajout du 2026-09-25, à l'approbation)**
+
+Le palier 2 a été découpé après la rédaction de cette proposition. Trois stories reprennent l'ancien intitulé de NFR-11 :
+
+- Story 14 : « Mémoire de démonstration publiable » devient « Mémoire de démonstration non confidentielle ».
+- Story 15 : « Corpus publiable » devient « Corpus non confidentiel ».
+- Story 21 : « Contenu publiable » devient « Contenu non confidentiel ».
+
+Justification : le critère de succès (`grep … "Contenu publiable"`) couvre les compagnons du SPEC, dont `stories.yaml`.
+
 ## 5. Passation
 
 - **Portée** : **mineure**. Les modifications sont appliquées directement par l'agent Developer.
-- **Destinataire** : Developer (Anaël avec Claude), pour appliquer P1 à P12 et committer sur `spec/v2`.
+- **Destinataire** : Developer (Anaël avec Claude), pour appliquer P1 à P13. `spec/v2` est déjà fusionnée dans `main` : le commit se fait sur la branche de travail du correct course de la story 9b (`spec/correct-course-9b`).
 - **Critères de succès** :
   - `grep -rn -i "dépôt public\|redistribution publique\|dépôt GitHub public\|Contenu publiable"` ne renvoie plus rien dans le SPEC, ses compagnons, l'architecture, l'addendum ni le README. Les rapports de revue historiques (`reviews/`, `review-*.md`) et `prd.md` sont exclus.
   - NFR-2 et AD-8 disent « modèles génératifs ».

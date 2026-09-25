@@ -258,8 +258,9 @@ Règles de dépendance :
 ### AD-8 — Budget mémoire mesuré et registre de chargement
 
 - **Binds:** models, rag, compression, mcp, FR-32, NFR-2, FR-43
-- **Prevents:** des composants qui se chargent sans se voir ; un dépassement de budget découvert trop tard ; deux modèles de langage en mémoire.
+- **Prevents:** des composants qui se chargent sans se voir ; un dépassement de budget découvert trop tard ; deux modèles génératifs en mémoire.
 - **Rule:** Tout composant lourd passe par le `LoadRegistry` : modèle, tokenizer `vocab_only`, embedding, reranker, compresseur, modèle d’un serveur externe.
+  - **Un seul modèle génératif (NFR-2).** Charger un modèle génératif, en processus ou servi, libère d’abord le précédent. Les composants non génératifs (tokenizer, embedding, reranker, compresseur) coexistent avec lui dans le budget.
   - **Refus.** Le registre refuse le chargement quand `RSS mesuré (psutil) de WaveStack et de ses processus enfants + coût estimé` dépasse le budget configuré (4 Go par défaut). Le message en français est chiffré.
   - **Estimation du coût.** Elle vaut la mesure de la sonde (AD-7) quand elle existe. Sinon : taille du fichier, plus cache KV à la fenêtre effective, plus une marge.
   - **Cycle de vie.** Un composant se charge à l’activation de sa brique et se libère (`close()`) à sa désactivation.
@@ -616,7 +617,7 @@ Règles de dépendance :
 | Messages | Un message français contient ce qui se passe, pourquoi et l’action possible (EXPERIENCE.md, Voice and Tone). Il est construit côté Python et porté par l’événement. |
 | Journalisation | `logging` standard vers la console pour le technique. Le journal d’audit H2 est une donnée de démonstration (AD-23). |
 | Qualité | `ruff` (lint et formatage), `pytest`. Les tests du harnais utilisent un moteur factice qui rejoue des sorties écrites à l’avance. Aucun test ne dépend du réseau : la garde d’AD-15 le garantit. Seuls les tests marqués `model` ont besoin d’un vrai GGUF ; ils sont exclus par défaut et sautés si le fichier manque. `openai_chat` se teste avec un `httpx.MockTransport` injecté par la fabrique `net` : flux SSE, `usage`, 429, 413, `tool_use_failed`, 302, arguments invalides. |
-| Dépendances | Licence compatible avec une redistribution publique (NFR-10), vérifiée avant ajout, et règle d’adoption réseau d’AD-15. |
+| Dépendances | Licence compatible avec une redistribution à des clients (NFR-10), vérifiée avant ajout, et règle d’adoption réseau d’AD-15. |
 
 ## Stack
 
@@ -777,7 +778,7 @@ wavestack/                      # racine du dépôt
 - **Outils du serveur MCP local, second skill, corpus RAG** : stories de contenu.
 - **Débit du téléchargement HTTP sans Xet** : à vérifier ; le repli est la copie manuelle du GGUF.
 - **AppLocker et WDAC** face aux DLL non signées : session pilote. Le repli est la démonstration pilotée par le formateur.
-- **Intégration continue** (GitHub Actions, `ruff` et `pytest` sous Windows) : quand le dépôt est publié.
+- **Intégration continue** (`ruff` et `pytest` sous Windows) : à monter sur l’hébergeur définitif (GitLab interne), plutôt que sur GitHub puis une seconde fois après la migration.
 - **macOS et Linux** : pris en charge au mieux (NFR-6) ; seul `config` porte les différences de chemins.
 - **V2** : serveur local au format chat comme voie visée, multi-agent, stratégies RAG avancées, indexation des documents de l’utilisateur.
 - **GCP Vertex** : son point d’accès compatible OpenAI exige un jeton OAuth de courte durée, pas une clé statique. Il est hors de la story 11. Un point d’accès interne Wavestone derrière une passerelle à clé fonctionne par simple configuration.

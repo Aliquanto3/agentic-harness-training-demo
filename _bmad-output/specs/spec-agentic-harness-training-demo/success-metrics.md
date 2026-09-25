@@ -13,7 +13,7 @@ Mesure : questionnaire court en fin de session, plus une question ouverte sur le
 
 - **SM-5 : Installation.** Part des participants qui tentent l'installation (profils techniques, en amont ou après la session) et réussissent sur leur poste professionnel sans droits admin, en moins de 20 minutes. Cible : 80 % ou plus. Valide CAP-37 à CAP-39.
 - **SM-6 : Fiabilité en session.** Part des sessions menées sans repli forcé (plantage, blocage du modèle). Cible : 90 % ou plus. Valide NFR-8 et CAP-40.
-- **SM-7 : Présentable en clientèle.** WaveStack est montré au moins une fois à un client sans adaptation majeure. Cible V2, sans chiffre en V1. Valide NFR-10, NFR-11 et CAP-40. La validation par Wavestone de l'usage en clientèle n'est pas requise pour l'usage interne ni pour la publication du dépôt public ; à obtenir avant toute présentation client (V2).
+- **SM-7 : Présentable en clientèle.** WaveStack est montré au moins une fois à un client sans adaptation majeure. Cible V2, sans chiffre en V1. Valide NFR-10, NFR-11 et CAP-40. La validation par Wavestone de l'usage en clientèle n'est pas requise pour l'usage interne ; à obtenir avant toute présentation client (V2).
 
 ## Contre-indicateurs (à ne pas optimiser)
 

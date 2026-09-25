@@ -5,7 +5,7 @@ Démonstrateur pédagogique local qui montre, brique par brique, ce qu'un harnai
 ## Contraintes
 - Des SLM locaux qui tournent sur CPU/RAM, sans GPU. La qualité des réponses est secondaire, la pédagogie passe avant.
 - Backend en Python. Le front peut utiliser des technologies web.
-- Doit s'installer depuis GitHub sur un PC pro sans droits administrateur (objectif).
+- Doit s'installer depuis le dépôt privé (GitHub, puis GitLab interne) ou une archive zip, sur un PC pro sans droits administrateur (objectif).
 - Headroom et Caveman sont des fonctionnalités de l'application de démo, pas des outils pour le développement.
 
 ## Conventions

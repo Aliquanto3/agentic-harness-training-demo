@@ -69,6 +69,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6b-lazy-loading-mcp.md`
   summary: Au rejeu (story 9, `build_turn_state(origin_turn)`), les documentations MCP chargées (`_loaded_docs`) doivent suivre la branche rejouée et non la conversation entière.
   evidence: `_loaded_docs` est un ensemble au niveau de la session ; un rejeu depuis un tour antérieur proposerait des outils chargés après le point de branchement. AD-17 range les documentations chargées dans l'instantané conversationnel : à traiter avec l'instantané complet de la story 9.
+  resolution: Planifié en story 9b (stories.yaml), sprint-change-proposal-2026-09-25-story-9b.md.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6c-refonte-visuelle-atelier-de-construction.md`
   summary: Dans le schéma, l'arête d'un nœud de la colonne 2 vers le cadre Harnais passe sous le nœud de la colonne 1 de la même ligne, ce qui se lit comme une chaîne (cadre → A → B).
@@ -133,6 +134,7 @@
 - source_spec: none
   summary: Rejeu du dernier prompt (CAP-7, FR-7, AD-17), prévu en story 9b : branche reconstruite depuis l'état antérieur au tour d'origine, nouveau groupe de tour avec badge « Rejeu » dans le rail (8d), tour rejoué lui-même rejouable, comparaison de deux tours côte à côte (« Comparer » dans Contexte LLM), action armée appliquée au tour rejoué.
   evidence: Scindé le 2026-09-25 de la story 9 « Déclenchement forcé et rejeu », qui réunissait deux livrables indépendants (déclenchement forcé CAP-8 d'une part, rejeu CAP-7 d'autre part) ; le déclenchement forcé est traité en premier. `build_turn_state(origin_turn)` et `turn_started.replay_of` existent déjà comme amorces.
+  resolution: Planifié en story 9b (stories.yaml), sprint-change-proposal-2026-09-25-story-9b.md.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9-declenchement-force.md`
   summary: Le rendu front du déclenchement forcé de la story 9 (interrupteur « Afficher les actions forcées » et sa mémorisation, bouton Forcer et formulaire à préréglages, puces « Armé : … » sur la carte et au-dessus du champ de saisie, badges « Forcé par l'utilisateur » / « Déclenché par le modèle » lus dans `envelope.trigger`, ligne « Action forcée abandonnée ») n'est vérifié par aucun test automatique.

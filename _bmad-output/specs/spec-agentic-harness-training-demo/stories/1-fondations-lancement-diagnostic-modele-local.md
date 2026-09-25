@@ -57,7 +57,7 @@ baseline_commit: 'NO_VCS'
 - `src/wavestack/session/diagnostic.py` -- session minimale, seul état `diagnostic`, traite `select_model` (AD-3) ; base que les stories suivantes étendront, ne pas préconstruire les autres états.
 - `src/wavestack/web/app.py`, `web/static/diagnostic.html` -- FastAPI minimal : `GET /api/health`, `GET /diagnostic`, `GET /api/diagnostic`, flux SSE des `diagnostic_check`, `POST` intention `select_model`. Pas de volets, pas de `tokens.css` complet (story 2).
 - `src/wavestack/cli.py` -- entrée `wavestack` : garde réseau puis `truststore.inject_into_ssl()` puis `HF_HUB_DISABLE_XET`/`HF_HUB_DISABLE_TELEMETRY`, réservation de port (AD-21 étape 1), lancement thread de travail (AD-24) qui exécute les vérifications, ouverture du navigateur.
-- `README.md` -- section installation en français (CAP-37) : prérequis (Git ou zip, `uv`), une commande, domaines à autoriser derrière un proxy (AD-21).
+- `README.md` -- section installation en français (CAP-37) : prérequis (accès au dépôt privé et Git, ou archive zip ; `uv`), une commande, domaines à autoriser derrière un proxy (AD-21).
 - `tests/` -- `test_discovery.py`, `test_probe.py` (sonde sur un GGUF factice ou squelette invalide), `test_net_guard.py` (host hors liste bloqué, y compris sous `ProactorEventLoop`), `test_config_paths.py`, `test_cli_diagnostic.py` (diagnostic complet avec moteur/réseau factices).
 
 ## Tasks & Acceptance

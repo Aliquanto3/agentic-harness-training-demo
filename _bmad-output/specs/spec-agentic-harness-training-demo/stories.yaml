@@ -46,7 +46,7 @@
   invoke_dev_with: >-
     Implémenter le contrat de brique et sa disponibilité au point unique (AD-12),
     et l'instantané conversationnel (AD-17) pour que la mémoire courte survive au
-    rejeu (rejeu lui-même en story 9).
+    rejeu (rejeu lui-même en story 9b).
 
 - id: "5"
   title: Outils natifs
@@ -145,19 +145,46 @@
     des volets. Aucun changement de backend.
 
 - id: "9"
-  title: Déclenchement forcé et rejeu
+  title: Déclenchement forcé
   description: >-
-    L'utilisateur peut forcer toute action (outil, mémoire, skill, MCP) et rejouer
-    le dernier prompt avec une autre configuration (CAP-7, CAP-8). S'appuie sur le rail
-    par tour (8d) : un tour rejoué devient un nouveau groupe de tour avec le badge
-    « Rejeu » ; une action forcée porte « Forcé par l'utilisateur » sur sa ligne d'étape.
-    La mémoire globale s'ajoute au bac Fichiers du schéma (8e). Dépend de 8d et 8e.
+    L'utilisateur arme une action (appel d'un outil natif avec ses arguments,
+    « Charger la documentation » d'un outil MCP en lazy loading, « Déclencher le
+    skill ») que le tour suivant exécute avant le premier appel au modèle (CAP-8).
+    Une action forcée porte « Forcé par l'utilisateur » sur sa ligne d'étape du rail
+    (8d). Le rejeu (CAP-7) est scindé en story 9b ; remember et delegate naissent avec
+    leurs briques (stories 14 et 19). Dépend de 8d et 8e.
   spec_checkpoint: false
   done_checkpoint: true
   invoke_dev_with: >-
-    Implémenter les actions armées (AD-3), les méta-outils remember/load_tool_doc/
-    delegate restants (AD-25) et l'instantané/rejeu complet (AD-17). Dépend des
-    stories 4 à 8 pour être démontrable sur toutes les briques du palier 1.
+    Implémenter les actions armées (AD-3) et leur consommation par l'exécuteur
+    unique, hooks compris, avec trigger = user (AD-25). Dépend des stories 4 à 8
+    pour être démontrable sur toutes les briques du palier 1.
+
+- id: "9b"
+  title: Rejeu du dernier prompt
+  description: >-
+    L'utilisateur rejoue le dernier prompt après avoir changé la configuration, pour
+    comparer deux tours (CAP-7, FR-7). Le contexte du rejeu repart de l'état antérieur
+    au tour d'origine, sans la question ni la réponse d'origine. Le tour rejoué devient
+    un nouveau groupe de tour du rail (8d), avec le badge « Rejeu » qui figure aussi
+    sur son message dans la Vue humain, et il est lui-même rejouable. « Comparer », en
+    tête de Contexte LLM, montre deux tours côte à côte : contextes, tokens d'entrée et
+    de sortie, temps. Une action armée (story 9) s'applique au tour rejoué. Scindée de
+    la story 9 le 2026-09-25 (deferred-work.md).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémenter la branche et le rejeu d'AD-17 avec build_turn_state(origin_turn),
+    déjà amorcé : historique de la branche active jusqu'au tour qui précède l'origine ;
+    skills et documentations MCP chargés (_loaded_docs) suivant la branche rejouée,
+    pas la conversation entière (deferred-work, story 6b) ; tout le reste lu dans la
+    configuration courante (briques, hooks, modèle, actions armées). Rejouer t3 crée
+    t4, qui fait suite à t2 ; t3 reste consultable et turn_started{replay_of} les
+    relie. Rejouer est une intention de classe (b), refusée hors idle (AD-3). La liste
+    armée est prise au moment du rejeu, sous le verrou de l'envoi (correctif BH4 de
+    la story 9). Front : bouton de rejeu et badge « Rejeu » dans la Vue humain, badge
+    sur le groupe de tour du rail, « Comparer » désactivé avec moins de deux tours
+    (EXPERIENCE.md). Dépend des stories 8d et 9.
 
 - id: "10"
   title: Scénarios par brique, programme, réinitialisation
@@ -171,7 +198,7 @@
   done_checkpoint: true
   invoke_dev_with: >-
     Implémenter le schéma de contenu des scénarios (AD-19) et la réinitialisation
-    (AD-17). Un scénario par brique construite dans les stories 1 à 9.
+    (AD-17). Un scénario par brique construite dans les stories 1 à 9b.
 
 - id: "11"
   title: Modèles cloud via API (Groq, Mistral)
@@ -260,12 +287,13 @@
     Segment global_memory dans le message système stable, lu au début du tour et
     figé dans le TurnState pour tous les appels du tour (AD-4, AD-17). Écriture par
     le méta-outil remember (réponse tool_result de la brique global_memory) et par
-    l'action forcée « Écrire en mémoire », tous deux posés en story 9 (AD-25) ; toute
+    l'action forcée « Écrire en mémoire », tous deux créés ici sur le mécanisme
+    d'actions armées de la story 9 (AD-3, AD-25) ; toute
     écriture est un Effect MemoryWrite appliqué par la session seule, avec
     effect_applied sur file.memory (AD-23), fichier dans le dossier de données
     (AD-20). Tiroir d'édition : consulter, modifier, supprimer une entrée, tout
     effacer, par intentions de classe (b) (AD-3, EXPERIENCE.md). Mémoire de
-    démonstration publiable dans content/memory (AD-19, NFR-11), restaurée par la
+    démonstration non confidentielle dans content/memory (AD-19, NFR-11), restaurée par la
     réinitialisation de la story 10 (CAP-41). Badge de déclenchement modèle ou forcé
     sur chaque écriture. Livrer le scénario de la brique. Dépend des stories 9 et 10.
 
@@ -277,7 +305,7 @@
   spec_checkpoint: true
   done_checkpoint: true
   invoke_dev_with: >-
-    Corpus publiable dans content/corpus (NFR-11). Index sqlite-vec précalculé par
+    Corpus non confidentiel dans content/corpus (NFR-11). Index sqlite-vec précalculé par
     scripts/build_rag_index.py et fourni dans data/, avec l'identifiant du modèle
     d'embedding retenu en story 12 ; brique indisponible avec sa raison si le modèle
     chargé diffère, ou « modèle absent » avec l'action Télécharger (AD-21, AD-22).
@@ -319,8 +347,8 @@
     unique, fenêtre et aperçu recalculés (AD-6, AD-9, AD-12). Indicateur « Chargement
     du modèle… » avec chronomètre, envoi désactivé, conversation conservée et
     contexte reconstruit à chaque tour (AD-17, EXPERIENCE.md) ; un rejeu après
-    changement utilise le nouveau modèle. Modèle par défaut de 2B au plus, fixé par
-    le banc de mesure (Deferred). Dépend des stories 9 et 11.
+    changement utilise le nouveau modèle (story 9b). Modèle par défaut de 2B au plus,
+    fixé par le banc de mesure (Deferred). Dépend des stories 9b et 11.
 
 - id: "18"
   title: Serveur local déjà lancé (Ollama, llama-server)
@@ -356,7 +384,8 @@
     (AD-11). Contexte minimal : briques qui déclarent contributes_to sub, prompt
     système du sous-agent dans content/prompts, outils listés par la brique (lecture
     de page web par défaut). Méta-outil delegate et action forcée « Déléguer au
-    sous-agent » posés en story 9 (AD-25) ; résultat en subagent_result, jamais
+    sous-agent » créés ici sur le mécanisme d'actions armées de la story 9 (AD-3,
+    AD-25) ; résultat en subagent_result, jamais
     compressé (AD-22). Borne propre de 4 appels, la délégation compte pour 1 dans le
     tour (AD-10) ; dépassement, sortie coupée ou borne terminent la délégation, pas
     le tour ; une issue de fournisseur émet harness_error en sub{n} puis
@@ -398,7 +427,7 @@
     Contenu seulement, au schéma pydantic des scénarios fixé en story 10 (AD-19) :
     aucun scénario ne demande de modifier le code. Chaque scénario fixe ses briques,
     ses hooks actifs (CAP-28) et sa réserve, et la configuration la plus chargée
-    tient NFR-1 (AD-9). Contenu publiable, sans donnée client ni document interne
+    tient NFR-1 (AD-9). Contenu non confidentiel, sans donnée client ni document interne
     (NFR-11). Sélecteur : scénarios métier après les transverses (EXPERIENCE.md,
     scenario-picker). Programme : modules du palier 2 insérés, briques des modules
     précédents actives au démarrage d'un module (CAP-40). Dépend des stories 6, 8,

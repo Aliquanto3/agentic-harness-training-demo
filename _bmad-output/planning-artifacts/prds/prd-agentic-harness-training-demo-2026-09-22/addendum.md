@@ -101,9 +101,9 @@ Points de vigilance :
 - Modèles rangés hors de OneDrive.
 - Distribution en archive zip si Git est absent.
 
-### Dépôt public (NFR-10, NFR-11)
+### Dépôt privé, code remis à des clients (NFR-10, NFR-11)
 
-- Ajouter un fichier de licence au dépôt.
+- Regrouper les mentions des tiers (licences OFL des polices, attribution MIT du skill Caveman). La licence de WaveStack lui-même relève de Wavestone ; la fixer avant toute remise du code à un client.
 - Vérifier la licence de chaque modèle proposé au téléchargement :
   - Llama 3.2 (Llama Community License) et Gemma (Gemma Terms of Use) ont des conditions propres, à relire avant de les proposer ;
   - Qwen et Granite sont a priori sous Apache-2.0, à vérifier pour chaque version.

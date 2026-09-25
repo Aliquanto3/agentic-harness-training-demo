@@ -6,16 +6,21 @@ Démonstrateur pédagogique local, en français, sans GPU.
 ## Installation
 
 **Prérequis :**
-- Git (pour cloner le dépôt) ou un téléchargement en zip depuis GitHub.
+- Un accès au dépôt privé WaveStack et Git, ou une archive zip de WaveStack (téléchargée depuis le
+  dépôt, ou remise par votre formateur sur un partage interne).
 - [`uv`](https://docs.astral.sh/uv/) installé pour l'utilisateur courant (aucun droit administrateur requis).
 
 **Procédure :**
 
 ```bash
-git clone https://github.com/<votre-org>/wavestack.git
-cd wavestack
+git clone <adresse-du-dépôt>
+cd <dossier-cloné>
 uv run wavestack
 ```
+
+Au premier clone, Git vous demande de vous authentifier auprès de l'hébergeur du dépôt. Avec
+l'archive zip, décompressez-la, ouvrez un terminal dans le dossier obtenu, puis lancez
+`uv run wavestack`.
 
 `uv run` télécharge automatiquement Python 3.13 (dans le profil utilisateur, sans élévation) et
 synchronise les dépendances depuis `uv.lock`. La commande ouvre ensuite un navigateur sur le
