@@ -115,7 +115,7 @@ spacing:
   pane-padding: 12px
   top-bar-height: 48px
   brick-panel-width: 280px
-  architecture-band-height: 200px
+  architecture-band-height: 250px
   stroke-min: 2px
   hit-target-min: 32px
   relief-offset: 4px
@@ -369,8 +369,9 @@ components:
     stroke: '{colors.hosting-boundary}'
     stroke-width: '{spacing.stroke-min}'
   arch-node-local:
-    background: '{colors.hosting-local}'
-    foreground: '{colors.on-primary}'
+    background: '{colors.surface-raised}'
+    foreground: '{colors.ink}'
+    border: '{colors.hosting-local}'
     border-style: solid
     radius: '{rounded.sm}'
   arch-node-network:
@@ -476,7 +477,7 @@ Grille retenue : 5 volets masquables (référence : [`.working/layout-5-volets-v
 - barre haute de `{spacing.top-bar-height}` sur toute la largeur ;
 - colonne de gauche sur toute la hauteur : panneau des briques (`{spacing.brick-panel-width}`) ;
 - à droite, rangée du haut : vue humain, Contexte LLM, Orchestration ; Contexte LLM et Orchestration se partagent à parts égales la largeur restante ;
-- à droite, bande basse sous ces trois volets : schéma d'architecture, `{spacing.architecture-band-height}`. `[ASSUMPTION]` Ce token passe de 200 à 250 px avec la story 8e (bacs par catégorie et bande des hooks), en même temps que `tokens.css`. À 1280×650, la rangée du haut perd 50 px ; si c'est trop juste, le formateur masque un volet, passe le schéma en mode focus ou redimensionne les volets.
+- à droite, bande basse sous ces trois volets : schéma d'architecture, `{spacing.architecture-band-height}`. `[ASSUMPTION]` Ce token vaut 250 px depuis la story 8e (bacs par catégorie et bande des hooks), au lieu de 200 px, dans ce fichier comme dans `tokens.css`. À 1280×650, la rangée du haut perd 50 px ; si c'est trop juste, le formateur masque un volet, passe le schéma en mode focus ou redimensionne les volets.
 
 Un volet masqué libère sa place : les volets visibles de la même rangée se la partagent ; si le panneau des briques est masqué, les autres volets prennent toute la largeur ; si le schéma est masqué, la rangée du haut prend toute la hauteur. Les gouttières sont aussi des poignées de redimensionnement (`pane-resize-handle`, voir Components). Le mode focus redistribue la grille sans changer l'ordre des volets (voir EXPERIENCE.md). Le comportement par taille d'écran est dans EXPERIENCE.md, section Responsive & Platform.
 

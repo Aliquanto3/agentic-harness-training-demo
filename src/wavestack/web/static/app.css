@@ -1154,41 +1154,6 @@ body {
   }
 }
 
-/* ---------- architecture schema ---------- */
-
-.pane-body-schema {
-  display: flex;
-  padding: var(--spacing-2);
-}
-
-#schema-svg {
-  flex: 1;
-  width: 100%;
-  height: 100%;
-}
-
-.arch-node rect {
-  fill: var(--color-hosting-local);
-  stroke: var(--color-hosting-local);
-  stroke-width: var(--spacing-stroke-min);
-  rx: var(--rounded-sm);
-}
-
-.arch-node text {
-  fill: var(--color-on-primary);
-  font-family: var(--typography-body-font-family);
-  font-size: 13px;
-}
-
-.arch-node {
-  cursor: pointer;
-}
-
-.arch-node.is-selected rect {
-  stroke: var(--color-ink);
-  stroke-width: var(--spacing-stroke-min);
-}
-
 /* ---------- focus mode: collapse every pane but the focused one ---------- */
 
 body.focus-mode .layout,
@@ -1521,57 +1486,6 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   line-height: var(--typography-code-line-height);
 }
 
-/* ---------- architecture schema: edges, network and unavailable nodes (DESIGN.md > arch-*) ---------- */
-
-.arch-edge {
-  stroke: var(--color-ink-soft);
-  stroke-width: var(--spacing-stroke-min);
-}
-
-.arch-edge.is-network {
-  stroke-dasharray: 6 4;
-}
-
-.arch-node.is-network rect {
-  fill: var(--color-hosting-network);
-  stroke: var(--color-ink);
-  stroke-dasharray: 6 4;
-}
-
-.arch-node.is-network text {
-  fill: var(--color-ink);
-}
-
-.arch-node.is-unavailable rect {
-  fill: var(--color-surface);
-  stroke: var(--color-muted);
-  stroke-dasharray: 6 4;
-}
-
-.arch-node.is-unavailable text {
-  fill: var(--color-ink-soft);
-}
-
-.arch-node.is-not-contacted rect {
-  fill-opacity: 0.5; /* still yellow (network), paler until the first call is sent */
-}
-
-/* A skill loaded in the conversation (story 7): its state reads « chargé » too. */
-.arch-node.is-loaded rect {
-  stroke: var(--color-primary-deep);
-}
-
-/* A hook that blocked in the last turn (story 8): the flow stops at it, on a red rule. */
-.arch-node.is-blocked rect {
-  stroke: var(--color-state-error);
-  stroke-width: calc(var(--spacing-stroke-min) * 2);
-}
-
-.arch-node .arch-node-state {
-  font-size: var(--typography-body-sm-font-size);
-  font-style: italic;
-}
-
 /* ---------- outbound payload: what a network tool sends (DESIGN.md > outbound-payload) ---------- */
 
 .outbound-payload {
@@ -1600,83 +1514,221 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   font-family: var(--typography-code-font-family);
 }
 
-/* ---------- harness frame, brick chips, robot (DESIGN.md > arch-harness, arch-model) ---------- */
 
-.arch-harness {
+/* ---------- architecture schema (DESIGN.md > arch-zone-*, arch-boundary, arch-group, arch-node-*,
+   arch-hook-strip, arch-trunk, arch-harness, arch-model; story 8e) ----------
+   HTML pieces laid out by flexbox, then an SVG layer drawn over them for the trunk, the rails,
+   the path and the markers. Category: bin, shape and icon; colour: hosting and state only. */
+
+.pane-body-schema {
+  padding: var(--spacing-1) var(--spacing-2);
+}
+
+.arch {
+  position: relative;
+  display: flex;
+  min-height: 100%;
+  padding-bottom: 22px; /* room for the trunk under the bins */
+  font-family: var(--typography-label-font-family);
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+  line-height: var(--typography-label-line-height);
+  color: var(--color-ink);
+}
+
+.arch button {
+  font: inherit;
+  color: inherit;
   cursor: pointer;
 }
 
-.arch-harness-relief {
-  fill: var(--color-relief-active);
-  rx: var(--rounded-lg);
+.arch button:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
 }
 
-.arch-harness-frame {
-  fill: var(--color-surface-raised);
-  stroke: var(--color-primary);
-  stroke-width: var(--spacing-stroke-min);
-  rx: var(--rounded-lg);
+/* A selected piece: an ink outline, never a colour alone (FR-4). */
+.arch .is-selected {
+  outline: var(--spacing-stroke-min) solid var(--color-ink);
+  outline-offset: 2px;
 }
 
-.arch-harness.is-selected .arch-harness-frame {
-  stroke: var(--color-ink);
+.arch-wires {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none; /* no click on the flow (story 8e) */
+  z-index: 2;
 }
 
-.arch-harness-tag {
-  fill: var(--color-primary);
-  rx: 10px;
+/* ---- zones and boundary ---- */
+
+.arch-zone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: var(--rounded-lg);
 }
 
-.arch-harness-tag-text,
-.arch-chip text,
-.robot-label {
-  font-family: var(--typography-label-font-family);
-  font-weight: var(--typography-label-font-weight);
-  font-size: var(--typography-label-font-size);
+.arch-zone-local {
+  flex: 1 1 auto;
+  background: var(--color-surface-raised);
 }
 
-.arch-harness-tag-text {
-  fill: var(--color-on-primary);
+.arch-zone-network {
+  flex: 0 1 230px;
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface);
 }
 
-.arch-harness-empty,
-.robot-model {
+.arch-zone-label {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  padding: 2px 10px;
+  border: var(--spacing-stroke-min) solid var(--color-primary);
+  border-radius: var(--rounded-full);
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.arch-zone-network .arch-zone-label {
+  left: var(--spacing-2);
+  right: auto;
+  border-style: dashed;
+  border-color: var(--color-ink);
+  background: var(--color-hosting-network);
+  color: var(--color-ink);
+}
+
+.arch-zone-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--spacing-4);
+  align-items: flex-start;
+}
+
+.arch-zone-empty {
+  margin: var(--spacing-6) var(--spacing-1) 0;
   font-family: var(--typography-body-sm-font-family);
-  font-size: var(--typography-label-font-size);
-  fill: var(--color-ink-soft);
+  font-size: var(--typography-body-sm-font-size);
+  font-weight: var(--typography-body-sm-font-weight);
+  color: var(--color-ink-soft);
 }
 
-.arch-chip rect {
-  fill: var(--color-primary-soft);
-  rx: 13px;
+.arch-boundary {
+  position: relative;
+  flex: 0 0 var(--spacing-stroke-min);
+  margin: 0 var(--spacing-4);
+  background: var(--color-hosting-boundary);
 }
 
-.arch-chip text {
-  fill: var(--color-primary-deep);
+.arch-boundary-label {
+  position: absolute;
+  top: 45%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+  padding: var(--spacing-1) 0;
+  background: var(--color-surface-raised);
 }
 
-.arch-chip.is-unavailable rect {
-  fill: var(--color-surface);
-  stroke: var(--color-muted);
-  stroke-width: var(--spacing-stroke-min);
-  stroke-dasharray: 6 4;
+/* ---- harness frame, chips, robot (DESIGN.md > arch-harness, arch-model) ---- */
+
+.arch-harness {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-3);
+  padding: 14px var(--spacing-2) 6px 10px;
+  border: var(--spacing-stroke-min) solid var(--color-primary);
+  border-radius: var(--rounded-lg);
+  background: var(--color-surface-raised);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief-active);
+  cursor: pointer;
 }
 
-.arch-chip.is-unavailable text {
-  fill: var(--color-ink-soft);
+.arch .arch-harness-tag {
+  position: absolute;
+  top: -12px;
+  left: var(--spacing-4);
+  padding: 2px var(--spacing-3);
+  border: 0;
+  border-radius: var(--rounded-full);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 600;
+}
+
+.arch-core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.arch-chips {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-1);
+}
+
+.arch .arch-chip {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: var(--rounded-full);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-deep);
+  white-space: nowrap;
+}
+
+.arch .arch-chip.is-unavailable {
+  border: var(--spacing-stroke-min) dashed var(--color-state-unavailable);
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+}
+
+.arch-harness-empty {
+  max-width: 96px;
+  margin: 0;
+  text-align: center;
+  color: var(--color-ink-soft);
 }
 
 .robot {
-  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: none;
+}
+
+.robot-label {
+  font-weight: 600;
+}
+
+.robot-model {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--typography-body-sm-font-family);
+  color: var(--color-ink-soft);
 }
 
 .robot-body {
   fill: var(--color-primary);
-}
-
-.robot.is-selected .robot-body {
-  stroke: var(--color-ink);
-  stroke-width: var(--spacing-stroke-min);
 }
 
 .robot-ear,
@@ -1716,18 +1768,337 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   font-size: 10px;
 }
 
-.robot-label {
-  fill: var(--color-ink);
-}
-
 @keyframes antenna-blink {
   50% {
     fill: var(--color-muted);
   }
 }
 
+/* ---- « Points d'accroche » strip (DESIGN.md > arch-hook-strip) ---- */
+
+.arch-hook-strip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 150px;
+  padding: 2px 0 0 10px;
+  border-left: var(--spacing-stroke-min) dashed var(--color-primary);
+}
+
+.arch-hook-strip-tag {
+  position: absolute;
+  top: -26px; /* on the frame's top border, like the « Harnais » tag */
+  left: var(--spacing-2);
+  display: flex;
+  align-items: center;
+  padding: 1px 10px;
+  border: var(--spacing-stroke-min) solid var(--color-primary);
+  border-radius: var(--rounded-full);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-deep);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.arch .arch-hook {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 1px var(--spacing-2);
+  border: var(--spacing-stroke-min) solid var(--color-primary);
+  border-radius: var(--rounded-sm);
+  background: var(--color-primary-soft);
+  text-align: left;
+  line-height: 1.1;
+}
+
+.arch-hook-name,
+.arch-hook-point {
+  white-space: nowrap;
+}
+
+.arch-hook-point {
+  font-family: var(--typography-body-sm-font-family);
+  font-weight: var(--typography-body-sm-font-weight);
+  color: var(--color-ink-soft);
+}
+
+.arch .arch-hook.is-active {
+  border-color: var(--color-ink);
+  box-shadow: 0 0 0 4px var(--color-state-active);
+}
+
+/* The hook that blocked: a thick red rule and « ✖ a bloqué », until the next turn. */
+.arch .arch-hook.is-blocked {
+  border-left: 7px solid var(--color-state-blocked);
+  background: var(--color-surface-raised);
+}
+
+/* Switched off: it stays in the strip, dashed grey, « désactivé »; never in action. */
+.arch .arch-hook.is-off {
+  border: var(--spacing-stroke-min) dashed var(--color-state-unavailable);
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+}
+
+/* ---- bins and columns (DESIGN.md > arch-group) ---- */
+
+.arch-col {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  margin-top: 30px; /* under the zone label */
+}
+
+.arch-group {
+  position: relative;
+  min-width: 0;
+  padding: 14px 6px 6px;
+  border: var(--spacing-stroke-min) solid var(--color-line);
+  border-radius: var(--rounded-md);
+  background: var(--color-surface-raised);
+}
+
+.arch-group-title {
+  position: absolute;
+  top: -11px;
+  left: 10px;
+  padding: 0 6px;
+  border-radius: var(--rounded-full);
+  background: var(--color-surface-raised);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Network side: cream bins. */
+.arch-zone-network .arch-group,
+.arch-zone-network .arch-group-title {
+  background: var(--color-surface);
+}
+
+.arch-group-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.arch-group-skill {
+  min-width: 170px;
+}
+
+.arch-group-skill .arch-group-nodes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* ---- nodes: one shape per category, in the colours of their hosting (DESIGN.md > arch-node-*) ---- */
+
+.arch .arch-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  min-height: 26px;
+  padding: 1px 6px;
+  border: var(--spacing-stroke-min) solid var(--color-hosting-local);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.arch-node-icon {
+  flex: 0 0 auto;
+}
+
+.arch-node-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.arch-node-pill {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: var(--rounded-full);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-deep);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Tool: a round icon tile left of its name. */
+.arch-node-tool .arch-node-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--rounded-full);
+  background: var(--color-primary-soft);
+  font-size: 11px;
+}
+
+/* MCP server: a double line, a process of its own that exposes tools. */
+.arch .arch-node-mcp {
+  border: 4px double var(--color-hosting-local);
+}
+
+/* Skill: a thick left rule, like the spine of a sheet; loaded, on soft violet. */
+.arch .arch-node-skill {
+  border-left-width: 7px;
+}
+
+.arch .arch-node-skill.is-loaded {
+  background: var(--color-primary-soft);
+}
+
+/* File: cream, with its document icon. */
+.arch .arch-node-file {
+  background: var(--color-surface);
+}
+
+/* Network: yellow, dashed ink; the globe prefixes its name, « RÉSEAU » is on the zone label. */
+.arch .arch-node.is-network {
+  border: var(--spacing-stroke-min) dashed var(--color-ink);
+  background: var(--color-hosting-network);
+  color: var(--color-ink);
+}
+
+.arch-node-tool.is-network .arch-node-icon {
+  background: var(--color-surface-raised);
+}
+
+/* Public MCP server: the double line, dashed. */
+.arch .arch-node-mcp.is-network {
+  width: calc(100% - 6px);
+  margin: 3px;
+  outline: var(--spacing-stroke-min) dashed var(--color-ink);
+  outline-offset: 2px;
+}
+
+.arch .arch-node.is-unavailable {
+  border: var(--spacing-stroke-min) dashed var(--color-state-unavailable);
+  outline-color: var(--color-state-unavailable);
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+}
+
+/* Unavailable keeps its category shape: the skill's spine, the local MCP server's double line. */
+.arch .arch-node-skill.is-unavailable {
+  border-left-width: 7px;
+}
+
+.arch .arch-node-mcp.is-unavailable:not(.is-network) {
+  border: 4px double var(--color-state-unavailable);
+}
+
+.arch-node.is-unavailable .arch-node-pill {
+  border: var(--spacing-stroke-min) solid var(--color-state-unavailable);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-soft);
+}
+
+.arch .arch-node.is-selected {
+  outline: var(--spacing-stroke-min) solid var(--color-ink);
+}
+
+/* A selected public MCP server keeps its dashed outline: a thicker one marks the selection. */
+.arch .arch-node-mcp.is-network.is-selected {
+  outline-style: dashed;
+  outline-width: 3px;
+}
+
+.arch .arch-node.is-active {
+  box-shadow: 0 0 0 4px var(--color-state-active);
+}
+
+.arch-node-tools {
+  margin: 0 0 2px 14px;
+  padding: 0;
+  list-style: none;
+  font-family: var(--typography-code-font-family);
+  font-weight: var(--typography-code-font-weight);
+  color: var(--color-ink-soft);
+}
+
+.arch-node-tools li::before {
+  content: "· ";
+}
+
+/* ---- trunk, rails, path, markers (DESIGN.md > arch-trunk) ---- */
+
+.arch-trunk {
+  fill: none;
+  stroke: var(--color-ink-soft);
+  stroke-width: var(--spacing-stroke-min);
+}
+
+.arch-trunk.is-network {
+  stroke-dasharray: 6 5;
+}
+
+.arch-path {
+  fill: none;
+  stroke: var(--color-state-active);
+  stroke-width: 7px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.arch-path-core {
+  fill: none;
+  stroke: var(--color-ink);
+  stroke-width: var(--spacing-stroke-min);
+  stroke-linejoin: round;
+}
+
+.arch-path-core.is-flow {
+  stroke-dasharray: 7 6;
+  animation: arch-flow 0.6s linear infinite;
+}
+
+.arch-path-block {
+  fill: none;
+  stroke: var(--color-state-blocked);
+  stroke-width: 6px;
+  stroke-linecap: round;
+}
+
+.arch-marker circle {
+  fill: var(--color-surface-raised);
+  stroke-width: 2.5px;
+}
+
+.arch-marker.is-stop circle {
+  stroke: var(--color-primary);
+}
+
+.arch-marker.is-block circle {
+  fill: var(--color-state-blocked);
+  stroke: var(--color-state-blocked);
+}
+
+.arch-marker text {
+  font-family: var(--typography-label-font-family);
+  font-size: var(--typography-label-font-size);
+  font-weight: 600;
+}
+
+@keyframes arch-flow {
+  to {
+    stroke-dashoffset: -13;
+  }
+}
+
+/* Reduced motion: the moving flow and the blinking antenna become a steady highlight. */
 @media (prefers-reduced-motion: reduce) {
-  .robot.is-active .robot-antenna {
+  .robot.is-active .robot-antenna,
+  .arch-path-core.is-flow {
     animation: none;
   }
 }

@@ -213,6 +213,7 @@ function applyEnvelope(envelope) {
           type: "tool",
           started: p,
           brick: envelope.brick,
+          component: envelope.component, // the schema node in action
           startedAt: Date.parse(envelope.ts),
           ended: null,
         });
@@ -249,7 +250,7 @@ function applyEnvelope(envelope) {
     }
     case "hook_decided":
       // A hook decision is a step of its own (AD-13): a blocked tool has no step at all.
-      if (turn) turn.steps.push({ type: "hook", payload: p, lines: [] });
+      if (turn) turn.steps.push({ type: "hook", payload: p, component: envelope.component, lines: [] });
       break;
     case "effect_applied": {
       // The lines H2 appended to the audit log, shown in its own step.
@@ -260,7 +261,10 @@ function applyEnvelope(envelope) {
     case "approval_requested": {
       // H5: the validation asked, shown in its hook's step; the indicator waits for it.
       const step = turn?.steps.filter((s) => s.type === "hook").at(-1);
-      if (step) step.approval = p;
+      if (step) {
+        step.approval = p;
+        step.component ||= envelope.component;
+      }
       if (turn) {
         Object.assign(turn, {
           phaseLabel: "En attente de validation",
@@ -1953,6 +1957,40 @@ const BRICK_ICONS = {
   hooks: "🪝",
 };
 const POSE_LABELS = { idle: "au repos", thinking: "réfléchit", tool: "utilise un outil" };
+// Hook id -> its point of attachment, in the order the strip lists them (formatting only, like
+// HOOK_ICONS): the order of a turn, from the user's message to its end.
+const HOOK_POINTS = {
+  h3: "réception du message",
+  h1: "avant un outil",
+  h5: "avant un outil réseau",
+  h2: "après un outil · fin du tour",
+};
+// Tool name -> icon of its round tile (formatting only); any other tool gets the wrench.
+const TOOL_ICONS = {
+  get_datetime: "🕐",
+  calculator: "🧮",
+  read_file: "📂",
+  public_holidays: "📅",
+  wikipedia_summary: "🔎",
+  fetch_page: "🔗",
+};
+// The bins (EXPERIENCE: arch-group), by `node.kind` and `node.hosting` of `architecture_changed`
+// (AD-12), each in a column of its zone: [Outils], [Serveurs MCP, Fichiers], [Skills] on the
+// workstation, [Outils réseau, Serveurs MCP publics] on the network side.
+const ARCH_GROUPS = [
+  { zone: "local", col: 0, kind: "tool", hosting: "local", shape: "tool", icon: "🔧", title: "Outils" },
+  { zone: "local", col: 1, kind: "mcp_server", hosting: "local", shape: "mcp", icon: "🔌", title: "Serveurs MCP" },
+  { zone: "local", col: 1, kind: "file", shape: "file", icon: "📄", title: "Fichiers" },
+  { zone: "local", col: 2, kind: "skill", shape: "skill", icon: "📘", title: "Skills" },
+  { zone: "network", col: 0, kind: "tool", hosting: "network", shape: "tool", icon: "🔧", title: "Outils réseau" },
+  { zone: "network", col: 0, kind: "mcp_server", hosting: "network", shape: "mcp", icon: "🔌", title: "Serveurs MCP publics" },
+];
+const SHAPE_LABELS = {
+  tool: "outil",
+  mcp: "serveur MCP (processus distinct du harnais)",
+  skill: "skill (fichier local)",
+  file: "fichier local",
+};
 
 // The robot's pose, derived from the turn's events only (AD-1).
 function robotPose() {
@@ -1963,27 +2001,17 @@ function robotPose() {
   return step.type === "call" && step.startedAt ? "thinking" : "idle";
 }
 
-function svgText(text, attrs) {
-  const node = svgEl("text", attrs);
-  node.textContent = text;
-  return node;
-}
-
-function svgTitle(text) {
-  const title = svgEl("title", {});
-  title.textContent = text;
-  return title;
-}
-
-// The robot mascot (DESIGN.md > arch-model), centred on `cx`.
-function robot(cx, pose, modelNode) {
-  const g = svgEl("g", { class: `robot${pose === "idle" ? "" : " is-active"}`, role: "img" });
-  g.dataset.component = "core.model";
+// The robot mascot (DESIGN.md > arch-model): its own drawing, « Modèle » and the model's name
+// in HTML under it.
+function robot(pose, modelNode) {
   const name = modelNode?.model ?? null;
   const label = `Modèle${name ? ` ${name}` : ""} : ${POSE_LABELS[pose]}`;
-  g.setAttribute("aria-label", label);
-  if (store.selection === "core.model") g.classList.add("is-selected");
-  g.addEventListener("click", () => select("core.model"));
+  const button = schemaButton(`robot${pose === "idle" ? "" : " is-active"}`, "core.model");
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  const cx = 40;
+  const svg = svgEl("svg", { class: "robot-drawing", viewBox: "4 14 74 70", width: 60, height: 57 });
+  svg.setAttribute("aria-hidden", "true");
   const stroke = { class: "robot-face", fill: "none" };
   const face =
     pose === "idle"
@@ -2001,8 +2029,7 @@ function robot(cx, pose, modelNode) {
     }
   }
   if (pose === "tool") face.push(svgEl("path", { ...stroke, d: `M${cx - 6} 56 q6 5 12 0` }));
-  g.append(
-    svgTitle(label),
+  svg.append(
     svgEl("rect", { class: "robot-stick", x: cx - 1.5, y: 24, width: 3, height: 11, rx: 1.5 }),
     svgEl("circle", { class: "robot-antenna", cx, cy: 22, r: 5 }),
     svgEl("rect", { class: "robot-ear", x: cx - 34, y: 44, width: 9, height: 20, rx: 4.5 }),
@@ -2012,164 +2039,359 @@ function robot(cx, pose, modelNode) {
     ...face
   );
   if (pose === "tool") {
-    g.append(
-      svgEl("circle", { class: "robot-badge", cx: cx + 26, cy: 72, r: 9 }),
-      svgText("🔧", { x: cx + 26, y: 76, "text-anchor": "middle", class: "robot-badge-icon" })
-    );
+    const icon = svgEl("text", { x: cx + 26, y: 76, "text-anchor": "middle", class: "robot-badge-icon" });
+    icon.textContent = "🔧";
+    svg.append(svgEl("circle", { class: "robot-badge", cx: cx + 26, cy: 72, r: 9 }), icon);
   }
-  g.appendChild(svgText("Modèle", { x: cx, y: 91, "text-anchor": "middle", class: "robot-label" }));
-  if (name) {
-    // The frame is narrow: a long file name is cut, the tooltip keeps it whole.
-    const short = name.length > 20 ? `${name.slice(0, 19)}…` : name;
-    g.appendChild(svgText(short, { x: cx, y: 105, "text-anchor": "middle", class: "robot-model" }));
+  button.append(svg, el("span", "robot-label", "Modèle"));
+  // The frame is narrow: a long file name is cut by the style, the tooltip keeps it whole.
+  if (name) button.appendChild(el("span", "robot-model", name));
+  return button;
+}
+
+// Every piece of the schema is a button: Tab reaches it, Enter selects it (FR-4).
+function schemaButton(className, componentId, text) {
+  const button = el("button", className, text);
+  button.type = "button";
+  button.dataset.component = componentId;
+  button.dataset.focusKey = componentId;
+  button.classList.toggle("is-selected", store.selection === componentId);
+  button.setAttribute("aria-pressed", String(store.selection === componentId));
+  button.addEventListener("click", () => select(componentId));
+  return button;
+}
+
+// What is in action in the last shown turn while it runs (story 8e, Design Notes): read from
+// its steps and the nodes, formatting only (AD-1). `mode`: `on` (halo, path to `target`),
+// `pending` (H5 waits: path stopped before the boundary), `blocked` (path stopped at the strip).
+function schemaActivity(nodes) {
+  const turn = shownTurns().at(-1);
+  if (!turn || turn.status !== null) return null;
+  const steps = turn.steps;
+  let i = steps.length - 1;
+  while (i >= 0 && steps[i].type !== "tool" && steps[i].type !== "hook") i--;
+  if (i < 0) return null;
+  const step = steps[i];
+  const drawn = (id) => nodes.some((n) => n.id === id); // only enabled hooks can act
+  if (step.type === "tool") {
+    // A harness tool (documentation, skills) runs in the harness itself: no path.
+    const id = step.component;
+    if (step.ended || !id || id === "core.harness" || !drawn(id)) return null;
+    return { component: id, mode: "on", target: id };
   }
-  return g;
+  const p = step.payload;
+  const hook = step.component || `hooks.${p.hook}`;
+  if (!drawn(hook)) return null;
+  if (p.decision === "ask_human" && !step.resolved) return { component: hook, mode: "pending" };
+  if (p.decision === "block") return { component: hook, mode: "blocked" };
+  if (i !== steps.length - 1) return null; // another step followed: the hook is done
+  const edge = (store.architecture.edges || []).find((e) => e.from === hook && e.to.startsWith("file."));
+  return edge ? { component: hook, mode: "on", target: edge.to } : { component: hook, mode: null };
 }
 
 let renderedSchemaKey = null;
+let renderedRobotKey = null;
+let renderedActivityKey = null;
+let schemaActive = null; // the last `schemaActivity()`, read by `drawSchemaWires`
 
 function renderSchema() {
-  // Layout only: nodes, edges and availability come from `architecture_changed` (AD-12),
-  // the frame's chips from `bricks_changed`.
+  // Layout only: nodes, edges and availability come from `architecture_changed` (AD-12), the
+  // hooks of the strip from `bricks_changed`. `render()` runs on every `model_delta`: the DOM is
+  // rebuilt only when its key changes; the robot and the halo are patched on their own.
+  const root = document.getElementById("schema");
+  const nodes = store.architecture.nodes || [];
   const wanted = (store.bricks?.bricks || []).filter((b) => b.wanted);
-  const pose = robotPose();
-  // The hooks that blocked in the last shown turn: their node sits on a red rule.
+  const hooks = wanted.find((b) => b.id === "hooks")?.options || null;
+  // The hooks that blocked in the last shown turn: they stay on a red rule until the next one.
   const blocked = (shownTurns().at(-1)?.steps || [])
     .filter((s) => s.type === "hook" && s.payload.decision === "block")
     .map((s) => `hooks.${s.payload.hook}`);
-  // `render()` runs on every `model_delta`: rebuilding would restart the antenna blink.
-  const key = JSON.stringify([
-    store.architecture,
-    wanted.map((b) => [b.id, b.label_fr, b.available, b.reason_fr]),
-    pose,
-    store.selection,
-    blocked,
-  ]);
-  if (key === renderedSchemaKey) return;
-  renderedSchemaKey = key;
+  const model = nodes.find((n) => n.id === "core.model");
+  const pose = robotPose();
+  const key = JSON.stringify([store.architecture, wanted.length, hooks, blocked, store.selection]);
+  if (key !== renderedSchemaKey) {
+    renderedSchemaKey = key;
+    renderedActivityKey = null;
+    renderedRobotKey = JSON.stringify([pose, model?.model]);
+    buildSchema(root, nodes, wanted.length > 0, hooks, blocked, robot(pose, model));
+    scheduleWires();
+  }
+  const robotKey = JSON.stringify([pose, model?.model]);
+  if (robotKey !== renderedRobotKey) {
+    // A pose change swaps the robot only: the rest keeps its focus and its layout.
+    renderedRobotKey = robotKey;
+    const old = root.querySelector(".robot");
+    const next = robot(pose, model);
+    const focused = old === document.activeElement;
+    old?.replaceWith(next);
+    if (focused) next.focus();
+  }
+  const activity = schemaActivity(nodes);
+  const activityKey = JSON.stringify(activity);
+  if (activityKey !== renderedActivityKey) {
+    renderedActivityKey = activityKey;
+    schemaActive = activity;
+    for (const node of root.querySelectorAll(".is-active:not(.robot)")) node.classList.remove("is-active");
+    if (activity) {
+      const id = cssEscape(activity.component);
+      root.querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"]`)?.classList.add("is-active");
+    }
+    scheduleWires();
+  }
+}
 
-  const svg = document.getElementById("schema-svg");
-  svg.innerHTML = "";
-  const nodes = store.architecture.nodes || [];
+function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
+  // The rebuild would drop keyboard focus: note it, restore it on the new element.
+  const focusKey = root.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  root.innerHTML = "";
   const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
-  // Brick components are the frame's chips; the harness and the model, the frame and the robot.
-  const outside = nodes.filter((n) => !["harness", "model", "brick"].includes(n.kind));
-  outside.sort((a, b) => (a.kind === "file") - (b.kind === "file"));
 
-  const FX = 4; // harness frame
-  const FY = 12;
-  const FW = 360;
-  const FH = 120;
-  const RELIEF = 4;
-  const W = 170; // outside nodes: a grid of 3 rows right of the frame, files last
-  const H = 38;
-  const GAP = 4;
-  const COL_GAP = 12;
-  const x0 = FX + FW + 40;
-  const pos = {};
-  outside.forEach((node, i) => {
-    pos[node.id] = { x: x0 + Math.floor(i / 3) * (W + COL_GAP), y: FY + (i % 3) * (H + GAP) };
-  });
-  const cols = Math.ceil(outside.length / 3);
-  const width = cols ? x0 + cols * (W + COL_GAP) : FX + FW + RELIEF;
-  svg.setAttribute("viewBox", `0 0 ${width} 140`);
-
-  // Edges first: the nodes drawn after mask them.
-  for (const edge of store.architecture.edges || []) {
-    const a = pos[edge.from];
-    if (!a) continue;
-    const cls = `arch-edge${edge.crosses_boundary ? " is-network" : ""}`;
-    if (edge.to === "core.harness") {
-      const y = a.y + H / 2;
-      svg.appendChild(svgEl("line", { class: cls, x1: FX + FW, y1: y, x2: a.x, y2: y }));
-      continue;
-    }
-    const b = pos[edge.to];
-    if (!b) continue;
-    svg.appendChild(
-      svgEl("line", { class: cls, x1: a.x + W / 2, y1: a.y + H / 2, x2: b.x + W / 2, y2: b.y + H / 2 })
-    );
-  }
-
-  const frame = svgEl("g", { class: "arch-harness" });
+  // The harness frame: the robot and the chips of the bricks with no outside component, stacked.
+  const frame = el("div", "arch-harness");
   frame.dataset.component = "core.harness";
-  if (store.selection === "core.harness") frame.classList.add("is-selected");
-  frame.addEventListener("click", () => select("core.harness"));
-  frame.append(
-    svgTitle(byId["core.harness"]?.label_fr || "Harnais"),
-    svgEl("rect", { class: "arch-harness-relief", x: FX, y: FY + RELIEF, width: FW, height: FH }),
-    svgEl("rect", { class: "arch-harness-frame", x: FX, y: FY, width: FW, height: FH }),
-    svgEl("rect", { class: "arch-harness-tag", x: FX + 18, y: FY - 10, width: 72, height: 20 }),
-    svgText("Harnais", { x: FX + 54, y: FY + 4, "text-anchor": "middle", class: "arch-harness-tag-text" })
-  );
-  // Chips alternate left and right of the robot, 3 per column.
-  // ponytail: 6 chips at most (3 rows x 2), 124 units wide, labels not truncated; grow FH
-  // and the viewBox when a later story adds bricks.
-  const CW = 124;
-  const CH = 26;
-  wanted.forEach((brick, i) => {
-    const x = i % 2 ? FX + FW - 12 - CW : FX + 12;
-    const y = FY + 16 + Math.floor(i / 2) * (CH + 8);
-    const chip = svgEl("g", { class: `arch-chip${brick.available ? "" : " is-unavailable"}` });
-    const icon = BRICK_ICONS[brick.id] || "🧩";
-    chip.append(
-      svgTitle(brick.available ? brick.label_fr : `${brick.label_fr} : ${brick.reason_fr}`),
-      svgEl("rect", { x, y, width: CW, height: CH }),
-      svgText(`${icon} ${brick.label_fr}`, { x: x + CW / 2, y: y + 17, "text-anchor": "middle" })
-    );
-    frame.appendChild(chip);
+  frame.classList.toggle("is-selected", store.selection === "core.harness");
+  frame.title = byId["core.harness"]?.label_fr || "Harnais";
+  frame.addEventListener("click", (event) => {
+    if (!event.target.closest("button:not(.arch-harness-tag)")) select("core.harness");
   });
-  if (!wanted.length) {
-    frame.appendChild(
-      svgText("Aucune brique : LLM nu", {
-        x: FX + FW / 2,
-        y: FY + FH - 7,
-        "text-anchor": "middle",
-        class: "arch-harness-empty",
-      })
-    );
+  const tag = el("button", "arch-harness-tag", "Harnais"); // its click reaches the frame
+  tag.type = "button";
+  tag.dataset.focusKey = "core.harness";
+  const core = el("div", "arch-core");
+  const chips = el("div", "arch-chips");
+  for (const node of nodes.filter((n) => n.kind === "brick")) {
+    const icon = BRICK_ICONS[node.id.split(".")[0]] || "🧩";
+    const chip = schemaButton("arch-chip", node.id, `${icon} ${node.label_fr}`);
+    chip.classList.toggle("is-unavailable", !node.available);
+    chip.title = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
+    chips.appendChild(chip);
   }
-  svg.append(frame, robot(FX + FW / 2, pose, byId["core.model"]));
+  if (!anyBrick) chips.appendChild(el("p", "arch-harness-empty", "Aucune brique : LLM nu"));
+  core.append(robotNode, chips);
+  frame.append(tag, core);
+  if (hooks) frame.appendChild(hookStrip(hooks, byId, blocked));
 
-  for (const node of outside) {
-    const { x, y } = pos[node.id];
-    const g = svgEl("g", { class: "arch-node" });
-    g.dataset.component = node.id;
-    g.classList.toggle("is-network", node.hosting === "network");
-    g.classList.toggle("is-unavailable", !node.available);
-    const notContacted = node.contact === "not_contacted";
-    g.classList.toggle("is-not-contacted", notContacted);
-    g.classList.toggle("is-blocked", blocked.includes(node.id));
-    if (store.selection === node.id) g.classList.add("is-selected");
-    g.addEventListener("click", () => select(node.id));
-    if (node.id === "file.audit") g.addEventListener("click", openAudit); // the whole log
-    let tooltip = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
-    if (notContacted) tooltip += " : non contacté";
-    // An MCP server lists its tools in its tooltip (AD-12).
-    if (node.tools?.length) tooltip += `\nOutils : ${node.tools.join(", ")}`;
-    // A skill or a hook gives its description, the audit log its path; a skill shows its
-    // loaded state under the label (FR-3).
-    const skill = node.kind === "skill";
-    if (node.detail_fr) tooltip += `\n${node.detail_fr}`;
-    const network = node.hosting === "network";
-    // A network node shows its globe; its contact state stays visible under the label.
-    const contactState = notContacted ? "non contacté" : node.contact === "unavailable" ? "indisponible" : "";
-    const state = skill ? (node.loaded ? "chargé" : "non chargé") : contactState;
-    if (skill) tooltip += `\n${state}`;
-    g.classList.toggle("is-loaded", skill && node.loaded);
-    const text = svgText(network ? `🌐 ${node.label_fr}` : node.label_fr, {
-      x: x + W / 2,
-      y: y + (state ? 16 : H / 2 + 4),
-      "text-anchor": "middle",
-    });
-    g.append(svgTitle(tooltip), svgEl("rect", { x, y, width: W, height: H }), text);
-    if (state) {
-      g.appendChild(
-        svgText(state, { x: x + W / 2, y: y + H - 7, "text-anchor": "middle", class: "arch-node-state" })
-      );
-    }
-    svg.appendChild(g);
+  const local = el("div", "arch-zone arch-zone-local");
+  const localRow = el("div", "arch-zone-row");
+  localRow.append(frame, ...schemaColumns("local", nodes));
+  local.append(el("span", "arch-zone-label", "🖥 Poste de travail"), localRow);
+
+  const boundary = el("div", "arch-boundary");
+  boundary.appendChild(el("span", "arch-boundary-label", "frontière du poste"));
+
+  const network = el("div", "arch-zone arch-zone-network");
+  const networkRow = el("div", "arch-zone-row");
+  const networkCols = schemaColumns("network", nodes);
+  if (networkCols.length) networkRow.append(...networkCols);
+  else networkRow.appendChild(el("p", "arch-zone-empty", "Aucun composant réseau : rien ne sort du poste."));
+  network.append(el("span", "arch-zone-label", "🌐 RÉSEAU · hors du poste"), networkRow);
+
+  // The trunk, the rails and the path, drawn over the pieces once they are laid out.
+  const wires = svgEl("svg", { class: "arch-wires" });
+  wires.setAttribute("aria-hidden", "true");
+  root.append(local, boundary, network, wires);
+  if (focusKey) root.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`)?.focus();
+}
+
+// The « Points d'accroche » strip: every hook of the brick, one per line, name and point; a hook
+// switched off (unchecked, or H5 after « Autoriser et ne plus demander ») stays, dashed grey.
+function hookStrip(options, byId, blocked) {
+  const strip = el("div", "arch-hook-strip");
+  strip.appendChild(el("span", "arch-hook-strip-tag", "🪝 Points d'accroche"));
+  const order = Object.keys(HOOK_POINTS);
+  const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
+  for (const option of [...options].sort((a, b) => rank(a.id) - rank(b.id))) {
+    const id = `hooks.${option.id}`;
+    const off = !byId[id]; // enabled hooks only are in `architecture_changed`
+    const isBlocked = !off && blocked.includes(id);
+    const point = HOOK_POINTS[option.id] || "";
+    const state = isBlocked ? " · ✖ a bloqué" : off ? " · désactivé" : "";
+    const hook = schemaButton("arch-hook", id);
+    hook.classList.toggle("is-off", off);
+    hook.classList.toggle("is-blocked", isBlocked);
+    hook.append(
+      el("span", "arch-hook-name", `${HOOK_ICONS[option.id] || "🪝"} ${option.label_fr}${state}`),
+      el("span", "arch-hook-point", point)
+    );
+    hook.title = [
+      `${option.label_fr} : code du harnais, point d'accroche « ${point} »`,
+      byId[id]?.detail_fr,
+      off ? "Désactivé : ce hook n'agit pas." : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    strip.appendChild(hook);
   }
+  return strip;
+}
+
+// The columns of a zone; a bin with no node is not drawn, nor a column with no bin.
+function schemaColumns(zone, nodes) {
+  const cols = [];
+  for (const group of ARCH_GROUPS.filter((g) => g.zone === zone)) {
+    const members = nodes.filter((n) => n.kind === group.kind && (!group.hosting || n.hosting === group.hosting));
+    if (members.length) (cols[group.col] ||= []).push(schemaGroup(group, members));
+  }
+  return cols.filter(Boolean).map((bins) => {
+    const col = el("div", "arch-col");
+    col.append(...bins);
+    return col;
+  });
+}
+
+function schemaGroup(group, members) {
+  const bin = el("div", `arch-group arch-group-${group.shape}`);
+  bin.setAttribute("role", "group");
+  bin.setAttribute("aria-label", `${group.title} : ${members.length}`);
+  const list = el("div", "arch-group-nodes");
+  for (const node of members) list.append(...schemaNode(node, group.shape));
+  bin.append(el("span", "arch-group-title", `${group.icon} ${group.title} · ${members.length}`), list);
+  return bin;
+}
+
+// A node: its category reads by its shape and icon, its hosting by its colours (DESIGN.md >
+// arch-group). Returns the node, then the list of its tools for a selected MCP server.
+function schemaNode(node, shape) {
+  const network = node.hosting === "network";
+  const unavailable = !node.available;
+  const notContacted = node.contact === "not_contacted";
+  const loaded = shape === "skill" && Boolean(node.loaded);
+  const tools = node.tools || [];
+  const button = schemaButton(`arch-node arch-node-${shape} ${network ? "is-network" : "is-local"}`, node.id);
+  button.classList.toggle("is-unavailable", unavailable);
+  button.classList.toggle("is-loaded", loaded);
+  let icon = { tool: TOOL_ICONS[node.id.slice(6)] || "🔧", mcp: "🔌", file: "📄" }[shape] || null;
+  if (unavailable) icon = "⊘"; // the crossed-out icon of DESIGN.md > arch-node-unavailable
+  let pill = null;
+  if (unavailable) pill = "indisponible";
+  else if (shape === "mcp") pill = notContacted ? "non contacté" : plural(tools.length, "outil");
+  else if (notContacted) pill = "non contacté";
+  else if (loaded) pill = "✓"; // a skill's bin is narrow: « Chargé » is in its accessible name and tooltip
+  if (icon) button.appendChild(el("span", "arch-node-icon", icon));
+  // A network node carries its globe on the node itself, not only on its zone (FR-13).
+  button.appendChild(el("span", "arch-node-name", network ? `🌐 ${node.label_fr}` : node.label_fr));
+  if (pill) button.appendChild(el("span", "arch-node-pill", pill));
+
+  const tooltip = [`${node.label_fr} · ${SHAPE_LABELS[shape]} · ${network ? "RÉSEAU" : "sur le poste"}`];
+  if (unavailable) tooltip.push(`Indisponible : ${node.reason_fr}`);
+  else if (notContacted) tooltip.push("Non contacté : aucune requête envoyée pour l'instant.");
+  if (shape === "skill") tooltip.push(loaded ? "Chargé dans la conversation." : "Non chargé.");
+  if (tools.length) tooltip.push(`Outils : ${tools.join(", ")}`);
+  if (node.detail_fr) tooltip.push(node.detail_fr);
+  button.title = tooltip.join("\n");
+  button.setAttribute("aria-label", tooltip.join(". "));
+  if (node.id === "file.audit") button.addEventListener("click", openAudit); // the whole log
+
+  if (shape !== "mcp" || !tools.length) return [button];
+  // A selected MCP server unfolds its tools under it, in its bin (FR-3).
+  button.setAttribute("aria-expanded", String(store.selection === node.id));
+  if (store.selection !== node.id) return [button];
+  const list = el("ul", "arch-node-tools");
+  for (const name of tools) {
+    const at = name.indexOf("__"); // `server__tool`
+    list.appendChild(el("li", "", at > 0 ? name.slice(at + 2) : name));
+  }
+  return [button, list];
+}
+
+// ---------- schema wires: trunk, rails, path and markers (DESIGN.md > arch-trunk) ----------
+
+let wiresPending = false;
+function scheduleWires() {
+  if (wiresPending) return;
+  wiresPending = true;
+  requestAnimationFrame(() => {
+    wiresPending = false;
+    drawSchemaWires();
+  });
+}
+
+function wirePath(d, className) {
+  return svgEl("path", { d, class: className });
+}
+
+function wireMarker(x, y, text, className) {
+  const g = svgEl("g", { class: `arch-marker ${className}` });
+  const label = svgEl("text", { x, y: y + 4, "text-anchor": "middle" });
+  label.textContent = text;
+  g.append(svgEl("circle", { cx: x, cy: y, r: 12 }), label);
+  return g;
+}
+
+// Drawn from the laid-out pieces, after each rebuild and each resize (ResizeObserver): the trunk
+// leaves the strip (or the frame), runs under the bins, and crosses the boundary dashed; a rail
+// runs 8 px left of each column, with a stub to each bin.
+function drawSchemaWires() {
+  const arch = document.getElementById("schema");
+  const svg = arch.querySelector(".arch-wires");
+  const frame = arch.querySelector(".arch-harness");
+  if (!svg || !frame) return;
+  const A = arch.getBoundingClientRect();
+  if (!A.width || !A.height) return; // hidden pane
+  svg.setAttribute("width", A.width);
+  svg.setAttribute("height", A.height);
+  svg.setAttribute("viewBox", `0 0 ${A.width} ${A.height}`);
+  const box = (node) => {
+    const r = node.getBoundingClientRect();
+    return { l: r.left - A.left, t: r.top - A.top, r: r.right - A.left, b: r.bottom - A.top, cx: (r.left + r.right) / 2 - A.left, cy: (r.top + r.bottom) / 2 - A.top };
+  };
+  const F = box(frame);
+  const strip = arch.querySelector(".arch-hook-strip");
+  const sx = strip ? box(strip).cx : F.r - 40;
+  const sy = strip ? box(strip).b : F.b;
+  const by = A.height - 12;
+  const fx = box(arch.querySelector(".arch-boundary")).cx;
+  const parts = [];
+  const rails = new Map();
+  let maxRail = sx;
+  for (const col of arch.querySelectorAll(".arch-col")) {
+    const railX = box(col).l - 8;
+    const cls = `arch-trunk${col.closest(".arch-zone-network") ? " is-network" : ""}`;
+    const stubs = [...col.querySelectorAll(".arch-group")].map((g) => ({ x: box(g).l, y: box(g).t + 12 }));
+    if (!stubs.length) continue;
+    parts.push(wirePath(`M${railX},${by} V${Math.min(...stubs.map((s) => s.y))}`, cls));
+    for (const s of stubs) parts.push(wirePath(`M${railX},${s.y} H${s.x}`, cls));
+    rails.set(col, railX);
+    maxRail = Math.max(maxRail, railX);
+  }
+  if (maxRail > sx) {
+    parts.push(wirePath(`M${sx},${sy} V${by} H${Math.min(maxRail, fx)}`, "arch-trunk"));
+    if (maxRail > fx) parts.push(wirePath(`M${fx},${by} H${maxRail}`, "arch-trunk is-network"));
+  }
+
+  const a = schemaActive;
+  if (a?.mode === "blocked") {
+    // Stopped at the strip: the tool is never reached.
+    const y = F.b + 14;
+    parts.push(wirePath(`M${sx},${sy} V${y - 12}`, "arch-path-block"), wireMarker(sx, y, "✖", "is-block"));
+  } else if (a?.mode === "pending") {
+    // H5 waits for the user: stopped before the boundary, nothing has left the workstation.
+    const stopX = fx - 18;
+    const d = `M${sx},${sy} V${by} H${stopX}`;
+    parts.push(wirePath(d, "arch-path"), wirePath(d, "arch-path-core"), wireMarker(stopX, by, "✋", "is-stop"));
+  } else if (a?.target) {
+    const node = arch.querySelector(`.arch-node[data-component="${cssEscape(a.target)}"]`);
+    const col = node?.closest(".arch-col");
+    if (col && rails.has(col)) {
+      const g = box(node.closest(".arch-group"));
+      const n = box(node);
+      const railX = rails.get(col);
+      // Along the bin's left edge, then into the node when it stands on that edge.
+      const end = n.l - g.l < 20 ? `V${n.cy} H${n.l}` : `V${n.cy}`;
+      const tail = `H${railX} V${g.t + 12} H${g.l + 3} ${end}`;
+      parts.push(wirePath(`M${sx},${sy} V${by} ${tail}`, "arch-path"));
+      if (node.classList.contains("is-network")) {
+        // Solid on the workstation, dashed and moving once it crosses the boundary.
+        parts.push(
+          wirePath(`M${sx},${sy} V${by} H${fx}`, "arch-path-core"),
+          wirePath(`M${fx},${by} ${tail}`, "arch-path-core is-flow")
+        );
+      } else {
+        parts.push(wirePath(`M${sx},${sy} V${by} ${tail}`, "arch-path-core"));
+      }
+    }
+  }
+  svg.replaceChildren(...parts);
 }
 
 // ---------- audit log: the whole file, read only (story 8) ----------
@@ -2242,6 +2464,9 @@ async function boot() {
   document.getElementById("audit-close").addEventListener("click", () =>
     document.getElementById("audit-dialog").close()
   );
+  // The schema's wires follow its pieces: pane resized, focused, hidden then shown, fonts loaded.
+  new ResizeObserver(scheduleWires).observe(document.getElementById("schema"));
+  document.fonts?.ready.then(scheduleWires);
   // Local stopwatch anchored on the `*_started` ts, replaced by `duration_ms` (AD-1).
   setInterval(() => {
     if (activeTurn()) {
