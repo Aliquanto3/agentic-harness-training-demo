@@ -173,5 +173,17 @@
   evidence: Même écart que pour les stories 5b à 9b : aucun banc de test JS ; rétablir l'ancien `cleared()` passerait pytest et `node --check`. Relevé par la couche verification-gap de la revue de la story 10. Piste sans dépendance : `node:test` avec `node:vm`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/10-scenarios-par-brique-programme-reinitialisation.md`
-  summary: Le scénario « MCP en documentation complète » (serveur local + data.gouv.fr) est marqué `expects_overflow: true` et sa consigne annonce un débordement, sans preuve qu'il déborde la fenêtre de 4 096 tokens.
-  evidence: Non vérifiable hors ligne (documentation réelle de data.gouv.fr) ; EXPERIENCE.md parle d'un bond d'environ 2 900 tokens. À trancher au test manuel sur le PC cible : lancer le scénario et lire la jauge ; si le contexte tient, retirer `expects_overflow` et reformuler la consigne, ou ajouter Microsoft Learn au scénario.
+  summary: RÉSOLU (story 10b) — le scénario « MCP en documentation complète » (serveur local + data.gouv.fr) ne débordait pas la fenêtre de 4 096 tokens : `expects_overflow` a été retiré et la consigne reformulée autour d'une jauge presque pleine.
+  evidence: Test manuel du 2026-09-25 sur le PC cible : jauge à 3 018 / 3 584 tokens utiles pour `mcp_full` (pas de dépassement), contre environ 1 040 tokens pour `mcp_lazy`. Voir aussi les deux entrées ci-dessous.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/10-scenarios-par-brique-programme-reinitialisation.md`
+  summary: Le tour du scénario « MCP en documentation complète » dépasse largement le NFR-1 (temps de réponse) sur le PC cible.
+  evidence: Test manuel du 2026-09-25, Qwen3.5-2B Q4_K_M (CPU) : contexte de 3 018 tokens, tour de 109,5 s pour 91 tokens de sortie. Bien au-delà des temps mesurés en story 9 pour des contextes de 560 à 1 400 tokens (voir entrée ci-dessus sur les temps de réponse). À surveiller en séance : prévenir l'auditoire, ou réduire les serveurs MCP actifs avant démonstration.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/10-scenarios-par-brique-programme-reinitialisation.md`
+  summary: Risque BH1a (navigation clavier du sélecteur de scénario sous Windows) non vérifié au test manuel.
+  evidence: Test manuel du 2026-09-25 : l'animateur a utilisé la souris pour choisir les scénarios, les flèches clavier sur le `<select>` n'ont pas été testées sur le PC cible (Windows). À revérifier au clavier avant une séance qui en dépendrait.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10b-corrections-test-manuel-story-10.md`
+  summary: Le bouton d'aide « ? » et sa bulle (`popover` natif) des cartes de briques, ainsi que le vidage de `store.openExplanations` par « ⟲ Réinitialiser », n'ont aucun test automatique.
+  evidence: Même écart que pour les stories 5b à 10 : aucun banc de test JS. Relevé par la couche verification-gap de la revue de la story 10b. Piste sans dépendance : `node:test` avec `node:vm`.

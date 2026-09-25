@@ -43,7 +43,8 @@ class BrickContent(BaseModel):
     label_fr: str = Field(min_length=1)
     category_fr: str = Field(min_length=1)
     hosting_fr: str = Field(min_length=1)
-    explanation_fr: str = Field(min_length=1)
+    # Each item is a paragraph (`str`, rendered `<p>`) or a bullet list (`list[str]`, `<ul><li>`).
+    explanation_fr: list[str | list[str]] = Field(min_length=1)
 
 
 class SystemPromptContent(BaseModel):

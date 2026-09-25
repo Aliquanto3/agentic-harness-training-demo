@@ -1428,6 +1428,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .brick-card {
+  position: relative; /* anchors .brick-help / .brick-explanation */
   background: var(--color-surface-raised);
   border: 1px solid var(--color-line);
   border-radius: var(--rounded-md);
@@ -1436,6 +1437,64 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2);
+}
+
+/* Story 10b: the "?" help button and its native popover, top-right of the card. */
+.brick-help {
+  position: absolute;
+  top: var(--spacing-2);
+  right: var(--spacing-2);
+  width: var(--spacing-hit-target-min);
+  height: var(--spacing-hit-target-min);
+  border-radius: var(--rounded-full);
+  border: 1px solid var(--color-line);
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
+}
+
+.brick-help:hover,
+.brick-help:focus-visible {
+  border-color: var(--color-primary);
+}
+
+.brick-help:active {
+  transform: translateY(calc(var(--spacing-relief-offset) - var(--spacing-relief-offset-pressed)));
+  box-shadow: 0 var(--spacing-relief-offset-pressed) 0 var(--color-relief-active);
+}
+
+/* Anchored (CSS anchor positioning) to the card via `anchor-name`/`position-anchor`,
+   set inline per card in app.js since each card needs its own anchor name. */
+.brick-explanation {
+  position: fixed;
+  top: var(--spacing-hit-target-min); /* fallback when anchor positioning is unsupported */
+  right: var(--spacing-2);
+  position-area: block-start inline-end;
+  position-try-fallbacks: flip-block, flip-inline;
+  margin: var(--spacing-1) 0 0 0;
+  max-width: 320px;
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  background: var(--color-surface-raised);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
+}
+
+.brick-explanation p,
+.brick-explanation ul {
+  margin: 0;
+}
+
+.brick-explanation p + p,
+.brick-explanation p + ul,
+.brick-explanation ul + p {
+  margin-top: var(--spacing-2);
+}
+
+.brick-explanation-list {
+  padding-left: var(--spacing-3);
 }
 
 .brick-card.is-active {

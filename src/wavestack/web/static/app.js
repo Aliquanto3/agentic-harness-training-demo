@@ -38,7 +38,8 @@ const store = {
   // Story 9b: the turn comparison open in Contexte LLM, UI state only: { left, right } turn ids.
   compare: null,
   bricks: null, // last `bricks_changed` payload: cards and system prompt, as the session computed them
-  openExplanations: new Set(), // brick ids whose explanation is unfolded (UI state only)
+  openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
+  openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
   openApprovalPayloads: new Set(), // approval ids whose payload is unfolded in the Vue humain card
   // Story 9: the armed actions as the session last sent them (AD-3), and every label seen, so
@@ -503,6 +504,7 @@ function renderBricks() {
     error.setAttribute("role", "alert");
     pane.appendChild(error);
   }
+  const reopenPopovers = []; // help popovers that were open before this rebuild
   for (const brick of store.bricks.bricks) {
     const card = el("article", "brick-card");
     card.classList.toggle("is-active", brick.wanted && brick.available);
@@ -533,15 +535,34 @@ function renderBricks() {
     if (brick.options?.length) card.appendChild(brickOptions(brick));
     if (brick.limits_fr) card.appendChild(el("p", "brick-limits", brick.limits_fr));
 
-    if (brick.explanation_fr) {
-      const details = el("details", "brick-explanation");
-      details.open = store.openExplanations.has(brick.id);
-      details.addEventListener("toggle", () => {
-        if (details.open) store.openExplanations.add(brick.id);
-        else store.openExplanations.delete(brick.id);
+    if (brick.explanation_fr?.length) {
+      // ponytail: CSS anchor positioning (Chromium) has no fallback for other engines;
+      // acceptable here since the demo targets a Chromium-based browser on the PC.
+      const anchorName = `--brick-anchor-${brick.id}`;
+      card.style.setProperty("anchor-name", anchorName);
+      const help = el("button", "brick-help", "?");
+      help.type = "button";
+      help.setAttribute("popovertarget", `explain-${brick.id}`);
+      help.setAttribute("aria-label", `Ce que la brique ${brick.label_fr} ajoute`);
+      const popover = el("div", "brick-explanation");
+      popover.id = `explain-${brick.id}`;
+      popover.setAttribute("popover", "");
+      popover.style.setProperty("position-anchor", anchorName);
+      popover.addEventListener("toggle", (event) => {
+        if (event.newState === "open") store.openBrickHelp.add(brick.id);
+        else store.openBrickHelp.delete(brick.id);
       });
-      details.append(el("summary", "", "Ce que la brique ajoute"), el("p", "", brick.explanation_fr));
-      card.appendChild(details);
+      for (const block of brick.explanation_fr) {
+        if (Array.isArray(block)) {
+          const list = el("ul", "brick-explanation-list");
+          for (const item of block) list.appendChild(el("li", "", item));
+          popover.appendChild(list);
+        } else {
+          popover.appendChild(el("p", "", block));
+        }
+      }
+      card.append(help, popover);
+      if (store.openBrickHelp.has(brick.id)) reopenPopovers.push(popover);
     }
     if (brick.id === "system_prompt") {
       const edit = el("button", "brick-edit", "Modifier le prompt");
@@ -554,6 +575,7 @@ function renderBricks() {
     }
     pane.appendChild(card);
   }
+  for (const popover of reopenPopovers) popover.showPopover();
   if (focusKey) {
     const find = (key) => (key ? pane.querySelector(`[data-focus-key="${cssEscape(key)}"]`) : null);
     let target = find(focusKey);
@@ -1258,8 +1280,7 @@ function renderScenarioControls(state) {
     chips.replaceChildren();
     return;
   }
-  const overflow = scenario.expects_overflow ? " Ce scénario fait déborder le contexte : c'est voulu." : "";
-  guide.replaceChildren(el("strong", "", scenario.title_fr), ` · ${scenario.description_fr}${overflow}`);
+  guide.replaceChildren(el("strong", "", scenario.title_fr), ` · ${scenario.description_fr}`);
   chips.replaceChildren(
     ...scenario.prompts.map((prompt) => {
       const chip = el("button", "suggested-prompt", prompt);
@@ -1298,6 +1319,9 @@ function launchScenario(event) {
 }
 
 function resetHarness() {
+  store.openExplanations.clear();
+  store.openBrickHelp.clear();
+  for (const popover of document.querySelectorAll(".brick-explanation:popover-open")) popover.hidePopover();
   scenarioIntention("/api/intentions/reset", {}, "WaveStack ne répond pas : rien n'a été réinitialisé.");
 }
 

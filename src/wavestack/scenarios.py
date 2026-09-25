@@ -27,7 +27,6 @@ class Scenario(BaseModel):
     hooks: list[str] | None = None
     mcp_lazy: bool = False
     prompts: list[str] = Field(min_length=1)
-    expects_overflow: bool = False
 
 
 class Module(BaseModel):
@@ -55,7 +54,6 @@ class ScenariosContent(BaseModel):
                 "title_fr": s.title_fr,
                 "description_fr": s.description_fr,
                 "prompts": s.prompts,
-                "expects_overflow": s.expects_overflow,
             }
 
         return {

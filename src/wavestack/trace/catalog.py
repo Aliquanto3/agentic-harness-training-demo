@@ -220,7 +220,7 @@ class BrickState(BaseModel):
     category: Literal["prompt", "context", "harness"]
     category_fr: str
     hosting_fr: str
-    explanation_fr: str
+    explanation_fr: list[str | list[str]]
     wanted: bool
     available: bool
     reason_fr: str | None = None
@@ -376,7 +376,6 @@ class ScenarioEntry(BaseModel):
     title_fr: str
     description_fr: str
     prompts: list[str]
-    expects_overflow: bool
 
 
 class ProgramModule(BaseModel):

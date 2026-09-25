@@ -668,7 +668,7 @@ class AppSession:
                     "category": brick.category,
                     "category_fr": content.category_fr if content else brick.category,
                     "hosting_fr": content.hosting_fr if content else "",
-                    "explanation_fr": content.explanation_fr if content else "",
+                    "explanation_fr": content.explanation_fr if content else [],
                     "wanted": brick.id in wanted,
                     "available": available,
                     "reason_fr": reason_fr,

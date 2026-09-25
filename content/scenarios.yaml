@@ -3,8 +3,7 @@
 # lancer le premier scénario d'un module active déjà les briques des modules précédents.
 # `bricks` : briques voulues ; `tools`, `mcp_servers`, `skills`, `hooks` : sous-options
 # activées (absentes = valeurs de lancement) ; `mcp_lazy` : lazy loading (faux par défaut) ;
-# `prompts` : prompts suggérés au-dessus du champ de saisie ; `expects_overflow` : le
-# scénario fait déborder le contexte exprès.
+# `prompts` : prompts suggérés au-dessus du champ de saisie.
 
 program:
   - title_fr: Du LLM nu au harnais
@@ -83,22 +82,22 @@ scenarios:
     title_fr: MCP en documentation complète
     description_fr: >-
       Le serveur MCP local et data.gouv.fr sont connectés : la documentation complète
-      de chaque outil entre dans le contexte. Regardez la jauge, puis envoyez le
-      prompt : le contexte déborde, et la carte de dépassement mène au lazy loading.
+      de chaque outil entre dans le contexte. Regardez la jauge avant d'envoyer le
+      prompt : elle est déjà presque pleine. Passez ensuite au scénario « Lazy
+      loading » pour voir le même besoin tenir dans un contexte bien plus léger.
       Sans réseau, data.gouv.fr reste dessiné comme indisponible : poursuivez avec le
       serveur local.
     bricks: [short_memory, system_prompt, tools, mcp]
     mcp_servers: [local, datagouv]
     prompts:
       - Que veut dire MCP ?
-    expects_overflow: true
 
   mcp_lazy:
     title_fr: Lazy loading
     description_fr: >-
       Mêmes serveurs, en lazy loading : seule une ligne par outil entre dans le
-      contexte. Comparez la jauge au scénario précédent, envoyez le prompt et suivez
-      le chargement de la documentation dans Orchestration.
+      contexte. Comparez la jauge au scénario précédent, bien plus légère, envoyez le
+      prompt et suivez le chargement de la documentation dans Orchestration.
       Sans réseau, data.gouv.fr reste dessiné comme indisponible : poursuivez avec le
       serveur local.
     bricks: [short_memory, system_prompt, tools, mcp]

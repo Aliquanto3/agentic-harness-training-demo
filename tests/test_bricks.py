@@ -247,7 +247,7 @@ def _fake(brick_id: str, requires: list[str] | None = None) -> BrickDeclaration:
 
 def test_missing_dependency_is_unavailable_with_reason(monkeypatch):
     content = BrickContent(
-        label_fr="Parent", category_fr="x", hosting_fr="Local", explanation_fr="x"
+        label_fr="Parent", category_fr="x", hosting_fr="Local", explanation_fr=["x"]
     )
     monkeypatch.setattr(app_session_module, "load_brick_content", lambda _: content)
     session = AppSession(
@@ -367,7 +367,7 @@ def test_toggle_without_engine_raises_no_harness_error():
 
 
 def test_missing_capability_is_unavailable_with_reason(monkeypatch):
-    content = BrickContent(label_fr="X", category_fr="x", hosting_fr="Local", explanation_fr="x")
+    content = BrickContent(label_fr="X", category_fr="x", hosting_fr="Local", explanation_fr=["x"])
     monkeypatch.setattr(app_session_module, "load_brick_content", lambda _: content)
     brick = _fake("tools").model_copy(update={"capabilities": ["tool_call_parser"]})
     session = AppSession(
@@ -381,7 +381,7 @@ def test_missing_capability_is_unavailable_with_reason(monkeypatch):
 
 def test_edge_to_an_undrawn_node_is_dropped(monkeypatch):
     content = BrickContent(
-        label_fr="Audit", category_fr="x", hosting_fr="Local", explanation_fr="x"
+        label_fr="Audit", category_fr="x", hosting_fr="Local", explanation_fr=["x"]
     )
     monkeypatch.setattr(app_session_module, "load_brick_content", lambda _: content)
     component = Component(
