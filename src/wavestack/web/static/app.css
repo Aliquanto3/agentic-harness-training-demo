@@ -564,6 +564,13 @@ body {
   margin-top: var(--spacing-2);
 }
 
+/* H5 in the Vue humain: in the thread, under the model's bubble, as wide as the bubbles. */
+.chat > .approval-card {
+  align-self: flex-start;
+  max-width: 85%;
+  word-break: break-word;
+}
+
 .overflow-card {
   border: var(--spacing-stroke-min) solid var(--color-danger);
   border-radius: var(--rounded-md);

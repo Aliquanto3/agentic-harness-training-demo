@@ -21,11 +21,15 @@ const store = {
   // Gauge source: the most recent of `context_preview` / `context_rendered` (AD-9).
   gauge: null, // { payload, preview }
   turns: [], // one projection per turn, filled only from its events
-  chatFrom: 0, // index of the first turn shown as a bubble (`conversation_cleared`)
+  // `conversation_cleared`: index of the first turn still shown (Vue humain, Contexte LLM,
+  // Orchestration), and the seq of the clearing, to hide the MCP connections seen before it.
+  chatFrom: 0,
+  clearedSeq: null,
   composerError: null,
   bricks: null, // last `bricks_changed` payload: cards and system prompt, as the session computed them
   openExplanations: new Set(), // brick ids whose explanation is unfolded (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
+  openApprovalPayloads: new Set(), // approval ids whose payload is unfolded in the Vue humain card
   // Harness steps outside any turn (MCP discovery), each placed after the turns seen so far.
   offTurn: [],
 };
@@ -120,8 +124,9 @@ function applyEnvelope(envelope) {
       store.bricks = p;
       break;
     case "conversation_cleared":
-      // The trace keeps past turns (orchestration, context pane); only bubbles are hidden.
+      // Past turns leave the Vue humain, Contexte LLM and Orchestration; the event list keeps them.
       store.chatFrom = store.turns.length;
+      store.clearedSeq = envelope.seq;
       break;
     case "turn_started":
       store.turns.push({
@@ -219,6 +224,7 @@ function applyEnvelope(envelope) {
         startedAt: Date.parse(envelope.ts),
         ended: null,
         afterTurn: store.turns.length,
+        seq: envelope.seq, // `afterTurn` alone cannot tell a connection just before a clearing
       });
       break;
     case "mcp_connect_ended": {
@@ -377,7 +383,11 @@ function emptyNote(text) {
 const NO_TURN_FR =
   "Aucun tour pour l'instant. Envoyez un message : le contexte envoyé au modèle apparaîtra ici.";
 const CLEARED_FR =
-  "Conversation vidée : le prochain message repart sans historique. Les tours précédents restent dans la trace.";
+  "Conversation vidée : le prochain message repart sans historique. Les tours précédents restent dans la liste des événements, en bas d'Orchestration.";
+
+// The turns still shown after the last `conversation_cleared`, and whether one happened.
+const shownTurns = () => store.turns.slice(store.chatFrom);
+const cleared = () => store.clearedSeq !== null;
 
 // ---------- bricks panel: cards, toggles, system prompt drawer ----------
 
@@ -650,17 +660,21 @@ function turnNote(turn) {
   }
 }
 
+// H5 cards of the Vue humain, kept between renders while their state is unchanged: the
+// 250 ms stopwatch would otherwise swap the buttons under the pointer and lose a click.
+let approvalCards = new Map(); // approval id -> { key, node }
+
 function renderChat() {
   const chat = document.getElementById("chat");
   const followTail = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
-  chat.innerHTML = "";
-  const turns = store.turns.slice(store.chatFrom);
-  if (turns.length === 0) {
-    chat.appendChild(emptyNote(store.chatFrom ? CLEARED_FR : NO_TURN_FR));
-    return;
-  }
+  // The rebuild could drop keyboard focus: note it, restore it on the new element.
+  const focusKey = chat.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  const nodes = [];
+  const cards = new Map();
+  const turns = shownTurns();
+  if (turns.length === 0) nodes.push(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
   for (const turn of turns) {
-    chat.appendChild(el("div", "bubble bubble-user", turn.message));
+    nodes.push(el("div", "bubble bubble-user", turn.message));
     const answer = el("div", "bubble bubble-model");
     if (turn.reasoning) {
       const details = el("details", "bubble-reasoning");
@@ -685,9 +699,45 @@ function renderChat() {
     if (turn.status === "completed" && !turn.text) {
       answer.appendChild(el("div", "bubble-note", "(réponse vide)"));
     }
-    chat.appendChild(answer);
+    nodes.push(answer);
+    // H5: the validation is the user's to give, in the thread of its turn, under the answer.
+    for (const step of turn.steps) {
+      if (step.type !== "hook" || !step.approval) continue;
+      const id = step.approval.approval_id;
+      const key = JSON.stringify([
+        step.resolved,
+        store.sessionState?.state === "awaiting_human",
+        Boolean(step.answering),
+        toolLabel(step.approval.tool),
+      ]);
+      const kept = approvalCards.get(id);
+      const card = kept?.key === key ? kept : { key, node: approvalCard(step) };
+      cards.set(id, card);
+      nodes.push(card.node);
+    }
+  }
+  approvalCards = cards;
+  patchChildren(chat, nodes);
+  if (focusKey && !chat.contains(document.activeElement)) {
+    let target = chat.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`);
+    // An answered approval disables, then removes, its buttons: focus goes to its card.
+    if ((!target || target.disabled) && focusKey.startsWith("approval:")) {
+      const cardKey = focusKey.slice(0, focusKey.lastIndexOf(":"));
+      target = chat.querySelector(`[data-focus-key="${cssEscape(cardKey)}"]`);
+    }
+    target?.focus();
   }
   if (followTail) chat.scrollTop = chat.scrollHeight;
+}
+
+function patchChildren(parent, nodes) {
+  // Replace the children with `nodes` without moving a node kept in place: moving it would
+  // blur it and drop a click between mousedown and mouseup.
+  const keep = new Set(nodes);
+  for (const child of [...parent.childNodes]) if (!keep.has(child)) child.remove();
+  nodes.forEach((node, i) => {
+    if (parent.childNodes[i] !== node) parent.insertBefore(node, parent.childNodes[i] ?? null);
+  });
 }
 
 function renderComposer() {
@@ -751,9 +801,9 @@ async function stopTurn() {
 function renderContext() {
   const pane = document.getElementById("ctx");
   pane.innerHTML = "";
-  const turn = [...store.turns].reverse().find((t) => t.context);
+  const turn = shownTurns().reverse().find((t) => t.context);
   if (!turn) {
-    pane.appendChild(emptyNote(NO_TURN_FR));
+    pane.appendChild(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
     return;
   }
   const p = turn.context;
@@ -923,12 +973,16 @@ function connectCard(step) {
   return card;
 }
 
-function outboundPayload(request) {
-  // DESIGN.md outbound-payload: exactly what leaves the workstation, open by default.
+function outboundPayload(request, openSet = null) {
+  // DESIGN.md outbound-payload: exactly what leaves the workstation, open by default in the
+  // trace; given `openSet` (the ids unfolded by the user), folded by default.
   const details = el("details", "outbound-payload");
-  details.open = !store.closedPayloads.has(request.seq);
+  details.open = openSet ? openSet.has(request.seq) : !store.closedPayloads.has(request.seq);
   details.addEventListener("toggle", () => {
-    if (details.open) store.closedPayloads.delete(request.seq);
+    if (openSet) {
+      if (details.open) openSet.add(request.seq);
+      else openSet.delete(request.seq);
+    } else if (details.open) store.closedPayloads.delete(request.seq);
     else store.closedPayloads.add(request.seq);
   });
   const head = el("summary", "outbound-head");
@@ -946,55 +1000,89 @@ const HOOK_DECISIONS = {
 };
 const APPROVAL_DECISIONS = { approved: "Autorisé", refused: "Refusé", cancelled: "Annulé : tour arrêté" };
 
-function approvalLines(step) {
-  // H5: tool, destination, exactly what would leave the workstation, then the three buttons
-  // while it waits, or the decision once answered (EXPERIENCE: human validation).
+function toolLabel(name) {
+  // Formatting only (AD-1): the label the bricks panel already shows for this tool.
+  const option = (brickId, id) =>
+    store.bricks?.bricks.find((b) => b.id === brickId)?.options?.find((o) => o.id === id);
+  const native = option("tools", name);
+  if (native) return native.label_fr;
+  const at = name.indexOf("__"); // an MCP tool: `server__tool`
+  const server = at > 0 ? option("mcp", name.slice(0, at)) : null;
+  return server ? `${name.slice(at + 2)} (${server.label_fr})` : name;
+}
+
+function approvalDecision(resolved) {
+  return `${APPROVAL_DECISIONS[resolved.decision]}${resolved.hook_disabled ? " · H5 désactivé" : ""}`;
+}
+
+function approvalCard(step) {
+  // H5 in the Vue humain: tool, destination, what would leave the workstation, then the three
+  // buttons while it waits, or the decision once answered (EXPERIENCE: human validation).
   const a = step.approval;
   const lines = [
-    el("p", "", `Outil : ${a.tool} · Destination : ${a.destination}`),
-    outboundPayload({ ...a.preview, seq: a.approval_id }),
+    el("p", "", `Outil : ${toolLabel(a.tool)} · Destination : ${a.destination}`),
+    outboundPayload({ ...a.preview, seq: a.approval_id }, store.openApprovalPayloads),
   ];
   if (step.resolved) {
-    const r = step.resolved;
-    const text = `Décision : ${APPROVAL_DECISIONS[r.decision]}${r.hook_disabled ? " · H5 désactivé" : ""}`;
-    lines.push(el("p", "", text));
-    return lines;
-  }
-  const actions = el("div", "drawer-actions approval-actions");
-  const answer = async (approved, disableHook) => {
-    step.answering = true; // one answer per click, even across re-renders
-    render();
-    try {
-      const response = await postIntention("/api/intentions/approval", {
-        approval_id: a.approval_id,
-        approved,
-        disable_hook: disableHook,
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        store.composerError = typeof body.detail === "string" ? body.detail : "Réponse refusée.";
+    lines.push(el("p", "", `Décision : ${approvalDecision(step.resolved)}`));
+  } else {
+    const actions = el("div", "drawer-actions approval-actions");
+    const answer = async (approved, disableHook) => {
+      if (step.answering) return;
+      step.answering = true; // one answer per click, even across re-renders
+      render();
+      try {
+        const response = await postIntention("/api/intentions/approval", {
+          approval_id: a.approval_id,
+          approved,
+          disable_hook: disableHook,
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          store.composerError = typeof body.detail === "string" ? body.detail : "Réponse refusée.";
+          step.answering = false;
+        }
+      } catch {
+        store.composerError = "WaveStack ne répond pas : la réponse n'a pas été transmise.";
         step.answering = false;
       }
-    } catch {
-      store.composerError = "WaveStack ne répond pas : la réponse n'a pas été transmise.";
-      step.answering = false;
+      render();
+    };
+    const waiting = store.sessionState?.state === "awaiting_human";
+    for (const [label, approved, disableHook, primary, key] of [
+      ["Autoriser", true, false, true, "allow"],
+      ["Refuser", false, false, false, "refuse"],
+      ["Autoriser et ne plus demander", true, true, false, "allow-always"],
+    ]) {
+      const button = el("button", primary ? "primary" : "", label);
+      button.type = "button";
+      button.disabled = !waiting || Boolean(step.answering);
+      button.dataset.focusKey = `approval:${a.approval_id}:${key}`;
+      button.addEventListener("click", () => answer(approved, disableHook));
+      actions.appendChild(button);
     }
-    render();
-  };
-  const waiting = store.sessionState?.state === "awaiting_human";
-  for (const [label, approved, disableHook, primary] of [
-    ["Autoriser", true, false, true],
-    ["Refuser", false, false, false],
-    ["Autoriser et ne plus demander", true, true, false],
-  ]) {
-    const button = el("button", primary ? "primary" : "", label);
-    button.type = "button";
-    button.disabled = !waiting || Boolean(step.answering);
-    button.addEventListener("click", () => answer(approved, disableHook));
-    actions.appendChild(button);
+    lines.push(actions);
   }
-  lines.push(actions);
-  return lines;
+  const title = step.resolved ? "Validation humaine" : "En attente de votre validation";
+  const card = harnessEvent(title, "info", lines);
+  card.classList.add("approval-card");
+  card.tabIndex = -1; // receives the focus of its buttons once they are disabled or gone
+  card.dataset.focusKey = `approval:${a.approval_id}`;
+  return card;
+}
+
+function approvalTrace(step) {
+  // The same validation in Orchestration, read only: the answer is given in the Vue humain.
+  const a = step.approval;
+  const label = toolLabel(a.tool);
+  const decision = step.resolved
+    ? approvalDecision(step.resolved)
+    : "En attente de votre réponse dans la Vue humain";
+  return [
+    el("p", "", `Outil : ${label}${label === a.tool ? "" : ` (${a.tool})`} · Destination : ${a.destination}`),
+    outboundPayload({ ...a.preview, seq: a.approval_id }),
+    el("p", "", `Décision : ${decision}`),
+  ];
 }
 
 function hookCard(step) {
@@ -1019,7 +1107,7 @@ function hookCard(step) {
         : "Effet sur le tour : le tour s'arrête ici.";
     lines.push(el("p", "", effect));
   }
-  if (step.approval) lines.push(...approvalLines(step));
+  if (step.approval) lines.push(...approvalTrace(step));
   if (step.lines.length) {
     lines.push(el("p", "label", "Lignes ajoutées au journal d'audit"), el("pre", "step-code", step.lines.join("\n")));
   }
@@ -1055,10 +1143,16 @@ function malformedCard(p) {
 function renderSteps() {
   const steps = document.getElementById("steps");
   steps.innerHTML = "";
+  // Only what follows the last clearing (Q1: MCP connections before it are hidden too).
   const offTurn = (index) => {
-    for (const step of store.offTurn) if (step.afterTurn === index) steps.appendChild(connectCard(step));
+    for (const step of store.offTurn) {
+      const after = !cleared() || step.seq > store.clearedSeq;
+      if (step.afterTurn === index && after) steps.appendChild(connectCard(step));
+    }
   };
+  if (cleared() && store.turns.length === store.chatFrom) steps.appendChild(emptyNote(CLEARED_FR));
   store.turns.forEach((turn, index) => {
+    if (index < store.chatFrom) return;
     offTurn(index);
     const calls = turn.steps.filter((s) => s.type === "call");
     for (const step of turn.steps) {
@@ -1104,10 +1198,14 @@ function renderChips() {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "pane-chip";
-    const linked = store.selection && paneOfComponent(store.selection) === paneId;
+    // The Vue humain waits for the user's answer to an H5 validation.
+    const awaiting = paneId === "human" && store.sessionState?.state === "awaiting_human";
+    const linked = awaiting || (store.selection && paneOfComponent(store.selection) === paneId);
     if (linked) chip.classList.add("is-linked");
     chip.textContent = `+ ${PANE_LABELS[paneId]}`;
-    chip.title = `Réafficher le volet ${PANE_LABELS[paneId]}`;
+    chip.title = awaiting
+      ? "Une validation humaine attend votre réponse : réafficher le volet Vue humain"
+      : `Réafficher le volet ${PANE_LABELS[paneId]}`;
     chip.addEventListener("click", () => showPane(paneId));
     container.appendChild(chip);
   }
@@ -1276,8 +1374,8 @@ function renderSchema() {
   // the frame's chips from `bricks_changed`.
   const wanted = (store.bricks?.bricks || []).filter((b) => b.wanted);
   const pose = robotPose();
-  // The hooks that blocked in the last turn: their node sits on a red rule.
-  const blocked = (store.turns.at(-1)?.steps || [])
+  // The hooks that blocked in the last shown turn: their node sits on a red rule.
+  const blocked = (shownTurns().at(-1)?.steps || [])
     .filter((s) => s.type === "hook" && s.payload.decision === "block")
     .map((s) => `hooks.${s.payload.hook}`);
   // `render()` runs on every `model_delta`: rebuilding would restart the antenna blink.
