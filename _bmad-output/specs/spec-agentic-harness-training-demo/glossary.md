@@ -2,7 +2,9 @@
 
 Vocabulaire utilisé tel quel dans SPEC.md, l'architecture, l'UX et le code (identifiants) ou le contenu (libellés français).
 
-- **Modèle** : le modèle de langage local (SLM) qui génère les réponses. Un seul modèle est actif à la fois.
+- **Modèle** : le modèle de langage qui génère les réponses : un SLM local par défaut, ou un modèle cloud. Un seul modèle est actif à la fois.
+- **Modèle cloud** : un modèle hébergé par un fournisseur et appelé par API au format chat. Le fournisseur applique lui-même le gabarit et analyse les appels d'outils : cette part du harnais est alors hébergée hors du poste.
+- **Point d'accès** : l'adresse d'API d'un modèle cloud, déclarée en configuration. Un point d'accès interne (Wavestone sur Azure ou GCP) se déclare hors du dépôt.
 - **LLM nu** : le modèle sollicité sans aucune brique. Chaque message est envoyé seul, avec le seul gabarit de conversation du modèle.
 - **Harnais** : tout le code autour du modèle, qui assemble le contexte, appelle le modèle, interprète sa sortie, exécute des actions et décide de continuer ou de s'arrêter.
 - **Brique** : une capacité du harnais que l'on peut activer ou désactiver indépendamment. Liste V1 : raisonnement, mémoire courte, prompt système, mémoire globale, outils, RAG, MCP, skills, hooks, sous-agent, compression du contexte.

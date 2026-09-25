@@ -1,5 +1,5 @@
 - id: "1"
-  title: Fondations : lancement, diagnostic, modèle local
+  title: "Fondations : lancement, diagnostic, modèle local"
   description: >-
     Installation sans droits admin, lancement en une commande, diagnostic de démarrage,
     et détection d'un modèle depuis un fichier ou déjà présent sur le poste (CAP-36 à
@@ -118,3 +118,36 @@
   invoke_dev_with: >-
     Implémenter le schéma de contenu des scénarios (AD-19) et la réinitialisation
     (AD-17). Un scénario par brique construite dans les stories 1 à 9.
+
+- id: "11"
+  title: Modèles cloud via API (Groq, Mistral)
+  description: >-
+    Modèles cloud déclarés en configuration (préréglages Groq et Mistral, exemples
+    Google, NVIDIA et OpenRouter avec avertissement), choisis au diagnostic avec
+    saisie de la clé, test réel, infobulle par fournisseur et avertissement à
+    confirmer ; mêmes tours qu'en local, appels tracés comme données sortantes,
+    refus du fournisseur expliqués (CAP-43, CAP-3, CAP-10, CAP-31, CAP-33, CAP-35).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Suivre le spine du 2026-09-24 (update cloud FR-43). Adaptateur openai_chat
+    derrière le port Engine (AD-5) : il reçoit un ChatBody que context seul écrit
+    (AD-4, mode chat) et l'envoie octet pour octet, avec le client de net (AD-15,
+    origin = model, follow_redirects=False, hôtes des entrées enabled autorisés).
+    Clé lue par config.cloud_key(entry) seulement, écrite par config.write_api_key
+    (AD-20), SecretStr de bout en bout, jamais tracée. La session attribue le
+    tool_call_id (hachage base 62 de « step_id#index », unicité vérifiée par tour,
+    AD-4). Tokens estimés avant l'envoi, puis context_reconciled avec les mêmes
+    champs de jauge que context_rendered (AD-2, AD-9), ratio appris sur les
+    appels réels seulement. Fenêtre cloud = min(window ou fenêtre configurée,
+    context, tpm // 2), avec window_source (AD-9). CloudModel et fusion par id
+    (AD-20), capacités déclarées (AD-6), issues fournisseur en liste fermée, sans
+    nouvel essai (AD-16). Au diagnostic (AD-3, AD-21) : set_api_key,
+    test_cloud_model (portée diag, au plus deux appels) et
+    select_model{kind: cloud, ref, acknowledged: true}, refusé sans acknowledged ;
+    select_model passe en classe (b), le code de la story 1b s'aligne. Effets
+    SettingWrite et ApiKeySet (AD-23), active_model dans /api/state (AD-12),
+    indicateur de modèle et bandeau de Contexte LLM (EXPERIENCE.md). Aucune
+    nouvelle dépendance ; tests avec httpx.MockTransport injecté par net. Point
+    sensible (secrets, sortie réseau) : faire vérifier la garde et le test de clé
+    sentinelle avant la clôture.

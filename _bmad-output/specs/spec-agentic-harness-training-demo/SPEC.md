@@ -19,7 +19,7 @@ sources:
 
 ## Why
 
-WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à un LLM nu. C'est une **vision à réaliser** doublée d'un **mandat interne** : les consultants Wavestone utilisent des chatbots mais ne distinguent pas un LLM nu d'un LLM outillé, et confondent skill, plugin, outil et MCP — ils peinent donc à poser en clientèle la question clé de leurs missions de sécurité, souveraineté et conformité : où sont hébergés le harnais, les données et le modèle ? Anaël s'en sert pour former 50 à 100 personnes de sa BU ; si le résultat est probant, WaveStack devient un démonstrateur client et un support de vente de formations (V2). Tourne entièrement en local sur CPU avec des petits modèles (SLM), incarnant ce qu'il enseigne sur la souveraineté et le numérique responsable.
+WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à un LLM nu. C'est une **vision à réaliser** doublée d'un **mandat interne** : les consultants Wavestone utilisent des chatbots mais ne distinguent pas un LLM nu d'un LLM outillé, et confondent skill, plugin, outil et MCP — ils peinent donc à poser en clientèle la question clé de leurs missions de sécurité, souveraineté et conformité : où sont hébergés le harnais, les données et le modèle ? Anaël s'en sert pour former 50 à 100 personnes de sa BU ; si le résultat est probant, WaveStack devient un démonstrateur client et un support de vente de formations (V2). Tourne par défaut entièrement en local sur CPU avec des petits modèles (SLM), incarnant ce qu'il enseigne sur la souveraineté et le numérique responsable. En option, un modèle cloud appelé par API montre que le même harnais pilote des modèles plus gros, beaucoup plus vite, au prix de données qui quittent le poste.
 
 ## Capabilities
 
@@ -31,7 +31,7 @@ WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à 
   - **success:** Chaque segment du contexte LLM porte sa brique d'origine, sans troncature par défaut ; le volet orchestration liste les étapes dans l'ordre réel.
 - **CAP-3** Schéma d'architecture en direct (FR-3, palier 1)
   - **intent:** L'utilisateur voit les composants actifs et leur lieu d'hébergement (processus local, fichier local, service réseau).
-  - **success:** Seules les briques actives apparaissent ; le composant en cours d'action est mis en évidence pendant un tour.
+  - **success:** Seules les briques actives apparaissent ; le composant en cours d'action est mis en évidence pendant un tour ; un modèle cloud est dessiné comme service réseau, avec son fournisseur.
 - **CAP-4** Synchronisation des volets (FR-4, palier 1)
   - **intent:** Sélectionner un élément dans un volet met en évidence ses correspondants ailleurs.
   - **success:** La sélection d'un segment de contexte surligne la brique et le composant correspondants dans le schéma.
@@ -52,7 +52,7 @@ WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à 
   - **success:** La vue harnais montre que le contexte ne contient que le message et le gabarit de conversation.
 - **CAP-10** Raisonnement (FR-9, palier 2)
   - **intent:** L'utilisateur active le mode raisonnement et choisit de l'afficher ou non dans la vue humain.
-  - **success:** Le raisonnement reste toujours visible en vue harnais ; la brique est indisponible avec explication si le modèle ne raisonne pas.
+  - **success:** Le raisonnement reste toujours visible en vue harnais ; la brique est indisponible avec explication si le modèle ne raisonne pas ; pour un modèle cloud qui raisonne toujours, elle s'affiche « toujours active pour ce modèle », avec sa raison.
 - **CAP-11** Mémoire courte (FR-10, palier 1)
   - **intent:** Les messages précédents de la conversation sont réinjectés dans le contexte.
   - **success:** Le compteur de tokens montre le contexte qui grossit à chaque tour ; l'utilisateur peut vider la conversation.
@@ -114,20 +114,20 @@ WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à 
   - **intent:** Le harnais délègue une sous-tâche à un sous-agent avec son propre contexte, sur demande du modèle ou forcée.
   - **success:** Les deux contextes sont inspectables séparément ; seul le résultat entre dans le contexte principal, avec l'économie de tokens visible ; le sous-agent peut appeler des outils sous le même cycle (hooks compris).
 - **CAP-31** Compteur de tokens (FR-30, palier 1)
-  - **intent:** Pour chaque appel au modèle, WaveStack affiche le nombre de tokens (total et par segment/brique), les tokens de sortie et le temps écoulé.
-  - **success:** Les trois mesures sont affichées à chaque appel, sans recalcul côté front.
+  - **intent:** Pour chaque appel au modèle, WaveStack affiche le nombre de tokens (total et par segment/brique), les tokens de sortie, le temps écoulé et le débit de sortie (tokens/s).
+  - **success:** Ces mesures sont affichées à chaque appel, sans recalcul côté front ; pour un modèle cloud, la ventilation par segment est une estimation marquée « ≈ », le total vient de l'API quand elle le renvoie (sinon il est lui aussi estimé), l'écart va au segment « Gabarit appliqué chez le fournisseur (estimé) » et la somme des segments égale le total.
 - **CAP-32** Compression du contexte (FR-31, palier 2)
   - **intent:** L'utilisateur active la compression du contexte (Headroom si le test préalable le valide, sinon un compresseur minimal du harnais), portant au moins sur les résultats d'outils et extraits RAG.
   - **success:** La vue harnais montre le contexte avant/après avec le nombre de tokens de chaque version.
 - **CAP-33** Jauge de remplissage du contexte (FR-41, palier 1)
   - **intent:** WaveStack affiche en permanence le taux de remplissage de la fenêtre, ventilé par segment, à l'image de `/context` de Claude Code.
-  - **success:** La jauge se met à jour à chaque appel (y compris intra-tour), signale l'approche de la limite, et un dépassement empêche l'envoi de l'appel.
+  - **success:** La jauge se met à jour à chaque appel (y compris intra-tour), signale l'approche de la limite, et un dépassement certain empêche l'envoi de l'appel (NFR-8).
 - **CAP-34** Changer de modèle (FR-32, palier 2)
   - **intent:** L'utilisateur change de modèle depuis l'interface ou la configuration, sans modifier le code.
   - **success:** Le changement se fait entre deux tours, sans redémarrage, avec indicateur de chargement ; la conversation est conservée (contexte reconstruit à chaque tour) ; un modèle par défaut de 2B paramètres au plus est fourni.
 - **CAP-35** Capacités du modèle (FR-33, palier 1)
   - **intent:** WaveStack connaît les capacités du modèle actif (appel d'outils, raisonnement, taille de contexte, gabarit) et rend indisponibles, avec explication, les briques qui en dépendent.
-  - **success:** Les capacités sont réévaluées à chaque changement de modèle ; un modèle inconnu est lu depuis son fichier ; l'appel d'outils n'est disponible que pour les familles au format connu.
+  - **success:** Les capacités sont réévaluées à chaque changement de modèle ; un modèle inconnu est lu depuis son fichier ; les capacités d'un modèle cloud sont déclarées dans la configuration ; l'appel d'outils n'est disponible que pour les familles au format connu.
 - **CAP-36** Modèle déjà présent sur le poste (FR-34, palier 1 pour fichier local/déjà présent, palier 2 pour serveur local déjà lancé)
   - **intent:** L'utilisateur utilise un modèle sans le télécharger, depuis un fichier (partage, clé USB) ou déjà présent (cache HF, LM Studio, Ollama), ou servi par un serveur local déjà lancé (Ollama/llama.cpp, texte brut natif).
   - **success:** Le diagnostic et le choix du modèle proposent les fichiers trouvés ; pour un serveur déjà lancé, WaveStack construit lui-même le texte envoyé, gabarit compris, et le schéma montre le modèle comme processus local distinct.
@@ -149,21 +149,24 @@ WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à 
 - **CAP-42** Scénarios métier (FR-40, palier 2)
   - **intent:** WaveStack fournit au moins trois scénarios ancrés métier (SOC via H2, IAM via MCP Microsoft Learn, Souveraineté via MCP data.gouv.fr).
   - **success:** Chaque scénario métier illustre une brique en situation professionnelle reconnaissable par la practice visée.
+- **CAP-43** Modèle cloud via API (FR-43, palier 1)
+  - **intent:** L'utilisateur choisit au diagnostic un modèle cloud déclaré en configuration (préréglages Groq et Mistral ; Google, NVIDIA et OpenRouter en exemples de configuration avec leur avertissement ; ou point d'accès ajouté hors du dépôt, comme un endpoint interne), saisit sa clé API, le teste, puis mène les mêmes tours qu'en local.
+  - **success:** Chaque modèle cloud affiche un pictogramme réseau et une infobulle (hébergement, usage des données pour l'entraînement, offre d'essai, quotas renvoyés vers la console du fournisseur) ; le choisir affiche un avertissement sur ses conséquences (données qui partent, gabarit et appels d'outils traités chez le fournisseur, tokens estimés), à confirmer avant tout appel qui porte des données de l'utilisateur, et la barre haute signale ensuite un modèle réseau ; « Tester » prouve streaming et appel d'outils avec une invite fixe, sans donnée de l'utilisateur ; chaque appel est tracé comme donnée sortante, clé jamais tracée ; un refus du fournisseur (quota, clé refusée, requête trop grosse) est un événement expliqué, sans nouvel essai automatique, jamais un plantage ; un modèle cloud n'est jamais choisi d'office : un choix explicite mémorisé est repris au lancement, sans réafficher l'avertissement ; hors diagnostic, un choix vaut pour le prochain lancement tant que le changement à chaud (CAP-34) n'est pas livré.
 
 ## Constraints
 
-- Livraison en deux paliers : le palier 1 (socle) livre l'interface 5 volets, LLM nu, mémoire courte, prompt système, outils, MCP, skills, hooks, compteur/jauge, déclenchement forcé, rejeu, scénarios par brique, réinitialisation, installation ; le palier 2 (complément) livre raisonnement, mémoire globale, RAG, sous-agent, compression, scénarios métier, changement de modèle à chaud. En cas d'arbitrage, MCP/skills/hooks priment sur sous-agent/compression. La V1 complète (palier 1 + 2) est requise avant toute présentation en session.
-- **NFR-1 Latence.** Sur le poste de référence (HP EliteBook, i5 vPro, 16 Go, sans GPU) : premier token < 10 s en LLM nu, < 30 s avec la configuration la plus chargée d'un scénario fourni ; ces bornes s'appliquent au premier token de chaque appel dans un tour multi-appels. La fenêtre de contexte est plafonnée pour tenir ces bornes.
-- **NFR-2 Empreinte mémoire.** 4 Go de RAM au plus pour WaveStack (modèle compris, toutes briques actives), cible 2-3 Go, sur un poste de 16 Go partagé avec le système et les outils de travail. Un modèle servi en externe est compté tant qu'il répond ; jamais deux modèles chargés à la fois.
+- Livraison en deux paliers : le palier 1 (socle) livre l'interface 5 volets, LLM nu, mémoire courte, prompt système, outils, MCP, skills, hooks, compteur/jauge, déclenchement forcé, rejeu, scénarios par brique, réinitialisation, installation, modèle cloud optionnel (CAP-43) ; le palier 2 (complément) livre raisonnement, mémoire globale, RAG, sous-agent, compression, scénarios métier, changement de modèle à chaud. En cas d'arbitrage, MCP/skills/hooks priment sur sous-agent/compression. La V1 complète (palier 1 + 2) est requise avant toute présentation en session.
+- **NFR-1 Latence.** Sur le poste de référence (HP EliteBook, i5 vPro, 16 Go, sans GPU) : premier token < 10 s en LLM nu, < 30 s avec la configuration la plus chargée d'un scénario fourni ; ces bornes s'appliquent au premier token de chaque appel dans un tour multi-appels. La fenêtre de contexte est plafonnée pour tenir ces bornes. Ces bornes visent les modèles locaux ; pour un modèle cloud, aucune borne : premier token, durée et débit sont mesurés et affichés.
+- **NFR-2 Empreinte mémoire.** 4 Go de RAM au plus pour WaveStack (modèle compris, toutes briques actives), cible 2-3 Go, sur un poste de 16 Go partagé avec le système et les outils de travail. Un modèle servi en externe est compté tant qu'il répond ; jamais deux modèles chargés à la fois. Un modèle cloud ne coûte rien en mémoire ; quand il est actif, le modèle local n'est pas chargé ou est libéré.
 - **NFR-3 Local et hors ligne.** Toutes les briques fonctionnent sans réseau sauf celles explicitement marquées réseau, qui deviennent indisponibles avec explication ; aucune télémétrie.
-- **NFR-4 Confidentialité.** Aucune donnée ne quitte le poste hors d'une brique réseau explicitement activée, ou de deux sorties limitées et tracées comme données sortantes (sonde de connectivité du diagnostic, téléchargement de modèle sur demande explicite). Écoute uniquement sur `127.0.0.1`. Aucune clé d'API requise pour les scénarios fournis.
+- **NFR-4 Confidentialité.** Aucune donnée ne quitte le poste hors d'une brique réseau explicitement activée, ou de trois sorties limitées et tracées comme données sortantes (sonde de connectivité du diagnostic, téléchargement de modèle sur demande explicite, appel à un modèle cloud choisi explicitement, test compris). La clé d'un modèle cloud n'est envoyée qu'à l'hôte enregistré avec elle (ressaisie si l'hôte déclaré change) et n'apparaît jamais dans la trace, les journaux ni les réponses de l'API locale. Écoute uniquement sur `127.0.0.1`. Aucune clé d'API requise pour les scénarios fournis.
 - **NFR-5 Sans droits admin.** Aucune étape d'installation ni d'exécution ne requiert de droits administrateur ni ne déclenche d'invite du pare-feu.
 - **NFR-6 Plateforme.** Cible principale Windows 11 professionnel ; macOS et Linux pris en charge au mieux, sans garantie V1.
 - **NFR-7 Langue.** Interface, explications, scénarios et documentation utilisateur en français ; code et identifiants en anglais.
-- **NFR-8 Robustesse en démonstration.** Aucune défaillance du modèle (sortie mal formée, boucle d'appels, dépassement de contexte) ne fait planter l'application ; borne de 6 appels au modèle par tour (2 nouveaux essais max, 4 pour le sous-agent, action forcée non comptée, borne réglable) ; un dépassement de contexte empêche l'envoi de l'appel et explique les stratégies possibles en production sans les automatiser en V1.
+- **NFR-8 Robustesse en démonstration.** Aucune défaillance du modèle (sortie mal formée, boucle d'appels, dépassement de contexte) ne fait planter l'application ; borne de 6 appels au modèle par tour (2 nouveaux essais max, 4 pour le sous-agent, action forcée non comptée, borne réglable) ; un dépassement de contexte empêche l'envoi de l'appel et explique les stratégies possibles en production sans les automatiser en V1. Pour un modèle cloud, dont les tokens sont estimés avant l'envoi, seul un dépassement certain bloque l'appel : sinon il part avec l'avertissement « estimation incertaine », et le refus du fournisseur fait foi.
 - **NFR-9 Lisibilité en projection.** L'interface reste lisible en salle ou en visio ; une taille de texte agrandie est disponible.
 - **NFR-10 Licences.** Dépôt GitHub public, toutes dépendances et modèles embarqués sous licence compatible avec redistribution publique et démonstration client ; licences restrictives signalées avant adoption (Caveman proxy BSL-1.1 écarté, LM Studio propriétaire).
-- **NFR-11 Contenu publiable.** Rien de confidentiel dans le dépôt public (corpus RAG, scénarios, mémoire globale de démo, hooks) ; aucune donnée client, document interne Wavestone, secret ni clé d'API.
+- **NFR-11 Contenu publiable.** Rien de confidentiel dans le dépôt public (corpus RAG, scénarios, mémoire globale de démo, hooks) ; aucune donnée client, document interne Wavestone, secret ni clé d'API. Les clés API sont stockées hors du dépôt, dans le dossier de données ; un point d'accès interne se déclare dans `settings.json`, jamais dans le dépôt.
 
 Les invariants d'implémentation (paradigme événementiel, ports/adaptateurs, contrats de brique, garde réseau, etc.) sont fixés dans le companion `ARCHITECTURE-SPINE.md` et s'appliquent à toute story.
 
@@ -171,13 +174,14 @@ Les invariants d'implémentation (paradigme événementiel, ports/adaptateurs, c
 
 - Pas un framework agentique réutilisable ni une bibliothèque.
 - Ne vise pas la qualité des réponses : la faiblesse du SLM est assumée et devient un matériau pédagogique.
-- Aucun fournisseur de modèle cloud.
+- Aucun fournisseur de modèle cloud par défaut ni requis : le cloud reste une option explicite (CAP-43).
 - Pas un banc d'essai ni un comparateur de modèles.
 - Pas de gestion d'utilisateurs, de comptes ni de mode serveur partagé : une instance par poste.
 - Évite CrewAI et, plus largement, tout framework multi-agents lourd.
 - Pas de multi-agent collaboratif (agents qui dialoguent) — V2.
 - Pas de routage vers des modèles spécialisés (modèle de décision, image) — V2.
-- Pas de serveur local au format chat compatible OpenAI — texte brut natif seulement en V1, V2 pour le format chat.
+- Le format chat compatible OpenAI sert aux modèles cloud et aux points d'accès déclarés. Pour un serveur local, WaveStack garde le texte brut natif, qui montre le gabarit : pointer l'adaptateur chat vers un serveur local reste possible par configuration, sans être visé.
+- Pas de nouvel essai automatique ni d'espacement des appels face aux quotas d'un fournisseur cloud : le refus est expliqué.
 - Pas de RAG avancé (HyDE, self-RAG) — V2.
 - Pas d'indexation de documents propres à l'utilisateur — V2.
 - Pas d'enregistrement ni de relecture de sessions dans WaveStack — le repli est une vidéo Teams, non prévu dans le produit.
@@ -193,4 +197,5 @@ Une session de formation WaveStack fait émerger, en direct et sans slide abstra
 - NFR-2 suppose que le périmètre mesuré de l'empreinte mémoire couvre les processus WaveStack (harnais, modèle, serveurs MCP locaux, index RAG) hors navigateur, à confirmer par mesure sur le poste de référence.
 - NFR-6 : macOS et Linux restent une cible « au mieux » en V1 ; l'arbitrage définitif revient à Anaël après la session pilote.
 - Les cibles chiffrées des indicateurs de succès autres que SM-1 (SM-2 à SM-7) sont à confirmer par Anaël après la session pilote.
+- Les mentions des préréglages cloud (hébergement, entraînement, quotas, formats) viennent de la documentation des fournisseurs, non testée clé en main (recherche du 2026-09-24 : 18 affirmations sur 19 à source unique) ; « Tester » avant chaque séance les vérifie en partie.
 

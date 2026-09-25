@@ -7,13 +7,15 @@ paradigm: 'Moteur de tour à journal d’événements (event-sourced) ; interfac
 scope: 'WaveStack V1 complet (paliers 1 et 2) : harnais, moteur d’inférence, interface à 5 volets, briques, installation et lancement'
 status: final
 created: '2026-09-23'
-updated: '2026-09-23'
-binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-30, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41, FR-42, NFR-1, NFR-2, NFR-3, NFR-4, NFR-5, NFR-6, NFR-7, NFR-8, NFR-9, NFR-10, NFR-11]
+updated: '2026-09-24'
+binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-30, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41, FR-42, FR-43, NFR-1, NFR-2, NFR-3, NFR-4, NFR-5, NFR-6, NFR-7, NFR-8, NFR-9, NFR-10, NFR-11]
 sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/addendum.md
   - ../../ux-designs/ux-agentic-harness-training-demo-2026-09-22/EXPERIENCE.md
   - ../../ux-designs/ux-agentic-harness-training-demo-2026-09-22/DESIGN.md
+  - ../../../specs/spec-agentic-harness-training-demo/SPEC.md
+  - ../../sprint-change-proposal-2026-09-24.md
 companions: [architecture-view.html]
 ---
 
@@ -102,60 +104,66 @@ Règles de dépendance :
   - Les `kind` fixés dès maintenant sont :
     - `turn_started{replay_of}` et `turn_ended{status: completed|cancelled|limit|overflow|error}`, émis seulement dans le contexte `main` ;
     - `session_reset` ;
-    - `context_rendered`, `context_preview` (AD-9) et `prefix_not_reused{common_tokens}` (AD-4) ;
+    - `context_rendered`, `context_preview` (AD-9), `prefix_not_reused{common_tokens}` (AD-4) et `context_reconciled{call_id, segments: [{id, tokens}], usage_source}` avec les champs de jauge d’AD-9 (AD-4, mode chat) ;
     - `context_overflow{used, usable}`, `output_truncated{channel, output_tokens, max_tokens}` et `limit_reached{limit: calls|retries|sub_calls}` (AD-9, AD-10), émis par la session ;
     - `model_call_started`, `model_first_token`, `model_delta{channel: reasoning|text|tool_call, text}` et `model_call_ended` ;
     - `tool_started` et `tool_ended{status: ok|error|blocked|limit|overflow}` ;
     - `hook_decided`, `approval_requested{approval_id}` et `approval_resolved{approval_id, decision}` ;
-    - `outbound_request{origin: brick|diagnostic|download}` (AD-15) ;
+    - `outbound_request{origin: brick|diagnostic|download|model}` (AD-15) ;
     - `effect_applied` ;
     - `session_state` ;
     - `architecture_changed` ;
     - `diagnostic_check` ;
     - `harness_error`.
-  - `model_delta` transporte du texte UTF-8 complet, regroupé toutes les 50 ms au plus. `model_call_ended{raw_output, reasoning, text, tool_calls, prompt_tokens, output_tokens, prompt_ms, gen_ms, stop_reason: stop|length|cancelled|error}` fait foi, et les projections remplacent les deltas par lui.
+  - `model_delta` transporte du texte UTF-8 complet, regroupé toutes les 50 ms au plus. `model_call_ended{raw_output, reasoning, text, tool_calls, prompt_tokens, output_tokens, prompt_ms, gen_ms, stop_reason: stop|length|cancelled|error}` fait foi, et les projections remplacent les deltas par lui. Il porte aussi `output_tps` et `usage_source: engine|api|estimate`.
+    - Dans les deux modes, `prompt_ms` court de l’envoi au premier delta (tous canaux ; en mode chat, « attente du premier token, réseau compris »), `gen_ms` du premier au dernier delta, et `output_tps = output_tokens / (gen_ms / 1000)`, arrondi à l’unité, calculé par la session (`null` si `gen_ms` est nul). Sans `usage`, les tokens de sortie sont estimés comme ceux de l’entrée (AD-4), sur tous les canaux.
+    - En mode chat, `raw_output` est la suite des deltas `choices[0].delta` en JSON Lines, et `tool_calls` garde l’identifiant d’origine du fournisseur à côté de celui de la session (AD-4).
 
   **Portée et flux :**
-  - La session pose la portée courante dans une `contextvar` `TraceScope` ; `tools`, `hooks`, `mcp` et `net` émettent sans paramètre. La portée porte aussi `origin` (`brick`, `diagnostic` ou `download`), posé par l’appelant et lu par `net`. Un passage de thread à boucle copie explicitement la portée (AD-24).
+  - La session pose la portée courante dans une `contextvar` `TraceScope` ; `tools`, `hooks`, `mcp` et `net` émettent sans paramètre. La portée porte aussi `origin` (`brick`, `diagnostic`, `download` ou `model`), posé par l’appelant et lu par `net` ; la session pose `origin = model` dans la portée de chaque appel au modèle. `origin` n’est jamais hérité : l’exécuteur (AD-14) pose `origin = brick` à chaque exécution d’outil. Un passage de thread à boucle copie explicitement la portée (AD-24).
   - Le journal vit en mémoire seulement : un redémarrage le perd.
   - Le flux passe par `fastapi.sse.EventSourceResponse`, avec `id = seq`. La reprise se fait par `Last-Event-ID`.
   - Le front démarre par `GET /api/state` (état courant et dernier `seq`), puis reprend le flux au `seq` suivant.
 
 ### AD-3 — Un seul écrivain, un verrou d’opération, trois classes d’intentions
 
-- **Binds:** session, web, bricks, FR-5, FR-7, FR-11, FR-12, FR-32, FR-39, FR-42
-- **Prevents:** deux chemins de mutation de l’état ; une commande qui modifie l’état en plein tour ou en plein rechargement ; des commandes refusées sans raison ; des actions armées à deux endroits.
-- **Rule:** Seule la `Session` modifie l’état : historique, `wanted` des briques, actions armées, réglages, mémoire globale, `settings.json`.
-  - **Verrou d’opération.** La session est toujours dans l’un de ces états : `idle`, `turn`, `awaiting_human`, `model_load`, `download`, `reset` ou `diagnostic`. En diagnostic bloquant, une `Session` minimale existe dans l’état `diagnostic` et ne traite que `select_model` et `download_model`. Elle l’émet par `session_state{state, reason_fr}`, que le front utilise pour désactiver ses commandes en affichant la raison.
+- **Binds:** session, web, bricks, FR-5, FR-7, FR-11, FR-12, FR-32, FR-39, FR-42, FR-43
+- **Prevents:** deux chemins de mutation de l’état ; une commande qui modifie l’état en plein tour ou en plein rechargement ; des commandes refusées sans raison ; des actions armées à deux endroits ; une intention du diagnostic refusée dans l’état même où elle sert.
+- **Rule:** Seule la `Session` modifie l’état : historique, `wanted` des briques, actions armées, réglages, mémoire globale, `settings.json`, `api_keys.json`.
+  - **Verrou d’opération.** La session est toujours dans l’un de ces états : `idle`, `turn`, `awaiting_human`, `model_load`, `download`, `reset` ou `diagnostic`. Elle l’émet par `session_state{state, reason_fr}`, que le front utilise pour désactiver ses commandes en affichant la raison.
+    - **Diagnostic.** En diagnostic bloquant, une `Session` minimale existe dans l’état `diagnostic`. Elle accepte les quatre intentions du diagnostic (`select_model`, `download_model`, `set_api_key`, `test_cloud_model`) et refuse toutes les autres.
+    - `download_model` et `test_cloud_model` tiennent le verrou pendant leur durée (`download`, ou `model_load` avec la raison « Test de {modèle} »), puis rendent l’état précédent.
+    - **Choix du modèle.** Seul `select_model` en diagnostic change le modèle actif. Ailleurs, et jusqu’au changement à chaud (CAP-34), il ne change que `selected_model`, qui prend effet au prochain lancement ; l’interface l’indique (« Prochain lancement : {modèle} »). La session refuse `test_cloud_model` et `select_model` d’un modèle cloud sans clé valide (AD-20), avec la raison.
   - **Classes d’intentions** (`POST`, JSON) :
     - **(a) Acceptées à tout moment**, prises en compte au tour suivant : bascule d’une brique ou d’une sous-option, armer ou désarmer une action, enregistrer le prompt système.
-    - **(b) Refusées hors `idle`**, avec la raison : envoyer, rejouer, changer de modèle, de fenêtre ou de bornes, télécharger un modèle (`download_model`), modifier la mémoire globale, vider la conversation, lancer un scénario.
+    - **(b) Refusées hors `idle`** (et hors `diagnostic` pour les quatre intentions du diagnostic), avec la raison : envoyer, rejouer, changer de modèle (`select_model`), de fenêtre ou de bornes, télécharger un modèle (`download_model`), enregistrer une clé (`set_api_key`), tester un modèle cloud (`test_cloud_model`), modifier la mémoire globale, vider la conversation, lancer un scénario.
     - **(c) Préemptives** : décision H5 (qui porte son `approval_id` ; la première réponse l’emporte), arrêt du tour, réinitialisation (qui vaut arrêt puis réinitialisation).
   - **Actions armées.** Une `ArmedAction{armed_id, kind, brick, target, args}` n’existe que dans la session, et le front projette la puce depuis les événements.
     - Elles sont consommées après `on_user_message` et avant le premier appel au modèle, dans l’ordre d’armement, par l’exécuteur (AD-14), avec `trigger = user`.
-    - Une action n’est abandonnée, avec un événement, que si son mode `forced` est indisponible (AD-6).
+    - Une action n’est abandonnée, avec un événement, que si son mode `forced` est indisponible (AD-6). Rendue en injection, elle reste disponible.
     - La liste est vidée en fin de tour, quel que soit le statut.
   - **Réglages.** Un réglage modifié prend effet au tour suivant. Un rechargement refusé (budget, erreur) laisse actifs le modèle et la fenêtre précédents.
 
-### AD-4 — Le contexte : segments typés, rendu par le harnais, tokens attribués exactement
+### AD-4 — Le contexte : segments typés, rendu par le harnais, tokens attribués exactement en local, estimés puis réconciliés en mode chat
 
-- **Binds:** context, bricks, models, FR-2, FR-8, FR-24, FR-30, FR-32, FR-34, FR-41
-- **Prevents:** un contexte affiché différent du contexte envoyé ; des totaux qui ne tombent pas juste ; une jauge qui ne sait pas classer un segment ; un historique illisible après un changement de modèle.
+- **Binds:** context, bricks, models, FR-2, FR-8, FR-24, FR-30, FR-32, FR-34, FR-41, FR-43
+- **Prevents:** un contexte affiché différent du contexte envoyé ; des totaux qui ne tombent pas juste ; une jauge qui ne sait pas classer un segment ; un historique illisible après un changement de modèle ; un identifiant d’appel d’outil fabriqué à deux endroits ; un front qui recalcule la ventilation après l’appel.
 - **Rule:**
-  - **Segment.** Un segment est `{id, kind, brick, component, text, tokens, compressed_from?}`. `context_rendered` porte la liste ordonnée des segments, morceaux de gabarit compris (type `template`) : leur concaténation est exactement le prompt envoyé. Le front n’a besoin d’aucun décalage de caractères.
+  - **Segment.** Un segment est `{id, kind, brick, component, text, tokens, estimated, compressed_from?}`. `context_rendered` porte la liste ordonnée des segments, morceaux de gabarit compris (type `template`) : leur concaténation est exactement le prompt envoyé (en mode chat, le corps JSON envoyé). Le front n’a besoin d’aucun décalage de caractères.
   - **Types de segment.** `SegmentKind` est une énumération fermée, dans `context`, dans cet ordre d’empilement de la jauge :
     `system_prompt, global_memory, tool_catalog, skill_catalog, skill_body, history, rag_excerpt, tool_result, subagent_result, hook_injection, user_message, assistant_turn, template`.
     - Leur libellé français est dans `content/`. `user_message` et `template` forment ensemble « Message et gabarit ».
     - `assistant_turn` couvre la sortie du modèle rendue dans les appels suivants du même tour (raisonnement, texte, appel d’outil), ainsi que l’appel fabriqué d’une action forcée, attribué à la brique de l’action.
     - Ajouter un type exige un amendement du spine.
-  - **Historique.** L’historique est stocké sous forme structurée : messages `{role, content, reasoning, tool_calls: [{name, arguments}]}`. Il est re-rendu par le gabarit du modèle actif à chaque appel, et tout ce qui vient d’un tour antérieur est de type `history` (`brick = short_memory`). C’est le gabarit qui décide de ce qu’il garde, par exemple le raisonnement des tours précédents, que Qwen3.5 efface. La réponse d’un méta-outil de chargement (AD-25) y est stockée sous forme de talon court (« skill X chargé »), car son contenu a rejoint son emplacement stable.
+  - **Identifiant d’appel d’outil.** La session attribue un `tool_call_id` à la création de chaque appel (sortie du modèle, sous-agent, action forcée) : les 9 premiers caractères en base 62 du hachage de `"{step_id de l’appel au modèle}#{index dans tool_calls}"` (index 0 pour une action forcée, qui a son propre `step_id`). La session vérifie l’unicité dans le tour (`harness_error` sinon). L’identifiant renvoyé par un fournisseur est remplacé ; l’original reste dans `model_call_ended`. L’assembleur n’en fabrique jamais. Chaque appel **valide** reçoit exactement une réponse d’outil, quelle que soit l’issue : ok, bloqué, refusé ou borne. Une sortie qui contient un appel invalide n’attribue aucun identifiant (AD-10).
+  - **Historique.** L’historique est stocké sous forme structurée : messages `{role, content, reasoning, tool_calls: [{id, name, arguments}]}`. `arguments` est une chaîne JSON : celle qu’émet le fournisseur en mode chat, ou celle que la session sérialise une seule fois (parseur local, action forcée). Elle n’est jamais re-sérialisée, et le rendu local la décode pour le gabarit. Il est re-rendu par le gabarit du modèle actif à chaque appel, et tout ce qui vient d’un tour antérieur est de type `history` (`brick = short_memory`). C’est le gabarit qui décide de ce qu’il garde, par exemple le raisonnement des tours précédents, que Qwen3.5 efface. La réponse d’un méta-outil de chargement (AD-25) y est stockée sous forme de talon court (« skill X chargé »), car son contenu a rejoint son emplacement stable.
   - **Source de vérité.** Le `TurnState`, figé par `build_turn_state` (AD-17), est la seule source des emplacements stables pour tous les appels du tour. Mémoire globale, skills et documentations y sont lus au début du tour. Ce qui est chargé ou écrit pendant le tour va dans `loaded_in_turn` : l’exécuteur le lit (AD-25), et l’assembleur ne s’en sert que pour les réponses d’outil.
   - **Emplacements.** Une table unique dans `context`, indexée par (type, phase `stable` ou `turn`), fixe l’emplacement de chaque segment dans le gabarit :
     - message système (`stable`) : `system_prompt`, `global_memory`, `skill_catalog`, `skill_body` ;
     - variable `tools` (`stable`) : `tool_catalog`, un segment par outil, rattaché à la brique qui le déclare ;
     - messages de l’historique ;
-    - message utilisateur du tour : `hook_injection`, `rag_excerpt`, `user_message` ;
-    - dans le tour (`turn`) : messages de l’assistant (`assistant_turn`) et réponses d’outil (`tool_result`, `subagent_result`, et, pour les méta-outils, `skill_body` et `tool_catalog`).
+    - message utilisateur du tour : `hook_injection`, `rag_excerpt`, `user_message`, puis le résultat d’une action forcée rendue en injection (`tool_result` de la brique de l’action) ;
+    - dans le tour (`turn`) : messages de l’assistant (`assistant_turn`) et réponses d’outil (`tool_result`, `subagent_result`, et, pour les méta-outils, `skill_body` et `tool_catalog`) ; l’erreur réinjectée d’un appel mal formé est un `tool_result`.
 
     Les segments stables précèdent les variables.
   - **Rendu.** Le gabarit est `tokenizer.chat_template` du modèle. Il est rendu dans un `ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True)` configuré comme transformers :
@@ -174,26 +182,48 @@ Règles de dépendance :
     6. **Tokens.** Le prompt entier est tokenisé une seule fois. `Engine.token_pieces(ids)` (AD-5) donne les octets de chaque token, et le harnais vérifie que `b"".join(pieces) == prompt.encode("utf-8")` ; sinon, `harness_error`. Les décalages se cumulent en octets, et chaque token est attribué au segment qui contient son premier octet.
 
     La somme est égale au total par construction. Le moteur factice le vérifie. Le test de non-régression Qwen3.5 vérifie les contrôles 4 et 6, sur ces cas : un assistant à contenu vide qui appelle un outil, `load_tool_doc` avec deux serveurs, et un token de 128 espaces.
+  - **Mode chat (moteur `openai_chat`).**
+    - **Corps.** Les segments sont assemblés par la même table d’emplacements. Au lieu du rendu Jinja, `context`, seul écrivain du corps, construit le **corps complet** : `model`, `messages`, `tools`, `stream`, la limite de sortie sous le nom déclaré (`max_tokens_field`), `stream_options.include_usage` si l’entrée déclare `stream_usage`, et les paramètres `reasoning.on` ou `reasoning.off` que la brique raisonnement a contribués au `TurnState` (AD-6). Rien d’autre. Il le sérialise une seule fois (`json.dumps(ensure_ascii=False, separators=(",", ":"))`). `context_rendered.body` porte cette chaîne UTF-8, et les octets envoyés sont `body.encode("utf-8")`.
+    - **Découpage.** Le corps est découpé par la méthode des sentinelles (étapes 3 à 5), appliquée aux chaînes JSON. La syntaxe JSON donne des segments `template` à 0 token. La concaténation des segments est égale au corps envoyé.
+    - **Normalisation.** L’étape 2 retire les blancs de tête et de fin et la zone privée Unicode, et neutralise une liste de marqueurs de gabarit courants (`<|…|>`, `[INST]`…) déclarée dans `wavestack.toml`.
+    - **Emplacements propres au mode chat :**
+      - le raisonnement n’est renvoyé au fournisseur que si l’entrée déclare `reasoning.resend` (Mistral le demande pour ses blocs `thinking`) : il part alors dans la forme reçue et il est compté (`assistant_turn` ou `history`). Sinon, il n’a pas de segment ;
+      - un appel d’outil part en `assistant.tool_calls` (identifiant de la session, `arguments` en chaîne), suivi de sa réponse `role: tool` ; `content` est omis s’il est vide ;
+      - un appel mal formé part en message `assistant` dont `content` est la sortie brute définie par AD-10, suivi d’un message `user` qui porte l’erreur réinjectée.
+    - **Estimation.** Chaque segment porte `estimated = true` et `tokens = ceil(caractères du texte d’origine / chars_per_token)`, réglable dans `wavestack.toml`. Un segment `template` sans texte, libellé « Gabarit appliqué chez le fournisseur (estimé) », porte l’écart.
+    - **Avant l’envoi**, le total vaut la somme des estimations × `ratio`, réparti par la même règle qu’après l’appel. Le `ratio` est le dernier `usage.prompt_tokens / somme des estimations` d’un **appel réel** (jamais du test), borné à [0,8 ; 1,5], initialisé par `estimate_ratio` de `wavestack.toml`, et tenu par (modèle, `main` ou `sub`) : tous les `sub{n}` partagent le même.
+    - **Dépassement en mode chat.** Il n’est bloquant (AD-9) que si la somme brute des estimations dépasse `usable`. Si seul le total corrigé dépasse, l’appel part avec l’avertissement « estimation incertaine », et le 400 « contexte dépassé » du fournisseur fait foi (AD-16).
+    - **Après l’appel**, `usage.prompt_tokens` fait foi pour le total. La session émet `context_reconciled`, avec les mêmes champs de jauge que `context_rendered` (AD-9). L’écart réel va au segment « chez le fournisseur » ; s’il est négatif, les estimations sont réduites en proportion (arrondi par plus forts restes) et l’écart vaut 0. La somme est égale au total. Les projections remplacent segments et ventilation de `context_rendered` par ceux-ci, et le front n’additionne ni ne répartit rien. Sans `usage` (annulation, erreur), aucun `context_reconciled` n’est émis.
+    - Le contrôle d’ajout seul ne s’applique pas.
+    - L’interface marque « ≈ » toute valeur `estimated`, et le total sauf quand `usage_source = api` : c’est un matériau pédagogique (un harnais cloud compte sans tokenizer local).
   - **Ajout seul pendant un tour.** Le rendu du gabarit fait foi, et l’ajout seul est un contrôle, pas une hypothèse. La session compare les ids de l’appel n+1 à ceux de l’appel n suivis de sa sortie. Si le préfixe commun est plus court, elle émet `prefix_not_reused{common_tokens}`, et la relecture s’explique dans la trace. Le test de non-régression Qwen3.5 couvre un tour à deux appels.
   - **Étape `transform_context`.** Elle est appelée par la session entre l’assemblage et le rendu, et seulement avant le premier appel d’un tour. C’est là que s’applique la compression (AD-22).
 
-### AD-5 — Le port moteur reçoit du texte déjà rendu, rien de plus
+### AD-5 — Le port moteur reçoit une requête entièrement construite par le harnais, rien de plus
 
-- **Binds:** models, FR-32, FR-34
-- **Prevents:** un adaptateur qui envoie des messages de chat ou ajoute des tokens ; un serveur qui tronque le prompt en silence.
-- **Rule:** Le port `Engine` est synchrone : `complete(prompt_ids | prompt_text, stop, max_tokens, cancel) → flux de fragments`, `tokenize(str) → ids`, `token_pieces(ids) → list[bytes]`, `metadata()`, `close()`.
+- **Binds:** models, FR-32, FR-34, FR-43
+- **Prevents:** un adaptateur qui ajoute des tokens, des messages ou des champs à la requête ; deux « corps exacts » différents pour un même appel ; un serveur qui tronque le prompt en silence ; un préréglage qui échoue dès le premier appel.
+- **Rule:** Le port `Engine` est synchrone : `complete(request: RenderedPrompt | ChatBody, cancel) → flux de fragments`, `tokenize(str) → ids`, `token_pieces(ids) → list[bytes]`, `metadata()`, `close()`.
+  - `RenderedPrompt{ids | text, stop, max_tokens}` sert aux adaptateurs de texte rendu ; `ChatBody{body: bytes}` à `openai_chat` (AD-4, mode chat).
   - **`llama_cpp`** (en processus, par défaut) : reçoit les ids tokenisés par le harnais. `tokenize` encode en UTF-8 et appelle `tokenize(..., add_bos=False, special=True)`. `token_pieces` appelle `llama_cpp.llama_token_to_piece(..., special=True)` et réagrandit le tampon quand le retour est négatif. `Llama.detokenize` est interdit ici, car son tampon de 32 octets tronque sans erreur.
   - **`llama_server`** (`/completion`) : reçoit également les ids. Son tokenizer vient de `/tokenize`, et `token_pieces` de `/tokenize` avec `with_pieces: true`.
   - **`ollama_raw`** (`/api/generate`, `raw: true`) :
     - reçoit la chaîne et envoie toujours `options.num_ctx`, égal à la fenêtre effective ;
     - si le `prompt_eval_count` renvoyé diffère du compte du harnais, un événement `harness_error` « transparence réduite » est émis ;
     - son tokenizer et `token_pieces` viennent du GGUF ouvert en `vocab_only`, soit environ 80 Mo, comptés par AD-8, avec le même code que `llama_cpp`.
-  - Aucun adaptateur au format chat ni « compatible OpenAI » en V1.
+  - **`openai_chat`** (`POST {base_url}/chat/completions`, en streaming) :
+    - reçoit le `ChatBody` et l’envoie octet pour octet ; il ne pose que deux en-têtes, `Content-Type: application/json` et l’en-tête d’authentification. `metadata()` déclare `input: chat`, et `tokenize` et `token_pieces` sont indisponibles. Un test vérifie que le corps envoyé est égal à `context_rendered.body` et au corps d’`outbound_request` du même `call_id` ;
+    - le client HTTP vient de `net` (AD-15). La clé vient de `config.cloud_key(entry)` seulement (AD-20), et elle est placée, requête par requête, dans l’en-tête déclaré par l’entrée (`Authorization: Bearer` par défaut ; Azure par son API v1 seulement, `base_url` en `…/openai/v1`, `Bearer`) ;
+    - **usage** : lu dans le dernier fragment qui porte `usage`, sinon `x_groq.usage` ; à défaut, `usage_source = estimate`. Un fragment sans `choices` (Azure) ne sert qu’à l’usage ;
+    - **canaux** : `delta.content` est une chaîne ou une liste de blocs ; un bloc `thinking` va au canal `reasoning`, un bloc `text` au canal `text`. Les champs `reasoning` et `reasoning_content` vont au canal `reasoning`. Pour `reasoning.format = think_tags`, le séparateur d’AD-6 retire les balises `<think>` du texte ;
+    - **appels d’outils** : les fragments `tool_calls` s’accumulent par `index`, sinon par `id`, et tous les éléments d’un delta sont lus ;
+    - **fin** : `finish_reason` `stop` et `tool_calls` → `stop`, `length` → `length`, `content_filter` et tout autre → `error`. Un code HTTP d’erreur, un objet `error` ou une ligne non SSE reçus après un 200 terminent l’appel par `stop_reason: error` (AD-16), sauf `tool_use_failed`, en 400 ou dans le flux, qui suit la voie de l’appel mal formé (AD-10). L’annulation ferme le flux.
+  - Les autres adaptateurs reçoivent toujours du texte rendu.
   - Les adaptateurs streament toujours en interne et testent le `CancelToken` à chaque fragment.
 
 ### AD-6 — Registre des capacités par famille de modèle
 
-- **Binds:** models, bricks, FR-9, FR-13, FR-15, FR-33
+- **Binds:** models, bricks, FR-9, FR-13, FR-15, FR-33, FR-43
 - **Prevents:** un parseur d’appels d’outils ou un repérage du raisonnement improvisés par chaque brique ou par le front.
 - **Rule:** Le registre associe à chaque famille (détectée par `general.architecture` et le gabarit) :
   - son `tool_call_parser` (par exemple le XML `qwen3_coder`) ;
@@ -203,6 +233,10 @@ Règles de dépendance :
   - sa taille de contexte native.
 
   Pour une famille inconnue, les données sont lues dans le GGUF. Un GGUF sans `chat_template` est « incompatible », avec la raison. Le registre est réévalué à chaque changement de modèle.
+  - **Modèle cloud.** Il n’a pas de fichier. Ses capacités (`tools`, `reasoning`, `context`) sont **déclarées** dans son entrée `[[cloud.models]]` (AD-20). Son parseur d’appels d’outils est le format structuré de l’API. Une capacité non déclarée est absente.
+    - **Raisonnement.** La brique raisonnement contribue au `TurnState` les paramètres `reasoning.on` ou `reasoning.off` de l’entrée ; `context` les écrit dans le corps (AD-4). Si `reasoning.always` est vrai, la réserve est celle du raisonnement même brique éteinte, et la brique s’affiche « toujours active pour ce modèle », avec sa raison. Un delta de raisonnement reçu est toujours affiché dans son canal.
+    - **Sans `tools` déclaré**, le mode `model` est indisponible. Le mode `forced` reste disponible, rendu en injection (segment `tool_result` dans le message de l’utilisateur, AD-4), avec sa raison.
+    - Le raisonnement caché par un fournisseur (compté en sortie, jamais transmis) est ignoré en V1.
   - **Disponibilité par mode.** Elle se calcule par mode d’action : `model` (décidée par le modèle), `forced` (forcée par l’utilisateur) et `injection` (contenu mis dans le contexte). Sans parseur connu, le mode `model` est indisponible, avec sa raison, mais `forced` et `injection` restent disponibles. Ce calcul a lieu au point unique d’AD-12.
 
 ### AD-7 — Découverte des modèles, et sonde avant le premier chargement
@@ -223,7 +257,7 @@ Règles de dépendance :
 
 ### AD-8 — Budget mémoire mesuré et registre de chargement
 
-- **Binds:** models, rag, compression, mcp, FR-32, NFR-2
+- **Binds:** models, rag, compression, mcp, FR-32, NFR-2, FR-43
 - **Prevents:** des composants qui se chargent sans se voir ; un dépassement de budget découvert trop tard ; deux modèles de langage en mémoire.
 - **Rule:** Tout composant lourd passe par le `LoadRegistry` : modèle, tokenizer `vocab_only`, embedding, reranker, compresseur, modèle d’un serveur externe.
   - **Refus.** Le registre refuse le chargement quand `RSS mesuré (psutil) de WaveStack et de ses processus enfants + coût estimé` dépasse le budget configuré (4 Go par défaut). Le message en français est chiffré.
@@ -231,20 +265,25 @@ Règles de dépendance :
   - **Cycle de vie.** Un composant se charge à l’activation de sa brique et se libère (`close()`) à sa désactivation.
   - **Mode serveur.** Le modèle en processus est libéré, et la mémoire du modèle servi est comptée : `/api/ps` pour Ollama, taille du fichier pour llama-server. En quittant Ollama, l’adaptateur envoie `keep_alive: 0`.
   - Le diagnostic affiche la même mesure.
+  - **Modèle cloud.** Son coût mémoire est nul. Quand il devient le modèle actif (AD-3), le modèle local n’est pas chargé, ou il est libéré ; les composants locaux (embedding, reranker) restent comptés.
 
 ### AD-9 — Fenêtre de contexte, réserve de sortie, jauge et aperçu
 
-- **Binds:** context, models, FR-41, NFR-1, NFR-8, FR-21, FR-38
+- **Binds:** context, models, FR-41, NFR-1, NFR-8, FR-21, FR-38, FR-43
 - **Prevents:** une jauge calculée sur la taille native, ou qui affiche 95 % sur un appel déjà refusé ; un appel qui déborde envoyé quand même ; une jauge qui ne bouge qu’après l’envoi.
 - **Rule:**
   - **Fenêtre effective** = min(fenêtre configurée, contexte natif, contexte du serveur). La fenêtre configurée vaut **4 096 tokens par défaut** et se règle dans l’interface et dans la configuration ; un changement recharge le modèle (classe b).
+    - **Modèle cloud** : min(`window` de l’entrée, sinon fenêtre configurée ; `context` ; `tpm // 2`). Un changement de fenêtre ne recharge rien et prend effet au tour suivant ; le réglage est désactivé si `window` est déclaré, avec la raison. Une entrée dont `tpm // 2` ne dépasse pas la plus grande réserve (1 536) est indisponible, avec la raison.
+    - Les événements de jauge portent `window_source: configured|native|server|tpm|override`.
+    - **Quota par minute.** Un fournisseur compte `prompt + max_tokens` par appel, et chaque appel tient dans la fenêtre. Avec un plafond de `tpm // 2`, un tour avec un appel d’outil (deux appels) tient donc dans la minute : 4 000 tokens pour Groq gpt-oss-120b (8 000 par minute).
+    - Au-delà, le 429 en plein tour est assumé comme matériau pédagogique : erreur expliquée (AD-16), sans attente ni nouvel essai.
   - **Réserve de sortie** : 512 tokens, ou 1 536 quand la brique raisonnement est active. `usable = fenêtre − réserve`. Chaque appel est envoyé avec `max_tokens = réserve`.
   - **Dépassement.** Si le contexte dépasse `usable`, l’appel n’est pas envoyé : `context_overflow`, puis `turn_ended{status: overflow}`.
   - **Sortie coupée.** Quand `model_call_ended.stop_reason = length`, la session émet `output_truncated`, avec le canal en cours.
     - Dans le raisonnement ou le texte, le tour se termine par `turn_ended{status: limit}` et n’entre pas dans l’historique (AD-17).
     - Dans un appel d’outil, il suit la voie de l’appel mal formé (AD-10).
   - **Sous-agent.** Dans un contexte `sub{n}`, un dépassement ou une sortie coupée terminent la délégation, pas le tour (AD-11).
-  - **Calcul côté session.** `context_rendered` porte `window`, `reserve`, `usable`, `used`, `percent = used / usable`, `near_limit` (seuil 0,8, défini dans `wavestack.toml`), `overflow` et la ventilation par type de segment, tous calculés par la session.
+  - **Calcul côté session.** `context_rendered` porte `window`, `window_source`, `reserve`, `usable`, `used`, `percent = used / usable`, `near_limit` (seuil 0,8, défini dans `wavestack.toml`), `overflow` et la ventilation par type de segment, tous calculés par la session. Une seule fonction produit ces champs pour `context_rendered`, `context_preview` et `context_reconciled`.
   - **Aperçu.** Après chaque changement de configuration, la session émet `context_preview`, avec les mêmes champs et `turn_id = null`. Il est calculé sans message ni extraits RAG. La jauge l’affiche comme « prochain tour ».
   - **Scénarios fournis.** Chaque scénario déclare `expects_overflow`. Un test pytest marqué `model` rend, avec le tokenizer du modèle par défaut (GGUF ouvert en `vocab_only`), le contexte du premier appel du scénario, puis vérifie qu’il tient, ou qu’il déborde si le drapeau le demande. Le test est sauté si le GGUF est absent. Ce contexte comprend :
     - le premier prompt suggéré ;
@@ -258,7 +297,7 @@ Règles de dépendance :
 
 ### AD-10 — Bornes de la boucle de tour
 
-- **Binds:** session, FR-15, FR-29, FR-42, NFR-8
+- **Binds:** session, FR-15, FR-29, FR-42, NFR-8, FR-43
 - **Prevents:** des compteurs différents selon la brique ; une boucle infinie ; des bornes rattachées à une brique qu’on peut éteindre.
 - **Rule:** La boucle agent appartient au cœur de la session, pas à une brique.
   - **Bornes par défaut :**
@@ -266,12 +305,15 @@ Règles de dépendance :
     - 2 nouveaux essais par tour après un appel mal formé, comptés dans les 6 ;
     - 4 appels pour le sous-agent, sur un compteur propre ; sa délégation compte pour 1 dans le tour principal.
   - Une action forcée ne consomme pas d’appel.
+  - **Appel mal formé.** C’est une sortie que le parseur ne sait pas lire, un outil inexistant, une sortie coupée dans un appel d’outil (AD-9), et, en mode chat, des `arguments` qui ne sont pas du JSON valide ou le refus `tool_use_failed` du fournisseur. Il suit la voie du nouvel essai, jamais la fin du tour en erreur.
+    - En mode chat, si une sortie contient au moins un appel invalide, toute la sortie suit cette voie : aucun appel n’est exécuté ni ne reçoit d’identifiant.
+    - La sortie brute réinjectée est `failed_generation` s’il existe, sinon `content` suivi, pour chaque appel, de `name` et de la chaîne `arguments` telle qu’émise ; jamais `raw_output`.
   - Les bornes sont des réglages de session, modifiables dans l’interface (affichées sur la carte de la brique outils) et dans la configuration.
   - Atteindre une borne du contexte principal émet `limit_reached{limit}`, puis `turn_ended{status: limit}`. Pour la borne `sub_calls`, voir AD-11.
 
 ### AD-11 — Sous-agent : même modèle, contexte minimal, pas un tour
 
-- **Binds:** session, bricks, FR-29, NFR-1, NFR-2
+- **Binds:** session, bricks, FR-29, NFR-1, NFR-2, FR-43
 - **Prevents:** une seconde instance du modèle ; des identifiants en collision ; un sous-agent qui hérite de tout le contexte principal et perd l’économie montrée.
 - **Rule:** Le sous-agent utilise la même instance du moteur, séquentiellement, avec `context_id = sub{n}` (numéroté par session). Ce n’est pas un tour.
   - **Hooks.** Il déclenche `before_model_call`, `before_tool` et `after_tool`, jamais `on_user_message` ni `on_turn_end`.
@@ -283,12 +325,12 @@ Règles de dépendance :
 
     AD-9 s’y applique, avec son propre événement de dépassement.
   - **Résultat.** Seul le résultat entre dans le contexte principal, en `subagent_result`.
-  - **Échec de la délégation.** Un dépassement, une sortie coupée ou la borne `sub_calls` émettent leur événement avec `context_id = sub{n}`, puis `tool_ended{status: limit|overflow}` de `delegate`. Le résultat réinjecté est une erreur en français, et le tour principal continue. `turn_ended` n’est jamais émis depuis un sous-contexte.
-  - **Contexte principal.** Il est préservé par `save_state()` et `load_state()` si le test préalable le confirme pour le modèle hybride. Sinon, il est relu, et la latence s’affiche.
+  - **Échec de la délégation.** Un dépassement, une sortie coupée ou la borne `sub_calls` émettent leur événement avec `context_id = sub{n}`, puis `tool_ended{status: limit|overflow}` de `delegate`. Une issue de fournisseur (AD-16) émet `harness_error` avec `context_id = sub{n}`, puis `tool_ended{status: error}`. Le résultat réinjecté est une erreur en français, et le tour principal continue. `turn_ended` n’est jamais émis depuis un sous-contexte.
+  - **Contexte principal.** Il est préservé par `save_state()` et `load_state()` si le test préalable le confirme pour le modèle hybride. Sinon, il est relu, et la latence s’affiche. En mode chat, il est toujours renvoyé en entier, et aucune préservation d’état n’est tentée.
 
 ### AD-12 — Contrat de brique, disponibilité et schéma dérivés
 
-- **Binds:** bricks, session, web, FR-3, FR-5, FR-6, FR-20, FR-33
+- **Binds:** bricks, session, web, FR-3, FR-5, FR-6, FR-20, FR-33, FR-43
 - **Prevents:** des raisons d’indisponibilité divergentes ; des identifiants de nœuds incompatibles ; un schéma maintenu à la main ; un changement de modèle qui efface les choix de l’utilisateur.
 - **Rule:**
   - **Déclaration.** Chaque brique déclare :
@@ -298,7 +340,8 @@ Règles de dépendance :
     - `contributes_to` ;
     - ses composants `{id: "{brick}.{component}", kind, hosting: local_process|local_file|network_service, edges_to}`, ce qui inclut les hooks H1 à H5 comme composants de la brique hooks.
 
-    Les nœuds fixes sont réservés : `core.harness`, `core.model`, `core.model_sub`, `file.memory`, `file.audit`, `file.demo_dir`, `file.rag_index`. L’unicité des identifiants est vérifiée au chargement.
+    Les nœuds fixes sont réservés : `core.harness`, `core.model`, `core.model_sub`, `file.memory`, `file.audit`, `file.demo_dir`, `file.rag_index`. L’unicité des identifiants est vérifiée au chargement. `core.model` et `core.model_sub` prennent `hosting = network_service` quand le modèle actif est cloud. Ils sont alors dessinés en zone Réseau avec le nom du fournisseur, et les arêtes `core.harness → core.model` et `core.harness → core.model_sub` portent `crosses_boundary`.
+  - **Modèle actif.** `/api/state` et `session_state` portent `active_model{id, label, hosting, provider, disclosure}`, construit par la session à partir du fichier ou de l’entrée cloud. C’est la seule source de l’indicateur de modèle et de son infobulle.
   - **État d’une brique.** Il vaut `wanted` (choix de l’utilisateur ou du scénario ; un changement de modèle ne le modifie jamais) et `available` (calculé en un seul point de la session, par mode d’action selon AD-6, avec sa raison en français). L’état effectif est `wanted ∧ available`.
   - **État d’un composant réseau.** Il vaut `not_contacted`, `available` ou `unavailable`, avec sa raison. Un serveur MCP public est `not_contacted` tant que sa sous-option n’est pas activée (AD-15).
   - **Schéma.** La session dérive le schéma et émet `architecture_changed{nodes, edges}` : zone locale ou réseau, disponibilité et raison, enfants (outils d’un serveur, détail d’un skill), arêtes avec `crosses_boundary`. `GET /api/architecture` en donne le dernier état.
@@ -308,7 +351,7 @@ Règles de dépendance :
 
 ### AD-13 — Points d’accroche du tour et hooks
 
-- **Binds:** session, hooks, FR-26 à FR-28
+- **Binds:** session, hooks, FR-26 à FR-28, FR-43
 - **Prevents:** des hooks qui écrivent eux-mêmes ; des décisions au vocabulaire ou aux effets divergents ; une injection de hook invisible dans le contexte.
 - **Rule:**
   - **Points d’accroche fixes :** `assemble_context`, `transform_context`, `on_user_message`, `before_model_call`, `before_tool`, `after_tool`, `on_turn_end`.
@@ -320,6 +363,7 @@ Règles de dépendance :
     - `after_tool` : `allow`, avec des effets.
   - **Validation humaine.** Sur `ask_human`, la session passe en `awaiting_human` et émet `approval_requested{approval_id, tool, destination, preview}`. Elle attend alors une intention de classe (c), sans délai d’expiration. Un refus est réinjecté dans le contexte ; un arrêt résout l’attente en `cancelled`.
   - Toute décision est émise avec `actor = harness`.
+  - H5 porte sur les outils. Il ne s’applique pas à l’appel au modèle cloud : l’avertissement confirmé au choix du modèle en tient lieu (AD-21).
 
 ### AD-14 — Registre et exécuteur d’outils uniques, outils locaux confinés
 
@@ -344,16 +388,16 @@ Règles de dépendance :
 
 ### AD-15 — Sorties réseau : une fabrique, tout est tracé
 
-- **Binds:** net, tools, mcp, models, cli, FR-13, FR-20, FR-22, FR-37, NFR-3, NFR-4
-- **Prevents:** une donnée qui quitte le poste sans être affichée ; une bibliothèque qui contourne le proxy ou les certificats ; une page tierce qui élargit la liste d’adresses autorisées.
+- **Binds:** net, tools, mcp, models, cli, FR-13, FR-20, FR-22, FR-37, NFR-3, NFR-4, FR-43
+- **Prevents:** une donnée qui quitte le poste sans être affichée ; une bibliothèque qui contourne le proxy ou les certificats ; une page tierce qui élargit la liste d’adresses autorisées ; une clé envoyée à un autre hôte, ou écrite dans la trace ou les journaux.
 - **Rule:**
   - **Fabrique de clients.** `net` fabrique deux clients avec la même configuration : un `httpx.Client` synchrone (outils, `huggingface_hub` via `set_client_factory`, adaptateurs de serveurs) et un `httpx2.AsyncClient` (transport Streamable HTTP de `mcp`). La configuration commune comprend :
     - `truststore` ;
     - le proxy de l’environnement ;
-    - des délais bornés ;
+    - des délais bornés ; l’appel au modèle cloud a ses propres délais (connexion, lecture du flux), déclarés dans `wavestack.toml` ;
     - un hook de requête qui émet `outbound_request` (adresse, corps exact, `origin`) **avant** l’envoi pour toute destination hors boucle locale ;
     - la vérification de la liste d’adresses autorisées ;
-    - des redirections suivies à la main et revérifiées.
+    - des redirections suivies à la main et revérifiées, sauf pour `origin = model`, qui passe `follow_redirects=False` explicitement : un 3xx y devient `harness_error` « redirection refusée ».
 
     L’interface signale tout écart entre l’aperçu H5 et l’envoi.
   - **Au démarrage**, `cli` fait ceci avant tout import d’une bibliothèque tierce :
@@ -369,22 +413,44 @@ Règles de dépendance :
     - **Garde en test.** `pytest` installe la même garde, limitée à la boucle locale. Un test vérifie le blocage sous `ProactorEventLoop`, avec le vrai client MCP.
   - **Hugging Face.** `huggingface_hub` n’est importé que dans `models/download.py`, qui télécharge dans le dossier `models/` d’AD-20 (`local_dir`). Les modèles se chargent toujours par leur chemin, jamais par `from_pretrained`.
   - **Boucle locale.** Elle est réservée aux adaptateurs de modèle et à la découverte ; un outil ne vise jamais la boucle locale.
-  - **Liste d’adresses autorisées.** Elle vient de `wavestack.toml` ou de `settings.json` édité à la main, jamais d’une intention. La garde et `net` lisent la même liste. Par défaut, elle contient : l’adresse de la sonde, `huggingface.co` et `*.hf.co` (les téléchargements y sont redirigés), les serveurs MCP publics et les API des outils natifs.
-  - **Sorties hors brique.** Elles forment une liste fermée, chacune tracée avec `turn_id = null` :
+  - **Liste d’adresses autorisées.** Elle vient de `wavestack.toml` ou de `settings.json` édité à la main, jamais d’une intention. La garde et `net` lisent la même liste. Par défaut, elle contient : l’adresse de la sonde, `huggingface.co` et `*.hf.co` (les téléchargements y sont redirigés), les serveurs MCP publics et les API des outils natifs. S’y ajoute l’hôte de chaque entrée `[[cloud.models]]` à `enabled = true`, lu dans la même configuration (jamais d’une intention).
+  - **Sorties hors brique.** Elles forment une liste fermée :
     - la sonde de connectivité du diagnostic, vers une adresse fixe, avec `origin = diagnostic` ;
-    - le téléchargement d’un modèle (LLM, embedding ou reranker), seulement sur l’intention explicite `download_model`, avec `origin = download`.
+    - le téléchargement d’un modèle (LLM, embedding ou reranker), seulement sur l’intention explicite `download_model`, avec `origin = download` ;
+    - l’appel au modèle cloud choisi explicitement, avec `origin = model`. Il garde la portée de son appel : `turn_id`, `context_id`, `call_id`, `component` `core.model` ou `core.model_sub`, et l’arête ;
+    - le test d’un modèle cloud (`test_cloud_model`), avec `origin = model`.
+
+    La sonde, le téléchargement et le test sont tracés avec `turn_id = null`. Pour un appel au modèle, le corps tracé est le `ChatBody` exact (AD-5), et aucun en-tête n’est tracé.
 
     Toute autre vérification réseau (serveur MCP public, page de démonstration de `fetch_page`) a lieu à l’activation de la brique ou de la sous-option concernée.
   - **Serveur MCP public.** Il n’est contacté (`initialize`, `tools/list`) qu’à l’activation de sa sous-option ; avant, il est dessiné « non contacté ». Une réactivation retente la connexion.
   - **Règle d’adoption.** Une dépendance qui ouvre ses propres connexions n’est adoptée que si elle accepte un client injecté ou fonctionne hors ligne. Son test préalable s’exécute sous la garde.
   - Aucune télémétrie.
+  - **Clé d’un modèle cloud.** Elle n’est envoyée qu’à l’hôte enregistré avec elle (AD-20), et jamais sur une redirection, puisqu’aucune n’est suivie. L’en-tête d’authentification est posé requête par requête par l’adaptateur, jamais sur le client partagé.
+    - La clé est un `SecretStr` de bout en bout : intention, effet, adaptateur.
+    - Elle n’apparaît dans aucun événement, message d’erreur, ligne de `logging`, réponse de l’API locale ni dans `settings.json`. Les loggers `httpx` et `httpcore` restent au niveau `WARNING`, et une réponse d’intention ne renvoie jamais ce qu’elle a reçu.
+    - Toute chaîne venue du fournisseur (erreur, raison du test) passe par un filtre qui masque la clé, ainsi que ses 4 premiers et ses 4 derniers caractères, avant d’entrer dans un événement.
+    - Un test avec une clé sentinelle la cherche dans le journal, les logs capturés, `settings.json`, les réponses `/api/*` et les réponses d’intention.
 
 ### AD-16 — Défaillances contenues
 
-- **Binds:** tous, NFR-8, FR-15, FR-20
+- **Binds:** tous, NFR-8, FR-15, FR-20, FR-43
 - **Prevents:** un plantage en pleine session ; une erreur brute en anglais à l’écran.
 - **Rule:** Aucune exception ne traverse la frontière de la session. Toute erreur d’une brique, d’un outil, du MCP, du réseau, du contenu ou du moteur devient `harness_error` : message en français, cause, effet sur le tour. Le tour se termine avec `turn_ended{status: error}` et l’application reste utilisable.
   - Limite assumée : un plantage natif de llama.cpp en cours d’inférence emporte le processus. La sonde d’AD-7 réduit ce risque au premier chargement.
+  - **Issues d’un appel cloud.** Elles forment une liste fermée. Chacune devient `harness_error`, avec cause (filtrée, AD-15) et pistes en français, sans nouvel essai automatique :
+    - 429 : quota par minute ou par jour ;
+    - 413 : requête plus grosse que le quota par minute, non réessayable (« réduisez la fenêtre ») ;
+    - 400 « contexte dépassé » ;
+    - 400 ou 422, autre cas : requête refusée par le fournisseur, défaut du harnais ou du préréglage, message du fournisseur cité ;
+    - 401 ou 403 : clé refusée ;
+    - 404 : modèle retiré ;
+    - 5xx : fournisseur indisponible ;
+    - 3xx : redirection refusée (AD-15) ;
+    - délai dépassé, ou réseau absent (`NetworkBlocked`, échec DNS) ;
+    - objet `error`, ou ligne non SSE, reçu après un 200.
+
+    `harness_error` porte alors `http_status`, `retry_after_s` et `quota_scope: minute|day|unknown`, construits en Python. Un appel mal formé signalé par le fournisseur (`tool_use_failed`) n’est pas une issue de cette liste : il suit AD-10.
 
 ### AD-17 — Instantané conversationnel, branche et rejeu
 
@@ -406,7 +472,7 @@ Règles de dépendance :
   - **Protection de l’API :**
     - `TrustedHostMiddleware` limité à `127.0.0.1:<port>` et `localhost:<port>` ;
     - tout `POST` dont l’`Origin` n’est pas celle de l’application est refusé ;
-    - intentions en `application/json` seulement ;
+    - intentions en `application/json` seulement ; une erreur de validation d’intention renvoie un message français avec `loc` et `type`, jamais `input` ni `ctx` (gestionnaire de `RequestValidationError`) ;
     - aucun en-tête CORS.
   - **Front.** HTML, CSS et JS en modules natifs, sans compilation. Toute bibliothèque est recopiée dans `static/vendor/`, et les polices dans `static/vendor/fonts/` avec leur licence.
     - `static/tokens.css` reprend les jetons de DESIGN.md sous les mêmes noms ; un test pytest compare les deux.
@@ -416,42 +482,66 @@ Règles de dépendance :
 
 ### AD-19 — Contenus en données, en français
 
-- **Binds:** content, bricks, FR-6, FR-11, FR-12, FR-16, FR-23, FR-38, FR-40, NFR-7, NFR-11
+- **Binds:** content, bricks, FR-6, FR-11, FR-12, FR-16, FR-23, FR-38, FR-40, NFR-7, NFR-11, FR-43
 - **Prevents:** des textes pédagogiques en dur dans le code ; un scénario métier qui exige de modifier le code.
 - **Rule:**
   - **Fichiers.** Tout contenu pédagogique est un fichier en français sous `content/` : scénarios et programme (YAML), explications des briques, libellés des types de segment, prompts système (principal et sous-agent), skills (`SKILL.md` avec en-tête `name` et `description`), corpus RAG, mémoire globale de démonstration, fichiers de démonstration.
   - **Validation.** Le chargeur valide chaque fichier par un modèle pydantic. Un fichier invalide produit `harness_error`, pas un plantage.
   - **Scénario.** Un scénario déclare ses briques `wanted`, ses hooks actifs, ses prompts suggérés et `expects_overflow`. Un scénario qui demande une brique indisponible se lance quand même, avec la brique indisponible et sa raison.
   - **Hooks.** Ce sont du code Python, activés par la configuration et les scénarios.
+  - **Modèles cloud.** Le texte commun de l’avertissement et de l’infobulle, la raison « désactivé sans clé » et l’invite fixe du test sont dans `content/`. Les mentions propres à un fournisseur sont des champs de sa déclaration (AD-20), car un point d’accès interne se déclare hors du dépôt.
 
 ### AD-20 — Données d’exécution hors du dépôt
 
-- **Binds:** config, session, models, FR-12, FR-27 (H2)
-- **Prevents:** des modèles dans OneDrive ou dans le dépôt ; des chemins différents selon les modules.
+- **Binds:** config, session, models, FR-12, FR-27 (H2), FR-43
+- **Prevents:** des modèles dans OneDrive ou dans le dépôt ; des chemins différents selon les modules ; une déclaration cloud lue différemment par chaque module ; un point d’accès ajouté qui efface les préréglages ; une clé partagée par deux fournisseurs.
 - **Rule:**
-  - **Dossier unique.** Toutes les données d’exécution sont sous un seul dossier, configurable : `%LOCALAPPDATA%\WaveStack\` sous Windows, `~/.local/share/wavestack` ailleurs. Il contient `models/`, `memory.json`, `audit.log` et `settings.json`.
+  - **Dossier unique.** Toutes les données d’exécution sont sous un seul dossier, configurable : `%LOCALAPPDATA%\WaveStack\` sous Windows, `~/.local/share/wavestack` ailleurs. Il contient `models/`, `memory.json`, `audit.log`, `settings.json` et `api_keys.json`.
   - **Chemins.** Seul `config` résout ces chemins.
   - **Écriture.** Seule la session écrit ces fichiers, par les effets (AD-23).
   - **Formats :**
     - `memory.json` est une liste `{id, text, created_at, source: model|user|demo}` ;
-    - `audit.log` est en JSON Lines.
+    - `audit.log` est en JSON Lines ;
+    - `api_keys.json` est un objet `{id: {host, key}}`, indexé par l’`id` de l’entrée cloud. L’hôte est enregistré à la saisie. Si l’hôte déclaré a changé depuis, la clé est ignorée (`key_set = false`) et doit être ressaisie. Le fichier n’est jamais lu par `trace` ni renvoyé par l’API locale : le front ne reçoit que `key_set: bool` ;
+    - `settings.json` mémorise le modèle choisi sous la forme `selected_model = {kind: file|server|cloud, ref}` ; une chaîne héritée de la story 1b se lit `{kind: file, ref}`.
+  - **Accès à la clé.** Une seule fonction, `config.cloud_key(entry) → SecretStr | None`, lit `api_keys.json` ; elle renvoie `None` si l’hôte enregistré diffère de celui de `base_url`. L’adaptateur, `key_set`, `test_cloud_model` et `select_model` n’ont pas d’autre accès. Seul `config.write_api_key(id, host, key)` l’écrit, de façon atomique.
+  - **Déclaration d’un modèle cloud.** Un modèle pydantic `CloudModel` unique, dans `config`, avec `extra = "forbid"` et aucun champ de clé :
+
+    ```text
+    CloudModel{id, provider, base_url, model, auth_header{name, scheme}, max_tokens_field,
+               stream_usage, tools, reasoning?, context, tpm?, window?,
+               hosting_fr, training, trial, notes_fr, enabled}
+    reasoning{format: field|content_blocks|think_tags, on, off, always, resend}
+    ```
+
+    - `id` (`[a-z0-9_]+`) est un identifiant WaveStack, distinct de `model`, le nom envoyé à l’API. Il est unique après fusion.
+    - `base_url` est en https (http pour la seule boucle locale), sans paramètre de requête. `auth_header` vaut `{name: Authorization, scheme: Bearer}` par défaut. `max_tokens_field` vaut `max_tokens` ou `max_completion_tokens` (modèles de raisonnement Azure).
+    - `on` et `off` sont les champs que la brique raisonnement ajoute au corps (AD-6) ; `training` vaut `yes`, `no` ou `opt_out`.
+    - **Fusion.** Les entrées de `wavestack.toml` et de `settings.json` fusionnent par `id`, champ par champ, sur les dictionnaires bruts ; `CloudModel` valide le résultat. Une entrée de `settings.json` sans équivalent doit être complète, et `enabled = false` masque un préréglage. Une entrée fusionnée invalide est écartée avec un `diagnostic_check` d’avertissement, sans bloquer le lancement.
+    - `active_model.disclosure` (AD-12) vaut `{hosting_fr, training, trial, notes_fr}` pour un modèle cloud, `null` sinon.
 
 ### AD-21 — Installation, mise à jour, lancement et diagnostic
 
-- **Binds:** packaging, cli, FR-19, FR-35 à FR-37, NFR-5, NFR-6
-- **Prevents:** une compilation sur un poste sans compilateur ; des versions qui dérivent entre postes ; un diagnostic invisible dans le navigateur ; un processus enfant orphelin.
+- **Binds:** packaging, cli, FR-19, FR-35 à FR-37, NFR-5, NFR-6, FR-43
+- **Prevents:** une compilation sur un poste sans compilateur ; des versions qui dérivent entre postes ; un diagnostic invisible dans le navigateur ; un processus enfant orphelin ; un modèle cloud choisi d’office ou sans confirmation.
 - **Rule:**
   - **Paquets.** `uv` seul, aucune commande `pip`.
     - `uv.lock` est versionné, et `requires-python = "==3.13.*"`.
     - `llama-cpp-python` est épinglé sur l’index CPU d’abetlen : `[[tool.uv.index]]` avec `explicit = true`, `[tool.uv.sources]`, et `no-build-package = ["llama-cpp-python"]`.
     - Mise à jour : `git pull` ou une nouvelle archive zip, puis `uv run`, qui synchronise sur le verrou.
-  - **README d’installation (en français).** Il documente `UV_SYSTEM_CERTS=1` derrière un proxy, `UV_PYTHON_INSTALL_MIRROR` si GitHub est bloqué, et les domaines à autoriser : PyPI, `abetlen.github.io`, `github.com` et ses domaines de téléchargement, `huggingface.co` et `*.hf.co`.
+  - **README d’installation (en français).** Il documente `UV_SYSTEM_CERTS=1` derrière un proxy, `UV_PYTHON_INSTALL_MIRROR` si GitHub est bloqué, et les domaines à autoriser : PyPI, `abetlen.github.io`, `github.com` et ses domaines de téléchargement, `huggingface.co` et `*.hf.co`. Il explique aussi la clé d’un modèle cloud et demande le test avant chaque séance.
   - **Lancement** (`uv run wavestack`) :
     1. Réserver le port. S’il est occupé et qu’une instance WaveStack répond à `GET /api/health`, ouvrir le navigateur sur cette instance et quitter avec le code 0. Sinon, message français (port en conflit, option `--port`), code non nul.
     2. Démarrer le serveur en état `diagnostic` et ouvrir `/diagnostic`.
     3. Exécuter les vérifications (mémoire, modèle, réseau) dans le thread de travail. Chacune émet `diagnostic_check{check, status, message_fr, action_fr, blocking}`, écrit dans le terminal et poussé dans le flux : une seule source.
     4. En cas d’échec bloquant, aucune session n’est créée. La page liste les candidats d’AD-7 et un champ de chemin (intention `select_model`), puis relance la vérification.
     5. `GET /api/diagnostic` garde le dernier résultat, ainsi que la version de WaveStack.
+  - **Modèles cloud au diagnostic.**
+    - Le diagnostic liste toujours les modèles cloud déclarés, à côté des candidats d’AD-7, avec un champ de clé masqué (`set_api_key`), un bouton « Tester » (`test_cloud_model`) et « Choisir » (`select_model`). Un choix fait après le chargement vaut pour le prochain lancement : le changement à chaud attend CAP-34.
+    - **Confirmation.** Choisir un modèle cloud passe `select_model{kind: cloud, ref, acknowledged: true}`, envoyé par l’avertissement `cloud-warning` (EXPERIENCE.md). Sans `acknowledged`, la session refuse, avec la raison « avertissement non confirmé ».
+    - **Jamais choisi d’office.** Un modèle cloud n’entre pas dans la règle « un seul fichier utilisable » de la story 1b. Un choix explicite mémorisé est repris au lancement, sans réafficher l’avertissement.
+    - **Au lancement**, un modèle cloud mémorisé est utilisable s’il est déclaré, que `key_set` est vrai et que l’hôte correspond. Aucune requête réseau n’est faite : un défaut réseau se découvre au premier appel ou au test. Sinon, un avertissement, puis la règle de démarrage.
+    - **Test.** « Tester » envoie l’invite et l’outil fixes de `content/`, sans aucune donnée de l’utilisateur, avec le corps réel du modèle (outils, paramètres de raisonnement déclarés). Il fait au plus deux appels, le second avec une réponse d’outil fixe, pour valider les identifiants et le préréglage. Sa portée : `turn_id = null`, `context_id = diag`, `call_id = diag.{n}.c{k}`, `step_id = diag.{n}.s{k}`. Il émet les `model_call_*`, puis `diagnostic_check{check: cloud_test, …}` avec la réponse, l’appel d’outil reçu et le débit. Il n’entraîne pas le `ratio` d’AD-4. Il n’exige pas la confirmation, et sa ligne dit ce qui part : une requête fixe, la clé et l’adresse IP du poste.
   - **Processus.** Le serveur MCP local (`MCPServer`, stdio) démarre à l’activation de la brique MCP, avec `sys.executable -m …`, et s’arrête à sa désactivation. À l’arrêt, le `lifespan` ferme les moteurs et les processus enfants : attente bornée, puis `terminate`.
   - **Modèles.** Rien ne se télécharge automatiquement.
     - Le diagnostic propose le bouton « Télécharger » (intention `download_model`, classe b, état `download`). Il passe par `models/download.py` (AD-15) et affiche une progression chiffrée.
@@ -468,7 +558,7 @@ Règles de dépendance :
 
 ### AD-23 — Effets typés, appliqués par la session seule
 
-- **Binds:** session, tools, hooks, bricks, FR-12, FR-24, FR-27 (H2), FR-42
+- **Binds:** session, tools, hooks, bricks, FR-12, FR-24, FR-27 (H2), FR-42, FR-43
 - **Prevents:** plusieurs écrivains de la mémoire globale ou du journal d’audit ; des formats de fichier divergents ; un nœud de fichier que le schéma ne peut pas allumer.
 - **Rule:**
   - **Principe.** Un outil, un hook ou une brique n’écrit ni état ni fichier : il renvoie des `Effect`. C’est une union pydantic dans `session/effects.py` :
@@ -476,24 +566,27 @@ Règles de dépendance :
     - `AuditAppend{lines}` ;
     - `SkillLoaded{skill_id}` ;
     - `ToolDocLoaded{tool}` ;
-    - `ArmConsumed{armed_id}`.
+    - `ArmConsumed{armed_id}` ;
+    - `SettingWrite{key, value}`, jamais un secret : `settings.json`, dont `selected_model` et les succès de la sonde ;
+    - `ApiKeySet{id, host, key: SecretStr}`, appliqué par `config.write_api_key` seul. `effect_applied` n’en porte que `{kind, id, key_set}`, avec `component = null` : le fichier des clés n’est pas dessiné.
+  - La session minimale du diagnostic applique les effets par le même applicateur.
   - **Application.** La session applique les effets dans l’ordre et persiste. Elle émet `effect_applied`, avec le `component` du fichier touché (`file.memory`, `file.audit`).
   - **Tiroir d’édition.** Il produit les mêmes effets, par intention de classe (b).
   - **Journal de trace.** `trace` n’écrit aucun fichier.
 
 ### AD-24 — Modèle d’exécution et annulation
 
-- **Binds:** session, web, models, mcp, net, FR-1, NFR-1, NFR-8
+- **Binds:** session, web, models, mcp, net, FR-1, NFR-1, NFR-8, FR-43
 - **Prevents:** une boucle asyncio bloquée pendant l’inférence ; deux boucles asyncio en concurrence ; un arrêt qui n’arrête rien ; une attente H5 éternelle.
 - **Rule:**
   - **Thread de travail.** Un seul thread exécute les tours, les chargements de modèle, la réinitialisation et le diagnostic. La session et le port `Engine` y sont synchrones.
   - **Boucle asyncio.** Celle de FastAPI reçoit les intentions et sert le SSE ; elle ne touche jamais l’état. Les clients MCP vivent sur cette boucle. Le thread de travail les appelle par `run_coroutine_threadsafe(...).result(timeout)`, en copiant la `TraceScope`.
   - **Journal.** C’est une liste protégée par un verrou. Les abonnés SSE sont réveillés par `loop.call_soon_threadsafe`.
-  - **Annulation.** Un `CancelToken` est passé à tout appel bloquant des ports : moteur, exécuteur, `net`, attente H5. La lecture du contexte par llama.cpp n’est pas interruptible : l’interface affiche « arrêt demandé » jusqu’au premier fragment.
+  - **Annulation.** Un `CancelToken` est passé à tout appel bloquant des ports : moteur, exécuteur, `net`, attente H5. La lecture du contexte par llama.cpp n’est pas interruptible, pas plus que l’attente du premier fragment d’un fournisseur cloud : l’interface affiche « arrêt demandé » jusqu’au premier fragment.
 
 ### AD-25 — Méta-outils du harnais et actions forcées
 
-- **Binds:** bricks, tools, session, FR-12, FR-21, FR-24, FR-25, FR-29, FR-42
+- **Binds:** bricks, tools, session, FR-12, FR-21, FR-24, FR-25, FR-29, FR-42, FR-43
 - **Prevents:** des actions décidées par le modèle qui échappent aux hooks ; une action forcée rendue dans le contexte de plusieurs façons.
 - **Rule:**
   - **Méta-outils.** Les actions de FR-42 hors outils sont des outils du harnais (`source = harness`), déclarés par leur brique et passés par l’exécuteur unique :
@@ -506,9 +599,9 @@ Règles de dépendance :
     - `load_tool_doc` → `tool_catalog` (brique `mcp`) ;
     - `delegate` → `subagent_result` ;
     - `remember` → `tool_result` (brique `global_memory`).
-  - **Lazy loading.** Les outils MCP ne figurent pas dans la variable `tools`. Leur liste, une ligne par outil, est dans la description de `load_tool_doc`, dans un segment `tool_catalog` par outil. La documentation chargée entre en réponse d’outil pendant le tour (effet `ToolDocLoaded`), puis dans la variable `tools` aux tours suivants. L’exécuteur tient pour chargée toute documentation du `TurnState` ou de `loaded_in_turn` (AD-4) : l’outil qu’on vient de documenter est donc appelable dans le même tour. Appeler un outil dont la documentation n’est pas chargée produit une erreur réinjectée.
+  - **Lazy loading.** Les outils MCP ne figurent pas dans la variable `tools`. Leur liste, une ligne par outil, est dans la description de `load_tool_doc`, dans un segment `tool_catalog` par outil. La documentation chargée entre en réponse d’outil pendant le tour (effet `ToolDocLoaded`), puis dans la variable `tools` aux tours suivants. L’exécuteur tient pour chargée toute documentation du `TurnState` ou de `loaded_in_turn` (AD-4) : l’outil qu’on vient de documenter est donc appelable dans le même tour. Appeler un outil dont la documentation n’est pas chargée produit une erreur réinjectée, sauf par une action forcée, qui ajoute la définition de son outil à `tools`.
   - **Tours suivants.** La réponse d’un méta-outil de chargement reste dans l’historique sous forme de talon court (AD-4), pour ne pas compter deux fois son contenu.
-  - **Action forcée.** Elle est rendue comme un appel d’outil de l’assistant, suivi de sa réponse, placé après le message de l’utilisateur. Elle porte `trigger = user`, et ses segments restent attribués à la brique.
+  - **Action forcée.** Elle est rendue comme un appel d’outil de l’assistant, suivi de sa réponse, placé après le message de l’utilisateur. Elle porte `trigger = user`, et ses segments restent attribués à la brique. Son identifiant vient de la session (AD-4). En mode chat, la définition de son outil figure dans `tools` ; sans `tools` déclaré, elle est rendue en injection (AD-6).
 
 ## Consistency Conventions
 
@@ -516,13 +609,13 @@ Règles de dépendance :
 | --- | --- |
 | Langue | Tout ce qui s’affiche, les contenus sous `content/` et la documentation utilisateur sont en français. Le code, les identifiants, les commentaires, les docstrings, les messages de commit et la documentation développeur sont en anglais. |
 | Nommage | Modules et fonctions en `snake_case`, classes en `PascalCase`. Les `kind`, `id` de brique et `SegmentKind` sont en `snake_case` anglais. Les libellés français sont dans `content/`. |
-| Identifiants | `turn_id` = `t{n}` ; `context_id` = `main` ou `sub{n}` ; `call_id` = `{turn_id}.{context_id}.c{n}` ; `step_id` = `{turn_id}.{context_id}.s{n}` ; `segment.id` = `{call_id}.{n}` ; composant = `{brick}.{component}` ; outil MCP = `{server_id}__{tool}`. |
+| Identifiants | `turn_id` = `t{n}` ; `context_id` = `main` ou `sub{n}` ; `call_id` = `{turn_id}.{context_id}.c{n}` ; `step_id` = `{turn_id}.{context_id}.s{n}` ; `segment.id` = `{call_id}.{n}` ; composant = `{brick}.{component}` ; outil MCP = `{server_id}__{tool}` ; `tool_call_id` = 9 caractères `[A-Za-z0-9]` hachés de `{step_id}#{index}` ; test d’un modèle cloud : `context_id` = `diag`, `call_id` = `diag.{n}.c{k}`, `step_id` = `diag.{n}.s{k}` ; modèle cloud = `id` de sa déclaration (`[a-z0-9_]+`). |
 | Temps | ISO 8601 à la milliseconde, avec fuseau, pour les horodatages ; `time.monotonic()` pour les durées. |
 | Formats | pydantic v2 pour les événements, les intentions, les effets, les contenus et la configuration. JSON en UTF-8. |
-| Configuration | Défauts dans `wavestack.toml` (dépôt), surcharges dans `settings.json` (AD-20), écrites par la session seule. |
+| Configuration | Défauts dans `wavestack.toml` (dépôt), surcharges dans `settings.json` (AD-20), écrites par la session seule ; `settings.json` s’édite à la main WaveStack arrêté, et la session le réécrit en gardant les clés inconnues. Les dictionnaires fusionnent en profondeur, les listes sont remplacées, sauf `cloud.models`, qui fusionne par `id` (AD-20). |
 | Messages | Un message français contient ce qui se passe, pourquoi et l’action possible (EXPERIENCE.md, Voice and Tone). Il est construit côté Python et porté par l’événement. |
 | Journalisation | `logging` standard vers la console pour le technique. Le journal d’audit H2 est une donnée de démonstration (AD-23). |
-| Qualité | `ruff` (lint et formatage), `pytest`. Les tests du harnais utilisent un moteur factice qui rejoue des sorties écrites à l’avance. Aucun test ne dépend du réseau : la garde d’AD-15 le garantit. Seuls les tests marqués `model` ont besoin d’un vrai GGUF ; ils sont exclus par défaut et sautés si le fichier manque. |
+| Qualité | `ruff` (lint et formatage), `pytest`. Les tests du harnais utilisent un moteur factice qui rejoue des sorties écrites à l’avance. Aucun test ne dépend du réseau : la garde d’AD-15 le garantit. Seuls les tests marqués `model` ont besoin d’un vrai GGUF ; ils sont exclus par défaut et sautés si le fichier manque. `openai_chat` se teste avec un `httpx.MockTransport` injecté par la fabrique `net` : flux SSE, `usage`, 429, 413, `tool_use_failed`, 302, arguments invalides. |
 | Dépendances | Licence compatible avec une redistribution publique (NFR-10), vérifiée avant ajout, et règle d’adoption réseau d’AD-15. |
 
 ## Stack
@@ -572,6 +665,7 @@ flowchart LR
     mcppub["MCP data.gouv.fr<br/>MCP Microsoft Learn"]
     apis["API publiques<br/>jours fériés, Wikipedia, pages autorisées"]
     hf["Hugging Face<br/>téléchargement du modèle"]
+    llmcloud["Fournisseur LLM cloud<br/>Groq, Mistral, point d'accès déclaré"]
   end
   browser <-- "SSE + POST JSON" --> loop
   loop <--> worker
@@ -584,6 +678,7 @@ flowchart LR
   loop == "net, sortie tracée" ==> mcppub
   worker == "net, sortie tracée" ==> apis
   worker == "net, hors brique, tracé" ==> hf
+  worker == "net, sortie tracée, clé hors trace" ==> llmcloud
 ```
 
 ### Déroulé d’un tour
@@ -621,7 +716,7 @@ flowchart TD
 ```text
 wavestack/                      # racine du dépôt
   pyproject.toml  uv.lock       # index llama-cpp épinglé ; script wavestack
-  wavestack.toml                # configuration par défaut, liste d'adresses autorisées
+  wavestack.toml                # configuration par défaut, liste d'adresses autorisées, [[cloud.models]]
   content/                      # FR : scenarios/, bricks/, prompts/, skills/, corpus/, memory/, demo_files/, mcp_snapshots/
   data/rag_index.sqlite         # index sqlite-vec précalculé
   scripts/build_rag_index.py
@@ -630,7 +725,7 @@ wavestack/                      # racine du dépôt
     trace/                      # enveloppe, catalogue, journal, TraceScope
     session/                    # moteur, verrou, intentions, effets, instantanés
     context/                    # SegmentKind, emplacements, render.py, fenêtre
-    models/                     # Engine, adaptateurs, découverte, probe, download, capacités, LoadRegistry
+    models/                     # Engine, adaptateurs (dont openai_chat), découverte, probe, download, capacités, LoadRegistry
     bricks/  tools/  hooks/  mcp/  rag/  compression/  net/  content_loader/
     web/                        # app FastAPI ; static/ (html, tokens.css, js, vendor/, vendor/fonts/)
   tests/
@@ -654,6 +749,7 @@ wavestack/                      # racine du dépôt
 | FR-30, FR-41 : tokens et jauge | `context` | AD-4, AD-9 |
 | FR-31 : compression | `compression` | AD-4, AD-22 |
 | FR-32 à FR-34 : modèles | `models` | AD-5 à AD-8 |
+| FR-43 : modèle cloud | `models`, `context`, `net`, `config`, `session`, `web`, `content` | AD-2 à AD-6, AD-8 à AD-13, AD-15, AD-16, AD-18 à AD-21, AD-23 à AD-25 |
 | FR-35 à FR-37 : installation, diagnostic | `cli`, `config` | AD-20, AD-21 |
 | FR-38, FR-40 : scénarios | `content/scenarios`, `content_loader` | AD-9, AD-19 |
 | NFR-1, NFR-2 | `models`, `context` | AD-8, AD-9, AD-24 |
@@ -683,4 +779,10 @@ wavestack/                      # racine du dépôt
 - **AppLocker et WDAC** face aux DLL non signées : session pilote. Le repli est la démonstration pilotée par le formateur.
 - **Intégration continue** (GitHub Actions, `ruff` et `pytest` sous Windows) : quand le dépôt est publié.
 - **macOS et Linux** : pris en charge au mieux (NFR-6) ; seul `config` porte les différences de chemins.
-- **V2** : adaptateur de serveur au format chat, multi-agent, stratégies RAG avancées, indexation des documents de l’utilisateur.
+- **V2** : serveur local au format chat comme voie visée, multi-agent, stratégies RAG avancées, indexation des documents de l’utilisateur.
+- **GCP Vertex** : son point d’accès compatible OpenAI exige un jeton OAuth de courte durée, pas une clé statique. Il est hors de la story 11. Un point d’accès interne Wavestone derrière une passerelle à clé fonctionne par simple configuration.
+- **Renvoi du raisonnement en mode chat** : déclaré par entrée (`reasoning.resend`, vrai pour Mistral). Pour gpt-oss, à revoir si le test ou les premiers tours montrent des boucles d’outils dégradées.
+- **Empreinte de la déclaration mémorisée avec la confirmation**, pour redemander l’avertissement si les mentions du fournisseur changent : à revoir si une déclaration change entre deux séances.
+- **Message assistant avec texte et appel d’outil chez Mistral** : un refus en 422 est signalé par une source unique ; par défaut, `content` est omis s’il est vide et gardé sinon. Le test le révélera.
+- **`openai_chat` vers la boucle locale** (possible, non visé) : l’entrée est traitée en cloud (zone Réseau, mémoire nulle). À revoir si un formateur l’utilise.
+- **Espacement des appels d’après `x-ratelimit-*`** : écarté en V1 (AD-9). À revoir si le 429 en plein tour gêne les séances plus qu’il n’enseigne.

@@ -1,0 +1,117 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Validation spine cloud</title><style>
+:root{--bg:#fbfaf7;--fg:#1d1d1f;--muted:#5b5b66;--card:#fff;--line:#e4e2dc;--crit:#b3261e;--high:#c2570c;--med:#8a6d00;--low:#4b5563;--ok:#2e7d32;--code:#f1efe9}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16161a;--fg:#ececf1;--muted:#a0a0ab;--card:#1f1f25;--line:#2e2e36;--crit:#ff7b72;--high:#ffa657;--med:#e3b341;--low:#9ca3af;--ok:#7ee787;--code:#26262d}}
+:root[data-theme="dark"]{--bg:#16161a;--fg:#ececf1;--muted:#a0a0ab;--card:#1f1f25;--line:#2e2e36;--crit:#ff7b72;--high:#ffa657;--med:#e3b341;--low:#9ca3af;--ok:#7ee787;--code:#26262d}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,"Segoe UI",sans-serif;margin:0;padding:24px 16px}
+main{max-width:860px;margin:auto}
+h1{font-size:1.7rem;margin:.2em 0 .6em}
+h2{margin-top:2em;padding-bottom:.3em;border-bottom:2px solid var(--line)}
+h2.sev{border-bottom-width:3px}.crit{border-color:var(--crit)!important;color:var(--crit)}.high{border-color:var(--high)!important;color:var(--high)}.med{border-color:var(--med)!important;color:var(--med)}.low{border-color:var(--low)!important;color:var(--low)}.ok{border-color:var(--ok)!important;color:var(--ok)}
+h3{background:var(--card);border:1px solid var(--line);border-radius:8px 8px 0 0;padding:.6em .9em;margin:1.4em 0 0;font-size:1.05rem}
+h3+ul{background:var(--card);border:1px solid var(--line);border-top:0;border-radius:0 0 8px 8px;margin:0;padding:.6em 1.2em .8em 2em}
+code{background:var(--code);padding:.1em .35em;border-radius:4px;font-size:.9em;overflow-wrap:anywhere}
+p,li{overflow-wrap:anywhere}
+.meta{color:var(--muted);font-size:.9rem}
+</style></head><body><main>
+<p class="meta">WaveStack · spec/cloud-llm · 2026-09-24 · rapports détaillés : review-cloud-rubric-reconcile.md, review-cloud-verification.md, review-cloud-adversary.md</p>
+<h1>Validation des amendements cloud du spine (FR-43)</h1>
+<h2>Verdict</h2>
+<p><strong>Les amendements du 2026-09-24 ne suffisent pas encore pour lancer la story 11.</strong> Ils reprennent fidèlement le §4.4 de la proposition, et AD-3 et AD-21 vont même un peu au-delà. Mais ils ont été greffés sur des AD écrits pour du texte rendu localement :
+- quatre formes partagées restent à inventer par la story 11 : le port moteur, les identifiants d'appels d'outils, les tokens réconciliés et le schéma de <code>[[cloud.models]]</code> ;
+- la clé peut fuir sans enfreindre la lettre des règles ;
+- le préréglage Mistral échouerait dès le premier appel.</p>
+<p>Il faut une passe <strong>Update</strong> ciblée sur environ 10 AD existants. Aucun nouvel AD n'est nécessaire, aucun ID n'est renuméroté. Deux décisions reviennent au porteur : le quota par minute, et la confirmation de l'avertissement.</p>
+<p><strong>Relecteurs</strong> (subagents indépendants) :
+- rubrique et réconciliation : 22 constats ;
+- vérification web : 8 affirmations examinées ;
+- adversaire : 13 paires.</p>
+<p><strong>Lint</strong> : 33 alertes « placeholder », toutes des faux positifs. Ce sont des jetons de format documentés, comme <code>{turn_id}</code>.</p>
+<h2 class="sev crit">Critiques</h2>
+<h3>C1. AD-5 se contredit, et « le JSON exact » désigne deux corps différents</h3>
+<ul>
+<li><strong>Constat.</strong> Le titre (« reçoit du texte déjà rendu, rien de plus ») et le Prevents (« un adaptateur qui envoie des messages de chat ») interdisent ce que la règle amendée autorise. La signature <code>complete(prompt_ids | prompt_text, …)</code> n'a pas été étendue. Une unité ajoutera <code>complete_chat</code>, une autre passera <code>json.dumps(body)</code> par la signature existante. Par ailleurs, <code>context_rendered</code> (AD-4) et <code>outbound_request</code> (AD-15) promettent chacun « le JSON exact ». Or l'adaptateur ajoute <code>model</code>, <code>stream</code> et <code>max_tokens</code>, donc les deux corps diffèrent.</li>
+<li><strong>Correctif.</strong> Amender le titre, le Prevents et la signature d'AD-5 : <code>complete(request: RenderedPrompt | ChatBody, …)</code>. <code>context</code> construit le corps complet. L'adaptateur n'y ajoute que les en-têtes. Un test vérifie que le corps envoyé est identique octet pour octet à celui de <code>context_rendered</code>. Amender aussi le titre et le Prevents d'AD-4 (« tokens attribués exactement »).</li>
+</ul>
+<h3>C2. L'historique (AD-4) n'a pas d'identifiant d'appel d'outil</h3>
+<ul>
+<li><strong>Constat.</strong> L'historique stocke <code>tool_calls: [{name, arguments}]</code>. Le format chat exige un <code>tool_call_id</code>, des arguments en chaîne et exactement une réponse <code>tool</code> par appel. Mistral n'accepte que des ids de <strong>9 caractères alphanumériques</strong> (vérification web). Les actions forcées (AD-25) et les ids Groq rejoués échoueraient.</li>
+<li><strong>Correctif.</strong> La session attribue l'id au moment où l'appel est créé (modèle, sous-agent ou action forcée), au format <code>[A-Za-z0-9]{9}</code>. Il est stocké dans l'historique <code>{id, name, arguments}</code>. L'assembleur ne fabrique jamais d'id.</li>
+</ul>
+<h3>C3. La clé peut partir vers un autre hôte</h3>
+<ul>
+<li><strong>Constat.</strong> Trois chemins :
+  1. <code>api_keys.json {model_id: key}</code> confond deux fournisseurs qui servent le même nom de modèle (<code>openai/gpt-oss-120b</code> chez Groq et OpenRouter).
+  2. Un <code>base_url</code> modifié dans <code>settings.json</code> enverrait la clé déjà saisie au nouvel hôte.
+  3. httpx ne suit pas les redirections par défaut, mais le code livré les suit (<code>tools/network.py:39</code>, <code>follow_redirects=True</code>). Quand il les suit, httpx ne retire que <code>Authorization</code> : l'en-tête <code>api-key</code> d'Azure passe.</li>
+<li><strong>Correctif (AD-15, AD-20).</strong> Un <code>id</code> local unique par entrée cloud, qui sert de clé à <code>api_keys.json</code>. La clé est liée à l'hôte au moment de la saisie : <code>{id: {host, key}}</code>, et elle est ignorée si l'hôte a changé. <code>follow_redirects=False</code> est explicite pour <code>origin = model</code>. Azure passe par l'API v1 avec <code>Bearer</code>.</li>
+</ul>
+<h2 class="sev high">Hautes</h2>
+<h3>H4. La clé peut entrer dans la trace</h3>
+<ul>
+<li><strong>Constat.</strong> Trois voies : la charge libre d'<code>effect_applied</code>, puisqu'AD-23 ne prévoit aucun effet pour la clé ; la « cause » d'un <code>harness_error</code>, car certains fournisseurs recopient la clé masquée dans leur 401 ; l'écho de l'intention.</li>
+<li><strong>Correctif (AD-20, AD-23, AD-16).</strong> Un effet <code>ApiKeySet{model_id}</code> qui ne porte pas la clé. <code>SecretStr</code> de bout en bout. Les chaînes du fournisseur sont filtrées avant d'entrer dans un événement. Un test avec une clé sentinelle couvre la trace, <code>settings.json</code>, les journaux et <code>/api/*</code>.</li>
+</ul>
+<h3>H5. Le préréglage Mistral ne fonctionne pas en l'état</h3>
+<ul>
+<li><strong>Constat.</strong> Mistral rejette <code>stream_options</code> (422 <code>extra_forbidden</code>). Son raisonnement arrive dans <code>delta.content</code> sous forme de liste de blocs <code>thinking</code> et <code>text</code>, et <code>reasoning_content</code> n'existe pas. Chez Groq, l'usage arrive dans <code>x_groq.usage</code>, et Qwen renvoie son raisonnement dans <code>&lt;think&gt;</code>. Les paramètres qui activent le raisonnement varient selon le fournisseur et le modèle.</li>
+<li><strong>Correctif (AD-5, AD-6).</strong> Rendre déclaratifs, par entrée <code>[[cloud.models]]</code> : <code>stream_usage</code> (booléen), le format du raisonnement (<code>field</code> / <code>content_blocks</code> / <code>think_tags</code>) et les paramètres de raisonnement. Le bouton « Tester » valide la déclaration.</li>
+</ul>
+<h3>H6. Les tokens réconciliés n'ont pas d'événement</h3>
+<ul>
+<li><strong>Constat.</strong> <code>usage.prompt_tokens</code> arrive après <code>context_rendered</code>, et aucun événement ne porte la ventilation corrigée. Le front devrait donc recalculer, ce qui viole AD-1 et le « sans recalcul côté front » de CAP-31. Rien ne marque non plus un segment comme estimé. La règle « concaténation = prompt envoyé » tombe en mode chat sans remplaçant.</li>
+<li><strong>Correctif (AD-2, AD-4).</strong> Un segment porte <code>estimated: bool</code>. En mode chat, <code>context_rendered</code> porte les segments et le <code>body</code> JSON. Après l'appel, un nouveau kind <code>context_reconciled{call_id, segments, total}</code> (ou ces champs sur <code>model_call_ended</code>) remplace les estimations. Rétablir le libellé de D6 : « Gabarit appliqué chez le fournisseur (estimé) ».</li>
+</ul>
+<h3>H7. La liste des erreurs d'AD-16 est incomplète, et D5 s'est perdue</h3>
+<ul>
+<li><strong>Constat.</strong> Manquent :</li>
+<li>le 400 pour un contexte dépassé ;</li>
+<li>le <strong>413 de Groq</strong>, quand une requête seule dépasse le quota par minute : il n'est pas réessayable ;</li>
+<li>les 422 de validation de Mistral ;</li>
+<li>les erreurs envoyées en plein flux, après un 200 ;</li>
+<li><code>tool_use_failed</code> de Groq, qui devrait suivre la voie de l'appel mal formé (AD-10/AD-14) et non terminer le tour.</li>
+</ul>
+<p>Par ailleurs, D5 (« arguments JSON invalides → voie mal formée ») n'a atterri nulle part.
+- <strong>Correctif.</strong> Compléter AD-16. Dans AD-6 ou AD-10 : des arguments JSON invalides et <code>tool_use_failed</code> suivent la voie de l'appel mal formé.</p>
+<h3>H8. <code>max_window</code> ne protège pas le quota par minute <em>(décision du porteur)</em></h3>
+<ul>
+<li><strong>Constat.</strong> Le quota de 8 000 tokens par minute de Groq gpt-oss-120b est confirmé. Groq compte le prompt plus le <code>max_tokens</code> demandé. <code>max_window</code> borne un appel, pas un tour : le 2e appel d'un tour avec outils déclenche très probablement un 429, alors que c'est justement le critère de succès §5 « un tour Groq avec outils ». Le plafond de 200 000 tokens par jour tient mal une demi-journée de formation.</li>
+<li><strong>Options.</strong></li>
+<li>(a) Assumer le 429 comme matériau pédagogique.</li>
+<li>(b) La session espace les appels d'après les en-têtes <code>x-ratelimit-*</code>.</li>
+<li>(c) Fixer une fenêtre par défaut basse pour Groq (environ 3 000).</li>
+<li>(d) Choisir un préréglage Groq au quota plus large.</li>
+</ul>
+<p>La règle « <code>max_window</code> tient compte du TPM » doit devenir une formule, ou disparaître.</p>
+<h3>H9. <code>[[cloud.models]]</code> est une dimension silencieuse</h3>
+<ul>
+<li><strong>Constat.</strong> Aucune AD ne fixe le schéma de l'entrée. Or cette entrée alimente à la fois la configuration, l'infobulle, l'avertissement, AD-6, AD-9 et AD-15. De plus :</li>
+<li><code>_deep_merge</code> (<code>config.py:37</code>) <strong>remplace les listes</strong>, donc un point d'accès ajouté dans <code>settings.json</code> efface Groq et Mistral ;</li>
+<li><code>selected_model</code> est un chemin de fichier ;</li>
+<li>« jamais chargé d'office » (D1, CAP-43) se heurte au choix mémorisé et rechargé de la story 1b.</li>
+<li><strong>Correctif (AD-20 seed, AD-21).</strong> Fixer le schéma : <code>{id, provider, base_url, model, auth_header, stream_usage, reasoning_format, tools, reasoning, context, max_window, window, hosting_fr, training_fr, trial, notes_fr}</code>. Fusionner par <code>id</code> : <code>settings.json</code> ajoute ou remplace une entrée, sans effacer les autres. <code>selected_model</code> devient <code>{kind: file|cloud, ref}</code>. Reformuler : « jamais <strong>choisi</strong> d'office ; un choix explicite mémorisé est repris au lancement, sans réafficher l'avertissement ».</li>
+</ul>
+<h2 class="sev med">Moyennes</h2>
+<ul>
+<li><strong>M10. AD-3, classes d'intentions.</strong> <code>test_cloud_model</code> est en classe (b), donc « refusée hors <code>idle</code> », alors qu'elle sert en état <code>diagnostic</code>. <code>download_model</code> avait déjà ce défaut. <code>set_api_key</code> n'a pas de classe. Correctif : une règle explicite pour l'état <code>diagnostic</code>.</li>
+<li><strong>M11. Confirmation de l'avertissement</strong> <em>(décision du porteur)</em>. Seul le front la garantit. De plus, « Tester » envoie un appel avant la confirmation exigée « avant tout appel » par CAP-43. Correctif proposé : <code>select_model{acknowledged: true}</code>, vérifié par la session, et CAP-43 reformulée (« le test envoie une invite fixe, sans donnée de l'utilisateur »).</li>
+<li><strong>M12. Origine et portée.</strong> L'<code>origin</code> de la <code>TraceScope</code> (AD-2, l. 119) n'inclut pas <code>model</code>. AD-15 range l'appel au modèle parmi les sorties « hors brique » tracées avec <code>turn_id = null</code>, alors qu'il a lieu dans un tour. Correctif : l'appel dans un tour porte son <code>turn_id</code> ; seul <code>test_cloud_model</code> a <code>turn_id = null</code>.</li>
+<li><strong>M13. « Pas de réseau » au lancement.</strong> Le vérifier demanderait une sortie hors de la liste fermée d'AD-15. Correctif : ne vérifier que la présence de la clé, ou passer par la sonde du diagnostic.</li>
+<li><strong>M14. Contenus.</strong> Le texte commun de l'avertissement dans <code>content/</code> n'est pas relié à AD-19 dans la carte des capacités.</li>
+<li><strong>M15. Canal forcé sans <code>tools</code>, raisonnement rendu en chat.</strong> Le raisonnement des tours antérieurs est-il renvoyé ? Une action forcée envoie-t-elle <code>tools</code> ? Ces points sont à trancher dans la table d'emplacements du mode chat (adversaire, P11).</li>
+</ul>
+<h2 class="sev low">Basses</h2>
+<ul>
+<li><strong>L16. Procédure Update.</strong> Le memlog ne contient aucune entrée pour ces amendements, alors qu'il fait autorité. <code>architecture-view.html</code> n'a pas été régénéré. La proposition annonce 11 AD amendés, mais AD-3 l'est aussi : 12 au total.</li>
+<li><strong>L17.</strong> Le débit local et le débit cloud ne sont pas comparables tels quels (tokens de sortie divisés par <code>gen_ms</code> ?). <code>raw_output</code> n'est pas défini en mode chat. Le sous-agent et le rejeu en mode chat sont à vérifier (P12, P13).</li>
+<li><strong>L18.</strong> Les 33 alertes « placeholder » du lint sont des faux positifs.</li>
+</ul>
+<h2 class="sev ok">Ce qui tient</h2>
+<ul>
+<li>La portée et l'esprit : option explicite, aucune dépendance nouvelle (httpx est déjà présent), aucune reprise de code livré.</li>
+<li>La carte des capacités, le schéma des processus et le report de Vertex (le jeton OAuth est confirmé).</li>
+<li>AD-8 (mémoire nulle), AD-12 (nœud en zone Réseau) et la liste autorisée d'AD-15 alimentée par la configuration.</li>
+<li>Azure fonctionne avec un simple <code>base_url</code>, sur l'API v1.</li>
+</ul>
+<h2>Suite proposée</h2>
+<p>Intégrer ces constats par l'intention <strong>Update</strong> du même skill : entrées dans le memlog, amendement d'AD-2, 3, 4, 5, 6, 10, 15, 16, 20 et 21 sans renumérotation, puis nouveau passage du gate. Avant cela, deux décisions sont attendues : H8 (quota) et M11 (confirmation). La proposition de changement et la SPEC (CAP-43, D6) sont à répercuter au même moment.</p></main></body></html>
