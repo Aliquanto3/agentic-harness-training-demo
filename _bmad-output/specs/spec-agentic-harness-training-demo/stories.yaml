@@ -96,11 +96,62 @@
     particulier ask_human/awaiting_human (AD-3, AD-13) pour H5. Point sensible
     (garde-fou, human-in-the-loop) : à faire vérifier avant la story suivante.
 
+- id: "8d"
+  title: Orchestration lisible : rail par tour, préparation du harnais, journal replié
+  description: >-
+    Remplace la liste brute des événements, restée de l'échafaudage de la story 2, par le
+    rail d'étapes groupé par tour (une ligne par étape, étape courante dépliée,
+    « Suivre le direct »), la préparation du harnais (connexions MCP hors tour) et le
+    journal des événements replié en bas du volet (CAP-2, CAP-4). Dès le lancement, aucun
+    texte brut n'est déplié. Origine : sprint-change-proposal-2026-09-25.md.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Réécrire renderSteps et renderJournal (app.js) selon EXPERIENCE.md (turn-rail,
+    turn-group, harness-prep, event-log, données sortantes) et DESIGN.md. Aucun
+    changement de backend, d'événement ni de /api/state (AD-1, AD-2). Maquette de
+    référence : ux-designs/.../.working/maquette-orchestration-schema-v3.html.
+
+- id: "8e"
+  title: Schéma par catégories, points d'accroche et frontière
+  description: >-
+    Bacs par catégorie (outils, serveurs MCP, fichiers, skills), bande « Points
+    d'accroche » des hooks dans le cadre Harnais, zones Poste de travail / Réseau
+    séparées par la frontière, chemin parcouru, arrêt H5 et blocage visibles (CAP-3,
+    FR-3, FR-20). Ferme l'élément de deferred-work sur les arêtes du schéma (6c).
+    Origine : sprint-change-proposal-2026-09-25.md.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Réécrire renderSchema (app.js). Grouper par node.kind et hosting, déjà fournis par
+    architecture_changed (AD-12). Vérifier que tool_started et hook_decided permettent de
+    retrouver l'id du composant en action ; sinon, l'ajouter à leur payload (seul
+    changement de backend admis). Token architecture-band-height à 250 px dans le
+    frontmatter de DESIGN.md, tokens.css et test_web_tokens.py. Même maquette de
+    référence.
+
+- id: "8f"
+  title: Volets redimensionnables
+  description: >-
+    Poignées de gouttière pour redimensionner les volets par glisser-déposer ou au
+    clavier, tailles minimales, double-clic pour rétablir, tailles mémorisées par le
+    navigateur (complète CAP-2 et CAP-3 en salle). Origine :
+    sprint-change-proposal-2026-09-25.md.
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Front seul (app.js, app.css) : tailles en variables CSS de la grille, poignées
+    accessibles (role="separator", aria-valuenow), mémorisation comme la configuration
+    des volets. Aucun changement de backend.
+
 - id: "9"
   title: Déclenchement forcé et rejeu
   description: >-
     L'utilisateur peut forcer toute action (outil, mémoire, skill, MCP) et rejouer
-    le dernier prompt avec une autre configuration (CAP-7, CAP-8).
+    le dernier prompt avec une autre configuration (CAP-7, CAP-8). S'appuie sur le rail
+    par tour (8d) : un tour rejoué devient un nouveau groupe de tour avec le badge
+    « Rejeu » ; une action forcée porte « Forcé par l'utilisateur » sur sa ligne d'étape.
+    La mémoire globale s'ajoute au bac Fichiers du schéma (8e). Dépend de 8d et 8e.
   spec_checkpoint: false
   done_checkpoint: true
   invoke_dev_with: >-
@@ -112,7 +163,10 @@
   title: Scénarios par brique, programme, réinitialisation
   description: >-
     Au moins un scénario par brique, programme en modules, réinitialisation rapide
-    (CAP-40, CAP-41) — clôture le palier 1.
+    (CAP-40, CAP-41) — clôture le palier 1. La réinitialisation ramène Orchestration à
+    « Aucun tour » en gardant la préparation du harnais ; le journal des événements
+    affiché repart de zéro, alors que le journal côté serveur reste complet. Le scénario
+    « Hooks » (UJ-2) s'appuie sur la bande des points d'accroche (8e).
   spec_checkpoint: false
   done_checkpoint: true
   invoke_dev_with: >-

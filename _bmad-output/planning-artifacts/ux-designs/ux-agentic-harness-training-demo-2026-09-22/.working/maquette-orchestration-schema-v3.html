@@ -1,0 +1,1205 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WaveStack · maquette Orchestration et schéma</title>
+<!-- Polices locales de l'application (chemin relatif au dépôt) ; repli système sinon. -->
+<link rel="stylesheet" href="../../../../../src/wavestack/web/static/fonts.css">
+<style>
+/* Maquette du sprint change du 2026-09-25 : propositions A (Orchestration) et B (schéma).
+   Tokens repris de tokens.css (DESIGN.md) ; --k porte le réglage « Aa ». */
+:root {
+  --primary: #451DC7; --primary-deep: #250F6B; --primary-soft: #EDE7FE;
+  --accent: #04F06A; --ink: #0A0A14; --ink-soft: #4A4A5E; --muted: #8A8A9E;
+  --line: #E6E6EC; --surface: #F6F5FA; --white: #FFFFFF;
+  --warning: #FFCA4A; --danger: #FF2A49;
+  --relief: #D9D0F6; --relief-active: #C9BCF5; --dot: #D6CCF5;
+  --seg-system: #6B4EE6; --seg-memory: #27B060; --seg-tools: #2A78D6; --seg-history: #B39CF7;
+  --seg-rag: #0E8C7E; --seg-results: #E0762B; --seg-message: #9C5BB5;
+  --f-round: Fredoka, system-ui, sans-serif;
+  --f-body: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --f-code: 'JetBrains Mono', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  --k: 1;
+  --fs-title: calc(19px * var(--k)); --fs-heading: calc(18px * var(--k)); --fs-chat: calc(16px * var(--k));
+  --fs-body: calc(14px * var(--k)); --fs-sm: calc(13px * var(--k)); --fs-label: calc(12px * var(--k));
+  --fs-number: calc(14px * var(--k));
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; gap: 8px; padding: 8px;
+  font-family: var(--f-body); font-size: var(--fs-body); color: var(--ink);
+  background: radial-gradient(circle, var(--dot) 1.3px, transparent 1.3px) 0 0 / 18px 18px, var(--surface);
+  font-variant-numeric: tabular-nums;
+}
+button { font: inherit; color: inherit; }
+pre { margin: 0; }
+
+/* ---------- barre de la maquette (hors produit) ---------- */
+.mockbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  background: var(--ink); color: var(--white); border-radius: 9999px; padding: 4px 6px 4px 14px;
+  font: 500 12px/1.2 var(--f-round);
+}
+.mockbar .tag { opacity: .8; margin-right: 6px; }
+.mockbar button {
+  background: #24243a; color: var(--white); border: 1px solid #3a3a55; border-radius: 9999px;
+  padding: 5px 12px; cursor: pointer; font: 500 12px var(--f-round); min-height: 28px;
+}
+.mockbar button:hover { background: #33334d; }
+.mockbar button.on { background: var(--white); color: var(--ink); }
+.mockbar .sp { flex: 1; }
+.legend {
+  position: fixed; top: 46px; right: 12px; z-index: 80; width: 380px; background: var(--white);
+  border: 2px solid var(--ink); border-radius: 18px; padding: 12px 14px; font-size: 13px;
+  box-shadow: 0 6px 0 var(--relief);
+}
+.legend[hidden] { display: none; }
+.legend h3 { font: 600 15px var(--f-round); margin: 0 0 6px; }
+.legend ol { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 6px; }
+.legend li { display: grid; grid-template-columns: 22px 1fr; gap: 6px; align-items: start; }
+.legend p { margin: 8px 0 0; color: var(--ink-soft); }
+.anno {
+  display: none; flex: 0 0 auto; width: 20px; height: 20px; border-radius: 9999px; background: var(--ink); color: var(--white);
+  font: 600 12px/20px var(--f-round); text-align: center; margin-left: 4px;
+}
+body.show-anno .anno { display: inline-block; }
+.legend .anno { display: inline-block; margin: 0; }
+
+/* ---------- barre haute ---------- */
+.top-bar {
+  flex: 0 0 48px; display: flex; align-items: center; gap: 14px; padding: 0 16px;
+  background: var(--white); border-radius: 26px; box-shadow: 0 4px 0 var(--relief);
+}
+.brand { font: 600 var(--fs-heading) var(--f-round); color: var(--primary-deep); }
+.pill { font: 500 var(--fs-label) var(--f-round); border-radius: 9999px; padding: 5px 12px; border: 1px solid var(--line); background: var(--white); white-space: nowrap; }
+.pill.scenario { background: var(--primary-soft); border-color: var(--primary-soft); color: var(--primary-deep); }
+.gauge { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 200px; }
+.gauge-bar {
+  flex: 1; height: 14px; border-radius: 9999px; overflow: hidden; display: flex;
+  background: repeating-linear-gradient(135deg, var(--surface) 0 4px, #ECEAF3 4px 6px); border: 1px solid var(--line);
+}
+.gauge-bar span { height: 100%; }
+.gauge-fig { font: 600 var(--fs-number) var(--f-round); white-space: nowrap; }
+.top-actions { display: flex; gap: 8px; align-items: center; }
+.pane-chips { display: flex; gap: 6px; }
+.pane-chip { font: 500 var(--fs-label) var(--f-round); background: var(--primary-soft); color: var(--primary); border: 1px dashed var(--primary); border-radius: 9999px; padding: 4px 10px; cursor: pointer; min-height: 30px; }
+.reset { background: var(--white); border: 1px solid var(--line); border-radius: 9999px; padding: 5px 12px; cursor: pointer; font: 500 var(--fs-label) var(--f-round); }
+
+/* ---------- grille des volets ---------- */
+main { flex: 1; min-height: 0; display: flex; gap: 8px; }
+.right { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.row { flex: 1; min-height: 0; display: flex; gap: 8px; }
+.pane {
+  background: var(--white); border-radius: 26px; box-shadow: 0 4px 0 var(--relief);
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+}
+.pane.is-hidden { display: none; }
+.pane-bricks { flex: 0 0 240px; }
+.pane-human { flex: 1 1 0; }
+.pane-ctx { flex: 1 1 0; }
+.pane-orch { flex: 1.35 1 0; }
+.pane-schema { flex: 0 0 clamp(250px, 40vh, 380px); }
+.pane.is-focused { position: fixed; z-index: 60; left: 8px; right: 8px; bottom: 8px; border: 2px solid var(--primary); }
+.pane-header { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px 6px 18px; flex: 0 0 auto; }
+.pane-title { font: 600 var(--fs-title)/1.15 var(--f-round); margin: 0; }
+.pane-sub { font-size: var(--fs-sm); color: var(--ink-soft); margin: 2px 0 0; }
+.pane-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.icon-btn { width: 32px; height: 32px; border-radius: 12px; border: 1px solid var(--line); background: var(--white); cursor: pointer; }
+.text-btn { min-height: 32px; border-radius: 9999px; border: 1px solid var(--line); background: var(--white); cursor: pointer; padding: 0 12px; font: 500 var(--fs-label) var(--f-round); }
+.text-btn:disabled { color: var(--muted); cursor: not-allowed; }
+.live-btn { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-deep); }
+.pane-body { flex: 1; min-height: 0; overflow: auto; padding: 4px 14px 12px; }
+.empty { color: var(--ink-soft); margin: 8px 4px; }
+.is-selected { outline: 2px solid var(--ink) !important; outline-offset: 2px; }
+
+/* ---------- briques ---------- */
+.brick { border-radius: 18px; background: var(--white); border: 2px solid var(--line); box-shadow: 0 4px 0 var(--relief); padding: 8px 10px; margin: 0 0 12px; cursor: pointer; }
+.brick.on { background: var(--primary-soft); border-color: var(--primary); box-shadow: 0 4px 0 var(--relief-active); }
+.brick-top { display: flex; align-items: center; gap: 8px; }
+.brick-name { font: 600 var(--fs-body) var(--f-round); }
+.switch { margin-left: auto; width: 42px; height: 24px; border-radius: 9999px; background: var(--muted); border: 0; position: relative; cursor: pointer; flex: 0 0 auto; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 9999px; background: var(--white); transition: left .12s; }
+.switch[aria-checked="true"] { background: var(--primary); }
+.switch[aria-checked="true"]::after { left: 21px; }
+.brick-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.cat, .host { font: 500 var(--fs-label) var(--f-round); border-radius: 9999px; padding: 2px 8px; }
+.cat { background: var(--white); border: 1px solid var(--primary-soft); color: var(--primary-deep); }
+.host { border: 1.5px solid var(--primary); color: var(--primary); background: var(--white); }
+.host.mixed { border-style: dashed; border-color: var(--ink); color: var(--ink); background: linear-gradient(90deg, var(--white) 50%, var(--warning) 50%); }
+.bricks-note { font-size: var(--fs-sm); color: var(--ink-soft); margin: 4px 2px; }
+
+/* ---------- vue humain ---------- */
+.human-body { display: flex; flex-direction: column; gap: 8px; }
+.chat { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
+.msg { max-width: 92%; padding: 8px 12px; border-radius: 26px; font-size: var(--fs-chat); line-height: 1.45; }
+.msg.user { align-self: flex-end; background: var(--primary-soft); border-bottom-right-radius: 6px; }
+.msg.model { align-self: flex-start; background: var(--white); border: 1px solid var(--line); border-bottom-left-radius: 6px; }
+.caret { animation: blink 1s steps(2) infinite; }
+.approval { border: 2px solid var(--primary); border-left-width: 6px; border-radius: 18px; padding: 10px 12px; background: var(--white); font-size: var(--fs-sm); }
+.approval.done { border-color: var(--line); border-left-color: var(--primary); }
+.ap-title { font: 600 var(--fs-body) var(--f-round); color: var(--primary-deep); margin-bottom: 4px; }
+.approval p { margin: 4px 0; }
+.net-line { display: inline-block; font: 500 var(--fs-label) var(--f-round); background: var(--warning); border: 1.5px dashed var(--ink); border-radius: 9999px; padding: 2px 10px; margin: 4px 0; }
+.ap-toggle, .link { background: none; border: 0; padding: 2px 0; cursor: pointer; color: var(--primary); font: 500 var(--fs-label) var(--f-round); text-decoration: underline; }
+.ap-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.btn { min-height: 32px; border-radius: 9999px; padding: 0 14px; cursor: pointer; font: 500 var(--fs-label) var(--f-round); background: var(--white); color: var(--primary); border: 1px solid var(--primary); box-shadow: 0 4px 0 var(--relief-active); }
+.btn.primary { background: var(--primary); color: var(--white); box-shadow: 0 4px 0 var(--primary-deep); }
+.btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--primary-deep); }
+.ap-decision { font-weight: 700; }
+.working { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--ink); white-space: nowrap; }
+.working[hidden] { display: none; }
+.pulse { width: 10px; height: 10px; border-radius: 9999px; background: var(--accent); box-shadow: 0 0 0 2px var(--ink); animation: pulse 1s ease-in-out infinite; }
+.suggest { display: flex; gap: 6px; flex-wrap: wrap; }
+.suggest button { border: 1px solid var(--primary); color: var(--primary); background: var(--white); border-radius: 9999px; padding: 4px 10px; font: 500 var(--fs-label) var(--f-round); cursor: pointer; min-height: 30px; }
+.composer { display: flex; gap: 8px; }
+.composer input { flex: 1; min-width: 0; border-radius: 9999px; border: 1px solid var(--line); padding: 8px 14px; font: var(--fs-chat) var(--f-body); }
+.composer input:focus { outline: 2px solid var(--primary); }
+.composer button { width: 40px; height: 40px; border-radius: 9999px; border: 0; background: var(--primary); color: var(--white); box-shadow: 0 4px 0 var(--primary-deep); cursor: pointer; font-size: 18px; }
+.composer button:disabled, .composer input:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ---------- contexte LLM ---------- */
+.ctx-meta { font: 600 var(--fs-label) var(--f-round); color: var(--ink-soft); margin: 0 4px 8px; }
+.seg { border-left: 4px solid var(--c); border-radius: 0 12px 12px 0; background: var(--white); margin-bottom: 8px; border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.seg-head { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; cursor: pointer; padding: 5px 8px; font: 500 var(--fs-label) var(--f-round); text-align: left; }
+.swatch { width: 10px; height: 10px; border-radius: 9999px; background: var(--c); flex: 0 0 auto; }
+.seg-tok { margin-left: auto; font-weight: 600; white-space: nowrap; }
+.code { font: var(--fs-sm)/1.5 var(--f-code); white-space: pre-wrap; word-break: break-word; }
+.seg .code { padding: 0 10px 8px; }
+
+/* ---------- orchestration ---------- */
+.orch-body { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.orch-scroll { flex: 1; min-height: 0; overflow: auto; padding: 4px 14px 10px; }
+.group { border: 2px solid var(--line); border-radius: 18px; margin-bottom: 10px; background: var(--white); }
+.group.is-live { border-color: var(--primary); }
+.group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; padding: 7px 10px; background: none; border: 0; cursor: pointer; text-align: left; min-height: 36px; border-radius: 16px; }
+.group-head:hover { background: var(--surface); }
+.g-title { font: 600 var(--fs-body) var(--f-round); }
+.g-sum { font-size: var(--fs-sm); color: var(--ink-soft); }
+.turn-n { font: 600 var(--fs-heading) var(--f-round); }
+.turn-num { margin-left: auto; font: 600 var(--fs-label) var(--f-round); white-space: nowrap; }
+.turn-msg { order: 10; flex: 1 0 100%; font-size: var(--fs-sm); color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 20px; }
+.chev { width: 12px; flex: 0 0 12px; color: var(--ink-soft); font-size: 12px; }
+.badge { font: 500 var(--fs-label) var(--f-round); border-radius: 9999px; padding: 2px 8px; white-space: nowrap; border: 1px solid var(--line); }
+.badge.running { background: var(--accent); border-color: var(--accent); }
+.badge.done { background: var(--surface); }
+.badge.flag { background: var(--danger); border-color: var(--danger); }
+.steps { position: relative; padding: 0 8px 8px; }
+.steps::before { content: ""; position: absolute; left: 26px; top: 4px; bottom: 18px; width: 2px; background: var(--line); }
+.step { position: relative; border-radius: 12px; }
+.step-line { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; width: 100%; min-height: 34px; padding: 4px 6px; border: 0; background: none; border-radius: 12px; cursor: pointer; text-align: left; }
+.step-line:hover { background: var(--surface); }
+.tile { flex: 0 0 26px; width: 26px; height: 26px; border-radius: 12px; display: grid; place-items: center; background: var(--white); border: 2px solid var(--line); font-size: 13px; position: relative; z-index: 1; }
+.step.is-current .tile { border-color: var(--ink); box-shadow: 0 0 0 4px var(--accent); }
+.step.is-current.is-done .tile { box-shadow: none; border-color: var(--line); }
+.step.tone-error .tile { background: var(--danger); border-color: var(--danger); }
+.step.tone-pending .tile { background: var(--primary-soft); border-color: var(--primary); }
+.step.unavail .tile { border-style: dashed; border-color: var(--muted); }
+.st { font: 500 var(--fs-sm) var(--f-round); flex: 1 1 60px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who, .key, .chev, .tile { flex-shrink: 0; }
+.step.tone-error .st { font-weight: 600; }
+.who { font: 500 var(--fs-label) var(--f-round); border-radius: 9999px; padding: 1px 7px; white-space: nowrap; }
+.who.who-model { background: var(--primary-soft); color: var(--primary-deep); }
+.who.who-harness { border: 1px solid var(--ink-soft); color: var(--ink); }
+.who.who-user { border: 1px solid var(--ink); background: var(--white); }
+.net-tag { font: 500 var(--fs-label) var(--f-round); background: var(--warning); border: 1.5px dashed var(--ink); border-radius: 9999px; padding: 1px 8px; white-space: nowrap; min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.key { margin-left: auto; font: 600 var(--fs-label) var(--f-round); white-space: nowrap; }
+.step-body { margin: 0 0 8px 40px; padding: 8px 10px; border-left: 4px solid var(--line); background: var(--surface); border-radius: 0 12px 12px 0; font-size: var(--fs-sm); }
+.step.is-hook .step-body { border-left-color: var(--primary); }
+.step.tone-error .step-body { border-left-color: var(--danger); }
+.step.tone-pending .step-body { border-left-color: var(--primary); }
+.step-body p { margin: 4px 0; }
+.step-body .code { background: var(--white); border-radius: 12px; padding: 6px 8px; margin: 4px 0; border: 1px solid var(--line); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 2px 0 6px; }
+.kv dt { font: 500 var(--fs-label) var(--f-round); color: var(--ink-soft); }
+.kv dd { margin: 0; }
+.who-line { font-weight: 700; }
+.pending-line { color: var(--primary-deep); font-weight: 700; }
+.lbl { font: 500 var(--fs-label) var(--f-round); color: var(--ink-soft); }
+.meta { color: var(--ink-soft); }
+.counter { font: 600 var(--fs-label) var(--f-round); }
+.outbound { border: 1.5px dashed var(--ink); border-radius: 12px; overflow: hidden; margin: 6px 0; background: var(--white); }
+.ob-head { background: var(--warning); padding: 4px 8px; font: 500 var(--fs-label) var(--f-round); }
+.outbound .code { border: 0; margin: 0; border-radius: 0; }
+.log { flex: 0 0 auto; border-top: 2px solid var(--line); display: flex; flex-direction: column; max-height: 48%; }
+.log-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: none; border: 0; cursor: pointer; padding: 8px 18px; text-align: left; min-height: 38px; }
+.log-head:hover { background: var(--surface); }
+.log-title { font: 600 var(--fs-sm) var(--f-round); }
+.log-sub { font-size: var(--fs-sm); color: var(--ink-soft); }
+.log-list { list-style: none; margin: 0; padding: 0 14px 10px; overflow: auto; }
+.log-line { display: flex; gap: 8px; align-items: baseline; width: 100%; background: none; border: 0; cursor: pointer; text-align: left; padding: 3px 4px; border-radius: 8px; font-size: var(--fs-sm); }
+.log-line:hover { background: var(--surface); }
+.log-t { font: var(--fs-label) var(--f-code); color: var(--ink-soft); }
+.log-line code { font: var(--fs-label) var(--f-code); color: var(--ink-soft); }
+.log-sum { color: var(--ink-soft); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log .code { background: var(--surface); border-radius: 12px; padding: 6px 10px; margin: 2px 0 6px 20px; }
+
+/* ---------- schéma ---------- */
+.schema-body { padding: 2px 14px 8px; overflow: hidden; display: flex; }
+.arch { position: relative; display: flex; flex: 1; min-width: 0; padding-bottom: 26px; }
+.wires { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 0; }
+.zone { position: relative; display: flex; flex-direction: column; min-width: 0; z-index: 1; }
+.zone.local { flex: 1 1 auto; }
+.zone.net { flex: 0 1 230px; }
+.zone-label { position: absolute; top: 0; right: 0; font: 600 var(--fs-label) var(--f-round); border-radius: 9999px; padding: 2px 10px; background: var(--white); border: 2px solid var(--primary); color: var(--primary-deep); white-space: nowrap; }
+.zone.net .zone-label { left: 0; right: auto; background: var(--warning); border: 1.5px dashed var(--ink); color: var(--ink); }
+.zone-row { display: flex; gap: 16px; flex: 1; min-height: 0; align-items: flex-start; }
+.zone-empty { font-size: var(--fs-sm); color: var(--ink-soft); margin: 40px 4px 0; }
+.frontier { position: relative; flex: 0 0 2px; margin: 0 16px; background: var(--ink); z-index: 1; }
+.frontier span { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); writing-mode: vertical-rl; font: 500 var(--fs-label) var(--f-round); white-space: nowrap; background: var(--white); padding: 4px 0; display: flex; align-items: center; }
+.harness { position: relative; display: flex; gap: 8px; margin-top: 12px; flex: 0 0 auto; border: 2px solid var(--primary); border-radius: 26px; box-shadow: 0 4px 0 var(--relief-active); background: var(--white); padding: 16px 8px 8px 10px; cursor: pointer; }
+.harness-tag { position: absolute; top: -12px; left: 16px; background: var(--primary); color: var(--white); border-radius: 9999px; padding: 2px 12px; font: 600 var(--fs-label) var(--f-round); }
+.core { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.core-chips { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.chip { background: var(--primary-soft); color: var(--primary-deep); border-radius: 9999px; padding: 3px 10px; font: 500 var(--fs-label) var(--f-round); white-space: nowrap; border: 0; cursor: pointer; }
+.llm-nu { font: 500 var(--fs-label) var(--f-round); color: var(--ink-soft); max-width: 90px; }
+.robot { display: flex; flex-direction: column; align-items: center; cursor: pointer; border-radius: 12px; padding: 2px; }
+.robot-label { font: 600 var(--fs-label) var(--f-round); }
+.robot-model { font-size: var(--fs-label); color: var(--ink-soft); white-space: nowrap; }
+.rbody { fill: var(--primary); } .rear { fill: var(--primary-deep); } .rv { fill: var(--white); }
+.rf { stroke: var(--ink); stroke-width: 2.2; fill: none; stroke-linecap: round; } .re { fill: var(--ink); }
+.rs, .ra { fill: var(--muted); } .rb { fill: var(--accent); stroke: var(--ink); stroke-width: 1; }
+.robot.is-active .ra, .robot.is-active .rs { fill: var(--accent); }
+.robot.is-active .ra { animation: blink 0.9s steps(2) infinite; }
+.strip { position: relative; display: flex; flex-direction: column; gap: 3px; border-left: 2px dashed var(--primary); padding: 4px 0 0 10px; min-width: 150px; }
+.strip-tag { position: absolute; top: -29px; left: 8px; background: var(--primary-soft); color: var(--primary-deep); border: 2px solid var(--primary); border-radius: 9999px; padding: 1px 10px; font: 600 var(--fs-label) var(--f-round); white-space: nowrap; display: flex; align-items: center; }
+.hook { display: flex; flex-direction: column; align-items: flex-start; text-align: left; border: 2px solid var(--primary); border-radius: 12px; padding: 1px 8px; background: var(--primary-soft); cursor: pointer; line-height: 1.1; }
+.hook-name { font: 500 var(--fs-label) var(--f-round); white-space: nowrap; }
+.hook-point { font-size: var(--fs-label); color: var(--ink-soft); white-space: nowrap; }
+.hook.is-active { box-shadow: 0 0 0 4px var(--accent); border-color: var(--ink); }
+.hook.is-blocked { border-left: 7px solid var(--danger); background: var(--white); }
+.hook.is-off { background: var(--surface); border: 2px dashed var(--muted); }
+.col { display: flex; flex-direction: column; gap: 14px; flex: 0 0 auto; margin-top: 36px; }
+.col.col-skill { flex: 0 1 auto; min-width: 170px; }
+.bac { position: relative; border: 2px solid var(--line); border-radius: 18px; padding: 14px 6px 6px; background: var(--white); }
+.zone.net .bac { background: #FFFBF0; }
+.bac-title { position: absolute; top: -11px; left: 10px; background: var(--white); padding: 0 6px; font: 600 var(--fs-label) var(--f-round); white-space: nowrap; display: flex; align-items: center; border-radius: 9999px; }
+.bac-nodes { display: flex; flex-direction: column; gap: 5px; }
+.bac-skill .bac-nodes { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.node { position: relative; display: flex; align-items: center; gap: 5px; min-height: 26px; padding: 1px 6px; border-radius: 12px; border: 2px solid var(--primary); background: var(--white); font: 500 var(--fs-label) var(--f-round); cursor: pointer; white-space: nowrap; min-width: 0; text-align: left; }
+.node .ico { flex: 0 0 auto; font-size: 12px; }
+.node .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.node .count { margin-left: auto; font: 600 var(--fs-label) var(--f-round); background: var(--primary-soft); color: var(--primary-deep); border-radius: 9999px; padding: 0 6px; white-space: nowrap; }
+/* Une forme par catégorie : outil = tuile d'icône ronde ; serveur MCP = double trait (processus
+   distinct qui expose des outils) ; skill = fiche à dos épais ; fichier = fond crème. */
+.node.tool .ico { width: 18px; height: 18px; border-radius: 9999px; background: var(--primary-soft); display: grid; place-items: center; font-size: 11px; }
+.node.mcp { border: 4px double var(--primary); }
+.node.skill { border-left-width: 7px; border-radius: 6px 12px 12px 6px; }
+.node.skill.loaded { background: var(--primary-soft); }
+.node.file { background: var(--surface); border-style: solid; border-color: var(--primary); border-radius: 4px 12px 12px 12px; }
+.node.net { background: var(--warning); border: 2px dashed var(--ink); }
+.node.net.tool .ico { background: var(--white); }
+.node.mcp.net { border: 2px dashed var(--ink); outline: 2px dashed var(--ink); outline-offset: 2px; margin: 3px; }
+.node.unavailable { background: var(--surface); border: 2px dashed var(--muted); outline-color: var(--muted); color: var(--ink-soft); }
+.node.unavailable .count { background: var(--white); color: var(--ink-soft); border: 1px solid var(--muted); }
+.node.is-active { box-shadow: 0 0 0 4px var(--accent); }
+.wire { stroke: var(--ink-soft); stroke-width: 2; fill: none; opacity: .55; }
+.wire.net { stroke-dasharray: 6 5; }
+.hl { stroke: var(--accent); stroke-width: 7; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.hl-core { stroke: var(--ink); stroke-width: 2; fill: none; stroke-linejoin: round; }
+.hl-core.flow { stroke-dasharray: 7 6; animation: dash .6s linear infinite; }
+.hl-block { stroke: var(--danger); stroke-width: 6; fill: none; stroke-linecap: round; }
+.marker circle { fill: var(--white); stroke-width: 2.5; }
+.marker.stop circle { stroke: var(--primary); }
+.marker.block circle { stroke: var(--danger); fill: var(--danger); }
+.marker text { font: 600 12px var(--f-round); }
+
+@keyframes blink { 50% { opacity: .25; } }
+@keyframes pulse { 50% { transform: scale(.7); } }
+@keyframes dash { to { stroke-dashoffset: -13; } }
+@media (prefers-reduced-motion: reduce) {
+  .robot.is-active .ra, .pulse, .caret, .hl-core.flow { animation: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="mockbar" role="toolbar" aria-label="Commandes de la maquette">
+  <span class="tag">MAQUETTE · hors produit</span>
+  <button data-act="launch">↺ État au lancement</button>
+  <button data-act="play" data-v="Quels sont les jours fériés en mai 2026 ?">▶ Tour : outil réseau + validation H5</button>
+  <button data-act="play" data-v="Lis le fichier secrets.txt du dossier de démonstration.">▶ Tour : le garde-fou bloque</button>
+  <button data-act="speed" id="speed-btn">Vitesse : normale</button>
+  <span class="sp"></span>
+  <button data-act="anno" id="anno-btn">Ce qui change ▾</button>
+</div>
+
+<div class="legend" id="legend" hidden>
+  <h3>Ce qui change dans cette maquette</h3>
+  <ol>
+    <li><span class="anno">1</span><span><b>Rail groupé par tour.</b> Le tour en cours est déplié, les précédents sont repliés. Une ligne par étape, et seule l'étape courante est dépliée. Un clic fige la vue, puis « Suivre le direct » la relance. (A2)</span></li>
+    <li><span class="anno">2</span><span><b>Préparation du harnais.</b> Les connexions MCP faites hors tour, une ligne par serveur. (A3)</span></li>
+    <li><span class="anno">3</span><span><b>Journal des événements.</b> Replié en bas du volet, il grossit sans s'ouvrir. Le JSON s'ouvre ligne par ligne. (A3)</span></li>
+    <li><span class="anno">4</span><span><b>Points d'accroche.</b> Les hooks font partie du cadre du harnais, sur le chemin des outils. Un blocage arrête le flux à cet endroit. (B)</span></li>
+    <li><span class="anno">5</span><span><b>Bacs par catégorie.</b> Outils, serveurs MCP, fichiers et skills ont chacun une forme propre, sans couleur supplémentaire. (B)</span></li>
+    <li><span class="anno">6</span><span><b>Frontière Poste de travail / Réseau.</b> Le flux s'anime quand il la traverse. H5 l'arrête avant la frontière. (B)</span></li>
+  </ol>
+  <p>À essayer : jouez un tour, cliquez une étape en cours de route, désactivez des briques, puis ⛶ sur le schéma. Échap quitte le mode focus.</p>
+</div>
+
+<header class="top-bar">
+  <span class="brand">WaveStack</span>
+  <span class="pill scenario">Module 4 · Hooks et outils ▾</span>
+  <div class="gauge" title="Contexte de l'appel le plus récent">
+    <div class="gauge-bar" id="gauge-bar"></div>
+    <span class="gauge-fig" id="gauge-fig"></span>
+  </div>
+  <div class="top-actions">
+    <div class="pane-chips" id="pane-chips"></div>
+    <span class="pill">Volets ▾</span>
+    <span class="pill">Qwen3 1.7B ▾</span>
+    <button class="pill" data-act="aa" id="aa-btn" style="cursor:pointer">Aa 100 %</button>
+    <button class="reset" data-act="launch" title="Réinitialiser (dans la maquette : retour à l'état au lancement)">⟲ Réinitialiser</button>
+  </div>
+</header>
+
+<main>
+  <section class="pane pane-bricks" data-pane="bricks" aria-label="Panneau des briques">
+    <header class="pane-header">
+      <div><h2 class="pane-title">Briques</h2><p class="pane-sub">Branchez des pièces sur le modèle</p></div>
+      <div class="pane-actions">
+        <button class="icon-btn" data-act="focus" data-pane="bricks" title="Mode focus">⛶</button>
+        <button class="icon-btn" data-act="hide" data-pane="bricks" title="Masquer le volet Briques">—</button>
+      </div>
+    </header>
+    <div class="pane-body" id="bricks"></div>
+  </section>
+
+  <div class="right">
+    <div class="row">
+      <section class="pane pane-human" data-pane="human" aria-label="Vue humain">
+        <header class="pane-header">
+          <div><h2 class="pane-title">Vue humain</h2><p class="pane-sub">Ce que vous voyez</p></div>
+          <div class="pane-actions">
+            <button class="text-btn" data-act="clear">Vider la conversation</button>
+            <button class="icon-btn" data-act="focus" data-pane="human" title="Mode focus">⛶</button>
+            <button class="icon-btn" data-act="hide" data-pane="human" title="Masquer le volet Vue humain">—</button>
+          </div>
+        </header>
+        <div class="pane-body human-body">
+          <div class="chat" id="chat" aria-live="polite"></div>
+          <span class="working" id="human-working" hidden></span>
+          <div class="suggest">
+            <button data-act="suggest" data-v="Quels sont les jours fériés en mai 2026 ?">Quels sont les jours fériés en mai 2026 ?</button>
+            <button data-act="suggest" data-v="Lis le fichier secrets.txt du dossier de démonstration.">Lis le fichier secrets.txt</button>
+            <button data-act="suggest" data-v="Explique en une phrase ce qu'est un harnais.">Explique ce qu'est un harnais</button>
+          </div>
+          <form class="composer" id="composer">
+            <input id="composer-input" placeholder="Écrivez un message…" autocomplete="off" aria-label="Message">
+            <button type="submit" id="send-btn" aria-label="Envoyer">➤</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="pane pane-ctx" data-pane="ctx" aria-label="Contexte LLM">
+        <header class="pane-header">
+          <div><h2 class="pane-title">Contexte LLM</h2><p class="pane-sub">Ce que le modèle lit</p></div>
+          <div class="pane-actions">
+            <button class="text-btn" disabled title="Il faut au moins deux tours pour comparer (story 9).">Comparer</button>
+            <button class="icon-btn" data-act="focus" data-pane="ctx" title="Mode focus">⛶</button>
+            <button class="icon-btn" data-act="hide" data-pane="ctx" title="Masquer le volet Contexte LLM">—</button>
+          </div>
+        </header>
+        <div class="pane-body" id="ctx"></div>
+      </section>
+
+      <section class="pane pane-orch" data-pane="orch" aria-label="Orchestration">
+        <header class="pane-header">
+          <div><h2 class="pane-title">Orchestration</h2><p class="pane-sub">Ce que fait le harnais</p></div>
+          <div class="pane-actions">
+            <span class="working" id="orch-working" hidden></span>
+            <button class="text-btn live-btn" data-act="live" id="live-btn" hidden>● Suivre le direct</button>
+            <button class="icon-btn" data-act="focus" data-pane="orch" title="Mode focus">⛶</button>
+            <button class="icon-btn" data-act="hide" data-pane="orch" title="Masquer le volet Orchestration">—</button>
+          </div>
+        </header>
+        <div class="pane-body orch-body">
+          <div class="orch-scroll" id="orch-scroll"></div>
+          <div class="log" id="log"></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="pane pane-schema" data-pane="schema" aria-label="Schéma d'architecture">
+      <header class="pane-header">
+        <div><h2 class="pane-title">Schéma d'architecture</h2><p class="pane-sub">Où chaque pièce tourne</p></div>
+        <div class="pane-actions">
+          <button class="icon-btn" data-act="focus" data-pane="schema" title="Mode focus">⛶</button>
+          <button class="icon-btn" data-act="hide" data-pane="schema" title="Masquer le volet Schéma d'architecture">—</button>
+        </div>
+      </header>
+      <div class="pane-body schema-body" id="schema-body"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const fmt = (n) => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+const sec = (ms) => (ms / 1000).toFixed(1).replace(".", ",") + " s";
+const WINDOW = 8192;
+let uidN = 0;
+const uid = () => "s" + ++uidN;
+const anno = (n) => `<span class="anno" aria-hidden="true">${n}</span>`;
+
+// ---------- catalogue (libellés de content/*.yaml) ----------
+const BRICKS = [
+  { id: "short_memory", icon: "🧠", label: "Mémoire courte", cat: "context engineering", host: "processus local" },
+  { id: "system_prompt", icon: "📜", label: "Prompt système", cat: "prompt engineering", host: "processus local" },
+  { id: "tools", icon: "🔧", label: "Outils", cat: "harness engineering", host: "local + RÉSEAU", mixed: true },
+  { id: "mcp", icon: "🔌", label: "MCP", cat: "harness engineering", host: "local + RÉSEAU", mixed: true },
+  { id: "skills", icon: "📘", label: "Skills", cat: "context engineering", host: "fichier local" },
+  { id: "hooks", icon: "🪝", label: "Hooks", cat: "harness engineering", host: "processus local" },
+];
+const HOOKS = [
+  { id: "hooks.h3", icon: "💉", label: "Injection de contexte", point: "réception du message" },
+  { id: "hooks.h1", icon: "🛡", label: "Garde-fou", point: "avant un outil" },
+  { id: "hooks.h5", icon: "✋", label: "Validation humaine", point: "avant un outil réseau" },
+  { id: "hooks.h2", icon: "📝", label: "Journalisation", point: "après un outil · fin du tour" },
+];
+const BACS = [
+  { key: "tools", zone: "local", col: 0, brick: "tools", icon: "🔧", title: "Outils", kind: "tool", nodes: [
+    { id: "tools.get_datetime", icon: "🕐", label: "Heure et date" },
+    { id: "tools.calculator", icon: "🧮", label: "Calculatrice" },
+    { id: "tools.read_file", icon: "📂", label: "Lecture de fichier" } ] },
+  { key: "mcp_local", zone: "local", col: 1, brick: "mcp", icon: "🔌", title: "Serveurs MCP", kind: "mcp", nodes: [
+    { id: "mcp.glossary", label: "Glossaire", count: 2 } ] },
+  { key: "files", zone: "local", col: 1, brick: null, icon: "📄", title: "Fichiers", kind: "file", nodes: [
+    { id: "file.demo", label: "Fichiers de démo", brick: "tools" },
+    { id: "file.audit", label: "Journal d'audit", brick: "hooks" } ] },
+  { key: "skills", zone: "local", col: 2, brick: "skills", icon: "📘", title: "Skills", kind: "skill", nodes: [
+    { id: "skills.caveman", label: "Caveman" }, { id: "skills.pirate", label: "Pirate" },
+    { id: "skills.working_days", label: "Jours ouvrés" }, { id: "skills.meeting_minutes", label: "Compte rendu" },
+    { id: "skills.budget_review", label: "Revue budget" }, { id: "skills.explain_like_ten", label: "Explique à 10 ans" } ] },
+  { key: "tools_net", zone: "net", col: 0, brick: "tools", icon: "🔧", title: "Outils réseau", kind: "tool", nodes: [
+    { id: "tools.public_holidays", icon: "📅", label: "Jours fériés" },
+    { id: "tools.wikipedia_summary", icon: "🔎", label: "Résumé Wikipédia" },
+    { id: "tools.fetch_page", icon: "🔗", label: "Lecture de page web" } ] },
+  { key: "mcp_net", zone: "net", col: 0, brick: "mcp", icon: "🔌", title: "Serveurs MCP publics", kind: "mcp", nodes: [
+    { id: "mcp.datagouv", label: "data.gouv.fr", count: 5 },
+    { id: "mcp.mslearn", label: "Microsoft Learn", unavailable: "pas de réponse au démarrage" } ] },
+];
+const HOLIDAYS = "2026-01-01 : 1er janvier\n2026-04-06 : Lundi de Pâques\n2026-05-01 : 1er mai\n2026-05-08 : 8 mai\n2026-05-14 : Ascension\n2026-05-25 : Lundi de Pentecôte\n2026-07-14 : 14 juillet\n2026-08-15 : Assomption\n2026-11-01 : Toussaint\n2026-11-11 : 11 novembre\n2026-12-25 : Jour de Noël";
+const POSE = { idle: "au repos", thinking: "réfléchit", tool: "utilise un outil" };
+const WHO = { modèle: ["who-model", "🤖 modèle"], harnais: ["who-harness", "⚙ harnais"], vous: ["who-user", "👤 vous"] };
+
+function outboundHTML(host, request) {
+  return `<div class="outbound"><div class="ob-head">🌐 RÉSEAU · données envoyées à <b>${esc(host)}</b></div><pre class="code">${esc(request)}</pre></div>`;
+}
+const PREP = [
+  { id: "prep.glossary", comp: "mcp.glossary", icon: "🔌", title: "Glossaire WaveStack", key: "connecté · 2 outils",
+    body: `<p>Serveur MCP <b>local</b> : un processus distinct du harnais, lancé sur le poste (stdio). Rien ne sort du poste.</p><p class="lbl">Outils trouvés : 2</p><pre class="code">list_terms\ndefine_term</pre><p class="meta">Temps : 0,4 s</p>` },
+  { id: "prep.datagouv", comp: "mcp.datagouv", icon: "🔌", title: "data.gouv.fr", net: "mcp.data.gouv.fr", key: "connecté · 5 outils",
+    body: `<p>Serveur MCP <b>public</b>. Pour connaître ses outils, le harnais lui envoie une requête : elle quitte le poste.</p>` +
+      outboundHTML("mcp.data.gouv.fr", 'POST https://mcp.data.gouv.fr/mcp\n{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}') +
+      `<p class="lbl">Outils trouvés : 5</p><pre class="code">search_datasets\nget_dataset\nlist_resources\nquery_resource\nsearch_organizations</pre><p class="meta">Temps : 1,2 s</p>` },
+  { id: "prep.mslearn", comp: "mcp.mslearn", icon: "⊘", title: "Microsoft Learn", net: "learn.microsoft.com", key: "indisponible", unavailable: true,
+    body: `<p>Pas de réponse au démarrage : le délai de 5 s est dépassé. Le serveur reste dessiné dans le schéma, et le serveur MCP local reste utilisable.</p>` +
+      outboundHTML("learn.microsoft.com", 'POST https://learn.microsoft.com/api/mcp\n{"jsonrpc": "2.0", "id": 1, "method": "initialize"}') },
+];
+
+// ---------- état ----------
+const S = { speed: 1, gen: 0, hidden: new Set(), focused: null };
+let clock;
+function ts() {
+  clock = new Date(clock.getTime() + 300 + Math.floor(Math.random() * 900));
+  return clock.toTimeString().slice(0, 8);
+}
+function log(kind, fr, summary, payload) {
+  S.journal.push({ t: ts(), kind, fr, summary, payload });
+}
+function reset() {
+  Object.assign(S, {
+    bricks: { short_memory: true, system_prompt: true, tools: true, mcp: true, skills: true, hooks: true },
+    turns: [], chat: [], journal: [], journalOpen: false, jOpen: new Set(),
+    prepOpen: true, prepItemOpen: new Set(),
+    live: true, userOpen: new Set(), turnOpen: new Map(), current: null,
+    running: false, selection: null, ctx: null, gauge: null, working: null,
+    active: new Set(), blocked: new Set(), wire: null, pose: "idle",
+    h5Off: false, resolveApproval: null, apPreview: false, segClosed: new Set(),
+    gen: S.gen + 1,
+  });
+  clock = new Date(2026, 8, 25, 9, 41, 2);
+  launchJournal();
+  S.gauge = buildSegments({ prompt: "" }, null, true);
+  renderedSchemaKey = null;
+  render();
+}
+function launchJournal() {
+  log("diagnostic_check", "Vérification du diagnostic", "mémoire : OK, 15,2 Go libres", { check: "memory", status: "ok", detail_fr: "15,2 Go libres" });
+  log("diagnostic_check", "Vérification du diagnostic", "modèle : OK, Qwen3 1.7B", { check: "model", status: "ok", detail_fr: "Qwen3-1.7B-Q4_K_M.gguf" });
+  log("diagnostic_check", "Vérification du diagnostic", "réseau : OK", { check: "network", status: "ok" });
+  log("diagnostic_check", "Vérification du diagnostic", "port : OK, 127.0.0.1:8765", { check: "port", status: "ok", detail_fr: "127.0.0.1:8765" });
+  log("session_state", "État de la session", "prête", { state: "idle" });
+  log("bricks_changed", "Briques modifiées", "6 briques voulues", { bricks: BRICKS.map((b) => ({ id: b.id, wanted: true, available: true })) });
+  log("architecture_changed", "Schéma mis à jour", "22 nœuds, 21 liens", { nodes: [{ id: "core.harness", kind: "harness", hosting: "local" }, { id: "core.model", kind: "model", hosting: "local" }, { id: "tools.public_holidays", kind: "tool", hosting: "network" }, "… 19 autres"], edges: "… 21 liens" });
+  log("mcp_connect_started", "Connexion MCP commencée", "Glossaire WaveStack (local)", { server: "glossary", transport: "stdio" });
+  log("mcp_connect_ended", "Connexion MCP terminée", "Glossaire WaveStack : 2 outils", { server: "glossary", status: "ok", tools: ["list_terms", "define_term"], duration_ms: 412 });
+  log("mcp_connect_started", "Connexion MCP commencée", "data.gouv.fr (RÉSEAU)", { server: "datagouv", transport: "streamable_http" });
+  log("outbound_request", "Données sortantes", "POST mcp.data.gouv.fr", { method: "POST", url: "https://mcp.data.gouv.fr/mcp", body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' });
+  log("mcp_connect_ended", "Connexion MCP terminée", "data.gouv.fr : 5 outils", { server: "datagouv", status: "ok", tools: ["search_datasets", "get_dataset", "list_resources", "query_resource", "search_organizations"], duration_ms: 1204 });
+  log("mcp_connect_started", "Connexion MCP commencée", "Microsoft Learn (RÉSEAU)", { server: "mslearn", transport: "streamable_http" });
+  log("mcp_connect_ended", "Connexion MCP terminée", "Microsoft Learn : indisponible", { server: "mslearn", status: "unavailable", error_fr: "Pas de réponse au démarrage (délai de 5 s dépassé)." });
+  log("context_preview", "Aperçu du contexte", "1 808 tokens avant le premier message", { used: 1808, window: WINDOW });
+}
+
+// ---------- contexte ----------
+function buildSegments(turn, extra, preview = false) {
+  const b = S.bricks;
+  const segs = [];
+  if (b.system_prompt) segs.push({ kind: "system", comp: "system_prompt", label: "Prompt système", tokens: 412, text: "Tu es l'assistant de démonstration WaveStack. Réponds en français, en phrases courtes. Utilise un outil quand la question porte sur une donnée que tu ne peux pas connaître." });
+  const desc = [];
+  let dt = 0;
+  if (b.tools) { desc.push("get_datetime() : date et heure du poste.", "calculator(expression) : calcule une expression.", "read_file(path) : lit un fichier du dossier de démonstration.", "public_holidays(year) : jours fériés en France (RÉSEAU).", "wikipedia_summary(title) : résumé d'un article (RÉSEAU).", "fetch_page(url) : lit une page web (RÉSEAU)."); dt += 640; }
+  if (b.mcp) { desc.push("[MCP local] list_terms(), define_term(term)", "[MCP data.gouv.fr] search_datasets(query), get_dataset(id), … (5 outils)"); dt += 520; }
+  if (b.skills) { desc.push("[Skills] caveman, pirate, working_days, meeting_minutes, budget_review, explain_like_ten : nom et description seulement."); dt += 236; }
+  if (dt) segs.push({ kind: "tools", comp: b.tools ? "tools" : b.mcp ? "mcp" : "skills", label: "Descriptions d'outils, de serveurs MCP et de skills", tokens: dt, text: desc.join("\n") });
+  if (preview) return segs;
+  if (b.short_memory) {
+    const prev = S.turns.filter((t) => t !== turn && t.status !== "running");
+    if (prev.length) segs.push({ kind: "history", comp: "short_memory", label: "Historique", tokens: prev.length * 118, text: prev.map((t) => `user : ${t.prompt}\nassistant : ${t.answer || "…"}`).join("\n") });
+  }
+  if (extra) segs.push({ kind: "results", comp: extra.comp, label: "Résultats d'outils", tokens: extra.tokens, text: extra.text });
+  const inj = b.hooks ? "[Injecté par le hook H3] Date et heure du poste : vendredi 25 septembre 2026, 10 h 12. Règles de la mission : réponds en français, en restant factuel.\n" : "";
+  segs.push({ kind: "message", comp: b.hooks ? "hooks.h3" : "core.harness", label: "Message et gabarit", tokens: 34 + Math.round(turn.prompt.length / 4) + (inj ? 48 : 0), text: `<|im_start|>user\n${inj}${turn.prompt}<|im_end|>\n<|im_start|>assistant\n` });
+  return segs;
+}
+
+// ---------- rendu ----------
+function render() {
+  renderTop();
+  renderBricks();
+  renderChat();
+  renderCtx();
+  renderOrch();
+  renderSchema();
+  renderPanes();
+  applySelection();
+}
+function renderTop() {
+  const segs = S.gauge || [];
+  const used = segs.reduce((a, s) => a + s.tokens, 0);
+  $("#gauge-bar").innerHTML = segs.map((s) => `<span style="width:${(s.tokens / WINDOW) * 100}%;background:var(--seg-${s.kind})" title="${esc(s.label)} : ${fmt(s.tokens)} tokens"></span>`).join("");
+  $("#gauge-fig").textContent = `${fmt(used)} / ${fmt(WINDOW)} tokens · ${Math.round((used / WINDOW) * 100)} %`;
+  $("#pane-chips").innerHTML = [...S.hidden].map((p) => `<button class="pane-chip" data-act="show" data-pane="${p}" title="Réafficher le volet">+ ${PANE_LABELS[p]}</button>`).join("");
+}
+function renderBricks() {
+  $("#bricks").innerHTML = BRICKS.map((b) => {
+    const on = S.bricks[b.id];
+    return `<div class="brick ${on ? "on" : ""}" data-comp="${b.id}" data-act="select" data-v="${b.id}">
+      <div class="brick-top"><span aria-hidden="true">${b.icon}</span><span class="brick-name">${b.label}</span>
+      <button class="switch" role="switch" aria-checked="${on}" data-act="brick" data-v="${b.id}" aria-label="Activer la brique ${b.label}"></button></div>
+      <div class="brick-meta"><span class="cat">${b.cat}</span><span class="host ${b.mixed ? "mixed" : ""}">${b.host}</span></div></div>`;
+  }).join("") + `<p class="bricks-note">Dans la maquette, le schéma suit les interrupteurs tout de suite. Les sous-options (outils, serveurs, skills, hooks un par un) sont omises.</p>`;
+}
+function approvalHTML(m) {
+  const dec = { approved: "Autorisé par vous.", refused: "Refusé par vous : aucune donnée n'a quitté le poste.", always: "Autorisé par vous, et le hook ne demandera plus pendant la session." };
+  return `<div class="approval ${m.decision ? "done" : ""}">
+    <div class="ap-title">${m.decision ? "✋ Validation humaine" : "✋ En attente de votre validation"}</div>
+    <p>Le hook <b>Validation humaine</b> suspend l'appel à l'outil <b>Jours fériés</b> avant qu'une donnée ne quitte le poste.</p>
+    <span class="net-line">🌐 RÉSEAU → calendrier.api.gouv.fr</span><br>
+    <button class="ap-toggle" data-act="ap-preview">${S.apPreview ? "▾" : "▸"} Données qui sortiraient du poste</button>
+    ${S.apPreview ? `<pre class="code">GET https://calendrier.api.gouv.fr/jours-feries/metropole/2026.json</pre>` : ""}
+    ${m.decision ? `<p class="ap-decision">${dec[m.decision]}</p>` : `<div class="ap-actions"><button class="btn primary" data-act="ap" data-v="approved">Autoriser</button><button class="btn" data-act="ap" data-v="refused">Refuser</button><button class="btn" data-act="ap" data-v="always">Autoriser et ne plus demander</button></div>`}
+  </div>`;
+}
+function renderChat() {
+  const box = $("#chat");
+  const near = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  box.innerHTML = S.chat.length
+    ? S.chat.map((m) => (m.role === "approval" ? approvalHTML(m) : `<div class="msg ${m.role}">${esc(m.text)}${m.streaming ? '<span class="caret">▍</span>' : ""}</div>`)).join("")
+    : `<p class="empty">Posez une question, ou choisissez un prompt suggéré ci-dessous.</p>`;
+  if (near) box.scrollTop = box.scrollHeight;
+  $("#composer-input").disabled = S.running;
+  $("#send-btn").disabled = S.running;
+  renderWorking();
+}
+function renderWorking() {
+  const text = S.working ? `<span class="pulse" aria-hidden="true"></span>${esc(S.working.label)} · ${sec(performance.now() - S.working.t0)}` : "";
+  for (const id of ["#human-working", "#orch-working"]) {
+    $(id).hidden = !S.working;
+    $(id).innerHTML = text;
+  }
+}
+function renderCtx() {
+  const box = $("#ctx");
+  if (!S.ctx) {
+    box.innerHTML = `<p class="empty">Aucun tour pour l'instant. Envoyez un message : le contexte envoyé au modèle apparaîtra ici.</p>`;
+    return;
+  }
+  const total = S.ctx.segs.reduce((a, s) => a + s.tokens, 0);
+  box.innerHTML = `<p class="ctx-meta">Tour ${S.ctx.turn} · appel ${S.ctx.call} au modèle · ${fmt(total)} tokens</p>` +
+    S.ctx.segs.map((s) => {
+      const open = !S.segClosed.has(s.kind);
+      return `<div class="seg" data-comp="${s.comp}" style="--c:var(--seg-${s.kind})"><button class="seg-head" data-act="seg" data-v="${s.kind}" aria-expanded="${open}"><span class="swatch"></span>${esc(s.label)}<span class="seg-tok">${fmt(s.tokens)} tokens</span><span class="chev">${open ? "▾" : "▸"}</span></button>${open ? `<pre class="code">${esc(s.text)}</pre>` : ""}</div>`;
+    }).join("");
+}
+
+// Orchestration : étapes groupées par tour, une ligne par étape (A2, A3).
+const sticky = (s) => s.tone === "error" || s.tone === "pending";
+function stepOpen(s) {
+  if (sticky(s)) return true;
+  return S.live ? s.id === S.current : S.userOpen.has(s.id);
+}
+function turnOpen(t, i) {
+  return S.turnOpen.has(t.id) ? S.turnOpen.get(t.id) : i === S.turns.length - 1;
+}
+function lineHTML(o, open, act) {
+  const who = o.who ? `<span class="who ${WHO[o.who][0]}">${WHO[o.who][1]}</span>` : "";
+  const net = o.net ? `<span class="net-tag">🌐 RÉSEAU → ${esc(o.net)}</span>` : "";
+  return `<button class="step-line" data-act="${act}" data-v="${o.id}" aria-expanded="${open}"><span class="tile" aria-hidden="true">${o.icon}</span><span class="st">${esc(o.title)}</span>${who}${net}<span class="key">${esc(o.key)}</span><span class="chev" aria-hidden="true">${open ? "▾" : "▸"}</span></button>`;
+}
+function stepHTML(s) {
+  const open = stepOpen(s);
+  const cls = [s.type === "hook" ? "is-hook" : "", s.tone ? `tone-${s.tone}` : "", s.id === S.current ? "is-current" : "", s.done || !S.running ? "is-done" : ""].join(" ");
+  const body = typeof s.body === "function" ? s.body(s) : s.body;
+  return `<div class="step ${cls}" data-comp="${s.comp || ""}">${lineHTML(s, open, "step")}${open ? `<div class="step-body">${body}</div>` : ""}</div>`;
+}
+function turnHead(t, open) {
+  const status = t.status === "running" ? `<span class="badge running">● en cours</span>` : `<span class="badge done">terminé</span>`;
+  const flags = (t.flags || []).map((f) => `<span class="badge flag">${f}</span>`).join("");
+  const plural = t.calls > 1 ? "s" : "";
+  const nums = t.status === "running" ? `${t.calls} appel${plural} au modèle` : `${sec(t.duration)} · ${t.calls} appel${plural} au modèle`;
+  return `<button class="group-head" data-act="turn" data-v="${t.id}" aria-expanded="${open}"><span class="chev">${open ? "▾" : "▸"}</span><span class="turn-n">Tour ${t.n}</span>${status}${flags}<span class="turn-num">${nums}</span><span class="turn-msg">« ${esc(t.prompt)} »</span></button>`;
+}
+function prepHTML() {
+  const un = PREP.filter((p) => p.unavailable).length;
+  let h = `<section class="group prep"><button class="group-head" data-act="prep" aria-expanded="${S.prepOpen}"><span class="chev">${S.prepOpen ? "▾" : "▸"}</span><span class="g-title">Préparation du harnais</span><span class="g-sum">${PREP.length} connexions MCP${un ? ` · ${un} indisponible` : ""}</span>${anno(2)}</button>`;
+  if (S.prepOpen) {
+    h += `<div class="steps">` + PREP.map((p) => {
+      const open = S.prepItemOpen.has(p.id);
+      return `<div class="step ${p.unavailable ? "unavail" : ""}" data-comp="${p.comp}">${lineHTML(p, open, "prep-item")}${open ? `<div class="step-body">${p.body}</div>` : ""}</div>`;
+    }).join("") + `</div>`;
+  }
+  return h + `</section>`;
+}
+function renderOrch() {
+  const box = $("#orch-scroll");
+  const top = box.scrollTop;
+  let h = S.bricks.mcp ? prepHTML() : "";
+  if (!S.turns.length) h += `<p class="empty">Aucun tour pour l'instant. Envoyez un message : les étapes du harnais apparaîtront ici.${anno(1)}</p>`;
+  S.turns.forEach((t, i) => {
+    const open = turnOpen(t, i);
+    h += `<section class="group turn ${t.status === "running" ? "is-live" : ""}">${turnHead(t, open)}`;
+    if (open) h += `<div class="steps">${t.steps.map(stepHTML).join("")}</div>`;
+    h += `</section>`;
+  });
+  if (S.turns.length) h = h.replace(/(<span class="turn-n">Tour \d+<\/span>)/, `$1${anno(1)}`);
+  box.innerHTML = h;
+  const cur = S.live && S.running && S.current ? box.querySelector(`[data-v="${S.current}"]`) : null;
+  if (cur) cur.scrollIntoView({ block: "nearest" });
+  else box.scrollTop = top;
+  $("#live-btn").hidden = S.live;
+  renderLog();
+}
+function renderLog() {
+  const el = $("#log");
+  const list = el.querySelector(".log-list");
+  const prevTop = list ? list.scrollTop : 0;
+  const atBottom = list ? list.scrollHeight - list.scrollTop - list.clientHeight < 30 : true;
+  let h = `<button class="log-head" data-act="journal" aria-expanded="${S.journalOpen}"><span class="chev">${S.journalOpen ? "▾" : "▸"}</span><span class="log-title">Journal des événements (${S.journal.length})</span><span class="log-sub">tout ce que le harnais émet, brut</span>${anno(3)}</button>`;
+  if (S.journalOpen) {
+    h += `<ol class="log-list">` + S.journal.map((e, i) => {
+      const open = S.jOpen.has(i);
+      return `<li><button class="log-line" data-act="jline" data-v="${i}" aria-expanded="${open}"><span class="log-t">${e.t}</span><b>${esc(e.fr)}</b><code>${e.kind}</code><span class="log-sum">${esc(e.summary)}</span><span class="chev">${open ? "▾" : "▸"}</span></button>${open ? `<pre class="code">${esc(JSON.stringify(e.payload, null, 2))}</pre>` : ""}</li>`;
+    }).join("") + `</ol>`;
+  }
+  el.innerHTML = h;
+  const nl = el.querySelector(".log-list");
+  if (nl) nl.scrollTop = atBottom && S.running ? nl.scrollHeight : prevTop;
+}
+
+// Schéma : bacs par catégorie, barrière de hooks, frontière (B).
+let renderedSchemaKey = null;
+function robotHTML(pose) {
+  const cx = 40;
+  let face;
+  if (pose === "idle") face = `<path class="rf" d="M${cx - 12} 52 q4 3 8 0"/><path class="rf" d="M${cx + 4} 52 q4 3 8 0"/>`;
+  else {
+    face = `<circle class="re" cx="${cx - 7}" cy="50" r="2.5"/><circle class="re" cx="${cx + 7}" cy="50" r="2.5"/>`;
+    if (pose === "thinking") face += [-5, 0, 5].map((dx) => `<circle class="re" cx="${cx + dx}" cy="58" r="1.3"/>`).join("");
+    if (pose === "tool") face += `<path class="rf" d="M${cx - 6} 56 q6 5 12 0"/>`;
+  }
+  const badge = pose === "tool" ? `<circle class="rb" cx="${cx + 26}" cy="72" r="9"/><text x="${cx + 26}" y="76" text-anchor="middle" font-size="10">🔧</text>` : "";
+  return `<div class="robot ${pose !== "idle" ? "is-active" : ""}" data-comp="core.model" data-act="select" data-v="core.model" role="img" aria-label="Modèle Qwen3 1.7B : ${POSE[pose]}" title="Modèle : ${POSE[pose]}">
+    <svg viewBox="4 14 74 70" width="60" height="57" aria-hidden="true">
+      <rect class="rs" x="${cx - 1.5}" y="24" width="3" height="11" rx="1.5"/><circle class="ra" cx="${cx}" cy="22" r="5"/>
+      <rect class="rear" x="${cx - 34}" y="44" width="9" height="20" rx="4.5"/><rect class="rear" x="${cx + 25}" y="44" width="9" height="20" rx="4.5"/>
+      <rect class="rbody" x="${cx - 26}" y="34" width="52" height="40" rx="14"/><rect class="rv" x="${cx - 19}" y="41" width="38" height="24" rx="10"/>${face}${badge}
+    </svg><span class="robot-label">Modèle</span><span class="robot-model">Qwen3 1.7B</span></div>`;
+}
+function hookHTML(hk) {
+  const off = hk.id === "hooks.h5" && S.h5Off;
+  const cls = [S.active.has(hk.id) ? "is-active" : "", S.blocked.has(hk.id) ? "is-blocked" : "", off ? "is-off" : ""].join(" ");
+  const state = S.blocked.has(hk.id) ? " · ✖ a bloqué" : off ? " · désactivé" : "";
+  return `<button class="hook ${cls}" data-comp="${hk.id}" data-act="select" data-v="${hk.id}" title="${esc(hk.label)} : code du harnais, point d'accroche « ${esc(hk.point)} »"><span class="hook-name">${hk.icon} ${esc(hk.label)}${state}</span><span class="hook-point">${esc(hk.point)}</span></button>`;
+}
+const nodeVisible = (n) => !n.brick || S.bricks[n.brick];
+const bacVisible = (bac) => (bac.brick ? S.bricks[bac.brick] : bac.nodes.some(nodeVisible));
+function nodeHTML(bac, n) {
+  const net = bac.zone === "net";
+  const un = !!n.unavailable;
+  const icon = bac.kind === "skill" ? "" : bac.kind === "mcp" ? (un ? "⊘" : "🔌") : bac.kind === "file" ? "📄" : n.icon;
+  let extra = "";
+  if (bac.kind === "mcp") extra = un ? `<span class="count">indisponible</span>` : `<span class="count">${n.count} outils</span>`;
+  const kindFr = { tool: "outil", mcp: "serveur MCP (processus distinct)", skill: "skill (fichier local)", file: "fichier local" }[bac.kind];
+  let tip = `${n.label} · ${kindFr} · ${net ? "RÉSEAU" : "sur le poste"}`;
+  if (un) tip += ` · indisponible : ${n.unavailable}`;
+  const cls = [bac.kind, net ? "net" : "", un ? "unavailable" : "", S.active.has(n.id) ? "is-active" : ""].join(" ");
+  return `<button class="node ${cls}" data-comp="${n.id}" data-act="select" data-v="${n.id}" title="${esc(tip)}">${icon ? `<span class="ico" aria-hidden="true">${icon}</span>` : ""}<span class="nm">${esc(n.label)}</span>${extra}</button>`;
+}
+function bacHTML(bac, first) {
+  const nodes = bac.nodes.filter(nodeVisible);
+  return `<div class="bac bac-${bac.kind}"><span class="bac-title">${bac.icon} ${esc(bac.title)} · ${nodes.length}${first ? anno(5) : ""}</span><div class="bac-nodes">${nodes.map((n) => nodeHTML(bac, n)).join("")}</div></div>`;
+}
+function colsHTML(zone) {
+  const cols = [0, 1, 2].map((c) => BACS.filter((b) => b.zone === zone && b.col === c && bacVisible(b)));
+  let first = zone === "local";
+  return cols.filter((c) => c.length).map((c) => {
+    const html = `<div class="col ${c.some((b) => b.kind === "skill") ? "col-skill" : ""}">${c.map((b) => { const f = first; first = false; return bacHTML(b, f); }).join("")}</div>`;
+    return html;
+  }).join("");
+}
+function renderSchema() {
+  const b = S.bricks;
+  const key = JSON.stringify([b, S.pose, [...S.active], [...S.blocked], S.wire, S.h5Off]);
+  if (key === renderedSchemaKey) return;
+  renderedSchemaKey = key;
+  const chips = [b.short_memory && `<button class="chip" data-comp="short_memory" data-act="select" data-v="short_memory">🧠 Mémoire courte</button>`, b.system_prompt && `<button class="chip" data-comp="system_prompt" data-act="select" data-v="system_prompt">📜 Prompt système</button>`].filter(Boolean);
+  const any = Object.values(b).some(Boolean);
+  const coreChips = chips.join("") || (any ? "" : `<span class="llm-nu">Aucune brique : LLM nu</span>`);
+  const strip = b.hooks ? `<div class="strip" id="strip"><span class="strip-tag">🪝 Points d'accroche${anno(4)}</span>${HOOKS.map(hookHTML).join("")}</div>` : "";
+  const local = colsHTML("local");
+  const net = colsHTML("net");
+  $("#schema-body").innerHTML = `<div class="arch" id="arch"><svg class="wires" id="wires"></svg>
+    <div class="zone local"><span class="zone-label">🖥 Poste de travail</span><div class="zone-row">
+      <div class="harness" id="harness-frame" data-comp="core.harness" data-act="select" data-v="core.harness"><span class="harness-tag">Harnais</span>
+        <div class="core">${robotHTML(S.pose)}<div class="core-chips">${coreChips}</div></div>${strip}</div>${local}</div></div>
+    <div class="frontier" id="frontier"><span>frontière du poste${anno(6)}</span></div>
+    <div class="zone net"><span class="zone-label">🌐 RÉSEAU · hors du poste</span><div class="zone-row">${net || `<p class="zone-empty">Aucun composant réseau : rien ne sort du poste.</p>`}</div></div></div>`;
+  requestAnimationFrame(drawWires);
+}
+function drawWires() {
+  const arch = $("#arch");
+  const svg = $("#wires");
+  if (!arch || !svg) return;
+  const A = arch.getBoundingClientRect();
+  if (!A.width) return;
+  svg.setAttribute("width", A.width);
+  svg.setAttribute("height", A.height);
+  svg.setAttribute("viewBox", `0 0 ${A.width} ${A.height}`);
+  const R = (el) => { const r = el.getBoundingClientRect(); return { l: r.left - A.left, t: r.top - A.top, r: r.right - A.left, b: r.bottom - A.top, cx: (r.left + r.right) / 2 - A.left, cy: (r.top + r.bottom) / 2 - A.top }; };
+  const strip = $("#strip");
+  const from = strip ? R(strip) : R($("#harness-frame"));
+  const sx = strip ? from.cx : from.r - 40;
+  const sy = strip ? from.b : from.b + 4;
+  const by = A.height - 12;
+  const fx = R($("#frontier")).cx;
+  const parts = [];
+  const rails = new Map();
+  let maxRail = sx;
+  for (const col of $$(".col", arch)) {
+    const c = R(col);
+    const railX = c.l - 8;
+    const net = !!col.closest(".zone.net");
+    const ticks = $$(".bac", col).map((bac) => { const r = R(bac); return { y: r.t + 12, x: r.l }; });
+    if (!ticks.length) continue;
+    parts.push(`<path class="wire ${net ? "net" : ""}" d="M${railX},${by} V${Math.min(...ticks.map((t) => t.y))}"/>`);
+    for (const t of ticks) parts.push(`<path class="wire ${net ? "net" : ""}" d="M${railX},${t.y} H${t.x}"/>`);
+    rails.set(col, railX);
+    maxRail = Math.max(maxRail, railX);
+  }
+  if (maxRail > sx) {
+    if (maxRail > fx) {
+      parts.push(`<path class="wire" d="M${sx},${sy} V${by} H${fx}"/>`, `<path class="wire net" d="M${fx},${by} H${maxRail}"/>`);
+    } else parts.push(`<path class="wire" d="M${sx},${sy} V${by} H${maxRail}"/>`);
+  }
+  const marker = (x, y, txt, cls) => `<g class="marker ${cls}"><circle cx="${x}" cy="${y}" r="12"/><text x="${x}" y="${y + 4}" text-anchor="middle">${txt}</text></g>`;
+  const w = S.wire;
+  if (w) {
+    const node = arch.querySelector(`.node[data-comp="${w.target}"]`);
+    if (w.mode === "blocked") {
+      parts.push(`<path class="hl-block" d="M${sx},${sy} V${sy + 10}"/>`, marker(sx, sy + 20, "✖", "block"));
+    } else if (node) {
+      const bac = node.closest(".bac");
+      const railX = rails.get(node.closest(".col"));
+      const bb = R(bac);
+      const n = R(node);
+      const isNet = node.classList.contains("net");
+      if (w.mode === "pending") {
+        const stopX = isNet ? fx - 18 : railX;
+        const d = `M${sx},${sy} V${by} H${stopX}`;
+        parts.push(`<path class="hl" d="${d}"/><path class="hl-core" d="${d}"/>`, marker(stopX, by, "✋", "stop"));
+      } else {
+        const d = `M${sx},${sy} V${by} H${railX} V${bb.t + 12} H${bb.l + 3} V${n.cy} H${n.l}`;
+        parts.push(`<path class="hl" d="${d}"/><path class="hl-core ${isNet ? "flow" : ""}" d="${d}"/>`);
+      }
+    }
+  }
+  svg.innerHTML = parts.join("");
+}
+
+// Volets : masquage et mode focus.
+const PANE_LABELS = { bricks: "Briques", human: "Vue humain", ctx: "Contexte LLM", orch: "Orchestration", schema: "Schéma d'architecture" };
+function renderPanes() {
+  for (const p of $$(".pane")) {
+    const id = p.dataset.pane;
+    p.classList.toggle("is-hidden", S.hidden.has(id));
+    const focused = S.focused === id;
+    if (focused !== p.classList.contains("is-focused")) {
+      p.classList.toggle("is-focused", focused);
+      p.style.top = focused ? `${$(".top-bar").getBoundingClientRect().bottom + 8}px` : "";
+      renderedSchemaKey = null;
+      requestAnimationFrame(() => { renderSchema(); drawWires(); });
+    }
+  }
+}
+function applySelection() {
+  for (const el of $$(".is-selected")) el.classList.remove("is-selected");
+  if (!S.selection) return;
+  const brick = (S.selection.split(".")[0] === "file" ? { "file.audit": "hooks", "file.demo": "tools" }[S.selection] : S.selection.split(".")[0]);
+  for (const el of $$(`[data-comp="${S.selection}"]`)) el.classList.add("is-selected");
+  for (const el of $$(`.brick[data-comp="${brick}"]`)) el.classList.add("is-selected");
+}
+
+// ---------- déroulé d'un tour (simulé) ----------
+const sleep = async (ms) => {
+  const g = S.gen;
+  await new Promise((r) => setTimeout(r, ms * S.speed));
+  if (g !== S.gen) throw new Error("abort");
+};
+function hookBody(point, hook, decision) {
+  return `<dl class="kv"><dt>Point d'accroche</dt><dd>${point}</dd><dt>Hook</dt><dd>${hook}</dd><dt>Décision</dt><dd>${decision}</dd></dl><p class="who-line">Décision du harnais (code), pas du modèle.</p>`;
+}
+function callBody(st) {
+  const out = st.done ? `<b>${st.out}</b>` : "…";
+  return `<p class="counter">Entrée : ${fmt(st.used)} tokens · Sortie : ${out} tokens · Temps : ${sec(st.dur || st.elapsed || 0)}</p>
+    <p>Le modèle lit tout le contexte, puis génère. <button class="link" data-act="ctx" data-v="${st.id}">Voir ce contexte dans Contexte LLM</button></p>
+    ${st.raw ? `<p class="lbl">Sortie brute du modèle</p><pre class="code">${esc(st.raw)}</pre>` : ""}`;
+}
+async function hookStep(add, o) {
+  S.active.clear();
+  S.active.add(o.comp);
+  S.wire = o.wire || null;
+  add({ type: "hook", icon: o.icon, title: o.title, who: "harnais", key: o.key, comp: o.comp, tone: o.tone, body: o.body });
+  log("hook_decided", "Décision d'un hook", `${o.comp.slice(6).toUpperCase()} · ${o.key}`, { hook: o.comp.slice(6), point: o.point, decision: o.decision });
+  await sleep(1100);
+  S.active.delete(o.comp);
+  S.wire = null;
+}
+async function modelCall(turn, add, o) {
+  turn.calls++;
+  const segs = buildSegments(turn, o.extra);
+  const used = segs.reduce((a, s) => a + s.tokens, 0);
+  if (S.live) S.ctx = { turn: turn.n, call: turn.calls, segs };
+  S.gauge = segs;
+  S.active.clear();
+  S.wire = null;
+  S.pose = "thinking";
+  const t0 = performance.now();
+  S.working = { label: `Lecture du contexte (${fmt(used)} tokens)`, t0 };
+  const s = add({ type: "call", icon: "🤖", title: o.final ? "Réponse finale" : "Appel au modèle", who: "modèle", key: `${fmt(used)} lus…`, comp: "core.model", segs, turnN: turn.n, callN: turn.calls, used, body: callBody });
+  log("context_rendered", "Contexte rendu", `${fmt(used)} tokens, ${segs.length} segments`, { call_id: s.id, used, window: WINDOW, segments: segs.map((x) => ({ kind: x.kind, tokens: x.tokens })) });
+  log("model_call_started", "Appel au modèle commencé", `${fmt(used)} tokens en entrée`, { call_id: s.id });
+  // Le chronomètre ne touche que le chiffre de l'étape : un rendu complet ferait perdre les clics.
+  const tick = setInterval(() => {
+    s.elapsed = performance.now() - t0;
+    s.key = `${fmt(used)} lus · ${sec(s.elapsed)}`;
+    const k = document.querySelector(`[data-v="${s.id}"] .key`);
+    if (k) k.textContent = s.key;
+  }, 250);
+  try {
+    await sleep(1600);
+    S.working = { label: "Génération de la réponse", t0 };
+    if (o.final) {
+      const m = { role: "model", text: "", streaming: true };
+      S.chat.push(m);
+      for (const word of o.text.split(" ")) { m.text += (m.text ? " " : "") + word; renderChat(); await sleep(60); }
+      m.streaming = false;
+      turn.answer = o.text;
+      s.out = Math.round(o.text.length / 3.6);
+      s.raw = o.text;
+    } else {
+      await sleep(1000);
+      s.out = 22;
+      s.raw = `<tool_call>{"name": "${o.tool}", "arguments": ${o.args}}</tool_call>`;
+    }
+  } finally {
+    clearInterval(tick);
+  }
+  s.dur = performance.now() - t0;
+  s.done = true;
+  s.key = `${fmt(used)} lus · ${s.out} écrits · ${sec(s.dur)}`;
+  log("model_delta", "Morceaux de réponse", `${s.out} événements regroupés sur cette ligne`, { call_id: s.id, count: s.out });
+  log("model_call_ended", "Appel au modèle terminé", `${s.out} tokens en sortie · ${sec(s.dur)}`, { call_id: s.id, prompt_tokens: used, output_tokens: s.out, duration_ms: Math.round(s.dur), stop_reason: "stop" });
+  S.pose = "idle";
+  render();
+  await sleep(400);
+}
+async function toolExec(add, o) {
+  S.active.clear();
+  S.active.add(o.comp);
+  S.wire = { target: o.comp, mode: "on" };
+  S.pose = "tool";
+  S.working = { label: `Exécution de l'outil ${o.label}`, t0: performance.now() };
+  const s = add({ type: "tool", icon: "🔧", title: `Exécution · ${o.label}`, who: "harnais", key: "en cours…", comp: o.comp, net: o.net,
+    body: (st) => `<p>Le harnais exécute l'outil demandé par le modèle.</p><pre class="code">${esc(o.call)}</pre>${o.net ? outboundHTML(o.net, o.request) : ""}${st.done ? `<p class="lbl">Résultat</p><pre class="code">${esc(o.result)}</pre>` : `<p class="meta">En cours…</p>`}` });
+  log("tool_started", "Outil lancé", o.call, { tool: o.tool, source: "native", arguments: o.argsObj });
+  if (o.net) log("outbound_request", "Données sortantes", o.request.split("\n")[0], { method: "GET", url: o.request.slice(4) });
+  await sleep(1600);
+  s.done = true;
+  s.key = "OK · 0,6 s";
+  log("tool_ended", "Outil terminé", `${o.tool} : OK`, { tool: o.tool, status: "ok", duration_ms: 612 });
+  S.active.delete(o.comp);
+  S.wire = null;
+  S.pose = "idle";
+  render();
+  await sleep(500);
+}
+async function approval(add) {
+  S.active.clear();
+  S.active.add("hooks.h5");
+  S.wire = { target: "tools.public_holidays", mode: "pending" };
+  const msg = { role: "approval" };
+  S.chat.push(msg);
+  S.apPreview = false;
+  const st = add({ type: "approval", icon: "✋", title: "Validation humaine (H5)", who: "vous", key: "en attente", tone: "pending", comp: "hooks.h5", net: "calendrier.api.gouv.fr",
+    body: (x) => `<dl class="kv"><dt>Point d'accroche</dt><dd>Avant l'exécution d'un outil</dd><dt>Hook</dt><dd>Validation humaine (H5)</dd><dt>Outil</dt><dd>public_holidays(year=2026)</dd></dl>${outboundHTML("calendrier.api.gouv.fr", "GET https://calendrier.api.gouv.fr/jours-feries/metropole/2026.json")}<p class="${x.decision ? "who-line" : "pending-line"}">${x.decision ? (x.decision === "refused" ? "Refusé par vous." : "Autorisé par vous.") : "En attente de votre réponse dans la Vue humain."}</p><p class="who-line">Décision demandée par le harnais (code), pas par le modèle.</p>` });
+  S.working = { label: "En attente de validation", t0: performance.now() };
+  log("approval_requested", "Validation demandée", "public_holidays → calendrier.api.gouv.fr", { tool: "public_holidays", destination: "calendrier.api.gouv.fr", preview: { method: "GET", url: "https://calendrier.api.gouv.fr/jours-feries/metropole/2026.json" } });
+  render();
+  const g = S.gen;
+  const v = await new Promise((r) => { S.resolveApproval = r; });
+  if (g !== S.gen) throw new Error("abort");
+  S.resolveApproval = null;
+  msg.decision = v;
+  st.tone = null;
+  st.decision = v;
+  st.key = v === "refused" ? "refusé par vous" : "autorisé par vous";
+  if (v === "always") S.h5Off = true;
+  log("approval_resolved", "Validation résolue", st.key, { decision: v === "refused" ? "refused" : "approved", hook_disabled: v === "always" });
+  S.active.delete("hooks.h5");
+  S.wire = null;
+  render();
+  await sleep(500);
+  return v === "refused" ? "refused" : "approved";
+}
+async function runTurn(text) {
+  const b = S.bricks;
+  const kind = /secret/i.test(text) ? "block" : /féri/i.test(text) ? "network" : "plain";
+  S.blocked.clear();
+  const turn = { id: uid(), n: S.turns.length + 1, prompt: text, status: "running", steps: [], calls: 0, t0: performance.now(), flags: [] };
+  S.turns.push(turn);
+  S.chat.push({ role: "user", text });
+  log("turn_started", "Tour commencé", `tour ${turn.n}`, { turn_id: turn.id, text });
+  const add = (o) => { const s = { id: uid(), ...o }; turn.steps.push(s); S.current = s.id; render(); return s; };
+  render();
+  await sleep(300);
+  if (b.hooks) await hookStep(add, { comp: "hooks.h3", icon: "💉", title: "Hook H3 · réception du message", key: "modifié · +48 tokens", tone: "hook", point: "on_user_message", decision: "modify",
+    body: hookBody("Réception du message", "Injection de contexte", "Modifié : la date du poste et les règles de la mission sont ajoutées au message (+48 tokens).") });
+
+  if (!b.tools || kind === "plain") {
+    const answer = kind === "network" ? "En mai 2026, il y a sans doute le 1er mai et le 8 mai, peut-être l'Ascension. Je ne peux pas le vérifier : je n'ai pas d'outil." :
+      kind === "block" ? "Je ne peux pas lire de fichier : aucun outil ne me le permet." :
+      "Un harnais, c'est tout le code autour du modèle : il prépare le contexte, exécute les outils et applique les règles.";
+    await modelCall(turn, add, { final: true, text: answer });
+  } else if (kind === "network") {
+    await modelCall(turn, add, { tool: "public_holidays", args: '{"year": 2026}' });
+    add({ type: "ask", icon: "🗨", title: "Demande d'outil", who: "modèle", key: "public_holidays", comp: "tools.public_holidays",
+      body: `<p>Le modèle ne répond pas encore : il demande un outil. C'est le harnais qui l'exécutera.</p><pre class="code">public_holidays(year=2026)</pre>` });
+    await sleep(1000);
+    if (b.hooks) await hookStep(add, { comp: "hooks.h1", icon: "🛡", title: "Hook H1 · garde-fou", key: "laissé passer", tone: "hook", point: "before_tool", decision: "allow",
+      body: hookBody("Avant l'exécution d'un outil", "Garde-fou fichier sensible", "Laissé passer : cet outil ne lit aucun fichier du poste.") });
+    let decision = "approved";
+    if (b.hooks && !S.h5Off) decision = await approval(add);
+    let result;
+    if (decision === "refused") {
+      result = { comp: "hooks.h5", tokens: 36, text: "public_holidays : refusé par l'utilisateur (hook H5). Aucune donnée n'a quitté le poste." };
+    } else {
+      await toolExec(add, { comp: "tools.public_holidays", tool: "public_holidays", label: "Jours fériés", net: "calendrier.api.gouv.fr", call: "public_holidays(year=2026)", argsObj: { year: 2026 },
+        request: "GET https://calendrier.api.gouv.fr/jours-feries/metropole/2026.json", result: HOLIDAYS });
+      if (b.hooks) await hookStep(add, { comp: "hooks.h2", icon: "📝", title: "Hook H2 · après un outil", key: "noté dans audit.log", tone: "hook", point: "after_tool", decision: "allow",
+        wire: { target: "file.audit", mode: "on" }, body: hookBody("Après l'exécution d'un outil", "Journalisation", "Laissé passer. Une ligne est ajoutée au journal d'audit, que le modèle ne voit pas.") });
+      result = { comp: "tools.public_holidays", tokens: 212, text: HOLIDAYS };
+    }
+    add({ type: "reinject", icon: "↩", title: "Réinjection", who: "harnais", key: `+${result.tokens} tokens`, comp: result.comp,
+      body: `<p>Le harnais ajoute ${decision === "refused" ? "le refus" : "le résultat de l'outil"} au contexte du prochain appel au modèle : ${fmt(result.tokens)} tokens.</p>` });
+    await sleep(900);
+    const answer = decision === "refused"
+      ? "Je ne peux pas consulter le calendrier officiel sans votre accord. De mémoire : 1er mai, 8 mai, Ascension le 14 mai et lundi de Pentecôte le 25 mai, à vérifier."
+      : "En mai 2026, les jours fériés sont le vendredi 1er mai, le vendredi 8 mai, le jeudi 14 mai (Ascension) et le lundi 25 mai (lundi de Pentecôte).";
+    await modelCall(turn, add, { final: true, text: answer, extra: result });
+  } else {
+    await modelCall(turn, add, { tool: "read_file", args: '{"path": "secrets.txt"}' });
+    add({ type: "ask", icon: "🗨", title: "Demande d'outil", who: "modèle", key: "read_file", comp: "tools.read_file",
+      body: `<p>Le modèle demande à lire un fichier. C'est le harnais qui l'exécutera, ou non.</p><pre class="code">read_file(path="secrets.txt")</pre>` });
+    await sleep(1000);
+    let result;
+    if (b.hooks) {
+      S.active.clear();
+      S.active.add("hooks.h1");
+      S.blocked.add("hooks.h1");
+      S.wire = { target: "tools.read_file", mode: "blocked" };
+      turn.flags.push("🛡 1 blocage");
+      add({ type: "hook", icon: "🛡", title: "Hook H1 · garde-fou", who: "harnais", key: "bloqué", tone: "error", comp: "hooks.h1",
+        body: `<p><b>✖ Bloqué par le hook garde-fou.</b></p><dl class="kv"><dt>Point d'accroche</dt><dd>Avant l'exécution d'un outil</dd><dt>Appel visé</dt><dd><code>read_file(path="secrets.txt")</code></dd><dt>Effet</dt><dd>L'outil n'est pas exécuté ; le refus est réinjecté au modèle.</dd></dl><p class="who-line">Décision du harnais (code), pas du modèle.</p>` });
+      log("hook_decided", "Décision d'un hook", "H1 · bloqué", { hook: "h1", point: "before_tool", decision: "block", reason_fr: "fichier sensible" });
+      await sleep(1800);
+      S.active.delete("hooks.h1");
+      S.wire = null;
+      result = { comp: "hooks.h1", tokens: 36, text: "read_file : bloqué par le hook garde-fou (fichier sensible « secrets.txt »). L'outil n'a pas été exécuté." };
+    } else {
+      await toolExec(add, { comp: "tools.read_file", tool: "read_file", label: "Lecture de fichier", call: 'read_file(path="secrets.txt")', argsObj: { path: "secrets.txt" }, result: "API_KEY=demo-4F2A-91C0 (fichier fictif de démonstration)" });
+      result = { comp: "tools.read_file", tokens: 24, text: "API_KEY=demo-4F2A-91C0 (fichier fictif de démonstration)" };
+    }
+    add({ type: "reinject", icon: "↩", title: "Réinjection", who: "harnais", key: `+${result.tokens} tokens`, comp: result.comp,
+      body: `<p>Le harnais ajoute ${b.hooks ? "le refus du hook" : "le contenu du fichier"} au contexte du prochain appel : ${fmt(result.tokens)} tokens.</p>` });
+    await sleep(900);
+    const answer = b.hooks ? "Je ne peux pas lire ce fichier : l'accès à secrets.txt a été bloqué par une règle du harnais."
+      : "Le fichier secrets.txt contient une clé d'API : API_KEY=demo-4F2A-91C0. Rien n'a empêché sa lecture.";
+    await modelCall(turn, add, { final: true, text: answer, extra: result });
+  }
+  if (b.hooks) await hookStep(add, { comp: "hooks.h2", icon: "📝", title: "Hook H2 · fin du tour", key: "noté dans audit.log", tone: "hook", point: "on_turn_end", decision: "allow",
+    wire: { target: "file.audit", mode: "on" }, body: hookBody("Fin du tour", "Journalisation", "Laissé passer. Le statut du tour est noté dans le journal d'audit.") });
+  turn.status = "done";
+  turn.duration = performance.now() - turn.t0;
+  S.working = null;
+  S.active.clear();
+  S.wire = null;
+  S.pose = "idle";
+  log("turn_ended", "Tour terminé", `tour ${turn.n} · ${sec(turn.duration)}`, { turn_id: turn.id, status: "completed" });
+}
+async function send(text) {
+  text = text.trim();
+  if (S.running || !text) return;
+  $("#composer-input").value = "";
+  S.running = true;
+  S.live = true;
+  S.userOpen.clear();
+  S.turnOpen.clear();
+  const g = S.gen;
+  try {
+    await runTurn(text);
+  } catch (e) {
+    if (e.message !== "abort") console.error(e);
+  }
+  if (g === S.gen) {
+    S.running = false;
+    S.working = null;
+    render();
+  }
+}
+
+// ---------- interactions ----------
+function findStep(id) {
+  for (const t of S.turns) { const s = t.steps.find((x) => x.id === id); if (s) return s; }
+  return null;
+}
+function select(comp) {
+  S.selection = S.selection === comp ? null : comp;
+}
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-act]");
+  if (!el) {
+    if (!e.target.closest("button, input, .legend")) { S.selection = null; applySelection(); }
+    return;
+  }
+  const act = el.dataset.act;
+  const v = el.dataset.v;
+  if (act === "brick") {
+    e.stopPropagation();
+    S.bricks[v] = !S.bricks[v];
+    log("bricks_changed", "Briques modifiées", `${BRICKS.find((b) => b.id === v).label} : ${S.bricks[v] ? "activée" : "désactivée"}`, { brick: v, wanted: S.bricks[v] });
+    log("architecture_changed", "Schéma mis à jour", "nœuds recalculés", { reason: "bricks_changed" });
+    if (!S.running) S.gauge = buildSegments({ prompt: "" }, null, true);
+  } else if (act === "select") select(v);
+  else if (act === "step") {
+    const s = findStep(v);
+    if (S.live) {
+      S.live = false;
+      S.userOpen = new Set();
+      const cur = S.current && findStep(S.current);
+      if (cur && !sticky(cur)) S.userOpen.add(S.current);
+    }
+    if (S.userOpen.has(v)) S.userOpen.delete(v);
+    else S.userOpen.add(v);
+    if (s && s.segs) S.ctx = { turn: s.turnN, call: s.callN, segs: s.segs };
+    if (s && s.comp) S.selection = s.comp;
+  } else if (act === "turn") {
+    const i = S.turns.findIndex((t) => t.id === v);
+    S.turnOpen.set(v, !turnOpen(S.turns[i], i));
+  } else if (act === "prep") S.prepOpen = !S.prepOpen;
+  else if (act === "prep-item") {
+    if (S.prepItemOpen.has(v)) S.prepItemOpen.delete(v);
+    else S.prepItemOpen.add(v);
+    S.selection = PREP.find((p) => p.id === v).comp;
+  } else if (act === "journal") S.journalOpen = !S.journalOpen;
+  else if (act === "jline") {
+    const i = Number(v);
+    if (S.jOpen.has(i)) S.jOpen.delete(i);
+    else S.jOpen.add(i);
+  } else if (act === "live") {
+    S.live = true;
+    S.userOpen.clear();
+    S.turnOpen.clear();
+    const last = S.turns.at(-1);
+    const call = last && last.steps.filter((s) => s.segs).at(-1);
+    if (call) S.ctx = { turn: call.turnN, call: call.callN, segs: call.segs };
+  } else if (act === "ctx") {
+    const s = findStep(v);
+    S.ctx = { turn: s.turnN, call: s.callN, segs: s.segs };
+    if (S.hidden.has("ctx")) S.hidden.delete("ctx");
+  } else if (act === "seg") {
+    if (S.segClosed.has(v)) S.segClosed.delete(v);
+    else S.segClosed.add(v);
+  } else if (act === "ap") {
+    if (S.resolveApproval) S.resolveApproval(v);
+    return;
+  } else if (act === "ap-preview") S.apPreview = !S.apPreview;
+  else if (act === "suggest") { $("#composer-input").value = v; $("#composer-input").focus(); return; }
+  else if (act === "play") { if (S.running) reset(); send(v); return; }
+  else if (act === "launch") { reset(); return; }
+  else if (act === "clear") {
+    S.turns = []; S.chat = []; S.ctx = null; S.current = null; S.blocked.clear();
+    log("conversation_cleared", "Conversation vidée", "les tours restent dans ce journal", { cleared_turns: true });
+  } else if (act === "speed") {
+    S.speed = S.speed === 1 ? 2.2 : 1;
+    $("#speed-btn").textContent = `Vitesse : ${S.speed === 1 ? "normale" : "lente"}`;
+    return;
+  } else if (act === "anno") {
+    const open = $("#legend").hidden;
+    $("#legend").hidden = !open;
+    el.classList.toggle("on", open);
+    return;
+  } else if (act === "aa") {
+    const k = { 1: 1.25, 1.25: 1.5, 1.5: 1 }[getComputedStyle(document.documentElement).getPropertyValue("--k").trim()] || 1;
+    document.documentElement.style.setProperty("--k", k);
+    el.textContent = `Aa ${Math.round(k * 100)} %`;
+    renderedSchemaKey = null;
+  } else if (act === "focus") S.focused = S.focused === el.dataset.pane ? null : el.dataset.pane;
+  else if (act === "hide") {
+    const visible = Object.keys(PANE_LABELS).filter((p) => !S.hidden.has(p));
+    if (visible.length > 1) S.hidden.add(el.dataset.pane);
+    if (S.focused === el.dataset.pane) S.focused = null;
+    renderedSchemaKey = null;
+  } else if (act === "show") { S.hidden.delete(el.dataset.pane); renderedSchemaKey = null; }
+  render();
+});
+$("#composer").addEventListener("submit", (e) => { e.preventDefault(); send($("#composer-input").value); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  S.focused = null;
+  S.selection = null;
+  render();
+});
+setInterval(() => { if (S.working) renderWorking(); }, 200);
+new ResizeObserver(() => drawWires()).observe($("#schema-body"));
+document.body.classList.add("show-anno");
+reset();
+</script>
+</body>
+</html>

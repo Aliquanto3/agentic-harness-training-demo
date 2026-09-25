@@ -2,7 +2,7 @@
 title: DESIGN — WaveStack
 status: draft
 created: 2026-09-22
-updated: 2026-09-24
+updated: 2026-09-25
 sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/addendum.md
@@ -476,9 +476,9 @@ Grille retenue : 5 volets masquables (référence : [`.working/layout-5-volets-v
 - barre haute de `{spacing.top-bar-height}` sur toute la largeur ;
 - colonne de gauche sur toute la hauteur : panneau des briques (`{spacing.brick-panel-width}`) ;
 - à droite, rangée du haut : vue humain, Contexte LLM, Orchestration ; Contexte LLM et Orchestration se partagent à parts égales la largeur restante ;
-- à droite, bande basse sous ces trois volets : schéma d'architecture, `{spacing.architecture-band-height}`.
+- à droite, bande basse sous ces trois volets : schéma d'architecture, `{spacing.architecture-band-height}`. `[ASSUMPTION]` Ce token passe de 200 à 250 px avec la story 8e (bacs par catégorie et bande des hooks), en même temps que `tokens.css`. À 1280×650, la rangée du haut perd 50 px ; si c'est trop juste, le formateur masque un volet, passe le schéma en mode focus ou redimensionne les volets.
 
-Un volet masqué libère sa place : les volets visibles de la même rangée se la partagent ; si le panneau des briques est masqué, les autres volets prennent toute la largeur ; si le schéma est masqué, la rangée du haut prend toute la hauteur. Le mode focus redistribue la grille sans changer l'ordre des volets (voir EXPERIENCE.md). Le comportement par taille d'écran est dans EXPERIENCE.md, section Responsive & Platform.
+Un volet masqué libère sa place : les volets visibles de la même rangée se la partagent ; si le panneau des briques est masqué, les autres volets prennent toute la largeur ; si le schéma est masqué, la rangée du haut prend toute la hauteur. Les gouttières sont aussi des poignées de redimensionnement (`pane-resize-handle`, voir Components). Le mode focus redistribue la grille sans changer l'ordre des volets (voir EXPERIENCE.md). Le comportement par taille d'écran est dans EXPERIENCE.md, section Responsive & Platform.
 
 Fond de page (`page`) : `{colors.surface}` semé de pois `{colors.dot}` de 1,3 px sur une grille de `{spacing.dot-grid}`, comme un papier de cahier. Les pois restent dans les gouttières et autour des volets ; aucun volet, aucune carte n'en porte.
 
@@ -534,6 +534,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
   En haut à droite, bouton ⛶ (mode focus) puis bouton « — » (`pane-hide-button`, masquer). Volet en mode focus : bordure `{colors.primary}`.
 - **Puce de volet masqué (`pane-chip`)** : « + Nom du volet » sur violet doux, bordure en tirets violette. Quand le volet masqué contient un élément correspondant à la sélection, la puce porte un point encre et le libellé « lié ».
 - **Menu Volets (`pane-menu`)** : bouton « Volets ▾ » ; liste déroulante des cinq volets avec case à cocher chacun.
+- **Poignée de gouttière (`pane-resize-handle`)** : invisible au repos (on voit les pois de la page). Au survol ou au focus, une pilule violette de 4 × 32 px apparaît au milieu de la gouttière, avec le curseur ↔ ou ↕. Pendant le glissement, la pilule reste visible. La zone de saisie fait au moins `{spacing.hit-target-min}`, même si la gouttière visible reste à `{spacing.gutter}`.
 - **Boutons (`button-primary`, `button-secondary`, `reset-button`)** : primaire violet plein sur relief violet foncé, qui s'enfonce au clic (relief de 4 px à 1 px) ; secondaire contour violet sur relief actif ; Réinitialiser neutre et sans relief, pour ne pas attirer le clic par erreur. Libellés en `label` Fredoka. Hauteur minimale `{spacing.hit-target-min}`.
 - **Sélecteur de scénario (`scenario-picker`)** : pastille violet doux avec le nom du module et du scénario en cours.
 - **Sélecteur de modèle (`model-picker`)** : liste déroulante neutre, nom du modèle et taille (ex. « 2B »).
@@ -547,7 +548,9 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Champ de saisie (`composer`)** : pilule en `chat`, bordure `{colors.line}`, `{colors.primary}` au focus ; bouton d'envoi primaire rond à droite.
 - **Prompt suggéré (`suggested-prompt-chip`)** : puce contour violet au-dessus du champ de saisie.
 - **Indicateur de travail (`working-indicator`)** : point vert pulsé, libellé de phase et chronomètre en `body-sm`.
-- **Rail d'étapes (`turn-rail`, `turn-step`)** : colonne verticale d'étapes reliées par un filet ; étape courante marquée d'un point vert, étape sélectionnée sur violet doux.
+- **Rail d'étapes (`turn-rail`, `turn-group`, `turn-step`)** : groupe de tour (`turn-group`) avec en-tête « Tour N » en `heading`, extrait du message en `body-sm` encre douce, statut en badge, chiffres en `number` ; les étapes sont reliées par un filet vertical `{colors.line}` de 2 px. Étape (`turn-step`) repliée : une ligne, tuile d'icône `{rounded.sm}`, titre en `label`, chiffre clé en `number` aligné à droite, chevron ▸ / ▾. Icône par type (appel au modèle, demande d'outil, exécution, chargement de documentation, skill, hook, validation humaine, réinjection, réponse finale), toujours doublée du titre. Étape courante : point vert ; étape sélectionnée : violet doux. Contenu interne sans relief.
+- **Préparation du harnais (`harness-prep`)** : même traitement qu'un groupe de tour, titre « Préparation du harnais », sans relief.
+- **Journal des événements (`event-log`)** : en-tête repliable en `label` avec chevron ; lignes en `body-sm`, nom technique en `{typography.code}` encre douce, JSON en `{typography.code}` sur crème. Aucune couleur d'état ni de segment.
 - **Compteur de tokens (`token-counter`)** : nombres Fredoka tabulaires ; entrée, sortie, temps écoulé.
 - **Badge de déclenchement (`trigger-badge-model`, `trigger-badge-user`)** : « Déclenché par le modèle » sur violet doux avec icône puce ; « Forcé par l'utilisateur » en contour encre avec icône main. La différence tient à l'icône et au libellé, pas seulement au style.
 - **Bouton Forcer (`force-button`)** : contour encre, icône main, pour rappeler le badge « Forcé par l'utilisateur ».
@@ -556,7 +559,11 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Données sortantes (`outbound-payload`)** : en-tête jaune « RÉSEAU » avec icône globe et adresse de destination ; corps en `{typography.code}`, bordure en tirets encre.
 - **Comparaison de tours (`turn-compare`)** : deux colonnes alignées segment par segment, écarts signalés par un signe (+ / −) et une valeur, jamais par la couleur seule.
 - **Schéma d'architecture (`arch-zone-local`, `arch-zone-network`, `arch-boundary`, `arch-node-local`, `arch-node-network`, `arch-node-unavailable`, `arch-node-active`, `arch-flow`)** : deux zones séparées par la frontière verticale ; nœuds locaux violets à trait continu, nœuds réseau jaunes à tirets encre avec globe et « RÉSEAU ». Processus local et fichier local se distinguent par l'icône (engrenage / document) et le libellé `[ASSUMPTION]`. Nœud indisponible : fond crème, tirets gris, icône barrée et raison. Nœud en action : halo vert. Flux : trait `{spacing.stroke-min}` encre douce, vert quand il est parcouru.
-- **Harnais et modèle dans le schéma (`arch-harness`, `arch-model`)** : dans la zone locale, un cadre « Harnais » (bordure violette `{spacing.stroke-min}`, étiquette pilule violette en haut à gauche, relief `{colors.relief-active}`) entoure le modèle et liste les briques actives en puces violet doux, avec leur icône. Sans brique active, le cadre affiche « Aucune brique : LLM nu ». Au centre du cadre, le modèle est un **robot-mascotte** : corps violet, oreilles violet foncé, visière blanche, visage encre, nom « Modèle » en `label` et nom du modèle chargé dessous. Il signifie le modèle et rien d'autre : c'est la pièce autour de laquelle on branche le harnais. Trois poses, pilotées par l'état du tour :
+  - **Bac (`arch-group`)** : contenant blanc à bordure `{colors.line}` 2 px, `{rounded.md}`, sans relief ; titre `label` posé sur la bordure (icône, nom, nombre). Côté Réseau : fond crème.
+  - **Forme par catégorie**, dans les couleurs du lieu d'hébergement : outil = tuile d'icône ronde à gauche du nom ; serveur MCP = double trait (local) ou double tirets (réseau), pastille « N outils » ; skill = filet gauche épais de 7 px ; fichier = fond crème, icône document. Toutes gardent `{rounded.sm}` ; la maquette utilise des coins de 4 à 6 px sur skill et fichier, cette spine l'emporte.
+  - **Bande des hooks (`arch-hook-strip`)** : dans le cadre Harnais, séparée du modèle par un tiret violet, étiquette pilule « Points d'accroche » ; hook en pièce violet doux à deux lignes (nom, point d'accroche). En action : halo vert. Bloquant : filet rouge de 7 px et « ✖ a bloqué ». Désactivé : tirets gris.
+  - **Tronc et rails (`arch-trunk`)** : trait `{spacing.stroke-min}` encre douce, en tirets après la frontière ; chemin parcouru en halo vert 7 px avec un trait encre au centre, en tirets animés quand il franchit la frontière. Marqueurs ✋ (violet, validation H5 en attente) et ✖ (rouge, blocage par un hook).
+- **Harnais et modèle dans le schéma (`arch-harness`, `arch-model`)** : dans la zone locale, un cadre « Harnais » (bordure violette `{spacing.stroke-min}`, étiquette pilule violette en haut à gauche, relief `{colors.relief-active}`) entoure le modèle et liste en puces violet doux, avec leur icône, les briques actives sans composant externe (mémoire courte, prompt système) ; les autres briques sont représentées par leurs bacs et par la bande des hooks. Le robot et les puces s'empilent verticalement. Sans brique active, le cadre affiche « Aucune brique : LLM nu ». Au centre du cadre, le modèle est un **robot-mascotte** : corps violet, oreilles violet foncé, visière blanche, visage encre, nom « Modèle » en `label` et nom du modèle chargé dessous. Il signifie le modèle et rien d'autre : c'est la pièce autour de laquelle on branche le harnais. Trois poses, pilotées par l'état du tour :
 
   | Pose | Visage | Antenne |
   |---|---|---|
@@ -582,6 +589,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 | Grands arrondis sur l'échelle 12 / 18 / 26 px et la pilule | Rayons hors échelle ou angles vifs |
 | Pois uniquement sur le fond de page, en `{colors.dot}` | Pois ou motif derrière du texte, dans un volet ou une carte |
 | Un sous-titre par volet, qui dit ce qu'il montre | Sous-titre décoratif, slogan, ou qui répète le titre |
+| Distinguer les catégories du schéma par le bac, la forme et l'icône | Donner une couleur à chaque catégorie |
 | Le robot représente le modèle, et seulement lui | Robot comme décoration, sur un autre composant ou dans un état sans rapport avec le modèle |
 | Animations réservées au signal « en action » (pouls, flux, antenne) et coupées sous `prefers-reduced-motion` | Curseur personnalisé, révélations au scroll, compteurs animés de la charte vitrine, robot animé au repos |
 | Thème clair uniquement | Mode sombre en V1 |
