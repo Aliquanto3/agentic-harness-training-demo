@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forge WaveStack V2</title>
+<style>
+  :root {
+    --bg: #f6f3ee; --surface: #fffdf9; --ink: #1f1b16; --muted: #6b6258;
+    --line: #e2dbd0; --accent: #8a1c1c; --accent-soft: #f3e3e0;
+    --ok: #2f6b3a; --ok-soft: #e4f0e6; --warn: #8a5a00; --warn-soft: #f7ecd6;
+    --kill: #5b5b5b; --kill-soft: #ececec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17140f; --surface: #211d17; --ink: #efe8dd; --muted: #a79d90;
+      --line: #3a332a; --accent: #e0645a; --accent-soft: #3a211e;
+      --ok: #7cc58a; --ok-soft: #1f3324; --warn: #e3b25a; --warn-soft: #3a2f1a;
+      --kill: #b0b0b0; --kill-soft: #2b2b2b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17140f; --surface: #211d17; --ink: #efe8dd; --muted: #a79d90;
+    --line: #3a332a; --accent: #e0645a; --accent-soft: #3a211e;
+    --ok: #7cc58a; --ok-soft: #1f3324; --warn: #e3b25a; --warn-soft: #3a2f1a;
+    --kill: #b0b0b0; --kill-soft: #2b2b2b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 Georgia, "Times New Roman", serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center;
+    border-bottom: 2px solid var(--ink); padding-bottom: 20px; }
+  .kicker { font: 600 12px/1 system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: 2rem; margin: 8px 0 6px; line-height: 1.15; }
+  .lede { color: var(--muted); margin: 0; }
+  .seal { width: 170px; height: 170px; }
+  .seal text { font-family: Georgia, serif; }
+  h2 { font: 700 13px/1 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--accent); margin: 40px 0 14px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  ul.locks, ul.plain { margin: 0; padding: 0; list-style: none; }
+  ul.locks li { padding: 10px 0 10px 28px; border-bottom: 1px dashed var(--line); position: relative; }
+  ul.locks li:last-child { border-bottom: 0; }
+  ul.locks li::before { content: "✦"; position: absolute; left: 4px; top: 10px; color: var(--ok); }
+  b { font-weight: 700; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .tag { display: inline-block; font: 600 11px/1 system-ui, sans-serif; letter-spacing: .06em;
+    padding: 4px 7px; border-radius: 4px; margin-right: 6px; vertical-align: 2px; }
+  .kill { background: var(--kill-soft); color: var(--kill); }
+  .warn { background: var(--warn-soft); color: var(--warn); }
+  .open { background: var(--accent-soft); color: var(--accent); }
+  ul.plain li { padding: 8px 0; border-bottom: 1px dashed var(--line); }
+  ul.plain li:last-child { border-bottom: 0; }
+  .ladder { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .rung { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--accent);
+    border-radius: 8px; padding: 12px 14px; font-size: 15px; }
+  .rung .n { font: 700 12px/1 system-ui, sans-serif; color: var(--muted); }
+  .cast { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+  .who { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+  .who .ic { font-size: 20px; margin-right: 6px; }
+  .who .role { color: var(--muted); font-size: 13px; }
+  .who q { display: block; margin-top: 4px; font-style: italic; }
+  footer { margin-top: 40px; color: var(--muted); font: 13px/1.5 system-ui, sans-serif; }
+  @media (max-width: 640px) {
+    header { grid-template-columns: 1fr; }
+    .seal { width: 140px; height: 140px; }
+    .grid2, .ladder { grid-template-columns: 1fr; }
+    h1 { font-size: 1.6rem; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="kicker">Forge d'idée · 25 septembre 2026</div>
+      <h1>WaveStack V2 : des modules de formation vendus, construits sur le démonstrateur</h1>
+      <p class="lede">Point de départ : les non-objectifs « V2 » du SPEC. À l'arrivée, une V2 redéfinie par son audience et non par une liste de fonctions reportées.</p>
+    </div>
+    <svg class="seal" viewBox="0 0 200 200" role="img" aria-label="Sceau : idée éprouvée">
+      <defs>
+        <path id="circ" d="M100,100 m-68,0 a68,68 0 1,1 136,0 a68,68 0 1,1 -136,0"/>
+      </defs>
+      <path fill="var(--accent)" d="M100 8 C120 10 128 20 146 22 C164 30 170 44 182 58 C192 76 186 92 192 108 C190 128 180 138 172 154 C160 170 146 172 130 184 C112 192 96 186 80 192 C60 188 52 176 36 168 C20 154 20 138 10 122 C6 102 14 90 10 72 C18 54 30 46 42 32 C58 18 74 20 88 10 Z"/>
+      <circle cx="100" cy="100" r="78" fill="none" stroke="var(--surface)" stroke-opacity=".55" stroke-width="2"/>
+      <circle cx="100" cy="100" r="56" fill="none" stroke="var(--surface)" stroke-opacity=".55" stroke-width="1.5"/>
+      <text fill="var(--surface)" font-size="11" letter-spacing="3"><textPath href="#circ" startOffset="2%">WAVESTACK · V2 · FORGE · 2026 · WAVESTACK · V2 ·</textPath></text>
+      <text x="100" y="98" text-anchor="middle" fill="var(--surface)" font-size="19" font-weight="700" letter-spacing="1.5">HARDENED</text>
+      <text x="100" y="118" text-anchor="middle" fill="var(--surface)" font-size="10" letter-spacing="2">IDÉE ÉPROUVÉE</text>
+    </svg>
+  </header>
+
+  <h2>Verdict</h2>
+  <div class="card">
+    L'idée <b>tient</b>, à condition de changer ce qu'on appelle « V2 ». Ce n'est pas la liste de fonctions reportées du SPEC. C'est un <b>approfondissement pédagogique</b> pour les équipes techniques et la gouvernance technique (FinOps/GreenOps, cyber, conformité). Il est éprouvé d'abord sur des consultants, puis <b>vendu sous forme de modules</b> aux équipes de gouvernance des clients. Chaque module associe un scénario WaveStack et des slides récap qui portent la méthode actionnable.
+  </div>
+
+  <h2>Décisions verrouillées</h2>
+  <div class="card">
+    <ul class="locks">
+      <li><b>Audience et ordre</b> : consultants Wavestone d'abord, puis équipes de gouvernance des clients. On vend les modules, pas le logiciel. La démo client de type UJ-4 marche déjà en V1.</li>
+      <li><b>Diagnostiquer dans le contexte, pas dans la réponse</b> : extraits retrouvés, rang du bon extrait, position dans le contexte, tokens. On garde le SLM sur CPU et les 4 Go, et la qualité de la réponse reste secondaire.</li>
+      <li><b>Petit jeu de questions avec réponses attendues</b>, limité à la démonstration pour ne pas devenir un banc d'essai.</li>
+      <li><b>Routage par coût</b> : décision et tokens réels, plus une estimation d'ordre de grandeur du coût chez un fournisseur cloud, datée et sourcée.</li>
+      <li><b>Modèle de décision, même règle que Headroom</b> : on nomme la catégorie, Decision 1.0 est le candidat, et un test préalable est obligatoire. Au 25/09/2026, il échoue (ni GGUF ni ONNX, pas de chemin CPU).</li>
+      <li><b>Bascule entre modèles génératifs</b> : on décharge puis on recharge, avec un message qui prévient de l'attente. Les classifieurs restent chargés en parallèle.</li>
+      <li><b>Multi-agent</b> = module ; <b>documents propres</b> = gardé, avec un exercice où le participant écrit ses questions de contrôle ; <b>format chat compatible OpenAI</b> = fonction d'appui.</li>
+      <li><b>Dépôt privé</b> (GitHub, puis GitLab interne). Chez le client, démo sur le poste du consultant par défaut, remise du code négociable.</li>
+      <li><b>Déclenchement de la V2 défini dès maintenant</b> : la V1 tient au pilote (SM-1, SM-3, SM-6) + une demande exprimée + la validation Wavestone avant tout usage client.</li>
+    </ul>
+  </div>
+
+  <h2>Routage par spécialité : où vit la règle ?</h2>
+  <div class="ladder">
+    <div class="rung"><div class="n">ÉCHELON 1</div><b>Classifieur à étiquettes fixes</b><br>type BERT. La règle est <b>dans les poids</b> : la changer demande de ré-entraîner le modèle.</div>
+    <div class="rung"><div class="n">ÉCHELON 2</div><b>Encodeur programmable</b><br>DeBERTa zero-shot aujourd'hui, Decision 1.0 demain. La règle est <b>dans le texte des critères</b>, qu'on peut lire et auditer.</div>
+    <div class="rung"><div class="n">ÉCHELON 3</div><b>SLM utilisé comme juge</b><br>La règle est <b>dans le prompt</b> : c'est le plus souple, mais aussi le plus lent et le moins prévisible.</div>
+  </div>
+
+  <h2>Rejeté, et pourquoi</h2>
+  <div class="card">
+    <ul class="plain">
+      <li><span class="tag kill">REJETÉ</span><b>Reprendre la liste V2 du SPEC telle quelle</b> : ces fonctions ont été reportées pour leur difficulté, pas choisies pour la cible.</li>
+      <li><span class="tag kill">REJETÉ</span><b>Grossir le modèle ou passer par un fournisseur cloud</b> : cela casse les 4 Go et l'argument de souveraineté.</li>
+      <li><span class="tag kill">REJETÉ</span><b>Modèle d'image</b> : trop lourd, et il ne sert aucune audience visée.</li>
+      <li><span class="tag kill">REJETÉ</span><b>Arch-Router-1.5B</b> : sa licence exige une licence commerciale DigitalOcean.</li>
+      <li><span class="tag kill">REJETÉ</span><b>Dépôt public servant de vitrine</b> : le dépôt reste privé.</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <h2>Ouvert jusqu'au pilote</h2>
+      <div class="card">
+        <ul class="plain">
+          <li><span class="tag open">PILOTE</span>La valeur de <i>N</i> pour la demande d'approfondissement. <b>Il faut ajouter la question au questionnaire.</b></li>
+          <li><span class="tag open">PILOTE</span>Les cibles de SM-2 à SM-7.</li>
+          <li><span class="tag open">PILOTE</span>La remise d'un zip au client pour les modules pratiques (selon SM-5 et les négociations).</li>
+          <li><span class="tag open">PILOTE</span>L'exercice de restitution « message à la direction en 3 phrases ».</li>
+          <li><span class="tag open">PILOTE</span>Les modules V2 à construire en premier.</li>
+          <li><span class="tag open">PILOTE</span>macOS et Linux (NFR-6).</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <h2>Points fragiles restants</h2>
+      <div class="card">
+        <ul class="plain">
+          <li><span class="tag warn">FRAGILE</span>GreenOps : l'énergie consommée dans le cloud n'est pas publiée. La comparaison reste une hypothèse affichée comme telle.</li>
+          <li><span class="tag warn">FRAGILE</span>La grille de prix publics vieillit vite.</li>
+          <li><span class="tag warn">FRAGILE</span>Decision 1.0 est trop récent. gliformer-base-v1 est à surveiller.</li>
+          <li><span class="tag warn">V1</span>NFR-10, NFR-11 et CAP-37 supposent un dépôt public : à corriger par un correct course.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <h2>Les voix de la forge</h2>
+  <div class="cast">
+    <div class="who"><span class="ic">📋</span><b>John</b> <span class="role">· PM</span><q>« Quel travail le client confie-t-il à WaveStack ? »</q></div>
+    <div class="who"><span class="ic">📊</span><b>Mary</b> <span class="role">· Analyste</span><q>« Le critère se définit à froid, le résultat vient du pilote. »</q></div>
+    <div class="who"><span class="ic">🏗️</span><b>Winston</b> <span class="role">· Architecte</span><q>« On croira montrer la faiblesse d'HyDE, on montrera celle du modèle. »</q></div>
+    <div class="who"><span class="ic">💻</span><b>Amelia</b> <span class="role">· Développeuse</span><q>« Router a lui aussi un coût. »</q></div>
+    <div class="who"><span class="ic">🎨</span><b>Sally</b> <span class="role">· UX</span><q>« Il lui faut un objet à poser sur la table. »</q></div>
+    <div class="who"><span class="ic">🔒</span><b>Vex</b> <span class="role">· Sécurité</span><q>« Un code distant non relu, c'est l'exemple à ne pas donner. »</q></div>
+    <div class="who"><span class="ic">😤</span><b>Grumbal</b> <span class="role">· L'adversaire</span><q>« Sans réponses attendues, vos documents ne sont qu'un gadget. »</q></div>
+    <div class="who"><span class="ic">🛡️</span><b>Claire Ferrand</b> <span class="role">· RSSI, assurance</span><q>« Mes propres documents, restés sur le poste, voilà ce qu'on ne me montre jamais. »</q></div>
+    <div class="who"><span class="ic">💼</span><b>Bertrand Lacaze</b> <span class="role">· Associé, P&amp;L de la BU</span><q>« Dis-moi lequel des deux tu construis. »</q></div>
+    <div class="who"><span class="ic">🧪</span><b>Inès Moreau</b> <span class="role">· Ingénieure ML</span><q>« On ne diagnostique jamais un RAG à partir de la réponse. »</q></div>
+    <div class="who"><span class="ic">💶</span><b>Julien Arnaud</b> <span class="role">· Responsable FinOps</span><q>« Montrez-moi la décision, les tokens, et une grille de prix. »</q></div>
+    <div class="who"><span class="ic">☁️</span><b>Sandrine Kerlo</b> <span class="role">· Architecte cloud</span><q>« Pourquoi la facture de tokens explose-t-elle en multi-agent ? »</q></div>
+    <div class="who"><span class="ic">📚</span><b>Élodie Garnier</b> <span class="role">· Offre de formation</span><q>« Un module vendu se rejoue à l'identique pendant 18 mois. »</q></div>
+    <div class="who"><span class="ic">🏛️</span><b>Patrick Delmas</b> <span class="role">· DSI adjoint</span><q>« Mon directeur me donne deux minutes. »</q></div>
+    <div class="who"><span class="ic">📣</span><b>Nathalie Roussel</b> <span class="role">· Marketing</span><q>« Ne verrouillez pas ce qui attire les clients. »</q></div>
+    <div class="who"><span class="ic">🔐</span><b>Karine Vidal</b> <span class="role">· Sécurité, banque</span><q>« Venez avec votre machine. »</q></div>
+    <div class="who"><span class="ic">⏱️</span><b>Hugo Marchal</b> <span class="role">· Manager de la BU</span><q>« Sans demande, c'est un projet personnel. »</q></div>
+  </div>
+
+  <footer>
+    Brief : <code>forged-idea.md</code> · Journal de session : <code>.memlog.md</code> · Source : <code>_bmad-output/specs/spec-agentic-harness-training-demo/SPEC.md</code>
+  </footer>
+</main>
+</body>
+</html>
