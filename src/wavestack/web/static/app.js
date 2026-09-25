@@ -29,6 +29,8 @@ const store = {
   chatFrom: 0,
   clearedSeq: null,
   composerError: null,
+  // Story 9b: the turn comparison open in Contexte LLM, UI state only: { left, right } turn ids.
+  compare: null,
   bricks: null, // last `bricks_changed` payload: cards and system prompt, as the session computed them
   openExplanations: new Set(), // brick ids whose explanation is unfolded (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
@@ -162,11 +164,14 @@ function applyEnvelope(envelope) {
       // Past turns leave the Vue humain, Contexte LLM and Orchestration; the event list keeps them.
       store.chatFrom = store.turns.length;
       store.clearedSeq = envelope.seq;
+      store.compare = null;
       break;
     case "turn_started":
+      store.compare = null; // the new turn's live context shows in Contexte LLM
       store.turns.push({
         id: envelope.turn_id,
         message: p.message,
+        replayOf: p.replay_of, // story 9b: the turn this one replays, or null
         startedAt: Date.parse(envelope.ts),
         callStartedAt: null,
         phaseLabel: null,
@@ -964,6 +969,20 @@ async function clearConversation() {
   render();
 }
 
+async function replayLast() {
+  store.composerError = null;
+  try {
+    const response = await postIntention("/api/intentions/replay", {});
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      store.composerError = typeof body.detail === "string" ? body.detail : "Rejeu refusé.";
+    }
+  } catch {
+    store.composerError = "WaveStack ne répond pas : le rejeu n'a pas eu lieu.";
+  }
+  render();
+}
+
 // ---------- context gauge (top bar) ----------
 
 function renderGauge() {
@@ -1039,7 +1058,18 @@ function renderChat() {
   const turns = shownTurns();
   if (turns.length === 0) nodes.push(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
   for (const turn of turns) {
-    nodes.push(el("div", "bubble bubble-user", turn.message));
+    const user = el("div", "bubble bubble-user", turn.message);
+    const origin = turn.replayOf && store.turns.find((t) => t.id === turn.replayOf);
+    if (origin) {
+      // Story 9b: the replayed turn opens the comparison with its origin.
+      const badge = el("button", "replay-badge", "Rejeu");
+      badge.type = "button";
+      badge.setAttribute("aria-label", `Rejeu du ${turnName(origin).toLowerCase()} : comparer`);
+      badge.dataset.focusKey = `replay:${turn.id}`;
+      badge.addEventListener("click", () => openCompare(origin.id, turn.id));
+      user.prepend(badge);
+    }
+    nodes.push(user);
     const answer = el("div", "bubble bubble-model");
     if (turn.reasoning) {
       const details = el("details", "bubble-reasoning");
@@ -1115,6 +1145,16 @@ function renderComposer() {
   const clear = document.getElementById("clear-conversation");
   clear.disabled = state?.state !== "idle"; // class (b)
   clear.title = clear.disabled ? state?.reason_fr || "Disponible hors d'un tour." : "";
+  const replay = document.getElementById("replay-last");
+  replay.disabled = clear.disabled || shownTurns().length === 0; // class (b), story 9b
+  replay.title = clear.disabled
+    ? clear.title
+    : replay.disabled
+      ? "Aucun prompt à rejouer : envoyez d'abord un message."
+      : "";
+  const compare = document.getElementById("compare-turns");
+  compare.disabled = shownTurns().length < 2;
+  compare.title = compare.disabled ? "Il faut au moins deux tours pour comparer." : "";
   const stop = document.getElementById("composer-stop");
   stop.hidden = state?.state !== "turn" && state?.state !== "awaiting_human";
   stop.disabled = Boolean(activeTurn()?.stopRequested);
@@ -1182,6 +1222,10 @@ async function stopTurn() {
 
 function renderContext() {
   const pane = document.getElementById("ctx");
+  if (store.compare) {
+    renderCompare(pane);
+    return;
+  }
   pane.innerHTML = "";
   const turn = shownTurns().reverse().find((t) => t.context);
   if (!turn) {
@@ -1219,6 +1263,148 @@ function renderContext() {
   pane.appendChild(
     el("pre", "ctx-raw", raw || (turn.overflow ? "Aucun appel : contexte dépassé." : "…"))
   );
+}
+
+// ---------- turn comparison (story 9b, EXPERIENCE.md turn-compare) ----------
+
+// The rail's name of a turn: its rank since the launch.
+const turnName = (turn) => `Tour ${store.turns.indexOf(turn) + 1}`;
+
+function openCompare(left, right) {
+  const turns = shownTurns();
+  if (turns.length < 2) return;
+  if (!left) {
+    // Default: the last replayed turn and its origin, else the two last turns.
+    const replayed = turns.findLast((t) => t.replayOf && turns.some((o) => o.id === t.replayOf));
+    [left, right] = replayed ? [replayed.replayOf, replayed.id] : turns.slice(-2).map((t) => t.id);
+  }
+  store.compare = { left, right };
+  if (store.hiddenPanes.delete("ctx")) savePaneLayout(); // the badge shows it in Contexte LLM
+  if (store.focusedPane !== null && store.focusedPane !== "ctx") store.focusedPane = null;
+  render();
+  document.querySelector("#ctx .turn-compare-head select")?.focus();
+}
+
+function closeCompare() {
+  store.compare = null;
+  render();
+  document.getElementById("compare-turns").focus();
+}
+
+// Formatting only (AD-1): sums of what each `model_call_ended` of the turn reported.
+function turnFigures(turn) {
+  const ended = turn.steps.filter((s) => s.type === "call" && s.ended).map((s) => s.ended);
+  const sum = (key) => ended.reduce((total, e) => total + (e[key] ?? 0), 0);
+  return { input: sum("prompt_tokens"), output: sum("output_tokens"), duration: turnDuration(turn) };
+}
+
+// The last rendered context's segments grouped by brick, in order of first appearance.
+function brickGroups(turn) {
+  const groups = new Map();
+  for (const segment of turn.context?.segments ?? []) {
+    const key = segment.brick ?? "";
+    if (!groups.has(key)) groups.set(key, { segments: [], tokens: 0 });
+    const group = groups.get(key);
+    group.segments.push(segment);
+    group.tokens += segment.tokens;
+  }
+  return groups;
+}
+
+function brickName(brick) {
+  if (!brick) return "Hors brique (message et gabarit)";
+  return store.bricks?.bricks?.find((b) => b.id === brick)?.label_fr ?? brick;
+}
+
+const signed = (n, unit) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${unit(Math.abs(n))}`;
+
+function compareCell(turn, group, other) {
+  const cell = el("div", "turn-compare-cell");
+  if (!group) {
+    const delta = other ? ` (${signed(-other.tokens, fmt)} tokens)` : "";
+    cell.append(el("p", "empty-note", `${turnName(turn)} : absent de ce contexte${delta}.`));
+    return cell;
+  }
+  const first = group.segments[0];
+  const colorGroup = turn.context.breakdown.find((item) => item.kinds.includes(first.kind))?.group;
+  cell.style.setProperty("--segment-color", `var(${GROUP_COLORS[colorGroup] || "--color-muted"})`);
+  cell.classList.add("ctx-segment");
+  const label = el("div", "ctx-segment-label");
+  const delta = other === undefined ? "" : ` (${signed(group.tokens - (other?.tokens ?? 0), fmt)} tokens)`;
+  label.append(el("span", "swatch"), `${turnName(turn)} · ${fmt(group.tokens)} tokens${delta}`);
+  const details = el("details");
+  details.append(el("summary", "", `Texte intégral (${group.segments.length} segments)`));
+  for (const segment of group.segments) {
+    details.append(el("div", "ctx-segment-label", `${segment.label_fr} · ${fmt(segment.tokens)} tokens`));
+    details.append(el("pre", "", segment.text));
+  }
+  cell.append(label, details);
+  return cell;
+}
+
+function renderCompare(pane) {
+  const turns = shownTurns();
+  const left = turns.find((t) => t.id === store.compare.left);
+  const right = turns.find((t) => t.id === store.compare.right);
+  if (!left || !right) {
+    store.compare = null;
+    renderContext();
+    return;
+  }
+  // Rebuilt at each render: the keyboard focus is restored on the same control.
+  const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  pane.innerHTML = "";
+  const head = el("div", "turn-compare-head");
+  head.append(el("h3", "ctx-heading", "Comparaison de tours"));
+  for (const [side, label] of [["left", "Tour de gauche"], ["right", "Tour de droite"]]) {
+    const select = el("select");
+    select.setAttribute("aria-label", label);
+    select.dataset.focusKey = `compare:${side}`;
+    for (const turn of turns) {
+      const option = el("option", "", `${turnName(turn)}${turn.replayOf ? " (rejeu)" : ""} · « ${turn.message} »`);
+      option.value = turn.id;
+      option.selected = turn.id === store.compare[side];
+      select.append(option);
+    }
+    select.addEventListener("change", () => {
+      store.compare = { ...store.compare, [side]: select.value };
+      render();
+    });
+    head.append(select);
+  }
+  const close = el("button", "pane-text-action", "Fermer");
+  close.type = "button";
+  close.dataset.focusKey = "compare:close";
+  close.addEventListener("click", closeCompare);
+  head.append(close);
+  pane.append(head);
+
+  const grid = el("div", "turn-compare");
+  const [a, b] = [turnFigures(left), turnFigures(right)];
+  // A running turn has no measured time yet: « en cours », and no time difference.
+  if (left.status === null) a.duration = null;
+  if (right.status === null) b.duration = null;
+  const time = (ms) => (ms === null ? "en cours" : seconds(ms));
+  for (const [turn, figures, other] of [[left, a, null], [right, b, a]]) {
+    const card = el("div", "turn-compare-figures");
+    card.append(el("div", "turn-group-title", `${turnName(turn)}${turn.replayOf ? " · Rejeu" : ""}`));
+    const diff = (key, unit) =>
+      other && figures[key] !== null && other[key] !== null ? ` (${signed(figures[key] - other[key], unit)})` : "";
+    card.append(
+      el("div", "number", `Entrée : ${fmt(figures.input)} tokens${diff("input", fmt)}`),
+      el("div", "number", `Sortie : ${fmt(figures.output)} tokens${diff("output", fmt)}`),
+      el("div", "number", `Temps : ${time(figures.duration)}${diff("duration", seconds)}`)
+    );
+    grid.append(card);
+  }
+  const [ga, gb] = [brickGroups(left), brickGroups(right)];
+  for (const brick of new Set([...ga.keys(), ...gb.keys()])) {
+    grid.append(el("h4", "turn-compare-brick", brickName(brick)));
+    grid.append(compareCell(left, ga.get(brick)), compareCell(right, gb.get(brick), ga.get(brick) ?? null));
+  }
+  if (!ga.size && !gb.size) grid.append(el("p", "empty-note", "Aucun contexte rendu pour ces tours."));
+  pane.append(grid);
+  if (focusKey) pane.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`)?.focus();
 }
 
 // ---------- orchestration: steps grouped by turn, in their real order (CAP-15, CAP-16, story 8d) ----------
@@ -2036,6 +2222,7 @@ function renderSteps() {
     headParts(node, [
       ["turn-group-title", `Tour ${index + 1}`],
       [`turn-group-status ${statusClass}`, statusLabel],
+      ["turn-group-replay", turn.replayOf ? "Rejeu" : null],
       ["turn-group-figures", figures.filter(Boolean).join(" · ")],
       ["turn-group-message", `« ${turn.message} »`],
     ]);
@@ -3116,6 +3303,8 @@ async function boot() {
   document.getElementById("composer").addEventListener("submit", sendMessage);
   document.getElementById("composer-stop").addEventListener("click", stopTurn);
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
+  document.getElementById("replay-last").addEventListener("click", replayLast);
+  document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
   document.getElementById("event-log-head").addEventListener("click", toggleJournal);
   document.getElementById("drawer-save").addEventListener("click", () =>

@@ -342,6 +342,11 @@ class AppSession:
         # Story 9 (AD-3): the armed actions, in arming order, and their counter for ids.
         self._armed: list[ArmedAction] = []
         self._arms = 0
+        # Story 9b (AD-17): the last turn started and the conversational state it started
+        # from (turn id, message, history, skills and documentations loaded), for the replay.
+        self._last: tuple[str, str, tuple[Exchange, ...], frozenset[str], frozenset[str]] | None = (
+            None
+        )
         # Configuration frozen by the last `send`: `pending` is measured against it.
         self._sent: tuple[
             frozenset[str],
@@ -881,17 +886,12 @@ class AppSession:
             }
         return [n for s in self._mcp_servers if s in ready for n in self._mcp_tools(s)]
 
-    def build_turn_state(self, origin_turn: str | None = None) -> TurnState:
-        """AD-17: the conversational snapshot (branch history) plus the current configuration.
-
-        `origin_turn` (replay, story 9) keeps the branch up to, not including, that turn.
-        """
+    def build_turn_state(self) -> TurnState:
+        """AD-17: the conversational snapshot (branch history, skills and documentations
+        loaded) plus the current configuration. A replay restores the snapshot first."""
         with self._lock:
             history = list(self._history)
             prompt = self._custom_prompt
-        if origin_turn is not None:
-            ids = [e.turn_id for e in history]
-            history = history[: ids.index(origin_turn)] if origin_turn in ids else history
         effective = self._effective()
         with self._lock:
             enabled = set(self._tools_enabled)
@@ -1165,9 +1165,25 @@ class AppSession:
 
     def send(self, message: str) -> str:
         """Intention class (b): refused outside `idle`, with the reason."""
+        return self._start(message)
+
+    def replay(self) -> str:
+        """Intention class (b), story 9b: the last turn's message again, from the
+        conversational state that preceded that turn (AD-17), with the current configuration."""
+        return self._start(None)
+
+    def _start(self, message: str | None) -> str:
+        """Starts a turn: `message`, or the replay of the last turn when `None`."""
+        replay_of = None
         with self._lock:
             if self.state != "idle" or self._engine is None or self.reason_fr:
                 raise SendRefused(self._refusal_reason())
+            if message is None:
+                if self._last is None:
+                    raise SendRefused("Aucun prompt à rejouer : envoyez d'abord un message.")
+                replay_of, message, history, skills, docs = self._last
+                self._history[:] = history
+                self._loaded_skills, self._loaded_docs = set(skills), set(docs)
             self._turns += 1
             turn_id = f"t{self._turns}"
             cancel = self._cancel = CancelToken()
@@ -1175,6 +1191,13 @@ class AppSession:
             self.state, self.reason_fr = "turn", _TURN_FR
             # AD-3: the armed actions this turn takes; one armed from now waits for the next.
             armed = tuple(self._armed)
+            self._last = (
+                turn_id,
+                message,
+                tuple(self._history),
+                frozenset(self._loaded_skills),
+                frozenset(self._loaded_docs),
+            )
         get_journal().emit("session_state", {"state": self.state, "reason_fr": self.reason_fr})
         # Frozen now: a later toggle waits for the next turn.
         state = replace(self.build_turn_state(), armed=armed)
@@ -1192,7 +1215,9 @@ class AppSession:
             )
         if had_pending:  # « Prend effet au prochain tour » is over for what this turn reads
             self._emit_bricks()
-        self._executor.submit(self._run_turn, turn_id, message, cancel, state)
+        if replay_of is not None:  # the schema shows the skills loaded in the replayed branch
+            self._emit_architecture()
+        self._executor.submit(self._run_turn, turn_id, message, cancel, state, replay_of)
         return turn_id
 
     def set_brick(self, brick_id: str, wanted: bool) -> None:
@@ -1633,6 +1658,7 @@ class AppSession:
             self._history.clear()
             self._loaded_docs.clear()  # AD-25: the documentations leave with the conversation
             self._loaded_skills.clear()  # and so do the skills
+            self._last = None  # nothing left to replay (story 9b)
         get_journal().emit("conversation_cleared", {})
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
@@ -1676,7 +1702,14 @@ class AppSession:
 
     # ---------- turn ----------
 
-    def _run_turn(self, turn_id: str, message: str, cancel: CancelToken, state: TurnState) -> None:
+    def _run_turn(
+        self,
+        turn_id: str,
+        message: str,
+        cancel: CancelToken,
+        state: TurnState,
+        replay_of: str | None = None,
+    ) -> None:
         started = time.monotonic()
         status = "error"
         journal = get_journal()
@@ -1688,7 +1721,7 @@ class AppSession:
         with scoped(turn_id=turn_id, context_id="main", trigger="user"):
             try:
                 self._turn_seq = journal.emit(
-                    "turn_started", {"replay_of": None, "message": message}, actor="user"
+                    "turn_started", {"replay_of": replay_of, "message": message}, actor="user"
                 ).seq
                 decided = self._hook("on_user_message", state)
                 if decided is not None and decided[1].injection:  # computed once for the turn

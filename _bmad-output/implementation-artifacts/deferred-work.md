@@ -163,3 +163,7 @@
 - source_spec: none
   summary: Temps de réponse sur le PC portable cible avec Qwen3.5-2B Q4_K_M (CPU seul, 16 Go, 3,3 à 4,3 Go libres au lancement) : 36 à 51 s avant le premier token pour un contexte de 1 100 à 1 400 tokens, 14 s pour 560 tokens ; tours de 20 à 84 s.
   evidence: Journal du test manuel de la story 9, 2026-09-25 : t1 649 tokens, tour arrêté par l'animateur après 22,9 s de lecture du contexte ; t2 1 392 tokens, 1er token à 51,4 s, tour de 83,5 s (dont 30 s pour générer 211 tokens) ; t3 1 104 tokens, 36,6 s / 40,2 s ; t4 1 104 tokens, 45,6 s / 54,6 s ; t5 560 tokens, 13,7 s / 19,8 s. La lecture du contexte (environ 21 à 30 tokens/s) domine. Teams, Edge et l'agent de sécurité occupent l'essentiel de la RAM. Pour la séance : fermer Teams et Edge, garder peu de briques actives, prévoir le rythme de la démonstration en conséquence.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9b-rejeu-du-dernier-prompt.md`
+  summary: Le badge « Rejeu », le choix par défaut de « Comparer » et les écarts de la comparaison de tours (app.js) n'ont aucun test automatique.
+  evidence: Même écart que pour les stories 5b à 9 : aucun banc de test JS ; supprimer `replayOf: p.replay_of` ou inverser la paire par défaut passerait pytest et `node --check`. Relevé par la couche verification-gap de la revue de la story 9b. Piste sans dépendance : `node:test` avec `node:vm`.

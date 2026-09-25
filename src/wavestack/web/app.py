@@ -216,6 +216,14 @@ def create_app(
         except SendRefused as refused:
             raise HTTPException(status_code=409, detail=refused.reason_fr) from None
 
+    @app.post("/api/intentions/replay")
+    def replay() -> dict[str, str]:
+        """Class (b): the last prompt again, from the state before its turn (AD-17)."""
+        try:
+            return {"turn_id": app_session.replay()}
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+
     @app.post("/api/intentions/stop")
     def stop() -> dict[str, bool]:
         """Class (c): preemptive, arms the turn's CancelToken; no effect outside a turn."""
