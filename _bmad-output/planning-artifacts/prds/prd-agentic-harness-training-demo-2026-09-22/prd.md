@@ -2,7 +2,7 @@
 title: PRD — WaveStack
 status: final
 created: 2026-09-22
-updated: 2026-09-23
+updated: 2026-09-24
 ---
 
 # PRD : WaveStack
@@ -417,6 +417,15 @@ L'utilisateur peut utiliser un modèle sans le télécharger. Réalise UJ-3.
 - **Fichier déjà présent** : le diagnostic de démarrage et le choix du modèle proposent les fichiers de modèle trouvés dans les emplacements usuels : cache Hugging Face, dossier de modèles de LM Studio, modèles d'Ollama. L'utilisateur peut aussi saisir un chemin.
 - **Serveur local déjà lancé** : WaveStack peut utiliser un modèle servi sur le poste par Ollama ou llama.cpp, via son point d'entrée natif en texte brut (Ollama `/api/generate` en mode `raw`, llama-server `/completion`, palier 2). WaveStack construit lui-même le texte envoyé au modèle, gabarit compris, pour que le contexte affiché reste le contexte réel (FR-2). Le schéma d'architecture montre le modèle comme un processus local distinct de WaveStack.
 
+#### FR-43 : Modèle cloud via API
+En option, l'utilisateur choisit au diagnostic un modèle cloud déclaré en configuration, pour montrer que le même harnais pilote des modèles plus gros, beaucoup plus vite qu'un SLM sur CPU (palier 1).
+- Préréglages Groq et Mistral ; Google, NVIDIA et OpenRouter en exemples de configuration, avec leur avertissement. Un point d'accès interne (Wavestone sur Azure ou GCP) s'ajoute par simple configuration, hors du dépôt.
+- Chaque modèle cloud affiche un pictogramme réseau et une infobulle : hébergement, usage des données pour l'entraînement, offre d'essai, quotas renvoyés vers la console du fournisseur.
+- Le choisir affiche un avertissement sur ses conséquences (données qui partent, gabarit et appels d'outils traités chez le fournisseur, tokens estimés), à confirmer avant tout appel qui porte des données de l'utilisateur. La barre haute signale ensuite un modèle réseau.
+- La clé API est saisie dans l'interface et stockée hors du dépôt. Un bouton « Tester » prouve streaming et appel d'outils avant la séance, avec une invite fixe, sans donnée de l'utilisateur.
+- Chaque appel est tracé comme donnée sortante, clé jamais tracée. Un refus du fournisseur (quota dépassé, clé refusée) est un événement expliqué, jamais un plantage.
+- Un modèle cloud n'est jamais choisi d'office : un choix explicite mémorisé est repris au lancement, sans réafficher l'avertissement. Les scénarios fournis restent jouables sans clé.
+
 ### 4.12 Installation et exploitation sur poste professionnel
 
 **Description.** WaveStack s'installe depuis GitHub sur un poste professionnel verrouillé. Le cas principal est le poste du formateur ; l'installation par les participants est un confort, visé pour les profils techniques. Si l'installation échoue, le repli assumé est la démo pilotée par le formateur, ou la vidéo d'une session précédente. Réalise UJ-2 et UJ-3.
@@ -472,16 +481,19 @@ D'autres métiers s'ajouteront au fil des sessions, sans modifier le code.
   - `[ASSUMPTION]` la génération dépasse 10 tokens/s.
 
   La latence est toujours rendue visible (voir FR-1 et FR-30), jamais masquée.
+  Ces bornes visent les modèles locaux. Pour un modèle cloud (FR-43), aucune borne : premier token, durée et débit sont mesurés et affichés.
 - **NFR-2 Empreinte mémoire.** WaveStack tient sur un poste de 16 Go de RAM partagé avec le système d'exploitation et les applications de travail du formateur (visio, navigateur, outils bureautiques).
   - Plafond : 4 Go de RAM pour WaveStack, modèle compris, toutes briques actives. Cible : 2 à 3 Go.
   - `[ASSUMPTION]` Le périmètre mesuré couvre les processus de WaveStack (harnais, modèle, serveurs MCP locaux, index RAG), hors navigateur.
   - Un modèle servi par un serveur local déjà lancé (FR-34) est compté dans ce budget tant que le serveur répond ; jamais deux modèles chargés à la fois.
+  - Un modèle cloud (FR-43) ne coûte rien en mémoire ; quand il est actif, le modèle local est libéré.
 - **NFR-3 Local et hors ligne.** Toutes les briques fonctionnent sans réseau, sauf celles explicitement marquées réseau (outils réseau, serveur MCP public).
   - Sans réseau, ces briques sont indisponibles avec une explication. Le reste fonctionne normalement.
   - Aucune télémétrie.
-- **NFR-4 Confidentialité.** Aucune donnée ne quitte le poste, hormis par une brique réseau activée explicitement, ou par deux sorties limitées hors brique, toutes deux tracées dans le volet orchestration comme données sortantes :
+- **NFR-4 Confidentialité.** Aucune donnée ne quitte le poste, hormis par une brique réseau activée explicitement, ou par trois sorties limitées hors brique, toutes tracées dans le volet orchestration comme données sortantes :
   - la sonde de connectivité du diagnostic de démarrage (FR-37), vers une adresse fixe, pour vérifier l'accès au réseau ;
   - le téléchargement d'un modèle (FR-34), uniquement sur demande explicite de l'utilisateur.
+  - l'appel à un modèle cloud (FR-43) choisi explicitement, test compris ; la clé n'est envoyée qu'à l'hôte déclaré de ce modèle et n'apparaît jamais dans la trace.
   - L'interface n'écoute que sur l'adresse locale, `127.0.0.1`.
   - Aucune clé d'API n'est requise pour les scénarios fournis.
 - **NFR-5 Sans droits admin.** Aucune étape d'installation ni d'exécution ne requiert de droits administrateur, ni ne déclenche d'invite du pare-feu.
@@ -501,12 +513,13 @@ D'autres métiers s'ajouteront au fil des sessions, sans modifier le code.
 - **NFR-11 Contenu publiable.** Le dépôt étant public, rien de ce qu'il contient n'est confidentiel : corpus RAG, scénarios, mémoire globale de démonstration et exemples de hooks.
   - Aucune donnée client ni document interne à Wavestone.
   - Aucun secret ni clé d'API dans le dépôt.
+  - Les clés API sont stockées hors du dépôt, dans le dossier de données ; un point d'accès interne se déclare dans la configuration locale, jamais dans le dépôt.
 
 ## 6. Non-objectifs
 
 - WaveStack n'est **pas** un framework agentique réutilisable ni une bibliothèque.
 - WaveStack ne cherche **pas** la qualité des réponses : la faiblesse du SLM est assumée et devient un matériau pédagogique.
-- WaveStack n'utilise **aucun** fournisseur de modèle cloud.
+- WaveStack n'exige **aucun** fournisseur de modèle cloud et n'en utilise aucun par défaut : le cloud reste une option explicite (FR-43).
 - WaveStack n'est **pas** un banc d'essai ni un comparateur de modèles.
 - WaveStack ne propose **pas** de gestion d'utilisateurs, de comptes ni de mode serveur partagé : une instance par poste.
 - WaveStack évite CrewAI et, plus largement, tout framework multi-agents lourd.
@@ -523,6 +536,7 @@ Toute la liste ci-dessous fait partie de la V1 : Anaël ne présente WaveStack q
 - Compteur de tokens, jauge de remplissage du contexte, déclenchement forcé, rejeu d'un prompt.
 - Scénarios par brique, programme en modules, réinitialisation.
 - Installation sans droits admin, modèle depuis un fichier local ou déjà présent sur le poste, lancement en une commande, diagnostic de démarrage.
+- Modèle cloud optionnel via API, choisi au diagnostic (FR-43).
 
 **Palier 2 : complément**
 - Briques raisonnement, mémoire globale, RAG simple et reranking, sous-agent simple, compression du contexte.
@@ -533,7 +547,7 @@ Toute la liste ci-dessous fait partie de la V1 : Anaël ne présente WaveStack q
 
 - **Multi-agent collaboratif** (agents qui dialoguent) : V2.
 - **Routage vers des modèles spécialisés** (modèle de décision, image) : V2.
-- **Serveur local au format chat** (compatible OpenAI, sans texte brut natif) : V2.
+- **Serveur local au format chat** (compatible OpenAI) comme voie visée : V2. En V1, le format chat sert aux modèles cloud (FR-43) ; en local, le texte brut natif montre le gabarit.
 - **RAG avancé** (HyDE, self-RAG) : V2. Les stratégies RAG restent interchangeables pour le préparer.
 - **Indexation de documents propres à l'utilisateur** : V2.
 - **Enregistrement et relecture de sessions dans WaveStack** : non prévu. Le repli est une vidéo de réunion Teams.
@@ -573,6 +587,9 @@ Toute la liste ci-dessous fait partie de la V1 : Anaël ne présente WaveStack q
 | L'installation échoue sur les postes verrouillés (proxy, AppLocker, antivirus). | Voie hors ligne pour le modèle (FR-34). Diagnostic (FR-37). Roues précompilées, sans compilation ni exécutable à installer ; DLL non signées acceptées, vérifiées lors de la session pilote. Repli en démo pilotée. |
 | Le contexte trop long (RAG et MCP en documentation complète) rend la latence insupportable. | Modèle par défaut de 2B au plus, fenêtre de contexte plafonnée, lazy loading MCP, compression du contexte, latence et jauge affichées (FR-30, FR-41). En dernier recours, vidéo d'une session précédente. |
 | Pas de réseau en salle. | Toutes les briques non réseau fonctionnent hors ligne (NFR-3). |
+| Une offre gratuite de modèle cloud change, ferme ou épuise son quota en séance (429). | Aucun fournisseur en dur (FR-43), refus expliqué, test avant chaque séance, repli sur le modèle local. |
+| Les prompts envoyés à un modèle cloud servent à entraîner le modèle du fournisseur. | Avertissement et infobulle par fournisseur ; scénarios sans donnée sensible (NFR-11) ; désactivation en console quand elle existe (Mistral). |
+| Une clé API fuit (trace, dépôt, capture d'écran). | Clé hors dépôt, jamais tracée ni renvoyée au navigateur, champ masqué. |
 | Périmètre V1 large (11 briques, scénarios) pour un porteur seul. | Pas d'échéance imposée. Livraison en deux paliers (§7.1), le socle d'abord, pour tester tôt. |
 | Le plafond de 4 Go ne laisse pas de place au modèle, aux embeddings, au reranker et aux serveurs MCP locaux réunis. | Mesure sur le poste de référence avant de figer le modèle par défaut. Modèles d'embedding et de reranking légers. Chargement des composants à l'activation de leur brique. |
 

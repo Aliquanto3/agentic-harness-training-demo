@@ -1,5 +1,5 @@
 - id: "1"
-  title: Fondations : lancement, diagnostic, modèle local
+  title: "Fondations : lancement, diagnostic, modèle local"
   description: >-
     Installation sans droits admin, lancement en une commande, diagnostic de démarrage,
     et détection d'un modèle depuis un fichier ou déjà présent sur le poste (CAP-36 à
@@ -97,7 +97,7 @@
     (garde-fou, human-in-the-loop) : à faire vérifier avant la story suivante.
 
 - id: "8d"
-  title: Orchestration lisible : rail par tour, préparation du harnais, journal replié
+  title: "Orchestration lisible : rail par tour, préparation du harnais, journal replié"
   description: >-
     Remplace la liste brute des événements, restée de l'échafaudage de la story 2, par le
     rail d'étapes groupé par tour (une ligne par étape, étape courante dépliée,
@@ -172,3 +172,234 @@
   invoke_dev_with: >-
     Implémenter le schéma de contenu des scénarios (AD-19) et la réinitialisation
     (AD-17). Un scénario par brique construite dans les stories 1 à 9.
+
+- id: "11"
+  title: Modèles cloud via API (Groq, Mistral)
+  description: >-
+    Modèles cloud déclarés en configuration (préréglages Groq et Mistral, exemples
+    Google, NVIDIA et OpenRouter avec avertissement), choisis au diagnostic avec
+    saisie de la clé, test réel, infobulle par fournisseur et avertissement à
+    confirmer ; mêmes tours qu'en local, appels tracés comme données sortantes,
+    refus du fournisseur expliqués (CAP-43, CAP-3, CAP-10, CAP-31, CAP-33, CAP-35).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Suivre le spine du 2026-09-24 (update cloud FR-43). Adaptateur openai_chat
+    derrière le port Engine (AD-5) : il reçoit un ChatBody que context seul écrit
+    (AD-4, mode chat) et l'envoie octet pour octet, avec le client de net (AD-15,
+    origin = model, follow_redirects=False, hôtes des entrées enabled autorisés).
+    Clé lue par config.cloud_key(entry) seulement, écrite par config.write_api_key
+    (AD-20), SecretStr de bout en bout, jamais tracée. La session attribue le
+    tool_call_id (hachage base 62 de « step_id#index », unicité vérifiée par tour,
+    AD-4). Tokens estimés avant l'envoi, puis context_reconciled avec les mêmes
+    champs de jauge que context_rendered (AD-2, AD-9), ratio appris sur les
+    appels réels seulement. Fenêtre cloud = min(window ou fenêtre configurée,
+    context, tpm // 2), avec window_source (AD-9). CloudModel et fusion par id
+    (AD-20), capacités déclarées (AD-6), issues fournisseur en liste fermée, sans
+    nouvel essai (AD-16). Au diagnostic (AD-3, AD-21) : set_api_key,
+    test_cloud_model (portée diag, au plus deux appels) et
+    select_model{kind: cloud, ref, acknowledged: true}, refusé sans acknowledged ;
+    select_model passe en classe (b), le code de la story 1b s'aligne. Effets
+    SettingWrite et ApiKeySet (AD-23), active_model dans /api/state (AD-12),
+    indicateur de modèle et bandeau de Contexte LLM (EXPERIENCE.md). Aucune
+    nouvelle dépendance ; tests avec httpx.MockTransport injecté par net. Point
+    sensible (secrets, sortie réseau) : faire vérifier la garde et le test de clé
+    sentinelle avant la clôture.
+
+- id: "12"
+  title: "Tests préalables : Headroom, embedding et reranking"
+  description: >-
+    Vérifie headroom-ai et choisit les modèles d'embedding et de reranking avant
+    d'écrire une brique qui en dépend (CAP-32, CAP-17 à CAP-19). Ouvre le palier 2
+    et ne livre aucune brique : le résultat est un verdict chiffré.
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Story d'investigation, critères de la section Deferred du spine. Headroom
+    (headroom-ai 0.38.0) : fonctionne hors ligne sous la garde réseau (AD-15), sans
+    téléchargement à l'import (LITELLM_LOCAL_MODEL_COST_MAP=True, cache tiktoken
+    fourni par TIKTOKEN_CACHE_DIR), sans torch, respecte la règle d'adoption d'AD-15,
+    tient dans le budget d'AD-8 (RSS mesuré), licence compatible (NFR-10).
+    Embedding et reranking : GGUF chargés par llama-cpp-python via le LoadRegistry
+    (AD-8, AD-22), sinon repli fastembed (licence et règle d'adoption vérifiées).
+    Livrer le verdict avec les mesures (retenu ou repli, RSS, licence, accès réseau
+    observés) pour mettre à jour la Stack et le Deferred du spine ; n'ajouter aucune
+    dépendance au projet pour un candidat écarté. Dépend de la garde réseau
+    (stories 5 et 6). Doit être terminée avant les stories 15, 16 et 20.
+
+- id: "13"
+  title: Raisonnement
+  description: >-
+    Brique raisonnement activable, affichage du raisonnement au choix dans la vue
+    humain et toujours dans Contexte LLM, indisponible avec sa raison si le modèle ne
+    raisonne pas (CAP-10).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Brique au contrat d'AD-12, disponibilité tirée de la capacité raisonnement du
+    registre (AD-6). Le séparateur incrémental et le canal reasoning de model_delta
+    (AD-2, AD-6) viennent de la story 3 : les vérifier, ne pas en créer d'autres.
+    Réserve de sortie de 1 536 tokens quand la brique est active, aperçu et jauge
+    recalculés (AD-9). En local : variable de raisonnement du gabarit. En cloud
+    (story 11) : reasoning.on ou reasoning.off écrits par context dans le ChatBody,
+    reasoning.always affiché « toujours active pour ce modèle » avec sa raison et
+    réserve maintenue brique éteinte, reasoning.resend respecté (AD-4, AD-6, AD-20).
+    Option « Afficher le raisonnement » et reasoning-block (EXPERIENCE.md). Livrer le
+    scénario de la brique au schéma de la story 10 (AD-19). Dépend des stories 3, 10
+    et 11.
+
+- id: "14"
+  title: Mémoire globale
+  description: >-
+    Mémoire persistante d'une conversation à l'autre, injectée dans le contexte,
+    écrite par le modèle ou forcée, consultable et modifiable dans le tiroir
+    d'édition (CAP-13).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Segment global_memory dans le message système stable, lu au début du tour et
+    figé dans le TurnState pour tous les appels du tour (AD-4, AD-17). Écriture par
+    le méta-outil remember (réponse tool_result de la brique global_memory) et par
+    l'action forcée « Écrire en mémoire », tous deux posés en story 9 (AD-25) ; toute
+    écriture est un Effect MemoryWrite appliqué par la session seule, avec
+    effect_applied sur file.memory (AD-23), fichier dans le dossier de données
+    (AD-20). Tiroir d'édition : consulter, modifier, supprimer une entrée, tout
+    effacer, par intentions de classe (b) (AD-3, EXPERIENCE.md). Mémoire de
+    démonstration publiable dans content/memory (AD-19, NFR-11), restaurée par la
+    réinitialisation de la story 10 (CAP-41). Badge de déclenchement modèle ou forcé
+    sur chaque écriture. Livrer le scénario de la brique. Dépend des stories 9 et 10.
+
+- id: "15"
+  title: Corpus de démonstration et RAG simple
+  description: >-
+    Corpus français fourni avec son index local, et recherche RAG visible à chaque
+    tour : requête, extraits avec score, position dans le contexte (CAP-17, CAP-18).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Corpus publiable dans content/corpus (NFR-11). Index sqlite-vec précalculé par
+    scripts/build_rag_index.py et fourni dans data/, avec l'identifiant du modèle
+    d'embedding retenu en story 12 ; brique indisponible avec sa raison si le modèle
+    chargé diffère, ou « modèle absent » avec l'action Télécharger (AD-21, AD-22).
+    Port Retriever.search(query) → extraits scorés ; embedding chargé par le
+    LoadRegistry et compté même quand le modèle actif est cloud (AD-8). Segments
+    rag_excerpt dans le message utilisateur du tour (AD-4), extraits comptés à leur
+    maximum déclaré dans l'aperçu (AD-9). Étape de recherche dépliable dans
+    Orchestration ; nœud file.rag_index en fichier local dans le schéma. Livrer le
+    scénario de la brique. Dépend des stories 10, 11 et 12.
+
+- id: "16"
+  title: Reranking
+  description: >-
+    Sous-option de la brique RAG qui réordonne les extraits, avec l'ordre avant et
+    après visible dans Orchestration (CAP-19).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Reranker retenu en story 12 (llama-cpp-python ou fastembed), chargé par le
+    LoadRegistry à l'activation et libéré à la désactivation (AD-8). Étape reranking
+    dépliable dans Orchestration, ordre et scores avant et après (EXPERIENCE.md).
+    Livrer le scénario de la sous-option. Dépend des stories 12 et 15.
+
+- id: "17"
+  title: Changement de modèle à chaud
+  description: >-
+    L'utilisateur change de modèle entre deux tours, depuis l'interface ou la
+    configuration, sans redémarrage et en gardant la conversation (CAP-34).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    select_model hors diagnostic change désormais le modèle actif, en classe (b)
+    refusée hors idle (AD-3) ; la mention « Prochain lancement : {modèle} » disparaît
+    (AD-3, AD-21). Un seul modèle de langage en mémoire : l'ancien est libéré avant
+    le chargement du nouveau, refus chiffré si le budget est dépassé (AD-8) ; sonde
+    d'un GGUF jamais chargé (AD-7). Vers un modèle cloud : avertissement
+    cloud-warning et acknowledged comme au diagnostic, clé valide exigée (AD-20,
+    AD-21). Capacités réévaluées, disponibilité des briques recalculée au point
+    unique, fenêtre et aperçu recalculés (AD-6, AD-9, AD-12). Indicateur « Chargement
+    du modèle… » avec chronomètre, envoi désactivé, conversation conservée et
+    contexte reconstruit à chaque tour (AD-17, EXPERIENCE.md) ; un rejeu après
+    changement utilise le nouveau modèle. Modèle par défaut de 2B au plus, fixé par
+    le banc de mesure (Deferred). Dépend des stories 9 et 11.
+
+- id: "18"
+  title: Serveur local déjà lancé (Ollama, llama-server)
+  description: >-
+    Un modèle servi par Ollama ou llama-server déjà lancé sur le poste devient
+    utilisable, WaveStack construisant lui-même le texte envoyé, gabarit compris
+    (seconde moitié de CAP-36).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    La découverte liste déjà les serveurs de boucle locale sans les lancer
+    (models/discovery.py, AD-7) ; reste à les rendre choisissables. Adaptateurs
+    llama_server (/completion, ids, /tokenize avec with_pieces) et ollama_raw
+    (/api/generate raw: true, num_ctx égal à la fenêtre effective, tokenizer du GGUF
+    en vocab_only, harness_error « transparence réduite » si prompt_eval_count
+    diffère) derrière le port Engine (AD-5), texte rendu par context (AD-4). Mode
+    serveur : modèle en processus libéré, mémoire du modèle servi comptée (/api/ps,
+    taille du fichier), keep_alive: 0 en quittant Ollama (AD-8). Appels HTTP par
+    net en boucle locale (AD-15), tests avec MockTransport. Schéma : modèle en
+    processus local distinct du harnais. Choix au diagnostic et à chaud (story 17).
+    Dépend des stories 11 et 17.
+
+- id: "19"
+  title: Délégation à un sous-agent
+  description: >-
+    Le harnais délègue une sous-tâche à un sous-agent au contexte propre, sur demande
+    du modèle ou forcée ; seul le résultat revient dans le contexte principal, avec
+    l'économie de tokens visible (CAP-30).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Même instance du moteur, séquentiellement, context_id = sub{n}, pas un tour
+    (AD-11). Contexte minimal : briques qui déclarent contributes_to sub, prompt
+    système du sous-agent dans content/prompts, outils listés par la brique (lecture
+    de page web par défaut). Méta-outil delegate et action forcée « Déléguer au
+    sous-agent » posés en story 9 (AD-25) ; résultat en subagent_result, jamais
+    compressé (AD-22). Borne propre de 4 appels, la délégation compte pour 1 dans le
+    tour (AD-10) ; dépassement, sortie coupée ou borne terminent la délégation, pas
+    le tour ; une issue de fournisseur émet harness_error en sub{n} puis
+    tool_ended{status: error} (AD-9, AD-11, AD-16). Les outils du sous-agent passent
+    par l'exécuteur unique, hooks compris (AD-14). Nœud core.model_sub, en service
+    réseau si le modèle actif est cloud (AD-12). Bascule « Contexte principal /
+    Contexte du sous-agent » et compteur du sous-agent dans son étape
+    (EXPERIENCE.md). Livrer le scénario de la brique. Dépend des stories 9 et 11.
+
+- id: "20"
+  title: Compression du contexte
+  description: >-
+    Brique de compression des résultats d'outils et des extraits RAG, avec le
+    contexte avant et après et les tokens de chaque version (CAP-32).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Compressor derrière son port, appliqué à l'étape transform_context aux seuls
+    tool_result et rag_excerpt ; jamais aux réponses des méta-outils, ni à
+    skill_body, subagent_result ou history ; remplaçants avec
+    compressed_from{tokens_before, text_before} (AD-4, AD-22). Implémentation selon
+    le verdict de la story 12 : headroom-ai (dépendance optionnelle, LoadRegistry
+    AD-8, garde AD-15) ou compresseur maison minimal (minification JSON, champs vides
+    retirés, listes raccourcies). Étape « Compression » en harness-event, libellé
+    adapté si Headroom est écarté (EXPERIENCE.md). Question ouverte au memlog à
+    trancher avant : transform_context ne tourne qu'avant le premier appel, donc
+    un tool_result produit pendant le tour n'est pas compressé. Livrer le scénario
+    de la brique. Dépend des stories 12 et 15.
+
+- id: "21"
+  title: Scénarios métier et programme du palier 2
+  description: >-
+    Au moins trois scénarios métier (SOC via H2, IAM via MCP Microsoft Learn,
+    Souveraineté via MCP data.gouv.fr) et programme par modules complété avec les
+    briques du palier 2 (CAP-42, CAP-40). Clôt la V1.
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Contenu seulement, au schéma pydantic des scénarios fixé en story 10 (AD-19) :
+    aucun scénario ne demande de modifier le code. Chaque scénario fixe ses briques,
+    ses hooks actifs (CAP-28) et sa réserve, et la configuration la plus chargée
+    tient NFR-1 (AD-9). Contenu publiable, sans donnée client ni document interne
+    (NFR-11). Sélecteur : scénarios métier après les transverses (EXPERIENCE.md,
+    scenario-picker). Programme : modules du palier 2 insérés, briques des modules
+    précédents actives au démarrage d'un module (CAP-40). Dépend des stories 6, 8,
+    10 et 13 à 20.

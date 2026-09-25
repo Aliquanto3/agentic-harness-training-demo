@@ -252,7 +252,7 @@
     <div class="meta">
       <span><b>Paradigme</b> moteur de tour à journal d’événements, ports et adaptateurs</span>
       <span><b>25</b> décisions (AD-1 à AD-25)</span>
-      <span><b>Source</b> <code>ARCHITECTURE-SPINE.md</code>, 2026-09-23</span>
+      <span><b>Source</b> <code>ARCHITECTURE-SPINE.md</code>, 2026-09-24</span>
     </div>
   </header>
 
@@ -262,6 +262,7 @@
     <a href="#fenetre">Fenêtre de contexte</a>
     <a href="#budget">Budget de 4 Go</a>
     <a href="#decisions">Points tranchés du PRD</a>
+    <a href="#cloud">Modèle cloud</a>
     <a href="#ads">Les 25 décisions</a>
     <a href="#suite">Ce qui reste à mesurer</a>
   </nav>
@@ -270,7 +271,7 @@
   <section id="schema" aria-labelledby="h-schema">
     <div class="eyebrow">1 · Processus et lieux d’hébergement</div>
     <h2 id="h-schema">Où tourne quoi</h2>
-    <p class="lead">Tout tient dans un seul processus Python, sauf deux processus enfants et un serveur de modèle facultatif. Seuls les composants de la zone Réseau font sortir des données, toujours par le même point de passage, qui les trace avant l’envoi. Cliquez sur un composant.</p>
+    <p class="lead">Tout tient dans un seul processus Python, sauf deux processus enfants et un serveur de modèle facultatif. Seuls les composants de la zone Réseau font sortir des données, toujours par le même point de passage, qui les trace avant l’envoi. En option, le modèle lui-même passe dans la zone Réseau. Cliquez sur un composant.</p>
     <div class="legend">
       <span class="tag local">Processus local</span>
       <span class="tag file">Fichier local</span>
@@ -312,6 +313,7 @@
           <path class="edge out" d="M506,106 C 620,80 680,90 766,100" marker-end="url(#arrow-out)"/>
           <path class="edge out" d="M506,222 C 620,215 690,225 766,232" marker-end="url(#arrow-out)"/>
           <path class="edge out" d="M506,254 C 640,300 690,360 766,372" marker-end="url(#arrow-out)"/>
+          <path class="edge out" d="M506,262 C 640,330 690,450 766,470" marker-end="url(#arrow-out)"/>
           <text class="edge-label" x="600" y="200">net · données sortantes tracées</text>
 
           <!-- nœuds -->
@@ -383,6 +385,12 @@
             <text class="node-label" x="782" y="366">Hugging Face</text>
             <text class="node-sub" x="782" y="386">téléchargement du modèle</text>
           </g>
+          <g class="node" data-id="llmcloud" tabindex="0" role="button" aria-label="Fournisseur LLM cloud">
+            <rect x="766" y="436" width="210" height="72" rx="12" fill="#FFCA4A" stroke="#0A0A14" stroke-width="2" stroke-dasharray="7 5"/>
+            <text class="node-label" x="782" y="462">LLM cloud (option)</text>
+            <text class="node-sub" x="782" y="482">Groq · Mistral · point déclaré</text>
+            <text class="node-sub" x="782" y="498">clé jamais tracée</text>
+          </g>
         </svg>
       </div>
       <aside class="panel detail" id="detail" aria-live="polite"></aside>
@@ -431,7 +439,7 @@
       <div class="gauge" id="gauge" role="img" aria-label="Jauge de remplissage du contexte"></div>
       <div class="gauge-legend" id="g-legend"></div>
       <div class="verdict" id="g-verdict"></div>
-      <p class="note">Ordres de grandeur pour illustrer les règles, pas des mesures : les vrais comptes viendront du tokenizer du modèle par défaut. Chaque scénario fourni déclare s’il doit déborder, et un test le vérifie.</p>
+      <p class="note">Ordres de grandeur pour illustrer les règles, pas des mesures : les vrais comptes viendront du tokenizer du modèle par défaut. Chaque scénario fourni déclare s’il doit déborder, et un test le vérifie. Avec un modèle cloud, la fenêtre est aussi plafonnée à la moitié du quota par minute du fournisseur (4 000 tokens chez Groq), et les comptes par segment sont estimés.</p>
     </div>
   </section>
 
@@ -439,7 +447,7 @@
   <section id="budget" aria-labelledby="h-budget">
     <div class="eyebrow">4 · AD-8</div>
     <h2 id="h-budget">Budget de 4 Go : mesurer, puis refuser</h2>
-    <p class="lead">Tout composant lourd passe par un seul registre de chargement. Il ajoute la mémoire mesurée de WaveStack et de ses processus enfants au coût estimé du composant, et refuse le chargement si le total dépasse 4 Go. Un modèle servi par Ollama ou llama-server compte aussi : c’est le même modèle, où qu’il tourne.</p>
+    <p class="lead">Tout composant lourd passe par un seul registre de chargement. Il ajoute la mémoire mesurée de WaveStack et de ses processus enfants au coût estimé du composant, et refuse le chargement si le total dépasse 4 Go. Un modèle servi par Ollama ou llama-server compte aussi : c’est le même modèle, où qu’il tourne. Un modèle cloud, lui, ne coûte rien sur le poste.</p>
     <div class="panel budget">
       <div class="controls">
         <label for="model" class="eyebrow">Modèle</label>
@@ -467,7 +475,8 @@
         <tbody>
           <tr><td>Moteur d’inférence<span class="who">addendum du PRD</span></td><td><b>llama-cpp-python 0.3.35</b>, dans le processus. Roue CPU précompilée sur l’index d’abetlen, épinglée, sans compilation. Testé avec Qwen3.5-2B : texte brut, tokenizer, gabarit lu dans le GGUF, mémoire libérée à la fermeture. <span class="note">(AD-5, AD-21)</span></td></tr>
           <tr><td>FR-34 : modèles d’Ollama<span class="who">détection</span></td><td>Lecture directe des manifestes sur le disque, sans lancer Ollama. La couche <code>image.model</code> est un GGUF, chargé par WaveStack lui-même : transparence complète, et aucun second modèle en mémoire. <span class="note">(AD-7)</span></td></tr>
-          <tr><td>FR-34 : texte brut vers un serveur local<span class="who">palier 2</span></td><td>Seulement les points d’entrée natifs en texte brut : <code>/api/generate</code> avec <code>raw: true</code> chez Ollama, <code>/completion</code> chez llama-server. <b>Pas d’interface « compatible OpenAI »</b> en V1 : celle d’Ollama réapplique son propre gabarit. <span class="note">(AD-5)</span></td></tr>
+          <tr><td>FR-34 : texte brut vers un serveur local<span class="who">palier 2</span></td><td>Seulement les points d’entrée natifs en texte brut : <code>/api/generate</code> avec <code>raw: true</code> chez Ollama, <code>/completion</code> chez llama-server. <b>Pas d’interface « compatible OpenAI »</b> vers un serveur local en V1 : celle d’Ollama réapplique son propre gabarit. Le format chat ne sert qu’aux modèles cloud. <span class="note">(AD-5)</span></td></tr>
+          <tr><td>FR-43 : modèle cloud<span class="who">ajout du 2026-09-24</span></td><td>Option explicite, choisie au diagnostic après un avertissement confirmé. Un seul adaptateur <code>openai_chat</code>, sur le client tracé de <code>net</code>, sans dépendance nouvelle. Préréglages Groq et Mistral déclarés en configuration. <span class="note">(AD-4, AD-5, AD-20, AD-21)</span></td></tr>
           <tr><td>NFR-2 : serveur externe dans les 4 Go</td><td>Il compte dans le budget. WaveStack libère alors son propre modèle, et <b>refuse</b> un modèle qui ferait dépasser 4 Go. <span class="note">(AD-8)</span></td></tr>
           <tr><td>NFR-8 : appels au modèle par tour</td><td><b>6</b> dans le contexte principal, dont 2 nouveaux essais au plus après un appel mal formé ; <b>4</b> pour le sous-agent, sur un compteur propre. Une action forcée ne compte pas. Réglable dans l’interface, pour provoquer la limite en démonstration. <span class="note">(AD-10)</span></td></tr>
           <tr><td>NFR-1 : plafond de la fenêtre</td><td><b>4 096 tokens</b>, dont 512 réservés à la sortie (1 536 avec le raisonnement), réglable dans l’interface. La documentation complète s’illustre avec Microsoft Learn ; data.gouv.fr en documentation complète est le dépassement volontaire qui mène au lazy loading. Valeur définitive après le banc de mesure. <span class="note">(AD-9)</span></td></tr>
@@ -476,28 +485,50 @@
     </div>
   </section>
 
-  <!-- 6. ADs -->
+  <!-- 6. Cloud -->
+  <section id="cloud" aria-labelledby="h-cloud">
+    <div class="eyebrow">6 · FR-43, en option</div>
+    <h2 id="h-cloud">Modèle cloud : le même harnais, une part hors du poste</h2>
+    <p class="lead">Un modèle cloud montre que le même harnais pilote des modèles beaucoup plus gros, et beaucoup plus vite. En contrepartie, le fournisseur applique lui-même le gabarit et lit les appels d’outils. WaveStack le montre au lieu de le cacher : estimations marquées « ≈ », modèle dessiné dans la zone Réseau, avertissement au choix.</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Sujet</th><th>Règle</th></tr></thead>
+        <tbody>
+          <tr><td>Contexte envoyé</td><td>Le harnais construit le corps JSON complet et le sérialise une seule fois. Il le découpe en segments par la même méthode qu’en local. Contexte LLM, la trace et l’envoi montrent les mêmes octets. <span class="note">(AD-4, AD-5)</span></td></tr>
+          <tr><td>Tokens</td><td>Par segment, les tokens sont estimés avant l’appel (« ≈ »), puis recalés sur le total renvoyé par le fournisseur (<code>context_reconciled</code>). L’écart va au segment « Gabarit appliqué chez le fournisseur (estimé) ». <span class="note">(AD-2, AD-4)</span></td></tr>
+          <tr><td>Appels d’outils</td><td>La session attribue l’identifiant de chaque appel (9 caractères, accepté par Mistral). Des arguments JSON invalides suivent la voie du nouvel essai, comme en local. <span class="note">(AD-4, AD-10)</span></td></tr>
+          <tr><td>Clé</td><td>Elle est saisie au diagnostic, liée à l’hôte et gardée hors du dépôt. Elle n’est jamais tracée, journalisée ni renvoyée au navigateur, et aucune redirection n’est suivie. <span class="note">(AD-15, AD-20, AD-23)</span></td></tr>
+          <tr><td>Quota par minute</td><td>La fenêtre est plafonnée à la moitié du quota par minute : un tour avec un outil passe (4 000 tokens chez Groq). Au-delà, le 429 est une erreur expliquée, sans nouvel essai : c’est un matériau pédagogique. <span class="note">(AD-9, AD-16)</span></td></tr>
+          <tr><td>Choix et test</td><td>Le choix se fait au diagnostic, et la session refuse un choix non confirmé. Un choix mémorisé est repris sans nouvel avertissement. « Tester » envoie une invite fixe, sans donnée de l’utilisateur, avec le corps réel du modèle. <span class="note">(AD-3, AD-21)</span></td></tr>
+          <tr><td>Refus du fournisseur</td><td>Une liste fermée : 429, 413, 400, 422, 401, 403, 404, 5xx, redirection, délai, réseau, erreur en plein flux. Chacun donne un message en français, sans plantage. <span class="note">(AD-16)</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 7. ADs -->
   <section id="ads" aria-labelledby="h-ads">
-    <div class="eyebrow">6 · Le contrat</div>
+    <div class="eyebrow">7 · Le contrat</div>
     <h2 id="h-ads">Les 25 décisions</h2>
     <p class="lead">Chaque décision fixe un point où deux stories construites séparément pourraient diverger. Dépliez une carte pour voir ce qu’elle lie et ce qu’elle empêche. Le texte qui fait foi est dans <code>ARCHITECTURE-SPINE.md</code>.</p>
     <div class="filters seg-tabs" id="filters" role="group" aria-label="Filtrer par thème"></div>
     <div class="ad-list" id="ad-list"></div>
   </section>
 
-  <!-- 7. Suite -->
+  <!-- 8. Suite -->
   <section id="suite" aria-labelledby="h-suite">
-    <div class="eyebrow">7 · Reporté, avec sa condition</div>
+    <div class="eyebrow">8 · Reporté, avec sa condition</div>
     <h2 id="h-suite">Ce qui reste à mesurer</h2>
     <div class="deferred">
       <div class="panel"><h3>Banc sur le poste de référence</h3><p class="note">Lecture à froid de 4 096 tokens, gain du préfixe entre deux appels, sauvegarde de l’état du modèle hybride. Fixe la fenêtre et le choix entre 0.8B et 2B.</p></div>
       <div class="panel"><h3>Test préalable de Headroom</h3><p class="note">Hors ligne, sans torch, dans le budget, sans connexion propre. Sinon, un compresseur maison minimal prend le relais.</p></div>
       <div class="panel"><h3>Embedding et reranking</h3><p class="note">Candidats GGUF sous Apache-2.0 ; reranking par llama-cpp-python à confirmer, avec fastembed en repli.</p></div>
       <div class="panel"><h3>AppLocker et WDAC</h3><p class="note">Comportement face aux DLL non signées, à vérifier lors de la session pilote. Repli : démonstration pilotée par le formateur.</p></div>
+      <div class="panel"><h3>Modèles cloud en séance</h3><p class="note">Les préréglages sont à tester avant chaque séance ; leur compatibilité est à revérifier au 2026-10-01. Le renvoi du raisonnement au fournisseur est à revoir si les boucles d’outils se dégradent. GCP Vertex est hors de la story 11.</p></div>
     </div>
   </section>
 
-  <footer>Vue lisible dérivée du spine d’architecture de WaveStack, 2026-09-23. En cas d’écart, le spine fait foi.</footer>
+  <footer>Vue lisible dérivée du spine d’architecture de WaveStack, 2026-09-24. En cas d’écart, le spine fait foi.</footer>
 </div>
 
 <script>
@@ -507,14 +538,15 @@
     browser: { t: 'Navigateur', tag: 'local', d: 'Edge ou Chrome du poste. Projette les cinq volets à partir du flux d’événements : il ne recalcule ni tokens, ni contexte, ni disponibilité. Son seul état propre : sélection, volets masqués, mode focus, taille de texte.', ads: ['AD-1', 'AD-18'] },
     loop: { t: 'Boucle asyncio', tag: 'local', d: 'FastAPI n’écoute que sur 127.0.0.1. Elle sert le flux SSE (reprise par Last-Event-ID), reçoit les intentions en JSON après contrôle de l’Origin et de l’hôte, et héberge les clients MCP. Elle ne touche jamais l’état de la session.', ads: ['AD-2', 'AD-18', 'AD-24'] },
     worker: { t: 'Thread de travail', tag: 'local', d: 'Un seul thread exécute les tours, les chargements de modèle, la réinitialisation et le diagnostic. La session est le seul écrivain de l’état. Les briques renvoient des contributions et des effets, qu’elle applique.', ads: ['AD-3', 'AD-13', 'AD-14', 'AD-23', 'AD-24'] },
-    engine: { t: 'llama-cpp-python', tag: 'local', d: 'Le modèle tourne dans le processus. Il reçoit les ids de tokens déjà rendus par le harnais, gabarit compris : rien n’y est ajouté. Le sous-agent réutilise la même instance, avec son propre contexte.', ads: ['AD-4', 'AD-5', 'AD-6', 'AD-11'] },
+    engine: { t: 'llama-cpp-python', tag: 'local', d: 'Le modèle tourne dans le processus. Il reçoit les ids de tokens déjà rendus par le harnais, gabarit compris : rien n’y est ajouté. Le sous-agent réutilise la même instance, avec son propre contexte. Quand un modèle cloud est choisi, ce modèle local est libéré.', ads: ['AD-4', 'AD-5', 'AD-6', 'AD-11'] },
     mcplocal: { t: 'Serveur MCP local', tag: 'local', d: 'Processus Python séparé, en stdio, lancé à l’activation de la brique MCP et arrêté à sa désactivation. Il montre qu’un serveur MCP est un processus distinct du harnais, même sur le poste.', ads: ['AD-21', 'AD-14'] },
     probe: { t: 'Sonde GGUF', tag: 'local', d: 'Tout GGUF jamais chargé est d’abord ouvert dans un processus enfant, qui mesure sa mémoire. Un fichier qui plante la sonde ne plante pas la démonstration.', ads: ['AD-7', 'AD-8'] },
     ext: { t: 'Ollama ou llama-server', tag: 'local', d: 'Facultatif, déjà lancé par l’utilisateur, jamais par WaveStack. Utilisé seulement par ses points d’entrée en texte brut. Sa mémoire compte dans le budget de 4 Go.', ads: ['AD-5', 'AD-7', 'AD-8'] },
-    files: { t: 'Données d’exécution', tag: 'file', d: 'Un seul dossier, hors du dépôt et hors de OneDrive. Seule la session y écrit, par des effets typés. Le schéma de l’application montre la mémoire globale et le journal d’audit comme fichiers locaux.', ads: ['AD-20', 'AD-23'] },
+    files: { t: 'Données d’exécution', tag: 'file', d: 'Un seul dossier, hors du dépôt et hors de OneDrive. Seule la session y écrit, par des effets typés. Le schéma de l’application montre la mémoire globale et le journal d’audit comme fichiers locaux. Les clés des modèles cloud y sont dans api_keys.json, chacune liée à l’hôte pour lequel elle a été saisie.', ads: ['AD-20', 'AD-23'] },
     repo: { t: 'Dépôt', tag: 'file', d: 'Tout le contenu pédagogique est en français, sous forme de données : scénarios, explications, skills, corpus, mémoire de démonstration. Ajouter un scénario métier revient à ajouter un fichier. L’index RAG y est livré, déjà calculé.', ads: ['AD-19', 'AD-22'] },
     mcppub: { t: 'Serveurs MCP publics', tag: 'net', d: 'Contactés seulement à l’activation de leur sous-option. Chaque requête JSON-RPC est tracée avec son adresse et son contenu exact avant l’envoi. Un serveur injoignable reste dessiné, marqué indisponible.', ads: ['AD-15', 'AD-12'] },
     apis: { t: 'API publiques', tag: 'net', d: 'Outils réseau sans clé. La liste d’adresses autorisées vient de la configuration, jamais d’une commande de l’interface. H5 montre la requête exacte et attend l’accord de l’utilisateur.', ads: ['AD-14', 'AD-15', 'AD-13'] },
+    llmcloud: { t: 'Fournisseur LLM cloud', tag: 'net', d: 'En option, jamais par défaut. Le harnais construit lui-même le corps JSON envoyé : ce que montre Contexte LLM, ce que trace la sortie réseau et ce qui part sont les mêmes octets. Le fournisseur applique son gabarit et analyse les appels d’outils : cette part du harnais quitte le poste. La clé ne part que vers l’hôte enregistré, sans redirection, et n’apparaît jamais dans la trace.', ads: ['AD-4', 'AD-5', 'AD-15', 'AD-16', 'AD-20', 'AD-21'] },
     hf: { t: 'Hugging Face', tag: 'net', d: 'Téléchargement du modèle par défaut, à la demande, par le même client tracé que le reste (Xet et télémétrie désactivés). Voie hors ligne : copier un GGUF, ou choisir un modèle déjà présent.', ads: ['AD-15', 'AD-21'] }
   };
   const TAGS = { local: '<span class="tag local">Processus local</span>', file: '<span class="tag file">Fichier local</span>', net: '<span class="tag net">Service réseau</span>' };
@@ -709,25 +741,25 @@
   const ADS = [
     ['AD-1', 'journal', 'Journal d’événements, interface en projection', 'Tout ce qui s’affiche vient du journal ; le front ne recalcule rien.', 'FR-1 à FR-4, FR-7, FR-30, FR-41', 'Des volets qui divergent de ce que le harnais a fait.'],
     ['AD-2', 'journal', 'Enveloppe, catalogue et flux des événements', 'Une enveloppe commune, un catalogue unique, des paires *_started/*_ended, SSE reprenable.', 'Tous les émetteurs, le front', 'Des événements qu’on ne peut rattacher à leur appel, étape ou nœud.'],
-    ['AD-3', 'journal', 'Un seul écrivain, un verrou, trois classes d’intentions', 'La session seule modifie l’état ; les commandes sont acceptées, refusées avec raison, ou préemptives.', 'session, web, FR-5, FR-42', 'Deux chemins de mutation ; des clics refusés sans raison.'],
-    ['AD-4', 'contexte', 'Contexte : segments typés, tokens exacts', 'Types de segment fermés, rendu du gabarit par le harnais, une seule tokenisation, ajout seul pendant un tour.', 'FR-2, FR-30, FR-41, FR-34', 'Un contexte affiché différent du contexte envoyé.'],
-    ['AD-5', 'contexte', 'Port moteur : texte déjà rendu', 'Trois adaptateurs en texte brut ; aucun format chat ni « compatible OpenAI ».', 'FR-32, FR-34', 'Un moteur qui réapplique son gabarit.'],
-    ['AD-6', 'contexte', 'Registre des capacités par famille', 'Parseur d’outils, séquences d’arrêt, séparation du raisonnement, par famille de modèle.', 'FR-9, FR-33', 'Un parsing improvisé dans chaque brique.'],
+    ['AD-3', 'journal', 'Un seul écrivain, un verrou, trois classes d’intentions', 'La session seule modifie l’état ; les commandes sont acceptées, refusées avec raison, ou préemptives. Le diagnostic accepte ses quatre intentions, dont la clé et le test cloud.', 'session, web, FR-5, FR-42, FR-43', 'Deux chemins de mutation ; des clics refusés sans raison.'],
+    ['AD-4', 'contexte', 'Contexte : segments typés, tokens exacts en local, estimés puis recalés en cloud', 'Types de segment fermés, rendu du gabarit par le harnais, une seule tokenisation, ajout seul pendant un tour. En cloud : corps JSON découpé de la même façon, identifiants d’appel attribués par la session.', 'FR-2, FR-30, FR-41, FR-34, FR-43', 'Un contexte affiché différent du contexte envoyé.'],
+    ['AD-5', 'contexte', 'Port moteur : une requête entièrement construite par le harnais', 'Trois adaptateurs en texte brut en local ; openai_chat pour le cloud, qui n’ajoute que l’en-tête d’authentification.', 'FR-32, FR-34, FR-43', 'Un moteur qui réapplique son gabarit ; deux « corps exacts » différents.'],
+    ['AD-6', 'contexte', 'Registre des capacités par famille', 'Parseur d’outils, séquences d’arrêt, séparation du raisonnement, par famille de modèle ; capacités déclarées pour un modèle cloud.', 'FR-9, FR-33, FR-43', 'Un parsing improvisé dans chaque brique.'],
     ['AD-7', 'contexte', 'Découverte et sonde des modèles', 'Une seule recherche des GGUF, Ollama lu sur disque, sonde en processus enfant.', 'FR-34, FR-37', 'Un GGUF inconnu qui plante la session.'],
     ['AD-8', 'contexte', 'Budget mesuré, registre de chargement', 'Mémoire mesurée + coût estimé > 4 Go : refus chiffré.', 'NFR-2, FR-32', 'Des composants qui se chargent sans se voir.'],
-    ['AD-9', 'contexte', 'Fenêtre, réserve, jauge, aperçu', '4 096 tokens, réserve 512 ou 1 536, jauge sur la fenêtre utile, dépassement non envoyé.', 'NFR-1, NFR-8, FR-41', 'Une jauge fausse ou un appel qui déborde.'],
+    ['AD-9', 'contexte', 'Fenêtre, réserve, jauge, aperçu', '4 096 tokens, réserve 512 ou 1 536, jauge sur la fenêtre utile, dépassement non envoyé ; en cloud, plafond à la moitié du quota par minute.', 'NFR-1, NFR-8, FR-41, FR-43', 'Une jauge fausse ou un appel qui déborde.'],
     ['AD-10', 'journal', 'Bornes de la boucle de tour', '6 appels, 2 nouveaux essais, 4 pour le sous-agent, réglables.', 'NFR-8, FR-15, FR-29', 'Une boucle infinie ; des compteurs divergents.'],
     ['AD-11', 'contexte', 'Sous-agent : même modèle, contexte minimal', 'Pas un tour, pas de second modèle, seul son résultat revient.', 'FR-29', 'Un sous-agent qui hérite de tout le contexte.'],
     ['AD-12', 'journal', 'Contrat de brique, schéma dérivé', 'Identifiants de composants, état voulu et disponible, schéma calculé par la session.', 'FR-3, FR-5, FR-6', 'Un schéma maintenu à la main.'],
     ['AD-13', 'outils', 'Points d’accroche et hooks', 'Sept points fixes, une matrice de décisions, H5 en attente sans délai.', 'FR-26 à FR-28', 'Des hooks qui écrivent eux-mêmes.'],
     ['AD-14', 'outils', 'Registre et exécuteur d’outils uniques', 'Noms uniques, drapeaux, hooks sur drapeaux, outils locaux confinés.', 'FR-13 à FR-15, FR-42', 'Une collision de noms ; la lecture de tout le disque.'],
-    ['AD-15', 'outils', 'Sorties réseau : une fabrique, tout est tracé', 'Deux clients configurés à l’identique, trace avant envoi, liste autorisée figée.', 'NFR-3, NFR-4, FR-22', 'Une donnée qui sort sans être affichée.'],
-    ['AD-16', 'journal', 'Défaillances contenues', 'Toute erreur devient un événement en français ; le tour se termine proprement.', 'NFR-8', 'Un plantage en pleine session.'],
+    ['AD-15', 'outils', 'Sorties réseau : une fabrique, tout est tracé', 'Deux clients configurés à l’identique, trace avant envoi, liste autorisée figée ; clé cloud liée à son hôte, jamais tracée, sans redirection.', 'NFR-3, NFR-4, FR-22, FR-43', 'Une donnée qui sort sans être affichée ; une clé qui part ailleurs.'],
+    ['AD-16', 'journal', 'Défaillances contenues', 'Toute erreur devient un événement en français ; le tour se termine proprement. Refus d’un fournisseur cloud : liste fermée, sans nouvel essai.', 'NFR-8, FR-43', 'Un plantage en pleine session.'],
     ['AD-17', 'journal', 'Instantané conversationnel et rejeu', 'Seul l’historique est restauré ; tout le reste est la configuration courante.', 'FR-7, FR-39', 'Un rejeu qui annule le changement à comparer.'],
     ['AD-18', 'exploit', 'Interface web sans compilation, API protégée', 'JS natif, tout en local, contrôle de l’Origin et de l’hôte, Aptos jamais embarquée.', 'NFR-3, NFR-4, NFR-9', 'Une page tierce qui pilote WaveStack.'],
     ['AD-19', 'exploit', 'Contenus en données, en français', 'Scénarios, skills, corpus en fichiers validés ; un scénario métier = un fichier.', 'FR-38, FR-40, NFR-7', 'Des textes pédagogiques en dur dans le code.'],
-    ['AD-20', 'exploit', 'Données d’exécution hors du dépôt', 'Un seul dossier, résolu par config, écrit par la session seule.', 'FR-12, H2', 'Des modèles dans OneDrive.'],
-    ['AD-21', 'exploit', 'Installation, lancement, diagnostic', 'uv verrouillé, port d’abord, diagnostic dans le terminal et le navigateur.', 'FR-35 à FR-37, NFR-5', 'Une compilation sur un poste verrouillé.'],
+    ['AD-20', 'exploit', 'Données d’exécution hors du dépôt', 'Un seul dossier, résolu par config, écrit par la session seule ; schéma unique des modèles cloud, fusionné par identifiant.', 'FR-12, H2, FR-43', 'Des modèles dans OneDrive.'],
+    ['AD-21', 'exploit', 'Installation, lancement, diagnostic', 'uv verrouillé, port d’abord, diagnostic dans le terminal et le navigateur ; modèles cloud choisis au diagnostic, avertissement confirmé.', 'FR-35 à FR-37, NFR-5, FR-43', 'Une compilation sur un poste verrouillé.'],
     ['AD-22', 'contexte', 'Compression et RAG derrière des ports', 'Compression à une étape fixe, sur deux types de segment ; index livré avec son modèle.', 'FR-16 à FR-18, FR-31', 'Des segments compressés en double.'],
     ['AD-23', 'journal', 'Effets typés, appliqués par la session', 'Outils et hooks renvoient des effets ; la session écrit mémoire et audit.', 'FR-12, FR-24, H2', 'Plusieurs écrivains du même fichier.'],
     ['AD-24', 'journal', 'Modèle d’exécution et annulation', 'Un thread de travail, une boucle asyncio, un jeton d’annulation partout.', 'NFR-1, NFR-8', 'Une boucle bloquée ; un arrêt qui n’arrête rien.'],
