@@ -54,6 +54,7 @@ from wavestack.models.capabilities import (
     capabilities_for,
 )
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
+from wavestack.scenarios import EMPTY_PROGRAM, ScenariosContent, load_scenarios
 from wavestack.session.effects import (
     ArmConsumed,
     AuditAppend,
@@ -292,9 +293,9 @@ class AppSession:
         self._cancel: CancelToken | None = None
         # Bricks: in memory only, every launch starts as the bare LLM (no persistence).
         self._bricks = check_unique_ids(BRICKS if bricks is None else bricks)
-        self._wanted: set[str] = set()
+        self._wanted: set[str]  # launch values: `_apply_launch_config`
         self._history: list[Exchange] = []
-        self._custom_prompt: str | None = None  # None: the default from content/
+        self._custom_prompt: str | None  # None: the default from content/
         self._content: dict[str, BrickContent] = {}
         self._content_errors: dict[str, str] = {}
         self._default_prompt = ""
@@ -310,30 +311,23 @@ class AppSession:
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
         )
         self._tool_executor = ToolExecutor(self._registry)
-        # Offline tools start enabled; network tools start disabled (story 5b). Harness tools
-        # are no sub-option: the session alone decides when they are offered.
-        self._tools_enabled = {
-            n
-            for n in self._registry.names
-            if not self._registry.get(n).network and self._registry.get(n).source != "harness"
-        }
+        self._tools_enabled: set[str]  # sub-options: see `_apply_launch_config`
         # MCP servers (story 6): the local one starts enabled, the public ones disabled. A
         # server is contacted only while enabled with the brick wanted (AD-15).
         self._loop: asyncio.AbstractEventLoop | None = None
         self._mcp_servers = mcp_servers(self.cfg)
-        self._mcp_enabled = {"local"}
+        self._mcp_enabled: set[str]
         self._mcp_conns: dict[str, McpConnection] = {}
         self._mcp_state: dict[str, tuple[str, str | None]] = {}  # contact, reason_fr
         # Story 6b: documentation complète by default; the documentations loaded belong to
         # the conversation (AD-17), and wait while their server is off.
-        self._mcp_lazy = False
+        self._mcp_lazy: bool
         self._loaded_docs: set[str] = set()
-        # Skills (story 7): all enabled at first; the skills loaded belong to the
-        # conversation (AD-17), and wait while their skill is disabled.
-        self._skills_enabled = set(self._skill_ids())
+        # Skills (story 7): the skills loaded belong to the conversation (AD-17), and wait
+        # while their skill is disabled.
+        self._skills_enabled: set[str]
         self._loaded_skills: set[str] = set()
-        # Hooks (story 8): H1, H2 and H3 enabled at first, H5 disabled (8b, Q1).
-        self._hooks_enabled = set(self._hook_ids()) - {"h5"}
+        self._hooks_enabled: set[str]
         # H5 (8b): the last validation asked, and the hooks switched off for the rest of the
         # running turn (« Autoriser et ne plus demander »), since its state is frozen.
         self._approval: _Approval | None = None
@@ -356,7 +350,34 @@ class AppSession:
             bool,
             frozenset[str],
             frozenset[str],
-        ] = (
+        ]
+        self._apply_launch_config()
+        # Story 10 (AD-19): the programme, and the scenario launched last (`None` at launch
+        # and after a reset).
+        self._scenarios: ScenariosContent | None = None
+        self._active_scenario: str | None = None
+        self._load_scenarios()
+
+    def _apply_launch_config(self) -> None:
+        """The launch configuration, applied again by a reset or before a scenario: no
+        brick, default sub-options and system prompt, nothing sent yet."""
+        self._wanted = set()
+        self._custom_prompt = None
+        # Offline tools start enabled; network tools start disabled (story 5b). Harness and
+        # MCP tools are no sub-option: the session alone decides when they are offered.
+        self._tools_enabled = {
+            n
+            for n in self._registry.names
+            if not (spec := self._registry.get(n)).network
+            and spec.source != "harness"
+            and not spec.is_mcp
+        }
+        # MCP servers (story 6): the local one starts enabled, the public ones disabled.
+        self._mcp_enabled = {"local"} & set(self._mcp_servers)
+        self._mcp_lazy = False  # story 6b: documentation complète by default
+        self._skills_enabled = set(self._skill_ids())  # story 7: all enabled
+        self._hooks_enabled = set(self._hook_ids()) - {"h5"}  # story 8: H5 disabled (8b, Q1)
+        self._sent = (
             frozenset(),
             self._default_prompt,
             frozenset(),
@@ -1660,6 +1681,90 @@ class AppSession:
             self._loaded_skills.clear()  # and so do the skills
             self._last = None  # nothing left to replay (story 9b)
         get_journal().emit("conversation_cleared", {})
+        self._emit_architecture()
+        self._executor.submit(self._emit_preview)
+
+    # ---------- scenarios and reset (story 10, AD-19, FR-38, FR-39) ----------
+
+    def _load_scenarios(self) -> None:
+        """AD-19: an invalid file gives `harness_error` and an empty programme, never a crash."""
+        known = {
+            "bricks": set(self._bricks),
+            "tools": {
+                n
+                for n in self._registry.names
+                if (spec := self._registry.get(n)).source != "harness" and not spec.is_mcp
+            },
+            "mcp_servers": set(self._mcp_servers),
+            "skills": set(self._skill_ids()),
+            "hooks": set(self._hook_ids()),
+        }
+        try:
+            self._scenarios = load_scenarios(known)
+        except Exception as exc:  # noqa: BLE001
+            self._error(
+                "Le fichier des scénarios (content/scenarios.yaml) est absent ou invalide.",
+                exc,
+                "Le sélecteur de scénario est vide ; le reste de WaveStack fonctionne.",
+            )
+        self._emit_scenario()
+
+    def _emit_scenario(self) -> None:
+        program = self._scenarios.payload() if self._scenarios else EMPTY_PROGRAM
+        with self._lock:
+            active = self._active_scenario
+        get_journal().emit("scenario_changed", {"program": program, "active": active})
+
+    def launch_scenario(self, scenario_id: str) -> None:
+        """Class (b): empties the conversation, applies the launch configuration, then the
+        scenario's. `KeyError` if unknown, `SendRefused` outside `idle`."""
+        scenario = self._scenarios.scenarios.get(scenario_id) if self._scenarios else None
+        if scenario is None:
+            raise KeyError(scenario_id)
+
+        def apply() -> None:
+            self._wanted = set(scenario.bricks)
+            if scenario.tools is not None:
+                self._tools_enabled = set(scenario.tools)
+            if scenario.mcp_servers is not None:
+                self._mcp_enabled = set(scenario.mcp_servers)
+            if scenario.skills is not None:
+                self._skills_enabled = set(scenario.skills)
+            if scenario.hooks is not None:
+                self._hooks_enabled = set(scenario.hooks)
+            self._mcp_lazy = scenario.mcp_lazy
+
+        self._reconfigure(scenario_id, apply)
+
+    def reset(self) -> None:
+        """Class (b): back to the launch state: bare LLM, no turn, no scenario."""
+        self._reconfigure(None, lambda: None)
+
+    def _reconfigure(self, scenario_id: str | None, apply: Callable[[], None]) -> None:
+        """One `bricks_changed`, one `architecture_changed`, one preview; MCP servers
+        connect or close on the difference only (AD-15)."""
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+            before = set(self._mcp_enabled) if "mcp" in self._wanted else set()
+            self._history.clear()
+            self._loaded_docs.clear()
+            self._loaded_skills.clear()
+            self._last = None  # nothing left to replay (story 9b)
+            self._armed.clear()
+            self._apply_launch_config()
+            apply()
+            after = set(self._mcp_enabled) if "mcp" in self._wanted else set()
+            self._active_scenario = scenario_id
+        journal = get_journal()
+        journal.emit("conversation_cleared" if scenario_id else "harness_reset", {})
+        self._emit_armed()
+        self._emit_scenario()
+        for server_id in sorted(before - after):
+            self._mcp_disconnect(server_id)
+        for server_id in sorted(after - before):
+            self._mcp_connect(server_id)
+        self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
 

@@ -64,6 +64,10 @@ class HookIntention(BaseModel):
     enabled: bool
 
 
+class ScenarioIntention(BaseModel):
+    scenario_id: str
+
+
 class ApprovalIntention(BaseModel):
     approval_id: str
     approved: bool
@@ -169,6 +173,7 @@ def create_app(
         resolved = _latest(events, "approval_resolved")
         pending = asked.payload if asked and (not resolved or resolved.seq < asked.seq) else None
         armed = _latest(events, "armed_actions_changed")  # story 9: the chips after a reload
+        scenario = _latest(events, "scenario_changed")  # story 10: programme and active one
         return {
             "session_state": session_state.payload if session_state else None,
             "architecture_changed": architecture.payload if architecture else None,
@@ -177,6 +182,7 @@ def create_app(
             "bricks_changed": bricks.payload if bricks else None,
             "pending_approval": pending,
             "armed_actions_changed": armed.payload if armed else None,
+            "scenario_changed": scenario.payload if scenario else None,
             "seq": seq,
         }
 
@@ -338,6 +344,26 @@ def create_app(
         except SendRefused as refused:
             raise HTTPException(status_code=409, detail=refused.reason_fr) from None
         return {"cleared": True}
+
+    @app.post("/api/intentions/scenario")
+    def scenario(intention: ScenarioIntention) -> dict[str, bool]:
+        """Class (b): launches a scenario (FR-38); unknown: 404, outside `idle`: 409."""
+        try:
+            app_session.launch_scenario(intention.scenario_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Scénario inconnu.") from None
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"launched": True}
+
+    @app.post("/api/intentions/reset")
+    def reset() -> dict[str, bool]:
+        """Class (b): back to the launch state, the bare LLM (FR-39)."""
+        try:
+            app_session.reset()
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"reset": True}
 
     @app.get("/api/diagnostic/stream")
     async def diagnostic_stream(request: Request) -> StreamingResponse:

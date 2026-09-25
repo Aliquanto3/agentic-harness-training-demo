@@ -1,0 +1,154 @@
+# Programme de formation et scénarios par brique (story 10, AD-19, FR-38).
+# Chaque scénario déclare sa configuration complète, pas un écart au précédent :
+# lancer le premier scénario d'un module active déjà les briques des modules précédents.
+# `bricks` : briques voulues ; `tools`, `mcp_servers`, `skills`, `hooks` : sous-options
+# activées (absentes = valeurs de lancement) ; `mcp_lazy` : lazy loading (faux par défaut) ;
+# `prompts` : prompts suggérés au-dessus du champ de saisie ; `expects_overflow` : le
+# scénario fait déborder le contexte exprès.
+
+program:
+  - title_fr: Du LLM nu au harnais
+    duration_min: 45
+    scenarios: [bare_llm, short_memory, system_prompt]
+  - title_fr: Outils
+    duration_min: 45
+    scenarios: [native_tools, network_tools]
+  - title_fr: MCP
+    duration_min: 45
+    scenarios: [mcp_full, mcp_lazy]
+  - title_fr: Skills et hooks
+    duration_min: 60
+    scenarios: [skills, caveman, hooks]
+
+transverse: [data_flows]
+
+scenarios:
+  bare_llm:
+    title_fr: LLM nu
+    description_fr: >-
+      Toutes les briques sont éteintes : le modèle ne reçoit que votre message.
+      Envoyez le prompt : sans outil, il ne peut pas connaître l'heure, il l'invente
+      ou avoue ne pas la savoir.
+    bricks: []
+    prompts:
+      - Quelle heure est-il ?
+
+  short_memory:
+    title_fr: Mémoire courte
+    description_fr: >-
+      Envoyez les deux prompts l'un après l'autre : le harnais réinjecte les tours
+      précédents, le modèle se souvient du prénom. Éteignez la mémoire courte et
+      renvoyez le second prompt pour voir l'oubli.
+    bricks: [short_memory]
+    prompts:
+      - Je m'appelle Camille et je suis consultante en cybersécurité.
+      - Comment je m'appelle, et quel est mon métier ?
+
+  system_prompt:
+    title_fr: Prompt système
+    description_fr: >-
+      Envoyez le prompt, puis modifiez le prompt système depuis sa carte (par exemple
+      « Réponds toujours en une phrase, comme un pirate. ») et rejouez-le : la réponse
+      change alors que le message est le même.
+    bricks: [short_memory, system_prompt]
+    prompts:
+      - Présente-toi en quelques phrases.
+
+  native_tools:
+    title_fr: Outils natifs
+    description_fr: >-
+      Les outils locaux sont actifs. Envoyez un prompt et suivez dans Orchestration
+      le cycle d'appel : le modèle demande l'outil, le harnais l'exécute et réinjecte
+      son résultat.
+    bricks: [short_memory, system_prompt, tools]
+    prompts:
+      - Quelle heure est-il ?
+      - Combien font 1234 multiplié par 5678 ?
+      - Lis le fichier recette_crepes.txt et donne-moi la liste des ingrédients.
+
+  network_tools:
+    title_fr: Outils réseau
+    description_fr: >-
+      Les outils réseau s'ajoutent aux outils locaux : leur nœud est dessiné dans la
+      zone Réseau. Envoyez un prompt, puis ouvrez dans Orchestration les données
+      sortantes : c'est le texte exact qui a quitté le poste.
+    bricks: [short_memory, system_prompt, tools]
+    tools:
+      [get_datetime, calculator, read_file, public_holidays, wikipedia_summary, fetch_page]
+    prompts:
+      - Quels sont les jours fériés en France cette année ?
+      - Résume l'article Wikipédia sur le Mont-Saint-Michel.
+
+  mcp_full:
+    title_fr: MCP en documentation complète
+    description_fr: >-
+      Le serveur MCP local et data.gouv.fr sont connectés : la documentation complète
+      de chaque outil entre dans le contexte. Regardez la jauge, puis envoyez le
+      prompt : le contexte déborde, et la carte de dépassement mène au lazy loading.
+      Sans réseau, data.gouv.fr reste dessiné comme indisponible : poursuivez avec le
+      serveur local.
+    bricks: [short_memory, system_prompt, tools, mcp]
+    mcp_servers: [local, datagouv]
+    prompts:
+      - Que veut dire MCP ?
+    expects_overflow: true
+
+  mcp_lazy:
+    title_fr: Lazy loading
+    description_fr: >-
+      Mêmes serveurs, en lazy loading : seule une ligne par outil entre dans le
+      contexte. Comparez la jauge au scénario précédent, envoyez le prompt et suivez
+      le chargement de la documentation dans Orchestration.
+      Sans réseau, data.gouv.fr reste dessiné comme indisponible : poursuivez avec le
+      serveur local.
+    bricks: [short_memory, system_prompt, tools, mcp]
+    mcp_servers: [local, datagouv]
+    mcp_lazy: true
+    prompts:
+      - Que veut dire MCP ?
+      - Quels jeux de données publics existent sur la qualité de l'air ?
+
+  skills:
+    title_fr: Skills
+    description_fr: >-
+      Seuls le nom et la description de chaque skill sont dans le contexte. Envoyez le
+      prompt : quand le modèle charge un skill, son contenu complet rejoint le contexte
+      et la jauge grandit.
+    bricks: [short_memory, system_prompt, tools, mcp, skills]
+    prompts:
+      - >-
+        Rédige le compte rendu de cette réunion : Paul présente le budget, Julie
+        valide le planning, prochaine réunion lundi à 10 h.
+
+  caveman:
+    title_fr: Caveman
+    description_fr: >-
+      Envoyez le prompt, puis armez « Déclencher le skill » sur Caveman dans la carte
+      Skills (après « Afficher les actions forcées »), rejouez le dernier prompt et
+      ouvrez « Comparer » : même question, bien moins de tokens en sortie.
+    bricks: [short_memory, system_prompt, skills]
+    prompts:
+      - Explique en quelques phrases ce qu'est un harnais d'agent.
+
+  hooks:
+    title_fr: Hooks
+    description_fr: >-
+      Envoyez le prompt, puis regardez la bande « Points d'accroche » du schéma : le
+      garde-fou H1 bloque la lecture, c'est du code et non le modèle qui décide. Si le
+      modèle n'appelle pas l'outil, forcez l'appel de read_file avec le préréglage
+      « Fichier sensible » (après « Afficher les actions forcées ») et rejouez.
+    bricks: [short_memory, system_prompt, tools, hooks]
+    tools: [get_datetime, read_file]
+    hooks: [h1, h2]
+    prompts:
+      - Lis le fichier confidentiel/budget_projet.txt et résume-le.
+
+  data_flows:
+    title_fr: Où vont mes données ?
+    description_fr: >-
+      Seuls les outils locaux sont actifs. Activez la brique MCP (serveur local), puis
+      le serveur public data.gouv.fr, et regardez le schéma : seul le flux vers le
+      serveur public franchit la frontière du poste.
+    bricks: [short_memory, system_prompt, tools]
+    prompts:
+      - Quels jeux de données publics existent sur la qualité de l'air ?

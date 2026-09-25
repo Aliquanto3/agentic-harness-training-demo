@@ -28,6 +28,12 @@ const store = {
   // Orchestration), and the seq of the clearing, to hide the MCP connections seen before it.
   chatFrom: 0,
   clearedSeq: null,
+  // Story 10: the last `scenario_changed` ({ program, active }); the seq of the last
+  // `harness_reset`, the first journal index the event log shows, and the top bar's message.
+  scenarios: null,
+  resetSeq: null,
+  logFrom: 0,
+  topStatus: null,
   composerError: null,
   // Story 9b: the turn comparison open in Contexte LLM, UI state only: { left, right } turn ids.
   compare: null,
@@ -166,7 +172,23 @@ function applyEnvelope(envelope) {
       store.clearedSeq = envelope.seq;
       store.compare = null;
       break;
+    case "scenario_changed":
+      store.scenarios = p;
+      if (p.active) store.topStatus = null;
+      break;
+    case "harness_reset":
+      // Like `conversation_cleared`, but the panes go back to « Aucun tour », the MCP
+      // connections seen so far stay in the harness preparation, and the event log restarts.
+      store.chatFrom = store.turns.length;
+      store.resetSeq = envelope.seq;
+      store.compare = null;
+      store.logFrom = store.journal.length;
+      eventLog.list?.remove();
+      Object.assign(eventLog, { groups: [], processed: store.logFrom, rows: [], list: null });
+      store.topStatus = "WaveStack réinitialisé : LLM nu.";
+      break;
     case "turn_started":
+      store.topStatus = null;
       store.compare = null; // the new turn's live context shows in Contexte LLM
       store.turns.push({
         id: envelope.turn_id,
@@ -436,7 +458,7 @@ const CLEARED_FR =
 
 // The turns still shown after the last `conversation_cleared`, and whether one happened.
 const shownTurns = () => store.turns.slice(store.chatFrom);
-const cleared = () => store.clearedSeq !== null;
+const cleared = () => store.clearedSeq !== null && store.clearedSeq > (store.resetSeq ?? -1);
 
 // ---------- bricks panel: cards, toggles, system prompt drawer ----------
 
@@ -1162,6 +1184,7 @@ function renderComposer() {
   const text = store.composerError || (ready ? null : state?.reason_fr || "En attente du modèle…");
   reason.hidden = !text;
   reason.textContent = text || "";
+  renderScenarioControls(state);
   // Story 9: the armed actions above the composer, rebuilt only when the list changes.
   if (renderedComposerArmed !== store.armed) {
     renderedComposerArmed = store.armed;
@@ -1177,6 +1200,105 @@ function renderComposer() {
       (target || (input.disabled ? document.getElementById("composer-stop") : input)).focus();
     }
   }
+}
+
+// ---------- scenarios and reset (story 10, FR-38, FR-39) ----------
+
+function findScenario(id) {
+  const program = store.scenarios?.program;
+  if (!program || !id) return null;
+  return [...program.modules.flatMap((m) => m.scenarios), ...program.transverse].find((s) => s.id === id) ?? null;
+}
+
+let renderedProgram = null;
+let renderedGuide = null;
+
+function renderScenarioControls(state) {
+  const idle = state?.state === "idle"; // class (b)
+  const reason = idle ? "" : state?.reason_fr || "Disponible hors d'un tour.";
+  const picker = document.getElementById("scenario-picker");
+  const program = store.scenarios?.program ?? null;
+  if (renderedProgram !== program) {
+    renderedProgram = program;
+    const empty = el("option", "", "Choisir un scénario");
+    empty.value = "";
+    const groups = [];
+    const group = (label, scenarios) => {
+      const node = el("optgroup");
+      node.label = label;
+      for (const s of scenarios) {
+        const option = el("option", "", s.title_fr);
+        option.value = s.id;
+        node.appendChild(option);
+      }
+      groups.push(node);
+    };
+    program?.modules.forEach((m, i) => group(`Module ${i + 1} · ${m.title_fr} · ${m.duration_min} min`, m.scenarios));
+    if (program?.transverse.length) group("Transverse", program.transverse);
+    picker.replaceChildren(empty, ...groups);
+  }
+  const active = store.scenarios?.active ?? "";
+  if (picker.value !== active) picker.value = active;
+  picker.disabled = !idle;
+  picker.title = reason;
+  const reset = document.getElementById("reset-button");
+  reset.disabled = !idle;
+  reset.title = reason || "Retour au LLM nu, conversation vide.";
+  setText(document.getElementById("top-status"), store.topStatus ?? "");
+
+  // Vue humain: the active scenario's instructions, then one chip per suggested prompt.
+  const scenario = findScenario(store.scenarios?.active);
+  if (renderedGuide === scenario) return;
+  renderedGuide = scenario;
+  const guide = document.getElementById("scenario-guide");
+  const chips = document.getElementById("suggested-prompts");
+  guide.hidden = chips.hidden = !scenario;
+  if (!scenario) {
+    guide.replaceChildren();
+    chips.replaceChildren();
+    return;
+  }
+  const overflow = scenario.expects_overflow ? " Ce scénario fait déborder le contexte : c'est voulu." : "";
+  guide.replaceChildren(el("strong", "", scenario.title_fr), ` · ${scenario.description_fr}${overflow}`);
+  chips.replaceChildren(
+    ...scenario.prompts.map((prompt) => {
+      const chip = el("button", "suggested-prompt", prompt);
+      chip.type = "button";
+      chip.setAttribute("aria-label", `Remplir le champ : ${prompt}`);
+      chip.addEventListener("click", () => {
+        // Fills the field without sending: the trainer can comment or edit first (UJ-2).
+        const input = document.getElementById("composer-input");
+        input.value = prompt;
+        input.focus();
+      });
+      return chip;
+    })
+  );
+}
+
+async function scenarioIntention(path, body, failure) {
+  store.composerError = null;
+  try {
+    const response = await postIntention(path, body);
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      store.composerError = typeof detail.detail === "string" ? detail.detail : "Action refusée.";
+    }
+  } catch {
+    store.composerError = failure;
+  }
+  render();
+}
+
+function launchScenario(event) {
+  const id = event.target.value;
+  event.target.value = store.scenarios?.active ?? ""; // the option shown follows `active`
+  if (!id) return;
+  scenarioIntention("/api/intentions/scenario", { scenario_id: id }, "WaveStack ne répond pas : le scénario n'a pas été lancé.");
+}
+
+function resetHarness() {
+  scenarioIntention("/api/intentions/reset", {}, "WaveStack ne répond pas : rien n'a été réinitialisé.");
 }
 
 async function postIntention(path, body) {
@@ -2164,8 +2286,8 @@ function renderSteps() {
   for (const node of groupNodes.values()) node.seen = false;
 
   // Only what follows the last clearing (Q1: MCP connections before it are hidden too).
-  const connections = (index) =>
-    store.offTurn.filter((s) => s.afterTurn === index && (!cleared() || s.seq > store.clearedSeq));
+  const visible = (s) => store.clearedSeq === null || s.seq > store.clearedSeq;
+  const connections = (index) => store.offTurn.filter((s) => s.afterTurn === index && visible(s));
   const connectNodes = (steps) => steps.map((s) => stepNode(connectRow(s), o.prepOpen.has(`mcp:${s.seq}`), {}));
 
   // The current step: the last line of the last turn shown, unfolded and followed in live.
@@ -2178,7 +2300,11 @@ function renderSteps() {
   const running = Boolean(lastTurn && lastTurn.status === null);
 
   const top = [];
-  const prep = connections(store.chatFrom);
+  // After a reset, the preparation keeps every connection seen before it (2026-09-25).
+  const prep =
+    store.resetSeq === null
+      ? connections(store.chatFrom)
+      : store.offTurn.filter((s) => s.afterTurn <= store.chatFrom && visible(s));
   if (prep.length) {
     const node = groupNode("prep", "turn-group harness-prep", () => {
       o.prepGroupOpen = !o.prepGroupOpen;
@@ -2588,6 +2714,8 @@ const KIND_LABELS = {
   special_token_neutralized: "Token spécial neutralisé",
   bricks_changed: "Briques modifiées",
   conversation_cleared: "Conversation vidée",
+  scenario_changed: "Scénario",
+  harness_reset: "Réinitialisation",
   tool_started: "Outil lancé",
   tool_ended: "Outil terminé",
   tool_call_malformed: "Appel d'outil mal formé",
@@ -2671,6 +2799,10 @@ function eventSummary(group) {
       return `${p.check} : ${p.status} · ${p.message_fr}`;
     case "conversation_cleared":
       return "les tours précédents restent dans ce journal";
+    case "harness_reset":
+      return "retour au LLM nu ; les événements précédents restent sur le serveur";
+    case "scenario_changed":
+      return p.active ? (findScenario(p.active)?.title_fr ?? p.active) : "aucun scénario actif";
     default:
       return p.message_fr ?? "";
   }
@@ -2751,7 +2883,10 @@ function renderJournal() {
   const o = store.orch;
   const head = document.getElementById("event-log-head");
   setText(document.getElementById("event-log-chevron"), o.logOpen ? "▾" : "▸");
-  setText(document.getElementById("event-log-title"), `Journal des événements (${fmt(store.journal.length)})`);
+  setText(
+    document.getElementById("event-log-title"),
+    `Journal des événements (${fmt(store.journal.length - store.logFrom)})`
+  );
   head.setAttribute("aria-expanded", String(o.logOpen));
   if (!o.logOpen) {
     eventLog.list?.remove();
@@ -3304,6 +3439,8 @@ async function boot() {
   document.getElementById("composer-stop").addEventListener("click", stopTurn);
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
   document.getElementById("replay-last").addEventListener("click", replayLast);
+  document.getElementById("scenario-picker").addEventListener("change", launchScenario);
+  document.getElementById("reset-button").addEventListener("click", resetHarness);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
   document.getElementById("event-log-head").addEventListener("click", toggleJournal);
@@ -3350,6 +3487,7 @@ async function boot() {
     store.architecture = body.architecture_changed || { nodes: [], edges: [] };
     store.bricks = body.bricks_changed;
     store.armed = body.armed_actions_changed?.actions ?? [];
+    store.scenarios = body.scenario_changed;
     const preview = body.context_preview;
     const rendered = body.context_rendered;
     const latest = [preview, rendered].filter(Boolean).sort((a, b) => b.seq - a.seq)[0];

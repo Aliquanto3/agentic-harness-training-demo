@@ -167,3 +167,11 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9b-rejeu-du-dernier-prompt.md`
   summary: Le badge « Rejeu », le choix par défaut de « Comparer » et les écarts de la comparaison de tours (app.js) n'ont aucun test automatique.
   evidence: Même écart que pour les stories 5b à 9 : aucun banc de test JS ; supprimer `replayOf: p.replay_of` ou inverser la paire par défaut passerait pytest et `node --check`. Relevé par la couche verification-gap de la revue de la story 9b. Piste sans dépendance : `node:test` avec `node:vm`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/10-scenarios-par-brique-programme-reinitialisation.md`
+  summary: Le rendu front de la story 10 (sélecteur de scénario et option suivant `active`, consigne et puces de prompts suggérés, `harness_reset` : « Aucun tour », journal affiché depuis `logFrom`, préparation du harnais gardée, message de la barre haute) n'est vérifié par aucun test automatique.
+  evidence: Même écart que pour les stories 5b à 9b : aucun banc de test JS ; rétablir l'ancien `cleared()` passerait pytest et `node --check`. Relevé par la couche verification-gap de la revue de la story 10. Piste sans dépendance : `node:test` avec `node:vm`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/10-scenarios-par-brique-programme-reinitialisation.md`
+  summary: Le scénario « MCP en documentation complète » (serveur local + data.gouv.fr) est marqué `expects_overflow: true` et sa consigne annonce un débordement, sans preuve qu'il déborde la fenêtre de 4 096 tokens.
+  evidence: Non vérifiable hors ligne (documentation réelle de data.gouv.fr) ; EXPERIENCE.md parle d'un bond d'environ 2 900 tokens. À trancher au test manuel sur le PC cible : lancer le scénario et lire la jauge ; si le contexte tient, retirer `expects_overflow` et reformuler la consigne, ou ajouter Microsoft Learn au scénario.

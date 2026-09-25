@@ -368,6 +368,37 @@ class ActionDroppedPayload(BaseModel):
     reason_fr: str
 
 
+# ---------- story 10: scenarios, programme, reset (AD-19, FR-38, FR-39) ----------
+
+
+class ScenarioEntry(BaseModel):
+    id: str
+    title_fr: str
+    description_fr: str
+    prompts: list[str]
+    expects_overflow: bool
+
+
+class ProgramModule(BaseModel):
+    title_fr: str
+    duration_min: int
+    scenarios: list[ScenarioEntry]
+
+
+class Program(BaseModel):
+    modules: list[ProgramModule]
+    transverse: list[ScenarioEntry]
+
+
+class ScenarioChangedPayload(BaseModel):
+    program: Program
+    active: str | None  # the scenario launched, `None` at launch and after a reset
+
+
+class HarnessResetPayload(BaseModel):
+    pass
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -401,4 +432,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "approval_resolved": ApprovalResolvedPayload,
     "armed_actions_changed": ArmedActionsChangedPayload,
     "action_dropped": ActionDroppedPayload,
+    "scenario_changed": ScenarioChangedPayload,
+    "harness_reset": HarnessResetPayload,
 }
