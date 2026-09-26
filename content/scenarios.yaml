@@ -21,6 +21,9 @@ program:
   - title_fr: Raisonnement
     duration_min: 30
     scenarios: [reasoning]
+  - title_fr: Sous-agent
+    duration_min: 30
+    scenarios: [subagent]
 
 transverse: [data_flows]
 
@@ -161,6 +164,29 @@ scenarios:
       - >-
         Un train part de Paris à 14 h 47 et roule 2 h 38. Il a ensuite 25 minutes de
         retard. À quelle heure arrive-t-il ?
+
+  subagent:
+    title_fr: Sous-agent
+    description_fr: >-
+      Les briques des modules précédents restent actives (MCP en lazy loading, sans le
+      raisonnement pour laisser de la place au sous-agent) et la brique Sous-agent s'y
+      ajoute. Envoyez le premier prompt : le modèle confie la lecture du long fichier
+      guide_harnais.md à un sous-agent, et seul son résumé revient. Dépliez « Délégation au
+      sous-agent » dans Orchestration pour lire l'économie de tokens, et basculez Contexte
+      LLM entre le contexte principal et celui du sous-agent. Si le modèle lit le fichier
+      lui-même, armez « Déléguer au sous-agent » sur la carte (après « Afficher les actions
+      forcées ») avec le préréglage « Résumer le guide du harnais », puis rejouez. Les trois
+      questions suivantes vérifient ce que le résumé a retenu.
+    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, subagent]
+    tools: [read_file]
+    mcp_lazy: true
+    prompts:
+      - >-
+        Délègue à ton sous-agent la lecture du fichier guide_harnais.md : il doit le lire et
+        te rendre un résumé en cinq points. Puis présente-moi ce résumé.
+      - "Quiz : quelles bornes le harnais pose-t-il à la boucle d'un agent ?"
+      - "Quiz : pourquoi déléguer à un sous-agent économise-t-il le contexte principal ?"
+      - "Quiz : que se passe-t-il si le contexte du sous-agent déborde ?"
 
   data_flows:
     title_fr: Où vont mes données ?

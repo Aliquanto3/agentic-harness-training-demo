@@ -90,9 +90,10 @@ class ApprovalIntention(BaseModel):
 
 
 class ArmIntention(BaseModel):
-    """Story 9: a native tool call with its arguments, a skill, or an MCP documentation."""
+    """Story 9: a native tool call with its arguments, a skill, or an MCP documentation;
+    story 19: the delegation to the sub-agent (`target = delegate`, `args = {task}`)."""
 
-    kind: Literal["tool", "skill", "tool_doc"]
+    kind: Literal["tool", "skill", "tool_doc", "delegate"]
     target: str
     args: dict[str, Any] = {}
 
@@ -198,8 +199,10 @@ def create_app(
         architecture = _latest(events, "architecture_changed")
         # Whole envelopes: the front shows whichever of the two is the most recent (`seq`).
         preview = _latest(events, "context_preview")
-        rendered = _latest(events, "context_rendered")
-        reconciled = _latest(events, "context_reconciled")  # chat mode (AD-4)
+        # The gauge stays on the main context: a sub-agent's is never its source (story 19).
+        main = [e for e in events if not (e.context_id or "").startswith("sub")]
+        rendered = _latest(main, "context_rendered")
+        reconciled = _latest(main, "context_reconciled")  # chat mode (AD-4)
         bricks = _latest(events, "bricks_changed")
         # H5: the last validation asked, while no resolution follows it (one at a time).
         asked = _latest(events, "approval_requested")

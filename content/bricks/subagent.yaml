@@ -1,0 +1,24 @@
+# Brique « Sous-agent » (story 19, AD-11, AD-12, AD-19).
+label_fr: Sous-agent
+category_fr: harness engineering
+hosting_fr: Local
+explanation_fr:
+  - >-
+    Le harnais peut confier une sous-tâche volumineuse, par exemple lire un long document,
+    à un second agent : le sous-agent. C'est le même modèle, appelé à la suite, mais dans
+    un contexte propre qui ne contient que son prompt système, la tâche et ses outils.
+  - - "Le sous-agent ne voit ni l'historique, ni le prompt système principal, ni les skills."
+    - >-
+      Seul son résultat revient dans le contexte principal, en « Résultat du sous-agent » :
+      les tokens du document restent dans le contexte du sous-agent.
+    - >-
+      Le modèle décide de déléguer en appelant le méta-outil delegate ; « Déléguer au
+      sous-agent » force la délégation au prochain tour.
+  - >-
+    Économie : Orchestration compare les tokens restés dans le contexte du sous-agent à
+    ceux réinjectés dans le contexte principal. Contexte LLM bascule entre les deux
+    contextes, et le schéma dessine un second nœud Modèle.
+  - >-
+    Les hooks s'appliquent aussi au sous-agent, avant chaque appel au modèle et avant et
+    après chaque outil : le garde-fou et la validation humaine le surveillent comme
+    l'agent principal. Ses outils sont ceux de la brique Outils qui sont activés.

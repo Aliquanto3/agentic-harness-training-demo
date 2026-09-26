@@ -32,8 +32,9 @@ def test_real_content_loads_and_every_scenario_launches():
     program = _latest("scenario_changed")["program"]
     ids = [s["id"] for m in program["modules"] for s in m["scenarios"]]
     ids += [s["id"] for s in program["transverse"]]
-    assert len(ids) == 12 and ids[0] == "bare_llm" and ids[-1] == "data_flows"
-    assert program["modules"][-1]["scenarios"][0]["id"] == "reasoning"  # story 13
+    assert len(ids) == 13 and ids[0] == "bare_llm" and ids[-1] == "data_flows"
+    assert program["modules"][-2]["scenarios"][0]["id"] == "reasoning"  # story 13
+    assert program["modules"][-1]["scenarios"][0]["id"] == "subagent"  # story 19
     assert all(30 <= m["duration_min"] <= 60 for m in program["modules"])
 
     for scenario_id in ids:

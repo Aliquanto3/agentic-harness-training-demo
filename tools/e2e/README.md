@@ -44,6 +44,7 @@ outils proposés et des résultats déjà reçus dans le tour :
 | Message contient | Réponse |
 |---|---|
 | « heure », « Combien font », « recette_crepes », « confidentiel », « férié », « Wikipédia », « compte rendu », « MCP … veut dire » | appel de l'outil correspondant s'il est proposé (`get_datetime`, `calculator`, `read_file`, `public_holidays`, `wikipedia_summary`, `load_skill`, `load_tool_doc` puis `local__define_term`), puis « D'après le résultat de l'outil : … » |
+| « Délègue … sous-agent » (story 19) | appel de `delegate`, tâche « Lis le fichier guide_harnais.md et résume-le… » (` [lent]` recopié) ; le sous-agent (tâche avec « guide_harnais ») appelle `read_file`, puis répond « D'après le résultat de l'outil : … » |
 | « Je m'appelle X » / « Comment je m'appelle » | retient X s'il est dans l'historique |
 | prompt système « … toujours en une phrase, comme un pirate » | « Arrr ! … » |
 | « harnais » | réponse longue, courte si le skill Caveman est chargé |

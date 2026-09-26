@@ -2,14 +2,34 @@
 title: 'Délégation à un sous-agent'
 type: 'feature'
 created: '2026-09-26'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'f61dcafdef2bad1624409db770fba56cff452973'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-agentic-harness-training-demo-2026-09-23/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-agentic-harness-training-demo-2026-09-22/EXPERIENCE.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      Sur un SLM local réel, vérifier que le contexte du sous-agent (guide compris) tient
+      dans la fenêtre et que le modèle délègue au lieu de lire le fichier lui-même.
+    evidence: |-
+      Non mesurable ici (aucun GGUF) : le faux moteur compte un token par octet, le faux
+      modèle cloud du parcours E2E donne 2 112 tokens pour 3 584 utilisables. À régler sur
+      le PC cible avec Qwen3.5 0.8B ou 2B, scénario « Sous-agent ».
+    location: >-
+      content/scenarios.yaml (scénario subagent), content/demo_files/guide_harnais.md
+    severity: medium (unverified)
+  - summary: >-
+      Avec Qwen3.5, le gabarit peut réécrire l'appel d'outil du sous-agent et émettre
+      prefix_not_reused dans sub{n}.
+    evidence: |-
+      Même mécanisme que le contexte principal (AD-4) ; à observer sur le PC cible, sans
+      effet sur le résultat de la délégation.
+    location: >-
+      src/wavestack/session/app_session.py (_run_subagent)
+    severity: low (unverified)
 ---
 
 <intent-contract>
@@ -89,13 +109,13 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/wavestack/trace/catalog.py`, `src/wavestack/tools/registry.py`, `src/wavestack/tools/executor.py`, `src/wavestack/config.py`, `wavestack.toml` -- deux événements, `force`, `delegate` armable, `DelegationFailed` et son statut, section `[subagent]` -- contrat d'abord.
-- [ ] `src/wavestack/bricks/registry.py`, `content/bricks/subagent.yaml`, `content/subagent.yaml`, `content/prompts/subagent.md`, `content/demo_files/guide_harnais.md` -- brique, textes, prompt, document long -- AD-12, AD-19.
-- [ ] `src/wavestack/session/app_session.py` -- méta-outil, `TurnState`, boucle `sub{n}`, rendu, ratios, hooks par contexte, échecs, économie, armement, carte, schéma -- AD-4, AD-9 à AD-11, AD-25.
-- [ ] `src/wavestack/web/app.py` -- `delegate` dans `ArmIntention` -- AD-18.
-- [ ] `src/wavestack/web/static/app.js`, `app.css` -- projection par contexte, ligne et lignes filles, bascule de Contexte LLM, Forcer au niveau de la carte, second robot -- EXPERIENCE.
-- [ ] `content/scenarios.yaml` -- scénario `subagent` (briques `short_memory`, `system_prompt`, `tools`, `subagent` ; outils `read_file` ; prompt de délégation du `guide_harnais.md` puis trois questions de quiz) -- CAP-40.
-- [ ] `tests/test_subagent.py` (nouveau) -- une ligne de la matrice par test, plus : contexte `sub1` sans historique ni prompt principal, identifiants et `parent_step`, `subagent_result` seul dans l'appel principal suivant, chiffres d'économie, schéma (`core.model_sub`, cloud en réseau), ratio `sub` distinct en mode chat, carte (`force`, `limits_fr`), intention HTTP 404/422.
+- [x] `src/wavestack/trace/catalog.py`, `src/wavestack/tools/registry.py`, `src/wavestack/tools/executor.py`, `src/wavestack/config.py`, `wavestack.toml` -- deux événements, `force`, `delegate` armable, `DelegationFailed` et son statut, section `[subagent]` -- contrat d'abord.
+- [x] `src/wavestack/bricks/registry.py`, `content/bricks/subagent.yaml`, `content/subagent.yaml`, `content/prompts/subagent.md`, `content/demo_files/guide_harnais.md` -- brique, textes, prompt, document long -- AD-12, AD-19.
+- [x] `src/wavestack/session/app_session.py` -- méta-outil, `TurnState`, boucle `sub{n}`, rendu, ratios, hooks par contexte, échecs, économie, armement, carte, schéma -- AD-4, AD-9 à AD-11, AD-25.
+- [x] `src/wavestack/web/app.py` -- `delegate` dans `ArmIntention` -- AD-18.
+- [x] `src/wavestack/web/static/app.js`, `app.css` -- projection par contexte, ligne et lignes filles, bascule de Contexte LLM, Forcer au niveau de la carte, second robot -- EXPERIENCE.
+- [x] `content/scenarios.yaml` -- scénario `subagent` (briques `short_memory`, `system_prompt`, `tools`, `subagent` ; outils `read_file` ; prompt de délégation du `guide_harnais.md` puis trois questions de quiz) -- CAP-40.
+- [x] `tests/test_subagent.py` (nouveau) -- une ligne de la matrice par test, plus : contexte `sub1` sans historique ni prompt principal, identifiants et `parent_step`, `subagent_result` seul dans l'appel principal suivant, chiffres d'économie, schéma (`core.model_sub`, cloud en réseau), ratio `sub` distinct en mode chat, carte (`force`, `limits_fr`), intention HTTP 404/422.
 
 **Acceptance Criteria:**
 - Given une délégation terminée, when on ouvre Contexte LLM, then la bascule montre séparément le contexte principal (le résultat en « Résultat du sous-agent ») et celui du sous-agent (prompt du sous-agent, tâche, résultat d'outil), chacun avec son total.
@@ -107,6 +127,19 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-26 — Review pass
+Revue faite par l'agent d'implémentation lui-même (aucun outil de sous-agent dans cette exécution, consigne de l'appelant : revue honnête mais brève ; une revue indépendante suivra).
+- verdicts: 8 findings — high 0, medium 1, low 5, false 0, maybe-false 2
+- findings:
+  - `[medium]` `[patch]` Aucun test ne montrait qu'un hook `before_model_call` s'applique dans le sous-agent (AD-11) — test `test_before_model_call_hooks_apply_inside_the_sub_agent` ajouté (délégation forcée, blocage en `sub1` puis en `main`).
+  - `[low]` `[patch]` Journal des événements : `subagent_started` / `subagent_ended` sans libellé ni résumé — libellés « Sous-agent lancé / terminé » et résumé (tâche ; tokens réinjectés et économisés) ajoutés dans `app.js`.
+  - `[low]` `[patch]` `/api/state` pouvait rendre au rechargement le dernier `context_rendered` d'un sous-agent comme source de la jauge — filtré sur les contextes hors `sub{n}` (`web/app.py`).
+  - `[low]` `[patch]` H2 : la ligne d'audit de `delegate` prenait le nom du dernier outil lancé par le sous-agent — chaque `tool_ended` nomme désormais l'outil de son `tool_started` (même `step_id`), `hooks.py`.
+  - `[low]` `[patch]` Parcours E2E : le contrôle « un champ reasoning s'affiche replié » échouait déjà au commit de base (classe renommée par la story 13) — sélecteur corrigé en `details.reasoning-block`.
+  - `[low]` `[reject]` Le champ `task` du formulaire forcé est une ligne simple, peu lisible pour une longue tâche — les préréglages couvrent l'usage de la démo ; un `textarea` ajouterait une branche au formulaire commun.
+  - `[maybe-false]` `[defer]` Sur un SLM local réel, le contexte du sous-agent (prompt + tâche + guide ≈ 2 000 tokens + définition de `read_file`) tient-il dans 4 096 − 512 tokens, et le modèle délègue-t-il au lieu de lire lui-même ? — à vérifier sur le PC cible (le faux modèle compte 1 token par octet ; le parcours E2E cloud factice montre 2 112 tokens).
+  - `[maybe-false]` `[defer]` Qwen3.5 : le gabarit peut réécrire l'appel du sous-agent (`prefix_not_reused` dans `sub{n}`) — à vérifier sur le PC cible, sans effet sur le résultat.
 
 ## Design Notes
 
@@ -135,6 +168,14 @@ def _sub_messages(self, sub, steps, chat):
 - H-9 Mode `forced` sans parseur d'appels : non traité (brique indisponible sans `tool_call_parser`, comme les autres briques d'outils).
 - H-10 Numérotation `sub{n}` sur la vie de la session, non remise à zéro par « Vider la conversation » ni par la réinitialisation.
 - H-11 Investigation menée sans sous-agent de lecture (outil indisponible dans cette exécution) : le Code Map vient d'une lecture directe du code au commit de base.
+- H-12 (implémentation) Scénario `subagent` : convention cumulative de l'appelant (briques des modules précédents, comme les stories 13 et 14) plutôt que la liste courte de la tâche : `short_memory`, `system_prompt`, `tools`, `mcp` (lazy loading), `skills`, `hooks`, `subagent`, outils `read_file` seulement ; **sans** `reasoning`, dont la réserve de 1 536 tokens serrerait le contexte du sous-agent (guide ≈ 2 000 tokens). La story 21 réordonnera le programme.
+- H-13 (implémentation) Tous les événements du sous-agent, ses appels d'outil compris, héritent du déclenchement de la délégation (`model` ou `user`), comme l'écrit la contrainte ; ils ne passent pas à `model` pour les outils que le sous-agent décide.
+- H-14 (implémentation) Libellés : phase de travail « Appel au sous-agent » (`tool_started.phase_label`, puis « Sous-agent · … » pendant ses appels) ; ligne d'Orchestration « Délégation au sous-agent » ; nœud du schéma « Modèle (sous-agent) », robot « Sous-agent ».
+- H-15 (implémentation) Textes lus par un petit module `src/wavestack/subagent.py` (sur le modèle de `skills.py`), non listé au Code Map ; `content/subagent.yaml` porte aussi l'aide du champ `task` (`task_label_fr`).
+- H-16 (implémentation) Un blocage `before_model_call` dans le sous-agent fait échouer la délégation (`tool_ended{error}`, message « le hook … a bloqué son appel au modèle ») ; le tour principal continue.
+- H-17 (implémentation) H2 : chaque `tool_ended` du journal d'audit nomme l'outil de son `tool_started` (même `step_id`), pour que la ligne de `delegate` ne prenne pas le nom d'un outil du sous-agent.
+- H-18 (implémentation) `/api/state` ignore les contextes `sub{n}` pour la jauge restaurée au rechargement (la jauge reste sur le contexte principal).
+- H-19 (implémentation) Arrêt pendant la délégation : l'exécuteur émet `tool_ended{error}` « Délégation arrêtée… », puis le tour se termine `cancelled` sans `after_tool` ni autre appel ; même chose pour une délégation forcée.
 
 ## Verification
 
@@ -148,5 +189,27 @@ def _sub_messages(self, sub, steps, chat):
 
 ## Auto Run Result
 
-Status: ready-for-dev
-Blocking condition: aucune — arrêt demandé après la planification (« Halt after planning »).
+Status: done
+Blocking condition: aucune.
+
+**Résumé.** Brique `subagent` (harness engineering) et méta-outil `delegate(task)` : le sous-agent tourne sur le même moteur, dans `sub{n}` (numéroté sur la vie de la session), avec son prompt système, la tâche et les outils `[subagent] tools` ∩ outils activés ; boucle bornée (4 appels, nouveaux essais compris), hooks `before_model_call` / `before_tool` / `after_tool` (H1, H2, H5), échecs (`context_overflow`, `output_truncated`, `limit_reached{sub_calls|retries}`, `harness_error`) tracés dans `sub{n}` puis `tool_ended{overflow|limit|error}` et erreur réinjectée ; résultat seul dans le contexte principal en `subagent_result` ; `subagent_started` / `subagent_ended` avec l'économie (`context_tokens`, `result_tokens`, `saved_tokens`, `estimated`). Délégation forcée depuis la carte (« Déléguer au sous-agent », préréglages), ratio d'estimation propre aux sous-agents en mode chat, second nœud Modèle dans le schéma (zone Réseau pour un modèle cloud). Front : projection par contexte, ligne « Délégation au sous-agent » et lignes filles indentées, bascule « Contexte principal / Contexte du sous-agent », second robot animé, cartes H5 du sous-agent dans la Vue humain.
+
+**Fichiers.**
+- `src/wavestack/session/app_session.py` — méta-outil, boucle `sub{n}`, rendu et ratios par contexte, échecs, économie, armement, carte, schéma, identifiants de hooks par contexte.
+- `src/wavestack/subagent.py` (nouveau) — chargement de `content/subagent.yaml` et du prompt du sous-agent.
+- `src/wavestack/trace/catalog.py` — `subagent_started`, `subagent_ended`, `BrickForce`, `delegate` armable.
+- `src/wavestack/tools/registry.py`, `tools/executor.py` — `DelegationFailed` et son statut dans `tool_ended`.
+- `src/wavestack/config.py`, `wavestack.toml` — section `[subagent]`.
+- `src/wavestack/bricks/registry.py` — brique `subagent`.
+- `src/wavestack/hooks.py` — H2 nomme l'outil de chaque `tool_ended` par son étape.
+- `src/wavestack/web/app.py` — `delegate` dans `ArmIntention` ; jauge de `/api/state` hors sous-agents.
+- `src/wavestack/web/static/app.js`, `app.css` — projection, Orchestration, Contexte LLM, Forcer sur la carte, second robot, journal.
+- `content/bricks/subagent.yaml`, `content/subagent.yaml`, `content/prompts/subagent.md`, `content/demo_files/guide_harnais.md` (≈ 7 400 caractères), `content/scenarios.yaml` (module « Sous-agent »).
+- `tests/test_subagent.py` (nouveau, 24 tests) ; `tests/test_bricks.py`, `test_cloud.py`, `test_scenarios.py`, `test_e2e_fake_openai.py` adaptés.
+- `tools/e2e/fake_openai.py`, `run_e2e.py`, `README.md` — script `delegate`, scénario `subagent` ; capture `tools/e2e/screenshots/19-sous-agent-delegation.jpg`.
+
+**Revue.** 5 corrections appliquées (1 medium, 4 low), 1 rejet (low : champ `task` sur une ligne), 2 reports non vérifiés (comportement d'un SLM réel). Recommandation de revue de suivi : `false` (un seul medium corrigé, aucun high).
+
+**Vérification.** `uv run ruff check .` et `ruff format --check .` : aucun écart ; `uv run python -m pytest -q` : 479 réussis, 3 ignorés ; `node --check app.js` : OK ; parcours E2E complet (`uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py`) : 156 vérifications réussies, 0 échec, 5 anomalies connues (A1 à A4, antérieures). Audit de la matrice : chaque ligne a son test dans `tests/test_subagent.py`, tous exécutés et verts.
+
+**Risques résiduels.** Comportement d'un SLM local réel non mesuré (délégation spontanée, taille du contexte du sous-agent, latence de la relecture du contexte principal) ; conflits attendus avec les stories 14 et 17 dans `app_session.py`, `app.js`, `content/scenarios.yaml` et `tests/test_scenarios.py` (compte des scénarios).

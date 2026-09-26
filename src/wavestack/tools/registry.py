@@ -29,6 +29,15 @@ class Unreachable(ToolError):
     """A network tool could not reach its service (connection failed or refused)."""
 
 
+class DelegationFailed(ToolError):
+    """Story 19 (AD-11): the sub-agent could not finish; `status` is `delegate`'s
+    `tool_ended` status, the French message what the main model reads."""
+
+    def __init__(self, message_fr: str, status: Literal["limit", "overflow", "error"]) -> None:
+        super().__init__(message_fr)
+        self.status = status
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str

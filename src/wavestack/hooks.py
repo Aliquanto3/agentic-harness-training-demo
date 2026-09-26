@@ -160,7 +160,13 @@ def audit(ctx: HookContext) -> HookResult | None:
         default=-1,
     )
     lines = []
-    tool = "?"
+    # Each `tool_ended` names the tool its `tool_started` (same step) ran: a delegation's
+    # sub-agent runs its own tools in between (story 19), maybe logged before it ends.
+    started = {
+        e.step_id: f"{e.payload['tool']} {json.dumps(e.payload['arguments'], ensure_ascii=False)}"
+        for e in events
+        if e.kind == "tool_started"
+    }
     asked = {  # a refused call has no `tool_started`: its tool and host come from here
         e.payload["approval_id"]: e.payload for e in events if e.kind == "approval_requested"
     }
@@ -170,9 +176,8 @@ def audit(ctx: HookContext) -> HookResult | None:
             read, made = p["prompt_tokens"], p["output_tokens"]
             detail = f"{read} tokens lus, {made} produits"
             lines.append(_line(event.ts, ctx.turn_id, "appel au modèle", detail, p["stop_reason"]))
-        elif event.kind == "tool_started":
-            tool = f"{p['tool']} {json.dumps(p['arguments'], ensure_ascii=False)}"
         elif event.kind == "tool_ended":
+            tool = started.get(event.step_id, "?")
             lines.append(_line(event.ts, ctx.turn_id, "appel d'outil", tool, p["status"]))
         elif event.kind == "tool_call_malformed":
             what = "appel d'outil refusé"

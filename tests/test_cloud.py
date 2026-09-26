@@ -502,7 +502,8 @@ def test_cloud_test_makes_two_calls_without_key_in_the_trace(monkeypatch, caplog
     assert check["answer"] == "Il est 9 h."
     states = [e.payload["state"] for e in _of(events, "session_state")]
     assert states[0] == "model_load" and states[-1] == "diagnostic"
-    assert app_session._ratio == config.load_config().estimate_ratio  # never trained
+    ratio = config.load_config().estimate_ratio
+    assert app_session._ratios == {"main": ratio, "sub": ratio}  # never trained
     _no_sentinel(
         _journal_text(),
         caplog.text,
@@ -540,12 +541,12 @@ def test_ratio_learns_from_real_calls_within_bounds(factor, expected):
 
     _turn(session, "Bonjour")
 
-    assert session._ratio == pytest.approx(expected or prompt / raw)
+    assert session._ratios["main"] == pytest.approx(expected or prompt / raw)
 
 
 def test_chat_overflow_is_decided_by_the_raw_estimate_only():
     session = _cloud_session("groq", Provider(GROQ_TEXT))  # usable 2464
-    session._ratio = 1.5
+    session._ratios["main"] = 1.5
 
     sent = _turn(session, "x" * 8000)  # raw ≈ 2000 ≤ 2464 < 2000 × 1.5
     rendered = _of(sent, "context_rendered")[0].payload

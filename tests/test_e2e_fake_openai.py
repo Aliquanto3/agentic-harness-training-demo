@@ -179,3 +179,13 @@ def test_wavestack_adapter_reads_the_fake_stream():
     assert end.tool_calls[0]["name"] == "get_datetime"
     assert end.tool_calls[0]["arguments"] == "{}"
     assert end.usage["completion_tokens"] > 0
+
+
+def test_delegation_then_the_sub_agent_reads_the_guide():
+    ask = _user("Délègue à ton sous-agent la lecture du fichier guide_harnais.md.")
+    main = fake.plan_reply(_body(ask, tools=("read_file", "delegate")))
+    assert [c["name"] for c in main.tool_calls] == ["delegate"]
+    task = json.loads(main.tool_calls[0]["arguments"])["task"]
+    system = {"role": "system", "content": "Sous-agent."}
+    sub = fake.plan_reply(_body(system, _user(task), tools=("read_file",)))
+    assert sub.tool_calls == [{"name": "read_file", "arguments": '{"path": "guide_harnais.md"}'}]

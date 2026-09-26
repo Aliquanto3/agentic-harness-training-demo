@@ -253,6 +253,17 @@ class BrickOption(BaseModel):
     tools: list[str] = []
 
 
+class BrickForce(BaseModel):
+    """Story 19: a forced action at the card's level (a brick without sub-option), with the
+    form of its parameters (name -> French description) and the presets that fill it."""
+
+    kind: Literal["delegate"]
+    target: str
+    label_fr: str
+    parameters: dict[str, str]
+    presets: list[ToolPresetState] = []
+
+
 class BrickState(BaseModel):
     """One brick card: its content, and `available`/`pending` as computed by the session."""
 
@@ -273,6 +284,8 @@ class BrickState(BaseModel):
     lazy_label_fr: str | None = None
     # Story 13, `reasoning` brick only: the model always reasons, whatever the switch says.
     always_fr: str | None = None
+    # Story 19, `subagent` brick only: « Déléguer au sous-agent », on the card itself.
+    force: BrickForce | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -399,7 +412,7 @@ class ArmedActionState(BaseModel):
     """An armed action, as the session holds it (AD-3): the front projects its chips."""
 
     armed_id: str
-    kind: Literal["tool", "skill", "tool_doc"]
+    kind: Literal["tool", "skill", "tool_doc", "delegate"]
     brick: str
     target: str
     args: dict[str, object] = {}
@@ -445,6 +458,34 @@ class HarnessResetPayload(BaseModel):
     pass
 
 
+# ---------- story 19: delegation to a sub-agent (AD-11, AD-25) ----------
+
+
+class SubagentStartedPayload(BaseModel):
+    """In the context `sub{n}`, `parent_step` the step of `delegate` (AD-11)."""
+
+    task: str
+    tools: list[str]  # the tools the sub-agent is offered
+    phase_label: str
+
+
+class SubagentEndedPayload(BaseModel):
+    """The delegation's outcome and its saving, computed by the session (AD-1).
+
+    `context_tokens`: the `used` of the sub-agent's last call (reconciled when it was);
+    `result_tokens`: the result's tokens, `estimated` in chat mode; `saved_tokens`:
+    `max(0, context_tokens - result_tokens)`; `calls`: the sub-agent's model calls."""
+
+    status: Literal["completed", "limit", "overflow", "error", "cancelled"]
+    result: str
+    context_tokens: int
+    result_tokens: int
+    saved_tokens: int
+    estimated: bool = False
+    calls: int
+    duration_ms: int
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -481,4 +522,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "action_dropped": ActionDroppedPayload,
     "scenario_changed": ScenarioChangedPayload,
     "harness_reset": HarnessResetPayload,
+    "subagent_started": SubagentStartedPayload,
+    "subagent_ended": SubagentEndedPayload,
 }

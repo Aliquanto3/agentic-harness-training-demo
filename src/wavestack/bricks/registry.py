@@ -157,6 +157,22 @@ BRICKS = [
             for hook in HOOKS
         ],
     ),
+    # Story 19: the sub-agent, the same model in a context of its own (AD-11). Its component
+    # is a chip of the harness; the schema draws its model as `core.model_sub`.
+    BrickDeclaration(
+        id="subagent",
+        category="harness",
+        capabilities=["tool_call_parser"],
+        contributes_to=["main", "sub"],
+        components=[
+            Component(
+                id="subagent.agent",
+                kind="subagent",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            )
+        ],
+    ),
 ]
 
 
