@@ -16,8 +16,21 @@ remember:
   description: >-
     Retient une information durable sur l'utilisateur (préférence, prénom, contexte de
     travail) pour les prochaines conversations. Appelle cet outil quand l'utilisateur
-    demande de retenir quelque chose.
+    demande de retenir quelque chose. N'y mets jamais de secret : mot de passe, clé,
+    donnée personnelle sensible ou confidentielle.
   text: L'information à retenir, en une phrase courte et autonome.
+
+# Textes de la carte et du tiroir d'édition (EXPERIENCE.md), envoyés avec la carte.
+drawer:
+  empty_fr: >-
+    Aucune information en mémoire globale. Le modèle peut en écrire, ou vous pouvez forcer
+    une écriture.
+  empty_no_parser_fr: >-
+    Aucune information en mémoire globale. Le modèle actif ne sait pas appeler d'outil : il
+    ne peut pas en écrire, même par une écriture forcée.
+  text_help_fr: >-
+    L'information à retenir, en une phrase courte ({max_chars} caractères au plus). Jamais
+    de secret : elle est relue à chaque appel.
 
 # Mémoire de démonstration : fictive et non confidentielle (NFR-11).
 demo:

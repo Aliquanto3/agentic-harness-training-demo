@@ -157,6 +157,10 @@ def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
         return [(datagouv[0], {"query": "qualité de l'air"})] if datagouv else []
     if "compte rendu" in low:
         return [("load_skill", {"skill": "meeting_minutes"})]
+    remember = re.search(r"retiens que (.+)", user, re.IGNORECASE)
+    if remember:  # story 14: the global memory's meta-tool
+        wish = remember.group(1).strip().rstrip(".")
+        return [("remember", {"text": f"L'utilisateur a demandé : {wish}."})]
     if "heure" in low:
         return [("get_datetime", {})]
     return []
@@ -173,6 +177,11 @@ def _final_text(user: str, messages: list[dict[str, Any]], results: list[str]) -
         return f"D'après le résultat de l'outil : {excerpt}"
     if "toujours en une phrase, comme un pirate" in system_text(messages).lower():
         return "Arrr ! Je suis le faux modèle de WaveStack, moussaillon."
+    if "rappelle-moi mon prénom" in low:  # story 14: read from the global memory
+        known = re.search(r"s'appelle (\w+)", system_text(messages))
+        if known:
+            return f"Vous vous appelez {known.group(1)}, d'après la mémoire globale."
+        return "Je ne connais pas votre prénom : la mémoire globale est vide."
     if "comment je m'appelle" in low:
         earlier = re.search(r"Je m'appelle (\w+)(?: et je suis ([^.]+))?", everything)
         if earlier:

@@ -2757,3 +2757,14 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   border: 2px dashed var(--color-ink, currentColor);
   border-radius: 6px;
 }
+
+/* Story 14: « Écrire en mémoire » sits in the card itself, not in an option row: its form
+   takes its own height in the card's column (the row's `flex: 1 0 100%` is a width there). */
+.brick-card > .force-button {
+  align-self: flex-start;
+}
+
+.brick-card > .force-form {
+  flex: none;
+  margin: 0;
+}

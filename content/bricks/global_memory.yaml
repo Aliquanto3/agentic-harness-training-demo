@@ -15,6 +15,9 @@ explanation_fr:
     - >-
       Coût : chaque entrée occupe le contexte à chaque appel, qu'elle serve ou non ; une
       information fausse ou périmée est relue tant qu'on ne l'efface pas.
+    - >-
+      Données : avec un modèle cloud, chaque entrée part chez le fournisseur à chaque appel,
+      dans le message système. N'y mettez jamais de secret.
   - >-
     Une écriture faite pendant un tour ne rejoint le message système qu'au tour suivant.
     « Réinitialiser » restaure la mémoire de démonstration.

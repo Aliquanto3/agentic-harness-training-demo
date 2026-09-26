@@ -170,19 +170,20 @@ scenarios:
     description_fr: >-
       Les briques des modules précédents restent actives, MCP en lazy loading, et la mémoire
       globale s'y ajoute : trois informations de démonstration sont déjà dans le message
-      système. Envoyez le premier prompt : le modèle appelle l'outil remember et le harnais
-      écrit le fichier memory.json. S'il ne le fait pas, forcez « Écrire en mémoire » depuis
-      la carte de la brique (après « Afficher les actions forcées ») et renvoyez le prompt.
-      Videz ensuite la conversation, puis envoyez le second prompt : la préférence revient
-      par le message système, pas par l'historique. Ouvrez enfin « Modifier la mémoire »
-      (ou cliquez le fichier dans le schéma) pour consulter, modifier ou effacer les entrées ;
-      « Réinitialiser » restaure la démonstration. Pour des tours plus rapides, éteignez le
-      raisonnement.
+      système. Si une séance précédente a laissé la préférence en mémoire, cliquez d'abord
+      sur « Réinitialiser » puis relancez ce scénario : la démonstration est restaurée.
+      Envoyez le premier prompt : le modèle appelle l'outil remember et le harnais écrit le
+      fichier memory.json. S'il ne le fait pas, forcez « Écrire en mémoire » depuis la carte
+      de la brique (après « Afficher les actions forcées ») et renvoyez le prompt. Videz
+      ensuite la conversation, puis envoyez le second prompt : la préférence revient par le
+      message système, pas par l'historique. Ouvrez enfin « Modifier la mémoire » (ou
+      cliquez le fichier dans le schéma) pour consulter, modifier ou effacer les entrées.
+      Pour des tours plus rapides, éteignez le raisonnement.
     bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, reasoning, global_memory]
     mcp_lazy: true
     prompts:
       - Retiens que je préfère des réponses en trois points au plus.
-      - Rappelle-moi mon prénom, puis donne-moi des conseils pour choisir un mot de passe.
+      - Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.
 
   data_flows:
     title_fr: Où vont mes données ?

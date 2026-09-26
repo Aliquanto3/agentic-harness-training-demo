@@ -6,7 +6,7 @@ The session sets the trace scope (call, step, component) before each call.
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Literal
 
 from wavestack.models.engine import CancelToken
@@ -34,6 +34,9 @@ _TYPES_FR = {
 
 
 Contact = tuple[Literal["available", "unavailable"], str | None]
+# Applies some of a reply's effects before `tool_ended`; returns the others and the failure
+# in French, which turns the call into an error (story 14: a memory write).
+ApplyNow = Callable[[tuple[Effect, ...]], tuple[tuple[Effect, ...], str | None]]
 
 
 class ToolExecutor:
@@ -89,11 +92,16 @@ class ToolExecutor:
         return f"Erreur : {sentence} Corrige l'appel ou réponds sans outil."
 
     def run(
-        self, call: ToolCall, cancel: CancelToken, effects: list[Effect] | None = None
+        self,
+        call: ToolCall,
+        cancel: CancelToken,
+        effects: list[Effect] | None = None,
+        apply: ApplyNow | None = None,
     ) -> str | None:
         """Execute a checked call; returns the text reinjected, or `None` if the turn is stopped.
 
-        A `ToolReply`'s effects go to `effects`, for the session to apply (AD-23)."""
+        A `ToolReply`'s effects go to `effects`, for the session to apply (AD-23), but those
+        `apply` applies at once, before `tool_ended`: its failure is the call's error."""
         if cancel.cancelled:
             return None
         spec = self.registry.get(call.name)
@@ -120,11 +128,17 @@ class ToolExecutor:
             if spec.preview is not None:
                 spec.preview(**call.arguments)  # a refusal raises here, before anything is sent
                 sent = True
-            result = spec.run(**call.arguments)
-            if isinstance(result, ToolReply):
+            reply = spec.run(**call.arguments)
+            if isinstance(reply, ToolReply):
+                pending = reply.effects
+                if apply is not None:
+                    pending, failure = apply(pending)
+                    if failure is not None:
+                        raise ToolError(failure)
                 if effects is not None:
-                    effects.extend(result.effects)
-                result = result.text
+                    effects.extend(pending)
+                reply = reply.text
+            result = reply
         except ToolError as exc:
             error_fr = exc.message_fr
             unreachable = isinstance(exc, Unreachable)

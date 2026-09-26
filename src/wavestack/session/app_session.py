@@ -377,7 +377,10 @@ class AppSession:
         self._memory_content: memory_file.MemoryContent | None = None
         self._memory: list[memory_file.MemoryEntry] = []
         self._memory_error: str | None = None
-        self._memory_lock = threading.Lock()  # one write at a time, whichever thread
+        # One write at a time, whichever thread; a drawer write or a reset holds it from its
+        # `idle` check to its end, and a turn takes it to start: no drawer write in a turn.
+        # Always taken before `_lock`.
+        self._memory_lock = threading.RLock()
         self._hook_steps = 0  # hook steps of the running turn, for their step ids
         self._turn_seq = 0  # seq of the running turn's `turn_started`: its events follow it
         self._load_content()
@@ -796,7 +799,7 @@ class AppSession:
             if brick.id == "reasoning":
                 bricks[-1]["always_fr"] = self._always_fr()
             if brick.id == "global_memory":
-                bricks[-1]["note_fr"] = self._memory_note_fr()
+                bricks[-1] |= self._memory_card()
             if brick.id == "mcp":
                 bricks[-1] |= {
                     "mode": "lazy" if lazy else "full",
@@ -1097,12 +1100,18 @@ class AppSession:
         """AD-1: the drawer and the card project the last `memory_changed`."""
         if "global_memory" not in self._bricks:
             return
+        error_fr = self._memory_unavailable_fr()
         with self._lock:
-            entries = [e.model_dump() for e in self._memory]
-            error_fr = self._memory_error
+            entries = [e.model_dump() for e in self._memory] if error_fr is None else []
         get_journal().emit(
             "memory_changed",
-            {"entries": entries, "path": str(config.memory_path()), "error_fr": error_fr},
+            {
+                "entries": entries,
+                "path": str(config.memory_path()),
+                "error_fr": error_fr,
+                "max_entries": memory_file.MAX_ENTRIES,
+                "max_chars": memory_file.MAX_CHARS,
+            },
         )
 
     # ---------- bricks (AD-12) ----------
@@ -1163,6 +1172,20 @@ class AppSession:
             "Indisponible : le modèle actif ne sait pas raisonner. Son gabarit de conversation "
             "n'a pas de variable de raisonnement : choisissez un modèle qui raisonne."
         )
+
+    def _memory_card(self) -> dict[str, Any]:
+        """What the memory card and its drawer say (AD-19): the note without a tool parser
+        (H4), the empty drawer's text, the forced write's field help."""
+        note_fr = self._memory_note_fr()
+        content = self._memory_content
+        if content is None:
+            return {"note_fr": note_fr}
+        drawer = content.drawer
+        return {
+            "note_fr": note_fr,
+            "empty_fr": drawer.empty_no_parser_fr if note_fr else drawer.empty_fr,
+            "text_help_fr": drawer.text_help_fr.replace("{max_chars}", str(memory_file.MAX_CHARS)),
+        }
 
     def _memory_note_fr(self) -> str | None:
         """H4: without a tool parser, the memory is injected and edited, not written by the
@@ -1623,7 +1646,7 @@ class AppSession:
     def _start(self, message: str | None) -> str:
         """Starts a turn: `message`, or the replay of the last turn when `None`."""
         replay_of = None
-        with self._lock:
+        with self._memory_lock, self._lock:  # never while a drawer write or a reset runs
             if self.state != "idle" or self._engine is None or self.reason_fr:
                 raise SendRefused(self._refusal_reason())
             if message is None:
@@ -1939,6 +1962,12 @@ class AppSession:
             )
         return ToolReply(text.body, (SkillLoaded(skill_id=skill),))
 
+    def _memory_unavailable_fr(self) -> str | None:
+        """Why the memory can be neither read nor edited: its texts in `content/` are invalid,
+        or `memory.json` is unreadable (the card's reason, the drawer's refusal)."""
+        with self._lock:
+            return self._content_errors.get("global_memory") or self._memory_error
+
     def _remember(self, text: str) -> ToolReply | str:
         """AD-25: reads the memory, writes nothing; the session applies the effect (AD-23).
         A refusal (empty, too long, full) is reinjected; a duplicate adds nothing."""
@@ -1946,10 +1975,10 @@ class AppSession:
             text = memory_file.check_text(text)
         except ValueError as exc:
             raise ToolError(str(exc)) from None
-        with self._lock:
-            entries, error_fr = list(self._memory), self._memory_error
-        if error_fr is not None:  # the brick is unavailable then: kept as a safety net
+        if self._memory_unavailable_fr() is not None:  # the brick is unavailable then
             raise ToolError("La mémoire globale est illisible : rien n'est écrit.")
+        with self._lock:
+            entries = list(self._memory)
         if any(memory_file.same_text(e.text, text) for e in entries):
             return f"Déjà en mémoire : « {text} ». Rien n'est ajouté."
         if len(entries) >= memory_file.MAX_ENTRIES:
@@ -1964,14 +1993,34 @@ class AppSession:
             (write,),
         )
 
+    def _apply_now(self, effects: tuple[Effect, ...]) -> tuple[tuple[Effect, ...], str | None]:
+        """The effects the executor applies before `tool_ended` (AD-23), so the trace never
+        shows a success the file did not get: the memory writes of `remember`, by the model
+        or forced (`trigger`). Returns the other effects, and the failure in French."""
+        writes = [e for e in effects if isinstance(e, MemoryWrite)]
+        others = tuple(e for e in effects if not isinstance(e, MemoryWrite))
+        if not writes:
+            return others, None
+        source = "user" if current().trigger == "user" else "model"
+        return others, self._apply_memory(writes, source)
+
     def _apply_memory(self, writes: list[MemoryWrite], source: memory_file.Source) -> str | None:
         """AD-23, the single applier of `MemoryWrite`: applied in order on a copy, the file
-        written once, then one `effect_applied` per effect and one `memory_changed`. Returns
-        the French error reinjected when the file could not be written (memory unchanged)."""
+        written once, then one `effect_applied` per effect and one `memory_changed`, all
+        under `_memory_lock` so no snapshot is emitted out of order. Returns the French
+        failure (memory unchanged)."""
         with self._memory_lock:
             with self._lock:
                 entries = list(self._memory)
-            updated = memory_file.apply_writes(entries, writes, source, memory_file.now())
+            try:
+                updated = memory_file.apply_writes(entries, writes, source, memory_file.now())
+            except (KeyError, ValueError) as exc:  # changed meanwhile, or beyond its limits
+                self._error(
+                    "La mémoire globale n'a pas été modifiée.",
+                    exc,
+                    "Elle reste inchangée ; le reste de WaveStack fonctionne.",
+                )
+                return "La mémoire globale n'a pas été modifiée : rien n'est retenu."
             try:
                 memory_file.write_memory(config.memory_path(), updated)
             except OSError as exc:
@@ -1980,66 +2029,84 @@ class AppSession:
                     exc,
                     "Elle reste inchangée ; le reste de WaveStack fonctionne.",
                 )
-                return "Erreur : la mémoire globale n'a pas pu être écrite ; rien n'est retenu."
+                return "La mémoire globale n'a pas pu être écrite : rien n'est retenu."
             with self._lock:
                 self._memory = updated
                 self._memory_error = None  # written: readable again (reset, H5)
-        with scoped(brick="global_memory", component=MEMORY):
-            for write in writes:
-                get_journal().emit(
-                    "effect_applied",
-                    {
-                        "effect": "memory_write",
-                        "op": write.op,
-                        "entry_id": write.entry_id,
-                        "text": write.text,
-                    },
-                )
-        self._emit_memory()
+            with scoped(brick="global_memory", component=MEMORY):
+                for write in writes:
+                    get_journal().emit(
+                        "effect_applied",
+                        {
+                            "effect": "memory_write",
+                            "op": write.op,
+                            "entry_id": write.entry_id,
+                            "text": write.text,
+                        },
+                    )
+            self._emit_memory()
         return None
 
     def edit_memory(self, op: str, entry_id: str | None = None, text: str | None = None) -> None:
-        """Class (b), the edit drawer (AD-23): `replace` or `delete` one entry, or `clear`
-        them all (one `delete` each). Raises `SendRefused` outside `idle` or while the file is
-        unreadable, `KeyError` for an unknown entry, `ValueError` for an invalid text, and
-        `OSError` when the file could not be written."""
-        with self._lock:
-            if self.state != "idle":
-                raise SendRefused(self._refusal_reason())
-            if self._memory_error is not None:
-                raise SendRefused(self._memory_error)
-            entries = list(self._memory)
-        if op == "clear":
-            writes = [MemoryWrite(op="delete", entry_id=e.id, text=e.text) for e in entries]
-        else:
-            entry = next((e for e in entries if e.id == entry_id), None)
-            if entry is None:
-                raise KeyError(entry_id)
-            if op == "replace":
-                writes = [
-                    MemoryWrite(op="replace", entry_id=entry.id, text=memory_file.check_text(text))
-                ]
-            elif op == "delete":
-                writes = [MemoryWrite(op="delete", entry_id=entry.id, text=entry.text)]
+        """Class (b), the edit drawer (AD-23), `trigger = user`: `replace` or `delete` one
+        entry, or `clear` them all (one `delete` each). Raises `SendRefused` outside `idle`
+        (held until the write ends) or while the memory is unavailable, `KeyError` for an
+        unknown entry, `ValueError` for an invalid or duplicate text, and `OSError` when the
+        file could not be written. A replace by the same text writes nothing."""
+        with self._memory_lock:
+            with self._lock:
+                if self.state != "idle":
+                    raise SendRefused(self._refusal_reason())
+                entries = list(self._memory)
+            unavailable = self._memory_unavailable_fr()
+            if unavailable is not None:
+                raise SendRefused(unavailable)
+            if op == "clear":
+                writes = [MemoryWrite(op="delete", entry_id=e.id, text=e.text) for e in entries]
             else:
-                raise ValueError(f"Opération inconnue : « {op} ».")
-        if writes and self._apply_memory(writes, "user") is not None:
-            raise OSError("La mémoire globale n'a pas pu être écrite : elle reste inchangée.")
+                entry = next((e for e in entries if e.id == entry_id), None)
+                if entry is None:
+                    raise KeyError(entry_id)
+                if op == "replace":
+                    text = memory_file.check_text(text)
+                    if text == entry.text:
+                        return  # nothing changed: nothing written
+                    if any(memory_file.same_text(e.text, text) for e in entries if e != entry):
+                        raise ValueError(f"« {text} » est déjà en mémoire : rien n'est modifié.")
+                    writes = [MemoryWrite(op="replace", entry_id=entry.id, text=text)]
+                elif op == "delete":
+                    writes = [MemoryWrite(op="delete", entry_id=entry.id, text=entry.text)]
+                else:
+                    raise ValueError(f"Opération inconnue : « {op} ».")
+            if not writes:
+                return
+            with scoped(trigger="user"):
+                if self._apply_memory(writes, "user") is not None:
+                    raise OSError(
+                        "La mémoire globale n'a pas pu être écrite : elle reste inchangée."
+                    )
         self._executor.submit(self._emit_preview)
 
     def _restore_memory(self) -> None:
         """FR-39 (CAP-41, H6): one `delete` per entry, then one `add` per demonstration
-        entry, by the single applier; an unreadable memory becomes available once written."""
+        entry, by the single applier (`trigger = user`: the reset is the user's); nothing
+        when the memory already is the demonstration. An unreadable memory becomes available
+        once written."""
         if self._memory_content is None:
             return
-        with self._lock:
-            entries = list(self._memory)
-        writes = [MemoryWrite(op="delete", entry_id=e.id, text=e.text) for e in entries]
-        writes += [
-            MemoryWrite(op="add", entry_id=f"demo{i}", text=text)
-            for i, text in enumerate(self._memory_content.demo, start=1)
-        ]
-        self._apply_memory(writes, "demo")
+        demo = self._memory_content.demo
+        with self._memory_lock:
+            with self._lock:
+                entries, error_fr = list(self._memory), self._memory_error
+            if error_fr is None and memory_file.is_demo(entries, demo):
+                return
+            writes = [MemoryWrite(op="delete", entry_id=e.id, text=e.text) for e in entries]
+            writes += [
+                MemoryWrite(op="add", entry_id=f"demo{i}", text=text)
+                for i, text in enumerate(demo, start=1)
+            ]
+            with scoped(trigger="user"):
+                self._apply_memory(writes, "demo")
 
     def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """The asyncio loop MCP clients live on (FastAPI's); set once, before any intention."""
@@ -2303,23 +2370,24 @@ class AppSession:
     def _reconfigure(self, scenario_id: str | None, apply: Callable[[], None]) -> None:
         """One `bricks_changed`, one `architecture_changed`, one preview; MCP servers
         connect or close on the difference only (AD-15)."""
-        with self._lock:
-            if self.state != "idle":
-                raise SendRefused(self._refusal_reason())
-            before = set(self._mcp_enabled) if "mcp" in self._wanted else set()
-            self._history.clear()
-            self._loaded_docs.clear()
-            self._loaded_skills.clear()
-            self._last = None  # nothing left to replay (story 9b)
-            self._armed.clear()
-            self._apply_launch_config()
-            apply()
-            after = set(self._mcp_enabled) if "mcp" in self._wanted else set()
-            self._active_scenario = scenario_id
-        journal = get_journal()
-        journal.emit("conversation_cleared" if scenario_id else "harness_reset", {})
-        if scenario_id is None:  # FR-39: the reset alone restores the demonstration memory
-            self._restore_memory()
+        with self._memory_lock:  # no turn starts before the memory is restored
+            with self._lock:
+                if self.state != "idle":
+                    raise SendRefused(self._refusal_reason())
+                before = set(self._mcp_enabled) if "mcp" in self._wanted else set()
+                self._history.clear()
+                self._loaded_docs.clear()
+                self._loaded_skills.clear()
+                self._last = None  # nothing left to replay (story 9b)
+                self._armed.clear()
+                self._apply_launch_config()
+                apply()
+                after = set(self._mcp_enabled) if "mcp" in self._wanted else set()
+                self._active_scenario = scenario_id
+            journal = get_journal()
+            journal.emit("conversation_cleared" if scenario_id else "harness_reset", {})
+            if scenario_id is None:  # FR-39: the reset alone restores the demonstration memory
+                self._restore_memory()
         self._emit_armed()
         self._emit_scenario()
         for server_id in sorted(before - after):
@@ -2616,7 +2684,7 @@ class AppSession:
                         hook_id,
                     )
         with scoped(step_id=step_id, brick=brick, component=spec.component):
-            text = self._tool_executor.run(call, cancel, effects)
+            text = self._tool_executor.run(call, cancel, effects, apply=self._apply_now)
         if spec.is_mcp and text is not None:
             self._after_mcp_call(call.name, spec)
         if spec.network or spec.is_mcp:
@@ -2636,12 +2704,6 @@ class AppSession:
                 tool_step |= self._apply_doc_loaded(effect.tool, loaded_in_turn)
             elif isinstance(effect, SkillLoaded):
                 tool_step |= self._apply_skill_loaded(effect.skill_id)
-        writes = [e for e in effects if isinstance(e, MemoryWrite)]
-        if writes:  # `remember`: the model's own call, or a forced one (AD-25)
-            source = "user" if current().trigger == "user" else "model"
-            error = self._apply_memory(writes, source)
-            if error is not None:  # the model reads the failure, not a success
-                tool_step["content"] = error
         return tool_step
 
     def _consume_armed(

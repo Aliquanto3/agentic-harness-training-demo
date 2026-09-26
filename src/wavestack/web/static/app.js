@@ -203,6 +203,7 @@ function applyEnvelope(envelope) {
       eventLog.list?.remove();
       Object.assign(eventLog, { groups: [], processed: store.logFrom, rows: [], list: null });
       store.topStatus = "WaveStack réinitialisé : LLM nu.";
+      store.memoryDrafts.clear();
       break;
     case "turn_started":
       store.topStatus = null;
@@ -710,14 +711,17 @@ const FORCE_LABELS = {
   mcp: "Charger la documentation",
   global_memory: "Écrire en mémoire",
 };
-// Story 14: the memory write is forced from the card itself, a form with one field.
-const MEMORY_FORCE_OPTION = {
-  id: "remember",
-  label_fr: "Mémoire globale",
-  parameters: { text: "L'information à retenir, en une phrase courte (300 caractères au plus)." },
-  fieldLabels: { text: "Texte" },
-  presets: [],
-};
+// Story 14: the memory write is forced from the card itself, a form with one field whose
+// help comes with the card (AD-19).
+function memoryForceOption(brick) {
+  return {
+    id: "remember",
+    label_fr: "Mémoire globale",
+    parameters: { text: brick.text_help_fr || "" },
+    fieldLabels: { text: "Texte" },
+    presets: [],
+  };
+}
 
 // Hidden by default: the SLMs are meant to act on their own. Remembered like the panes'
 // layout; unreadable storage leaves the default, silently.
@@ -871,6 +875,7 @@ function forceForm(brick, option) {
       const input = el("input");
       input.type = "text";
       input.value = form.values[name] ?? "";
+      if (brick.id === "global_memory" && store.memory?.max_chars) input.maxLength = store.memory.max_chars;
       input.dataset.focusKey = `${base}:arg:${name}`;
       const help = el("span", "force-help", description);
       help.id = `force-help-${brick.id}-${option.id}-${name}`;
@@ -1083,8 +1088,16 @@ function memoryCardParts(brick) {
     parts.push(el("p", "brick-limits", n ? `${plural(n, "entrée")} en mémoire globale.` : "Mémoire globale vide."));
   }
   if (store.showForced) {
-    parts.push(forceButton(brick, MEMORY_FORCE_OPTION));
-    if (isFormOpen(brick.id, MEMORY_FORCE_OPTION.id)) parts.push(forceForm(brick, MEMORY_FORCE_OPTION));
+    const option = memoryForceOption(brick);
+    const force = forceButton(brick, option);
+    if (brick.note_fr) {
+      // H4: no tool parser, the forced write would be dropped: said on the button itself.
+      force.disabled = true;
+      force.title = brick.note_fr;
+      force.setAttribute("aria-description", brick.note_fr);
+    }
+    parts.push(force);
+    if (!brick.note_fr && isFormOpen(brick.id, option.id)) parts.push(forceForm(brick, option));
   }
   const edit = el("button", "brick-edit", "Modifier la mémoire");
   edit.type = "button";
@@ -1096,11 +1109,29 @@ function memoryCardParts(brick) {
   return parts;
 }
 
-function memoryAlert(text, dirtyChoice = false) {
+// `choice`: the buttons under the message, « dirty » (Enregistrer / Abandonner) or « clear »
+// (Tout effacer / Annuler), the same inline pattern as the unsaved change (EXPERIENCE.md).
+function memoryAlert(text, choice = null) {
   const alert = document.getElementById("memory-alert");
   alert.hidden = !text;
   alert.textContent = text || "";
-  document.getElementById("memory-dirty").hidden = !dirtyChoice;
+  document.getElementById("memory-dirty").hidden = choice !== "dirty";
+  document.getElementById("memory-confirm").hidden = choice !== "clear";
+  if (choice) document.getElementById(choice === "dirty" ? "memory-dirty-save" : "memory-confirm-clear").focus();
+}
+
+function askClearMemory() {
+  const n = store.memory?.entries.length ?? 0;
+  if (!n) return;
+  memoryAlert(`Effacer ${n > 1 ? `les ${n} entrées` : "l'entrée"} de la mémoire globale ? Le fichier est réécrit aussitôt.`, "clear");
+}
+
+async function confirmClearMemory() {
+  if (await editMemory({ op: "clear" })) document.getElementById("memory-close").focus();
+}
+
+function memoryCard() {
+  return store.bricks?.bricks.find((b) => b.id === "global_memory") ?? null;
 }
 
 // The entries whose text differs from the one the session wrote: what « Enregistrer » sends.
@@ -1111,6 +1142,11 @@ function memoryDirty() {
 
 function openMemoryDrawer() {
   if (!store.memory || store.memory.error_fr) return;
+  if (!memoryDrawer().hidden) {
+    // Already open (a click on the schema's node): its drafts stay, the focus comes back.
+    (document.querySelector("#memory-list textarea") || document.getElementById("memory-close")).focus();
+    return;
+  }
   // The drawer lives in the bricks pane: shown first when hidden, or behind another focus.
   if (store.hiddenPanes.has("bricks")) showPane("bricks");
   if (store.focusedPane && store.focusedPane !== "bricks") {
@@ -1132,7 +1168,7 @@ function openMemoryDrawer() {
 
 function closeMemoryDrawer(force = false) {
   if (!force && memoryDirty().length) {
-    memoryAlert("Modification non enregistrée. Enregistrer ou abandonner ?", true);
+    memoryAlert("Modification non enregistrée. Enregistrer ou abandonner ?", "dirty");
     return;
   }
   store.memoryDrafts.clear();
@@ -1153,7 +1189,9 @@ function renderMemoryDrawer() {
     if (!entries.some((e) => e.id === id)) store.memoryDrafts.delete(id); // deleted meanwhile
   }
   document.getElementById("memory-path").textContent = memory ? `Fichier : ${memory.path}` : "";
-  document.getElementById("memory-empty").hidden = entries.length > 0;
+  const empty = document.getElementById("memory-empty");
+  empty.textContent = memoryCard()?.empty_fr ?? "";
+  empty.hidden = entries.length > 0;
   document.getElementById("memory-clear").disabled = entries.length === 0;
   list.innerHTML = "";
   entries.forEach((entry, i) => {
@@ -1162,8 +1200,8 @@ function renderMemoryDrawer() {
     const head = el("div", "memory-entry-head");
     head.append(el("span", "memory-entry-name", label), el("span", "memory-entry-source", MEMORY_SOURCES[entry.source] ?? entry.source));
     const text = el("textarea", "memory-entry-text");
-    text.rows = 2;
-    text.maxLength = 300;
+    text.rows = 3;
+    if (memory?.max_chars) text.maxLength = memory.max_chars;
     text.spellcheck = false;
     text.value = store.memoryDrafts.get(entry.id) ?? entry.text;
     text.setAttribute("aria-label", `Texte de l'entrée ${i + 1}`);
@@ -3829,7 +3867,12 @@ async function boot() {
   });
   document.getElementById("drawer-dirty-discard").addEventListener("click", () => closeDrawer(true));
   document.getElementById("memory-close").addEventListener("click", () => closeMemoryDrawer());
-  document.getElementById("memory-clear").addEventListener("click", () => editMemory({ op: "clear" }));
+  document.getElementById("memory-clear").addEventListener("click", askClearMemory);
+  document.getElementById("memory-confirm-clear").addEventListener("click", confirmClearMemory);
+  document.getElementById("memory-confirm-cancel").addEventListener("click", () => {
+    memoryAlert(null);
+    document.getElementById("memory-clear").focus();
+  });
   document.getElementById("memory-dirty-save").addEventListener("click", async () => {
     if (await saveMemoryEntries(memoryDirty().map((e) => e.id))) closeMemoryDrawer(true);
   });

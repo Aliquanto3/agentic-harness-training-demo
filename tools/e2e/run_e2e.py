@@ -296,7 +296,7 @@ def s_bare_llm(r: Run) -> None:
     )
     r.shot("02-llm-nu")
     r.send("Bonjour [raisonne]")
-    details = r.page.locator("#chat .bubble-model").last.locator("details.bubble-reasoning")
+    details = r.page.locator("#chat .bubble-model").last.locator("details.reasoning-block")
     r.check(details.count() == 1, "un champ `reasoning` du fournisseur s'affiche replié")
 
 
@@ -824,6 +824,179 @@ def s_forced_native(r: Run) -> None:
     r.show_forced(False)
 
 
+def _memory_file(r: Run) -> list[dict[str, Any]]:
+    path = r.stack.data_dir / "memory.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+
+
+def _memory_step(r: Run):
+    """The last « Écriture en mémoire » step of Orchestration."""
+    name = r.page.locator(".turn-step-name", has_text="Écriture en mémoire")
+    return r.page.locator("#orch-scroll .turn-step", has=name).last
+
+
+def s_global_memory(r: Run) -> None:
+    """Story 14: written by the model, then forced, read back after clearing, edited in the
+    drawer (from the schema's node and from the card), restored by the reset."""
+    r.launch("global_memory")
+    card = r.card("Mémoire globale")
+    expect(card).to_contain_text("3 entrées en mémoire globale", timeout=5000)
+    r.check(True, "la carte compte les 3 entrées de démonstration")
+
+    # The model writes (the fake model calls `remember` on « Retiens que … »).
+    seq = r.ev.mark()
+    r.send("Retiens que je préfère des réponses en trois points au plus.")
+    writes = [
+        e for e in r.ev.since(seq, "effect_applied") if e["payload"].get("effect") == "memory_write"
+    ]
+    r.check(
+        len(writes) == 1
+        and writes[0].get("trigger") == "model"
+        and writes[0].get("component") == "file.memory",
+        "remember : effet memory_write sur file.memory, déclenché par le modèle",
+        str([(e.get("trigger"), e.get("component")) for e in writes]),
+    )
+    saved = _memory_file(r)
+    r.check(
+        [e["source"] for e in saved] == ["demo", "demo", "demo", "model"],
+        "memory.json : la démonstration puis l'entrée du modèle",
+        str([e["source"] for e in saved]),
+    )
+    step = _memory_step(r)
+    r.check(
+        "Déclenché par le modèle" in step.locator(".turn-step-trigger").inner_text(),
+        "étape « Écriture en mémoire » avec le badge « Déclenché par le modèle »",
+    )
+    step.locator(".turn-step-line").click()
+    expect(step).to_contain_text("Entrée écrite dans memory.json", timeout=5000)
+    r.check(
+        "trois points au plus" in step.inner_text(),
+        "l'étape dépliée montre l'entrée écrite par le harnais",
+    )
+    r.shot("19-memoire-ecriture-par-le-modele")
+
+    # Cleared conversation: the name and the preference come back by the system message.
+    seq = r.ev.mark()
+    r.page.click("#clear-conversation")
+    r.ev.wait("conversation_cleared", seq, timeout=10)
+    r.send("Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.")
+    r.check(
+        "Camille" in r.last_answer(),
+        "après « Vider la conversation », le prénom revient de la mémoire globale",
+        r.last_answer()[:120],
+    )
+    body = r.fake_calls()[-1]
+    first = body["messages"][0]
+    r.check(
+        first.get("role") == "system" and "trois points" in json.dumps(first, ensure_ascii=False),
+        "la préférence est dans le message système envoyé",
+        [m.get("role") for m in body["messages"]].__repr__(),
+    )
+    r.check(
+        [m.get("role") for m in body["messages"]][1:] == ["user"],
+        "aucun historique : seule la mémoire globale a porté l'information",
+    )
+
+    # « Écrire en mémoire » forced from the card.
+    r.show_forced(True)
+    card.get_by_role("button", name="Écrire en mémoire : Mémoire globale").click()
+    form = card.locator(".force-form")
+    expect(form).to_be_visible(timeout=5000)
+    form.locator("input").fill("Camille anime la formation à Nantes.")
+    seq = r.ev.mark()
+    form.get_by_role("button", name="Armer").click()
+    r.ev.wait("armed_actions_changed", seq, lambda p: bool(p["actions"]), timeout=10)
+    expect(card.locator(".armed-chip")).to_contain_text("Armé : Écrire en mémoire", timeout=5000)
+    r.check(True, "puce « Armé : Écrire en mémoire (…) » sur la carte")
+    seq = r.ev.mark()
+    r.send("Bonjour")
+    forced = [e for e in r.ev.since(seq, "tool_started") if e["payload"]["tool"] == "remember"]
+    r.check(
+        len(forced) == 1
+        and forced[0].get("trigger") == "user"
+        and forced[0]["seq"] < r.ev.since(seq, "model_call_started")[0]["seq"],
+        "écriture forcée : remember exécuté par l'utilisateur, avant l'appel au modèle",
+    )
+    r.check(
+        "Forcé par l'utilisateur" in _memory_step(r).locator(".turn-step-trigger").inner_text(),
+        "étape « Écriture en mémoire » avec le badge « Forcé par l'utilisateur »",
+    )
+    r.check(_memory_file(r)[-1]["source"] == "user", "memory.json : entrée forcée, source user")
+    r.show_forced(False)
+
+    # The drawer, opened by a click on the schema's node.
+    drawer = r.page.locator("#memory-drawer")
+    r.page.locator('#schema .arch-node[data-component="file.memory"]').click()
+    expect(drawer).to_be_visible(timeout=5000)
+    entries = drawer.locator("#memory-list li")
+    r.check(entries.count() == 5, "clic sur le nœud memory.json : le tiroir liste 5 entrées")
+    r.check(
+        str(r.stack.data_dir / "memory.json") in drawer.inner_text(),
+        "le tiroir donne le chemin du fichier",
+    )
+    r.shot("20-memoire-tiroir")
+
+    seq = r.ev.mark()
+    entries.first.locator("textarea").fill("L'utilisateur s'appelle Camille Martin.")
+    entries.first.get_by_role("button", name="Enregistrer l'entrée 1").click()
+    r.ev.wait("memory_changed", seq, timeout=10)
+    saved = _memory_file(r)
+    r.check(
+        saved[0]["text"] == "L'utilisateur s'appelle Camille Martin."
+        and saved[0]["source"] == "user",
+        "modifier : memory.json réécrit, source user",
+    )
+    replaced = [e for e in r.ev.since(seq, "effect_applied")]
+    r.check(
+        [e.get("trigger") for e in replaced] == ["user"],
+        "l'écriture du tiroir est attribuée à l'utilisateur",
+    )
+
+    seq = r.ev.mark()
+    drawer.get_by_role("button", name="Supprimer l'entrée 2").click()
+    r.ev.wait("memory_changed", seq, timeout=10)
+    expect(entries).to_have_count(4, timeout=5000)
+    r.check(len(_memory_file(r)) == 4, "supprimer : 4 entrées restent")
+
+    entries.first.locator("textarea").fill("Texte modifié sans l'enregistrer.")
+    r.page.keyboard.press("Escape")
+    alert = drawer.locator("#memory-alert")
+    expect(alert).to_contain_text("Modification non enregistrée. Enregistrer ou abandonner ?")
+    r.check(drawer.is_visible(), "Échap avec une modification : le tiroir demande quoi faire")
+    drawer.get_by_role("button", name="Abandonner").click()
+    expect(drawer).to_be_hidden(timeout=5000)
+    r.check(len(_memory_file(r)) == 4, "abandonner : rien n'est écrit")
+
+    card.get_by_role("button", name="Modifier la mémoire").click()
+    expect(drawer).to_be_visible(timeout=5000)
+    drawer.get_by_role("button", name="Tout effacer", exact=True).click()
+    expect(alert).to_contain_text("Effacer les 4 entrées")
+    r.check(len(_memory_file(r)) == 4, "« Tout effacer » demande d'abord confirmation")
+    seq = r.ev.mark()
+    drawer.get_by_role("button", name="Oui, tout effacer").click()
+    r.ev.wait("memory_changed", seq, lambda p: p["entries"] == [], timeout=10)
+    empty = drawer.locator("#memory-empty")
+    expect(empty).to_be_visible(timeout=5000)
+    r.check(
+        "Aucune information en mémoire globale." in empty.inner_text() and _memory_file(r) == [],
+        "tout effacer : fichier vide et message de mémoire vide",
+        empty.inner_text(),
+    )
+    r.shot("21-memoire-tiroir-vide")
+    drawer.get_by_role("button", name="Fermer").click()
+    expect(drawer).to_be_hidden(timeout=5000)
+
+    # The reset restores the demonstration.
+    seq = r.ev.mark()
+    r.page.click("#reset-button")
+    r.ev.wait("harness_reset", seq, timeout=10)
+    r.ev.wait("memory_changed", seq, lambda p: len(p["entries"]) == 3, timeout=10)
+    r.check(
+        [e["source"] for e in _memory_file(r)] == ["demo"] * 3,
+        "réinitialiser : la mémoire de démonstration est restaurée",
+    )
+
+
 def s_busy_and_stop(r: Run) -> None:
     r.launch("bare_llm")
     seq = r.ev.mark()
@@ -984,6 +1157,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("hooks", s_hooks),
     ("data_flows", s_data_flows),
     ("forced_native", s_forced_native),
+    ("global_memory", s_global_memory),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
     ("relaunch", s_relaunch),

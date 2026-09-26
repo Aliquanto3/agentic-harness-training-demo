@@ -10,7 +10,36 @@ context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-agentic-harness-training-demo-2026-09-23/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-agentic-harness-training-demo-2026-09-22/EXPERIENCE.md'
 warnings: [oversized]
-deferred: []
+deferred:
+  - summary: >-
+      Scénario « Mémoire globale » en fin de programme au lieu de l'ordre de FR-38 : à
+      réordonner à la story 21.
+    evidence: |-
+      H11 ; revue indépendante (intention). Consigné dans deferred-work.md.
+    location: >-
+      content/scenarios.yaml
+    severity: medium
+  - summary: >-
+      Le tiroir n'affiche pas `created_at`.
+    evidence: |-
+      Revue indépendante (blind hunter) ; EXPERIENCE.md ne le demande pas. Consigné dans deferred-work.md.
+    location: >-
+      src/wavestack/web/static/app.js
+    severity: low
+  - summary: >-
+      Pas d'ajout d'entrée depuis le tiroir (exclu par la spec, H1).
+    evidence: |-
+      Revue indépendante (blind hunter). Consigné dans deferred-work.md.
+    severity: low
+  - summary: >-
+      Mémoire pleine à 300 caractères : environ 60 % de l'espace utilisable à 4 096 tokens avec
+      le raisonnement.
+    evidence: |-
+      Mesure du test de fenêtre minimale ; la borne de 300 est dans le contrat d'intention.
+      À vérifier au test manuel, consigné dans deferred-work.md.
+    location: >-
+      src/wavestack/memory.py
+    severity: medium
 ---
 
 <intent-contract>
@@ -115,6 +144,16 @@ Passe unique faite par l'agent d'implémentation (pas d'outil de sous-agent dans
   - `[false]` Un `memory_changed` rejoué au chargement de la page pourrait écraser le tiroir ouvert — faux : `renderMemoryDrawer` ne fait rien tant que le tiroir est caché, et garde les brouillons (`store.memoryDrafts`) quand il est ouvert.
   - `[maybe-false]` `[reject]` Un échec d'`os.replace` laisse `memory.tmp` dans le dossier de données — sans effet sur la lecture (seul `memory.json` est lu) ; à vérifier seulement si un antivirus Windows verrouille le fichier ; au pire `low`.
 
+### 2026-09-26 — Revue indépendante (4 relecteurs, triage de l'orchestrateur)
+Tous les points « à corriger » ont été appliqués, un test Python par correctif testable (`tests/test_global_memory.py`, section « independent review », 13 tests de plus), et le front est couvert par le parcours E2E.
+- Intention : placement du scénario → reporté (story 21, deferred-work.md) ; `effect_applied` du tiroir et de la réinitialisation → `trigger = user` (portée `scoped(trigger="user")`), testé ; front → parcours E2E `global_memory` (28 vérifications).
+- Écarts de vérification : test d'un appel mal formé avec la mémoire seule brique du harnais (`tool_call_malformed.brick` et segment `tool_result` = `global_memory`) ; test d'un `memory.yaml` invalide ; bogue corrigé : `memory_changed.error_fr` reprend la raison du contenu invalide, le tiroir se désactive et `edit_memory` répond 409 (`_memory_unavailable_fr`).
+- Blind hunter : `read_memory` refuse plus de 20 entrées, un texte de plus de 300 caractères ou sur plusieurs lignes, et les ids en double (chemin « illisible », fichier jamais réécrit) ; l'applicateur refuse de dépasser 20 entrées ; test d'une mémoire pleine à la fenêtre par défaut (4 096, réserve du raisonnement) avec les briques du scénario ; la réinitialisation n'écrit rien quand la mémoire est déjà la démonstration ; « Tout effacer » demande confirmation en ligne (« Oui, tout effacer » / « Annuler ») ; sans parseur, le bouton « Écrire en mémoire » est désactivé avec la raison et le tiroir vide dit que le modèle ne peut pas écrire ; le remplacement refuse un doublon (422) et n'écrit rien sans changement ; textes pédagogiques (cloud : chaque entrée part chez le fournisseur ; jamais de secret dans `remember` ; second prompt du scénario sans mot de passe) ; description du scénario : « Réinitialiser » d'abord si la préférence est déjà en mémoire ; `max_entries`, `max_chars` dans `memory_changed`, `empty_fr` et `text_help_fr` sur la carte, tirés de `content/memory/memory.yaml` ; `MemoryIntention` exige `entry_id` (replace, delete) et `text` (replace), 422.
+- Cas limites : l'écriture de `remember` est appliquée avant `tool_ended` (crochet `apply` de l'exécuteur) : un échec d'écriture donne une étape en erreur ; la réinitialisation et le tiroir calculent leurs écritures sous `_memory_lock` (RLock), tenu de la vérification `idle` jusqu'à la fin de l'écriture, et un tour le prend pour démarrer (aucune écriture du tiroir pendant un tour, test par verrou) ; armement avec un texte non chaîne → 422 ; blancs et retours à la ligne ramenés à un espace ; démonstration validée (longueur, doublons) ; `effect_applied` et `memory_changed` émis sous `_memory_lock` ; front : un clic sur le nœud avec le tiroir ouvert garde les brouillons, `harness_reset` les vide.
+- Appliqué en partie : « libellés » d'AD-19. Les textes qui dépendent de l'état (tiroir vide, aide du champ avec la borne) et les bornes viennent de la session ; les libellés de boutons (« Tout effacer », « Fermer », « Enregistrer ») restent dans `index.html`, comme ceux du tiroir du prompt système.
+- Écarté après vérification : la baisse de `MAX_CHARS` à 200, un temps envisagée pour le test de fenêtre, n'est pas appliquée, car la borne de 300 caractères est écrite dans le contrat d'intention (Always et matrice) ; la mémoire pleine à 300 tient dans la fenêtre par défaut (test), le risque de place est reporté.
+- Hors story, pour faire passer le parcours E2E : sélecteur `details.bubble-reasoning` → `details.reasoning-block` dans `tools/e2e/run_e2e.py` (classe renommée par la story 13) ; déclencheurs « Retiens que … » et « Rappelle-moi mon prénom » ajoutés au faux modèle.
+
 ## Design Notes
 
 L'applicateur unique prend une liste pour que « Tout effacer » et la restauration n'écrivent le fichier qu'une fois, tout en gardant un `effect_applied` par effet (AD-23). Esquisse :
@@ -180,6 +219,8 @@ Status: done
 - `tests/test_global_memory.py` (nouveau, 19 tests), `tests/test_bricks.py`, `tests/test_scenarios.py` — matrice, acceptation, comptes.
 
 **Revue :** 5 constats ; 2 corrigés (`low`), 2 rejetés (1 `low` improbable, 1 `maybe-false` au pire `low`), 1 `false`. Rien de reporté. Corrections par verdict : high 0, medium 0, low 2.
+
+**Revue indépendante :** voir le Review Triage Log. Vérification finale : ruff check et format (verts), `node --check` (vert), `uv run pytest -q` : 451 réussis, 3 sautés ; parcours E2E complet : 155 vérifications réussies, 0 échec, 5 anomalies connues d'avant la story (A1 à A4).
 
 **Suivi de revue recommandé :** false (aucun correctif `high`, moins de deux `medium`). Une revue indépendante est de toute façon prévue par l'orchestrateur, cette passe ayant été faite sans sous-agent.
 

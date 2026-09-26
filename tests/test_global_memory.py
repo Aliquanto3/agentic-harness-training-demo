@@ -4,6 +4,9 @@ force, edited in the drawer, restored by the reset (AD-4, AD-17, AD-20, AD-23, A
 from __future__ import annotations
 
 import json
+import shutil
+import threading
+import time
 
 import pytest
 from fake_engine import FakeEngine, booted_session
@@ -251,6 +254,7 @@ def test_drawer_replace_delete_clear_and_refusals():
         "text": "Consultante.",
     }
     assert (applied.brick, applied.component) == ("global_memory", "file.memory")
+    assert applied.trigger == "user"  # the drawer is the user's (independent review)
     assert "- Consultante." in memory_texts(last("context_preview", mark))
 
     unknown = client.post(route, json={"op": "delete", "entry_id": "nope"}, headers=HEADERS)
@@ -294,6 +298,9 @@ def test_write_failure_is_an_error_and_the_memory_is_unchanged(tmp_path, monkeyp
     (error,) = of(events, "harness_error")
     assert error.payload["message_fr"] == "La mémoire globale n'a pas pu être écrite."
     assert of(events, "effect_applied") == [] and of(events, "memory_changed") == []
+    (ended,) = of(events, "tool_ended")  # the trace never shows a write that did not happen
+    assert ended.payload["status"] == "error" and ended.seq > error.seq
+    assert "n'a pas pu être écrite" in ended.payload["error_fr"]
     second = of(events, "context_rendered")[1].payload
     replies = [s["text"] for s in _segments(second, "tool_result")]
     assert any("n'a pas pu être écrite" in text for text in replies)
@@ -460,4 +467,198 @@ def test_memory_scenario_keeps_the_previous_modules_bricks():
         "global_memory",
     }
     assert session._mcp_lazy
+    session.close()
+
+
+# ---------- independent review ----------
+
+NO_TEXT = "<tool_call>\n<function=remember>\n</function>\n</tool_call>"
+
+
+def test_invalid_call_with_the_memory_brick_alone_belongs_to_it():
+    _, session = memory_session([NO_TEXT, "Voilà."], skills=False)
+    mark = get_journal().last_seq()
+
+    events = run(session, "Retiens ceci.")
+
+    (malformed,) = [e for e in get_journal().events_since(mark) if e.kind == "tool_call_malformed"]
+    assert malformed.brick == "global_memory" and "manquant" in malformed.payload["detail_fr"]
+    (result,) = _segments(of(events, "context_rendered")[1].payload, "tool_result")
+    assert result["brick"] == "global_memory"
+    session.close()
+
+
+def test_invalid_memory_content_makes_the_brick_and_the_drawer_unavailable(tmp_path, monkeypatch):
+    content = tmp_path / "content"
+    shutil.copytree(config.content_dir(), content)
+    (content / "memory" / "memory.yaml").write_text("intro: seule\n", encoding="utf-8")
+    monkeypatch.setattr(config, "content_dir", lambda: content)
+    mark = get_journal().last_seq()
+
+    _, session = memory_session(["Bonjour."], skills=False)
+
+    assert "Les textes de la mémoire globale sont invalides." in [
+        p["message_fr"] for p in since(mark, "harness_error")
+    ]
+    assert card()["wanted"] and not card()["available"]
+    assert "content/memory/memory.yaml" in card()["reason_fr"]
+    changed = last("memory_changed")
+    assert changed["entries"] == [] and "content/memory/memory.yaml" in changed["error_fr"]
+    busy = _client(session).post("/api/intentions/memory", json={"op": "clear"}, headers=HEADERS)
+    assert busy.status_code == 409 and "memory.yaml" in busy.json()["detail"]
+    events = run(session, "Bonjour")
+    assert of(events, "turn_ended")[0].payload["status"] == "completed"
+    ctx = of(events, "context_rendered")[0].payload
+    assert _segments(ctx, "global_memory") == [] and "remember" not in json.dumps(ctx)
+    session.close()
+
+
+def _entry(i: int, text: str) -> dict:
+    return {"id": f"m{i}", "text": text, "created_at": "x", "source": "user"}
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        [_entry(i, f"Fait {i}") for i in range(21)],
+        [_entry(1, "x" * (memory_file.MAX_CHARS + 1))],
+        [_entry(1, "Un\ndeux")],
+        [_entry(1, "Un"), _entry(1, "Deux")],
+    ],
+    ids=["21 entrées", "301 caractères", "retour à la ligne", "id en double"],
+)
+def test_a_file_beyond_the_limits_is_unreadable(entries):
+    path = config.memory_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(entries), encoding="utf-8")
+
+    _, session = memory_session(skills=False)
+
+    assert not card()["available"] and last("memory_changed")["error_fr"]
+    assert json.loads(path.read_text(encoding="utf-8")) == entries  # never rewritten
+    session.close()
+
+
+def test_the_applier_and_the_demonstration_keep_the_limits():
+    full = memory_file.demo_entries([f"Fait {i}" for i in range(20)], "x")
+    one_more = memory_file.MemoryWrite(op="add", entry_id="m1", text="Un de plus")
+    with pytest.raises(ValueError):
+        memory_file.apply_writes(full, [one_more], "model", "x")
+    content = memory_file.load_memory_content().model_dump()
+    with pytest.raises(ValueError):
+        memory_file.MemoryContent.model_validate({**content, "demo": ["Un", "un"]})
+
+
+def test_a_full_memory_fits_the_smallest_window_with_the_scenario_bricks():
+    """H3: 20 entries of `MAX_CHARS` characters, the reasoning reserve, the default window."""
+    bricks = ("short_memory", "system_prompt", "tools", "skills", "hooks", "reasoning")
+    session = _cloud_session("mistral", Provider(GROQ_TEXT), bricks=(*bricks, "global_memory"))
+    longest = "é" * (memory_file.MAX_CHARS - 3)
+    session._memory = memory_file.demo_entries([f"{longest}{i:03d}" for i in range(20)], "x")
+    mark = get_journal().last_seq()
+
+    session._emit_preview()
+
+    ctx = last("context_preview", mark)
+    assert ctx["window"] == 4096 and ctx["reserve"] == 1536
+    memory = sum(s["tokens"] for s in _segments(ctx, "global_memory"))
+    assert not ctx["overflow"] and ctx["used"] < ctx["usable"]
+    assert memory <= 0.65 * ctx["usable"]  # the rest of the context keeps its room
+    session.close()
+
+
+def test_reset_on_the_demonstration_writes_nothing():
+    _, session = memory_session()
+    mark = get_journal().last_seq()
+
+    session.reset()
+    session.join()
+
+    assert since(mark, "effect_applied") == [] and since(mark, "memory_changed") == []
+    assert not config.memory_path().exists()  # H5: still the demonstration in memory only
+    session.edit_memory("delete", "demo1")
+    mark = get_journal().last_seq()
+    session.reset()
+    session.join()
+    applied = [e for e in get_journal().events_since(mark) if e.kind == "effect_applied"]
+    assert applied and {e.trigger for e in applied} == {"user"}
+    assert [e["source"] for e in saved()] == ["demo"] * 3
+    session.close()
+
+
+def test_drawer_replace_refuses_a_duplicate_and_ignores_no_change():
+    _, session = memory_session()
+    client = _client(session)
+    route = "/api/intentions/memory"
+    mark = get_journal().last_seq()
+
+    same = {"op": "replace", "entry_id": "demo1", "text": DEMO[0]}
+    twice = {"op": "replace", "entry_id": "demo1", "text": DEMO[1].upper()}
+    same = client.post(route, json=same, headers=HEADERS)
+    duplicate = client.post(route, json=twice, headers=HEADERS)
+    no_id = client.post(route, json={"op": "delete"}, headers=HEADERS)
+    no_text = client.post(route, json={"op": "replace", "entry_id": "demo1"}, headers=HEADERS)
+
+    assert same.status_code == 200 and not config.memory_path().exists()
+    assert duplicate.status_code == 422 and "déjà en mémoire" in duplicate.json()["detail"]
+    assert (no_id.status_code, no_text.status_code) == (422, 422)
+    assert since(mark, "effect_applied") == []
+    session.close()
+
+
+def test_texts_are_one_line_and_arming_refuses_a_non_text():
+    _, session = memory_session([remember("Préfère\n\nle   café."), "Noté."])
+    arm = _client(session).post(
+        "/api/intentions/arm",
+        json={"kind": "memory", "target": "remember", "args": {"text": 42}},
+        headers=HEADERS,
+    )
+    assert arm.status_code == 422
+
+    run(session, "Retiens ceci.")
+
+    assert saved()[-1]["text"] == "Préfère le café."
+    session.close()
+
+
+def test_no_drawer_write_during_a_turn(monkeypatch):
+    engine, session = memory_session(["Bonjour."])
+    entered, gate = threading.Event(), threading.Event()
+    write = memory_file.write_memory
+
+    def slow(path, entries):
+        entered.set()
+        gate.wait(5)
+        write(path, entries)
+
+    monkeypatch.setattr(memory_file, "write_memory", slow)
+    mark = get_journal().last_seq()
+    editor = threading.Thread(target=session.edit_memory, args=("delete", "demo1"))
+    editor.start()
+    assert entered.wait(5)
+    sender = threading.Thread(target=session.send, args=("Bonjour",))
+    sender.start()
+    time.sleep(0.2)
+    assert sender.is_alive() and engine.calls == []  # the turn waits for the write
+
+    gate.set()
+    editor.join(5)
+    sender.join(5)
+    session.join()
+
+    kinds = [e.kind for e in get_journal().events_since(mark)]
+    assert kinds.index("effect_applied") < kinds.index("turn_started")
+    assert DEMO[0] not in json.dumps(since(mark, "context_rendered")[0])
+    session.close()
+
+
+def test_the_card_says_what_the_drawer_and_the_force_need():
+    _, session = memory_session()
+    assert card()["empty_fr"].startswith("Aucune information en mémoire globale. Le modèle peut")
+    assert f"{memory_file.MAX_CHARS} caractères au plus" in card()["text_help_fr"]
+    changed = last("memory_changed")
+    assert (changed["max_entries"], changed["max_chars"]) == (20, memory_file.MAX_CHARS)
+    session.close()
+    _, session = memory_session(qwen=False, skills=False)
+    assert "même par une écriture forcée" in card()["empty_fr"]
     session.close()

@@ -275,6 +275,10 @@ class BrickState(BaseModel):
     always_fr: str | None = None
     # Story 14, `global_memory` brick: what the card adds (e.g. no tool parser, AD-6).
     note_fr: str | None = None
+    # Story 14, `global_memory` brick: the empty drawer's text and the forced write's help
+    # (AD-19), which depend on the model's tool parser.
+    empty_fr: str | None = None
+    text_help_fr: str | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -468,6 +472,9 @@ class MemoryChangedPayload(BaseModel):
     path: str
     # Unreadable or invalid `memory.json`: why the brick is unavailable, until a reset.
     error_fr: str | None = None
+    # The limits the drawer and the forced write apply (AD-19: from the session).
+    max_entries: int
+    max_chars: int
 
 
 # Maps each kind to its payload model, so `Envelope` can validate it.

@@ -62,7 +62,7 @@
         <h3 id="memory-drawer-title">Mémoire globale</h3>
         <p class="drawer-help" id="memory-help">Relue par le modèle au début de chaque tour, dans le message système. Une modification prend effet au prochain tour.</p>
         <p class="drawer-help memory-path" id="memory-path"></p>
-        <p class="memory-empty" id="memory-empty" hidden>Aucune information en mémoire globale. Le modèle peut en écrire, ou vous pouvez forcer une écriture.</p>
+        <p class="memory-empty" id="memory-empty" hidden></p>
         <ul class="memory-list" id="memory-list" aria-label="Entrées de la mémoire globale"></ul>
         <p class="drawer-alert" id="memory-alert" role="alert" hidden></p>
         <div class="drawer-actions">
@@ -72,6 +72,10 @@
         <div class="drawer-actions" id="memory-dirty" hidden>
           <button type="button" id="memory-dirty-save" class="primary">Enregistrer</button>
           <button type="button" id="memory-dirty-discard">Abandonner</button>
+        </div>
+        <div class="drawer-actions" id="memory-confirm" hidden>
+          <button type="button" id="memory-confirm-clear" class="primary">Oui, tout effacer</button>
+          <button type="button" id="memory-confirm-cancel">Annuler</button>
         </div>
       </aside>
     </section>

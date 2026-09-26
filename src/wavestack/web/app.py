@@ -17,7 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, model_validator
 
 from wavestack import config
 from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
@@ -108,6 +108,15 @@ class MemoryIntention(BaseModel):
     op: Literal["replace", "delete", "clear"]
     entry_id: str | None = None
     text: str | None = None
+
+    @model_validator(mode="after")
+    def _fields_of_the_op(self) -> MemoryIntention:
+        """AD-18: `replace` and `delete` name their entry, `replace` carries its text (422)."""
+        if self.op != "clear" and not self.entry_id:
+            raise ValueError("entry_id est requis pour replace et delete")
+        if self.op == "replace" and self.text is None:
+            raise ValueError("text est requis pour replace")
+        return self
 
 
 class SystemPromptIntention(BaseModel):
