@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import threading
 import time
@@ -51,6 +52,8 @@ class Events:
                     for line in response.iter_lines():
                         if line.startswith("data:"):
                             envelope = json.loads(line[5:])
+                            if "seq" not in envelope:
+                                continue  # `server_instance`, outside the journal
                             with self._lock:
                                 self.items.append(envelope)
         except httpx.HTTPError:
@@ -289,15 +292,29 @@ def s_bare_llm(r: Run) -> None:
     r.check(bool(rendered), "Contexte LLM : context_rendered disponible")
     total = r.page.locator("#ctx .ctx-total").inner_text()
     r.check(
-        "(somme des segments) (total" not in total,
-        "en-tête de Contexte LLM sans double précision contradictoire",
+        "(total renvoyé par le fournisseur)" in total and "somme des segments" not in total,
+        "en-tête de Contexte LLM : le total du fournisseur, sans « somme des segments » (A3)",
         total,
-        known="A3",
+    )
+    r.check(
+        re.match(r"Tour \d+ · ", total) is not None,
+        "en-tête de Contexte LLM : « Tour N », comme Orchestration (A3)",
+        total,
     )
     r.shot("02-llm-nu")
+    r.send("Bonjour [sans-usage]")
+    total = r.page.locator("#ctx .ctx-total").inner_text()
+    r.check(
+        "(somme des segments)" in total and "fournisseur" not in total,
+        "sans `usage` du fournisseur : « (somme des segments) » seule (A3)",
+        total,
+    )
     r.send("Bonjour [raisonne]")
-    details = r.page.locator("#chat .bubble-model").last.locator("details.bubble-reasoning")
-    r.check(details.count() == 1, "un champ `reasoning` du fournisseur s'affiche replié")
+    details = r.page.locator("#chat .bubble-model").last.locator("details.reasoning-block")
+    r.check(
+        details.count() == 1 and details.get_attribute("open") is None,
+        "un champ `reasoning` du fournisseur s'affiche replié",
+    )
 
 
 def s_short_memory(r: Run) -> None:
@@ -496,6 +513,7 @@ def s_network_tools(r: Run) -> None:
             ended["payload"]["status"],
         )
     r.shot("08-outils-reseau-echec-explique")
+    schema_fits(r, "Wikipédia")
 
 
 def s_h5(r: Run) -> None:
@@ -782,6 +800,11 @@ def s_data_flows(r: Run) -> None:
         str(local)[:200],
     )
     r.shot("15-ou-vont-mes-donnees-schema")
+    schema_fits(r, "data.gouv.fr")
+
+
+def schema_fits(r: Run, node: str) -> None:
+    """A2: the network zone of the schema, whole, at the two target widths."""
     for width, height in [(1600, 1000), (1366, 768)]:
         r.page.set_viewport_size({"width": width, "height": height})
         time.sleep(0.5)
@@ -791,10 +814,19 @@ def s_data_flows(r: Run) -> None:
         )
         r.check(
             over <= 2,
-            f"{width}×{height} : la zone Réseau du schéma tient sans défilement",
+            f"{width}×{height} : la zone Réseau du schéma tient sans défilement (A2)",
             f"{over} px masqués à droite",
-            known="A2",
         )
+        cut = r.page.evaluate(
+            "(name) => { const b = document.querySelector('.pane-body-schema')"
+            ".getBoundingClientRect();"
+            " const n = [...document.querySelectorAll('.arch-zone-network .arch-node')]"
+            ".find(e => e.textContent.includes(name));"
+            " if (!n) return 'absent'; const r = n.getBoundingClientRect();"
+            " return r.right <= b.right + 1 ? '' : `${Math.round(r.right - b.right)} px coupés`; }",
+            node,
+        )
+        r.check(not cut, f"{width}×{height} : le nœud {node} est entier", cut)
     r.page.set_viewport_size({"width": 1600, "height": 1000})
 
 
@@ -880,12 +912,13 @@ def s_reload_and_reset(r: Run) -> None:
         after == before,
         "le message de réinitialisation ne déforme pas la barre haute",
         f"[largeur, hauteur] de « Réinitialiser », « Volets », jauge : {before} puis {after}",
-        known="A4",
     )
     r.check(
         "WaveStack réinitialisé" in r.page.locator("#top-status").inner_text(),
         "message « WaveStack réinitialisé : LLM nu. »",
     )
+    ok, took = r.poll(lambda: r.page.locator("#top-status").inner_text() == "", 10)
+    r.check(ok, "le message de réinitialisation s'efface de lui-même (A4)", f"{took:.1f} s")
     b = r.bricks()
     r.check(
         not any(x["wanted"] for x in b.values()),
@@ -915,6 +948,46 @@ def s_reload_and_reset(r: Run) -> None:
     r.check(replay.is_disabled(), "rien à rejouer après réinitialisation")
 
 
+def s_stream_resync(r: Run) -> None:
+    """A1, same process: `/api/state` and the stream name the same instance, the page does
+    not reload; they differ (a relaunch between the two), it reloads once; no `/api/state`,
+    the stream's instance is the reference. (A relaunch with the tab open: `s_relaunch`.)"""
+    navigations: list[str] = []
+
+    def on_nav(frame: Any) -> None:
+        if frame == r.page.main_frame:
+            navigations.append(frame.url)
+
+    def other_instance(route: Any) -> None:
+        route.fulfill(json=route.fetch().json() | {"instance_id": "autre-instance"})
+
+    r.page.on("framenavigated", on_nav)
+    try:
+        for label, handler, expected in [
+            ("même instance dans l'état et le flux : aucun rechargement", None, 1),
+            ("état et flux d'instances différentes : un seul rechargement", other_instance, 2),
+            (
+                "sans /api/state : l'instance du flux sert de référence, aucun rechargement",
+                lambda route: route.abort(),
+                1,
+            ),
+        ]:
+            navigations.clear()
+            if handler:
+                r.page.route("**/api/state", handler, times=1)
+            r.page.goto(f"{r.stack.app_url}/")
+            # Not time.sleep: the sync API delivers `framenavigated` only while it runs.
+            # The page is usable from `/api/state` on; the reload follows the stream's first event.
+            r.page.wait_for_timeout(3000)
+            r.wait_idle()
+            r.page.wait_for_timeout(1000)
+            r.check(len(navigations) == expected, label, f"{len(navigations)} navigation(s)")
+        ended = r.send("Bonjour")
+        r.check(ended["payload"]["status"] == "completed", "puis un tour aboutit")
+    finally:
+        r.page.remove_listener("framenavigated", on_nav)
+
+
 def s_relaunch(r: Run) -> None:
     """Story 11: the cloud model chosen is kept at the next launch, without a new warning."""
     saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
@@ -928,12 +1001,16 @@ def s_relaunch(r: Run) -> None:
     for _ in range(10):  # a longer journal than the new process will have at first
         r.send("Bonjour")
     old_tip = r.ev.mark()
+    r.page.evaluate("() => { window.__e2eBeforeRelaunch = true; }")
     r.stack.restart_app()
     r.earlier_events += r.ev.items  # kept for the run's summary
     r.ev = Events(r.stack.app_url)  # a new process: a new journal, from seq 1
     # The tab left open reconnects on its own (streamEvents, every second); the trainer
     # types in it, as he would after « relancez WaveStack pour l'utiliser ».
     time.sleep(4)
+    reloaded = r.page.evaluate("() => window.__e2eBeforeRelaunch !== true")
+    r.check(reloaded, "onglet resté ouvert : la page se recharge d'elle-même à la reconnexion (A1)")
+    r.wait_idle()
     seq = r.ev.mark()
     r.page.fill("#composer-input", "Message après la relance")
     r.page.press("#composer-input", "Enter")
@@ -951,7 +1028,6 @@ def s_relaunch(r: Run) -> None:
         "onglet resté ouvert pendant la relance : la réponse s'affiche",
         f"{sent} ; journal : seq {old_tip} avant relance, {r.ev.mark()} après ; Vue humain : "
         + r.page.locator("#chat .bubble-model").last.inner_text()[:80].replace("\n", " "),
-        known="A1",
     )
     r.page.goto(f"{r.stack.app_url}/")
     expect(r.page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=30_000)
@@ -986,6 +1062,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("forced_native", s_forced_native),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
+    ("stream_resync", s_stream_resync),
     ("relaunch", s_relaunch),
 ]
 

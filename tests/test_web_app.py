@@ -149,6 +149,35 @@ def test_stream_resumes_from_last_event_id_without_duplicates():
     assert f"id: {before.seq}" not in body
 
 
+def test_stream_starts_with_the_server_instance_outside_the_envelope():
+    """A1: a tab left open across a relaunch learns, on reconnecting, that the journal
+    behind the stream is another one, whatever `Last-Event-ID` it sends."""
+    journal = get_journal()
+    journal.emit("session_state", {"state": "idle", "reason_fr": None})
+
+    async def _collect(last_event_id: str | None) -> str:
+        response = _sse_stream(_FakeRequest(last_event_id))
+        return "".join([chunk async for chunk in response.body_iterator])
+
+    for last_event_id in (None, str(journal.last_seq() + 1000)):
+        body = asyncio.run(_collect(last_event_id))
+        first, _, rest = body.partition("\n\n")
+        assert first == (
+            f'event: server_instance\ndata: {{"instance_id": "{journal.instance_id}"}}'
+        )
+        assert "id:" not in first  # never moves the client's `Last-Event-ID`
+        assert "server_instance" not in rest
+
+
+def test_state_gives_the_journal_instance(monkeypatch, tmp_path):
+    app = _build(monkeypatch, tmp_path)
+
+    body = _client(app).get("/api/state").json()
+
+    assert body["instance_id"] == get_journal().instance_id
+    assert len(body["instance_id"]) == 32
+
+
 def test_select_model_boots_the_found_candidate_path(monkeypatch, tmp_path):
     _build(monkeypatch, tmp_path)
     received = []

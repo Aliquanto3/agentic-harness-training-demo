@@ -6,8 +6,11 @@
   de sortie qui refuse les autres hôtes), Chromium 141 sans affichage (Playwright 1.56).
 - **Outillage :** `tools/e2e/` (voir `tools/e2e/README.md`). Relance :
   `uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py` (90 s environ).
-- **Résultat :** 133 vérifications réussies, 0 échec, 4 anomalies (A1 à A4), aucune correction du
-  code applicatif.
+- **Résultat (séance d'origine) :** 133 vérifications réussies, 0 échec, 4 anomalies (A1 à A4),
+  aucune correction du code applicatif.
+- **Corrections :** A1 à A4 corrigées le 2026-09-26 sur la branche d'intégration du palier 2
+  (base `62f297a`, spec `spec-e2e-palier-1-corrections.md`). Nouvelle séance : 152 vérifications
+  réussies, 0 échec, 0 anomalie connue.
 
 ## Méthode
 
@@ -52,8 +55,9 @@
 
 ## Anomalies
 
-Par gravité décroissante. Chacune est aussi une vérification `KNOWN [Ax]` du script, qui ne fait pas
-échouer la séance.
+Par gravité décroissante. Toutes sont corrigées (voir « Correction » sous chacune) ; leurs
+vérifications, d'abord marquées `KNOWN [Ax]` dans le script, sont devenues des vérifications
+normales.
 
 ### A1 — Moyenne : un onglet resté ouvert pendant une relance de WaveStack se bloque
 
@@ -78,6 +82,15 @@ chaque enveloppe) ; s'il change, le front recharge la page.
 **Impact.** L'animateur qui relance WaveStack pour changer de modèle garde souvent l'ancien onglet :
 la démo semble figée. La commande de relance ouvre un nouvel onglet, ce qui limite le risque.
 
+**Correction.** Le journal tire un identifiant d'instance à chaque lancement du processus
+(`Journal.instance_id`). `/api/state` le renvoie, et chaque connexion à `/api/stream` commence par un
+événement `server_instance` qui le porte, hors enveloppe et sans `id:`. Le front compare cet
+identifiant à celui qu'il connaît : s'il diffère, il recharge la page, qui rejoue tout le journal
+du nouveau processus. L'onglet se recharge donc de lui-même dans la seconde qui suit le retour du
+serveur. Vérifié par le scénario `relaunch` (rechargement constaté, réponse affichée) et par
+`stream_resync` (même instance : aucun rechargement ; état et flux d'instances différentes : un
+seul rechargement ; sans `/api/state` : l'instance du flux sert de référence).
+
 ### A2 — Faible à moyenne : la zone Réseau du schéma est rognée de 60 px
 
 **Reproduction.** Scénario « Où vont mes données ? », activer la brique MCP puis data.gouv.fr. À
@@ -92,6 +105,12 @@ cherche justement à montrer (captures `15-ou-vont-mes-donnees-schema.jpg`,
 trop étroite pour le modèle et une colonne de nœuds), rendu de la zone dans `app.js`
 (`renderSchema`).
 
+**Correction.** La zone Réseau prend la largeur de son contenu (`flex: 0 0 auto`, 230 px au
+minimum) et la zone locale cède sa place libre. Vérifié à 1 600 × 1 000 et 1 366 × 768 dans
+« Où vont mes données ? » (nœud data.gouv.fr entier) et « Outils réseau » (nœud Wikipédia entier).
+Limite : avec Hooks, MCP et les outils réseau ensemble à 1 366 px, c'est la zone locale qui se
+resserre (noms de nœuds abrégés par des points de suspension).
+
 ### A3 — Faible : en-tête de Contexte LLM contradictoire en mode cloud
 
 **Reproduction.** Tout tour sur le modèle cloud quand le fournisseur renvoie `usage` : l'en-tête
@@ -103,6 +122,10 @@ suivent. Le tour y est nommé « t1 » alors qu'Orchestration, la comparaison et
 **Fichier suspect.** `src/wavestack/web/static/app.js`, `renderContext` (vers la ligne 1429 :
 `source` s'ajoute au lieu de remplacer « (somme des segments) » ; `turn.id` au lieu de `turnName`).
 
+**Correction.** Une seule précision : « (total renvoyé par le fournisseur) » quand `usage` vient du
+fournisseur, « (somme des segments) » sinon ; le tour est nommé par `turnName` (« Tour 1 »). Le
+faux modèle a un déclencheur `[sans-usage]` pour vérifier le second cas.
+
 ### A4 — Faible : le message « WaveStack réinitialisé : LLM nu. » déforme la barre haute
 
 **Reproduction.** Cliquer « ⟲ Réinitialiser » à 1 600 px de large : le message s'insère dans la
@@ -111,6 +134,11 @@ deux lignes), jusqu'au tour suivant (capture `17-reinitialisation.jpg`).
 
 **Fichiers suspects.** `src/wavestack/web/static/app.css` (`.top-status`, sans largeur bornée ni
 `white-space`), `app.js` (`renderScenarioControls`).
+
+**Correction.** La barre haute n'a qu'une quarantaine de pixels libres à 1 600 px : le message sort
+de son flux. C'est une pastille discrète sous l'extrémité droite de la barre, qui laisse passer les
+clics et s'efface d'elle-même après 6 s (ou au tour suivant). « Réinitialiser », « Volets » et la
+jauge gardent leurs dimensions.
 
 ### Observations sans gravité
 
@@ -144,10 +172,19 @@ deux lignes), jusqu'au tour suivant (capture `17-reinitialisation.jpg`).
 - **Couverture de l'interface.** Clavier, lecteur d'écran, redimensionnement des volets (8f),
   mode focus, infobulles et popovers d'explication n'ont pas été exercés.
 
+## Ajustements du harnais lors des corrections
+
+- Le lecteur du journal (`Events`) ignore l'événement `server_instance`, qui n'est pas une
+  enveloppe.
+- La story 13 a renommé le bloc de raisonnement (`reasoning-block`) : la vérification « un champ
+  `reasoning` du fournisseur s'affiche replié » suit ce nom (elle échouait sur la branche
+  d'intégration avant les corrections).
+- Nouveau scénario `stream_resync` et déclencheur `[sans-usage]` du faux modèle (voir A1 et A3).
+
 ## Captures
 
-`tools/e2e/screenshots/` (15 fichiers JPEG, 2,9 Mo) : diagnostic et avertissement cloud, LLM nu,
+`tools/e2e/screenshots/` (15 fichiers JPEG, 3 Mo) : diagnostic et avertissement cloud, LLM nu,
 prompt système avec rejeu et comparaison, outils natifs et Orchestration, appel mal formé corrigé,
 erreur 429, outils réseau en échec expliqué, H5 en attente, MCP complet, lazy loading forcé,
-Caveman comparé, H1 bloquant, « Où vont mes données ? », réinitialisation, onglet bloqué après
-relance (A1).
+Caveman comparé, H1 bloquant, « Où vont mes données ? », réinitialisation, onglet resté ouvert
+pendant la relance et resynchronisé (A1 corrigée). Captures de la séance après corrections.
