@@ -114,6 +114,25 @@ ligne du lot 12 coupée manque au modèle. Sans Headroom (extra absent, ou `--no
 scénario vérifie la carte et un tour sans étape, puis se saute proprement. Capture :
 `24-compression-avant-apres.jpg`.
 
+## Programme et scénarios métier (story 21)
+
+Le scénario `programme` lit les groupes du sélecteur de scénario : six modules dans l'ordre de
+FR-38 (libellé, durée, scénarios), puis « Transverses et métier » (`data_flows`, `soc`, `iam`,
+`sovereignty`) ; il lance ensuite le module 5 directement (briques des modules 1 à 4, sans le
+raisonnement, consigne qui le dit) et « MCP en documentation complète » (RAG éteint).
+
+- `soc` : `read_file` lit `alertes_siem.log`, H2 journalise ; la lecture de
+  `confidentiel/comptes_privilegies.txt` est bloquée par H1, son contenu n'atteint pas le modèle ;
+  `/api/audit` porte les deux lectures ; un clic sur « Journal d'audit » dans le schéma ouvre le
+  fichier. Capture : `26-metier-soc-journal-audit.jpg`.
+- `iam` : Microsoft Learn seul, en documentation complète ; sans réseau, échec expliqué, nœud
+  indisponible dans la zone Réseau, tour terminé sans outil.
+- `sovereignty` : data.gouv.fr seul, en lazy loading ; sans réseau, échec expliqué ; hors du
+  modèle cloud du parcours, seule l'arête de data.gouv.fr franchit la frontière du poste.
+
+Avec le réseau (PC cible), les appels réels à Microsoft Learn et à data.gouv.fr restent à tester
+à la main : le parcours n'en vérifie que l'échec expliqué.
+
 ## Déclencheurs du faux modèle
 
 La réponse dépend du dernier message de l'utilisateur (sans le texte ajouté par H3 ni les
@@ -122,6 +141,8 @@ extraits RAG), des outils proposés et des résultats déjà reçus dans le tour
 | Message contient | Réponse |
 |---|---|
 | « heure », « Combien font », « recette_crepes », « confidentiel », « férié », « Wikipédia », « compte rendu », « MCP … veut dire » | appel de l'outil correspondant s'il est proposé (`get_datetime`, `calculator`, `read_file`, `public_holidays`, `wikipedia_summary`, `load_skill`, `load_tool_doc` puis `local__define_term`), puis « D'après le résultat de l'outil : … » |
+| « alertes_siem », « confidentiel/fichier.ext » (story 21) | `read_file` sur `alertes_siem.log`, ou sur le fichier confidentiel nommé dans le message (`confidentiel/budget_projet.txt` s'il n'en nomme aucun) |
+| « Entra ID », « data.gouv.fr » (story 21) | appel de la recherche de Microsoft Learn ou de data.gouv.fr si elle est proposée ; sinon « Sans la documentation Microsoft Learn… » / « Sans accès à data.gouv.fr… » |
 | « Délègue … sous-agent » (story 19) | appel de `delegate`, tâche « Lis le fichier guide_harnais.md et résume-le… » (` [lent]` recopié ; avec « page web » : tâche de lecture de page, le sous-agent appelle `fetch_page`) ; le sous-agent (tâche avec « guide_harnais ») appelle `read_file`, puis répond « D'après le résultat de l'outil : … » |
 | « Je m'appelle X » / « Comment je m'appelle » | retient X s'il est dans l'historique |
 | « lot N » avec un résultat d'outil (story 20) | « D'après le journal : » suivi de la ligne du lot N, ou « Le résultat de l'outil ne mentionne pas le lot N. » si la compression l'a coupée |

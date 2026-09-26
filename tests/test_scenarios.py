@@ -32,13 +32,10 @@ def test_real_content_loads_and_every_scenario_launches():
     program = _latest("scenario_changed")["program"]
     ids = [s["id"] for m in program["modules"] for s in m["scenarios"]]
     ids += [s["id"] for s in program["transverse"]]
-    assert len(ids) == 17 and ids[0] == "bare_llm" and ids[-1] == "data_flows"
-    assert program["modules"][-5]["scenarios"][0]["id"] == "reasoning"  # story 13
-    assert program["modules"][-4]["scenarios"][0]["id"] == "global_memory"  # story 14
-    assert program["modules"][-3]["scenarios"][0]["id"] == "subagent"  # story 19
-    assert program["modules"][-2]["scenarios"][0]["id"] == "rag"  # story 15
-    assert program["modules"][-2]["scenarios"][1]["id"] == "rag_rerank"  # story 16
-    assert program["modules"][-1]["scenarios"][0]["id"] == "compression"  # story 20
+    # Story 21: FR-38's order, then the hosting and business scenarios (test_program.py).
+    assert len(ids) == 20 and ids[0] == "bare_llm"
+    assert ids[-4:] == ["data_flows", "soc", "iam", "sovereignty"]
+    assert len(program["modules"]) == 6
     assert all(30 <= m["duration_min"] <= 60 for m in program["modules"])
 
     for scenario_id in ids:
@@ -67,7 +64,7 @@ def test_launch_hooks_after_two_turns():
     assert kinds.count("context_preview") == 1
     changed = _latest("scenario_changed", mark)
     assert changed["active"] == "hooks"
-    assert changed["program"]["modules"][3]["scenarios"][2]["prompts"] == [
+    assert changed["program"]["modules"][4]["scenarios"][2]["prompts"] == [
         "Lis le fichier confidentiel/budget_projet.txt et résume-le."
     ]
     assert session._wanted == {"short_memory", "system_prompt", "tools", "hooks"}
@@ -85,7 +82,9 @@ def test_first_scenario_of_module_3_has_the_previous_modules_bricks():
     session.launch_scenario(first)
     session.join()
 
-    assert session._wanted == {"short_memory", "system_prompt", "tools", "mcp"}
+    # Story 21: module 3 is the RAG; the reasoning is not carried (content/scenarios.yaml).
+    assert first == "rag"
+    assert session._wanted == {"short_memory", "system_prompt", "global_memory", "tools", "rag"}
     session.close()
 
 

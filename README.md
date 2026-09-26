@@ -68,6 +68,29 @@ chemin d'un fichier `.gguf` (partage, clé USB, cache Hugging Face, LM Studio, O
 - Le diagnostic reste accessible par l'indicateur de modèle de la barre haute et par l'entrée
   « Diagnostic » du menu « Volets ▾ ».
 
+## Programme de formation
+
+Le sélecteur de scénario de la barre haute liste six modules, dans l'ordre des briques :
+
+| Module | Durée | Scénarios |
+|---|---|---|
+| 1. Du LLM nu au harnais | 60 min | LLM nu, raisonnement, mémoire courte, prompt système, mémoire globale |
+| 2. Outils | 45 min | outils natifs, outils réseau |
+| 3. RAG | 45 min | RAG, RAG avec reranking |
+| 4. MCP | 45 min | documentation complète, lazy loading |
+| 5. Skills et hooks | 60 min | skills, Caveman, hooks |
+| 6. Sous-agent et compression | 60 min | sous-agent, compression du contexte |
+
+Lancer le premier scénario d'un module active les briques des modules précédents : on peut
+reprendre la formation à n'importe quel module. Deux exceptions, pour tenir dans la fenêtre de
+contexte : le raisonnement reste éteint après le module 1, et le RAG est éteint pendant « MCP en
+documentation complète ». Le groupe « Transverses et métier » suit les modules : « Où vont mes
+données ? », puis trois scénarios métier, fictifs, pour imaginer des usages en practice (SOC :
+journal d'audit et garde-fou ; IAM : Entra ID avec Microsoft Learn ; Souveraineté : données
+publiques françaises avec data.gouv.fr). Les deux derniers demandent un accès à
+`learn.microsoft.com` ou `mcp.data.gouv.fr` ; sans réseau, le serveur est dessiné indisponible
+avec sa raison. Un nouveau scénario s'ajoute dans `content/scenarios.yaml`, sans modifier le code.
+
 ## Changer de modèle
 
 Le modèle se change sans relancer WaveStack, entre deux tours (pas pendant un tour ni une

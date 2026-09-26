@@ -1015,6 +1015,198 @@ def schema_fits(r: Run, node: str) -> None:
     r.page.set_viewport_size({"width": 1600, "height": 1000})
 
 
+# ---------- story 21: the programme in FR-38's order, the business scenarios ----------
+
+PROGRAMME = [
+    (
+        "Module 1 · Du LLM nu au harnais · 60 min",
+        ["bare_llm", "reasoning", "short_memory", "system_prompt", "global_memory"],
+    ),
+    ("Module 2 · Outils · 45 min", ["native_tools", "network_tools"]),
+    ("Module 3 · RAG · 45 min", ["rag", "rag_rerank"]),
+    ("Module 4 · MCP · 45 min", ["mcp_full", "mcp_lazy"]),
+    ("Module 5 · Skills et hooks · 60 min", ["skills", "caveman", "hooks"]),
+    ("Module 6 · Sous-agent et compression · 60 min", ["subagent", "compression"]),
+    ("Transverses et métier", ["data_flows", "soc", "iam", "sovereignty"]),
+]
+
+
+def s_programme(r: Run) -> None:
+    """The scenario picker lists FR-38's modules, then the hosting and business scenarios;
+    a module launched directly has the previous modules' bricks (CAP-40)."""
+    r.wait_idle()
+    groups = r.page.evaluate(
+        "() => [...document.querySelectorAll('#scenario-picker optgroup')].map(g =>"
+        " [g.label, [...g.querySelectorAll('option')].map(o => o.value)])"
+    )
+    r.check(
+        [tuple(g) for g in groups] == [(label, ids) for label, ids in PROGRAMME],
+        "sélecteur : modules dans l'ordre de FR-38, puis « Transverses et métier »",
+        str(groups)[:400],
+    )
+    r.launch("skills")  # module 5, launched directly
+    wanted = {k for k, b in r.bricks().items() if b["wanted"]}
+    expected = {"short_memory", "system_prompt", "global_memory", "tools", "rag", "mcp", "skills"}
+    r.check(
+        wanted == expected,
+        "module 5 lancé directement : les briques des modules 1 à 4, sans le raisonnement",
+        str(sorted(wanted)),
+    )
+    guide = r.page.locator("#scenario-guide")
+    r.check(
+        "sans le raisonnement" in guide.inner_text(),
+        "la consigne dit que le raisonnement reste éteint",
+    )
+    r.launch("mcp_full")
+    r.check(
+        not r.bricks()["rag"]["wanted"] and "sauf le raisonnement et le RAG" in guide.inner_text(),
+        "« MCP en documentation complète » : RAG éteint, la consigne le dit",
+    )
+
+
+SOC_PROMPTS = [
+    "Lis le fichier alertes_siem.log et classe ses alertes de la plus grave à la moins grave, "
+    "une ligne par alerte.",
+    "Pour qualifier l'alerte critique, lis confidentiel/comptes_privilegies.txt et dis-moi quel "
+    "est le rôle du compte adm.leroy.",
+]
+
+
+def s_soc(r: Run) -> None:
+    """FR-40, SOC: H2 logs the allowed read, H1 blocks the confidential one; the audit log
+    opens from the schema."""
+    r.launch("soc")
+    guide = r.page.locator("#scenario-guide")
+    r.check("Métier SOC" in guide.inner_text(), "consigne du scénario SOC affichée")
+    seq = r.ev.mark()
+    ended = r.send(SOC_PROMPTS[0])
+    reads = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
+    r.check(
+        bool(reads) and reads[0]["status"] == "ok",
+        "read_file lit alertes_siem.log",
+        str(reads)[:200],
+    )
+    decided = [e["payload"] for e in r.ev.since(seq, "hook_decided")]
+    r.check(any(d["hook"] == "h2" for d in decided), "H2 journalise la lecture")
+    r.check(
+        ended["payload"]["status"] == "completed" and "SIEM" in r.last_answer(),
+        "la réponse s'appuie sur le journal d'alertes",
+        r.last_answer()[:160],
+    )
+    seq = r.ev.mark()
+    ended = r.send(SOC_PROMPTS[1])
+    decided = [e["payload"] for e in r.ev.since(seq, "hook_decided")]
+    r.check(
+        any(d["hook"] == "h1" and d["decision"] == "block" for d in decided),
+        "H1 bloque l'inventaire des comptes à privilèges",
+        str([(d["hook"], d["decision"]) for d in decided]),
+    )
+    r.check(ended["payload"]["status"] == "completed", "le tour se termine après le blocage")
+    sent = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
+    r.check("adm.nguyen" not in sent, "le contenu confidentiel n'atteint pas le modèle")
+    audit = r.api("GET", "/api/audit").json().get("text", "")
+    r.check(
+        "alertes_siem.log" in audit and "bloqué par H1" in audit,
+        "journal d'audit : la lecture permise et la lecture bloquée",
+        audit.strip().splitlines()[-1][:200] if audit.strip() else "vide",
+    )
+    r.page.locator('#schema .arch-node[data-component="file.audit"]').click()
+    dialog = r.page.locator("#audit-dialog")
+    expect(dialog).to_be_visible(timeout=5000)
+    r.check(
+        "bloqué par H1" in r.page.locator("#audit-text").inner_text(),
+        "clic sur « Journal d'audit » dans le schéma : le fichier s'ouvre",
+    )
+    # The scenario's lines are the last ones of a log the whole run feeds.
+    r.page.locator("#audit-text").evaluate(
+        "e => { for (let n = e; n; n = n.parentElement) n.scrollTop = n.scrollHeight; }"
+    )
+    r.shot("26-metier-soc-journal-audit")
+    r.page.click("#audit-close")
+
+
+def _public_server_offline(r: Run, seq: int, server: str, label: str) -> None:
+    ends = {e["payload"]["server"]: e["payload"] for e in r.ev.since(seq, "mcp_connect_ended")}
+    ended = ends.get(server, {})
+    r.check(
+        ended.get("status") == "error" and bool(ended.get("error_fr")),
+        f"{label} injoignable sans réseau : échec expliqué",
+        (ended.get("error_fr") or str(ended))[:200],
+    )
+    arch = r.state()["architecture_changed"]
+    drawn = next((n for n in arch["nodes"] if n["id"] == f"mcp.{server}"), {})
+    r.check(
+        drawn.get("hosting") == "network" and drawn.get("available") is False,
+        f"schéma : {label} dessiné dans la zone Réseau, indisponible",
+        str({k: drawn.get(k) for k in ("hosting", "available", "reason_fr")})[:200],
+    )
+    zone = r.page.locator("#schema .arch-zone-network")
+    r.check(label in zone.inner_text(), f"le nœud {label} est dans la zone Réseau du schéma")
+
+
+def s_iam(r: Run) -> None:
+    """FR-40, IAM: Microsoft Learn alone, full documentation; offline here (to test with
+    the network on the target PC)."""
+    seq = r.ev.mark()
+    r.launch("iam")
+    started = [e["payload"]["server"] for e in r.ev.since(seq, "mcp_connect_started")]
+    r.check("mslearn" in started, "le scénario contacte Microsoft Learn", str(started))
+    mcp = r.bricks()["mcp"]
+    enabled = [o["id"] for o in mcp["options"] if o["enabled"]]
+    r.check(
+        enabled == ["mslearn"] and mcp["mode"] == "full",
+        "carte MCP : Microsoft Learn seul, documentation complète",
+        f"{enabled} · {mcp.get('mode')}",
+    )
+    _public_server_offline(r, seq, "mslearn", "Microsoft Learn")
+    seq = r.ev.mark()
+    ended = r.send(
+        "Dans Microsoft Entra ID, comment exiger l'authentification multifacteur pour tous les "
+        "administrateurs ? Appuie-toi sur la documentation Microsoft Learn."
+    )
+    r.check(
+        ended["payload"]["status"] == "completed" and not r.ev.since(seq, "tool_started"),
+        "le tour aboutit sans outil, serveur indisponible",
+        r.last_answer()[:160],
+    )
+
+
+def s_sovereignty(r: Run) -> None:
+    """FR-40, sovereignty: data.gouv.fr in lazy loading; only its flow crosses the
+    workstation's boundary."""
+    seq = r.ev.mark()
+    r.launch("sovereignty")
+    mcp = r.bricks()["mcp"]
+    enabled = [o["id"] for o in mcp["options"] if o["enabled"]]
+    r.check(
+        enabled == ["datagouv"] and mcp["mode"] == "lazy",
+        "carte MCP : data.gouv.fr seul, lazy loading",
+        f"{enabled} · {mcp.get('mode')}",
+    )
+    _public_server_offline(r, seq, "datagouv", "data.gouv.fr")
+    arch = r.state()["architecture_changed"]
+    crossing = [e for e in arch["edges"] if e.get("crosses_boundary")]
+    # The run's model is a cloud one: its flow crosses too, as the instructions say.
+    others = [e for e in crossing if "core.model" not in e["from"] + e["to"]]
+    r.check(
+        bool(others) and all("datagouv" in e["from"] + e["to"] for e in others),
+        "hors modèle cloud, seul le flux vers data.gouv.fr franchit la frontière du poste",
+        str(crossing)[:300],
+    )
+    r.check(
+        any("core.model" in e["from"] + e["to"] for e in crossing),
+        "le modèle cloud du parcours franchit lui aussi la frontière",
+    )
+    ended = r.send(
+        "Cherche sur data.gouv.fr des jeux de données publics sur la cybersécurité en France."
+    )
+    r.check(
+        ended["payload"]["status"] == "completed" and "data.gouv.fr" in r.last_answer(),
+        "le tour aboutit, sans le service public",
+        r.last_answer()[:160],
+    )
+
+
 def s_forced_native(r: Run) -> None:
     r.launch("native_tools")
     r.show_forced(True)
@@ -2250,6 +2442,7 @@ def s_relaunch(r: Run) -> None:
 
 SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("diagnostic", s_diagnostic),
+    ("programme", s_programme),
     ("bare_llm", s_bare_llm),
     ("short_memory", s_short_memory),
     ("system_prompt", s_system_prompt),
@@ -2265,6 +2458,9 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("hooks", s_hooks),
     ("subagent", s_subagent),
     ("data_flows", s_data_flows),
+    ("soc", s_soc),
+    ("iam", s_iam),
+    ("sovereignty", s_sovereignty),
     ("forced_native", s_forced_native),
     ("global_memory", s_global_memory),
     ("rag", s_rag),

@@ -505,11 +505,8 @@ def test_state_and_scenario_rag(index):
     session.join()
     state = client.get("/api/state").json()
     wanted = {b["id"] for b in state["bricks_changed"]["bricks"] if b["wanted"]}
-    assert wanted == {"short_memory", "system_prompt", "tools", "mcp", "skills", "hooks", "rag"}
-    mcp = next(b for b in state["bricks_changed"]["bricks"] if b["id"] == "mcp")
-    hooks = next(b for b in state["bricks_changed"]["bricks"] if b["id"] == "hooks")
-    assert mcp["mode"] == "lazy"
-    assert {o["id"] for o in hooks["options"] if o["enabled"]} == {"h1", "h2"}
+    # Story 21: module 3 of FR-38, after the tools (the reasoning is not carried).
+    assert wanted == {"short_memory", "system_prompt", "global_memory", "tools", "rag"}
     assert state["scenario_changed"]["active"] == "rag"
     session.close()
 

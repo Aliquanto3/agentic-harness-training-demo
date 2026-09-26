@@ -176,8 +176,19 @@ def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
         return [("read_file", {"path": "journal_serveur.log"})]
     if "guide_harnais" in low:  # the sub-agent's task (or a main agent reading it itself)
         return [("read_file", {"path": "guide_harnais.md"})]
-    if "confidentiel" in low:
-        return [("read_file", {"path": "confidentiel/budget_projet.txt"})]
+    if "alertes_siem" in low:  # story 21: the SOC scenario's alerts
+        return [("read_file", {"path": "alertes_siem.log"})]
+    if "confidentiel" in low:  # the file named in the message, else the hooks scenario's
+        named = re.search(r"confidentiel/[\w.-]+\.\w+", user)
+        return [
+            ("read_file", {"path": named.group(0) if named else "confidentiel/budget_projet.txt"})
+        ]
+    if "entra id" in low:  # story 21, IAM: Microsoft Learn's search, when connected
+        mslearn = [n for n in offered if n.startswith("mslearn__") and "search" in n]
+        return [(mslearn[0], {"query": "Entra ID"})] if mslearn else []
+    if "data.gouv.fr" in low:  # story 21, sovereignty: data.gouv.fr's search, when connected
+        datagouv = [n for n in offered if n.startswith("datagouv__") and "search" in n]
+        return [(datagouv[0], {"query": "cybersécurité"})] if datagouv else []
     if "recette_crepes" in low or "crêpes" in low:
         return [("read_file", {"path": "recette_crepes.txt"})]
     if "notes_reunion" in low:
@@ -258,6 +269,10 @@ def _final_text(user: str, messages: list[dict[str, Any]], results: list[str]) -
         if source:
             return f"D'après l'{source} : au minimum 14 caractères chez Exemplia."
         return "Je ne connais pas les règles d'Exemplia ; en général, on conseille 8 caractères."
+    if "entra id" in low:  # story 21: Microsoft Learn unreachable (no network in the run)
+        return "Sans la documentation Microsoft Learn, je ne peux pas détailler Entra ID."
+    if "data.gouv.fr" in low:
+        return "Sans accès à data.gouv.fr, je ne peux pas chercher dans les données publiques."
     if "présente-toi" in low:
         return "Je suis le faux modèle de WaveStack : mes réponses sont écrites d'avance."
     if "mcp" in low:

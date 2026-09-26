@@ -524,22 +524,15 @@ def test_a_model_that_always_reasons_draws_the_brick_and_names_the_model():
     session.close()
 
 
-def test_reasoning_scenario_keeps_the_previous_modules_bricks():
+def test_reasoning_scenario_adds_the_brick_to_the_bare_llm():
+    """Story 21: second scenario of module 1 (FR-38), the reasoning alone."""
     _, session = _qwen(["ok"])
 
     session.launch_scenario("reasoning")
     session.join()
 
-    assert session._wanted == {
-        "short_memory",
-        "system_prompt",
-        "tools",
-        "mcp",
-        "skills",
-        "hooks",
-        "reasoning",
-    }
-    assert session._mcp_lazy is True
+    assert session._wanted == {"reasoning"}
+    assert session._mcp_lazy is False
     preview = _latest("context_preview")
     # The fit itself needs the real tokenizer (AD-9's `model` test): one token per byte here.
     assert preview["reserve"] == 1536 and preview["usable"] == 4096 - 1536

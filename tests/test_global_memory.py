@@ -450,23 +450,18 @@ def test_arming_a_memory_write_checks_its_text():
     session.close()
 
 
-def test_memory_scenario_keeps_the_previous_modules_bricks():
+def test_memory_scenario_closes_module_1():
+    """Story 21: last scenario of module 1 (FR-38); the modules after it keep the brick."""
     session = booted_session(FakeEngine())
 
     session.launch_scenario("global_memory")
     session.join()
 
-    assert session._wanted == {
-        "short_memory",
-        "system_prompt",
-        "tools",
-        "mcp",
-        "skills",
-        "hooks",
-        "reasoning",
-        "global_memory",
-    }
-    assert session._mcp_lazy
+    assert session._wanted == {"short_memory", "system_prompt", "global_memory"}
+    assert not session._mcp_lazy
+    session.launch_scenario("native_tools")
+    session.join()
+    assert "global_memory" in session._wanted
     session.close()
 
 

@@ -196,3 +196,25 @@ def test_delegation_then_the_sub_agent_reads_the_guide():
     system = {"role": "system", "content": "Sous-agent."}
     sub = fake.plan_reply(_body(system, _user(task), tools=("read_file",)))
     assert sub.tool_calls == [{"name": "read_file", "arguments": '{"path": "guide_harnais.md"}'}]
+
+
+def test_business_scenarios_triggers():
+    """Story 21: the SOC reads the file its message names; IAM and sovereignty call their
+    public server's search when it is offered, and say so when it is not."""
+    soc = "Lis le fichier alertes_siem.log et classe ses alertes."
+    assert fake.plan_reply(_body(_user(soc), tools=("read_file",))).tool_calls == [
+        {"name": "read_file", "arguments": '{"path": "alertes_siem.log"}'}
+    ]
+    secret = "Pour qualifier l'alerte, lis confidentiel/comptes_privilegies.txt."
+    reply = fake.plan_reply(_body(_user(secret), tools=("read_file",)))
+    assert json.loads(reply.tool_calls[0]["arguments"]) == {
+        "path": "confidentiel/comptes_privilegies.txt"
+    }
+    iam = "Dans Microsoft Entra ID, comment exiger l'authentification multifacteur ?"
+    offered = ("mslearn__microsoft_docs_search",)
+    assert fake.plan_reply(_body(_user(iam), tools=offered)).tool_calls[0]["name"] == offered[0]
+    assert "Microsoft Learn" in fake.plan_reply(_body(_user(iam))).text
+    data = "Cherche sur data.gouv.fr des jeux de données sur la cybersécurité."
+    offered = ("datagouv__search_datasets",)
+    assert fake.plan_reply(_body(_user(data), tools=offered)).tool_calls[0]["name"] == offered[0]
+    assert "data.gouv.fr" in fake.plan_reply(_body(_user(data))).text

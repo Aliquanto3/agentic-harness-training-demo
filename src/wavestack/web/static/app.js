@@ -2221,7 +2221,8 @@ function renderScenarioControls(state) {
       groups.push(node);
     };
     program?.modules.forEach((m, i) => group(`Module ${i + 1} · ${m.title_fr} · ${m.duration_min} min`, m.scenarios));
-    if (program?.transverse.length) group("Transverse", program.transverse);
+    // Story 21: the business scenarios (FR-40) follow the hosting one, in `transverse`.
+    if (program?.transverse.length) group("Transverses et métier", program.transverse);
     picker.replaceChildren(empty, ...groups);
   }
   const active = store.scenarios?.active ?? "";

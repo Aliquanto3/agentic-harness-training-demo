@@ -1,41 +1,43 @@
-# Programme de formation et scénarios par brique (story 10, AD-19, FR-38).
+# Programme de formation et scénarios par brique (stories 10 et 21, AD-19, FR-38, FR-40).
 # Chaque scénario déclare sa configuration complète, pas un écart au précédent :
-# lancer le premier scénario d'un module active déjà les briques des modules précédents.
+# lancer le premier scénario d'un module active déjà les briques des modules précédents
+# (CAP-40), avec deux exceptions tenues par la fenêtre de contexte (AD-9), que la consigne
+# du scénario rappelle :
+# - le raisonnement, montré au module 1, n'est reconduit dans aucun module suivant : sa
+#   réserve de sortie de 1 536 tokens ôte 1 024 tokens utiles à chaque appel et allonge
+#   chaque tour (NFR-1) ; rallumez-le à la main pour le montrer à l'œuvre ;
+# - « MCP en documentation complète » laisse le RAG éteint : ses extraits s'ajouteraient
+#   à une documentation déjà près de la limite ; « Lazy loading », qui le suit, le rallume.
+# Les scénarios suivants d'un module, les transverses et les scénarios métier fixent
+# librement leur configuration, au plus près de la brique qu'ils montrent.
 # `bricks` : briques voulues ; `tools`, `mcp_servers`, `skills`, `hooks` : sous-options
 # activées (absentes = valeurs de lancement) ; `mcp_lazy` : lazy loading (faux par défaut) ;
 # `rag_rerank` : reranking des extraits RAG (faux par défaut) ;
 # `prompts` : prompts suggérés au-dessus du champ de saisie.
+# `transverse` : scénarios hors modules, listés après eux : l'hébergement (FR-38), puis les
+# scénarios métier (FR-40). Un nouveau métier s'ajoute ici, sans modifier le code.
 
 program:
   - title_fr: Du LLM nu au harnais
-    duration_min: 45
-    scenarios: [bare_llm, short_memory, system_prompt]
+    duration_min: 60
+    scenarios: [bare_llm, reasoning, short_memory, system_prompt, global_memory]
   - title_fr: Outils
     duration_min: 45
     scenarios: [native_tools, network_tools]
+  - title_fr: RAG
+    duration_min: 45
+    scenarios: [rag, rag_rerank]
   - title_fr: MCP
     duration_min: 45
     scenarios: [mcp_full, mcp_lazy]
   - title_fr: Skills et hooks
     duration_min: 60
     scenarios: [skills, caveman, hooks]
-  - title_fr: Raisonnement
-    duration_min: 30
-    scenarios: [reasoning]
-  - title_fr: Mémoire globale
-    duration_min: 30
-    scenarios: [global_memory]
-  - title_fr: Sous-agent
-    duration_min: 30
-    scenarios: [subagent]
-  - title_fr: RAG
-    duration_min: 45
-    scenarios: [rag, rag_rerank]
-  - title_fr: Compression
-    duration_min: 30
-    scenarios: [compression]
+  - title_fr: Sous-agent et compression
+    duration_min: 60
+    scenarios: [subagent, compression]
 
-transverse: [data_flows]
+transverse: [data_flows, soc, iam, sovereignty]
 
 scenarios:
   bare_llm:
@@ -47,6 +49,23 @@ scenarios:
     bricks: []
     prompts:
       - Quelle heure est-il ?
+
+  reasoning:
+    title_fr: Raisonnement
+    description_fr: >-
+      Seule la brique Raisonnement est active, sur le LLM nu : le modèle écrit d'abord son
+      raisonnement, puis sa réponse. Envoyez le prompt et dépliez le raisonnement, dans la
+      Vue humain ou dans Contexte LLM ; la jauge montre la réserve de sortie passée à
+      1 536 tokens. Éteignez ensuite la brique, rejouez le prompt et ouvrez « Comparer » :
+      moins de tokens en sortie et un tour plus court, mais une réponse souvent moins sûre.
+      Si le modèle ne sait pas raisonner, la carte de la brique en donne la raison. Les
+      modules suivants laissent le raisonnement éteint, pour garder de la place et des tours
+      courts : rallumez-le à la main pour le montrer à l'œuvre.
+    bricks: [reasoning]
+    prompts:
+      - >-
+        Un train part de Paris à 14 h 47 et roule 2 h 38. Il a ensuite 25 minutes de
+        retard. À quelle heure arrive-t-il ?
 
   short_memory:
     title_fr: Mémoire courte
@@ -69,13 +88,32 @@ scenarios:
     prompts:
       - Présente-toi en quelques phrases.
 
+  global_memory:
+    title_fr: Mémoire globale
+    description_fr: >-
+      La mémoire courte et le prompt système restent actifs, et la mémoire globale s'y
+      ajoute : trois informations de démonstration sont déjà dans le message système. Si une
+      séance précédente a laissé la préférence en mémoire, cliquez d'abord sur
+      « Réinitialiser » puis relancez ce scénario : la démonstration est restaurée.
+      Envoyez le premier prompt : le modèle appelle l'outil remember et le harnais écrit le
+      fichier memory.json. S'il ne le fait pas, forcez « Écrire en mémoire » depuis la carte
+      de la brique (après « Afficher les actions forcées ») et renvoyez le prompt. Videz
+      ensuite la conversation, puis envoyez le second prompt : la préférence revient par le
+      message système, pas par l'historique. Ouvrez enfin « Modifier la mémoire » (ou
+      cliquez le fichier dans le schéma) pour consulter, modifier ou effacer les entrées.
+      La mémoire globale reste active dans les modules suivants.
+    bricks: [short_memory, system_prompt, global_memory]
+    prompts:
+      - Retiens que je préfère des réponses en trois points au plus.
+      - Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.
+
   native_tools:
     title_fr: Outils natifs
     description_fr: >-
-      Les outils locaux sont actifs. Envoyez un prompt et suivez dans Orchestration
-      le cycle d'appel : le modèle demande l'outil, le harnais l'exécute et réinjecte
-      son résultat.
-    bricks: [short_memory, system_prompt, tools]
+      Les briques du module 1 restent actives, sauf le raisonnement, et les outils locaux
+      s'y ajoutent. Envoyez un prompt et suivez dans Orchestration le cycle d'appel : le
+      modèle demande l'outil, le harnais l'exécute et réinjecte son résultat.
+    bricks: [short_memory, system_prompt, global_memory, tools]
     prompts:
       - Quelle heure est-il ?
       - Combien font 1234 multiplié par 5678 ?
@@ -87,23 +125,58 @@ scenarios:
       Les outils réseau s'ajoutent aux outils locaux : leur nœud est dessiné dans la
       zone Réseau. Envoyez un prompt, puis ouvrez dans Orchestration les données
       sortantes : c'est le texte exact qui a quitté le poste.
-    bricks: [short_memory, system_prompt, tools]
+    bricks: [short_memory, system_prompt, global_memory, tools]
     tools:
       [get_datetime, calculator, read_file, public_holidays, wikipedia_summary, fetch_page]
     prompts:
       - Quels sont les jours fériés en France cette année ?
       - Résume l'article Wikipédia sur le Mont-Saint-Michel.
 
+  rag:
+    title_fr: RAG
+    description_fr: >-
+      Les briques des modules précédents restent actives, sauf le raisonnement, et la brique
+      RAG s'y ajoute : le corpus décrit Exemplia, une organisation imaginaire. Éteignez
+      d'abord la brique RAG et envoyez le premier prompt : le modèle ne connaît pas Exemplia,
+      il invente ou avoue ne pas savoir. Rallumez la brique, rejouez le prompt et ouvrez
+      « Comparer » : les extraits RAG sont dans votre message, et la réponse s'appuie sur le
+      bon document.
+      Dépliez l'étape « Recherche RAG » dans Orchestration (requête, extraits, scores) et
+      regardez le fichier d'index dans le schéma. Première installation : si la carte
+      propose « Télécharger », cliquez-y, puis sur « Construire l'index » quand elle le
+      propose ; la brique devient disponible sans ligne de commande.
+    bricks: [short_memory, system_prompt, global_memory, tools, rag]
+    prompts:
+      - Combien de caractères doit compter au minimum un mot de passe chez Exemplia ?
+      - Quel plafond de remboursement s'applique à une nuit d'hôtel à Paris chez Exemplia ?
+
+  rag_rerank:
+    title_fr: RAG avec reranking
+    description_fr: >-
+      Les briques du scénario RAG, avec la sous-option « Reranking » cochée sur la carte RAG :
+      le harnais retient 8 candidats par embedding, un second modèle local les note avec la
+      question, puis seuls les 3 premiers entrent dans votre message. Envoyez le premier
+      prompt et dépliez l'étape « Reranking » dans Orchestration : l'ordre avant et après,
+      les extraits gardés et écartés, et les deux scores. Décochez « Reranking », rejouez et
+      ouvrez « Comparer » : quels extraits ont changé ? Première utilisation : si la carte
+      propose « Télécharger le modèle de reranking », cliquez-y d'abord.
+    bricks: [short_memory, system_prompt, global_memory, tools, rag]
+    rag_rerank: true
+    prompts:
+      - Combien de caractères doit compter au minimum un mot de passe chez Exemplia ?
+      - Que faut-il faire en premier quand on perd son ordinateur portable chez Exemplia ?
+
   mcp_full:
     title_fr: MCP en documentation complète
     description_fr: >-
-      Le serveur MCP local et data.gouv.fr sont connectés : la documentation complète
-      de chaque outil entre dans le contexte. Regardez la jauge avant d'envoyer le
-      prompt : elle est déjà presque pleine. Passez ensuite au scénario « Lazy
-      loading » pour voir le même besoin tenir dans un contexte bien plus léger.
-      Sans réseau, data.gouv.fr reste dessiné comme indisponible : poursuivez avec le
-      serveur local.
-    bricks: [short_memory, system_prompt, tools, mcp]
+      Les briques des modules précédents restent actives, sauf le raisonnement et le RAG,
+      éteint pour laisser la place : le serveur MCP local et data.gouv.fr sont connectés, et
+      la documentation complète de chaque outil entre dans le contexte. Regardez la jauge
+      avant d'envoyer le prompt : elle est déjà presque pleine. Passez ensuite au scénario
+      « Lazy loading » pour voir le même besoin tenir dans un contexte bien plus léger, au
+      point de pouvoir rallumer le RAG. Sans réseau, data.gouv.fr reste dessiné comme
+      indisponible : poursuivez avec le serveur local.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp]
     mcp_servers: [local, datagouv]
     prompts:
       - Que veut dire MCP ?
@@ -111,12 +184,12 @@ scenarios:
   mcp_lazy:
     title_fr: Lazy loading
     description_fr: >-
-      Mêmes serveurs, en lazy loading : seule une ligne par outil entre dans le
-      contexte. Comparez la jauge au scénario précédent, bien plus légère, envoyez le
-      prompt et suivez le chargement de la documentation dans Orchestration.
-      Sans réseau, data.gouv.fr reste dessiné comme indisponible : poursuivez avec le
-      serveur local.
-    bricks: [short_memory, system_prompt, tools, mcp]
+      Mêmes serveurs, en lazy loading : seule une ligne par outil entre dans le contexte, et
+      le RAG est rallumé. Comparez la jauge au scénario précédent, bien plus légère malgré
+      les extraits RAG, envoyez le prompt et suivez le chargement de la documentation dans
+      Orchestration. Sans réseau, data.gouv.fr reste dessiné comme indisponible : poursuivez
+      avec le serveur local.
+    bricks: [short_memory, system_prompt, global_memory, tools, rag, mcp]
     mcp_servers: [local, datagouv]
     mcp_lazy: true
     prompts:
@@ -126,10 +199,12 @@ scenarios:
   skills:
     title_fr: Skills
     description_fr: >-
-      Seuls le nom et la description de chaque skill sont dans le contexte. Envoyez le
-      prompt : quand le modèle charge un skill, son contenu complet rejoint le contexte
-      et la jauge grandit.
-    bricks: [short_memory, system_prompt, tools, mcp, skills]
+      Les briques des modules précédents restent actives (MCP en lazy loading, sans le
+      raisonnement), et les skills s'y ajoutent : seuls le nom et la description de chaque
+      skill sont dans le contexte. Envoyez le prompt : quand le modèle charge un skill, son
+      contenu complet rejoint le contexte et la jauge grandit.
+    bricks: [short_memory, system_prompt, global_memory, tools, rag, mcp, skills]
+    mcp_lazy: true
     prompts:
       - >-
         Rédige le compte rendu de cette réunion : Paul présente le budget, Julie
@@ -158,43 +233,6 @@ scenarios:
     prompts:
       - Lis le fichier confidentiel/budget_projet.txt et résume-le.
 
-  reasoning:
-    title_fr: Raisonnement
-    description_fr: >-
-      Les briques des modules précédents restent actives, MCP en lazy loading pour garder
-      de la place, et la brique Raisonnement s'y ajoute : le modèle écrit d'abord son
-      raisonnement, puis sa réponse. Envoyez le prompt et dépliez le raisonnement, dans la
-      Vue humain ou dans Contexte LLM ; la jauge montre la réserve de sortie passée à
-      1 536 tokens. Éteignez ensuite la brique, rejouez le prompt et ouvrez « Comparer » :
-      moins de tokens en sortie et un tour plus court, mais une réponse souvent moins sûre.
-      Si le modèle ne sait pas raisonner, la carte de la brique en donne la raison.
-    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, reasoning]
-    mcp_lazy: true
-    prompts:
-      - >-
-        Un train part de Paris à 14 h 47 et roule 2 h 38. Il a ensuite 25 minutes de
-        retard. À quelle heure arrive-t-il ?
-
-  global_memory:
-    title_fr: Mémoire globale
-    description_fr: >-
-      Les briques des modules précédents restent actives, MCP en lazy loading, et la mémoire
-      globale s'y ajoute : trois informations de démonstration sont déjà dans le message
-      système. Si une séance précédente a laissé la préférence en mémoire, cliquez d'abord
-      sur « Réinitialiser » puis relancez ce scénario : la démonstration est restaurée.
-      Envoyez le premier prompt : le modèle appelle l'outil remember et le harnais écrit le
-      fichier memory.json. S'il ne le fait pas, forcez « Écrire en mémoire » depuis la carte
-      de la brique (après « Afficher les actions forcées ») et renvoyez le prompt. Videz
-      ensuite la conversation, puis envoyez le second prompt : la préférence revient par le
-      message système, pas par l'historique. Ouvrez enfin « Modifier la mémoire » (ou
-      cliquez le fichier dans le schéma) pour consulter, modifier ou effacer les entrées.
-      Pour des tours plus rapides, éteignez le raisonnement.
-    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, reasoning, global_memory]
-    mcp_lazy: true
-    prompts:
-      - Retiens que je préfère des réponses en trois points au plus.
-      - Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.
-
   subagent:
     title_fr: Sous-agent
     description_fr: >-
@@ -211,7 +249,7 @@ scenarios:
       forcées ») avec le préréglage « Résumer le guide du harnais » et rejouez. Les trois
       questions suivantes testent le résumé : ce qu'il a laissé de côté est perdu pour
       l'agent principal, qui doit redéléguer ou avouer qu'il ne sait pas.
-    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, global_memory, subagent]
+    bricks: [short_memory, system_prompt, global_memory, tools, rag, mcp, skills, hooks, subagent]
     tools: [read_file]
     mcp_lazy: true
     prompts:
@@ -223,59 +261,22 @@ scenarios:
       - "Quiz : pourquoi déléguer à un sous-agent économise-t-il le contexte principal ?"
       - "Quiz : que se passe-t-il si le contexte du sous-agent déborde ?"
 
-  rag:
-    title_fr: RAG
-    description_fr: >-
-      Les briques des modules 1 à 4 restent actives, MCP en lazy loading, et la brique RAG
-      s'y ajoute : le corpus décrit Exemplia, une organisation imaginaire. Éteignez d'abord
-      la brique RAG et envoyez le premier prompt : le modèle ne connaît pas Exemplia, il
-      invente ou avoue ne pas savoir. Rallumez la brique, rejouez le prompt et ouvrez
-      « Comparer » : les extraits RAG sont dans votre message, et la réponse s'appuie sur le
-      bon document.
-      Dépliez l'étape « Recherche RAG » dans Orchestration (requête, extraits, scores) et
-      regardez le fichier d'index dans le schéma. Première installation : si la carte
-      propose « Télécharger », cliquez-y, puis sur « Construire l'index » quand elle le
-      propose ; la brique devient disponible sans ligne de commande.
-    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, rag]
-    mcp_lazy: true
-    hooks: [h1, h2]
-    prompts:
-      - Combien de caractères doit compter au minimum un mot de passe chez Exemplia ?
-      - Quel plafond de remboursement s'applique à une nuit d'hôtel à Paris chez Exemplia ?
-
-  rag_rerank:
-    title_fr: RAG avec reranking
-    description_fr: >-
-      Les briques du scénario RAG, avec la sous-option « Reranking » cochée sur la carte RAG :
-      le harnais retient 8 candidats par embedding, un second modèle local les note avec la
-      question, puis seuls les 3 premiers entrent dans votre message. Envoyez le premier
-      prompt et dépliez l'étape « Reranking » dans Orchestration : l'ordre avant et après,
-      les extraits gardés et écartés, et les deux scores. Décochez « Reranking », rejouez et
-      ouvrez « Comparer » : quels extraits ont changé ? Première utilisation : si la carte
-      propose « Télécharger le modèle de reranking », cliquez-y d'abord.
-    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, rag]
-    mcp_lazy: true
-    hooks: [h1, h2]
-    rag_rerank: true
-    prompts:
-      - Combien de caractères doit compter au minimum un mot de passe chez Exemplia ?
-      - Que faut-il faire en premier quand on perd son ordinateur portable chez Exemplia ?
   compression:
     title_fr: Compression du contexte
     description_fr: >-
-      Les briques du module RAG restent actives, et la brique Compression s'y ajoute :
-      Headroom raccourcit les gros résultats d'outils et les extraits RAG avant l'appel au
-      modèle. Éteignez d'abord la compression et envoyez le premier prompt : le journal de
-      sauvegarde entre en entier dans le contexte. Rallumez-la, rejouez le prompt et ouvrez
-      « Comparer ». Dépliez l'étape « Compression (Headroom) » dans Orchestration : tokens
-      avant et après, texte d'origine et version courte, où l'erreur est restée. Dans
-      Contexte LLM, le résultat d'outil est marqué « compressé » et l'en-tête donne le total
-      sans compression. Les extraits RAG, de la prose, passent tels quels : c'est la limite
-      de l'outil. Posez enfin le second prompt : ce que Headroom a coupé est perdu pour le
-      modèle. La compression réduit ce qui entre, Caveman ce qui sort. Si la carte indique
-      que Headroom n'est pas installé, lancez `uv sync --extra compression` puis relancez
-      WaveStack.
-    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, rag, compression]
+      Les briques du scénario Sous-agent restent actives, sans le sous-agent, et la brique
+      Compression s'y ajoute : Headroom raccourcit les gros résultats d'outils et les
+      extraits RAG avant l'appel au modèle. Éteignez d'abord la compression et envoyez le
+      premier prompt : le journal de sauvegarde entre en entier dans le contexte.
+      Rallumez-la, rejouez le prompt et ouvrez « Comparer ». Dépliez l'étape « Compression
+      (Headroom) » dans Orchestration : tokens avant et après, texte d'origine et version
+      courte, où l'erreur est restée. Dans Contexte LLM, le résultat d'outil est marqué
+      « compressé » et l'en-tête donne le total sans compression. Les extraits RAG, de la
+      prose, passent tels quels : c'est la limite de l'outil. Posez enfin le second prompt :
+      ce que Headroom a coupé est perdu pour le modèle. La compression réduit ce qui entre,
+      Caveman ce qui sort. Si la carte indique que Headroom n'est pas installé, lancez
+      `uv sync --extra compression` puis relancez WaveStack.
+    bricks: [short_memory, system_prompt, global_memory, tools, rag, mcp, skills, hooks, compression]
     tools: [read_file]
     mcp_lazy: true
     hooks: [h1, h2]
@@ -294,3 +295,73 @@ scenarios:
     bricks: [short_memory, system_prompt, tools]
     prompts:
       - Quels jeux de données publics existent sur la qualité de l'air ?
+
+  # ---------- scénarios métier (story 21, FR-40) : fictifs, sans donnée client ----------
+
+  soc:
+    title_fr: "Métier SOC : journal d'audit et garde-fou"
+    description_fr: >-
+      Pour la practice SOC. La lecture de fichier et les hooks H1 et H2 sont actifs.
+      Envoyez le premier prompt : le modèle lit les alertes d'un SIEM fictif et les classe
+      par gravité, et H2 consigne chaque appel, horodaté, dans le journal d'audit. Envoyez
+      le second : pour qualifier l'alerte critique, le modèle veut ouvrir l'inventaire des
+      comptes à privilèges, et H1 bloque la lecture, car le fichier est dans le dossier
+      confidentiel ; c'est du code du harnais qui décide, pas le modèle. Cliquez enfin
+      « Journal d'audit » dans le schéma : l'appel permis et l'appel bloqué y sont, prêts
+      pour une investigation. Si le modèle n'appelle pas l'outil, forcez read_file avec le
+      préréglage « Fichier sensible » (après « Afficher les actions forcées ») et rejouez.
+    bricks: [short_memory, system_prompt, tools, hooks]
+    tools: [read_file]
+    hooks: [h1, h2]
+    prompts:
+      - >-
+        Lis le fichier alertes_siem.log et classe ses alertes de la plus grave à la moins
+        grave, une ligne par alerte.
+      - >-
+        Pour qualifier l'alerte critique, lis confidentiel/comptes_privilegies.txt et
+        dis-moi quel est le rôle du compte adm.leroy.
+
+  iam:
+    title_fr: "Métier IAM : Entra ID avec Microsoft Learn"
+    description_fr: >-
+      Pour la practice IAM. Seul le serveur MCP public Microsoft Learn est connecté, en
+      documentation complète, avec la mémoire courte et le prompt système : un petit modèle
+      ne connaît pas les écrans récents d'Entra ID, la documentation officielle, si.
+      Envoyez le premier prompt : le modèle cherche dans Microsoft Learn, et Orchestration
+      montre la destination et les données exactement envoyées, avant le résultat. Le
+      schéma dessine le serveur dans la zone Réseau : la question part chez Microsoft, le
+      modèle reste sur le poste. Les résultats de recherche sont volumineux : si la jauge
+      annonce un dépassement, c'est le coût réel d'un MCP public ; posez une question plus
+      précise. Sans réseau, Microsoft Learn est dessiné indisponible avec sa raison :
+      décochez puis recochez le serveur dans la carte MCP pour réessayer.
+    bricks: [short_memory, system_prompt, mcp]
+    mcp_servers: [mslearn]
+    prompts:
+      - >-
+        Dans Microsoft Entra ID, comment exiger l'authentification multifacteur pour tous
+        les administrateurs ? Appuie-toi sur la documentation Microsoft Learn.
+      - >-
+        Qu'est-ce que Privileged Identity Management dans Entra ID, et à quoi sert
+        l'activation juste-à-temps d'un rôle ?
+
+  sovereignty:
+    title_fr: "Métier Souveraineté : données publiques françaises"
+    description_fr: >-
+      Pour la practice souveraineté. Les outils locaux et le serveur MCP public
+      data.gouv.fr sont actifs, en lazy loading. Envoyez le premier prompt : le modèle
+      charge la documentation de l'outil de recherche, puis interroge le catalogue des
+      données publiques françaises. Regardez le schéma : seul le flux vers data.gouv.fr
+      franchit la frontière du poste, le modèle et les outils locaux y restent ; dans
+      Orchestration, les données sortantes montrent que seule la requête de recherche part,
+      vers un service de l'État. Avec un modèle cloud, toute la conversation partirait
+      aussi chez son fournisseur : la question de l'hébergement se pose pour le harnais,
+      les données et le modèle. Sans réseau, data.gouv.fr est dessiné indisponible avec sa
+      raison : décochez puis recochez le serveur dans la carte MCP pour réessayer.
+    bricks: [short_memory, system_prompt, tools, mcp]
+    mcp_servers: [datagouv]
+    mcp_lazy: true
+    prompts:
+      - Cherche sur data.gouv.fr des jeux de données publics sur la cybersécurité en France.
+      - >-
+        Parmi ces jeux de données, lequel est publié par une administration de l'État, et
+        quand a-t-il été mis à jour ?
