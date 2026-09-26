@@ -7,7 +7,8 @@ received. `plan_reply` holds the whole script; `README.md` lists the triggers.
 
 Debug routes: `GET /_e2e/requests` (the bodies received, newest last) and
 `POST /_e2e/reset` (forget them). Story 15: `GET /_e2e/model.gguf` is the fake embedding
-model's file, a 503 until `POST /_e2e/model_ready` (a failed, then a successful download).
+model's file, a 503 until `POST /_e2e/model_ready` (a failed, then a successful download);
+story 16: `GET /_e2e/reranker.gguf` is the fake reranker's, always served.
 
 Run: `uv run python tools/e2e/fake_openai.py --port 8765`.
 """
@@ -42,6 +43,7 @@ _H3_INJECTION = re.compile(r"Date et heure du poste.*?données confidentielles\.
 _RAG_INTRO = "Extraits de la documentation interne d'Exemplia"
 _RAG_EXCERPT = re.compile(r"Extrait (\d+) — ([^:\n]+) :")
 MODEL_FILE_SIZE = 4096  # the fake embedding model's file (tools/e2e/stack.py declares it)
+RERANKER_FILE_SIZE = 2048  # story 16: the fake reranker's, always served
 
 
 @dataclass
@@ -435,6 +437,9 @@ def create_app() -> Starlette:
             return JSONResponse({"error": "fichier indisponible (e2e)"}, status_code=503)
         return Response(b"\0" * MODEL_FILE_SIZE, media_type="application/octet-stream")
 
+    async def reranker_file(_: Request) -> Response:
+        return Response(b"\1" * RERANKER_FILE_SIZE, media_type="application/octet-stream")
+
     async def model_ready(_: Request) -> JSONResponse:
         model["ready"] = True
         return JSONResponse({"ok": True})
@@ -447,6 +452,7 @@ def create_app() -> Starlette:
             Route("/_e2e/reset", reset, methods=["POST"]),
             Route("/_e2e/model.gguf", model_file),
             Route("/_e2e/model_ready", model_ready, methods=["POST"]),
+            Route("/_e2e/reranker.gguf", reranker_file),
         ]
     )
 

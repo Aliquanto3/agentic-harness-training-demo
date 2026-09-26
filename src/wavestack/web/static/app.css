@@ -3047,3 +3047,44 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   margin-left: var(--spacing-2);
   color: var(--color-primary-deep);
 }
+
+/* Story 16: the RAG card's reranking sub-option, and the step's order before and after. */
+.brick-suboption {
+  margin-top: var(--spacing-2);
+}
+
+.rerank-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--spacing-3);
+}
+
+.rerank-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.rerank-before .rerank-item {
+  display: flex;
+  gap: var(--spacing-2);
+  align-items: baseline;
+}
+
+.rerank-item.is-dropped {
+  opacity: 0.6;
+}
+
+.rerank-move,
+.rerank-keep {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-soft);
+}
+
+.rerank-item.is-kept .rerank-keep {
+  font-weight: var(--typography-label-font-weight);
+  color: var(--color-primary);
+}

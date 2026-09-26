@@ -201,7 +201,14 @@ BRICKS = [
                 kind="retriever",
                 hosting="local_process",
                 edges_to=["core.harness", "file.rag_index"],
-            )
+            ),
+            # Story 16: the reranking model, drawn while its sub-option is enabled.
+            Component(
+                id="rag.reranker",
+                kind="reranker",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            ),
         ],
     ),
     # Story 20 (AD-22): Headroom compresses tool results and RAG excerpts, in the harness's

@@ -701,7 +701,9 @@ def test_cli_sets_the_offline_variables_before_third_party_imports():
 
 def test_scenario_compression_closes_the_programme():
     scenarios = (config.content_dir() / "scenarios.yaml").read_text(encoding="utf-8")
-    assert scenarios.index("scenarios: [rag]") < scenarios.index("scenarios: [compression]")
+    assert scenarios.index("scenarios: [rag, rag_rerank]") < scenarios.index(
+        "scenarios: [compression]"
+    )
     lines = LOG.splitlines()
     assert ERROR_LINE in LOG and len(lines) >= 60  # Headroom sees a log from about 50 lines
     # A coherent night: every lot up to the error copied once, none after it.

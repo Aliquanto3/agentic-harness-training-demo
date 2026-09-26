@@ -199,6 +199,16 @@ corpus : un autre modèle, un corpus modifié ou un autre `[rag] chunk_max_chars
 brique indisponible, avec la raison, et la carte propose « Construire l'index ». Le dossier
 `models/embedding/` n'est jamais proposé comme modèle de conversation.
 
+### Reranking (sous-option de la brique RAG)
+
+La case « Reranking » de la carte RAG ajoute une seconde passe : la recherche retient
+`[rag] rerank_candidates` candidats (8), un reranker local les note avec la question, et seuls
+les `top_k` premiers (3) entrent dans le message. L'étape « Reranking » d'Orchestration montre
+l'ordre avant et après. Le modèle est nommé dans la seule section `[rag.reranker]` de
+`wavestack.toml` (BGE Reranker v2 M3, GGUF Q4_K_M, 438 Mo, Apache-2.0, verdict provisoire de la
+story 12). Sans lui, la case propose « Télécharger le modèle de reranking » (fichier dans
+`models/reranker/`, ou copie à la main au même endroit) et le RAG fonctionne sans reranking.
+Le dossier `models/reranker/` n'est jamais proposé comme modèle de conversation.
 ## Compression du contexte (Headroom)
 
 La brique Compression passe les gros résultats d'outils et les extraits RAG à

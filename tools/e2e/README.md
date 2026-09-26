@@ -36,13 +36,14 @@ Pour explorer à la main : `uv run python tools/e2e/stack.py` lance le faux mod�
   `/v1/models`, `/_e2e/requests` pour relire les corps reçus). Clé attendue : `e2e-fake-key`.
   `/_e2e/model.gguf` est le fichier du faux modèle d'embedding : 503 tant que
   `POST /_e2e/model_ready` n'a pas été appelé (un téléchargement qui échoue, puis réussit).
+  `/_e2e/reranker.gguf` est celui du faux reranker (story 16), toujours servi.
 - `stack.py` : dossier de données temporaire, `settings.json` qui déclare deux modèles sur le
   faux serveur, `fake` (`wavestack-fake`) et `fake_b` (`faux-modele-b`, pour le changement de
   modèle de la story 17), clé par `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux
   serveurs sur `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
   `settings.json` pointe `[rag]` vers un index dans ce dossier, absent au départ comme sur
   une installation neuve (le scénario `rag` le construit depuis la carte), et déclare un faux
-  fichier de modèle servi par le faux serveur.
+  fichier de modèle servi par le faux serveur ; de même pour `[rag.reranker]` (story 16).
 - `fake_local_server.py` (story 18) : un faux llama-server (`/health`, `/props` avec le gabarit
   Qwen3.5, `/v1/models`, `/tokenize` avec les pièces, `/detokenize`, `/completion` en SSE ;
   tokenizer octet par octet, marqueurs du gabarit en un token) et un faux Ollama (`/api/tags`,
@@ -51,13 +52,27 @@ Pour explorer à la main : `uv run python tools/e2e/stack.py` lance le faux mod�
   `[net.loopback_ports]` ; `/_e2e/requests` relit les corps reçus.
 - `wavestack_e2e.py` : le lanceur de WaveStack pendant le parcours. Il lance `wavestack.cli`
   tel quel (garde réseau d'abord), la brique RAG chargeant le faux modèle d'embedding de
-  `tests/fake_embedder.py` (sac de mots haché, 64 dimensions, aucun GGUF nécessaire), et
-  applique `launch_app.py`.
+  `tests/fake_embedder.py` (sac de mots haché, 64 dimensions, aucun GGUF nécessaire) et le
+  faux reranker de `tests/fake_reranker.py` (part des mots de la question présents dans
+  l'extrait), et applique `launch_app.py`.
 - `launch_app.py` : ralentit la seule préparation de `fake_b` (`WAVESTACK_E2E_LOAD_DELAY_S`,
   2 s par défaut) : sans cela, un modèle cloud se prépare trop vite pour que le parcours voie
   le chronomètre « Chargement du modèle… ».
 - `run_e2e.py` : les scénarios Playwright ; le journal est lu en parallèle sur `/api/stream`.
 - `tests/test_e2e_fake_openai.py` : tests pytest du faux serveur, sans navigateur.
+
+## Reranking (story 16)
+
+Le scénario `rag_rerank`, joué juste après `rag` (index construit, modèle d'embedding
+présent) : la case « Reranking » est cochée par le scénario, le modèle de reranking absent
+(raison « modèle absent », « Télécharger le modèle de reranking ») et le RAG cherche sans lui ;
+le téléchargement réussit ; le rejeu de la question sur l'hôtel à Paris montre « Recherche
+RAG » (8 candidats) puis « Reranking » (« 3 gardés sur 8 »), le faux reranker remontant
+« Déplacements et notes de frais » du 6ᵉ au 1er rang ; seuls 3 extraits partent dans le
+message ; l'étape dépliée montre l'ordre avant et après ; un clic sélectionne la puce ↕️ du
+reranker dans le schéma ; l'étape reste après un rechargement ; décochée, la case affiche
+« Prend effet au prochain tour » et le rejeu n'a plus d'étape « Reranking ». Capture :
+`25-reranking-avant-apres.jpg`.
 
 ## Changement de modèle (story 17)
 

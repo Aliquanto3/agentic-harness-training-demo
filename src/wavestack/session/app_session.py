@@ -38,7 +38,14 @@ from wavestack.compression.port import (
     Compressor,
     load_compression_content,
 )
-from wavestack.config import MAX_RESERVE, CloudModel, EmbeddingFile, EmbeddingModel, output_reserve
+from wavestack.config import (
+    MAX_RESERVE,
+    CloudModel,
+    EmbeddingFile,
+    EmbeddingModel,
+    RerankerModel,
+    output_reserve,
+)
 from wavestack.context.render import (
     RenderedChat,
     RenderedContext,
@@ -72,6 +79,7 @@ from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
 from wavestack.models import download as download_module
 from wavestack.models import embedding as embedding_module
 from wavestack.models import probe as probe_module
+from wavestack.models import reranker as reranker_module
 from wavestack.models.capabilities import (
     TOOL_CALL_TAGS,
     Capabilities,
@@ -83,6 +91,7 @@ from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
 from wavestack.models.load_registry import (
     COMPRESSOR,
     EMBEDDING,
+    RERANKER,
     LoadRegistry,
     ModelChoice,
     process_rss,
@@ -94,10 +103,11 @@ from wavestack.models.openai_chat import (
     output_tps,
     run_call,
 )
+from wavestack.models.reranker import RerankCancelled, Reranker
 from wavestack.models.servers import ServerError, open_engine
 from wavestack.rag import index as rag_index
 from wavestack.rag.corpus import Chunk, RagContent, chunk_corpus, load_rag_content
-from wavestack.rag.retriever import SqliteVecRetriever
+from wavestack.rag.retriever import Excerpt, SqliteVecRetriever
 from wavestack.scenarios import EMPTY_PROGRAM, ScenariosContent, load_scenarios
 from wavestack.session.effects import (
     ArmConsumed,
@@ -142,7 +152,9 @@ MEMORY = "file.memory"  # the schema node of `memory.json` (AD-12, AD-23)
 DELEGATE = "delegate"  # the harness meta-tool of the subagent brick (AD-11, AD-25)
 _NO_SUB_TEXT_FR = "(Le sous-agent n'a rendu aucun texte.)"
 RAG_INDEX = "file.rag_index"  # the schema node of the RAG index (story 15, AD-12)
-RAG_TARGET = "rag_embedding"  # the only `download_model` target (story 15)
+RAG_TARGET = "rag_embedding"  # a `download_model` target: the embedding model (story 15)
+RERANK_TARGET = "rag_reranker"  # the other one: the reranking model (story 16)
+RAG_RERANKER = "rag.reranker"  # the reranker's schema node (story 16, AD-12)
 
 _CORE_HARNESS = {
     "id": "core.harness",
@@ -337,6 +349,8 @@ class TurnState:
     # Story 15 (AD-4): the RAG's intro then its excerpts, formatted, found by this turn's
     # search; never kept in the history.
     rag_excerpts: tuple[str, ...] = ()
+    # Story 16: the RAG's search is reranked (sub-option enabled, reranker loaded at start).
+    rag_rerank: bool = False
     # Story 20 (AD-22): what each of `rag_excerpts` was before the compressor (same order).
     rag_compressed: tuple[CompressedFrom | None, ...] = ()
     # Story 19 (AD-11): the sub-agent's tools, `[subagent] tools` among the enabled ones.
@@ -446,6 +460,7 @@ class AppSession:
         rss_fn: Callable[[], int] | None = None,
         server_factory: Callable[..., Engine] | None = None,
         embedder_factory: Callable[[EmbeddingModel], Embedder] | None = None,
+        reranker_factory: Callable[[RerankerModel], Reranker] | None = None,
         download_transport: Any = None,
         compressor_factory: Callable[[], Compressor] | None = None,
     ) -> None:
@@ -536,6 +551,17 @@ class AppSession:
         self._rag_loading = False
         self._rag_load_error: str | None = None  # the budget's refusal, or the load's failure
         self._download_cancel: CancelToken | None = None  # « Arrêter » a download or a build
+        # Story 16 (AD-8): the reranking sub-option, its model (`[rag.reranker]`, or why it is
+        # invalid), the files missing, and the reranker loaded.
+        self._reranker_factory = reranker_factory or reranker_module.open_reranker
+        self._rerank_model: RerankerModel | None = None
+        self._rerank_config_error: str | None = None
+        self._rerank_missing: list[EmbeddingFile] = []
+        self._reranker: Reranker | None = None
+        self._rerank_loading = False
+        self._rerank_load_error: str | None = None
+        self._rag_rerank = False  # launch value: `_apply_launch_config`
+        self._sent_rerank = False  # what the last `send` froze, for `pending`
         # Story 20 (AD-8, AD-22): Headroom, an optional dependency, loaded while the brick is
         # wanted; why it cannot be (not installed) is read once, for the default adapter only.
         self._compressor_factory: Callable[[], Compressor] = (
@@ -620,6 +646,7 @@ class AppSession:
         # MCP servers (story 6): the local one starts enabled, the public ones disabled.
         self._mcp_enabled = {"local"} & set(self._mcp_servers)
         self._mcp_lazy = False  # story 6b: documentation complète by default
+        self._rag_rerank = self._sent_rerank = False  # story 16: no reranking at launch
         self._skills_enabled = set(self._skill_ids())  # story 7: all enabled
         self._hooks_enabled = set(self._hook_ids()) - {"h5"}  # story 8: H5 disabled (8b, Q1)
         self._sent = (
@@ -680,6 +707,9 @@ class AppSession:
                 enabled = {f"skills.{skill}" for skill in self._skills_enabled}
             elif brick.id == "hooks":
                 enabled = {f"hooks.{hook}" for hook in self._hooks_enabled}
+            elif brick.id == "rag":  # story 16: the reranker while its sub-option is enabled
+                enabled = {c.id for c in brick.components if c.id != RAG_RERANKER}
+                enabled |= {RAG_RERANKER} if self._rag_rerank else set()
             else:
                 return list(brick.components)
         return [c for c in brick.components if c.id in enabled]
@@ -852,6 +882,16 @@ class AppSession:
                     node["detail_fr"] = hook.description_fr if hook else None
                 if component.id == "rag.retriever" and self._rag_model is not None:
                     node["detail_fr"] = f"Modèle d'embedding {self._rag_model.id}, processus local"
+                if component.id == RAG_RERANKER:  # story 16: its label, model and own reason
+                    if self._rag_content is not None:
+                        node["label_fr"] = self._rag_content.rerank_label_fr
+                    if self._rerank_model is not None:
+                        node["detail_fr"] = (
+                            f"Modèle de reranking {self._rerank_model.id}, processus local"
+                        )
+                    ok, why = self._rerank_availability()
+                    if node["available"] and not ok:
+                        node["available"], node["reason_fr"] = False, why
                 if component.id == "compression.compressor":
                     node["detail_fr"] = (
                         f"{self._compressor_label()}, bibliothèque dans le processus du "
@@ -891,6 +931,8 @@ class AppSession:
                 pending.add("skills")
             if "hooks" in self._wanted and self._hooks_enabled != sent_hooks:
                 pending.add("hooks")
+            if "rag" in self._wanted and self._rag_rerank != self._sent_rerank:  # story 16
+                pending.add("rag")
         return pending
 
     def _mcp_options(self) -> list[dict[str, Any]]:
@@ -1033,7 +1075,7 @@ class AppSession:
             if brick.id == "subagent" and self._subagent_content is not None:
                 bricks[-1] |= self._subagent_card(self._subagent_content)
             if brick.id == "rag":
-                bricks[-1] |= self._rag_offers()
+                bricks[-1] |= self._rag_offers() | {"rerank": self._rerank_card()}
             if brick.id == "compression" and self._compression_content is not None:
                 bricks[-1]["limits_fr"] = self._compression_content.limits_fr.format(
                     min_chars=self.cfg.compression_min_chars
@@ -1073,6 +1115,7 @@ class AppSession:
             conn.close(wait=not self._on_loop())
         self._executor.shutdown(wait=True, cancel_futures=True)
         self._release_embedder()  # story 15 (AD-8)
+        self._release_reranker()  # story 16
         self._release_compressor()  # story 20 (AD-8)
         if self._engine is not None:
             self._engine.close()
@@ -1279,7 +1322,9 @@ class AppSession:
             # Story 15 (AD-8): memory changed with the model; an embedding model the budget
             # refused gets another chance.
             with self._lock:
-                retry = "rag" in self._wanted and self._rag_load_error is not None
+                retry = "rag" in self._wanted and (
+                    self._rag_load_error is not None or self._rerank_load_error is not None
+                )
             if retry:
                 self._request_rag_sync()
             with self._lock:  # story 20: the same second chance for Headroom
@@ -1615,7 +1660,9 @@ class AppSession:
 
     def _load_rag(self) -> None:
         """Story 15 (AD-19): its texts, then `[rag.embedding]`, then the index and the model's
-        files. Invalid: the brick is unavailable with the reason, never a crash."""
+        files. Invalid: the brick is unavailable with the reason, never a crash. Story 16:
+        `[rag.reranker]` first, whose error makes only the sub-option unavailable."""
+        self._rerank_model, self._rerank_config_error = self.cfg.rag_reranker
         try:
             self._rag_content = load_rag_content()
         except Exception as exc:  # noqa: BLE001
@@ -1646,7 +1693,13 @@ class AppSession:
         """Story 15: what the availability reads of the index (`meta`, the preview's
         excerpts) and of the model's files, at launch, before loading the model (the brick
         switched on), after a download or a build, and when a search finds the index
-        replaced. Never at each emission."""
+        replaced. Never at each emission. Story 16: the reranker's files too."""
+        rerank = self._rerank_model
+        rerank_missing = (
+            download_module.missing_files(rerank.files, config.models_dir()) if rerank else []
+        )
+        with self._lock:
+            self._rerank_missing = rerank_missing
         model = self._rag_model
         content = self._rag_content
         if model is None or content is None:
@@ -1808,15 +1861,24 @@ class AppSession:
         brick before its model is there; a turn already queued runs without it."""
         if "rag" not in self._bricks:
             return
+        static, rerank_static = self._rag_static_reason(), self._rerank_static_reason()
         with self._lock:
             wanted, loaded = "rag" in self._wanted, self._embedder is not None
             if not wanted:
                 self._rag_load_error, self._rag_loading = None, False
-        if wanted == loaded or (wanted and self._rag_static_reason() is not None):
+            # Story 16: the reranker follows the sub-option, once the brick can load.
+            rerank_need = wanted and self._rag_rerank and static is None and not rerank_static
+            rerank_loaded = self._reranker is not None
+            if not rerank_need:
+                self._rerank_load_error, self._rerank_loading = None, False
+        embedder_idle = wanted == loaded or (wanted and static is not None)
+        if embedder_idle and rerank_need == rerank_loaded:
             return  # nothing to load nor to release: no event (one per reconfiguration)
-        if wanted:
-            with self._lock:
+        with self._lock:
+            if wanted and not loaded and static is None:
                 self._rag_loading, self._rag_load_error = True, None
+            if rerank_need and not rerank_loaded:
+                self._rerank_loading, self._rerank_load_error = True, None
         self._executor.submit(self._sync_rag)
 
     def _rag_static_reason(self) -> str | None:
@@ -1853,6 +1915,7 @@ class AppSession:
         with self._lock:
             changed = changed or self._rag_loading
             self._rag_loading = False
+        changed = self._sync_reranker() or changed  # story 16, once the embedder is there
         if changed:
             self._emit_bricks()
             self._emit_architecture()
@@ -1926,6 +1989,183 @@ class AppSession:
             embedder, self._embedder = self._embedder, None
             retriever, self._rag_retriever = self._rag_retriever, None
         self._close_embedder(embedder, retriever)
+
+    # ---------- story 16: the reranking sub-option (AD-8, AD-12, AD-21) ----------
+
+    def _rerank_static_reason(self) -> str | None:
+        """What prevents loading the reranker at all: its declaration, then its files."""
+        model = self._rerank_model
+        if model is None:
+            return self._rerank_config_error or "Indisponible : [rag.reranker] non configurée."
+        with self._lock:
+            missing = list(self._rerank_missing)
+        return self._rerank_missing_fr(model, missing) if missing else None
+
+    @staticmethod
+    def _rerank_missing_fr(model: RerankerModel, missing: list[EmbeddingFile]) -> str:
+        names = ", ".join(PurePosixPath(f.path).name for f in missing)
+        folder = config.models_dir() / PurePosixPath(missing[0].path).parent
+        size = _mo(sum(f.size for f in missing))
+        if any((config.models_dir() / f.path).is_file() for f in missing):
+            return (
+                f"Indisponible : le fichier {names} de {folder} n'est pas le modèle de reranking "
+                f"déclaré ({model.label_fr}, {size} Mo attendus). Cliquez sur « Télécharger » "
+                "pour le remplacer. Le RAG fonctionne sans reranking."
+            )
+        return (
+            f"Indisponible : modèle absent. Le modèle de reranking {model.label_fr} ({size} Mo) "
+            f"n'est pas sur le poste. Cliquez sur « Télécharger », ou copiez à la main {names} "
+            f"dans {folder}, puis cliquez de nouveau sur « Télécharger ». Le RAG fonctionne "
+            "sans reranking."
+        )
+
+    def _rerank_availability(self) -> tuple[bool, str | None]:
+        """The sub-option's own availability, in order: its declaration, its files, then,
+        once it should load, loading and a refused or failed load. The RAG brick stays
+        available without it."""
+        static = self._rerank_static_reason()
+        if static is not None:
+            return False, static
+        model = self._rerank_model
+        with self._lock:
+            wanted = "rag" in self._wanted and self._rag_rerank
+            loading, error = self._rerank_loading, self._rerank_load_error
+            loaded = self._reranker is not None
+        if not wanted or loaded:
+            return True, None
+        if loading:
+            return False, f"Chargement du modèle de reranking {model.label_fr if model else ''}…"
+        if error is not None:
+            return False, error
+        return True, None
+
+    def _rerank_card(self) -> dict[str, Any] | None:
+        """The RAG card's « Reranking » switch, its reason and « Télécharger » (AD-21)."""
+        content, model = self._rag_content, self._rerank_model
+        if content is None:
+            return None
+        with self._lock:
+            enabled, missing = self._rag_rerank, list(self._rerank_missing)
+        available, reason_fr = self._rerank_availability()
+        download = None
+        if model is not None and missing:
+            size_mb = max(1, round(sum(f.size for f in missing) / 1_000_000))
+            download = {
+                "target": RERANK_TARGET,
+                "label_fr": content.rerank_download_label_fr.format(size_mb=size_mb),
+            }
+        return {
+            "label_fr": content.rerank_label_fr,
+            "enabled": enabled,
+            "available": available,
+            "reason_fr": reason_fr,
+            "hosting_fr": "Local",
+            "download": download,
+        }
+
+    def set_rag_rerank(self, enabled: bool) -> None:
+        """Class (a), story 16: the RAG brick's reranking sub-option, effective from the next
+        turn; its model loads or leaves on the worker. `KeyError` without a RAG brick."""
+        if "rag" not in self._bricks:
+            raise KeyError("rag")
+        with self._lock:
+            if self._rag_rerank == enabled:
+                return
+            self._rag_rerank = enabled
+        self._request_rag_sync()
+        self._emit_bricks()
+        self._emit_architecture()
+
+    def _sync_reranker(self) -> bool:
+        """On the worker, after the embedder: load the reranker through the registry (AD-8)
+        when the brick and its sub-option want it and the embedder is loaded; release it
+        otherwise. Returns whether something changed."""
+        model = self._rerank_model
+        static, rerank_static = self._rag_static_reason(), self._rerank_static_reason()
+        with self._lock:
+            need = (
+                "rag" in self._wanted
+                and self._rag_rerank
+                and self._embedder is not None
+                and static is None
+                and rerank_static is None
+                and model is not None
+            )
+            reranker, error = self._reranker, self._rerank_load_error
+        changed = False
+        if not need:
+            changed = reranker is not None
+            self._release_reranker()
+        elif reranker is None and error is None:  # a refusal waits for a new request
+            loaded, error = self._load_reranker(model)
+            with self._lock:
+                still = "rag" in self._wanted and self._rag_rerank  # switched off meanwhile?
+                if still:
+                    self._reranker, self._rerank_load_error = loaded, error
+            if not still:
+                self._close_reranker(loaded)
+            changed = True
+        with self._lock:
+            changed = changed or self._rerank_loading
+            self._rerank_loading = False
+        return changed
+
+    def _load_reranker(self, model: RerankerModel) -> tuple[Reranker | None, str | None]:
+        """The budget first (a refusal in figures, nothing loaded), then the file's declared
+        sha256, then the load."""
+        label = f"le modèle de reranking {model.label_fr}"
+        cost = self._load_registry.embedding_cost(
+            model.measured_rss_mb, [f.size for f in model.files]
+        )
+        refusal = self._load_registry.check_component(label, cost, RERANKER)
+        if refusal is not None:
+            with scoped(brick="rag", component=RAG_RERANKER):
+                self._error(
+                    refusal,
+                    "budget mémoire dépassé (AD-8)",
+                    "Le reranking est indisponible ; le RAG fonctionne sans lui. Il se charge de "
+                    "lui-même après un changement de modèle, ou en le réactivant.",
+                )
+            return None, f"Indisponible : {refusal}"
+        path = reranker_module.model_path(model)
+        reranker: Reranker | None = None
+        try:
+            declared = model.load_file.sha256
+            if declared and rag_index.file_sha256(path) != declared.lower():
+                raise ValueError(
+                    f"le fichier {path} n'est pas le modèle déclaré (sha256 différent de "
+                    "celui de [rag.reranker])"
+                )
+            reranker = self._reranker_factory(model)
+        except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+            self._close_reranker(reranker)
+            with scoped(brick="rag", component=RAG_RERANKER):
+                self._error(
+                    "Le modèle de reranking n'a pas pu être chargé.",
+                    exc,
+                    "Le reranking est indisponible ; le RAG fonctionne sans lui.",
+                )
+            return None, (
+                f"Indisponible : le modèle de reranking n'a pas pu être chargé "
+                f"({type(exc).__name__}: {exc}). Vérifiez le fichier {path}, ou supprimez-le "
+                "et cliquez sur « Télécharger »."
+            )
+        self._load_registry.grant(model.label_fr, cost, RERANKER)
+        return reranker, None
+
+    def _close_reranker(self, reranker: Reranker | None) -> None:
+        if reranker is not None:
+            try:
+                reranker.close()
+            except Exception as exc:  # noqa: BLE001 - AD-16
+                self._error("Le modèle de reranking n'a pas pu être fermé.", exc, "Il est oublié.")
+        self._load_registry.release(RERANKER)
+
+    def _release_reranker(self) -> None:
+        with self._lock:
+            reranker, self._reranker = self._reranker, None
+        if reranker is not None:
+            self._close_reranker(reranker)
 
     def _compressor_label(self) -> str:
         """The loaded compressor's own label; before it loads, its factory's (Headroom's)."""
@@ -2243,6 +2483,8 @@ class AppSession:
             ]
             tools.append(DELEGATE)
         hooks = [h for h in self._hook_ids() if h in hooks_enabled] if "hooks" in effective else []
+        with self._lock:  # story 16: reranked only with its model loaded at the turn's start
+            rerank = "rag" in effective and self._rag_rerank and self._reranker is not None
         return TurnState(
             history=tuple(history),
             system_prompt=prompt if prompt is not None else self._default_prompt,
@@ -2254,6 +2496,7 @@ class AppSession:
             hooks=tuple(hooks),
             memory=memory,
             subagent_tools=tuple(sub_tools),
+            rag_rerank=rerank,
         )
 
     # ---------- rendering ----------
@@ -2719,6 +2962,7 @@ class AppSession:
                 frozenset(self._skills_enabled),
                 frozenset(self._hooks_enabled),
             )
+            self._sent_rerank = self._rag_rerank  # story 16, apart from `_sent`
         if had_pending:  # « Prend effet au prochain tour » is over for what this turn reads
             self._emit_bricks()
         if replay_of is not None:  # the schema shows the skills loaded in the replayed branch
@@ -3750,6 +3994,7 @@ class AppSession:
             if scenario.hooks is not None:
                 self._hooks_enabled = set(scenario.hooks)
             self._mcp_lazy = scenario.mcp_lazy
+            self._rag_rerank = scenario.rag_rerank  # story 16
 
         self._reconfigure(scenario_id, apply)
 
@@ -3822,12 +4067,15 @@ class AppSession:
         in the `download` state (« Arrêter » stops it). `KeyError` for an unknown target,
         `SendRefused` outside `idle`, or when there is nothing to download (the files being
         there, the index and the files are read again)."""
-        if target != RAG_TARGET or "rag" not in self._bricks:
+        if target not in (RAG_TARGET, RERANK_TARGET) or "rag" not in self._bricks:
             raise KeyError(target)
-        model = self._rag_model
+        rerank = target == RERANK_TARGET  # story 16: the reranking model
+        model = self._rerank_model if rerank else self._rag_model
+        noun = "de reranking" if rerank else "d'embedding"
         if model is None:
             raise SendRefused(
-                self._content_errors.get("rag") or "La brique RAG n'a pas de modèle déclaré."
+                (self._rerank_config_error if rerank else self._content_errors.get("rag"))
+                or f"La brique RAG n'a pas de modèle {noun} déclaré."
             )
         with self._lock:
             if self.state != "idle":
@@ -3837,18 +4085,19 @@ class AppSession:
         if not missing:  # e.g. copied by hand meanwhile: the card catches up now
             self._rag_caught_up()
             raise SendRefused(
-                f"Rien à télécharger : les fichiers du modèle d'embedding sont déjà dans {dest}."
+                f"Rien à télécharger : les fichiers du modèle {noun} sont déjà dans {dest}."
             )
         total = sum(f.size for f in missing)
         cancel = download_module.StopToken()
-        previous = self._enter_rag_job("download", self._download_fr(0, total), cancel)
+        previous = self._enter_rag_job("download", self._download_fr(0, total, noun), cancel)
         threading.Thread(
             target=self._run_download,
             args=(missing, dest, cancel, previous),
+            kwargs={"noun": noun, "component": RAG_RERANKER if rerank else "rag.retriever"},
             name="wavestack-download",
             daemon=True,
         ).start()
-        return self._download_fr(0, total)
+        return self._download_fr(0, total, noun)
 
     def _enter_rag_job(self, state: str, reason_fr: str, cancel: CancelToken) -> str | None:
         """`download` or `index_build`, switched under the lock from `idle` (class b). Returns
@@ -3871,9 +4120,9 @@ class AppSession:
         self._executor.submit(self._emit_preview)
 
     @staticmethod
-    def _download_fr(done: int, total: int) -> str:
+    def _download_fr(done: int, total: int, noun: str = "d'embedding") -> str:
         percent = int(done * 100 / total) if total else 100
-        return f"Téléchargement du modèle d'embedding : {percent} % ({_mo(done)} / {_mo(total)} Mo)"
+        return f"Téléchargement du modèle {noun} : {percent} % ({_mo(done)} / {_mo(total)} Mo)"
 
     def _throttled(self, state: str, text: Callable[[int, int], str]) -> Callable[[int, int], None]:
         """A progress callback: `session_state.reason_fr` at most once a second."""
@@ -3893,7 +4142,14 @@ class AppSession:
         return progress
 
     def _run_download(
-        self, files: list[EmbeddingFile], dest: Path, cancel: CancelToken, previous: str | None
+        self,
+        files: list[EmbeddingFile],
+        dest: Path,
+        cancel: CancelToken,
+        previous: str | None,
+        *,
+        noun: str = "d'embedding",
+        component: str = "rag.retriever",
     ) -> None:
         """The download thread, then back to `idle`; the index and the files are read again,
         and the model loads if wanted. Each file's sha256 is traced (to pin it in
@@ -3902,12 +4158,12 @@ class AppSession:
         stopped = False
         digests: dict[str, str] = {}
         try:
-            with scoped(brick="rag", component="rag.retriever", origin="download"):
+            with scoped(brick="rag", component=component, origin="download"):
                 digests = download_module.download_files(
                     files,
                     dest,
                     cancel,
-                    self._throttled("download", self._download_fr),
+                    self._throttled("download", lambda d, t: self._download_fr(d, t, noun)),
                     transport=self._download_transport,
                 )
         except download_module.DownloadError as exc:
@@ -3916,14 +4172,14 @@ class AppSession:
             failed = f"{type(exc).__name__}: {exc}"
         with self._lock:
             self._download_cancel = None
-        with scoped(brick="rag", component="rag.retriever"):  # the card shows it (AD-1)
+        with scoped(brick="rag", component=component):  # the card shows it (AD-1)
             if failed is not None:
                 names = ", ".join(PurePosixPath(f.path).name for f in files)
                 folder = dest / PurePosixPath(files[0].path).parent
                 self._error(
-                    "Téléchargement du modèle d'embedding arrêté."
+                    f"Téléchargement du modèle {noun} arrêté."
                     if stopped
-                    else "Le téléchargement du modèle d'embedding a échoué.",
+                    else f"Le téléchargement du modèle {noun} a échoué.",
                     failed,
                     f"Rien n'est installé. Pour continuer, copiez le fichier à la main dans "
                     f"{folder} ({names}), puis cliquez de nouveau sur « Télécharger ».",
@@ -4175,7 +4431,12 @@ class AppSession:
             return "cancelled", "", ""
         if "rag" in state.effective:  # story 15: once per turn, main context, before any call
             step += 1
-            state = replace(state, rag_excerpts=self._rag_search(turn_id, step, message))
+            excerpts = self._rag_search(turn_id, step, message, state.rag_rerank)
+            if state.rag_rerank and excerpts and not cancel.cancelled:  # story 16: its own step
+                step += 1
+                excerpts = self._rag_rerank_step(turn_id, step, message, excerpts, cancel)
+            texts = [(e.position, e.title_fr, e.text) for e in excerpts[: self.cfg.rag_top_k]]
+            state = replace(state, rag_excerpts=self._rag_texts(texts))
             if cancel.cancelled:
                 return "cancelled", "", ""
         sent = 0  # story 20: the steps the model has read already, never rewritten (AD-4)
@@ -4483,6 +4744,7 @@ class AppSession:
             reason = self._rag_index_error
         if reason is not None:
             self._release_embedder()
+            self._release_reranker()  # story 16: no RAG, no reranking to keep in memory
             self._emit_bricks()
             self._emit_architecture()
             raise RuntimeError(f"l'index a été remplacé pendant la séance. {reason}")
@@ -4492,13 +4754,22 @@ class AppSession:
         self._emit_architecture()  # its tooltip gives the new index's figures
         return fresh
 
-    def _rag_search(self, turn_id: str, step: int, message: str) -> tuple[str, ...]:
+    def _rag_search(
+        self, turn_id: str, step: int, message: str, rerank: bool = False
+    ) -> list[Excerpt]:
         """Story 15 (AD-2, AD-22): the search, a step of the harness with its pair of events.
-        Returns the intro and the excerpts, formatted; a failure is traced and the turn goes
-        on without excerpts (as a failing hook lets the turn through)."""
+        Returns the excerpts found; a failure is traced and the turn goes on without excerpts
+        (as a failing hook lets the turn through). Story 16: with `rerank`, the reranker's
+        candidates, none of which goes to the context directly."""
         content = self._rag_content
         assert content is not None  # the brick is unavailable without it
         top_k = self.cfg.rag_top_k
+        placement_fr = content.placement_fr
+        if rerank:
+            placement_fr = content.rerank_search_placement_fr.format(
+                candidates=self.cfg.rag_rerank_candidates, keep=top_k
+            )
+            top_k = self.cfg.rag_rerank_candidates
         journal = get_journal()
         scope = {
             "step_id": f"{turn_id}.main.s{step}",
@@ -4514,7 +4785,7 @@ class AppSession:
             )
             started = time.monotonic()
             try:
-                excerpts = self._rag_current_retriever().search(message)
+                excerpts = self._rag_current_retriever().search(message, top_k)
             except Exception as exc:  # noqa: BLE001 - AD-16: the turn goes on
                 self._error(
                     "La recherche RAG a échoué.", exc, "Le tour continue sans extraits RAG."
@@ -4524,7 +4795,7 @@ class AppSession:
                     {
                         "status": "error",
                         "excerpts": [],
-                        "placement_fr": content.placement_fr,
+                        "placement_fr": placement_fr,
                         "error_fr": (
                             f"La recherche a échoué ({type(exc).__name__}: {exc}). Le tour "
                             "continue sans extraits RAG."
@@ -4532,18 +4803,121 @@ class AppSession:
                         "duration_ms": _ms(time.monotonic() - started),
                     },
                 )
-                return ()
+                return []
             journal.emit(
                 "rag_search_ended",
                 {
                     "status": "ok",
                     "excerpts": [e.payload() for e in excerpts],
-                    "placement_fr": content.placement_fr,
+                    "placement_fr": placement_fr,
                     "error_fr": None,
                     "duration_ms": _ms(time.monotonic() - started),
                 },
             )
-        return self._rag_texts([(e.position, e.title_fr, e.text) for e in excerpts])
+        return excerpts
+
+    def _rag_rerank_step(
+        self,
+        turn_id: str,
+        step: int,
+        message: str,
+        candidates: list[Excerpt],
+        cancel: CancelToken,
+    ) -> list[Excerpt]:
+        """Story 16 (AD-2, AD-22): the reranking, a step of the harness with its pair of
+        events. Each candidate is scored with the query; the order before and after is traced,
+        and the first `top_k` after reranking are returned, numbered again from 1. A failure
+        is traced and the turn goes on with the embedding's first `top_k`."""
+        content = self._rag_content
+        assert content is not None  # the brick is unavailable without it
+        keep = min(self.cfg.rag_top_k, len(candidates))
+        placement_fr = content.rerank_placement_fr.format(candidates=len(candidates), keep=keep)
+        journal = get_journal()
+        scope = {
+            "step_id": f"{turn_id}.main.s{step}",
+            "brick": "rag",
+            "component": RAG_RERANKER,
+            "actor": "harness",
+            "trigger": "harness",
+        }
+        with scoped(**scope):
+            journal.emit(
+                "rag_rerank_started",
+                {
+                    "query": message,
+                    "candidates": len(candidates),
+                    "keep": keep,
+                    "phase_label": content.rerank_phase_label_fr,
+                },
+            )
+            started = time.monotonic()
+            try:
+                with self._lock:
+                    reranker = self._reranker
+                if reranker is None:
+                    raise RuntimeError("le modèle de reranking n'est pas chargé")
+                # As the index embeds them: each excerpt with its document's title.
+                passages = [f"{c.title_fr}\n{c.text}" for c in candidates]
+                raw = reranker.score(message, passages, lambda: cancel.cancelled)
+                if len(raw) != len(candidates):
+                    raise ValueError(f"{len(raw)} scores pour {len(candidates)} extraits")
+            except Exception as exc:  # noqa: BLE001 - AD-16: the turn goes on
+                stopped = isinstance(exc, RerankCancelled)
+                if not stopped:
+                    self._error(
+                        "Le reranking a échoué.",
+                        exc,
+                        f"Le tour continue avec les {keep} premiers extraits de l'embedding.",
+                    )
+                journal.emit(
+                    "rag_rerank_ended",
+                    {
+                        "status": "error",
+                        "excerpts": [],
+                        "keep": keep,
+                        "placement_fr": placement_fr,
+                        "error_fr": (
+                            "Reranking arrêté."
+                            if stopped
+                            else f"Le reranking a échoué ({type(exc).__name__}: {exc}). Le tour "
+                            f"continue avec les {keep} premiers extraits de l'embedding."
+                        ),
+                        "duration_ms": _ms(time.monotonic() - started),
+                    },
+                )
+                return candidates[:keep]
+            scores = [round(min(1.0, max(0.0, float(x))), 3) for x in raw]
+            # Stable: the reranker's score, then the embedding's rank.
+            order = sorted(
+                range(len(candidates)), key=lambda i: (-scores[i], candidates[i].position)
+            )
+            reranked = [
+                {
+                    "position": rank,
+                    "before": candidates[i].position,
+                    "chunk_id": candidates[i].chunk_id,
+                    "doc_id": candidates[i].doc_id,
+                    "title_fr": candidates[i].title_fr,
+                    "text": candidates[i].text,
+                    "score": scores[i],
+                    "retrieval_score": candidates[i].score,
+                }
+                for rank, i in enumerate(order, start=1)
+            ]
+            journal.emit(
+                "rag_rerank_ended",
+                {
+                    "status": "ok",
+                    "excerpts": reranked,
+                    "keep": keep,
+                    "placement_fr": placement_fr,
+                    "error_fr": None,
+                    "duration_ms": _ms(time.monotonic() - started),
+                },
+            )
+        return [
+            replace(candidates[i], position=rank) for rank, i in enumerate(order[:keep], start=1)
+        ]
 
     def _run_tool(
         self,

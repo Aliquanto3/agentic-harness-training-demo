@@ -29,6 +29,26 @@ download_label_fr: "Télécharger le modèle d'embedding (≈ {size_mb} Mo)"
 # Bouton de la carte quand le modèle est là et l'index absent, périmé ou d'un autre modèle.
 build_label_fr: Construire l'index
 
+# Sous-option « Reranking » de la carte (story 16).
+rerank_label_fr: Reranking
+
+# Indicateur de travail pendant le reranking.
+rerank_phase_label_fr: Reranking des extraits…
+
+# Placement affiché par l'étape « Recherche RAG » quand le reranking suit ({candidates} :
+# candidats retenus par l'embedding, {keep} : extraits gardés).
+rerank_search_placement_fr: >-
+  Aucun directement : ces {candidates} candidats passent au reranking, qui n'en garde que
+  {keep}
+
+# Placement affiché par l'étape « Reranking ».
+rerank_placement_fr: >-
+  Les {keep} premiers après reranking, dans le message de l'utilisateur de ce tour, avant la
+  question
+
+# Bouton de la sous-option quand le modèle de reranking manque ({size_mb} : taille en Mo).
+rerank_download_label_fr: "Télécharger le modèle de reranking (≈ {size_mb} Mo)"
+
 # Les documents du corpus, chemins relatifs à content/.
 documents:
   - id: mots_de_passe

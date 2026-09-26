@@ -29,9 +29,10 @@ class Excerpt:
 
 
 class Retriever(Protocol):
-    """V2's strategies (reranking, hybrid search) will implement this same port."""
+    """V2's strategies (hybrid search) will implement this same port. `k`: the excerpts to
+    return, `top_k` when `None` (story 16: the reranker's candidates)."""
 
-    def search(self, query: str) -> list[Excerpt]: ...
+    def search(self, query: str, k: int | None = None) -> list[Excerpt]: ...
 
 
 def score_of(distance: float) -> float:
@@ -52,7 +53,7 @@ class SqliteVecRetriever:
         self._lock = threading.Lock()
         self._conn = connect(index_path)
 
-    def search(self, query: str) -> list[Excerpt]:
+    def search(self, query: str, k: int | None = None) -> list[Excerpt]:
         vector = self._embedder.embed_queries([query])[0]
         if not any(vector):
             raise ValueError("la question ne donne aucun vecteur exploitable (vecteur nul)")
@@ -63,7 +64,7 @@ class SqliteVecRetriever:
                 f"SELECT c.id, v.distance, c.doc_id, c.title_fr, c.text FROM {VEC_TABLE} AS v "
                 "JOIN chunks AS c ON c.id = v.rowid WHERE v.embedding MATCH ? AND v.k = ? "
                 "ORDER BY v.distance, c.id",
-                (serialize_vector(vector), self._top_k),
+                (serialize_vector(vector), k or self._top_k),
             ).fetchall()
         return [
             Excerpt(

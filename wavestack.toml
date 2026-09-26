@@ -39,7 +39,8 @@ near_limit_ratio = 0.8
 # Budget mémoire de WaveStack (AD-8), en Mo : un changement de modèle est refusé si la
 # mémoire mesurée (WaveStack et ses processus enfants), moins le coût du modèle actif, plus
 # le coût du nouveau, dépasse ce budget. Le modèle actif reste alors chargé. Le modèle
-# d'embedding du RAG (story 15) est refusé de même, avec la brique indisponible.
+# d'embedding du RAG (story 15) et le reranker (story 16) sont refusés de même, avec la brique
+# ou sa sous-option indisponible.
 budget_mb = 4096
 # Marge ajoutée au coût estimé de chaque modèle local (poids, cache KV à la fenêtre ; pour
 # l'embedding, sa taille quand aucune mesure n'est déclarée), en Mo.
@@ -54,6 +55,10 @@ top_k = 3
 # Taille maximale d'un extrait au découpage, en caractères (reconstruisez l'index après
 # l'avoir changée).
 chunk_max_chars = 700
+# Reranking (story 16, sous-option de la brique RAG) : candidats retenus par l'embedding, puis
+# réordonnés par le reranker, qui n'en garde que top_k. Un passage du reranker par candidat :
+# à baisser si l'étape « Reranking » est trop lente sur le poste (NFR-1). De top_k à 20.
+rerank_candidates = 8
 
 [rag.embedding]
 # Le seul endroit qui nomme le modèle d'embedding : valeurs du verdict de la story 12
@@ -73,6 +78,23 @@ load_path = "embedding/granite-embedding-107m-multilingual-Q8_0.gguf"
 # sha256 vide : non vérifié (à relever au premier téléchargement sur le PC cible).
 files = [
     { url = "https://huggingface.co/bartowski/granite-embedding-107m-multilingual-GGUF/resolve/main/granite-embedding-107m-multilingual-Q8_0.gguf", path = "embedding/granite-embedding-107m-multilingual-Q8_0.gguf", size = 121020096, sha256 = "" },
+]
+
+[rag.reranker]
+# Le seul endroit qui nomme le modèle de reranking (story 16) : valeurs du verdict de la
+# story 12 (provisoire, mesure sur le PC cible à faire). Chargé par llama.cpp en pooling RANK,
+# une paire question-extrait par passage ; le score est ramené entre 0 et 1 (sigmoïde).
+id = "bge-reranker-v2-m3-q4_k_m"
+backend = "llama_cpp"
+label_fr = "BGE Reranker v2 M3 (BAAI, GGUF Q4_K_M)"
+license = "Apache-2.0"
+max_tokens = 1024  # longueur d'une paire question + extrait, en tokens (extrait tronqué au-delà)
+# Relatif au dossier des modèles (models/ dans le dossier de données).
+load_path = "reranker/bge-reranker-v2-m3-Q4_K_M.gguf"
+# measured_rss_mb : à renseigner après la mesure sur le PC cible (sinon : taille + marge).
+# sha256 vide : non vérifié (à relever au premier téléchargement sur le PC cible).
+files = [
+    { url = "https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF/resolve/main/bge-reranker-v2-m3-Q4_K_M.gguf", path = "reranker/bge-reranker-v2-m3-Q4_K_M.gguf", size = 438376864, sha256 = "" },
 ]
 
 [tools]

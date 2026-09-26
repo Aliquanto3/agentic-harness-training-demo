@@ -50,17 +50,21 @@ def _glob_gguf(root: Path) -> list[Path]:
     return sorted(root.rglob("*.gguf"))
 
 
-# Story 15: `models/embedding/` holds embedding models, never offered as chat models.
+# Story 15: `models/embedding/` holds embedding models, never offered as chat models; story
+# 16: `models/reranker/` the reranking ones.
 EMBEDDING_DIR = "embedding"
+RERANKER_DIR = "reranker"
 
 
 def _embedding_files(cfg: config.Config) -> set[Path]:
-    """The files `[rag.embedding]` declares under `models_dir()`: never offered as a model."""
-    model, _ = cfg.rag_embedding
-    if model is None:
-        return set()
+    """The files `[rag.embedding]` and `[rag.reranker]` declare under `models_dir()`: never
+    offered as a model."""
     root = config.models_dir()
-    return {root / model.load_path, *(root / f.path for f in model.files)}
+    files: set[Path] = set()
+    for model, _ in (cfg.rag_embedding, cfg.rag_reranker):
+        if model is not None:
+            files |= {root / model.load_path, *(root / f.path for f in model.files)}
+    return files
 
 
 def _hf_cache_dir() -> Path:
@@ -193,7 +197,8 @@ def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
     candidates += [
         ModelCandidate(source="models_dir", status="found", path=str(p))
         for p in _glob_gguf(config.models_dir())
-        if p not in embedding and p.relative_to(config.models_dir()).parts[0] != EMBEDDING_DIR
+        if p not in embedding
+        and p.relative_to(config.models_dir()).parts[0] not in (EMBEDDING_DIR, RERANKER_DIR)
     ]
     candidates += [
         ModelCandidate(source="hf_cache", status="found", path=str(p))
