@@ -541,10 +541,11 @@ class SubagentEndedPayload(BaseModel):
     """The delegation's outcome and its saving, computed by the session (AD-1).
 
     `context_tokens`: the `used` of the sub-agent's last call (reconciled when it was);
-    `kept_tokens`: its tool results, what the main context would have read without the
-    delegation; `result_tokens`: the result's tokens in the main context (`estimated` in
-    chat mode); `saved_tokens`: `max(0, kept_tokens - result_tokens)`, 0 unless
-    `completed`; `calls`: the sub-agent's model calls."""
+    `kept_tokens`: its tool replies (results, errors, refusals), what the main context
+    would have read without the delegation; `result`/`result_tokens`: what the main context
+    reads, the result or the error reinjected in its place (`estimated` in chat mode);
+    `saved_tokens`: `max(0, kept_tokens - result_tokens)`, 0 unless `completed`; `calls`:
+    the sub-agent's model calls."""
 
     status: Literal["completed", "limit", "overflow", "error", "cancelled"]
     result: str
@@ -553,6 +554,8 @@ class SubagentEndedPayload(BaseModel):
     result_tokens: int
     saved_tokens: int
     estimated: bool = False
+    # Chat mode: `context_tokens` and `kept_tokens` estimated, not reconciled by `usage`.
+    context_estimated: bool = False
     calls: int
 
 

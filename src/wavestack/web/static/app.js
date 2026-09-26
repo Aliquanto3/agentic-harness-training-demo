@@ -612,7 +612,7 @@ function applySubEnvelope(turn, sub, envelope) {
       break;
     case "effect_applied": {
       const hook = last("hook");
-      if (hook) hook.lines.push(...p.lines);
+      if (hook) hook.lines.push(...(p.lines ?? []));
       break;
     }
     case "approval_requested": {
@@ -2356,16 +2356,11 @@ function renderSubContext(pane, sub) {
     )
   );
   if (sub.ended) {
-    const guess = approx(sub.ended.estimated);
     pane.appendChild(
       el(
         "p",
         "subagent-saving",
-        sub.ended.status === "completed"
-          ? `Ce contexte reste dans le sous-agent. Ses résultats d'outils (${guess}${fmt(sub.ended.kept_tokens ?? 0)} tokens) ` +
-              `n'entrent pas dans le contexte principal ; seul son résultat y entre (${guess}${fmt(sub.ended.result_tokens)} tokens) : ` +
-              `${guess}${fmt(sub.ended.saved_tokens)} tokens économisés.`
-          : "Délégation sans résultat : une erreur entre dans le contexte principal à sa place, aucune économie."
+        `Ce contexte reste dans le sous-agent. ${subSaving(sub.ended)}`
       )
     );
   }
@@ -3123,8 +3118,9 @@ function delegateRow(turn, step, key) {
   const done = step.sub?.ended;
   let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
   if (done?.status === "completed") {
-    const guess = approx(done.estimated);
-    figure = `${guess}${fmt(done.result_tokens)} tokens réinjectés · ${guess}${fmt(done.saved_tokens)} économisés`;
+    figure = subFigure(done);
+  } else if (done?.status === "cancelled") {
+    figure = "Délégation arrêtée";
   } else if (done) {
     figure = `${SUB_STATUS[done.status] ?? done.status} · ${seconds(done.duration_ms)}`;
   } else if (ended) {
@@ -3153,6 +3149,32 @@ const SUB_STATUS = {
   cancelled: "Arrêté",
 };
 
+// The saving of a finished delegation, in words (AD-1: the figures are the session's).
+// `kept_tokens` counts every tool reply that stayed in the sub-agent: results, errors, refusals.
+function subSaving(done) {
+  if (done.status === "cancelled") return "Délégation arrêtée : rien n'entre dans le contexte principal.";
+  const guess = approx(done.estimated);
+  const result = `${guess}${fmt(done.result_tokens)} tokens`;
+  if (done.status !== "completed") {
+    return `Délégation sans résultat : l'erreur (${result}) entre dans le contexte principal à sa place, aucune économie.`;
+  }
+  const kept = `${approx(done.context_estimated)}${fmt(done.kept_tokens ?? 0)} tokens`;
+  const figures =
+    `Réponses d'outils restées dans le contexte du sous-agent (ce que l'agent principal aurait lu sans délégation) : ${kept}. ` +
+    `Résultat réinjecté dans le contexte principal : ${result}.`;
+  if ((done.kept_tokens ?? 0) <= done.result_tokens) {
+    return `${figures} Aucune économie : le résultat pèse autant ou plus que ce qu'il remplace (déléguer n'est pas gratuit).`;
+  }
+  return `${figures} Économie pour le contexte principal : ${guess}${fmt(done.saved_tokens)} tokens.`;
+}
+
+// The delegation line's key figure once the sub-agent is done.
+function subFigure(done) {
+  const guess = approx(done.estimated);
+  const saving = done.saved_tokens > 0 ? `${guess}${fmt(done.saved_tokens)} économisés` : "aucune économie";
+  return `${guess}${fmt(done.result_tokens)} tokens réinjectés · ${saving}`;
+}
+
 function delegateBody(turn, step) {
   const sub = step.sub;
   const done = sub?.ended;
@@ -3170,26 +3192,22 @@ function delegateBody(turn, step) {
     nodes.push(running);
     return nodes;
   }
-  const guess = approx(done.estimated);
+  const context = `${approx(done.context_estimated)}${fmt(done.context_tokens)}`;
+  const cancelled = done.status === "cancelled";
   nodes.push(
     el(
       "div",
       "token-counter number",
       `${plural(done.calls, "appel")} au modèle · Temps : ${seconds(done.duration_ms)} · ${SUB_STATUS[done.status] ?? done.status}`
     ),
-    el(
-      "p",
-      "subagent-saving",
-      done.status === "completed"
-        ? `Résultats d'outils restés dans le contexte du sous-agent (ce que l'agent principal aurait lu sans délégation) : ` +
-            `${guess}${fmt(done.kept_tokens ?? 0)} tokens. Résultat réinjecté dans le contexte principal : ` +
-            `${guess}${fmt(done.result_tokens)} tokens. Économie pour le contexte principal : ${guess}${fmt(done.saved_tokens)} tokens. ` +
-            `Contexte complet du sous-agent : ${fmt(done.context_tokens)} tokens.`
-        : `Délégation sans résultat : aucune économie. Le contexte du sous-agent comptait ${fmt(done.context_tokens)} tokens.`
-    ),
-    el("p", "label", done.status === "completed" ? "Résultat (seul à revenir dans le contexte principal)" : "Erreur réinjectée à la place du résultat"),
-    el("pre", "step-code", step.ended?.status === "ok" ? step.ended.result : step.ended?.error_fr ?? done.result)
+    el("p", "subagent-saving", `${subSaving(done)} Contexte complet du sous-agent : ${context} tokens.`)
   );
+  if (!cancelled) {
+    nodes.push(
+      el("p", "label", done.status === "completed" ? "Résultat (seul à revenir dans le contexte principal)" : "Erreur réinjectée à la place du résultat"),
+      el("pre", "step-code", step.ended?.status === "ok" ? step.ended.result : done.result)
+    );
+  }
   if (sub.context) {  // no call rendered (e.g. blocked first): nothing to show
     const show = el("button", "subagent-show", "Voir le contexte du sous-agent");
     show.type = "button";
@@ -3986,7 +4004,7 @@ function eventSummary(group) {
     case "subagent_started":
       return p.task;
     case "subagent_ended":
-      return `${p.status} · ${approx(p.estimated)}${fmt(p.result_tokens)} tokens réinjectés · ${approx(p.estimated)}${fmt(p.saved_tokens)} économisés`;
+      return p.status === "completed" ? subFigure(p) : SUB_STATUS[p.status] ?? p.status;
     case "rag_search_started":
       return `« ${p.query} » · ${fmt(p.top_k)} au plus`;
     case "rag_search_ended":
