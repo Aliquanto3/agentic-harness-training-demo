@@ -1,0 +1,1052 @@
+"""End-to-end run of WaveStack's tier 1 in a headless Chromium, on the fake OpenAI model.
+
+    uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py [--only NAME ...] [--keep]
+
+Starts `stack.running_stack`, picks the fake model at the diagnostic like a user, then
+plays each scenario of `content/scenarios.yaml` and the transverse features (forced
+actions, replay and compare, reset, H5). Every check is printed PASS/FAIL; a failing
+scenario does not stop the next one. Screenshots go to `tools/e2e/screenshots/` (JPEG),
+logs to the data dir (printed with `--keep`). Exit code 1 when a check failed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import threading
+import time
+import traceback
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import httpx
+from playwright.sync_api import Page, expect, sync_playwright
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from stack import MODEL_ENTRY_ID, Stack, running_stack  # noqa: E402
+
+SHOTS = Path(__file__).resolve().parent / "screenshots"
+CHROMIUM = "/opt/pw-browsers/chromium"  # fallback when the bundled revision is missing
+TURN_TIMEOUT_S = 60.0
+
+
+# ---------- the journal, read from /api/stream ----------
+
+
+class Events:
+    """Every envelope of `/api/stream`, collected by a background thread."""
+
+    def __init__(self, url: str) -> None:
+        self.items: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
+        self._url = url
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self) -> None:
+        try:
+            with httpx.Client(trust_env=False, timeout=httpx.Timeout(5, read=None)) as client:
+                with client.stream("GET", f"{self._url}/api/stream") as response:
+                    for line in response.iter_lines():
+                        if line.startswith("data:"):
+                            envelope = json.loads(line[5:])
+                            with self._lock:
+                                self.items.append(envelope)
+        except httpx.HTTPError:
+            pass  # WaveStack stopped at the end of the run
+
+    def mark(self) -> int:
+        with self._lock:
+            return self.items[-1]["seq"] if self.items else 0
+
+    def since(self, seq: int, kind: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            return [e for e in self.items if e["seq"] > seq and (kind is None or e["kind"] == kind)]
+
+    def wait(
+        self,
+        kind: str,
+        after: int,
+        pred: Callable[[dict[str, Any]], bool] = lambda e: True,
+        timeout: float = TURN_TIMEOUT_S,
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            for e in self.since(after, kind):
+                if pred(e["payload"]):
+                    return e
+            time.sleep(0.1)
+        raise TimeoutError(f"aucun événement {kind} après seq {after} en {timeout:g} s")
+
+
+# ---------- the run ----------
+
+
+class Run:
+    def __init__(self, page: Page, stack: Stack, events: Events) -> None:
+        self.page, self.stack, self.ev = page, stack, events
+        self.results: list[tuple[str, str, bool, str]] = []  # scenario, check, ok, detail
+        self.known: list[tuple[str, str, str, str]] = []  # scenario, check, anomaly, detail
+        self.earlier_events: list[dict[str, Any]] = []  # journals of stopped processes
+        self.current = ""
+
+    # -- bookkeeping --
+
+    def check(self, ok: bool, what: str, detail: str = "", known: str | None = None) -> bool:
+        """`known`: the anomaly this check shows, already reported (the report's id); its
+        failure prints KNOWN and does not fail the run."""
+        if not ok and known:
+            self.known.append((self.current, what, known, detail))
+            print(f"  KNOWN [{known}] {what}" + (f" — {detail}" if detail else ""))
+            return False
+        self.results.append((self.current, what, bool(ok), detail))
+        print(f"  {'PASS' if ok else 'FAIL'} {what}" + (f" — {detail}" if detail else ""))
+        return bool(ok)
+
+    def shot(self, name: str, full_page: bool = False) -> None:
+        SHOTS.mkdir(parents=True, exist_ok=True)
+        self.page.screenshot(
+            path=str(SHOTS / f"{name}.jpg"), type="jpeg", quality=70, full_page=full_page
+        )
+
+    # -- the API, for what the UI does not show plainly --
+
+    def api(self, method: str, path: str, body: Any = None) -> httpx.Response:
+        headers = {"Origin": self.stack.app_url, "Content-Type": "application/json"}
+        with httpx.Client(trust_env=False, timeout=10) as client:
+            return client.request(method, f"{self.stack.app_url}{path}", headers=headers, json=body)
+
+    def state(self) -> dict[str, Any]:
+        return self.api("GET", "/api/state").json()
+
+    def bricks(self) -> dict[str, dict[str, Any]]:
+        return {b["id"]: b for b in self.state()["bricks_changed"]["bricks"]}
+
+    # -- UI gestures --
+
+    def wait_idle(self, timeout: float = 30) -> None:
+        # The page's HTML enables the button before app.js renders: wait for the programme.
+        expect(self.page.locator("#scenario-picker option").nth(1)).to_be_attached(
+            timeout=timeout * 1000
+        )
+        expect(self.page.locator("#composer-send")).to_be_enabled(timeout=timeout * 1000)
+
+    def launch(self, scenario_id: str) -> None:
+        self.wait_idle()
+        seq = self.ev.mark()
+        self.page.select_option("#scenario-picker", scenario_id)
+        self.ev.wait("scenario_changed", seq, lambda p: p["active"] == scenario_id, 30)
+        # MCP connections run after the launch; wait until they are all answered.
+        time.sleep(0.5)
+        for started in self.ev.since(seq, "mcp_connect_started"):
+            server = started["payload"].get("server")
+            self.ev.wait("mcp_connect_ended", seq, lambda p, s=server: p["server"] == s, 45)
+        self.wait_idle()
+
+    def send(self, text: str, expect_approval: bool = False) -> dict[str, Any]:
+        """Types and sends `text`; returns `turn_ended` (or `approval_requested`)."""
+        self.wait_idle()
+        seq = self.ev.mark()
+        self.page.fill("#composer-input", text)
+        self.page.press("#composer-input", "Enter")
+        if expect_approval:
+            return self.ev.wait("approval_requested", seq)
+        return self.ev.wait("turn_ended", seq)
+
+    def replay(self) -> dict[str, Any]:
+        self.wait_idle()
+        seq = self.ev.mark()
+        self.page.click("#replay-last")
+        return self.ev.wait("turn_ended", seq)
+
+    def last_answer(self) -> str:
+        time.sleep(0.3)  # the last render after `turn_ended`
+        return self.page.locator("#chat .bubble-model").last.inner_text()
+
+    def card(self, name: str):
+        return self.page.locator("article.brick-card").filter(
+            has=self.page.locator(".brick-name", has_text=name)
+        )
+
+    def set_brick(self, name: str, on: bool) -> None:
+        toggle = self.card(name).locator(".brick-head input.brick-toggle")
+        if toggle.is_checked() != on:
+            seq = self.ev.mark()
+            toggle.click()
+            self.ev.wait("bricks_changed", seq, timeout=10)
+            time.sleep(0.3)
+
+    def open_options(self, brick: str) -> None:
+        details = self.card(brick).locator("details.brick-options")
+        if details.get_attribute("open") is None:
+            details.locator("summary").click()
+
+    def set_option(self, brick: str, option: str, on: bool) -> None:
+        self.open_options(brick)
+        toggle = (
+            self.card(brick)
+            .locator("label.brick-option", has_text=option)
+            .locator("input.brick-toggle")
+        )
+        if toggle.is_checked() != on:
+            seq = self.ev.mark()
+            toggle.click()
+            self.ev.wait("bricks_changed", seq, timeout=10)
+            time.sleep(0.3)
+
+    def show_forced(self, on: bool = True) -> None:
+        toggle = self.page.locator("label.force-toggle input")
+        if toggle.is_checked() != on:
+            toggle.click()
+
+    def arm(self, button_label: str, preset: str | None = None) -> dict[str, Any]:
+        seq = self.ev.mark()
+        button = self.page.get_by_role("button", name=button_label)
+        needs_form = button.get_attribute("aria-expanded") is not None
+        button.click()
+        if needs_form:
+            form = self.page.locator(".force-form")
+            expect(form).to_be_visible(timeout=5000)
+            if preset is not None:
+                form.locator("select").first.select_option(label=preset)
+            form.get_by_role("button", name="Armer").click()
+        return self.ev.wait("armed_actions_changed", seq, lambda p: bool(p["actions"]), timeout=10)
+
+    def poll(self, condition: Callable[[], bool], timeout: float = 15) -> tuple[bool, float]:
+        """Whether `condition` becomes true within `timeout`, and after how long."""
+        started = time.monotonic()
+        while True:
+            if condition():
+                return True, time.monotonic() - started
+            if time.monotonic() - started > timeout:
+                return False, timeout
+            time.sleep(0.1)
+
+    def fake_calls(self) -> list[dict[str, Any]]:
+        return self.stack.fake_requests()
+
+
+# ---------- scenarios ----------
+
+
+def s_diagnostic(r: Run) -> None:
+    page = r.page
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    row = page.locator("#cloud-models li", has_text="wavestack-fake")
+    expect(row).to_be_visible(timeout=20_000)
+    r.check(
+        "Clé fournie par la variable WAVESTACK_FAKE_API_KEY" in row.inner_text(),
+        "la ligne du faux modèle indique la clé lue dans key_env",
+    )
+    r.check("e2e-fake-key" not in page.content(), "la valeur de la clé n'apparaît pas dans la page")
+    row.get_by_role("button", name="Tester").click()
+    expect(row.locator(".cloud-result.ok")).to_contain_text("Test réussi", timeout=20_000)
+    r.check(True, "« Tester » réussit (appel d'outil get_datetime reçu)", row.inner_text()[-160:])
+    row.get_by_role("button", name="Choisir").click()
+    dialog = page.locator("#cloud-warning")
+    expect(dialog).to_be_visible()
+    r.check(
+        "Faux fournisseur (e2e)" in dialog.inner_text(),
+        "l'avertissement cloud nomme le fournisseur",
+    )
+    r.shot("01-diagnostic-avertissement-cloud")
+    page.locator("#cloud-warning-confirm").click()
+    expect(row).to_contain_text("actif", timeout=20_000)
+    r.check(True, "« Utiliser ce modèle » : la ligne passe à « actif »")
+    expect(page.locator("#open-link")).to_be_visible(timeout=20_000)
+    page.goto(f"{r.stack.app_url}/")
+    expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=20_000)
+    r.check(True, "l'indicateur de modèle de la barre haute montre le faux modèle")
+    r.wait_idle()
+
+
+def s_bare_llm(r: Run) -> None:
+    r.launch("bare_llm")
+    guide = r.page.locator("#scenario-guide")
+    r.check(guide.is_visible() and "LLM nu" in guide.inner_text(), "consigne affichée")
+    before = len(r.fake_calls())
+    r.page.locator("#suggested-prompts button").first.click()
+    r.check(
+        r.page.input_value("#composer-input") == "Quelle heure est-il ?",
+        "la puce de prompt suggéré remplit le champ",
+    )
+    time.sleep(0.5)
+    r.check(len(r.fake_calls()) == before, "la puce n'envoie rien au modèle")
+    seq = r.ev.mark()
+    r.page.press("#composer-input", "Enter")
+    ended = r.ev.wait("turn_ended", seq)
+    r.check(ended["payload"]["status"] == "completed", "tour terminé", ended["payload"]["status"])
+    body = r.fake_calls()[-1]
+    r.check(not body.get("tools"), "aucun outil envoyé au LLM nu")
+    r.check(
+        [m["role"] for m in body["messages"]] == ["user"],
+        "LLM nu : un seul message (utilisateur), pas de prompt système",
+        str([m["role"] for m in body["messages"]]),
+    )
+    r.check("horloge" in r.last_answer(), "la réponse du faux modèle s'affiche")
+    rendered = r.state().get("context_rendered") or {}
+    r.check(bool(rendered), "Contexte LLM : context_rendered disponible")
+    total = r.page.locator("#ctx .ctx-total").inner_text()
+    r.check(
+        "(somme des segments) (total" not in total,
+        "en-tête de Contexte LLM sans double précision contradictoire",
+        total,
+        known="A3",
+    )
+    r.shot("02-llm-nu")
+    r.send("Bonjour [raisonne]")
+    details = r.page.locator("#chat .bubble-model").last.locator("details.bubble-reasoning")
+    r.check(details.count() == 1, "un champ `reasoning` du fournisseur s'affiche replié")
+
+
+def s_short_memory(r: Run) -> None:
+    r.launch("short_memory")
+    prompts = [
+        "Je m'appelle Camille et je suis consultante en cybersécurité.",
+        "Comment je m'appelle, et quel est mon métier ?",
+    ]
+    r.send(prompts[0])
+    r.send(prompts[1])
+    r.check("Camille" in r.last_answer(), "mémoire active : le prénom revient", r.last_answer())
+    r.check(len(r.fake_calls()[-1]["messages"]) >= 3, "l'historique est réinjecté")
+    r.set_brick("Mémoire courte", False)
+    r.send(prompts[1])
+    r.check("Je ne sais pas" in r.last_answer(), "mémoire éteinte : l'oubli", r.last_answer())
+
+
+def s_system_prompt(r: Run) -> None:
+    r.launch("system_prompt")
+    r.send("Présente-toi en quelques phrases.")
+    first = r.fake_calls()[-1]
+    r.check(first["messages"][0]["role"] == "system", "le prompt système part en tête du contexte")
+    r.page.click("#edit-system-prompt")
+    r.page.fill("#drawer-text", "Réponds toujours en une phrase, comme un pirate.")
+    r.page.click("#drawer-save")
+    time.sleep(0.5)
+    if r.page.locator("#edit-drawer").is_visible():
+        r.page.click("#drawer-close")
+    ended = r.replay()
+    r.check(ended["payload"]["status"] == "completed", "rejeu du dernier prompt terminé")
+    r.check("Arrr" in r.last_answer(), "le prompt modifié change la réponse", r.last_answer())
+    sent = r.fake_calls()[-1]["messages"]
+    users = [m for m in sent if m["role"] == "user"]
+    r.check(
+        len(users) == 1 and not any(m["role"] == "assistant" for m in sent),
+        "rejeu : le tour d'origine ne revient pas dans l'historique (AD-17)",
+        str([m["role"] for m in sent]),
+    )
+    badge = r.page.locator("#chat .replay-badge")
+    r.check(badge.count() >= 1, "badge « Rejeu » sur le tour rejoué")
+    r.page.click("#compare-turns")
+    heading = r.page.locator("#ctx .ctx-heading", has_text="Comparaison de tours")
+    r.check(heading.is_visible(), "« Comparer » ouvre la comparaison de tours")
+    r.shot("04-prompt-systeme-rejeu-comparer")
+    r.page.locator("#ctx").get_by_role("button", name="Fermer").click()
+
+
+def s_native_tools(r: Run) -> None:
+    r.launch("native_tools")
+    b = r.bricks()
+    r.check(
+        all(b[x]["wanted"] for x in ("short_memory", "system_prompt", "tools")),
+        "briques du scénario actives",
+    )
+    for prompt, tool, needle in [
+        ("Quelle heure est-il ?", "get_datetime", "D'après le résultat"),
+        ("Combien font 1234 multiplié par 5678 ?", "calculator", "7006652"),
+        (
+            "Lis le fichier recette_crepes.txt et donne-moi la liste des ingrédients.",
+            "read_file",
+            "farine",
+        ),
+    ]:
+        seq = r.ev.mark()
+        ended = r.send(prompt)
+        tools = [e["payload"]["tool"] for e in r.ev.since(seq, "tool_started")]
+        results = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
+        r.check(tool in tools, f"{tool} appelé", str(tools))
+        r.check(
+            bool(results) and results[-1]["status"] == "ok",
+            f"{tool} réussi",
+            str(results[-1] if results else None)[:200],
+        )
+        answer = r.last_answer().replace(" ", "").replace(" ", "")
+        r.check(
+            ended["payload"]["status"] == "completed" and needle.replace(" ", "") in answer,
+            f"réponse finale après {tool}",
+            r.last_answer()[:160],
+        )
+    orch = r.page.locator("#orch-scroll").inner_text()
+    r.check("Demande d'outil" in orch, "Orchestration montre la demande d'outil")
+    r.shot("05-outils-natifs-orchestration")
+
+
+def s_malformed(r: Run) -> None:
+    r.launch("native_tools")
+    seq = r.ev.mark()
+    ended = r.send("Quelle heure est-il ? [mal-formé]")
+    bad = r.ev.since(seq, "tool_call_malformed")
+    r.check(
+        len(bad) == 1 and bad[0]["payload"]["reaction"] == "retry",
+        "appel mal formé détecté, nouvel essai",
+        str([e["payload"] for e in bad])[:300],
+    )
+    r.check(
+        ended["payload"]["status"] == "completed",
+        "le tour aboutit après correction",
+        ended["payload"]["status"],
+    )
+    r.shot("06-appel-mal-forme-corrige")
+    seq = r.ev.mark()
+    ended = r.send("Quelle heure est-il ? [mal-formé-toujours]")
+    limit = r.ev.since(seq, "limit_reached")
+    r.check(
+        bool(limit) and limit[0]["payload"]["limit"] == "retries",
+        "borne des nouveaux essais atteinte",
+        str([e["payload"] for e in limit])[:300],
+    )
+    r.check(
+        ended["payload"]["status"] == "limit",
+        "tour terminé en « limit »",
+        ended["payload"]["status"],
+    )
+    r.check(
+        "appels refusés" in r.last_answer(),
+        "la borne est expliquée dans la Vue humain",
+        r.last_answer()[:200],
+    )
+    seq = r.ev.mark()
+    r.send("Bonjour [outil-inconnu]")
+    bad = r.ev.since(seq, "tool_call_malformed")
+    r.check(
+        bool(bad),
+        "outil inconnu refusé par le harnais",
+        bad[0]["payload"]["detail_fr"] if bad else "",
+    )
+    seq = r.ev.mark()
+    ended = r.send("Bonjour [tool_use_failed]")
+    bad = r.ev.since(seq, "tool_call_malformed")
+    r.check(
+        bool(bad),
+        "tool_use_failed (400 du fournisseur) suit le chemin mal formé",
+        bad[0]["payload"]["detail_fr"][:200] if bad else ended["payload"]["status"],
+    )
+
+
+def s_provider_errors(r: Run) -> None:
+    r.launch("bare_llm")
+    for trigger, needle in [
+        ("[erreur429]", "quota dépassé par minute"),
+        ("[erreur500]", "indisponible (500)"),
+        ("[flux-erreur]", "interrompu la réponse"),
+        ("[erreur401]", "Clé refusée"),
+    ]:
+        seq = r.ev.mark()
+        ended = r.send(f"Bonjour {trigger}")
+        errors = [e["payload"]["message_fr"] for e in r.ev.since(seq, "harness_error")]
+        r.check(
+            ended["payload"]["status"] == "error",
+            f"{trigger} : tour en erreur",
+            ended["payload"]["status"],
+        )
+        r.check(
+            any(needle in m for m in errors),
+            f"{trigger} : message français attendu",
+            " | ".join(errors)[:300],
+        )
+        r.check(
+            needle in r.last_answer(),
+            f"{trigger} : l'erreur s'affiche dans la Vue humain",
+            r.last_answer()[:200],
+        )
+        if trigger == "[erreur429]":
+            r.shot("07-erreur-fournisseur-429")
+    ended = r.send("Bonjour")
+    r.check(ended["payload"]["status"] == "completed", "WaveStack reste utilisable ensuite")
+    seq = r.ev.mark()
+    ended = r.send("Explique [coupé]")
+    r.check(
+        ended["payload"]["status"] == "limit",
+        "sortie coupée (finish_reason length)",
+        ended["payload"]["status"],
+    )
+
+
+def s_network_tools(r: Run) -> None:
+    r.launch("network_tools")
+    for prompt, tool in [
+        ("Quels sont les jours fériés en France cette année ?", "public_holidays"),
+        ("Résume l'article Wikipédia sur le Mont-Saint-Michel.", "wikipedia_summary"),
+    ]:
+        seq = r.ev.mark()
+        ended = r.send(prompt)
+        results = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
+        outbound = [e["payload"]["url"] for e in r.ev.since(seq, "outbound_request")]
+        r.check(bool(outbound), f"{tool} : la requête sortante est tracée", str(outbound)[:200])
+        res = results[-1] if results else {}
+        r.check(
+            res.get("status") == "error" and bool(res.get("error_fr")),
+            f"{tool} : échec réseau expliqué (pas d'Internet dans le conteneur)",
+            (res.get("error_fr") or str(res))[:300],
+        )
+        r.check(
+            ended["payload"]["status"] == "completed",
+            f"{tool} : le tour se termine",
+            ended["payload"]["status"],
+        )
+    r.shot("08-outils-reseau-echec-explique")
+
+
+def s_h5(r: Run) -> None:
+    r.launch("network_tools")
+    r.set_brick("Hooks", True)
+    r.set_option("Hooks", "Validation humaine", True)
+    asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
+    r.check(
+        asked["payload"]["tool"] == "public_holidays", "H5 suspend le tour avant l'outil réseau"
+    )
+    card = r.page.locator("#chat .approval-card").last
+    expect(card).to_be_visible(timeout=10_000)
+    r.check(
+        "calendrier.api.gouv.fr" in card.inner_text(),
+        "la carte montre la destination exacte",
+        card.inner_text()[:200],
+    )
+    r.shot("09-h5-validation-humaine")
+    seq = r.ev.mark()
+    card.get_by_role("button", name="Refuser", exact=True).click()
+    resolved = r.ev.wait("approval_resolved", seq, timeout=10)
+    ended = r.ev.wait("turn_ended", seq)
+    r.check(resolved["payload"]["decision"] == "refused", "« Refuser » : décision refused")
+    r.check(not r.ev.since(seq, "outbound_request"), "refusé : rien ne sort du poste")
+    r.check(
+        ended["payload"]["status"] == "completed",
+        "le tour se termine après le refus",
+        ended["payload"]["status"],
+    )
+    asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
+    seq = r.ev.mark()
+    r.page.locator("#chat .approval-card").last.get_by_role(
+        "button", name="Autoriser", exact=True
+    ).click()
+    r.ev.wait("approval_resolved", seq, timeout=10)
+    r.ev.wait("turn_ended", seq)
+    r.check(bool(r.ev.since(seq, "outbound_request")), "« Autoriser » : la requête part")
+    results = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
+    r.check(
+        bool(results) and results[-1]["status"] == "error",
+        "autorisé : l'échec réseau est expliqué",
+        (results[-1].get("error_fr") or "")[:200] if results else "",
+    )
+    # A reload while the turn waits: the card comes back (AD-1); « Arrêter » cancels it.
+    asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
+    r.page.reload()
+    card = r.page.locator("#chat .approval-card").last
+    ok, took = r.poll(
+        lambda: (
+            card.count() == 1
+            and card.get_by_role("button", name="Autoriser", exact=True).is_enabled()
+        )
+    )
+    r.check(
+        ok,
+        "après rechargement : la validation en attente réapparaît, active",
+        f"au bout de {took:.1f} s",
+    )
+    seq = r.ev.mark()
+    r.page.click("#composer-stop")
+    resolved = r.ev.wait("approval_resolved", seq, timeout=10)
+    ended = r.ev.wait("turn_ended", seq)
+    r.check(
+        resolved["payload"]["decision"] == "cancelled"
+        and ended["payload"]["status"] == "cancelled",
+        "« Arrêter » pendant la validation : décision cancelled, tour annulé",
+        f"{resolved['payload']['decision']} / {ended['payload']['status']}",
+    )
+    r.check(not r.ev.since(seq, "outbound_request"), "annulé : rien ne sort du poste")
+    # « Autoriser et ne plus demander » turns H5 off.
+    asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
+    seq = r.ev.mark()
+    r.page.locator("#chat .approval-card").last.get_by_role(
+        "button", name="Autoriser et ne plus demander"
+    ).click()
+    resolved = r.ev.wait("approval_resolved", seq, timeout=10)
+    r.ev.wait("turn_ended", seq)
+    r.check(resolved["payload"]["hook_disabled"], "« ne plus demander » désactive H5")
+    h5 = [o for o in r.bricks()["hooks"]["options"] if o["id"] == "h5"]
+    r.check(bool(h5) and not h5[0]["enabled"], "H5 apparaît désactivé dans la carte Hooks")
+
+
+def s_mcp_full(r: Run) -> None:
+    seq = r.ev.mark()
+    r.launch("mcp_full")
+    ends = {e["payload"]["server"]: e["payload"] for e in r.ev.since(seq, "mcp_connect_ended")}
+    r.check(
+        ends.get("local", {}).get("status") == "ok",
+        "serveur MCP local connecté",
+        str(ends.get("local"))[:200],
+    )
+    dg = ends.get("datagouv", {})
+    r.check(
+        dg.get("status") == "error" and bool(dg.get("error_fr")),
+        "data.gouv.fr injoignable : échec expliqué",
+        (dg.get("error_fr") or str(dg))[:300],
+    )
+    gauge = r.page.locator("#gauge-figures").inner_text()
+    seq = r.ev.mark()
+    ended = r.send("Que veut dire MCP ?")
+    tools = [e["payload"]["tool"] for e in r.ev.since(seq, "tool_started")]
+    r.check("local__define_term" in tools, "outil MCP local appelé", str(tools))
+    r.check(
+        "MCP" in r.last_answer() and ended["payload"]["status"] == "completed",
+        "réponse issue du glossaire MCP",
+        r.last_answer()[:200],
+    )
+    r.shot("10-mcp-documentation-complete")
+    r.results.append((r.current, f"jauge avant envoi : {gauge}", True, ""))
+
+
+def s_mcp_lazy(r: Run) -> None:
+    r.launch("mcp_lazy")
+    body_tools = None
+    seq = r.ev.mark()
+    ended = r.send("Que veut dire MCP ?")
+    calls = r.fake_calls()
+    body_tools = (
+        [t["function"]["name"] for t in calls[-3].get("tools") or []] if len(calls) >= 3 else []
+    )
+    tools = [e["payload"]["tool"] for e in r.ev.since(seq, "tool_started")]
+    r.check(
+        tools[:2] == ["load_tool_doc", "local__define_term"],
+        "lazy : documentation chargée puis outil appelé",
+        str(tools),
+    )
+    r.check(
+        "local__define_term" not in body_tools,
+        "lazy : l'outil n'est pas décrit avant le chargement",
+        str(body_tools),
+    )
+    r.check(ended["payload"]["status"] == "completed", "tour lazy terminé")
+    ended = r.send("Quels jeux de données publics existent sur la qualité de l'air ?")
+    r.check(
+        ended["payload"]["status"] == "completed",
+        "qualité de l'air sans data.gouv.fr : réponse sans outil",
+        r.last_answer()[:160],
+    )
+    # Story 9: force an MCP documentation.
+    r.show_forced(True)
+    r.open_options("MCP")
+    armed = r.arm("Charger la documentation : Glossaire WaveStack")
+    r.check(armed["payload"]["actions"][0]["kind"] == "tool_doc", "documentation MCP armée")
+    seq = r.ev.mark()
+    r.send("Bonjour")
+    tools = [e["payload"] for e in r.ev.since(seq, "tool_started")]
+    r.check(
+        any(t["tool"] == "load_tool_doc" for t in tools),
+        "l'action forcée charge la documentation au tour suivant",
+        str(tools)[:200],
+    )
+    r.shot("11-mcp-lazy-force")
+    r.show_forced(False)
+
+
+def s_skills(r: Run) -> None:
+    r.launch("skills")
+    seq = r.ev.mark()
+    ended = r.send(
+        "Rédige le compte rendu de cette réunion : Paul présente le budget, Julie valide le "
+        "planning, prochaine réunion lundi à 10 h."
+    )
+    tools = [e["payload"]["tool"] for e in r.ev.since(seq, "tool_started")]
+    r.check("load_skill" in tools, "le modèle charge le skill", str(tools))
+    r.check(ended["payload"]["status"] == "completed", "tour terminé")
+    sent = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
+    r.check("compte rendu de réunion structuré" in sent, "le contenu du skill rejoint le contexte")
+
+
+def s_caveman(r: Run) -> None:
+    r.launch("caveman")
+    r.send("Explique en quelques phrases ce qu'est un harnais d'agent.")
+    long_answer = r.last_answer()
+    r.show_forced(True)
+    r.open_options("Skills")
+    armed = r.arm("Déclencher le skill : Caveman")
+    r.check(armed["payload"]["actions"][0]["target"] == "caveman", "Caveman armé")
+    expect(r.page.locator("#armed-chips")).to_be_visible(timeout=5000)
+    r.check(True, "puce d'action armée au-dessus du champ")
+    ended = r.replay()
+    short_answer = r.last_answer()
+    r.check(ended["payload"]["status"] == "completed", "rejeu avec Caveman terminé")
+    r.check(
+        len(short_answer) < len(long_answer) / 2,
+        "réponse Caveman bien plus courte",
+        f"{len(long_answer)} → {len(short_answer)} caractères",
+    )
+    r.page.locator("#chat .replay-badge").last.click()
+    compare = r.page.locator("#ctx")
+    r.check("Comparaison de tours" in compare.inner_text(), "le badge Rejeu ouvre la comparaison")
+    r.check(
+        "Sortie" in compare.inner_text() and "(-" in compare.inner_text().replace("−", "-"),
+        "la comparaison montre moins de tokens en sortie",
+        compare.locator(".turn-compare-figures").last.inner_text()[:200]
+        if compare.locator(".turn-compare-figures").count()
+        else "",
+    )
+    r.shot("13-caveman-comparer")
+    compare.get_by_role("button", name="Fermer").click()
+    r.show_forced(False)
+
+
+def s_hooks(r: Run) -> None:
+    r.launch("hooks")
+    seq = r.ev.mark()
+    ended = r.send("Lis le fichier confidentiel/budget_projet.txt et résume-le.")
+    decided = [e["payload"] for e in r.ev.since(seq, "hook_decided")]
+    blocks = [d for d in decided if d["hook"] == "h1" and d["decision"] == "block"]
+    r.check(
+        bool(blocks),
+        "H1 bloque la lecture du dossier confidentiel",
+        str([(d["hook"], d["decision"]) for d in decided]),
+    )
+    r.check(any(d["hook"] == "h2" for d in decided), "H2 journalise")
+    r.check(ended["payload"]["status"] == "completed", "le tour se termine")
+    r.check(
+        "budget" not in r.last_answer().lower() or "bloqu" in r.last_answer().lower(),
+        "le contenu confidentiel n'atteint pas la réponse",
+        r.last_answer()[:200],
+    )
+    r.shot("14-hooks-h1-bloque")
+    # Forced read_file, « Fichier sensible » preset, then replay (story 9).
+    r.show_forced(True)
+    r.open_options("Outils")
+    armed = r.arm("Forcer l'appel : Lecture de fichier", preset="Fichier sensible")
+    args = armed["payload"]["actions"][0]["args"]
+    r.check(
+        args.get("path") == "confidentiel/budget_projet.txt",
+        "préréglage « Fichier sensible »",
+        str(args),
+    )
+    seq = r.ev.mark()
+    r.replay()
+    # H1 blocks before `tool_started`: the hook's decision carries the trigger.
+    decisions = r.ev.since(seq, "hook_decided")
+    r.check(
+        any(e.get("trigger") == "user" for e in decisions),
+        "l'appel forcé est attribué à l'utilisateur",
+        str([e.get("trigger") for e in decisions]),
+    )
+    decided = [e["payload"] for e in r.ev.since(seq, "hook_decided")]
+    r.check(
+        any(d["hook"] == "h1" and d["decision"] == "block" for d in decided),
+        "H1 bloque aussi l'appel forcé",
+    )
+    r.check(
+        "Forcé par l'utilisateur" in r.page.locator("#orch-scroll").inner_text(),
+        "Orchestration affiche « Forcé par l'utilisateur »",
+    )
+    audit = r.api("GET", "/api/audit")
+    text = audit.json().get("text", "") if audit.status_code == 200 else ""
+    r.check(
+        "bloqué par H1" in text,
+        "journal d'audit H2 écrit (blocage H1 compris)",
+        text.strip().splitlines()[-1][:200] if text.strip() else str(audit.status_code),
+    )
+    r.show_forced(False)
+
+
+def s_data_flows(r: Run) -> None:
+    r.launch("data_flows")
+    r.set_brick("MCP", True)
+    time.sleep(1)
+    seq = r.ev.mark()
+    r.set_option("MCP", "data.gouv.fr", True)
+    ended = r.ev.wait("mcp_connect_ended", seq, lambda p: p["server"] == "datagouv", 45)
+    r.check(
+        ended["payload"]["status"] == "error",
+        "data.gouv.fr échoue, sans réseau",
+        (ended["payload"].get("error_fr") or "")[:200],
+    )
+    time.sleep(0.5)
+    arch = r.state()["architecture_changed"]
+    crossing = [e for e in arch["edges"] if e.get("crosses_boundary")]
+    r.check(
+        any("datagouv" in e["from"] + e["to"] for e in crossing),
+        "le flux vers data.gouv.fr franchit la frontière du poste",
+        str(crossing)[:300],
+    )
+    local = [e for e in arch["edges"] if "mcp.local" in e["from"] + e["to"]]
+    r.check(
+        all(not e.get("crosses_boundary") for e in local),
+        "le serveur MCP local reste sur le poste",
+        str(local)[:200],
+    )
+    r.shot("15-ou-vont-mes-donnees-schema")
+    for width, height in [(1600, 1000), (1366, 768)]:
+        r.page.set_viewport_size({"width": width, "height": height})
+        time.sleep(0.5)
+        over = r.page.evaluate(
+            "() => { const b = document.querySelector('.pane-body-schema');"
+            " return b.scrollWidth - b.clientWidth; }"
+        )
+        r.check(
+            over <= 2,
+            f"{width}×{height} : la zone Réseau du schéma tient sans défilement",
+            f"{over} px masqués à droite",
+            known="A2",
+        )
+    r.page.set_viewport_size({"width": 1600, "height": 1000})
+
+
+def s_forced_native(r: Run) -> None:
+    r.launch("native_tools")
+    r.show_forced(True)
+    r.open_options("Outils")
+    r.arm("Forcer l'appel : Heure et date")
+    expect(r.page.locator("#armed-chips")).to_be_visible(timeout=5000)
+    r.check(True, "outil sans paramètre armé en un clic")
+    r.page.locator("#armed-chips button").first.click()  # disarm
+    time.sleep(0.5)
+    r.check(not r.state()["armed_actions_changed"]["actions"], "la puce désarme l'action")
+    r.arm("Forcer l'appel : Calculatrice", preset="Multiplication")
+    seq = r.ev.mark()
+    ended = r.send("Bonjour")
+    starts = [e for e in r.ev.since(seq, "tool_started")]
+    r.check(
+        any(e["payload"]["tool"] == "calculator" and e.get("trigger") == "user" for e in starts),
+        "calculatrice forcée exécutée avant l'appel au modèle",
+    )
+    r.check(
+        "444" in r.last_answer() and ended["payload"]["status"] == "completed",
+        "le modèle reçoit le résultat forcé (12*37 = 444)",
+        r.last_answer()[:160],
+    )
+    r.show_forced(False)
+
+
+def s_busy_and_stop(r: Run) -> None:
+    r.launch("bare_llm")
+    seq = r.ev.mark()
+    r.page.fill("#composer-input", "Explique le harnais [lent] [long]")
+    r.page.press("#composer-input", "Enter")
+    r.ev.wait("model_first_token", seq, timeout=20)
+    r.check(r.page.locator("#scenario-picker").is_disabled(), "sélecteur désactivé pendant un tour")
+    r.check(
+        r.page.locator("#reset-button").is_disabled(), "« Réinitialiser » désactivé pendant un tour"
+    )
+    refused = r.api("POST", "/api/intentions/scenario", {"scenario_id": "hooks"})
+    r.check(
+        refused.status_code == 409, "lancer un scénario pendant un tour : 409", refused.text[:200]
+    )
+    refused = r.api("POST", "/api/intentions/reset")
+    r.check(refused.status_code == 409, "réinitialiser pendant un tour : 409")
+    r.page.click("#composer-stop")
+    ended = r.ev.wait("turn_ended", seq)
+    r.check(
+        ended["payload"]["status"] == "cancelled",
+        "« Arrêter » annule le tour",
+        ended["payload"]["status"],
+    )
+    r.check("Arrêté à votre demande" in r.last_answer(), "annulation expliquée")
+    unknown = r.api("POST", "/api/intentions/scenario", {"scenario_id": "nope"})
+    r.check(unknown.status_code == 404, "scénario inconnu : 404")
+
+
+def s_reload_and_reset(r: Run) -> None:
+    r.launch("hooks")
+    r.send("Bonjour")
+    r.page.reload()
+    r.wait_idle()
+    ok, took = r.poll(lambda: r.page.input_value("#scenario-picker") == "hooks")
+    r.check(ok, "après rechargement : sélecteur sur « Hooks »", f"au bout de {took:.1f} s")
+    ok, took = r.poll(lambda: r.page.locator("#suggested-prompts button").count() == 1)
+    r.check(
+        ok and r.page.locator("#scenario-guide").is_visible(),
+        "après rechargement : consigne et prompt suggéré",
+        f"au bout de {took:.1f} s",
+    )
+    measure = (
+        "() => ['#reset-button', '#pane-menu-toggle', '#gauge-bar'].map(q => {"
+        " const b = document.querySelector(q).getBoundingClientRect();"
+        " return [Math.round(b.width), Math.round(b.height)]; })"
+    )
+    before = r.page.evaluate(measure)
+    seq = r.ev.mark()
+    r.page.click("#reset-button")
+    r.ev.wait("harness_reset", seq, timeout=10)
+    time.sleep(0.8)
+    after = r.page.evaluate(measure)
+    r.check(
+        after == before,
+        "le message de réinitialisation ne déforme pas la barre haute",
+        f"[largeur, hauteur] de « Réinitialiser », « Volets », jauge : {before} puis {after}",
+        known="A4",
+    )
+    r.check(
+        "WaveStack réinitialisé" in r.page.locator("#top-status").inner_text(),
+        "message « WaveStack réinitialisé : LLM nu. »",
+    )
+    b = r.bricks()
+    r.check(
+        not any(x["wanted"] for x in b.values()),
+        "aucune brique après réinitialisation",
+        str([k for k, x in b.items() if x["wanted"]]),
+    )
+    r.check(r.page.input_value("#scenario-picker") == "", "sélecteur revenu à « Choisir »")
+    for pane in ("#chat", "#ctx", "#orch-scroll"):
+        r.check(
+            "Aucun tour" in r.page.locator(pane).inner_text(),
+            f"{pane} : « Aucun tour »",
+            r.page.locator(pane).inner_text()[:120],
+        )
+    title = r.page.locator("#event-log-title").inner_text()
+    r.shot("17-reinitialisation")
+    r.page.reload()
+    r.wait_idle()
+    ok, took = r.poll(lambda: "Aucun tour" in r.page.locator("#chat").inner_text())
+    r.check(ok, "après rechargement : toujours « Aucun tour »", f"au bout de {took:.1f} s")
+    ok, took = r.poll(lambda: r.page.locator("#event-log-title").inner_text() == title)
+    r.check(
+        ok,
+        "après rechargement : journal affiché depuis la réinitialisation",
+        f"{title}, au bout de {took:.1f} s",
+    )
+    replay = r.page.locator("#replay-last")
+    r.check(replay.is_disabled(), "rien à rejouer après réinitialisation")
+
+
+def s_relaunch(r: Run) -> None:
+    """Story 11: the cloud model chosen is kept at the next launch, without a new warning."""
+    saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
+    r.check(
+        saved.get("selected_model") == {"kind": "cloud", "ref": MODEL_ENTRY_ID},
+        "settings.json retient le modèle cloud choisi",
+        str(saved.get("selected_model")),
+    )
+    r.page.goto(f"{r.stack.app_url}/")
+    r.wait_idle()
+    for _ in range(10):  # a longer journal than the new process will have at first
+        r.send("Bonjour")
+    old_tip = r.ev.mark()
+    r.stack.restart_app()
+    r.earlier_events += r.ev.items  # kept for the run's summary
+    r.ev = Events(r.stack.app_url)  # a new process: a new journal, from seq 1
+    # The tab left open reconnects on its own (streamEvents, every second); the trainer
+    # types in it, as he would after « relancez WaveStack pour l'utiliser ».
+    time.sleep(4)
+    seq = r.ev.mark()
+    r.page.fill("#composer-input", "Message après la relance")
+    r.page.press("#composer-input", "Enter")
+    try:
+        r.ev.wait("turn_ended", seq, timeout=15)
+        sent = "tour terminé côté serveur"
+    except TimeoutError:
+        sent = "aucun tour côté serveur"
+    answer = "Réponse scriptée du faux modèle au message : « Message après la relance »"
+    last = r.page.locator("#chat .bubble-model").last
+    ok, took = r.poll(lambda: answer in last.inner_text(), 8)
+    r.shot("18-onglet-ouvert-apres-relance")
+    r.check(
+        ok,
+        "onglet resté ouvert pendant la relance : la réponse s'affiche",
+        f"{sent} ; journal : seq {old_tip} avant relance, {r.ev.mark()} après ; Vue humain : "
+        + r.page.locator("#chat .bubble-model").last.inner_text()[:80].replace("\n", " "),
+        known="A1",
+    )
+    r.page.goto(f"{r.stack.app_url}/")
+    expect(r.page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=30_000)
+    r.wait_idle()
+    r.check(True, "relance : le faux modèle est repris sans passer par le diagnostic")
+    ended = r.send("Bonjour")
+    r.check(ended["payload"]["status"] == "completed", "relance : un tour aboutit")
+    r.page.goto(f"{r.stack.app_url}/diagnostic")
+    checks = r.page.locator("#checks")
+    expect(checks).to_contain_text("lors d'un lancement précédent", timeout=10_000)
+    r.check(True, "diagnostic : « choisi lors d'un lancement précédent »")
+    r.check(r.page.locator("#cloud-warning").is_hidden(), "aucun nouvel avertissement cloud")
+    r.page.goto(f"{r.stack.app_url}/")
+
+
+SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
+    ("diagnostic", s_diagnostic),
+    ("bare_llm", s_bare_llm),
+    ("short_memory", s_short_memory),
+    ("system_prompt", s_system_prompt),
+    ("native_tools", s_native_tools),
+    ("malformed", s_malformed),
+    ("provider_errors", s_provider_errors),
+    ("network_tools", s_network_tools),
+    ("h5", s_h5),
+    ("mcp_full", s_mcp_full),
+    ("mcp_lazy", s_mcp_lazy),
+    ("skills", s_skills),
+    ("caveman", s_caveman),
+    ("hooks", s_hooks),
+    ("data_flows", s_data_flows),
+    ("forced_native", s_forced_native),
+    ("busy_and_stop", s_busy_and_stop),
+    ("reload_and_reset", s_reload_and_reset),
+    ("relaunch", s_relaunch),
+]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Test de bout en bout de WaveStack (palier 1).")
+    parser.add_argument("--only", nargs="*", help="scénarios à jouer (diagnostic toujours)")
+    parser.add_argument("--keep", action="store_true", help="garder le dossier de données")
+    parser.add_argument("--headed", action="store_true")
+    args = parser.parse_args()
+    chosen = [s for s in SCENARIOS if not args.only or s[0] in args.only or s[0] == "diagnostic"]
+
+    console: list[str] = []
+    with running_stack(keep=args.keep) as stack, sync_playwright() as p:
+        print(f"WaveStack {stack.app_url} · faux modèle {stack.fake_url} · {stack.data_dir}")
+        try:
+            browser = p.chromium.launch(headless=not args.headed)
+        except Exception:  # noqa: BLE001 - another Playwright revision: the preinstalled one
+            browser = p.chromium.launch(headless=not args.headed, executable_path=CHROMIUM)
+        page = browser.new_page(viewport={"width": 1600, "height": 1000}, locale="fr-FR")
+        page.on(
+            "console",
+            lambda m: (
+                console.append(f"{m.type}: {m.text}") if m.type in ("error", "warning") else None
+            ),
+        )
+        page.on("pageerror", lambda e: console.append(f"pageerror: {e}"))
+        run = Run(page, stack, Events(stack.app_url))
+        for name, scenario in chosen:
+            run.current = name
+            print(f"== {name}")
+            try:
+                scenario(run)
+            except Exception as exc:  # noqa: BLE001 - reported, then the next scenario
+                run.check(False, "exception", f"{type(exc).__name__}: {exc}".splitlines()[0])
+                traceback.print_exc()
+                try:
+                    run.shot(f"echec-{name}")
+                    run.page.goto(f"{stack.app_url}/")
+                except Exception:  # noqa: BLE001
+                    pass
+        browser.close()
+        errors = [e for e in run.earlier_events + run.ev.items if e["kind"] == "harness_error"]
+        print(f"\nharness_error émis pendant la séance : {len(errors)}")
+        for e in errors:
+            print(f"  - {e['payload']['message_fr'][:200]}")
+    failed = [x for x in run.results if not x[2]]
+    print(
+        f"\n{len(run.results) - len(failed)} vérifications réussies, {len(failed)} en échec, "
+        f"{len(run.known)} anomalies connues."
+    )
+    for scenario, what, known, detail in run.known:
+        print(f"  KNOWN [{known}] [{scenario}] {what} — {detail}")
+    for scenario, what, _, detail in failed:
+        print(f"  FAIL [{scenario}] {what} — {detail}")
+    if console:
+        print("\nConsole du navigateur (erreurs et avertissements) :")
+        for line in console[:40]:
+            print(f"  {line[:300]}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

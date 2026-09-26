@@ -343,6 +343,7 @@ def test_boot_emits_bare_llm_cards_without_any_toggle():
         assert {b["id"]: b["wanted"] for b in cards["bricks"]} == {
             "short_memory": False,
             "system_prompt": False,
+            "reasoning": False,
             "tools": False,
             "mcp": False,
             "skills": False,

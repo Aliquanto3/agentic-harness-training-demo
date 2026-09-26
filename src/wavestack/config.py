@@ -62,7 +62,8 @@ class AuthHeader(_Strict):
 
 
 class CloudReasoning(_Strict):
-    """What the reasoning brick adds to the body (AD-6); `resend` is never used in V1."""
+    """What the reasoning brick adds to the body (AD-6). `resend`: the reasoning received goes
+    back to the provider in the form of `format` (AD-4)."""
 
     format: Literal["field", "content_blocks", "think_tags"]
     on: dict[str, Any] = {}
@@ -80,7 +81,13 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+OUTPUT_RESERVE = 512  # AD-9: the output reserve of a model that does not reason
 MAX_RESERVE = 1536  # AD-9: the largest output reserve; `tpm // 2` must exceed it
+
+
+def output_reserve(reasoning: bool) -> int:
+    """AD-9, the single rule of the output reserve: 1 536 while the model reasons, else 512."""
+    return MAX_RESERVE if reasoning else OUTPUT_RESERVE
 
 
 class CloudModel(_Strict):
@@ -124,16 +131,24 @@ class CloudModel(_Strict):
         return urlsplit(self.base_url).hostname or ""
 
     @property
-    def reserve(self) -> int:
-        """AD-9: the reasoning reserve when the model always reasons, else the plain one."""
-        return MAX_RESERVE if self.reasoning and self.reasoning.always else 512
+    def always_reasons(self) -> bool:
+        return self.reasoning is not None and self.reasoning.always
+
+    def reserve_for(self, reasoning: bool) -> int:
+        """AD-9: the reasoning reserve while it reasons (brick on, or `always`), else 512."""
+        return output_reserve(reasoning or self.always_reasons)
 
     @property
-    def reasoning_params(self) -> dict[str, Any]:
-        """AD-6: no reasoning brick yet, so it is off, unless the model always reasons."""
+    def reserve(self) -> int:
+        """The reserve with the reasoning brick off (« Tester », the window check)."""
+        return self.reserve_for(False)
+
+    def reasoning_params(self, reasoning: bool) -> dict[str, Any]:
+        """AD-6: `on` while the model reasons (brick on, or `always`), else `off`."""
         if self.reasoning is None:
             return {}
-        return dict(self.reasoning.on if self.reasoning.always else self.reasoning.off)
+        on = reasoning or self.reasoning.always
+        return dict(self.reasoning.on if on else self.reasoning.off)
 
 
 def _merge_cloud_models(base: Any, override: Any) -> list[Any]:

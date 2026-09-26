@@ -18,6 +18,9 @@ program:
   - title_fr: Skills et hooks
     duration_min: 60
     scenarios: [skills, caveman, hooks]
+  - title_fr: Raisonnement
+    duration_min: 30
+    scenarios: [reasoning]
 
 transverse: [data_flows]
 
@@ -141,6 +144,23 @@ scenarios:
     hooks: [h1, h2]
     prompts:
       - Lis le fichier confidentiel/budget_projet.txt et résume-le.
+
+  reasoning:
+    title_fr: Raisonnement
+    description_fr: >-
+      Les briques des modules précédents restent actives, MCP en lazy loading pour garder
+      de la place, et la brique Raisonnement s'y ajoute : le modèle écrit d'abord son
+      raisonnement, puis sa réponse. Envoyez le prompt et dépliez le raisonnement, dans la
+      Vue humain ou dans Contexte LLM ; la jauge montre la réserve de sortie passée à
+      1 536 tokens. Éteignez ensuite la brique, rejouez le prompt et ouvrez « Comparer » :
+      moins de tokens en sortie et un tour plus court, mais une réponse souvent moins sûre.
+      Si le modèle ne sait pas raisonner, la carte de la brique en donne la raison.
+    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, reasoning]
+    mcp_lazy: true
+    prompts:
+      - >-
+        Un train part de Paris à 14 h 47 et roule 2 h 38. Il a ensuite 25 minutes de
+        retard. À quelle heure arrive-t-il ?
 
   data_flows:
     title_fr: Où vont mes données ?

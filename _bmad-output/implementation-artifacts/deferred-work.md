@@ -208,6 +208,30 @@
   summary: Mistral répond 429 à tout appel quand l'espace de travail n'a aucun quota actif ; le texte affiché (« quota dépassé (par seconde, par minute ou par jour) » et la piste `min_interval_s`) oriente à tort vers l'espacement. Piste : reconnaître `x-ratelimit-limit-req-minute: 0` et afficher « aucun quota actif sur ce compte : vérifiez le plan dans la console du fournisseur ».
   evidence: Sonde directe du 2026-09-26 sur le PC cible : trois appels espacés de plus d'1 s, tous en 429, corps `{"message":"Rate limit exceeded","type":"rate_limited","code":"1300"}`, en-têtes `x-ratelimit-limit-req-minute: 0` et `x-ratelimit-remaining-req-minute: 0`. La spec 11b interdit de déduire quoi que ce soit des en-têtes `x-ratelimit-*` (Never) : lever cette interdiction pour un message d'explication seulement (ni attente ni nouvel essai) est une décision à prendre. À vérifier dans la console Mistral : plan « Experiment » activé et vérification par téléphone faite.
 
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
+  summary: Le front de la story 13 (option « Afficher le raisonnement », reasoning-block de la Vue humain et de Contexte LLM, carte « toujours active pour ce modèle ») n'a aucun test automatique.
+  evidence: Même écart que pour les stories 5b à 11b : aucun banc de test JS ; retirer le bloc de Contexte LLM ou ignorer l'option passerait pytest et `node --check`. À couvrir par le harnais E2E (tools/e2e/, faux serveur compatible OpenAI + Playwright) dès qu'il est disponible.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
+  summary: Non vérifié (medium si réel) — renvoi du raisonnement (`reasoning.resend = true`) au format `field` sous la clé `reasoning` du message assistant : aucun préréglage ne le déclare, forme jamais essayée contre un fournisseur réel.
+  evidence: Forme tirée d'AD-4 (« dans la forme reçue ») ; tests avec MockTransport seulement. À trancher en déclarant `resend = true` dans settings.json pour une entrée `field` puis en menant un tour avec outil : si le fournisseur refuse (400), renvoyer sous le nom de champ reçu (`reasoning` ou `reasoning_content`).
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
+  summary: Écart H6 de la story 13 — le préréglage Mistral garde `reasoning.resend = false`, alors qu'AD-20 et le Deferred du spine disent « vrai pour Mistral » (renvoi des blocs `thinking`).
+  evidence: Laissé à faux faute de test réel : renvoyer un bloc `thinking` à mistral-small-latest n'a jamais été essayé et pourrait valoir un 400. À trancher sur le PC cible, brique Raisonnement active : déclarer `resend = true` pour `mistral` dans settings.json, mener un tour avec outil puis un second tour ; si Mistral accepte, passer le préréglage à vrai, sinon amender AD-20.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
+  summary: Critère d'acceptation 3 de la story 13 (brique Raisonnement voulue, indisponible avec un modèle qui ne raisonne pas, redevenue effective sans nouveau clic avec un modèle qui raisonne) non testé.
+  evidence: Le changement de modèle à chaud n'existe pas encore (story 17) ; la disponibilité est bien calculée au point unique d'AD-12 et `wanted` n'est jamais modifié par un chargement. Écrire le test avec la story 17 (select_model hors diagnostic).
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
+  summary: `_resend()` est lu dans la configuration courante à chaque rendu plutôt que figé dans le `TurnState`, et le raisonnement d'un tour passé repart (avec `resend = true`) même quand la brique Raisonnement est éteinte.
+  evidence: Comportement non spécifié par AD-4 ni AD-17 ; sans effet tant qu'aucun préréglage ne déclare `resend` (la déclaration ne change pas pendant une session). À trancher si un préréglage passe `resend = true` : figer le format au début du tour, et décider si l'historique renvoie le raisonnement brique éteinte.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
+  summary: Contexte LLM ne montre que le raisonnement du dernier appel du tour affiché ; la Vue humain montre, elle, un bloc par appel.
+  evidence: Même périmètre que la « Sortie brute du modèle » (dernier appel seulement) ; le raisonnement des appels précédents reste dans l'étape « Appel au modèle » d'Orchestration et dans le journal. À reprendre si Contexte LLM permet un jour de choisir l'appel affiché.
+
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/12-tests-prealables-headroom-embedding-et-reranking.md`
   summary: Le verdict embedding et reranking de la story 12 reste provisoire (granite-embedding-107m-multilingual Q8_0, bge-reranker-v2-m3 Q4_K_M) ; lancer sur le PC cible, avant la story 15, `uv run --with huggingface-hub --with fastembed python tools/bench/story12_bench.py embed --download`, puis `uv run --with headroom-ai==0.38.0 python tools/bench/story12_bench.py headroom`, et reporter les deux sorties `--json` dans la story 12.
   evidence: Le conteneur de développement n'atteint pas huggingface.co (`ProxyError('403 Forbidden')` pour les 7 candidats) : aucune qualité, aucun RSS de modèle n'a été mesuré ; le code du banc est seulement validé sur des GGUF synthétiques. Les mesures Headroom (+130 Mo, aucune tentative réseau) viennent de Linux, pas du HP EliteBook sous Windows 11, où `strace` manque pour voir le code natif.
