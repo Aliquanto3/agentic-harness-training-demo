@@ -191,6 +191,12 @@ const RESET_STATUS_FR = "WaveStack réinitialisé : LLM nu.";
 const RESET_STATUS_MS = 6000;
 let resetStatusTimer = null;
 
+// The "last known" states (`session_state`, the architecture, the bricks…): `/api/state`
+// already gave the latest of each, up to `store.liveFrom`. An older one, replayed by the
+// stream after a reload, would take the page back in time (a composer enabled then
+// disabled by past turns): only a later one applies.
+const isLive = (envelope) => envelope.seq > store.liveFrom;
+
 function applyEnvelope(envelope) {
   store.journal.push(envelope);
   const p = envelope.payload;
@@ -204,30 +210,33 @@ function applyEnvelope(envelope) {
   }
   switch (envelope.kind) {
     case "session_state":
+      // A new attempt clears the earlier failures, replayed or not (they come from the stream only).
+      if (p.state === "download" || p.state === "index_build") store.ragNotice = store.rerankNotice = null;
+      if (!isLive(envelope)) break;
       store.sessionState = p;
-      if (p.state === "download" || p.state === "index_build") store.ragNotice = store.rerankNotice = null; // a new attempt
-
       // The diagnostic session's own states carry no model: the last known one stays.
       if (p.active_model !== undefined) store.activeModel = p.active_model;
       if (p.state === "idle") store.composerError = null;
       break;
     case "architecture_changed":
-      store.architecture = p;
+      if (isLive(envelope)) store.architecture = p;
       break;
     case "context_preview":
-      store.gauge = { payload: p, preview: true };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: true };
       break;
     case "bricks_changed":
-      store.bricks = p;
+      if (isLive(envelope)) store.bricks = p;
       break;
     case "memory_changed":
+      if (!isLive(envelope)) break;
       store.memory = p;
       renderMemoryDrawer();
       break;
     case "armed_actions_changed":
-      // AD-1: the chips are this list, never a local computation.
-      store.armed = p.actions;
+      // Every label seen stays known, so that a replayed `action_dropped` still names it.
       for (const action of p.actions) store.armedLabels.set(action.armed_id, action.label_fr);
+      // AD-1: the chips are this list, never a local computation.
+      if (isLive(envelope)) store.armed = p.actions;
       break;
     case "action_dropped":
       if (turn) turn.steps.push({ type: envelope.kind, payload: p, label: store.armedLabels.get(p.armed_id) });
@@ -239,6 +248,7 @@ function applyEnvelope(envelope) {
       store.compare = null;
       break;
     case "scenario_changed":
+      if (!isLive(envelope)) break;
       store.scenarios = p;
       if (p.active) store.topStatus = null;
       break;
@@ -251,6 +261,8 @@ function applyEnvelope(envelope) {
       store.logFrom = store.journal.length;
       eventLog.list?.remove();
       Object.assign(eventLog, { groups: [], processed: store.logFrom, rows: [], list: null });
+      store.memoryDrafts.clear();
+      if (!isLive(envelope)) break; // an earlier reset: no confirmation in the top bar
       store.topStatus = RESET_STATUS_FR;
       // A4: a discreet confirmation, over the panes: it leaves on its own.
       clearTimeout(resetStatusTimer);
@@ -259,7 +271,6 @@ function applyEnvelope(envelope) {
         store.topStatus = null;
         render();
       }, RESET_STATUS_MS);
-      store.memoryDrafts.clear();
       break;
     case "model_load_started":
       store.modelLoad = { model: p.model, startedAt: Date.parse(envelope.ts) };
@@ -268,7 +279,7 @@ function applyEnvelope(envelope) {
     case "model_load_ended":
       store.modelLoad = null;
       // A load that fell back, or a choice not saved, says so in the top bar (live only).
-      if (envelope.seq > store.liveFrom) store.topStatus = p.reason_fr ?? null;
+      if (isLive(envelope)) store.topStatus = p.reason_fr ?? null;
       scheduleModelList();
       break;
     case "turn_started":
@@ -303,7 +314,7 @@ function applyEnvelope(envelope) {
       });
       break;
     case "context_rendered":
-      store.gauge = { payload: p, preview: false };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: false };
       if (turn) {
         turn.context = p;
         turn.steps.push({ type: "call", id: envelope.call_id, context: p, startedAt: null, ended: null });
@@ -311,7 +322,7 @@ function applyEnvelope(envelope) {
       break;
     case "context_reconciled":
       // AD-4, chat mode: `usage` came back; its figures replace the estimate of that call.
-      store.gauge = { payload: p, preview: false };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: false };
       if (turn) {
         const call = turn.steps.find((s) => s.type === "call" && s.id === envelope.call_id);
         if (call) call.context = p;
@@ -2303,7 +2314,18 @@ async function sendMessage(event) {
   event.preventDefault();
   const input = document.getElementById("composer-input");
   const message = input.value.trim();
-  if (!message || input.disabled) return;
+  // Never ignored without a word: the reason stays under the field.
+  if (input.disabled) {
+    const reason = store.sessionState?.reason_fr;
+    store.composerError = `Message non envoyé : ${reason || "WaveStack n'est pas prêt à recevoir un message."}`;
+    render();
+    return;
+  }
+  if (!message) {
+    store.composerError = "Écrivez un message avant d'envoyer.";
+    render();
+    return;
+  }
   store.composerError = null;
   try {
     const response = await postIntention("/api/intentions/send", { message });
@@ -5121,8 +5143,14 @@ async function boot() {
   render();
   loadModelList();
 
-  // Replay the whole journal: a reload rebuilds past and in-progress turns (AD-1).
-  streamEvents(0, applyEnvelope);
+  // Replay the whole journal: a reload rebuilds past and in-progress turns (AD-1). Once it
+  // reaches the snapshot's tip, the page says so (`data-journal-replayed`, read by the E2E run).
+  const replayed = () => (document.body.dataset.journalReplayed = "true");
+  if (store.liveFrom === 0) replayed();
+  streamEvents(0, (envelope) => {
+    applyEnvelope(envelope);
+    if (envelope.seq >= store.liveFrom) replayed();
+  });
 }
 
 boot();

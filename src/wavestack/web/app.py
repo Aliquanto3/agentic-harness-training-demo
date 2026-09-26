@@ -601,21 +601,33 @@ def _sse_stream(request: Request) -> StreamingResponse:
         loop.call_soon_threadsafe(queue.put_nowait, envelope)
 
     async def _generate():  # noqa: ANN202
-        # First, which journal this stream reads: a tab left open across a relaunch sees
-        # a new instance and resyncs (its `Last-Event-ID` belongs to the old journal).
-        yield _format_instance(journal.instance_id)
-        for envelope in journal.events_since(since_seq):
-            yield _format_sse(envelope)
+        # Subscribed before the snapshot is taken: an event emitted while the replay is
+        # being sent (each `yield` may wait on the socket) is queued, never lost. The
+        # overlap this creates (an event both in the snapshot and in the queue) is dropped
+        # by `seq`, which `emit` assigns under its lock and notifies in order.
         journal.subscribe(_on_event)
         try:
+            # First, which journal this stream reads: a tab left open across a relaunch sees
+            # a new instance and resyncs (its `Last-Event-ID` belongs to the old journal).
+            yield _format_instance(journal.instance_id)
+            # The last replayed `seq`, not `since_seq`: a `Last-Event-ID` of another instance
+            # (relaunch, tab left open) may exceed this journal's, whose live events still go.
+            last_sent = 0
+            for envelope in journal.events_since(since_seq):
+                last_sent = envelope.seq
+                yield _format_sse(envelope)
             while True:
                 if await request.is_disconnected():
                     break
                 try:
                     envelope = await asyncio.wait_for(queue.get(), timeout=15)
-                    yield _format_sse(envelope)
                 except TimeoutError:
                     yield ": keep-alive\n\n"
+                    continue
+                if envelope.seq <= last_sent:
+                    continue  # already replayed from the snapshot
+                last_sent = envelope.seq
+                yield _format_sse(envelope)
         finally:
             journal.unsubscribe(_on_event)
 

@@ -138,7 +138,23 @@ class Run:
 
     # -- UI gestures --
 
+    def wait_replayed(self, timeout: float = 30) -> None:
+        """Barrier after a navigation: the page replayed the journal up to its `/api/state`
+        snapshot (app.js marks `data-journal-replayed`); acting before races the replay."""
+        expect(self.page.locator("body[data-journal-replayed]")).to_be_attached(
+            timeout=timeout * 1000
+        )
+
+    def goto_app(self) -> None:
+        self.page.goto(f"{self.stack.app_url}/")
+        self.wait_replayed()
+
+    def reload_app(self) -> None:
+        self.page.reload()
+        self.wait_replayed()
+
     def wait_idle(self, timeout: float = 30) -> None:
+        self.wait_replayed(timeout)
         # The page's HTML enables the button before app.js renders: wait for the programme.
         expect(self.page.locator("#scenario-picker option").nth(1)).to_be_attached(
             timeout=timeout * 1000
@@ -163,6 +179,7 @@ class Run:
         seq = self.ev.mark()
         self.page.fill("#composer-input", text)
         self.page.press("#composer-input", "Enter")
+        self.wait_turn_started(seq, "l'envoi")
         if expect_approval:
             return self.ev.wait("approval_requested", seq)
         return self.ev.wait("turn_ended", seq)
@@ -171,7 +188,28 @@ class Run:
         self.wait_idle()
         seq = self.ev.mark()
         self.page.click("#replay-last")
+        self.wait_turn_started(seq, "« Rejouer »")
         return self.ev.wait("turn_ended", seq)
+
+    def wait_turn_started(self, seq: int, gesture: str, timeout: float = 5) -> None:
+        """A gesture that starts no turn says why: the composer's state and its reason."""
+        try:
+            self.ev.wait("turn_started", seq, timeout=timeout)
+        except TimeoutError:
+            composer = self.page.evaluate(
+                "() => { const q = (s) => document.querySelector(s);"
+                " return { input: q('#composer-input').disabled,"
+                " send: q('#composer-send').disabled,"
+                " value: q('#composer-input').value,"
+                " reason: q('#composer-reason').hidden ? ''"
+                " : q('#composer-reason').textContent }; }"
+            )
+            raise TimeoutError(
+                f"{gesture} n'a lancé aucun tour en {timeout:g} s : champ "
+                f"{'désactivé' if composer['input'] else 'actif'}, bouton « Envoyer » "
+                f"{'désactivé' if composer['send'] else 'actif'}, saisie « {composer['value']} », "
+                f"#composer-reason « {composer['reason']} »"
+            ) from None
 
     def last_answer(self) -> str:
         time.sleep(0.3)  # the last render after `turn_ended`
@@ -1992,6 +2030,11 @@ def s_busy_and_stop(r: Run) -> None:
     r.page.press("#composer-input", "Enter")
     r.ev.wait("model_first_token", seq, timeout=20)
     r.check(r.page.locator("#scenario-picker").is_disabled(), "sélecteur désactivé pendant un tour")
+    # A submit that reaches the form while the field is disabled is never dropped silently.
+    r.page.evaluate("() => document.getElementById('composer').requestSubmit()")
+    reason = r.page.locator("#composer-reason")
+    ok, _ = r.poll(lambda: "Message non envoyé" in reason.inner_text(), 5)
+    r.check(ok, "envoi pendant un tour : refus dit sous le champ", reason.inner_text())
     r.check(
         r.page.locator("#reset-button").is_disabled(), "« Réinitialiser » désactivé pendant un tour"
     )
@@ -2009,14 +2052,38 @@ def s_busy_and_stop(r: Run) -> None:
         ended["payload"]["status"],
     )
     r.check("Arrêté à votre demande" in r.last_answer(), "annulation expliquée")
+    r.wait_idle()
+    r.page.fill("#composer-input", "   ")
+    r.page.press("#composer-input", "Enter")
+    ok, _ = r.poll(lambda: "Écrivez un message" in reason.inner_text(), 5)
+    r.check(ok, "envoi d'un message vide : invitation à écrire", reason.inner_text())
     unknown = r.api("POST", "/api/intentions/scenario", {"scenario_id": "nope"})
     r.check(unknown.status_code == 404, "scénario inconnu : 404")
 
 
+# Every change of the composer field's `disabled`, from the page's first byte on.
+COMPOSER_FLIPS_JS = """
+window.__composerFlips = [];
+new MutationObserver((records) => {
+  for (const m of records) {
+    if (m.target.id === "composer-input") window.__composerFlips.push(m.target.disabled);
+  }
+}).observe(document, { subtree: true, attributes: true, attributeFilter: ["disabled"] });
+"""
+
+
 def s_reload_and_reset(r: Run) -> None:
     r.launch("hooks")
-    r.send("Bonjour")
-    r.page.reload()
+    for _ in range(3):  # past turns: `session_state` « turn » then « idle » in the journal
+        r.send("Bonjour")
+    r.page.add_init_script(COMPOSER_FLIPS_JS)
+    r.reload_app()
+    flips = r.page.evaluate("() => window.__composerFlips")
+    r.check(
+        True not in flips,
+        "après rechargement : le rejeu ne désactive jamais le champ (états passés ignorés)",
+        str(flips),
+    )
     r.wait_idle()
     ok, took = r.poll(lambda: r.page.input_value("#scenario-picker") == "hooks")
     r.check(ok, "après rechargement : sélecteur sur « Hooks »", f"au bout de {took:.1f} s")
@@ -2304,7 +2371,7 @@ def s_local_server(r: Run) -> None:
         "diagnostic : issue affichée, ligne marquée « chargé », sans « Choisir »",
     )
 
-    page.goto(f"{r.stack.app_url}/")
+    r.goto_app()
     r.launch("native_tools")
     options = _picker_options(r)
     r.check(
@@ -2365,7 +2432,7 @@ def s_local_server(r: Run) -> None:
     )
     r.shot("23-serveur-local-llama-server")
 
-    page.reload()
+    r.reload_app()
     expect(page.locator("#model-indicator")).to_contain_text("Local · llama-server", timeout=10_000)
     expect(page.locator("#schema .arch-zone-local .arch-server-model .robot")).to_be_visible(
         timeout=10_000
@@ -2418,7 +2485,7 @@ def s_relaunch(r: Run) -> None:
         "settings.json retient le modèle cloud choisi",
         str(saved.get("selected_model")),
     )
-    r.page.goto(f"{r.stack.app_url}/")
+    r.goto_app()
     r.wait_idle()
     for _ in range(10):  # a longer journal than the new process will have at first
         r.send("Bonjour")
@@ -2432,7 +2499,7 @@ def s_relaunch(r: Run) -> None:
     time.sleep(4)
     reloaded = r.page.evaluate("() => window.__e2eBeforeRelaunch !== true")
     r.check(reloaded, "onglet resté ouvert : la page se recharge d'elle-même à la reconnexion (A1)")
-    r.wait_idle()
+    r.wait_idle()  # its barrier: the reloaded page replayed the new journal
     seq = r.ev.mark()
     r.page.fill("#composer-input", "Message après la relance")
     r.page.press("#composer-input", "Enter")
@@ -2451,7 +2518,7 @@ def s_relaunch(r: Run) -> None:
         f"{sent} ; journal : seq {old_tip} avant relance, {r.ev.mark()} après ; Vue humain : "
         + r.page.locator("#chat .bubble-model").last.inner_text()[:80].replace("\n", " "),
     )
-    r.page.goto(f"{r.stack.app_url}/")
+    r.goto_app()
     expect(r.page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=30_000)
     r.wait_idle()
     r.check(True, "relance : le faux modèle est repris sans passer par le diagnostic")
@@ -2462,7 +2529,7 @@ def s_relaunch(r: Run) -> None:
     expect(checks).to_contain_text("lors d'un lancement précédent", timeout=10_000)
     r.check(True, "diagnostic : « choisi lors d'un lancement précédent »")
     r.check(r.page.locator("#cloud-warning").is_hidden(), "aucun nouvel avertissement cloud")
-    r.page.goto(f"{r.stack.app_url}/")
+    r.goto_app()
 
 
 SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
