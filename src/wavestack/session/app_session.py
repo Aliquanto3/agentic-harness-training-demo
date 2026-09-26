@@ -32,7 +32,7 @@ from wavestack.bricks.contract import (
 )
 from wavestack.bricks.registry import BRICKS, check_unique_ids
 from wavestack.cloud import active_model, chat_fields, load_cloud_content
-from wavestack.config import MAX_RESERVE, CloudModel, output_reserve
+from wavestack.config import MAX_RESERVE, CloudModel, EmbeddingFile, EmbeddingModel, output_reserve
 from wavestack.context.render import (
     RenderedChat,
     RenderedContext,
@@ -56,6 +56,8 @@ from wavestack.hooks import (
 )
 from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
+from wavestack.models import download as download_module
+from wavestack.models import embedding as embedding_module
 from wavestack.models import probe as probe_module
 from wavestack.models.capabilities import (
     TOOL_CALL_TAGS,
@@ -63,8 +65,9 @@ from wavestack.models.capabilities import (
     ChannelSplitter,
     capabilities_for,
 )
+from wavestack.models.embedding import Embedder
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
-from wavestack.models.load_registry import LoadRegistry, ModelChoice, process_rss
+from wavestack.models.load_registry import EMBEDDING, LoadRegistry, ModelChoice, process_rss
 from wavestack.models.openai_chat import (
     ChatBody,
     OpenAIChatEngine,
@@ -72,6 +75,9 @@ from wavestack.models.openai_chat import (
     output_tps,
     run_call,
 )
+from wavestack.rag import index as rag_index
+from wavestack.rag.corpus import Chunk, RagContent, load_rag_content
+from wavestack.rag.retriever import SqliteVecRetriever
 from wavestack.scenarios import EMPTY_PROGRAM, ScenariosContent, load_scenarios
 from wavestack.session.effects import (
     ArmConsumed,
@@ -111,6 +117,8 @@ DOC_LINE_MAX = 120  # characters of a tool's first description line in `load_too
 LOAD_SKILL = "load_skill"  # the harness meta-tool of the skills brick (AD-25)
 REMEMBER = "remember"  # the harness meta-tool of the global memory brick (AD-25)
 MEMORY = "file.memory"  # the schema node of `memory.json` (AD-12, AD-23)
+RAG_INDEX = "file.rag_index"  # the schema node of the RAG index (story 15, AD-12)
+RAG_TARGET = "rag_embedding"  # the only `download_model` target (story 15)
 
 _CORE_HARNESS = {
     "id": "core.harness",
@@ -152,6 +160,10 @@ _OVERFLOW_CAUSES_FR = {
     SegmentKind.USER_MESSAGE: (
         "Cause : le message à lui seul est trop long. "
         "Pour continuer la démo : raccourcissez le message et renvoyez-le."
+    ),
+    SegmentKind.RAG_EXCERPT: (  # story 15: after the message, which wins the ties
+        "Cause : les extraits RAG occupent la plus grande part du contexte. Pour continuer la "
+        "démo : désactivez la brique RAG ou baissez `rag.top_k` dans settings.json."
     ),
     SegmentKind.HISTORY: (
         "Cause : l'historique de la conversation occupe la plus grande part du contexte. "
@@ -286,6 +298,9 @@ class TurnState:
     # Story 14 (AD-4): the global memory's texts, read at the turn's start; empty when the
     # brick is not effective. A write during the turn waits for the next one.
     memory: tuple[str, ...] = ()
+    # Story 15 (AD-4): the RAG's intro then its excerpts, formatted, found by this turn's
+    # search; never kept in the history.
+    rag_excerpts: tuple[str, ...] = ()
 
 
 def _with_loaded(state: TurnState, loaded_in_turn: list[str]) -> TurnState:
@@ -350,6 +365,8 @@ class AppSession:
         hooks: tuple[Hook, ...] = DEMO_HOOKS,
         cloud_factory: Callable[..., Any] | None = None,
         rss_fn: Callable[[], int] | None = None,
+        embedder_factory: Callable[[EmbeddingModel], Embedder] | None = None,
+        download_transport: Any = None,
     ) -> None:
         self.cfg = cfg or config.load_config()
         self._engine_factory = engine_factory
@@ -409,6 +426,20 @@ class AppSession:
         self._memory_lock = threading.RLock()
         self._hook_steps = 0  # hook steps of the running turn, for their step ids
         self._turn_seq = 0  # seq of the running turn's `turn_started`: its events follow it
+        # Story 15 (AD-8, AD-22): the RAG's texts and model, what was read of its index and
+        # model files (at launch and after a download), and the embedding model loaded.
+        self._embedder_factory = embedder_factory or embedding_module.open_embedder
+        self._download_transport = download_transport  # tests: an `httpx.MockTransport`
+        self._rag_content: RagContent | None = None
+        self._rag_model: EmbeddingModel | None = None
+        self._rag_index_error: str | None = None  # sqlite-vec, index absent or another model
+        self._rag_chunks = 0
+        self._rag_missing: list[EmbeddingFile] = []
+        self._rag_longest: list[Chunk] = []  # the preview's excerpts (AD-9)
+        self._embedder: Embedder | None = None
+        self._rag_loading = False
+        self._rag_load_error: str | None = None  # the budget's refusal, or the load's failure
+        self._download_cancel: CancelToken | None = None
         self._load_content()
         self._registry = ToolRegistry(
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
@@ -619,9 +650,14 @@ class AppSession:
                 self._memory_content.file_label_fr if self._memory_content else "memory.json",
                 str(config.memory_path()),
             ),
+            RAG_INDEX: (
+                "rag",
+                self._rag_content.index_label_fr if self._rag_content else "rag_index.sqlite",
+                self._rag_index_detail(),
+            ),
         }
         for file_id, (brick_id, label, detail_fr) in files.items():
-            if file_id not in targets:
+            if file_id not in targets or brick_id not in self._bricks:
                 continue
             available, reason_fr = self._availability(brick_id)
             nodes.append(
@@ -678,6 +714,8 @@ class AppSession:
                 if is_hook and self._hooks_content:  # its tooltip says when it acts
                     hook = self._hooks_content.hooks.get(component.id.removeprefix("hooks."))
                     node["detail_fr"] = hook.description_fr if hook else None
+                if component.id == "rag.retriever" and self._rag_model is not None:
+                    node["detail_fr"] = f"Modèle d'embedding {self._rag_model.id}, processus local"
                 nodes.append(node)
                 edges += [
                     {"from": component.id, "to": target, "crosses_boundary": hosting == "network"}
@@ -833,6 +871,8 @@ class AppSession:
                 bricks[-1]["always_fr"] = self._always_fr()
             if brick.id == "global_memory":
                 bricks[-1] |= self._memory_card()
+            if brick.id == "rag":
+                bricks[-1]["download"] = self._rag_download_offer()
             if brick.id == "mcp":
                 bricks[-1] |= {
                     "mode": "lazy" if lazy else "full",
@@ -867,6 +907,7 @@ class AppSession:
         for conn in conns:  # AD-21: no local server outlives WaveStack
             conn.close(wait=not self._on_loop())
         self._executor.shutdown(wait=True, cancel_futures=True)
+        self._release_embedder()  # story 15 (AD-8)
         if self._engine is not None:
             self._engine.close()
             self._engine = None
@@ -1241,6 +1282,8 @@ class AppSession:
                 )
         if "global_memory" in self._bricks:
             self._load_memory()
+        if "rag" in self._bricks:
+            self._load_rag()
         if "system_prompt" not in self._bricks:
             return
         try:
@@ -1292,6 +1335,234 @@ class AppSession:
         if entries is None:  # H5: the demonstration, not written until a change
             entries = memory_file.demo_entries(self._memory_content.demo, memory_file.now())
         self._memory = entries
+
+    def _load_rag(self) -> None:
+        """Story 15 (AD-19): its texts, then `[rag.embedding]`, then the index and the model's
+        files. Invalid: the brick is unavailable with the reason, never a crash."""
+        try:
+            self._rag_content = load_rag_content()
+        except Exception as exc:  # noqa: BLE001
+            self._content_errors["rag"] = (
+                "Le fichier content/rag.yaml est absent ou invalide : corrigez-le puis relancez "
+                "WaveStack."
+            )
+            self._error(
+                "Les textes de la brique RAG sont invalides.",
+                exc,
+                "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
+            )
+            return
+        model, error_fr = self.cfg.rag_embedding
+        if model is None:
+            self._content_errors["rag"] = error_fr or "La section [rag.embedding] est invalide."
+            if self.cfg.get("rag", "embedding") is not None:  # absent: said by the card only
+                self._error(
+                    "La déclaration du modèle d'embedding est invalide.",
+                    error_fr or "",
+                    "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
+                )
+            return
+        self._rag_model = model
+        self._rag_refresh()
+
+    def _rag_refresh(self) -> None:
+        """Story 15: what the availability reads of the index (`meta`, the preview's
+        excerpts) and of the model's files, at launch and after a download only."""
+        model = self._rag_model
+        if model is None:
+            return
+        path = self.cfg.rag_index_path()
+        reason, chunks, longest = None, 0, []
+        missing = download_module.missing_files(model.files, config.models_dir())
+        why = rag_index.vec_unavailable()
+        if why is not None:
+            reason = (
+                "Indisponible : l'extension sqlite-vec ne se charge pas dans ce Python "
+                f"({why}). Le RAG ne peut pas lire son index ; les autres briques fonctionnent."
+            )
+        elif not path.is_file():
+            reason = (
+                f"Indisponible : index absent ({path}). Lancez `uv run python "
+                "scripts/build_rag_index.py` depuis le dossier de WaveStack, puis relancez "
+                "WaveStack."
+            )
+            if missing:  # the script embeds the corpus with the model
+                reason += (
+                    " Le script a besoin du modèle d'embedding : copiez d'abord "
+                    f"{', '.join(Path(f.path).name for f in missing)} dans "
+                    f"{config.models_dir() / Path(missing[0].path).parent}."
+                )
+        else:
+            try:
+                meta = rag_index.read_meta(path)
+                longest = rag_index.longest_chunks(path, self.cfg.rag_top_k)
+            except Exception as exc:  # noqa: BLE001 - a state, never a crash
+                reason = (
+                    f"Indisponible : l'index {path} est illisible ({type(exc).__name__}). "
+                    "Reconstruisez-le avec `uv run python scripts/build_rag_index.py`, puis "
+                    "relancez WaveStack."
+                )
+            else:
+                chunks = meta.chunks
+                if meta.embedding_model_id != model.id or meta.dims != model.dims:
+                    reason = (
+                        "Indisponible : l'index a été construit avec le modèle d'embedding "
+                        f"« {meta.embedding_model_id} » ({meta.dims} dimensions), alors que "
+                        f"[rag.embedding] déclare « {model.id} » ({model.dims} dimensions). "
+                        "Reconstruisez l'index avec `uv run python "
+                        "scripts/build_rag_index.py`, puis relancez WaveStack."
+                    )
+        with self._lock:
+            self._rag_index_error, self._rag_chunks = reason, chunks
+            self._rag_longest, self._rag_missing = longest, missing
+
+    def _rag_unavailable(self) -> str | None:
+        """Story 15, AD-12: the RAG's reasons after its content (1), in order: sqlite-vec,
+        index absent, another model (2-4), model's files missing (5), then, once wanted,
+        loading (6) and a refused or failed load (7)."""
+        model = self._rag_model
+        with self._lock:
+            index_error, missing = self._rag_index_error, list(self._rag_missing)
+            wanted = "rag" in self._wanted
+            loading, load_error, loaded = (
+                self._rag_loading,
+                self._rag_load_error,
+                self._embedder is not None,
+            )
+        if index_error is not None:
+            return index_error
+        if missing and model is not None:
+            return self._rag_missing_fr(model, missing)
+        if not wanted or loaded:
+            return None
+        if loading:
+            return f"Chargement du modèle d'embedding {model.label_fr if model else ''}…"
+        return load_error or (
+            "Modèle d'embedding non chargé : désactivez puis réactivez la brique RAG."
+        )
+
+    @staticmethod
+    def _rag_missing_fr(model: EmbeddingModel, missing: list[EmbeddingFile]) -> str:
+        names = ", ".join(Path(f.path).name for f in missing)
+        folder = config.models_dir() / Path(missing[0].path).parent
+        return (
+            f"Indisponible : modèle absent. Le modèle d'embedding {model.label_fr} n'est pas "
+            f"sur le poste. Cliquez sur « Télécharger », ou copiez à la main {names} dans "
+            f"{folder}, puis cliquez de nouveau sur « Télécharger » ou relancez WaveStack."
+        )
+
+    def _rag_download_offer(self) -> dict[str, str] | None:
+        """AD-21: « Télécharger » on the card, only while the reason is « modèle absent »."""
+        model, content = self._rag_model, self._rag_content
+        if model is None or content is None or "rag" in self._content_errors:
+            return None
+        with self._lock:
+            index_error, missing = self._rag_index_error, list(self._rag_missing)
+        if index_error is not None or not missing:
+            return None
+        size_mb = max(1, round(sum(f.size for f in missing) / 1024**2))
+        return {"target": RAG_TARGET, "label_fr": content.download_label_fr.format(size_mb=size_mb)}
+
+    def _rag_index_detail(self) -> str:
+        """The index node's tooltip: its path, its excerpts and its embedding model."""
+        path = self.cfg.rag_index_path()
+        with self._lock:
+            chunks, error = self._rag_chunks, self._rag_index_error
+        if not chunks:
+            return f"{path} · index absent ou illisible"
+        model = self._rag_model.id if self._rag_model else "?"
+        detail = f"{path} · {chunks} extraits · modèle d'embedding {model}"
+        return f"{detail} · {error}" if error else detail
+
+    def _request_rag_sync(self) -> None:
+        """Story 15 (AD-8): the embedding model follows the brick's `wanted`, loaded or
+        released on the worker. « Chargement en cours » from now on, so no turn takes the
+        brick before its model is there; a turn already queued runs without it."""
+        if "rag" not in self._bricks:
+            return
+        with self._lock:
+            wanted, loaded = "rag" in self._wanted, self._embedder is not None
+            if not wanted:
+                self._rag_load_error, self._rag_loading = None, False
+        if wanted == loaded or (wanted and self._rag_static_reason() is not None):
+            return  # nothing to load nor to release: no event (one per reconfiguration)
+        if wanted:
+            with self._lock:
+                self._rag_loading, self._rag_load_error = True, None
+        self._executor.submit(self._sync_rag)
+
+    def _rag_static_reason(self) -> str | None:
+        """Reasons 1 to 5: what prevents loading the model at all."""
+        if "rag" in self._content_errors or self._rag_model is None:
+            return self._content_errors.get("rag") or "Brique RAG non configurée."
+        with self._lock:
+            index_error, missing = self._rag_index_error, bool(self._rag_missing)
+        return index_error or ("modèle absent" if missing else None)
+
+    def _sync_rag(self) -> None:
+        """On the worker: load the embedding model through the registry (AD-8) when the brick
+        is wanted and could be available, release it (`close()`) otherwise. Then the card, the
+        schema and the preview again."""
+        model = self._rag_model
+        with self._lock:
+            wanted, embedder = "rag" in self._wanted, self._embedder
+        changed = False
+        if not wanted or model is None or self._rag_static_reason() is not None:
+            changed = embedder is not None
+            self._release_embedder()
+        elif embedder is None:
+            loaded, error = self._load_embedder(model)
+            with self._lock:
+                self._embedder, self._rag_load_error = loaded, error
+            changed = True
+        with self._lock:
+            changed = changed or self._rag_loading
+            self._rag_loading = False
+        if changed:
+            self._emit_bricks()
+            self._emit_architecture()
+            self._emit_preview()
+
+    def _load_embedder(self, model: EmbeddingModel) -> tuple[Embedder | None, str | None]:
+        """The budget first (a refusal in figures, nothing loaded), then the load."""
+        label = f"le modèle d'embedding {model.label_fr}"
+        cost = self._load_registry.embedding_cost(
+            model.measured_rss_mb, [f.size for f in model.files]
+        )
+        refusal = self._load_registry.check_component(label, cost, EMBEDDING)
+        if refusal is not None:
+            self._error(
+                refusal,
+                "budget mémoire dépassé (AD-8)",
+                "La brique « RAG » est indisponible ; rien n'est chargé.",
+            )
+            return None, f"Indisponible : {refusal}"
+        try:
+            embedder = self._embedder_factory(model)
+        except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+            path = embedding_module.model_path(model)
+            self._error(
+                "Le modèle d'embedding n'a pas pu être chargé.",
+                exc,
+                "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
+            )
+            return None, (
+                f"Indisponible : le modèle d'embedding n'a pas pu être chargé "
+                f"({type(exc).__name__}: {exc}). Vérifiez le fichier {path}, ou supprimez-le "
+                "et relancez WaveStack pour le télécharger à nouveau."
+            )
+        self._load_registry.grant(model.label_fr, cost, EMBEDDING)
+        return embedder, None
+
+    def _release_embedder(self) -> None:
+        with self._lock:
+            embedder, self._embedder = self._embedder, None
+        if embedder is not None:
+            try:
+                embedder.close()
+            except Exception as exc:  # noqa: BLE001 - AD-16
+                self._error("Le modèle d'embedding n'a pas pu être fermé.", exc, "Il est oublié.")
+        self._load_registry.release(EMBEDDING)
 
     def _emit_memory(self) -> None:
         """AD-1: the drawer and the card project the last `memory_changed`."""
@@ -1352,6 +1623,8 @@ class AppSession:
                 error_fr = self._memory_error
             if error_fr is not None:
                 return False, error_fr
+        if brick_id == "rag" and (reason := self._rag_unavailable()) is not None:
+            return False, reason
         return True, None
 
     def _no_reasoning_fr(self) -> str:
@@ -1663,7 +1936,9 @@ class AppSession:
                         omit_empty=False,  # a past answer keeps its `content`, even empty
                     )
                 )
-        user = [Part(SegmentKind.USER_MESSAGE, message)]
+        # Story 15 (AD-4): the RAG's intro and excerpts, each its own part, before the message.
+        rag = [Part(SegmentKind.RAG_EXCERPT, t, "rag", "rag.retriever") for t in state.rag_excerpts]
+        user = [*rag, Part(SegmentKind.USER_MESSAGE, message)]
         if state.injection:  # AD-13: added before the message, never rewriting it
             user.insert(0, Part(SegmentKind.HOOK_INJECTION, state.injection, "hooks", "hooks.h3"))
         messages.append({"role": "user", "content": user})
@@ -1803,6 +2078,15 @@ class AppSession:
             return  # no model: nothing to preview
         state = self.build_turn_state()
         state = replace(state, injection=self._preview_injection(state))
+        if "rag" in state.effective:  # AD-9: the excerpts at their declared maximum
+            with self._lock:
+                longest = list(self._rag_longest)
+            state = replace(
+                state,
+                rag_excerpts=self._rag_texts(
+                    [(i, c.title_fr, c.text) for i, c in enumerate(longest, start=1)]
+                ),
+            )
         try:
             _, payload = self._render(state, "", None)
         except Exception as exc:  # noqa: BLE001 - AD-16
@@ -1813,6 +2097,13 @@ class AppSession:
             )
             return
         get_journal().emit("context_preview", payload)
+
+    def _rag_texts(self, excerpts: list[tuple[int, str, str]]) -> tuple[str, ...]:
+        """The intro, then each `(position, title_fr, text)` in `excerpt_format_fr`."""
+        content = self._rag_content
+        if content is None or not excerpts:
+            return ()
+        return (content.intro_fr, *(content.excerpt(*excerpt) for excerpt in excerpts))
 
     def _preview_injection(self, state: TurnState) -> str:
         """What the active `on_user_message` hooks would add, for the gauge only: no
@@ -1905,6 +2196,8 @@ class AppSession:
                 self._mcp_connect(server_id)
             else:
                 self._mcp_disconnect(server_id)
+        if brick_id == "rag":  # story 15: its embedding model loads or leaves on the worker
+            self._request_rag_sync()
         self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
@@ -2591,6 +2884,7 @@ class AppSession:
             self._mcp_disconnect(server_id)
         for server_id in sorted(after - before):
             self._mcp_connect(server_id)
+        self._request_rag_sync()  # story 15: loaded or released as the brick is now wanted
         self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
@@ -2604,8 +2898,11 @@ class AppSession:
 
     def stop(self) -> bool:
         """Intention class (c): arms the turn's `CancelToken`; no effect outside a turn. A
-        pending human validation is resolved as `cancelled`."""
+        pending human validation is resolved as `cancelled`. Story 15: stops a download."""
         with self._lock:
+            if self.state == "download" and self._download_cancel is not None:
+                self._download_cancel.cancel()
+                return True
             if self.state not in ("turn", "awaiting_human") or self._cancel is None:
                 return False
             self._cancel.cancel()
@@ -2615,6 +2912,115 @@ class AppSession:
             approval.decision = "cancelled"
         approval.answered.set()
         return True
+
+    # ---------- model download (story 15, AD-15, AD-21) ----------
+
+    def download_model(self, target: str) -> str:
+        """Class (b): downloads the embedding model's missing files, on a thread of its own,
+        in the `download` state (« Arrêter » stops it). `KeyError` for an unknown target,
+        `SendRefused` outside `idle`, or when there is nothing to download (the files being
+        there, the index and the files are read again)."""
+        if target != RAG_TARGET or "rag" not in self._bricks:
+            raise KeyError(target)
+        model = self._rag_model
+        if model is None:
+            raise SendRefused(
+                self._content_errors.get("rag") or "La brique RAG n'a pas de modèle déclaré."
+            )
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+        dest = config.models_dir()
+        missing = download_module.missing_files(model.files, dest)
+        if not missing:  # e.g. copied by hand meanwhile: the card catches up now
+            self._rag_refresh()
+            self._request_rag_sync()
+            self._emit_bricks()
+            self._emit_architecture()
+            self._executor.submit(self._emit_preview)
+            raise SendRefused(
+                f"Rien à télécharger : les fichiers du modèle d'embedding sont déjà dans {dest}."
+            )
+        total = sum(f.size for f in missing)
+        cancel = CancelToken()
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+            previous = self.reason_fr  # e.g. no model loaded: it stays said afterwards
+            self.state, self.reason_fr = "download", self._download_fr(0, total)
+            self._download_cancel = cancel
+        self._emit_state()
+        threading.Thread(
+            target=self._run_download,
+            args=(missing, dest, cancel, previous),
+            name="wavestack-download",
+            daemon=True,
+        ).start()
+        return self._download_fr(0, total)
+
+    @staticmethod
+    def _download_fr(done: int, total: int) -> str:
+        percent = int(done * 100 / total) if total else 100
+        mb = 1024**2
+        return (
+            f"Téléchargement du modèle d'embedding : {percent} % "
+            f"({_fr(round(done / mb))} / {_fr(round(total / mb))} Mo)"
+        )
+
+    def _run_download(
+        self, files: list[EmbeddingFile], dest: Path, cancel: CancelToken, previous: str | None
+    ) -> None:
+        """The download thread: progress at most once a second in `session_state`, then back
+        to `idle`; the index and the files are read again, and the model loads if wanted."""
+        last = time.monotonic()
+
+        def progress(done: int, total: int) -> None:
+            nonlocal last
+            if time.monotonic() - last < 1.0:
+                return
+            last = time.monotonic()
+            with self._lock:
+                if self.state != "download":
+                    return
+                self.reason_fr = self._download_fr(done, total)
+            self._emit_state()
+
+        failed: str | None = None
+        stopped = False
+        try:
+            with scoped(brick="rag", component="rag.retriever", origin="download"):
+                download_module.download_files(
+                    files, dest, cancel, progress, transport=self._download_transport
+                )
+        except download_module.DownloadError as exc:
+            failed, stopped = exc.reason_fr, exc.cancelled
+        except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+            failed = f"{type(exc).__name__}: {exc}"
+        with self._lock:
+            self._download_cancel = None
+        self._rag_refresh()
+        if failed is not None:
+            names = ", ".join(Path(f.path).name for f in files)
+            folder = dest / Path(files[0].path).parent
+            with scoped(brick="rag", component="rag.retriever"):  # the card shows it (AD-1)
+                self._error(
+                    "Téléchargement du modèle d'embedding arrêté."
+                    if stopped
+                    else "Le téléchargement du modèle d'embedding a échoué.",
+                    failed,
+                    f"Rien n'est installé. Pour continuer, copiez le fichier à la main dans "
+                    f"{folder} ({names}), puis cliquez de nouveau sur « Télécharger » ou relancez "
+                    "WaveStack.",
+                )
+        self._set_state("idle", previous)
+        try:
+            if failed is None:
+                self._request_rag_sync()  # loads it when the brick is wanted
+            self._emit_bricks()
+            self._emit_architecture()
+            self._executor.submit(self._emit_preview)
+        except RuntimeError:  # the session is closing: nothing left to show
+            pass
 
     def answer_approval(self, approval_id: str, approved: bool, disable_hook: bool) -> None:
         """Intention class (c): answers the pending validation; the first answer wins.
@@ -2721,6 +3127,11 @@ class AppSession:
         stopped, step = self._consume_armed(turn_id, state, cancel, steps, loaded_in_turn)
         if stopped:
             return "cancelled", "", ""
+        if "rag" in state.effective:  # story 15: once per turn, main context, before any call
+            step += 1
+            state = replace(state, rag_excerpts=self._rag_search(turn_id, step, message))
+            if cancel.cancelled:
+                return "cancelled", "", ""
         for n in range(1, max_calls + 1):
             call_id = f"{turn_id}.main.c{n}"
             with scoped(call_id=call_id):
@@ -2854,6 +3265,64 @@ class AppSession:
                 return "cancelled", "", ""
         self._emit_limit("calls", max_calls)
         return "limit", "", ""
+
+    def _rag_search(self, turn_id: str, step: int, message: str) -> tuple[str, ...]:
+        """Story 15 (AD-2, AD-22): the search, a step of the harness with its pair of events.
+        Returns the intro and the excerpts, formatted; a failure is traced and the turn goes
+        on without excerpts (as a failing hook lets the turn through)."""
+        content = self._rag_content
+        assert content is not None  # the brick is unavailable without it
+        with self._lock:
+            embedder = self._embedder
+        top_k = self.cfg.rag_top_k
+        journal = get_journal()
+        scope = {
+            "step_id": f"{turn_id}.main.s{step}",
+            "brick": "rag",
+            "component": "rag.retriever",
+            "actor": "harness",
+            "trigger": "harness",
+        }
+        with scoped(**scope):
+            journal.emit(
+                "rag_search_started",
+                {"query": message, "top_k": top_k, "phase_label": content.phase_label_fr},
+            )
+            started = time.monotonic()
+            try:
+                if embedder is None:
+                    raise RuntimeError("le modèle d'embedding n'est pas chargé")
+                retriever = SqliteVecRetriever(self.cfg.rag_index_path(), embedder, top_k)
+                excerpts = retriever.search(message)
+            except Exception as exc:  # noqa: BLE001 - AD-16: the turn goes on
+                self._error(
+                    "La recherche RAG a échoué.", exc, "Le tour continue sans extraits RAG."
+                )
+                journal.emit(
+                    "rag_search_ended",
+                    {
+                        "status": "error",
+                        "excerpts": [],
+                        "placement_fr": content.placement_fr,
+                        "error_fr": (
+                            f"La recherche a échoué ({type(exc).__name__}: {exc}). Le tour "
+                            "continue sans extraits RAG."
+                        ),
+                        "duration_ms": _ms(time.monotonic() - started),
+                    },
+                )
+                return ()
+            journal.emit(
+                "rag_search_ended",
+                {
+                    "status": "ok",
+                    "excerpts": [e.payload() for e in excerpts],
+                    "placement_fr": content.placement_fr,
+                    "error_fr": None,
+                    "duration_ms": _ms(time.monotonic() - started),
+                },
+            )
+        return self._rag_texts([(e.position, e.title_fr, e.text) for e in excerpts])
 
     def _run_tool(
         self,

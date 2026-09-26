@@ -24,6 +24,9 @@ program:
   - title_fr: Mémoire globale
     duration_min: 30
     scenarios: [global_memory]
+  - title_fr: RAG
+    duration_min: 30
+    scenarios: [rag]
 
 transverse: [data_flows]
 
@@ -184,6 +187,25 @@ scenarios:
     prompts:
       - Retiens que je préfère des réponses en trois points au plus.
       - Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.
+
+  rag:
+    title_fr: RAG
+    description_fr: >-
+      Les briques des modules 1 à 4 restent actives, MCP en lazy loading, et la brique RAG
+      s'y ajoute : le corpus décrit Exemplia, une organisation imaginaire. Éteignez d'abord
+      la brique RAG et envoyez le premier prompt : le modèle ne connaît pas Exemplia, il
+      invente ou avoue ne pas savoir. Rallumez la brique, rejouez le prompt et ouvrez
+      « Comparer » : les extraits RAG sont dans votre message, et la réponse s'appuie sur le
+      bon document.
+      Dépliez l'étape « Recherche RAG » dans Orchestration (requête, extraits, scores) et
+      regardez le fichier d'index dans le schéma. Si la carte indique « modèle absent »,
+      cliquez sur « Télécharger ».
+    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, rag]
+    mcp_lazy: true
+    hooks: [h1, h2]
+    prompts:
+      - Combien de caractères doit compter au minimum un mot de passe chez Exemplia ?
+      - Quel plafond de remboursement s'applique à une nuit d'hôtel à Paris chez Exemplia ?
 
   data_flows:
     title_fr: Où vont mes données ?

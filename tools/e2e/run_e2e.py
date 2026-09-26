@@ -1029,6 +1029,177 @@ def s_global_memory(r: Run) -> None:
     )
 
 
+RAG_QUESTION = "Combien de caractères doit compter au minimum un mot de passe chez Exemplia ?"
+
+
+def _rag_step(r: Run):
+    """The last « Recherche RAG » step of Orchestration."""
+    name = r.page.locator(".turn-step-name", has_text="Recherche RAG")
+    return r.page.locator("#orch-scroll .turn-step", has=name).last
+
+
+def s_rag(r: Run) -> None:
+    """Story 15: the model missing, a download that fails (explained) then succeeds, a turn
+    without then with the RAG, the search step, the excerpts in Contexte LLM, the index in the
+    schema, « Comparer », and the step still there after a reload."""
+    r.launch("rag")
+    card = r.card("RAG")
+    download = card.get_by_role("button", name=re.compile("Télécharger le modèle d'embedding"))
+    expect(download).to_be_visible(timeout=10_000)
+    r.check(
+        "modèle absent" in card.inner_text() and download.is_enabled(),
+        "carte RAG voulue : « modèle absent » et bouton « Télécharger » actif",
+        card.inner_text()[:240],
+    )
+    rag = r.bricks()["rag"]
+    r.check(
+        rag["wanted"] and not rag["available"] and rag["download"]["target"] == "rag_embedding",
+        "/api/state : RAG voulue, indisponible, téléchargement proposé",
+    )
+
+    # The file is not served yet: the download fails, explained on the card.
+    seq = r.ev.mark()
+    download.click()
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
+    error = r.ev.wait("harness_error", seq, timeout=20)
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "idle", 20)
+    effect = error["payload"].get("effect_fr") or ""
+    r.check(
+        "copiez le fichier à la main dans" in effect and error.get("brick") == "rag",
+        "échec du téléchargement : harness_error, avec le dossier où copier le fichier",
+        effect[:200],
+    )
+    notice = card.locator(".force-error")
+    expect(notice).to_contain_text("copiez le fichier à la main", timeout=5000)
+    r.check(True, "la carte RAG explique l'échec du téléchargement")
+    part = list((r.stack.data_dir / "models").rglob("*.part"))
+    r.check(not part, "aucun fichier .part laissé", str(part))
+
+    # The file is served now: the download succeeds and the brick loads (it is wanted).
+    httpx.post(f"{r.stack.fake_url}/_e2e/model_ready", timeout=5, trust_env=False)
+    seq = r.ev.mark()
+    card.get_by_role("button", name=re.compile("Télécharger le modèle d'embedding")).click()
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
+    r.ev.wait(
+        "bricks_changed",
+        seq,
+        lambda p: next(b for b in p["bricks"] if b["id"] == "rag")["available"],
+        30,
+    )
+    r.check(True, "téléchargement réussi : la brique RAG devient disponible")
+    r.check(
+        (r.stack.data_dir / "models" / "embedding" / "fake-e2e.gguf").is_file(),
+        "le fichier du modèle est dans le dossier des modèles",
+    )
+    nodes = {n["id"]: n for n in r.state()["architecture_changed"]["nodes"]}
+    index = nodes.get("file.rag_index") or {}
+    r.check(
+        index.get("kind") == "file" and "31 extraits" in (index.get("detail_fr") or ""),
+        "schéma : le fichier d'index, local, avec son nombre d'extraits",
+        str(index.get("detail_fr"))[:200],
+    )
+    chip = r.page.locator('#schema .arch-chip[data-component="rag.retriever"]')
+    r.check(
+        "📚" in chip.inner_text() and "processus local" in (chip.get_attribute("title") or ""),
+        "schéma : la puce 📚 du RAG, son infobulle nomme le modèle d'embedding",
+        chip.get_attribute("title") or "",
+    )
+    expect(r.page.locator('#schema .arch-node[data-component="file.rag_index"]')).to_be_visible()
+
+    # Brick off: the model does not know Exemplia.
+    r.set_brick("RAG", False)
+    seq = r.ev.mark()
+    ended = r.send(RAG_QUESTION)
+    r.check(ended["payload"]["status"] == "completed", "tour sans RAG terminé")
+    answer = r.last_answer()
+    r.check("Je ne connais pas" in answer, "sans RAG : le modèle ne sait pas", answer)
+    r.check(not r.ev.since(seq, "rag_search_started"), "sans RAG : aucune recherche")
+
+    # Brick on again, the prompt replayed: the harness searches, the answer cites the document.
+    seq = r.ev.mark()
+    r.set_brick("RAG", True)
+    r.ev.wait(
+        "bricks_changed",
+        seq,
+        lambda p: next(b for b in p["bricks"] if b["id"] == "rag")["available"],
+        20,
+    )
+    seq = r.ev.mark()
+    ended = r.replay()
+    searched = r.ev.since(seq, "rag_search_ended")
+    r.check(
+        len(searched) == 1 and searched[0]["payload"]["status"] == "ok",
+        "rejeu avec RAG : une recherche, réussie",
+    )
+    excerpts = searched[0]["payload"]["excerpts"] if searched else []
+    r.check(
+        len(excerpts) == 3 and excerpts[0]["doc_id"] == "mots_de_passe",
+        "3 extraits, le premier tiré de la politique des mots de passe",
+        str([(e["doc_id"], e["score"]) for e in excerpts]),
+    )
+    r.check(
+        "Politique des mots de passe" in r.last_answer() and "14 caractères" in r.last_answer(),
+        "avec RAG : la réponse s'appuie sur le bon document",
+        r.last_answer(),
+    )
+    body = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
+    r.check(
+        "Extrait 1 — Politique des mots de passe" in body,
+        "les extraits partent dans le message de l'utilisateur (corps JSON)",
+    )
+
+    # Orchestration: the step, its figure, its unfolded body.
+    step = _rag_step(r)
+    figure = step.locator(".turn-step-figure").inner_text()
+    r.check(
+        re.match(r"3 extraits · ", figure) is not None
+        and "⚙ harnais" in step.locator(".turn-step-actor").inner_text(),
+        "Orchestration : « 📚 Recherche RAG », acteur harnais, « 3 extraits · durée »",
+        figure,
+    )
+    step.locator(".turn-step-line").click()
+    expect(step.locator(".rag-excerpts li")).to_have_count(3, timeout=5000)
+    text = step.inner_text()
+    r.check(
+        RAG_QUESTION in text and "Dans le message de l'utilisateur" in text,
+        "l'étape dépliée montre la requête et le placement",
+    )
+    score = step.locator(".rag-score").first.inner_text()
+    r.check(re.fullmatch(r"0,\d\d", score) is not None, "score affiché à la française", score)
+    step.locator(".rag-excerpt-head").first.click()
+    expect(r.page.locator('#schema .arch-chip[data-component="rag.retriever"]')).to_have_class(
+        re.compile("is-selected"), timeout=5000
+    )
+    r.check(True, "un clic sur un extrait sélectionne le composant RAG dans le schéma")
+
+    # Contexte LLM: the intro and three excerpts, labelled, before the message.
+    labels = r.page.locator("#ctx .ctx-segment-label").all_inner_texts()
+    rag_labels = [x for x in labels if x.startswith("Extraits RAG (rag)")]
+    r.check(len(rag_labels) == 4, "Contexte LLM : 4 segments « Extraits RAG (rag) »", str(labels))
+    r.shot("22-rag-recherche-et-extraits")
+
+    # « Comparer » the replay with the turn without RAG.
+    r.page.locator("#chat .replay-badge").last.click()
+    compare = r.page.locator("#ctx")
+    headings = compare.locator("h4.turn-compare-brick").all_inner_texts()
+    r.check(
+        "Comparaison de tours" in compare.inner_text() and "RAG" in headings,
+        "« Comparer » : la brique RAG apparaît dans la comparaison, avec ses extraits",
+        str(headings),
+    )
+    compare.get_by_role("button", name="Fermer").click()
+
+    # AD-1: after a reload, the step is rebuilt from the journal.
+    r.page.reload()
+    r.wait_idle()
+    step = _rag_step(r)
+    expect(step).to_be_visible(timeout=10_000)
+    r.check(
+        re.match(r"3 extraits · ", step.locator(".turn-step-figure").inner_text()) is not None,
+        "après rechargement, l'étape « Recherche RAG » est toujours là",
+    )
+
+
 def s_busy_and_stop(r: Run) -> None:
     r.launch("bare_llm")
     seq = r.ev.mark()
@@ -1234,6 +1405,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("data_flows", s_data_flows),
     ("forced_native", s_forced_native),
     ("global_memory", s_global_memory),
+    ("rag", s_rag),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
     ("stream_resync", s_stream_resync),

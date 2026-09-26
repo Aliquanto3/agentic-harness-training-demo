@@ -111,6 +111,26 @@ Windows, `~/.local/share/wavestack/models` ailleurs), ou indiquez son chemin au 
 Les GGUF `qwen35` d'Ollama ne se chargent pas avec llama-cpp-python 0.3.35 : préférez le fichier
 amont.
 
+## RAG : corpus de démonstration et index
+
+La brique RAG cherche dans huit textes fictifs (`content/corpus/`, l'organisation imaginaire
+« Exemplia ») avec un petit modèle d'embedding local, nommé dans la seule section
+`[rag.embedding]` de `wavestack.toml` (Granite Embedding 107M multilingue, GGUF Q8_0, 121 Mo,
+verdict provisoire de la story 12). Sa carte propose « Télécharger » quand le fichier manque ;
+sans réseau, copiez-le à la main dans `models/embedding/` du dossier de données.
+
+L'index `data/rag_index.sqlite` (sqlite-vec) se construit hors ligne, une fois le modèle en
+place, puis se committe avec le dépôt :
+
+```bash
+uv run python scripts/build_rag_index.py                  # modèle de [rag.embedding]
+uv run python scripts/build_rag_index.py --model C:\chemin\modele.gguf
+```
+
+Un autre modèle d'embedding rend la brique indisponible, avec la raison, jusqu'à la
+reconstruction de l'index ; un corpus ou un `chunk_max_chars` modifiés ne comptent qu'après
+elle.
+
 ## Modèle cloud (Groq, Mistral)
 
 Un modèle cloud compatible OpenAI peut remplacer le SLM local : plus rapide, meilleur avec les

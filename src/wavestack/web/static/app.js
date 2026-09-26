@@ -49,6 +49,8 @@ const store = {
   // (AD-1); the drawer's unsaved texts, by entry id (UI state only).
   memory: null,
   memoryDrafts: new Map(),
+  downloadError: null, // story 15: the last refusal of « Télécharger » (UI state only)
+  ragNotice: null, // story 15: the last failure of the RAG's download, from `harness_error`
   openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
   openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
@@ -185,6 +187,8 @@ function applyEnvelope(envelope) {
   switch (envelope.kind) {
     case "session_state":
       store.sessionState = p;
+      if (p.state === "download") store.ragNotice = null; // a new attempt
+
       // The diagnostic session's own states carry no model: the last known one stays.
       if (p.active_model !== undefined) store.activeModel = p.active_model;
       if (p.state === "idle") store.composerError = null;
@@ -344,6 +348,18 @@ function applyEnvelope(envelope) {
         });
       }
       break;
+    case "rag_search_started":
+      // Story 15: the harness searches the corpus before the first call (its own step).
+      if (turn) {
+        Object.assign(turn, { phaseLabel: p.phase_label, callStartedAt: Date.parse(envelope.ts), firstToken: false });
+        turn.steps.push({ type: "rag", started: p, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null });
+      }
+      break;
+    case "rag_search_ended": {
+      const search = turn?.steps.filter((s) => s.type === "rag").at(-1);
+      if (search) search.ended = p;
+      break;
+    }
     case "tool_ended": {
       const tool = turn?.steps.filter((s) => s.type === "tool").at(-1);
       if (tool) tool.ended = p;
@@ -432,6 +448,10 @@ function applyEnvelope(envelope) {
     case "harness_error":
       // A cloud provider's refusal carries what to try (AD-16).
       if (turn) turn.errors.push([p.message_fr, ...(p.hints_fr ?? [])].join(" "));
+      // Story 15: a failed download (or load) of the RAG's model, said on its card.
+      else if (envelope.brick === "rag") {
+        store.ragNotice = [p.message_fr, p.cause ? `Cause : ${p.cause}.` : null, p.effect_fr].filter(Boolean).join(" ");
+      }
       break;
     case "turn_ended":
       if (turn) {
@@ -550,6 +570,7 @@ let renderedBricks = null;
 let renderedArmed = null;
 let renderedForceUi = null;
 let renderedMemory = null;
+let renderedSessionKey = null; // story 15: the download's state and progress, on the RAG card
 
 // Story 9: the forced actions' UI changed (toggle, form): the panel is rebuilt at next render.
 function forceUiChanged() {
@@ -564,10 +585,12 @@ function renderBricks() {
     renderedBricks === store.bricks &&
     renderedArmed === store.armed &&
     renderedForceUi === store.forceForm &&
-    renderedMemory === store.memory
+    renderedMemory === store.memory &&
+    renderedSessionKey === sessionKey()
   ) {
     return;
   }
+  renderedSessionKey = sessionKey();
   renderedBricks = store.bricks;
   renderedArmed = store.armed;
   renderedForceUi = store.forceForm;
@@ -622,6 +645,7 @@ function renderBricks() {
     card.append(head, tags);
 
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
+    if (brick.id === "rag") card.append(...downloadParts(brick));
     if (always) {
       const why = el("p", "brick-reason brick-always", brick.always_fr);
       why.id = `always-${brick.id}`;
@@ -688,6 +712,57 @@ function renderBricks() {
     }
     target?.focus();
   }
+}
+
+function sessionKey() {
+  return `${store.sessionState?.state ?? ""}|${store.sessionState?.reason_fr ?? ""}|${store.ragNotice ?? ""}`;
+}
+
+// Story 15 (AD-21): « Télécharger » while the model is missing, the progress and « Arrêter »
+// while it downloads; the figures come from the session (`session_state.reason_fr`).
+function downloadParts(brick) {
+  const state = store.sessionState?.state;
+  if (state === "download") {
+    const progress = el("p", "brick-download-progress", store.sessionState.reason_fr || "Téléchargement…");
+    progress.setAttribute("role", "status");
+    const stop = el("button", "brick-edit brick-download-stop", "Arrêter le téléchargement");
+    stop.type = "button";
+    stop.dataset.focusKey = `download-stop:${brick.id}`;
+    stop.addEventListener("click", () => postIntention("/api/intentions/stop", {}).catch(() => {}));
+    return [progress, stop];
+  }
+  const notice = store.ragNotice && !brick.available ? [el("p", "force-error", store.ragNotice)] : [];
+  if (!brick.download) return notice;
+  const button = el("button", "brick-edit brick-download", brick.download.label_fr);
+  button.type = "button";
+  button.dataset.focusKey = `download:${brick.id}`;
+  const idle = state === "idle";
+  button.disabled = !idle;
+  const parts = [...notice, button];
+  if (!idle) {
+    const why = el("p", "brick-download-why", store.sessionState?.reason_fr || "WaveStack est occupé.");
+    why.id = `download-why-${brick.id}`;
+    button.setAttribute("aria-describedby", why.id);
+    parts.push(why);
+  }
+  if (store.downloadError) parts.push(el("p", "force-error", store.downloadError));
+  button.addEventListener("click", () => downloadModel(brick.download.target));
+  return parts;
+}
+
+async function downloadModel(target) {
+  store.downloadError = null;
+  try {
+    const response = await postIntention("/api/intentions/download_model", { target });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      store.downloadError = typeof body.detail === "string" ? body.detail : "Téléchargement refusé.";
+    }
+  } catch {
+    store.downloadError = "WaveStack ne répond pas : le téléchargement n'a pas commencé.";
+  }
+  renderedBricks = null;
+  scheduleRender();
 }
 
 function brickOptions(brick) {
@@ -2276,6 +2351,49 @@ function outboundPayload(request, openSet = null) {
   return details;
 }
 
+// Story 15: a score with two decimals, French style (« 0,82 »).
+const scoreFormat = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function ragBody(step) {
+  // The query, where the excerpts go, then rank, document, score and foldable text; a click on
+  // an excerpt selects the retriever in the schema (CAP-4).
+  const ended = step.ended;
+  const nodes = [el("p", "label", "Requête"), el("pre", "step-code", step.started.query)];
+  if (!ended) {
+    const running = el("div", "token-counter number", `${step.started.phase_label} `);
+    running.appendChild(tick(step.startedAt));
+    nodes.push(running);
+    return nodes;
+  }
+  nodes.push(el("p", "", `Placement : ${ended.placement_fr}`));
+  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  if (ended.status === "error") {
+    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_fr));
+    return nodes;
+  }
+  const list = el("ol", "rag-excerpts");
+  for (const excerpt of ended.excerpts) {
+    const item = el("li", "rag-excerpt");
+    const details = el("details");
+    const head = el("summary", "rag-excerpt-head");
+    head.append(
+      el("span", "rag-rank", `#${excerpt.position}`),
+      el("span", "rag-doc", excerpt.title_fr),
+      el("span", "rag-score number", scoreFormat.format(excerpt.score))
+    );
+    head.title = "Sélectionne le composant RAG dans le schéma ; déplie le texte de l'extrait";
+    head.addEventListener("click", () => {
+      store.selection = step.component || "rag.retriever";
+      scheduleRender();
+    });
+    details.append(head, el("pre", "step-code", excerpt.text));
+    item.appendChild(details);
+    list.appendChild(item);
+  }
+  nodes.push(el("p", "label", "Extraits (rang · document · score)"), list);
+  return nodes;
+}
+
 const HOOK_DECISIONS = {
   allow: "laissé passer",
   modify: "modifié",
@@ -2562,6 +2680,22 @@ function turnRows(turn) {
         sticky: block || pending,
         sig: [p, step.approval, step.resolved, step.lines.length, toolLabel(step.approval?.tool ?? "")],
         body: () => [hookCard(step)],
+      });
+    } else if (step.type === "rag") {
+      const ended = step.ended;
+      const failed = ended?.status === "error";
+      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+      if (ended) figure = failed ? "erreur" : `${plural(ended.excerpts.length, "extrait")} · ${seconds(ended.duration_ms)}`;
+      rows.push({
+        key,
+        icon: "📚",
+        title: "Recherche RAG",
+        actor: "harness",
+        figure,
+        tone: failed ? "error" : null,
+        sticky: failed,
+        sig: [Boolean(ended), ended?.status],
+        body: () => ragBody(step),
       });
     } else if (step.type === "action_dropped") {
       const label = step.label || "action forcée";
@@ -3333,6 +3467,8 @@ const KIND_LABELS = {
   memory_changed: "Mémoire globale modifiée",
   model_load_started: "Chargement du modèle commencé",
   model_load_ended: "Chargement du modèle terminé",
+  rag_search_started: "Recherche RAG commencée",
+  rag_search_ended: "Recherche RAG terminée",
 };
 const MODEL_LOAD_STATUS = { ok: "chargé", restored: "retour au modèle précédent", error: "échec" };
 const MEMORY_OPS = { add: "Ajout en mémoire", replace: "Modification en mémoire", delete: "Suppression en mémoire" };
@@ -3406,6 +3542,13 @@ function eventSummary(group) {
       return p.actions.length ? p.actions.map((a) => a.label_fr).join(" · ") : "aucune action armée";
     case "action_dropped":
       return p.reason_fr;
+    case "rag_search_started":
+      return `« ${p.query} » · ${fmt(p.top_k)} au plus`;
+    case "rag_search_ended":
+      return p.status === "ok"
+        ? `${plural(p.excerpts.length, "extrait")} · ${seconds(p.duration_ms)}` +
+            (p.excerpts.length ? ` · meilleur : ${p.excerpts[0].title_fr} (${scoreFormat.format(p.excerpts[0].score)})` : "")
+        : p.error_fr;
     case "tool_call_malformed":
       return p.detail_fr;
     case "output_truncated":
@@ -3549,6 +3692,7 @@ const BRICK_ICONS = {
   mcp: "🔌",
   skills: "📘",
   hooks: "🪝",
+  rag: "📚",
 };
 const POSE_LABELS = { idle: "au repos", thinking: "réfléchit", tool: "utilise un outil" };
 // Hook id -> its point of attachment, in the order the strip lists them (formatting only, like
@@ -3663,10 +3807,16 @@ function schemaActivity(nodes) {
   if (!turn || turn.status !== null) return null;
   const steps = turn.steps;
   let i = steps.length - 1;
-  while (i >= 0 && steps[i].type !== "tool" && steps[i].type !== "hook") i--;
+  while (i >= 0 && !["tool", "hook", "rag"].includes(steps[i].type)) i--;
   if (i < 0) return null;
   const step = steps[i];
   const drawn = (id) => nodes.some((n) => n.id === id); // only enabled hooks can act
+  if (step.type === "rag") {
+    // Story 15: the retriever reads the index while it searches.
+    const id = step.component || "rag.retriever";
+    if (step.ended || !drawn(id)) return null;
+    return { component: id, mode: "on", target: drawn("file.rag_index") ? "file.rag_index" : null };
+  }
   if (step.type === "tool") {
     // A harness tool (documentation, skills) runs in the harness itself: no path.
     const id = step.component;
@@ -3728,7 +3878,9 @@ function renderSchema() {
     for (const node of root.querySelectorAll(".is-active:not(.robot)")) node.classList.remove("is-active");
     if (activity) {
       const id = cssEscape(activity.component);
-      root.querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"]`)?.classList.add("is-active");
+      root
+        .querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"], .arch-chip[data-component="${id}"]`)
+        ?.classList.add("is-active");
     }
     scheduleWires();
   }
@@ -3757,7 +3909,9 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
     const icon = BRICK_ICONS[node.id.split(".")[0]] || "🧩";
     const chip = schemaButton("arch-chip", node.id, `${icon} ${node.label_fr}`);
     chip.classList.toggle("is-unavailable", !node.available);
-    chip.title = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
+    chip.title = [node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`, node.detail_fr]
+      .filter(Boolean)
+      .join("\n");
     chips.appendChild(chip);
   }
   if (!anyBrick) chips.appendChild(el("p", "arch-harness-empty", "Aucune brique : LLM nu"));

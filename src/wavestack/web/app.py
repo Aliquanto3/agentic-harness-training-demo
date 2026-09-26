@@ -99,6 +99,12 @@ class ArmIntention(BaseModel):
     args: dict[str, Any] = {}
 
 
+class DownloadModelIntention(BaseModel):
+    """Story 15: the model to download; `rag_embedding` is the only target so far."""
+
+    target: str
+
+
 class DisarmIntention(BaseModel):
     armed_id: str
 
@@ -481,6 +487,20 @@ def create_app(
         except SendRefused as refused:
             raise HTTPException(status_code=409, detail=refused.reason_fr) from None
         return {"launched": True}
+
+    @app.post("/api/intentions/download_model")
+    def download_model(intention: DownloadModelIntention) -> dict[str, object]:
+        """Class (b), story 15 (AD-21): unknown target: 404; outside `idle`, or nothing to
+        download: 409, with the reason. « Arrêter » (`stop`) cancels it."""
+        try:
+            reason_fr = app_session.download_model(intention.target)
+        except KeyError:
+            raise HTTPException(
+                status_code=404, detail="Cible de téléchargement inconnue."
+            ) from None
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"started": True, "reason_fr": reason_fr}
 
     @app.post("/api/intentions/reset")
     def reset() -> dict[str, bool]:

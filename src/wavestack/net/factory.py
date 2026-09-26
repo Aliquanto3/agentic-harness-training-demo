@@ -38,10 +38,20 @@ def _check_and_trace(request: httpx.Request | httpx2.Request, scope: TraceScope)
             "origin": scope.origin or "brick",
             "method": request.method,
             "url": str(request.url),
-            "body": request.content.decode("utf-8", "replace"),
+            "body": _body(request).decode("utf-8", "replace"),
         },
         scope=scope,
     )
+
+
+def _body(request: httpx.Request | httpx2.Request) -> bytes:
+    """The exact body; a redirect hop's request carries it as a stream not read yet."""
+    try:
+        return request.content
+    except (httpx.RequestNotRead, httpx2.RequestNotRead):
+        if isinstance(request, httpx.Request):
+            return request.read()  # a byte stream, read again when sent
+        return b""  # ponytail: an async hop's body; MCP posts are never redirected
 
 
 def _trace_request(request: httpx.Request) -> None:

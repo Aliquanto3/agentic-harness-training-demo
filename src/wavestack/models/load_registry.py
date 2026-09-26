@@ -3,8 +3,8 @@
 It holds what each loaded component was granted and refuses, in figures, a load that would
 take WaveStack past its memory budget: `RSS measured − cost of the slot's current holder +
 cost of the newcomer > budget`. The check comes before any release, so a refusal leaves the
-active model loaded (AD-3). Later stories add their non-generative slots (embedding,
-reranking) next to `generative`.
+active model loaded (AD-3). Story 15 adds the `embedding` slot (the RAG's model), refused
+with its own message; reranking will add its slot next to them.
 """
 
 from __future__ import annotations
@@ -19,7 +19,9 @@ from wavestack.config import CloudModel
 from wavestack.models import probe
 
 GENERATIVE = "generative"
+EMBEDDING = "embedding"  # story 15: the RAG brick's embedding model
 _GIB = 1024**3
+_MIB = 1024**2
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,11 @@ def process_rss() -> int:
         except psutil.Error:
             continue  # a child gone meanwhile
     return total
+
+
+def _mo(n: int) -> str:
+    """Bytes in Mo, rounded, French thousands separator: « 1 234 »."""
+    return f"{round(n / _MIB):,}".replace(",", "\u202f")
 
 
 def _go(n: int) -> str:
@@ -103,6 +110,27 @@ class LoadRegistry:
             f"Changement refusé : {label} demande environ {_go(cost_bytes)} ; WaveStack occupe "
             f"{_go(without)} sans le modèle actif, pour un budget de {_go(self.budget_bytes)}."
             f"{stays} Choisissez un modèle plus petit."
+        )
+
+    def embedding_cost(self, measured_rss_mb: int | None, file_sizes: list[int]) -> int:
+        """Story 15: the RSS story 12 measured when declared, else the files' size plus the
+        margin."""
+        if measured_rss_mb:
+            return measured_rss_mb * _MIB
+        return sum(file_sizes) + self.margin_bytes
+
+    def check_component(self, label: str, cost_bytes: int, slot: str) -> str | None:
+        """The French refusal, in figures, when loading `label` (a brick's component) into
+        `slot` would exceed the budget, else `None`."""
+        held = self._slots.get(slot)
+        without = max(0, self._rss() - (held.cost if held else 0))
+        if without + cost_bytes <= self.budget_bytes:
+            return None
+        return (
+            f"Mémoire insuffisante pour charger {label} : WaveStack occupe {_mo(without)} Mo, "
+            f"il en faut environ {_mo(cost_bytes)} de plus, au-delà du budget de "
+            f"{_mo(self.budget_bytes)} Mo. Désactivez une brique ou relevez `memory.budget_mb` "
+            "dans settings.json."
         )
 
     def grant(self, label: str, cost_bytes: int, slot: str = GENERATIVE) -> None:

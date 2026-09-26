@@ -2843,3 +2843,51 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   flex-direction: column;
   gap: var(--spacing-1);
 }
+
+/* ---------- story 15: RAG (download on the card, search step, retriever at work) ---------- */
+
+.brick-download-progress,
+.brick-download-why {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.brick-download-progress {
+  font-variant-numeric: tabular-nums;
+}
+
+.arch .arch-chip.is-active {
+  box-shadow: 0 0 0 4px var(--color-state-active);
+}
+
+.rag-excerpts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.rag-excerpt-head {
+  display: flex;
+  gap: var(--spacing-2);
+  align-items: baseline;
+  cursor: pointer;
+}
+
+.rag-rank {
+  font-weight: var(--typography-label-font-weight);
+  color: var(--color-primary);
+}
+
+.rag-doc {
+  flex: 1;
+  min-width: 0;
+}
+
+.rag-score {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-soft);
+}

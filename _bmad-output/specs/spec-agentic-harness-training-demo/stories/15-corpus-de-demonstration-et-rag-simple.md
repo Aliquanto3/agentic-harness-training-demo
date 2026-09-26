@@ -2,14 +2,43 @@
 title: 'Corpus de démonstration et RAG simple'
 type: 'feature'
 created: '2026-09-26'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '7b8504e4635ea98c78e29af29018b35e294573e9'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-agentic-harness-training-demo-2026-09-23/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-agentic-harness-training-demo-2026-09-22/EXPERIENCE.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      Le chargement de l'extension sqlite-vec par le Python de uv sous Windows n'a pas été vérifié.
+    evidence: |-
+      Vérifié ici seulement (Linux, Python 3.13 système). À trancher sur le PC cible : la carte RAG ne doit pas dire « sqlite-vec ne se charge pas ».
+    location: >-
+      src/wavestack/rag/index.py:load_vec
+    severity: medium (unverified)
+  - summary: >-
+      Le pooling CLS du GGUF granite n'est pas forcé par l'adaptateur : il doit venir des métadonnées du fichier.
+    evidence: |-
+      Aucun vrai modèle téléchargeable ici. À trancher par `uv run python -m pytest -m model tests/test_rag.py` sur le PC cible, modèle en place.
+    location: >-
+      src/wavestack/models/embedding.py:LlamaCppEmbedder
+    severity: medium (unverified)
+  - summary: >-
+      L'entrée sqlite-vec de uv.lock a été écrite à la main, l'index abetlen étant injoignable.
+    evidence: |-
+      `uv lock --check --offline` et `uv sync --locked` passent. À confirmer par `uv lock` sur un poste qui joint l'index abetlen (aucun écart attendu).
+    location: >-
+      uv.lock
+    severity: low
+  - summary: >-
+      La latence de la recherche RAG avec le vrai modèle sur CPU n'est pas mesurée (NFR-1).
+    evidence: |-
+      À mesurer au test manuel : durée de l'étape « Recherche RAG » dans Orchestration.
+    location: >-
+      src/wavestack/session/app_session.py:_rag_search
+    severity: medium (unverified)
 ---
 
 <intent-contract>
@@ -135,24 +164,24 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `pyproject.toml`, `uv.lock`, `wavestack.toml` : vérifier la précondition (story 12), puis `uv add "sqlite-vec==0.1.9"`, et `fastembed` si le verdict le retient. Remplir `wavestack.toml` : `[rag]` (`index_path`, `top_k`, `chunk_max_chars`), `[rag.embedding]` (verdict) et `[memory]` (`budget_mb`, `load_margin_mb`).
-- [ ] `content/corpus/*.md` (8), `content/rag.yaml`, `content/bricks/rag.yaml` : corpus fictif et textes de la brique, en français.
-- [ ] `src/wavestack/config.py` : `EmbeddingModel` et accesseurs ; une section invalide rend la brique indisponible, sans plantage.
-- [ ] `src/wavestack/models/embedding.py` (nouveau) : port `Embedder{model_id, dims, embed_queries, embed_passages, close}`, vecteurs normalisés, et l'adaptateur du `backend` retenu.
-- [ ] `src/wavestack/models/load_registry.py` (nouveau) : `LoadRegistry`, avec une mesure injectable.
-- [ ] `src/wavestack/models/download.py` (nouveau) : `download_files(files, dest, cancel, on_progress)`.
-- [ ] `src/wavestack/rag/` (nouveau) :
+- [x] `pyproject.toml`, `uv.lock`, `wavestack.toml` : vérifier la précondition (story 12), puis `uv add "sqlite-vec==0.1.9"`, et `fastembed` si le verdict le retient. Remplir `wavestack.toml` : `[rag]` (`index_path`, `top_k`, `chunk_max_chars`), `[rag.embedding]` (verdict) et `[memory]` (`budget_mb`, `load_margin_mb`).
+- [x] `content/corpus/*.md` (8), `content/rag.yaml`, `content/bricks/rag.yaml` : corpus fictif et textes de la brique, en français.
+- [x] `src/wavestack/config.py` : `EmbeddingModel` et accesseurs ; une section invalide rend la brique indisponible, sans plantage.
+- [x] `src/wavestack/models/embedding.py` (nouveau) : port `Embedder{model_id, dims, embed_queries, embed_passages, close}`, vecteurs normalisés, et l'adaptateur du `backend` retenu.
+- [x] `src/wavestack/models/load_registry.py` (nouveau) : `LoadRegistry`, avec une mesure injectable.
+- [x] `src/wavestack/models/download.py` (nouveau) : `download_files(files, dest, cancel, on_progress)`.
+- [x] `src/wavestack/rag/` (nouveau) :
   - `corpus.py` : chargement et découpage ;
   - `index.py` : écriture et lecture sqlite-vec, `meta` ;
   - `retriever.py` : `Retriever`, `SqliteVecRetriever`, `Excerpt`.
-- [ ] `scripts/build_rag_index.py` (nouveau) : `--model PATH` facultatif, sinon le chemin de `[rag.embedding]` ; garde réseau en boucle locale ; résumé en français (documents, extraits, dimensions, durée).
-- [ ] `src/wavestack/bricks/registry.py`, `trace/catalog.py`, `session/app_session.py`, `web/app.py` : brique, événements, disponibilité, chargement, recherche, contexte, aperçu, téléchargement, cause de dépassement.
-- [ ] `src/wavestack/web/static/app.js` et `app.css` : ligne et détail du rail, bouton et progression sur la carte, activité du schéma, icône, journal.
-- [ ] `content/scenarios.yaml` : module « RAG » et scénario `rag`.
-- [ ] `tests/fake_embedder.py` (nouveau) : sac de mots haché en 64 dimensions, normalisé, déterministe.
-- [ ] `tests/test_rag.py` (nouveau) : une ligne de la matrice par test, hors téléchargement, sur un index temporaire construit avec le vrai code de `rag/` et `FakeEmbedder` ; découpage ; refus chiffré du `LoadRegistry` (mesure injectée) ; libération à la désactivation ; aperçu ; mode chat (moteur cloud factice des tests de la story 11) ; schéma. Un test compare l'index livré aux extraits du corpus, et il est sauté si l'index est absent. Un test marqué `model` utilise le vrai modèle.
-- [ ] `tests/test_rag_download.py` (nouveau) : lignes « Téléchargement » et « Hors idle », avec `MockTransport` ; routes 404 et 409.
-- [ ] `data/rag_index.sqlite` : si les fichiers du modèle retenu sont sur le poste d'implémentation, construire et committer l'index. Sinon, le consigner sous Auto Run Result (index à construire sur le poste de référence) et laisser la brique « index absent ».
+- [x] `scripts/build_rag_index.py` (nouveau) : `--model PATH` facultatif, sinon le chemin de `[rag.embedding]` ; garde réseau en boucle locale ; résumé en français (documents, extraits, dimensions, durée).
+- [x] `src/wavestack/bricks/registry.py`, `trace/catalog.py`, `session/app_session.py`, `web/app.py` : brique, événements, disponibilité, chargement, recherche, contexte, aperçu, téléchargement, cause de dépassement.
+- [x] `src/wavestack/web/static/app.js` et `app.css` : ligne et détail du rail, bouton et progression sur la carte, activité du schéma, icône, journal.
+- [x] `content/scenarios.yaml` : module « RAG » et scénario `rag`.
+- [x] `tests/fake_embedder.py` (nouveau) : sac de mots haché en 64 dimensions, normalisé, déterministe.
+- [x] `tests/test_rag.py` (nouveau) : une ligne de la matrice par test, hors téléchargement, sur un index temporaire construit avec le vrai code de `rag/` et `FakeEmbedder` ; découpage ; refus chiffré du `LoadRegistry` (mesure injectée) ; libération à la désactivation ; aperçu ; mode chat (moteur cloud factice des tests de la story 11) ; schéma. Un test compare l'index livré aux extraits du corpus, et il est sauté si l'index est absent. Un test marqué `model` utilise le vrai modèle.
+- [x] `tests/test_rag_download.py` (nouveau) : lignes « Téléchargement » et « Hors idle », avec `MockTransport` ; routes 404 et 409.
+- [x] `data/rag_index.sqlite` : si les fichiers du modèle retenu sont sur le poste d'implémentation, construire et committer l'index. Sinon, le consigner sous Auto Run Result (index à construire sur le poste de référence) et laisser la brique « index absent ».
 
 **Acceptance Criteria:**
 - Given un tour avec la brique `rag` effective, when la page est rechargée, then le rail montre toujours l'étape « Recherche RAG », avec sa requête, ses extraits, leurs scores et leur placement (projection du journal, AD-1).
@@ -165,6 +194,20 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-26 — Review pass
+Revue faite par l'agent d'implémentation lui-même, sans sous-agent (aucun outil de sous-agent dans cette exécution, sur instruction de l'appelant) ; une revue indépendante suivra.
+- verdicts: 9 findings — high 0, medium 2, low 3, false 0, maybe-false 4
+- findings:
+  - `[medium]` `[patch]` Le GGUF d'embedding, rangé sous `models/embedding/`, était découvert comme modèle de conversation : sondé à chaque lancement, « Modèle incompatible » (vu au test de bout en bout, scénario de relance). — Corrigé : `discovery.discover` écarte les fichiers de `[rag.embedding]` ; test `test_the_embedding_model_is_never_offered_as_a_chat_model`.
+  - `[medium]` `[patch]` `net/factory.py` levait `RequestNotRead` au traçage d'une redirection vers un hôte autorisé : le téléchargement (huggingface.co → *.hf.co) échouait, et les outils réseau auraient échoué de même. — Corrigé : `_body()` lit le flux d'une requête de redirection ; test de téléchargement avec 302.
+  - `[low]` `[patch]` Un échec de téléchargement, hors tour, n'apparaissait que dans le journal des événements. — Corrigé : `harness_error` porté par la brique `rag`, affiché sur la carte.
+  - `[low]` `[patch]` La synchronisation de l'embedding réémettait cartes, schéma et aperçu à chaque reconfiguration, contre la règle « un seul de chaque » de la story 10. — Corrigé : émission seulement si un modèle est chargé ou libéré.
+  - `[low]` `[reject]` La progression affiche « 0 / 0 Mo » pour un fichier de moins d'un Mo. — Cosmétique, jamais vu avec le vrai fichier (115 Mo) ; corriger ajouterait une branche d'unité.
+  - `[maybe-false]` `[defer]` Le Python de `uv` sous Windows charge-t-il l'extension sqlite-vec ? — À trancher sur le PC cible ; sinon la brique dit « sqlite-vec ne se charge pas ».
+  - `[maybe-false]` `[defer]` Le GGUF bartowski de granite déclare-t-il le pooling CLS dans ses métadonnées ? L'adaptateur ne le force pas. — À trancher par le test marqué `model` sur le PC cible.
+  - `[maybe-false]` `[defer]` L'entrée `sqlite-vec` de `uv.lock`, écrite à la main, est-elle identique à ce que produirait `uv lock` ? — `uv lock --check --offline` passe ; à confirmer par `uv lock` avec accès à l'index abetlen.
+  - `[maybe-false]` `[defer]` La latence de la recherche (embedding de la question par le vrai modèle, CPU) reste-t-elle négligeable devant l'appel au modèle (NFR-1) ? — À mesurer au test manuel.
 
 ## Design Notes
 
@@ -208,6 +251,22 @@ Les valeurs `0` et `<…>` ci-dessus ne sont pas des défauts : la tâche 1 les 
 13. **Programme.** Le module « RAG » est ajouté en fin de programme ; la story 21 pourra le réordonner. Son premier scénario, cumulatif, est en lazy loading pour tenir dans la fenêtre, ce qui reste à vérifier au test manuel.
 14. **Schéma.** Un seul composant, `rag.retriever` ; le modèle d'embedding est nommé dans son infobulle plutôt que dessiné comme un nœud à part.
 
+Ajoutées pendant l'implémentation (exécution sans humain, 2026-09-26) :
+
+15. **Précondition.** La story 12 est `done` avec un verdict provisoire (granite-embedding-107m-multilingual Q8_0, `llama_cpp`) : il suffit, sur instruction de l'appelant. `[rag.embedding]` en reprend les valeurs ; `measured_rss_mb` est omis (rien n'a été mesuré), donc le coût vaut la taille du fichier plus la marge. La config n'accepte que `backend = "llama_cpp"` ; `fastembed` n'est pas ajouté.
+16. **Marge.** `[memory] load_margin_mb` reste à 256, la valeur posée par la story 17, au lieu des 128 cités ici : un seul réglage sert le LLM et l'embedding.
+17. **Registre.** Celui de la story 17 existe déjà : il gagne un emplacement `embedding` et son refus chiffré en Mo, sans second registre.
+18. **« Télécharger » seulement pour « modèle absent ».** Quand l'index et le modèle manquent tous deux, la raison affichée est « index absent » (ordre des raisons), sans bouton ; elle précise alors que le script a besoin du modèle et où le copier. Sur le poste de référence, qui construit l'index, le modèle se copie donc à la main (URL donnée par le script).
+19. **Fichiers relus aussi au clic.** Si « Télécharger » trouve les fichiers déjà là (copiés à la main), il répond 409 « Rien à télécharger », relit l'index et les fichiers, et la brique se charge : pas besoin de relancer WaveStack. Un téléchargement qui échoue relit aussi les fichiers.
+20. **Fil du téléchargement.** Il tourne sur un fil à lui, pas sur le fil de travail : les aperçus et les bascules restent réactifs. L'état `download` refuse les intentions de classe (b) ; la raison d'`idle` d'avant (par exemple « aucun modèle chargé ») est rendue après.
+21. **Échec de téléchargement affiché.** Hors tour, le `harness_error` du téléchargement porte la brique `rag` : la carte l'affiche (formatage seul, AD-1). Une URL `http` n'est acceptée que sur la boucle locale (comme `base_url` des modèles cloud), ce qui sert le test de bout en bout.
+22. **Découverte des modèles.** Les fichiers déclarés par `[rag.embedding]` ne sont jamais proposés comme modèle de conversation au diagnostic ni dans « Changer de modèle » (sinon le GGUF d'embedding, rangé dans `models/embedding/`, était sondé et déclaré incompatible à chaque lancement).
+23. **Traçage des redirections.** `net/factory.py` lisait `request.content`, qui lève sur une requête de redirection (corps en flux non lu) : toute redirection vers un hôte autorisé échouait, outils réseau compris. Corrigé ici, car le téléchargement suit la redirection de huggingface.co vers `*.hf.co`.
+24. **Pooling.** L'adaptateur ne force pas `pooling_type` : il lit celui du GGUF (CLS attendu). Le test marqué `model` le vérifie sur le vrai fichier.
+25. **`uv.lock` écrit à la main.** `uv add "sqlite-vec==0.1.9"` échoue ici : l'index abetlen de llama-cpp-python est injoignable. `pyproject.toml` a été modifié par `uv add --frozen`, et l'entrée de `uv.lock` recopiée d'une résolution PyPI isolée ; `uv lock --check --offline` et `uv sync --locked` passent. À confirmer par un `uv lock` sur un poste qui joint l'index.
+26. **Consigne du scénario.** Le scénario `rag` veut la brique RAG (critère d'acceptation) : la consigne dit donc de l'éteindre d'abord, d'envoyer, puis de la rallumer et de rejouer. Second prompt : le plafond d'hôtel à Paris (document « Déplacements » seul).
+27. **Test de bout en bout.** Un lanceur (`tools/e2e/wavestack_e2e.py`) remplace le modèle d'embedding par le faux des tests ; l'index est construit dans le dossier de données temporaire, et le faux serveur sert le fichier du modèle (503, puis 200).
+
 ## Verification
 
 **Commands:**
@@ -226,5 +285,41 @@ Les valeurs `0` et `<…>` ci-dessus ne sont pas des défauts : la tâche 1 les 
 
 ## Auto Run Result
 
-Status: ready-for-dev
-Blocking condition: aucune. Arrêt après planification, à la demande de l'appelant. L'implémentation attend la story 12 (précondition du premier point d'Always) ; les hypothèses sont dans « Hypothèses à valider ».
+Status: done
+Blocking condition: aucune.
+
+(Planification : arrêt après planification à la demande de l'appelant, puis reprise le 2026-09-26 une fois la story 12 `done` avec un verdict provisoire.)
+
+**Résumé.** Brique `rag` complète : corpus fictif « Exemplia » (8 textes, 310 à 345 mots), découpage unique, index sqlite-vec écrit hors ligne par `scripts/build_rag_index.py`, adaptateur llama.cpp derrière `[rag.embedding]`, chargement par le registre de la story 17 (emplacement `embedding`, refus chiffré), recherche à chaque tour (étape « Recherche RAG », paire d'événements), extraits en segments `rag_excerpt` avant le message, aperçu aux extraits les plus longs, cause de dépassement, « Télécharger » avec progression et « Arrêter », front (rail, carte, schéma, journal), module « RAG » du programme.
+
+**Fichiers.**
+- `pyproject.toml`, `uv.lock` : `sqlite-vec==0.1.9` (entrée du lock écrite à la main, hypothèse 25).
+- `wavestack.toml` : `[rag]`, `[rag.embedding]` (verdict provisoire de la story 12), commentaires `[memory]`.
+- `content/corpus/*.md` (8), `content/rag.yaml`, `content/bricks/rag.yaml`, `content/scenarios.yaml` : corpus, textes de la brique, module et scénario `rag`.
+- `src/wavestack/config.py` : `EmbeddingFile`, `EmbeddingModel`, `rag_embedding`, `rag_top_k`, `rag_chunk_max_chars`, `rag_index_path()`.
+- `src/wavestack/models/embedding.py` : port `Embedder`, `LlamaCppEmbedder`, `open_embedder`.
+- `src/wavestack/models/load_registry.py` : emplacement `embedding`, `embedding_cost`, `check_component`.
+- `src/wavestack/models/download.py` : `download_files`, `missing_files`, `DownloadError`.
+- `src/wavestack/models/discovery.py` : le modèle d'embedding n'est jamais un candidat LLM.
+- `src/wavestack/net/factory.py` : traçage d'une redirection (corps en flux).
+- `src/wavestack/rag/` : `corpus.py`, `index.py`, `retriever.py`.
+- `scripts/build_rag_index.py` : construction de l'index, garde réseau en boucle locale.
+- `src/wavestack/bricks/registry.py`, `trace/catalog.py`, `session/app_session.py`, `web/app.py` : brique, événements, disponibilité, chargement, recherche, contexte, aperçu, téléchargement, route `download_model`.
+- `src/wavestack/web/static/app.js`, `app.css` : étape du rail, carte (bouton, progression, échec), schéma, journal.
+- `tests/fake_embedder.py`, `tests/test_rag.py`, `tests/test_rag_download.py` ; `tests/test_bricks.py`, `tests/test_scenarios.py` ajustés à la nouvelle brique.
+- `tools/e2e/` : lanceur `wavestack_e2e.py`, index et faux modèle dans `stack.py`, fichier et réponses « mot de passe » dans `fake_openai.py`, scénario `rag` dans `run_e2e.py`, README, capture `22-rag-recherche-et-extraits.jpg`.
+- `README.md` : section « RAG : corpus de démonstration et index ».
+
+**Revue.** 4 corrections (2 medium, 2 low), 4 points différés (non vérifiables ici), 1 rejeté (« 0 / 0 Mo » sur un fichier minuscule, cosmétique). Relecture de suivi recommandée : **oui** (2 corrections medium) ; risque non vérifié : le vrai modèle d'embedding sur le PC Windows (chargement de sqlite-vec par le Python de `uv`, pooling du GGUF, latence).
+
+**Vérifications.**
+- `uv run ruff check .`, `uv run ruff format --check .` : OK.
+- `uv run python -m pytest` : 540 réussis, 4 sautés (dont l'index livré, absent), 3 désélectionnés (`model`).
+- `node --check src/wavestack/web/static/app.js` : OK.
+- `uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py` : 197 vérifications réussies, 0 échec (29 pour le scénario `rag` : modèle absent, téléchargement en échec expliqué puis réussi, tour sans puis avec RAG, étape, extraits dans Contexte LLM, schéma, « Comparer », rechargement).
+- Adaptateur llama.cpp exercé sur un GGUF BERT synthétique (poids aléatoires) : vecteurs normalisés, troncature d'un texte long, contrôle des dimensions, construction de l'index, `close()`.
+- `scripts/build_rag_index.py` sans modèle : message et code 2 ; avec un modèle aux mauvaises dimensions : message et code 2, aucun index écrit.
+
+**Index livré.** Non construit : huggingface.co est bloqué ici, le modèle d'embedding est absent. `data/rag_index.sqlite` est à construire sur le poste de référence (`uv run python scripts/build_rag_index.py`) puis à committer ; d'ici là, la brique dit « index absent ».
+
+**Risques résiduels.** Voir les points différés : sqlite-vec sous Windows, pooling du GGUF, `uv.lock` à confirmer, latence. La consigne du scénario (éteindre, envoyer, rallumer, rejouer) et la tenue du scénario cumulatif dans 4 096 tokens restent à vérifier au test manuel.

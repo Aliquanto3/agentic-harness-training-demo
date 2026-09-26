@@ -151,6 +151,62 @@ class CloudModel(_Strict):
         return dict(self.reasoning.on if on else self.reasoning.off)
 
 
+class EmbeddingFile(_Strict):
+    """A file of the embedding model (story 15): where to download it, where it goes under
+    `models_dir()`, its size in bytes and, when declared, its sha256 (empty: not checked)."""
+
+    url: str
+    path: str = Field(min_length=1)
+    size: int = Field(gt=0)
+    sha256: str = Field(default="", pattern=r"^([0-9a-fA-F]{64})?$")
+
+    @field_validator("url")
+    @classmethod
+    def _https(cls, value: str) -> str:
+        parts = urlsplit(value)
+        host = parts.hostname or ""
+        if parts.scheme != "https" and not (parts.scheme == "http" and _is_loopback(host)):
+            raise ValueError("url must be https (http for the loopback only)")
+        if not host:
+            raise ValueError("url needs a host")
+        return value
+
+    @field_validator("path")
+    @classmethod
+    def _inside_models_dir(cls, value: str) -> str:
+        return _relative_path(value)
+
+
+def _relative_path(value: str) -> str:
+    """A path relative to `models_dir()` that stays inside it."""
+    path = Path(value)
+    if path.is_absolute() or path.drive or ".." in path.parts:
+        raise ValueError("path must be relative to the models folder, without '..'")
+    return value
+
+
+class EmbeddingModel(_Strict):
+    """`[rag.embedding]` (story 15): the single place that names the embedding model, with
+    the values of story 12's verdict. Only the `llama_cpp` backend has an adapter."""
+
+    id: str = Field(min_length=1)
+    backend: Literal["llama_cpp"]
+    label_fr: str = Field(min_length=1)
+    license: str = Field(min_length=1)
+    dims: int = Field(gt=0)
+    max_tokens: int = Field(gt=0)
+    query_prefix: str = ""
+    passage_prefix: str = ""
+    load_path: str = Field(min_length=1)
+    measured_rss_mb: int | None = Field(default=None, gt=0)
+    files: list[EmbeddingFile] = Field(min_length=1)
+
+    @field_validator("load_path")
+    @classmethod
+    def _inside_models_dir(cls, value: str) -> str:
+        return _relative_path(value)
+
+
 def _merge_cloud_models(base: Any, override: Any) -> list[Any]:
     """AD-20: `[[cloud.models]]` entries merge by `id`, field by field, on the raw dicts."""
     merged: dict[Any, Any] = {}
@@ -266,6 +322,41 @@ class Config:
     def load_margin_bytes(self) -> int:
         """AD-8: the margin added to a local model's estimated cost, `[memory] load_margin_mb`."""
         return max(0, self._int("memory", "load_margin_mb", default=256)) * 1024 * 1024
+
+    @cached_property
+    def rag_embedding(self) -> tuple[EmbeddingModel | None, str | None]:
+        """Story 15: the `[rag.embedding]` model, or why its declaration is invalid (French)."""
+        raw = self.get("rag", "embedding")
+        if raw is None:
+            return None, (
+                "La section [rag.embedding] de wavestack.toml est absente : elle nomme le "
+                "modèle d'embedding. Rétablissez-la, puis relancez WaveStack."
+            )
+        try:
+            return EmbeddingModel.model_validate(raw), None
+        except ValidationError as exc:
+            fields = ", ".join(
+                ".".join(str(p) for p in e["loc"]) or "section" for e in exc.errors()
+            )
+            return None, (
+                f"La section [rag.embedding] est invalide ({fields}). Corrigez wavestack.toml "
+                "ou settings.json, puis relancez WaveStack."
+            )
+
+    @property
+    def rag_top_k(self) -> int:
+        """Story 15: the excerpts placed in the context at each turn."""
+        return max(1, self._int("rag", "top_k", default=3))
+
+    @property
+    def rag_chunk_max_chars(self) -> int:
+        """Story 15: the largest excerpt the chunking makes, in characters."""
+        return max(50, self._int("rag", "chunk_max_chars", default=700))
+
+    def rag_index_path(self) -> Path:
+        """Story 15: the sqlite-vec index; a relative path is from the repository root."""
+        path = Path(str(self.get("rag", "index_path", default="data/rag_index.sqlite")))
+        return path if path.is_absolute() else repo_root() / path
 
     @property
     def near_limit_ratio(self) -> float:

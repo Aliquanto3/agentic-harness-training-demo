@@ -31,10 +31,42 @@ near_limit_ratio = 0.8
 [memory]
 # Budget mémoire de WaveStack (AD-8), en Mo : un changement de modèle est refusé si la
 # mémoire mesurée (WaveStack et ses processus enfants), moins le coût du modèle actif, plus
-# le coût du nouveau, dépasse ce budget. Le modèle actif reste alors chargé.
+# le coût du nouveau, dépasse ce budget. Le modèle actif reste alors chargé. Le modèle
+# d'embedding du RAG (story 15) est refusé de même, avec la brique indisponible.
 budget_mb = 4096
-# Marge ajoutée au coût estimé de chaque modèle local (poids, cache KV à la fenêtre), en Mo.
+# Marge ajoutée au coût estimé de chaque modèle local (poids, cache KV à la fenêtre ; pour
+# l'embedding, sa taille quand aucune mesure n'est déclarée), en Mo.
 load_margin_mb = 256
+
+[rag]
+# RAG simple (story 15, AD-22). L'index sqlite-vec est construit hors ligne par
+# `uv run python scripts/build_rag_index.py` ; un chemin relatif part de la racine du dépôt.
+index_path = "data/rag_index.sqlite"
+# Extraits placés dans le contexte à chaque tour, les plus proches de la question, sans seuil.
+top_k = 3
+# Taille maximale d'un extrait au découpage, en caractères (reconstruisez l'index après
+# l'avoir changée).
+chunk_max_chars = 700
+
+[rag.embedding]
+# Le seul endroit qui nomme le modèle d'embedding : valeurs du verdict de la story 12
+# (provisoire, mesure sur le PC cible à faire). `id` est écrit dans l'index : un autre
+# modèle rend la brique indisponible jusqu'à la reconstruction de l'index.
+id = "granite-embedding-107m-multilingual-q8_0"
+backend = "llama_cpp"
+label_fr = "Granite Embedding 107M multilingue (IBM, GGUF Q8_0)"
+license = "Apache-2.0"
+dims = 384        # carte HF : hidden_size 384, pooling CLS lu dans le GGUF
+max_tokens = 512  # carte HF : max_position_embeddings 514 (XLM-RoBERTa)
+query_prefix = "" # aucun préfixe sur la carte IBM
+passage_prefix = ""
+# Relatif au dossier des modèles (models/ dans le dossier de données).
+load_path = "embedding/granite-embedding-107m-multilingual-Q8_0.gguf"
+# measured_rss_mb : à renseigner après la mesure sur le PC cible (sinon : taille + marge).
+# sha256 vide : non vérifié (à relever au premier téléchargement sur le PC cible).
+files = [
+    { url = "https://huggingface.co/bartowski/granite-embedding-107m-multilingual-GGUF/resolve/main/granite-embedding-107m-multilingual-Q8_0.gguf", path = "embedding/granite-embedding-107m-multilingual-Q8_0.gguf", size = 121020096, sha256 = "" },
+]
 
 [tools]
 # Bornes de la boucle de tour (AD-10), affichées sur la carte de la brique outils.

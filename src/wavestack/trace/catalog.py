@@ -259,6 +259,13 @@ class BrickOption(BaseModel):
     tools: list[str] = []
 
 
+class DownloadOffer(BaseModel):
+    """Story 15: « Télécharger » on a brick card, its target and its label (size included)."""
+
+    target: Literal["rag_embedding"]
+    label_fr: str
+
+
 class BrickState(BaseModel):
     """One brick card: its content, and `available`/`pending` as computed by the session."""
 
@@ -285,6 +292,8 @@ class BrickState(BaseModel):
     # (AD-19), which depend on the model's tool parser.
     empty_fr: str | None = None
     text_help_fr: str | None = None
+    # Story 15, `rag` brick: offered when the embedding model's files are missing (AD-21).
+    download: DownloadOffer | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -504,6 +513,32 @@ class ModelLoadEndedPayload(BaseModel):
     reason_fr: str | None = None
 
 
+# ---------- story 15: simple RAG (AD-2, AD-22) ----------
+
+
+class RagExcerpt(BaseModel):
+    position: int  # rank, from 1
+    chunk_id: int
+    doc_id: str
+    title_fr: str
+    text: str
+    score: float  # 1 − cosine distance, 3 decimals
+
+
+class RagSearchStartedPayload(BaseModel):
+    query: str
+    top_k: int
+    phase_label: str
+
+
+class RagSearchEndedPayload(BaseModel):
+    status: Literal["ok", "error"]
+    excerpts: list[RagExcerpt]
+    placement_fr: str  # where the excerpts go in the context
+    error_fr: str | None = None
+    duration_ms: int
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -543,4 +578,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "memory_changed": MemoryChangedPayload,
     "model_load_started": ModelLoadStartedPayload,
     "model_load_ended": ModelLoadEndedPayload,
+    "rag_search_started": RagSearchStartedPayload,
+    "rag_search_ended": RagSearchEndedPayload,
 }

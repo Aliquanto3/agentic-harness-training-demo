@@ -172,6 +172,20 @@ BRICKS = [
             for hook in HOOKS
         ],
     ),
+    # Story 15: the simple RAG, a local process (the embedding model) that reads the index;
+    # no capability required, no network.
+    BrickDeclaration(
+        id="rag",
+        category="context",
+        components=[
+            Component(
+                id="rag.retriever",
+                kind="retriever",
+                hosting="local_process",
+                edges_to=["core.harness", "file.rag_index"],
+            )
+        ],
+    ),
 ]
 
 
