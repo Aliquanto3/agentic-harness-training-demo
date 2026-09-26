@@ -231,3 +231,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
   summary: Contexte LLM ne montre que le raisonnement du dernier appel du tour affiché ; la Vue humain montre, elle, un bloc par appel.
   evidence: Même périmètre que la « Sortie brute du modèle » (dernier appel seulement) ; le raisonnement des appels précédents reste dans l'étape « Appel au modèle » d'Orchestration et dans le journal. À reprendre si Contexte LLM permet un jour de choisir l'appel affiché.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/12-tests-prealables-headroom-embedding-et-reranking.md`
+  summary: Le verdict embedding et reranking de la story 12 reste provisoire (granite-embedding-107m-multilingual Q8_0, bge-reranker-v2-m3 Q4_K_M) ; lancer sur le PC cible, avant la story 15, `uv run --with huggingface-hub --with fastembed python tools/bench/story12_bench.py embed --download`, puis `uv run --with headroom-ai==0.38.0 python tools/bench/story12_bench.py headroom`, et reporter les deux sorties `--json` dans la story 12.
+  evidence: Le conteneur de développement n'atteint pas huggingface.co (`ProxyError('403 Forbidden')` pour les 7 candidats) : aucune qualité, aucun RSS de modèle n'a été mesuré ; le code du banc est seulement validé sur des GGUF synthétiques. Les mesures Headroom (+130 Mo, aucune tentative réseau) viennent de Linux, pas du HP EliteBook sous Windows 11, où `strace` manque pour voir le code natif.

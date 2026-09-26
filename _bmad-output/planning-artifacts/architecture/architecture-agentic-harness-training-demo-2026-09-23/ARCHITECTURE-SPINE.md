@@ -7,7 +7,7 @@ paradigm: 'Moteur de tour à journal d’événements (event-sourced) ; interfac
 scope: 'WaveStack V1 complet (paliers 1 et 2) : harnais, moteur d’inférence, interface à 5 volets, briques, installation et lancement'
 status: final
 created: '2026-09-23'
-updated: '2026-09-24'
+updated: '2026-09-26'
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-30, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41, FR-42, FR-43, NFR-1, NFR-2, NFR-3, NFR-4, NFR-5, NFR-6, NFR-7, NFR-8, NFR-9, NFR-10, NFR-11]
 sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
@@ -643,7 +643,10 @@ Règles de dépendance :
 | sqlite-vec | 0.1.9 |
 | PyYAML | 6.0.3 |
 | psutil | 7.2.2 |
-| headroom-ai (optionnel, sous réserve du test préalable) | 0.38.0 |
+| headroom-ai (optionnel, retenu par la story 12 : hors ligne, sans torch, +130 Mo mesurés hors PC cible ; `kompress_model="disabled"`) | ==0.38.0 (épinglage exact) |
+| Modèle d'embedding (provisoire, story 12 : mesure sur PC cible à faire) | granite-embedding-107m-multilingual, GGUF Q8_0, 121 Mo, 384 dim. (Apache-2.0) |
+| Modèle de reranking (provisoire, story 12 : mesure sur PC cible à faire) | bge-reranker-v2-m3, GGUF Q4_K_M, 438 Mo, pooling `RANK` (Apache-2.0) |
+| Repli embedding et reranking (non adopté tant que les GGUF passent le banc) | fastembed 0.8.1 (Apache-2.0, onnxruntime, sans torch) |
 | ruff | 0.16.8 |
 | pytest | 9.1.1 |
 | Modèle candidat par défaut | Qwen3.5-2B ou 0.8B, GGUF Q4_K_M (Apache-2.0) |
@@ -769,15 +772,16 @@ wavestack/                      # racine du dépôt
 ## Deferred
 
 - **Banc de mesure sur le poste de référence** : `llama-bench`, lecture à froid de 4 096 tokens, gain du préfixe entre deux appels d’un même tour, `save_state()` et `load_state()` sur le modèle hybride. Ce banc fixe la fenêtre par défaut et le modèle par défaut (0.8B ou 2B), selon AD-9 et AD-11.
-- **Test préalable de Headroom** (première story du palier 2). Critères :
-  - fonctionne hors ligne, sans téléchargement à l’exécution, sous la garde réseau d’AD-15. litellm, que tire headroom-ai, télécharge sa table des prix à l’import : il faut `LITELLM_LOCAL_MODEL_COST_MAP=True`, et un cache tiktoken (`TIKTOKEN_CACHE_DIR`) fourni ;
-  - sans torch ;
-  - respecte la règle d’adoption d’AD-15 ;
-  - tient dans le budget d’AD-8 ;
-  - licence compatible.
-
-  En cas d’échec, le compresseur maison minimal prend le relais : minification JSON, champs vides retirés, listes raccourcies.
-- **Modèles d’embedding et de reranking** : test préalable au palier 2. Le reranking par llama-cpp-python n’est pas confirmé ; le repli est fastembed.
+- **Test préalable de Headroom** : fait par la story 12 (2026-09-26), verdict **retenu**. Les mesures viennent du conteneur de développement Linux ; le relevé sur le PC cible reste à faire avec `tools/bench/story12_bench.py headroom`.
+  - **Mesuré.** Aucune tentative réseau, Python ou native, sous la garde, et le banc fonctionne sans aucun réseau. Pas de torch. RSS ajouté de 130 Mo. 63 paquets sous licence permissive. La résolution avec le projet ne change aucune version épinglée et ajoute 40 paquets.
+  - **Conditions.** Épinglage exact. Variables posées par `cli` avant tout import : `LITELLM_LOCAL_MODEL_COST_MAP=True`, `TIKTOKEN_CACHE_DIR` vers le cache fourni par litellm, `HEADROOM_OFFLINE=1`, `HEADROOM_BEACON=off`, `HEADROOM_UPDATE_CHECK=off`, `DO_NOT_TRACK=1`. Compression ML désactivée (`kompress_model="disabled"`).
+  - **Conséquence.** Headroom réduit le JSON et les journaux (−57 % et −94 % sur le banc), mais pas la prose : un `rag_excerpt` passe tel quel.
+  - Le compresseur maison minimal (minification JSON, champs vides retirés, listes raccourcies) reste le repli si le PC cible infirme le verdict.
+- **Modèles d’embedding et de reranking** : story 12, verdict **provisoire, mesure sur PC cible à faire**. Aucun GGUF n’était téléchargeable depuis le conteneur de développement.
+  - **Candidats recommandés.** granite-embedding-107m-multilingual Q8_0 pour l’embedding ; bge-reranker-v2-m3 Q4_K_M, en pooling `RANK`, pour le reranking.
+  - **Déjà validé.** Le reranking par llama-cpp-python 0.3.35 est validé sur un GGUF synthétique : score lu par `llama_get_embeddings_seq`, car `Llama.embed()` ne convient pas à un reranker. Sa qualité reste à mesurer.
+  - **Repli.** fastembed, avec paraphrase-multilingual-MiniLM-L12-v2 pour l’embedding et mmarco-mMiniLMv2 pour le reranking, par `add_custom_model` : le catalogue ne contient aucun reranker multilingue sous licence compatible.
+  - **Banc.** `tools/bench/story12_bench.py embed --download`, avant la story 15.
 - **Schéma YAML des scénarios** : fixé par la première story de scénarios dans un modèle pydantic, dans le cadre d’AD-19.
 - **Bibliothèque JS éventuelle** (JS natif, ou petite bibliothèque recopiée) : première story d’interface, dans le cadre d’AD-18.
 - **Outils du serveur MCP local, second skill, corpus RAG** : stories de contenu.
