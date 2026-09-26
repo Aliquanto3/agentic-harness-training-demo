@@ -1,0 +1,34 @@
+# Sous-agent (story 19, AD-11, AD-25). `delegate.description` et `delegate.task` sont lus
+# par le modèle, dans la variable `tools` du gabarit ; le reste s'affiche dans l'interface.
+delegate:
+  description: >-
+    Confie une sous-tâche à un sous-agent qui travaille dans un contexte séparé, avec ses
+    propres outils (lecture de fichier par exemple). À utiliser pour lire ou analyser un
+    long document : seul le résultat du sous-agent revient ici, pas le document entier.
+  task: >-
+    La tâche du sous-agent, complète et autonome : il ne voit pas la conversation. Par
+    exemple : Lis le fichier guide_harnais.md et résume-le en cinq points.
+# Libellé de la phase en cours (indicateur de travail) pendant la délégation.
+phase_label_fr: Appel au sous-agent
+# Bouton de la carte (après « Afficher les actions forcées ») et aide du champ de son
+# formulaire. `presets` préremplit ce champ (`args` : `task` seulement).
+force_label_fr: Déléguer au sous-agent
+task_label_fr: >-
+  Tâche confiée au sous-agent, complète : il ne voit pas la conversation.
+presets:
+  - label_fr: Résumer le guide du harnais
+    args:
+      task: Lis le fichier guide_harnais.md et résume-le en cinq points courts.
+  - label_fr: Bornes de la boucle
+    args:
+      task: >-
+        Lis le fichier guide_harnais.md et indique quelles bornes le harnais pose à la
+        boucle d'un agent.
+  - label_fr: Notes de réunion
+    args:
+      task: Lis le fichier notes_reunion.txt et liste les décisions prises.
+# Cause d'un dépassement du contexte du sous-agent (AD-9, AD-11).
+overflow_cause_fr: >-
+  Cause : le contexte du sous-agent est plein, le plus souvent à cause du résultat d'un
+  outil (un document trop long). Pour continuer la démo : confiez-lui un document plus
+  court, ou une tâche qui en lit moins. Le tour principal continue sans ce résultat.

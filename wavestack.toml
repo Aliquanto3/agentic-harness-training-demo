@@ -46,6 +46,15 @@ max_retries = 2
 fetch_page_hosts = ["fr.wikipedia.org", "calendrier.api.gouv.fr"]
 fetch_page_max_chars = 4000
 
+[subagent]
+# Sous-agent (story 19, AD-10, AD-11) : les outils qu'il peut utiliser, s'ils sont activés
+# dans la brique Outils (un nom inconnu est signalé au lancement), et ses appels au modèle
+# par délégation. Ses nouveaux essais après un appel refusé suivent [tools] max_retries et
+# comptent dans ces appels. Il ne raisonne pas (la brique Raisonnement ne contribue qu'au
+# contexte principal), sauf un modèle cloud qui raisonne toujours.
+tools = ["read_file", "fetch_page"]
+max_calls = 4
+
 [mcp]
 # Serveurs MCP (story 6) : un serveur n'est contacté qu'à l'activation de sa sous-option.
 # Délai de connexion (initialize puis tools/list) et délai d'un appel d'outil, en secondes.

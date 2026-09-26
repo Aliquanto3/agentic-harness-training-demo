@@ -259,6 +259,17 @@ class BrickOption(BaseModel):
     tools: list[str] = []
 
 
+class BrickForce(BaseModel):
+    """Story 19: a forced action at the card's level (a brick without sub-option), with the
+    form of its parameters (name -> French description) and the presets that fill it."""
+
+    kind: Literal["delegate"]
+    target: str
+    label_fr: str
+    parameters: dict[str, str]
+    presets: list[ToolPresetState] = []
+
+
 class BrickState(BaseModel):
     """One brick card: its content, and `available`/`pending` as computed by the session."""
 
@@ -285,6 +296,8 @@ class BrickState(BaseModel):
     # (AD-19), which depend on the model's tool parser.
     empty_fr: str | None = None
     text_help_fr: str | None = None
+    # Story 19, `subagent` brick only: « Déléguer au sous-agent », on the card itself.
+    force: BrickForce | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -312,7 +325,7 @@ class ToolStartedPayload(BaseModel):
 
 
 class ToolEndedPayload(BaseModel):
-    status: Literal["ok", "error", "blocked", "limit", "overflow"]
+    status: Literal["ok", "error", "blocked", "limit", "overflow", "cancelled"]
     result: str | None = None
     error_fr: str | None = None
     duration_ms: int
@@ -326,7 +339,7 @@ class ToolCallMalformedPayload(BaseModel):
 
 
 class LimitReachedPayload(BaseModel):
-    limit: Literal["calls", "retries", "sub_calls"]
+    limit: Literal["calls", "retries", "sub_calls", "sub_retries"]
     message_fr: str
 
 
@@ -415,7 +428,7 @@ class ArmedActionState(BaseModel):
     """An armed action, as the session holds it (AD-3): the front projects its chips."""
 
     armed_id: str
-    kind: Literal["tool", "skill", "tool_doc", "memory"]
+    kind: Literal["tool", "skill", "tool_doc", "memory", "delegate"]
     brick: str
     target: str
     args: dict[str, object] = {}
@@ -504,6 +517,37 @@ class ModelLoadEndedPayload(BaseModel):
     reason_fr: str | None = None
 
 
+# ---------- story 19: delegation to a sub-agent (AD-11, AD-25) ----------
+
+
+class SubagentStartedPayload(BaseModel):
+    """In the context `sub{n}`, `parent_step` the step of `delegate` (AD-11)."""
+
+    task: str
+    tools: list[str]  # the tools the sub-agent is offered
+    phase_label: str
+
+
+class SubagentEndedPayload(BaseModel):
+    """The delegation's outcome and its saving, computed by the session (AD-1).
+
+    `context_tokens`: the `used` of the sub-agent's last call (reconciled when it was);
+    `kept_tokens`: its tool results, what the main context would have read without the
+    delegation; `result_tokens`: the result's tokens in the main context (`estimated` in
+    chat mode); `saved_tokens`: `max(0, kept_tokens - result_tokens)`, 0 unless
+    `completed`; `calls`: the sub-agent's model calls."""
+
+    status: Literal["completed", "limit", "overflow", "error", "cancelled"]
+    result: str
+    context_tokens: int
+    kept_tokens: int = 0  # the tool results that stayed in the sub-agent's context
+    result_tokens: int
+    saved_tokens: int
+    estimated: bool = False
+    calls: int
+    duration_ms: int
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -543,4 +587,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "memory_changed": MemoryChangedPayload,
     "model_load_started": ModelLoadStartedPayload,
     "model_load_ended": ModelLoadEndedPayload,
+    "subagent_started": SubagentStartedPayload,
+    "subagent_ended": SubagentEndedPayload,
 }

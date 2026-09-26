@@ -122,6 +122,7 @@ class ToolExecutor:
             },
         )
         result = error_fr = None
+        status = "error"  # a failure's status: a failed delegation carries its own (AD-11)
         sent = spec.is_mcp  # an MCP call always reaches its server's connection
         unreachable = False
         try:
@@ -142,6 +143,7 @@ class ToolExecutor:
         except ToolError as exc:
             error_fr = exc.message_fr
             unreachable = isinstance(exc, Unreachable)
+            status = getattr(exc, "status", "error")
         except Exception as exc:  # noqa: BLE001 - AD-16: an execution error is reinjected
             error_fr = f"L'outil a échoué ({type(exc).__name__} : {exc})."
         if sent:
@@ -151,7 +153,7 @@ class ToolExecutor:
         journal.emit(
             "tool_ended",
             {
-                "status": "ok" if error_fr is None else "error",
+                "status": "ok" if error_fr is None else status,
                 "result": result,
                 "error_fr": error_fr,
                 "duration_ms": round((time.monotonic() - started) * 1000),

@@ -779,6 +779,181 @@ def s_hooks(r: Run) -> None:
     r.show_forced(False)
 
 
+def s_subagent(r: Run) -> None:
+    """Story 19: delegation by the model, then forced; the switch of Contexte LLM, the
+    delegation line and its child lines in Orchestration, the second robot of the schema."""
+    page = r.page
+    r.launch("subagent")
+    prompt = (
+        "Délègue à ton sous-agent la lecture du fichier guide_harnais.md : il doit le lire et "
+        "te rendre un résumé en cinq points. Puis présente-moi ce résumé. [lent]"
+    )
+    before = len(r.fake_calls())
+    r.wait_idle()
+    seq = r.ev.mark()
+    page.fill("#composer-input", prompt)
+    page.press("#composer-input", "Enter")
+    # The sub-agent's robot works while its calls run (the fake model streams slowly).
+    sub_robot = page.locator('#schema .robot[data-component="core.model_sub"]')
+    r.check(sub_robot.count() == 1, "schéma : un second robot « Sous-agent »")
+    active, _ = r.poll(lambda: "is-active" in (sub_robot.get_attribute("class") or ""), 30)
+    r.check(active, "le robot du sous-agent s'anime pendant ses appels")
+    gauge_during = page.locator("#gauge-figures").inner_text() if active else ""
+    r.check(
+        sub_robot.locator("xpath=ancestor::*[contains(@class,'arch-zone-network')]").count() == 1,
+        "modèle cloud : le robot du sous-agent est dans la zone Réseau",
+    )
+    ended = r.ev.wait("turn_ended", seq)
+    r.check(ended["payload"]["status"] == "completed", "tour terminé", ended["payload"]["status"])
+    started = [e for e in r.ev.since(seq, "tool_started") if e["context_id"] == "main"]
+    r.check(
+        [e["payload"]["tool"] for e in started] == ["delegate"]
+        and started[0]["trigger"] == "model",
+        "le modèle délègue (delegate, déclenché par le modèle)",
+        str([(e["payload"]["tool"], e["trigger"]) for e in started]),
+    )
+    done = r.ev.since(seq, "subagent_ended")
+    figures = done[0]["payload"] if done else {}
+    r.check(
+        figures.get("status") == "completed" and figures.get("saved_tokens", 0) > 0,
+        "sous-agent terminé, économie de tokens positive",
+        str({k: figures.get(k) for k in ("context_tokens", "result_tokens", "saved_tokens")}),
+    )
+    bodies = r.fake_calls()[before:]
+    sub_bodies = [b for b in bodies if "sous-agent de WaveStack" in json.dumps(b["messages"][0])]
+    r.check(len(sub_bodies) == 2, "deux appels du sous-agent au modèle", str(len(sub_bodies)))
+    guide = "## 8. Le sous-agent"
+    r.check(
+        any(guide in json.dumps(b["messages"], ensure_ascii=False) for b in sub_bodies),
+        "le guide est lu dans le contexte du sous-agent",
+    )
+    main_last = json.dumps(bodies[-1]["messages"], ensure_ascii=False)
+    r.check(guide not in main_last, "le guide n'entre pas dans le contexte principal")
+    sub_used = {
+        e["payload"]["used"]
+        for e in r.ev.since(seq)
+        if e["kind"] in ("context_rendered", "context_reconciled")
+        and e["context_id"].startswith("sub")
+    }
+    shown = [page.evaluate("n => new Intl.NumberFormat('fr-FR').format(n)", n) for n in sub_used]
+    r.check(
+        bool(gauge_during) and not any(n in gauge_during for n in shown),
+        "la jauge reste sur le contexte principal pendant le sous-agent",
+        f"jauge « {gauge_during} » · sous-agent {sorted(sub_used)}",
+    )
+
+    # Orchestration: the delegation line, its trigger, its figures and its child lines.
+    rail = page.locator("#orch-scroll")
+    line = rail.locator(".turn-step-line", has_text="Délégation au sous-agent").last
+    r.check(line.count() == 1, "Orchestration : ligne « Délégation au sous-agent »")
+    r.check("économisés" in line.inner_text(), "la ligne montre l'économie", line.inner_text())
+    r.check("Déclenché par le modèle" in line.inner_text(), "badge « Déclenché par le modèle »")
+    children = rail.locator(".turn-step.is-sub")
+    r.check(children.count() >= 3, "lignes filles du sous-agent", str(children.count()))
+    line.click()
+    body = line.locator("xpath=following-sibling::div[contains(@class,'turn-step-body')]")
+    expect(body).to_contain_text("Économie pour le contexte principal", timeout=5000)
+    r.check(True, "l'étape dépliée donne tâche, tokens restés, réinjectés et économisés")
+
+    # Contexte LLM: the main context, then the sub-agent's, each with its total.
+    body.get_by_role("button", name="Voir le contexte du sous-agent").click()
+    ctx = page.locator("#ctx")
+    switch = ctx.locator(".ctx-view-switch")
+    expect(switch).to_be_visible(timeout=5000)
+    sub_button = switch.get_by_role("button", name="Contexte du sous-agent")
+    r.check(
+        sub_button.get_attribute("aria-pressed") == "true", "bascule sur le contexte du sous-agent"
+    )
+    text = ctx.inner_text()
+    r.check(
+        "sous-agent de WaveStack" in text
+        and "Résultats d'outils" in text
+        and "Sous-agent sub" in text,
+        "contexte du sous-agent : son prompt, la tâche, le résultat d'outil, son total",
+    )
+    switch.get_by_role("button", name="Contexte principal").click()
+    text = ctx.inner_text()
+    r.check(
+        "Résultat du sous-agent" in text and guide not in text,
+        "contexte principal : le seul résultat, en « Résultat du sous-agent »",
+    )
+    r.shot("19-sous-agent-delegation")
+
+    # Forced delegation: the card's button, its preset, the chip (disarmed by keyboard too).
+    r.show_forced(True)
+    armed = r.arm("Déléguer au sous-agent", preset="Résumer le guide du harnais")
+    action = armed["payload"]["actions"][0]
+    r.check(
+        action["kind"] == "delegate" and "guide_harnais.md" in action["args"]["task"],
+        "« Déléguer au sous-agent » arme la délégation avec le préréglage",
+        str(action),
+    )
+    chip = page.locator("#armed-chips .armed-chip", has_text="Armé : Délégation")
+    expect(chip).to_be_visible(timeout=5000)
+    seq = r.ev.mark()
+    chip.focus()
+    page.keyboard.press("Enter")
+    r.ev.wait("armed_actions_changed", seq, lambda p: not p["actions"], timeout=10)
+    r.check(True, "la puce se désarme au clavier")
+    r.arm("Déléguer au sous-agent", preset="Résumer le guide du harnais")
+    seq = r.ev.mark()
+    ended = r.send("Bonjour")
+    forced = [e for e in r.ev.since(seq, "tool_started") if e["context_id"] == "main"]
+    r.check(
+        bool(forced)
+        and forced[0]["payload"]["tool"] == "delegate"
+        and forced[0]["trigger"] == "user",
+        "délégation forcée consommée par le tour (déclenchée par l'utilisateur)",
+    )
+    r.check(ended["payload"]["status"] == "completed", "tour forcé terminé")
+    delegation = rail.locator(".turn-step-line", has_text="Délégation au sous-agent").last
+    r.check(
+        "Forcé par l'utilisateur" in delegation.inner_text(), "badge « Forcé par l'utilisateur »"
+    )
+    r.show_forced(False)
+
+    # H5 inside the sub-agent (independent review): the session waits, the Vue humain card
+    # is answerable, a refusal goes back to the sub-agent and the turn ends.
+    r.set_option("Outils", "Lecture de page web", True)
+    r.set_option("Hooks", "Validation humaine", True)
+    enabled = {
+        b: [o["id"] for o in r.bricks()[b]["options"] if o["enabled"]] for b in ("tools", "hooks")
+    }
+    r.check(
+        "fetch_page" in enabled["tools"] and "h5" in enabled["hooks"],
+        "« Lecture de page web » et H5 activés",
+        str(enabled),
+    )
+    asked = r.send(
+        "Délègue à ton sous-agent la lecture de la page web de Paris.", expect_approval=True
+    )
+    r.check(
+        asked["context_id"].startswith("sub") and asked["payload"]["tool"] == "fetch_page",
+        "H5 demande la validation dans le contexte du sous-agent",
+        f"{asked['context_id']} · {asked['payload']['tool']}",
+    )
+    card = page.locator("#chat .approval-card").last
+    refuse = card.get_by_role("button", name="Refuser", exact=True)
+    ok, took = r.poll(lambda: card.count() == 1 and refuse.is_enabled(), 10)
+    r.check(ok, "Vue humain : la carte de validation du sous-agent est active", f"{took:.1f} s")
+    r.check(
+        "awaiting_human" == (r.state()["session_state"] or {}).get("state"),
+        "la session attend la validation",
+    )
+    seq = r.ev.mark()
+    refuse.click()
+    resolved = r.ev.wait("approval_resolved", seq, timeout=10)
+    ended = r.ev.wait("turn_ended", seq)
+    r.check(resolved["payload"]["decision"] == "refused", "« Refuser » dans le sous-agent")
+    r.check(not r.ev.since(seq, "outbound_request"), "refusé : rien ne sort du poste")
+    r.check(
+        ended["payload"]["status"] == "completed",
+        "le tour se termine après le refus",
+        ended["payload"]["status"],
+    )
+    r.set_option("Hooks", "Validation humaine", False)
+
+
 def s_data_flows(r: Run) -> None:
     r.launch("data_flows")
     r.set_brick("MCP", True)
@@ -1372,6 +1547,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("skills", s_skills),
     ("caveman", s_caveman),
     ("hooks", s_hooks),
+    ("subagent", s_subagent),
     ("data_flows", s_data_flows),
     ("forced_native", s_forced_native),
     ("global_memory", s_global_memory),

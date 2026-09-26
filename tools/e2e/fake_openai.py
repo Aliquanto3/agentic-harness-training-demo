@@ -132,6 +132,13 @@ def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
     low = user.lower()
     if "test de connexion wavestack" in low:
         return [("get_datetime", {})]
+    if "sous-agent" in low and "délègue" in low:  # story 19: the main agent delegates
+        task = "Lis le fichier guide_harnais.md et résume-le en cinq points courts."
+        if "page web" in low:  # the sub-agent fetches a page (H5 asks inside it)
+            task = "Lis la page web https://fr.wikipedia.org/wiki/Paris et résume-la."
+        return [("delegate", {"task": task + (" [lent]" if "[lent]" in low else "")})]
+    if "guide_harnais" in low:  # the sub-agent's task (or a main agent reading it itself)
+        return [("read_file", {"path": "guide_harnais.md"})]
     if "confidentiel" in low:
         return [("read_file", {"path": "confidentiel/budget_projet.txt"})]
     if "recette_crepes" in low or "crêpes" in low:
@@ -144,10 +151,11 @@ def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
         return [("calculator", {"expression": expression})]
     if "férié" in low:
         return [("public_holidays", {"year": 2026})]
-    if "wikipédia" in low or "wikipedia" in low:
-        return [("wikipedia_summary", {"title": "Mont-Saint-Michel"})]
+    # Before « wikipédia »: a page web task names a fr.wikipedia.org address.
     if "page web" in low or "fetch_page" in low:
         return [("fetch_page", {"url": "https://fr.wikipedia.org/wiki/Paris"})]
+    if "wikipédia" in low or "wikipedia" in low:
+        return [("wikipedia_summary", {"title": "Mont-Saint-Michel"})]
     if "mcp" in low and "veut dire" in low:
         return [
             ("load_tool_doc", {"tool": "local__define_term"}),

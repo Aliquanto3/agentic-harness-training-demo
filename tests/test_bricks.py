@@ -349,6 +349,7 @@ def test_boot_emits_bare_llm_cards_without_any_toggle():
             "mcp": False,
             "skills": False,
             "hooks": False,
+            "subagent": False,
         }
         assert cards["system_prompt"]["is_default"] is True
 
