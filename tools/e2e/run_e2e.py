@@ -1438,6 +1438,15 @@ def s_rag_rerank(r: Run) -> None:
     downloaded; a turn whose step shows the order before and after, the kept excerpts in the
     message sent, the reranker in the schema; switched off: pending, no step; a reload."""
     r.launch("rag_rerank")
+    program = r.state()["scenario_changed"]["program"]
+    scenario = next(
+        s for m in program["modules"] for s in m["scenarios"] if s["id"] == "rag_rerank"
+    )
+    r.check(
+        scenario["prompts"][0] == RERANK_QUESTION and "{" not in scenario["description_fr"],
+        "le premier prompt du scénario est celui que le parcours joue ; consigne chiffrée",
+        scenario["description_fr"][:160],
+    )
     card = r.card("RAG")
     toggle = card.locator('input[data-focus-key="option:rag:rerank"]')
     download = card.get_by_role("button", name=re.compile("Télécharger le modèle de reranking"))

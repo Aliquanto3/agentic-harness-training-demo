@@ -299,12 +299,12 @@ def test_budget_exceeded_refuses_in_figures_and_loads_nothing(index):
 
 def test_registry_refusal_uses_the_injected_measure():
     registry = LoadRegistry(4096 * 1024**2, 128 * 1024**2, rss_fn=lambda: 4000 * 1024**2)
-    cost = registry.embedding_cost(None, [121_020_096])
+    cost = registry.component_cost(None, [121_020_096])
     assert cost == 121_020_096 + 128 * 1024**2
     refusal = registry.check_component("le modèle d'embedding X", cost, EMBEDDING)
     assert refusal is not None and "WaveStack occupe 4 000 Mo" in refusal
     assert "environ 243 de plus" in refusal and "budget de 4 096 Mo" in refusal
-    assert registry.embedding_cost(300, [1]) == 300 * 1024**2  # the measure, when declared
+    assert registry.component_cost(300, [1]) == 300 * 1024**2  # the measure, when declared
 
 
 def test_search_failure_is_traced_and_the_turn_goes_on_without_excerpts(index):

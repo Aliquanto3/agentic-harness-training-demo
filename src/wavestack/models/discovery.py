@@ -56,15 +56,26 @@ EMBEDDING_DIR = "embedding"
 RERANKER_DIR = "reranker"
 
 
-def _embedding_files(cfg: config.Config) -> set[Path]:
-    """The files `[rag.embedding]` and `[rag.reranker]` declare under `models_dir()`: never
-    offered as a model."""
+def _key(path: Path) -> str:
+    """A path as the file system compares it (case-insensitive on Windows)."""
+    return os.path.normcase(os.path.normpath(path))
+
+
+def _rag_model_files(cfg: config.Config) -> set[str]:
+    """The files `[rag.embedding]` and `[rag.reranker]` declare under `models_dir()`, as
+    `_key` gives them: never offered as a model, wherever `load_path` puts them."""
     root = config.models_dir()
-    files: set[Path] = set()
+    files: set[str] = set()
     for model, _ in (cfg.rag_embedding, cfg.rag_reranker):
         if model is not None:
-            files |= {root / model.load_path, *(root / f.path for f in model.files)}
+            files |= {_key(root / model.load_path), *(_key(root / f.path) for f in model.files)}
     return files
+
+
+def _rag_model_dir(path: Path) -> bool:
+    """Under `models/embedding/` or `models/reranker/`, whatever the case (Windows)."""
+    first = path.relative_to(config.models_dir()).parts[0]
+    return first.casefold() in (EMBEDDING_DIR, RERANKER_DIR)
 
 
 def _hf_cache_dir() -> Path:
@@ -193,12 +204,11 @@ def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
     """List every model candidate, in AD-7 order. Never raises on a missing location."""
     candidates: list[ModelCandidate] = []
     cfg = config.load_config()
-    embedding = _embedding_files(cfg)  # story 15: the RAG's model is no chat model
+    rag_files = _rag_model_files(cfg)  # stories 15, 16: the RAG's models are no chat model
     candidates += [
         ModelCandidate(source="models_dir", status="found", path=str(p))
         for p in _glob_gguf(config.models_dir())
-        if p not in embedding
-        and p.relative_to(config.models_dir()).parts[0] not in (EMBEDDING_DIR, RERANKER_DIR)
+        if _key(p) not in rag_files and not _rag_model_dir(p)
     ]
     candidates += [
         ModelCandidate(source="hf_cache", status="found", path=str(p))

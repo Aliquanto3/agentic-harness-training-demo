@@ -247,18 +247,18 @@ scenarios:
     title_fr: RAG avec reranking
     description_fr: >-
       Les briques du scénario RAG, avec la sous-option « Reranking » cochée sur la carte RAG :
-      le harnais retient 8 candidats par embedding, un second modèle local les note avec la
-      question, puis seuls les 3 premiers entrent dans votre message. Envoyez le premier
-      prompt et dépliez l'étape « Reranking » dans Orchestration : l'ordre avant et après,
-      les extraits gardés et écartés, et les deux scores. Décochez « Reranking », rejouez et
-      ouvrez « Comparer » : quels extraits ont changé ? Première utilisation : si la carte
-      propose « Télécharger le modèle de reranking », cliquez-y d'abord.
+      le harnais retient {candidates} candidats par embedding, un second modèle local les note
+      avec la question, puis seuls les {keep} premiers entrent dans votre message. Envoyez le
+      premier prompt et dépliez l'étape « Reranking » dans Orchestration : l'ordre avant et
+      après, les extraits gardés et écartés, et les deux scores. Décochez « Reranking »,
+      rejouez et ouvrez « Comparer » : quels extraits ont changé ? Première utilisation : si
+      la carte propose « Télécharger le modèle de reranking », cliquez-y d'abord.
     bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, rag]
     mcp_lazy: true
     hooks: [h1, h2]
     rag_rerank: true
     prompts:
-      - Combien de caractères doit compter au minimum un mot de passe chez Exemplia ?
+      - Quel plafond de remboursement s'applique à une nuit d'hôtel à Paris chez Exemplia ?
       - Que faut-il faire en premier quand on perd son ordinateur portable chez Exemplia ?
   compression:
     title_fr: Compression du contexte

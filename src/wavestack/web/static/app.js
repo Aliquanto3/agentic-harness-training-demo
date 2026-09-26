@@ -384,9 +384,16 @@ function applyEnvelope(envelope) {
       // Story 16: the reranker scores the candidates, its own step after the search.
       if (turn) {
         Object.assign(turn, { phaseLabel: p.phase_label, callStartedAt: Date.parse(envelope.ts), firstToken: false });
-        turn.steps.push({ type: "rerank", started: p, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null });
+        // The texts are the search's (by `chunk_id`): the step keeps the search it reranks.
+        const search = turn.steps.filter((s) => s.type === "rag").at(-1) ?? null;
+        turn.steps.push({ type: "rerank", started: p, search, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null, progress: null });
       }
       break;
+    case "rag_rerank_progress": {
+      const rerank = turn?.steps.filter((s) => s.type === "rerank").at(-1);
+      if (rerank) rerank.progress = p;
+      break;
+    }
     case "rag_rerank_ended": {
       const rerank = turn?.steps.filter((s) => s.type === "rerank").at(-1);
       if (rerank) rerank.ended = p;
@@ -1004,8 +1011,9 @@ function rerankParts(brick) {
     toggle.setAttribute("aria-describedby", why.id);
     box.appendChild(why);
   }
+  // The last failure of its download or load (`harness_error`), while still unavailable.
+  if (store.rerankNotice && !option.available) box.appendChild(el("p", "force-error", store.rerankNotice));
   if (option.download) {
-    if (store.rerankNotice) box.appendChild(el("p", "force-error", store.rerankNotice));
     const state = store.sessionState?.state;
     const button = el("button", "brick-edit brick-download-rerank", option.download.label_fr);
     button.type = "button";
@@ -2819,6 +2827,8 @@ function ragBody(step) {
     return nodes;
   }
   nodes.push(el("p", "", `Placement : ${ended.placement_fr}`));
+  // Story 16: the reranking enabled, but not applied to this turn, and why.
+  if (ended.rerank_skipped_fr) nodes.push(el("p", "bubble-note", ended.rerank_skipped_fr));
   nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
   if (ended.status === "error") {
     nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_fr));
@@ -2848,38 +2858,49 @@ function ragBody(step) {
 }
 
 // Story 16: the order before and after reranking, side by side; the kept ones first.
+function rerankKept(keep) {
+  return keep > 1 ? `Seuls les ${keep} premiers après reranking entrent` : "Seul le premier après reranking entre";
+}
+
 function rerankBody(step) {
   const ended = step.ended;
   const nodes = [el("p", "label", "Requête"), el("pre", "step-code", step.started.query)];
   if (!ended) {
-    const running = el("div", "token-counter number", `${step.started.phase_label} `);
+    const done = step.progress ? ` ${step.progress.done} / ${step.progress.total} ` : " ";
+    const running = el("div", "token-counter number", `${step.started.phase_label}${done}`);
     running.appendChild(tick(step.startedAt));
     nodes.push(running);
     return nodes;
   }
   nodes.push(el("p", "", `Placement : ${ended.placement_fr}`));
   nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  if (ended.status === "cancelled") {
+    nodes.push(el("span", "step-badge", "arrêté"), el("p", "", ended.error_fr));
+    return nodes;
+  }
   if (ended.status === "error") {
     nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_fr));
     return nodes;
   }
+  const texts = new Map((step.search?.ended?.excerpts ?? []).map((e) => [e.chunk_id, e.text]));
   const select = () => {
     store.selection = step.component || "rag.reranker";
     scheduleRender();
   };
   const kept = (excerpt) => excerpt.position <= ended.keep;
+  const keepTag = (excerpt) => el("span", "rerank-keep", kept(excerpt) ? "gardé" : "écarté");
   const before = [...ended.excerpts].sort((a, b) => a.before - b.before);
   const columns = el("div", "rerank-columns");
   const beforeList = el("ol", "rerank-list rerank-before");
   for (const excerpt of before) {
-    const item = el("li", `rerank-item${kept(excerpt) ? " is-kept" : ""}`);
+    const item = el("li", `rerank-item${kept(excerpt) ? " is-kept" : " is-dropped"}`);
     item.append(
       el("span", "rag-rank", `#${excerpt.before}`),
       el("span", "rag-doc", excerpt.title_fr),
       el("span", "rag-score number", scoreFormat.format(excerpt.retrieval_score)),
-      el("span", "rerank-move", `→ #${excerpt.position}`)
+      el("span", "rerank-move", `→ #${excerpt.position}`),
+      keepTag(excerpt)
     );
-    item.title = kept(excerpt) ? "Gardé après reranking" : "Écarté par le reranking";
     beforeList.appendChild(item);
   }
   const afterList = el("ol", "rerank-list rerank-after");
@@ -2894,11 +2915,12 @@ function rerankBody(step) {
       el("span", "rerank-move", move),
       el("span", "rag-doc", excerpt.title_fr),
       el("span", "rag-score number", scoreFormat.format(excerpt.score)),
-      el("span", "rerank-keep", kept(excerpt) ? "gardé" : "écarté")
+      keepTag(excerpt)
     );
+    if (excerpt.truncated) head.append(el("span", "rerank-cut", "coupé"));
     head.title = `Rang ${excerpt.before} avant le reranking. Sélectionne le reranker dans le schéma ; déplie le texte`;
     head.addEventListener("click", select);
-    details.append(head, el("pre", "step-code", excerpt.text));
+    details.append(head, el("pre", "step-code", texts.get(excerpt.chunk_id) ?? ""));
     item.appendChild(details);
     afterList.appendChild(item);
   }
@@ -2911,7 +2933,14 @@ function rerankBody(step) {
     col("Avant (embedding) · rang · document · score · rang après", beforeList),
     col("Après (reranker) · rang · écart · document · score", afterList)
   );
-  nodes.push(columns, el("p", "rerank-note", `Seuls les ${ended.keep} premiers après reranking entrent dans le contexte ; les deux scores ne se comparent pas.`));
+  const cut = ended.excerpts.filter((e) => e.truncated).length;
+  const notes = [`${rerankKept(ended.keep)} dans le contexte ; les deux scores ne se comparent pas.`];
+  if (cut) {
+    notes.push(
+      `${plural(cut, "extrait")} coupé${cut > 1 ? "s" : ""} pour tenir dans la paire question + extrait du reranker ([rag.reranker] max_tokens) : noté${cut > 1 ? "s" : ""} sur son début.`
+    );
+  }
+  nodes.push(columns, ...notes.map((note) => el("p", "rerank-note", note)));
   return nodes;
 }
 
@@ -3296,8 +3325,16 @@ function turnRows(turn) {
       // Story 16: the reranking of the search's candidates.
       const ended = step.ended;
       const failed = ended?.status === "error";
-      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
-      if (ended) figure = failed ? "erreur" : `${ended.keep} gardés sur ${ended.excerpts.length} · ${seconds(ended.duration_ms)}`;
+      const stopped = ended?.status === "cancelled";
+      const done = step.progress ? `${step.progress.done} / ${step.progress.total} · ` : "";
+      let figure = `en cours · ${done}${seconds(Date.now() - step.startedAt)}`;
+      if (ended) {
+        figure = stopped
+          ? "arrêté"
+          : failed
+            ? "erreur"
+            : `${plural(ended.keep, "gardé")} sur ${ended.excerpts.length} · ${seconds(ended.duration_ms)}`;
+      }
       rows.push({
         key,
         icon: "↕️",
@@ -3306,7 +3343,7 @@ function turnRows(turn) {
         figure,
         tone: failed ? "error" : null,
         sticky: failed,
-        sig: [Boolean(ended), ended?.status],
+        sig: [Boolean(ended), ended?.status, step.progress?.done],
         body: () => rerankBody(step),
       });
     } else if (step.type === "compression") {
@@ -4218,6 +4255,7 @@ const KIND_LABELS = {
   rag_search_started: "Recherche RAG commencée",
   rag_search_ended: "Recherche RAG terminée",
   rag_rerank_started: "Reranking commencé",
+  rag_rerank_progress: "Reranking en cours",
   rag_rerank_ended: "Reranking terminé",
   compression_started: "Compression commencée",
   compression_ended: "Compression terminée",
@@ -4303,10 +4341,12 @@ function eventSummary(group) {
     case "rag_search_started":
       return `« ${p.query} » · ${fmt(p.top_k)} au plus`;
     case "rag_rerank_started":
-      return `« ${p.query} » · ${fmt(p.candidates)} candidats, ${fmt(p.keep)} gardés`;
+      return `« ${p.query} » · ${plural(p.candidates, "candidat")}, ${plural(p.keep, "gardé")}`;
+    case "rag_rerank_progress":
+      return `${fmt(p.done)} / ${fmt(p.total)} extraits notés`;
     case "rag_rerank_ended":
       return p.status === "ok"
-        ? `${p.keep} gardés sur ${p.excerpts.length} · ${seconds(p.duration_ms)}` +
+        ? `${plural(p.keep, "gardé")} sur ${p.excerpts.length} · ${seconds(p.duration_ms)}` +
             (p.excerpts.length ? ` · premier : ${p.excerpts[0].title_fr} (avant : #${p.excerpts[0].before})` : "")
         : p.error_fr;
     case "compression_started":

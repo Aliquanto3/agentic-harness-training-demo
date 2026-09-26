@@ -50,7 +50,8 @@ load_margin_mb = 256
 # RAG simple (story 15, AD-22). L'index sqlite-vec est construit hors ligne par
 # `uv run python scripts/build_rag_index.py` ; un chemin relatif part de la racine du dépôt.
 index_path = "data/rag_index.sqlite"
-# Extraits placés dans le contexte à chaque tour, les plus proches de la question, sans seuil.
+# Extraits placés dans le contexte à chaque tour, les plus proches de la question, sans seuil
+# (de 1 à 20).
 top_k = 3
 # Taille maximale d'un extrait au découpage, en caractères (reconstruisez l'index après
 # l'avoir changée).

@@ -16,7 +16,7 @@ from test_bricks import HEADERS
 from test_rag import MODEL_FILE, MODEL_SIZE, Embedders, build, card, place_model, rag_config
 
 from wavestack import config
-from wavestack.config import EmbeddingFile
+from wavestack.config import ModelFile
 from wavestack.models.download import DownloadError, download_files
 from wavestack.models.engine import CancelToken
 from wavestack.session.app_session import AppSession, SendRefused
@@ -154,12 +154,12 @@ def test_sha256_mismatch_fails_and_a_declared_one_passes(tmp_path):
     body = BYTES[:MODEL_SIZE]
     good = hashlib.sha256(body).hexdigest()
     transport = httpx.MockTransport(lambda request: httpx.Response(200, content=body))
-    wrong = EmbeddingFile(url=URL, path="m/x.gguf", size=MODEL_SIZE, sha256="0" * 64)
+    wrong = ModelFile(url=URL, path="m/x.gguf", size=MODEL_SIZE, sha256="0" * 64)
     with pytest.raises(DownloadError, match="sha256"):
         download_files([wrong], tmp_path, CancelToken(), lambda *p: None, transport=transport)
     assert not (tmp_path / "m/x.gguf.part").exists() and not (tmp_path / "m/x.gguf").exists()
 
-    right = EmbeddingFile(url=URL, path="m/x.gguf", size=MODEL_SIZE, sha256=good)
+    right = ModelFile(url=URL, path="m/x.gguf", size=MODEL_SIZE, sha256=good)
     progress: list[tuple[int, int]] = []
     download_files([right], tmp_path, CancelToken(), lambda *p: progress.append(p),
                    transport=transport)  # fmt: skip

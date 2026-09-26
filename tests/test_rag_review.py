@@ -35,7 +35,7 @@ from test_rag import (
 )
 
 from wavestack import config
-from wavestack.config import EmbeddingFile, EmbeddingModel
+from wavestack.config import EmbeddingModel, ModelFile
 from wavestack.models import discovery
 from wavestack.models.download import DownloadError, StopToken, download_files
 from wavestack.models.embedding import LlamaCppEmbedder
@@ -374,7 +374,7 @@ def test_score_is_bounded_to_zero_and_one():
 @pytest.mark.parametrize("path", ["/x.gguf", "\\x.gguf", "C:x.gguf", "C:\\x.gguf", "a/../b"])
 def test_paths_outside_the_models_folder_are_refused(path):
     with pytest.raises(ValidationError):
-        EmbeddingFile(url=URL, path=path, size=1)
+        ModelFile(url=URL, path=path, size=1)
 
 
 def test_load_path_must_be_a_declared_file(tmp_path):
@@ -473,7 +473,7 @@ class _Hanging(httpx.SyncByteStream):
 def test_stop_acts_at_once_while_waiting_for_data(tmp_path):
     body = _Hanging()
     transport = httpx.MockTransport(lambda request: httpx.Response(200, stream=body))
-    file = EmbeddingFile(url=URL, path="m/x.gguf", size=1000)
+    file = ModelFile(url=URL, path="m/x.gguf", size=1000)
     token = StopToken()
     outcome: dict = {}
 

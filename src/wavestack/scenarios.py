@@ -6,6 +6,7 @@ launching it applies the launch configuration, then its own.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import yaml
@@ -45,15 +46,17 @@ class ScenariosContent(BaseModel):
     transverse: list[str] = []
     scenarios: dict[str, Scenario]
 
-    def payload(self) -> dict[str, Any]:
-        """`scenario_changed.program`: modules then transverse, scenarios inlined."""
+    def payload(self, fill: Callable[[str], str] = str) -> dict[str, Any]:
+        """`scenario_changed.program`: modules then transverse, scenarios inlined; `fill`
+        completes a description with the configuration's values (story 16: `{candidates}`,
+        `{keep}`)."""
 
         def entry(scenario_id: str) -> dict[str, Any]:
             s = self.scenarios[scenario_id]
             return {
                 "id": scenario_id,
                 "title_fr": s.title_fr,
-                "description_fr": s.description_fr,
+                "description_fr": fill(s.description_fr),
                 "prompts": s.prompts,
             }
 

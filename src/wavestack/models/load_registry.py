@@ -144,7 +144,7 @@ class LoadRegistry:
             f"{stays} Choisissez un modèle plus petit."
         )
 
-    def embedding_cost(self, measured_rss_mb: int | None, file_sizes: list[int]) -> int:
+    def component_cost(self, measured_rss_mb: int | None, file_sizes: list[int]) -> int:
         """Stories 15 and 16 (embedding, reranker): the RSS story 12 measured when declared,
         else the files' size plus the margin."""
         if measured_rss_mb:
