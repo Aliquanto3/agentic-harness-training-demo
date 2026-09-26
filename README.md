@@ -116,20 +116,29 @@ amont.
 La brique RAG cherche dans huit textes fictifs (`content/corpus/`, l'organisation imaginaire
 « Exemplia ») avec un petit modèle d'embedding local, nommé dans la seule section
 `[rag.embedding]` de `wavestack.toml` (Granite Embedding 107M multilingue, GGUF Q8_0, 121 Mo,
-verdict provisoire de la story 12). Sa carte propose « Télécharger » quand le fichier manque ;
-sans réseau, copiez-le à la main dans `models/embedding/` du dossier de données.
+verdict provisoire de la story 12). Les tailles sont en Mo décimaux (1 Mo = 1 000 000 octets),
+sur la carte comme ici.
 
-L'index `data/rag_index.sqlite` (sqlite-vec) se construit hors ligne, une fois le modèle en
-place, puis se committe avec le dépôt :
+Sur une installation neuve, tout se fait depuis la carte RAG, sans ligne de commande :
+
+1. « Télécharger le modèle d'embedding » : le fichier va dans `models/embedding/` du dossier de
+   données (sans réseau, copiez-le à la main à cet endroit, puis cliquez de nouveau) ;
+2. « Construire l'index » : le corpus est découpé et indexé sur le poste, dans
+   `data/rag_index.sqlite` (sqlite-vec), avec une progression et « Arrêter ».
+
+Le script fait la même chose, et peut committer l'index avec le dépôt :
 
 ```bash
 uv run python scripts/build_rag_index.py                  # modèle de [rag.embedding]
+uv run python scripts/build_rag_index.py --download       # télécharge d'abord le modèle
 uv run python scripts/build_rag_index.py --model C:\chemin\modele.gguf
 ```
 
-Un autre modèle d'embedding rend la brique indisponible, avec la raison, jusqu'à la
-reconstruction de l'index ; un corpus ou un `chunk_max_chars` modifiés ne comptent qu'après
-elle.
+`--model` n'accepte que le fichier déclaré (même taille, même sha256 s'il est renseigné).
+L'index garde l'identifiant, les dimensions et le fichier de son modèle, et une empreinte du
+corpus : un autre modèle, un corpus modifié ou un autre `[rag] chunk_max_chars` rendent la
+brique indisponible, avec la raison, et la carte propose « Construire l'index ». Le dossier
+`models/embedding/` n'est jamais proposé comme modèle de conversation.
 
 ## Modèle cloud (Groq, Mistral)
 

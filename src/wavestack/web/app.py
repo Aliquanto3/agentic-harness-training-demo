@@ -508,6 +508,18 @@ def create_app(
             raise HTTPException(status_code=409, detail=refused.reason_fr) from None
         return {"started": True, "reason_fr": reason_fr}
 
+    @app.post("/api/intentions/build_rag_index")
+    def build_rag_index() -> dict[str, object]:
+        """Class (b), story 15: outside `idle`, or nothing to build: 409, with the reason.
+        « Arrêter » (`stop`) cancels it."""
+        try:
+            reason_fr = app_session.build_rag_index()
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Aucune brique RAG.") from None
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"started": True, "reason_fr": reason_fr}
+
     @app.post("/api/intentions/reset")
     def reset() -> dict[str, bool]:
         """Class (b): back to the launch state, the bare LLM (FR-39)."""

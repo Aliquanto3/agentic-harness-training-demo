@@ -18,7 +18,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
 
 from wavestack import config
@@ -76,7 +76,7 @@ from wavestack.models.openai_chat import (
     run_call,
 )
 from wavestack.rag import index as rag_index
-from wavestack.rag.corpus import Chunk, RagContent, load_rag_content
+from wavestack.rag.corpus import Chunk, RagContent, chunk_corpus, load_rag_content
 from wavestack.rag.retriever import SqliteVecRetriever
 from wavestack.scenarios import EMPTY_PROGRAM, ScenariosContent, load_scenarios
 from wavestack.session.effects import (
@@ -167,7 +167,7 @@ _OVERFLOW_CAUSES_FR = {
     ),
     SegmentKind.RAG_EXCERPT: (  # story 15: after the message, which wins the ties
         "Cause : les extraits RAG occupent la plus grande part du contexte. Pour continuer la "
-        "démo : désactivez la brique RAG ou baissez `rag.top_k` dans settings.json."
+        "démo : désactivez la brique RAG ou baissez [rag] top_k dans settings.json."
     ),
     SegmentKind.HISTORY: (
         "Cause : l'historique de la conversation occupe la plus grande part du contexte. "
@@ -395,6 +395,20 @@ def _fr(n: int) -> str:
     return f"{n:,}".replace(",", "\u202f")  # narrow no-break space, French style
 
 
+def _mo(n: int) -> str:
+    """Bytes in decimal Mo, rounded, French style (story 15: one unit for file sizes)."""
+    return _fr(round(n / 1_000_000))
+
+
+def _stamp(path: Path) -> tuple[int, int] | None:
+    """A file's modification time and size, to notice it was replaced; `None` if absent."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
 def _ms(seconds: float) -> int:
     return round(seconds * 1000)
 
@@ -482,14 +496,19 @@ class AppSession:
         self._download_transport = download_transport  # tests: an `httpx.MockTransport`
         self._rag_content: RagContent | None = None
         self._rag_model: EmbeddingModel | None = None
-        self._rag_index_error: str | None = None  # sqlite-vec, index absent or another model
+        # The index's state: `vec` (sqlite-vec), `absent`, `unreadable`, `other_model`,
+        # `stale`, or `None` (usable), with its French reason.
+        self._rag_index_kind: str | None = None
+        self._rag_index_error: str | None = None
+        self._rag_stamp: tuple[int, int] | None = None  # the index file read: mtime, size
         self._rag_chunks = 0
         self._rag_missing: list[EmbeddingFile] = []
         self._rag_longest: list[Chunk] = []  # the preview's excerpts (AD-9)
         self._embedder: Embedder | None = None
+        self._rag_retriever: SqliteVecRetriever | None = None  # its index connection
         self._rag_loading = False
         self._rag_load_error: str | None = None  # the budget's refusal, or the load's failure
-        self._download_cancel: CancelToken | None = None
+        self._download_cancel: CancelToken | None = None  # « Arrêter » a download or a build
         self._load_content()
         self._registry = ToolRegistry(
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
@@ -957,7 +976,7 @@ class AppSession:
             if brick.id == "subagent" and self._subagent_content is not None:
                 bricks[-1] |= self._subagent_card(self._subagent_content)
             if brick.id == "rag":
-                bricks[-1]["download"] = self._rag_download_offer()
+                bricks[-1] |= self._rag_offers()
             if brick.id == "mcp":
                 bricks[-1] |= {
                     "mode": "lazy" if lazy else "full",
@@ -1161,6 +1180,12 @@ class AppSession:
             self._emit_architecture()
             self._emit_bricks()
             self._emit_preview()
+            # Story 15 (AD-8): memory changed with the model; an embedding model the budget
+            # refused gets another chance.
+            with self._lock:
+                retry = "rag" in self._wanted and self._rag_load_error is not None
+            if retry:
+                self._request_rag_sync()
         return status
 
     def _load_failed(
@@ -1490,59 +1515,93 @@ class AppSession:
 
     def _rag_refresh(self) -> None:
         """Story 15: what the availability reads of the index (`meta`, the preview's
-        excerpts) and of the model's files, at launch and after a download only."""
+        excerpts) and of the model's files, at launch, after a download or a build, and when
+        a search finds the index replaced. Never at each emission."""
         model = self._rag_model
-        if model is None:
+        content = self._rag_content
+        if model is None or content is None:
             return
         path = self.cfg.rag_index_path()
-        reason, chunks, longest = None, 0, []
+        kind, reason, chunks, longest = None, None, 0, []
         missing = download_module.missing_files(model.files, config.models_dir())
+        build = "Cliquez sur « Construire l'index » sur la carte RAG"
+        if missing:
+            build = (
+                "Téléchargez d'abord le modèle d'embedding, puis cliquez sur « Construire l'index »"
+            )
         why = rag_index.vec_unavailable()
         if why is not None:
-            reason = (
-                "Indisponible : l'extension sqlite-vec ne se charge pas dans ce Python "
-                f"({why}). Le RAG ne peut pas lire son index ; les autres briques fonctionnent."
+            kind, reason = (
+                "vec",
+                (
+                    "Indisponible : l'extension sqlite-vec ne se charge pas dans ce Python "
+                    f"({why}). Le RAG ne peut pas lire son index ; les autres briques fonctionnent."
+                ),
             )
         elif not path.is_file():
-            reason = (
-                f"Indisponible : index absent ({path}). Lancez `uv run python "
-                "scripts/build_rag_index.py` depuis le dossier de WaveStack, puis relancez "
-                "WaveStack."
+            kind, reason = (
+                "absent",
+                (
+                    f"Indisponible : index absent ({path}). {build} (ou lancez uv run python "
+                    "scripts/build_rag_index.py)."
+                ),
             )
-            if missing:  # the script embeds the corpus with the model
-                reason += (
-                    " Le script a besoin du modèle d'embedding : copiez d'abord "
-                    f"{', '.join(Path(f.path).name for f in missing)} dans "
-                    f"{config.models_dir() / Path(missing[0].path).parent}."
-                )
         else:
             try:
                 meta = rag_index.read_meta(path)
                 longest = rag_index.longest_chunks(path, self.cfg.rag_top_k)
             except Exception as exc:  # noqa: BLE001 - a state, never a crash
-                reason = (
-                    f"Indisponible : l'index {path} est illisible ({type(exc).__name__}). "
-                    "Reconstruisez-le avec `uv run python scripts/build_rag_index.py`, puis "
-                    "relancez WaveStack."
+                kind, reason = (
+                    "unreadable",
+                    (
+                        f"Indisponible : l'index {path} est illisible ({type(exc).__name__}). "
+                        f"{build} pour le reconstruire."
+                    ),
                 )
             else:
                 chunks = meta.chunks
-                if meta.embedding_model_id != model.id or meta.dims != model.dims:
-                    reason = (
-                        "Indisponible : l'index a été construit avec le modèle d'embedding "
-                        f"« {meta.embedding_model_id} » ({meta.dims} dimensions), alors que "
-                        f"[rag.embedding] déclare « {model.id} » ({model.dims} dimensions). "
-                        "Reconstruisez l'index avec `uv run python "
-                        "scripts/build_rag_index.py`, puis relancez WaveStack."
-                    )
+                kind, reason = self._rag_index_mismatch(meta, model, content, build)
         with self._lock:
-            self._rag_index_error, self._rag_chunks = reason, chunks
+            self._rag_index_kind, self._rag_index_error = kind, reason
+            self._rag_chunks = chunks
+            self._rag_stamp = _stamp(path)
             self._rag_longest, self._rag_missing = longest, missing
+
+    def _rag_index_mismatch(
+        self, meta: rag_index.IndexMeta, model: EmbeddingModel, content: RagContent, build: str
+    ) -> tuple[str | None, str | None]:
+        """An index built by another model (id, dimensions, file), or from another corpus or
+        another `chunk_max_chars`: its kind and French reason, else `(None, None)`."""
+        declared = model.load_file
+        other_file = (meta.model_size and meta.model_size != declared.size) or (
+            meta.model_sha256
+            and declared.sha256
+            and meta.model_sha256.lower() != declared.sha256.lower()
+        )
+        if meta.embedding_model_id != model.id or meta.dims != model.dims or other_file:
+            built = f"« {meta.embedding_model_id} » ({meta.dims} dimensions"
+            built += f", fichier de {_mo(meta.model_size)} Mo)" if meta.model_size else ")"
+            return "other_model", (
+                f"Indisponible : l'index a été construit avec le modèle d'embedding {built}, "
+                f"alors que [rag.embedding] déclare « {model.id} » ({model.dims} dimensions, "
+                f"fichier de {_mo(declared.size)} Mo). {build} pour le reconstruire."
+            )
+        chunks = chunk_corpus(content, self.cfg.rag_chunk_max_chars)
+        stale = meta.chunk_max_chars != self.cfg.rag_chunk_max_chars or (
+            meta.corpus_sha256 and meta.corpus_sha256 != rag_index.corpus_digest(chunks)
+        )
+        if stale or not meta.corpus_sha256:
+            return "stale", (
+                "Indisponible : index périmé. Le corpus (content/corpus) ou [rag] "
+                f"chunk_max_chars ont changé depuis sa construction ({meta.built_at}). "
+                f"{build} pour le reconstruire."
+            )
+        return None, None
 
     def _rag_unavailable(self) -> str | None:
         """Story 15, AD-12: the RAG's reasons after its content (1), in order: sqlite-vec,
-        index absent, another model (2-4), model's files missing (5), then, once wanted,
-        loading (6) and a refused or failed load (7)."""
+        index absent, unreadable, of another model or stale (2-4), model's files missing (5),
+        then, once wanted, loading (6) and a refused or failed load (7)."""
         model = self._rag_model
         with self._lock:
             index_error, missing = self._rag_index_error, list(self._rag_missing)
@@ -1566,25 +1625,41 @@ class AppSession:
 
     @staticmethod
     def _rag_missing_fr(model: EmbeddingModel, missing: list[EmbeddingFile]) -> str:
-        names = ", ".join(Path(f.path).name for f in missing)
-        folder = config.models_dir() / Path(missing[0].path).parent
+        names = ", ".join(PurePosixPath(f.path).name for f in missing)
+        folder = config.models_dir() / PurePosixPath(missing[0].path).parent
+        size = _mo(sum(f.size for f in missing))
+        other = [f for f in missing if (config.models_dir() / f.path).is_file()]
+        if other:
+            return (
+                f"Indisponible : le fichier {names} de {folder} n'est pas le modèle d'embedding "
+                f"déclaré ({model.label_fr}, {size} Mo attendus). Cliquez sur « Télécharger » "
+                "pour le remplacer."
+            )
         return (
-            f"Indisponible : modèle absent. Le modèle d'embedding {model.label_fr} n'est pas "
-            f"sur le poste. Cliquez sur « Télécharger », ou copiez à la main {names} dans "
-            f"{folder}, puis cliquez de nouveau sur « Télécharger » ou relancez WaveStack."
+            f"Indisponible : modèle absent. Le modèle d'embedding {model.label_fr} ({size} Mo) "
+            f"n'est pas sur le poste. Cliquez sur « Télécharger », ou copiez à la main {names} "
+            f"dans {folder}, puis cliquez de nouveau sur « Télécharger »."
         )
 
-    def _rag_download_offer(self) -> dict[str, str] | None:
-        """AD-21: « Télécharger » on the card, only while the reason is « modèle absent »."""
+    def _rag_offers(self) -> dict[str, dict[str, str] | None]:
+        """AD-21, the card's actions: « Télécharger » while the model's files are missing,
+        « Construire l'index » once they are there and the index is absent, unreadable, of
+        another model or stale. None when sqlite-vec cannot load or the content is invalid."""
         model, content = self._rag_model, self._rag_content
+        none: dict[str, dict[str, str] | None] = {"download": None, "build_index": None}
         if model is None or content is None or "rag" in self._content_errors:
-            return None
+            return none
         with self._lock:
-            index_error, missing = self._rag_index_error, list(self._rag_missing)
-        if index_error is not None or not missing:
-            return None
-        size_mb = max(1, round(sum(f.size for f in missing) / 1024**2))
-        return {"target": RAG_TARGET, "label_fr": content.download_label_fr.format(size_mb=size_mb)}
+            kind, missing = self._rag_index_kind, list(self._rag_missing)
+        if kind == "vec":
+            return none
+        if missing:
+            size_mb = max(1, round(sum(f.size for f in missing) / 1_000_000))
+            label = content.download_label_fr.format(size_mb=size_mb)
+            return none | {"download": {"target": RAG_TARGET, "label_fr": label}}
+        if kind is not None:
+            return none | {"build_index": {"label_fr": content.build_label_fr}}
+        return none
 
     def _rag_index_detail(self) -> str:
         """The index node's tooltip: its path, its excerpts and its embedding model."""
@@ -1634,9 +1709,14 @@ class AppSession:
             changed = embedder is not None
             self._release_embedder()
         elif embedder is None:
-            loaded, error = self._load_embedder(model)
+            loaded, retriever, error = self._load_embedder(model)
             with self._lock:
-                self._embedder, self._rag_load_error = loaded, error
+                still = "rag" in self._wanted  # switched off while it loaded?
+                if still:
+                    self._embedder, self._rag_retriever = loaded, retriever
+                    self._rag_load_error = error
+            if not still:
+                self._close_embedder(loaded, retriever)
             changed = True
         with self._lock:
             changed = changed or self._rag_loading
@@ -1646,46 +1726,73 @@ class AppSession:
             self._emit_architecture()
             self._emit_preview()
 
-    def _load_embedder(self, model: EmbeddingModel) -> tuple[Embedder | None, str | None]:
-        """The budget first (a refusal in figures, nothing loaded), then the load."""
+    def _load_embedder(
+        self, model: EmbeddingModel
+    ) -> tuple[Embedder | None, SqliteVecRetriever | None, str | None]:
+        """The budget first (a refusal in figures, nothing loaded), then the file's identity
+        (its declared sha256), then the load and the index's connection."""
         label = f"le modèle d'embedding {model.label_fr}"
         cost = self._load_registry.embedding_cost(
             model.measured_rss_mb, [f.size for f in model.files]
         )
         refusal = self._load_registry.check_component(label, cost, EMBEDDING)
         if refusal is not None:
-            self._error(
-                refusal,
-                "budget mémoire dépassé (AD-8)",
-                "La brique « RAG » est indisponible ; rien n'est chargé.",
-            )
-            return None, f"Indisponible : {refusal}"
+            with scoped(brick="rag", component="rag.retriever"):
+                self._error(
+                    refusal,
+                    "budget mémoire dépassé (AD-8)",
+                    "La brique « RAG » est indisponible ; rien n'est chargé. Elle se charge "
+                    "d'elle-même après un changement de modèle, ou en la réactivant.",
+                )
+            return None, None, f"Indisponible : {refusal}"
+        path = embedding_module.model_path(model)
+        embedder: Embedder | None = None
         try:
+            declared = model.load_file.sha256
+            if declared and rag_index.file_sha256(path) != declared.lower():
+                raise ValueError(
+                    f"le fichier {path} n'est pas le modèle déclaré (sha256 différent de "
+                    "celui de [rag.embedding])"
+                )
             embedder = self._embedder_factory(model)
+            retriever = SqliteVecRetriever(self.cfg.rag_index_path(), embedder, self.cfg.rag_top_k)
         except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
-            path = embedding_module.model_path(model)
-            self._error(
-                "Le modèle d'embedding n'a pas pu être chargé.",
-                exc,
-                "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
-            )
-            return None, (
-                f"Indisponible : le modèle d'embedding n'a pas pu être chargé "
-                f"({type(exc).__name__}: {exc}). Vérifiez le fichier {path}, ou supprimez-le "
-                "et relancez WaveStack pour le télécharger à nouveau."
+            self._close_embedder(embedder, None)
+            with scoped(brick="rag", component="rag.retriever"):
+                self._error(
+                    "Le modèle d'embedding n'a pas pu être chargé.",
+                    exc,
+                    "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
+                )
+            return (
+                None,
+                None,
+                (
+                    f"Indisponible : le modèle d'embedding n'a pas pu être chargé "
+                    f"({type(exc).__name__}: {exc}). Vérifiez le fichier {path}, ou supprimez-le "
+                    "et relancez WaveStack pour le télécharger à nouveau."
+                ),
             )
         self._load_registry.grant(model.label_fr, cost, EMBEDDING)
-        return embedder, None
+        return embedder, retriever, None
 
-    def _release_embedder(self) -> None:
-        with self._lock:
-            embedder, self._embedder = self._embedder, None
+    def _close_embedder(
+        self, embedder: Embedder | None, retriever: SqliteVecRetriever | None
+    ) -> None:
+        if retriever is not None:
+            retriever.close()
         if embedder is not None:
             try:
                 embedder.close()
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error("Le modèle d'embedding n'a pas pu être fermé.", exc, "Il est oublié.")
         self._load_registry.release(EMBEDDING)
+
+    def _release_embedder(self) -> None:
+        with self._lock:
+            embedder, self._embedder = self._embedder, None
+            retriever, self._rag_retriever = self._rag_retriever, None
+        self._close_embedder(embedder, retriever)
 
     def _emit_memory(self) -> None:
         """AD-1: the drawer and the card project the last `memory_changed`."""
@@ -3428,9 +3535,10 @@ class AppSession:
 
     def stop(self) -> bool:
         """Intention class (c): arms the turn's `CancelToken`; no effect outside a turn. A
-        pending human validation is resolved as `cancelled`. Story 15: stops a download."""
+        pending human validation is resolved as `cancelled`. Story 15: stops a download or an
+        index build."""
         with self._lock:
-            if self.state == "download" and self._download_cancel is not None:
+            if self.state in ("download", "index_build") and self._download_cancel is not None:
                 self._download_cancel.cancel()
                 return True
             if self.state not in ("turn", "awaiting_human") or self._cancel is None:
@@ -3443,7 +3551,7 @@ class AppSession:
         approval.answered.set()
         return True
 
-    # ---------- model download (story 15, AD-15, AD-21) ----------
+    # ---------- model download and index build (story 15, AD-15, AD-21) ----------
 
     def download_model(self, target: str) -> str:
         """Class (b): downloads the embedding model's missing files, on a thread of its own,
@@ -3463,23 +3571,13 @@ class AppSession:
         dest = config.models_dir()
         missing = download_module.missing_files(model.files, dest)
         if not missing:  # e.g. copied by hand meanwhile: the card catches up now
-            self._rag_refresh()
-            self._request_rag_sync()
-            self._emit_bricks()
-            self._emit_architecture()
-            self._executor.submit(self._emit_preview)
+            self._rag_caught_up()
             raise SendRefused(
                 f"Rien à télécharger : les fichiers du modèle d'embedding sont déjà dans {dest}."
             )
         total = sum(f.size for f in missing)
-        cancel = CancelToken()
-        with self._lock:
-            if self.state != "idle":
-                raise SendRefused(self._refusal_reason())
-            previous = self.reason_fr  # e.g. no model loaded: it stays said afterwards
-            self.state, self.reason_fr = "download", self._download_fr(0, total)
-            self._download_cancel = cancel
-        self._emit_state()
+        cancel = download_module.StopToken()
+        previous = self._enter_rag_job("download", self._download_fr(0, total), cancel)
         threading.Thread(
             target=self._run_download,
             args=(missing, dest, cancel, previous),
@@ -3488,20 +3586,33 @@ class AppSession:
         ).start()
         return self._download_fr(0, total)
 
+    def _enter_rag_job(self, state: str, reason_fr: str, cancel: CancelToken) -> str | None:
+        """`download` or `index_build`, switched under the lock from `idle` (class b). Returns
+        the reason `idle` had (e.g. no model loaded), given back afterwards."""
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+            previous = self.reason_fr
+            self.state, self.reason_fr = state, reason_fr
+            self._download_cancel = cancel
+        self._emit_state()
+        return previous
+
+    def _rag_caught_up(self) -> None:
+        """The index and the files read again, the card, the schema and the preview."""
+        self._rag_refresh()
+        self._request_rag_sync()
+        self._emit_bricks()
+        self._emit_architecture()
+        self._executor.submit(self._emit_preview)
+
     @staticmethod
     def _download_fr(done: int, total: int) -> str:
         percent = int(done * 100 / total) if total else 100
-        mb = 1024**2
-        return (
-            f"Téléchargement du modèle d'embedding : {percent} % "
-            f"({_fr(round(done / mb))} / {_fr(round(total / mb))} Mo)"
-        )
+        return f"Téléchargement du modèle d'embedding : {percent} % ({_mo(done)} / {_mo(total)} Mo)"
 
-    def _run_download(
-        self, files: list[EmbeddingFile], dest: Path, cancel: CancelToken, previous: str | None
-    ) -> None:
-        """The download thread: progress at most once a second in `session_state`, then back
-        to `idle`; the index and the files are read again, and the model loads if wanted."""
+    def _throttled(self, state: str, text: Callable[[int, int], str]) -> Callable[[int, int], None]:
+        """A progress callback: `session_state.reason_fr` at most once a second."""
         last = time.monotonic()
 
         def progress(done: int, total: int) -> None:
@@ -3510,17 +3621,30 @@ class AppSession:
                 return
             last = time.monotonic()
             with self._lock:
-                if self.state != "download":
+                if self.state != state:
                     return
-                self.reason_fr = self._download_fr(done, total)
+                self.reason_fr = text(done, total)
             self._emit_state()
 
+        return progress
+
+    def _run_download(
+        self, files: list[EmbeddingFile], dest: Path, cancel: CancelToken, previous: str | None
+    ) -> None:
+        """The download thread, then back to `idle`; the index and the files are read again,
+        and the model loads if wanted. Each file's sha256 is traced (to pin it in
+        [rag.embedding])."""
         failed: str | None = None
         stopped = False
+        digests: dict[str, str] = {}
         try:
             with scoped(brick="rag", component="rag.retriever", origin="download"):
-                download_module.download_files(
-                    files, dest, cancel, progress, transport=self._download_transport
+                digests = download_module.download_files(
+                    files,
+                    dest,
+                    cancel,
+                    self._throttled("download", self._download_fr),
+                    transport=self._download_transport,
                 )
         except download_module.DownloadError as exc:
             failed, stopped = exc.reason_fr, exc.cancelled
@@ -3528,29 +3652,152 @@ class AppSession:
             failed = f"{type(exc).__name__}: {exc}"
         with self._lock:
             self._download_cancel = None
-        self._rag_refresh()
-        if failed is not None:
-            names = ", ".join(Path(f.path).name for f in files)
-            folder = dest / Path(files[0].path).parent
-            with scoped(brick="rag", component="rag.retriever"):  # the card shows it (AD-1)
+        with scoped(brick="rag", component="rag.retriever"):  # the card shows it (AD-1)
+            if failed is not None:
+                names = ", ".join(PurePosixPath(f.path).name for f in files)
+                folder = dest / PurePosixPath(files[0].path).parent
                 self._error(
                     "Téléchargement du modèle d'embedding arrêté."
                     if stopped
                     else "Le téléchargement du modèle d'embedding a échoué.",
                     failed,
                     f"Rien n'est installé. Pour continuer, copiez le fichier à la main dans "
-                    f"{folder} ({names}), puis cliquez de nouveau sur « Télécharger » ou relancez "
-                    "WaveStack.",
+                    f"{folder} ({names}), puis cliquez de nouveau sur « Télécharger ».",
+                )
+            else:
+                get_journal().emit(
+                    "effect_applied",
+                    {
+                        "effect": "model_download",
+                        "lines": [f"{dest / path} · sha256 {sha}" for path, sha in digests.items()],
+                    },
                 )
         self._set_state("idle", previous)
         try:
-            if failed is None:
-                self._request_rag_sync()  # loads it when the brick is wanted
-            self._emit_bricks()
-            self._emit_architecture()
-            self._executor.submit(self._emit_preview)
+            self._rag_caught_up()
         except RuntimeError:  # the session is closing: nothing left to show
             pass
+
+    def build_rag_index(self) -> str:
+        """Class (b): builds the RAG index from the corpus shipped, with the embedding model
+        on the workstation (the code of scripts/build_rag_index.py), on a thread of its own,
+        in the `index_build` state (« Arrêter » stops it). `SendRefused` outside `idle`, or
+        when the card offers no build (model missing, sqlite-vec, index up to date)."""
+        if "rag" not in self._bricks:
+            raise KeyError("rag")
+        model, content = self._rag_model, self._rag_content
+        if model is None or content is None:
+            raise SendRefused(
+                self._content_errors.get("rag") or "La brique RAG n'a pas de modèle déclaré."
+            )
+        self._rag_refresh()  # the files may have been copied, the corpus edited
+        if self._rag_offers()["build_index"] is None:
+            with self._lock:
+                kind, missing = self._rag_index_kind, bool(self._rag_missing)
+            self._rag_caught_up()
+            if missing:
+                raise SendRefused(
+                    "Construction impossible : le modèle d'embedding n'est pas sur le poste. "
+                    "Cliquez d'abord sur « Télécharger »."
+                )
+            if kind == "vec":
+                raise SendRefused(self._rag_index_error or "sqlite-vec ne se charge pas.")
+            raise SendRefused("Rien à construire : l'index est à jour.")
+        cancel = CancelToken()
+        previous = self._enter_rag_job("index_build", self._build_fr(0, 0), cancel)
+        threading.Thread(
+            target=self._run_build,
+            args=(model, content, cancel, previous),
+            name="wavestack-index-build",
+            daemon=True,
+        ).start()
+        return self._build_fr(0, 0)
+
+    @staticmethod
+    def _build_fr(done: int, total: int) -> str:
+        if not total:
+            return "Construction de l'index RAG : chargement du modèle d'embedding…"
+        return f"Construction de l'index RAG : {done} / {total} extraits"
+
+    def _run_build(
+        self,
+        model: EmbeddingModel,
+        content: RagContent,
+        cancel: CancelToken,
+        previous: str | None,
+    ) -> None:
+        """The build thread: its own embedding model, through the registry (AD-8), closed
+        afterwards; the index written then read again; the brick loads if wanted."""
+        path = self.cfg.rag_index_path()
+        self._release_embedder()  # its connection to the old index closes first (Windows)
+        failed: BaseException | str | None = None
+        stopped = False
+        embedder, refusal = self._build_embedder(model)
+        meta = None
+        if refusal is not None:
+            failed = refusal
+        else:
+            try:
+                meta = rag_index.build_index(
+                    content,
+                    embedder,
+                    path,
+                    self.cfg.rag_chunk_max_chars,
+                    self._throttled("index_build", self._build_fr),
+                    model_file=embedding_module.model_path(model),
+                    cancelled=lambda: cancel.cancelled,
+                )
+            except rag_index.BuildCancelled as exc:
+                failed, stopped = str(exc), True
+            except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+                failed = exc
+            finally:
+                self._close_embedder(embedder, None)
+        with self._lock:
+            self._download_cancel = None
+        with scoped(brick="rag", component=RAG_INDEX):  # the card shows a failure (AD-1)
+            if failed is not None:
+                self._error(
+                    "Construction de l'index RAG arrêtée."
+                    if stopped
+                    else "L'index RAG n'a pas pu être construit.",
+                    failed,
+                    f"L'index {path} n'est pas modifié.",
+                )
+            elif meta is not None:
+                get_journal().emit(
+                    "effect_applied",
+                    {
+                        "effect": "rag_index_write",
+                        "lines": [
+                            f"{path} · {meta.chunks} extraits · modèle d'embedding "
+                            f"{meta.embedding_model_id} ({meta.dims} dimensions)"
+                        ],
+                    },
+                )
+        self._set_state("idle", previous)
+        try:
+            self._rag_caught_up()
+        except RuntimeError:  # the session is closing
+            pass
+
+    def _build_embedder(self, model: EmbeddingModel) -> tuple[Embedder | None, str | None]:
+        """The build's embedding model, loaded as the brick's is (budget, then load)."""
+        label = f"le modèle d'embedding {model.label_fr}"
+        cost = self._load_registry.embedding_cost(
+            model.measured_rss_mb, [f.size for f in model.files]
+        )
+        refusal = self._load_registry.check_component(label, cost, EMBEDDING)
+        if refusal is not None:
+            return None, refusal
+        try:
+            embedder = self._embedder_factory(model)
+        except Exception as exc:  # noqa: BLE001 - AD-16
+            return None, (
+                f"le modèle d'embedding n'a pas pu être chargé ({type(exc).__name__}: {exc})"
+            )
+        self._load_registry.grant(model.label_fr, cost, EMBEDDING)
+        return embedder, None
 
     def answer_approval(self, approval_id: str, approved: bool, disable_hook: bool) -> None:
         """Intention class (c): answers the pending validation; the first answer wins.
@@ -3773,14 +4020,38 @@ class AppSession:
         self._emit_limit("calls", max_calls)
         return "limit", "", ""
 
+    def _rag_current_retriever(self) -> SqliteVecRetriever:
+        """The loaded retriever, on the index as it is now. An index replaced since it was
+        read (rebuilt by the script) is read again; one that no longer fits the model makes
+        the brick unavailable, and this search fails with the reason."""
+        with self._lock:
+            embedder, retriever, stamp = self._embedder, self._rag_retriever, self._rag_stamp
+        if embedder is None or retriever is None:
+            raise RuntimeError("le modèle d'embedding n'est pas chargé")
+        path = self.cfg.rag_index_path()
+        if _stamp(path) == stamp:
+            return retriever
+        retriever.close()
+        self._rag_refresh()
+        with self._lock:
+            reason = self._rag_index_error
+        if reason is not None:
+            self._release_embedder()
+            self._emit_bricks()
+            self._emit_architecture()
+            raise RuntimeError(f"l'index a été remplacé pendant la séance. {reason}")
+        fresh = SqliteVecRetriever(path, embedder, self.cfg.rag_top_k)
+        with self._lock:
+            self._rag_retriever = fresh
+        self._emit_architecture()  # its tooltip gives the new index's figures
+        return fresh
+
     def _rag_search(self, turn_id: str, step: int, message: str) -> tuple[str, ...]:
         """Story 15 (AD-2, AD-22): the search, a step of the harness with its pair of events.
         Returns the intro and the excerpts, formatted; a failure is traced and the turn goes
         on without excerpts (as a failing hook lets the turn through)."""
         content = self._rag_content
         assert content is not None  # the brick is unavailable without it
-        with self._lock:
-            embedder = self._embedder
         top_k = self.cfg.rag_top_k
         journal = get_journal()
         scope = {
@@ -3797,10 +4068,7 @@ class AppSession:
             )
             started = time.monotonic()
             try:
-                if embedder is None:
-                    raise RuntimeError("le modèle d'embedding n'est pas chargé")
-                retriever = SqliteVecRetriever(self.cfg.rag_index_path(), embedder, top_k)
-                excerpts = retriever.search(message)
+                excerpts = self._rag_current_retriever().search(message)
             except Exception as exc:  # noqa: BLE001 - AD-16: the turn goes on
                 self._error(
                     "La recherche RAG a échoué.", exc, "Le tour continue sans extraits RAG."

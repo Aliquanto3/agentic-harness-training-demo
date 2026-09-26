@@ -10,8 +10,9 @@ explanation_fr:
   - >-
     La recherche est sémantique : un petit modèle d'embedding, local, transforme la question
     en vecteur, et l'index (rag_index.sqlite) renvoie les extraits dont le vecteur est le plus
-    proche. Le score va de 0 à 1 ; aucun seuil n'est appliqué : les extraits partent même
-    quand ils ne répondent pas.
+    proche. Le score va de 0 à 1 (1 moins la distance cosinus, ramené à 0 quand les vecteurs
+    s'opposent) ; aucun seuil n'est appliqué : les extraits partent même quand ils ne
+    répondent pas.
   - - "Gain : le modèle répond à partir de documents qu'il n'a jamais vus à l'entraînement."
     - >-
       Coût : les extraits occupent le contexte à chaque tour, et un modèle d'embedding est
@@ -23,3 +24,10 @@ explanation_fr:
     Le corpus de démonstration décrit Exemplia, une organisation imaginaire : huit textes
     fictifs rédigés pour WaveStack (mots de passe, télétravail, notes de frais…). Les extraits
     ne restent pas dans l'historique : chaque tour cherche à nouveau.
+  - >-
+    Limite du RAG simple : la requête est votre message tel quel. Une question de relance
+    (« Et à Lyon ? ») cherche sans le contexte des tours précédents, et trouve souvent mal ;
+    un RAG avancé reformule d'abord la question.
+  - >-
+    Première installation : « Télécharger » récupère le modèle d'embedding, puis
+    « Construire l'index » découpe le corpus et l'indexe sur le poste, sans ligne de commande.

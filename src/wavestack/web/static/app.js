@@ -57,7 +57,7 @@ const store = {
   memory: null,
   memoryDrafts: new Map(),
   downloadError: null, // story 15: the last refusal of « Télécharger » (UI state only)
-  ragNotice: null, // story 15: the last failure of the RAG's download, from `harness_error`
+  ragNotice: null, // story 15: the last failure of the RAG's download or build (`harness_error`)
   openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
   openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
@@ -204,7 +204,7 @@ function applyEnvelope(envelope) {
   switch (envelope.kind) {
     case "session_state":
       store.sessionState = p;
-      if (p.state === "download") store.ragNotice = null; // a new attempt
+      if (p.state === "download" || p.state === "index_build") store.ragNotice = null; // a new attempt
 
       // The diagnostic session's own states carry no model: the last known one stays.
       if (p.active_model !== undefined) store.activeModel = p.active_model;
@@ -912,21 +912,32 @@ function sessionKey() {
 // Story 15 (AD-21): « Télécharger » while the model is missing, the progress and « Arrêter »
 // while it downloads; the figures come from the session (`session_state.reason_fr`).
 function downloadParts(brick) {
+  // Story 15 (AD-21): « Télécharger » while the model is missing, « Construire l'index » once
+  // it is there; the progress and « Arrêter » while either runs. Figures from the session.
   const state = store.sessionState?.state;
-  if (state === "download") {
-    const progress = el("p", "brick-download-progress", store.sessionState.reason_fr || "Téléchargement…");
+  const jobs = { download: "Arrêter le téléchargement", index_build: "Arrêter la construction" };
+  if (jobs[state]) {
+    const progress = el("p", "brick-download-progress", store.sessionState.reason_fr || "En cours…");
     progress.setAttribute("role", "status");
-    const stop = el("button", "brick-edit brick-download-stop", "Arrêter le téléchargement");
+    const stop = el("button", "brick-edit brick-download-stop", jobs[state]);
     stop.type = "button";
     stop.dataset.focusKey = `download-stop:${brick.id}`;
     stop.addEventListener("click", () => postIntention("/api/intentions/stop", {}).catch(() => {}));
     return [progress, stop];
   }
-  const notice = store.ragNotice && !brick.available ? [el("p", "force-error", store.ragNotice)] : [];
-  if (!brick.download) return notice;
-  const button = el("button", "brick-edit brick-download", brick.download.label_fr);
+  let offer = null;
+  if (brick.download) {
+    const body = { target: brick.download.target };
+    offer = { label: brick.download.label_fr, key: "download", run: () => ragAction("/api/intentions/download_model", body) };
+  } else if (brick.build_index) {
+    offer = { label: brick.build_index.label_fr, key: "build", run: () => ragAction("/api/intentions/build_rag_index", {}) };
+  }
+  // The last failure stays said while the card still offers an action (AD-1: from the event).
+  const notice = store.ragNotice && !brick.available && offer ? [el("p", "force-error", store.ragNotice)] : [];
+  if (!offer) return notice;
+  const button = el("button", `brick-edit brick-${offer.key}`, offer.label);
   button.type = "button";
-  button.dataset.focusKey = `download:${brick.id}`;
+  button.dataset.focusKey = `${offer.key}:${brick.id}`;
   const idle = state === "idle";
   button.disabled = !idle;
   const parts = [...notice, button];
@@ -937,20 +948,20 @@ function downloadParts(brick) {
     parts.push(why);
   }
   if (store.downloadError) parts.push(el("p", "force-error", store.downloadError));
-  button.addEventListener("click", () => downloadModel(brick.download.target));
+  button.addEventListener("click", offer.run);
   return parts;
 }
 
-async function downloadModel(target) {
+async function ragAction(path, body) {
   store.downloadError = null;
   try {
-    const response = await postIntention("/api/intentions/download_model", { target });
+    const response = await postIntention(path, body);
     if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      store.downloadError = typeof body.detail === "string" ? body.detail : "Téléchargement refusé.";
+      const answer = await response.json().catch(() => ({}));
+      store.downloadError = typeof answer.detail === "string" ? answer.detail : "Action refusée.";
     }
   } catch {
-    store.downloadError = "WaveStack ne répond pas : le téléchargement n'a pas commencé.";
+    store.downloadError = "WaveStack ne répond pas : rien n'a commencé.";
   }
   renderedBricks = null;
   scheduleRender();
@@ -3937,6 +3948,7 @@ const SESSION_STATES = {
   awaiting_human: "attente de validation",
   model_load: "chargement du modèle",
   download: "téléchargement",
+  index_build: "construction de l'index RAG",
   reset: "réinitialisation",
   diagnostic: "diagnostic",
 };
@@ -3989,6 +4001,7 @@ function eventSummary(group) {
       return `${p.hook.toUpperCase()} · ${p.point_fr} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
       if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · « ${p.text} »`;
+      if (p.effect === "model_download" || p.effect === "rag_index_write") return p.lines.join(" · ");
       if (p.effect === "audit_append") return `${plural(p.lines.length, "ligne")} au journal d'audit`;
       return p.key ?? p.id ?? p.effect;
     case "memory_changed":

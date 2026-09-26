@@ -39,6 +39,10 @@ def _glob_gguf(root: Path) -> list[Path]:
     return sorted(root.rglob("*.gguf"))
 
 
+# Story 15: `models/embedding/` holds embedding models, never offered as chat models.
+EMBEDDING_DIR = "embedding"
+
+
 def _embedding_files(cfg: config.Config) -> set[Path]:
     """The files `[rag.embedding]` declares under `models_dir()`: never offered as a model."""
     model, _ = cfg.rag_embedding
@@ -148,7 +152,7 @@ def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
     candidates += [
         ModelCandidate(source="models_dir", status="found", path=str(p))
         for p in _glob_gguf(config.models_dir())
-        if p not in embedding
+        if p not in embedding and p.relative_to(config.models_dir()).parts[0] != EMBEDDING_DIR
     ]
     candidates += [
         ModelCandidate(source="hf_cache", status="found", path=str(p))

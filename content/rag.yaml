@@ -26,6 +26,9 @@ index_label_fr: Index RAG (rag_index.sqlite)
 # Bouton de la carte quand le modèle d'embedding manque ({size_mb} : taille en Mo).
 download_label_fr: "Télécharger le modèle d'embedding (≈ {size_mb} Mo)"
 
+# Bouton de la carte quand le modèle est là et l'index absent, périmé ou d'un autre modèle.
+build_label_fr: Construire l'index
+
 # Les documents du corpus, chemins relatifs à content/.
 documents:
   - id: mots_de_passe

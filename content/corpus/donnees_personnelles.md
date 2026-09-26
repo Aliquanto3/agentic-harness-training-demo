@@ -1,6 +1,6 @@
 # Durées de conservation des données personnelles chez Exemplia
 
-Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : ces durées ne décrivent aucune entreprise réelle et ne constituent pas un conseil juridique.
+<!-- Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : ces durées ne décrivent aucune entreprise réelle et ne constituent pas un conseil juridique. -->
 
 Une donnée personnelle n'est conservée que le temps nécessaire à la finalité pour laquelle elle a été collectée. Le registre des traitements d'Exemplia fixe pour chaque traitement une durée active, pendant laquelle les services utilisent la donnée, puis une durée d'archivage, pendant laquelle seul le service juridique peut y accéder.
 

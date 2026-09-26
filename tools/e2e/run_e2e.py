@@ -34,6 +34,8 @@ from stack import (  # noqa: E402
     running_stack,
 )
 
+from wavestack.rag import index as rag_index  # noqa: E402
+
 SHOTS = Path(__file__).resolve().parent / "screenshots"
 CHROMIUM = "/opt/pw-browsers/chromium"  # fallback when the bundled revision is missing
 TURN_TIMEOUT_S = 60.0
@@ -1220,22 +1222,28 @@ def _rag_step(r: Run):
 
 
 def s_rag(r: Run) -> None:
-    """Story 15: the model missing, a download that fails (explained) then succeeds, a turn
-    without then with the RAG, the search step, the excerpts in Contexte LLM, the index in the
-    schema, « Comparer », and the step still there after a reload."""
+    """Story 15, a fresh install: neither model nor index; a download that fails (explained)
+    then succeeds, « Construire l'index » from the card, then a turn without and with the
+    RAG, the search step, the excerpts in Contexte LLM, the index in the schema, « Comparer »,
+    and the step still there after a reload."""
     r.launch("rag")
     card = r.card("RAG")
     download = card.get_by_role("button", name=re.compile("Télécharger le modèle d'embedding"))
     expect(download).to_be_visible(timeout=10_000)
     r.check(
-        "modèle absent" in card.inner_text() and download.is_enabled(),
-        "carte RAG voulue : « modèle absent » et bouton « Télécharger » actif",
-        card.inner_text()[:240],
+        "index absent" in card.inner_text()
+        and "Téléchargez d'abord" in card.inner_text()
+        and download.is_enabled(),
+        "installation neuve : « index absent », et « Télécharger » proposé d'abord",
+        card.inner_text()[:260],
     )
     rag = r.bricks()["rag"]
     r.check(
-        rag["wanted"] and not rag["available"] and rag["download"]["target"] == "rag_embedding",
-        "/api/state : RAG voulue, indisponible, téléchargement proposé",
+        rag["wanted"]
+        and not rag["available"]
+        and rag["download"]["target"] == "rag_embedding"
+        and rag["build_index"] is None,
+        "/api/state : RAG voulue, indisponible, téléchargement proposé, pas encore de construction",
     )
 
     # The file is not served yet: the download fails, explained on the card.
@@ -1256,7 +1264,7 @@ def s_rag(r: Run) -> None:
     part = list((r.stack.data_dir / "models").rglob("*.part"))
     r.check(not part, "aucun fichier .part laissé", str(part))
 
-    # The file is served now: the download succeeds and the brick loads (it is wanted).
+    # The file is served now: the download succeeds; the card offers the index's build.
     httpx.post(f"{r.stack.fake_url}/_e2e/model_ready", timeout=5, trust_env=False)
     seq = r.ev.mark()
     card.get_by_role("button", name=re.compile("Télécharger le modèle d'embedding")).click()
@@ -1264,18 +1272,48 @@ def s_rag(r: Run) -> None:
     r.ev.wait(
         "bricks_changed",
         seq,
-        lambda p: next(b for b in p["bricks"] if b["id"] == "rag")["available"],
+        lambda p: next(b for b in p["bricks"] if b["id"] == "rag").get("build_index") is not None,
         30,
     )
-    r.check(True, "téléchargement réussi : la brique RAG devient disponible")
     r.check(
         (r.stack.data_dir / "models" / "embedding" / "fake-e2e.gguf").is_file(),
-        "le fichier du modèle est dans le dossier des modèles",
+        "téléchargement réussi : le fichier du modèle est dans le dossier des modèles",
     )
+    sha = [
+        e for e in r.ev.since(seq, "effect_applied") if e["payload"]["effect"] == "model_download"
+    ]
+    r.check(
+        len(sha) == 1 and "sha256" in sha[0]["payload"]["lines"][0],
+        "le téléchargement trace le sha256 du fichier",
+    )
+    build = card.get_by_role("button", name="Construire l'index")
+    expect(build).to_be_visible(timeout=5000)
+    r.check(
+        not r.bricks()["rag"]["available"] and "index absent" in card.inner_text(),
+        "modèle présent, index absent : « Construire l'index » proposé",
+    )
+
+    # « Construire l'index »: built on the workstation, then the brick loads (it is wanted).
+    seq = r.ev.mark()
+    build.click()
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "index_build", 10)
+    r.ev.wait(
+        "bricks_changed",
+        seq,
+        lambda p: next(b for b in p["bricks"] if b["id"] == "rag")["available"],
+        60,
+    )
+    written = [
+        e for e in r.ev.since(seq, "effect_applied") if e["payload"]["effect"] == "rag_index_write"
+    ]
+    r.check(len(written) == 1, "construction réussie : effet rag_index_write tracé")
+    r.check(True, "index construit : la brique RAG devient disponible")
+    path = r.stack.data_dir / "rag_index.sqlite"
+    chunks = rag_index.read_meta(path).chunks if path.is_file() else -1
     nodes = {n["id"]: n for n in r.state()["architecture_changed"]["nodes"]}
     index = nodes.get("file.rag_index") or {}
     r.check(
-        index.get("kind") == "file" and "31 extraits" in (index.get("detail_fr") or ""),
+        index.get("kind") == "file" and f"{chunks} extraits" in (index.get("detail_fr") or ""),
         "schéma : le fichier d'index, local, avec son nombre d'extraits",
         str(index.get("detail_fr"))[:200],
     )
@@ -1346,7 +1384,7 @@ def s_rag(r: Run) -> None:
         "l'étape dépliée montre la requête et le placement",
     )
     score = step.locator(".rag-score").first.inner_text()
-    r.check(re.fullmatch(r"0,\d\d", score) is not None, "score affiché à la française", score)
+    r.check(re.fullmatch(r"[01],\d\d", score) is not None, "score affiché à la française", score)
     step.locator(".rag-excerpt-head").first.click()
     expect(r.page.locator('#schema .arch-chip[data-component="rag.retriever"]')).to_have_class(
         re.compile("is-selected"), timeout=5000
@@ -1637,8 +1675,10 @@ def s_model_switch(r: Run) -> None:
     row_a = page.locator("#cloud-models li", has_text="wavestack-fake")
     row_a.get_by_role("button", name="Choisir").click()
     page.click("#cloud-warning-confirm")
+    # The page's own fallback (« Le modèle choisi est actif. ») wins when the stream is still
+    # replaying a long journal after 3 s: both say the switch succeeded (deferred-work.md).
     expect(row_a.locator(".cloud-result").last).to_have_text(
-        "wavestack-fake est actif.", timeout=20_000
+        re.compile(r"^(wavestack-fake|Le modèle choisi) est actif\.$"), timeout=20_000
     )
     r.check(True, "diagnostic : « Choisir » change de modèle sans relance, issue affichée")
     body = page.inner_text("body")

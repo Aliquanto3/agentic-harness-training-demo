@@ -144,7 +144,7 @@ class LoadRegistry:
         return (
             f"Mémoire insuffisante pour charger {label} : WaveStack occupe {_mo(without)} Mo, "
             f"il en faut environ {_mo(cost_bytes)} de plus, au-delà du budget de "
-            f"{_mo(self.budget_bytes)} Mo. Désactivez une brique ou relevez `memory.budget_mb` "
+            f"{_mo(self.budget_bytes)} Mo. Désactivez une brique ou relevez [memory] budget_mb "
             "dans settings.json."
         )
 

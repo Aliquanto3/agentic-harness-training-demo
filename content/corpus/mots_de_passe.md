@@ -1,6 +1,6 @@
 # Politique des mots de passe d'Exemplia
 
-Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : ces règles ne décrivent aucune entreprise réelle.
+<!-- Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : ces règles ne décrivent aucune entreprise réelle. -->
 
 Chez Exemplia, un mot de passe de compte utilisateur compte au minimum 14 caractères. La longueur compte davantage que la complexité : une phrase de passe de quatre ou cinq mots sans lien entre eux est recommandée, par exemple une suite de mots tirés au hasard et séparés par des tirets. Les comptes d'administration, eux, exigent au moins 20 caractères, et leur mot de passe est généré par le coffre-fort de l'équipe d'exploitation.
 

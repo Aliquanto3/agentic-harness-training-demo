@@ -67,6 +67,15 @@ class LlamaCppEmbedder:
                 f"le modèle produit des vecteurs de {found} dimensions, alors que "
                 f"[rag.embedding] en déclare {model.dims}"
             )
+        # One flat vector per text: a GGUF without pooling (`none`) gives one per token.
+        probe = self._llm.embed("Exemplia", normalize=False, truncate=True)
+        flat = isinstance(probe, list) and all(isinstance(x, int | float) for x in probe)
+        if not flat or len(probe) != model.dims:
+            self.close()
+            raise ValueError(
+                "le modèle ne rend pas un vecteur par texte (pooling absent ou « none » dans "
+                "ses métadonnées GGUF) : ce n'est pas un modèle d'embedding de phrases"
+            )
 
     def _embed(self, texts: Sequence[str], prefix: str) -> list[list[float]]:
         return [

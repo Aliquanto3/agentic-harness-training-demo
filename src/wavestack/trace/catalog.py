@@ -49,7 +49,7 @@ class HarnessErrorPayload(BaseModel):
 
 
 SessionState = Literal[
-    "idle", "turn", "awaiting_human", "model_load", "download", "reset", "diagnostic"
+    "idle", "turn", "awaiting_human", "model_load", "download", "index_build", "reset", "diagnostic"
 ]
 
 
@@ -277,6 +277,12 @@ class DownloadOffer(BaseModel):
     label_fr: str
 
 
+class IndexBuildOffer(BaseModel):
+    """Story 15: « Construire l'index » on the RAG card, once its model is there."""
+
+    label_fr: str
+
+
 class BrickState(BaseModel):
     """One brick card: its content, and `available`/`pending` as computed by the session."""
 
@@ -307,6 +313,7 @@ class BrickState(BaseModel):
     force: BrickForce | None = None
     # Story 15, `rag` brick: offered when the embedding model's files are missing (AD-21).
     download: DownloadOffer | None = None
+    build_index: IndexBuildOffer | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -394,7 +401,15 @@ class HookDecidedPayload(BaseModel):
 
 
 class EffectAppliedPayload(BaseModel):
-    effect: Literal["audit_append", "setting_write", "api_key_set", "memory_write"]
+    # Story 15: `model_download` (each file and its sha256), `rag_index_write` (the index).
+    effect: Literal[
+        "audit_append",
+        "setting_write",
+        "api_key_set",
+        "memory_write",
+        "model_download",
+        "rag_index_write",
+    ]
     lines: list[str] = []
     # `memory_write` (story 14, AD-23): the change applied to `memory.json`.
     op: Literal["add", "replace", "delete"] | None = None
