@@ -27,6 +27,9 @@ REPO = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 KEY_ENV = "WAVESTACK_FAKE_API_KEY"
 MODEL_ENTRY_ID = "fake"
+# Story 17: a second fake model, for the hot switch; `launch_app.py` slows its loading.
+SECOND_ENTRY_ID = "fake_b"
+SECOND_MODEL = "faux-modele-b"
 
 
 def free_port() -> int:
@@ -37,6 +40,22 @@ def free_port() -> int:
 
 EMBEDDING_FILE = "embedding/fake-e2e.gguf"
 EMBEDDING_SIZE = 4096  # `fake_openai.MODEL_FILE_SIZE`
+
+
+def _entry(fake_port: int, entry_id: str, provider: str, model: str) -> dict:
+    return {
+        "id": entry_id,
+        "provider": provider,
+        "base_url": f"http://127.0.0.1:{fake_port}/v1",
+        "model": model,
+        "stream_usage": True,
+        "tools": True,
+        "context": 32768,
+        "hosting_fr": "Ce poste (faux serveur de test, boucle locale)",
+        "training": "no",
+        "notes_fr": "Faux modèle scripté pour les tests de bout en bout.",
+        "key_env": KEY_ENV,
+    }
 
 
 def rag_settings(fake_port: int, data_dir: Path) -> dict:
@@ -72,25 +91,14 @@ def build_rag_index(path: Path) -> None:
 
 
 def settings(fake_port: int, data_dir: Path) -> dict:
-    """The `settings.json` override: one cloud model, the fake server; the RAG's index and
-    fake embedding model (story 15)."""
+    """The `settings.json` override: two cloud models, both on the fake server; the RAG's
+    index and fake embedding model (story 15)."""
     return {
         "rag": rag_settings(fake_port, data_dir),
         "cloud": {
             "models": [
-                {
-                    "id": MODEL_ENTRY_ID,
-                    "provider": "Faux fournisseur (e2e)",
-                    "base_url": f"http://127.0.0.1:{fake_port}/v1",
-                    "model": "wavestack-fake",
-                    "stream_usage": True,
-                    "tools": True,
-                    "context": 32768,
-                    "hosting_fr": "Ce poste (faux serveur de test, boucle locale)",
-                    "training": "no",
-                    "notes_fr": "Faux modèle scripté pour les tests de bout en bout.",
-                    "key_env": KEY_ENV,
-                }
+                _entry(fake_port, MODEL_ENTRY_ID, "Faux fournisseur (e2e)", "wavestack-fake"),
+                _entry(fake_port, SECOND_ENTRY_ID, "Faux fournisseur B (e2e)", SECOND_MODEL),
             ]
         },
     }

@@ -30,7 +30,7 @@ class ProbeResult(BaseModel):
     reason: str | None = None
     architecture: str | None = None
     has_chat_template: bool = False
-    rss_bytes: int | None = None
+    rss_bytes: int | None = None  # RSS gained by loading the model (n_ctx = 16)
     size_bytes: int | None = None
     mtime: float | None = None
     size_label: str | None = None  # `general.size_label`, e.g. « 2B » (DESIGN.md)
@@ -47,21 +47,39 @@ def _int_meta(meta: dict[str, Any], key: str) -> int | None:
 
 
 def kv_bytes_per_token(meta: dict[str, Any]) -> int | None:
-    """AD-8: `2 (K, V) × 2 bytes (f16) × layers × KV heads × head size`, from the GGUF
-    metadata; `None` when one of them is missing. Hybrid models (Qwen3.5) are overestimated."""
+    """AD-8: the KV cache's bytes per token of context, f16 (2 bytes), K and V:
+    `2 × Σ over layers (KV heads × (key size + value size))`, from the GGUF metadata.
+
+    `head_count_kv` may be one integer or one value per layer (hybrid models such as
+    Qwen3.5, whose linear-attention layers have 0 KV head); a value that is neither (e.g.
+    an array llama-cpp-python only shows as text) gives `None`, never the attention heads
+    instead. Sliding-window attention is not taken into account: an overestimate.
+    """
     arch = meta.get("general.architecture")
     if not arch:
         return None
     layers = _int_meta(meta, f"{arch}.block_count")
     heads = _int_meta(meta, f"{arch}.attention.head_count")
-    kv_heads = _int_meta(meta, f"{arch}.attention.head_count_kv") or heads
-    head_dim = _int_meta(meta, f"{arch}.attention.key_length")
-    if head_dim is None:
+    key_length = _int_meta(meta, f"{arch}.attention.key_length")
+    if key_length is None:
         embedding = _int_meta(meta, f"{arch}.embedding_length")
-        head_dim = embedding // heads if embedding and heads else None
-    if not (layers and kv_heads and head_dim):
+        key_length = embedding // heads if embedding and heads else None
+    value_length = _int_meta(meta, f"{arch}.attention.value_length") or key_length
+    kv_key = f"{arch}.attention.head_count_kv"
+    raw = meta.get(kv_key)
+    if raw is None:
+        kv_heads_total = layers * heads if layers and heads else None
+    elif isinstance(raw, list | tuple):
+        try:
+            kv_heads_total = sum(int(n) for n in raw)
+        except (TypeError, ValueError):
+            kv_heads_total = None
+    else:
+        per_layer = _int_meta(meta, kv_key)
+        kv_heads_total = layers * per_layer if layers and per_layer else None
+    if not (kv_heads_total and key_length and value_length):
         return None
-    return 4 * layers * kv_heads * head_dim
+    return 2 * kv_heads_total * (key_length + value_length)
 
 
 def probe_file(path: str) -> ProbeResult:
@@ -75,6 +93,8 @@ def probe_file(path: str) -> ProbeResult:
     except ImportError:
         return ProbeResult(ok=False, path=path, reason="llama-cpp-python non installé.")
 
+    process = psutil.Process(os.getpid())
+    before = process.memory_info().rss  # the interpreter and llama-cpp-python, without weights
     try:
         llm = Llama(model_path=str(file_path), n_ctx=16, n_batch=16, verbose=False)
     except Exception as exc:  # noqa: BLE001 - any load failure marks the file incompatible
@@ -84,7 +104,7 @@ def probe_file(path: str) -> ProbeResult:
         metadata: dict[str, Any] = getattr(llm, "metadata", {}) or {}
         architecture = metadata.get("general.architecture")
         has_chat_template = bool(metadata.get("tokenizer.chat_template"))
-        rss_bytes = psutil.Process(os.getpid()).memory_info().rss
+        rss_bytes = max(0, process.memory_info().rss - before)  # the model's own share
         stat = file_path.stat()
         return ProbeResult(
             ok=True,
@@ -166,6 +186,13 @@ def failed_entry(path: str) -> dict[str, Any] | None:
     if not entry or entry.get("llama_cpp_version") != _llama_cpp_version():
         return None
     return entry if _same_file(entry, path) else None
+
+
+def measured(path: str) -> bool:
+    """AD-8: `path` has a valid probe entry that measured its cost (`rss_bytes`); an entry
+    written before story 17 has none, and the file is probed again before its first switch."""
+    entry = probed_entry(path)
+    return entry is not None and entry.get("rss_bytes") is not None
 
 
 def probed_entry(path: str) -> dict[str, Any] | None:

@@ -91,6 +91,7 @@ from wavestack.session.effects import (
     apply_setting,
 )
 from wavestack.skills import SkillsContent, SkillText, load_skills_content
+from wavestack.subagent import SubagentContent, load_subagent_content
 from wavestack.tools.executor import ToolExecutor
 from wavestack.tools.native import NATIVE_TOOLS
 from wavestack.tools.network import network_tools
@@ -102,6 +103,7 @@ from wavestack.tools.parser import (
     tool_call_id,
 )
 from wavestack.tools.registry import (
+    DelegationFailed,
     ToolError,
     ToolRegistry,
     ToolsContent,
@@ -117,6 +119,8 @@ DOC_LINE_MAX = 120  # characters of a tool's first description line in `load_too
 LOAD_SKILL = "load_skill"  # the harness meta-tool of the skills brick (AD-25)
 REMEMBER = "remember"  # the harness meta-tool of the global memory brick (AD-25)
 MEMORY = "file.memory"  # the schema node of `memory.json` (AD-12, AD-23)
+DELEGATE = "delegate"  # the harness meta-tool of the subagent brick (AD-11, AD-25)
+_NO_SUB_TEXT_FR = "(Le sous-agent n'a rendu aucun texte.)"
 RAG_INDEX = "file.rag_index"  # the schema node of the RAG index (story 15, AD-12)
 RAG_TARGET = "rag_embedding"  # the only `download_model` target (story 15)
 
@@ -201,6 +205,16 @@ _LIMITS_FR = {
         "outil inconnu ou arguments invalides). Le harnais arrête là au lieu de relancer "
         "indéfiniment."
     ),
+    "sub_retries": (
+        "Le sous-agent n'a pas pu utiliser ses outils : {n} appels refusés (mal formés, outil "
+        "inconnu ou arguments invalides). Le harnais arrête le sous-agent ; le tour principal "
+        "continue avec une erreur à la place du résultat."
+    ),
+    "sub_calls": (
+        "Borne du sous-agent atteinte : {n} appels au modèle pour cette délégation. Le harnais "
+        "arrête le sous-agent ; le tour principal continue avec une erreur à la place du "
+        "résultat."
+    ),
 }
 _OVERFLOW_STRATEGIES_FR = [
     "Fenêtre glissante : ne garder que les échanges les plus récents.",
@@ -242,6 +256,10 @@ class _ModelOutput:
     # `arguments` as the provider emitted them.
     ids: list[str] = field(default_factory=list)
     arguments: list[str] = field(default_factory=list)
+    # Chat mode: the call's `context_reconciled` payload once `usage` came back (AD-4); a
+    # provider's refusal: its French message (for a failed delegation, AD-11).
+    reconciled: dict[str, Any] | None = None
+    message_fr: str = ""
 
 
 @dataclass(frozen=True)
@@ -251,7 +269,7 @@ class ArmedAction:
     memory write with its `text` (story 14)."""
 
     armed_id: str
-    kind: str  # tool | skill | tool_doc | memory
+    kind: str  # tool | skill | tool_doc | memory | delegate
     brick: str
     target: str
     args: dict[str, Any]
@@ -301,6 +319,28 @@ class TurnState:
     # Story 15 (AD-4): the RAG's intro then its excerpts, formatted, found by this turn's
     # search; never kept in the history.
     rag_excerpts: tuple[str, ...] = ()
+    # Story 19 (AD-11): the sub-agent's tools, `[subagent] tools` among the enabled ones.
+    subagent_tools: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _SubContext:
+    """A sub-agent's context (AD-11): its own system prompt, the task and its tools, nothing
+    else of the main context."""
+
+    context_id: str  # sub{n}
+    task: str
+    prompt: str
+    tools: tuple[str, ...]
+
+
+@dataclass
+class _SubOutcome:
+    """How a sub-agent's loop ended; `message_fr` is the error reinjected on a failure."""
+
+    status: str  # completed | limit | overflow | error | cancelled
+    result: str = ""
+    message_fr: str = ""
 
 
 def _with_loaded(state: TurnState, loaded_in_turn: list[str]) -> TurnState:
@@ -344,6 +384,11 @@ class _LoadFailed(Exception):
     def __init__(self, message_fr: str, reason_fr: str, idle_fr: str | None = None) -> None:
         super().__init__(reason_fr)
         self.message_fr, self.reason_fr, self.idle_fr = message_fr, reason_fr, idle_fr
+
+
+def _kind_tokens(payload: dict[str, Any], kind: SegmentKind) -> int:
+    """The tokens of a context's segments of `kind` (AD-1: the session's own figures)."""
+    return sum(s["tokens"] for s in payload["segments"] if s["kind"] == kind)
 
 
 def _fr(n: int) -> str:
@@ -424,6 +469,11 @@ class AppSession:
         # `idle` check to its end, and a turn takes it to start: no drawer write in a turn.
         # Always taken before `_lock`.
         self._memory_lock = threading.RLock()
+        self._subagent_content: SubagentContent | None = None
+        # Story 19 (AD-11): sub-agents numbered over the session's life, never reset; the
+        # running turn's frozen state and stop token, for `delegate`.
+        self._subs = 0
+        self._turn_ctx: tuple[TurnState, CancelToken] | None = None
         self._hook_steps = 0  # hook steps of the running turn, for their step ids
         self._turn_seq = 0  # seq of the running turn's `turn_started`: its events follow it
         # Story 15 (AD-8, AD-22): the RAG's texts and model, what was read of its index and
@@ -445,6 +495,7 @@ class AppSession:
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
         )
         self._tool_executor = ToolExecutor(self._registry)
+        self._check_subagent_tools()
         self._tools_enabled: set[str]  # sub-options: see `_apply_launch_config`
         # MCP servers (story 6): the local one starts enabled, the public ones disabled. A
         # server is contacted only while enabled with the brick wanted (AD-15).
@@ -630,6 +681,20 @@ class AppSession:
             model |= {"hosting": "network", "provider": self._cloud.provider}
             edges.append({"from": "core.harness", "to": "core.model", "crosses_boundary": True})
         nodes: list[dict[str, Any]] = [_CORE_HARNESS, model]
+        if any(b.id == "subagent" for b in wanted):  # AD-11: the same model, a second context
+            available, reason_fr = self._availability("subagent")
+            sub_model = {
+                **model,
+                "id": "core.model_sub",
+                "label_fr": "Modèle (sous-agent)",
+                "available": available,
+                "reason_fr": reason_fr,
+            }
+            nodes.append(sub_model)
+            if self._cloud is not None:  # as `core.model`: an edge only across the boundary
+                edges.append(
+                    {"from": "core.harness", "to": "core.model_sub", "crosses_boundary": True}
+                )
         components = {b.id: self._drawn_components(b) for b in wanted}
         # A file node is drawn once a drawn component points to it: its brick, its label
         # and what its tooltip adds.
@@ -831,6 +896,24 @@ class AppSession:
             "outil inconnu ou arguments invalides)."
         )
 
+    def _subagent_card(self, text: SubagentContent) -> dict[str, Any]:
+        """Story 19: « Déléguer au sous-agent » on the card (no sub-option), and the bounds."""
+        tools = ", ".join(self._registry.label(n) for n in self.cfg.subagent_tools) or "aucun"
+        n = self.cfg.subagent_max_calls
+        return {
+            "force": {
+                "kind": "delegate",
+                "target": DELEGATE,
+                "label_fr": text.force_label_fr,
+                "parameters": {"task": text.task_label_fr},
+                "presets": [p.model_dump() for p in text.presets],
+            },
+            "limits_fr": (
+                f"Sous-agent : {n} appel{'s' if n > 1 else ''} au modèle au plus, nouveaux essais "
+                f"compris ; outils : {tools}, s'ils sont activés dans la brique Outils."
+            ),
+        }
+
     def _emit_bricks(self) -> None:
         pending = self._pending_ids()
         with self._lock:
@@ -871,6 +954,8 @@ class AppSession:
                 bricks[-1]["always_fr"] = self._always_fr()
             if brick.id == "global_memory":
                 bricks[-1] |= self._memory_card()
+            if brick.id == "subagent" and self._subagent_content is not None:
+                bricks[-1] |= self._subagent_card(self._subagent_content)
             if brick.id == "rag":
                 bricks[-1]["download"] = self._rag_download_offer()
             if brick.id == "mcp":
@@ -932,13 +1017,17 @@ class AppSession:
     @property
     def _ratio(self) -> float:
         """AD-4: the active cloud model's last `usage.prompt_tokens / Σ estimates`, kept by
-        model `id`: a round trip through another model finds it again."""
-        key = self._cloud.id if self._cloud is not None else ""
-        return self._ratios.get(key, self.cfg.estimate_ratio)
+        model `id`: a round trip through another model finds it again. The sub-agents'
+        contexts keep one of their own, under `{id}#sub` (AD-11)."""
+        return self._ratios.get(self._ratio_id(), self.cfg.estimate_ratio)
 
     @_ratio.setter
     def _ratio(self, value: float) -> None:
-        self._ratios[self._cloud.id if self._cloud is not None else ""] = value
+        self._ratios[self._ratio_id()] = value
+
+    def _ratio_id(self) -> str:
+        model = self._cloud.id if self._cloud is not None else ""
+        return f"{model}#sub" if self._ratio_key() == "sub" else model
 
     def _cost(self, choice: ModelChoice) -> int:
         """AD-8: a file's estimated cost at the configured window (an upper bound of the
@@ -951,20 +1040,21 @@ class AppSession:
     def _load_reason(choice: ModelChoice) -> str:
         if choice.entry is not None:
             return f"Préparation du modèle cloud {choice.entry.model} chez {choice.entry.provider}…"
-        return f"Chargement du modèle {Path(choice.ref).name}…"
+        return f"Chargement du modèle {choice.file_name}…"
 
     @staticmethod
     def _model_payload(choice: ModelChoice) -> dict[str, Any]:
         """The `ActiveModel` of a model not loaded yet: `model_load_*`."""
         if choice.entry is not None:
             return active_model(choice.entry)
-        name = Path(choice.ref).stem
-        return {"id": name, "label": name, "hosting": "local", "kind": "file", "ref": choice.ref}
+        label = choice.label
+        return {"id": label, "label": label, "hosting": "local", "kind": "file", "ref": choice.ref}
 
-    def boot(self, model_path: str | None) -> Future[str]:
+    def boot(self, model_path: str | None, name: str | None = None) -> Future[str]:
         """The launch's model (AD-21) on the worker thread: `model_load` → `idle`, then
-        `context_preview`. `None`: a local server only, no file to load."""
-        choice = ModelChoice("file", model_path) if model_path else None
+        `context_preview`. `None`: a local server only, no file to load. `name`: the
+        candidate's readable name (an Ollama `model:tag`)."""
+        choice = ModelChoice("file", model_path, name=name) if model_path else None
         return self._executor.submit(self._boot, choice)
 
     def boot_cloud(self, entry: CloudModel) -> Future[str]:
@@ -1016,9 +1106,10 @@ class AppSession:
         save: bool,
     ) -> str:
         """The single load path, on the worker, in `model_load` (AD-3, AD-8): release the
-        active model, probe a GGUF never probed (AD-7), load; on failure, reload `previous`.
-        Then `model_load_ended`, `idle`, and the bricks, schema and preview again. The choice
-        is saved (`save`) after a success only. Returns `ok`, `restored` or `error`."""
+        active model, probe a GGUF never measured (AD-7) and check the budget again with the
+        measure, load; on failure, reload `previous`. Then `model_load_ended`, `idle`, and the
+        bricks, schema and preview again. The choice is saved (`save`) after a success only.
+        Returns `ok`, `restored` or `error`."""
         started = time.monotonic()
         model = self._model_payload(choice)
         journal = get_journal()
@@ -1029,24 +1120,29 @@ class AppSession:
             )
         status, reason_fr, idle_fr = "error", None, _LOAD_FAILED_FR
         try:
-            self._release()
             try:
+                self._release()
+                self._emit_architecture()  # the schema no longer shows the released model
                 if (
                     choice.kind == "file"
                     and probe is not None
-                    and probe_module.probed_entry(choice.ref) is None
+                    and not probe_module.measured(choice.ref)
                 ):
                     why = probe(choice.ref)
                     if why is not None:
-                        name = Path(choice.ref).name
-                        raise _LoadFailed(f"Le fichier {name} est incompatible.", why)
+                        raise _LoadFailed(f"Le fichier {choice.file_name} est incompatible.", why)
+                    # AD-8: the probe's measure replaces the file size of the first check.
+                    refusal = self._load_registry.check(choice.label, self._cost(choice))
+                    if refusal is not None:
+                        over_fr = "Le modèle dépasse le budget mémoire une fois mesuré."
+                        raise _LoadFailed(over_fr, refusal)
                 self._install(choice)
                 status, idle_fr = "ok", None
             except Exception as exc:  # noqa: BLE001 - AD-16
                 reason_fr, idle_fr, status = self._load_failed(choice, previous, exc)
             if status == "ok" and save:
                 reason_fr = self._save_choice(choice)
-        except Exception as exc:  # noqa: BLE001 - AD-16: e.g. the release itself failed
+        except Exception as exc:  # noqa: BLE001 - AD-16: never let the worker die silently
             self._error("Le changement de modèle s'est interrompu.", exc, _NO_TURN_FR)
             status, reason_fr, idle_fr = "error", str(exc), _LOAD_FAILED_FR
         finally:
@@ -1108,38 +1204,46 @@ class AppSession:
         )
 
     def _release(self) -> None:
-        """AD-8: the active model is closed and leaves the registry before anything loads."""
+        """AD-8: the active model is closed and leaves the registry before anything loads;
+        the registry forgets it even when `close()` fails (raised afterwards)."""
         with self._lock:
             engine = self._engine
             self._engine, self._caps, self._cloud, self._active = None, None, None, None
             self._model_name = None
-        if engine is not None:
-            engine.close()
-        self._load_registry.release()
+        try:
+            if engine is not None:
+                engine.close()
+        finally:
+            self._load_registry.release()
 
     def _install(self, choice: ModelChoice) -> None:
-        """Load `choice` as the active model, nothing being loaded: raises on failure."""
+        """Load `choice` as the active model, nothing being loaded: raises on failure, the
+        engine it opened closed first (AD-8: never two models)."""
         if choice.entry is not None:
             self._install_cloud(choice.entry)
         else:
             engine = self._engine_factory(choice.ref, n_ctx=self.cfg.context_window)
-            caps = capabilities_for(engine.metadata())
-            if caps.incompatible_reason:
+            try:
+                caps = capabilities_for(engine.metadata())
+                if caps.incompatible_reason:
+                    raise _LoadFailed(
+                        "Modèle incompatible.", caps.incompatible_reason, caps.incompatible_reason
+                    )
+                window = effective_window(self.cfg.context_window, caps.native_context)
+                labels = self._load_labels()
+            except BaseException:
                 engine.close()
-                raise _LoadFailed(
-                    "Modèle incompatible.", caps.incompatible_reason, caps.incompatible_reason
-                )
-            window = effective_window(self.cfg.context_window, caps.native_context)
-            labels = self._load_labels()
+                raise
             with self._lock:
                 self._engine, self._caps, self._cloud = engine, caps, None
-                self._model_name = Path(choice.ref).stem
+                self._model_name = choice.label
                 self._window = window
                 self._window_source = (
                     "configured" if window == self.cfg.context_window else "native"
                 )
                 self._labels = labels
                 self._active = choice
+        # A cloud model is granted too (cost 0): the registry names the active model.
         self._load_registry.grant(choice.label, self._cost(choice))
 
     def _install_cloud(self, entry: CloudModel) -> None:
@@ -1151,20 +1255,24 @@ class AppSession:
             raise ValueError(unavailable)
         self._cloud_content = load_cloud_content()
         engine = self._cloud_factory(entry, key)
-        # AD-6: declared capabilities; the API's structured format parses the tool calls.
-        caps = Capabilities(
-            family="openai_chat",
-            chat_template=None,
-            tool_call_parser="openai_chat" if entry.tools else None,
-            stop_sequences=(),
-            reasoning_variable=None,
-            native_context=entry.context,
-            reasoning_tags=None,
-            reasoning=entry.reasoning is not None,
-            reasoning_always=entry.always_reasons,
-        )
-        window, source = config.cloud_window(entry, self.cfg.context_window)
-        labels = self._load_labels()
+        try:
+            # AD-6: declared capabilities; the API's structured format parses the tool calls.
+            caps = Capabilities(
+                family="openai_chat",
+                chat_template=None,
+                tool_call_parser="openai_chat" if entry.tools else None,
+                stop_sequences=(),
+                reasoning_variable=None,
+                native_context=entry.context,
+                reasoning_tags=None,
+                reasoning=entry.reasoning is not None,
+                reasoning_always=entry.always_reasons,
+            )
+            window, source = config.cloud_window(entry, self.cfg.context_window)
+            labels = self._load_labels()
+        except BaseException:
+            engine.close()
+            raise
         with self._lock:
             self._engine, self._caps, self._cloud = engine, caps, entry
             self._model_name = entry.model
@@ -1174,11 +1282,12 @@ class AppSession:
 
     def _save_choice(self, choice: ModelChoice) -> str | None:
         """AD-20: `selected_model`, by the single applier (AD-23), after a success only.
-        Returns the French notice when settings.json could not be written."""
+        Returns the French notice when it could not be written; whatever the failure, the
+        model loaded stays active."""
         value = {"kind": choice.kind, "ref": choice.ref}
         try:
             apply_setting(SettingWrite(key="selected_model", value=value))
-        except OSError as exc:
+        except Exception as exc:  # noqa: BLE001 - AD-16: a success is never undone by this
             notice = f"{choice.label} est actif ; choix non mémorisé pour les prochains lancements."
             self._error("Impossible d'écrire le fichier de réglages settings.json.", exc, notice)
             return notice
@@ -1282,6 +1391,20 @@ class AppSession:
                 )
         if "global_memory" in self._bricks:
             self._load_memory()
+        if "subagent" in self._bricks:
+            try:
+                self._subagent_content = load_subagent_content()
+            except Exception as exc:  # noqa: BLE001
+                self._content_errors["subagent"] = (
+                    "Le fichier content/subagent.yaml ou le prompt du sous-agent "
+                    "(content/prompts/subagent.md) est absent ou invalide : corrigez-le puis "
+                    "relancez WaveStack."
+                )
+                self._error(
+                    "Les textes du sous-agent sont invalides.",
+                    exc,
+                    "La brique « Sous-agent » est indisponible ; le reste de WaveStack fonctionne.",
+                )
         if "rag" in self._bricks:
             self._load_rag()
         if "system_prompt" not in self._bricks:
@@ -1681,9 +1804,19 @@ class AppSession:
 
     def _reasoning_on(self, state: TurnState) -> bool:
         """AD-6, AD-9: the model reasons in this turn: brick effective, or a cloud model
-        that always reasons."""
+        that always reasons. In a sub-agent's context (AD-11), the brick counts only if it
+        contributes to it (`contributes_to`): the reasoning brick does not, so the sub-agent
+        keeps the 512-token reserve and the room for its document."""
         always = self._caps is not None and self._caps.reasoning_always
-        return always or "reasoning" in state.effective
+        brick_on = "reasoning" in state.effective
+        if self._ratio_key() == "sub":
+            brick_on = brick_on and self._contributes("reasoning", "sub")
+        return always or brick_on
+
+    def _contributes(self, brick_id: str, context: str) -> bool:
+        """AD-11, AD-12: the brick declares it contributes to `context` (`main` or `sub`)."""
+        brick = self._bricks.get(brick_id)
+        return brick is not None and context in brick.contributes_to
 
     def _reserve_of(self, state: TurnState) -> int:
         """AD-9: the output reserve of a turn (or of the preview), from its frozen state."""
@@ -1741,6 +1874,18 @@ class AppSession:
                 memory = tuple(e.text for e in self._memory)
             if self._caps is not None and self._caps.tool_call_parser:  # H4, AD-25
                 tools.append(REMEMBER)
+        sub_tools: list[str] = []
+        if "subagent" in effective:  # AD-11: `[subagent] tools` among the tools retained
+            wanted = self.cfg.subagent_tools  # of the bricks contributing to `sub`
+            sub_tools = [
+                n
+                for n in tools
+                if n in wanted
+                and (spec := self._registry.get(n)) is not None
+                and spec.source != "harness"  # no meta-tool, no nested delegation
+                and self._contributes(spec.brick or spec.component.split(".")[0], "sub")
+            ]
+            tools.append(DELEGATE)
         hooks = [h for h in self._hook_ids() if h in hooks_enabled] if "hooks" in effective else []
         return TurnState(
             history=tuple(history),
@@ -1752,6 +1897,7 @@ class AppSession:
             skill_catalog=tuple(catalog),
             hooks=tuple(hooks),
             memory=memory,
+            subagent_tools=tuple(sub_tools),
         )
 
     # ---------- rendering ----------
@@ -1991,16 +2137,37 @@ class AppSession:
         )
         return Joined((intro, *lines), sep="\n")
 
+    def _sub_messages(
+        self, sub: _SubContext, steps: list[dict[str, Any]], *, chat: bool = False
+    ) -> list[dict[str, Any]]:
+        """AD-11: the sub-agent's context, its prompt then the task, then its own steps;
+        nothing of the main context (history, main prompt, skills, H3)."""
+        own = ("subagent", "subagent.agent")
+        return [
+            {"role": "system", "content": [Part(SegmentKind.SYSTEM_PROMPT, sub.prompt, *own)]},
+            {"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, sub.task, *own)]},
+            *self._step_messages(
+                steps,
+                history=False,
+                group="sub",
+                chat=chat,
+                resend=self._resend() if chat else None,
+            ),
+        ]
+
     def _render(
         self,
         state: TurnState,
         message: str,
         call_id: str | None,
         steps: list[dict[str, Any]] | None = None,
+        sub: _SubContext | None = None,
     ) -> tuple[RenderedContext | RenderedChat, dict[str, Any]]:
+        """`sub`: a sub-agent's call (AD-11), rendered the same way from its own messages and
+        tools (`_tool_definitions` reads only `tools` and `loadable`)."""
         assert self._engine is not None and self._caps is not None and self._labels is not None
         if self._cloud is not None:
-            return self._render_chat(state, message, call_id, steps)
+            return self._render_chat(state, message, call_id, steps, sub)
         meta = self._engine.metadata()
         template_vars: dict[str, Any] = {}
         if self._caps.reasoning_variable:  # AD-6: the brick sets the template's variable
@@ -2008,10 +2175,12 @@ class AppSession:
         rendered = render_context(
             self._engine,
             self._caps.chat_template or "",
-            self._messages(state, message, steps),
+            self._sub_messages(sub, steps or []) if sub else self._messages(state, message, steps),
             call_id=call_id,
             special_tokens=meta.special_tokens,
-            tools=self._tool_definitions(state),
+            tools=self._tool_definitions(
+                replace(state, tools=sub.tools, loadable=()) if sub else state
+            ),
             bos_token=meta.bos_token,
             eos_token=meta.eos_token,
             add_generation_prompt=True,
@@ -2033,15 +2202,22 @@ class AppSession:
         message: str,
         call_id: str | None,
         steps: list[dict[str, Any]] | None,
+        sub: _SubContext | None = None,
     ) -> tuple[RenderedChat, dict[str, Any]]:
         """AD-4, chat mode: `context` writes the body; before the call, the total is the
-        estimates × `ratio`, and only their raw sum can block the call."""
+        estimates × `ratio` (the main one, or the sub-agents'), and only their raw sum can
+        block the call."""
         entry, content = self._cloud, self._cloud_content
         assert entry is not None and content is not None
         reserve = self._reserve_of(state)
+        messages = (
+            self._sub_messages(sub, steps or [], chat=True)
+            if sub
+            else self._messages(state, message, steps, chat=True)
+        )
         rendered = render_chat_body(
-            self._messages(state, message, steps, chat=True),
-            self._tool_definitions(state),
+            messages,
+            self._tool_definitions(replace(state, tools=sub.tools, loadable=()) if sub else state),
             call_id=call_id,
             fields=chat_fields(entry, reserve, reasoning=self._reasoning_on(state)),
             markers=self.cfg.cloud_markers,
@@ -2049,11 +2225,19 @@ class AppSession:
             provider_label_fr=content.provider_segment_fr,
         )
         payload = self._chat_gauge(
-            rendered, round(rendered.raw_total * self._ratio), "estimate", reserve
+            rendered,
+            round(rendered.raw_total * self._ratio),
+            "estimate",
+            reserve,
         )
         if not payload["overflow"] and payload["used"] > payload["usable"]:
             payload["uncertain_fr"] = content.uncertain_fr
         return rendered, payload
+
+    @staticmethod
+    def _ratio_key() -> str:
+        """AD-4: `main`, or `sub` for any sub-agent context (they share one ratio)."""
+        return "sub" if (current().context_id or "").startswith("sub") else "main"
 
     def _chat_gauge(
         self, rendered: RenderedChat, total: int, source: str, reserve: int
@@ -2300,6 +2484,27 @@ class AppSession:
                 raise ArmRefused(f"{exc} Rien n'est armé.") from None
             shown = text if len(text) <= 40 else f"{text[:40].rstrip()}…"
             args, brick, label_fr = {"text": text}, "global_memory", f"Écrire en mémoire ({shown})"
+        elif kind == "delegate":  # story 19: the card's action, its target fixed
+            if self._subagent_content is None or target != DELEGATE:
+                raise ArmRefused(
+                    f"Action inconnue : « {target} » n'est pas la délégation au sous-agent. "
+                    "Rien n'est armé.",
+                    not_found=True,
+                )
+            extra = sorted(set(args) - {"task"})
+            if extra:
+                raise ArmRefused(
+                    f"Argument inconnu pour la délégation : {', '.join(extra)}. Seule la tâche "
+                    "(« task ») est attendue. Rien n'est armé."
+                )
+            task = args.get("task", "")
+            if not isinstance(task, str):
+                raise ArmRefused("La tâche du sous-agent doit être un texte. Rien n'est armé.")
+            task = task.strip()
+            if not task:
+                raise ArmRefused("La tâche du sous-agent est vide. Rien n'est armé.")
+            shown = task if len(task) <= 40 else f"{task[:40].rstrip()}…"
+            args, brick, label_fr = {"task": task}, "subagent", f"Délégation : « {shown} »"
         else:
             raise ArmRefused(f"Action inconnue : « {kind} ». Rien n'est armé.", not_found=True)
         with self._lock:
@@ -2399,7 +2604,317 @@ class AppSession:
                     required=("text",),
                 )
             )
+        if self._subagent_content is not None:
+            text = self._subagent_content
+            specs.append(
+                ToolSpec(
+                    name=DELEGATE,
+                    run=self._delegate,
+                    params={"task": "string"},
+                    component="subagent.agent",
+                    source="harness",
+                    brick="subagent",
+                    label_fr=text.phase_label_fr,  # the working indicator's phase (EXPERIENCE)
+                    description=text.delegate.description,
+                    schema={
+                        "type": "object",
+                        "properties": {
+                            "task": {"type": "string", "description": text.delegate.task}
+                        },
+                        "required": ["task"],
+                    },
+                    required=("task",),
+                )
+            )
         return specs
+
+    # ---------- sub-agent (story 19, AD-10, AD-11) ----------
+
+    def _delegate(self, task: str) -> str:
+        """`delegate` (AD-25): runs the sub-agent in `sub{n}`, on the same engine, and returns
+        only its result. Always emits `subagent_started` then `subagent_ended`, with
+        `parent_step` the step of `delegate`; a failure raises `DelegationFailed` with its
+        status, and the main turn goes on."""
+        ctx, text = self._turn_ctx, self._subagent_content
+        if ctx is None or text is None:
+            raise DelegationFailed("Délégation impossible hors d'un tour.", "error")
+        task = task.strip()
+        if not task:
+            raise DelegationFailed(
+                "La tâche du sous-agent est vide : décris-la dans l'argument « task ».", "error"
+            )
+        state, cancel = ctx
+        self._subs += 1
+        sub = _SubContext(f"sub{self._subs}", task, text.prompt, state.subagent_tools)
+        journal = get_journal()
+        started = time.monotonic()
+        figures = {"calls": 0, "context_tokens": 0, "kept_tokens": 0}
+        outcome = _SubOutcome("error", message_fr="le sous-agent s'est interrompu.")
+        # AD-11: every event of the sub-agent hangs on the step of `delegate`; the trigger
+        # (model or user) is inherited.
+        with scoped(
+            context_id=sub.context_id,
+            parent_step=current().step_id,
+            call_id=None,
+            step_id=None,
+            brick="subagent",
+            component="core.model_sub",
+        ):
+            journal.emit(
+                "subagent_started",
+                {"task": task, "tools": list(sub.tools), "phase_label": text.phase_label_fr},
+            )
+            try:
+                outcome = self._run_subagent(sub, state, cancel, figures)
+            except Exception as exc:  # noqa: BLE001 - AD-16: the delegation fails, not the turn
+                self._error(
+                    "Le sous-agent s'est interrompu sur une erreur.",
+                    exc,
+                    "La délégation échoue ; le tour principal continue.",
+                )
+            finally:
+                done = outcome.status == "completed"
+                result = outcome.result if done else outcome.message_fr
+                result_tokens, estimated = self._count_tokens(result)
+                # The saving: what the main context would have read (the tool results that
+                # stayed in the sub-agent) against the result it reads instead; none when the
+                # delegation failed, the main model getting an error in place of the result.
+                kept = figures["kept_tokens"]
+                journal.emit(
+                    "subagent_ended",
+                    {
+                        "status": outcome.status,
+                        "result": result,
+                        "context_tokens": figures["context_tokens"],
+                        "kept_tokens": kept,
+                        "result_tokens": result_tokens,
+                        "saved_tokens": max(0, kept - result_tokens) if done else 0,
+                        "estimated": estimated,
+                        "calls": figures["calls"],
+                        "duration_ms": _ms(time.monotonic() - started),
+                    },
+                )
+        if outcome.status == "completed":
+            return outcome.result
+        if outcome.status == "cancelled":
+            raise DelegationFailed("Délégation arrêtée à la demande de l'utilisateur.", "cancelled")
+        status = outcome.status if outcome.status in ("limit", "overflow") else "error"
+        raise DelegationFailed(
+            f"La délégation au sous-agent a échoué : {outcome.message_fr} Réponds sans ce "
+            "résultat, ou délègue une tâche plus simple.",
+            status,
+        )
+
+    def _check_subagent_tools(self) -> None:
+        """AD-19: a name of `[subagent] tools` that no tool of the tools brick bears is
+        traced at load, not silently ignored."""
+        if "subagent" not in self._bricks:
+            return
+        known = {
+            n
+            for n in self._registry.names
+            if (spec := self._registry.get(n)).source != "harness" and not spec.is_mcp
+        }
+        unknown = [n for n in self.cfg.subagent_tools if n not in known]
+        if unknown:
+            self._error(
+                f"[subagent] tools nomme des outils inconnus : {', '.join(unknown)}.",
+                f"Outils de la brique Outils : {', '.join(sorted(known))}.",
+                "Ces noms sont ignorés : le sous-agent n'a que les outils connus et activés.",
+            )
+
+    def _count_tokens(self, text: str) -> tuple[int, bool]:
+        """AD-1: the tokens `text` takes in the main context: by the model's tokenizer
+        locally; in chat mode (then `True`), the estimate corrected by the main context's
+        ratio, the unit of its segments (AD-4). Never raises: an estimate then."""
+        estimate = config.estimate_tokens(text, self.cfg.chars_per_token)
+        if self._cloud is not None or self._engine is None:
+            ratio = self._ratios.get(self._cloud.id if self._cloud else "", self.cfg.estimate_ratio)
+            return round(estimate * ratio), True
+        try:
+            return len(self._engine.tokenize(text)), False
+        except Exception:  # noqa: BLE001 - AD-16: `subagent_ended` is always emitted
+            return estimate, True
+
+    def _run_subagent(
+        self,
+        sub: _SubContext,
+        state: TurnState,
+        cancel: CancelToken,
+        figures: dict[str, int],
+    ) -> _SubOutcome:
+        """AD-10, AD-11: the sub-agent's bounded loop, as the turn's (`_turn`) but in its own
+        context: its calls on a counter of their own, the new attempts among them; the hooks
+        `before_model_call`, `before_tool` and `after_tool`; no armed action, no loading.
+        Fills `figures` (`calls`, `context_tokens`) as it goes."""
+        journal = get_journal()
+        turn_id, cid = current().turn_id or "", sub.context_id
+        max_calls, max_retries = self.cfg.subagent_max_calls, self.cfg.tool_max_retries
+        retries = step = 0
+        steps: list[dict[str, Any]] = []
+        previous: tuple[list[int], str] | None = None
+        stopped = _SubOutcome("cancelled", message_fr="délégation arrêtée.")
+        for n in range(1, max_calls + 1):
+            call_id = f"{turn_id}.{cid}.c{n}"
+            with scoped(call_id=call_id):
+                decided = self._hook("before_model_call", state)
+            if decided is not None and decided[1].decision == "block":
+                label = self._hook_label(decided[0])
+                return _SubOutcome(
+                    "error", message_fr=f"le hook « {label} » a bloqué son appel au modèle."
+                )
+            step += 1
+            with scoped(call_id=call_id, step_id=f"{turn_id}.{cid}.s{step}"):
+                rendered, payload = self._render(state, "", call_id, steps, sub)
+                journal.emit("context_rendered", payload)
+                figures["context_tokens"] = payload["used"]
+                figures["kept_tokens"] = _kind_tokens(payload, SegmentKind.TOOL_RESULT)
+                if previous is not None:
+                    self._check_prefix(*previous, rendered.ids)
+                if payload["overflow"]:
+                    self._emit_overflow(payload, getattr(rendered, "raw_total", None))
+                    return _SubOutcome(
+                        "overflow",
+                        message_fr=f"son contexte est dépassé ({_fr(payload['used'])} tokens pour "
+                        f"{_fr(payload['usable'])} utilisables).",
+                    )
+                figures["calls"] += 1
+                out = self._call_model(rendered, cancel, sub.tools, payload["reserve"])
+            if out.reconciled is not None:  # chat mode: `usage` reconciled the figures (AD-4)
+                figures["context_tokens"] = out.reconciled["used"]
+                figures["kept_tokens"] = _kind_tokens(out.reconciled, SegmentKind.TOOL_RESULT)
+            if out.status == "cancelled":
+                return stopped
+            if out.status == "limit":  # `output_truncated` emitted in `sub{n}` (AD-9)
+                return _SubOutcome(
+                    "limit",
+                    message_fr=f"sa sortie a été coupée à {_fr(payload['reserve'])} tokens.",
+                )
+            if out.status != "completed":  # a provider's refusal, traced in `sub{n}` (AD-16)
+                return _SubOutcome("error", message_fr=out.message_fr or "appel au modèle refusé.")
+            if not out.calls and out.malformed is None:
+                return _SubOutcome("completed", result=out.text.strip() or _NO_SUB_TEXT_FR)
+            if isinstance(rendered, RenderedContext):
+                previous = (rendered.ids, out.raw)
+
+            reaction = "retry" if retries < max_retries and n < max_calls else "stop"
+            failed = False
+            with scoped(call_id=call_id, component="core.harness"):
+                if out.malformed is not None:
+                    failed = True
+                    step += 1
+                    with scoped(step_id=f"{turn_id}.{cid}.s{step}"):
+                        error = self._tool_executor.reject(
+                            out.raw, out.malformed.fragment, out.malformed.detail_fr, reaction
+                        )
+                    steps.append(
+                        {
+                            "role": "assistant",
+                            "content": out.answer or out.raw,
+                            "tool_calls": [],
+                            "component": "core.model_sub",
+                        }
+                        | ({"reasoning": out.reasoning} if out.reasoning and out.answer else {})
+                    )
+                    steps.append(
+                        {
+                            "role": "tool",
+                            "name": None,
+                            "content": error,
+                            "component": "core.harness",
+                            "brick": "subagent",
+                        }
+                    )
+                else:
+                    steps.append(self._assistant_step(out) | {"component": "core.model_sub"})
+                    for call, call_ref in zip(out.calls, out.ids, strict=True):
+                        step += 1
+                        step_id = f"{turn_id}.{cid}.s{step}"
+                        detail = self._tool_executor.check(call, sub.tools)
+                        named = self._registry.get(call.name)
+                        spec = named if detail is None else None
+                        component = spec.component if spec else "core.harness"
+                        brick = (
+                            (named.brick or named.component.split(".")[0]) if named else "subagent"
+                        )
+                        blocker = None
+                        if spec is None:
+                            failed = True
+                            with scoped(step_id=step_id, brick=brick, component=component):
+                                result = self._tool_executor.reject(
+                                    out.raw, call.source, detail or "", reaction
+                                )
+                        else:
+                            ran = self._run_tool(call, spec, state, cancel, [], step_id, brick)
+                            if ran is None:
+                                return stopped
+                            result, blocker = ran
+                        steps.append(
+                            self._reply_step(call_ref, call.name, result, component, brick, blocker)
+                        )
+            if failed:
+                retries += 1
+                if retries > max_retries:
+                    self._emit_limit("sub_retries", retries)
+                    return _SubOutcome(
+                        "limit",
+                        message_fr=f"{retries} appels d'outil refusés (mal formés, outil inconnu "
+                        "ou arguments invalides).",
+                    )
+            if cancel.cancelled:
+                return stopped
+        self._emit_limit("sub_calls", max_calls)
+        return _SubOutcome(
+            "limit", message_fr=f"il a atteint sa borne de {max_calls} appels au modèle."
+        )
+
+    @staticmethod
+    def _assistant_step(out: _ModelOutput) -> dict[str, Any]:
+        """The assistant step of an output with tool calls: each call with its session id,
+        its arguments and their JSON, as emitted in chat mode, else serialized once (AD-4)."""
+        return {
+            "role": "assistant",
+            "content": out.text,
+            "tool_calls": [
+                {
+                    "id": call_ref,
+                    "name": c.name,
+                    "arguments": c.arguments,
+                    "arguments_json": (
+                        out.arguments[j]
+                        if out.arguments
+                        else json.dumps(c.arguments, ensure_ascii=False)
+                    ),
+                }
+                for j, (c, call_ref) in enumerate(zip(out.calls, out.ids, strict=True))
+            ],
+        } | ({"reasoning": out.reasoning} if out.reasoning else {})
+
+    @staticmethod
+    def _reply_step(
+        call_ref: str | None,
+        name: str,
+        result: str,
+        component: str,
+        brick: str,
+        blocker: str | None,
+    ) -> dict[str, Any]:
+        """A tool's reply step (AD-4): a hook's refusal is the hook's text; `delegate`'s reply
+        is the sub-agent's result (`subagent_result`), even a failure (AD-11)."""
+        step = {
+            "role": "tool",
+            "id": call_ref,
+            "name": name,
+            "content": result,
+            "component": component,
+            "brick": brick,
+        }
+        if blocker is not None:
+            return step | {"component": f"hooks.{blocker}", "brick": "hooks"}
+        if name == DELEGATE and component == "subagent.agent":  # it ran (not refused)
+            kind = SegmentKind.SUBAGENT_RESULT
+            return step | {"kind": kind, "brick": "subagent", "component": "subagent.agent"}
+        return step
 
     def _load_tool_doc_spec(self) -> ToolSpec:
         assert self._mcp_content is not None
@@ -3071,6 +3586,7 @@ class AppSession:
                 decided = self._hook("on_user_message", state)
                 if decided is not None and decided[1].injection:  # computed once for the turn
                     state = replace(state, injection=decided[1].injection)
+                self._turn_ctx = (state, cancel)  # what `delegate` reads (AD-11)
                 status, text, reasoning = self._turn(turn_id, message, cancel, state, steps)
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error(
@@ -3079,6 +3595,7 @@ class AppSession:
                     "Le tour est terminé ; WaveStack reste utilisable.",
                 )
             finally:
+                self._turn_ctx = None
                 try:
                     ended = self._hook("on_turn_end", state, status=status)
                 except Exception as exc:  # noqa: BLE001 - AD-16: the turn still ends
@@ -3162,7 +3679,11 @@ class AppSession:
             reaction = "retry" if retries < max_retries and n < max_calls else "stop"
             failed = False
             harness_brick = next(
-                (b for b in ("tools", "mcp", "skills", "global_memory") if b in state.effective),
+                (
+                    b
+                    for b in ("tools", "mcp", "skills", "global_memory", "subagent")
+                    if b in state.effective
+                ),
                 "tools",
             )
             # AD-25: what the model decided carries `trigger = model`, a forced action `user`.
@@ -3192,29 +3713,7 @@ class AppSession:
                         }
                     )
                 else:
-                    steps.append(
-                        {
-                            "role": "assistant",
-                            "content": out.text,
-                            "tool_calls": [
-                                {
-                                    "id": call_ref,
-                                    "name": c.name,
-                                    "arguments": c.arguments,
-                                    # AD-4: as emitted in chat mode, else serialized once.
-                                    "arguments_json": (
-                                        out.arguments[j]
-                                        if out.arguments
-                                        else json.dumps(c.arguments, ensure_ascii=False)
-                                    ),
-                                }
-                                for j, (c, call_ref) in enumerate(
-                                    zip(out.calls, out.ids, strict=True)
-                                )
-                            ],
-                        }
-                        | ({"reasoning": out.reasoning} if out.reasoning else {})
-                    )
+                    steps.append(self._assistant_step(out))
                     for call, call_ref in zip(out.calls, out.ids, strict=True):
                         step += 1
                         detail = self._tool_executor.check(
@@ -3245,16 +3744,9 @@ class AppSession:
                             if ran is None:
                                 return "cancelled", "", ""
                             result, blocker = ran
-                        tool_step = {
-                            "role": "tool",
-                            "id": call_ref,
-                            "name": call.name,
-                            "content": result,
-                            "component": component,
-                            "brick": brick,
-                        }
-                        if blocker is not None:  # AD-4: the refusal is the hook's text
-                            tool_step |= {"component": f"hooks.{blocker}", "brick": "hooks"}
+                        tool_step = self._reply_step(
+                            call_ref, call.name, result, component, brick, blocker
+                        )
                         steps.append(self._apply_effects(effects, tool_step, loaded_in_turn))
             if failed:
                 retries += 1
@@ -3361,8 +3853,8 @@ class AppSession:
             self._after_mcp_call(call.name, spec)
         if spec.network or spec.is_mcp:
             self._emit_architecture()  # its contact state may have changed
-        if text is None:
-            return None
+        if text is None or (spec.name == DELEGATE and cancel.cancelled):
+            return None  # AD-11: a delegation stopped ends the turn, no other call
         self._hook("after_tool", state, call=call, spec=spec, result=text)
         return text, None
 
@@ -3444,16 +3936,9 @@ class AppSession:
                     "component": component,
                 }
             )
-            tool_step = {
-                "role": "tool",
-                "id": call_ref,
-                "name": call.name,
-                "content": result,
-                "component": component,
-                "brick": action.brick,
-            }
-            if blocker is not None:  # AD-4: the refusal is the hook's text
-                tool_step |= {"component": f"hooks.{blocker}", "brick": "hooks"}
+            tool_step = self._reply_step(
+                call_ref, call.name, result, component, action.brick, blocker
+            )
             steps.append(self._apply_effects(effects, tool_step, loaded_in_turn))
         return False, step
 
@@ -3466,6 +3951,8 @@ class AppSession:
             return ToolCall(LOAD_TOOL_DOC, {"tool": action.target})
         if action.kind == "memory":
             return ToolCall(REMEMBER, {"text": action.args.get("text", "")})
+        if action.kind == "delegate":
+            return ToolCall(DELEGATE, {"task": action.args.get("task", "")})
         return ToolCall(action.target, dict(action.args))
 
     def _armed_unavailable(
@@ -3499,6 +3986,10 @@ class AppSession:
                     "l'outil remember"
                 )
             return None
+        if action.kind == "delegate":
+            if "subagent" not in state.effective:
+                return "la brique « Sous-agent » n'est pas active dans ce tour"
+            return None
         if "mcp" not in state.effective:
             return "la brique « MCP » n'est pas active dans ce tour"
         with self._lock:
@@ -3521,7 +4012,8 @@ class AppSession:
         turn_id = current().turn_id or ""
         self._approvals += 1
         approval = _Approval(f"{turn_id}.a{self._approvals}")
-        step = f"{turn_id}.main.h{self._hook_steps}"  # the step of H5's `hook_decided`
+        context_id = current().context_id or "main"  # `main` or `sub{n}` (AD-11)
+        step = f"{turn_id}.{context_id}.h{self._hook_steps}"  # the step of H5's `hook_decided`
         with scoped(step_id=step, brick="hooks", component=f"hooks.{hook_id}"):
             # Answerable before its id is published, so no answer to it is ever refused.
             with self._lock:
@@ -3584,9 +4076,16 @@ class AppSession:
             # From this turn's start: another session's turn may share its id (AD-2).
             since = journal.events_since(self._turn_seq - 1)
             events = tuple(e for e in since if e.turn_id == turn_id)
-            view = HookContext(point, turn_id, events=events, content=texts, **ctx)
+            view = HookContext(
+                point,
+                turn_id,
+                events=events,
+                content=texts,
+                context_id=current().context_id or "main",
+                **ctx,
+            )
             self._hook_steps += 1
-            step_id = f"{turn_id}.main.h{self._hook_steps}"
+            step_id = f"{turn_id}.{current().context_id or 'main'}.h{self._hook_steps}"
             label = self._hook_label(hook.id)
             with scoped(step_id=step_id, brick="hooks", component=f"hooks.{hook.id}"):
                 try:
@@ -3741,6 +4240,8 @@ class AppSession:
             lazy = self._sent[4]  # the mode frozen for this turn by `send`
         full = heaviest == SegmentKind.TOOL_CATALOG and not lazy
         cause = _TOOL_CATALOG_FULL_FR if full else _OVERFLOW_CAUSES_FR[heaviest]
+        if self._ratio_key() == "sub" and self._subagent_content is not None:
+            cause = self._subagent_content.overflow_cause_fr  # AD-11: the sub-agent's context
         get_journal().emit(
             "context_overflow",
             {
@@ -3899,6 +4400,7 @@ class AppSession:
         scope = current()
         step_id = scope.step_id or ""
         total = round(rendered.raw_total * self._ratio)
+        in_sub = self._ratio_key() == "sub"
         try:
             with scoped(origin="model"):  # AD-15: traced with the call's scope, no header
                 call = run_call(
@@ -3911,11 +4413,13 @@ class AppSession:
                     call_id=lambda index: self._new_call_id(step_id, index),
                 )
         except ProviderError as error:
-            journal.emit(
-                "harness_error",
-                error.payload("Le tour est terminé ; WaveStack reste utilisable."),
+            effect_fr = (
+                "La délégation échoue ; le tour principal continue."
+                if in_sub
+                else "Le tour est terminé ; WaveStack reste utilisable."
             )
-            return _ModelOutput("error")
+            journal.emit("harness_error", error.payload(effect_fr))
+            return _ModelOutput("error", message_fr=error.message_fr)
         prompt_tokens = int((call.usage or {}).get("prompt_tokens") or 0)
         if prompt_tokens:  # AD-4: `usage` is the total; the ratio learns from real calls only
             payload = self._chat_gauge(rendered, prompt_tokens, "api", reserve)
@@ -3924,7 +4428,12 @@ class AppSession:
                 self._ratio = min(1.5, max(0.8, prompt_tokens / rendered.raw_total))
         if call.stop_reason == "cancelled":
             return _ModelOutput("cancelled")
-        out = _ModelOutput("completed", text=call.text, reasoning=call.reasoning)
+        out = _ModelOutput(
+            "completed",
+            text=call.text,
+            reasoning=call.reasoning,
+            reconciled=payload if prompt_tokens else None,
+        )
         # AD-10: what a malformed output reinjects: `failed_generation`, else the text and
         # each call's name and arguments as emitted.
         out.raw = "\n".join(

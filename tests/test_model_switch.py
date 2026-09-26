@@ -109,6 +109,8 @@ def _events(mark: int, kind: str) -> list[dict]:
 
 
 def _record_probe(path: str, **fields) -> None:
+    """A successful probe of story 17, which measured the model (`rss_bytes`)."""
+    fields.setdefault("rss_bytes", 1)
     stat = Path(path).stat()
     probe.record_success(
         probe.ProbeResult(
@@ -264,7 +266,7 @@ def test_local_to_cloud(tmp_path):
 
 
 def test_cloud_without_confirmation_or_key_changes_nothing(monkeypatch, tmp_path):
-    session, app_session, client = _web(monkeypatch, tmp_path)
+    session, app_session, client, _ = _web(monkeypatch, tmp_path)
     mark = get_journal().last_seq()
 
     unconfirmed = client.post(
@@ -404,8 +406,9 @@ def test_launch_load_emits_model_load_events_out_of_any_turn(tmp_path):
     assert events[1].payload["status"] == "ok" and events[1].payload["duration_ms"] >= 0
 
 
-def _web(monkeypatch, tmp_path):
-    """The web app with A loaded at launch and B on disk; B's probe always succeeds."""
+def _web(monkeypatch, tmp_path, **session_kwargs):
+    """The web app with A loaded at launch and B on disk; B's probe always succeeds.
+    Returns the diagnostic session, the application session, a client and the tracker."""
     monkeypatch.setenv("OLLAMA_MODELS", str(tmp_path / "no-ollama"))
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "no-hf-cache"))
     monkeypatch.setattr(discovery, "_lm_studio_dirs", lambda: [])
@@ -421,15 +424,15 @@ def _web(monkeypatch, tmp_path):
     session = DiagnosticSession(cfg, port=8420)
     monkeypatch.setattr(session, "check_network", lambda: None)
     monkeypatch.setattr(session, "_probe_candidate", lambda candidate: None)
-    app_session = _session(tracker)
+    app_session = _session(tracker, **session_kwargs)
     app = create_app(session, port=8420, version="test", app_session=app_session)
     session.hand_to(app_session, session.run(), launch=True)
     app_session.join()
-    return session, app_session, TestClient(app, base_url="http://127.0.0.1:8420")
+    return session, app_session, TestClient(app, base_url="http://127.0.0.1:8420"), tracker
 
 
 def test_web_switch_answers_then_loads_and_diagnostic_reads_the_session(monkeypatch, tmp_path):
-    session, app_session, client = _web(monkeypatch, tmp_path)
+    session, app_session, client, _ = _web(monkeypatch, tmp_path)
     b = str(config.models_dir() / "B.gguf")
 
     answer = client.post(
@@ -448,7 +451,7 @@ def test_web_switch_answers_then_loads_and_diagnostic_reads_the_session(monkeypa
 
 
 def test_web_switch_refused_during_a_turn(monkeypatch, tmp_path):
-    _, app_session, client = _web(monkeypatch, tmp_path)
+    _, app_session, client, _ = _web(monkeypatch, tmp_path)
     app_session.state, app_session.reason_fr = "turn", "Un tour est en cours."
 
     answer = client.post(
@@ -459,3 +462,308 @@ def test_web_switch_refused_during_a_turn(monkeypatch, tmp_path):
 
     assert answer.status_code == 409 and "Un tour est en cours." in answer.json()["detail"]
     assert app_session.active_model()["label"] == "A"
+
+
+# ---------- independent review of story 17 ----------
+
+
+def _probe_child(monkeypatch, session: DiagnosticSession, result: dict) -> list[str]:
+    """The real `_probe_candidate`, its child process answering `result` (`ok`, `reason`...)."""
+    from wavestack.session import diagnostic as diagnostic_module
+
+    monkeypatch.setattr(
+        session, "_probe_candidate", DiagnosticSession._probe_candidate.__get__(session)
+    )
+    probed: list[str] = []
+
+    class _Done:
+        returncode = 0 if result.get("ok") else 1
+
+        def __init__(self, path: str) -> None:
+            self.stdout = probe.ProbeResult(path=path, **result).model_dump_json()
+
+    def run(cmd, **kwargs):  # noqa: ANN001, ANN202
+        probed.append(cmd[-1])
+        return _Done(cmd[-1])
+
+    monkeypatch.setattr(diagnostic_module.subprocess, "run", run)
+    return probed
+
+
+def test_web_probe_failure_marks_the_candidate_and_restores(monkeypatch, tmp_path):
+    session, app_session, client, tracker = _web(monkeypatch, tmp_path)
+    probed = _probe_child(monkeypatch, session, {"ok": False, "reason": "Architecture inconnue."})
+    b = str(config.models_dir() / "B.gguf")
+    mark = get_journal().last_seq()
+
+    answer = client.post("/api/intentions/select_model", json={"ref": b}, headers=ORIGIN)
+    app_session.join()
+
+    assert answer.status_code == 200 and answer.json()["ref"] == b and probed == [b]
+    assert _events(mark, "model_load_ended")[-1]["status"] == "restored"
+    assert app_session.active_model()["label"] == "A" and tracker.open == {"A"}
+    listed = next(c for c in client.get("/api/diagnostic").json()["candidates"] if c["path"] == b)
+    assert (listed["status"], listed["reason"]) == ("incompatible", "Architecture inconnue.")
+
+
+def test_web_refusal_reaches_the_session_lock(monkeypatch, tmp_path):
+    """`_diagnostic_class_b` lets `diagnostic` through; the switch itself refuses it."""
+    session, app_session, client, _ = _web(monkeypatch, tmp_path)
+    assert session.handed_out
+    app_session.state, app_session.reason_fr = "diagnostic", "Diagnostic de démarrage en cours."
+
+    answer = client.post(
+        "/api/intentions/select_model",
+        json={"ref": str(config.models_dir() / "B.gguf")},
+        headers=ORIGIN,
+    )
+
+    assert answer.status_code == 409
+    assert answer.json()["detail"] == "Diagnostic de démarrage en cours."
+    assert app_session.active_model()["label"] == "A"
+
+
+def test_web_budget_refusal_is_a_409_in_figures(monkeypatch, tmp_path):
+    session, app_session, client, tracker = _web(monkeypatch, tmp_path, rss=round(3.9 * GIB))
+    b = str(config.models_dir() / "B.gguf")
+    _record_probe(b, rss_bytes=GIB)
+
+    answer = client.post("/api/intentions/select_model", json={"ref": b}, headers=ORIGIN)
+
+    assert answer.status_code == 409
+    assert answer.json()["detail"].startswith("Changement refusé : B demande environ 1,0 Go")
+    assert "A reste actif." in answer.json()["detail"] and tracker.open == {"A"}
+
+
+def test_relaunch_after_a_switch_loads_the_new_model(monkeypatch, tmp_path):
+    _, app_session, client, _ = _web(monkeypatch, tmp_path)
+    b = str(config.models_dir() / "B.gguf")
+    client.post("/api/intentions/select_model", json={"ref": b}, headers=ORIGIN)
+    app_session.join()
+
+    relaunched = DiagnosticSession(config.load_config(), port=8420)
+    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate: None)
+    assert relaunched.check_model().model_path == b
+
+    entry = _cloud_entry()
+    client.post(
+        "/api/intentions/select_model",
+        json={"kind": "cloud", "ref": entry.id, "acknowledged": True},
+        headers=ORIGIN,
+    )
+    app_session.join()
+    relaunched = DiagnosticSession(config.load_config(), port=8420)
+    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate: None)
+    result = relaunched.check_model()  # AD-21: no warning, no request at a relaunch
+    assert result.cloud_model is not None and result.cloud_model.id == entry.id
+
+
+def test_budget_subtracts_the_active_model():
+    registry = LoadRegistry(4 * GIB, 0, rss_fn=lambda: 3 * GIB)
+    registry.grant("A", 2 * GIB)
+
+    assert registry.check("B", round(2.5 * GIB)) is None  # 3 − 2 + 2,5 = 3,5 ≤ 4
+    refusal = registry.check("B", round(3.1 * GIB))  # 3 − 2 + 3,1 = 4,1 > 4
+    assert "WaveStack occupe 1,0 Go sans le modèle actif" in refusal
+    assert refusal.endswith("A reste actif. Choisissez un modèle plus petit.")
+
+
+def test_cloud_ratio_is_kept_per_model(tmp_path):
+    session = _session(Tracker({}))
+    groq, mistral = _cloud_entry("groq"), _cloud_entry("mistral")
+    session.boot_cloud(groq).result()
+    session._ratio = 1.3
+
+    _switch(session, ModelChoice("cloud", mistral.id, mistral))
+    assert session._ratio == session.cfg.estimate_ratio
+    _switch(session, ModelChoice("cloud", groq.id, groq))
+    assert session._ratio == 1.3
+
+
+def test_probe_entry_without_measure_is_probed_again(tmp_path):
+    session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
+    stat = Path(paths["B"]).stat()
+    probe.record_success(  # written before story 17: no `rss_bytes`
+        probe.ProbeResult(ok=True, path=paths["B"], size_bytes=stat.st_size, mtime=stat.st_mtime)
+    )
+    assert probe.probed_entry(paths["B"]) is not None and not probe.measured(paths["B"])
+
+    _, status = _switch(session, ModelChoice("file", paths["B"]), tracker.probe(paths["B"]))
+
+    assert status == "ok" and "probe B" in tracker.log
+
+
+def test_probe_measures_the_model_share_of_rss(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    path = _files(tmp_path, "B")["B"]
+    rss = iter([400, 1400])  # before, then after `Llama(...)`
+
+    class _Memory:
+        def __init__(self) -> None:
+            self.rss = next(rss)
+
+    class _Process:
+        def __init__(self, pid: int) -> None:
+            pass
+
+        def memory_info(self) -> _Memory:
+            return _Memory()
+
+    class _Llama:
+        metadata = {"general.architecture": "qwen3", "general.size_label": "2B"}
+
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setitem(sys.modules, "llama_cpp", types.SimpleNamespace(Llama=_Llama))
+    monkeypatch.setattr(probe.psutil, "Process", _Process)
+
+    result = probe.probe_file(path)
+
+    assert result.ok and result.rss_bytes == 1000 and result.size_label == "2B"
+
+
+def test_kv_cache_per_layer_and_value_length():
+    base = {
+        "general.architecture": "qwen35",
+        "qwen35.block_count": 4,
+        "qwen35.attention.head_count": 16,
+        "qwen35.attention.key_length": 256,
+    }
+    # Hybrid: KV heads per layer (0 on the linear-attention layers).
+    per_layer = {**base, "qwen35.attention.head_count_kv": [0, 0, 0, 4]}
+    assert probe.kv_bytes_per_token(per_layer) == 2 * 4 * (256 + 256)
+    with_value = {
+        **base,
+        "qwen35.attention.head_count_kv": 2,
+        "qwen35.attention.value_length": 128,
+    }
+    assert probe.kv_bytes_per_token(with_value) == 2 * (4 * 2) * (256 + 128)
+    # An array shown as text: unknown, never the attention heads instead.
+    as_text = {**base, "qwen35.attention.head_count_kv": "arr[i32,4]"}
+    assert probe.kv_bytes_per_token(as_text) is None
+
+
+@pytest.mark.parametrize("step", ["capabilities", "cloud_window"])
+def test_a_failure_after_the_factory_closes_the_new_engine(monkeypatch, tmp_path, step):
+    from wavestack.session import app_session as module
+
+    session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
+
+    def boom(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise RuntimeError("étape en panne")
+
+    if step == "capabilities":
+        real = module.capabilities_for
+        monkeypatch.setattr(
+            module,
+            "capabilities_for",
+            lambda meta: boom() if tracker.log[-1] == "open B" else real(meta),
+        )
+        choice = ModelChoice("file", paths["B"])
+    else:
+        monkeypatch.setattr(config, "cloud_window", boom)
+        entry = _cloud_entry()
+        choice = ModelChoice("cloud", entry.id, entry)
+
+    _, status = _switch(session, choice)
+
+    assert status == "restored" and not tracker.overlap
+    assert tracker.open == {"A"}  # the new engine was closed before A came back
+
+
+def test_any_save_failure_keeps_the_loaded_model(monkeypatch, tmp_path):
+    session, _, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
+
+    def refuse(key, value):
+        raise ValueError("réglage refusé")
+
+    monkeypatch.setattr(config, "save_setting", refuse)
+
+    _, status = _switch(session, ModelChoice("file", paths["B"]))
+
+    assert status == "ok" and session.active_model()["label"] == "B"
+
+
+def test_unsaved_switch_is_not_shown_as_the_saved_choice(monkeypatch, tmp_path):
+    session, app_session, client, _ = _web(monkeypatch, tmp_path)
+    a, b = (str(config.models_dir() / f"{n}.gguf") for n in "AB")
+
+    def refuse(key, value):
+        raise PermissionError("settings.json en lecture seule")
+
+    monkeypatch.setattr(config, "save_setting", refuse)
+    mark = get_journal().last_seq()
+    client.post("/api/intentions/select_model", json={"ref": b}, headers=ORIGIN)
+    app_session.join()
+
+    diagnostic = client.get("/api/diagnostic").json()
+    assert diagnostic["loaded_model"] == b and diagnostic["selected_model"] == a
+    check = [c for c in _events(mark, "diagnostic_check") if c["check"] == "model"][-1]
+    assert check["status"] == "warn" and "non mémorisé" in check["message_fr"]
+
+
+def test_ollama_blob_is_named_by_its_tag(tmp_path):
+    choice = ModelChoice("file", str(tmp_path / "sha256-abcd"), name="qwen3.5:2b")
+    assert choice.label == "qwen3.5:2b" and choice.file_name == "qwen3.5:2b"
+    assert ModelChoice("file", "/m/Qwen-B.gguf", name="Qwen-B.gguf").label == "Qwen-B"
+
+    tracker = Tracker({"sha256-abcd": FakeEngine()})
+    path = tmp_path / "sha256-abcd"
+    path.write_bytes(b"placeholder")
+    session = _session(tracker)
+    session.boot(str(path), "qwen3.5:2b").result()
+    assert session.active_model()["label"] == "qwen3.5:2b"
+
+
+def test_a_failing_close_still_releases_and_restores(tmp_path):
+    session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
+    engine_a = tracker.engines["A"]
+
+    def broken_close() -> None:
+        raise RuntimeError("fermeture impossible")
+
+    engine_a.close = broken_close
+
+    _, status = _switch(session, ModelChoice("file", paths["B"]))
+
+    assert status == "restored" and session.active_model()["label"] == "A"
+    assert session._load_registry.holder() == "A"
+
+
+def test_budget_checked_again_with_the_probe_measure(tmp_path):
+    session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
+
+    def probe_measuring(path: str) -> None:
+        tracker.log.append("probe B")
+        _record_probe(path, rss_bytes=5 * GIB)  # what the child process measured
+        return None
+
+    mark = get_journal().last_seq()
+    _, status = _switch(session, ModelChoice("file", paths["B"]), probe_measuring)
+
+    assert status == "restored" and "open B" not in tracker.log
+    ended = _events(mark, "model_load_ended")[-1]
+    assert "Changement refusé : B demande environ 5,0 Go" in ended["reason_fr"]
+    assert session.active_model()["label"] == "A"
+
+
+def test_diagnostic_blocks_again_when_no_model_is_left(monkeypatch, tmp_path):
+    _, app_session, client, tracker = _web(monkeypatch, tmp_path)
+    tracker.fail = {"A", "B"}
+
+    client.post(
+        "/api/intentions/select_model",
+        json={"ref": str(config.models_dir() / "B.gguf")},
+        headers=ORIGIN,
+    )
+    app_session.join()
+
+    diagnostic = client.get("/api/diagnostic").json()
+    assert diagnostic["ready"] is False and diagnostic["blocking_checks"] == ["model"]
+    assert not app_session.model_loaded

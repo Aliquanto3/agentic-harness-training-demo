@@ -26,7 +26,13 @@ import httpx
 from playwright.sync_api import Page, expect, sync_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from stack import MODEL_ENTRY_ID, Stack, running_stack  # noqa: E402
+from stack import (  # noqa: E402
+    MODEL_ENTRY_ID,
+    SECOND_ENTRY_ID,
+    SECOND_MODEL,
+    Stack,
+    running_stack,
+)
 
 SHOTS = Path(__file__).resolve().parent / "screenshots"
 CHROMIUM = "/opt/pw-browsers/chromium"  # fallback when the bundled revision is missing
@@ -773,6 +779,181 @@ def s_hooks(r: Run) -> None:
     r.show_forced(False)
 
 
+def s_subagent(r: Run) -> None:
+    """Story 19: delegation by the model, then forced; the switch of Contexte LLM, the
+    delegation line and its child lines in Orchestration, the second robot of the schema."""
+    page = r.page
+    r.launch("subagent")
+    prompt = (
+        "Délègue à ton sous-agent la lecture du fichier guide_harnais.md : il doit le lire et "
+        "te rendre un résumé en cinq points. Puis présente-moi ce résumé. [lent]"
+    )
+    before = len(r.fake_calls())
+    r.wait_idle()
+    seq = r.ev.mark()
+    page.fill("#composer-input", prompt)
+    page.press("#composer-input", "Enter")
+    # The sub-agent's robot works while its calls run (the fake model streams slowly).
+    sub_robot = page.locator('#schema .robot[data-component="core.model_sub"]')
+    r.check(sub_robot.count() == 1, "schéma : un second robot « Sous-agent »")
+    active, _ = r.poll(lambda: "is-active" in (sub_robot.get_attribute("class") or ""), 30)
+    r.check(active, "le robot du sous-agent s'anime pendant ses appels")
+    gauge_during = page.locator("#gauge-figures").inner_text() if active else ""
+    r.check(
+        sub_robot.locator("xpath=ancestor::*[contains(@class,'arch-zone-network')]").count() == 1,
+        "modèle cloud : le robot du sous-agent est dans la zone Réseau",
+    )
+    ended = r.ev.wait("turn_ended", seq)
+    r.check(ended["payload"]["status"] == "completed", "tour terminé", ended["payload"]["status"])
+    started = [e for e in r.ev.since(seq, "tool_started") if e["context_id"] == "main"]
+    r.check(
+        [e["payload"]["tool"] for e in started] == ["delegate"]
+        and started[0]["trigger"] == "model",
+        "le modèle délègue (delegate, déclenché par le modèle)",
+        str([(e["payload"]["tool"], e["trigger"]) for e in started]),
+    )
+    done = r.ev.since(seq, "subagent_ended")
+    figures = done[0]["payload"] if done else {}
+    r.check(
+        figures.get("status") == "completed" and figures.get("saved_tokens", 0) > 0,
+        "sous-agent terminé, économie de tokens positive",
+        str({k: figures.get(k) for k in ("context_tokens", "result_tokens", "saved_tokens")}),
+    )
+    bodies = r.fake_calls()[before:]
+    sub_bodies = [b for b in bodies if "sous-agent de WaveStack" in json.dumps(b["messages"][0])]
+    r.check(len(sub_bodies) == 2, "deux appels du sous-agent au modèle", str(len(sub_bodies)))
+    guide = "## 8. Le sous-agent"
+    r.check(
+        any(guide in json.dumps(b["messages"], ensure_ascii=False) for b in sub_bodies),
+        "le guide est lu dans le contexte du sous-agent",
+    )
+    main_last = json.dumps(bodies[-1]["messages"], ensure_ascii=False)
+    r.check(guide not in main_last, "le guide n'entre pas dans le contexte principal")
+    sub_used = {
+        e["payload"]["used"]
+        for e in r.ev.since(seq)
+        if e["kind"] in ("context_rendered", "context_reconciled")
+        and e["context_id"].startswith("sub")
+    }
+    shown = [page.evaluate("n => new Intl.NumberFormat('fr-FR').format(n)", n) for n in sub_used]
+    r.check(
+        bool(gauge_during) and not any(n in gauge_during for n in shown),
+        "la jauge reste sur le contexte principal pendant le sous-agent",
+        f"jauge « {gauge_during} » · sous-agent {sorted(sub_used)}",
+    )
+
+    # Orchestration: the delegation line, its trigger, its figures and its child lines.
+    rail = page.locator("#orch-scroll")
+    line = rail.locator(".turn-step-line", has_text="Délégation au sous-agent").last
+    r.check(line.count() == 1, "Orchestration : ligne « Délégation au sous-agent »")
+    r.check("économisés" in line.inner_text(), "la ligne montre l'économie", line.inner_text())
+    r.check("Déclenché par le modèle" in line.inner_text(), "badge « Déclenché par le modèle »")
+    children = rail.locator(".turn-step.is-sub")
+    r.check(children.count() >= 3, "lignes filles du sous-agent", str(children.count()))
+    line.click()
+    body = line.locator("xpath=following-sibling::div[contains(@class,'turn-step-body')]")
+    expect(body).to_contain_text("Économie pour le contexte principal", timeout=5000)
+    r.check(True, "l'étape dépliée donne tâche, tokens restés, réinjectés et économisés")
+
+    # Contexte LLM: the main context, then the sub-agent's, each with its total.
+    body.get_by_role("button", name="Voir le contexte du sous-agent").click()
+    ctx = page.locator("#ctx")
+    switch = ctx.locator(".ctx-view-switch")
+    expect(switch).to_be_visible(timeout=5000)
+    sub_button = switch.get_by_role("button", name="Contexte du sous-agent")
+    r.check(
+        sub_button.get_attribute("aria-pressed") == "true", "bascule sur le contexte du sous-agent"
+    )
+    text = ctx.inner_text()
+    r.check(
+        "sous-agent de WaveStack" in text
+        and "Résultats d'outils" in text
+        and "Sous-agent sub" in text,
+        "contexte du sous-agent : son prompt, la tâche, le résultat d'outil, son total",
+    )
+    switch.get_by_role("button", name="Contexte principal").click()
+    text = ctx.inner_text()
+    r.check(
+        "Résultat du sous-agent" in text and guide not in text,
+        "contexte principal : le seul résultat, en « Résultat du sous-agent »",
+    )
+    r.shot("19-sous-agent-delegation")
+
+    # Forced delegation: the card's button, its preset, the chip (disarmed by keyboard too).
+    r.show_forced(True)
+    armed = r.arm("Déléguer au sous-agent", preset="Résumer le guide du harnais")
+    action = armed["payload"]["actions"][0]
+    r.check(
+        action["kind"] == "delegate" and "guide_harnais.md" in action["args"]["task"],
+        "« Déléguer au sous-agent » arme la délégation avec le préréglage",
+        str(action),
+    )
+    chip = page.locator("#armed-chips .armed-chip", has_text="Armé : Délégation")
+    expect(chip).to_be_visible(timeout=5000)
+    seq = r.ev.mark()
+    chip.focus()
+    page.keyboard.press("Enter")
+    r.ev.wait("armed_actions_changed", seq, lambda p: not p["actions"], timeout=10)
+    r.check(True, "la puce se désarme au clavier")
+    r.arm("Déléguer au sous-agent", preset="Résumer le guide du harnais")
+    seq = r.ev.mark()
+    ended = r.send("Bonjour")
+    forced = [e for e in r.ev.since(seq, "tool_started") if e["context_id"] == "main"]
+    r.check(
+        bool(forced)
+        and forced[0]["payload"]["tool"] == "delegate"
+        and forced[0]["trigger"] == "user",
+        "délégation forcée consommée par le tour (déclenchée par l'utilisateur)",
+    )
+    r.check(ended["payload"]["status"] == "completed", "tour forcé terminé")
+    delegation = rail.locator(".turn-step-line", has_text="Délégation au sous-agent").last
+    r.check(
+        "Forcé par l'utilisateur" in delegation.inner_text(), "badge « Forcé par l'utilisateur »"
+    )
+    r.show_forced(False)
+
+    # H5 inside the sub-agent (independent review): the session waits, the Vue humain card
+    # is answerable, a refusal goes back to the sub-agent and the turn ends.
+    r.set_option("Outils", "Lecture de page web", True)
+    r.set_option("Hooks", "Validation humaine", True)
+    enabled = {
+        b: [o["id"] for o in r.bricks()[b]["options"] if o["enabled"]] for b in ("tools", "hooks")
+    }
+    r.check(
+        "fetch_page" in enabled["tools"] and "h5" in enabled["hooks"],
+        "« Lecture de page web » et H5 activés",
+        str(enabled),
+    )
+    asked = r.send(
+        "Délègue à ton sous-agent la lecture de la page web de Paris.", expect_approval=True
+    )
+    r.check(
+        asked["context_id"].startswith("sub") and asked["payload"]["tool"] == "fetch_page",
+        "H5 demande la validation dans le contexte du sous-agent",
+        f"{asked['context_id']} · {asked['payload']['tool']}",
+    )
+    card = page.locator("#chat .approval-card").last
+    refuse = card.get_by_role("button", name="Refuser", exact=True)
+    ok, took = r.poll(lambda: card.count() == 1 and refuse.is_enabled(), 10)
+    r.check(ok, "Vue humain : la carte de validation du sous-agent est active", f"{took:.1f} s")
+    r.check(
+        "awaiting_human" == (r.state()["session_state"] or {}).get("state"),
+        "la session attend la validation",
+    )
+    seq = r.ev.mark()
+    refuse.click()
+    resolved = r.ev.wait("approval_resolved", seq, timeout=10)
+    ended = r.ev.wait("turn_ended", seq)
+    r.check(resolved["payload"]["decision"] == "refused", "« Refuser » dans le sous-agent")
+    r.check(not r.ev.since(seq, "outbound_request"), "refusé : rien ne sort du poste")
+    r.check(
+        ended["payload"]["status"] == "completed",
+        "le tour se termine après le refus",
+        ended["payload"]["status"],
+    )
+    r.set_option("Hooks", "Validation humaine", False)
+
+
 def s_data_flows(r: Run) -> None:
     r.launch("data_flows")
     r.set_brick("MCP", True)
@@ -1332,6 +1513,141 @@ def s_stream_resync(r: Run) -> None:
         r.page.remove_listener("framenavigated", on_nav)
 
 
+def _picker_options(r: Run) -> dict[str, bool]:
+    """The model picker's options: label → disabled."""
+    return dict(
+        r.page.eval_on_selector_all(
+            "#model-picker option", "os => os.map(o => [o.textContent, o.disabled])"
+        )
+    )
+
+
+def s_model_switch(r: Run) -> None:
+    """Story 17: the hot switch from the top bar (warning, stopwatch, conversation kept, model
+    line, replay, compare), then back from the diagnostic, with no « relancez »."""
+    page = r.page
+    a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+    b_label = f"RÉSEAU · Faux fournisseur B (e2e) · {SECOND_MODEL}"
+    r.launch("short_memory")
+    r.send("Je m'appelle Camille.")
+    options = _picker_options(r)
+    r.check(options.get(f"{a_label} (actif)") is True, "sélecteur : modèle actif marqué et grisé")
+    r.check(
+        options.get(b_label) is False, "sélecteur : le second modèle est choisissable", str(options)
+    )
+    r.check(
+        list(options)[-1] == "Autre fichier ou clé API…",
+        "sélecteur : dernière entrée « Autre fichier ou clé API… »",
+    )
+    body = page.inner_text("body")
+    r.check(
+        "Prochain lancement" not in body and "relancez WaveStack" not in body,
+        "aucune mention « Prochain lancement » ni « relancez »",
+    )
+
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label=b_label)
+    apply = page.locator("#model-picker-apply")
+    expect(apply).to_be_visible(timeout=5000)
+    time.sleep(0.5)
+    r.check(
+        not r.ev.since(seq, "model_load_started") and page.locator("#cloud-warning").is_hidden(),
+        "choisir une entrée ne fait que la noter (flèches du clavier sans effet)",
+        apply.inner_text(),
+    )
+    apply.click()
+    dialog = page.locator("#cloud-warning")
+    expect(dialog).to_be_visible(timeout=5000)
+    r.check(
+        "Faux fournisseur B (e2e)" in dialog.inner_text(),
+        "« Choisir… » : avertissement cloud dans la page, qui nomme le fournisseur",
+    )
+    page.click("#cloud-warning-cancel")
+    time.sleep(0.5)
+    r.check(
+        not r.ev.since(seq, "model_load_started")
+        and "wavestack-fake" in page.inner_text("#model-indicator"),
+        "« Annuler » : aucun changement",
+    )
+
+    page.select_option("#model-picker", label=b_label)
+    page.click("#model-picker-apply")
+    expect(dialog).to_be_visible(timeout=5000)
+    page.click("#cloud-warning-confirm")
+    top = page.locator("#top-status")
+    expect(top).to_contain_text(f"Chargement du modèle {SECOND_MODEL}…", timeout=5000)
+    time.sleep(0.6)
+    stopwatch = top.inner_text()
+    r.check(
+        re.search(r"… \d+(,\d)? s$", stopwatch) is not None,
+        "barre haute : « Chargement du modèle … » avec chronomètre",
+        stopwatch,
+    )
+    indicator = page.locator("#chat .model-load-indicator")
+    r.check(
+        indicator.count() == 1 and SECOND_MODEL in indicator.inner_text(),
+        "Vue humain : indicateur de chargement en fin de fil",
+    )
+    reason = page.inner_text("#composer-reason")
+    r.check(
+        page.locator("#composer-input").is_disabled() and SECOND_MODEL in reason,
+        "envoi désactivé pendant le chargement, avec la raison",
+        reason,
+    )
+    r.check(page.locator("#model-picker").is_disabled(), "sélecteur désactivé au chargement")
+    r.shot("22-changement-de-modele")
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)
+    r.check(ended["payload"]["status"] == "ok", "chargement terminé", ended["payload"]["status"])
+    expect(page.locator("#model-indicator")).to_contain_text(SECOND_MODEL, timeout=10_000)
+    r.wait_idle()
+    r.check("Je m'appelle Camille." in page.inner_text("#chat"), "la conversation est conservée")
+
+    r.send("Comment je m'appelle ?")
+    r.check("Camille" in r.last_answer(), "le nouveau modèle reçoit l'historique", r.last_answer())
+    r.check(r.fake_calls()[-1].get("model") == SECOND_MODEL, "l'appel part avec le nouveau modèle")
+    lines = page.locator("#chat .model-switch-line").all_inner_texts()
+    r.check(
+        lines == ["Modèle : wavestack-fake", f"Modèle : {SECOND_MODEL}"],
+        "« Modèle : … » sur le premier tour, puis au changement",
+        str(lines),
+    )
+    seq = r.ev.mark()
+    r.replay()
+    started = r.ev.since(seq, "turn_started")[0]["payload"]
+    r.check(
+        (started.get("active_model") or {}).get("ref") == SECOND_ENTRY_ID,
+        "le rejeu est joué par le nouveau modèle",
+    )
+    page.click("#compare-turns")
+    page.locator("#ctx .turn-compare-head select").first.select_option(index=0)  # A's turn
+    time.sleep(0.3)
+    models = page.locator(".turn-compare-model").all_inner_texts()
+    r.check(
+        models == ["Modèle : wavestack-fake", f"Modèle : {SECOND_MODEL}"],
+        "« Comparer » affiche le modèle de chaque colonne",
+        str(models),
+    )
+    page.locator("#ctx .turn-compare-head button").click()
+
+    # Back to the first model from the diagnostic: « Choisir », no relaunch.
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    row_b = page.locator("#cloud-models li", has_text=SECOND_MODEL)
+    expect(row_b).to_contain_text("actif", timeout=10_000)
+    r.check(True, "diagnostic : le modèle actif est lu dans la session applicative")
+    row_a = page.locator("#cloud-models li", has_text="wavestack-fake")
+    row_a.get_by_role("button", name="Choisir").click()
+    page.click("#cloud-warning-confirm")
+    expect(row_a.locator(".cloud-result").last).to_have_text(
+        "wavestack-fake est actif.", timeout=20_000
+    )
+    r.check(True, "diagnostic : « Choisir » change de modèle sans relance, issue affichée")
+    body = page.inner_text("body")
+    r.check("relancez WaveStack pour l'utiliser" not in body, "diagnostic : jamais « relancez »")
+    page.goto(f"{r.stack.app_url}/")
+    expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=10_000)
+    r.wait_idle()
+
+
 def s_relaunch(r: Run) -> None:
     """Story 11: the cloud model chosen is kept at the next launch, without a new warning."""
     saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
@@ -1402,6 +1718,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("skills", s_skills),
     ("caveman", s_caveman),
     ("hooks", s_hooks),
+    ("subagent", s_subagent),
     ("data_flows", s_data_flows),
     ("forced_native", s_forced_native),
     ("global_memory", s_global_memory),
@@ -1409,6 +1726,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
     ("stream_resync", s_stream_resync),
+    ("model_switch", s_model_switch),
     ("relaunch", s_relaunch),
 ]
 

@@ -382,6 +382,17 @@ class Config:
         return max(0, self._int("tools", "max_retries", default=2))
 
     @property
+    def subagent_tools(self) -> list[str]:
+        """Story 19 (AD-11): the tools the sub-agent may use, when enabled in the tools brick."""
+        tools = self.get("subagent", "tools", default=["read_file", "fetch_page"])
+        return [str(t) for t in tools] if isinstance(tools, list) else []
+
+    @property
+    def subagent_max_calls(self) -> int:
+        """AD-10: the sub-agent's model calls per delegation, on a counter of its own."""
+        return max(1, self._int("subagent", "max_calls", default=4))
+
+    @property
     def fetch_page_hosts(self) -> list[str]:
         """The only hosts `fetch_page` may request, over https."""
         default = ["fr.wikipedia.org", "calendrier.api.gouv.fr"]
