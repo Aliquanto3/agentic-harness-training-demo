@@ -352,9 +352,15 @@ class DiagnosticSession:
                 return self._hand_out_server(
                     served, candidates, " (choisi lors d'un lancement précédent)"
                 )
+            listed = next((c for c in candidates if c.ref == self.selected_server), None)
+            why = (
+                listed.reason
+                if listed is not None and listed.reason
+                else "serveur arrêté, ou modèle absent."
+            )
             notice_fr = (
                 f"Le modèle servi enregistré n'est plus disponible : {self.selected_server} "
-                "(serveur arrêté, ou modèle absent). "
+                f"({why.rstrip('.')}). "
             )
         if saved:
             chosen = _usable(candidates, saved)
@@ -433,7 +439,9 @@ class DiagnosticSession:
         # weights, so the application session probes it once the active model is released.
         candidates = self._discover(path, probe_only=set() if hot else {path})
         previous = self.last_result or DiagnosticResult(ready=False, blocking_checks=["model"])
-        known = {c.path: c for c in previous.candidates if c.status == "incompatible"}
+        known = {  # files only: a served model has no path (story 18)
+            c.path: c for c in previous.candidates if c.status == "incompatible" and c.path
+        }
         for candidate in candidates:  # keep earlier probe failures of the unprobed others
             if candidate.path != path and candidate.path in known:
                 candidate.status, candidate.reason = "incompatible", known[candidate.path].reason
@@ -503,7 +511,9 @@ class DiagnosticSession:
     def _select_server_locked(self, ref: str, hot: bool) -> DiagnosticResult:
         candidates = self._discover(None, probe_only=set())  # read again: is it still served?
         previous = self.last_result or DiagnosticResult(ready=False, blocking_checks=["model"])
-        known = {c.path: c for c in previous.candidates if c.status == "incompatible"}
+        known = {  # files only: a served model has no path (story 18)
+            c.path: c for c in previous.candidates if c.status == "incompatible" and c.path
+        }
         for candidate in candidates:  # keep earlier probe failures of the unprobed files
             if candidate.path in known and candidate.status == "found":
                 candidate.status, candidate.reason = "incompatible", known[candidate.path].reason

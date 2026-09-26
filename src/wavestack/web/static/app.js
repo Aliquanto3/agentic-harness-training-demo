@@ -3925,6 +3925,7 @@ const KIND_LABELS = {
   tool_call_malformed: "Appel d'outil mal formé",
   limit_reached: "Borne du tour atteinte",
   prefix_not_reused: "Préfixe non réutilisé",
+  server_cache_used: "Cache du serveur local",
   mcp_connect_started: "Connexion MCP commencée",
   mcp_connect_ended: "Connexion MCP terminée",
   hook_decided: "Décision d'un hook",

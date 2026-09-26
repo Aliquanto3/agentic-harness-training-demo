@@ -110,7 +110,7 @@ Apache-2.0), validé sur le PC cible. WaveStack ne le télécharge pas : copiez 
 dans le dossier `models/` du dossier de données (`%LOCALAPPDATA%\WaveStack\models` sous
 Windows, `~/.local/share/wavestack/models` ailleurs), ou indiquez son chemin au diagnostic.
 Les GGUF `qwen35` d'Ollama ne se chargent pas avec llama-cpp-python 0.3.35 : préférez le fichier
-amont, ou un serveur déjà lancé (section suivante).
+amont, ou le même modèle servi par llama-server (section suivante).
 
 ## Utiliser un serveur déjà lancé (Ollama, llama-server)
 
@@ -129,31 +129,45 @@ read_timeout_s = 300    # lecture de la réponse (le premier appel d'Ollama char
 ```
 
 Lancez le serveur avant WaveStack, par exemple `ollama serve`, ou
-`llama-server -m C:\modeles\Qwen3.5-2B-Q4_K_M.gguf --port 8080`. Au diagnostic, chaque modèle
-servi apparaît avec l'étiquette « Local », son serveur, son adresse et sa mémoire ; « Choisir »
-le charge, comme un fichier. Il est aussi dans le sélecteur de la barre haute
+`llama-server -m C:\modeles\Qwen3.5-2B-Q4_K_M.gguf --port 8080 -np 1`. Au diagnostic, chaque
+modèle servi apparaît avec l'étiquette « Local », son serveur, son adresse et sa mémoire ;
+« Choisir » le charge, comme un fichier. Il est aussi dans le sélecteur de la barre haute
 (« Local · Ollama · … », « Local · llama-server · … »). Un modèle servi n'est jamais choisi
-d'office ; un choix mémorisé est repris au lancement si le serveur le sert encore.
+d'office ; un choix mémorisé est repris au lancement si le serveur le sert encore. Les modèles
+« cloud » d'Ollama (`…-cloud`), qui tournent chez ollama.com, ne sont pas listés.
 
 **Le harnais construit toujours le texte.** Le gabarit de conversation du modèle est appliqué
 par WaveStack, comme pour un fichier : le serveur reçoit le texte déjà rendu, jamais des
-messages au format chat.
+messages au format chat. L'échantillonnage est celui du modèle en processus (température 0,7,
+`top_p` 0,8, `top_k` 20, sans pénalité de répétition, graine aléatoire), envoyé à chaque appel.
 - **llama-server** reçoit les tokens du prompt (`/completion`) et tokenise lui-même
-  (`/tokenize`) : la jauge compte exactement ce que lit le modèle. La fenêtre est la plus petite
-  de la fenêtre configurée, du contexte natif et du contexte du serveur (`-c`).
+  (`/tokenize`) : la jauge compte exactement ce que lit le modèle. C'est la voie la plus sûre.
+  La fenêtre est la plus petite de la fenêtre configurée, du contexte natif et du contexte d'un
+  emplacement du serveur : avec plusieurs emplacements (`-np`), llama-server partage `-c`
+  entre eux, d'où une fenêtre « serveur » plus petite que `-c`. Lancez-le avec `-np 1`.
 - **Ollama** reçoit le texte en mode `raw` (`/api/generate`), avec `num_ctx` égal à la fenêtre
   effective. WaveStack compte les tokens avec le tokenizer lu dans le fichier GGUF du modèle,
-  dans le dossier d'Ollama (`OLLAMA_MODELS`). Un modèle sans GGUF lisible y est « incompatible ».
-  Si Ollama annonce un autre nombre de tokens que le harnais, ou renvoie un raisonnement séparé
-  (`thinking`), une erreur « transparence réduite » l'explique dans le journal ; le tour
-  continue.
+  dans le dossier d'Ollama (`OLLAMA_MODELS`), par llama-cpp-python : un modèle sans GGUF
+  lisible y est « incompatible », et un tokenizer que llama-cpp-python ne sait pas lire (cas
+  possible des modèles Qwen3.5 d'Ollama) est refusé avec la raison, le modèle précédent restant
+  actif. Servez alors ce modèle avec llama-server. Si Ollama lit plus de tokens que le harnais
+  n'en a comptés, ou renvoie un raisonnement séparé (`thinking`), une erreur « transparence
+  réduite » l'explique dans le journal ; s'il en lit moins, c'est son cache (début du prompt
+  identique à l'appel précédent), noté pour information. Le tour continue dans les deux cas.
 
-**Mémoire.** En mode serveur, aucun modèle ne reste chargé dans WaveStack ; la mémoire du modèle
-servi compte dans le budget `[memory]` (celle qu'annonce Ollama une fois le modèle chargé, sinon
-la taille du fichier). En quittant un modèle Ollama (changement de modèle ou fermeture de
-WaveStack), WaveStack demande à Ollama de le décharger (`keep_alive: 0`). Le schéma
-d'architecture dessine ce modèle hors du cadre Harnais, sur le poste de travail : c'est un
-processus distinct.
+**Mémoire.** En mode serveur, aucun modèle ne reste chargé dans WaveStack (seul le tokenizer
+d'un modèle Ollama y est ouvert, sans les poids). Le budget `[memory]` compte le modèle servi :
+- déjà en mémoire (le modèle de llama-server, un modèle qu'Ollama a déjà chargé) : compté pour
+  ce qu'il occupe, jamais refusé, puisque le choisir n'ajoute rien ;
+- pas encore chargé par Ollama : compté comme un fichier (taille, cache de contexte à la
+  fenêtre, marge `load_margin_mb`, qui couvre aussi le tokenizer), et refusé, chiffres à
+  l'appui, s'il dépasse le budget.
+
+En quittant un modèle Ollama (changement de modèle ou fermeture de WaveStack), WaveStack demande
+à Ollama de le décharger (`keep_alive: 0`), seulement s'il l'a fait charger : un modèle
+qu'Ollama avait déjà en mémoire (utilisé par un autre programme) n'est jamais déchargé. Le
+schéma d'architecture dessine le modèle servi hors du cadre Harnais, sur le poste de travail :
+c'est un processus distinct.
 
 ## RAG : corpus de démonstration et index
 

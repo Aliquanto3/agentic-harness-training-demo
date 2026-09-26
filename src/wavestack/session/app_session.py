@@ -75,7 +75,7 @@ from wavestack.models.openai_chat import (
     output_tps,
     run_call,
 )
-from wavestack.models.servers import ServerError, open_engine, served_bytes
+from wavestack.models.servers import ServerError, open_engine
 from wavestack.rag import index as rag_index
 from wavestack.rag.corpus import Chunk, RagContent, load_rag_content
 from wavestack.rag.retriever import SqliteVecRetriever
@@ -1052,15 +1052,20 @@ class AppSession:
         if choice.kind == "cloud":
             return 0
         if choice.kind == "server":  # AD-8: the served model's memory, outside WaveStack
-            c = choice.server
-            return served_bytes(
-                c.engine,
-                c.server_url,
-                c.name,
-                path=c.gguf_path,
-                fallback=c.served_bytes,
-            )
+            served = choice.server
+            if served.resident or not served.gguf_path:
+                return served.served_bytes or 0  # already in memory: what it takes there
+            # Ollama will load it: its file, its KV cache at the window, and the margin,
+            # which also covers its tokenizer opened `vocab_only` in WaveStack (measured
+            # afterwards in WaveStack's RSS).
+            return self._load_registry.file_cost(served.gguf_path, self.cfg.context_window)
         return self._load_registry.file_cost(choice.ref, self.cfg.context_window)
+
+    @staticmethod
+    def _checked(choice: ModelChoice) -> bool:
+        """AD-8: a served model already in memory (llama-server's, a model Ollama holds)
+        takes nothing more once chosen: it is counted, never refused."""
+        return not (choice.kind == "server" and choice.server.resident)
 
     @staticmethod
     def _load_reason(choice: ModelChoice) -> str:
@@ -1132,7 +1137,9 @@ class AppSession:
             previous = self._active
             if choice.same_as(previous):
                 return f"{choice.label} est déjà actif.", None
-            refusal = self._load_registry.check(choice.label, cost)
+            refusal = (
+                self._load_registry.check(choice.label, cost) if self._checked(choice) else None
+            )
             if refusal is None:  # switched under the lock: a second choice racing it is refused
                 self.state, self.reason_fr = "model_load", self._load_reason(choice)
         if refusal is not None:
@@ -1290,6 +1297,8 @@ class AppSession:
                 # AD-9: min(configured, native, the server's own context).
                 if meta.server_context and meta.server_context < window:
                     window, source = meta.server_context, "server"
+                if hasattr(engine, "use_window"):  # `ollama_raw`: num_ctx = this window
+                    engine.use_window(window)
                 labels = self._load_labels()
             except BaseException:
                 engine.close()

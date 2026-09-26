@@ -8,18 +8,26 @@ builds the whole text, template included; nothing goes through the servers' chat
 - `llama_server` receives the token ids (`/completion`); its tokenizer is the server's own
   (`/tokenize` with pieces), so the gauge counts exactly the ids it sends.
 - `ollama_raw` receives the rendered text (`/api/generate`, `raw: true`), rebuilt from the
-  ids' own pieces (control 6 of AD-4 makes it `rendered.prompt`), with `num_ctx` always sent;
-  its tokenizer is the model's GGUF opened `vocab_only` (`VocabTokenizer`). A different
-  `prompt_eval_count`, or a `thinking` field, is reported as « transparence réduite ».
+  ids' own pieces (control 6 of AD-4 makes it `rendered.prompt`), with `num_ctx` the
+  session's effective window; its tokenizer is the model's GGUF opened `vocab_only`
+  (`VocabTokenizer`). More prompt tokens read by Ollama than the harness counted, or a
+  `thinking` field, is reported as « transparence réduite »; fewer is Ollama's cache.
+
+Sampling: the in-process engine's values (`engine.py`), and the penalties llama-cpp-python's
+`generate` leaves neutral, sent explicitly (Ollama's own default `repeat_penalty` is 1.1). No
+seed is sent: the in-process engine draws a random one too.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import socket
+import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -45,6 +53,11 @@ DISCOVERY_TIMEOUT_S = 1.0  # probing a server at the diagnostic: never a long wa
 # Unloading an Ollama model: WaveStack's shutdown never waits on a stuck server for long.
 RELEASE_TIMEOUT = httpx.Timeout(10.0, connect=2.0)
 _PROBE_PATHS = {"ollama": "/api/tags", "llama_server": "/health"}
+_CANCEL_POLL_S = 0.1
+# The template's own markers (`<|im_start|>`, `<tool_call>`, `<think>`…): a server's
+# vocabulary may hold them as single tokens, neutralized in untrusted text (AD-4, step 2).
+_TEMPLATE_MARKERS = re.compile(r"<\|[^|<>\s]{1,40}\|>|</?[a-z_]{2,30}>")
+_RESPONSE_ERRORS = (ValueError, TypeError, AttributeError, KeyError, IndexError)
 
 
 class ServerError(Exception):
@@ -94,7 +107,9 @@ def _json(
     path: str,
     body: Any = None,
     timeout: httpx.Timeout | None = None,
-) -> Any:
+) -> dict[str, Any]:
+    """A JSON object from the server; anything else (unreachable, HTTP error, not JSON, not
+    an object) is a `ServerError`."""
     try:
         extra = {"timeout": timeout} if timeout is not None else {}
         response = client.request(method, base + path, json=body, **extra)
@@ -103,23 +118,88 @@ def _json(
     if response.status_code >= 400:
         raise ServerError(base, f"HTTP {response.status_code} : {response.text[:200]}")
     try:
-        return response.json()
+        data = response.json()
     except ValueError as exc:
         raise ServerError(base, f"réponse illisible sur {path}") from exc
+    if not isinstance(data, dict):
+        raise ServerError(base, f"réponse illisible sur {path}")
+    return data
+
+
+def _abort(response: httpx.Response) -> None:
+    """Unblocks a read in progress on `response` from another thread: the socket is shut
+    down (a plain close would leave the reader waiting until its timeout), then the
+    response is closed."""
+    stream = response.extensions.get("network_stream")
+    sock = stream.get_extra_info("socket") if stream is not None else None
+    if isinstance(sock, socket.socket):
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+    try:
+        response.close()
+    except Exception:  # noqa: BLE001 - closing from another thread: best effort
+        pass
 
 
 @contextmanager
-def _stream(client: httpx.Client, base: str, path: str, body: Any) -> Iterator[httpx.Response]:
-    """A streamed POST; closed on exit (cancellation included). HTTP errors, before or during
-    the stream, become `ServerError`."""
+def _stream(
+    client: httpx.Client, base: str, path: str, body: Any, cancel: CancelToken
+) -> Iterator[httpx.Response]:
+    """A streamed POST, closed on exit. Cancelling closes it at once, even while the server
+    has sent nothing yet (Ollama loading its model): a watcher thread aborts the read. HTTP
+    errors, before or during the stream, become `ServerError`."""
     try:
         with client.stream("POST", base + path, json=body) as response:
             if response.status_code >= 400:
                 response.read()
                 raise ServerError(base, f"HTTP {response.status_code} : {response.text[:200]}")
-            yield response
+            done = threading.Event()
+
+            def watch() -> None:
+                while not done.is_set():
+                    if cancel.wait(_CANCEL_POLL_S):
+                        _abort(response)
+                        return
+
+            threading.Thread(target=watch, daemon=True, name="wavestack-cancel").start()
+            try:
+                yield response
+            finally:
+                done.set()
     except httpx.HTTPError as exc:
         raise ServerError(base, _cause(exc)) from exc
+
+
+def _lines(
+    response: httpx.Response, base: str, cancel: CancelToken, prefix: str = ""
+) -> Iterator[dict]:
+    """The stream's JSON objects (`prefix`: `data:` for SSE). `[DONE]` and blank lines are
+    skipped; any other line that is not a JSON object is a `ServerError`. A read error once
+    cancelled simply ends the stream."""
+    try:
+        for raw in response.iter_lines():
+            line = raw.strip()
+            if prefix:
+                if not line.startswith(prefix):
+                    continue
+                line = line[len(prefix) :].strip()
+            if not line or line == "[DONE]":
+                continue
+            try:
+                data = json.loads(line)
+            except ValueError as exc:
+                raise ServerError(base, f"flux illisible : {line[:80]}") from exc
+            if not isinstance(data, dict):
+                raise ServerError(base, f"flux illisible : {line[:80]}")
+            yield data
+    except (httpx.HTTPError, httpx.StreamError, RuntimeError, OSError) as exc:
+        if cancel.cancelled:
+            return
+        raise ServerError(
+            base, _cause(exc) if isinstance(exc, httpx.HTTPError) else str(exc)
+        ) from exc
 
 
 def _positive(value: Any) -> int | None:
@@ -131,8 +211,16 @@ def _positive(value: Any) -> int | None:
 
 
 def _sampling() -> dict[str, float | int]:
-    """The in-process engine's sampling (`engine.py`), sent to the servers too."""
-    return {"temperature": TEMPERATURE, "top_p": TOP_P, "top_k": TOP_K, "min_p": 0.0}
+    """The in-process engine's sampling (`engine.py`, llama-cpp-python's `generate`)."""
+    return {
+        "temperature": TEMPERATURE,
+        "top_p": TOP_P,
+        "top_k": TOP_K,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+    }
 
 
 def _file_name(path: str) -> str:
@@ -152,6 +240,10 @@ def _reduced(message_fr: str, cause: str) -> None:
             ),
         },
     )
+
+
+def _interrupted(base: str) -> ServerError:
+    return ServerError(base, "flux interrompu avant la fin de la réponse")
 
 
 class LlamaServerEngine:
@@ -177,23 +269,28 @@ class LlamaServerEngine:
             raise
 
     def _read_metadata(self, markers: Sequence[str]) -> EngineMetadata:
-        props = _json(self._client, self.url, "GET", "/props") or {}
+        props = _json(self._client, self.url, "GET", "/props")
         try:
-            models = _json(self._client, self.url, "GET", "/v1/models") or {}
+            models = _json(self._client, self.url, "GET", "/v1/models")
         except ServerError:
             models = {}
-        data = models.get("data") or [{}]
-        meta = (data[0] or {}).get("meta") or {}
-        settings = props.get("default_generation_settings") or {}
+        data = models.get("data")
+        first = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else {}
+        meta = first.get("meta") if isinstance(first.get("meta"), dict) else {}
+        settings = props.get("default_generation_settings")
+        settings = settings if isinstance(settings, dict) else {}
+        template = str(props.get("chat_template") or "") or None
         bos, eos = str(props.get("bos_token") or ""), str(props.get("eos_token") or "")
         special = [t for t in (bos, eos) if t]
-        # AD-4, step 2: the template markers the server's vocabulary holds as one token.
-        for marker in markers:
+        # AD-4, step 2: the configured markers and the template's own, when the server's
+        # vocabulary holds them as one token (as the in-process vocabulary says).
+        found = _TEMPLATE_MARKERS.findall(template or "")
+        for marker in dict.fromkeys([*markers, *found]):
             if marker not in special and len(self.tokenize(marker)) == 1:
                 special.append(marker)
         return EngineMetadata(
             architecture=None,  # not exposed: the family is read from the template (AD-6)
-            chat_template=props.get("chat_template") or None,
+            chat_template=template,
             native_context=_positive(meta.get("n_ctx_train")),
             bos_token=bos,
             eos_token=eos,
@@ -206,29 +303,34 @@ class LlamaServerEngine:
 
     def tokenize(self, text: str) -> list[int]:
         body = {"content": text, "add_special": False, "parse_special": True, "with_pieces": True}
-        data = _json(self._client, self.url, "POST", "/tokenize", body) or {}
+        data = _json(self._client, self.url, "POST", "/tokenize", body)
         ids: list[int] = []
-        for item in data.get("tokens") or []:
-            if isinstance(item, dict):
-                token = int(item["id"])
-                piece = item.get("piece")
-                if isinstance(piece, str):  # valid UTF-8 on its own
-                    self._pieces[token] = piece.encode("utf-8")
-                elif isinstance(piece, list):  # a partial UTF-8 sequence: its bytes
-                    self._pieces[token] = bytes(int(b) for b in piece)
-            else:
-                token = int(item)
-            ids.append(token)
+        try:
+            for item in data.get("tokens") or []:
+                if isinstance(item, dict):
+                    token = int(item["id"])
+                    piece = item.get("piece")
+                    if isinstance(piece, str):  # valid UTF-8 on its own
+                        self._pieces[token] = piece.encode("utf-8")
+                    elif isinstance(piece, list):  # a partial UTF-8 sequence: its bytes
+                        self._pieces[token] = bytes(int(b) for b in piece)
+                else:
+                    token = int(item)
+                ids.append(token)
+        except _RESPONSE_ERRORS as exc:
+            raise ServerError(self.url, "réponse illisible sur /tokenize") from exc
         return ids
 
     def token_pieces(self, ids: Sequence[int]) -> list[bytes]:
-        pieces = []
-        for token in ids:
-            if token not in self._pieces:  # not seen by `tokenize`: one `/detokenize`
-                data = _json(self._client, self.url, "POST", "/detokenize", {"tokens": [token]})
-                self._pieces[token] = str((data or {}).get("content") or "").encode("utf-8")
-            pieces.append(self._pieces[token])
-        return pieces
+        for token in dict.fromkeys(t for t in ids if t not in self._pieces):
+            # Not seen by `tokenize`: `/detokenize`, once per id. A partial UTF-8 piece
+            # comes back as U+FFFD: refused, never cached as wrong bytes.
+            data = _json(self._client, self.url, "POST", "/detokenize", {"tokens": [token]})
+            content = str(data.get("content") or "")
+            if "\ufffd" in content:
+                raise ServerError(self.url, f"pièce du token {token} illisible par /detokenize")
+            self._pieces[token] = content.encode("utf-8")
+        return [self._pieces[t] for t in ids]
 
     def complete(
         self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
@@ -243,15 +345,11 @@ class LlamaServerEngine:
         }
         pending = ""
         count = 0
-        reason: StopReason = "stop"
-        with _stream(self._client, self.url, "/completion", body) as response:
-            for line in response.iter_lines():
+        reason: StopReason | None = None
+        with _stream(self._client, self.url, "/completion", body, cancel) as response:
+            for data in _lines(response, self.url, cancel, prefix="data:"):
                 if cancel.cancelled:
-                    reason = "cancelled"
                     break
-                if not line.startswith("data:"):
-                    continue
-                data = json.loads(line[5:])
                 if data.get("error"):
                     raise ServerError(self.url, str(data["error"])[:200])
                 text = str(data.get("content") or "")
@@ -268,6 +366,10 @@ class LlamaServerEngine:
                 if data.get("stop"):
                     reason = "length" if data.get("stop_type") == "limit" else "stop"
                     break
+        if cancel.cancelled:
+            reason = "cancelled"
+        if reason is None:
+            raise _interrupted(self.url)
         yield Fragment(pending, count, reason)
 
     def close(self) -> None:
@@ -276,7 +378,9 @@ class LlamaServerEngine:
 
 class OllamaRawEngine:
     """`ollama_raw` (AD-5): the rendered text by `/api/generate` in `raw` mode, `num_ctx` the
-    effective window; tokenizer, pieces and metadata from the GGUF opened `vocab_only`."""
+    session's effective window (`use_window`); tokenizer, pieces and metadata from the GGUF
+    opened `vocab_only`. `unload`: Ollama had not loaded this model when it was chosen, so
+    leaving it unloads it (`keep_alive: 0`) — never a model another client had loaded."""
 
     def __init__(
         self,
@@ -286,17 +390,22 @@ class OllamaRawEngine:
         n_ctx: int,
         *,
         tokenizer: Tokenizer | None = None,
+        unload: bool = True,
         connect_timeout_s: float = 2.0,
         read_timeout_s: float = 300.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.url, self.name = url.rstrip("/"), name
-        self._tokenizer = tokenizer if tokenizer is not None else VocabTokenizer(gguf_path)
-        native = self._tokenizer.metadata().native_context
-        # AD-9: min(configured, native); Ollama has no context of its own until we send one.
-        self.num_ctx = min(n_ctx, native) if native else n_ctx
+        self._tokenizer = tokenizer if tokenizer is not None else _open_tokenizer(gguf_path)
+        self.num_ctx = n_ctx  # until the session gives its effective window
+        self._unload = unload
+        self._used = False  # a generation was asked: Ollama may have loaded the model
         self._client = _client(connect_timeout_s, read_timeout_s, transport)
         self._closed = False
+
+    def use_window(self, window: int) -> None:
+        """AD-9: the session's effective window, the single source of `num_ctx`."""
+        self.num_ctx = window
 
     def metadata(self) -> EngineMetadata:
         return self._tokenizer.metadata()
@@ -325,16 +434,13 @@ class OllamaRawEngine:
         }
         pending = ""
         count = 0
-        reason: StopReason = "stop"
+        reason: StopReason | None = None
         stopped = thinking = False
-        with _stream(self._client, self.url, "/api/generate", body) as response:
-            for line in response.iter_lines():
+        self._used = True
+        with _stream(self._client, self.url, "/api/generate", body, cancel) as response:
+            for data in _lines(response, self.url, cancel):
                 if cancel.cancelled:
-                    reason = "cancelled"
                     break
-                if not line.strip():
-                    continue
-                data = json.loads(line)
                 if data.get("error"):
                     raise ServerError(self.url, str(data["error"])[:200])
                 if data.get("thinking") and not thinking:  # once per call
@@ -354,42 +460,84 @@ class OllamaRawEngine:
                     yield Fragment(emit, count)
                 if data.get("done"):
                     count = _positive(data.get("eval_count")) or count
-                    if not stopped and data.get("done_reason") == "length":
-                        reason = "length"
-                    evaluated = data.get("prompt_eval_count")
-                    if isinstance(evaluated, int) and evaluated != len(prompt_ids):
-                        _reduced(
-                            f"Transparence réduite : Ollama a lu {evaluated} tokens de prompt, "
-                            f"le harnais en a compté {len(prompt_ids)}. Ollama tokenise le "
-                            "texte à sa façon, ou ne compte que la partie hors de son cache.",
-                            f"prompt_eval_count = {evaluated}, harnais = {len(prompt_ids)}",
-                        )
+                    reason = (
+                        "length" if not stopped and data.get("done_reason") == "length" else "stop"
+                    )
+                    self._check_count(data.get("prompt_eval_count"), len(prompt_ids))
                     break
+        if cancel.cancelled:
+            reason = "cancelled"
+        if reason is None:
+            raise _interrupted(self.url)
         yield Fragment(pending, count, reason)
 
+    def _check_count(self, evaluated: Any, counted: int) -> None:
+        """More tokens read than the harness counted: Ollama tokenized the text its own way
+        (« transparence réduite »). Fewer: the start of the prompt came from its cache, an
+        information only."""
+        if not isinstance(evaluated, int) or evaluated == counted:
+            return
+        if evaluated > counted:
+            _reduced(
+                f"Transparence réduite : Ollama a lu {evaluated} tokens de prompt, le harnais "
+                f"en a compté {counted}. Ollama a tokenisé le texte à sa façon (par exemple "
+                "en ajoutant un token de début).",
+                f"prompt_eval_count = {evaluated}, harnais = {counted}",
+            )
+            return
+        get_journal().emit(
+            "server_cache_used",
+            {
+                "prompt_tokens": counted,
+                "evaluated_tokens": evaluated,
+                "message_fr": (
+                    f"Ollama n'a relu que {evaluated} tokens sur {counted} : le début du "
+                    "prompt venait de son cache (préfixe identique à l'appel précédent)."
+                ),
+            },
+        )
+
     def close(self) -> None:
-        """AD-8: leaving an Ollama model unloads it (`keep_alive: 0`); a failure is traced,
-        never blocking."""
+        """AD-8: leaving an Ollama model WaveStack made it load unloads it (`keep_alive: 0`);
+        a failure is traced, never blocking."""
         if self._closed:
             return
         self._closed = True
         try:
-            error = release_ollama(self.url, self.name, client=self._client)
-            if error is not None:
-                get_journal().emit(
-                    "harness_error",
-                    {
-                        "message_fr": f"Ollama n'a pas déchargé le modèle {self.name}.",
-                        "cause": error,
-                        "effect_fr": (
-                            "WaveStack continue ; Ollama le déchargera de lui-même après son "
-                            "délai d'inactivité."
-                        ),
-                    },
-                )
+            if self._unload and self._used:
+                error = release_ollama(self.url, self.name, client=self._client)
+                if error is not None:
+                    get_journal().emit(
+                        "harness_error",
+                        {
+                            "message_fr": f"Ollama n'a pas déchargé le modèle {self.name}.",
+                            "cause": error,
+                            "effect_fr": (
+                                "WaveStack continue ; Ollama le déchargera de lui-même après "
+                                "son délai d'inactivité."
+                            ),
+                        },
+                    )
         finally:
             self._client.close()
             self._tokenizer.close()
+
+
+def _open_tokenizer(gguf_path: str | None) -> VocabTokenizer:
+    """The GGUF's tokenizer, `vocab_only`; a refusal of llama-cpp-python becomes a French
+    reason that names the way out (llama-server tokenizes by itself)."""
+    try:
+        return VocabTokenizer(gguf_path)
+    except Exception as exc:  # noqa: BLE001 - any refusal of the native loader
+        try:
+            lib = f"llama-cpp-python {version('llama-cpp-python')}"
+        except PackageNotFoundError:
+            lib = "llama-cpp-python"
+        raise ValueError(
+            f"{lib} ne sait pas lire le tokenizer de ce modèle ({exc}). C'est le cas de "
+            "modèles récents d'Ollama, comme Qwen3.5 : servez-le plutôt avec llama-server, "
+            "qui tokenise lui-même."
+        ) from exc
 
 
 def release_ollama(
@@ -426,46 +574,73 @@ class ServedModel:
     name: str  # Ollama `model:tag`; llama-server: its file name
     ref: str  # `ollama/{name}` or `llama_server/{file}`
     model_path: str | None = None  # llama-server: the file it loaded (`/props`)
-    size: int | None = None  # bytes the server reports for the model
+    size: int | None = None  # bytes the server reports for the model file
+    # Already in memory when listed: llama-server always; Ollama once in `/api/ps`, with
+    # the memory it reports there (`resident_size`).
+    resident: bool = False
+    resident_size: int | None = None
 
     @property
     def provider(self) -> str:
         return PROVIDERS[self.engine]
 
 
+def _ollama_cloud(model: dict[str, Any]) -> bool:
+    """An Ollama « cloud » model runs on ollama.com's servers, never on this workstation."""
+    name = str(model.get("name") or model.get("model") or "")
+    return bool(model.get("remote_host") or model.get("remote_model")) or name.endswith("-cloud")
+
+
 def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]:
     if engine == "ollama":
-        tags = _json(client, url, "GET", "/api/tags") or {}
+        tags = _json(client, url, "GET", "/api/tags")
+        try:
+            running = _json(client, url, "GET", "/api/ps").get("models") or []
+        except ServerError:
+            running = []
+        loaded = {
+            str(m.get("name") or m.get("model")): _positive(m.get("size"))
+            for m in running
+            if isinstance(m, dict)
+        }
         served = []
         for model in tags.get("models") or []:
             name = str(model.get("name") or model.get("model") or "")
-            if name:
-                served.append(
-                    ServedModel(
-                        engine, url, name, f"ollama/{name}", size=_positive(model.get("size"))
-                    )
+            if not name or _ollama_cloud(model):
+                continue
+            served.append(
+                ServedModel(
+                    engine,
+                    url,
+                    name,
+                    f"ollama/{name}",
+                    size=_positive(model.get("size")),
+                    resident=name in loaded,
+                    resident_size=loaded.get(name),
                 )
+            )
         return served
     health = client.get(url + _PROBE_PATHS[engine])
     if health.status_code >= 400:  # 503: still loading its model, nothing to choose yet
         return []
-    props = _json(client, url, "GET", "/props") or {}
+    props = _json(client, url, "GET", "/props")
     try:
-        models = _json(client, url, "GET", "/v1/models") or {}
+        models = _json(client, url, "GET", "/v1/models")
     except ServerError:
         models = {}
     first = (models.get("data") or [{}])[0] or {}
     model_path = str(props.get("model_path") or "") or None
     name = _file_name(model_path) if model_path else str(first.get("id") or "modèle")
     size = _positive((first.get("meta") or {}).get("size"))
-    return [ServedModel(engine, url, name, f"llama_server/{name}", model_path, size)]
+    return [ServedModel(engine, url, name, f"llama_server/{name}", model_path, size, True)]
 
 
 def list_served(
     cfg: config.Config, transport: httpx.BaseTransport | None = None
 ) -> list[ServedModel]:
-    """Every model the servers of `[net.loopback_ports]` serve now; a silent or unknown
-    server is skipped. Never launches anything."""
+    """Every model the servers of `[net.loopback_ports]` serve now, `/api/ps` read once per
+    Ollama; a silent server, or one whose answers do not have the expected shape, is
+    skipped. Never launches anything."""
     served: list[ServedModel] = []
     client = _client(DISCOVERY_TIMEOUT_S, DISCOVERY_TIMEOUT_S * 3, transport)
     try:
@@ -475,44 +650,25 @@ def list_served(
             url = f"http://127.0.0.1:{port}"
             try:
                 served += _served_by(client, engine, url)
-            except (httpx.HTTPError, ServerError, ValueError, TypeError):
+            except (httpx.HTTPError, ServerError, *_RESPONSE_ERRORS):
                 continue
     finally:
         client.close()
     return served
 
 
-def served_bytes(
-    engine: str,
-    url: str,
-    name: str,
-    *,
-    path: str | None = None,
-    fallback: int | None = None,
-    transport: httpx.BaseTransport | None = None,
-) -> int:
-    """AD-8: the served model's memory. Ollama: `/api/ps` `size` once loaded, else its blob's
-    size (`path`); llama-server: its file's size (`path`), else `meta.size` (`fallback`). 0
-    when nothing says it."""
-    if engine == "ollama":
-        client = _client(DISCOVERY_TIMEOUT_S, DISCOVERY_TIMEOUT_S * 3, transport)
-        try:
-            running = _json(client, url.rstrip("/"), "GET", "/api/ps") or {}
-            for model in running.get("models") or []:
-                if model.get("name") == name or model.get("model") == name:
-                    size = _positive(model.get("size"))
-                    if size:
-                        return size
-        except (ServerError, ValueError, TypeError):
-            pass
-        finally:
-            client.close()
+def served_bytes(model: ServedModel, path: str | None) -> int | None:
+    """AD-8: the served model's memory. Resident: what Ollama reports in `/api/ps`, else
+    (llama-server) its file's size; not loaded yet (Ollama): its blob's size. `None` when
+    nothing says it."""
+    if model.resident and model.resident_size:
+        return model.resident_size
     if path:
         try:
             return Path(path).stat().st_size
         except OSError:
             pass
-    return fallback or 0
+    return model.size
 
 
 def open_engine(
@@ -529,6 +685,11 @@ def open_engine(
         return LlamaServerEngine(candidate.server_url, markers=cfg.cloud_markers, **timeouts)
     if candidate.engine == "ollama":
         return OllamaRawEngine(
-            candidate.server_url, candidate.name, candidate.gguf_path, n_ctx, **timeouts
+            candidate.server_url,
+            candidate.name,
+            candidate.gguf_path,
+            n_ctx,
+            unload=not candidate.resident,
+            **timeouts,
         )
     raise ValueError(f"serveur local inconnu : {candidate.engine}")
