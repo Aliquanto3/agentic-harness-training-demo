@@ -502,7 +502,7 @@ def test_cloud_sub_model_is_drawn_in_the_network_zone_and_keeps_its_own_ratio():
 
     events = run(session, "Résume.")
 
-    assert session._ratios == {"main": 0.8, "sub": 1.5}  # AD-4: one ratio each
+    assert session._ratios == {"groq": 0.8, "groq#sub": 1.5}  # AD-4: one ratio each
     reconciled = of(events, "context_reconciled", "sub1")[0].payload
     ended = of(events, "subagent_ended")[0].payload
     assert ended["context_tokens"] == reconciled["used"] == 100000

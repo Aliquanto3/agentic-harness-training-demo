@@ -2,14 +2,44 @@
 title: 'Mémoire globale'
 type: 'feature'
 created: '2026-09-26'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '505ee9ffb4a2a7572e3d032c554f91bf1b327df5'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-agentic-harness-training-demo-2026-09-23/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-agentic-harness-training-demo-2026-09-22/EXPERIENCE.md'
 warnings: [oversized]
-deferred: []
+deferred:
+  - summary: >-
+      Scénario « Mémoire globale » en fin de programme au lieu de l'ordre de FR-38 : à
+      réordonner à la story 21.
+    evidence: |-
+      H11 ; revue indépendante (intention). Consigné dans deferred-work.md.
+    location: >-
+      content/scenarios.yaml
+    severity: medium
+  - summary: >-
+      Le tiroir n'affiche pas `created_at`.
+    evidence: |-
+      Revue indépendante (blind hunter) ; EXPERIENCE.md ne le demande pas. Consigné dans deferred-work.md.
+    location: >-
+      src/wavestack/web/static/app.js
+    severity: low
+  - summary: >-
+      Pas d'ajout d'entrée depuis le tiroir (exclu par la spec, H1).
+    evidence: |-
+      Revue indépendante (blind hunter). Consigné dans deferred-work.md.
+    severity: low
+  - summary: >-
+      Mémoire pleine à 300 caractères : environ 60 % de l'espace utilisable à 4 096 tokens avec
+      le raisonnement.
+    evidence: |-
+      Mesure du test de fenêtre minimale ; la borne de 300 est dans le contrat d'intention.
+      À vérifier au test manuel, consigné dans deferred-work.md.
+    location: >-
+      src/wavestack/memory.py
+    severity: medium
 ---
 
 <intent-contract>
@@ -84,13 +114,13 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/wavestack/config.py`, `src/wavestack/memory.py`, `content/memory/memory.yaml`, `content/bricks/global_memory.yaml` -- chemin, modèles, lecture/écriture atomique, contenus -- AD-19, AD-20.
-- [ ] `src/wavestack/session/effects.py`, `src/wavestack/trace/catalog.py`, `src/wavestack/bricks/registry.py` -- contrat d'abord : effet, événements, brique -- AD-2, AD-12, AD-23.
-- [ ] `src/wavestack/session/app_session.py` -- état et chargement, `TurnState`, rendu, `remember`, applicateur, forçage, tiroir, réinitialisation, schéma, carte -- AD-3, AD-4, AD-17, AD-25.
-- [ ] `src/wavestack/web/app.py` -- route `memory`, `kind: memory`, `/api/state` -- AD-18.
-- [ ] `src/wavestack/web/static/index.html`, `app.js`, `app.css` -- tiroir, carte, forçage, étape, schéma, journal -- EXPERIENCE.
-- [ ] `content/scenarios.yaml`, `tests/test_scenarios.py` -- scénario `global_memory`, décompte mis à jour -- FR-38.
-- [ ] `tests/test_global_memory.py` (nouveau) -- une ligne de la matrice par test, avec `remember` et le forçage sur `QWEN` ; routes 200/404/409/422 ; rendu local et chat (`_system_parts` partagé) ; clé `source` et `effect_applied.component = file.memory`.
+- [x] `src/wavestack/config.py`, `src/wavestack/memory.py`, `content/memory/memory.yaml`, `content/bricks/global_memory.yaml` -- chemin, modèles, lecture/écriture atomique, contenus -- AD-19, AD-20.
+- [x] `src/wavestack/session/effects.py`, `src/wavestack/trace/catalog.py`, `src/wavestack/bricks/registry.py` -- contrat d'abord : effet, événements, brique -- AD-2, AD-12, AD-23.
+- [x] `src/wavestack/session/app_session.py` -- état et chargement, `TurnState`, rendu, `remember`, applicateur, forçage, tiroir, réinitialisation, schéma, carte -- AD-3, AD-4, AD-17, AD-25.
+- [x] `src/wavestack/web/app.py` -- route `memory`, `kind: memory`, `/api/state` -- AD-18.
+- [x] `src/wavestack/web/static/index.html`, `app.js`, `app.css` -- tiroir, carte, forçage, étape, schéma, journal -- EXPERIENCE.
+- [x] `content/scenarios.yaml`, `tests/test_scenarios.py` -- scénario `global_memory`, décompte mis à jour -- FR-38.
+- [x] `tests/test_global_memory.py` (nouveau) -- une ligne de la matrice par test, avec `remember` et le forçage sur `QWEN` ; routes 200/404/409/422 ; rendu local et chat (`_system_parts` partagé) ; clé `source` et `effect_applied.component = file.memory`.
 
 **Acceptance Criteria:**
 - Given la brique active et une entrée écrite, when WaveStack est relancé (nouvelle `AppSession` sur le même dossier), then l'entrée est dans le tiroir et dans le message système du premier tour.
@@ -103,6 +133,26 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-26 — Review pass
+Passe unique faite par l'agent d'implémentation (pas d'outil de sous-agent dans cette exécution) ; une revue indépendante suivra.
+- verdicts: 5 findings — high 0, medium 0, low 3, false 1, maybe-false 1
+- findings:
+  - `[low]` `[patch]` Les messages de `check_text` tutoyaient le modèle (« écris… », « Résume-le… ») alors qu'ils reviennent aussi à l'utilisateur en 422 (tiroir, armement) — messages rendus neutres (`src/wavestack/memory.py`).
+  - `[low]` `[patch]` Aucun test ne couvrait l'abandon d'une écriture forcée quand la brique est éteinte (ligne « Forcé » de la spec) — ajout de `test_forced_write_is_dropped_when_the_brick_is_off`.
+  - `[low]` `[reject]` Deux intentions (b) concurrentes (réinitialisation et suppression depuis deux onglets) pourraient faire lever `KeyError` dans `apply_writes` et un 500 sur la réinitialisation — improbable en démonstration, la correction ajouterait une garde ; la suppression concurrente, elle, finit déjà en 404.
+  - `[false]` Un `memory_changed` rejoué au chargement de la page pourrait écraser le tiroir ouvert — faux : `renderMemoryDrawer` ne fait rien tant que le tiroir est caché, et garde les brouillons (`store.memoryDrafts`) quand il est ouvert.
+  - `[maybe-false]` `[reject]` Un échec d'`os.replace` laisse `memory.tmp` dans le dossier de données — sans effet sur la lecture (seul `memory.json` est lu) ; à vérifier seulement si un antivirus Windows verrouille le fichier ; au pire `low`.
+
+### 2026-09-26 — Revue indépendante (4 relecteurs, triage de l'orchestrateur)
+Tous les points « à corriger » ont été appliqués, un test Python par correctif testable (`tests/test_global_memory.py`, section « independent review », 13 tests de plus), et le front est couvert par le parcours E2E.
+- Intention : placement du scénario → reporté (story 21, deferred-work.md) ; `effect_applied` du tiroir et de la réinitialisation → `trigger = user` (portée `scoped(trigger="user")`), testé ; front → parcours E2E `global_memory` (28 vérifications).
+- Écarts de vérification : test d'un appel mal formé avec la mémoire seule brique du harnais (`tool_call_malformed.brick` et segment `tool_result` = `global_memory`) ; test d'un `memory.yaml` invalide ; bogue corrigé : `memory_changed.error_fr` reprend la raison du contenu invalide, le tiroir se désactive et `edit_memory` répond 409 (`_memory_unavailable_fr`).
+- Blind hunter : `read_memory` refuse plus de 20 entrées, un texte de plus de 300 caractères ou sur plusieurs lignes, et les ids en double (chemin « illisible », fichier jamais réécrit) ; l'applicateur refuse de dépasser 20 entrées ; test d'une mémoire pleine à la fenêtre par défaut (4 096, réserve du raisonnement) avec les briques du scénario ; la réinitialisation n'écrit rien quand la mémoire est déjà la démonstration ; « Tout effacer » demande confirmation en ligne (« Oui, tout effacer » / « Annuler ») ; sans parseur, le bouton « Écrire en mémoire » est désactivé avec la raison et le tiroir vide dit que le modèle ne peut pas écrire ; le remplacement refuse un doublon (422) et n'écrit rien sans changement ; textes pédagogiques (cloud : chaque entrée part chez le fournisseur ; jamais de secret dans `remember` ; second prompt du scénario sans mot de passe) ; description du scénario : « Réinitialiser » d'abord si la préférence est déjà en mémoire ; `max_entries`, `max_chars` dans `memory_changed`, `empty_fr` et `text_help_fr` sur la carte, tirés de `content/memory/memory.yaml` ; `MemoryIntention` exige `entry_id` (replace, delete) et `text` (replace), 422.
+- Cas limites : l'écriture de `remember` est appliquée avant `tool_ended` (crochet `apply` de l'exécuteur) : un échec d'écriture donne une étape en erreur ; la réinitialisation et le tiroir calculent leurs écritures sous `_memory_lock` (RLock), tenu de la vérification `idle` jusqu'à la fin de l'écriture, et un tour le prend pour démarrer (aucune écriture du tiroir pendant un tour, test par verrou) ; armement avec un texte non chaîne → 422 ; blancs et retours à la ligne ramenés à un espace ; démonstration validée (longueur, doublons) ; `effect_applied` et `memory_changed` émis sous `_memory_lock` ; front : un clic sur le nœud avec le tiroir ouvert garde les brouillons, `harness_reset` les vide.
+- Appliqué en partie : « libellés » d'AD-19. Les textes qui dépendent de l'état (tiroir vide, aide du champ avec la borne) et les bornes viennent de la session ; les libellés de boutons (« Tout effacer », « Fermer », « Enregistrer ») restent dans `index.html`, comme ceux du tiroir du prompt système.
+- Écarté après vérification : la baisse de `MAX_CHARS` à 200, un temps envisagée pour le test de fenêtre, n'est pas appliquée, car la borne de 300 caractères est écrite dans le contrat d'intention (Always et matrice) ; la mémoire pleine à 300 tient dans la fenêtre par défaut (test), le risque de place est reporté.
+- Hors story, pour faire passer le parcours E2E : sélecteur `details.bubble-reasoning` → `details.reasoning-block` dans `tools/e2e/run_e2e.py` (classe renommée par la story 13) ; déclencheurs « Retiens que … » et « Rappelle-moi mon prénom » ajoutés au faux modèle.
 
 ## Design Notes
 
@@ -133,6 +183,11 @@ def _apply_memory(self, writes: list[MemoryWrite], source: str) -> str | None:
 - H8 : pas de marque « Prend effet au prochain tour » pour un changement de contenu de la mémoire (comme un skill chargé) ; seul l'interrupteur la déclenche.
 - H9 : le scénario `global_memory` rejoint le module 1 (durée portée à 60 min) ; les premiers scénarios des modules 2 à 4 n'activent pas encore la mémoire globale, ce cumul revenant à la story 21. La story 13 (raisonnement), rédigée en parallèle, touche le même module : fusion à surveiller.
 - H10 : doublon détecté sans casse ni blancs de bord ; l'id d'une nouvelle entrée est `m` + 8 caractères hexadécimaux aléatoires.
+- H11 (implémentation, remplace la première moitié de H9) : la story 13 a été fusionnée avant l'implémentation, et sa revue a rendu les scénarios cumulatifs (le premier scénario d'un module active les briques des modules précédents, en-tête de `content/scenarios.yaml`, CAP-40). Placer `global_memory` dans le module 1 aurait obligé à l'ajouter aux premiers scénarios des modules 2 à 5, ce que la section Never interdit (report à la story 21). Le scénario ouvre donc, comme `reasoning`, son propre module « Mémoire globale » (30 min) en fin de programme, avec les briques de tous les modules précédents (MCP en lazy loading) ; le module 1 reste à 45 min. La place définitive suivra l'ordre de FR-38 à la story 21.
+- H12 (implémentation) : le nœud `file.memory` s'intitule « Mémoire globale » (critère d'acceptation), le chemin de `memory.json` en info-bulle ; la puce du harnais porte aussi « Mémoire globale » (icône 💾).
+- H13 (implémentation) : `memory_changed` porte aussi `error_fr` (fichier illisible), pour que le tiroir et la carte se désactivent sans recalcul côté front (AD-1).
+- H14 (implémentation) : un échec d'écriture depuis le tiroir renvoie 500 avec la raison en français (en plus du `harness_error`) ; la spec ne fixait que 409, 404 et 422.
+- H15 (implémentation) : les messages de refus du texte (vide, plus de 300 caractères) sont neutres, car ils vont au modèle (`remember`) comme à l'utilisateur (tiroir, armement) ; « Écrire en mémoire » s'arme depuis la carte, formulaire à un champ « Texte », et la puce se lit « Armé : Écrire en mémoire (début du texte…) ».
 
 ## Verification
 
@@ -146,5 +201,32 @@ def _apply_memory(self, writes: list[MemoryWrite], source: str) -> str | None:
 
 ## Auto Run Result
 
-Status: ready-for-dev
-Blocking condition: aucune (arrêt demandé après la planification)
+Status: done
+
+**Résumé :** brique `global_memory` (catégorie context, composant `global_memory.memory`, nœud `file.memory`). `memory.json` (dossier de données, `config.memory_path()`) est lu au lancement : absent → mémoire de démonstration en mémoire vive, illisible → `harness_error` et brique indisponible jusqu'à « Réinitialiser ». Les textes sont figés dans `TurnState.memory` et rendus en segments `global_memory` entre le prompt système et le catalogue de skills (local et chat, `_system_parts` partagé). Méta-outil `remember` (offert si la brique est effective et le modèle a un parseur), refus réinjectés (vide, > 300, 20 entrées), doublon sans effet. Effet `MemoryWrite` appliqué par un applicateur unique (`_apply_memory`) : écriture atomique, un `effect_applied` par effet (`file.memory`), un `memory_changed`, échec → `harness_error` et réponse réinjectée remplacée. Action forcée `memory` (« Écrire en mémoire »), tiroir `POST /api/intentions/memory` (replace, delete, clear ; 409/404/422/500), restauration de la démonstration à la réinitialisation. Front : carte (compte, note sans parseur, forçage, « Modifier la mémoire »), tiroir d'édition au clavier, étape 💾 d'Orchestration avec badge et entrée écrite, clic sur le nœud du schéma, journal. Scénario `global_memory` dans un module « Mémoire globale » en fin de programme (H11).
+
+**Fichiers :**
+- `src/wavestack/memory.py` (nouveau) — format de `memory.json`, contenus, lecture, écriture atomique, validation, application pure des écritures.
+- `content/memory/memory.yaml`, `content/bricks/global_memory.yaml` (nouveaux) — textes du harnais, de `remember`, démonstration fictive, carte.
+- `src/wavestack/config.py` — `memory_path()`.
+- `src/wavestack/session/effects.py` — `MemoryWrite` dans l'union `Effect`.
+- `src/wavestack/bricks/registry.py` — brique `global_memory` après `system_prompt`.
+- `src/wavestack/trace/catalog.py` — `memory_changed`, `effect_applied` `memory_write`, `kind: memory`, `note_fr`.
+- `src/wavestack/session/app_session.py` — chargement, disponibilité, `TurnState`, rendu, `remember`, applicateur, forçage, tiroir, réinitialisation, schéma, carte.
+- `src/wavestack/web/app.py` — route `memory`, `kind: memory`, `/api/state.memory_changed`.
+- `src/wavestack/web/static/index.html`, `app.js`, `app.css` — tiroir, carte, forçage, étape, schéma, journal.
+- `content/scenarios.yaml` — module et scénario « Mémoire globale ».
+- `tests/test_global_memory.py` (nouveau, 19 tests), `tests/test_bricks.py`, `tests/test_scenarios.py` — matrice, acceptation, comptes.
+
+**Revue :** 5 constats ; 2 corrigés (`low`), 2 rejetés (1 `low` improbable, 1 `maybe-false` au pire `low`), 1 `false`. Rien de reporté. Corrections par verdict : high 0, medium 0, low 2.
+
+**Revue indépendante :** voir le Review Triage Log. Vérification finale : ruff check et format (verts), `node --check` (vert), `uv run pytest -q` : 451 réussis, 3 sautés ; parcours E2E complet : 155 vérifications réussies, 0 échec, 5 anomalies connues d'avant la story (A1 à A4).
+
+**Suivi de revue recommandé :** false (aucun correctif `high`, moins de deux `medium`). Une revue indépendante est de toute façon prévue par l'orchestrateur, cette passe ayant été faite sans sous-agent.
+
+**Vérification :** `uv run ruff check .` (vert), `uv run ruff format --check .` (vert), `node --check src/wavestack/web/static/app.js` (vert), `uv run pytest -q` : 427 réussis, 3 sautés. Audit de la matrice : chaque ligne couverte par un test de `tests/test_global_memory.py` (injection, écriture par le modèle, forcée, trois refus, doublon, sans parseur, tiroir, échec d'écriture, fichier invalide, réinitialisation, rejeu), tous exécutés et verts.
+
+**Risques résiduels :**
+- Front non testé automatiquement (pas de tests JS dans le projet) : tiroir, forçage depuis la carte, étape d'Orchestration et clic du nœud sont à vérifier à la main.
+- Qwen sur CPU peut ne pas appeler `remember` de lui-même, surtout avec toutes les briques du scénario cumulatif actives : le forçage est la voie de secours prévue.
+- Scénario placé en fin de programme (H11) plutôt qu'au module 1 : à trancher à la story 21.

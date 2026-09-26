@@ -38,6 +38,9 @@ _FINISH = {"stop": "stop", "tool_calls": "stop", "length": "length", "model_leng
 _CONTEXT_WORDS = ("context length", "context_length", "context window", "maximum context")
 PROVIDER_MESSAGE_MAX = 500  # characters of the provider's own message shown, then « … »
 
+# Story 17: the local model comes back without relaunch (CAP-34).
+_BACK_TO_LOCAL_FR = "Revenez au modèle local depuis le sélecteur de modèle de la barre haute."
+
 
 @dataclass(frozen=True)
 class ChatBody:
@@ -272,7 +275,7 @@ class OpenAIChatEngine:
                 [
                     "Vérifiez la connexion du poste, ou le proxy.",
                     f"L'hôte {entry.host} doit être autorisé par le réseau de l'entreprise.",
-                    "Revenez au modèle local au prochain lancement (diagnostic).",
+                    _BACK_TO_LOCAL_FR,
                 ],
             ) from None
 
@@ -292,7 +295,7 @@ class OpenAIChatEngine:
                 provider_error=self.mask(generation),
                 provider_message=_clip(self.mask(message)) or None,
             )
-        local = ["Revenez au modèle local au prochain lancement (diagnostic)."]
+        local = [_BACK_TO_LOCAL_FR]
         said = {"provider_message": message if shown else None}  # HTML: in `cause` only
         if 300 <= status < 400:
             raise self._error(
@@ -421,7 +424,10 @@ class OpenAIChatEngine:
                     f"Réponse illisible : une ligne du flux de {entry.provider} n'est pas au "
                     "format attendu (SSE).",
                     line[:300],
-                    ["Relancez le tour.", "Revenez au modèle local au prochain lancement."],
+                    [
+                        "Relancez le tour.",
+                        _BACK_TO_LOCAL_FR,
+                    ],
                 )
             if chunk.get("error"):
                 error = chunk["error"] if isinstance(chunk["error"], dict) else {}
@@ -442,7 +448,10 @@ class OpenAIChatEngine:
                 raise self._error(
                     f"{entry.provider} a interrompu la réponse sur une erreur.",
                     said,
-                    ["Relancez le tour.", "Revenez au modèle local au prochain lancement."],
+                    [
+                        "Relancez le tour.",
+                        _BACK_TO_LOCAL_FR,
+                    ],
                     provider_message=said,
                 )
             usage = chunk.get("usage") or usage
@@ -463,7 +472,7 @@ class OpenAIChatEngine:
                         f"finish_reason: {finish}",
                         [
                             "Reformulez le message.",
-                            "Revenez au modèle local au prochain lancement.",
+                            _BACK_TO_LOCAL_FR,
                         ],
                     )
                 stop = _FINISH[finish]

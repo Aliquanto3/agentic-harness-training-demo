@@ -63,6 +63,10 @@ class ActiveModel(BaseModel):
     disclosure: dict[str, object] | None = None
     warning_fr: str | None = None  # the `cloud-warning`'s text, the indicator's tooltip
     banner_fr: str | None = None  # Contexte LLM's banner (chat mode)
+    # Story 17: which entry of the model lists is active: a file (`ref`: its path) or a
+    # cloud model (`ref`: its `id`).
+    kind: Literal["file", "cloud"] | None = None
+    ref: str | None = None
 
 
 class SessionStatePayload(BaseModel):
@@ -127,6 +131,8 @@ Channel = Literal["reasoning", "text", "tool_call"]
 class TurnStartedPayload(BaseModel):
     replay_of: str | None = None
     message: str
+    # Story 17: the model that plays this turn, for « Modèle : … » and « Comparer ».
+    active_model: ActiveModel | None = None
 
 
 class TurnEndedPayload(BaseModel):
@@ -284,6 +290,12 @@ class BrickState(BaseModel):
     lazy_label_fr: str | None = None
     # Story 13, `reasoning` brick only: the model always reasons, whatever the switch says.
     always_fr: str | None = None
+    # Story 14, `global_memory` brick: what the card adds (e.g. no tool parser, AD-6).
+    note_fr: str | None = None
+    # Story 14, `global_memory` brick: the empty drawer's text and the forced write's help
+    # (AD-19), which depend on the model's tool parser.
+    empty_fr: str | None = None
+    text_help_fr: str | None = None
     # Story 19, `subagent` brick only: « Déléguer au sous-agent », on the card itself.
     force: BrickForce | None = None
 
@@ -373,8 +385,12 @@ class HookDecidedPayload(BaseModel):
 
 
 class EffectAppliedPayload(BaseModel):
-    effect: Literal["audit_append", "setting_write", "api_key_set"]
+    effect: Literal["audit_append", "setting_write", "api_key_set", "memory_write"]
     lines: list[str] = []
+    # `memory_write` (story 14, AD-23): the change applied to `memory.json`.
+    op: Literal["add", "replace", "delete"] | None = None
+    entry_id: str | None = None
+    text: str | None = None
     key: str | None = None  # `setting_write`: the settings.json key, never a secret
     # `api_key_set` (AD-23): only the cloud model's id and whether a key is now set.
     id: str | None = None
@@ -412,7 +428,7 @@ class ArmedActionState(BaseModel):
     """An armed action, as the session holds it (AD-3): the front projects its chips."""
 
     armed_id: str
-    kind: Literal["tool", "skill", "tool_doc", "delegate"]
+    kind: Literal["tool", "skill", "tool_doc", "memory", "delegate"]
     brick: str
     target: str
     args: dict[str, object] = {}
@@ -456,6 +472,49 @@ class ScenarioChangedPayload(BaseModel):
 
 class HarnessResetPayload(BaseModel):
     pass
+
+
+# ---------- story 14: global memory (AD-20, AD-23) ----------
+
+
+class MemoryEntryState(BaseModel):
+    id: str
+    text: str
+    created_at: str
+    source: Literal["model", "user", "demo"]
+
+
+class MemoryChangedPayload(BaseModel):
+    """The whole memory after a change (AD-1): the drawer and the card project it."""
+
+    entries: list[MemoryEntryState]
+    path: str
+    # Unreadable or invalid `memory.json`: why the brick is unavailable, until a reset.
+    error_fr: str | None = None
+    # The limits the drawer and the forced write apply (AD-19: from the session).
+    max_entries: int
+    max_chars: int
+
+
+# ---------- story 17: hot model switch (AD-2, AD-3, AD-8) ----------
+
+
+class ModelLoadStartedPayload(BaseModel):
+    """A model load starts, out of any turn: at launch or on a switch. Its `ts` anchors the
+    « Chargement du modèle… » stopwatch."""
+
+    model: ActiveModel  # the model being loaded
+    phase_label: str
+
+
+class ModelLoadEndedPayload(BaseModel):
+    """`ok`: the model is active; `restored`: it failed and the previous one is active again;
+    `error`: no model is active."""
+
+    model: ActiveModel  # the model that was being loaded
+    status: Literal["ok", "restored", "error"]
+    duration_ms: int
+    reason_fr: str | None = None
 
 
 # ---------- story 19: delegation to a sub-agent (AD-11, AD-25) ----------
@@ -522,6 +581,9 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "action_dropped": ActionDroppedPayload,
     "scenario_changed": ScenarioChangedPayload,
     "harness_reset": HarnessResetPayload,
+    "memory_changed": MemoryChangedPayload,
+    "model_load_started": ModelLoadStartedPayload,
+    "model_load_ended": ModelLoadEndedPayload,
     "subagent_started": SubagentStartedPayload,
     "subagent_ended": SubagentEndedPayload,
 }

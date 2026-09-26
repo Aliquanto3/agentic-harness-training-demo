@@ -67,8 +67,49 @@ chemin d'un fichier `.gguf` (partage, clé USB, cache Hugging Face, LM Studio, O
 - Le diagnostic reste accessible par l'indicateur de modèle de la barre haute et par l'entrée
   « Diagnostic » du menu « Volets ▾ ».
 
-Un modèle choisi alors qu'un autre est déjà chargé attend une relance : le diagnostic affiche
-« Choix enregistré : relancez WaveStack pour l'utiliser. » tant que ce n'est pas fait.
+## Changer de modèle
+
+Le modèle se change sans relancer WaveStack, entre deux tours (pas pendant un tour ni une
+validation) :
+- **Barre haute** : le sélecteur « Changer de modèle… », à droite de l'indicateur de modèle,
+  liste les fichiers GGUF du poste (« Sur ce poste », avec leur taille, par exemple « 2B », une
+  fois le fichier sondé) et les modèles cloud déclarés (« Réseau », grisés sans clé). Un modèle
+  cloud affiche d'abord son avertissement. « Autre fichier ou clé API… » ouvre le diagnostic.
+- **Diagnostic** : « Choisir » en face d'un fichier ou d'un modèle cloud, ou un chemin saisi.
+
+Pendant le chargement, la barre haute et la Vue humain affichent « Chargement du modèle… » avec
+un chronomètre ; l'envoi est désactivé. La conversation est conservée : l'historique est
+reconstruit à chaque tour avec le gabarit du nouveau modèle, et « Rejouer le dernier prompt »
+le fait jouer par le nouveau modèle. Une ligne « Modèle : … » marque dans la Vue humain le
+premier tour d'un autre modèle, et « Comparer » affiche le modèle de chaque tour. Les briques
+qui exigent une capacité absente (appel d'outils, raisonnement) passent indisponibles avec leur
+raison, et redeviennent disponibles au retour à un modèle qui l'offre.
+
+Le choix est mémorisé pour les lancements suivants une fois le chargement réussi. Si le nouveau
+modèle ne se charge pas (fichier incompatible, erreur), WaveStack recharge le modèle précédent et
+l'explique.
+
+**Budget mémoire.** Un seul modèle est en mémoire à la fois : l'ancien est libéré avant le
+chargement du nouveau (et avant la sonde d'un fichier jamais chargé). Avant de libérer quoi que
+ce soit, WaveStack estime le coût du nouveau modèle (mémoire mesurée par la sonde, sinon taille
+du fichier, plus son cache de contexte et une marge) et refuse le changement, chiffres à
+l'appui, s'il dépasse le budget ; le modèle actif reste alors chargé. Le budget se règle dans
+`wavestack.toml` (ou `settings.json`) :
+
+```toml
+[memory]
+budget_mb = 4096      # mémoire de WaveStack et de ses processus enfants, modèle compris
+load_margin_mb = 256  # marge ajoutée au coût estimé de chaque modèle local
+```
+
+## Modèle par défaut
+
+Le modèle recommandé est **Qwen3.5-2B en Q4_K_M** (GGUF amont publié par unsloth, licence
+Apache-2.0), validé sur le PC cible. WaveStack ne le télécharge pas : copiez le fichier `.gguf`
+dans le dossier `models/` du dossier de données (`%LOCALAPPDATA%\WaveStack\models` sous
+Windows, `~/.local/share/wavestack/models` ailleurs), ou indiquez son chemin au diagnostic.
+Les GGUF `qwen35` d'Ollama ne se chargent pas avec llama-cpp-python 0.3.35 : préférez le fichier
+amont.
 
 ## Modèle cloud (Groq, Mistral)
 
@@ -105,16 +146,17 @@ OpenRouter y figurent en exemples commentés, avec leur avertissement.
    fonctionnent le jour J.
 3. **Choisir.** « Choisir » affiche l'avertissement (ce qui part, ce qu'en fait le fournisseur, ce
    que le harnais ne voit plus) ; « Utiliser ce modèle » le confirme. Le choix est repris aux
-   lancements suivants, sans nouvel avertissement. Choisi après le chargement d'un modèle, il vaut
-   pour le prochain lancement.
+   lancements suivants, sans nouvel avertissement. Choisi après le chargement d'un modèle, il le
+   remplace sans relance (voir « Changer de modèle »).
 
 **Fenêtre de Groq.** Son quota gratuit (8 000 tokens par minute) limite la fenêtre à 4 000 tokens,
 dont 1 536 réservés à la réponse : il reste **2 464 tokens utilisables**. Les scénarios lourds
 (MCP en documentation complète, longue conversation) dépassent : passez en lazy loading, videz la
 conversation, ou préférez Mistral.
 
-**Revenir au modèle local.** Sur la page de diagnostic, cliquez sur « Choisir » en face d'un
-fichier GGUF (ou indiquez son chemin) : le choix s'applique au prochain lancement.
+**Revenir au modèle local.** Choisissez un fichier GGUF dans le sélecteur de la barre haute, ou
+cliquez sur « Choisir » en face d'un fichier sur la page de diagnostic : le modèle local est
+rechargé sans relance, conversation gardée.
 
 **Hôtes à autoriser** sur le réseau de l'entreprise : `api.groq.com` et `api.mistral.ai` (plus
 l'hôte de tout modèle ajouté dans `settings.json`).

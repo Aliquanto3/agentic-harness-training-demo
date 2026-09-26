@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from wavestack import config
+from wavestack import memory as memory_file
 from wavestack.bricks.contract import (
     BrickContent,
     BrickDeclaration,
@@ -55,6 +56,7 @@ from wavestack.hooks import (
 )
 from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
+from wavestack.models import probe as probe_module
 from wavestack.models.capabilities import (
     TOOL_CALL_TAGS,
     Capabilities,
@@ -62,6 +64,7 @@ from wavestack.models.capabilities import (
     capabilities_for,
 )
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
+from wavestack.models.load_registry import LoadRegistry, ModelChoice, process_rss
 from wavestack.models.openai_chat import (
     ChatBody,
     OpenAIChatEngine,
@@ -74,9 +77,12 @@ from wavestack.session.effects import (
     ArmConsumed,
     AuditAppend,
     Effect,
+    MemoryWrite,
+    SettingWrite,
     SkillLoaded,
     ToolDocLoaded,
     ToolReply,
+    apply_setting,
 )
 from wavestack.skills import SkillsContent, SkillText, load_skills_content
 from wavestack.subagent import SubagentContent, load_subagent_content
@@ -105,6 +111,8 @@ DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
 LOAD_TOOL_DOC = "load_tool_doc"  # the harness meta-tool of the lazy loading mode (AD-25)
 DOC_LINE_MAX = 120  # characters of a tool's first description line in `load_tool_doc`
 LOAD_SKILL = "load_skill"  # the harness meta-tool of the skills brick (AD-25)
+REMEMBER = "remember"  # the harness meta-tool of the global memory brick (AD-25)
+MEMORY = "file.memory"  # the schema node of `memory.json` (AD-12, AD-23)
 DELEGATE = "delegate"  # the harness meta-tool of the subagent brick (AD-11, AD-25)
 _NO_SUB_TEXT_FR = "(Le sous-agent n'a rendu aucun texte.)"
 
@@ -138,6 +146,11 @@ _LOAD_FAILED_FR = (
     "Envoi indisponible : le modèle n'a pas pu être chargé. Choisissez un autre fichier GGUF "
     "sur la page de diagnostic."
 )
+_CLOUD_FAILED_FR = (
+    "Envoi indisponible : le modèle cloud n'a pas pu être préparé. Choisissez un modèle sur la "
+    "page de diagnostic."
+)
+_NO_TURN_FR = "Aucun tour possible."
 # The heaviest harness-controlled segment names the cause (message first on ties).
 _OVERFLOW_CAUSES_FR = {
     SegmentKind.USER_MESSAGE: (
@@ -235,10 +248,11 @@ class _ModelOutput:
 @dataclass(frozen=True)
 class ArmedAction:
     """An action the user armed for the next turn (AD-3, AD-25): the session alone holds
-    them. `kind`: a native tool call with its `args`, a skill or an MCP documentation."""
+    them. `kind`: a native tool call with its `args`, a skill, an MCP documentation, or a
+    memory write with its `text` (story 14)."""
 
     armed_id: str
-    kind: str  # tool | skill | tool_doc | delegate
+    kind: str  # tool | skill | tool_doc | memory | delegate
     brick: str
     target: str
     args: dict[str, Any]
@@ -282,6 +296,9 @@ class TurnState:
     injection: str = ""
     # Story 9: the armed actions taken when the turn is sent, consumed in arming order.
     armed: tuple[ArmedAction, ...] = ()
+    # Story 14 (AD-4): the global memory's texts, read at the turn's start; empty when the
+    # brick is not effective. A write during the turn waits for the next one.
+    memory: tuple[str, ...] = ()
     # Story 19 (AD-11): the sub-agent's tools, `[subagent] tools` among the enabled ones.
     subagent_tools: tuple[str, ...] = ()
 
@@ -339,6 +356,16 @@ class SendRefused(Exception):
         self.reason_fr = reason_fr
 
 
+class _LoadFailed(Exception):
+    """A load refused for a known reason (probe, incompatible template): `message_fr` for
+    `harness_error`, `reason_fr` its cause, `idle_fr` the reason left in `idle` when no
+    model is active afterwards."""
+
+    def __init__(self, message_fr: str, reason_fr: str, idle_fr: str | None = None) -> None:
+        super().__init__(reason_fr)
+        self.message_fr, self.reason_fr, self.idle_fr = message_fr, reason_fr, idle_fr
+
+
 def _fr(n: int) -> str:
     return f"{n:,}".replace(",", "\u202f")  # narrow no-break space, French style
 
@@ -357,6 +384,7 @@ class AppSession:
         bricks: list[BrickDeclaration] | None = None,
         hooks: tuple[Hook, ...] = DEMO_HOOKS,
         cloud_factory: Callable[..., Any] | None = None,
+        rss_fn: Callable[[], int] | None = None,
     ) -> None:
         self.cfg = cfg or config.load_config()
         self._engine_factory = engine_factory
@@ -371,9 +399,14 @@ class AppSession:
         )
         self._cloud: CloudModel | None = None  # the active cloud model: chat mode (AD-4)
         self._window_source = "configured"
-        # AD-4: the last real `usage.prompt_tokens / Σ estimates`, for the main context and
-        # for every sub-agent context (AD-11): one ratio each.
-        self._ratios = {"main": self.cfg.estimate_ratio, "sub": self.cfg.estimate_ratio}
+        # AD-4: the last real `usage.prompt_tokens / Σ estimates` of the main context, by
+        # cloud model `id` (`_ratio` reads the active one's).
+        self._ratios: dict[str, float] = {}
+        # AD-8: every model load goes through the registry, one generative slot.
+        self._load_registry = LoadRegistry(
+            self.cfg.memory_budget_bytes, self.cfg.load_margin_bytes, rss_fn or process_rss
+        )
+        self._active: ModelChoice | None = None  # the model loaded now (AD-3)
         self._call_ids: set[str] = set()  # the running turn's `tool_call_id`s (AD-4)
         self._cloud_content = None  # `content/cloud.yaml`, read when a cloud model boots
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="wavestack-worker")
@@ -400,6 +433,15 @@ class AppSession:
         self._skills_content: SkillsContent | None = None
         self._hooks = hooks  # tests replace them to reach every point (CAP-27)
         self._hooks_content: HooksContent | None = None
+        # Story 14 (AD-20, AD-23): the global memory, the mirror of `memory.json` the session
+        # alone writes; `_memory_error` while the file is unreadable (brick unavailable).
+        self._memory_content: memory_file.MemoryContent | None = None
+        self._memory: list[memory_file.MemoryEntry] = []
+        self._memory_error: str | None = None
+        # One write at a time, whichever thread; a drawer write or a reset holds it from its
+        # `idle` check to its end, and a turn takes it to start: no drawer write in a turn.
+        # Always taken before `_lock`.
+        self._memory_lock = threading.RLock()
         self._subagent_content: SubagentContent | None = None
         # Story 19 (AD-11): sub-agents numbered over the session's life, never reset; the
         # running turn's frozen state and stop token, for `delegate`.
@@ -458,6 +500,7 @@ class AppSession:
         self._scenarios: ScenariosContent | None = None
         self._active_scenario: str | None = None
         self._load_scenarios()
+        self._emit_memory()
 
     def _apply_launch_config(self) -> None:
         """The launch configuration, applied again by a reset or before a scenario: no
@@ -501,7 +544,14 @@ class AppSession:
             return active_model(self._cloud)
         if self._model_name is None:
             return None
-        return {"id": self._model_name, "label": self._model_name, "hosting": "local"}
+        active = self._active
+        return {
+            "id": self._model_name,
+            "label": self._model_name,
+            "hosting": "local",
+            "kind": "file",
+            "ref": active.ref if active is not None else None,
+        }
 
     def _emit_state(self) -> None:
         with self._lock:
@@ -617,6 +667,11 @@ class AppSession:
                 "hooks",
                 self._hooks_content.audit_label_fr if self._hooks_content else "audit.log",
                 str(config.audit_path()),
+            ),
+            MEMORY: (
+                "global_memory",
+                self._memory_content.file_label_fr if self._memory_content else "memory.json",
+                str(config.memory_path()),
             ),
         }
         for file_id, (brick_id, label, detail_fr) in files.items():
@@ -848,6 +903,8 @@ class AppSession:
             )
             if brick.id == "reasoning":
                 bricks[-1]["always_fr"] = self._always_fr()
+            if brick.id == "global_memory":
+                bricks[-1] |= self._memory_card()
             if brick.id == "subagent" and self._subagent_content is not None:
                 bricks[-1] |= self._subagent_card(self._subagent_content)
             if brick.id == "mcp":
@@ -894,54 +951,275 @@ class AppSession:
         except RuntimeError:
             return False
 
-    # ---------- model load ----------
+    # ---------- model load (AD-3, AD-7, AD-8) ----------
 
     @property
     def model_loaded(self) -> bool:
         return self._engine is not None
 
-    def boot(self, model_path: str | None) -> Future[None]:
-        """Load `model_path` on the worker thread: `model_load` → `idle`, then `context_preview`."""
-        return self._executor.submit(self._boot, model_path)
+    def active_choice(self) -> ModelChoice | None:
+        """The model loaded now, which the model lists mark « actif »; `None` while none is."""
+        with self._lock:
+            return self._active
 
-    def _boot(self, model_path: str | None) -> None:
-        if model_path is None:
+    @property
+    def _ratio(self) -> float:
+        """AD-4: the active cloud model's last `usage.prompt_tokens / Σ estimates`, kept by
+        model `id`: a round trip through another model finds it again. The sub-agents'
+        contexts keep one of their own, under `{id}#sub` (AD-11)."""
+        return self._ratios.get(self._ratio_id(), self.cfg.estimate_ratio)
+
+    @_ratio.setter
+    def _ratio(self, value: float) -> None:
+        self._ratios[self._ratio_id()] = value
+
+    def _ratio_id(self) -> str:
+        model = self._cloud.id if self._cloud is not None else ""
+        return f"{model}#sub" if self._ratio_key() == "sub" else model
+
+    def _cost(self, choice: ModelChoice) -> int:
+        """AD-8: a file's estimated cost at the configured window (an upper bound of the
+        effective one); a cloud model costs nothing."""
+        if choice.kind == "cloud":
+            return 0
+        return self._load_registry.file_cost(choice.ref, self.cfg.context_window)
+
+    @staticmethod
+    def _load_reason(choice: ModelChoice) -> str:
+        if choice.entry is not None:
+            return f"Préparation du modèle cloud {choice.entry.model} chez {choice.entry.provider}…"
+        return f"Chargement du modèle {Path(choice.ref).name}…"
+
+    @staticmethod
+    def _model_payload(choice: ModelChoice) -> dict[str, Any]:
+        """The `ActiveModel` of a model not loaded yet: `model_load_*`."""
+        if choice.entry is not None:
+            return active_model(choice.entry)
+        name = Path(choice.ref).stem
+        return {"id": name, "label": name, "hosting": "local", "kind": "file", "ref": choice.ref}
+
+    def boot(self, model_path: str | None) -> Future[str]:
+        """The launch's model (AD-21) on the worker thread: `model_load` → `idle`, then
+        `context_preview`. `None`: a local server only, no file to load."""
+        choice = ModelChoice("file", model_path) if model_path else None
+        return self._executor.submit(self._boot, choice)
+
+    def boot_cloud(self, entry: CloudModel) -> Future[str]:
+        """The launch's cloud model, prepared without any request (AD-21)."""
+        return self._executor.submit(self._boot, ModelChoice("cloud", entry.id, entry))
+
+    def _boot(self, choice: ModelChoice | None) -> str:
+        if choice is None:
             self._set_state("idle", _SERVER_ONLY_FR)
             self._emit_architecture()
             self._emit_bricks()
-            return
+            return "error"
+        with self._lock:
+            previous = self._active
+            self.state, self.reason_fr = "model_load", self._load_reason(choice)
+        self._emit_state()
+        return self._load(choice, previous, None, save=False)
+
+    def switch_model(
+        self, choice: ModelChoice, probe: Callable[[str], str | None] | None = None
+    ) -> tuple[str, Future[str] | None]:
+        """Intention `select_model` once past the diagnostic (class b, AD-3): accepted in
+        `idle`, even with a reason; refused otherwise (`SendRefused`). The budget is checked
+        before anything is released (AD-8): its refusal, in figures, leaves the active model.
+        `probe(path)` probes a GGUF never probed, after the release: `None` if it loads, else
+        why. Returns the French answer and the load's future (`None`: already active)."""
+        cost = self._cost(choice)
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+            previous = self._active
+            if choice.same_as(previous):
+                return f"{choice.label} est déjà actif.", None
+            refusal = self._load_registry.check(choice.label, cost)
+            if refusal is None:  # switched under the lock: a second choice racing it is refused
+                self.state, self.reason_fr = "model_load", self._load_reason(choice)
+        if refusal is not None:
+            self._error(refusal, "budget mémoire dépassé (AD-8)", "Rien n'est libéré ni écrit.")
+            raise SendRefused(refusal)
+        self._emit_state()
+        future = self._executor.submit(self._load, choice, previous, probe, True)
+        return f"Chargement de {choice.label}…", future
+
+    def _load(
+        self,
+        choice: ModelChoice,
+        previous: ModelChoice | None,
+        probe: Callable[[str], str | None] | None,
+        save: bool,
+    ) -> str:
+        """The single load path, on the worker, in `model_load` (AD-3, AD-8): release the
+        active model, probe a GGUF never probed (AD-7), load; on failure, reload `previous`.
+        Then `model_load_ended`, `idle`, and the bricks, schema and preview again. The choice
+        is saved (`save`) after a success only. Returns `ok`, `restored` or `error`."""
+        started = time.monotonic()
+        model = self._model_payload(choice)
+        journal = get_journal()
+        off_turn = {"turn_id": None, "step_id": None, "call_id": None, "context_id": None}
+        with scoped(**off_turn):
+            journal.emit(
+                "model_load_started", {"model": model, "phase_label": self._load_reason(choice)}
+            )
+        status, reason_fr, idle_fr = "error", None, _LOAD_FAILED_FR
         try:
-            self._model_name = None  # no engine from here until this load succeeds
-            self._set_state("model_load", f"Chargement du modèle {Path(model_path).name}…")
+            self._release()
+            try:
+                if (
+                    choice.kind == "file"
+                    and probe is not None
+                    and probe_module.probed_entry(choice.ref) is None
+                ):
+                    why = probe(choice.ref)
+                    if why is not None:
+                        name = Path(choice.ref).name
+                        raise _LoadFailed(f"Le fichier {name} est incompatible.", why)
+                self._install(choice)
+                status, idle_fr = "ok", None
+            except Exception as exc:  # noqa: BLE001 - AD-16
+                reason_fr, idle_fr, status = self._load_failed(choice, previous, exc)
+            if status == "ok" and save:
+                reason_fr = self._save_choice(choice)
+        except Exception as exc:  # noqa: BLE001 - AD-16: e.g. the release itself failed
+            self._error("Le changement de modèle s'est interrompu.", exc, _NO_TURN_FR)
+            status, reason_fr, idle_fr = "error", str(exc), _LOAD_FAILED_FR
+        finally:
+            with scoped(**off_turn):
+                journal.emit(
+                    "model_load_ended",
+                    {
+                        "model": model,
+                        "status": status,
+                        "duration_ms": _ms(time.monotonic() - started),
+                        "reason_fr": reason_fr,
+                    },
+                )
+            self._set_state("idle", idle_fr)
+            # AD-6, AD-9, AD-12: capabilities, window and model changed with the load.
             self._emit_architecture()
             self._emit_bricks()
-            if self._engine is not None:
-                self._engine.close()
-                self._engine = None
-            engine = self._engine_factory(model_path, n_ctx=self.cfg.context_window)
+            self._emit_preview()
+        return status
+
+    def _load_failed(
+        self, choice: ModelChoice, previous: ModelChoice | None, exc: Exception
+    ) -> tuple[str, str | None, str]:
+        """AD-3: back to `previous` when there was one. Returns the `model_load_ended`
+        reason, the reason left in `idle` and the status."""
+        cause: BaseException | str = exc
+        if isinstance(exc, _LoadFailed):
+            message_fr, cause, idle_fr = exc.message_fr, exc.reason_fr, exc.idle_fr
+        elif choice.entry is not None:
+            message_fr = f"Le modèle cloud {choice.label} n'a pas pu être préparé."
+            idle_fr = _CLOUD_FAILED_FR
+        else:
+            message_fr, idle_fr = "Le modèle n'a pas pu être chargé.", None
+        cause_fr = cause if isinstance(cause, str) else str(cause)
+        self._release()  # whatever the failed load left
+        if previous is None:
+            self._error(message_fr, cause, _NO_TURN_FR)
+            return cause_fr, idle_fr or _LOAD_FAILED_FR, "error"
+        self._error(message_fr, cause, f"Retour au modèle précédent : {previous.label}.")
+        try:
+            self._install(previous)
+        except Exception as back:  # noqa: BLE001 - AD-16
+            self._release()
+            self._error(
+                f"Le modèle précédent ({previous.label}) n'a pas pu être rechargé.",
+                back,
+                _NO_TURN_FR,
+            )
+            return (
+                f"{message_fr} Le modèle précédent ({previous.label}) n'a pas pu être rechargé.",
+                _LOAD_FAILED_FR,
+                "error",
+            )
+        return (
+            f"{choice.label} n'a pas pu être chargé ({cause_fr}) : {previous.label} est de "
+            "nouveau actif.",
+            None,
+            "restored",
+        )
+
+    def _release(self) -> None:
+        """AD-8: the active model is closed and leaves the registry before anything loads."""
+        with self._lock:
+            engine = self._engine
+            self._engine, self._caps, self._cloud, self._active = None, None, None, None
+            self._model_name = None
+        if engine is not None:
+            engine.close()
+        self._load_registry.release()
+
+    def _install(self, choice: ModelChoice) -> None:
+        """Load `choice` as the active model, nothing being loaded: raises on failure."""
+        if choice.entry is not None:
+            self._install_cloud(choice.entry)
+        else:
+            engine = self._engine_factory(choice.ref, n_ctx=self.cfg.context_window)
             caps = capabilities_for(engine.metadata())
             if caps.incompatible_reason:
                 engine.close()
-                self._error(
-                    "Modèle incompatible.", caps.incompatible_reason, "Aucun tour possible."
+                raise _LoadFailed(
+                    "Modèle incompatible.", caps.incompatible_reason, caps.incompatible_reason
                 )
-                self._set_state("idle", caps.incompatible_reason)
-                return
-            self._engine, self._caps, self._cloud = engine, caps, None
-            self._model_name = Path(model_path).stem
-            self._window = effective_window(self.cfg.context_window, caps.native_context)
-            self._window_source = (
-                "configured" if self._window == self.cfg.context_window else "native"
-            )
-            self._labels = self._load_labels()
-        except Exception as exc:  # noqa: BLE001 - AD-16
-            self._error("Le modèle n'a pas pu être chargé.", exc, "Aucun tour possible.")
-            self._set_state("idle", _LOAD_FAILED_FR)
-            return
-        self._set_state("idle")
-        self._emit_architecture()  # availability may depend on the loaded model's capabilities
-        self._emit_bricks()
-        self._emit_preview()
+            window = effective_window(self.cfg.context_window, caps.native_context)
+            labels = self._load_labels()
+            with self._lock:
+                self._engine, self._caps, self._cloud = engine, caps, None
+                self._model_name = Path(choice.ref).stem
+                self._window = window
+                self._window_source = (
+                    "configured" if window == self.cfg.context_window else "native"
+                )
+                self._labels = labels
+                self._active = choice
+        self._load_registry.grant(choice.label, self._cost(choice))
+
+    def _install_cloud(self, entry: CloudModel) -> None:
+        key = config.cloud_key(entry)
+        if key is None:
+            raise ValueError("aucune clé enregistrée pour cette adresse")
+        unavailable = config.cloud_unavailable_fr(entry)
+        if unavailable:
+            raise ValueError(unavailable)
+        self._cloud_content = load_cloud_content()
+        engine = self._cloud_factory(entry, key)
+        # AD-6: declared capabilities; the API's structured format parses the tool calls.
+        caps = Capabilities(
+            family="openai_chat",
+            chat_template=None,
+            tool_call_parser="openai_chat" if entry.tools else None,
+            stop_sequences=(),
+            reasoning_variable=None,
+            native_context=entry.context,
+            reasoning_tags=None,
+            reasoning=entry.reasoning is not None,
+            reasoning_always=entry.always_reasons,
+        )
+        window, source = config.cloud_window(entry, self.cfg.context_window)
+        labels = self._load_labels()
+        with self._lock:
+            self._engine, self._caps, self._cloud = engine, caps, entry
+            self._model_name = entry.model
+            self._window, self._window_source = window, source
+            self._labels = labels
+            self._active = ModelChoice("cloud", entry.id, entry)
+
+    def _save_choice(self, choice: ModelChoice) -> str | None:
+        """AD-20: `selected_model`, by the single applier (AD-23), after a success only.
+        Returns the French notice when settings.json could not be written."""
+        value = {"kind": choice.kind, "ref": choice.ref}
+        try:
+            apply_setting(SettingWrite(key="selected_model", value=value))
+        except OSError as exc:
+            notice = f"{choice.label} est actif ; choix non mémorisé pour les prochains lancements."
+            self._error("Impossible d'écrire le fichier de réglages settings.json.", exc, notice)
+            return notice
+        return None
 
     def hold(self, state: str, reason_fr: str, run: Callable[[], Any]) -> Any:
         """AD-3: runs `run` holding the operation lock in `state` (`test_cloud_model`:
@@ -960,59 +1238,6 @@ class AppSession:
                 mine = (self.state, self.reason_fr) == (state, reason_fr)
             if mine:
                 self._set_state(*previous)
-
-    def boot_cloud(self, entry: CloudModel) -> Future[None]:
-        """Prepare the cloud model `entry` on the worker thread, without any request (AD-21):
-        `model_load` → `idle`, then `context_preview`. No local model stays loaded (AD-8)."""
-        return self._executor.submit(self._boot_cloud, entry)
-
-    def _boot_cloud(self, entry: CloudModel) -> None:
-        label = f"{entry.model} chez {entry.provider}"
-        try:
-            self._model_name = None
-            self._set_state("model_load", f"Préparation du modèle cloud {label}…")
-            if self._engine is not None:
-                self._engine.close()
-                self._engine = None
-            key = config.cloud_key(entry)
-            if key is None:
-                raise ValueError("aucune clé enregistrée pour cette adresse")
-            unavailable = config.cloud_unavailable_fr(entry)
-            if unavailable:
-                raise ValueError(unavailable)
-            self._cloud_content = load_cloud_content()
-            engine = self._cloud_factory(entry, key)
-        except Exception as exc:  # noqa: BLE001 - AD-16
-            self._error(
-                f"Le modèle cloud {label} n'a pas pu être préparé.", exc, "Aucun tour possible."
-            )
-            self._set_state(
-                "idle",
-                "Envoi indisponible : le modèle cloud n'a pas pu être préparé. Choisissez un "
-                "modèle sur la page de diagnostic.",
-            )
-            return
-        # AD-6: declared capabilities; the API's structured format parses the tool calls.
-        self._caps = Capabilities(
-            family="openai_chat",
-            chat_template=None,
-            tool_call_parser="openai_chat" if entry.tools else None,
-            stop_sequences=(),
-            reasoning_variable=None,
-            native_context=entry.context,
-            reasoning_tags=None,
-            reasoning=entry.reasoning is not None,
-            reasoning_always=entry.always_reasons,
-        )
-        self._engine, self._cloud = engine, entry
-        self._model_name = entry.model
-        self._window, self._window_source = config.cloud_window(entry, self.cfg.context_window)
-        self._ratios = dict.fromkeys(self._ratios, self.cfg.estimate_ratio)
-        self._labels = self._load_labels()
-        self._set_state("idle")
-        self._emit_architecture()
-        self._emit_bricks()
-        self._emit_preview()
 
     def _load_labels(self) -> SegmentLabels:
         try:
@@ -1092,6 +1317,8 @@ class AppSession:
                     exc,
                     "La brique « Hooks » est indisponible ; le reste de WaveStack fonctionne.",
                 )
+        if "global_memory" in self._bricks:
+            self._load_memory()
         if "subagent" in self._bricks:
             try:
                 self._subagent_content = load_subagent_content()
@@ -1120,6 +1347,61 @@ class AppSession:
                 exc,
                 "La brique « Prompt système » est indisponible ; le reste fonctionne.",
             )
+
+    def _load_memory(self) -> None:
+        """Story 14 (AD-19, AD-20): its texts, then `memory.json`. An absent file gives the
+        demonstration memory, in memory only; an unreadable one makes the brick unavailable,
+        and is never written again but by a reset."""
+        try:
+            self._memory_content = memory_file.load_memory_content()
+        except Exception as exc:  # noqa: BLE001
+            self._content_errors["global_memory"] = (
+                "Le fichier content/memory/memory.yaml est absent ou invalide : corrigez-le puis "
+                "relancez WaveStack."
+            )
+            self._error(
+                "Les textes de la mémoire globale sont invalides.",
+                exc,
+                "La brique « Mémoire globale » est indisponible ; le reste de WaveStack "
+                "fonctionne.",
+            )
+            return
+        path = config.memory_path()
+        try:
+            entries = memory_file.read_memory(path)
+        except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+            self._memory_error = (
+                f"Le fichier de la mémoire globale ({path}) est illisible ou invalide : "
+                "corrigez-le puis relancez WaveStack, ou cliquez sur « Réinitialiser » pour "
+                "restaurer la mémoire de démonstration (le fichier sera remplacé)."
+            )
+            self._error(
+                "La mémoire globale est illisible.",
+                exc,
+                "La brique « Mémoire globale » est indisponible ; le fichier n'est pas modifié.",
+            )
+            return
+        if entries is None:  # H5: the demonstration, not written until a change
+            entries = memory_file.demo_entries(self._memory_content.demo, memory_file.now())
+        self._memory = entries
+
+    def _emit_memory(self) -> None:
+        """AD-1: the drawer and the card project the last `memory_changed`."""
+        if "global_memory" not in self._bricks:
+            return
+        error_fr = self._memory_unavailable_fr()
+        with self._lock:
+            entries = [e.model_dump() for e in self._memory] if error_fr is None else []
+        get_journal().emit(
+            "memory_changed",
+            {
+                "entries": entries,
+                "path": str(config.memory_path()),
+                "error_fr": error_fr,
+                "max_entries": memory_file.MAX_ENTRIES,
+                "max_chars": memory_file.MAX_CHARS,
+            },
+        )
 
     # ---------- bricks (AD-12) ----------
 
@@ -1157,6 +1439,11 @@ class AppSession:
             return False, f"Le modèle chargé n'offre pas {needs} : choisissez un autre modèle."
         if brick_id in self._content_errors:
             return False, self._content_errors[brick_id]
+        if brick_id == "global_memory":
+            with self._lock:
+                error_fr = self._memory_error
+            if error_fr is not None:
+                return False, error_fr
         return True, None
 
     def _no_reasoning_fr(self) -> str:
@@ -1173,6 +1460,31 @@ class AppSession:
         return (
             "Indisponible : le modèle actif ne sait pas raisonner. Son gabarit de conversation "
             "n'a pas de variable de raisonnement : choisissez un modèle qui raisonne."
+        )
+
+    def _memory_card(self) -> dict[str, Any]:
+        """What the memory card and its drawer say (AD-19): the note without a tool parser
+        (H4), the empty drawer's text, the forced write's field help."""
+        note_fr = self._memory_note_fr()
+        content = self._memory_content
+        if content is None:
+            return {"note_fr": note_fr}
+        drawer = content.drawer
+        return {
+            "note_fr": note_fr,
+            "empty_fr": drawer.empty_no_parser_fr if note_fr else drawer.empty_fr,
+            "text_help_fr": drawer.text_help_fr.replace("{max_chars}", str(memory_file.MAX_CHARS)),
+        }
+
+    def _memory_note_fr(self) -> str | None:
+        """H4: without a tool parser, the memory is injected and edited, not written by the
+        model."""
+        if self._caps is None or self._caps.tool_call_parser:
+            return None
+        return (
+            "Le modèle actif ne sait pas appeler d'outil : il ne peut pas écrire en mémoire "
+            "lui-même, et « Écrire en mémoire » ne s'applique pas. La mémoire reste injectée "
+            "dans le contexte et modifiable depuis « Modifier la mémoire »."
         )
 
     def _always_fr(self) -> str | None:
@@ -1242,6 +1554,12 @@ class AppSession:
             skills = [s for s in enabled_skills if s in skills_loaded]
             catalog = [s for s in enabled_skills if s not in skills_loaded]
             tools += [LOAD_SKILL] if catalog else []
+        memory: tuple[str, ...] = ()
+        if "global_memory" in effective:  # AD-4: read now, frozen for the turn's calls
+            with self._lock:
+                memory = tuple(e.text for e in self._memory)
+            if self._caps is not None and self._caps.tool_call_parser:  # H4, AD-25
+                tools.append(REMEMBER)
         sub_tools: list[str] = []
         if "subagent" in effective:  # AD-11: its tools among those retained, no meta-tool
             wanted = self.cfg.subagent_tools
@@ -1258,6 +1576,7 @@ class AppSession:
             skills=tuple(skills),
             skill_catalog=tuple(catalog),
             hooks=tuple(hooks),
+            memory=memory,
             subagent_tools=tuple(sub_tools),
         )
 
@@ -1369,8 +1688,9 @@ class AppSession:
         return answer
 
     def _system_parts(self, state: TurnState) -> list[Part | Joined]:
-        """AD-4: the system prompt, then the skills catalog (its intro and one line per
-        skill), then the bodies of the skills loaded (AD-25)."""
+        """AD-4: the system prompt, then the global memory (its intro and one line per
+        entry), then the skills catalog (its intro and one line per skill), then the bodies
+        of the skills loaded (AD-25)."""
         parts: list[Part | Joined] = []
         if "system_prompt" in state.effective:
             parts.append(
@@ -1381,6 +1701,11 @@ class AppSession:
                     "system_prompt.prompt",
                 )
             )
+        if state.memory and self._memory_content is not None:
+            memory = (SegmentKind.GLOBAL_MEMORY, "global_memory", MEMORY)
+            intro = Part(memory[0], self._memory_content.intro, *memory[1:])
+            lines = [Part(memory[0], f"- {text}", *memory[1:]) for text in state.memory]
+            parts.append(Joined((intro, *lines), sep="\n"))
         content = self._skills_content
         if content is None:  # invalid content: the skills brick is unavailable anyway
             return parts
@@ -1579,7 +1904,7 @@ class AppSession:
         )
         payload = self._chat_gauge(
             rendered,
-            round(rendered.raw_total * self._ratios[self._ratio_key()]),
+            round(rendered.raw_total * self._ratio),
             "estimate",
             reserve,
         )
@@ -1655,7 +1980,7 @@ class AppSession:
     def _start(self, message: str | None) -> str:
         """Starts a turn: `message`, or the replay of the last turn when `None`."""
         replay_of = None
-        with self._lock:
+        with self._memory_lock, self._lock:  # never while a drawer write or a reset runs
             if self.state != "idle" or self._engine is None or self.reason_fr:
                 raise SendRefused(self._refusal_reason())
             if message is None:
@@ -1808,6 +2133,17 @@ class AppSession:
                     not_found=True,
                 )
             args, brick, label_fr = {}, "mcp", f"Documentation de {target}"
+        elif kind == "memory":
+            if self._memory_content is None or target != REMEMBER:
+                raise ArmRefused(
+                    f"Action de mémoire inconnue : « {target} ». Rien n'est armé.", not_found=True
+                )
+            try:
+                text = memory_file.check_text(args.get("text"))
+            except ValueError as exc:
+                raise ArmRefused(f"{exc} Rien n'est armé.") from None
+            shown = text if len(text) <= 40 else f"{text[:40].rstrip()}…"
+            args, brick, label_fr = {"text": text}, "global_memory", f"Écrire en mémoire ({shown})"
         elif kind == "delegate":  # story 19: the card's action, its target fixed
             if self._subagent_content is None or target != DELEGATE:
                 raise ArmRefused(
@@ -1874,8 +2210,8 @@ class AppSession:
         self._executor.submit(self._emit_preview)
 
     def _harness_tools(self) -> list[ToolSpec]:
-        """`load_tool_doc` and `load_skill`, registered once; the turn state decides when
-        they are offered. Invalid content: their brick is unavailable anyway."""
+        """`load_tool_doc`, `load_skill` and `remember`, registered once; the turn state
+        decides when they are offered. Invalid content: their brick is unavailable anyway."""
         specs = []
         if self._mcp_content is not None:
             specs.append(self._load_tool_doc_spec())
@@ -1897,6 +2233,26 @@ class AppSession:
                         "required": ["skill"],
                     },
                     required=("skill",),
+                )
+            )
+        if self._memory_content is not None:
+            text = self._memory_content.remember
+            specs.append(
+                ToolSpec(
+                    name=REMEMBER,
+                    run=self._remember,
+                    params={"text": "string"},
+                    component="core.harness",
+                    source="harness",
+                    brick="global_memory",
+                    label_fr=text.label_fr,
+                    description=text.description,
+                    schema={
+                        "type": "object",
+                        "properties": {"text": {"type": "string", "description": text.text}},
+                        "required": ["text"],
+                    },
+                    required=("text",),
                 )
             )
         if self._subagent_content is not None:
@@ -2230,6 +2586,152 @@ class AppSession:
             )
         return ToolReply(text.body, (SkillLoaded(skill_id=skill),))
 
+    def _memory_unavailable_fr(self) -> str | None:
+        """Why the memory can be neither read nor edited: its texts in `content/` are invalid,
+        or `memory.json` is unreadable (the card's reason, the drawer's refusal)."""
+        with self._lock:
+            return self._content_errors.get("global_memory") or self._memory_error
+
+    def _remember(self, text: str) -> ToolReply | str:
+        """AD-25: reads the memory, writes nothing; the session applies the effect (AD-23).
+        A refusal (empty, too long, full) is reinjected; a duplicate adds nothing."""
+        try:
+            text = memory_file.check_text(text)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from None
+        if self._memory_unavailable_fr() is not None:  # the brick is unavailable then
+            raise ToolError("La mémoire globale est illisible : rien n'est écrit.")
+        with self._lock:
+            entries = list(self._memory)
+        if any(memory_file.same_text(e.text, text) for e in entries):
+            return f"Déjà en mémoire : « {text} ». Rien n'est ajouté."
+        if len(entries) >= memory_file.MAX_ENTRIES:
+            raise ToolError(
+                f"La mémoire globale est pleine ({memory_file.MAX_ENTRIES} entrées) : rien "
+                "n'est écrit. Réponds sans retenir cette information."
+            )
+        write = MemoryWrite(op="add", entry_id=memory_file.new_entry_id(), text=text)
+        return ToolReply(
+            f"Retenu en mémoire globale : « {text} ». Cette information sera dans le "
+            "contexte des prochaines conversations.",
+            (write,),
+        )
+
+    def _apply_now(self, effects: tuple[Effect, ...]) -> tuple[tuple[Effect, ...], str | None]:
+        """The effects the executor applies before `tool_ended` (AD-23), so the trace never
+        shows a success the file did not get: the memory writes of `remember`, by the model
+        or forced (`trigger`). Returns the other effects, and the failure in French."""
+        writes = [e for e in effects if isinstance(e, MemoryWrite)]
+        others = tuple(e for e in effects if not isinstance(e, MemoryWrite))
+        if not writes:
+            return others, None
+        source = "user" if current().trigger == "user" else "model"
+        return others, self._apply_memory(writes, source)
+
+    def _apply_memory(self, writes: list[MemoryWrite], source: memory_file.Source) -> str | None:
+        """AD-23, the single applier of `MemoryWrite`: applied in order on a copy, the file
+        written once, then one `effect_applied` per effect and one `memory_changed`, all
+        under `_memory_lock` so no snapshot is emitted out of order. Returns the French
+        failure (memory unchanged)."""
+        with self._memory_lock:
+            with self._lock:
+                entries = list(self._memory)
+            try:
+                updated = memory_file.apply_writes(entries, writes, source, memory_file.now())
+            except (KeyError, ValueError) as exc:  # changed meanwhile, or beyond its limits
+                self._error(
+                    "La mémoire globale n'a pas été modifiée.",
+                    exc,
+                    "Elle reste inchangée ; le reste de WaveStack fonctionne.",
+                )
+                return "La mémoire globale n'a pas été modifiée : rien n'est retenu."
+            try:
+                memory_file.write_memory(config.memory_path(), updated)
+            except OSError as exc:
+                self._error(
+                    "La mémoire globale n'a pas pu être écrite.",
+                    exc,
+                    "Elle reste inchangée ; le reste de WaveStack fonctionne.",
+                )
+                return "La mémoire globale n'a pas pu être écrite : rien n'est retenu."
+            with self._lock:
+                self._memory = updated
+                self._memory_error = None  # written: readable again (reset, H5)
+            with scoped(brick="global_memory", component=MEMORY):
+                for write in writes:
+                    get_journal().emit(
+                        "effect_applied",
+                        {
+                            "effect": "memory_write",
+                            "op": write.op,
+                            "entry_id": write.entry_id,
+                            "text": write.text,
+                        },
+                    )
+            self._emit_memory()
+        return None
+
+    def edit_memory(self, op: str, entry_id: str | None = None, text: str | None = None) -> None:
+        """Class (b), the edit drawer (AD-23), `trigger = user`: `replace` or `delete` one
+        entry, or `clear` them all (one `delete` each). Raises `SendRefused` outside `idle`
+        (held until the write ends) or while the memory is unavailable, `KeyError` for an
+        unknown entry, `ValueError` for an invalid or duplicate text, and `OSError` when the
+        file could not be written. A replace by the same text writes nothing."""
+        with self._memory_lock:
+            with self._lock:
+                if self.state != "idle":
+                    raise SendRefused(self._refusal_reason())
+                entries = list(self._memory)
+            unavailable = self._memory_unavailable_fr()
+            if unavailable is not None:
+                raise SendRefused(unavailable)
+            if op == "clear":
+                writes = [MemoryWrite(op="delete", entry_id=e.id, text=e.text) for e in entries]
+            else:
+                entry = next((e for e in entries if e.id == entry_id), None)
+                if entry is None:
+                    raise KeyError(entry_id)
+                if op == "replace":
+                    text = memory_file.check_text(text)
+                    if text == entry.text:
+                        return  # nothing changed: nothing written
+                    if any(memory_file.same_text(e.text, text) for e in entries if e != entry):
+                        raise ValueError(f"« {text} » est déjà en mémoire : rien n'est modifié.")
+                    writes = [MemoryWrite(op="replace", entry_id=entry.id, text=text)]
+                elif op == "delete":
+                    writes = [MemoryWrite(op="delete", entry_id=entry.id, text=entry.text)]
+                else:
+                    raise ValueError(f"Opération inconnue : « {op} ».")
+            if not writes:
+                return
+            with scoped(trigger="user"):
+                if self._apply_memory(writes, "user") is not None:
+                    raise OSError(
+                        "La mémoire globale n'a pas pu être écrite : elle reste inchangée."
+                    )
+        self._executor.submit(self._emit_preview)
+
+    def _restore_memory(self) -> None:
+        """FR-39 (CAP-41, H6): one `delete` per entry, then one `add` per demonstration
+        entry, by the single applier (`trigger = user`: the reset is the user's); nothing
+        when the memory already is the demonstration. An unreadable memory becomes available
+        once written."""
+        if self._memory_content is None:
+            return
+        demo = self._memory_content.demo
+        with self._memory_lock:
+            with self._lock:
+                entries, error_fr = list(self._memory), self._memory_error
+            if error_fr is None and memory_file.is_demo(entries, demo):
+                return
+            writes = [MemoryWrite(op="delete", entry_id=e.id, text=e.text) for e in entries]
+            writes += [
+                MemoryWrite(op="add", entry_id=f"demo{i}", text=text)
+                for i, text in enumerate(demo, start=1)
+            ]
+            with scoped(trigger="user"):
+                self._apply_memory(writes, "demo")
+
     def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """The asyncio loop MCP clients live on (FastAPI's); set once, before any intention."""
         self._loop = loop
@@ -2492,21 +2994,24 @@ class AppSession:
     def _reconfigure(self, scenario_id: str | None, apply: Callable[[], None]) -> None:
         """One `bricks_changed`, one `architecture_changed`, one preview; MCP servers
         connect or close on the difference only (AD-15)."""
-        with self._lock:
-            if self.state != "idle":
-                raise SendRefused(self._refusal_reason())
-            before = set(self._mcp_enabled) if "mcp" in self._wanted else set()
-            self._history.clear()
-            self._loaded_docs.clear()
-            self._loaded_skills.clear()
-            self._last = None  # nothing left to replay (story 9b)
-            self._armed.clear()
-            self._apply_launch_config()
-            apply()
-            after = set(self._mcp_enabled) if "mcp" in self._wanted else set()
-            self._active_scenario = scenario_id
-        journal = get_journal()
-        journal.emit("conversation_cleared" if scenario_id else "harness_reset", {})
+        with self._memory_lock:  # no turn starts before the memory is restored
+            with self._lock:
+                if self.state != "idle":
+                    raise SendRefused(self._refusal_reason())
+                before = set(self._mcp_enabled) if "mcp" in self._wanted else set()
+                self._history.clear()
+                self._loaded_docs.clear()
+                self._loaded_skills.clear()
+                self._last = None  # nothing left to replay (story 9b)
+                self._armed.clear()
+                self._apply_launch_config()
+                apply()
+                after = set(self._mcp_enabled) if "mcp" in self._wanted else set()
+                self._active_scenario = scenario_id
+            journal = get_journal()
+            journal.emit("conversation_cleared" if scenario_id else "harness_reset", {})
+            if scenario_id is None:  # FR-39: the reset alone restores the demonstration memory
+                self._restore_memory()
         self._emit_armed()
         self._emit_scenario()
         for server_id in sorted(before - after):
@@ -2576,7 +3081,13 @@ class AppSession:
         with scoped(turn_id=turn_id, context_id="main", trigger="user"):
             try:
                 self._turn_seq = journal.emit(
-                    "turn_started", {"replay_of": replay_of, "message": message}, actor="user"
+                    "turn_started",
+                    {
+                        "replay_of": replay_of,
+                        "message": message,
+                        "active_model": self.active_model(),
+                    },
+                    actor="user",
                 ).seq
                 decided = self._hook("on_user_message", state)
                 if decided is not None and decided[1].injection:  # computed once for the turn
@@ -2669,7 +3180,11 @@ class AppSession:
             reaction = "retry" if retries < max_retries and n < max_calls else "stop"
             failed = False
             harness_brick = next(
-                (b for b in ("tools", "mcp", "skills", "subagent") if b in state.effective),
+                (
+                    b
+                    for b in ("tools", "mcp", "skills", "global_memory", "subagent")
+                    if b in state.effective
+                ),
                 "tools",
             )
             # AD-25: what the model decided carries `trigger = model`, a forced action `user`.
@@ -2776,7 +3291,7 @@ class AppSession:
                         hook_id,
                     )
         with scoped(step_id=step_id, brick=brick, component=spec.component):
-            text = self._tool_executor.run(call, cancel, effects)
+            text = self._tool_executor.run(call, cancel, effects, apply=self._apply_now)
         if spec.is_mcp and text is not None:
             self._after_mcp_call(call.name, spec)
         if spec.network or spec.is_mcp:
@@ -2877,6 +3392,8 @@ class AppSession:
             return ToolCall(LOAD_SKILL, {"skill": action.target})
         if action.kind == "tool_doc":
             return ToolCall(LOAD_TOOL_DOC, {"tool": action.target})
+        if action.kind == "memory":
+            return ToolCall(REMEMBER, {"text": action.args.get("text", "")})
         if action.kind == "delegate":
             return ToolCall(DELEGATE, {"task": action.args.get("task", "")})
         return ToolCall(action.target, dict(action.args))
@@ -2902,6 +3419,15 @@ class AppSession:
                 return f"le skill « {self._skill_label(target)} » est déjà chargé"
             if target not in state.skill_catalog:
                 return f"le skill « {self._skill_label(target)} » est décoché"
+            return None
+        if action.kind == "memory":
+            if "global_memory" not in state.effective:
+                return "la brique « Mémoire globale » n'est pas active dans ce tour"
+            if REMEMBER not in state.tools:  # H4: no tool parser
+                return (
+                    "le modèle actif ne sait pas appeler d'outil, et l'écriture forcée passe par "
+                    "l'outil remember"
+                )
             return None
         if action.kind == "delegate":
             if "subagent" not in state.effective:
@@ -3309,9 +3835,8 @@ class AppSession:
         journal = get_journal()
         scope = current()
         step_id = scope.step_id or ""
-        ratio_key = self._ratio_key()
-        total = round(rendered.raw_total * self._ratios[ratio_key])
-        in_sub = ratio_key == "sub"
+        total = round(rendered.raw_total * self._ratio)
+        in_sub = self._ratio_key() == "sub"
         try:
             with scoped(origin="model"):  # AD-15: traced with the call's scope, no header
                 call = run_call(
@@ -3336,7 +3861,7 @@ class AppSession:
             payload = self._chat_gauge(rendered, prompt_tokens, "api", reserve)
             journal.emit("context_reconciled", payload | {"call_id": scope.call_id or ""})
             if rendered.raw_total:
-                self._ratios[ratio_key] = min(1.5, max(0.8, prompt_tokens / rendered.raw_total))
+                self._ratio = min(1.5, max(0.8, prompt_tokens / rendered.raw_total))
         if call.stop_reason == "cancelled":
             return _ModelOutput("cancelled")
         out = _ModelOutput(

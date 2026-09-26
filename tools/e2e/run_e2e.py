@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import threading
 import time
@@ -51,6 +52,8 @@ class Events:
                     for line in response.iter_lines():
                         if line.startswith("data:"):
                             envelope = json.loads(line[5:])
+                            if "seq" not in envelope:
+                                continue  # `server_instance`, outside the journal
                             with self._lock:
                                 self.items.append(envelope)
         except httpx.HTTPError:
@@ -289,15 +292,29 @@ def s_bare_llm(r: Run) -> None:
     r.check(bool(rendered), "Contexte LLM : context_rendered disponible")
     total = r.page.locator("#ctx .ctx-total").inner_text()
     r.check(
-        "(somme des segments) (total" not in total,
-        "en-tête de Contexte LLM sans double précision contradictoire",
+        "(total renvoyé par le fournisseur)" in total and "somme des segments" not in total,
+        "en-tête de Contexte LLM : le total du fournisseur, sans « somme des segments » (A3)",
         total,
-        known="A3",
+    )
+    r.check(
+        re.match(r"Tour \d+ · ", total) is not None,
+        "en-tête de Contexte LLM : « Tour N », comme Orchestration (A3)",
+        total,
     )
     r.shot("02-llm-nu")
+    r.send("Bonjour [sans-usage]")
+    total = r.page.locator("#ctx .ctx-total").inner_text()
+    r.check(
+        "(somme des segments)" in total and "fournisseur" not in total,
+        "sans `usage` du fournisseur : « (somme des segments) » seule (A3)",
+        total,
+    )
     r.send("Bonjour [raisonne]")
     details = r.page.locator("#chat .bubble-model").last.locator("details.reasoning-block")
-    r.check(details.count() == 1, "un champ `reasoning` du fournisseur s'affiche replié")
+    r.check(
+        details.count() == 1 and details.get_attribute("open") is None,
+        "un champ `reasoning` du fournisseur s'affiche replié",
+    )
 
 
 def s_short_memory(r: Run) -> None:
@@ -496,6 +513,7 @@ def s_network_tools(r: Run) -> None:
             ended["payload"]["status"],
         )
     r.shot("08-outils-reseau-echec-explique")
+    schema_fits(r, "Wikipédia")
 
 
 def s_h5(r: Run) -> None:
@@ -916,6 +934,11 @@ def s_data_flows(r: Run) -> None:
         str(local)[:200],
     )
     r.shot("15-ou-vont-mes-donnees-schema")
+    schema_fits(r, "data.gouv.fr")
+
+
+def schema_fits(r: Run, node: str) -> None:
+    """A2: the network zone of the schema, whole, at the two target widths."""
     for width, height in [(1600, 1000), (1366, 768)]:
         r.page.set_viewport_size({"width": width, "height": height})
         time.sleep(0.5)
@@ -925,10 +948,19 @@ def s_data_flows(r: Run) -> None:
         )
         r.check(
             over <= 2,
-            f"{width}×{height} : la zone Réseau du schéma tient sans défilement",
+            f"{width}×{height} : la zone Réseau du schéma tient sans défilement (A2)",
             f"{over} px masqués à droite",
-            known="A2",
         )
+        cut = r.page.evaluate(
+            "(name) => { const b = document.querySelector('.pane-body-schema')"
+            ".getBoundingClientRect();"
+            " const n = [...document.querySelectorAll('.arch-zone-network .arch-node')]"
+            ".find(e => e.textContent.includes(name));"
+            " if (!n) return 'absent'; const r = n.getBoundingClientRect();"
+            " return r.right <= b.right + 1 ? '' : `${Math.round(r.right - b.right)} px coupés`; }",
+            node,
+        )
+        r.check(not cut, f"{width}×{height} : le nœud {node} est entier", cut)
     r.page.set_viewport_size({"width": 1600, "height": 1000})
 
 
@@ -956,6 +988,179 @@ def s_forced_native(r: Run) -> None:
         r.last_answer()[:160],
     )
     r.show_forced(False)
+
+
+def _memory_file(r: Run) -> list[dict[str, Any]]:
+    path = r.stack.data_dir / "memory.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+
+
+def _memory_step(r: Run):
+    """The last « Écriture en mémoire » step of Orchestration."""
+    name = r.page.locator(".turn-step-name", has_text="Écriture en mémoire")
+    return r.page.locator("#orch-scroll .turn-step", has=name).last
+
+
+def s_global_memory(r: Run) -> None:
+    """Story 14: written by the model, then forced, read back after clearing, edited in the
+    drawer (from the schema's node and from the card), restored by the reset."""
+    r.launch("global_memory")
+    card = r.card("Mémoire globale")
+    expect(card).to_contain_text("3 entrées en mémoire globale", timeout=5000)
+    r.check(True, "la carte compte les 3 entrées de démonstration")
+
+    # The model writes (the fake model calls `remember` on « Retiens que … »).
+    seq = r.ev.mark()
+    r.send("Retiens que je préfère des réponses en trois points au plus.")
+    writes = [
+        e for e in r.ev.since(seq, "effect_applied") if e["payload"].get("effect") == "memory_write"
+    ]
+    r.check(
+        len(writes) == 1
+        and writes[0].get("trigger") == "model"
+        and writes[0].get("component") == "file.memory",
+        "remember : effet memory_write sur file.memory, déclenché par le modèle",
+        str([(e.get("trigger"), e.get("component")) for e in writes]),
+    )
+    saved = _memory_file(r)
+    r.check(
+        [e["source"] for e in saved] == ["demo", "demo", "demo", "model"],
+        "memory.json : la démonstration puis l'entrée du modèle",
+        str([e["source"] for e in saved]),
+    )
+    step = _memory_step(r)
+    r.check(
+        "Déclenché par le modèle" in step.locator(".turn-step-trigger").inner_text(),
+        "étape « Écriture en mémoire » avec le badge « Déclenché par le modèle »",
+    )
+    step.locator(".turn-step-line").click()
+    expect(step).to_contain_text("Entrée écrite dans memory.json", timeout=5000)
+    r.check(
+        "trois points au plus" in step.inner_text(),
+        "l'étape dépliée montre l'entrée écrite par le harnais",
+    )
+    r.shot("19-memoire-ecriture-par-le-modele")
+
+    # Cleared conversation: the name and the preference come back by the system message.
+    seq = r.ev.mark()
+    r.page.click("#clear-conversation")
+    r.ev.wait("conversation_cleared", seq, timeout=10)
+    r.send("Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.")
+    r.check(
+        "Camille" in r.last_answer(),
+        "après « Vider la conversation », le prénom revient de la mémoire globale",
+        r.last_answer()[:120],
+    )
+    body = r.fake_calls()[-1]
+    first = body["messages"][0]
+    r.check(
+        first.get("role") == "system" and "trois points" in json.dumps(first, ensure_ascii=False),
+        "la préférence est dans le message système envoyé",
+        [m.get("role") for m in body["messages"]].__repr__(),
+    )
+    r.check(
+        [m.get("role") for m in body["messages"]][1:] == ["user"],
+        "aucun historique : seule la mémoire globale a porté l'information",
+    )
+
+    # « Écrire en mémoire » forced from the card.
+    r.show_forced(True)
+    card.get_by_role("button", name="Écrire en mémoire : Mémoire globale").click()
+    form = card.locator(".force-form")
+    expect(form).to_be_visible(timeout=5000)
+    form.locator("input").fill("Camille anime la formation à Nantes.")
+    seq = r.ev.mark()
+    form.get_by_role("button", name="Armer").click()
+    r.ev.wait("armed_actions_changed", seq, lambda p: bool(p["actions"]), timeout=10)
+    expect(card.locator(".armed-chip")).to_contain_text("Armé : Écrire en mémoire", timeout=5000)
+    r.check(True, "puce « Armé : Écrire en mémoire (…) » sur la carte")
+    seq = r.ev.mark()
+    r.send("Bonjour")
+    forced = [e for e in r.ev.since(seq, "tool_started") if e["payload"]["tool"] == "remember"]
+    r.check(
+        len(forced) == 1
+        and forced[0].get("trigger") == "user"
+        and forced[0]["seq"] < r.ev.since(seq, "model_call_started")[0]["seq"],
+        "écriture forcée : remember exécuté par l'utilisateur, avant l'appel au modèle",
+    )
+    r.check(
+        "Forcé par l'utilisateur" in _memory_step(r).locator(".turn-step-trigger").inner_text(),
+        "étape « Écriture en mémoire » avec le badge « Forcé par l'utilisateur »",
+    )
+    r.check(_memory_file(r)[-1]["source"] == "user", "memory.json : entrée forcée, source user")
+    r.show_forced(False)
+
+    # The drawer, opened by a click on the schema's node.
+    drawer = r.page.locator("#memory-drawer")
+    r.page.locator('#schema .arch-node[data-component="file.memory"]').click()
+    expect(drawer).to_be_visible(timeout=5000)
+    entries = drawer.locator("#memory-list li")
+    r.check(entries.count() == 5, "clic sur le nœud memory.json : le tiroir liste 5 entrées")
+    r.check(
+        str(r.stack.data_dir / "memory.json") in drawer.inner_text(),
+        "le tiroir donne le chemin du fichier",
+    )
+    r.shot("20-memoire-tiroir")
+
+    seq = r.ev.mark()
+    entries.first.locator("textarea").fill("L'utilisateur s'appelle Camille Martin.")
+    entries.first.get_by_role("button", name="Enregistrer l'entrée 1").click()
+    r.ev.wait("memory_changed", seq, timeout=10)
+    saved = _memory_file(r)
+    r.check(
+        saved[0]["text"] == "L'utilisateur s'appelle Camille Martin."
+        and saved[0]["source"] == "user",
+        "modifier : memory.json réécrit, source user",
+    )
+    replaced = [e for e in r.ev.since(seq, "effect_applied")]
+    r.check(
+        [e.get("trigger") for e in replaced] == ["user"],
+        "l'écriture du tiroir est attribuée à l'utilisateur",
+    )
+
+    seq = r.ev.mark()
+    drawer.get_by_role("button", name="Supprimer l'entrée 2").click()
+    r.ev.wait("memory_changed", seq, timeout=10)
+    expect(entries).to_have_count(4, timeout=5000)
+    r.check(len(_memory_file(r)) == 4, "supprimer : 4 entrées restent")
+
+    entries.first.locator("textarea").fill("Texte modifié sans l'enregistrer.")
+    r.page.keyboard.press("Escape")
+    alert = drawer.locator("#memory-alert")
+    expect(alert).to_contain_text("Modification non enregistrée. Enregistrer ou abandonner ?")
+    r.check(drawer.is_visible(), "Échap avec une modification : le tiroir demande quoi faire")
+    drawer.get_by_role("button", name="Abandonner").click()
+    expect(drawer).to_be_hidden(timeout=5000)
+    r.check(len(_memory_file(r)) == 4, "abandonner : rien n'est écrit")
+
+    card.get_by_role("button", name="Modifier la mémoire").click()
+    expect(drawer).to_be_visible(timeout=5000)
+    drawer.get_by_role("button", name="Tout effacer", exact=True).click()
+    expect(alert).to_contain_text("Effacer les 4 entrées")
+    r.check(len(_memory_file(r)) == 4, "« Tout effacer » demande d'abord confirmation")
+    seq = r.ev.mark()
+    drawer.get_by_role("button", name="Oui, tout effacer").click()
+    r.ev.wait("memory_changed", seq, lambda p: p["entries"] == [], timeout=10)
+    empty = drawer.locator("#memory-empty")
+    expect(empty).to_be_visible(timeout=5000)
+    r.check(
+        "Aucune information en mémoire globale." in empty.inner_text() and _memory_file(r) == [],
+        "tout effacer : fichier vide et message de mémoire vide",
+        empty.inner_text(),
+    )
+    r.shot("21-memoire-tiroir-vide")
+    drawer.get_by_role("button", name="Fermer").click()
+    expect(drawer).to_be_hidden(timeout=5000)
+
+    # The reset restores the demonstration.
+    seq = r.ev.mark()
+    r.page.click("#reset-button")
+    r.ev.wait("harness_reset", seq, timeout=10)
+    r.ev.wait("memory_changed", seq, lambda p: len(p["entries"]) == 3, timeout=10)
+    r.check(
+        [e["source"] for e in _memory_file(r)] == ["demo"] * 3,
+        "réinitialiser : la mémoire de démonstration est restaurée",
+    )
 
 
 def s_busy_and_stop(r: Run) -> None:
@@ -1014,12 +1219,13 @@ def s_reload_and_reset(r: Run) -> None:
         after == before,
         "le message de réinitialisation ne déforme pas la barre haute",
         f"[largeur, hauteur] de « Réinitialiser », « Volets », jauge : {before} puis {after}",
-        known="A4",
     )
     r.check(
         "WaveStack réinitialisé" in r.page.locator("#top-status").inner_text(),
         "message « WaveStack réinitialisé : LLM nu. »",
     )
+    ok, took = r.poll(lambda: r.page.locator("#top-status").inner_text() == "", 10)
+    r.check(ok, "le message de réinitialisation s'efface de lui-même (A4)", f"{took:.1f} s")
     b = r.bricks()
     r.check(
         not any(x["wanted"] for x in b.values()),
@@ -1049,6 +1255,46 @@ def s_reload_and_reset(r: Run) -> None:
     r.check(replay.is_disabled(), "rien à rejouer après réinitialisation")
 
 
+def s_stream_resync(r: Run) -> None:
+    """A1, same process: `/api/state` and the stream name the same instance, the page does
+    not reload; they differ (a relaunch between the two), it reloads once; no `/api/state`,
+    the stream's instance is the reference. (A relaunch with the tab open: `s_relaunch`.)"""
+    navigations: list[str] = []
+
+    def on_nav(frame: Any) -> None:
+        if frame == r.page.main_frame:
+            navigations.append(frame.url)
+
+    def other_instance(route: Any) -> None:
+        route.fulfill(json=route.fetch().json() | {"instance_id": "autre-instance"})
+
+    r.page.on("framenavigated", on_nav)
+    try:
+        for label, handler, expected in [
+            ("même instance dans l'état et le flux : aucun rechargement", None, 1),
+            ("état et flux d'instances différentes : un seul rechargement", other_instance, 2),
+            (
+                "sans /api/state : l'instance du flux sert de référence, aucun rechargement",
+                lambda route: route.abort(),
+                1,
+            ),
+        ]:
+            navigations.clear()
+            if handler:
+                r.page.route("**/api/state", handler, times=1)
+            r.page.goto(f"{r.stack.app_url}/")
+            # Not time.sleep: the sync API delivers `framenavigated` only while it runs.
+            # The page is usable from `/api/state` on; the reload follows the stream's first event.
+            r.page.wait_for_timeout(3000)
+            r.wait_idle()
+            r.page.wait_for_timeout(1000)
+            r.check(len(navigations) == expected, label, f"{len(navigations)} navigation(s)")
+        ended = r.send("Bonjour")
+        r.check(ended["payload"]["status"] == "completed", "puis un tour aboutit")
+    finally:
+        r.page.remove_listener("framenavigated", on_nav)
+
+
 def s_relaunch(r: Run) -> None:
     """Story 11: the cloud model chosen is kept at the next launch, without a new warning."""
     saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
@@ -1062,12 +1308,16 @@ def s_relaunch(r: Run) -> None:
     for _ in range(10):  # a longer journal than the new process will have at first
         r.send("Bonjour")
     old_tip = r.ev.mark()
+    r.page.evaluate("() => { window.__e2eBeforeRelaunch = true; }")
     r.stack.restart_app()
     r.earlier_events += r.ev.items  # kept for the run's summary
     r.ev = Events(r.stack.app_url)  # a new process: a new journal, from seq 1
     # The tab left open reconnects on its own (streamEvents, every second); the trainer
     # types in it, as he would after « relancez WaveStack pour l'utiliser ».
     time.sleep(4)
+    reloaded = r.page.evaluate("() => window.__e2eBeforeRelaunch !== true")
+    r.check(reloaded, "onglet resté ouvert : la page se recharge d'elle-même à la reconnexion (A1)")
+    r.wait_idle()
     seq = r.ev.mark()
     r.page.fill("#composer-input", "Message après la relance")
     r.page.press("#composer-input", "Enter")
@@ -1085,7 +1335,6 @@ def s_relaunch(r: Run) -> None:
         "onglet resté ouvert pendant la relance : la réponse s'affiche",
         f"{sent} ; journal : seq {old_tip} avant relance, {r.ev.mark()} après ; Vue humain : "
         + r.page.locator("#chat .bubble-model").last.inner_text()[:80].replace("\n", " "),
-        known="A1",
     )
     r.page.goto(f"{r.stack.app_url}/")
     expect(r.page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=30_000)
@@ -1119,8 +1368,10 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("subagent", s_subagent),
     ("data_flows", s_data_flows),
     ("forced_native", s_forced_native),
+    ("global_memory", s_global_memory),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
+    ("stream_resync", s_stream_resync),
     ("relaunch", s_relaunch),
 ]
 

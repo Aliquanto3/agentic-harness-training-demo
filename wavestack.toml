@@ -28,6 +28,14 @@ llama_server = 8080
 window = 4096
 near_limit_ratio = 0.8
 
+[memory]
+# Budget mémoire de WaveStack (AD-8), en Mo : un changement de modèle est refusé si la
+# mémoire mesurée (WaveStack et ses processus enfants), moins le coût du modèle actif, plus
+# le coût du nouveau, dépasse ce budget. Le modèle actif reste alors chargé.
+budget_mb = 4096
+# Marge ajoutée au coût estimé de chaque modèle local (poids, cache KV à la fenêtre), en Mo.
+load_margin_mb = 256
+
 [tools]
 # Bornes de la boucle de tour (AD-10), affichées sur la carte de la brique outils.
 # Appels au modèle par tour, dont les nouveaux essais après un appel mal formé.

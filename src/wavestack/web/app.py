@@ -7,6 +7,7 @@ Protected per AD-18's subset: `TrustedHostMiddleware` on
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,7 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, model_validator
 
 from wavestack import config
 from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
@@ -91,15 +92,33 @@ class ApprovalIntention(BaseModel):
 
 class ArmIntention(BaseModel):
     """Story 9: a native tool call with its arguments, a skill, or an MCP documentation;
-    story 19: the delegation to the sub-agent (`target = delegate`, `args = {task}`)."""
+    story 14: a memory write (`target = remember`, `args = {text}`); story 19: the
+    delegation to the sub-agent (`target = delegate`, `args = {task}`)."""
 
-    kind: Literal["tool", "skill", "tool_doc", "delegate"]
+    kind: Literal["tool", "skill", "tool_doc", "memory", "delegate"]
     target: str
     args: dict[str, Any] = {}
 
 
 class DisarmIntention(BaseModel):
     armed_id: str
+
+
+class MemoryIntention(BaseModel):
+    """Story 14, the edit drawer: `replace` or `delete` one entry, or `clear` them all."""
+
+    op: Literal["replace", "delete", "clear"]
+    entry_id: str | None = None
+    text: str | None = None
+
+    @model_validator(mode="after")
+    def _fields_of_the_op(self) -> MemoryIntention:
+        """AD-18: `replace` and `delete` name their entry, `replace` carries its text (422)."""
+        if self.op != "clear" and not self.entry_id:
+            raise ValueError("entry_id est requis pour replace et delete")
+        if self.op == "replace" and self.text is None:
+            raise ValueError("text est requis pour replace")
+        return self
 
 
 class SystemPromptIntention(BaseModel):
@@ -210,7 +229,10 @@ def create_app(
         pending = asked.payload if asked and (not resolved or resolved.seq < asked.seq) else None
         armed = _latest(events, "armed_actions_changed")  # story 9: the chips after a reload
         scenario = _latest(events, "scenario_changed")  # story 10: programme and active one
+        memory = _latest(events, "memory_changed")  # story 14: the drawer and the card
         return {
+            # A1: the front compares it with the stream's `server_instance` event.
+            "instance_id": journal.instance_id,
             "session_state": session_state.payload if session_state else None,
             # AD-12: the model indicator, rebuilt from the session on every reload.
             "active_model": app_session.active_model(),
@@ -222,29 +244,32 @@ def create_app(
             "pending_approval": pending,
             "armed_actions_changed": armed.payload if armed else None,
             "scenario_changed": scenario.payload if scenario else None,
+            "memory_changed": memory.payload if memory else None,
             "seq": seq,
         }
 
     @app.get("/api/diagnostic")
     def diagnostic_state() -> dict[str, object]:
         result = session.last_result
+        # Story 17: the application session alone says which model is loaded (AD-12).
+        active = app_session.active_choice()
         return {
             "version": version,
             "ready": result.ready if result else False,
             "blocking_checks": result.blocking_checks if result else [],
             "candidates": [c.model_dump() for c in result.candidates] if result else [],
             "selected_model": session.selected_model_path,
-            "loaded_model": session.booted_path,
-            # Story 11b: kept while the saved choice waits for a relaunch (AD-21).
-            "next_launch_fr": session.next_launch_fr(),
+            "loaded_model": active.ref if active and active.kind == "file" else None,
             # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
-            "cloud": session.cloud_rows(),
+            "cloud": session.cloud_rows(active.ref if active and active.kind == "cloud" else None),
         }
 
     @app.post("/api/intentions/select_model")
     def select_model(intention: SelectModelIntention) -> dict[str, object]:
-        """Loads the chosen model only if none was loaded yet; else saved for next launch.
-        A cloud model needs the warning's confirmation and a key (AD-21)."""
+        """Before any model is handed out: saves and loads the chosen one (class a). After:
+        a hot switch (class b, story 17), refused outside `idle` or over the memory budget,
+        saved once it succeeded. A cloud model needs the warning's confirmation and a key
+        (AD-21)."""
         _diagnostic_class_b()
         ref = intention.ref or intention.path or ""
         if not ref.strip():
@@ -252,20 +277,30 @@ def create_app(
                 status_code=422,
                 detail="Intention invalide : indiquez le modèle choisi (ref) ou le chemin (path).",
             )
+        hot = session.handed_out or app_session.state != "diagnostic"
         if intention.kind == "cloud":
             try:
-                result = session.select_cloud(ref, intention.acknowledged)
+                result = session.select_cloud(ref, intention.acknowledged, hot=hot)
             except Refused as refused:
                 raise HTTPException(status_code=409, detail=refused.reason_fr) from None
         else:
-            result = session.select_model(ref)
-        session.hand_to(app_session, result)
+            result = session.select_model(ref, hot=hot)
+        switching = bool(result.model_path or result.cloud_model)
+        message_fr = result.message_fr
+        if result.hot:
+            try:
+                message_fr, switching = session.switch(app_session, result)
+            except SendRefused as refused:
+                raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        else:
+            session.hand_to(app_session, result)
         return {
             "ready": result.ready,
             "blocking_checks": result.blocking_checks,
+            # A hot switch is saved once it succeeded: `model_load_ended` says so.
             "saved": result.saved,
-            "next_launch": result.saved and not (result.model_path or result.cloud_model),
-            "message_fr": result.message_fr,
+            "switching": switching,
+            "message_fr": message_fr,
         }
 
     @app.post("/api/intentions/set_api_key")
@@ -423,6 +458,22 @@ def create_app(
             raise HTTPException(status_code=409, detail=refused.reason_fr) from None
         return {"cleared": True}
 
+    @app.post("/api/intentions/memory")
+    def memory(intention: MemoryIntention) -> dict[str, bool]:
+        """Class (b), the edit drawer (AD-23): outside `idle` or unreadable memory: 409,
+        unknown entry: 404, invalid text: 422, file not written: 500."""
+        try:
+            app_session.edit_memory(intention.op, intention.entry_id, intention.text)
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Entrée de mémoire inconnue.") from None
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from None
+        return {"accepted": True}
+
     @app.post("/api/intentions/scenario")
     def scenario(intention: ScenarioIntention) -> dict[str, bool]:
         """Class (b): launches a scenario (FR-38); unknown: 404, outside `idle`: 409."""
@@ -469,6 +520,9 @@ def _sse_stream(request: Request) -> StreamingResponse:
         loop.call_soon_threadsafe(queue.put_nowait, envelope)
 
     async def _generate():  # noqa: ANN202
+        # First, which journal this stream reads: a tab left open across a relaunch sees
+        # a new instance and resyncs (its `Last-Event-ID` belongs to the old journal).
+        yield _format_instance(journal.instance_id)
         for envelope in journal.events_since(since_seq):
             yield _format_sse(envelope)
         journal.subscribe(_on_event)
@@ -490,3 +544,9 @@ def _sse_stream(request: Request) -> StreamingResponse:
 def _format_sse(envelope: Envelope) -> str:
     data = envelope.model_dump_json()
     return f"id: {envelope.seq}\nevent: {envelope.kind}\ndata: {data}\n\n"
+
+
+def _format_instance(instance_id: str) -> str:
+    """Outside the AD-2 envelope and without `id:`: it never moves `Last-Event-ID`."""
+    data = json.dumps({"instance_id": instance_id})
+    return f"event: server_instance\ndata: {data}\n\n"

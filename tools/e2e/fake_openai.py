@@ -50,6 +50,7 @@ class Reply:
     headers: dict[str, str] = field(default_factory=dict)
     delay_s: float = CHUNK_DELAY_S
     stream_error: dict[str, Any] | None = None  # an `error` chunk in the middle of the stream
+    usage: bool = True  # `usage` at the end when asked; False: as a provider that omits it
 
 
 # ---------- reading the request ----------
@@ -162,6 +163,10 @@ def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
         return [(datagouv[0], {"query": "qualité de l'air"})] if datagouv else []
     if "compte rendu" in low:
         return [("load_skill", {"skill": "meeting_minutes"})]
+    remember = re.search(r"retiens que (.+)", user, re.IGNORECASE)
+    if remember:  # story 14: the global memory's meta-tool
+        wish = remember.group(1).strip().rstrip(".")
+        return [("remember", {"text": f"L'utilisateur a demandé : {wish}."})]
     if "heure" in low:
         return [("get_datetime", {})]
     return []
@@ -178,6 +183,11 @@ def _final_text(user: str, messages: list[dict[str, Any]], results: list[str]) -
         return f"D'après le résultat de l'outil : {excerpt}"
     if "toujours en une phrase, comme un pirate" in system_text(messages).lower():
         return "Arrr ! Je suis le faux modèle de WaveStack, moussaillon."
+    if "rappelle-moi mon prénom" in low:  # story 14: read from the global memory
+        known = re.search(r"s'appelle (\w+)", system_text(messages))
+        if known:
+            return f"Vous vous appelez {known.group(1)}, d'après la mémoire globale."
+        return "Je ne connais pas votre prénom : la mémoire globale est vide."
     if "comment je m'appelle" in low:
         earlier = re.search(r"Je m'appelle (\w+)(?: et je suis ([^.]+))?", everything)
         if earlier:
@@ -262,7 +272,7 @@ def plan_reply(body: dict[str, Any]) -> Reply:
     text = _final_text(user, messages, results)
     if "[long]" in low:
         text = " ".join([_LONG_HARNESS] * 6)
-    return Reply(text=text, reasoning=reasoning, delay_s=delay)
+    return Reply(text=text, reasoning=reasoning, delay_s=delay, usage="[sans-usage]" not in low)
 
 
 # ---------- the stream ----------
@@ -300,7 +310,7 @@ def sse_chunks(reply: Reply, body: dict[str, Any], completion_id: str) -> list[d
             out.append(chunk({"tool_calls": [{"index": index, "function": {"arguments": piece}}]}))
     finish = "tool_calls" if reply.tool_calls and reply.finish == "stop" else reply.finish
     out.append(chunk({}, finish))
-    if (body.get("stream_options") or {}).get("include_usage"):
+    if reply.usage and (body.get("stream_options") or {}).get("include_usage"):
         prompt = estimate_tokens(json.dumps(body.get("messages"), ensure_ascii=False))
         prompt += estimate_tokens(json.dumps(body.get("tools") or [], ensure_ascii=False))
         completion = estimate_tokens(reply.reasoning + reply.text) + sum(

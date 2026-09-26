@@ -26,6 +26,7 @@
       <ul id="pane-menu-list" class="pane-menu-list" hidden></ul>
     </div>
     <a class="model-indicator" id="model-indicator" href="/diagnostic" hidden></a>
+    <select id="model-picker" class="model-picker" aria-label="Changer de modèle"></select>
     <span class="top-status" id="top-status" role="status" aria-live="polite"></span>
     <button type="button" id="reset-button" class="reset-button">⟲ Réinitialiser</button>
   </header>
@@ -56,6 +57,26 @@
         <div class="drawer-actions" id="drawer-dirty" hidden>
           <button type="button" id="drawer-dirty-save" class="primary">Enregistrer</button>
           <button type="button" id="drawer-dirty-discard">Abandonner</button>
+        </div>
+      </aside>
+      <aside class="edit-drawer memory-drawer" id="memory-drawer" hidden role="dialog" aria-modal="true" aria-labelledby="memory-drawer-title">
+        <h3 id="memory-drawer-title">Mémoire globale</h3>
+        <p class="drawer-help" id="memory-help">Relue par le modèle au début de chaque tour, dans le message système. Une modification prend effet au prochain tour.</p>
+        <p class="drawer-help memory-path" id="memory-path"></p>
+        <p class="memory-empty" id="memory-empty" hidden></p>
+        <ul class="memory-list" id="memory-list" aria-label="Entrées de la mémoire globale"></ul>
+        <p class="drawer-alert" id="memory-alert" role="alert" hidden></p>
+        <div class="drawer-actions">
+          <button type="button" id="memory-clear">Tout effacer</button>
+          <button type="button" id="memory-close">Fermer</button>
+        </div>
+        <div class="drawer-actions" id="memory-dirty" hidden>
+          <button type="button" id="memory-dirty-save" class="primary">Enregistrer</button>
+          <button type="button" id="memory-dirty-discard">Abandonner</button>
+        </div>
+        <div class="drawer-actions" id="memory-confirm" hidden>
+          <button type="button" id="memory-confirm-clear" class="primary">Oui, tout effacer</button>
+          <button type="button" id="memory-confirm-cancel">Annuler</button>
         </div>
       </aside>
     </section>
@@ -164,6 +185,16 @@
     <pre class="audit-text" id="audit-text" tabindex="0"></pre>
     <div class="drawer-actions">
       <button type="button" id="audit-close" class="primary">Fermer</button>
+    </div>
+  </dialog>
+
+  <!-- Story 17: the cloud warning, in the page (EXPERIENCE.md cloud-warning). -->
+  <dialog class="audit-dialog cloud-warning" id="cloud-warning" aria-labelledby="cloud-warning-title">
+    <h3 id="cloud-warning-title"></h3>
+    <ul class="cloud-warning-points" id="cloud-warning-points"></ul>
+    <div class="drawer-actions">
+      <button type="button" id="cloud-warning-confirm" class="primary"></button>
+      <button type="button" id="cloud-warning-cancel"></button>
     </div>
   </dialog>
 

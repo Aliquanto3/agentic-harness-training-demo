@@ -78,6 +78,7 @@ body {
 /* ---------- top bar ---------- */
 
 .top-bar {
+  position: relative; /* anchors .top-status */
   flex: 0 0 var(--spacing-top-bar-height);
   height: var(--spacing-top-bar-height);
   display: flex;
@@ -774,7 +775,8 @@ body.is-resizing-y * {
 /* A step run by an MCP server (story 6): the tool is not the harness's own. A skill
    loaded (story 7) is shown the same way. */
 .step-badge.is-mcp,
-.step-badge.is-skill {
+.step-badge.is-skill,
+.step-badge.is-memory {
   margin: 0 0 var(--spacing-1);
   background: var(--color-primary);
   border-color: var(--color-primary);
@@ -1666,6 +1668,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .brick-reason,
+.brick-note,
 .brick-pending,
 .brick-explanation {
   margin: 0;
@@ -1920,6 +1923,66 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   display: none;
 }
 
+/* Story 14: the global memory's entries, one card each, in the edit drawer. */
+.memory-drawer {
+  overflow-y: auto;
+}
+
+.memory-path {
+  font-family: var(--typography-code-font-family);
+  overflow-wrap: anywhere;
+}
+
+.memory-empty {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.memory-empty[hidden] {
+  display: none;
+}
+
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-line);
+  border-left: var(--spacing-stroke-min) solid var(--color-segment-global-memory);
+  border-radius: var(--rounded-sm);
+}
+
+.memory-entry-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  font-size: var(--typography-body-sm-font-size);
+}
+
+.memory-entry-name {
+  font-weight: 600;
+}
+
+.memory-entry-source {
+  color: var(--color-ink-soft);
+}
+
+.edit-drawer .memory-entry-text {
+  flex: none;
+  min-height: 0;
+  resize: vertical;
+}
+
 /* The whole audit log (story 8), read only, over the page. */
 .audit-dialog {
   width: min(760px, 90vw);
@@ -2047,8 +2110,11 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   background: var(--color-surface-raised);
 }
 
+/* Sized to its content (model, then one column per bin): the local zone gives up its free
+   space instead of the network one being cut (e2e A2). */
 .arch-zone-network {
-  flex: 0 1 230px;
+  flex: 0 0 auto;
+  min-width: 230px;
   padding: 0 var(--spacing-2);
   background: var(--color-surface);
 }
@@ -2588,9 +2654,26 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   cursor: pointer;
 }
 
+/* Out of the bar's flow, under its right end: the message never squeezes its neighbours
+   (e2e A4), and lets clicks through to the panes it covers for a moment. */
 .top-status {
+  position: absolute;
+  top: calc(100% + var(--spacing-1));
+  right: var(--spacing-4);
+  z-index: 20;
+  max-width: 28rem;
   font-size: var(--typography-body-sm-font-size);
   color: var(--color-ink-soft);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.top-status:not(:empty) {
+  padding: var(--spacing-1) var(--spacing-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-full);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
 }
 
 /* Neutral and flat, at the far right: not to draw the click by mistake. */
@@ -2694,6 +2777,71 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   padding: 8px 10px;
   border: 2px dashed var(--color-ink, currentColor);
   border-radius: 6px;
+}
+
+/* Story 14: « Écrire en mémoire » sits in the card itself, not in an option row: its form
+   takes its own height in the card's column (the row's `flex: 1 0 100%` is a width there). */
+.brick-card > .force-button {
+  align-self: flex-start;
+}
+
+.brick-card > .force-form {
+  flex: none;
+  margin: 0;
+}
+
+/* ---------- story 17: model picker, hot switch (DESIGN.md > model-picker) ---------- */
+
+/* A neutral drop-down list: model name and size (« 2B »). */
+.model-picker {
+  min-height: var(--spacing-hit-target-min);
+  max-width: 16rem;
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.model-picker:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.model-picker:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Vue humain: the model that plays the turns below, when it changed. */
+.model-switch-line {
+  align-self: center;
+  margin: var(--spacing-2) 0;
+  padding: 0 var(--spacing-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-full);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.turn-compare-model {
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.cloud-warning {
+  width: min(560px, 90vw);
+}
+
+.cloud-warning-points {
+  margin: 0;
+  padding-left: var(--spacing-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
 }
 
 /* ---------- story 19: sub-agent (EXPERIENCE: Sous-agent au travail) ---------- */

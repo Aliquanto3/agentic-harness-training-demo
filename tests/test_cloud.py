@@ -12,6 +12,7 @@ import time
 
 import httpx
 import pytest
+from fake_engine import FakeEngine
 from pydantic import SecretStr
 from starlette.testclient import TestClient
 
@@ -502,8 +503,7 @@ def test_cloud_test_makes_two_calls_without_key_in_the_trace(monkeypatch, caplog
     assert check["answer"] == "Il est 9 h."
     states = [e.payload["state"] for e in _of(events, "session_state")]
     assert states[0] == "model_load" and states[-1] == "diagnostic"
-    ratio = config.load_config().estimate_ratio
-    assert app_session._ratios == {"main": ratio, "sub": ratio}  # never trained
+    assert app_session._ratio == config.load_config().estimate_ratio  # never trained
     _no_sentinel(
         _journal_text(),
         caplog.text,
@@ -541,12 +541,12 @@ def test_ratio_learns_from_real_calls_within_bounds(factor, expected):
 
     _turn(session, "Bonjour")
 
-    assert session._ratios["main"] == pytest.approx(expected or prompt / raw)
+    assert session._ratio == pytest.approx(expected or prompt / raw)
 
 
 def test_chat_overflow_is_decided_by_the_raw_estimate_only():
     session = _cloud_session("groq", Provider(GROQ_TEXT))  # usable 2464
-    session._ratios["main"] = 1.5
+    session._ratio = 1.5
 
     sent = _turn(session, "x" * 8000)  # raw ≈ 2000 ≤ 2464 < 2000 × 1.5
     rendered = _of(sent, "context_rendered")[0].payload
@@ -589,11 +589,17 @@ def test_cli_relaunch_prepares_the_saved_cloud_model_without_request(monkeypatch
     assert provider.requests == []
 
 
-def test_a_choice_after_a_model_is_loaded_waits_for_the_next_launch(monkeypatch, tmp_path):
+def test_a_choice_after_a_model_is_loaded_is_a_hot_switch(monkeypatch, tmp_path):
+    """Story 17 (CAP-34): local → cloud → local without relaunch, no request sent; the
+    diagnostic's « actif » and « chargé » come from the application session."""
     provider = Provider(GROQ_TEXT)
     session, app_session, _, client = _app(monkeypatch, provider)
+    app_session._engine_factory = lambda path, n_ctx: FakeEngine()
+    monkeypatch.setattr(session, "_probe_candidate", lambda candidate: None)
+    gguf = tmp_path / "local.gguf"
+    gguf.write_bytes(b"placeholder")
+    app_session.boot(str(gguf)).result()  # a GGUF is loaded
     client.post("/api/intentions/set_api_key", json={"id": "groq", "key": SENTINEL}, headers=ORIGIN)
-    session.booted_path = str(tmp_path / "loaded.gguf")  # a GGUF is loaded
 
     body = client.post(
         "/api/intentions/select_model",
@@ -602,28 +608,22 @@ def test_a_choice_after_a_model_is_loaded_waits_for_the_next_launch(monkeypatch,
     ).json()
     app_session.join()
 
-    assert body["next_launch"] is True and app_session._cloud is None
+    assert body["switching"] is True and body["message_fr"] == "Chargement de openai/gpt-oss-120b…"
+    assert app_session._cloud is not None and app_session.active_model()["ref"] == "groq"
     assert config.read_settings()["selected_model"] == {"kind": "cloud", "ref": "groq"}
-    # Story 11b: the same text, kept by `/api/diagnostic` for every reload of the page.
-    assert body["message_fr"] == "Choix enregistré : relancez WaveStack pour l'utiliser."
-    assert client.get("/api/diagnostic").json()["next_launch_fr"] == body["message_fr"]
+    assert _row(client)["loaded"] is True and _row(client)["selected"] is True
+    assert "next_launch_fr" not in client.get("/api/diagnostic").json()
 
-    session.booted_path, session.booted_cloud = None, "groq"  # a cloud model is loaded
-    gguf = tmp_path / "other.gguf"
-    gguf.write_bytes(b"placeholder")
     body = client.post(
         "/api/intentions/select_model", json={"kind": "file", "ref": str(gguf)}, headers=ORIGIN
     ).json()
     app_session.join()
 
-    assert body["next_launch"] is True and not app_session.model_loaded
+    assert body["switching"] is True and app_session.active_model()["kind"] == "file"
     assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(gguf)}
-    assert body["message_fr"] == "Choix enregistré : relancez WaveStack pour l'utiliser."
-    assert client.get("/api/diagnostic").json()["next_launch_fr"] == body["message_fr"]
+    assert _row(client)["loaded"] is False
+    assert client.get("/api/diagnostic").json()["loaded_model"] == str(gguf)
     assert provider.requests == []
-
-    session.selected_cloud, session.selected_model_path = "groq", None  # the loaded one
-    assert client.get("/api/diagnostic").json()["next_launch_fr"] is None
 
 
 def test_diagnostic_intentions_are_refused_while_the_session_is_busy(monkeypatch):

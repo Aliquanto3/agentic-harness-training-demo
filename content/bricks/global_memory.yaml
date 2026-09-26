@@ -1,0 +1,23 @@
+# Brique « Mémoire globale » (AD-12, AD-19, AD-20).
+label_fr: Mémoire globale
+category_fr: context engineering
+hosting_fr: Local
+explanation_fr:
+  - >-
+    La mémoire courte s'efface avec la conversation. La mémoire globale, elle, survit :
+    le harnais garde quelques informations dans un fichier local, memory.json, et les
+    replace dans le message système au début de chaque tour.
+  - >-
+    Le modèle n'a aucun souvenir : il écrit en mémoire en appelant un outil du harnais,
+    remember, et c'est le harnais qui écrit le fichier. Vous pouvez aussi forcer une
+    écriture, ou consulter, modifier et effacer les entrées depuis « Modifier la mémoire ».
+  - - "Gain : le modèle « se souvient » d'une conversation à l'autre, même après un redémarrage."
+    - >-
+      Coût : chaque entrée occupe le contexte à chaque appel, qu'elle serve ou non ; une
+      information fausse ou périmée est relue tant qu'on ne l'efface pas.
+    - >-
+      Données : avec un modèle cloud, chaque entrée part chez le fournisseur à chaque appel,
+      dans le message système. N'y mettez jamais de secret.
+  - >-
+    Une écriture faite pendant un tour ne rejoint le message système qu'au tour suivant.
+    « Réinitialiser » restaure la mémoire de démonstration.

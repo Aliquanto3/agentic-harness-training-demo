@@ -232,6 +232,22 @@
   summary: Contexte LLM ne montre que le raisonnement du dernier appel du tour affiché ; la Vue humain montre, elle, un bloc par appel.
   evidence: Même périmètre que la « Sortie brute du modèle » (dernier appel seulement) ; le raisonnement des appels précédents reste dans l'étape « Appel au modèle » d'Orchestration et dans le journal. À reprendre si Contexte LLM permet un jour de choisir l'appel affiché.
 
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
+  summary: Le scénario « Mémoire globale » ouvre un module en fin de programme (après « Raisonnement ») au lieu de suivre l'ordre de FR-38 (module 1, après « Prompt système »). À réordonner à la story 21 avec les autres modules du palier 2.
+  evidence: Choix H11 de la story 14 : placé au module 1, il aurait dû rejoindre les premiers scénarios des modules 2 à 5 (convention cumulative de `content/scenarios.yaml`, CAP-40), ce que la section Never de la spec renvoie à la story 21. Même situation que le module « Raisonnement » de la story 13. Point confirmé par la revue indépendante de la story 14.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
+  summary: Le tiroir de la mémoire globale n'affiche pas la date d'écriture (`created_at`) des entrées, seulement leur origine (démonstration, modèle, utilisateur).
+  evidence: Revue indépendante de la story 14. `created_at` est écrit dans memory.json et porté par `memory_changed` ; EXPERIENCE.md ne demande que consulter, modifier, supprimer et tout effacer. À ajouter si la date aide la démonstration (format court, fuseau du poste).
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
+  summary: Aucun ajout d'entrée depuis le tiroir : l'utilisateur écrit par l'action forcée « Écrire en mémoire ».
+  evidence: Exclu par la spec de la story 14 (Never, hypothèse H1) ; relevé par la revue indépendante. À rouvrir seulement si le test manuel montre que le forçage est trop détourné pour ajouter une information.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
+  summary: Une mémoire globale pleine (20 entrées de 300 caractères) prend environ 1 550 tokens estimés, soit près de 60 % de l'espace utilisable d'une fenêtre de 4 096 tokens avec la réserve du raisonnement ; elle tient avec les briques du scénario (test), mais laisse peu de place au reste.
+  evidence: Revue indépendante de la story 14 ; mesure de `test_a_full_memory_fits_the_smallest_window_with_the_scenario_bricks` (estimation à 4 caractères par token). La borne de 300 caractères est dans le contrat d'intention de la story (non modifiable par l'implémentation). À trancher au test manuel sur le PC cible avec Qwen : si une mémoire chargée fait déborder le scénario, abaisser `MAX_CHARS` (par exemple à 200) en amendant la spec.
+
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/12-tests-prealables-headroom-embedding-et-reranking.md`
   summary: Le verdict embedding et reranking de la story 12 reste provisoire (granite-embedding-107m-multilingual Q8_0, bge-reranker-v2-m3 Q4_K_M) ; lancer sur le PC cible, avant la story 15, `uv run --with huggingface-hub --with fastembed python tools/bench/story12_bench.py embed --download`, puis `uv run --with headroom-ai==0.38.0 python tools/bench/story12_bench.py headroom`, et reporter les deux sorties `--json` dans la story 12.
   evidence: Le conteneur de développement n'atteint pas huggingface.co (`ProxyError('403 Forbidden')` pour les 7 candidats) : aucune qualité, aucun RSS de modèle n'a été mesuré ; le code du banc est seulement validé sur des GGUF synthétiques. Les mesures Headroom (+130 Mo, aucune tentative réseau) viennent de Linux, pas du HP EliteBook sous Windows 11, où `strace` manque pour voir le code natif.

@@ -15,6 +15,10 @@ const store = {
   sessionState: null,
   // AD-12: the model indicator's only source (`session_state.active_model`, `/api/state`).
   activeModel: null,
+  // Story 17: the load in progress, from `model_load_started` to `model_load_ended`
+  // ({ model, startedAt }), and the model picker's list (`GET /api/diagnostic`).
+  modelLoad: null,
+  modelList: null,
   architecture: { nodes: [], edges: [] },
   journal: [],
   selection: null,
@@ -36,10 +40,15 @@ const store = {
   resetSeq: null,
   logFrom: 0,
   topStatus: null,
+  serverInstance: null, // A1: the journal instance this page follows
   composerError: null,
   // Story 9b: the turn comparison open in Contexte LLM, UI state only: { left, right } turn ids.
   compare: null,
   bricks: null, // last `bricks_changed` payload: cards and system prompt, as the session computed them
+  // Story 14: the last `memory_changed` ({ entries, path, error_fr }), as the session wrote it
+  // (AD-1); the drawer's unsaved texts, by entry id (UI state only).
+  memory: null,
+  memoryDrafts: new Map(),
   openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
   openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
@@ -120,10 +129,13 @@ async function streamEvents(fromSeq, onEnvelope) {
         while ((sep = buffer.indexOf("\n\n")) !== -1) {
           const rawEvent = buffer.slice(0, sep);
           buffer = buffer.slice(sep + 2);
-          const envelope = parseSseEvent(rawEvent);
-          if (envelope) {
-            lastSeq = envelope.seq;
-            onEnvelope(envelope);
+          const { event, data } = parseSseEvent(rawEvent);
+          if (event === "server_instance") {
+            // A1: another process's journal, where lastSeq means nothing: resync by reloading.
+            if (!sameServerInstance(data?.instance_id)) return;
+          } else if (data) {
+            lastSeq = data.seq;
+            onEnvelope(data);
           }
         }
       }
@@ -135,20 +147,39 @@ async function streamEvents(fromSeq, onEnvelope) {
 }
 
 function parseSseEvent(rawEvent) {
+  let event = null;
   let data = null;
   for (const line of rawEvent.split("\n")) {
     if (line.startsWith("data:")) {
       data = line.slice(5).trim();
+    } else if (line.startsWith("event:")) {
+      // Only `server_instance` needs it: an envelope's own `kind` says the rest.
+      event = line.slice(6).trim();
     }
-    // `id:`/`event:` are redundant with the envelope's own `seq`/`kind`.
+    // `id:` is redundant with the envelope's own `seq`.
   }
-  if (!data) return null;
+  if (!data) return { event, data: null };
   try {
-    return JSON.parse(data);
+    return { event, data: JSON.parse(data) };
   } catch {
-    return null;
+    return { event, data: null };
   }
 }
+
+// The journal this page was built from (`/api/state`, else the first stream). WaveStack
+// relaunched while the tab stayed open: a new journal, from seq 1, with turn ids already
+// used; the page reloads, which replays it whole (AD-1). False when reloading.
+function sameServerInstance(instanceId) {
+  if (!instanceId) return true;
+  if (store.serverInstance === null) store.serverInstance = instanceId;
+  if (instanceId === store.serverInstance) return true;
+  location.reload();
+  return false;
+}
+
+const RESET_STATUS_FR = "WaveStack réinitialisé : LLM nu.";
+const RESET_STATUS_MS = 6000;
+let resetStatusTimer = null;
 
 function applyEnvelope(envelope) {
   store.journal.push(envelope);
@@ -177,6 +208,10 @@ function applyEnvelope(envelope) {
     case "bricks_changed":
       store.bricks = p;
       break;
+    case "memory_changed":
+      store.memory = p;
+      renderMemoryDrawer();
+      break;
     case "armed_actions_changed":
       // AD-1: the chips are this list, never a local computation.
       store.armed = p.actions;
@@ -204,7 +239,25 @@ function applyEnvelope(envelope) {
       store.logFrom = store.journal.length;
       eventLog.list?.remove();
       Object.assign(eventLog, { groups: [], processed: store.logFrom, rows: [], list: null });
-      store.topStatus = "WaveStack réinitialisé : LLM nu.";
+      store.topStatus = RESET_STATUS_FR;
+      // A4: a discreet confirmation, over the panes: it leaves on its own.
+      clearTimeout(resetStatusTimer);
+      resetStatusTimer = setTimeout(() => {
+        if (store.topStatus !== RESET_STATUS_FR) return;
+        store.topStatus = null;
+        render();
+      }, RESET_STATUS_MS);
+      store.memoryDrafts.clear();
+      break;
+    case "model_load_started":
+      store.modelLoad = { model: p.model, startedAt: Date.parse(envelope.ts) };
+      store.topStatus = null;
+      break;
+    case "model_load_ended":
+      store.modelLoad = null;
+      // A load that fell back, or a choice not saved, says so in the top bar.
+      store.topStatus = p.reason_fr ?? null;
+      scheduleModelList();
       break;
     case "turn_started":
       store.topStatus = null;
@@ -212,6 +265,7 @@ function applyEnvelope(envelope) {
       store.turns.push({
         id: envelope.turn_id,
         message: p.message,
+        model: p.active_model ?? null, // story 17: « Modèle : … » and « Comparer »
         replayOf: p.replay_of, // story 9b: the turn this one replays, or null
         startedAt: Date.parse(envelope.ts),
         callStartedAt: null,
@@ -338,9 +392,15 @@ function applyEnvelope(envelope) {
       }
       break;
     case "effect_applied": {
+      if (p.effect === "memory_write") {
+        // Story 14: the entry `remember` wrote, shown in its own step (model's or forced).
+        const step = turn?.steps.filter((s) => s.type === "tool" && s.started.tool === "remember").at(-1);
+        if (step) (step.memoryWrites ||= []).push(p);
+        break;
+      }
       // The lines H2 appended to the audit log, shown in its own step.
       const step = turn?.steps.filter((s) => s.type === "hook").at(-1);
-      if (step) step.lines.push(...p.lines);
+      if (step) step.lines.push(...(p.lines ?? []));
       break;
     }
     case "approval_requested": {
@@ -636,6 +696,7 @@ const cleared = () => store.clearedSeq !== null && store.clearedSeq > (store.res
 let renderedBricks = null;
 let renderedArmed = null;
 let renderedForceUi = null;
+let renderedMemory = null;
 
 // Story 9: the forced actions' UI changed (toggle, form): the panel is rebuilt at next render.
 function forceUiChanged() {
@@ -646,10 +707,18 @@ function forceUiChanged() {
 function renderBricks() {
   // Rebuilt only when the session sends new cards or armed actions, or the forced actions' UI
   // changes, so an unfolded explanation stays open.
-  if (renderedBricks === store.bricks && renderedArmed === store.armed && renderedForceUi === store.forceForm) return;
+  if (
+    renderedBricks === store.bricks &&
+    renderedArmed === store.armed &&
+    renderedForceUi === store.forceForm &&
+    renderedMemory === store.memory
+  ) {
+    return;
+  }
   renderedBricks = store.bricks;
   renderedArmed = store.armed;
   renderedForceUi = store.forceForm;
+  renderedMemory = store.memory;
   const pane = document.getElementById("bricks");
   // The rebuild would drop keyboard focus: note it, restore it on the new element. A closed
   // forced-call form gives it back to its Forcer button.
@@ -706,6 +775,7 @@ function renderBricks() {
       toggle.setAttribute("aria-describedby", why.id);
       card.appendChild(why);
     }
+    if (brick.note_fr) card.appendChild(el("p", "brick-note", brick.note_fr));
     if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
@@ -745,6 +815,7 @@ function renderBricks() {
       card.append(help, popover);
       if (store.openBrickHelp.has(brick.id)) reopenPopovers.push(popover);
     }
+    if (brick.id === "global_memory") card.append(...memoryCardParts(brick));
     if (brick.id === "system_prompt") {
       const edit = el("button", "brick-edit", "Modifier le prompt");
       edit.type = "button";
@@ -832,8 +903,20 @@ const FORCE_LABELS = {
   tools: "Forcer l'appel",
   skills: "Déclencher le skill",
   mcp: "Charger la documentation",
+  global_memory: "Écrire en mémoire",
   subagent: "Déléguer au sous-agent",
 };
+// Story 14: the memory write is forced from the card itself, a form with one field whose
+// help comes with the card (AD-19).
+function memoryForceOption(brick) {
+  return {
+    id: "remember",
+    label_fr: "Mémoire globale",
+    parameters: { text: brick.text_help_fr || "" },
+    fieldLabels: { text: "Texte" },
+    presets: [],
+  };
+}
 
 // Hidden by default: the SLMs are meant to act on their own. Remembered like the panes'
 // layout; unreadable storage leaves the default, silently.
@@ -896,7 +979,9 @@ function forceButton(brick, option) {
   button.dataset.focusKey = `force:${brick.id}:${option.id}`;
   // A tool without parameter and a skill are armed at once; the others open their form.
   const needsForm =
-    brick.id === "mcp" || (brick.id === "tools" && Object.keys(option.parameters || {}).length > 0);
+    brick.id === "mcp" ||
+    brick.id === "global_memory" ||
+    (brick.id === "tools" && Object.keys(option.parameters || {}).length > 0);
   if (needsForm) button.setAttribute("aria-expanded", String(isFormOpen(brick.id, option.id)));
   button.addEventListener("click", () => {
     if (!needsForm) {
@@ -961,6 +1046,8 @@ function forceForm(brick, option) {
   const arm = () =>
     brick.id === "mcp"
       ? armAction("tool_doc", form.values.tool, {}, form)
+      : brick.id === "global_memory"
+        ? armAction("memory", option.id, { text: form.values.text ?? "" }, form)
       : brick.force
         ? armAction(brick.force.kind, brick.force.target, { ...form.values }, form)
         : armAction("tool", option.id, { ...form.values }, form);
@@ -1007,6 +1094,7 @@ function forceForm(brick, option) {
       const input = el("input");
       input.type = "text";
       input.value = form.values[name] ?? "";
+      if (brick.id === "global_memory" && store.memory?.max_chars) input.maxLength = store.memory.max_chars;
       input.dataset.focusKey = `${base}:arg:${name}`;
       const help = el("span", "force-help", description);
       help.id = `force-help-${brick.id}-${option.id}-${name}`;
@@ -1020,7 +1108,7 @@ function forceForm(brick, option) {
           arm();
         }
       });
-      box.appendChild(forceField(name, input, help));
+      box.appendChild(forceField(option.fieldLabels?.[name] ?? name, input, help));
     }
   }
   if (form.error) {
@@ -1205,6 +1293,191 @@ async function saveSystemPrompt(text) {
   }
 }
 
+// ---------- global memory: card and edit drawer (story 14, FR-12, AD-23) ----------
+
+const MEMORY_SOURCES = { model: "écrite par le modèle", user: "écrite par l'utilisateur", demo: "démonstration" };
+const memoryDrawer = () => document.getElementById("memory-drawer");
+
+function memoryCardParts(brick) {
+  // The count the last `memory_changed` gives, the forced write, then the drawer's button.
+  const parts = [];
+  const memory = store.memory;
+  if (memory && !memory.error_fr) {
+    const n = memory.entries.length;
+    parts.push(el("p", "brick-limits", n ? `${plural(n, "entrée")} en mémoire globale.` : "Mémoire globale vide."));
+  }
+  if (store.showForced) {
+    const option = memoryForceOption(brick);
+    const force = forceButton(brick, option);
+    if (brick.note_fr) {
+      // H4: no tool parser, the forced write would be dropped: said on the button itself.
+      force.disabled = true;
+      force.title = brick.note_fr;
+      force.setAttribute("aria-description", brick.note_fr);
+    }
+    parts.push(force);
+    if (!brick.note_fr && isFormOpen(brick.id, option.id)) parts.push(forceForm(brick, option));
+  }
+  const edit = el("button", "brick-edit", "Modifier la mémoire");
+  edit.type = "button";
+  edit.disabled = !memory || Boolean(memory.error_fr);
+  edit.id = "edit-memory";
+  edit.dataset.focusKey = "edit-memory";
+  edit.addEventListener("click", openMemoryDrawer);
+  parts.push(edit);
+  return parts;
+}
+
+// `choice`: the buttons under the message, « dirty » (Enregistrer / Abandonner) or « clear »
+// (Tout effacer / Annuler), the same inline pattern as the unsaved change (EXPERIENCE.md).
+function memoryAlert(text, choice = null) {
+  const alert = document.getElementById("memory-alert");
+  alert.hidden = !text;
+  alert.textContent = text || "";
+  document.getElementById("memory-dirty").hidden = choice !== "dirty";
+  document.getElementById("memory-confirm").hidden = choice !== "clear";
+  if (choice) document.getElementById(choice === "dirty" ? "memory-dirty-save" : "memory-confirm-clear").focus();
+}
+
+function askClearMemory() {
+  const n = store.memory?.entries.length ?? 0;
+  if (!n) return;
+  memoryAlert(`Effacer ${n > 1 ? `les ${n} entrées` : "l'entrée"} de la mémoire globale ? Le fichier est réécrit aussitôt.`, "clear");
+}
+
+async function confirmClearMemory() {
+  if (await editMemory({ op: "clear" })) document.getElementById("memory-close").focus();
+}
+
+function memoryCard() {
+  return store.bricks?.bricks.find((b) => b.id === "global_memory") ?? null;
+}
+
+// The entries whose text differs from the one the session wrote: what « Enregistrer » sends.
+function memoryDirty() {
+  const entries = store.memory?.entries ?? [];
+  return entries.filter((e) => store.memoryDrafts.has(e.id) && store.memoryDrafts.get(e.id) !== e.text);
+}
+
+function openMemoryDrawer() {
+  if (!store.memory || store.memory.error_fr) return;
+  if (!memoryDrawer().hidden) {
+    // Already open (a click on the schema's node): its drafts stay, the focus comes back.
+    (document.querySelector("#memory-list textarea") || document.getElementById("memory-close")).focus();
+    return;
+  }
+  // The drawer lives in the bricks pane: shown first when hidden, or behind another focus.
+  if (store.hiddenPanes.has("bricks")) showPane("bricks");
+  if (store.focusedPane && store.focusedPane !== "bricks") {
+    store.focusedPane = null;
+    render();
+  }
+  if (!drawer().hidden) {
+    closeDrawer(); // an unsaved system prompt asks first, and the memory waits
+    if (!drawer().hidden) return;
+  }
+  store.memoryDrafts.clear();
+  memoryAlert(null);
+  memoryDrawer().hidden = false;
+  document.getElementById("bricks").inert = true; // cards under the drawer leave the Tab order
+  renderMemoryDrawer();
+  const first = document.querySelector("#memory-list textarea") || document.getElementById("memory-close");
+  first.focus();
+}
+
+function closeMemoryDrawer(force = false) {
+  if (!force && memoryDirty().length) {
+    memoryAlert("Modification non enregistrée. Enregistrer ou abandonner ?", "dirty");
+    return;
+  }
+  store.memoryDrafts.clear();
+  memoryAlert(null);
+  memoryDrawer().hidden = true;
+  document.getElementById("bricks").inert = false;
+  document.getElementById("edit-memory")?.focus();
+}
+
+function renderMemoryDrawer() {
+  // Rebuilt from the last `memory_changed`, the texts being typed kept (AD-1).
+  if (memoryDrawer().hidden) return;
+  const memory = store.memory;
+  const list = document.getElementById("memory-list");
+  const focusKey = list.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  const entries = memory?.entries ?? [];
+  for (const id of [...store.memoryDrafts.keys()]) {
+    if (!entries.some((e) => e.id === id)) store.memoryDrafts.delete(id); // deleted meanwhile
+  }
+  document.getElementById("memory-path").textContent = memory ? `Fichier : ${memory.path}` : "";
+  const empty = document.getElementById("memory-empty");
+  empty.textContent = memoryCard()?.empty_fr ?? "";
+  empty.hidden = entries.length > 0;
+  document.getElementById("memory-clear").disabled = entries.length === 0;
+  list.innerHTML = "";
+  entries.forEach((entry, i) => {
+    const item = el("li", "memory-entry");
+    const label = `Entrée ${i + 1}`;
+    const head = el("div", "memory-entry-head");
+    head.append(el("span", "memory-entry-name", label), el("span", "memory-entry-source", MEMORY_SOURCES[entry.source] ?? entry.source));
+    const text = el("textarea", "memory-entry-text");
+    text.rows = 3;
+    if (memory?.max_chars) text.maxLength = memory.max_chars;
+    text.spellcheck = false;
+    text.value = store.memoryDrafts.get(entry.id) ?? entry.text;
+    text.setAttribute("aria-label", `Texte de l'entrée ${i + 1}`);
+    text.dataset.focusKey = `memory:${entry.id}:text`;
+    const save = el("button", "memory-entry-save", "Enregistrer");
+    save.type = "button";
+    save.disabled = text.value === entry.text;
+    save.setAttribute("aria-label", `Enregistrer l'entrée ${i + 1}`);
+    save.dataset.focusKey = `memory:${entry.id}:save`;
+    text.addEventListener("input", () => {
+      store.memoryDrafts.set(entry.id, text.value); // kept in place: typing never rebuilds
+      save.disabled = text.value === entry.text;
+    });
+    save.addEventListener("click", () => saveMemoryEntries([entry.id]));
+    const remove = el("button", "memory-entry-delete", "Supprimer");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Supprimer l'entrée ${i + 1}`);
+    remove.dataset.focusKey = `memory:${entry.id}:delete`;
+    remove.addEventListener("click", () => editMemory({ op: "delete", entry_id: entry.id }));
+    const actions = el("div", "drawer-actions memory-entry-actions");
+    actions.append(save, remove);
+    item.append(head, text, actions);
+    list.appendChild(item);
+  });
+  if (focusKey) {
+    const target = list.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`);
+    (target || document.getElementById("memory-close")).focus();
+  }
+}
+
+async function editMemory(body) {
+  // Class (b): the session writes `memory.json`; `memory_changed` redraws the list (AD-23).
+  try {
+    const response = await postIntention("/api/intentions/memory", body);
+    if (!response.ok) {
+      const answer = await response.json().catch(() => ({}));
+      memoryAlert(typeof answer.detail === "string" ? answer.detail : "Modification refusée.");
+      return false;
+    }
+  } catch {
+    memoryAlert("WaveStack ne répond pas : la mémoire n'a pas été modifiée.");
+    return false;
+  }
+  if (body.entry_id) store.memoryDrafts.delete(body.entry_id);
+  memoryAlert(null);
+  return true;
+}
+
+async function saveMemoryEntries(ids) {
+  for (const id of ids) {
+    const text = store.memoryDrafts.get(id);
+    if (text === undefined) continue;
+    if (!(await editMemory({ op: "replace", entry_id: id, text }))) return false;
+  }
+  return true;
+}
+
 async function clearConversation() {
   store.composerError = null;
   try {
@@ -1284,6 +1557,7 @@ const approxTotal = (p) =>
 
 // The model indicator (EXPERIENCE.md model-indicator): tag, name; tooltip = the cloud warning.
 function renderModelIndicator() {
+  renderModelPicker();
   const button = document.getElementById("model-indicator");
   const model = store.activeModel;
   button.hidden = !model;
@@ -1301,6 +1575,159 @@ function renderModelIndicator() {
   button.title =
     model.warning_fr ?? `Modèle local ${model.label}, sur ce poste. Cliquez pour ouvrir le diagnostic.`;
   button.setAttribute("aria-label", `Modèle actif : ${model.label}. ${button.title}`);
+}
+
+// ---------- story 17: model picker (EXPERIENCE.md model-picker), hot switch ----------
+
+const PICK_OTHER = "other";
+const modelKey = (model) => (model ? `${model.kind ?? ""}:${model.ref ?? model.id}` : "");
+
+let modelListTimer = null;
+function scheduleModelList() {
+  clearTimeout(modelListTimer);
+  modelListTimer = setTimeout(loadModelList, 150);
+}
+
+// The last diagnostic's list: no new discovery nor probe at the picker's opening.
+async function loadModelList() {
+  try {
+    const response = await fetch("/api/diagnostic");
+    store.modelList = await response.json();
+  } catch {
+    // The picker keeps its last list.
+  }
+  renderModelPicker();
+}
+
+function pickerOption(value, text, { disabled = false, title = "" } = {}) {
+  const option = el("option", "", text);
+  option.value = value;
+  option.disabled = disabled;
+  if (title) option.title = title;
+  return option;
+}
+
+let renderedPickerKey = null;
+
+function renderModelPicker() {
+  const picker = document.getElementById("model-picker");
+  const state = store.sessionState;
+  const idle = state?.state === "idle"; // class (b): between two turns only
+  picker.disabled = !idle || !store.modelList;
+  picker.title = idle
+    ? "Changer de modèle : la conversation est conservée."
+    : state?.reason_fr || "Disponible hors d'un tour.";
+  const active = store.activeModel;
+  const key = JSON.stringify([store.modelList, modelKey(active)]);
+  if (key === renderedPickerKey) return;
+  renderedPickerKey = key;
+  const list = store.modelList ?? { candidates: [], cloud: { models: [] } };
+  const local = el("optgroup");
+  local.label = "Sur ce poste";
+  const seen = new Set();
+  for (const c of list.candidates ?? []) {
+    if (c.status === "server") {
+      // Story 18: an already running local server is listed, not choosable yet.
+      local.append(pickerOption("", `Serveur local ${c.server_url} (palier 2)`, { disabled: true }));
+      continue;
+    }
+    if (c.status !== "found" || !c.path || seen.has(c.path)) continue;
+    seen.add(c.path);
+    const isActive = active?.kind === "file" && active.ref === c.path;
+    const size = c.size_label ? ` · ${c.size_label}` : "";
+    local.append(
+      pickerOption(`file:${c.path}`, `${c.name}${size}${isActive ? " (actif)" : ""}`, {
+        disabled: isActive,
+        title: c.path,
+      })
+    );
+  }
+  const network = el("optgroup");
+  network.label = "Réseau";
+  for (const m of list.cloud?.models ?? []) {
+    const isActive = active?.kind === "cloud" && active.ref === m.id;
+    const suffix = isActive ? " (actif)" : m.disabled_fr ? " (indisponible)" : "";
+    network.append(
+      pickerOption(`cloud:${m.id}`, `RÉSEAU · ${m.provider} · ${m.model}${suffix}`, {
+        disabled: isActive || Boolean(m.disabled_fr),
+        title: m.disabled_fr ?? "",
+      })
+    );
+  }
+  const head = pickerOption("", "Changer de modèle…");
+  const groups = [local, network].filter((g) => g.children.length);
+  picker.replaceChildren(head, ...groups, pickerOption(PICK_OTHER, "Autre fichier ou clé API…"));
+  picker.value = "";
+}
+
+async function pickModel(event) {
+  const picker = event.target;
+  const value = picker.value;
+  picker.value = "";
+  if (!value) return;
+  if (value === PICK_OTHER) {
+    window.location.href = "/diagnostic"; // the key and a free path stay there
+    return;
+  }
+  const at = value.indexOf(":");
+  const kind = value.slice(0, at);
+  const ref = value.slice(at + 1);
+  if (kind === "cloud") {
+    openCloudWarning(store.modelList?.cloud?.models?.find((m) => m.id === ref));
+    return;
+  }
+  await selectModel({ kind: "file", ref });
+}
+
+async function selectModel(body) {
+  store.topStatus = null;
+  try {
+    const response = await postIntention("/api/intentions/select_model", body);
+    const answer = await response.json().catch(() => ({}));
+    if (!response.ok) store.topStatus = answer.detail || "Changement de modèle refusé.";
+    else if (!answer.switching) store.topStatus = answer.message_fr ?? null; // « … est déjà actif. »
+  } catch (error) {
+    store.topStatus = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
+  }
+  render();
+}
+
+// EXPERIENCE.md cloud-warning: in the page, texts from `/api/diagnostic`; nothing changes
+// before « Utiliser ce modèle ».
+let warningModel = null;
+
+function openCloudWarning(model) {
+  if (!model?.warning) return;
+  warningModel = model;
+  const w = model.warning;
+  setText(document.getElementById("cloud-warning-title"), w.title_fr);
+  document
+    .getElementById("cloud-warning-points")
+    .replaceChildren(...["sent_fr", "provider_fr", "unseen_fr"].map((k) => el("li", "", w[k])));
+  setText(document.getElementById("cloud-warning-confirm"), w.confirm_fr);
+  setText(document.getElementById("cloud-warning-cancel"), w.cancel_fr);
+  document.getElementById("cloud-warning").showModal();
+  document.getElementById("cloud-warning-confirm").focus();
+}
+
+function bindCloudWarning() {
+  const dialog = document.getElementById("cloud-warning");
+  dialog.addEventListener("close", () => {
+    warningModel = null;
+    document.getElementById("model-picker").focus();
+  });
+  document.getElementById("cloud-warning-cancel").addEventListener("click", () => dialog.close());
+  document.getElementById("cloud-warning-confirm").addEventListener("click", () => {
+    const model = warningModel;
+    dialog.close();
+    if (model) selectModel({ kind: "cloud", ref: model.id, acknowledged: true });
+  });
+}
+
+// The top bar and the Vue humain's stopwatch, anchored on `model_load_started.ts` (AD-1).
+function modelLoadText() {
+  const load = store.modelLoad;
+  return load ? `Chargement du modèle ${load.model.label}… ${seconds(Date.now() - load.startedAt)}` : null;
 }
 
 // ---------- human view: bubbles, working indicator, composer ----------
@@ -1374,6 +1801,11 @@ function renderChat() {
   const turns = shownTurns();
   if (turns.length === 0) nodes.push(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
   for (const turn of turns) {
+    // Story 17: « Modèle : … » before a turn played by another model than the one before.
+    const before = store.turns[store.turns.indexOf(turn) - 1];
+    if (before && turn.model && modelKey(before.model) !== modelKey(turn.model)) {
+      nodes.push(el("div", "model-switch-line", `Modèle : ${turn.model.label}`));
+    }
     const user = el("div", "bubble bubble-user", turn.message);
     const origin = turn.replayOf && store.turns.find((t) => t.id === turn.replayOf);
     if (origin) {
@@ -1436,6 +1868,8 @@ function renderChat() {
     }
   }
   approvalCards = cards;
+  const loading = modelLoadText();
+  if (loading) nodes.push(el("div", "working-indicator model-load-indicator", loading));
   patchChildren(chat, nodes);
   if (focusKey && !chat.contains(document.activeElement)) {
     let target = chat.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`);
@@ -1546,7 +1980,7 @@ function renderScenarioControls(state) {
   const reset = document.getElementById("reset-button");
   reset.disabled = !idle;
   reset.title = reason || "Retour au LLM nu, conversation vide.";
-  setText(document.getElementById("top-status"), store.topStatus ?? "");
+  setText(document.getElementById("top-status"), modelLoadText() ?? store.topStatus ?? "");
 
   // Vue humain: the active scenario's instructions, then one chip per suggested prompt.
   const scenario = findScenario(store.scenarios?.active);
@@ -1679,12 +2113,13 @@ function renderContextBody(pane) {
     const banner = store.activeModel?.banner_fr ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
     pane.appendChild(el("p", "ctx-banner", banner));
   }
-  const source = p.usage_source === "api" ? " (total renvoyé par le fournisseur)" : "";
+  // AD-4: the provider's total replaces the sum of the segments, it is not added to it.
+  const source = p.usage_source === "api" ? "total renvoyé par le fournisseur" : "somme des segments";
   pane.appendChild(
     el(
       "p",
       "ctx-total",
-      `Tour ${turn.id} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments)${source} · ` +
+      `${turnName(turn)} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (${source}) · ` +
         `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
     )
   );
@@ -1901,6 +2336,7 @@ function renderCompare(pane) {
   for (const [turn, figures, other] of [[left, a, null], [right, b, a]]) {
     const card = el("div", "turn-compare-figures");
     card.append(el("div", "turn-group-title", `${turnName(turn)}${turn.replayOf ? " · Rejeu" : ""}`));
+    card.append(el("div", "turn-compare-model", `Modèle : ${turn.model?.label ?? "inconnu"}`));
     const diff = (key, unit) =>
       other && figures[key] !== null && other[key] !== null ? ` (${signed(figures[key] - other[key], unit)})` : "";
     card.append(
@@ -2005,6 +2441,7 @@ function toolBody(step) {
     nodes.push(el("span", "step-badge is-mcp", "MCP"));
   }
   if (step.brick === "skills") nodes.push(el("span", "step-badge is-skill", "Skill"));
+  if (step.brick === "global_memory") nodes.push(el("span", "step-badge is-memory", "Mémoire globale"));
   // EXPERIENCE: trigger badge, read from the envelope's `trigger` (story 9).
   const badge = triggerBadge(step.trigger);
   if (badge) nodes.push(badge);
@@ -2020,6 +2457,10 @@ function toolBody(step) {
   nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
   if (ended.status === "ok") {
     nodes.push(el("p", "label", "Résultat"), el("pre", "step-code", ended.result));
+    for (const write of step.memoryWrites || []) {
+      // Story 14: what the harness wrote in memory.json, the model having only asked.
+      nodes.push(el("p", "label", "Entrée écrite dans memory.json par le harnais"), el("pre", "step-code", write.text));
+    }
   } else {
     nodes.push(
       el("span", "step-badge", "erreur d'exécution"),
@@ -2343,7 +2784,7 @@ function turnRows(turn) {
       const forced = step.trigger === "user";
       rows.push({
         key,
-        icon: harness ? (step.brick === "skills" ? "📘" : "📖") : "🔧",
+        icon: harness ? { skills: "📘", global_memory: "💾" }[step.brick] || "📖" : "🔧",
         title: harness ? step.started.phase_label : `Exécution · ${toolLabel(step.started.tool)}`,
         actor: forced ? "user" : harness ? "model" : "harness",
         trigger: step.trigger,
@@ -3225,9 +3666,14 @@ const KIND_LABELS = {
   approval_resolved: "Validation résolue",
   armed_actions_changed: "Actions armées",
   action_dropped: "Action forcée abandonnée",
+  memory_changed: "Mémoire globale modifiée",
+  model_load_started: "Chargement du modèle commencé",
+  model_load_ended: "Chargement du modèle terminé",
   subagent_started: "Sous-agent lancé",
   subagent_ended: "Sous-agent terminé",
 };
+const MODEL_LOAD_STATUS = { ok: "chargé", restored: "retour au modèle précédent", error: "échec" };
+const MEMORY_OPS = { add: "Ajout en mémoire", replace: "Modification en mémoire", delete: "Suppression en mémoire" };
 const SESSION_STATES = {
   idle: "prête",
   turn: "tour en cours",
@@ -3264,7 +3710,12 @@ function eventSummary(group) {
         .join(" · ");
     case "model_call_started":
     case "mcp_connect_started":
+    case "model_load_started":
       return p.phase_label;
+    case "model_load_ended":
+      return [`${p.model.label} : ${MODEL_LOAD_STATUS[p.status] ?? p.status}`, seconds(p.duration_ms), p.reason_fr]
+        .filter(Boolean)
+        .join(" · ");
     case "model_call_ended":
       return `${fmt(p.prompt_tokens)} lus · ${fmt(p.output_tokens)} écrits · ${seconds(p.duration_ms)} · ${p.stop_reason}`;
     case "tool_started":
@@ -3280,7 +3731,11 @@ function eventSummary(group) {
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_fr} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
-      return `${plural(p.lines.length, "ligne")} au journal d'audit`;
+      if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · « ${p.text} »`;
+      if (p.effect === "audit_append") return `${plural(p.lines.length, "ligne")} au journal d'audit`;
+      return p.key ?? p.id ?? p.effect;
+    case "memory_changed":
+      return p.error_fr ?? `${plural(p.entries.length, "entrée")} · ${p.path}`;
     case "approval_requested":
       return `${p.tool} → ${p.destination}`;
     case "approval_resolved":
@@ -3430,6 +3885,7 @@ function svgEl(tag, attrs) {
 const BRICK_ICONS = {
   short_memory: "🧠",
   system_prompt: "📜",
+  global_memory: "💾",
   reasoning: "💭",
   tools: "🔧",
   mcp: "🔌",
@@ -3785,6 +4241,7 @@ function schemaNode(node, shape) {
   button.title = tooltip.join("\n");
   button.setAttribute("aria-label", tooltip.join(". "));
   if (node.id === "file.audit") button.addEventListener("click", openAudit); // the whole log
+  if (node.id === "file.memory") button.addEventListener("click", openMemoryDrawer); // story 14
 
   if (shape !== "mcp" || !tools.length) return [button];
   // A selected MCP server unfolds its tools under it, in its bin (FR-3).
@@ -3969,6 +4426,10 @@ async function boot() {
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
   document.getElementById("replay-last").addEventListener("click", replayLast);
   document.getElementById("scenario-picker").addEventListener("change", launchScenario);
+  const modelPicker = document.getElementById("model-picker");
+  modelPicker.addEventListener("change", pickModel);
+  modelPicker.addEventListener("focus", loadModelList);
+  bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
@@ -3982,6 +4443,17 @@ async function boot() {
     if (await saveSystemPrompt(drawerText().value)) closeDrawer(true);
   });
   document.getElementById("drawer-dirty-discard").addEventListener("click", () => closeDrawer(true));
+  document.getElementById("memory-close").addEventListener("click", () => closeMemoryDrawer());
+  document.getElementById("memory-clear").addEventListener("click", askClearMemory);
+  document.getElementById("memory-confirm-clear").addEventListener("click", confirmClearMemory);
+  document.getElementById("memory-confirm-cancel").addEventListener("click", () => {
+    memoryAlert(null);
+    document.getElementById("memory-clear").focus();
+  });
+  document.getElementById("memory-dirty-save").addEventListener("click", async () => {
+    if (await saveMemoryEntries(memoryDirty().map((e) => e.id))) closeMemoryDrawer(true);
+  });
+  document.getElementById("memory-dirty-discard").addEventListener("click", () => closeMemoryDrawer(true));
   document.getElementById("audit-close").addEventListener("click", () =>
     document.getElementById("audit-dialog").close()
   );
@@ -3994,13 +4466,20 @@ async function boot() {
       renderChat();
       renderSteps();
     }
+    if (store.modelLoad) {
+      renderChat();
+      setText(document.getElementById("top-status"), modelLoadText());
+    }
   }, 250);
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (document.getElementById("audit-dialog").open) return; // the dialog closes itself
+    if (document.getElementById("cloud-warning").open) return;
     if (!drawer().hidden) {
       closeDrawer();
+    } else if (!memoryDrawer().hidden) {
+      closeMemoryDrawer();
     } else if (!document.getElementById("pane-menu-list").hidden) {
       closePaneMenu();
     } else if (store.focusedPane !== null) {
@@ -4012,12 +4491,14 @@ async function boot() {
   try {
     const response = await fetch("/api/state");
     const body = await response.json();
+    store.serverInstance = body.instance_id ?? null;
     store.sessionState = body.session_state;
     store.activeModel = body.active_model ?? null;
     store.architecture = body.architecture_changed || { nodes: [], edges: [] };
     store.bricks = body.bricks_changed;
     store.armed = body.armed_actions_changed?.actions ?? [];
     store.scenarios = body.scenario_changed;
+    store.memory = body.memory_changed ?? null;
     const preview = body.context_preview;
     const rendered = body.context_rendered;
     const reconciled = body.context_reconciled;
@@ -4027,6 +4508,7 @@ async function boot() {
     // AD-16: a failed boot fetch still lets the live stream take over.
   }
   render();
+  loadModelList();
 
   // Replay the whole journal: a reload rebuilds past and in-progress turns (AD-1).
   streamEvents(0, applyEnvelope);
