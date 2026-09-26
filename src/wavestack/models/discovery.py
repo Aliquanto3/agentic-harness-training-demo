@@ -47,6 +47,15 @@ def _glob_gguf(root: Path) -> list[Path]:
     return sorted(root.rglob("*.gguf"))
 
 
+def _embedding_files(cfg: config.Config) -> set[Path]:
+    """The files `[rag.embedding]` declares under `models_dir()`: never offered as a model."""
+    model, _ = cfg.rag_embedding
+    if model is None:
+        return set()
+    root = config.models_dir()
+    return {root / model.load_path, *(root / f.path for f in model.files)}
+
+
 def _hf_cache_dir() -> Path:
     hub_cache = os.environ.get("HF_HUB_CACHE")
     if hub_cache:
@@ -178,9 +187,12 @@ def _server_candidates(
 def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
     """List every model candidate, in AD-7 order. Never raises on a missing location."""
     candidates: list[ModelCandidate] = []
+    cfg = config.load_config()
+    embedding = _embedding_files(cfg)  # story 15: the RAG's model is no chat model
     candidates += [
         ModelCandidate(source="models_dir", status="found", path=str(p))
         for p in _glob_gguf(config.models_dir())
+        if p not in embedding
     ]
     candidates += [
         ModelCandidate(source="hf_cache", status="found", path=str(p))
@@ -196,7 +208,7 @@ def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
             break
 
     candidates += _ollama_candidates()
-    candidates += _server_candidates(config.load_config())
+    candidates += _server_candidates(cfg)
 
     # The explicit path comes first (AD-7), unless it is already listed (e.g. an Ollama blob).
     if explicit_path and str(Path(explicit_path)) not in {c.path for c in candidates}:

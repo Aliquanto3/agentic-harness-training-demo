@@ -6,7 +6,8 @@ last user message of the turn, on the tools offered and on the tool results alre
 received. `plan_reply` holds the whole script; `README.md` lists the triggers.
 
 Debug routes: `GET /_e2e/requests` (the bodies received, newest last) and
-`POST /_e2e/reset` (forget them).
+`POST /_e2e/reset` (forget them). Story 15: `GET /_e2e/model.gguf` is the fake embedding
+model's file, a 503 until `POST /_e2e/model_ready` (a failed, then a successful download).
 
 Run: `uv run python tools/e2e/fake_openai.py --port 8765`.
 """
@@ -35,6 +36,11 @@ _HARNESS_ERROR = re.compile(r"^\s*Erreur\s*:")
 # What hook H3 adds before the user's message (content/hooks.yaml, `injection`): never read
 # as the user's words, or « heure » and « confidentiel » would trigger tools.
 _H3_INJECTION = re.compile(r"Date et heure du poste.*?données confidentielles\.\s*", re.S)
+# Story 15: the RAG's intro (content/rag.yaml, `intro_fr`); its excerpts follow it, and the
+# user's words are the last part of the message.
+_RAG_INTRO = "Extraits de la documentation interne d'Exemplia"
+_RAG_EXCERPT = re.compile(r"Extrait (\d+) — ([^:\n]+) :")
+MODEL_FILE_SIZE = 4096  # the fake embedding model's file (tools/e2e/stack.py declares it)
 
 
 @dataclass
@@ -80,7 +86,10 @@ def turn_slice(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]
     for i in range(len(messages) - 1, -1, -1):
         m = messages[i]
         if m.get("role") == "user" and not _HARNESS_ERROR.match(text_of(m.get("content"))):
-            return _H3_INJECTION.sub("", text_of(m.get("content"))), messages[i + 1 :]
+            text = _H3_INJECTION.sub("", text_of(m.get("content")))
+            if _RAG_INTRO in text:  # the excerpts are not the user's words
+                text = text.rsplit("\n\n", 1)[-1]
+            return text, messages[i + 1 :]
     return "", []
 
 
@@ -132,6 +141,13 @@ def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
     low = user.lower()
     if "test de connexion wavestack" in low:
         return [("get_datetime", {})]
+    if "sous-agent" in low and "délègue" in low:  # story 19: the main agent delegates
+        task = "Lis le fichier guide_harnais.md et résume-le en cinq points courts."
+        if "page web" in low:  # the sub-agent fetches a page (H5 asks inside it)
+            task = "Lis la page web https://fr.wikipedia.org/wiki/Paris et résume-la."
+        return [("delegate", {"task": task + (" [lent]" if "[lent]" in low else "")})]
+    if "guide_harnais" in low:  # the sub-agent's task (or a main agent reading it itself)
+        return [("read_file", {"path": "guide_harnais.md"})]
     if "confidentiel" in low:
         return [("read_file", {"path": "confidentiel/budget_projet.txt"})]
     if "recette_crepes" in low or "crêpes" in low:
@@ -144,10 +160,11 @@ def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
         return [("calculator", {"expression": expression})]
     if "férié" in low:
         return [("public_holidays", {"year": 2026})]
-    if "wikipédia" in low or "wikipedia" in low:
-        return [("wikipedia_summary", {"title": "Mont-Saint-Michel"})]
+    # Before « wikipédia »: a page web task names a fr.wikipedia.org address.
     if "page web" in low or "fetch_page" in low:
         return [("fetch_page", {"url": "https://fr.wikipedia.org/wiki/Paris"})]
+    if "wikipédia" in low or "wikipedia" in low:
+        return [("wikipedia_summary", {"title": "Mont-Saint-Michel"})]
     if "mcp" in low and "veut dire" in low:
         return [
             ("load_tool_doc", {"tool": "local__define_term"}),
@@ -196,6 +213,13 @@ def _final_text(user: str, messages: list[dict[str, Any]], results: list[str]) -
         return "Je n'ai pas accès à une horloge : je ne peux pas connaître l'heure."
     if "harnais" in low:
         return _LONG_HARNESS
+    if "mot de passe" in low and "exemplia" in low:  # story 15: with or without the RAG
+        last_user = next((m for m in reversed(messages) if m.get("role") == "user"), {})
+        found = _RAG_EXCERPT.findall(text_of(last_user.get("content")))
+        source = next((f"extrait {n} ({title})" for n, title in found if "passe" in title), None)
+        if source:
+            return f"D'après l'{source} : au minimum 14 caractères chez Exemplia."
+        return "Je ne connais pas les règles d'Exemplia ; en général, on conseille 8 caractères."
     if "présente-toi" in low:
         return "Je suis le faux modèle de WaveStack : mes réponses sont écrites d'avance."
     if "mcp" in low:
@@ -368,12 +392,25 @@ def create_app() -> Starlette:
         received.clear()
         return JSONResponse({"ok": True})
 
+    model = {"ready": False}
+
+    async def model_file(_: Request) -> Response:
+        if not model["ready"]:
+            return JSONResponse({"error": "fichier indisponible (e2e)"}, status_code=503)
+        return Response(b"\0" * MODEL_FILE_SIZE, media_type="application/octet-stream")
+
+    async def model_ready(_: Request) -> JSONResponse:
+        model["ready"] = True
+        return JSONResponse({"ok": True})
+
     return Starlette(
         routes=[
             Route("/v1/models", models),
             Route("/v1/chat/completions", completions, methods=["POST"]),
             Route("/_e2e/requests", requests_log),
             Route("/_e2e/reset", reset, methods=["POST"]),
+            Route("/_e2e/model.gguf", model_file),
+            Route("/_e2e/model_ready", model_ready, methods=["POST"]),
         ]
     )
 

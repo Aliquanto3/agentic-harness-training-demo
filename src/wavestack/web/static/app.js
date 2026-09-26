@@ -56,10 +56,15 @@ const store = {
   // (AD-1); the drawer's unsaved texts, by entry id (UI state only).
   memory: null,
   memoryDrafts: new Map(),
+  downloadError: null, // story 15: the last refusal of « Télécharger » (UI state only)
+  ragNotice: null, // story 15: the last failure of the RAG's download, from `harness_error`
   openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
   openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
   openApprovalPayloads: new Set(), // approval ids whose payload is unfolded in the Vue humain card
+  // Story 19, UI state only: the context Contexte LLM shows, `null` for the main one, else
+  // `{ turn, sub }` (a turn id and a sub-agent's `context_id`); back to the main one if absent.
+  ctxView: null,
   // Story 13, UI state only: « Afficher le raisonnement » (remembered by the browser, shown by
   // default), and the reasoning blocks the user unfolded (`chat:` or `ctx:` + turn id).
   showReasoning: true,
@@ -189,9 +194,18 @@ function applyEnvelope(envelope) {
   store.journal.push(envelope);
   const p = envelope.payload;
   const turn = envelope.turn_id ? store.turns.find((t) => t.id === envelope.turn_id) : null;
+  // Story 19 (AD-11): a sub-agent's events fill its own projection, never the turn's gauge,
+  // context or text; the Vue humain only gets the phase and H5's validations.
+  if (turn && envelope.context_id?.startsWith("sub") && SUB_KINDS.has(envelope.kind)) {
+    applySubEnvelope(turn, subProjection(turn, envelope), envelope);
+    scheduleRender();
+    return;
+  }
   switch (envelope.kind) {
     case "session_state":
       store.sessionState = p;
+      if (p.state === "download") store.ragNotice = null; // a new attempt
+
       // The diagnostic session's own states carry no model: the last known one stays.
       if (p.active_model !== undefined) store.activeModel = p.active_model;
       if (p.state === "idle") store.composerError = null;
@@ -284,6 +298,7 @@ function applyEnvelope(envelope) {
         limit: null,
         // Orchestration, in the real order: model calls, tool executions, harness events.
         steps: [],
+        subs: new Map(), // story 19: `context_id` -> the projection of a sub-agent
       });
       break;
     case "context_rendered":
@@ -342,6 +357,7 @@ function applyEnvelope(envelope) {
         });
         turn.steps.push({
           type: "tool",
+          stepId: envelope.step_id, // a sub-agent hangs on it by `parent_step` (story 19)
           started: p,
           brick: envelope.brick,
           component: envelope.component, // the schema node in action
@@ -351,6 +367,18 @@ function applyEnvelope(envelope) {
         });
       }
       break;
+    case "rag_search_started":
+      // Story 15: the harness searches the corpus before the first call (its own step).
+      if (turn) {
+        Object.assign(turn, { phaseLabel: p.phase_label, callStartedAt: Date.parse(envelope.ts), firstToken: false });
+        turn.steps.push({ type: "rag", started: p, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null });
+      }
+      break;
+    case "rag_search_ended": {
+      const search = turn?.steps.filter((s) => s.type === "rag").at(-1);
+      if (search) search.ended = p;
+      break;
+    }
     case "tool_ended": {
       const tool = turn?.steps.filter((s) => s.type === "tool").at(-1);
       if (tool) tool.ended = p;
@@ -439,6 +467,10 @@ function applyEnvelope(envelope) {
     case "harness_error":
       // A cloud provider's refusal carries what to try (AD-16).
       if (turn) turn.errors.push([p.message_fr, ...(p.hints_fr ?? [])].join(" "));
+      // Story 15: a failed download (or load) of the RAG's model, said on its card.
+      else if (envelope.brick === "rag") {
+        store.ragNotice = [p.message_fr, p.cause ? `Cause : ${p.cause}.` : null, p.effect_fr].filter(Boolean).join(" ");
+      }
       break;
     case "turn_ended":
       if (turn) {
@@ -448,6 +480,176 @@ function applyEnvelope(envelope) {
       break;
   }
   scheduleRender();
+}
+
+// Story 19: the kinds a sub-agent's projection takes; any other event emitted while it runs
+// (`session_state` of H5's wait, `architecture_changed`, `bricks_changed`…) is the session's.
+const SUB_KINDS = new Set([
+  "subagent_started",
+  "subagent_ended",
+  "context_rendered",
+  "context_reconciled",
+  "context_overflow",
+  "model_call_started",
+  "model_first_token",
+  "model_delta",
+  "model_call_ended",
+  "tool_started",
+  "tool_ended",
+  "outbound_request",
+  "hook_decided",
+  "effect_applied",
+  "approval_requested",
+  "approval_resolved",
+  "tool_call_malformed",
+  "prefix_not_reused",
+  "limit_reached",
+  "output_truncated",
+  "special_token_neutralized",
+  "harness_error",
+]);
+
+// Story 19 (AD-11): the projection of the sub-agent `context_id`, created at its first event
+// and hung on the `delegate` step whose `step_id` is its `parent_step`, never by position.
+function subProjection(turn, envelope) {
+  let sub = turn.subs.get(envelope.context_id);
+  if (!sub) {
+    sub = {
+      id: `${turn.id}:${envelope.context_id}`, // unique rail keys for its lines
+      contextId: envelope.context_id,
+      parentStep: envelope.parent_step,
+      started: null,
+      ended: null,
+      steps: [],
+      context: null,
+      callEnded: null,
+      text: "",
+      reasoning: "",
+      overflow: null,
+      limit: null,
+      truncated: null,
+      errors: [],
+      notices: [],
+      firstToken: false,
+      status: null,
+    };
+    turn.subs.set(envelope.context_id, sub);
+    const tool = turn.steps.find((s) => s.type === "tool" && s.stepId === envelope.parent_step);
+    if (tool) tool.sub = sub;
+  }
+  return sub;
+}
+
+function applySubEnvelope(turn, sub, envelope) {
+  const p = envelope.payload;
+  const phase = (label) =>
+    Object.assign(turn, { phaseLabel: `Sous-agent · ${label}`, callStartedAt: Date.parse(envelope.ts), firstToken: false });
+  const last = (type) => sub.steps.filter((s) => s.type === type).at(-1);
+  switch (envelope.kind) {
+    case "subagent_started":
+      sub.started = p;
+      phase(p.phase_label);
+      break;
+    case "subagent_ended":
+      Object.assign(sub, { ended: p, status: p.status });
+      break;
+    case "context_rendered":
+      sub.context = p;
+      sub.steps.push({ type: "call", id: envelope.call_id, context: p, startedAt: null, ended: null });
+      break;
+    case "context_reconciled": {
+      const call = sub.steps.find((s) => s.type === "call" && s.id === envelope.call_id);
+      if (call) call.context = p;
+      if (lastCall(sub) === call) sub.context = p;
+      break;
+    }
+    case "context_overflow":
+      sub.overflow = p;
+      break;
+    case "model_call_started":
+      Object.assign(sub, { text: "", reasoning: "", firstToken: false });
+      lastCall(sub).startedAt = Date.parse(envelope.ts);
+      phase(p.phase_label);
+      break;
+    case "model_first_token":
+      sub.firstToken = true; // the Vue humain keeps its « Sous-agent · … » indicator
+      break;
+    case "model_delta":
+      if (p.channel !== "tool_call") sub[p.channel] += p.text;
+      break;
+    case "special_token_neutralized":
+      sub.notices.push(p.message_fr);
+      break;
+    case "model_call_ended":
+      Object.assign(sub, { callEnded: p, text: p.text, reasoning: p.reasoning });
+      lastCall(sub).ended = p;
+      break;
+    case "tool_started":
+      phase(p.phase_label);
+      sub.steps.push({
+        type: "tool",
+        stepId: envelope.step_id,
+        started: p,
+        brick: envelope.brick,
+        component: envelope.component,
+        trigger: envelope.trigger,
+        startedAt: Date.parse(envelope.ts),
+        ended: null,
+      });
+      break;
+    case "tool_ended": {
+      const tool = last("tool");
+      if (tool) tool.ended = p;
+      break;
+    }
+    case "outbound_request": {
+      const tool = last("tool");
+      if (tool && p.origin === "brick") (tool.outbound ||= []).push({ ...p, seq: envelope.seq });
+      break;
+    }
+    case "hook_decided":
+      sub.steps.push({ type: "hook", payload: p, component: envelope.component, trigger: envelope.trigger, lines: [] });
+      break;
+    case "effect_applied": {
+      const hook = last("hook");
+      if (hook) hook.lines.push(...(p.lines ?? []));
+      break;
+    }
+    case "approval_requested": {
+      const hook = last("hook");
+      if (hook) {
+        hook.approval = p;
+        hook.component ||= envelope.component;
+      }
+      Object.assign(turn, { phaseLabel: "En attente de validation", callStartedAt: Date.parse(envelope.ts), firstToken: false });
+      break;
+    }
+    case "approval_resolved": {
+      const hook = sub.steps.find((s) => s.approval?.approval_id === p.approval_id);
+      if (hook) hook.resolved = p;
+      turn.phaseLabel = null;
+      break;
+    }
+    case "tool_call_malformed":
+    case "prefix_not_reused":
+      sub.steps.push({ type: envelope.kind, payload: p });
+      break;
+    case "limit_reached":
+      sub.limit = p;
+      sub.steps.push({ type: envelope.kind, payload: p });
+      break;
+    case "output_truncated":
+      sub.truncated = p;
+      break;
+    case "harness_error":
+      sub.errors.push([p.message_fr, ...(p.hints_fr ?? [])].join(" "));
+      break;
+  }
+}
+
+// A turn's steps, each `delegate` step followed by its sub-agent's (story 19).
+function allSteps(turn) {
+  return turn.steps.flatMap((step) => (step.sub ? [step, ...step.sub.steps] : [step]));
 }
 
 // One render per frame at most: `model_delta` arrives every 50 ms.
@@ -557,6 +759,7 @@ let renderedBricks = null;
 let renderedArmed = null;
 let renderedForceUi = null;
 let renderedMemory = null;
+let renderedSessionKey = null; // story 15: the download's state and progress, on the RAG card
 
 // Story 9: the forced actions' UI changed (toggle, form): the panel is rebuilt at next render.
 function forceUiChanged() {
@@ -571,10 +774,12 @@ function renderBricks() {
     renderedBricks === store.bricks &&
     renderedArmed === store.armed &&
     renderedForceUi === store.forceForm &&
-    renderedMemory === store.memory
+    renderedMemory === store.memory &&
+    renderedSessionKey === sessionKey()
   ) {
     return;
   }
+  renderedSessionKey = sessionKey();
   renderedBricks = store.bricks;
   renderedArmed = store.armed;
   renderedForceUi = store.forceForm;
@@ -629,6 +834,7 @@ function renderBricks() {
     card.append(head, tags);
 
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
+    if (brick.id === "rag") card.append(...downloadParts(brick));
     if (always) {
       const why = el("p", "brick-reason brick-always", brick.always_fr);
       why.id = `always-${brick.id}`;
@@ -643,6 +849,8 @@ function renderBricks() {
 
     if (brick.options?.length) card.appendChild(brickOptions(brick));
     if (brick.limits_fr) card.appendChild(el("p", "brick-limits", brick.limits_fr));
+    // Story 19: a brick without sub-option forces its action from the card itself.
+    if (brick.force && store.showForced) card.append(...cardForce(brick));
 
     if (brick.explanation_fr?.length) {
       // ponytail: CSS anchor positioning (Chromium) has no fallback for other engines;
@@ -695,6 +903,57 @@ function renderBricks() {
     }
     target?.focus();
   }
+}
+
+function sessionKey() {
+  return `${store.sessionState?.state ?? ""}|${store.sessionState?.reason_fr ?? ""}|${store.ragNotice ?? ""}`;
+}
+
+// Story 15 (AD-21): « Télécharger » while the model is missing, the progress and « Arrêter »
+// while it downloads; the figures come from the session (`session_state.reason_fr`).
+function downloadParts(brick) {
+  const state = store.sessionState?.state;
+  if (state === "download") {
+    const progress = el("p", "brick-download-progress", store.sessionState.reason_fr || "Téléchargement…");
+    progress.setAttribute("role", "status");
+    const stop = el("button", "brick-edit brick-download-stop", "Arrêter le téléchargement");
+    stop.type = "button";
+    stop.dataset.focusKey = `download-stop:${brick.id}`;
+    stop.addEventListener("click", () => postIntention("/api/intentions/stop", {}).catch(() => {}));
+    return [progress, stop];
+  }
+  const notice = store.ragNotice && !brick.available ? [el("p", "force-error", store.ragNotice)] : [];
+  if (!brick.download) return notice;
+  const button = el("button", "brick-edit brick-download", brick.download.label_fr);
+  button.type = "button";
+  button.dataset.focusKey = `download:${brick.id}`;
+  const idle = state === "idle";
+  button.disabled = !idle;
+  const parts = [...notice, button];
+  if (!idle) {
+    const why = el("p", "brick-download-why", store.sessionState?.reason_fr || "WaveStack est occupé.");
+    why.id = `download-why-${brick.id}`;
+    button.setAttribute("aria-describedby", why.id);
+    parts.push(why);
+  }
+  if (store.downloadError) parts.push(el("p", "force-error", store.downloadError));
+  button.addEventListener("click", () => downloadModel(brick.download.target));
+  return parts;
+}
+
+async function downloadModel(target) {
+  store.downloadError = null;
+  try {
+    const response = await postIntention("/api/intentions/download_model", { target });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      store.downloadError = typeof body.detail === "string" ? body.detail : "Téléchargement refusé.";
+    }
+  } catch {
+    store.downloadError = "WaveStack ne répond pas : le téléchargement n'a pas commencé.";
+  }
+  renderedBricks = null;
+  scheduleRender();
 }
 
 function brickOptions(brick) {
@@ -762,6 +1021,7 @@ const FORCE_LABELS = {
   skills: "Déclencher le skill",
   mcp: "Charger la documentation",
   global_memory: "Écrire en mémoire",
+  subagent: "Déléguer au sous-agent",
 };
 // Story 14: the memory write is forced from the card itself, a form with one field whose
 // help comes with the card (AD-19).
@@ -851,6 +1111,25 @@ function forceButton(brick, option) {
   return button;
 }
 
+// Story 19: the card's Forcer button and, once open, its form; `brick.force` gives the
+// action's target, its parameters and presets (AD-1: from `bricks_changed`).
+function cardForce(brick) {
+  const force = brick.force;
+  const option = { id: force.target, label_fr: brick.label_fr, parameters: force.parameters, presets: force.presets };
+  const label = FORCE_LABELS[brick.id] || force.label_fr;
+  const button = el("button", "force-button force-button-card");
+  button.type = "button";
+  button.append(handIcon(), label);
+  button.dataset.focusKey = `force:${brick.id}:${option.id}`;
+  const open = isFormOpen(brick.id, option.id);
+  button.setAttribute("aria-expanded", String(open));
+  button.addEventListener("click", () => {
+    store.forceForm = isFormOpen(brick.id, option.id) ? null : newForceForm(brick, option);
+    forceUiChanged();
+  });
+  return open ? [button, forceForm(brick, option)] : [button];
+}
+
 function presetValues(option, index) {
   // The form's fields are text; the session converts them per the tool's schema.
   const args = option.presets?.[index]?.args || {};
@@ -886,6 +1165,8 @@ function forceForm(brick, option) {
       ? armAction("tool_doc", form.values.tool, {}, form)
       : brick.id === "global_memory"
         ? armAction("memory", option.id, { text: form.values.text ?? "" }, form)
+      : brick.force
+        ? armAction(brick.force.kind, brick.force.target, { ...form.values }, form)
         : armAction("tool", option.id, { ...form.values }, form);
   if (brick.id === "mcp") {
     box.setAttribute("aria-label", `Charger la documentation d'un outil de ${option.label_fr}`);
@@ -902,7 +1183,10 @@ function forceForm(brick, option) {
     });
     box.appendChild(forceField("Outil", select));
   } else {
-    box.setAttribute("aria-label", `Arguments de l'appel forcé : ${option.label_fr}`);
+    box.setAttribute(
+      "aria-label",
+      brick.force ? `${brick.force.label_fr} : tâche et préréglages` : `Arguments de l'appel forcé : ${option.label_fr}`
+    );
     if (option.presets?.length) {
       const select = el("select");
       select.dataset.focusKey = `${base}:preset`;
@@ -1736,8 +2020,9 @@ function renderChat() {
       answer.appendChild(el("div", "bubble-note", "(réponse vide)"));
     }
     nodes.push(answer);
-    // H5: the validation is the user's to give, in the thread of its turn, under the answer.
-    for (const step of turn.steps) {
+    // H5: the validation is the user's to give, in the thread of its turn, under the answer;
+    // a sub-agent's too (story 19), though its text never shows here.
+    for (const step of allSteps(turn)) {
       if (step.type !== "hook" || !step.approval) continue;
       const id = step.approval.approval_id;
       const key = JSON.stringify([
@@ -1971,10 +2256,28 @@ function renderContext() {
     renderCompare(pane);
     return;
   }
+  // The rebuild would drop keyboard focus (e.g. on the context switch): restore it.
+  const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  renderContextBody(pane);
+  if (focusKey) pane.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`)?.focus();
+}
+
+function renderContextBody(pane) {
   pane.innerHTML = "";
-  const turn = shownTurns().reverse().find((t) => t.context);
+  const chosen = store.ctxView && shownTurns().find((t) => t.id === store.ctxView.turn);
+  const turn = chosen?.subs.get(store.ctxView.sub)?.context
+    ? chosen
+    : shownTurns().reverse().find((t) => t.context);
   if (!turn) {
     pane.appendChild(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
+    return;
+  }
+  // Story 19: « Contexte principal » / « Contexte du sous-agent », one button per sub-agent.
+  const subs = [...turn.subs.values()].filter((s) => s.context);
+  const view = store.ctxView?.turn === turn.id ? turn.subs.get(store.ctxView.sub) : null;
+  if (subs.length) pane.appendChild(ctxViewSwitch(turn, subs, view?.context ? view : null));
+  if (view?.context) {
+    renderSubContext(pane, view);
     return;
   }
   const p = turn.context;
@@ -1994,6 +2297,24 @@ function renderContext() {
     )
   );
   if (p.uncertain_fr) pane.appendChild(el("p", "bubble-note", p.uncertain_fr));
+  appendSegments(pane, p);
+  for (const error of turn.errors) pane.appendChild(el("p", "bubble-note is-error", error));
+  // FR-9: the reasoning of the last call, always here, whatever the Vue humain option says:
+  // its `model_call_ended` once there, the live deltas while it streams.
+  const ended = lastCall(turn).ended;
+  const reasoning = ended ? ended.reasoning : turn.reasoning;
+  if (reasoning) {
+    pane.appendChild(el("h3", "ctx-heading", "Raisonnement du modèle"));
+    pane.appendChild(reasoningBlock(reasoning, `ctx:${turn.id}`, "Afficher le raisonnement de cet appel"));
+  }
+  pane.appendChild(el("h3", "ctx-heading", "Sortie brute du modèle"));
+  const raw = turn.callEnded ? turn.callEnded.raw_output : turn.reasoning + turn.text;
+  pane.appendChild(
+    el("pre", "ctx-raw", raw || (turn.overflow ? "Aucun appel : contexte dépassé." : "…"))
+  );
+}
+
+function appendSegments(pane, p) {
   for (const segment of p.segments) {
     const group = p.breakdown.find((item) => item.kinds.includes(segment.kind));
     const box = el("div", "ctx-segment");
@@ -2010,20 +2331,57 @@ function renderContext() {
     box.append(label, el("pre", "", segment.text));
     pane.appendChild(box);
   }
-  for (const error of turn.errors) pane.appendChild(el("p", "bubble-note is-error", error));
-  // FR-9: the reasoning of the last call, always here, whatever the Vue humain option says:
-  // its `model_call_ended` once there, the live deltas while it streams.
-  const ended = lastCall(turn).ended;
-  const reasoning = ended ? ended.reasoning : turn.reasoning;
-  if (reasoning) {
-    pane.appendChild(el("h3", "ctx-heading", "Raisonnement du modèle"));
-    pane.appendChild(reasoningBlock(reasoning, `ctx:${turn.id}`, "Afficher le raisonnement de cet appel"));
-  }
-  pane.appendChild(el("h3", "ctx-heading", "Sortie brute du modèle"));
-  const raw = turn.callEnded ? turn.callEnded.raw_output : turn.reasoning + turn.text;
+}
+
+// Story 19 (EXPERIENCE: Sous-agent au travail): toggle buttons, `aria-pressed` on the one shown.
+function ctxViewSwitch(turn, subs, view) {
+  const bar = el("div", "ctx-view-switch");
+  bar.setAttribute("role", "group");
+  bar.setAttribute("aria-label", "Contexte affiché");
+  const button = (label, target, pressed) => {
+    const b = el("button", "ctx-view-button", label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(pressed));
+    b.dataset.focusKey = `ctxview:${target ?? "main"}`;
+    b.addEventListener("click", () => {
+      store.ctxView = target ? { turn: turn.id, sub: target } : null;
+      renderContext(); // the focus stays on the button clicked, rebuilt
+    });
+    return b;
+  };
+  bar.appendChild(button("Contexte principal", null, !view));
+  subs.forEach((sub, i) => {
+    const label = subs.length > 1 ? `Contexte du sous-agent ${i + 1}` : "Contexte du sous-agent";
+    bar.appendChild(button(label, sub.contextId, view === sub));
+  });
+  return bar;
+}
+
+function renderSubContext(pane, sub) {
+  const p = sub.context;
   pane.appendChild(
-    el("pre", "ctx-raw", raw || (turn.overflow ? "Aucun appel : contexte dépassé." : "…"))
+    el(
+      "p",
+      "ctx-total",
+      `Sous-agent ${sub.contextId} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments) · ` +
+        `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
+    )
   );
+  if (sub.ended) {
+    pane.appendChild(
+      el(
+        "p",
+        "subagent-saving",
+        `Ce contexte reste dans le sous-agent. ${subSaving(sub.ended)}`
+      )
+    );
+  }
+  appendSegments(pane, p);
+  for (const notice of sub.notices) pane.appendChild(el("p", "bubble-note", notice));
+  for (const error of sub.errors) pane.appendChild(el("p", "bubble-note is-error", error));
+  pane.appendChild(el("h3", "ctx-heading", "Sortie brute du sous-agent"));
+  const raw = sub.callEnded ? sub.callEnded.raw_output : sub.reasoning + sub.text;
+  pane.appendChild(el("pre", "ctx-raw", raw || (sub.overflow ? "Aucun appel : contexte du sous-agent dépassé." : "…")));
 }
 
 // ---------- turn comparison (story 9b, EXPERIENCE.md turn-compare) ----------
@@ -2336,6 +2694,49 @@ function outboundPayload(request, openSet = null) {
   return details;
 }
 
+// Story 15: a score with two decimals, French style (« 0,82 »).
+const scoreFormat = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function ragBody(step) {
+  // The query, where the excerpts go, then rank, document, score and foldable text; a click on
+  // an excerpt selects the retriever in the schema (CAP-4).
+  const ended = step.ended;
+  const nodes = [el("p", "label", "Requête"), el("pre", "step-code", step.started.query)];
+  if (!ended) {
+    const running = el("div", "token-counter number", `${step.started.phase_label} `);
+    running.appendChild(tick(step.startedAt));
+    nodes.push(running);
+    return nodes;
+  }
+  nodes.push(el("p", "", `Placement : ${ended.placement_fr}`));
+  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  if (ended.status === "error") {
+    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_fr));
+    return nodes;
+  }
+  const list = el("ol", "rag-excerpts");
+  for (const excerpt of ended.excerpts) {
+    const item = el("li", "rag-excerpt");
+    const details = el("details");
+    const head = el("summary", "rag-excerpt-head");
+    head.append(
+      el("span", "rag-rank", `#${excerpt.position}`),
+      el("span", "rag-doc", excerpt.title_fr),
+      el("span", "rag-score number", scoreFormat.format(excerpt.score))
+    );
+    head.title = "Sélectionne le composant RAG dans le schéma ; déplie le texte de l'extrait";
+    head.addEventListener("click", () => {
+      store.selection = step.component || "rag.retriever";
+      scheduleRender();
+    });
+    details.append(head, el("pre", "step-code", excerpt.text));
+    item.appendChild(details);
+    list.appendChild(item);
+  }
+  nodes.push(el("p", "label", "Extraits (rang · document · score)"), list);
+  return nodes;
+}
+
 const HOOK_DECISIONS = {
   allow: "laissé passer",
   modify: "modifié",
@@ -2507,7 +2908,12 @@ const TURN_STATUS = {
   blocked: ["is-failed", "bloqué"],
   error: ["is-failed", "erreur"],
 };
-const LIMITS = { calls: "limite d'appels", retries: "limite d'essais", sub_calls: "limite de sous-appels" };
+const LIMITS = {
+  calls: "limite d'appels",
+  retries: "limite d'essais",
+  sub_calls: "limite de sous-appels",
+  sub_retries: "limite d'essais du sous-agent",
+};
 const APPROVAL_FIGURES = { approved: "autorisé", refused: "refusé", cancelled: "annulé" };
 
 function plural(count, word) {
@@ -2585,6 +2991,10 @@ function turnRows(turn) {
           body: () => asked.map((call) => el("pre", "step-code", formatCall(call))),
         });
       }
+    } else if (step.type === "tool" && step.started.tool === "delegate") {
+      rows.push(delegateRow(turn, step, key));
+      // Story 19: the sub-agent's own steps, as indented child lines of the delegation.
+      if (step.sub) for (const row of turnRows(step.sub)) rows.push({ ...row, sub: true });
     } else if (step.type === "tool") {
       const ended = step.ended;
       const harness = step.started.source === "harness";
@@ -2623,6 +3033,22 @@ function turnRows(turn) {
         sig: [p, step.approval, step.resolved, step.lines.length, toolLabel(step.approval?.tool ?? "")],
         body: () => [hookCard(step)],
       });
+    } else if (step.type === "rag") {
+      const ended = step.ended;
+      const failed = ended?.status === "error";
+      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+      if (ended) figure = failed ? "erreur" : `${plural(ended.excerpts.length, "extrait")} · ${seconds(ended.duration_ms)}`;
+      rows.push({
+        key,
+        icon: "📚",
+        title: "Recherche RAG",
+        actor: "harness",
+        figure,
+        tone: failed ? "error" : null,
+        sticky: failed,
+        sig: [Boolean(ended), ended?.status],
+        body: () => ragBody(step),
+      });
     } else if (step.type === "action_dropped") {
       const label = step.label || "action forcée";
       rows.push({
@@ -2648,24 +3074,25 @@ function turnRows(turn) {
         icon: "✖",
         title: "Appel d'outil mal formé",
         actor: "harness",
-        figure: step.payload.reaction === "retry" ? "nouvel essai" : "tour arrêté",
+        figure: step.payload.reaction === "retry" ? "nouvel essai" : turn.contextId ? "délégation arrêtée" : "tour arrêté",
         tone: "error",
         sticky: true,
         sig: 1,
         body: () => [malformedCard(step.payload)],
       });
     } else if (step.type === "limit_reached") {
-      const retries = step.payload.limit === "retries";
+      const retries = step.payload.limit.endsWith("retries");
+      const title = turn.contextId ? "Borne du sous-agent atteinte" : "Borne du tour atteinte";
       rows.push({
         key,
         icon: retries ? "✖" : "⏹",
-        title: "Borne du tour atteinte",
+        title,
         actor: "harness",
         figure: LIMITS[step.payload.limit] || step.payload.limit,
         tone: retries ? "error" : "hook",
         sticky: retries,
         sig: 1,
-        body: () => [harnessEvent("Borne du tour atteinte", retries ? "error" : "info", [el("p", "", step.payload.message_fr)])],
+        body: () => [harnessEvent(title, retries ? "error" : "info", [el("p", "", step.payload.message_fr)])],
       });
     } else if (step.type === "prefix_not_reused") {
       rows.push({
@@ -2684,7 +3111,7 @@ function turnRows(turn) {
     rows.push({
       key: `${turn.id}:overflow`,
       icon: "✖",
-      title: "Contexte dépassé",
+      title: turn.contextId ? "Contexte du sous-agent dépassé" : "Contexte dépassé",
       actor: "harness",
       figure: `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`,
       tone: "error",
@@ -2694,6 +3121,121 @@ function turnRows(turn) {
     });
   }
   return rows;
+}
+
+// Story 19 (EXPERIENCE: Sous-agent au travail): the delegation, its trigger, and the tokens
+// the main context got against those that stayed in the sub-agent's.
+function delegateRow(turn, step, key) {
+  const ended = step.ended;
+  const done = step.sub?.ended;
+  let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+  if (done?.status === "completed") {
+    figure = subFigure(done);
+  } else if (done?.status === "cancelled") {
+    figure = "Délégation arrêtée";
+  } else if (done) {
+    figure = `${SUB_STATUS[done.status] ?? done.status} · ${seconds(done.duration_ms)}`;
+  } else if (ended) {
+    figure = `${ended.status === "cancelled" ? "arrêtée" : "refusée"} · ${seconds(ended.duration_ms)}`;
+  }
+  const failed = Boolean(ended && !["ok", "cancelled"].includes(ended.status));
+  return {
+    key,
+    icon: "👥",
+    title: "Délégation au sous-agent",
+    actor: step.trigger === "user" ? "user" : "model",
+    trigger: step.trigger,
+    figure,
+    tone: failed ? "error" : null,
+    sticky: failed,
+    sig: [Boolean(ended), ended?.status, Boolean(done), step.sub?.steps.length ?? 0],
+    body: () => delegateBody(turn, step),
+  };
+}
+
+const SUB_STATUS = {
+  completed: "Terminé",
+  limit: "Borne atteinte",
+  overflow: "Contexte du sous-agent dépassé",
+  error: "Échec",
+  cancelled: "Arrêté",
+};
+
+// The saving of a finished delegation, in words (AD-1: the figures are the session's).
+// `kept_tokens` counts every tool reply that stayed in the sub-agent: results, errors, refusals.
+function subSaving(done) {
+  if (done.status === "cancelled") return "Délégation arrêtée : rien n'entre dans le contexte principal.";
+  const guess = approx(done.estimated);
+  const result = `${guess}${fmt(done.result_tokens)} tokens`;
+  if (done.status !== "completed") {
+    return `Délégation sans résultat : l'erreur (${result}) entre dans le contexte principal à sa place, aucune économie.`;
+  }
+  const kept = `${approx(done.context_estimated)}${fmt(done.kept_tokens ?? 0)} tokens`;
+  const figures =
+    `Réponses d'outils restées dans le contexte du sous-agent (ce que l'agent principal aurait lu sans délégation) : ${kept}. ` +
+    `Résultat réinjecté dans le contexte principal : ${result}.`;
+  if ((done.kept_tokens ?? 0) <= done.result_tokens) {
+    return `${figures} Aucune économie : le résultat pèse autant ou plus que ce qu'il remplace (déléguer n'est pas gratuit).`;
+  }
+  return `${figures} Économie pour le contexte principal : ${guess}${fmt(done.saved_tokens)} tokens.`;
+}
+
+// The delegation line's key figure once the sub-agent is done.
+function subFigure(done) {
+  const guess = approx(done.estimated);
+  const saving = done.saved_tokens > 0 ? `${guess}${fmt(done.saved_tokens)} économisés` : "aucune économie";
+  return `${guess}${fmt(done.result_tokens)} tokens réinjectés · ${saving}`;
+}
+
+function delegateBody(turn, step) {
+  const sub = step.sub;
+  const done = sub?.ended;
+  const nodes = [];
+  const badge = triggerBadge(step.trigger);
+  if (badge) nodes.push(badge);
+  nodes.push(el("p", "label", "Tâche confiée au sous-agent"), el("pre", "step-code", step.started.arguments.task ?? ""));
+  if (sub?.started) {
+    const tools = sub.started.tools.length ? sub.started.tools.map(toolLabel).join(", ") : "aucun";
+    nodes.push(el("p", "", `Outils du sous-agent : ${tools}. Contexte propre : son prompt système, la tâche et ces outils, rien du contexte principal.`));
+  }
+  if (!done) {
+    const running = el("div", "token-counter number", "En cours… ");
+    running.appendChild(tick(step.startedAt));
+    nodes.push(running);
+    return nodes;
+  }
+  const context = `${approx(done.context_estimated)}${fmt(done.context_tokens)}`;
+  const cancelled = done.status === "cancelled";
+  nodes.push(
+    el(
+      "div",
+      "token-counter number",
+      `${plural(done.calls, "appel")} au modèle · Temps : ${seconds(done.duration_ms)} · ${SUB_STATUS[done.status] ?? done.status}`
+    ),
+    el("p", "subagent-saving", `${subSaving(done)} Contexte complet du sous-agent : ${context} tokens.`)
+  );
+  if (!cancelled) {
+    nodes.push(
+      el("p", "label", done.status === "completed" ? "Résultat (seul à revenir dans le contexte principal)" : "Erreur réinjectée à la place du résultat"),
+      el("pre", "step-code", step.ended?.status === "ok" ? step.ended.result : done.result)
+    );
+  }
+  if (sub.context) {  // no call rendered (e.g. blocked first): nothing to show
+    const show = el("button", "subagent-show", "Voir le contexte du sous-agent");
+    show.type = "button";
+    show.addEventListener("click", () => showSubContext(turn.id, sub.contextId));
+    nodes.push(show);
+  }
+  return nodes;
+}
+
+function showSubContext(turnId, contextId) {
+  store.ctxView = { turn: turnId, sub: contextId };
+  store.compare = null;
+  if (store.hiddenPanes.delete("ctx")) savePaneLayout();
+  if (store.focusedPane !== null && store.focusedPane !== "ctx") store.focusedPane = null;
+  render();
+  document.querySelector("#ctx .ctx-view-switch [aria-pressed='true']")?.focus();
 }
 
 function mcpServerLabel(server) {
@@ -2793,6 +3335,7 @@ function stepNode(row, open, flags) {
   if (row.tone) classes.push(`tone-${row.tone}`);
   if (flags.current) classes.push("is-current");
   if (flags.selected) classes.push("is-selected");
+  if (row.sub) classes.push("is-sub");
   const className = classes.join(" ");
   if (node.root.className !== className) node.root.className = className;
   if (open) {
@@ -3393,6 +3936,10 @@ const KIND_LABELS = {
   memory_changed: "Mémoire globale modifiée",
   model_load_started: "Chargement du modèle commencé",
   model_load_ended: "Chargement du modèle terminé",
+  subagent_started: "Sous-agent lancé",
+  subagent_ended: "Sous-agent terminé",
+  rag_search_started: "Recherche RAG commencée",
+  rag_search_ended: "Recherche RAG terminée",
 };
 const MODEL_LOAD_STATUS = { ok: "chargé", restored: "retour au modèle précédent", error: "échec" };
 const MEMORY_OPS = { add: "Ajout en mémoire", replace: "Modification en mémoire", delete: "Suppression en mémoire" };
@@ -3466,6 +4013,17 @@ function eventSummary(group) {
       return p.actions.length ? p.actions.map((a) => a.label_fr).join(" · ") : "aucune action armée";
     case "action_dropped":
       return p.reason_fr;
+    case "subagent_started":
+      return p.task;
+    case "subagent_ended":
+      return p.status === "completed" ? subFigure(p) : SUB_STATUS[p.status] ?? p.status;
+    case "rag_search_started":
+      return `« ${p.query} » · ${fmt(p.top_k)} au plus`;
+    case "rag_search_ended":
+      return p.status === "ok"
+        ? `${plural(p.excerpts.length, "extrait")} · ${seconds(p.duration_ms)}` +
+            (p.excerpts.length ? ` · meilleur : ${p.excerpts[0].title_fr} (${scoreFormat.format(p.excerpts[0].score)})` : "")
+        : p.error_fr;
     case "tool_call_malformed":
       return p.detail_fr;
     case "output_truncated":
@@ -3609,6 +4167,8 @@ const BRICK_ICONS = {
   mcp: "🔌",
   skills: "📘",
   hooks: "🪝",
+  subagent: "👥",
+  rag: "📚",
 };
 const POSE_LABELS = { idle: "au repos", thinking: "réfléchit", tool: "utilise un outil" };
 // Hook id -> its point of attachment, in the order the strip lists them (formatting only, like
@@ -3646,10 +4206,13 @@ const SHAPE_LABELS = {
   file: "fichier local",
 };
 
-// The robot's pose, derived from the turn's events only (AD-1).
-function robotPose() {
+// The robot's pose, derived from the turn's events only (AD-1); `sub`: the sub-agent's robot,
+// from the running sub-agent of the active turn (story 19).
+function robotPose(sub = false) {
+  const turn = activeTurn();
+  const steps = sub ? [...(turn?.subs.values() ?? [])].findLast((s) => !s.ended)?.steps : turn?.steps;
   // Only calls and tools: e.g. a `prefix_not_reused` step lands between a call and its start.
-  const step = activeTurn()?.steps.filter((s) => s.type === "call" || s.type === "tool").at(-1);
+  const step = steps?.filter((s) => s.type === "call" || s.type === "tool").at(-1);
   if (!step || step.ended) return "idle";
   if (step.type === "tool") return "tool";
   return step.type === "call" && step.startedAt ? "thinking" : "idle";
@@ -3657,10 +4220,12 @@ function robotPose() {
 
 // The robot mascot (DESIGN.md > arch-model): its own drawing, « Modèle » and the model's name
 // in HTML under it.
-function robot(pose, modelNode) {
+function robot(pose, modelNode, sub = false) {
   const name = modelNode?.model ?? null;
-  const label = `Modèle${name ? ` ${name}` : ""} : ${POSE_LABELS[pose]}`;
-  const button = schemaButton(`robot${pose === "idle" ? "" : " is-active"}`, "core.model");
+  const who = sub ? "Sous-agent : même modèle, second contexte" : `Modèle${name ? ` ${name}` : ""}`;
+  const label = `${who} : ${POSE_LABELS[pose]}`;
+  const classes = `robot${sub ? " robot-sub" : ""}${pose === "idle" ? "" : " is-active"}`;
+  const button = schemaButton(classes, sub ? "core.model_sub" : "core.model");
   button.setAttribute("aria-label", label);
   button.title = label;
   const cx = 40;
@@ -3697,9 +4262,10 @@ function robot(pose, modelNode) {
     icon.textContent = "🔧";
     svg.append(svgEl("circle", { class: "robot-badge", cx: cx + 26, cy: 72, r: 9 }), icon);
   }
-  button.append(svg, el("span", "robot-label", "Modèle"));
+  button.append(svg, el("span", "robot-label", sub ? "Sous-agent" : "Modèle"));
   // The frame is narrow: a long file name is cut by the style, the tooltip keeps it whole.
-  if (name) button.appendChild(el("span", "robot-model", name));
+  if (name && !sub) button.appendChild(el("span", "robot-model", name));
+  if (modelNode && !modelNode.available) button.classList.add("is-unavailable");
   return button;
 }
 
@@ -3721,16 +4287,22 @@ function schemaButton(className, componentId, text) {
 function schemaActivity(nodes) {
   const turn = shownTurns().at(-1);
   if (!turn || turn.status !== null) return null;
-  const steps = turn.steps;
+  const steps = allSteps(turn); // a sub-agent's tools and hooks light up too (story 19)
   let i = steps.length - 1;
-  while (i >= 0 && steps[i].type !== "tool" && steps[i].type !== "hook") i--;
+  while (i >= 0 && !["tool", "hook", "rag"].includes(steps[i].type)) i--;
   if (i < 0) return null;
   const step = steps[i];
   const drawn = (id) => nodes.some((n) => n.id === id); // only enabled hooks can act
+  if (step.type === "rag") {
+    // Story 15: the retriever reads the index while it searches.
+    const id = step.component || "rag.retriever";
+    if (step.ended || !drawn(id)) return null;
+    return { component: id, mode: "on", target: drawn("file.rag_index") ? "file.rag_index" : null };
+  }
   if (step.type === "tool") {
-    // A harness tool (documentation, skills) runs in the harness itself: no path.
+    // A harness tool (documentation, skills, delegation) runs in the harness itself: no path.
     const id = step.component;
-    if (step.ended || !id || id === "core.harness" || !drawn(id)) return null;
+    if (step.ended || !id || id === "core.harness" || !drawn(id) || step.started.source === "harness") return null;
     return { component: id, mode: "on", target: id };
   }
   const p = step.payload;
@@ -3757,28 +4329,33 @@ function renderSchema() {
   const wanted = (store.bricks?.bricks || []).filter((b) => b.wanted);
   const hooks = wanted.find((b) => b.id === "hooks")?.options || null;
   // The hooks that blocked in the last shown turn: they stay on a red rule until the next one.
-  const blocked = (shownTurns().at(-1)?.steps || [])
+  const last = shownTurns().at(-1);
+  const blocked = (last ? allSteps(last) : [])
     .filter((s) => s.type === "hook" && s.payload.decision === "block")
     .map((s) => `hooks.${s.payload.hook}`);
   const model = nodes.find((n) => n.id === "core.model");
+  const subModel = nodes.find((n) => n.id === "core.model_sub"); // story 19
   const pose = robotPose();
+  const subPose = subModel ? robotPose(true) : null;
+  const robots = () => [robot(pose, model), ...(subModel ? [robot(subPose, subModel, true)] : [])];
   const key = JSON.stringify([store.architecture, wanted.length, hooks, blocked, store.selection]);
+  const robotKey = JSON.stringify([pose, subPose, model?.model]);
   if (key !== renderedSchemaKey) {
     renderedSchemaKey = key;
     renderedActivityKey = null;
-    renderedRobotKey = JSON.stringify([pose, model?.model]);
-    buildSchema(root, nodes, wanted.length > 0, hooks, blocked, robot(pose, model));
+    renderedRobotKey = robotKey;
+    buildSchema(root, nodes, wanted.length > 0, hooks, blocked, robots());
     scheduleWires();
   }
-  const robotKey = JSON.stringify([pose, model?.model]);
   if (robotKey !== renderedRobotKey) {
-    // A pose change swaps the robot only: the rest keeps its focus and its layout.
+    // A pose change swaps the robots only: the rest keeps its focus and its layout.
     renderedRobotKey = robotKey;
-    const old = root.querySelector(".robot");
-    const next = robot(pose, model);
-    const focused = old === document.activeElement;
-    old?.replaceWith(next);
-    if (focused) next.focus();
+    for (const next of robots()) {
+      const old = root.querySelector(`.robot[data-component="${next.dataset.component}"]`);
+      const focused = old === document.activeElement;
+      old?.replaceWith(next);
+      if (focused) next.focus();
+    }
   }
   const activity = schemaActivity(nodes);
   const activityKey = JSON.stringify(activity);
@@ -3788,13 +4365,15 @@ function renderSchema() {
     for (const node of root.querySelectorAll(".is-active:not(.robot)")) node.classList.remove("is-active");
     if (activity) {
       const id = cssEscape(activity.component);
-      root.querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"]`)?.classList.add("is-active");
+      root
+        .querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"], .arch-chip[data-component="${id}"]`)
+        ?.classList.add("is-active");
     }
     scheduleWires();
   }
 }
 
-function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
+function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   // The rebuild would drop keyboard focus: note it, restore it on the new element.
   const focusKey = root.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
   root.innerHTML = "";
@@ -3817,7 +4396,9 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
     const icon = BRICK_ICONS[node.id.split(".")[0]] || "🧩";
     const chip = schemaButton("arch-chip", node.id, `${icon} ${node.label_fr}`);
     chip.classList.toggle("is-unavailable", !node.available);
-    chip.title = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
+    chip.title = [node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`, node.detail_fr]
+      .filter(Boolean)
+      .join("\n");
     chips.appendChild(chip);
   }
   if (!anyBrick) chips.appendChild(el("p", "arch-harness-empty", "Aucune brique : LLM nu"));
@@ -3826,7 +4407,10 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
   const model = byId["core.model"];
   const cloud = model?.hosting === "network";
   const served = model?.process === "external";
-  core.append(...(cloud || served ? [chips] : [robotNode, chips]));
+  // Story 19: the sub-agent's robot beside the model's, the same model in a second context.
+  const robotRow = el("div", "arch-robots");
+  robotRow.append(...robotNodes);
+  core.append(...(cloud || served ? [chips] : [robotRow, chips]));
   frame.append(tag, core);
   if (hooks) frame.appendChild(hookStrip(hooks, byId, blocked));
 
@@ -3839,7 +4423,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
     box.title =
       `${model.provider} · processus local distinct du harnais, sur ce poste (${address}) : ` +
       "l'appel reste sur la boucle locale, le texte envoyé est construit par le harnais.";
-    box.append(robotNode, el("span", "arch-node-name", `🖥 ${model.provider} · ${address}`));
+    box.append(robotRow, el("span", "arch-node-name", `🖥 ${model.provider} · ${address}`));
     localRow.appendChild(box);
   }
   localRow.append(...schemaColumns("local", nodes));
@@ -3854,7 +4438,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
   if (cloud) {
     const box = el("div", "arch-cloud-model");
     box.title = `${model.provider} · service réseau : chaque appel franchit la frontière du poste.`;
-    box.append(robotNode, el("span", "arch-node-name", `🌐 ${model.provider}`));
+    box.append(robotRow, el("span", "arch-node-name", `🌐 ${model.provider}`));
     networkCols.unshift(box);
   }
   if (networkCols.length) networkRow.append(...networkCols);

@@ -2881,3 +2881,118 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   flex-direction: column;
   gap: var(--spacing-1);
 }
+
+/* ---------- story 19: sub-agent (EXPERIENCE: Sous-agent au travail) ---------- */
+
+/* Its lines hang under « Délégation au sous-agent »: indented, with a rule on the left. */
+.turn-step.is-sub {
+  margin-left: var(--spacing-4);
+  border-left: var(--spacing-stroke-min) solid var(--color-primary-soft);
+}
+
+.subagent-saving {
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  color: var(--color-primary-deep);
+}
+
+.subagent-show,
+.ctx-view-button {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-2);
+  border: 1px solid var(--color-primary-deep);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-primary-deep);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.ctx-view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+  margin-bottom: var(--spacing-2);
+}
+
+.ctx-view-button[aria-pressed="true"] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.subagent-show:focus-visible,
+.ctx-view-button:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.force-button-card {
+  align-self: flex-start;
+  margin-top: var(--spacing-1);
+}
+
+/* The two robots side by side: the model, then the same model in a second context. */
+.arch-robots {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-1);
+}
+
+.robot-sub .robot-drawing {
+  width: 44px;
+  height: 42px;
+}
+
+.robot.is-unavailable {
+  opacity: 0.5;
+}
+
+/* ---------- story 15: RAG (download on the card, search step, retriever at work) ---------- */
+
+.brick-download-progress,
+.brick-download-why {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.brick-download-progress {
+  font-variant-numeric: tabular-nums;
+}
+
+.arch .arch-chip.is-active {
+  box-shadow: 0 0 0 4px var(--color-state-active);
+}
+
+.rag-excerpts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.rag-excerpt-head {
+  display: flex;
+  gap: var(--spacing-2);
+  align-items: baseline;
+  cursor: pointer;
+}
+
+.rag-rank {
+  font-weight: var(--typography-label-font-weight);
+  color: var(--color-primary);
+}
+
+.rag-doc {
+  flex: 1;
+  min-width: 0;
+}
+
+.rag-score {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-soft);
+}

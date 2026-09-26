@@ -18,6 +18,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any, NamedTuple
 
 from wavestack import config
@@ -31,7 +32,7 @@ from wavestack.bricks.contract import (
 )
 from wavestack.bricks.registry import BRICKS, check_unique_ids
 from wavestack.cloud import active_model, chat_fields, load_cloud_content
-from wavestack.config import MAX_RESERVE, CloudModel, output_reserve
+from wavestack.config import MAX_RESERVE, CloudModel, EmbeddingFile, EmbeddingModel, output_reserve
 from wavestack.context.render import (
     RenderedChat,
     RenderedContext,
@@ -55,6 +56,8 @@ from wavestack.hooks import (
 )
 from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
+from wavestack.models import download as download_module
+from wavestack.models import embedding as embedding_module
 from wavestack.models import probe as probe_module
 from wavestack.models.capabilities import (
     TOOL_CALL_TAGS,
@@ -62,8 +65,9 @@ from wavestack.models.capabilities import (
     ChannelSplitter,
     capabilities_for,
 )
+from wavestack.models.embedding import Embedder
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
-from wavestack.models.load_registry import LoadRegistry, ModelChoice, process_rss
+from wavestack.models.load_registry import EMBEDDING, LoadRegistry, ModelChoice, process_rss
 from wavestack.models.openai_chat import (
     ChatBody,
     OpenAIChatEngine,
@@ -72,6 +76,9 @@ from wavestack.models.openai_chat import (
     run_call,
 )
 from wavestack.models.servers import ServerError, open_engine, served_bytes
+from wavestack.rag import index as rag_index
+from wavestack.rag.corpus import Chunk, RagContent, load_rag_content
+from wavestack.rag.retriever import SqliteVecRetriever
 from wavestack.scenarios import EMPTY_PROGRAM, ScenariosContent, load_scenarios
 from wavestack.session.effects import (
     ArmConsumed,
@@ -85,6 +92,7 @@ from wavestack.session.effects import (
     apply_setting,
 )
 from wavestack.skills import SkillsContent, SkillText, load_skills_content
+from wavestack.subagent import SubagentContent, load_subagent_content
 from wavestack.tools.executor import ToolExecutor
 from wavestack.tools.native import NATIVE_TOOLS
 from wavestack.tools.network import network_tools
@@ -96,6 +104,7 @@ from wavestack.tools.parser import (
     tool_call_id,
 )
 from wavestack.tools.registry import (
+    DelegationFailed,
     ToolError,
     ToolRegistry,
     ToolsContent,
@@ -111,6 +120,10 @@ DOC_LINE_MAX = 120  # characters of a tool's first description line in `load_too
 LOAD_SKILL = "load_skill"  # the harness meta-tool of the skills brick (AD-25)
 REMEMBER = "remember"  # the harness meta-tool of the global memory brick (AD-25)
 MEMORY = "file.memory"  # the schema node of `memory.json` (AD-12, AD-23)
+DELEGATE = "delegate"  # the harness meta-tool of the subagent brick (AD-11, AD-25)
+_NO_SUB_TEXT_FR = "(Le sous-agent n'a rendu aucun texte.)"
+RAG_INDEX = "file.rag_index"  # the schema node of the RAG index (story 15, AD-12)
+RAG_TARGET = "rag_embedding"  # the only `download_model` target (story 15)
 
 _CORE_HARNESS = {
     "id": "core.harness",
@@ -151,6 +164,10 @@ _OVERFLOW_CAUSES_FR = {
         "Cause : le message à lui seul est trop long. "
         "Pour continuer la démo : raccourcissez le message et renvoyez-le."
     ),
+    SegmentKind.RAG_EXCERPT: (  # story 15: after the message, which wins the ties
+        "Cause : les extraits RAG occupent la plus grande part du contexte. Pour continuer la "
+        "démo : désactivez la brique RAG ou baissez `rag.top_k` dans settings.json."
+    ),
     SegmentKind.HISTORY: (
         "Cause : l'historique de la conversation occupe la plus grande part du contexte. "
         "Pour continuer la démo : videz la conversation ou raccourcissez le message."
@@ -186,6 +203,16 @@ _LIMITS_FR = {
         "Le modèle n'a pas pu utiliser l'outil : {n} appels refusés dans ce tour (mal formés, "
         "outil inconnu ou arguments invalides). Le harnais arrête là au lieu de relancer "
         "indéfiniment."
+    ),
+    "sub_retries": (
+        "Le sous-agent n'a pas pu utiliser ses outils : {n} appels refusés (mal formés, outil "
+        "inconnu ou arguments invalides). Le harnais arrête le sous-agent ; le tour principal "
+        "continue avec une erreur à la place du résultat."
+    ),
+    "sub_calls": (
+        "Borne du sous-agent atteinte : {n} appels au modèle pour cette délégation. Le harnais "
+        "arrête le sous-agent ; le tour principal continue avec une erreur à la place du "
+        "résultat."
     ),
 }
 _OVERFLOW_STRATEGIES_FR = [
@@ -228,6 +255,10 @@ class _ModelOutput:
     # `arguments` as the provider emitted them.
     ids: list[str] = field(default_factory=list)
     arguments: list[str] = field(default_factory=list)
+    # Chat mode: the call's `context_reconciled` payload once `usage` came back (AD-4); a
+    # provider's refusal: its French message (for a failed delegation, AD-11).
+    reconciled: dict[str, Any] | None = None
+    message_fr: str = ""
 
 
 @dataclass(frozen=True)
@@ -237,7 +268,7 @@ class ArmedAction:
     memory write with its `text` (story 14)."""
 
     armed_id: str
-    kind: str  # tool | skill | tool_doc | memory
+    kind: str  # tool | skill | tool_doc | memory | delegate
     brick: str
     target: str
     args: dict[str, Any]
@@ -284,6 +315,31 @@ class TurnState:
     # Story 14 (AD-4): the global memory's texts, read at the turn's start; empty when the
     # brick is not effective. A write during the turn waits for the next one.
     memory: tuple[str, ...] = ()
+    # Story 15 (AD-4): the RAG's intro then its excerpts, formatted, found by this turn's
+    # search; never kept in the history.
+    rag_excerpts: tuple[str, ...] = ()
+    # Story 19 (AD-11): the sub-agent's tools, `[subagent] tools` among the enabled ones.
+    subagent_tools: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _SubContext:
+    """A sub-agent's context (AD-11): its own system prompt, the task and its tools, nothing
+    else of the main context."""
+
+    context_id: str  # sub{n}
+    task: str
+    prompt: str
+    tools: tuple[str, ...]
+
+
+@dataclass
+class _SubOutcome:
+    """How a sub-agent's loop ended; `message_fr` is the error reinjected on a failure."""
+
+    status: str  # completed | limit | overflow | error | cancelled
+    result: str = ""
+    message_fr: str = ""
 
 
 def _with_loaded(state: TurnState, loaded_in_turn: list[str]) -> TurnState:
@@ -329,6 +385,11 @@ class _LoadFailed(Exception):
         self.message_fr, self.reason_fr, self.idle_fr = message_fr, reason_fr, idle_fr
 
 
+def _kind_tokens(payload: dict[str, Any], kind: SegmentKind) -> int:
+    """The tokens of a context's segments of `kind` (AD-1: the session's own figures)."""
+    return sum(s["tokens"] for s in payload["segments"] if s["kind"] == kind)
+
+
 def _fr(n: int) -> str:
     return f"{n:,}".replace(",", "\u202f")  # narrow no-break space, French style
 
@@ -349,6 +410,8 @@ class AppSession:
         cloud_factory: Callable[..., Any] | None = None,
         rss_fn: Callable[[], int] | None = None,
         server_factory: Callable[..., Engine] | None = None,
+        embedder_factory: Callable[[EmbeddingModel], Embedder] | None = None,
+        download_transport: Any = None,
     ) -> None:
         self.cfg = cfg or config.load_config()
         self._engine_factory = engine_factory
@@ -411,13 +474,33 @@ class AppSession:
         # `idle` check to its end, and a turn takes it to start: no drawer write in a turn.
         # Always taken before `_lock`.
         self._memory_lock = threading.RLock()
+        self._subagent_content: SubagentContent | None = None
+        # Story 19 (AD-11): sub-agents numbered over the session's life, never reset; the
+        # running turn's frozen state and stop token, for `delegate`.
+        self._subs = 0
+        self._turn_ctx: tuple[TurnState, CancelToken] | None = None
         self._hook_steps = 0  # hook steps of the running turn, for their step ids
         self._turn_seq = 0  # seq of the running turn's `turn_started`: its events follow it
+        # Story 15 (AD-8, AD-22): the RAG's texts and model, what was read of its index and
+        # model files (at launch and after a download), and the embedding model loaded.
+        self._embedder_factory = embedder_factory or embedding_module.open_embedder
+        self._download_transport = download_transport  # tests: an `httpx.MockTransport`
+        self._rag_content: RagContent | None = None
+        self._rag_model: EmbeddingModel | None = None
+        self._rag_index_error: str | None = None  # sqlite-vec, index absent or another model
+        self._rag_chunks = 0
+        self._rag_missing: list[EmbeddingFile] = []
+        self._rag_longest: list[Chunk] = []  # the preview's excerpts (AD-9)
+        self._embedder: Embedder | None = None
+        self._rag_loading = False
+        self._rag_load_error: str | None = None  # the budget's refusal, or the load's failure
+        self._download_cancel: CancelToken | None = None
         self._load_content()
         self._registry = ToolRegistry(
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
         )
         self._tool_executor = ToolExecutor(self._registry)
+        self._check_subagent_tools()
         self._tools_enabled: set[str]  # sub-options: see `_apply_launch_config`
         # MCP servers (story 6): the local one starts enabled, the public ones disabled. A
         # server is contacted only while enabled with the brick wanted (AD-15).
@@ -615,6 +698,20 @@ class AppSession:
             }
             edges.append({"from": "core.harness", "to": "core.model", "crosses_boundary": False})
         nodes: list[dict[str, Any]] = [_CORE_HARNESS, model]
+        if any(b.id == "subagent" for b in wanted):  # AD-11: the same model, a second context
+            available, reason_fr = self._availability("subagent")
+            sub_model = {
+                **model,
+                "id": "core.model_sub",
+                "label_fr": "Modèle (sous-agent)",
+                "available": available,
+                "reason_fr": reason_fr,
+            }
+            nodes.append(sub_model)
+            if self._cloud is not None:  # as `core.model`: an edge only across the boundary
+                edges.append(
+                    {"from": "core.harness", "to": "core.model_sub", "crosses_boundary": True}
+                )
         components = {b.id: self._drawn_components(b) for b in wanted}
         # A file node is drawn once a drawn component points to it: its brick, its label
         # and what its tooltip adds.
@@ -635,9 +732,14 @@ class AppSession:
                 self._memory_content.file_label_fr if self._memory_content else "memory.json",
                 str(config.memory_path()),
             ),
+            RAG_INDEX: (
+                "rag",
+                self._rag_content.index_label_fr if self._rag_content else "rag_index.sqlite",
+                self._rag_index_detail(),
+            ),
         }
         for file_id, (brick_id, label, detail_fr) in files.items():
-            if file_id not in targets:
+            if file_id not in targets or brick_id not in self._bricks:
                 continue
             available, reason_fr = self._availability(brick_id)
             nodes.append(
@@ -694,6 +796,8 @@ class AppSession:
                 if is_hook and self._hooks_content:  # its tooltip says when it acts
                     hook = self._hooks_content.hooks.get(component.id.removeprefix("hooks."))
                     node["detail_fr"] = hook.description_fr if hook else None
+                if component.id == "rag.retriever" and self._rag_model is not None:
+                    node["detail_fr"] = f"Modèle d'embedding {self._rag_model.id}, processus local"
                 nodes.append(node)
                 edges += [
                     {"from": component.id, "to": target, "crosses_boundary": hosting == "network"}
@@ -809,6 +913,24 @@ class AppSession:
             "outil inconnu ou arguments invalides)."
         )
 
+    def _subagent_card(self, text: SubagentContent) -> dict[str, Any]:
+        """Story 19: « Déléguer au sous-agent » on the card (no sub-option), and the bounds."""
+        tools = ", ".join(self._registry.label(n) for n in self.cfg.subagent_tools) or "aucun"
+        n = self.cfg.subagent_max_calls
+        return {
+            "force": {
+                "kind": "delegate",
+                "target": DELEGATE,
+                "label_fr": text.force_label_fr,
+                "parameters": {"task": text.task_label_fr},
+                "presets": [p.model_dump() for p in text.presets],
+            },
+            "limits_fr": (
+                f"Sous-agent : {n} appel{'s' if n > 1 else ''} au modèle au plus, nouveaux essais "
+                f"compris ; outils : {tools}, s'ils sont activés dans la brique Outils."
+            ),
+        }
+
     def _emit_bricks(self) -> None:
         pending = self._pending_ids()
         with self._lock:
@@ -849,6 +971,10 @@ class AppSession:
                 bricks[-1]["always_fr"] = self._always_fr()
             if brick.id == "global_memory":
                 bricks[-1] |= self._memory_card()
+            if brick.id == "subagent" and self._subagent_content is not None:
+                bricks[-1] |= self._subagent_card(self._subagent_content)
+            if brick.id == "rag":
+                bricks[-1]["download"] = self._rag_download_offer()
             if brick.id == "mcp":
                 bricks[-1] |= {
                     "mode": "lazy" if lazy else "full",
@@ -883,6 +1009,7 @@ class AppSession:
         for conn in conns:  # AD-21: no local server outlives WaveStack
             conn.close(wait=not self._on_loop())
         self._executor.shutdown(wait=True, cancel_futures=True)
+        self._release_embedder()  # story 15 (AD-8)
         if self._engine is not None:
             self._engine.close()
             self._engine = None
@@ -907,13 +1034,17 @@ class AppSession:
     @property
     def _ratio(self) -> float:
         """AD-4: the active cloud model's last `usage.prompt_tokens / Σ estimates`, kept by
-        model `id`: a round trip through another model finds it again."""
-        key = self._cloud.id if self._cloud is not None else ""
-        return self._ratios.get(key, self.cfg.estimate_ratio)
+        model `id`: a round trip through another model finds it again. The sub-agents'
+        contexts keep one of their own, under `{id}#sub` (AD-11)."""
+        return self._ratios.get(self._ratio_id(), self.cfg.estimate_ratio)
 
     @_ratio.setter
     def _ratio(self, value: float) -> None:
-        self._ratios[self._cloud.id if self._cloud is not None else ""] = value
+        self._ratios[self._ratio_id()] = value
+
+    def _ratio_id(self) -> str:
+        model = self._cloud.id if self._cloud is not None else ""
+        return f"{model}#sub" if self._ratio_key() == "sub" else model
 
     def _cost(self, choice: ModelChoice) -> int:
         """AD-8: a file's estimated cost at the configured window (an upper bound of the
@@ -1318,6 +1449,22 @@ class AppSession:
                 )
         if "global_memory" in self._bricks:
             self._load_memory()
+        if "subagent" in self._bricks:
+            try:
+                self._subagent_content = load_subagent_content()
+            except Exception as exc:  # noqa: BLE001
+                self._content_errors["subagent"] = (
+                    "Le fichier content/subagent.yaml ou le prompt du sous-agent "
+                    "(content/prompts/subagent.md) est absent ou invalide : corrigez-le puis "
+                    "relancez WaveStack."
+                )
+                self._error(
+                    "Les textes du sous-agent sont invalides.",
+                    exc,
+                    "La brique « Sous-agent » est indisponible ; le reste de WaveStack fonctionne.",
+                )
+        if "rag" in self._bricks:
+            self._load_rag()
         if "system_prompt" not in self._bricks:
             return
         try:
@@ -1369,6 +1516,234 @@ class AppSession:
         if entries is None:  # H5: the demonstration, not written until a change
             entries = memory_file.demo_entries(self._memory_content.demo, memory_file.now())
         self._memory = entries
+
+    def _load_rag(self) -> None:
+        """Story 15 (AD-19): its texts, then `[rag.embedding]`, then the index and the model's
+        files. Invalid: the brick is unavailable with the reason, never a crash."""
+        try:
+            self._rag_content = load_rag_content()
+        except Exception as exc:  # noqa: BLE001
+            self._content_errors["rag"] = (
+                "Le fichier content/rag.yaml est absent ou invalide : corrigez-le puis relancez "
+                "WaveStack."
+            )
+            self._error(
+                "Les textes de la brique RAG sont invalides.",
+                exc,
+                "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
+            )
+            return
+        model, error_fr = self.cfg.rag_embedding
+        if model is None:
+            self._content_errors["rag"] = error_fr or "La section [rag.embedding] est invalide."
+            if self.cfg.get("rag", "embedding") is not None:  # absent: said by the card only
+                self._error(
+                    "La déclaration du modèle d'embedding est invalide.",
+                    error_fr or "",
+                    "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
+                )
+            return
+        self._rag_model = model
+        self._rag_refresh()
+
+    def _rag_refresh(self) -> None:
+        """Story 15: what the availability reads of the index (`meta`, the preview's
+        excerpts) and of the model's files, at launch and after a download only."""
+        model = self._rag_model
+        if model is None:
+            return
+        path = self.cfg.rag_index_path()
+        reason, chunks, longest = None, 0, []
+        missing = download_module.missing_files(model.files, config.models_dir())
+        why = rag_index.vec_unavailable()
+        if why is not None:
+            reason = (
+                "Indisponible : l'extension sqlite-vec ne se charge pas dans ce Python "
+                f"({why}). Le RAG ne peut pas lire son index ; les autres briques fonctionnent."
+            )
+        elif not path.is_file():
+            reason = (
+                f"Indisponible : index absent ({path}). Lancez `uv run python "
+                "scripts/build_rag_index.py` depuis le dossier de WaveStack, puis relancez "
+                "WaveStack."
+            )
+            if missing:  # the script embeds the corpus with the model
+                reason += (
+                    " Le script a besoin du modèle d'embedding : copiez d'abord "
+                    f"{', '.join(Path(f.path).name for f in missing)} dans "
+                    f"{config.models_dir() / Path(missing[0].path).parent}."
+                )
+        else:
+            try:
+                meta = rag_index.read_meta(path)
+                longest = rag_index.longest_chunks(path, self.cfg.rag_top_k)
+            except Exception as exc:  # noqa: BLE001 - a state, never a crash
+                reason = (
+                    f"Indisponible : l'index {path} est illisible ({type(exc).__name__}). "
+                    "Reconstruisez-le avec `uv run python scripts/build_rag_index.py`, puis "
+                    "relancez WaveStack."
+                )
+            else:
+                chunks = meta.chunks
+                if meta.embedding_model_id != model.id or meta.dims != model.dims:
+                    reason = (
+                        "Indisponible : l'index a été construit avec le modèle d'embedding "
+                        f"« {meta.embedding_model_id} » ({meta.dims} dimensions), alors que "
+                        f"[rag.embedding] déclare « {model.id} » ({model.dims} dimensions). "
+                        "Reconstruisez l'index avec `uv run python "
+                        "scripts/build_rag_index.py`, puis relancez WaveStack."
+                    )
+        with self._lock:
+            self._rag_index_error, self._rag_chunks = reason, chunks
+            self._rag_longest, self._rag_missing = longest, missing
+
+    def _rag_unavailable(self) -> str | None:
+        """Story 15, AD-12: the RAG's reasons after its content (1), in order: sqlite-vec,
+        index absent, another model (2-4), model's files missing (5), then, once wanted,
+        loading (6) and a refused or failed load (7)."""
+        model = self._rag_model
+        with self._lock:
+            index_error, missing = self._rag_index_error, list(self._rag_missing)
+            wanted = "rag" in self._wanted
+            loading, load_error, loaded = (
+                self._rag_loading,
+                self._rag_load_error,
+                self._embedder is not None,
+            )
+        if index_error is not None:
+            return index_error
+        if missing and model is not None:
+            return self._rag_missing_fr(model, missing)
+        if not wanted or loaded:
+            return None
+        if loading:
+            return f"Chargement du modèle d'embedding {model.label_fr if model else ''}…"
+        return load_error or (
+            "Modèle d'embedding non chargé : désactivez puis réactivez la brique RAG."
+        )
+
+    @staticmethod
+    def _rag_missing_fr(model: EmbeddingModel, missing: list[EmbeddingFile]) -> str:
+        names = ", ".join(Path(f.path).name for f in missing)
+        folder = config.models_dir() / Path(missing[0].path).parent
+        return (
+            f"Indisponible : modèle absent. Le modèle d'embedding {model.label_fr} n'est pas "
+            f"sur le poste. Cliquez sur « Télécharger », ou copiez à la main {names} dans "
+            f"{folder}, puis cliquez de nouveau sur « Télécharger » ou relancez WaveStack."
+        )
+
+    def _rag_download_offer(self) -> dict[str, str] | None:
+        """AD-21: « Télécharger » on the card, only while the reason is « modèle absent »."""
+        model, content = self._rag_model, self._rag_content
+        if model is None or content is None or "rag" in self._content_errors:
+            return None
+        with self._lock:
+            index_error, missing = self._rag_index_error, list(self._rag_missing)
+        if index_error is not None or not missing:
+            return None
+        size_mb = max(1, round(sum(f.size for f in missing) / 1024**2))
+        return {"target": RAG_TARGET, "label_fr": content.download_label_fr.format(size_mb=size_mb)}
+
+    def _rag_index_detail(self) -> str:
+        """The index node's tooltip: its path, its excerpts and its embedding model."""
+        path = self.cfg.rag_index_path()
+        with self._lock:
+            chunks, error = self._rag_chunks, self._rag_index_error
+        if not chunks:
+            return f"{path} · index absent ou illisible"
+        model = self._rag_model.id if self._rag_model else "?"
+        detail = f"{path} · {chunks} extraits · modèle d'embedding {model}"
+        return f"{detail} · {error}" if error else detail
+
+    def _request_rag_sync(self) -> None:
+        """Story 15 (AD-8): the embedding model follows the brick's `wanted`, loaded or
+        released on the worker. « Chargement en cours » from now on, so no turn takes the
+        brick before its model is there; a turn already queued runs without it."""
+        if "rag" not in self._bricks:
+            return
+        with self._lock:
+            wanted, loaded = "rag" in self._wanted, self._embedder is not None
+            if not wanted:
+                self._rag_load_error, self._rag_loading = None, False
+        if wanted == loaded or (wanted and self._rag_static_reason() is not None):
+            return  # nothing to load nor to release: no event (one per reconfiguration)
+        if wanted:
+            with self._lock:
+                self._rag_loading, self._rag_load_error = True, None
+        self._executor.submit(self._sync_rag)
+
+    def _rag_static_reason(self) -> str | None:
+        """Reasons 1 to 5: what prevents loading the model at all."""
+        if "rag" in self._content_errors or self._rag_model is None:
+            return self._content_errors.get("rag") or "Brique RAG non configurée."
+        with self._lock:
+            index_error, missing = self._rag_index_error, bool(self._rag_missing)
+        return index_error or ("modèle absent" if missing else None)
+
+    def _sync_rag(self) -> None:
+        """On the worker: load the embedding model through the registry (AD-8) when the brick
+        is wanted and could be available, release it (`close()`) otherwise. Then the card, the
+        schema and the preview again."""
+        model = self._rag_model
+        with self._lock:
+            wanted, embedder = "rag" in self._wanted, self._embedder
+        changed = False
+        if not wanted or model is None or self._rag_static_reason() is not None:
+            changed = embedder is not None
+            self._release_embedder()
+        elif embedder is None:
+            loaded, error = self._load_embedder(model)
+            with self._lock:
+                self._embedder, self._rag_load_error = loaded, error
+            changed = True
+        with self._lock:
+            changed = changed or self._rag_loading
+            self._rag_loading = False
+        if changed:
+            self._emit_bricks()
+            self._emit_architecture()
+            self._emit_preview()
+
+    def _load_embedder(self, model: EmbeddingModel) -> tuple[Embedder | None, str | None]:
+        """The budget first (a refusal in figures, nothing loaded), then the load."""
+        label = f"le modèle d'embedding {model.label_fr}"
+        cost = self._load_registry.embedding_cost(
+            model.measured_rss_mb, [f.size for f in model.files]
+        )
+        refusal = self._load_registry.check_component(label, cost, EMBEDDING)
+        if refusal is not None:
+            self._error(
+                refusal,
+                "budget mémoire dépassé (AD-8)",
+                "La brique « RAG » est indisponible ; rien n'est chargé.",
+            )
+            return None, f"Indisponible : {refusal}"
+        try:
+            embedder = self._embedder_factory(model)
+        except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+            path = embedding_module.model_path(model)
+            self._error(
+                "Le modèle d'embedding n'a pas pu être chargé.",
+                exc,
+                "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
+            )
+            return None, (
+                f"Indisponible : le modèle d'embedding n'a pas pu être chargé "
+                f"({type(exc).__name__}: {exc}). Vérifiez le fichier {path}, ou supprimez-le "
+                "et relancez WaveStack pour le télécharger à nouveau."
+            )
+        self._load_registry.grant(model.label_fr, cost, EMBEDDING)
+        return embedder, None
+
+    def _release_embedder(self) -> None:
+        with self._lock:
+            embedder, self._embedder = self._embedder, None
+        if embedder is not None:
+            try:
+                embedder.close()
+            except Exception as exc:  # noqa: BLE001 - AD-16
+                self._error("Le modèle d'embedding n'a pas pu être fermé.", exc, "Il est oublié.")
+        self._load_registry.release(EMBEDDING)
 
     def _emit_memory(self) -> None:
         """AD-1: the drawer and the card project the last `memory_changed`."""
@@ -1429,6 +1804,8 @@ class AppSession:
                 error_fr = self._memory_error
             if error_fr is not None:
                 return False, error_fr
+        if brick_id == "rag" and (reason := self._rag_unavailable()) is not None:
+            return False, reason
         return True, None
 
     def _no_reasoning_fr(self) -> str:
@@ -1485,9 +1862,19 @@ class AppSession:
 
     def _reasoning_on(self, state: TurnState) -> bool:
         """AD-6, AD-9: the model reasons in this turn: brick effective, or a cloud model
-        that always reasons."""
+        that always reasons. In a sub-agent's context (AD-11), the brick counts only if it
+        contributes to it (`contributes_to`): the reasoning brick does not, so the sub-agent
+        keeps the 512-token reserve and the room for its document."""
         always = self._caps is not None and self._caps.reasoning_always
-        return always or "reasoning" in state.effective
+        brick_on = "reasoning" in state.effective
+        if self._ratio_key() == "sub":
+            brick_on = brick_on and self._contributes("reasoning", "sub")
+        return always or brick_on
+
+    def _contributes(self, brick_id: str, context: str) -> bool:
+        """AD-11, AD-12: the brick declares it contributes to `context` (`main` or `sub`)."""
+        brick = self._bricks.get(brick_id)
+        return brick is not None and context in brick.contributes_to
 
     def _reserve_of(self, state: TurnState) -> int:
         """AD-9: the output reserve of a turn (or of the preview), from its frozen state."""
@@ -1545,6 +1932,18 @@ class AppSession:
                 memory = tuple(e.text for e in self._memory)
             if self._caps is not None and self._caps.tool_call_parser:  # H4, AD-25
                 tools.append(REMEMBER)
+        sub_tools: list[str] = []
+        if "subagent" in effective:  # AD-11: `[subagent] tools` among the tools retained
+            wanted = self.cfg.subagent_tools  # of the bricks contributing to `sub`
+            sub_tools = [
+                n
+                for n in tools
+                if n in wanted
+                and (spec := self._registry.get(n)) is not None
+                and spec.source != "harness"  # no meta-tool, no nested delegation
+                and self._contributes(spec.brick or spec.component.split(".")[0], "sub")
+            ]
+            tools.append(DELEGATE)
         hooks = [h for h in self._hook_ids() if h in hooks_enabled] if "hooks" in effective else []
         return TurnState(
             history=tuple(history),
@@ -1556,6 +1955,7 @@ class AppSession:
             skill_catalog=tuple(catalog),
             hooks=tuple(hooks),
             memory=memory,
+            subagent_tools=tuple(sub_tools),
         )
 
     # ---------- rendering ----------
@@ -1740,7 +2140,9 @@ class AppSession:
                         omit_empty=False,  # a past answer keeps its `content`, even empty
                     )
                 )
-        user = [Part(SegmentKind.USER_MESSAGE, message)]
+        # Story 15 (AD-4): the RAG's intro and excerpts, each its own part, before the message.
+        rag = [Part(SegmentKind.RAG_EXCERPT, t, "rag", "rag.retriever") for t in state.rag_excerpts]
+        user = [*rag, Part(SegmentKind.USER_MESSAGE, message)]
         if state.injection:  # AD-13: added before the message, never rewriting it
             user.insert(0, Part(SegmentKind.HOOK_INJECTION, state.injection, "hooks", "hooks.h3"))
         messages.append({"role": "user", "content": user})
@@ -1793,16 +2195,37 @@ class AppSession:
         )
         return Joined((intro, *lines), sep="\n")
 
+    def _sub_messages(
+        self, sub: _SubContext, steps: list[dict[str, Any]], *, chat: bool = False
+    ) -> list[dict[str, Any]]:
+        """AD-11: the sub-agent's context, its prompt then the task, then its own steps;
+        nothing of the main context (history, main prompt, skills, H3)."""
+        own = ("subagent", "subagent.agent")
+        return [
+            {"role": "system", "content": [Part(SegmentKind.SYSTEM_PROMPT, sub.prompt, *own)]},
+            {"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, sub.task, *own)]},
+            *self._step_messages(
+                steps,
+                history=False,
+                group="sub",
+                chat=chat,
+                resend=self._resend() if chat else None,
+            ),
+        ]
+
     def _render(
         self,
         state: TurnState,
         message: str,
         call_id: str | None,
         steps: list[dict[str, Any]] | None = None,
+        sub: _SubContext | None = None,
     ) -> tuple[RenderedContext | RenderedChat, dict[str, Any]]:
+        """`sub`: a sub-agent's call (AD-11), rendered the same way from its own messages and
+        tools (`_tool_definitions` reads only `tools` and `loadable`)."""
         assert self._engine is not None and self._caps is not None and self._labels is not None
         if self._cloud is not None:
-            return self._render_chat(state, message, call_id, steps)
+            return self._render_chat(state, message, call_id, steps, sub)
         meta = self._engine.metadata()
         template_vars: dict[str, Any] = {}
         if self._caps.reasoning_variable:  # AD-6: the brick sets the template's variable
@@ -1810,10 +2233,12 @@ class AppSession:
         rendered = render_context(
             self._engine,
             self._caps.chat_template or "",
-            self._messages(state, message, steps),
+            self._sub_messages(sub, steps or []) if sub else self._messages(state, message, steps),
             call_id=call_id,
             special_tokens=meta.special_tokens,
-            tools=self._tool_definitions(state),
+            tools=self._tool_definitions(
+                replace(state, tools=sub.tools, loadable=()) if sub else state
+            ),
             bos_token=meta.bos_token,
             eos_token=meta.eos_token,
             add_generation_prompt=True,
@@ -1835,15 +2260,22 @@ class AppSession:
         message: str,
         call_id: str | None,
         steps: list[dict[str, Any]] | None,
+        sub: _SubContext | None = None,
     ) -> tuple[RenderedChat, dict[str, Any]]:
         """AD-4, chat mode: `context` writes the body; before the call, the total is the
-        estimates × `ratio`, and only their raw sum can block the call."""
+        estimates × `ratio` (the main one, or the sub-agents'), and only their raw sum can
+        block the call."""
         entry, content = self._cloud, self._cloud_content
         assert entry is not None and content is not None
         reserve = self._reserve_of(state)
+        messages = (
+            self._sub_messages(sub, steps or [], chat=True)
+            if sub
+            else self._messages(state, message, steps, chat=True)
+        )
         rendered = render_chat_body(
-            self._messages(state, message, steps, chat=True),
-            self._tool_definitions(state),
+            messages,
+            self._tool_definitions(replace(state, tools=sub.tools, loadable=()) if sub else state),
             call_id=call_id,
             fields=chat_fields(entry, reserve, reasoning=self._reasoning_on(state)),
             markers=self.cfg.cloud_markers,
@@ -1851,11 +2283,19 @@ class AppSession:
             provider_label_fr=content.provider_segment_fr,
         )
         payload = self._chat_gauge(
-            rendered, round(rendered.raw_total * self._ratio), "estimate", reserve
+            rendered,
+            round(rendered.raw_total * self._ratio),
+            "estimate",
+            reserve,
         )
         if not payload["overflow"] and payload["used"] > payload["usable"]:
             payload["uncertain_fr"] = content.uncertain_fr
         return rendered, payload
+
+    @staticmethod
+    def _ratio_key() -> str:
+        """AD-4: `main`, or `sub` for any sub-agent context (they share one ratio)."""
+        return "sub" if (current().context_id or "").startswith("sub") else "main"
 
     def _chat_gauge(
         self, rendered: RenderedChat, total: int, source: str, reserve: int
@@ -1880,6 +2320,15 @@ class AppSession:
             return  # no model: nothing to preview
         state = self.build_turn_state()
         state = replace(state, injection=self._preview_injection(state))
+        if "rag" in state.effective:  # AD-9: the excerpts at their declared maximum
+            with self._lock:
+                longest = list(self._rag_longest)
+            state = replace(
+                state,
+                rag_excerpts=self._rag_texts(
+                    [(i, c.title_fr, c.text) for i, c in enumerate(longest, start=1)]
+                ),
+            )
         try:
             _, payload = self._render(state, "", None)
         except Exception as exc:  # noqa: BLE001 - AD-16
@@ -1890,6 +2339,13 @@ class AppSession:
             )
             return
         get_journal().emit("context_preview", payload)
+
+    def _rag_texts(self, excerpts: list[tuple[int, str, str]]) -> tuple[str, ...]:
+        """The intro, then each `(position, title_fr, text)` in `excerpt_format_fr`."""
+        content = self._rag_content
+        if content is None or not excerpts:
+            return ()
+        return (content.intro_fr, *(content.excerpt(*excerpt) for excerpt in excerpts))
 
     def _preview_injection(self, state: TurnState) -> str:
         """What the active `on_user_message` hooks would add, for the gauge only: no
@@ -1982,6 +2438,8 @@ class AppSession:
                 self._mcp_connect(server_id)
             else:
                 self._mcp_disconnect(server_id)
+        if brick_id == "rag":  # story 15: its embedding model loads or leaves on the worker
+            self._request_rag_sync()
         self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
@@ -2084,6 +2542,27 @@ class AppSession:
                 raise ArmRefused(f"{exc} Rien n'est armé.") from None
             shown = text if len(text) <= 40 else f"{text[:40].rstrip()}…"
             args, brick, label_fr = {"text": text}, "global_memory", f"Écrire en mémoire ({shown})"
+        elif kind == "delegate":  # story 19: the card's action, its target fixed
+            if self._subagent_content is None or target != DELEGATE:
+                raise ArmRefused(
+                    f"Action inconnue : « {target} » n'est pas la délégation au sous-agent. "
+                    "Rien n'est armé.",
+                    not_found=True,
+                )
+            extra = sorted(set(args) - {"task"})
+            if extra:
+                raise ArmRefused(
+                    f"Argument inconnu pour la délégation : {', '.join(extra)}. Seule la tâche "
+                    "(« task ») est attendue. Rien n'est armé."
+                )
+            task = args.get("task", "")
+            if not isinstance(task, str):
+                raise ArmRefused("La tâche du sous-agent doit être un texte. Rien n'est armé.")
+            task = task.strip()
+            if not task:
+                raise ArmRefused("La tâche du sous-agent est vide. Rien n'est armé.")
+            shown = task if len(task) <= 40 else f"{task[:40].rstrip()}…"
+            args, brick, label_fr = {"task": task}, "subagent", f"Délégation : « {shown} »"
         else:
             raise ArmRefused(f"Action inconnue : « {kind} ». Rien n'est armé.", not_found=True)
         with self._lock:
@@ -2183,7 +2662,332 @@ class AppSession:
                     required=("text",),
                 )
             )
+        if self._subagent_content is not None:
+            text = self._subagent_content
+            specs.append(
+                ToolSpec(
+                    name=DELEGATE,
+                    run=self._delegate,
+                    params={"task": "string"},
+                    component="subagent.agent",
+                    source="harness",
+                    brick="subagent",
+                    label_fr=text.phase_label_fr,  # the working indicator's phase (EXPERIENCE)
+                    description=text.delegate.description,
+                    schema={
+                        "type": "object",
+                        "properties": {
+                            "task": {"type": "string", "description": text.delegate.task}
+                        },
+                        "required": ["task"],
+                    },
+                    required=("task",),
+                )
+            )
         return specs
+
+    # ---------- sub-agent (story 19, AD-10, AD-11) ----------
+
+    def _delegate(self, task: str) -> str:
+        """`delegate` (AD-25): runs the sub-agent in `sub{n}`, on the same engine, and returns
+        only its result. Always emits `subagent_started` then `subagent_ended`, with
+        `parent_step` the step of `delegate`; a failure raises `DelegationFailed` with its
+        status, and the main turn goes on."""
+        ctx, text = self._turn_ctx, self._subagent_content
+        if ctx is None or text is None:
+            raise DelegationFailed("Délégation impossible hors d'un tour.", "error")
+        task = task.strip()
+        if not task:
+            raise DelegationFailed(
+                "La tâche du sous-agent est vide : décris-la dans l'argument « task ».", "error"
+            )
+        state, cancel = ctx
+        self._subs += 1
+        sub = _SubContext(f"sub{self._subs}", task, text.prompt, state.subagent_tools)
+        journal = get_journal()
+        started = time.monotonic()
+        # `estimated`: chat mode, the context's figures not reconciled by `usage` (AD-4).
+        figures = {"calls": 0, "context_tokens": 0, "kept_tokens": 0, "estimated": 0}
+        outcome = _SubOutcome("error", message_fr="le sous-agent s'est interrompu.")
+        # AD-11: every event of the sub-agent hangs on the step of `delegate`; the trigger
+        # (model or user) is inherited.
+        with scoped(
+            context_id=sub.context_id,
+            parent_step=current().step_id,
+            call_id=None,
+            step_id=None,
+            brick="subagent",
+            component="core.model_sub",
+        ):
+            journal.emit(
+                "subagent_started",
+                {"task": task, "tools": list(sub.tools), "phase_label": text.phase_label_fr},
+            )
+            try:
+                outcome = self._run_subagent(sub, state, cancel, figures)
+            except Exception as exc:  # noqa: BLE001 - AD-16: the delegation fails, not the turn
+                self._error(
+                    "Le sous-agent s'est interrompu sur une erreur.",
+                    exc,
+                    "La délégation échoue ; le tour principal continue.",
+                )
+            finally:
+                done = outcome.status == "completed"
+                failure = None if done else self._delegation_failure(outcome)
+                # What the main context reads: the result, or the error the executor
+                # reinjects in its place (« Erreur : … »).
+                result = outcome.result if done else f"Erreur : {failure.message_fr}"
+                result_tokens, estimated = self._count_tokens(result)
+                # The saving: what the main context would have read (every tool reply that
+                # stayed in the sub-agent, errors and refusals included) against the result it
+                # reads instead; none when the delegation failed.
+                kept = figures["kept_tokens"]
+                journal.emit(
+                    "subagent_ended",
+                    {
+                        "status": outcome.status,
+                        "result": result,
+                        "context_tokens": figures["context_tokens"],
+                        "kept_tokens": kept,
+                        "result_tokens": result_tokens,
+                        "saved_tokens": max(0, kept - result_tokens) if done else 0,
+                        "estimated": estimated,
+                        "context_estimated": bool(figures["estimated"]),
+                        "calls": figures["calls"],
+                        "duration_ms": _ms(time.monotonic() - started),
+                    },
+                )
+        if failure is not None:
+            raise failure
+        return outcome.result
+
+    @staticmethod
+    def _delegation_failure(outcome: _SubOutcome) -> DelegationFailed:
+        """The error a failed delegation reinjects (AD-11), with `delegate`'s status."""
+        if outcome.status == "cancelled":
+            return DelegationFailed(
+                "Délégation arrêtée à la demande de l'utilisateur.", "cancelled"
+            )
+        status = outcome.status if outcome.status in ("limit", "overflow") else "error"
+        return DelegationFailed(
+            f"La délégation au sous-agent a échoué : {outcome.message_fr} Réponds sans ce "
+            "résultat, ou délègue une tâche plus simple.",
+            status,
+        )
+
+    def _check_subagent_tools(self) -> None:
+        """AD-19: a name of `[subagent] tools` that no tool of the tools brick bears is
+        traced at load, not silently ignored."""
+        if "subagent" not in self._bricks:
+            return
+        known = {
+            n
+            for n in self._registry.names
+            if (spec := self._registry.get(n)).source != "harness" and not spec.is_mcp
+        }
+        unknown = [n for n in self.cfg.subagent_tools if n not in known]
+        if unknown:
+            self._error(
+                f"[subagent] tools nomme des outils inconnus : {', '.join(unknown)}.",
+                f"Outils de la brique Outils : {', '.join(sorted(known))}.",
+                "Ces noms sont ignorés : le sous-agent n'a que les outils connus et activés.",
+            )
+
+    def _count_tokens(self, text: str) -> tuple[int, bool]:
+        """AD-1: the tokens `text` takes in the main context: by the model's tokenizer
+        locally; in chat mode (then `True`), the estimate scaled as `distribute` scales the
+        main context's segments (AD-4): shrunk by a ratio below 1, never grown (a ratio above
+        1 goes to the provider's segment). Never raises: an estimate then."""
+        estimate = config.estimate_tokens(text, self.cfg.chars_per_token)
+        if self._cloud is not None or self._engine is None:
+            ratio = self._ratios.get(self._cloud.id if self._cloud else "", self.cfg.estimate_ratio)
+            return round(estimate * min(1.0, ratio)), True
+        try:
+            return len(self._engine.tokenize(text)), False
+        except Exception:  # noqa: BLE001 - AD-16: `subagent_ended` is always emitted
+            return estimate, True
+
+    def _run_subagent(
+        self,
+        sub: _SubContext,
+        state: TurnState,
+        cancel: CancelToken,
+        figures: dict[str, int],
+    ) -> _SubOutcome:
+        """AD-10, AD-11: the sub-agent's bounded loop, as the turn's (`_turn`) but in its own
+        context: its calls on a counter of their own, the new attempts among them; the hooks
+        `before_model_call`, `before_tool` and `after_tool`; no armed action, no loading.
+        Fills `figures` (`calls`, `context_tokens`) as it goes."""
+        journal = get_journal()
+        turn_id, cid = current().turn_id or "", sub.context_id
+        max_calls, max_retries = self.cfg.subagent_max_calls, self.cfg.tool_max_retries
+        retries = step = 0
+        steps: list[dict[str, Any]] = []
+        previous: tuple[list[int], str] | None = None
+        stopped = _SubOutcome("cancelled", message_fr="délégation arrêtée.")
+        for n in range(1, max_calls + 1):
+            call_id = f"{turn_id}.{cid}.c{n}"
+            with scoped(call_id=call_id):
+                decided = self._hook("before_model_call", state)
+            if decided is not None and decided[1].decision == "block":
+                label = self._hook_label(decided[0])
+                return _SubOutcome(
+                    "error", message_fr=f"le hook « {label} » a bloqué son appel au modèle."
+                )
+            step += 1
+            with scoped(call_id=call_id, step_id=f"{turn_id}.{cid}.s{step}"):
+                rendered, payload = self._render(state, "", call_id, steps, sub)
+                journal.emit("context_rendered", payload)
+                figures["context_tokens"] = payload["used"]
+                figures["kept_tokens"] = _kind_tokens(payload, SegmentKind.TOOL_RESULT)
+                figures["estimated"] = int(payload.get("usage_source") == "estimate")
+                if previous is not None:
+                    self._check_prefix(*previous, rendered.ids)
+                if payload["overflow"]:
+                    self._emit_overflow(payload, getattr(rendered, "raw_total", None))
+                    return _SubOutcome(
+                        "overflow",
+                        message_fr=f"son contexte est dépassé ({_fr(payload['used'])} tokens pour "
+                        f"{_fr(payload['usable'])} utilisables).",
+                    )
+                figures["calls"] += 1
+                out = self._call_model(rendered, cancel, sub.tools, payload["reserve"])
+            if out.reconciled is not None:  # chat mode: `usage` reconciled the figures (AD-4)
+                figures["context_tokens"] = out.reconciled["used"]
+                figures["kept_tokens"] = _kind_tokens(out.reconciled, SegmentKind.TOOL_RESULT)
+                figures["estimated"] = 0
+            if out.status == "cancelled":
+                return stopped
+            if out.status == "limit":  # `output_truncated` emitted in `sub{n}` (AD-9)
+                return _SubOutcome(
+                    "limit",
+                    message_fr=f"sa sortie a été coupée à {_fr(payload['reserve'])} tokens.",
+                )
+            if out.status != "completed":  # a provider's refusal, traced in `sub{n}` (AD-16)
+                return _SubOutcome("error", message_fr=out.message_fr or "appel au modèle refusé.")
+            if not out.calls and out.malformed is None:
+                return _SubOutcome("completed", result=out.text.strip() or _NO_SUB_TEXT_FR)
+            if isinstance(rendered, RenderedContext):
+                previous = (rendered.ids, out.raw)
+
+            reaction = "retry" if retries < max_retries and n < max_calls else "stop"
+            failed = False
+            with scoped(call_id=call_id, component="core.harness"):
+                if out.malformed is not None:
+                    failed = True
+                    step += 1
+                    with scoped(step_id=f"{turn_id}.{cid}.s{step}"):
+                        error = self._tool_executor.reject(
+                            out.raw, out.malformed.fragment, out.malformed.detail_fr, reaction
+                        )
+                    steps.append(
+                        {
+                            "role": "assistant",
+                            "content": out.answer or out.raw,
+                            "tool_calls": [],
+                            "component": "core.model_sub",
+                        }
+                        | ({"reasoning": out.reasoning} if out.reasoning and out.answer else {})
+                    )
+                    steps.append(
+                        {
+                            "role": "tool",
+                            "name": None,
+                            "content": error,
+                            "component": "core.harness",
+                            "brick": "subagent",
+                        }
+                    )
+                else:
+                    steps.append(self._assistant_step(out) | {"component": "core.model_sub"})
+                    for call, call_ref in zip(out.calls, out.ids, strict=True):
+                        step += 1
+                        step_id = f"{turn_id}.{cid}.s{step}"
+                        detail = self._tool_executor.check(call, sub.tools)
+                        named = self._registry.get(call.name)
+                        spec = named if detail is None else None
+                        component = spec.component if spec else "core.harness"
+                        brick = (
+                            (named.brick or named.component.split(".")[0]) if named else "subagent"
+                        )
+                        blocker = None
+                        if spec is None:
+                            failed = True
+                            with scoped(step_id=step_id, brick=brick, component=component):
+                                result = self._tool_executor.reject(
+                                    out.raw, call.source, detail or "", reaction
+                                )
+                        else:
+                            ran = self._run_tool(call, spec, state, cancel, [], step_id, brick)
+                            if ran is None:
+                                return stopped
+                            result, blocker = ran
+                        steps.append(
+                            self._reply_step(call_ref, call.name, result, component, brick, blocker)
+                        )
+            if failed:
+                retries += 1
+                if retries > max_retries:
+                    self._emit_limit("sub_retries", retries)
+                    return _SubOutcome(
+                        "limit",
+                        message_fr=f"{retries} appels d'outil refusés (mal formés, outil inconnu "
+                        "ou arguments invalides).",
+                    )
+            if cancel.cancelled:
+                return stopped
+        self._emit_limit("sub_calls", max_calls)
+        return _SubOutcome(
+            "limit", message_fr=f"il a atteint sa borne de {max_calls} appels au modèle."
+        )
+
+    @staticmethod
+    def _assistant_step(out: _ModelOutput) -> dict[str, Any]:
+        """The assistant step of an output with tool calls: each call with its session id,
+        its arguments and their JSON, as emitted in chat mode, else serialized once (AD-4)."""
+        return {
+            "role": "assistant",
+            "content": out.text,
+            "tool_calls": [
+                {
+                    "id": call_ref,
+                    "name": c.name,
+                    "arguments": c.arguments,
+                    "arguments_json": (
+                        out.arguments[j]
+                        if out.arguments
+                        else json.dumps(c.arguments, ensure_ascii=False)
+                    ),
+                }
+                for j, (c, call_ref) in enumerate(zip(out.calls, out.ids, strict=True))
+            ],
+        } | ({"reasoning": out.reasoning} if out.reasoning else {})
+
+    @staticmethod
+    def _reply_step(
+        call_ref: str | None,
+        name: str,
+        result: str,
+        component: str,
+        brick: str,
+        blocker: str | None,
+    ) -> dict[str, Any]:
+        """A tool's reply step (AD-4): a hook's refusal is the hook's text; `delegate`'s reply
+        is the sub-agent's result (`subagent_result`), even a failure (AD-11)."""
+        step = {
+            "role": "tool",
+            "id": call_ref,
+            "name": name,
+            "content": result,
+            "component": component,
+            "brick": brick,
+        }
+        if blocker is not None:
+            return step | {"component": f"hooks.{blocker}", "brick": "hooks"}
+        if name == DELEGATE and component == "subagent.agent":  # it ran (not refused)
+            kind = SegmentKind.SUBAGENT_RESULT
+            return step | {"kind": kind, "brick": "subagent", "component": "subagent.agent"}
+        return step
 
     def _load_tool_doc_spec(self) -> ToolSpec:
         assert self._mcp_content is not None
@@ -2668,6 +3472,7 @@ class AppSession:
             self._mcp_disconnect(server_id)
         for server_id in sorted(after - before):
             self._mcp_connect(server_id)
+        self._request_rag_sync()  # story 15: loaded or released as the brick is now wanted
         self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
@@ -2681,8 +3486,11 @@ class AppSession:
 
     def stop(self) -> bool:
         """Intention class (c): arms the turn's `CancelToken`; no effect outside a turn. A
-        pending human validation is resolved as `cancelled`."""
+        pending human validation is resolved as `cancelled`. Story 15: stops a download."""
         with self._lock:
+            if self.state == "download" and self._download_cancel is not None:
+                self._download_cancel.cancel()
+                return True
             if self.state not in ("turn", "awaiting_human") or self._cancel is None:
                 return False
             self._cancel.cancel()
@@ -2692,6 +3500,115 @@ class AppSession:
             approval.decision = "cancelled"
         approval.answered.set()
         return True
+
+    # ---------- model download (story 15, AD-15, AD-21) ----------
+
+    def download_model(self, target: str) -> str:
+        """Class (b): downloads the embedding model's missing files, on a thread of its own,
+        in the `download` state (« Arrêter » stops it). `KeyError` for an unknown target,
+        `SendRefused` outside `idle`, or when there is nothing to download (the files being
+        there, the index and the files are read again)."""
+        if target != RAG_TARGET or "rag" not in self._bricks:
+            raise KeyError(target)
+        model = self._rag_model
+        if model is None:
+            raise SendRefused(
+                self._content_errors.get("rag") or "La brique RAG n'a pas de modèle déclaré."
+            )
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+        dest = config.models_dir()
+        missing = download_module.missing_files(model.files, dest)
+        if not missing:  # e.g. copied by hand meanwhile: the card catches up now
+            self._rag_refresh()
+            self._request_rag_sync()
+            self._emit_bricks()
+            self._emit_architecture()
+            self._executor.submit(self._emit_preview)
+            raise SendRefused(
+                f"Rien à télécharger : les fichiers du modèle d'embedding sont déjà dans {dest}."
+            )
+        total = sum(f.size for f in missing)
+        cancel = CancelToken()
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+            previous = self.reason_fr  # e.g. no model loaded: it stays said afterwards
+            self.state, self.reason_fr = "download", self._download_fr(0, total)
+            self._download_cancel = cancel
+        self._emit_state()
+        threading.Thread(
+            target=self._run_download,
+            args=(missing, dest, cancel, previous),
+            name="wavestack-download",
+            daemon=True,
+        ).start()
+        return self._download_fr(0, total)
+
+    @staticmethod
+    def _download_fr(done: int, total: int) -> str:
+        percent = int(done * 100 / total) if total else 100
+        mb = 1024**2
+        return (
+            f"Téléchargement du modèle d'embedding : {percent} % "
+            f"({_fr(round(done / mb))} / {_fr(round(total / mb))} Mo)"
+        )
+
+    def _run_download(
+        self, files: list[EmbeddingFile], dest: Path, cancel: CancelToken, previous: str | None
+    ) -> None:
+        """The download thread: progress at most once a second in `session_state`, then back
+        to `idle`; the index and the files are read again, and the model loads if wanted."""
+        last = time.monotonic()
+
+        def progress(done: int, total: int) -> None:
+            nonlocal last
+            if time.monotonic() - last < 1.0:
+                return
+            last = time.monotonic()
+            with self._lock:
+                if self.state != "download":
+                    return
+                self.reason_fr = self._download_fr(done, total)
+            self._emit_state()
+
+        failed: str | None = None
+        stopped = False
+        try:
+            with scoped(brick="rag", component="rag.retriever", origin="download"):
+                download_module.download_files(
+                    files, dest, cancel, progress, transport=self._download_transport
+                )
+        except download_module.DownloadError as exc:
+            failed, stopped = exc.reason_fr, exc.cancelled
+        except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+            failed = f"{type(exc).__name__}: {exc}"
+        with self._lock:
+            self._download_cancel = None
+        self._rag_refresh()
+        if failed is not None:
+            names = ", ".join(Path(f.path).name for f in files)
+            folder = dest / Path(files[0].path).parent
+            with scoped(brick="rag", component="rag.retriever"):  # the card shows it (AD-1)
+                self._error(
+                    "Téléchargement du modèle d'embedding arrêté."
+                    if stopped
+                    else "Le téléchargement du modèle d'embedding a échoué.",
+                    failed,
+                    f"Rien n'est installé. Pour continuer, copiez le fichier à la main dans "
+                    f"{folder} ({names}), puis cliquez de nouveau sur « Télécharger » ou relancez "
+                    "WaveStack.",
+                )
+        self._set_state("idle", previous)
+        try:
+            if failed is None:
+                self._request_rag_sync()  # loads it when the brick is wanted
+            self._emit_bricks()
+            self._emit_architecture()
+            self._executor.submit(self._emit_preview)
+        except RuntimeError:  # the session is closing: nothing left to show
+            pass
 
     def answer_approval(self, approval_id: str, approved: bool, disable_hook: bool) -> None:
         """Intention class (c): answers the pending validation; the first answer wins.
@@ -2742,6 +3659,7 @@ class AppSession:
                 decided = self._hook("on_user_message", state)
                 if decided is not None and decided[1].injection:  # computed once for the turn
                     state = replace(state, injection=decided[1].injection)
+                self._turn_ctx = (state, cancel)  # what `delegate` reads (AD-11)
                 status, text, reasoning = self._turn(turn_id, message, cancel, state, steps)
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error(
@@ -2753,6 +3671,7 @@ class AppSession:
                     "Le tour est terminé ; WaveStack reste utilisable.",
                 )
             finally:
+                self._turn_ctx = None
                 try:
                     ended = self._hook("on_turn_end", state, status=status)
                 except Exception as exc:  # noqa: BLE001 - AD-16: the turn still ends
@@ -2801,6 +3720,11 @@ class AppSession:
         stopped, step = self._consume_armed(turn_id, state, cancel, steps, loaded_in_turn)
         if stopped:
             return "cancelled", "", ""
+        if "rag" in state.effective:  # story 15: once per turn, main context, before any call
+            step += 1
+            state = replace(state, rag_excerpts=self._rag_search(turn_id, step, message))
+            if cancel.cancelled:
+                return "cancelled", "", ""
         for n in range(1, max_calls + 1):
             call_id = f"{turn_id}.main.c{n}"
             with scoped(call_id=call_id):
@@ -2831,7 +3755,11 @@ class AppSession:
             reaction = "retry" if retries < max_retries and n < max_calls else "stop"
             failed = False
             harness_brick = next(
-                (b for b in ("tools", "mcp", "skills", "global_memory") if b in state.effective),
+                (
+                    b
+                    for b in ("tools", "mcp", "skills", "global_memory", "subagent")
+                    if b in state.effective
+                ),
                 "tools",
             )
             # AD-25: what the model decided carries `trigger = model`, a forced action `user`.
@@ -2861,29 +3789,7 @@ class AppSession:
                         }
                     )
                 else:
-                    steps.append(
-                        {
-                            "role": "assistant",
-                            "content": out.text,
-                            "tool_calls": [
-                                {
-                                    "id": call_ref,
-                                    "name": c.name,
-                                    "arguments": c.arguments,
-                                    # AD-4: as emitted in chat mode, else serialized once.
-                                    "arguments_json": (
-                                        out.arguments[j]
-                                        if out.arguments
-                                        else json.dumps(c.arguments, ensure_ascii=False)
-                                    ),
-                                }
-                                for j, (c, call_ref) in enumerate(
-                                    zip(out.calls, out.ids, strict=True)
-                                )
-                            ],
-                        }
-                        | ({"reasoning": out.reasoning} if out.reasoning else {})
-                    )
+                    steps.append(self._assistant_step(out))
                     for call, call_ref in zip(out.calls, out.ids, strict=True):
                         step += 1
                         detail = self._tool_executor.check(
@@ -2914,16 +3820,9 @@ class AppSession:
                             if ran is None:
                                 return "cancelled", "", ""
                             result, blocker = ran
-                        tool_step = {
-                            "role": "tool",
-                            "id": call_ref,
-                            "name": call.name,
-                            "content": result,
-                            "component": component,
-                            "brick": brick,
-                        }
-                        if blocker is not None:  # AD-4: the refusal is the hook's text
-                            tool_step |= {"component": f"hooks.{blocker}", "brick": "hooks"}
+                        tool_step = self._reply_step(
+                            call_ref, call.name, result, component, brick, blocker
+                        )
                         steps.append(self._apply_effects(effects, tool_step, loaded_in_turn))
             if failed:
                 retries += 1
@@ -2934,6 +3833,64 @@ class AppSession:
                 return "cancelled", "", ""
         self._emit_limit("calls", max_calls)
         return "limit", "", ""
+
+    def _rag_search(self, turn_id: str, step: int, message: str) -> tuple[str, ...]:
+        """Story 15 (AD-2, AD-22): the search, a step of the harness with its pair of events.
+        Returns the intro and the excerpts, formatted; a failure is traced and the turn goes
+        on without excerpts (as a failing hook lets the turn through)."""
+        content = self._rag_content
+        assert content is not None  # the brick is unavailable without it
+        with self._lock:
+            embedder = self._embedder
+        top_k = self.cfg.rag_top_k
+        journal = get_journal()
+        scope = {
+            "step_id": f"{turn_id}.main.s{step}",
+            "brick": "rag",
+            "component": "rag.retriever",
+            "actor": "harness",
+            "trigger": "harness",
+        }
+        with scoped(**scope):
+            journal.emit(
+                "rag_search_started",
+                {"query": message, "top_k": top_k, "phase_label": content.phase_label_fr},
+            )
+            started = time.monotonic()
+            try:
+                if embedder is None:
+                    raise RuntimeError("le modèle d'embedding n'est pas chargé")
+                retriever = SqliteVecRetriever(self.cfg.rag_index_path(), embedder, top_k)
+                excerpts = retriever.search(message)
+            except Exception as exc:  # noqa: BLE001 - AD-16: the turn goes on
+                self._error(
+                    "La recherche RAG a échoué.", exc, "Le tour continue sans extraits RAG."
+                )
+                journal.emit(
+                    "rag_search_ended",
+                    {
+                        "status": "error",
+                        "excerpts": [],
+                        "placement_fr": content.placement_fr,
+                        "error_fr": (
+                            f"La recherche a échoué ({type(exc).__name__}: {exc}). Le tour "
+                            "continue sans extraits RAG."
+                        ),
+                        "duration_ms": _ms(time.monotonic() - started),
+                    },
+                )
+                return ()
+            journal.emit(
+                "rag_search_ended",
+                {
+                    "status": "ok",
+                    "excerpts": [e.payload() for e in excerpts],
+                    "placement_fr": content.placement_fr,
+                    "error_fr": None,
+                    "duration_ms": _ms(time.monotonic() - started),
+                },
+            )
+        return self._rag_texts([(e.position, e.title_fr, e.text) for e in excerpts])
 
     def _run_tool(
         self,
@@ -2972,8 +3929,8 @@ class AppSession:
             self._after_mcp_call(call.name, spec)
         if spec.network or spec.is_mcp:
             self._emit_architecture()  # its contact state may have changed
-        if text is None:
-            return None
+        if text is None or (spec.name == DELEGATE and cancel.cancelled):
+            return None  # AD-11: a delegation stopped ends the turn, no other call
         self._hook("after_tool", state, call=call, spec=spec, result=text)
         return text, None
 
@@ -3055,16 +4012,9 @@ class AppSession:
                     "component": component,
                 }
             )
-            tool_step = {
-                "role": "tool",
-                "id": call_ref,
-                "name": call.name,
-                "content": result,
-                "component": component,
-                "brick": action.brick,
-            }
-            if blocker is not None:  # AD-4: the refusal is the hook's text
-                tool_step |= {"component": f"hooks.{blocker}", "brick": "hooks"}
+            tool_step = self._reply_step(
+                call_ref, call.name, result, component, action.brick, blocker
+            )
             steps.append(self._apply_effects(effects, tool_step, loaded_in_turn))
         return False, step
 
@@ -3077,6 +4027,8 @@ class AppSession:
             return ToolCall(LOAD_TOOL_DOC, {"tool": action.target})
         if action.kind == "memory":
             return ToolCall(REMEMBER, {"text": action.args.get("text", "")})
+        if action.kind == "delegate":
+            return ToolCall(DELEGATE, {"task": action.args.get("task", "")})
         return ToolCall(action.target, dict(action.args))
 
     def _armed_unavailable(
@@ -3110,6 +4062,10 @@ class AppSession:
                     "l'outil remember"
                 )
             return None
+        if action.kind == "delegate":
+            if "subagent" not in state.effective:
+                return "la brique « Sous-agent » n'est pas active dans ce tour"
+            return None
         if "mcp" not in state.effective:
             return "la brique « MCP » n'est pas active dans ce tour"
         with self._lock:
@@ -3132,7 +4088,8 @@ class AppSession:
         turn_id = current().turn_id or ""
         self._approvals += 1
         approval = _Approval(f"{turn_id}.a{self._approvals}")
-        step = f"{turn_id}.main.h{self._hook_steps}"  # the step of H5's `hook_decided`
+        context_id = current().context_id or "main"  # `main` or `sub{n}` (AD-11)
+        step = f"{turn_id}.{context_id}.h{self._hook_steps}"  # the step of H5's `hook_decided`
         with scoped(step_id=step, brick="hooks", component=f"hooks.{hook_id}"):
             # Answerable before its id is published, so no answer to it is ever refused.
             with self._lock:
@@ -3195,9 +4152,16 @@ class AppSession:
             # From this turn's start: another session's turn may share its id (AD-2).
             since = journal.events_since(self._turn_seq - 1)
             events = tuple(e for e in since if e.turn_id == turn_id)
-            view = HookContext(point, turn_id, events=events, content=texts, **ctx)
+            view = HookContext(
+                point,
+                turn_id,
+                events=events,
+                content=texts,
+                context_id=current().context_id or "main",
+                **ctx,
+            )
             self._hook_steps += 1
-            step_id = f"{turn_id}.main.h{self._hook_steps}"
+            step_id = f"{turn_id}.{current().context_id or 'main'}.h{self._hook_steps}"
             label = self._hook_label(hook.id)
             with scoped(step_id=step_id, brick="hooks", component=f"hooks.{hook.id}"):
                 try:
@@ -3352,6 +4316,8 @@ class AppSession:
             lazy = self._sent[4]  # the mode frozen for this turn by `send`
         full = heaviest == SegmentKind.TOOL_CATALOG and not lazy
         cause = _TOOL_CATALOG_FULL_FR if full else _OVERFLOW_CAUSES_FR[heaviest]
+        if self._ratio_key() == "sub" and self._subagent_content is not None:
+            cause = self._subagent_content.overflow_cause_fr  # AD-11: the sub-agent's context
         get_journal().emit(
             "context_overflow",
             {
@@ -3517,6 +4483,7 @@ class AppSession:
         scope = current()
         step_id = scope.step_id or ""
         total = round(rendered.raw_total * self._ratio)
+        in_sub = self._ratio_key() == "sub"
         try:
             with scoped(origin="model"):  # AD-15: traced with the call's scope, no header
                 call = run_call(
@@ -3529,11 +4496,13 @@ class AppSession:
                     call_id=lambda index: self._new_call_id(step_id, index),
                 )
         except ProviderError as error:
-            journal.emit(
-                "harness_error",
-                error.payload("Le tour est terminé ; WaveStack reste utilisable."),
+            effect_fr = (
+                "La délégation échoue ; le tour principal continue."
+                if in_sub
+                else "Le tour est terminé ; WaveStack reste utilisable."
             )
-            return _ModelOutput("error")
+            journal.emit("harness_error", error.payload(effect_fr))
+            return _ModelOutput("error", message_fr=error.message_fr)
         prompt_tokens = int((call.usage or {}).get("prompt_tokens") or 0)
         if prompt_tokens:  # AD-4: `usage` is the total; the ratio learns from real calls only
             payload = self._chat_gauge(rendered, prompt_tokens, "api", reserve)
@@ -3542,7 +4511,12 @@ class AppSession:
                 self._ratio = min(1.5, max(0.8, prompt_tokens / rendered.raw_total))
         if call.stop_reason == "cancelled":
             return _ModelOutput("cancelled")
-        out = _ModelOutput("completed", text=call.text, reasoning=call.reasoning)
+        out = _ModelOutput(
+            "completed",
+            text=call.text,
+            reasoning=call.reasoning,
+            reconciled=payload if prompt_tokens else None,
+        )
         # AD-10: what a malformed output reinjects: `failed_generation`, else the text and
         # each call's name and arguments as emitted.
         out.raw = "\n".join(
@@ -3567,8 +4541,8 @@ class AppSession:
                     "max_tokens": reserve,
                 },
             )
-            if call.channel != "tool_call":
-                return _ModelOutput("limit")
+            if call.channel != "tool_call":  # the reconciled figures stay (AD-4)
+                return _ModelOutput("limit", reconciled=out.reconciled)
             out.calls, out.ids, out.arguments = [], [], []
             out.malformed = Malformed(
                 out.raw,

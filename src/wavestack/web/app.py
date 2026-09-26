@@ -93,11 +93,18 @@ class ApprovalIntention(BaseModel):
 
 class ArmIntention(BaseModel):
     """Story 9: a native tool call with its arguments, a skill, or an MCP documentation;
-    story 14: a memory write (`target = remember`, `args = {text}`)."""
+    story 14: a memory write (`target = remember`, `args = {text}`); story 19: the
+    delegation to the sub-agent (`target = delegate`, `args = {task}`)."""
 
-    kind: Literal["tool", "skill", "tool_doc", "memory"]
+    kind: Literal["tool", "skill", "tool_doc", "memory", "delegate"]
     target: str
     args: dict[str, Any] = {}
+
+
+class DownloadModelIntention(BaseModel):
+    """Story 15: the model to download; `rag_embedding` is the only target so far."""
+
+    target: str
 
 
 class DisarmIntention(BaseModel):
@@ -218,8 +225,10 @@ def create_app(
         architecture = _latest(events, "architecture_changed")
         # Whole envelopes: the front shows whichever of the two is the most recent (`seq`).
         preview = _latest(events, "context_preview")
-        rendered = _latest(events, "context_rendered")
-        reconciled = _latest(events, "context_reconciled")  # chat mode (AD-4)
+        # The gauge stays on the main context: a sub-agent's is never its source (story 19).
+        main = [e for e in events if not (e.context_id or "").startswith("sub")]
+        rendered = _latest(main, "context_rendered")
+        reconciled = _latest(main, "context_reconciled")  # chat mode (AD-4)
         bricks = _latest(events, "bricks_changed")
         # H5: the last validation asked, while no resolution follows it (one at a time).
         asked = _latest(events, "approval_requested")
@@ -510,6 +519,20 @@ def create_app(
         except SendRefused as refused:
             raise HTTPException(status_code=409, detail=refused.reason_fr) from None
         return {"launched": True}
+
+    @app.post("/api/intentions/download_model")
+    def download_model(intention: DownloadModelIntention) -> dict[str, object]:
+        """Class (b), story 15 (AD-21): unknown target: 404; outside `idle`, or nothing to
+        download: 409, with the reason. « Arrêter » (`stop`) cancels it."""
+        try:
+            reason_fr = app_session.download_model(intention.target)
+        except KeyError:
+            raise HTTPException(
+                status_code=404, detail="Cible de téléchargement inconnue."
+            ) from None
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"started": True, "reason_fr": reason_fr}
 
     @app.post("/api/intentions/reset")
     def reset() -> dict[str, bool]:

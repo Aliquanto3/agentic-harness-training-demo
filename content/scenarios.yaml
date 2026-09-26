@@ -24,6 +24,12 @@ program:
   - title_fr: Mémoire globale
     duration_min: 30
     scenarios: [global_memory]
+  - title_fr: Sous-agent
+    duration_min: 30
+    scenarios: [subagent]
+  - title_fr: RAG
+    duration_min: 30
+    scenarios: [rag]
 
 transverse: [data_flows]
 
@@ -184,6 +190,53 @@ scenarios:
     prompts:
       - Retiens que je préfère des réponses en trois points au plus.
       - Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.
+
+  subagent:
+    title_fr: Sous-agent
+    description_fr: >-
+      Les briques des modules précédents restent actives (MCP en lazy loading, sans le
+      raisonnement pour laisser de la place au sous-agent) et la brique Sous-agent s'y
+      ajoute. Le document long est un fichier local, guide_harnais.md, pour une démonstration
+      hors ligne. Envoyez le premier prompt : le modèle confie la lecture à un sous-agent, et
+      seul son résumé revient. Dépliez « Délégation au sous-agent » dans Orchestration : les
+      résultats d'outils restés chez le sous-agent face au résumé réinjecté, c'est
+      l'économie. Basculez Contexte LLM entre le contexte principal (le résumé seul, en
+      « Résultat du sous-agent ») et celui du sous-agent (le guide entier). Si le modèle lit
+      le fichier lui-même, le guide entre dans le contexte principal : comparez la jauge,
+      puis armez « Déléguer au sous-agent » sur la carte (après « Afficher les actions
+      forcées ») avec le préréglage « Résumer le guide du harnais » et rejouez. Les trois
+      questions suivantes testent le résumé : ce qu'il a laissé de côté est perdu pour
+      l'agent principal, qui doit redéléguer ou avouer qu'il ne sait pas.
+    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, global_memory, subagent]
+    tools: [read_file]
+    mcp_lazy: true
+    prompts:
+      - >-
+        Délègue à ton sous-agent la lecture du fichier guide_harnais.md, sans le lire
+        toi-même : il doit le lire et te rendre un résumé en cinq points. Puis présente-moi
+        ce résumé.
+      - "Quiz : quelles bornes le harnais pose-t-il à la boucle d'un agent ?"
+      - "Quiz : pourquoi déléguer à un sous-agent économise-t-il le contexte principal ?"
+      - "Quiz : que se passe-t-il si le contexte du sous-agent déborde ?"
+
+  rag:
+    title_fr: RAG
+    description_fr: >-
+      Les briques des modules 1 à 4 restent actives, MCP en lazy loading, et la brique RAG
+      s'y ajoute : le corpus décrit Exemplia, une organisation imaginaire. Éteignez d'abord
+      la brique RAG et envoyez le premier prompt : le modèle ne connaît pas Exemplia, il
+      invente ou avoue ne pas savoir. Rallumez la brique, rejouez le prompt et ouvrez
+      « Comparer » : les extraits RAG sont dans votre message, et la réponse s'appuie sur le
+      bon document.
+      Dépliez l'étape « Recherche RAG » dans Orchestration (requête, extraits, scores) et
+      regardez le fichier d'index dans le schéma. Si la carte indique « modèle absent »,
+      cliquez sur « Télécharger ».
+    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, rag]
+    mcp_lazy: true
+    hooks: [h1, h2]
+    prompts:
+      - Combien de caractères doit compter au minimum un mot de passe chez Exemplia ?
+      - Quel plafond de remboursement s'applique à une nuit d'hôtel à Paris chez Exemplia ?
 
   data_flows:
     title_fr: Où vont mes données ?

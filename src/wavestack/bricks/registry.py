@@ -84,11 +84,13 @@ BRICKS = [
             )
         ],
     ),
+    # Story 19: its tools also serve the sub-agent's context (AD-11), per `[subagent] tools`.
     BrickDeclaration(
         id="tools",
         category="harness",
         capabilities=["tool_call_parser"],
         network=True,
+        contributes_to=["main", "sub"],
         components=[
             Component(
                 id="tools.get_datetime",
@@ -170,6 +172,36 @@ BRICKS = [
                 edges_to=["core.harness"] + (["file.audit"] if hook == "h2" else []),
             )
             for hook in HOOKS
+        ],
+    ),
+    # Story 19: the sub-agent, the same model in a context of its own (AD-11). Its component
+    # is a chip of the harness; the schema draws its model as `core.model_sub`.
+    BrickDeclaration(
+        id="subagent",
+        category="harness",
+        capabilities=["tool_call_parser"],
+        contributes_to=["main", "sub"],
+        components=[
+            Component(
+                id="subagent.agent",
+                kind="subagent",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            )
+        ],
+    ),
+    # Story 15: the simple RAG, a local process (the embedding model) that reads the index;
+    # no capability required, no network.
+    BrickDeclaration(
+        id="rag",
+        category="context",
+        components=[
+            Component(
+                id="rag.retriever",
+                kind="retriever",
+                hosting="local_process",
+                edges_to=["core.harness", "file.rag_index"],
+            )
         ],
     ),
 ]

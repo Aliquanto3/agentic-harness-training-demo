@@ -1,0 +1,25 @@
+# Brique « RAG » (AD-12, AD-19, AD-22).
+label_fr: RAG
+category_fr: context engineering
+hosting_fr: Local
+explanation_fr:
+  - >-
+    Le RAG, ce n'est pas le modèle qui sait : c'est le harnais qui cherche. À chaque tour,
+    avant d'appeler le modèle, le harnais cherche dans un corpus les passages les plus
+    proches de votre question, puis les place dans votre message, juste avant la question.
+  - >-
+    La recherche est sémantique : un petit modèle d'embedding, local, transforme la question
+    en vecteur, et l'index (rag_index.sqlite) renvoie les extraits dont le vecteur est le plus
+    proche. Le score va de 0 à 1 ; aucun seuil n'est appliqué : les extraits partent même
+    quand ils ne répondent pas.
+  - - "Gain : le modèle répond à partir de documents qu'il n'a jamais vus à l'entraînement."
+    - >-
+      Coût : les extraits occupent le contexte à chaque tour, et un modèle d'embedding est
+      chargé en mémoire à côté du modèle principal.
+    - >-
+      Données : l'index et le modèle d'embedding restent sur le poste ; avec un modèle cloud,
+      les extraits partent chez le fournisseur dans votre message.
+  - >-
+    Le corpus de démonstration décrit Exemplia, une organisation imaginaire : huit textes
+    fictifs rédigés pour WaveStack (mots de passe, télétravail, notes de frais…). Les extraits
+    ne restent pas dans l'historique : chaque tour cherche à nouveau.

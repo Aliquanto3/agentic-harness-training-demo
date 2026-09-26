@@ -40,6 +40,10 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
+EMBEDDING_FILE = "embedding/fake-e2e.gguf"
+EMBEDDING_SIZE = 4096  # `fake_openai.MODEL_FILE_SIZE`
+
+
 def _entry(fake_port: int, entry_id: str, provider: str, model: str) -> dict:
     return {
         "id": entry_id,
@@ -56,16 +60,50 @@ def _entry(fake_port: int, entry_id: str, provider: str, model: str) -> dict:
     }
 
 
-def settings(fake_port: int, llama_port: int = 0, ollama_port: int = 0) -> dict:
-    """The `settings.json` override: two cloud models, both on the fake server; the ports of
-    the fake local servers (story 18)."""
+def rag_settings(fake_port: int, data_dir: Path) -> dict:
+    """Story 15: the index built in the data dir, the fake embedding model (its file served
+    by the fake server, over the loopback)."""
+    return {
+        "index_path": str(data_dir / "rag_index.sqlite"),
+        "embedding": {
+            "id": "fake-embedding",
+            "label_fr": "Faux embedding (e2e)",
+            "dims": 64,
+            "load_path": EMBEDDING_FILE,
+            "files": [
+                {
+                    "url": f"http://127.0.0.1:{fake_port}/_e2e/model.gguf",
+                    "path": EMBEDDING_FILE,
+                    "size": EMBEDDING_SIZE,
+                }
+            ],
+        },
+    }
+
+
+def build_rag_index(path: Path) -> None:
+    """The index of the real corpus, with the fake embedding model of the tests."""
+    sys.path.insert(0, str(REPO / "tests"))
+    from fake_embedder import FakeEmbedder
+
+    from wavestack.rag.corpus import load_rag_content
+    from wavestack.rag.index import build_index
+
+    build_index(load_rag_content(), FakeEmbedder(), path, chunk_max_chars=700)
+
+
+def settings(fake_port: int, data_dir: Path, llama_port: int = 0, ollama_port: int = 0) -> dict:
+    """The `settings.json` override: two cloud models, both on the fake server; the RAG's
+    index and fake embedding model (story 15); the ports of the fake local servers (story
+    18)."""
     values: dict = {
+        "rag": rag_settings(fake_port, data_dir),
         "cloud": {
             "models": [
                 _entry(fake_port, MODEL_ENTRY_ID, "Faux fournisseur (e2e)", "wavestack-fake"),
                 _entry(fake_port, SECOND_ENTRY_ID, "Faux fournisseur B (e2e)", SECOND_MODEL),
             ]
-        }
+        },
     }
     if llama_port and ollama_port:
         values["net"] = {"loopback_ports": {"ollama": ollama_port, "llama_server": llama_port}}
@@ -123,7 +161,7 @@ class Stack:
         log = open(self.log_dir / f"wavestack{suffix}.log", "w", encoding="utf-8")  # noqa: SIM115
         self.procs.append(
             subprocess.Popen(
-                [sys.executable, str(HERE / "launch_app.py"), "--port", str(self.app_port)],
+                [sys.executable, str(HERE / "wavestack_e2e.py"), "--port", str(self.app_port)],
                 cwd=REPO,
                 env=self.env,
                 stdout=log,
@@ -166,9 +204,12 @@ def running_stack(
     fake_port, app_port = free_port(), free_port()
     llama_port, ollama_port = free_port(), free_port()
     (data_dir / "settings.json").write_text(
-        json.dumps(settings(fake_port, llama_port, ollama_port), ensure_ascii=False, indent=2),
+        json.dumps(
+            settings(fake_port, data_dir, llama_port, ollama_port), ensure_ascii=False, indent=2
+        ),
         encoding="utf-8",
     )
+    build_rag_index(data_dir / "rag_index.sqlite")
     stack = Stack(
         app_url=f"http://127.0.0.1:{app_port}",
         fake_url=f"http://127.0.0.1:{fake_port}",
