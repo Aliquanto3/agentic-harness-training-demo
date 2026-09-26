@@ -140,6 +140,11 @@ class TurnEndedPayload(BaseModel):
     duration_ms: int | None = None
 
 
+class CompressedFromPayload(BaseModel):
+    tokens_before: int
+    text_before: str
+
+
 class SegmentPayload(BaseModel):
     id: str
     kind: str
@@ -149,6 +154,8 @@ class SegmentPayload(BaseModel):
     text: str
     tokens: int
     estimated: bool = False  # chat mode: an estimate, shown with « ≈ » (AD-4)
+    # Story 20 (AD-22): a compressed tool result or RAG excerpt, with what it was before.
+    compressed_from: CompressedFromPayload | None = None
 
 
 class BreakdownItem(BaseModel):
@@ -178,6 +185,8 @@ class ContextWindowPayload(BaseModel):
     body: str | None = None
     usage_source: Literal["engine", "api", "estimate"] = "engine"
     uncertain_fr: str | None = None
+    # Story 20: the total if the compressed segments were not, computed by the session.
+    uncompressed_used: int | None = None
 
 
 class ContextReconciledPayload(ContextWindowPayload):
@@ -585,6 +594,45 @@ class RagSearchEndedPayload(BaseModel):
     duration_ms: int
 
 
+# ---------- story 20: context compression (AD-4, AD-22) ----------
+
+
+class CompressionItem(BaseModel):
+    """One candidate of a compression step: a tool result or a RAG excerpt."""
+
+    source_fr: str  # « Résultat de l'outil « read_file » », « Extrait RAG n° 2 »
+    kind: Literal["tool_result", "rag_excerpt"]
+    brick: str | None = None
+    component: str | None = None
+    tokens_before: int
+    tokens_after: int
+    text_before: str
+    text_after: str
+    changed: bool  # false: the compressor left it as it was (or did not shorten it)
+    transforms: list[str] = []
+    error_fr: str | None = None
+
+
+class CompressionStartedPayload(BaseModel):
+    phase_label: str
+    title_fr: str  # the step's title, « Compression (Headroom) » (content/compression.yaml)
+    items: int  # candidates given to the compressor
+    compressor_fr: str
+
+
+class CompressionEndedPayload(BaseModel):
+    status: Literal["ok", "error"]
+    compressor_fr: str
+    items: list[CompressionItem]
+    tokens_before: int
+    tokens_after: int
+    saved_tokens: int
+    estimated: bool = False  # chat mode: tokens estimated (AD-4)
+    unchanged_fr: str  # why a candidate may come back as it was (content/compression.yaml)
+    error_fr: str | None = None
+    duration_ms: int
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -628,4 +676,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "subagent_ended": SubagentEndedPayload,
     "rag_search_started": RagSearchStartedPayload,
     "rag_search_ended": RagSearchEndedPayload,
+    "compression_started": CompressionStartedPayload,
+    "compression_ended": CompressionEndedPayload,
 }

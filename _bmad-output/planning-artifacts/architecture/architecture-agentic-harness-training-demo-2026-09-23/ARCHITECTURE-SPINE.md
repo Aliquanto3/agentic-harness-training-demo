@@ -199,6 +199,7 @@ Règles de dépendance :
     - L’interface marque « ≈ » toute valeur `estimated`, et le total sauf quand `usage_source = api` : c’est un matériau pédagogique (un harnais cloud compte sans tokenizer local).
   - **Ajout seul pendant un tour.** Le rendu du gabarit fait foi, et l’ajout seul est un contrôle, pas une hypothèse. La session compare les ids de l’appel n+1 à ceux de l’appel n suivis de sa sortie. Si le préfixe commun est plus court, elle émet `prefix_not_reused{common_tokens}`, et la relecture s’explique dans la trace. Le test de non-régression Qwen3.5 couvre un tour à deux appels.
   - **Étape `transform_context`.** Elle est appelée par la session entre l’assemblage et le rendu, et seulement avant le premier appel d’un tour. C’est là que s’applique la compression (AD-22).
+    - Précision (story 20, hypothèse à valider) : une réponse d’outil arrivée dans le tour passe par cette étape une seule fois, avant le premier appel qui la contient. Ce qu’un appel a déjà lu n’est jamais réécrit, donc l’ajout seul tient.
 
 ### AD-5 — Le port moteur reçoit une requête entièrement construite par le harnais, rien de plus
 

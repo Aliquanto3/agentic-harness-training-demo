@@ -30,6 +30,9 @@ program:
   - title_fr: RAG
     duration_min: 30
     scenarios: [rag]
+  - title_fr: Compression
+    duration_min: 30
+    scenarios: [compression]
 
 transverse: [data_flows]
 
@@ -237,6 +240,31 @@ scenarios:
     prompts:
       - Combien de caractères doit compter au minimum un mot de passe chez Exemplia ?
       - Quel plafond de remboursement s'applique à une nuit d'hôtel à Paris chez Exemplia ?
+
+  compression:
+    title_fr: Compression du contexte
+    description_fr: >-
+      Les briques du module RAG restent actives, et la brique Compression s'y ajoute :
+      Headroom raccourcit les gros résultats d'outils et les extraits RAG avant l'appel au
+      modèle. Éteignez d'abord la compression et envoyez le premier prompt : le journal de
+      sauvegarde entre en entier dans le contexte. Rallumez-la, rejouez le prompt et ouvrez
+      « Comparer ». Dépliez l'étape « Compression (Headroom) » dans Orchestration : tokens
+      avant et après, texte d'origine et version courte, où l'erreur est restée. Dans
+      Contexte LLM, le résultat d'outil est marqué « compressé » et l'en-tête donne le total
+      sans compression. Les extraits RAG, de la prose, passent tels quels : c'est la limite
+      de l'outil. Posez enfin le second prompt : ce que Headroom a coupé est perdu pour le
+      modèle. La compression réduit ce qui entre, Caveman ce qui sort. Si la carte indique
+      que Headroom n'est pas installé, lancez `uv sync --extra compression` puis relancez
+      WaveStack.
+    bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, rag, compression]
+    tools: [read_file]
+    mcp_lazy: true
+    hooks: [h1, h2]
+    prompts:
+      - >-
+        Lis le fichier journal_serveur.log et dis-moi quelle erreur grave la sauvegarde de
+        cette nuit a rencontrée.
+      - Dans le journal_serveur.log, à quelle heure le lot 12 a-t-il été copié ?
 
   data_flows:
     title_fr: Où vont mes données ?

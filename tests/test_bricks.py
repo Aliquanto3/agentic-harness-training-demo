@@ -351,6 +351,7 @@ def test_boot_emits_bare_llm_cards_without_any_toggle():
             "hooks": False,
             "subagent": False,
             "rag": False,
+            "compression": False,
         }
         assert cards["system_prompt"]["is_default"] is True
 

@@ -35,6 +35,7 @@ from stack import (  # noqa: E402
 )
 
 SHOTS = Path(__file__).resolve().parent / "screenshots"
+REPO = Path(__file__).resolve().parents[2]
 CHROMIUM = "/opt/pw-browsers/chromium"  # fallback when the bundled revision is missing
 TURN_TIMEOUT_S = 60.0
 
@@ -1381,6 +1382,142 @@ def s_rag(r: Run) -> None:
     )
 
 
+COMPRESSION_QUESTION = (
+    "Lis le fichier journal_serveur.log et dis-moi quelle erreur grave la sauvegarde de cette "
+    "nuit a rencontrée."
+)
+
+
+def _compression_step(r: Run):
+    """The last « Compression (…) » step of Orchestration."""
+    name = r.page.locator(".turn-step-name", has_text="Compression (")
+    return r.page.locator("#orch-scroll .turn-step", has=name).last
+
+
+def s_compression(r: Run) -> None:
+    """Story 20: a turn without then with the compression (Headroom, the real library), the
+    step with the tokens before and after, the compressed segment and the total without
+    compression in Contexte LLM, the compressor in the schema, « Comparer », a reload."""
+    log = (REPO / "content" / "demo_files" / "journal_serveur.log").read_text(encoding="utf-8")
+    error_line = next(line for line in log.splitlines() if " ERROR " in line)
+    r.launch("compression")
+    seq = r.ev.mark()
+    ready = r.bricks()["compression"]["available"] or r.ev.wait(
+        "bricks_changed",
+        seq,
+        lambda p: next(b for b in p["bricks"] if b["id"] == "compression")["available"],
+        30,
+    )
+    r.check(bool(ready), "brique Compression disponible (Headroom chargé)")
+    card = r.card("Compression")
+    r.check(
+        "300 caractères" in card.inner_text(),
+        "carte Compression : ce qui est compressé et le seuil",
+        card.inner_text()[:200],
+    )
+    chip = r.page.locator('#schema .arch-chip[data-component="compression.compressor"]')
+    r.check(
+        "🗜️" in chip.inner_text() and "Headroom 0.38.0" in (chip.get_attribute("title") or ""),
+        "schéma : la puce 🗜️ du compresseur, dans le processus du harnais",
+        chip.get_attribute("title") or "",
+    )
+
+    # Compression off: the whole log goes to the model.
+    r.set_brick("Compression", False)
+    seq = r.ev.mark()
+    ended = r.send(COMPRESSION_QUESTION)
+    r.check(ended["payload"]["status"] == "completed", "tour sans compression terminé")
+    r.check(not r.ev.since(seq, "compression_started"), "sans compression : aucune étape")
+    body = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
+    r.check("lot 12 copié" in body, "sans compression : le journal entier part au modèle")
+
+    # On again, the prompt replayed: the log is compressed before the second call.
+    seq = r.ev.mark()
+    r.set_brick("Compression", True)
+    r.ev.wait(
+        "bricks_changed",
+        seq,
+        lambda p: next(b for b in p["bricks"] if b["id"] == "compression")["available"],
+        30,
+    )
+    seq = r.ev.mark()
+    ended = r.replay()
+    r.check(ended["payload"]["status"] == "completed", "rejeu avec compression terminé")
+    done = r.ev.since(seq, "compression_ended")
+    tool_items = [i for e in done for i in e["payload"]["items"] if i["kind"] == "tool_result"]
+    r.check(
+        len(tool_items) == 1
+        and tool_items[0]["changed"]
+        and error_line in tool_items[0]["text_after"],
+        "le résultat de read_file est compressé, l'erreur gardée",
+        str([(i["source_fr"], i["tokens_before"], i["tokens_after"]) for i in tool_items]),
+    )
+    rag_items = [i for e in done for i in e["payload"]["items"] if i["kind"] == "rag_excerpt"]
+    r.check(
+        all(not i["changed"] for i in rag_items),
+        "extraits RAG candidats, prose inchangée",
+        f"{len(rag_items)} extraits",
+    )
+    tool = next(m for m in r.fake_calls()[-1]["messages"] if m.get("role") == "tool")
+    content = tool["content"] if isinstance(tool["content"], str) else json.dumps(tool["content"])
+    r.check(
+        "lot 12 copié" not in content and error_line in content,
+        "le fournisseur reçoit la version courte (corps JSON)",
+    )
+    r.check(error_line in r.last_answer(), "la réponse cite l'erreur gardée", r.last_answer())
+
+    # Orchestration: the step, its figure, its unfolded body.
+    step = _compression_step(r)
+    figure = step.locator(".turn-step-figure").inner_text()
+    r.check(
+        re.search(r"→ .*tokens \(−\d+ %\)", figure) is not None
+        and "⚙ harnais" in step.locator(".turn-step-actor").inner_text(),
+        "Orchestration : « 🗜️ Compression (Headroom) », acteur harnais, avant → après",
+        figure,
+    )
+    step.locator(".turn-step-line").click()
+    items = step.locator(".compression-items li")
+    expect(items.first).to_be_visible(timeout=5000)
+    text = step.inner_text()
+    r.check(
+        "Résultat de l'outil « read_file »" in text and "Décision du harnais" in text,
+        "l'étape dépliée nomme la source et la décision du harnais",
+    )
+    step.locator(".compression-item-head").first.click()
+    expect(chip).to_have_class(re.compile("is-selected"), timeout=5000)
+    r.check(True, "un clic sur un texte compressé sélectionne le compresseur dans le schéma")
+
+    # Contexte LLM: the compressed segment, its text before, the total without compression.
+    ctx = r.page.locator("#ctx")
+    total = ctx.locator(".ctx-compressed-total").inner_text()
+    r.check("Sans compression" in total, "Contexte LLM : total sans compression affiché", total)
+    badge = ctx.locator(".ctx-compressed-badge")
+    r.check(
+        badge.count() == 1, "Contexte LLM : un segment marqué « compressé »", str(badge.count())
+    )
+    r.check(
+        ctx.get_by_text("Texte avant compression").count() == 1,
+        "Contexte LLM : le texte d'avant compression se déplie",
+    )
+    r.shot("23-compression-avant-apres")
+
+    # « Comparer » the replay with the turn without compression.
+    r.page.locator("#chat .replay-badge").last.click()
+    compare = r.page.locator("#ctx")
+    r.check(
+        "Comparaison de tours" in compare.inner_text() and "tokens (−" in compare.inner_text(),
+        "« Comparer » : le contexte compressé pèse moins que l'original",
+    )
+    compare.get_by_role("button", name="Fermer").click()
+
+    # AD-1: after a reload, the step is rebuilt from the journal.
+    r.page.reload()
+    r.wait_idle()
+    step = _compression_step(r)
+    expect(step).to_be_visible(timeout=10_000)
+    r.check(True, "après rechargement, l'étape « Compression » est toujours là")
+
+
 def s_busy_and_stop(r: Run) -> None:
     r.launch("bare_llm")
     seq = r.ev.mark()
@@ -1723,6 +1860,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("forced_native", s_forced_native),
     ("global_memory", s_global_memory),
     ("rag", s_rag),
+    ("compression", s_compression),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
     ("stream_resync", s_stream_resync),

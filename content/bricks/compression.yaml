@@ -1,0 +1,27 @@
+# Brique « Compression du contexte » (story 20, AD-12, AD-19, AD-22).
+label_fr: Compression
+category_fr: context engineering
+hosting_fr: Local
+explanation_fr:
+  - >-
+    La compression réduit ce qui entre dans le contexte : avant d'appeler le modèle, le
+    harnais passe les gros résultats d'outils et les extraits RAG à Headroom, une
+    bibliothèque qui les raccourcit, puis envoie la version courte. Caveman, lui, réduit ce
+    qui sort.
+  - >-
+    Headroom tourne ici sans modèle d'apprentissage automatique : il sait réduire le texte
+    structuré (JSON, journaux), en gardant les lignes qui comptent, comme une erreur. La
+    prose, elle, passe telle quelle : sur les extraits RAG, le gain est souvent nul, et
+    l'étape le montre.
+  - - "Gain : moins de tokens lus, donc un premier token plus rapide et plus de place dans la fenêtre."
+    - >-
+      Coût : ce qui est coupé est perdu pour le modèle. Headroom écrit « Retrieve more »
+      pour qu'un agent récupère la suite, mais WaveStack ne fournit pas cet outil de
+      récupération : c'est une limite à montrer.
+    - >-
+      Données : Headroom tourne dans le processus du harnais, hors ligne, sans télémétrie ;
+      rien ne quitte le poste pour compresser.
+  - >-
+    Un texte déjà lu par le modèle n'est jamais réécrit : chaque résultat d'outil est
+    compressé une seule fois, juste avant l'appel qui le lit, et l'historique garde la
+    version que le modèle a lue.

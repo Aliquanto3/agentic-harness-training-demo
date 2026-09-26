@@ -61,6 +61,17 @@ joué par le nouveau modèle, « Comparer » avec le modèle de chaque colonne, 
 premier modèle par « Choisir » au diagnostic, issue affichée, jamais « relancez ». Capture :
 `22-changement-de-modele.jpg`.
 
+## Compression du contexte (story 20)
+
+Le scénario `compression`, joué après `rag`, utilise le vrai Headroom : l'environnement du
+parcours doit avoir l'extra (`uv sync --extra compression` une fois ; `uv run --with
+playwright…` le garde). Carte disponible avec son seuil, puce 🗜️ dans le harnais ; un tour
+brique éteinte (le journal `journal_serveur.log` part en entier), puis le rejeu brique allumée :
+étape « Compression (Headroom) » avant → après, erreur du journal gardée dans le corps reçu par
+le faux fournisseur et dans la réponse, segment marqué « compressé » et total « Sans
+compression » dans Contexte LLM, « Comparer », étape toujours là après rechargement. Capture :
+`23-compression-avant-apres.jpg`.
+
 ## Déclencheurs du faux modèle
 
 La réponse dépend du dernier message de l'utilisateur (sans le texte ajouté par H3 ni les
@@ -71,6 +82,7 @@ extraits RAG), des outils proposés et des résultats déjà reçus dans le tour
 | « heure », « Combien font », « recette_crepes », « confidentiel », « férié », « Wikipédia », « compte rendu », « MCP … veut dire » | appel de l'outil correspondant s'il est proposé (`get_datetime`, `calculator`, `read_file`, `public_holidays`, `wikipedia_summary`, `load_skill`, `load_tool_doc` puis `local__define_term`), puis « D'après le résultat de l'outil : … » |
 | « Délègue … sous-agent » (story 19) | appel de `delegate`, tâche « Lis le fichier guide_harnais.md et résume-le… » (` [lent]` recopié ; avec « page web » : tâche de lecture de page, le sous-agent appelle `fetch_page`) ; le sous-agent (tâche avec « guide_harnais ») appelle `read_file`, puis répond « D'après le résultat de l'outil : … » |
 | « Je m'appelle X » / « Comment je m'appelle » | retient X s'il est dans l'historique |
+| « journal_serveur » (story 20) | appel de `read_file` sur `journal_serveur.log`, puis « D'après le journal : » suivi de la ligne ERROR reçue (gardée par la compression) |
 | « mot de passe » et « Exemplia » | avec les extraits RAG : « D'après l'extrait N (Politique des mots de passe) : au minimum 14 caractères » ; sans : « Je ne connais pas les règles d'Exemplia » |
 | « Retiens que … » / « Rappelle-moi mon prénom » | appel de `remember` (mémoire globale) / prénom lu dans le message système |
 | prompt système « … toujours en une phrase, comme un pirate » | « Arrr ! … » |

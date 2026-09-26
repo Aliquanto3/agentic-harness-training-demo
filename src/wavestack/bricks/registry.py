@@ -204,6 +204,20 @@ BRICKS = [
             )
         ],
     ),
+    # Story 20 (AD-22): Headroom compresses tool results and RAG excerpts, in the harness's
+    # own process (a library); main context only.
+    BrickDeclaration(
+        id="compression",
+        category="context",
+        components=[
+            Component(
+                id="compression.compressor",
+                kind="compressor",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            )
+        ],
+    ),
 ]
 
 

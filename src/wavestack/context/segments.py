@@ -7,7 +7,7 @@ from functools import cache
 from typing import NamedTuple
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from wavestack import config
 
@@ -30,6 +30,15 @@ class SegmentKind(StrEnum):
     TEMPLATE = "template"
 
 
+class CompressedFrom(BaseModel):
+    """Story 20 (AD-22): what a compressed segment was, before the compressor replaced it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    tokens_before: int
+    text_before: str
+
+
 class Part(NamedTuple):
     """One harness-owned text placed in a message before rendering."""
 
@@ -40,6 +49,8 @@ class Part(NamedTuple):
     # Parts sharing a group (the texts of one tool definition, or of one call) become a
     # single segment, with the template pieces enclosed between them (AD-4).
     group: str | None = None
+    # Story 20: set on a compressed tool result or RAG excerpt; its segment carries it.
+    compressed_from: CompressedFrom | None = None
 
 
 class Joined(NamedTuple):
@@ -58,6 +69,7 @@ class Segment(BaseModel):
     tokens: int = 0
     estimated: bool = False  # chat mode: tokens estimated, then reconciled (AD-4)
     label_fr: str | None = None  # a label of its own, else its kind's
+    compressed_from: CompressedFrom | None = None  # story 20 (AD-22)
 
 
 class SegmentLabels(BaseModel):

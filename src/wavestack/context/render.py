@@ -309,6 +309,7 @@ def _attribute(
                 brick=None if owner is None else parts[owner].brick,
                 component=None if owner is None else parts[owner].component,
                 text=text,
+                compressed_from=None if owner is None else parts[owner].compressed_from,
             ),
             [parts[i] for i in owners],
         )

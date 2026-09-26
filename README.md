@@ -131,6 +131,24 @@ Un autre modèle d'embedding rend la brique indisponible, avec la raison, jusqu'
 reconstruction de l'index ; un corpus ou un `chunk_max_chars` modifiés ne comptent qu'après
 elle.
 
+## Compression du contexte (Headroom)
+
+La brique Compression passe les gros résultats d'outils et les extraits RAG à
+[Headroom](https://pypi.org/project/headroom-ai/) (`headroom-ai` 0.38.0, Apache-2.0), avant
+l'appel au modèle. C'est une dépendance optionnelle, non installée par `uv run wavestack` seul :
+installez-la une fois, depuis le dossier de WaveStack, avant une séance qui l'utilise.
+
+```bash
+uv sync --extra compression
+uv run wavestack
+```
+
+Sans elle, la carte de la brique est indisponible et donne cette commande ; le reste de
+WaveStack fonctionne. Headroom tourne hors ligne, sans télémétrie ni modèle d'apprentissage
+automatique (variables posées par WaveStack au lancement), et ajoute environ 130 Mo de mémoire
+(`[compression] cost_mb`, contrôlé par le budget). Un texte plus court que
+`[compression] min_chars` (300 caractères) n'est pas compressé.
+
 ## Modèle cloud (Groq, Mistral)
 
 Un modèle cloud compatible OpenAI peut remplacer le SLM local : plus rapide, meilleur avec les
@@ -220,7 +238,7 @@ Deux champs facultatifs :
 ## Développement
 
 ```bash
-uv sync
+uv sync --extra compression   # l'extra couvre le test de l'adaptateur Headroom
 uv run ruff check .
 uv run ruff format .
 uv run pytest
