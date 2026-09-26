@@ -55,6 +55,20 @@ BRICKS = [
             )
         ],
     ),
+    # Story 13: the model's reasoning mode, available when the model can reason (AD-6).
+    BrickDeclaration(
+        id="reasoning",
+        category="prompt",
+        capabilities=["reasoning"],
+        components=[
+            Component(
+                id="reasoning.mode",
+                kind="reasoning",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            )
+        ],
+    ),
     BrickDeclaration(
         id="tools",
         category="harness",

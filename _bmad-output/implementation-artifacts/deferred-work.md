@@ -207,3 +207,11 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-11b-corrections-test-manuel-story-11.md`
   summary: Mistral répond 429 à tout appel quand l'espace de travail n'a aucun quota actif ; le texte affiché (« quota dépassé (par seconde, par minute ou par jour) » et la piste `min_interval_s`) oriente à tort vers l'espacement. Piste : reconnaître `x-ratelimit-limit-req-minute: 0` et afficher « aucun quota actif sur ce compte : vérifiez le plan dans la console du fournisseur ».
   evidence: Sonde directe du 2026-09-26 sur le PC cible : trois appels espacés de plus d'1 s, tous en 429, corps `{"message":"Rate limit exceeded","type":"rate_limited","code":"1300"}`, en-têtes `x-ratelimit-limit-req-minute: 0` et `x-ratelimit-remaining-req-minute: 0`. La spec 11b interdit de déduire quoi que ce soit des en-têtes `x-ratelimit-*` (Never) : lever cette interdiction pour un message d'explication seulement (ni attente ni nouvel essai) est une décision à prendre. À vérifier dans la console Mistral : plan « Experiment » activé et vérification par téléphone faite.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
+  summary: Le front de la story 13 (option « Afficher le raisonnement », reasoning-block de la Vue humain et de Contexte LLM, carte « toujours active pour ce modèle ») n'a aucun test automatique.
+  evidence: Même écart que pour les stories 5b à 11b : aucun banc de test JS ; retirer le bloc de Contexte LLM ou ignorer l'option passerait pytest et `node --check`. À couvrir par le harnais E2E (tools/e2e/, faux serveur compatible OpenAI + Playwright) dès qu'il est disponible.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
+  summary: Non vérifié (medium si réel) — renvoi du raisonnement (`reasoning.resend = true`) au format `field` sous la clé `reasoning` du message assistant : aucun préréglage ne le déclare, forme jamais essayée contre un fournisseur réel.
+  evidence: Forme tirée d'AD-4 (« dans la forme reçue ») ; tests avec MockTransport seulement. À trancher en déclarant `resend = true` dans settings.json pour une entrée `field` puis en menant un tour avec outil : si le fournisseur refuse (400), renvoyer sous le nom de champ reçu (`reasoning` ou `reasoning_content`).

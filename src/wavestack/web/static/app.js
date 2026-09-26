@@ -44,6 +44,10 @@ const store = {
   openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
   openApprovalPayloads: new Set(), // approval ids whose payload is unfolded in the Vue humain card
+  // Story 13, UI state only: « Afficher le raisonnement » (remembered by the browser, shown by
+  // default), and the reasoning blocks the user unfolded (`chat:` or `ctx:` + turn id).
+  showReasoning: true,
+  openReasoning: new Set(),
   // Story 9: the armed actions as the session last sent them (AD-3), and every label seen, so
   // an `action_dropped` still names its action once the list moved on.
   armed: [],
@@ -522,15 +526,18 @@ function renderBricks() {
   const reopenPopovers = []; // help popovers that were open before this rebuild
   for (const brick of store.bricks.bricks) {
     const card = el("article", "brick-card");
-    card.classList.toggle("is-active", brick.wanted && brick.available);
+    // Story 13: a model that always reasons keeps the reasoning brick on, whatever `wanted`.
+    const always = Boolean(brick.always_fr);
+    card.classList.toggle("is-active", always || (brick.wanted && brick.available));
     card.classList.toggle("is-unavailable", !brick.available);
 
     const head = el("label", "brick-head");
     const toggle = el("input", "brick-toggle");
     toggle.type = "checkbox";
     toggle.setAttribute("role", "switch");
-    toggle.checked = brick.wanted;
-    toggle.disabled = !brick.available && !brick.wanted; // a wanted brick can always be turned off
+    toggle.checked = always || brick.wanted;
+    // A wanted brick can always be turned off, except one the model keeps on.
+    toggle.disabled = always || (!brick.available && !brick.wanted);
     toggle.dataset.focusKey = `toggle:${brick.id}`;
     toggle.addEventListener("change", () => setBrick(brick.id, toggle.checked));
     head.append(toggle, el("span", "brick-name", brick.label_fr));
@@ -542,6 +549,7 @@ function renderBricks() {
     card.append(head, tags);
 
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
+    if (always) card.appendChild(el("p", "brick-reason brick-always", brick.always_fr));
     if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
@@ -1130,6 +1138,42 @@ function turnNote(turn) {
   }
 }
 
+// EXPERIENCE.md reasoning-block: folded by default; the user's unfolding survives the
+// 250 ms rebuilds of the panes.
+function reasoningBlock(text, key, title) {
+  const details = el("details", "reasoning-block");
+  details.open = store.openReasoning.has(key);
+  const summary = el("summary", "", title);
+  summary.dataset.focusKey = `reasoning:${key}`;
+  details.append(summary, el("div", "reasoning-text", text));
+  details.addEventListener("toggle", () => {
+    if (details.open) store.openReasoning.add(key);
+    else store.openReasoning.delete(key);
+  });
+  return details;
+}
+
+const REASONING_STORAGE_KEY = "wavestack.showReasoning";
+
+function loadShowReasoning() {
+  try {
+    store.showReasoning = localStorage.getItem(REASONING_STORAGE_KEY) !== "0";
+  } catch {
+    store.showReasoning = true;
+  }
+  document.getElementById("show-reasoning").checked = store.showReasoning;
+}
+
+function toggleShowReasoning(event) {
+  store.showReasoning = event.target.checked;
+  try {
+    localStorage.setItem(REASONING_STORAGE_KEY, store.showReasoning ? "1" : "0");
+  } catch {
+    // No storage: the choice lasts until the page is reloaded.
+  }
+  renderChat();
+}
+
 // H5 cards of the Vue humain, kept between renders while their state is unchanged: the
 // 250 ms stopwatch would otherwise swap the buttons under the pointer and lose a click.
 let approvalCards = new Map(); // approval id -> { key, node }
@@ -1157,10 +1201,9 @@ function renderChat() {
     }
     nodes.push(user);
     const answer = el("div", "bubble bubble-model");
-    if (turn.reasoning) {
-      const details = el("details", "bubble-reasoning");
-      details.append(el("summary", "", "Raisonnement"), el("div", "", turn.reasoning));
-      answer.appendChild(details);
+    // FR-9: shown here only if « Afficher le raisonnement » is ticked; Contexte LLM always.
+    if (turn.reasoning && store.showReasoning) {
+      answer.appendChild(reasoningBlock(turn.reasoning, `chat:${turn.id}`, "Raisonnement"));
     }
     if (turn.text) answer.appendChild(el("div", "bubble-text", turn.text));
     if (turn.status === null && !turn.firstToken) {
@@ -1453,6 +1496,14 @@ function renderContext() {
     pane.appendChild(box);
   }
   for (const error of turn.errors) pane.appendChild(el("p", "bubble-note is-error", error));
+  // FR-9: the reasoning of the last call, always here, whatever the Vue humain option says:
+  // its `model_call_ended` once there, the live deltas while it streams.
+  const ended = lastCall(turn).ended;
+  const reasoning = ended ? ended.reasoning : turn.reasoning;
+  if (reasoning) {
+    pane.appendChild(el("h3", "ctx-heading", "Raisonnement du modèle"));
+    pane.appendChild(reasoningBlock(reasoning, `ctx:${turn.id}`, "Afficher le raisonnement de cet appel"));
+  }
   pane.appendChild(el("h3", "ctx-heading", "Sortie brute du modèle"));
   const raw = turn.callEnded ? turn.callEnded.raw_output : turn.reasoning + turn.text;
   pane.appendChild(
@@ -3504,6 +3555,8 @@ async function boot() {
   // Remembered pane layout first, so the page does not open on the defaults then jump.
   loadPaneLayout();
   loadShowForced();
+  loadShowReasoning();
+  document.getElementById("show-reasoning").addEventListener("change", toggleShowReasoning);
   createResizeHandles();
   applyPaneSizes();
   renderChips();

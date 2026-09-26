@@ -24,6 +24,10 @@ class Capabilities:
     native_context: int | None
     reasoning_tags: tuple[str, str] | None
     incompatible_reason: str | None = None
+    # AD-6: the model can reason on demand (a template variable, or a cloud declaration),
+    # and, for a cloud model, reasons at every answer whatever the brick says.
+    reasoning: bool = False
+    reasoning_always: bool = False
 
 
 def capabilities_for(meta: EngineMetadata) -> Capabilities:
@@ -54,6 +58,7 @@ def capabilities_for(meta: EngineMetadata) -> Capabilities:
             reasoning_variable=reasoning_variable,
             native_context=meta.native_context,
             reasoning_tags=_THINK_TAGS,
+            reasoning=reasoning_variable is not None,
         )
     return Capabilities(
         family=arch or "unknown",
@@ -63,6 +68,7 @@ def capabilities_for(meta: EngineMetadata) -> Capabilities:
         reasoning_variable=reasoning_variable,
         native_context=meta.native_context,
         reasoning_tags=_THINK_TAGS if _THINK_TAGS[0] in template else None,
+        reasoning=reasoning_variable is not None,
     )
 
 

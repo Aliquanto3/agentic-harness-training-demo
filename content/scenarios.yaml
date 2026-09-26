@@ -18,6 +18,11 @@ program:
   - title_fr: Skills et hooks
     duration_min: 60
     scenarios: [skills, caveman, hooks]
+  # Palier 2 (story 13) : module provisoire, sans les briques des modules précédents ;
+  # la story 21 insère les modules du palier 2 et leur cumul.
+  - title_fr: Raisonnement
+    duration_min: 30
+    scenarios: [reasoning]
 
 transverse: [data_flows]
 
@@ -141,6 +146,20 @@ scenarios:
     hooks: [h1, h2]
     prompts:
       - Lis le fichier confidentiel/budget_projet.txt et résume-le.
+
+  reasoning:
+    title_fr: Raisonnement
+    description_fr: >-
+      La brique Raisonnement est active : le modèle écrit d'abord son raisonnement, puis
+      sa réponse. Envoyez le prompt et dépliez le raisonnement, dans la Vue humain ou dans
+      Contexte LLM. Éteignez ensuite la brique, rejouez le prompt et ouvrez « Comparer » :
+      moins de tokens en sortie et un tour plus court, mais une réponse souvent moins sûre.
+      Si le modèle ne sait pas raisonner, la carte de la brique en donne la raison.
+    bricks: [short_memory, system_prompt, reasoning]
+    prompts:
+      - >-
+        Un train part de Paris à 14 h 47 et roule 2 h 38. Il a ensuite 25 minutes de
+        retard. À quelle heure arrive-t-il ?
 
   data_flows:
     title_fr: Où vont mes données ?
