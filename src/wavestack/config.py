@@ -227,6 +227,36 @@ class EmbeddingModel(_Strict):
         return next(f for f in self.files if PurePosixPath(f.path) == PurePosixPath(self.load_path))
 
 
+class RerankerModel(_Strict):
+    """`[rag.reranker]` (story 16): the single place that names the reranking model, with
+    the values of story 12's verdict. Only the `llama_cpp` backend has an adapter; its files
+    are declared, downloaded and identified as the embedding model's are."""
+
+    id: str = Field(min_length=1)
+    backend: Literal["llama_cpp"]
+    label_fr: str = Field(min_length=1)
+    license: str = Field(min_length=1)
+    max_tokens: int = Field(gt=8)  # one query-excerpt pair, in tokens
+    load_path: str = Field(min_length=1)
+    measured_rss_mb: int | None = Field(default=None, gt=0)
+    files: list[EmbeddingFile] = Field(min_length=1)
+
+    @field_validator("load_path")
+    @classmethod
+    def _inside_models_dir(cls, value: str) -> str:
+        return _relative_path(value)
+
+    @model_validator(mode="after")
+    def _load_path_is_declared(self) -> RerankerModel:
+        if PurePosixPath(self.load_path) not in {PurePosixPath(f.path) for f in self.files}:
+            raise ValueError("load_path must be one of files[].path")
+        return self
+
+    @property
+    def load_file(self) -> EmbeddingFile:
+        return next(f for f in self.files if PurePosixPath(f.path) == PurePosixPath(self.load_path))
+
+
 def _merge_cloud_models(base: Any, override: Any) -> list[Any]:
     """AD-20: `[[cloud.models]]` entries merge by `id`, field by field, on the raw dicts."""
     merged: dict[Any, Any] = {}
@@ -367,6 +397,33 @@ class Config:
     def rag_top_k(self) -> int:
         """Story 15: the excerpts placed in the context at each turn."""
         return max(1, self._int("rag", "top_k", default=3))
+
+    @cached_property
+    def rag_reranker(self) -> tuple[RerankerModel | None, str | None]:
+        """Story 16: the `[rag.reranker]` model, or why its declaration is absent or invalid
+        (French)."""
+        raw = self.get("rag", "reranker")
+        if raw is None:
+            return None, (
+                "Indisponible : la section [rag.reranker] de wavestack.toml est absente (elle "
+                "nomme le modèle de reranking). Rétablissez-la, puis relancez WaveStack."
+            )
+        try:
+            return RerankerModel.model_validate(raw), None
+        except ValidationError as exc:
+            fields = ", ".join(
+                ".".join(str(p) for p in e["loc"]) or "section" for e in exc.errors()
+            )
+            return None, (
+                f"Indisponible : la section [rag.reranker] est invalide ({fields}). Corrigez "
+                "wavestack.toml ou settings.json, puis relancez WaveStack."
+            )
+
+    @property
+    def rag_rerank_candidates(self) -> int:
+        """Story 16: the candidates the embedding retains for the reranker, from `top_k` to
+        20."""
+        return max(self.rag_top_k, min(20, self._int("rag", "rerank_candidates", default=8)))
 
     @property
     def rag_chunk_max_chars(self) -> int:

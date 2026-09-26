@@ -29,5 +29,16 @@ explanation_fr:
     (« Et à Lyon ? ») cherche sans le contexte des tours précédents, et trouve souvent mal ;
     un RAG avancé reformule d'abord la question.
   - >-
+    Sous-option « Reranking » : l'embedding compare des vecteurs calculés séparément pour la
+    question et pour chaque extrait ; il est rapide, mais approximatif. Le reranker, un
+    second modèle local, lit la question et un extrait ensemble et note leur pertinence de 0
+    à 1. Le harnais retient d'abord plus de candidats (8 par défaut), les fait noter un par
+    un, puis ne garde que les 3 premiers : l'étape « Reranking » d'Orchestration montre
+    l'ordre avant et après. Les deux scores ne se comparent pas entre eux.
+  - - "Gain : les extraits gardés répondent plus souvent à la question."
+    - >-
+      Coût : un passage du reranker par candidat avant le premier appel au modèle (le
+      premier token arrive plus tard), et un modèle de plus en mémoire.
+  - >-
     Première installation : « Télécharger » récupère le modèle d'embedding, puis
     « Construire l'index » découpe le corpus et l'indexe sur le poste, sans ligne de commande.

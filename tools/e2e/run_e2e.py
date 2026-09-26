@@ -1419,6 +1419,175 @@ def s_rag(r: Run) -> None:
     )
 
 
+RERANK_QUESTION = (
+    "Quel plafond de remboursement s'applique à une nuit d'hôtel à Paris chez Exemplia ?"
+)
+
+
+def _rerank_step(r: Run):
+    """The last « Reranking » step of Orchestration."""
+    name = r.page.locator(".turn-step-name", has_text="Reranking")
+    return r.page.locator("#orch-scroll .turn-step", has=name).last
+
+
+def s_rag_rerank(r: Run) -> None:
+    """Story 16, after `rag` (index built, embedding model there): the « Reranking »
+    sub-option of the RAG card, its model absent (the RAG goes on without it), then
+    downloaded; a turn whose step shows the order before and after, the kept excerpts in the
+    message sent, the reranker in the schema; switched off: pending, no step; a reload."""
+    r.launch("rag_rerank")
+    card = r.card("RAG")
+    toggle = card.locator('input[data-focus-key="option:rag:rerank"]')
+    download = card.get_by_role("button", name=re.compile("Télécharger le modèle de reranking"))
+    expect(download).to_be_visible(timeout=10_000)
+    rag = r.bricks()["rag"]
+    rerank = rag.get("rerank") or {}
+    r.check(
+        rag["available"]
+        and rerank.get("enabled")
+        and not rerank.get("available")
+        and (rerank.get("download") or {}).get("target") == "rag_reranker",
+        "scénario : sous-option cochée, modèle de reranking absent, « Télécharger » proposé, "
+        "brique RAG disponible",
+        str(rerank)[:300],
+    )
+    reason = card.locator(".brick-suboption .brick-reason").inner_text()
+    r.check(
+        toggle.is_checked() and "modèle absent" in reason and "sans reranking" in reason,
+        "la carte RAG : case « Reranking » cochée, raison « modèle absent »",
+        reason[:200],
+    )
+
+    # Without its model, the RAG searches as before: no reranking step.
+    seq = r.ev.mark()
+    ended = r.send(RERANK_QUESTION)
+    r.check(ended["payload"]["status"] == "completed", "tour sans modèle de reranking terminé")
+    searched = r.ev.since(seq, "rag_search_started")
+    r.check(
+        len(searched) == 1
+        and searched[0]["payload"]["top_k"] == 3
+        and not r.ev.since(seq, "rag_rerank_started"),
+        "sans modèle de reranking : recherche de 3 extraits, aucune étape « Reranking »",
+    )
+
+    # « Télécharger le modèle de reranking »: the file, then the reranker loads.
+    seq = r.ev.mark()
+    download.click()
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
+    r.ev.wait(
+        "bricks_changed",
+        seq,
+        lambda p: (
+            (next(b for b in p["bricks"] if b["id"] == "rag").get("rerank") or {}).get("available")
+            is True
+        ),
+        30,
+    )
+    r.check(
+        (r.stack.data_dir / "models" / "reranker" / "fake-e2e.gguf").is_file(),
+        "téléchargement réussi : le fichier du reranker est dans le dossier des modèles",
+    )
+    sha = [
+        e for e in r.ev.since(seq, "effect_applied") if e["payload"]["effect"] == "model_download"
+    ]
+    r.check(
+        len(sha) == 1 and "reranker" in sha[0]["payload"]["lines"][0],
+        "le téléchargement trace le fichier du reranker et son sha256",
+        str(sha[0]["payload"]["lines"] if sha else None),
+    )
+    expect(download).to_be_hidden(timeout=5000)
+    r.check(True, "la carte ne propose plus « Télécharger le modèle de reranking »")
+
+    # The prompt replayed: 8 candidates, reranked; the first three go to the message.
+    seq = r.ev.mark()
+    ended = r.replay()
+    r.check(ended["payload"]["status"] == "completed", "rejeu avec reranking terminé")
+    search = r.ev.since(seq, "rag_search_ended")
+    reranked = r.ev.since(seq, "rag_rerank_ended")
+    found = search[0]["payload"]["excerpts"] if search else []
+    after = reranked[0]["payload"]["excerpts"] if reranked else []
+    r.check(
+        len(found) == 8 and len(after) == 8 and reranked[0]["payload"]["status"] == "ok",
+        "recherche de 8 candidats, puis reranking des 8",
+        f"{len(found)} / {len(after)}",
+    )
+    first = after[0] if after else {}
+    r.check(
+        first.get("doc_id") == "deplacements" and first.get("before", 1) > 3,
+        "le reranker remonte « Déplacements » en tête (hors des 3 premiers de l'embedding)",
+        str([(e["doc_id"], e["before"], e["score"]) for e in after]),
+    )
+    body = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
+    r.check(
+        "Extrait 1 — Déplacements et notes de frais" in body and body.count("Extrait ") == 3,
+        "seuls les 3 premiers après reranking partent dans le message (corps JSON)",
+    )
+
+    # Orchestration: the step, its figure, the order before and after.
+    step = _rerank_step(r)
+    figure = step.locator(".turn-step-figure").inner_text()
+    r.check(
+        re.match(r"3 gardés sur 8 · ", figure) is not None
+        and "⚙ harnais" in step.locator(".turn-step-actor").inner_text(),
+        "Orchestration : « ↕️ Reranking », acteur harnais, « 3 gardés sur 8 · durée »",
+        figure,
+    )
+    search_figure = _rag_step(r).locator(".turn-step-figure").inner_text()
+    r.check(
+        re.match(r"8 extraits · ", search_figure) is not None,
+        "l'étape « Recherche RAG » qui précède montre les 8 candidats",
+        search_figure,
+    )
+    step.locator(".turn-step-line").click()
+    expect(step.locator(".rerank-after li")).to_have_count(8, timeout=5000)
+    r.check(
+        step.locator(".rerank-before li").count() == 8
+        and step.locator(".rerank-after li.is-kept").count() == 3,
+        "l'étape dépliée montre l'ordre avant (8) et après (8), dont 3 gardés",
+    )
+    move = step.locator(".rerank-after .rerank-move").first.inner_text()
+    text = step.inner_text()
+    r.check(
+        move.startswith("↑") and "Avant (embedding)" in text and "Après (reranker)" in text,
+        "le premier extrait après reranking est marqué comme remonté",
+        move,
+    )
+    step.locator(".rerank-after .rag-excerpt-head").first.click()
+    chip = r.page.locator('#schema .arch-chip[data-component="rag.reranker"]')
+    expect(chip).to_have_class(re.compile("is-selected"), timeout=5000)
+    r.check(
+        "↕" in chip.inner_text() and "Modèle de reranking" in (chip.get_attribute("title") or ""),
+        "un clic sur un extrait sélectionne la puce du reranker, qui nomme son modèle",
+        chip.get_attribute("title") or "",
+    )
+    r.shot("24-reranking-avant-apres")
+
+    # AD-1: after a reload, the reranking step is rebuilt from the journal.
+    r.page.reload()
+    r.wait_idle()
+    expect(_rerank_step(r)).to_be_visible(timeout=10_000)
+    r.check(
+        re.match(r"3 gardés sur 8 · ", _rerank_step(r).locator(".turn-step-figure").inner_text())
+        is not None,
+        "après rechargement, l'étape « Reranking » est toujours là",
+    )
+
+    # Switched off: « Prend effet au prochain tour », no reranker in the schema, no step.
+    seq = r.ev.mark()
+    toggle.click()
+    r.ev.wait("bricks_changed", seq, timeout=10)
+    expect(card.locator(".brick-pending")).to_be_visible(timeout=5000)
+    expect(chip).to_have_count(0, timeout=5000)
+    r.check(True, "case décochée : « Prend effet au prochain tour », le reranker quitte le schéma")
+    seq = r.ev.mark()
+    r.replay()
+    r.check(
+        not r.ev.since(seq, "rag_rerank_started")
+        and r.ev.since(seq, "rag_search_started")[0]["payload"]["top_k"] == 3,
+        "rejeu sans reranking : 3 extraits, aucune étape « Reranking »",
+    )
+
+
 def s_busy_and_stop(r: Run) -> None:
     r.launch("bare_llm")
     seq = r.ev.mark()
@@ -1887,6 +2056,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("forced_native", s_forced_native),
     ("global_memory", s_global_memory),
     ("rag", s_rag),
+    ("rag_rerank", s_rag_rerank),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
     ("stream_resync", s_stream_resync),

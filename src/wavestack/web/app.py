@@ -71,6 +71,12 @@ class McpModeIntention(BaseModel):
     lazy: bool
 
 
+class RagRerankIntention(BaseModel):
+    """Story 16: the RAG brick's reranking sub-option."""
+
+    enabled: bool
+
+
 class SkillIntention(BaseModel):
     skill: str
     enabled: bool
@@ -102,7 +108,7 @@ class ArmIntention(BaseModel):
 
 
 class DownloadModelIntention(BaseModel):
-    """Story 15: the model to download; `rag_embedding` is the only target so far."""
+    """Stories 15 and 16: the model to download, `rag_embedding` or `rag_reranker`."""
 
     target: str
 
@@ -425,6 +431,16 @@ def create_app(
     def mcp_mode(intention: McpModeIntention) -> dict[str, bool]:
         """Class (a): documentation complète or lazy loading, from the next turn (AD-25)."""
         app_session.set_mcp_mode(intention.lazy)
+        return {"accepted": True}
+
+    @app.post("/api/intentions/rag_rerank")
+    def rag_rerank(intention: RagRerankIntention) -> dict[str, bool]:
+        """Class (a), story 16: reranking of the RAG's excerpts, from the next turn; its model
+        loads or leaves on the worker (AD-8)."""
+        try:
+            app_session.set_rag_rerank(intention.enabled)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Aucune brique RAG.") from None
         return {"accepted": True}
 
     @app.post("/api/intentions/skill")

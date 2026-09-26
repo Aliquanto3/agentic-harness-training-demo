@@ -26,6 +26,7 @@ class Scenario(BaseModel):
     skills: list[str] | None = None
     hooks: list[str] | None = None
     mcp_lazy: bool = False
+    rag_rerank: bool = False  # story 16: the RAG brick's reranking sub-option
     prompts: list[str] = Field(min_length=1)
 
 

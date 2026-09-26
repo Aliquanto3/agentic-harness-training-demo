@@ -42,6 +42,12 @@ class RagContent(BaseModel):
     index_label_fr: str = Field(min_length=1)
     download_label_fr: str = Field(min_length=1)
     build_label_fr: str = Field(min_length=1)
+    # Story 16: the reranking sub-option's texts.
+    rerank_label_fr: str = Field(min_length=1)
+    rerank_phase_label_fr: str = Field(min_length=1)
+    rerank_search_placement_fr: str = Field(min_length=1)  # {candidates}, {keep}
+    rerank_placement_fr: str = Field(min_length=1)  # {keep}
+    rerank_download_label_fr: str = Field(min_length=1)  # {size_mb}
     documents: list[CorpusDocument] = Field(min_length=1)
 
     @field_validator("excerpt_format_fr")
@@ -50,10 +56,16 @@ class RagContent(BaseModel):
         value.format(position=1, title_fr="", text="")  # raises on an unknown field
         return value
 
-    @field_validator("download_label_fr")
+    @field_validator("download_label_fr", "rerank_download_label_fr")
     @classmethod
     def _size_field(cls, value: str) -> str:
         value.format(size_mb=1)
+        return value
+
+    @field_validator("rerank_search_placement_fr", "rerank_placement_fr")
+    @classmethod
+    def _rerank_fields(cls, value: str) -> str:
+        value.format(candidates=1, keep=1)  # raises on an unknown field
         return value
 
     def excerpt(self, position: int, title_fr: str, text: str) -> str:

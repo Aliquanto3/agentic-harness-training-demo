@@ -279,7 +279,7 @@ class BrickForce(BaseModel):
 class DownloadOffer(BaseModel):
     """Story 15: « Télécharger » on a brick card, its target and its label (size included)."""
 
-    target: Literal["rag_embedding"]
+    target: Literal["rag_embedding", "rag_reranker"]  # story 16: the reranking model
     label_fr: str
 
 
@@ -287,6 +287,18 @@ class IndexBuildOffer(BaseModel):
     """Story 15: « Construire l'index » on the RAG card, once its model is there."""
 
     label_fr: str
+
+
+class RerankOption(BaseModel):
+    """Story 16, `rag` brick: the reranking sub-option, its availability computed by the
+    session, and « Télécharger » while its model's files are missing (AD-21)."""
+
+    label_fr: str
+    enabled: bool
+    available: bool
+    reason_fr: str | None = None
+    hosting_fr: str
+    download: DownloadOffer | None = None
 
 
 class BrickState(BaseModel):
@@ -320,6 +332,8 @@ class BrickState(BaseModel):
     # Story 15, `rag` brick: offered when the embedding model's files are missing (AD-21).
     download: DownloadOffer | None = None
     build_index: IndexBuildOffer | None = None
+    # Story 16, `rag` brick: the reranking sub-option (None: no RAG content).
+    rerank: RerankOption | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -606,6 +620,36 @@ class RagSearchEndedPayload(BaseModel):
     duration_ms: int
 
 
+# ---------- story 16: reranking (AD-2, AD-22) ----------
+
+
+class RerankedExcerpt(BaseModel):
+    position: int  # rank after reranking, from 1
+    before: int  # rank given by the embedding search, from 1
+    chunk_id: int
+    doc_id: str
+    title_fr: str
+    text: str
+    score: float  # the reranker's, 0 to 1, 3 decimals
+    retrieval_score: float  # the embedding search's
+
+
+class RagRerankStartedPayload(BaseModel):
+    query: str
+    candidates: int
+    keep: int
+    phase_label: str
+
+
+class RagRerankEndedPayload(BaseModel):
+    status: Literal["ok", "error"]
+    excerpts: list[RerankedExcerpt]  # every candidate, in the reranker's order
+    keep: int  # the first `keep` go to the context
+    placement_fr: str
+    error_fr: str | None = None
+    duration_ms: int
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -649,4 +693,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "subagent_ended": SubagentEndedPayload,
     "rag_search_started": RagSearchStartedPayload,
     "rag_search_ended": RagSearchEndedPayload,
+    "rag_rerank_started": RagRerankStartedPayload,
+    "rag_rerank_ended": RagRerankEndedPayload,
 }

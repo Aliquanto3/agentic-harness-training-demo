@@ -42,6 +42,8 @@ def free_port() -> int:
 
 EMBEDDING_FILE = "embedding/fake-e2e.gguf"
 EMBEDDING_SIZE = 4096  # `fake_openai.MODEL_FILE_SIZE`
+RERANKER_FILE = "reranker/fake-e2e.gguf"
+RERANKER_SIZE = 2048  # `fake_openai.RERANKER_FILE_SIZE`
 
 
 def _entry(fake_port: int, entry_id: str, provider: str, model: str) -> dict:
@@ -63,7 +65,7 @@ def _entry(fake_port: int, entry_id: str, provider: str, model: str) -> dict:
 def rag_settings(fake_port: int, data_dir: Path) -> dict:
     """Story 15: the index in the data dir (absent at first, built from the RAG card, as on a
     fresh install), the fake embedding model (its file served by the fake server, over the
-    loopback)."""
+    loopback); story 16: the fake reranker's, likewise."""
     return {
         "index_path": str(data_dir / "rag_index.sqlite"),
         "embedding": {
@@ -76,6 +78,19 @@ def rag_settings(fake_port: int, data_dir: Path) -> dict:
                     "url": f"http://127.0.0.1:{fake_port}/_e2e/model.gguf",
                     "path": EMBEDDING_FILE,
                     "size": EMBEDDING_SIZE,
+                }
+            ],
+        },
+        # Story 16: the fake reranker, absent at first, its file served by the fake server.
+        "reranker": {
+            "id": "fake-reranker",
+            "label_fr": "Faux reranker (e2e)",
+            "load_path": RERANKER_FILE,
+            "files": [
+                {
+                    "url": f"http://127.0.0.1:{fake_port}/_e2e/reranker.gguf",
+                    "path": RERANKER_FILE,
+                    "size": RERANKER_SIZE,
                 }
             ],
         },

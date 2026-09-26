@@ -58,6 +58,7 @@ const store = {
   memoryDrafts: new Map(),
   downloadError: null, // story 15: the last refusal of « Télécharger » (UI state only)
   ragNotice: null, // story 15: the last failure of the RAG's download or build (`harness_error`)
+  rerankNotice: null, // story 16: the last failure of the reranker's download or load
   openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
   openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
@@ -204,7 +205,7 @@ function applyEnvelope(envelope) {
   switch (envelope.kind) {
     case "session_state":
       store.sessionState = p;
-      if (p.state === "download" || p.state === "index_build") store.ragNotice = null; // a new attempt
+      if (p.state === "download" || p.state === "index_build") store.ragNotice = store.rerankNotice = null; // a new attempt
 
       // The diagnostic session's own states carry no model: the last known one stays.
       if (p.active_model !== undefined) store.activeModel = p.active_model;
@@ -379,6 +380,18 @@ function applyEnvelope(envelope) {
       if (search) search.ended = p;
       break;
     }
+    case "rag_rerank_started":
+      // Story 16: the reranker scores the candidates, its own step after the search.
+      if (turn) {
+        Object.assign(turn, { phaseLabel: p.phase_label, callStartedAt: Date.parse(envelope.ts), firstToken: false });
+        turn.steps.push({ type: "rerank", started: p, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null });
+      }
+      break;
+    case "rag_rerank_ended": {
+      const rerank = turn?.steps.filter((s) => s.type === "rerank").at(-1);
+      if (rerank) rerank.ended = p;
+      break;
+    }
     case "tool_ended": {
       const tool = turn?.steps.filter((s) => s.type === "tool").at(-1);
       if (tool) tool.ended = p;
@@ -469,7 +482,10 @@ function applyEnvelope(envelope) {
       if (turn) turn.errors.push([p.message_fr, ...(p.hints_fr ?? [])].join(" "));
       // Story 15: a failed download (or load) of the RAG's model, said on its card.
       else if (envelope.brick === "rag") {
-        store.ragNotice = [p.message_fr, p.cause ? `Cause : ${p.cause}.` : null, p.effect_fr].filter(Boolean).join(" ");
+        const notice = [p.message_fr, p.cause ? `Cause : ${p.cause}.` : null, p.effect_fr].filter(Boolean).join(" ");
+        // Story 16: the reranker's, said under its switch.
+        if (envelope.component === "rag.reranker") store.rerankNotice = notice;
+        else store.ragNotice = notice;
       }
       break;
     case "turn_ended":
@@ -834,7 +850,7 @@ function renderBricks() {
     card.append(head, tags);
 
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
-    if (brick.id === "rag") card.append(...downloadParts(brick));
+    if (brick.id === "rag") card.append(...downloadParts(brick), ...rerankParts(brick));
     if (always) {
       const why = el("p", "brick-reason brick-always", brick.always_fr);
       why.id = `always-${brick.id}`;
@@ -906,7 +922,7 @@ function renderBricks() {
 }
 
 function sessionKey() {
-  return `${store.sessionState?.state ?? ""}|${store.sessionState?.reason_fr ?? ""}|${store.ragNotice ?? ""}`;
+  return `${store.sessionState?.state ?? ""}|${store.sessionState?.reason_fr ?? ""}|${store.ragNotice ?? ""}|${store.rerankNotice ?? ""}`;
 }
 
 // Story 15 (AD-21): « Télécharger » while the model is missing, the progress and « Arrêter »
@@ -950,6 +966,45 @@ function downloadParts(brick) {
   if (store.downloadError) parts.push(el("p", "force-error", store.downloadError));
   button.addEventListener("click", offer.run);
   return parts;
+}
+
+// Story 16: the « Reranking » sub-option of the RAG card: its switch and hosting tag, its
+// reason when unavailable, and « Télécharger » while its model is missing (AD-21).
+function rerankParts(brick) {
+  const option = brick.rerank;
+  if (!option) return [];
+  const box = el("div", "brick-suboption");
+  const row = el("label", "brick-option");
+  const toggle = el("input", "brick-toggle");
+  toggle.type = "checkbox";
+  toggle.setAttribute("role", "switch");
+  toggle.checked = option.enabled;
+  // Always switchable off; switchable on only when available (like a brick).
+  toggle.disabled = !option.available && !option.enabled;
+  toggle.dataset.focusKey = "option:rag:rerank";
+  toggle.addEventListener("change", () => setOption("rag_rerank", null, toggle.checked));
+  row.append(toggle, el("span", "brick-option-name", option.label_fr), el("span", "hosting-tag-local", option.hosting_fr));
+  box.appendChild(row);
+  if (!option.available && option.reason_fr) {
+    const why = el("p", "brick-reason", option.reason_fr);
+    why.id = "rerank-why";
+    toggle.setAttribute("aria-describedby", why.id);
+    box.appendChild(why);
+  }
+  if (option.download) {
+    if (store.rerankNotice) box.appendChild(el("p", "force-error", store.rerankNotice));
+    const state = store.sessionState?.state;
+    const button = el("button", "brick-edit brick-download-rerank", option.download.label_fr);
+    button.type = "button";
+    button.dataset.focusKey = "download:rag:rerank";
+    button.disabled = state !== "idle";
+    if (button.disabled) button.title = store.sessionState?.reason_fr || "WaveStack est occupé.";
+    button.addEventListener("click", () => ragAction("/api/intentions/download_model", { target: option.download.target }));
+    box.appendChild(button);
+    // A refusal (409) is said here when the card's own offer does not already say it.
+    if (store.downloadError && !brick.download && !brick.build_index) box.appendChild(el("p", "force-error", store.downloadError));
+  }
+  return [box];
 }
 
 async function ragAction(path, body) {
@@ -1346,7 +1401,9 @@ async function setOption(brickId, id, enabled) {
   // A tool of the tools brick, a server of the MCP brick, the MCP documentation mode, a
   // skill of the skills brick, or a hook of the hooks brick.
   const [path, body] =
-    brickId === "mcp_mode"
+    brickId === "rag_rerank"
+      ? ["/api/intentions/rag_rerank", { enabled }]
+      : brickId === "mcp_mode"
       ? ["/api/intentions/mcp_mode", { lazy: enabled }]
       : brickId === "mcp"
         ? ["/api/intentions/mcp_server", { server: id, enabled }]
@@ -2748,6 +2805,74 @@ function ragBody(step) {
   return nodes;
 }
 
+// Story 16: the order before and after reranking, side by side; the kept ones first.
+function rerankBody(step) {
+  const ended = step.ended;
+  const nodes = [el("p", "label", "Requête"), el("pre", "step-code", step.started.query)];
+  if (!ended) {
+    const running = el("div", "token-counter number", `${step.started.phase_label} `);
+    running.appendChild(tick(step.startedAt));
+    nodes.push(running);
+    return nodes;
+  }
+  nodes.push(el("p", "", `Placement : ${ended.placement_fr}`));
+  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  if (ended.status === "error") {
+    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_fr));
+    return nodes;
+  }
+  const select = () => {
+    store.selection = step.component || "rag.reranker";
+    scheduleRender();
+  };
+  const kept = (excerpt) => excerpt.position <= ended.keep;
+  const before = [...ended.excerpts].sort((a, b) => a.before - b.before);
+  const columns = el("div", "rerank-columns");
+  const beforeList = el("ol", "rerank-list rerank-before");
+  for (const excerpt of before) {
+    const item = el("li", `rerank-item${kept(excerpt) ? " is-kept" : ""}`);
+    item.append(
+      el("span", "rag-rank", `#${excerpt.before}`),
+      el("span", "rag-doc", excerpt.title_fr),
+      el("span", "rag-score number", scoreFormat.format(excerpt.retrieval_score)),
+      el("span", "rerank-move", `→ #${excerpt.position}`)
+    );
+    item.title = kept(excerpt) ? "Gardé après reranking" : "Écarté par le reranking";
+    beforeList.appendChild(item);
+  }
+  const afterList = el("ol", "rerank-list rerank-after");
+  for (const excerpt of ended.excerpts) {
+    const item = el("li", `rerank-item${kept(excerpt) ? " is-kept" : " is-dropped"}`);
+    const details = el("details");
+    const head = el("summary", "rag-excerpt-head");
+    const moved = excerpt.before - excerpt.position;
+    const move = moved > 0 ? `↑ ${moved}` : moved < 0 ? `↓ ${-moved}` : "=";
+    head.append(
+      el("span", "rag-rank", `#${excerpt.position}`),
+      el("span", "rerank-move", move),
+      el("span", "rag-doc", excerpt.title_fr),
+      el("span", "rag-score number", scoreFormat.format(excerpt.score)),
+      el("span", "rerank-keep", kept(excerpt) ? "gardé" : "écarté")
+    );
+    head.title = `Rang ${excerpt.before} avant le reranking. Sélectionne le reranker dans le schéma ; déplie le texte`;
+    head.addEventListener("click", select);
+    details.append(head, el("pre", "step-code", excerpt.text));
+    item.appendChild(details);
+    afterList.appendChild(item);
+  }
+  const col = (title, list) => {
+    const box = el("div", "rerank-column");
+    box.append(el("p", "label", title), list);
+    return box;
+  };
+  columns.append(
+    col("Avant (embedding) · rang · document · score · rang après", beforeList),
+    col("Après (reranker) · rang · écart · document · score", afterList)
+  );
+  nodes.push(columns, el("p", "rerank-note", `Seuls les ${ended.keep} premiers après reranking entrent dans le contexte ; les deux scores ne se comparent pas.`));
+  return nodes;
+}
+
 const HOOK_DECISIONS = {
   allow: "laissé passer",
   modify: "modifié",
@@ -3059,6 +3184,23 @@ function turnRows(turn) {
         sticky: failed,
         sig: [Boolean(ended), ended?.status],
         body: () => ragBody(step),
+      });
+    } else if (step.type === "rerank") {
+      // Story 16: the reranking of the search's candidates.
+      const ended = step.ended;
+      const failed = ended?.status === "error";
+      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+      if (ended) figure = failed ? "erreur" : `${ended.keep} gardés sur ${ended.excerpts.length} · ${seconds(ended.duration_ms)}`;
+      rows.push({
+        key,
+        icon: "↕️",
+        title: "Reranking",
+        actor: "harness",
+        figure,
+        tone: failed ? "error" : null,
+        sticky: failed,
+        sig: [Boolean(ended), ended?.status],
+        body: () => rerankBody(step),
       });
     } else if (step.type === "action_dropped") {
       const label = step.label || "action forcée";
@@ -3951,6 +4093,8 @@ const KIND_LABELS = {
   subagent_ended: "Sous-agent terminé",
   rag_search_started: "Recherche RAG commencée",
   rag_search_ended: "Recherche RAG terminée",
+  rag_rerank_started: "Reranking commencé",
+  rag_rerank_ended: "Reranking terminé",
 };
 const MODEL_LOAD_STATUS = { ok: "chargé", restored: "retour au modèle précédent", error: "échec" };
 const MEMORY_OPS = { add: "Ajout en mémoire", replace: "Modification en mémoire", delete: "Suppression en mémoire" };
@@ -4032,6 +4176,13 @@ function eventSummary(group) {
       return p.status === "completed" ? subFigure(p) : SUB_STATUS[p.status] ?? p.status;
     case "rag_search_started":
       return `« ${p.query} » · ${fmt(p.top_k)} au plus`;
+    case "rag_rerank_started":
+      return `« ${p.query} » · ${fmt(p.candidates)} candidats, ${fmt(p.keep)} gardés`;
+    case "rag_rerank_ended":
+      return p.status === "ok"
+        ? `${p.keep} gardés sur ${p.excerpts.length} · ${seconds(p.duration_ms)}` +
+            (p.excerpts.length ? ` · premier : ${p.excerpts[0].title_fr} (avant : #${p.excerpts[0].before})` : "")
+        : p.error_fr;
     case "rag_search_ended":
       return p.status === "ok"
         ? `${plural(p.excerpts.length, "extrait")} · ${seconds(p.duration_ms)}` +
@@ -4183,6 +4334,8 @@ const BRICK_ICONS = {
   subagent: "👥",
   rag: "📚",
 };
+// A component with its own icon in the harness frame (story 16: the reranker).
+const COMPONENT_ICONS = { "rag.reranker": "↕️" };
 const POSE_LABELS = { idle: "au repos", thinking: "réfléchit", tool: "utilise un outil" };
 // Hook id -> its point of attachment, in the order the strip lists them (formatting only, like
 // HOOK_ICONS): the order of a turn, from the user's message to its end.
@@ -4302,7 +4455,7 @@ function schemaActivity(nodes) {
   if (!turn || turn.status !== null) return null;
   const steps = allSteps(turn); // a sub-agent's tools and hooks light up too (story 19)
   let i = steps.length - 1;
-  while (i >= 0 && !["tool", "hook", "rag"].includes(steps[i].type)) i--;
+  while (i >= 0 && !["tool", "hook", "rag", "rerank"].includes(steps[i].type)) i--;
   if (i < 0) return null;
   const step = steps[i];
   const drawn = (id) => nodes.some((n) => n.id === id); // only enabled hooks can act
@@ -4311,6 +4464,11 @@ function schemaActivity(nodes) {
     const id = step.component || "rag.retriever";
     if (step.ended || !drawn(id)) return null;
     return { component: id, mode: "on", target: drawn("file.rag_index") ? "file.rag_index" : null };
+  }
+  if (step.type === "rerank") {
+    // Story 16: the reranker scores in the harness itself: no path.
+    const id = step.component || "rag.reranker";
+    return step.ended || !drawn(id) ? null : { component: id, mode: "on", target: null };
   }
   if (step.type === "tool") {
     // A harness tool (documentation, skills, delegation) runs in the harness itself: no path.
@@ -4406,7 +4564,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   const core = el("div", "arch-core");
   const chips = el("div", "arch-chips");
   for (const node of nodes.filter((n) => n.kind === "brick")) {
-    const icon = BRICK_ICONS[node.id.split(".")[0]] || "🧩";
+    const icon = COMPONENT_ICONS[node.id] || BRICK_ICONS[node.id.split(".")[0]] || "🧩";
     const chip = schemaButton("arch-chip", node.id, `${icon} ${node.label_fr}`);
     chip.classList.toggle("is-unavailable", !node.available);
     chip.title = [node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`, node.detail_fr]

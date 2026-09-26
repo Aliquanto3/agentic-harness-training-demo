@@ -4,7 +4,7 @@ It holds what each loaded component was granted and refuses, in figures, a load 
 take WaveStack past its memory budget: `RSS measured − cost of the slot's current holder +
 cost of the newcomer > budget`. The check comes before any release, so a refusal leaves the
 active model loaded (AD-3). Story 15 adds the `embedding` slot (the RAG's model), refused
-with its own message; reranking will add its slot next to them.
+with its own message; story 16 adds the `reranker` slot, refused the same way.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from wavestack.models import probe
 
 GENERATIVE = "generative"
 EMBEDDING = "embedding"  # story 15: the RAG brick's embedding model
+RERANKER = "reranker"  # story 16: the RAG brick's reranking model (its sub-option)
 _GIB = 1024**3
 _MIB = 1024**2
 
@@ -143,8 +144,8 @@ class LoadRegistry:
         )
 
     def embedding_cost(self, measured_rss_mb: int | None, file_sizes: list[int]) -> int:
-        """Story 15: the RSS story 12 measured when declared, else the files' size plus the
-        margin."""
+        """Stories 15 and 16 (embedding, reranker): the RSS story 12 measured when declared,
+        else the files' size plus the margin."""
         if measured_rss_mb:
             return measured_rss_mb * _MIB
         return sum(file_sizes) + self.margin_bytes
