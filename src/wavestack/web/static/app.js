@@ -15,6 +15,10 @@ const store = {
   sessionState: null,
   // AD-12: the model indicator's only source (`session_state.active_model`, `/api/state`).
   activeModel: null,
+  // Story 17: the load in progress, from `model_load_started` to `model_load_ended`
+  // ({ model, startedAt }), and the model picker's list (`GET /api/diagnostic`).
+  modelLoad: null,
+  modelList: null,
   architecture: { nodes: [], edges: [] },
   journal: [],
   selection: null,
@@ -204,12 +208,23 @@ function applyEnvelope(envelope) {
       Object.assign(eventLog, { groups: [], processed: store.logFrom, rows: [], list: null });
       store.topStatus = "WaveStack réinitialisé : LLM nu.";
       break;
+    case "model_load_started":
+      store.modelLoad = { model: p.model, startedAt: Date.parse(envelope.ts) };
+      store.topStatus = null;
+      break;
+    case "model_load_ended":
+      store.modelLoad = null;
+      // A load that fell back, or a choice not saved, says so in the top bar.
+      store.topStatus = p.reason_fr ?? null;
+      scheduleModelList();
+      break;
     case "turn_started":
       store.topStatus = null;
       store.compare = null; // the new turn's live context shows in Contexte LLM
       store.turns.push({
         id: envelope.turn_id,
         message: p.message,
+        model: p.active_model ?? null, // story 17: « Modèle : … » and « Comparer »
         replayOf: p.replay_of, // story 9b: the turn this one replays, or null
         startedAt: Date.parse(envelope.ts),
         callStartedAt: null,
@@ -1300,6 +1315,7 @@ const approxTotal = (p) =>
 
 // The model indicator (EXPERIENCE.md model-indicator): tag, name; tooltip = the cloud warning.
 function renderModelIndicator() {
+  renderModelPicker();
   const button = document.getElementById("model-indicator");
   const model = store.activeModel;
   button.hidden = !model;
@@ -1317,6 +1333,159 @@ function renderModelIndicator() {
   button.title =
     model.warning_fr ?? `Modèle local ${model.label}, sur ce poste. Cliquez pour ouvrir le diagnostic.`;
   button.setAttribute("aria-label", `Modèle actif : ${model.label}. ${button.title}`);
+}
+
+// ---------- story 17: model picker (EXPERIENCE.md model-picker), hot switch ----------
+
+const PICK_OTHER = "other";
+const modelKey = (model) => (model ? `${model.kind ?? ""}:${model.ref ?? model.id}` : "");
+
+let modelListTimer = null;
+function scheduleModelList() {
+  clearTimeout(modelListTimer);
+  modelListTimer = setTimeout(loadModelList, 150);
+}
+
+// The last diagnostic's list: no new discovery nor probe at the picker's opening.
+async function loadModelList() {
+  try {
+    const response = await fetch("/api/diagnostic");
+    store.modelList = await response.json();
+  } catch {
+    // The picker keeps its last list.
+  }
+  renderModelPicker();
+}
+
+function pickerOption(value, text, { disabled = false, title = "" } = {}) {
+  const option = el("option", "", text);
+  option.value = value;
+  option.disabled = disabled;
+  if (title) option.title = title;
+  return option;
+}
+
+let renderedPickerKey = null;
+
+function renderModelPicker() {
+  const picker = document.getElementById("model-picker");
+  const state = store.sessionState;
+  const idle = state?.state === "idle"; // class (b): between two turns only
+  picker.disabled = !idle || !store.modelList;
+  picker.title = idle
+    ? "Changer de modèle : la conversation est conservée."
+    : state?.reason_fr || "Disponible hors d'un tour.";
+  const active = store.activeModel;
+  const key = JSON.stringify([store.modelList, modelKey(active)]);
+  if (key === renderedPickerKey) return;
+  renderedPickerKey = key;
+  const list = store.modelList ?? { candidates: [], cloud: { models: [] } };
+  const local = el("optgroup");
+  local.label = "Sur ce poste";
+  const seen = new Set();
+  for (const c of list.candidates ?? []) {
+    if (c.status === "server") {
+      // Story 18: an already running local server is listed, not choosable yet.
+      local.append(pickerOption("", `Serveur local ${c.server_url} (palier 2)`, { disabled: true }));
+      continue;
+    }
+    if (c.status !== "found" || !c.path || seen.has(c.path)) continue;
+    seen.add(c.path);
+    const isActive = active?.kind === "file" && active.ref === c.path;
+    const size = c.size_label ? ` · ${c.size_label}` : "";
+    local.append(
+      pickerOption(`file:${c.path}`, `${c.name}${size}${isActive ? " (actif)" : ""}`, {
+        disabled: isActive,
+        title: c.path,
+      })
+    );
+  }
+  const network = el("optgroup");
+  network.label = "Réseau";
+  for (const m of list.cloud?.models ?? []) {
+    const isActive = active?.kind === "cloud" && active.ref === m.id;
+    const suffix = isActive ? " (actif)" : m.disabled_fr ? " (indisponible)" : "";
+    network.append(
+      pickerOption(`cloud:${m.id}`, `RÉSEAU · ${m.provider} · ${m.model}${suffix}`, {
+        disabled: isActive || Boolean(m.disabled_fr),
+        title: m.disabled_fr ?? "",
+      })
+    );
+  }
+  const head = pickerOption("", "Changer de modèle…");
+  const groups = [local, network].filter((g) => g.children.length);
+  picker.replaceChildren(head, ...groups, pickerOption(PICK_OTHER, "Autre fichier ou clé API…"));
+  picker.value = "";
+}
+
+async function pickModel(event) {
+  const picker = event.target;
+  const value = picker.value;
+  picker.value = "";
+  if (!value) return;
+  if (value === PICK_OTHER) {
+    window.location.href = "/diagnostic"; // the key and a free path stay there
+    return;
+  }
+  const at = value.indexOf(":");
+  const kind = value.slice(0, at);
+  const ref = value.slice(at + 1);
+  if (kind === "cloud") {
+    openCloudWarning(store.modelList?.cloud?.models?.find((m) => m.id === ref));
+    return;
+  }
+  await selectModel({ kind: "file", ref });
+}
+
+async function selectModel(body) {
+  store.topStatus = null;
+  try {
+    const response = await postIntention("/api/intentions/select_model", body);
+    const answer = await response.json().catch(() => ({}));
+    if (!response.ok) store.topStatus = answer.detail || "Changement de modèle refusé.";
+    else if (!answer.switching) store.topStatus = answer.message_fr ?? null; // « … est déjà actif. »
+  } catch (error) {
+    store.topStatus = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
+  }
+  render();
+}
+
+// EXPERIENCE.md cloud-warning: in the page, texts from `/api/diagnostic`; nothing changes
+// before « Utiliser ce modèle ».
+let warningModel = null;
+
+function openCloudWarning(model) {
+  if (!model?.warning) return;
+  warningModel = model;
+  const w = model.warning;
+  setText(document.getElementById("cloud-warning-title"), w.title_fr);
+  document
+    .getElementById("cloud-warning-points")
+    .replaceChildren(...["sent_fr", "provider_fr", "unseen_fr"].map((k) => el("li", "", w[k])));
+  setText(document.getElementById("cloud-warning-confirm"), w.confirm_fr);
+  setText(document.getElementById("cloud-warning-cancel"), w.cancel_fr);
+  document.getElementById("cloud-warning").showModal();
+  document.getElementById("cloud-warning-confirm").focus();
+}
+
+function bindCloudWarning() {
+  const dialog = document.getElementById("cloud-warning");
+  dialog.addEventListener("close", () => {
+    warningModel = null;
+    document.getElementById("model-picker").focus();
+  });
+  document.getElementById("cloud-warning-cancel").addEventListener("click", () => dialog.close());
+  document.getElementById("cloud-warning-confirm").addEventListener("click", () => {
+    const model = warningModel;
+    dialog.close();
+    if (model) selectModel({ kind: "cloud", ref: model.id, acknowledged: true });
+  });
+}
+
+// The top bar and the Vue humain's stopwatch, anchored on `model_load_started.ts` (AD-1).
+function modelLoadText() {
+  const load = store.modelLoad;
+  return load ? `Chargement du modèle ${load.model.label}… ${seconds(Date.now() - load.startedAt)}` : null;
 }
 
 // ---------- human view: bubbles, working indicator, composer ----------
@@ -1390,6 +1559,11 @@ function renderChat() {
   const turns = shownTurns();
   if (turns.length === 0) nodes.push(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
   for (const turn of turns) {
+    // Story 17: « Modèle : … » before a turn played by another model than the one before.
+    const before = store.turns[store.turns.indexOf(turn) - 1];
+    if (before && turn.model && modelKey(before.model) !== modelKey(turn.model)) {
+      nodes.push(el("div", "model-switch-line", `Modèle : ${turn.model.label}`));
+    }
     const user = el("div", "bubble bubble-user", turn.message);
     const origin = turn.replayOf && store.turns.find((t) => t.id === turn.replayOf);
     if (origin) {
@@ -1451,6 +1625,8 @@ function renderChat() {
     }
   }
   approvalCards = cards;
+  const loading = modelLoadText();
+  if (loading) nodes.push(el("div", "working-indicator model-load-indicator", loading));
   patchChildren(chat, nodes);
   if (focusKey && !chat.contains(document.activeElement)) {
     let target = chat.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`);
@@ -1561,7 +1737,7 @@ function renderScenarioControls(state) {
   const reset = document.getElementById("reset-button");
   reset.disabled = !idle;
   reset.title = reason || "Retour au LLM nu, conversation vide.";
-  setText(document.getElementById("top-status"), store.topStatus ?? "");
+  setText(document.getElementById("top-status"), modelLoadText() ?? store.topStatus ?? "");
 
   // Vue humain: the active scenario's instructions, then one chip per suggested prompt.
   const scenario = findScenario(store.scenarios?.active);
@@ -1844,6 +2020,7 @@ function renderCompare(pane) {
   for (const [turn, figures, other] of [[left, a, null], [right, b, a]]) {
     const card = el("div", "turn-compare-figures");
     card.append(el("div", "turn-group-title", `${turnName(turn)}${turn.replayOf ? " · Rejeu" : ""}`));
+    card.append(el("div", "turn-compare-model", `Modèle : ${turn.model?.label ?? "inconnu"}`));
     const diff = (key, unit) =>
       other && figures[key] !== null && other[key] !== null ? ` (${signed(figures[key] - other[key], unit)})` : "";
     card.append(
@@ -3085,7 +3262,10 @@ const KIND_LABELS = {
   armed_actions_changed: "Actions armées",
   action_dropped: "Action forcée abandonnée",
   memory_changed: "Mémoire globale modifiée",
+  model_load_started: "Chargement du modèle commencé",
+  model_load_ended: "Chargement du modèle terminé",
 };
+const MODEL_LOAD_STATUS = { ok: "chargé", restored: "retour au modèle précédent", error: "échec" };
 const MEMORY_OPS = { add: "Ajout en mémoire", replace: "Modification en mémoire", delete: "Suppression en mémoire" };
 const SESSION_STATES = {
   idle: "prête",
@@ -3123,7 +3303,12 @@ function eventSummary(group) {
         .join(" · ");
     case "model_call_started":
     case "mcp_connect_started":
+    case "model_load_started":
       return p.phase_label;
+    case "model_load_ended":
+      return [`${p.model.label} : ${MODEL_LOAD_STATUS[p.status] ?? p.status}`, seconds(p.duration_ms), p.reason_fr]
+        .filter(Boolean)
+        .join(" · ");
     case "model_call_ended":
       return `${fmt(p.prompt_tokens)} lus · ${fmt(p.output_tokens)} écrits · ${seconds(p.duration_ms)} · ${p.stop_reason}`;
     case "tool_started":
@@ -3815,6 +4000,10 @@ async function boot() {
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
   document.getElementById("replay-last").addEventListener("click", replayLast);
   document.getElementById("scenario-picker").addEventListener("change", launchScenario);
+  const modelPicker = document.getElementById("model-picker");
+  modelPicker.addEventListener("change", pickModel);
+  modelPicker.addEventListener("focus", loadModelList);
+  bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
@@ -3846,11 +4035,16 @@ async function boot() {
       renderChat();
       renderSteps();
     }
+    if (store.modelLoad) {
+      renderChat();
+      setText(document.getElementById("top-status"), modelLoadText());
+    }
   }, 250);
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (document.getElementById("audit-dialog").open) return; // the dialog closes itself
+    if (document.getElementById("cloud-warning").open) return;
     if (!drawer().hidden) {
       closeDrawer();
     } else if (!memoryDrawer().hidden) {
@@ -3882,6 +4076,7 @@ async function boot() {
     // AD-16: a failed boot fetch still lets the live stream take over.
   }
   render();
+  loadModelList();
 
   // Replay the whole journal: a reload rebuilds past and in-progress turns (AD-1).
   streamEvents(0, applyEnvelope);

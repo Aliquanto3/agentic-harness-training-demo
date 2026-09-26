@@ -54,7 +54,9 @@ def test_simple_replay_starts_from_the_turns_before_the_last_one():
 
     events = replay(session)
 
-    assert events["turn_started"][0] == {"replay_of": "t3", "message": "Question trois"}
+    started = events["turn_started"][0]
+    assert (started["replay_of"], started["message"]) == ("t3", "Question trois")
+    assert started["active_model"]["kind"] == "file"  # story 17: the model that plays it
     prompt = bytes(engine.calls[-1]).decode()
     assert "Question un" in prompt and "Réponse deux" in prompt
     assert prompt.count("Question trois") == 1 and "Réponse trois" not in prompt

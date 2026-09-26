@@ -35,12 +35,10 @@
     .cloud-result.warn { color: #8a5a00; }
     .cloud-result.fail { color: #b71c1c; }
     dialog#cloud-warning { max-width: 560px; border: 2px solid #0A0A14; border-radius: 8px; }
-    #next-launch { background: #fff4e0; border: 1px solid #8a5a00; border-radius: 6px; padding: 0.6rem; font-weight: bold; }
   </style>
 </head>
 <body>
   <h1>Diagnostic de démarrage WaveStack</h1>
-  <p id="next-launch" role="status" hidden></p>
   <p id="open-link" style="display: none;"><a href="/">Ouvrir WaveStack</a></p>
   <ul id="checks"></ul>
 
@@ -73,6 +71,30 @@
     let selectedModel = null;
     let loadedModel = null;
     let busy = false;  // one select_model request at a time
+    // Story 17: a choice may start a hot switch, answered « Chargement de {modèle}… »; its
+    // `model_load_ended` gives the outcome (it may come before the answer), then the marks
+    // come from the application session.
+    let switching = null; // { show(text), answered, outcome }
+
+    function startSwitch(show) {
+      switching = { show, answered: false, outcome: null };
+    }
+
+    // The intention's answer: `message` now, unless the load already ended.
+    function answerSwitch(body, message) {
+      const pending = switching;
+      if (!pending) return;
+      if (!body.switching) {
+        switching = null;
+        pending.show(message);
+      } else if (pending.outcome !== null) {
+        switching = null;
+        pending.show(pending.outcome);
+      } else {
+        pending.answered = true;
+        pending.show(message);
+      }
+    }
 
     // Messages carry file names and paths: build nodes, never innerHTML.
     function fillLine(li, label, text, detail) {
@@ -256,8 +278,11 @@
       renderCloud();
       try {
         const { body } = await post(path, payload);
-        cloudStatus.set(m.id, body.message_fr || body.detail || "");
+        const message = body.message_fr || body.detail || "";
+        if (switching) answerSwitch(body, message);
+        else cloudStatus.set(m.id, message);
       } catch (error) {
+        switching = null;
         cloudStatus.set(m.id, `La demande n'a pas abouti : ${error.message}. Réessayez.`);
       } finally {
         setBusy(false);
@@ -302,7 +327,11 @@
     document.getElementById("cloud-warning-confirm").addEventListener("click", () => {
       const m = warningFor;
       warningEl.close();
-      if (m) {
+      if (m && !busy) {
+        startSwitch((text) => {
+          cloudStatus.set(m.id, text);
+          renderCloud();
+        });
         cloudIntention(
           m,
           "/api/intentions/select_model",
@@ -321,10 +350,6 @@
       renderCloud();
       renderCandidates(body.candidates || []);
       document.getElementById("open-link").style.display = body.ready ? "block" : "none";
-      // Story 11b: kept while the saved choice waits for a relaunch, reload included.
-      const nextLaunch = document.getElementById("next-launch");
-      nextLaunch.textContent = body.next_launch_fr || "";
-      nextLaunch.hidden = !body.next_launch_fr;
     }
     loadDiagnostic();
 
@@ -334,6 +359,21 @@
     });
     source.addEventListener("harness_error", (event) => {
       renderHarnessError(JSON.parse(event.data).payload);
+    });
+    source.addEventListener("model_load_ended", (event) => {
+      const payload = JSON.parse(event.data).payload;
+      if (switching) {
+        const text = payload.status === "ok"
+          ? [`${payload.model.label} est actif.`, payload.reason_fr].filter(Boolean).join(" ")
+          : payload.reason_fr || `${payload.model.label} n'a pas pu être chargé.`;
+        if (switching.answered) {
+          switching.show(text);
+          switching = null;
+        } else {
+          switching.outcome = text;
+        }
+      }
+      loadDiagnostic();
     });
 
     function setBusy(value) {
@@ -345,6 +385,9 @@
       if (busy) return;
       setBusy(true);
       selectStatusEl.textContent = "Vérification en cours…";
+      startSwitch((text) => {
+        selectStatusEl.textContent = text;
+      });
       try {
         const response = await fetch("/api/intentions/select_model", {
           method: "POST",
@@ -352,9 +395,10 @@
           body: JSON.stringify({ kind: "file", ref: path }),
         });
         const body = await response.json();
-        selectStatusEl.textContent = body.message_fr || body.detail ||
-          (body.ready ? "Modèle prêt." : "Voir ci-dessus.");
+        answerSwitch(body, body.message_fr || body.detail ||
+          (body.ready ? "Modèle prêt." : "Voir ci-dessus."));
       } catch (error) {
+        switching = null;
         selectStatusEl.textContent = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
       } finally {
         setBusy(false);

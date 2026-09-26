@@ -2,14 +2,32 @@
 title: 'Changement de modèle à chaud (CAP-34)'
 type: 'feature'
 created: '2026-09-26'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'c695c11da0e31238fc2641c373375a0c01027eda'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/specs/spec-agentic-harness-training-demo/stories/11-modeles-cloud-via-api-groq-mistral.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-11b-corrections-test-manuel-story-11.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      Ajouter les vérifications du sélecteur de modèle au parcours E2E tools/e2e/.
+    evidence: |-
+      Le harnais tools/e2e/ n'est pas dans ce worktree (fusion de sa branche refusée par le
+      contrôle de permissions) ; le sélecteur a été vérifié par un script Playwright hors dépôt.
+    location: >-
+      tools/e2e/
+    severity: low
+  - summary: >-
+      Vérifier sur le PC cible que l'estimation du cache KV ne refuse pas à tort un modèle
+      hybride (Qwen3.5) sous le budget de 4 Go.
+    evidence: |-
+      kv_bytes_per_token suppose une attention complète à toutes les couches ; à confirmer avec
+      le rss_bytes réel de la sonde et un changement 2B vers 4B sur le PC cible.
+    location: >-
+      src/wavestack/models/probe.py:kv_bytes_per_token
+    severity: medium (unverified)
 ---
 
 <intent-contract>
@@ -79,17 +97,17 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `wavestack.toml`, `src/wavestack/config.py` -- section `[memory]` et ses deux propriétés -- budget réglable (AD-8)
-- [ ] `src/wavestack/models/probe.py`, `src/wavestack/models/discovery.py` -- `rss_bytes`, `size_label`, `kv_bytes_per_token` mémorisés ; `size_label` sur les candidats -- coût mesuré (AD-7, AD-8), taille affichée (DESIGN.md)
-- [ ] `src/wavestack/models/load_registry.py` -- registre à une place générative, coût, contrôle chiffré, `rss_fn` injectable -- AD-8
-- [ ] `src/wavestack/trace/catalog.py` -- `model_load_started`, `model_load_ended`, `ActiveModel.kind/ref`, `TurnStartedPayload.active_model` -- AD-2, AD-12
-- [ ] `src/wavestack/session/app_session.py` -- chemin de chargement unique (démarrage et changement) : verrou et refus hors `idle`, budget, libération, sonde injectée, chargement, retour arrière, `SettingWrite` après succès, réémission briques/schéma/aperçu, ratio par modèle cloud, `turn_started.active_model` -- AD-3, AD-6, AD-8, AD-9, AD-12, AD-17
-- [ ] `src/wavestack/session/diagnostic.py`, `src/wavestack/web/app.py` -- `select_model` fichier et cloud après chargement routés vers le changement à chaud ; suppression de « prochain lancement » ; modèle chargé lu dans la session applicative -- AD-3, AD-21
-- [ ] `src/wavestack/web/static/index.html`, `app.js`, `app.css`, `diagnostic.html` -- `model-picker`, `cloud-warning` dans l'application, indicateur « Chargement du modèle… » et chronomètre, composeur désactivé, ligne « Modèle : … », modèle par colonne dans « Comparer », libellés des nouveaux événements, retrait de `#next-launch` -- EXPERIENCE.md
-- [ ] `tests/test_model_switch.py` (nouveau) -- une fonction de test par ligne de la matrice, avec deux `FakeEngine`, une fabrique cloud factice, un `rss_fn` et une sonde injectés ; test `LoadRegistry` (coût depuis le cache de sonde, message chiffré à virgule décimale) ; test « jamais deux moteurs ouverts » (le moteur A est fermé avant l'appel à la fabrique de B et avant la sonde)
-- [ ] `tests/test_cli_diagnostic.py`, `tests/test_cloud.py`, `tests/test_web_app.py` -- réécrire les tests « prochain lancement » ; `/api/diagnostic` sans `next_launch_fr` ; `select_model` en `turn` → 409 ; `/api/state.active_model` porte `kind` et `ref`
-- [ ] `README.md` -- « Changer de modèle » (barre haute ou diagnostic, conversation gardée, budget `[memory]`) et « Modèle par défaut » (Qwen3.5-2B Q4_K_M, GGUF amont unsloth, Apache-2.0, à copier dans le dossier `models/` ; les GGUF `qwen35` d'Ollama ne se chargent pas avec llama-cpp-python 0.3.35)
-- [ ] `ARCHITECTURE-SPINE.md`, `EXPERIENCE.md`, `SPEC.md` -- retirer « prochain lancement tant que CAP-34 n'est pas livré » (AD-3, AD-21, `model-picker`, `cloud-model-row`, CAP-43) et décrire le changement à chaud, `model_load_*` dans le catalogue d'AD-2
+- [x] `wavestack.toml`, `src/wavestack/config.py` -- section `[memory]` et ses deux propriétés -- budget réglable (AD-8)
+- [x] `src/wavestack/models/probe.py`, `src/wavestack/models/discovery.py` -- `rss_bytes`, `size_label`, `kv_bytes_per_token` mémorisés ; `size_label` sur les candidats -- coût mesuré (AD-7, AD-8), taille affichée (DESIGN.md)
+- [x] `src/wavestack/models/load_registry.py` -- registre à une place générative, coût, contrôle chiffré, `rss_fn` injectable -- AD-8
+- [x] `src/wavestack/trace/catalog.py` -- `model_load_started`, `model_load_ended`, `ActiveModel.kind/ref`, `TurnStartedPayload.active_model` -- AD-2, AD-12
+- [x] `src/wavestack/session/app_session.py` -- chemin de chargement unique (démarrage et changement) : verrou et refus hors `idle`, budget, libération, sonde injectée, chargement, retour arrière, `SettingWrite` après succès, réémission briques/schéma/aperçu, ratio par modèle cloud, `turn_started.active_model` -- AD-3, AD-6, AD-8, AD-9, AD-12, AD-17
+- [x] `src/wavestack/session/diagnostic.py`, `src/wavestack/web/app.py` -- `select_model` fichier et cloud après chargement routés vers le changement à chaud ; suppression de « prochain lancement » ; modèle chargé lu dans la session applicative -- AD-3, AD-21
+- [x] `src/wavestack/web/static/index.html`, `app.js`, `app.css`, `diagnostic.html` -- `model-picker`, `cloud-warning` dans l'application, indicateur « Chargement du modèle… » et chronomètre, composeur désactivé, ligne « Modèle : … », modèle par colonne dans « Comparer », libellés des nouveaux événements, retrait de `#next-launch` -- EXPERIENCE.md
+- [x] `tests/test_model_switch.py` (nouveau) -- une fonction de test par ligne de la matrice, avec deux `FakeEngine`, une fabrique cloud factice, un `rss_fn` et une sonde injectés ; test `LoadRegistry` (coût depuis le cache de sonde, message chiffré à virgule décimale) ; test « jamais deux moteurs ouverts » (le moteur A est fermé avant l'appel à la fabrique de B et avant la sonde)
+- [x] `tests/test_cli_diagnostic.py`, `tests/test_cloud.py`, `tests/test_web_app.py` -- réécrire les tests « prochain lancement » ; `/api/diagnostic` sans `next_launch_fr` ; `select_model` en `turn` → 409 ; `/api/state.active_model` porte `kind` et `ref`
+- [x] `README.md` -- « Changer de modèle » (barre haute ou diagnostic, conversation gardée, budget `[memory]`) et « Modèle par défaut » (Qwen3.5-2B Q4_K_M, GGUF amont unsloth, Apache-2.0, à copier dans le dossier `models/` ; les GGUF `qwen35` d'Ollama ne se chargent pas avec llama-cpp-python 0.3.35)
+- [x] `ARCHITECTURE-SPINE.md`, `EXPERIENCE.md`, `SPEC.md` -- retirer « prochain lancement tant que CAP-34 n'est pas livré » (AD-3, AD-21, `model-picker`, `cloud-model-row`, CAP-43) et décrire le changement à chaud, `model_load_*` dans le catalogue d'AD-2
 
 **Acceptance Criteria:**
 - Given un tour terminé avec le modèle A, when je choisis B dans le `model-picker`, then la barre haute et la Vue humain affichent « Chargement du modèle B… » avec un chronomètre, le champ de saisie est désactivé avec la raison, puis l'indicateur de modèle affiche B, la jauge affiche l'aperçu calculé sur la fenêtre de B et mes messages précédents restent affichés.
@@ -101,6 +119,16 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-26 — Review pass
+- Revue par l'agent d'implémentation lui-même (aucun outil de sous-agent dans cette exécution) ; une revue indépendante suit.
+- verdicts: 5 findings — high 0, medium 0, low 4, false 0, maybe-false 1
+- findings:
+  - `[low]` `[reject]` `DiagnosticSession._switched` met à jour `selected_model_path` après `model_load_ended` : la page de diagnostic peut afficher un instant l'ancien « choix enregistré » — le `diagnostic_check` émis juste après recharge la page ; correction plus complexe (ordre des rappels) pour un effet transitoire.
+  - `[low]` `[reject]` `probe_path` met à jour `last_result.candidates` sans le verrou du diagnostic — affectations d'attributs simples, lecteurs en lecture seule ; le verrou peut être tenu 2 min par une sonde, le prendre ici bloquerait le thread de travail.
+  - `[low]` `[reject]` Un changement refusé (budget, état) laisse `last_result.model_path` sur le fichier refusé — champ lu seulement par `hand_to`, jamais rappelé pour un résultat `hot` ; aucun effet visible.
+  - `[low]` `[defer]` Le parcours `tools/e2e/` ne couvre pas encore le sélecteur — harnais absent du worktree ; vérifié par un script Playwright hors dépôt.
+  - `[maybe-false]` `[defer]` Estimation du cache KV sur les vrais GGUF Qwen3.5 (hybrides) : surestimation possible au point de refuser un 4B sous 4 Go — à mesurer sur le PC cible avec `rss_bytes` réel de la sonde.
 
 ## Design Notes
 
@@ -143,8 +171,36 @@ Le contrôle du budget précède la libération : c'est la seule façon de tenir
 - **Modèle par défaut de 2B au plus** : le banc de mesure reste différé ; la story documente le modèle recommandé (Qwen3.5-2B Q4_K_M amont, validé au test manuel de la story 9 sur le PC cible) dans le README, sans téléchargement (`download_model` hors périmètre).
 - **Serveur local déjà lancé** : toujours listé sans bouton ni entrée choisissable (story 18).
 - **Contrôle mémoire du diagnostic** (« le diagnostic affiche la même mesure », AD-8) : inchangé ici ; son seuil fixe (`MEMORY_WARN_MB`) reste à aligner sur le budget dans une story ultérieure.
+- **(ajoutée à l'implémentation) Budget au lancement** : le chargement du démarrage passe par le `LoadRegistry` (coût enregistré) mais n'est pas refusé sur budget : aucun modèle actif n'est à protéger, et un refus bloquerait la séance sans autre recours que d'éditer `wavestack.toml`. Le contrôle s'applique à chaque changement ; un coût nul (modèle cloud) n'est jamais refusé, puisqu'il ne fait que libérer de la mémoire.
+- **(ajoutée) Réponse de l'intention** : un changement à chaud répond aussitôt `{switching: true, saved: false, message_fr: « Chargement de {modèle}… »}` ; l'issue (réussite, retour arrière, choix non mémorisé) arrive par `model_load_ended.reason_fr`, affichée par la barre haute et le diagnostic.
+- **(ajoutée) Pendant le chargement**, `session_state.active_model` vaut `null` (l'ancien modèle est libéré) : l'indicateur de modèle se masque, la barre haute montre le chronomètre. `model_load_ended.model` est le modèle demandé, pas forcément le modèle actif (voir `status`).
+- **(ajoutée) Diagnostic après un changement réussi** : `diagnostic_check{check: model}` « Modèle actif : {modèle} (changé sans relance). », pour que la ligne « model » du diagnostic ne reste pas sur le modèle du lancement.
+- **(ajoutée) Textes d'erreur des fournisseurs cloud** : « Revenez au modèle local au prochain lancement » devient « Revenez au modèle local depuis le sélecteur de modèle de la barre haute. ».
+- **(ajoutée) Serveur local dans le sélecteur** : listé comme entrée désactivée « Serveur local {url} (palier 2) » (story 18).
+- **(ajoutée) `ModelChoice`** vit dans `models/load_registry.py`, à côté du registre, pour que `session/diagnostic.py` et `session/app_session.py` le partagent sans dépendance entre eux.
+- **(ajoutée) Parcours E2E** : le harnais `tools/e2e/` n'a pas pu être fusionné dans ce worktree (fusion refusée par le contrôle de permissions). Le sélecteur a été vérifié dans Chromium par un script Playwright hors dépôt (deux faux modèles, 20 vérifications) ; les vérifications restent à ajouter au parcours `tools/e2e/` après fusion.
 
 ## Auto Run Result
 
-Status: ready-for-dev
-Blocking condition: aucune (arrêt demandé après la planification)
+Status: done
+Blocking condition: aucune
+
+**Résumé.** `select_model` après le lancement devient un changement de modèle à chaud (classe b) : budget contrôlé avant toute libération (`LoadRegistry`, message chiffré, 409), libération de l'ancien modèle, sonde enfant d'un GGUF jamais sondé, chargement, retour arrière au modèle précédent en cas d'échec, `selected_model` écrit après réussite seulement. Démarrage et changement partagent un seul chemin de chargement, tracé par `model_load_started` / `model_load_ended`. Conversation, skills, documentations et actions armées sont gardés ; `turn_started` porte `active_model`. Le ratio d'estimation est tenu par modèle cloud. L'interface gagne le `model-picker` de la barre haute, l'avertissement cloud dans la page, le chronomètre « Chargement du modèle… », la ligne « Modèle : … » et le modèle par colonne dans « Comparer » ; « Choix enregistré : relancez WaveStack » disparaît.
+
+**Fichiers.**
+- `src/wavestack/models/load_registry.py` (nouveau) : `LoadRegistry` (coût, contrôle chiffré, emplacement génératif unique, `rss_fn` injectable) et `ModelChoice`.
+- `src/wavestack/session/app_session.py` : `switch_model`, chemin unique `_load` (libération, sonde, installation, retour arrière, enregistrement), `_ratio` par modèle cloud, `active_model.kind/ref`, `turn_started.active_model`.
+- `src/wavestack/session/diagnostic.py` : `hot` pour `select_model`/`select_cloud`, `switch`, `probe_path`, `handed_out` ; suppression de `NEXT_LAUNCH_FR`, `next_launch_fr`, `booted_*`, `boot_finished`.
+- `src/wavestack/web/app.py` : réponse `{ready, blocking_checks, saved, switching, message_fr}`, 409 sur refus ; `/api/diagnostic` lit le modèle chargé dans la session applicative.
+- `src/wavestack/models/probe.py`, `discovery.py` : `size_label`, `kv_bytes_per_token`, `rss_bytes` mémorisés ; `size_label` sur les candidats.
+- `src/wavestack/trace/catalog.py`, `cloud.py`, `config.py`, `wavestack.toml` : nouveaux événements, `ActiveModel.kind/ref`, section `[memory]`.
+- `src/wavestack/models/openai_chat.py` : piste « revenir au modèle local » sans relance.
+- `src/wavestack/web/static/index.html`, `app.js`, `app.css`, `diagnostic.html` : sélecteur, avertissement, chronomètre, ligne de modèle, comparaison, retrait de `#next-launch`.
+- `tests/test_model_switch.py` (nouveau, 21 tests : une par ligne de la matrice, registre, trace, web) ; `test_cli_diagnostic.py`, `test_cloud.py`, `test_web_app.py`, `test_replay.py` réécrits pour le changement à chaud.
+- `README.md`, `ARCHITECTURE-SPINE.md`, `EXPERIENCE.md`, `SPEC.md` : changement à chaud, budget, modèle par défaut.
+
+**Revue.** 5 constats : 0 correctif, 2 différés (parcours E2E, estimation KV sur le PC cible), 3 rejetés (effets transitoires sans conséquence, voir le journal de triage). `followup_review_recommended: false` (aucun correctif `high` ni deux `medium`).
+
+**Vérification.** `uv run ruff check .` : OK ; `uv run ruff format --check .` : OK ; `node --check src/wavestack/web/static/app.js` (et le script de `diagnostic.html`) : OK ; `uv run pytest -q` : 447 réussis, 3 ignorés. Navigateur (Chromium, script Playwright hors dépôt, serveur à deux faux modèles) : 20/20 vérifications (liste du sélecteur, « (actif) », cloud sans clé grisé, chronomètre barre haute et Vue humain, composeur et sélecteur désactivés avec la raison, conversation gardée, aperçu de jauge, ligne « Modèle : Qwen-B », « Comparer » par modèle, avertissement cloud et « Annuler », passage au cloud, diagnostic « Choisir » sans « relancez » avec marque « chargé »).
+
+**Risques résiduels.** Estimation du coût sur de vrais GGUF (surestimation KV des modèles hybrides) ; durée réelle de chargement et de sonde sur le PC cible ; parcours `tools/e2e/` à compléter après fusion.

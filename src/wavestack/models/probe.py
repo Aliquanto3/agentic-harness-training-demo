@@ -33,6 +33,35 @@ class ProbeResult(BaseModel):
     rss_bytes: int | None = None
     size_bytes: int | None = None
     mtime: float | None = None
+    size_label: str | None = None  # `general.size_label`, e.g. « 2B » (DESIGN.md)
+    # AD-8: the KV cache's bytes per token of context (f16 K and V), when the GGUF says it.
+    kv_bytes_per_token: int | None = None
+
+
+def _int_meta(meta: dict[str, Any], key: str) -> int | None:
+    try:
+        value = int(meta[key])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def kv_bytes_per_token(meta: dict[str, Any]) -> int | None:
+    """AD-8: `2 (K, V) × 2 bytes (f16) × layers × KV heads × head size`, from the GGUF
+    metadata; `None` when one of them is missing. Hybrid models (Qwen3.5) are overestimated."""
+    arch = meta.get("general.architecture")
+    if not arch:
+        return None
+    layers = _int_meta(meta, f"{arch}.block_count")
+    heads = _int_meta(meta, f"{arch}.attention.head_count")
+    kv_heads = _int_meta(meta, f"{arch}.attention.head_count_kv") or heads
+    head_dim = _int_meta(meta, f"{arch}.attention.key_length")
+    if head_dim is None:
+        embedding = _int_meta(meta, f"{arch}.embedding_length")
+        head_dim = embedding // heads if embedding and heads else None
+    if not (layers and kv_heads and head_dim):
+        return None
+    return 4 * layers * kv_heads * head_dim
 
 
 def probe_file(path: str) -> ProbeResult:
@@ -65,6 +94,8 @@ def probe_file(path: str) -> ProbeResult:
             rss_bytes=rss_bytes,
             size_bytes=stat.st_size,
             mtime=stat.st_mtime,
+            size_label=metadata.get("general.size_label") or None,
+            kv_bytes_per_token=kv_bytes_per_token(metadata),
         )
     finally:
         if hasattr(llm, "close"):
@@ -72,7 +103,8 @@ def probe_file(path: str) -> ProbeResult:
 
 
 def record_success(result: ProbeResult) -> None:
-    """Persist a successful probe (path, size, mtime) in settings.json (AD-7, AD-20)."""
+    """Persist a successful probe (path, size, mtime, measured cost) in settings.json (AD-7,
+    AD-8, AD-20)."""
     if not result.ok:
         return
     probed = config.read_settings().get("probed_models", {})
@@ -81,6 +113,9 @@ def record_success(result: ProbeResult) -> None:
         "mtime": result.mtime,
         "architecture": result.architecture,
         "has_chat_template": result.has_chat_template,
+        "rss_bytes": result.rss_bytes,
+        "size_label": result.size_label,
+        "kv_bytes_per_token": result.kv_bytes_per_token,
         "probed_at": time.time(),
     }
     config.save_setting("probed_models", probed)

@@ -6,9 +6,9 @@ the other states (`idle`, `turn`, ...); this module is not to be pre-built
 for them.
 
 Startup rule (story 1b): the saved `selected_model` if still usable; else the
-only usable file; with several, block until the user picks one. Once a file is
-handed out for loading, a new choice is only saved for the next launch (AD-21:
-no hot model switch before palier 2).
+only usable file; with several, block until the user picks one. Once a model is
+handed out for loading, a new choice is a hot switch (story 17, CAP-34): the
+application session loads it, and saves it after a success.
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ from wavestack.context.render import render_chat_body
 from wavestack.context.segments import Part, SegmentKind
 from wavestack.models import discovery, probe
 from wavestack.models.engine import CancelToken
+from wavestack.models.load_registry import ModelChoice
 from wavestack.models.openai_chat import ChatBody, OpenAIChatEngine, ProviderError, run_call
 from wavestack.net.factory import create_client
 from wavestack.net.guard import NetworkBlocked
@@ -55,8 +56,6 @@ PROBE_TIMEOUT_S = 120
 SEARCHED_SOURCES_FR = (
     "dossier de modèles WaveStack, Ollama, LM Studio, cache Hugging Face, serveur local"
 )
-# Story 11b: a choice made once a model is loaded waits for the next launch (AD-21).
-NEXT_LAUNCH_FR = "Choix enregistré : relancez WaveStack pour l'utiliser."
 
 
 @dataclass
@@ -68,6 +67,9 @@ class DiagnosticResult:
     saved: bool = False  # `select_model`: the choice was recorded in settings.json
     message_fr: str | None = None  # `select_model`: the outcome, in French
     cloud_model: CloudModel | None = None  # the cloud model the caller must boot now, if any
+    # Story 17: `model_path` or `cloud_model` is a hot switch for the application session,
+    # which saves the choice after a success (nothing written yet).
+    hot: bool = False
 
 
 class Refused(Exception):
@@ -96,10 +98,9 @@ class DiagnosticSession:
         self.selected_cloud: str | None = (
             selected["ref"] if selected.get("kind") == "cloud" else None
         )
-        self.booted_path: str | None = None  # set once a file is handed out for loading
-        self.booted_cloud: str | None = None  # set once a cloud model is handed out
-        # Story 11b: a choice saved once a model was loaded, which waits for a relaunch.
-        self._next_launch_saved = False
+        # Set once a model is handed out for loading: from then on a choice is a hot switch
+        # (story 17). What is loaded is the application session's to say.
+        self.handed_out = False
         self.state = "diagnostic"
         self.last_result: DiagnosticResult | None = None
         self._lock = threading.Lock()
@@ -211,6 +212,7 @@ class DiagnosticSession:
 
         if result.ok:
             candidate.architecture = result.architecture
+            candidate.size_label = result.size_label
             self._persist(lambda: probe.record_success(result))
             return
 
@@ -285,6 +287,7 @@ class DiagnosticSession:
             entry = probe.probed_entry(candidate.path)
             if entry is not None:
                 candidate.architecture = entry.get("architecture")
+                candidate.size_label = entry.get("size_label")
             elif (failed := probe.failed_entry(candidate.path)) is not None:
                 # Remembered failure: no reprobe, same reason.
                 candidate.status, candidate.reason = "incompatible", failed.get("reason")
@@ -298,8 +301,8 @@ class DiagnosticSession:
         candidates: list[discovery.ModelCandidate],
         notice_fr: str = "",
     ) -> DiagnosticResult:
-        """`chosen` is the file to load now; from here on, choices wait for the next launch."""
-        self.booted_path = chosen.path
+        """`chosen` is the file to load now; from here on, a choice is a hot switch."""
+        self.handed_out = True
         self._emit_check(
             "model",
             "warn" if notice_fr else "ok",
@@ -321,7 +324,7 @@ class DiagnosticSession:
             entry = self.cfg.cloud_model(self.selected_cloud)
             reason = self._cloud_refusal(entry, self.selected_cloud)
             if entry is not None and reason is None:  # AD-21: no request, no new warning
-                self.booted_cloud = entry.id
+                self.handed_out = True
                 self._emit_check(
                     "model",
                     "ok",
@@ -390,19 +393,20 @@ class DiagnosticSession:
         )
         return self.last_result
 
-    def select_model(self, path: str) -> DiagnosticResult:
-        """Intention `select_model` (AD-3, class a): exactly this file, or its reason."""
+    def select_model(self, path: str, *, hot: bool = False) -> DiagnosticResult:
+        """Intention `select_model` (AD-3): exactly this file, or its reason. `hot`: a model
+        was handed out already, so the file is neither probed here nor saved: the result is a
+        hot switch for the application session (story 17)."""
         with self._lock:
             try:
-                return self._select_model_locked(_normalize(path))
+                return self._select_model_locked(_normalize(path), hot)
             except Exception as exc:  # noqa: BLE001 - AD-16: never let the thread die silently
                 return self._handle_unexpected(exc)
 
-    def _select_model_locked(self, path: str) -> DiagnosticResult:
-        # Probe only the chosen file, and none once a model is loaded: a probe loads full
-        # weights, next to the loaded model's. The next launch's probe decides then.
-        loaded = self.booted_path is not None or self.booted_cloud is not None
-        candidates = self._discover(path, probe_only=set() if loaded else {path})
+    def _select_model_locked(self, path: str, hot: bool) -> DiagnosticResult:
+        # Probe only the chosen file, and not here for a hot switch: a probe loads full
+        # weights, so the application session probes it once the active model is released.
+        candidates = self._discover(path, probe_only=set() if hot else {path})
         previous = self.last_result or DiagnosticResult(ready=False, blocking_checks=["model"])
         known = {c.path: c for c in previous.candidates if c.status == "incompatible"}
         for candidate in candidates:  # keep earlier probe failures of the unprobed others
@@ -420,30 +424,24 @@ class DiagnosticSession:
                 message_fr=f"Modèle non retenu ({path}) : {reason}",
             )
             return self.last_result
+        if hot:
+            self.last_result = DiagnosticResult(
+                ready=previous.ready,
+                blocking_checks=previous.blocking_checks,
+                candidates=candidates,
+                model_path=chosen.path,
+                hot=True,
+            )
+            return self.last_result
 
         self.selected_model_path, self.selected_cloud = chosen.path, None
         saved = self._save_choice("file", chosen.path)
-        if loaded:
-            self._next_launch_saved = saved
-        if not loaded:
-            result = self._hand_out(chosen, candidates)
-            result.saved = saved
-            result.message_fr = f"Modèle choisi : {chosen.name}. Chargement en cours." + (
-                "" if saved else " Ce choix n'a pas pu être mémorisé pour les prochains lancements."
-            )
-            return result
-        self.last_result = DiagnosticResult(
-            ready=previous.ready,
-            blocking_checks=previous.blocking_checks,
-            candidates=candidates,
-            saved=saved,
-            message_fr=(
-                NEXT_LAUNCH_FR
-                if saved
-                else f"Choix non enregistré ({chosen.name}) : settings.json n'a pas pu être écrit."
-            ),
+        result = self._hand_out(chosen, candidates)
+        result.saved = saved
+        result.message_fr = f"Modèle choisi : {chosen.name}. Chargement en cours." + (
+            "" if saved else " Ce choix n'a pas pu être mémorisé pour les prochains lancements."
         )
-        return self.last_result
+        return result
 
     def _save_choice(self, kind: str, ref: str) -> bool:
         """AD-20: `selected_model = {kind, ref}`, by the single applier (AD-23)."""
@@ -455,23 +453,67 @@ class DiagnosticSession:
         At launch (`launch`), a ready result without file still boots (a server only), so the
         session leaves `diagnostic` with its reason. The same path for the cli and the web."""
         if result.cloud_model is not None:
-            future = app_session.boot_cloud(result.cloud_model)
+            app_session.boot_cloud(result.cloud_model)
         elif result.model_path or (launch and result.ready):
-            future = app_session.boot(result.model_path)
-        else:
-            return
-        future.add_done_callback(lambda _: self.boot_finished(app_session.model_loaded))
+            app_session.boot(result.model_path)
 
-    def next_launch_fr(self) -> str | None:
-        """`/api/diagnostic`: the notice kept while a choice saved after the load differs
-        from the model loaded. Read without the lock, which a probe holds for up to 2 min."""
-        if not self._next_launch_saved:
-            return None
-        cloud, path = self.selected_cloud, self.selected_model_path
-        same = (cloud is not None and cloud == self.booted_cloud) or (
-            cloud is None and path is not None and path == self.booted_path
+    def switch(self, app_session: Any, result: DiagnosticResult) -> tuple[str, bool]:
+        """Story 17: the hot switch `result` asks for, on `app_session` (class b, AD-3). Raises
+        its `SendRefused` (state, budget). Returns the French answer and whether a load
+        started. The probe is this session's single probe code (AD-7)."""
+        entry = result.cloud_model
+        choice = (
+            ModelChoice("cloud", entry.id, entry)
+            if entry is not None
+            else ModelChoice("file", result.model_path or "")
         )
-        return None if same else NEXT_LAUNCH_FR
+        message_fr, future = app_session.switch_model(choice, probe=self.probe_path)
+        if future is not None:
+            future.add_done_callback(lambda f: self._switched(choice, f))
+        return message_fr, future is not None
+
+    def _switched(self, choice: ModelChoice, future: Any) -> None:
+        """A hot switch ended: after a success, the choice is the one saved (settings.json
+        was written by the application session) and nothing blocks any more."""
+        try:
+            ok = future.result() == "ok"
+        except Exception:  # noqa: BLE001 - the session traced it (AD-16)
+            ok = False
+        if not ok:
+            return
+        with self._lock:
+            if choice.kind == "cloud":
+                self.selected_cloud, self.selected_model_path = choice.ref, None
+            else:
+                self.selected_model_path, self.selected_cloud = choice.ref, None
+            if self.last_result is not None:
+                self.last_result.ready, self.last_result.blocking_checks = True, []
+        label = (
+            f"{choice.entry.model} chez {choice.entry.provider}"
+            if choice.entry is not None
+            else Path(choice.ref).name
+        )
+        self._emit_check(
+            "model", "ok", f"Modèle actif : {label} (changé sans relance).", blocking=False
+        )
+
+    def probe_path(self, path: str) -> str | None:
+        """AD-7's probe of `path` in a child process, for the application session's hot
+        switch: `None` when the file loads, else why. A failure marks the listed candidate
+        incompatible. Runs on the session's worker, without this session's lock."""
+        candidate = discovery.ModelCandidate(
+            source="explicit", status="found", path=path, name=Path(path).name
+        )
+        self._probe_candidate(candidate)
+        listed = self.last_result.candidates if self.last_result else []
+        for known in listed:
+            if known.path == path:
+                known.status, known.reason = candidate.status, candidate.reason
+                known.architecture = candidate.architecture or known.architecture
+                known.size_label = candidate.size_label or known.size_label
+        if candidate.status == "found":
+            return None
+        return candidate.reason or "La sonde n'a pas pu confirmer ce fichier."
 
     def first_launch(self) -> bool:
         """AD-21: no `diagnostic_shown` in settings.json yet. Writes it, by the single
@@ -491,12 +533,6 @@ class DiagnosticSession:
         except OSError:
             pass
         return True
-
-    def boot_finished(self, loaded: bool) -> None:
-        """A load that failed frees the choice: the next `select_model` loads again."""
-        if not loaded:
-            with self._lock:
-                self.booted_path = self.booted_cloud = None
 
     # ---------- cloud models (story 11, AD-20, AD-21) ----------
 
@@ -525,9 +561,10 @@ class DiagnosticSession:
             )
             return None
 
-    def cloud_rows(self) -> dict[str, object]:
+    def cloud_rows(self, active: str | None = None) -> dict[str, object]:
         """`/api/diagnostic`: each declared cloud model, its key state (never the key), why
-        its buttons are disabled, its mentions and the warning's text; and the common texts."""
+        its buttons are disabled, its mentions and the warning's text; and the common texts.
+        `active`: the cloud model the application session has loaded, if any (story 17)."""
         content = self._cloud_content()
         rows = []
         for entry in self.cfg.cloud_models[0]:
@@ -550,17 +587,19 @@ class DiagnosticSession:
                     "key_env": entry.key_env,
                     "disabled_fr": reason,
                     "selected": entry.id == self.selected_cloud,
-                    "loaded": entry.id == self.booted_cloud,
+                    "loaded": entry.id == active,
                     "test_hint_fr": fill(content.test_hint_fr, entry, content) if content else "",
                     "warning": warning_fr(entry, content) if content else None,
                 }
             )
         return {"models": rows, "key_hint_fr": content.key_hint_fr if content else ""}
 
-    def select_cloud(self, model_id: str, acknowledged: bool) -> DiagnosticResult:
+    def select_cloud(
+        self, model_id: str, acknowledged: bool, *, hot: bool = False
+    ) -> DiagnosticResult:
         """Intention `select_model{kind: cloud}` (AD-21): refused without the warning's
         confirmation or a usable key, nothing written then (`Refused`). Before any model is
-        loaded, the caller boots it; after, it is saved for the next launch."""
+        handed out, the caller boots it; after (`hot`), it is a hot switch (story 17)."""
         with self._lock:
             entry = self.cfg.cloud_model(model_id)
             if entry is not None and not acknowledged:
@@ -571,36 +610,30 @@ class DiagnosticSession:
             reason = self._cloud_refusal(entry, model_id)
             if entry is None or reason is not None:
                 raise Refused(f"Choix refusé : {reason}")
-            loaded = self.booted_path is not None or self.booted_cloud is not None
-            self.selected_cloud, self.selected_model_path = entry.id, None
-            saved = self._save_choice("cloud", entry.id)
             previous = self.last_result or DiagnosticResult(ready=False)
-            label = f"{entry.model} chez {entry.provider}"
-            if not loaded:
-                self.booted_cloud = entry.id
-                self._emit_check(
-                    "model", "ok", f"Modèle retenu : {label} (modèle cloud).", blocking=False
-                )
+            if hot:
                 self.last_result = DiagnosticResult(
-                    ready=True,
+                    ready=previous.ready,
+                    blocking_checks=previous.blocking_checks,
                     candidates=previous.candidates,
-                    saved=saved,
                     cloud_model=entry,
-                    message_fr=f"Modèle choisi : {label}. Préparation en cours."
-                    + ("" if saved else " Ce choix n'a pas pu être mémorisé."),
+                    hot=True,
                 )
                 return self.last_result
-            self._next_launch_saved = saved
+            self.selected_cloud, self.selected_model_path = entry.id, None
+            saved = self._save_choice("cloud", entry.id)
+            label = f"{entry.model} chez {entry.provider}"
+            self.handed_out = True
+            self._emit_check(
+                "model", "ok", f"Modèle retenu : {label} (modèle cloud).", blocking=False
+            )
             self.last_result = DiagnosticResult(
-                ready=previous.ready,
-                blocking_checks=previous.blocking_checks,
+                ready=True,
                 candidates=previous.candidates,
                 saved=saved,
-                message_fr=(
-                    NEXT_LAUNCH_FR
-                    if saved
-                    else f"Choix non enregistré ({label}) : settings.json n'a pas pu être écrit."
-                ),
+                cloud_model=entry,
+                message_fr=f"Modèle choisi : {label}. Préparation en cours."
+                + ("" if saved else " Ce choix n'a pas pu être mémorisé."),
             )
             return self.last_result
 

@@ -112,6 +112,8 @@ def active_model(entry: CloudModel) -> dict[str, Any]:
         "id": entry.id,
         "label": entry.model,
         "hosting": "network",
+        "kind": "cloud",
+        "ref": entry.id,
         "provider": entry.provider,
         "disclosure": disclosure(entry),
         "warning_fr": (

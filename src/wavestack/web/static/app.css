@@ -2757,3 +2757,57 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   border: 2px dashed var(--color-ink, currentColor);
   border-radius: 6px;
 }
+
+/* ---------- story 17: model picker, hot switch (DESIGN.md > model-picker) ---------- */
+
+/* A neutral drop-down list: model name and size (« 2B »). */
+.model-picker {
+  min-height: var(--spacing-hit-target-min);
+  max-width: 16rem;
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.model-picker:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.model-picker:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Vue humain: the model that plays the turns below, when it changed. */
+.model-switch-line {
+  align-self: center;
+  margin: var(--spacing-2) 0;
+  padding: 0 var(--spacing-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-full);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.turn-compare-model {
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.cloud-warning {
+  width: min(560px, 90vw);
+}
+
+.cloud-warning-points {
+  margin: 0;
+  padding-left: var(--spacing-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}

@@ -258,6 +258,16 @@ class Config:
             return 4096
 
     @property
+    def memory_budget_bytes(self) -> int:
+        """AD-8: WaveStack's memory budget, `[memory] budget_mb`."""
+        return max(1, self._int("memory", "budget_mb", default=4096)) * 1024 * 1024
+
+    @property
+    def load_margin_bytes(self) -> int:
+        """AD-8: the margin added to a local model's estimated cost, `[memory] load_margin_mb`."""
+        return max(0, self._int("memory", "load_margin_mb", default=256)) * 1024 * 1024
+
+    @property
     def near_limit_ratio(self) -> float:
         try:
             return float(self.get("context", "near_limit_ratio", default=0.8))
