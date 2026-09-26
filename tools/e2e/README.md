@@ -36,9 +36,9 @@ Pour explorer à la main : `uv run python tools/e2e/stack.py` lance le faux mod�
   faux serveur, `fake` (`wavestack-fake`) et `fake_b` (`faux-modele-b`, pour le changement de
   modèle de la story 17), clé par `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux
   serveurs sur `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
-  `settings.json` pointe `[rag]` vers un index construit dans ce dossier (le vrai corpus,
-  découpé et embarqué par le faux modèle d'embedding) et déclare un faux fichier de modèle
-  servi par le faux serveur.
+  `settings.json` pointe `[rag]` vers un index dans ce dossier, absent au départ comme sur
+  une installation neuve (le scénario `rag` le construit depuis la carte), et déclare un faux
+  fichier de modèle servi par le faux serveur.
 - `fake_local_server.py` (story 18) : un faux llama-server (`/health`, `/props` avec le gabarit
   Qwen3.5, `/v1/models`, `/tokenize` avec les pièces, `/detokenize`, `/completion` en SSE ;
   tokenizer octet par octet, marqueurs du gabarit en un token) et un faux Ollama (`/api/tags`,

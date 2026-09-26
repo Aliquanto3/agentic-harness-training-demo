@@ -276,3 +276,23 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/19-delegation-a-un-sous-agent.md`
   summary: Avec Qwen3.5, le gabarit peut réécrire l'appel d'outil du sous-agent (`prefix_not_reused` dans `sub{n}`).
   evidence: Même mécanisme qu'en contexte principal (AD-4) ; à observer sur le PC cible, sans effet sur le résultat de la délégation.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
+  summary: AD-9, adéquation du scénario « RAG » : l'aperçu compte les 3 extraits les plus longs de l'index (leur maximum déclaré) ; vérifier sur le PC cible, avec Qwen3.5 et la fenêtre de 4 096 tokens, que le scénario cumulatif (modules 1 à 4, MCP en lazy loading, RAG) tient, et mesurer la latence de l'étape « Recherche RAG » (NFR-1).
+  evidence: Revue indépendante de la story 15. Le faux moteur compte un token par octet et le faux modèle cloud estime à 4 caractères par token : aucune mesure réelle. À relever au test manuel (jauge avant envoi, durée de l'étape dans Orchestration).
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
+  summary: Intégrité du modèle d'embedding : l'URL de `[rag.embedding]` vise `resolve/main` et `sha256` est vide ; épingler l'URL sur un commit du dépôt bartowski et renseigner le sha256.
+  evidence: Le connecteur Hugging Face de la session ne donne que la taille (121 020 096 octets, LFS), ni l'oid LFS ni le commit ; huggingface.co est bloqué dans le conteneur. Le premier téléchargement sur le PC cible trace le sha256 du fichier (effet `model_download` dans le journal) ; le recopier dans `files[].sha256`, et remplacer `main` par le commit affiché sur la page du fichier. Dès lors, `Télécharger`, le chargement et `scripts/build_rag_index.py --model` le vérifient.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
+  summary: Sur le PC cible (Windows, Python de uv) : chargement de l'extension sqlite-vec, pooling CLS déclaré par le GGUF granite (sonde au chargement), et `uv lock` à confirmer (entrée sqlite-vec écrite à la main faute d'accès à l'index abetlen).
+  evidence: Vérifiés ici seulement sous Linux, sans vrai modèle (GGUF BERT synthétique, faux embedder). À trancher : la carte RAG ne doit pas dire « sqlite-vec ne se charge pas » ; `uv run python -m pytest -m model tests/test_rag.py` doit passer, modèle en place ; `uv lock` ne doit rien changer.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
+  summary: « Arrêter » un téléchargement pendant l'établissement de la connexion ne prend effet qu'au bout du délai de connexion (10 s au plus) ; pendant l'attente des données, il agit aussitôt (la réponse est fermée).
+  evidence: Revue indépendante de la story 15 (edge cases). httpx ne permet pas d'interrompre proprement un `connect` depuis un autre fil ; le délai a été ramené de 30 à 10 s. À rouvrir si le test manuel montre une attente gênante sur le réseau du client.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
+  summary: Page de diagnostic, « Choisir » un modèle : quand `/api/diagnostic/stream` rejoue un long journal depuis le début, le repli de la page (« Le modèle choisi est actif. », après 3 s) s'affiche avant le `model_load_ended` et son texte « {modèle} est actif. ».
+  evidence: Vu au parcours E2E complet après la revue de la story 15 (plus d'événements avant le scénario `model_switch`) ; le scénario seul passe. Les deux textes disent que le changement a réussi : le parcours accepte les deux. À corriger dans diagnostic.html (reprendre le flux au `seq` de `/api/state`, ou armer le repli seulement une fois le rejeu fini).

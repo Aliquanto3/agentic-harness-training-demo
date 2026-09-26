@@ -1,6 +1,6 @@
 # Politique de sauvegarde d'Exemplia
 
-Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : cette politique ne décrit aucune entreprise réelle.
+<!-- Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : cette politique ne décrit aucune entreprise réelle. -->
 
 Les données d'Exemplia suivent la règle 3-2-1 : au moins 3 copies de chaque donnée, sur 2 supports différents, dont 1 copie conservée hors du site principal. Cette règle s'applique aux serveurs de fichiers, aux bases de données des applications et à la messagerie.
 

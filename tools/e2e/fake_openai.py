@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 import json
 import re
 from dataclasses import dataclass, field
@@ -87,10 +88,33 @@ def turn_slice(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]
         m = messages[i]
         if m.get("role") == "user" and not _HARNESS_ERROR.match(text_of(m.get("content"))):
             text = _H3_INJECTION.sub("", text_of(m.get("content")))
-            if _RAG_INTRO in text:  # the excerpts are not the user's words
-                text = text.rsplit("\n\n", 1)[-1]
-            return text, messages[i + 1 :]
+            return strip_rag(text), messages[i + 1 :]
     return "", []
+
+
+@functools.cache
+def _chunk_texts() -> tuple[str, ...]:
+    """The corpus's chunks, as the harness cuts them (the longest first)."""
+    from wavestack import config
+    from wavestack.rag.corpus import chunk_corpus, load_rag_content
+
+    chunks = chunk_corpus(load_rag_content(), config.load_config().rag_chunk_max_chars)
+    return tuple(sorted((c.text for c in chunks), key=len, reverse=True))
+
+
+def strip_rag(text: str) -> str:
+    """The user's words without the RAG's intro and excerpts: everything up to the end of
+    the last excerpt, whose text is a chunk of the corpus (it may hold blank lines)."""
+    at = text.find(_RAG_INTRO)
+    if at < 0:
+        return text
+    headers = list(_RAG_EXCERPT.finditer(text, at))
+    if not headers:
+        return text[:at]
+    body = text[headers[-1].end() :].lstrip("\n")
+    chunk = next((c for c in _chunk_texts() if body.startswith(c)), None)
+    rest = body[len(chunk) :] if chunk is not None else body.rsplit("\n\n", 1)[-1]
+    return text[:at] + rest.lstrip("\n")
 
 
 def called_in_turn(after: list[dict[str, Any]]) -> list[str]:

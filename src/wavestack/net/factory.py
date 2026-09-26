@@ -22,6 +22,8 @@ from wavestack.net.guard import NetworkBlocked, is_host_allowed, is_loopback
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import TraceScope, current
 
+# The body traced for an async redirect hop, whose stream cannot be read again here.
+REDIRECT_BODY_NOT_READ = "(corps non relu : redirection)"
 # Wikimedia refuses generic user agents; header values must stay ASCII.
 USER_AGENT = "WaveStack/0.1 (demonstrateur pedagogique)"
 
@@ -51,7 +53,7 @@ def _body(request: httpx.Request | httpx2.Request) -> bytes:
     except (httpx.RequestNotRead, httpx2.RequestNotRead):
         if isinstance(request, httpx.Request):
             return request.read()  # a byte stream, read again when sent
-        return b""  # ponytail: an async hop's body; MCP posts are never redirected
+        return REDIRECT_BODY_NOT_READ.encode()  # an async hop: its stream cannot be re-read
 
 
 def _trace_request(request: httpx.Request) -> None:

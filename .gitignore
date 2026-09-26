@@ -32,3 +32,6 @@ data/indexes/
 Thumbs.db
 .vscode/
 .idea/
+
+# Story 15: a RAG index being written (removed on failure)
+data/*.tmp

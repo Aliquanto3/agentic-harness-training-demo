@@ -1,6 +1,6 @@
 # Charte d'usage de l'IA générative chez Exemplia
 
-Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : cette charte ne décrit aucune entreprise réelle.
+<!-- Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : cette charte ne décrit aucune entreprise réelle. -->
 
 Exemplia encourage l'usage de l'intelligence artificielle générative pour gagner du temps sur la rédaction, la synthèse et la traduction, dans le respect de cette charte. Elle s'applique aux assistants conversationnels, aux générateurs d'images et aux outils de complétion de code.
 

@@ -6,6 +6,7 @@ nothing touches the network, and no real model is needed (except the `model` tes
 
 from __future__ import annotations
 
+import re
 import threading
 from pathlib import Path
 
@@ -162,10 +163,13 @@ def test_corpus_is_eight_french_documents_of_250_to_450_words():
     assert len(content.documents) == 8
     assert "fictifs" in content.notice_fr
     for doc in content.documents:
-        words = len((config.content_dir() / doc.file).read_text(encoding="utf-8").split())
+        text = (config.content_dir() / doc.file).read_text(encoding="utf-8")
+        assert "<!-- Texte fictif rédigé pour WaveStack." in text  # kept, never indexed
+        words = len(re.sub(r"<!--.*?-->", "", text, flags=re.S).split())
         assert 250 <= words <= 450, doc.id
     chunks = chunk_corpus(content, 700)
     assert all(len(c.text) <= 700 for c in chunks)
+    assert not any("Texte fictif" in c.text or "<!--" in c.text for c in chunks)
     assert {c.doc_id for c in chunks} == {d.id for d in content.documents}
     first = [c for c in chunks if c.doc_id == "teletravail"]
     assert [c.position for c in first] == list(range(1, len(first) + 1))
@@ -256,7 +260,8 @@ def test_index_of_another_model_names_both_models(tmp_path):
     rag = card(session)
     assert rag["available"] is False
     assert "autre-modele" in rag["reason_fr"] and MODEL_ID in rag["reason_fr"]
-    assert "Reconstruisez l'index" in rag["reason_fr"] and rag["download"] is None
+    assert "Construire l'index" in rag["reason_fr"] and rag["download"] is None
+    assert rag["build_index"] == {"label_fr": "Construire l'index"}
     assert embedders.made == []
     session.close()
 
@@ -284,7 +289,7 @@ def test_budget_exceeded_refuses_in_figures_and_loads_nothing(index):
     assert rag["reason_fr"] == (
         "Indisponible : Mémoire insuffisante pour charger le modèle d'embedding Faux "
         "embedding : WaveStack occupe 200 Mo, il en faut environ 1 de plus, au-delà du budget "
-        "de 100 Mo. Désactivez une brique ou relevez `memory.budget_mb` dans settings.json."
+        "de 100 Mo. Désactivez une brique ou relevez [memory] budget_mb dans settings.json."
     )
     assert embedders.made == [] and session._load_registry.holder(EMBEDDING) is None
     events = turn_events(COVERED, session)
@@ -466,7 +471,7 @@ def test_overflow_mostly_from_excerpts_names_the_rag_cause(index):
 
     overflow = next(e.payload for e in events if e.kind == "context_overflow")
     assert "Cause : les extraits RAG" in overflow["message_fr"]
-    assert "baissez `rag.top_k`" in overflow["message_fr"]
+    assert "baissez [rag] top_k" in overflow["message_fr"]
     session.close()
 
 

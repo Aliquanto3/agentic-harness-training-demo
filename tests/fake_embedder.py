@@ -15,8 +15,7 @@ _WORD = re.compile(r"\w+")
 # Words every document shares: noise for a bag of words, like the short ones.
 _STOP = frozenset(
     "exemplia chez dans pour avec sont cette elle elles leur leurs plus tout tous toute quel "
-    "quelle quels combien doit être avoir fait texte fictif rédigé wavestack organisation "
-    "imaginaire décrit aucune entreprise réelle ces ses une des les aux par sur qui que est "
+    "quelle quels combien doit être avoir fait ces ses une des les aux par sur qui que est "
     "pas son sa".split()
 )
 

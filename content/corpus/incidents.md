@@ -1,6 +1,6 @@
 # Signalement et traitement des incidents de sécurité chez Exemplia
 
-Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : cette procédure ne décrit aucune entreprise réelle.
+<!-- Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : cette procédure ne décrit aucune entreprise réelle. -->
 
 Un incident de sécurité est tout événement qui menace la confidentialité, l'intégrité ou la disponibilité des informations d'Exemplia : un courriel d'hameçonnage ouvert, un ordinateur portable perdu, un virus détecté, un document confidentiel envoyé au mauvais destinataire, une connexion suspecte.
 

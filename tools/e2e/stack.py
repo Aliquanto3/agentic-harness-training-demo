@@ -61,8 +61,9 @@ def _entry(fake_port: int, entry_id: str, provider: str, model: str) -> dict:
 
 
 def rag_settings(fake_port: int, data_dir: Path) -> dict:
-    """Story 15: the index built in the data dir, the fake embedding model (its file served
-    by the fake server, over the loopback)."""
+    """Story 15: the index in the data dir (absent at first, built from the RAG card, as on a
+    fresh install), the fake embedding model (its file served by the fake server, over the
+    loopback)."""
     return {
         "index_path": str(data_dir / "rag_index.sqlite"),
         "embedding": {
@@ -79,17 +80,6 @@ def rag_settings(fake_port: int, data_dir: Path) -> dict:
             ],
         },
     }
-
-
-def build_rag_index(path: Path) -> None:
-    """The index of the real corpus, with the fake embedding model of the tests."""
-    sys.path.insert(0, str(REPO / "tests"))
-    from fake_embedder import FakeEmbedder
-
-    from wavestack.rag.corpus import load_rag_content
-    from wavestack.rag.index import build_index
-
-    build_index(load_rag_content(), FakeEmbedder(), path, chunk_max_chars=700)
 
 
 def settings(fake_port: int, data_dir: Path, llama_port: int = 0, ollama_port: int = 0) -> dict:
@@ -209,7 +199,6 @@ def running_stack(
         ),
         encoding="utf-8",
     )
-    build_rag_index(data_dir / "rag_index.sqlite")
     stack = Stack(
         app_url=f"http://127.0.0.1:{app_port}",
         fake_url=f"http://127.0.0.1:{fake_port}",

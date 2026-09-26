@@ -1,6 +1,6 @@
 # Accord de télétravail d'Exemplia
 
-Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : cet accord ne décrit aucune entreprise réelle.
+<!-- Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : cet accord ne décrit aucune entreprise réelle. -->
 
 Tout collaborateur en contrat à durée indéterminée peut télétravailler jusqu'à 3 jours par semaine, après une période d'intégration de 2 mois. Les stagiaires et les alternants sont limités à 1 jour par semaine, pour garder le contact avec leur tuteur.
 

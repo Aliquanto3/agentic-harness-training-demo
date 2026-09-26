@@ -4,6 +4,7 @@ nothing leaves the machine."""
 from __future__ import annotations
 
 import hashlib
+import re
 import threading
 import time
 
@@ -86,7 +87,7 @@ def test_download_follows_the_redirect_traces_each_hop_and_loads_the_model(index
     reason = session.download_model("rag_embedding")
     wait_download(session)
 
-    assert reason == "Téléchargement du modèle d'embedding : 0 % (0 / 0 Mo)"
+    assert re.fullmatch(r"Téléchargement du modèle d'embedding : 0 % \(0 / \d+ Mo\)", reason)
     events = get_journal().events_since(mark)
     states = [e.payload for e in events if e.kind == "session_state"]
     assert states[0]["state"] == "download" and states[-1]["state"] == "idle"

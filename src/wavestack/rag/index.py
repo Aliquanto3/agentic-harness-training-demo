@@ -1,12 +1,16 @@
-"""The sqlite-vec index (story 15, AD-22): written offline, read by the RAG brick.
+"""The sqlite-vec index (story 15, AD-22): built offline or from the RAG card, read by the
+RAG brick.
 
 Tables: `meta` (key, value), `chunks` (`id`, `doc_id`, `title_fr`, `position`, `text`) and
 the virtual table `chunks_vec` (`vec0`, `float[dims] distance_metric=cosine`), whose rowid
-is the chunk's `id`. The index is written into a temporary file, then replaces the old one.
+is the chunk's `id`. `meta` says which model built it (id, dimensions, file size and
+sha256) and from which corpus (a hash of its chunks): another model, or a changed corpus,
+is detected. The index is written into a temporary file, then replaces the old one.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sqlite3
 from collections.abc import Callable, Sequence
@@ -26,10 +30,17 @@ class IndexMeta(NamedTuple):
     chunk_max_chars: int
     chunks: int
     built_at: str
+    corpus_sha256: str = ""  # `corpus_digest` of the chunks indexed
+    model_size: int = 0  # the model file's size and sha256, when known at build time
+    model_sha256: str = ""
 
 
 class VecUnavailable(Exception):
     """sqlite-vec cannot be loaded into this Python's sqlite3."""
+
+
+class BuildCancelled(Exception):
+    """The build was stopped (« Arrêter »): nothing is written."""
 
 
 def serialize_vector(vector: Sequence[float]) -> bytes:
@@ -38,11 +49,33 @@ def serialize_vector(vector: Sequence[float]) -> bytes:
     return sqlite_vec.serialize_float32(list(vector))
 
 
+def corpus_digest(chunks: Sequence[Chunk]) -> str:
+    """What identifies the chunks of a corpus: documents, ranks and texts."""
+    digest = hashlib.sha256()
+    for chunk in chunks:
+        digest.update(f"{chunk.doc_id}\x1f{chunk.position}\x1f{chunk.text}\x1e".encode())
+    return digest.hexdigest()
+
+
+def passage_text(chunk: Chunk) -> str:
+    """What is embedded for a chunk: its document's title, then its text."""
+    return f"{chunk.title_fr}\n{chunk.text}"
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def connect(path: Path, *, readonly: bool = True) -> sqlite3.Connection:
-    """A connection with sqlite-vec loaded. Raises `VecUnavailable`, or `sqlite3.Error` for
-    an unreadable file."""
+    """A connection with sqlite-vec loaded, usable from any thread (the caller serializes).
+    Raises `VecUnavailable`, or `sqlite3.Error` for an unreadable file."""
     if readonly:
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        uri = f"{path.resolve().as_uri()}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
     else:
         conn = sqlite3.connect(path)
     try:
@@ -84,8 +117,10 @@ def write_index(
     model_id: str,
     dims: int,
     chunk_max_chars: int,
+    model_size: int = 0,
+    model_sha256: str = "",
 ) -> IndexMeta:
-    """Write the index into `path` (a temporary file first, then replaced)."""
+    """Write the index into `path` (a temporary file first, removed on failure)."""
     if not chunks:
         raise ValueError("corpus vide : aucun extrait à indexer")
     if len(vectors) != len(chunks) or any(len(v) != dims for v in vectors):
@@ -96,40 +131,55 @@ def write_index(
         chunk_max_chars,
         len(chunks),
         datetime.now(UTC).isoformat(timespec="seconds"),
+        corpus_digest(chunks),
+        model_size,
+        model_sha256,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.unlink(missing_ok=True)
-    conn = connect(tmp, readonly=False)
     try:
-        with conn:
-            conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-            conn.executemany(
-                "INSERT INTO meta (key, value) VALUES (?, ?)",
-                [(key, str(value)) for key, value in meta._asdict().items()],
-            )
-            conn.execute(
-                "CREATE TABLE chunks (id INTEGER PRIMARY KEY, doc_id TEXT NOT NULL, "
-                "title_fr TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL)"
-            )
-            conn.execute(
-                f"CREATE VIRTUAL TABLE {VEC_TABLE} USING "
-                f"vec0(embedding float[{dims}] distance_metric=cosine)"
-            )
-            for i, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True), start=1):
-                conn.execute(
-                    "INSERT INTO chunks (id, doc_id, title_fr, position, text) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (i, chunk.doc_id, chunk.title_fr, chunk.position, chunk.text),
-                )
-                conn.execute(
-                    f"INSERT INTO {VEC_TABLE} (rowid, embedding) VALUES (?, ?)",
-                    (i, serialize_vector(vector)),
-                )
-    finally:
-        conn.close()
-    os.replace(tmp, path)
+        conn = connect(tmp, readonly=False)
+        try:
+            with conn:
+                _fill(conn, meta, chunks, vectors)
+        finally:
+            conn.close()
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return meta
+
+
+def _fill(
+    conn: sqlite3.Connection,
+    meta: IndexMeta,
+    chunks: Sequence[Chunk],
+    vectors: Sequence[Sequence[float]],
+) -> None:
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.executemany(
+        "INSERT INTO meta (key, value) VALUES (?, ?)",
+        [(key, str(value)) for key, value in meta._asdict().items()],
+    )
+    conn.execute(
+        "CREATE TABLE chunks (id INTEGER PRIMARY KEY, doc_id TEXT NOT NULL, "
+        "title_fr TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL)"
+    )
+    conn.execute(
+        f"CREATE VIRTUAL TABLE {VEC_TABLE} USING "
+        f"vec0(embedding float[{meta.dims}] distance_metric=cosine)"
+    )
+    for i, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True), start=1):
+        conn.execute(
+            "INSERT INTO chunks (id, doc_id, title_fr, position, text) VALUES (?, ?, ?, ?, ?)",
+            (i, chunk.doc_id, chunk.title_fr, chunk.position, chunk.text),
+        )
+        conn.execute(
+            f"INSERT INTO {VEC_TABLE} (rowid, embedding) VALUES (?, ?)",
+            (i, serialize_vector(vector)),
+        )
 
 
 def read_meta(path: Path) -> IndexMeta:
@@ -145,6 +195,9 @@ def read_meta(path: Path) -> IndexMeta:
         chunk_max_chars=int(values["chunk_max_chars"]),
         chunks=int(values["chunks"]),
         built_at=values["built_at"],
+        corpus_sha256=values.get("corpus_sha256", ""),
+        model_size=int(values.get("model_size") or 0),
+        model_sha256=values.get("model_sha256", ""),
     )
 
 
@@ -180,16 +233,26 @@ def build_index(
     path: Path,
     chunk_max_chars: int,
     on_progress: Callable[[int, int], None] | None = None,
+    *,
+    model_file: Path | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> IndexMeta:
-    """Chunk the corpus, embed every passage with `embedder`, write the index."""
+    """Chunk the corpus, embed each passage (title and text) with `embedder`, write the
+    index. `model_file`: the model's file, whose size and sha256 go into `meta`.
+    `cancelled()` true: `BuildCancelled`, nothing written."""
     chunks = chunk_corpus(content, chunk_max_chars)
     if not chunks:
         raise ValueError("corpus vide : aucun extrait à indexer")
     vectors = []
     for i, chunk in enumerate(chunks, start=1):
-        vectors += embedder.embed_passages([chunk.text])
+        if cancelled is not None and cancelled():
+            raise BuildCancelled("construction de l'index arrêtée")
+        vectors += embedder.embed_passages([passage_text(chunk)])
         if on_progress is not None:
             on_progress(i, len(chunks))
+    size, sha = 0, ""
+    if model_file is not None:
+        size, sha = model_file.stat().st_size, file_sha256(model_file)
     return write_index(
         path,
         chunks,
@@ -197,4 +260,6 @@ def build_index(
         model_id=embedder.model_id,
         dims=embedder.dims,
         chunk_max_chars=chunk_max_chars,
+        model_size=size,
+        model_sha256=sha,
     )

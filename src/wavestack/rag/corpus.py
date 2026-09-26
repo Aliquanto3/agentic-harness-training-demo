@@ -17,6 +17,8 @@ from wavestack import config
 # A sentence ends with one of these, followed by a space (or the text's end).
 _SENTENCE_END = re.compile(r"[.!?…»](?=\s)")
 _BLANK_LINE = re.compile(r"\n\s*\n")
+# An HTML comment of a document (its « texte fictif » notice) is never indexed.
+_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 
 class CorpusDocument(BaseModel):
@@ -39,6 +41,7 @@ class RagContent(BaseModel):
     phase_label_fr: str = Field(min_length=1)
     index_label_fr: str = Field(min_length=1)
     download_label_fr: str = Field(min_length=1)
+    build_label_fr: str = Field(min_length=1)
     documents: list[CorpusDocument] = Field(min_length=1)
 
     @field_validator("excerpt_format_fr")
@@ -115,7 +118,7 @@ def chunk_corpus(content: RagContent, max_chars: int) -> list[Chunk]:
     """Every document of the corpus, read from `content/` and chunked, in declared order."""
     chunks: list[Chunk] = []
     for doc in content.documents:
-        text = (config.content_dir() / doc.file).read_text(encoding="utf-8-sig")
+        text = _COMMENT.sub("", (config.content_dir() / doc.file).read_text(encoding="utf-8-sig"))
         for position, piece in enumerate(split_text(text, max_chars), start=1):
             chunks.append(Chunk(doc.id, doc.title_fr, position, piece))
     return chunks
