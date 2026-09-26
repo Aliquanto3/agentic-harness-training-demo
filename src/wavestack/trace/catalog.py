@@ -63,6 +63,10 @@ class ActiveModel(BaseModel):
     disclosure: dict[str, object] | None = None
     warning_fr: str | None = None  # the `cloud-warning`'s text, the indicator's tooltip
     banner_fr: str | None = None  # Contexte LLM's banner (chat mode)
+    # Story 17: which entry of the model lists is active: a file (`ref`: its path) or a
+    # cloud model (`ref`: its `id`).
+    kind: Literal["file", "cloud"] | None = None
+    ref: str | None = None
 
 
 class SessionStatePayload(BaseModel):
@@ -127,6 +131,8 @@ Channel = Literal["reasoning", "text", "tool_call"]
 class TurnStartedPayload(BaseModel):
     replay_of: str | None = None
     message: str
+    # Story 17: the model that plays this turn, for « Modèle : … » and « Comparer ».
+    active_model: ActiveModel | None = None
 
 
 class TurnEndedPayload(BaseModel):
@@ -477,6 +483,27 @@ class MemoryChangedPayload(BaseModel):
     max_chars: int
 
 
+# ---------- story 17: hot model switch (AD-2, AD-3, AD-8) ----------
+
+
+class ModelLoadStartedPayload(BaseModel):
+    """A model load starts, out of any turn: at launch or on a switch. Its `ts` anchors the
+    « Chargement du modèle… » stopwatch."""
+
+    model: ActiveModel  # the model being loaded
+    phase_label: str
+
+
+class ModelLoadEndedPayload(BaseModel):
+    """`ok`: the model is active; `restored`: it failed and the previous one is active again;
+    `error`: no model is active."""
+
+    model: ActiveModel  # the model that was being loaded
+    status: Literal["ok", "restored", "error"]
+    duration_ms: int
+    reason_fr: str | None = None
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -514,4 +541,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "scenario_changed": ScenarioChangedPayload,
     "harness_reset": HarnessResetPayload,
     "memory_changed": MemoryChangedPayload,
+    "model_load_started": ModelLoadStartedPayload,
+    "model_load_ended": ModelLoadEndedPayload,
 }

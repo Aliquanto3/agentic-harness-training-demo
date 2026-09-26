@@ -103,7 +103,7 @@ def test_select_model_emits_initial_state_so_api_state_is_populated(monkeypatch,
     monkeypatch.setattr(
         DiagnosticSession,
         "select_model",
-        lambda self, path: DiagnosticResult(ready=True, model_path="/fake/model.gguf"),
+        lambda self, path, hot=False: DiagnosticResult(ready=True, model_path="/fake/model.gguf"),
     )
 
     response = _client(app).post(
@@ -189,7 +189,7 @@ def test_select_model_boots_the_found_candidate_path(monkeypatch, tmp_path):
     monkeypatch.setattr(
         DiagnosticSession,
         "select_model",
-        lambda self, path: DiagnosticResult(ready=True, model_path=path),
+        lambda self, path, hot=False: DiagnosticResult(ready=True, model_path=path),
     )
     app_session = AppSession(config.load_config(), engine_factory=recording_factory)
     app = create_app(

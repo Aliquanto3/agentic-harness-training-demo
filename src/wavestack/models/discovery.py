@@ -30,6 +30,7 @@ class ModelCandidate(BaseModel):
     reason: str | None = None
     name: str | None = None  # readable: `model:tag` for Ollama, the file name otherwise
     architecture: str | None = None  # from the probe cache, once probed
+    size_label: str | None = None  # `general.size_label` (« 2B »), from the probe cache
 
 
 def _glob_gguf(root: Path) -> list[Path]:

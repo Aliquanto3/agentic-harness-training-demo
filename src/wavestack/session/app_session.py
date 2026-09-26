@@ -56,6 +56,7 @@ from wavestack.hooks import (
 )
 from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
+from wavestack.models import probe as probe_module
 from wavestack.models.capabilities import (
     TOOL_CALL_TAGS,
     Capabilities,
@@ -63,6 +64,7 @@ from wavestack.models.capabilities import (
     capabilities_for,
 )
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
+from wavestack.models.load_registry import LoadRegistry, ModelChoice, process_rss
 from wavestack.models.openai_chat import (
     ChatBody,
     OpenAIChatEngine,
@@ -76,9 +78,11 @@ from wavestack.session.effects import (
     AuditAppend,
     Effect,
     MemoryWrite,
+    SettingWrite,
     SkillLoaded,
     ToolDocLoaded,
     ToolReply,
+    apply_setting,
 )
 from wavestack.skills import SkillsContent, SkillText, load_skills_content
 from wavestack.tools.executor import ToolExecutor
@@ -138,6 +142,11 @@ _LOAD_FAILED_FR = (
     "Envoi indisponible : le modèle n'a pas pu être chargé. Choisissez un autre fichier GGUF "
     "sur la page de diagnostic."
 )
+_CLOUD_FAILED_FR = (
+    "Envoi indisponible : le modèle cloud n'a pas pu être préparé. Choisissez un modèle sur la "
+    "page de diagnostic."
+)
+_NO_TURN_FR = "Aucun tour possible."
 # The heaviest harness-controlled segment names the cause (message first on ties).
 _OVERFLOW_CAUSES_FR = {
     SegmentKind.USER_MESSAGE: (
@@ -312,6 +321,16 @@ class SendRefused(Exception):
         self.reason_fr = reason_fr
 
 
+class _LoadFailed(Exception):
+    """A load refused for a known reason (probe, incompatible template): `message_fr` for
+    `harness_error`, `reason_fr` its cause, `idle_fr` the reason left in `idle` when no
+    model is active afterwards."""
+
+    def __init__(self, message_fr: str, reason_fr: str, idle_fr: str | None = None) -> None:
+        super().__init__(reason_fr)
+        self.message_fr, self.reason_fr, self.idle_fr = message_fr, reason_fr, idle_fr
+
+
 def _fr(n: int) -> str:
     return f"{n:,}".replace(",", "\u202f")  # narrow no-break space, French style
 
@@ -330,6 +349,7 @@ class AppSession:
         bricks: list[BrickDeclaration] | None = None,
         hooks: tuple[Hook, ...] = DEMO_HOOKS,
         cloud_factory: Callable[..., Any] | None = None,
+        rss_fn: Callable[[], int] | None = None,
     ) -> None:
         self.cfg = cfg or config.load_config()
         self._engine_factory = engine_factory
@@ -344,8 +364,14 @@ class AppSession:
         )
         self._cloud: CloudModel | None = None  # the active cloud model: chat mode (AD-4)
         self._window_source = "configured"
-        # AD-4: the last real `usage.prompt_tokens / Σ estimates` of the main context.
-        self._ratio = self.cfg.estimate_ratio
+        # AD-4: the last real `usage.prompt_tokens / Σ estimates` of the main context, by
+        # cloud model `id` (`_ratio` reads the active one's).
+        self._ratios: dict[str, float] = {}
+        # AD-8: every model load goes through the registry, one generative slot.
+        self._load_registry = LoadRegistry(
+            self.cfg.memory_budget_bytes, self.cfg.load_margin_bytes, rss_fn or process_rss
+        )
+        self._active: ModelChoice | None = None  # the model loaded now (AD-3)
         self._call_ids: set[str] = set()  # the running turn's `tool_call_id`s (AD-4)
         self._cloud_content = None  # `content/cloud.yaml`, read when a cloud model boots
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="wavestack-worker")
@@ -478,7 +504,14 @@ class AppSession:
             return active_model(self._cloud)
         if self._model_name is None:
             return None
-        return {"id": self._model_name, "label": self._model_name, "hosting": "local"}
+        active = self._active
+        return {
+            "id": self._model_name,
+            "label": self._model_name,
+            "hosting": "local",
+            "kind": "file",
+            "ref": active.ref if active is not None else None,
+        }
 
     def _emit_state(self) -> None:
         with self._lock:
@@ -844,54 +877,271 @@ class AppSession:
         except RuntimeError:
             return False
 
-    # ---------- model load ----------
+    # ---------- model load (AD-3, AD-7, AD-8) ----------
 
     @property
     def model_loaded(self) -> bool:
         return self._engine is not None
 
-    def boot(self, model_path: str | None) -> Future[None]:
-        """Load `model_path` on the worker thread: `model_load` → `idle`, then `context_preview`."""
-        return self._executor.submit(self._boot, model_path)
+    def active_choice(self) -> ModelChoice | None:
+        """The model loaded now, which the model lists mark « actif »; `None` while none is."""
+        with self._lock:
+            return self._active
 
-    def _boot(self, model_path: str | None) -> None:
-        if model_path is None:
+    @property
+    def _ratio(self) -> float:
+        """AD-4: the active cloud model's last `usage.prompt_tokens / Σ estimates`, kept by
+        model `id`: a round trip through another model finds it again."""
+        key = self._cloud.id if self._cloud is not None else ""
+        return self._ratios.get(key, self.cfg.estimate_ratio)
+
+    @_ratio.setter
+    def _ratio(self, value: float) -> None:
+        self._ratios[self._cloud.id if self._cloud is not None else ""] = value
+
+    def _cost(self, choice: ModelChoice) -> int:
+        """AD-8: a file's estimated cost at the configured window (an upper bound of the
+        effective one); a cloud model costs nothing."""
+        if choice.kind == "cloud":
+            return 0
+        return self._load_registry.file_cost(choice.ref, self.cfg.context_window)
+
+    @staticmethod
+    def _load_reason(choice: ModelChoice) -> str:
+        if choice.entry is not None:
+            return f"Préparation du modèle cloud {choice.entry.model} chez {choice.entry.provider}…"
+        return f"Chargement du modèle {Path(choice.ref).name}…"
+
+    @staticmethod
+    def _model_payload(choice: ModelChoice) -> dict[str, Any]:
+        """The `ActiveModel` of a model not loaded yet: `model_load_*`."""
+        if choice.entry is not None:
+            return active_model(choice.entry)
+        name = Path(choice.ref).stem
+        return {"id": name, "label": name, "hosting": "local", "kind": "file", "ref": choice.ref}
+
+    def boot(self, model_path: str | None) -> Future[str]:
+        """The launch's model (AD-21) on the worker thread: `model_load` → `idle`, then
+        `context_preview`. `None`: a local server only, no file to load."""
+        choice = ModelChoice("file", model_path) if model_path else None
+        return self._executor.submit(self._boot, choice)
+
+    def boot_cloud(self, entry: CloudModel) -> Future[str]:
+        """The launch's cloud model, prepared without any request (AD-21)."""
+        return self._executor.submit(self._boot, ModelChoice("cloud", entry.id, entry))
+
+    def _boot(self, choice: ModelChoice | None) -> str:
+        if choice is None:
             self._set_state("idle", _SERVER_ONLY_FR)
             self._emit_architecture()
             self._emit_bricks()
-            return
+            return "error"
+        with self._lock:
+            previous = self._active
+            self.state, self.reason_fr = "model_load", self._load_reason(choice)
+        self._emit_state()
+        return self._load(choice, previous, None, save=False)
+
+    def switch_model(
+        self, choice: ModelChoice, probe: Callable[[str], str | None] | None = None
+    ) -> tuple[str, Future[str] | None]:
+        """Intention `select_model` once past the diagnostic (class b, AD-3): accepted in
+        `idle`, even with a reason; refused otherwise (`SendRefused`). The budget is checked
+        before anything is released (AD-8): its refusal, in figures, leaves the active model.
+        `probe(path)` probes a GGUF never probed, after the release: `None` if it loads, else
+        why. Returns the French answer and the load's future (`None`: already active)."""
+        cost = self._cost(choice)
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+            previous = self._active
+            if choice.same_as(previous):
+                return f"{choice.label} est déjà actif.", None
+            refusal = self._load_registry.check(choice.label, cost)
+            if refusal is None:  # switched under the lock: a second choice racing it is refused
+                self.state, self.reason_fr = "model_load", self._load_reason(choice)
+        if refusal is not None:
+            self._error(refusal, "budget mémoire dépassé (AD-8)", "Rien n'est libéré ni écrit.")
+            raise SendRefused(refusal)
+        self._emit_state()
+        future = self._executor.submit(self._load, choice, previous, probe, True)
+        return f"Chargement de {choice.label}…", future
+
+    def _load(
+        self,
+        choice: ModelChoice,
+        previous: ModelChoice | None,
+        probe: Callable[[str], str | None] | None,
+        save: bool,
+    ) -> str:
+        """The single load path, on the worker, in `model_load` (AD-3, AD-8): release the
+        active model, probe a GGUF never probed (AD-7), load; on failure, reload `previous`.
+        Then `model_load_ended`, `idle`, and the bricks, schema and preview again. The choice
+        is saved (`save`) after a success only. Returns `ok`, `restored` or `error`."""
+        started = time.monotonic()
+        model = self._model_payload(choice)
+        journal = get_journal()
+        off_turn = {"turn_id": None, "step_id": None, "call_id": None, "context_id": None}
+        with scoped(**off_turn):
+            journal.emit(
+                "model_load_started", {"model": model, "phase_label": self._load_reason(choice)}
+            )
+        status, reason_fr, idle_fr = "error", None, _LOAD_FAILED_FR
         try:
-            self._model_name = None  # no engine from here until this load succeeds
-            self._set_state("model_load", f"Chargement du modèle {Path(model_path).name}…")
+            self._release()
+            try:
+                if (
+                    choice.kind == "file"
+                    and probe is not None
+                    and probe_module.probed_entry(choice.ref) is None
+                ):
+                    why = probe(choice.ref)
+                    if why is not None:
+                        name = Path(choice.ref).name
+                        raise _LoadFailed(f"Le fichier {name} est incompatible.", why)
+                self._install(choice)
+                status, idle_fr = "ok", None
+            except Exception as exc:  # noqa: BLE001 - AD-16
+                reason_fr, idle_fr, status = self._load_failed(choice, previous, exc)
+            if status == "ok" and save:
+                reason_fr = self._save_choice(choice)
+        except Exception as exc:  # noqa: BLE001 - AD-16: e.g. the release itself failed
+            self._error("Le changement de modèle s'est interrompu.", exc, _NO_TURN_FR)
+            status, reason_fr, idle_fr = "error", str(exc), _LOAD_FAILED_FR
+        finally:
+            with scoped(**off_turn):
+                journal.emit(
+                    "model_load_ended",
+                    {
+                        "model": model,
+                        "status": status,
+                        "duration_ms": _ms(time.monotonic() - started),
+                        "reason_fr": reason_fr,
+                    },
+                )
+            self._set_state("idle", idle_fr)
+            # AD-6, AD-9, AD-12: capabilities, window and model changed with the load.
             self._emit_architecture()
             self._emit_bricks()
-            if self._engine is not None:
-                self._engine.close()
-                self._engine = None
-            engine = self._engine_factory(model_path, n_ctx=self.cfg.context_window)
+            self._emit_preview()
+        return status
+
+    def _load_failed(
+        self, choice: ModelChoice, previous: ModelChoice | None, exc: Exception
+    ) -> tuple[str, str | None, str]:
+        """AD-3: back to `previous` when there was one. Returns the `model_load_ended`
+        reason, the reason left in `idle` and the status."""
+        cause: BaseException | str = exc
+        if isinstance(exc, _LoadFailed):
+            message_fr, cause, idle_fr = exc.message_fr, exc.reason_fr, exc.idle_fr
+        elif choice.entry is not None:
+            message_fr = f"Le modèle cloud {choice.label} n'a pas pu être préparé."
+            idle_fr = _CLOUD_FAILED_FR
+        else:
+            message_fr, idle_fr = "Le modèle n'a pas pu être chargé.", None
+        cause_fr = cause if isinstance(cause, str) else str(cause)
+        self._release()  # whatever the failed load left
+        if previous is None:
+            self._error(message_fr, cause, _NO_TURN_FR)
+            return cause_fr, idle_fr or _LOAD_FAILED_FR, "error"
+        self._error(message_fr, cause, f"Retour au modèle précédent : {previous.label}.")
+        try:
+            self._install(previous)
+        except Exception as back:  # noqa: BLE001 - AD-16
+            self._release()
+            self._error(
+                f"Le modèle précédent ({previous.label}) n'a pas pu être rechargé.",
+                back,
+                _NO_TURN_FR,
+            )
+            return (
+                f"{message_fr} Le modèle précédent ({previous.label}) n'a pas pu être rechargé.",
+                _LOAD_FAILED_FR,
+                "error",
+            )
+        return (
+            f"{choice.label} n'a pas pu être chargé ({cause_fr}) : {previous.label} est de "
+            "nouveau actif.",
+            None,
+            "restored",
+        )
+
+    def _release(self) -> None:
+        """AD-8: the active model is closed and leaves the registry before anything loads."""
+        with self._lock:
+            engine = self._engine
+            self._engine, self._caps, self._cloud, self._active = None, None, None, None
+            self._model_name = None
+        if engine is not None:
+            engine.close()
+        self._load_registry.release()
+
+    def _install(self, choice: ModelChoice) -> None:
+        """Load `choice` as the active model, nothing being loaded: raises on failure."""
+        if choice.entry is not None:
+            self._install_cloud(choice.entry)
+        else:
+            engine = self._engine_factory(choice.ref, n_ctx=self.cfg.context_window)
             caps = capabilities_for(engine.metadata())
             if caps.incompatible_reason:
                 engine.close()
-                self._error(
-                    "Modèle incompatible.", caps.incompatible_reason, "Aucun tour possible."
+                raise _LoadFailed(
+                    "Modèle incompatible.", caps.incompatible_reason, caps.incompatible_reason
                 )
-                self._set_state("idle", caps.incompatible_reason)
-                return
-            self._engine, self._caps, self._cloud = engine, caps, None
-            self._model_name = Path(model_path).stem
-            self._window = effective_window(self.cfg.context_window, caps.native_context)
-            self._window_source = (
-                "configured" if self._window == self.cfg.context_window else "native"
-            )
-            self._labels = self._load_labels()
-        except Exception as exc:  # noqa: BLE001 - AD-16
-            self._error("Le modèle n'a pas pu être chargé.", exc, "Aucun tour possible.")
-            self._set_state("idle", _LOAD_FAILED_FR)
-            return
-        self._set_state("idle")
-        self._emit_architecture()  # availability may depend on the loaded model's capabilities
-        self._emit_bricks()
-        self._emit_preview()
+            window = effective_window(self.cfg.context_window, caps.native_context)
+            labels = self._load_labels()
+            with self._lock:
+                self._engine, self._caps, self._cloud = engine, caps, None
+                self._model_name = Path(choice.ref).stem
+                self._window = window
+                self._window_source = (
+                    "configured" if window == self.cfg.context_window else "native"
+                )
+                self._labels = labels
+                self._active = choice
+        self._load_registry.grant(choice.label, self._cost(choice))
+
+    def _install_cloud(self, entry: CloudModel) -> None:
+        key = config.cloud_key(entry)
+        if key is None:
+            raise ValueError("aucune clé enregistrée pour cette adresse")
+        unavailable = config.cloud_unavailable_fr(entry)
+        if unavailable:
+            raise ValueError(unavailable)
+        self._cloud_content = load_cloud_content()
+        engine = self._cloud_factory(entry, key)
+        # AD-6: declared capabilities; the API's structured format parses the tool calls.
+        caps = Capabilities(
+            family="openai_chat",
+            chat_template=None,
+            tool_call_parser="openai_chat" if entry.tools else None,
+            stop_sequences=(),
+            reasoning_variable=None,
+            native_context=entry.context,
+            reasoning_tags=None,
+            reasoning=entry.reasoning is not None,
+            reasoning_always=entry.always_reasons,
+        )
+        window, source = config.cloud_window(entry, self.cfg.context_window)
+        labels = self._load_labels()
+        with self._lock:
+            self._engine, self._caps, self._cloud = engine, caps, entry
+            self._model_name = entry.model
+            self._window, self._window_source = window, source
+            self._labels = labels
+            self._active = ModelChoice("cloud", entry.id, entry)
+
+    def _save_choice(self, choice: ModelChoice) -> str | None:
+        """AD-20: `selected_model`, by the single applier (AD-23), after a success only.
+        Returns the French notice when settings.json could not be written."""
+        value = {"kind": choice.kind, "ref": choice.ref}
+        try:
+            apply_setting(SettingWrite(key="selected_model", value=value))
+        except OSError as exc:
+            notice = f"{choice.label} est actif ; choix non mémorisé pour les prochains lancements."
+            self._error("Impossible d'écrire le fichier de réglages settings.json.", exc, notice)
+            return notice
+        return None
 
     def hold(self, state: str, reason_fr: str, run: Callable[[], Any]) -> Any:
         """AD-3: runs `run` holding the operation lock in `state` (`test_cloud_model`:
@@ -910,59 +1160,6 @@ class AppSession:
                 mine = (self.state, self.reason_fr) == (state, reason_fr)
             if mine:
                 self._set_state(*previous)
-
-    def boot_cloud(self, entry: CloudModel) -> Future[None]:
-        """Prepare the cloud model `entry` on the worker thread, without any request (AD-21):
-        `model_load` → `idle`, then `context_preview`. No local model stays loaded (AD-8)."""
-        return self._executor.submit(self._boot_cloud, entry)
-
-    def _boot_cloud(self, entry: CloudModel) -> None:
-        label = f"{entry.model} chez {entry.provider}"
-        try:
-            self._model_name = None
-            self._set_state("model_load", f"Préparation du modèle cloud {label}…")
-            if self._engine is not None:
-                self._engine.close()
-                self._engine = None
-            key = config.cloud_key(entry)
-            if key is None:
-                raise ValueError("aucune clé enregistrée pour cette adresse")
-            unavailable = config.cloud_unavailable_fr(entry)
-            if unavailable:
-                raise ValueError(unavailable)
-            self._cloud_content = load_cloud_content()
-            engine = self._cloud_factory(entry, key)
-        except Exception as exc:  # noqa: BLE001 - AD-16
-            self._error(
-                f"Le modèle cloud {label} n'a pas pu être préparé.", exc, "Aucun tour possible."
-            )
-            self._set_state(
-                "idle",
-                "Envoi indisponible : le modèle cloud n'a pas pu être préparé. Choisissez un "
-                "modèle sur la page de diagnostic.",
-            )
-            return
-        # AD-6: declared capabilities; the API's structured format parses the tool calls.
-        self._caps = Capabilities(
-            family="openai_chat",
-            chat_template=None,
-            tool_call_parser="openai_chat" if entry.tools else None,
-            stop_sequences=(),
-            reasoning_variable=None,
-            native_context=entry.context,
-            reasoning_tags=None,
-            reasoning=entry.reasoning is not None,
-            reasoning_always=entry.always_reasons,
-        )
-        self._engine, self._cloud = engine, entry
-        self._model_name = entry.model
-        self._window, self._window_source = config.cloud_window(entry, self.cfg.context_window)
-        self._ratio = self.cfg.estimate_ratio
-        self._labels = self._load_labels()
-        self._set_state("idle")
-        self._emit_architecture()
-        self._emit_bricks()
-        self._emit_preview()
 
     def _load_labels(self) -> SegmentLabels:
         try:
@@ -2457,7 +2654,13 @@ class AppSession:
         with scoped(turn_id=turn_id, context_id="main", trigger="user"):
             try:
                 self._turn_seq = journal.emit(
-                    "turn_started", {"replay_of": replay_of, "message": message}, actor="user"
+                    "turn_started",
+                    {
+                        "replay_of": replay_of,
+                        "message": message,
+                        "active_model": self.active_model(),
+                    },
+                    actor="user",
                 ).seq
                 decided = self._hook("on_user_message", state)
                 if decided is not None and decided[1].injection:  # computed once for the turn

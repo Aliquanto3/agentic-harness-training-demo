@@ -26,6 +26,7 @@
       <ul id="pane-menu-list" class="pane-menu-list" hidden></ul>
     </div>
     <a class="model-indicator" id="model-indicator" href="/diagnostic" hidden></a>
+    <select id="model-picker" class="model-picker" aria-label="Changer de modèle"></select>
     <span class="top-status" id="top-status" role="status" aria-live="polite"></span>
     <button type="button" id="reset-button" class="reset-button">⟲ Réinitialiser</button>
   </header>
@@ -184,6 +185,16 @@
     <pre class="audit-text" id="audit-text" tabindex="0"></pre>
     <div class="drawer-actions">
       <button type="button" id="audit-close" class="primary">Fermer</button>
+    </div>
+  </dialog>
+
+  <!-- Story 17: the cloud warning, in the page (EXPERIENCE.md cloud-warning). -->
+  <dialog class="audit-dialog cloud-warning" id="cloud-warning" aria-labelledby="cloud-warning-title">
+    <h3 id="cloud-warning-title"></h3>
+    <ul class="cloud-warning-points" id="cloud-warning-points"></ul>
+    <div class="drawer-actions">
+      <button type="button" id="cloud-warning-confirm" class="primary"></button>
+      <button type="button" id="cloud-warning-cancel"></button>
     </div>
   </dialog>
 

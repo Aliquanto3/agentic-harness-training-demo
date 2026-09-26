@@ -413,7 +413,7 @@ def test_choose_before_load_saves_and_loads_exactly_that_file(monkeypatch, tmp_p
     body = _select(app, chosen)
     app.state.app_session.join()
 
-    assert body["ready"] is True and body["saved"] is True and body["next_launch"] is False
+    assert body["ready"] is True and body["saved"] is True and body["switching"] is True
     assert received == [str(chosen)]
     assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(chosen)}
     assert _client(app).get("/api/diagnostic").json()["ready"] is True  # "Ouvrir WaveStack"
@@ -482,13 +482,17 @@ def test_invalid_path_is_neither_saved_nor_loaded(monkeypatch, tmp_path):
     assert "selected_model" not in config.read_settings()
 
 
-def test_choice_after_load_is_saved_for_next_launch_only(monkeypatch, tmp_path):
+def test_choice_after_load_is_a_hot_switch(monkeypatch, tmp_path):
+    """Story 17 (CAP-34): no relaunch; the new file is probed by the application session
+    once the loaded model is released, then loaded and saved."""
     received = []
     session, app = _build(
         monkeypatch, tmp_path, models=("a.gguf",), app_session=_recording_app_session(received)
     )
     first = session.check_model()
     assert first.model_path  # handed out at startup (cli.py boots it)
+    session.hand_to(app.state.app_session, first, launch=True)
+    app.state.app_session.join()
     probed = _fake_probe_ok(monkeypatch, session)
     other = tmp_path / "other.gguf"
     other.write_bytes(b"placeholder")
@@ -496,13 +500,15 @@ def test_choice_after_load_is_saved_for_next_launch_only(monkeypatch, tmp_path):
     body = _select(app, other)
     app.state.app_session.join()
 
-    assert body["saved"] is True and body["next_launch"] is True
-    assert body["message_fr"] == "Choix enregistré : relancez WaveStack pour l'utiliser."
-    assert received == [] and probed == []  # no reload, no second model's weights in RAM
+    assert body["switching"] is True and body["message_fr"] == "Chargement de other…"
+    assert "Choix enregistré" not in body["message_fr"] and "next_launch" not in body
+    assert received == [first.model_path, str(other)] and probed == [str(other)]
     assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(other)}
-    # Story 11b: kept on the page, reload included, while the choice waits for a relaunch.
     diagnostic = _client(app).get("/api/diagnostic").json()
-    assert diagnostic["next_launch_fr"] == body["message_fr"]
+    assert "next_launch_fr" not in diagnostic
+    assert diagnostic["loaded_model"] == diagnostic["selected_model"] == str(other)
+    listed = next(c for c in diagnostic["candidates"] if c["path"] == str(other))
+    assert listed["architecture"] == "qwen35"
 
 
 def test_settings_write_failure_is_traced_and_model_still_loads(monkeypatch, tmp_path):
@@ -630,12 +636,12 @@ def test_failed_load_lets_a_new_choice_load(monkeypatch, tmp_path):
 
     _select(app, first)
     app_session.join()
-    assert not app_session.model_loaded and session.booted_path is None
+    assert not app_session.model_loaded and app_session.state == "idle"
 
     body = _select(app, second)
     app_session.join()
 
-    assert body["next_launch"] is False
+    assert body["switching"] is True  # story 17: loaded without relaunch
     assert received == [str(first), str(second)] and app_session.model_loaded
 
 
@@ -668,32 +674,19 @@ def test_two_models_and_no_choice_launch_on_the_diagnostic_page(monkeypatch, tmp
     assert launch_page(session.check_model()) == "/"
 
 
-def test_no_relaunch_notice_after_a_launch_fallback(monkeypatch, tmp_path):
-    """Story 11b: a saved cloud model without key falls back on the file at launch; nothing
-    was chosen after the load, so no notice."""
+def test_launch_fallback_loads_the_file(monkeypatch, tmp_path):
+    """Story 11b: a saved cloud model without key falls back on the file at launch."""
     monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path / "data"))
     config.save_setting("selected_model", {"kind": "cloud", "ref": "groq"})
-    session, app = _build(monkeypatch, tmp_path, models=("a.gguf",))
+    received = []
+    session, app = _build(
+        monkeypatch, tmp_path, models=("a.gguf",), app_session=_recording_app_session(received)
+    )
 
     result = session.check_model()
+    session.hand_to(app.state.app_session, result, launch=True)
+    app.state.app_session.join()
 
     assert result.model_path and session.selected_cloud == "groq"
-    assert session.next_launch_fr() is None
-    assert _client(app).get("/api/diagnostic").json()["next_launch_fr"] is None
-
-
-def test_no_relaunch_notice_when_the_choice_could_not_be_saved(monkeypatch, tmp_path):
-    session, app = _build(monkeypatch, tmp_path, models=("a.gguf",))
-    assert session.check_model().model_path
-
-    def _refuse(key, value):
-        raise PermissionError("settings.json en lecture seule")
-
-    monkeypatch.setattr(config, "save_setting", _refuse)
-    other = tmp_path / "other.gguf"
-    other.write_bytes(b"placeholder")
-
-    body = _select(app, other)
-
-    assert body["saved"] is False and session.next_launch_fr() is None
-    assert _client(app).get("/api/diagnostic").json()["next_launch_fr"] is None
+    diagnostic = _client(app).get("/api/diagnostic").json()
+    assert diagnostic["loaded_model"] == result.model_path and "next_launch_fr" not in diagnostic

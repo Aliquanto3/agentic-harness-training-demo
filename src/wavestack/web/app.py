@@ -248,23 +248,25 @@ def create_app(
     @app.get("/api/diagnostic")
     def diagnostic_state() -> dict[str, object]:
         result = session.last_result
+        # Story 17: the application session alone says which model is loaded (AD-12).
+        active = app_session.active_choice()
         return {
             "version": version,
             "ready": result.ready if result else False,
             "blocking_checks": result.blocking_checks if result else [],
             "candidates": [c.model_dump() for c in result.candidates] if result else [],
             "selected_model": session.selected_model_path,
-            "loaded_model": session.booted_path,
-            # Story 11b: kept while the saved choice waits for a relaunch (AD-21).
-            "next_launch_fr": session.next_launch_fr(),
+            "loaded_model": active.ref if active and active.kind == "file" else None,
             # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
-            "cloud": session.cloud_rows(),
+            "cloud": session.cloud_rows(active.ref if active and active.kind == "cloud" else None),
         }
 
     @app.post("/api/intentions/select_model")
     def select_model(intention: SelectModelIntention) -> dict[str, object]:
-        """Loads the chosen model only if none was loaded yet; else saved for next launch.
-        A cloud model needs the warning's confirmation and a key (AD-21)."""
+        """Before any model is handed out: saves and loads the chosen one (class a). After:
+        a hot switch (class b, story 17), refused outside `idle` or over the memory budget,
+        saved once it succeeded. A cloud model needs the warning's confirmation and a key
+        (AD-21)."""
         _diagnostic_class_b()
         ref = intention.ref or intention.path or ""
         if not ref.strip():
@@ -272,20 +274,30 @@ def create_app(
                 status_code=422,
                 detail="Intention invalide : indiquez le modèle choisi (ref) ou le chemin (path).",
             )
+        hot = session.handed_out or app_session.state != "diagnostic"
         if intention.kind == "cloud":
             try:
-                result = session.select_cloud(ref, intention.acknowledged)
+                result = session.select_cloud(ref, intention.acknowledged, hot=hot)
             except Refused as refused:
                 raise HTTPException(status_code=409, detail=refused.reason_fr) from None
         else:
-            result = session.select_model(ref)
-        session.hand_to(app_session, result)
+            result = session.select_model(ref, hot=hot)
+        switching = bool(result.model_path or result.cloud_model)
+        message_fr = result.message_fr
+        if result.hot:
+            try:
+                message_fr, switching = session.switch(app_session, result)
+            except SendRefused as refused:
+                raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        else:
+            session.hand_to(app_session, result)
         return {
             "ready": result.ready,
             "blocking_checks": result.blocking_checks,
+            # A hot switch is saved once it succeeded: `model_load_ended` says so.
             "saved": result.saved,
-            "next_launch": result.saved and not (result.model_path or result.cloud_model),
-            "message_fr": result.message_fr,
+            "switching": switching,
+            "message_fr": message_fr,
         }
 
     @app.post("/api/intentions/set_api_key")
