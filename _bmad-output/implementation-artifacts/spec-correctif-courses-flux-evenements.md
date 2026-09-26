@@ -2,7 +2,7 @@
 title: 'Correctif : courses du flux d''événements au rejeu (événements perdus, envoi silencieusement ignoré)'
 type: 'bugfix'
 created: '2026-09-26'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '0719050c74a252cd1a7bafdc76a3e1f392275730'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -89,3 +89,25 @@ Côté page, `/api/state` donne déjà le dernier de chaque état ; une envelopp
 - `uv run pytest -q` -- expected: tout vert
 - `node --check src/wavestack/web/static/app.js` -- expected: aucune erreur
 - `uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py` (×3) -- expected: code 0 à chaque passage
+
+## Auto Run Result
+
+Status: done
+
+**Résumé.** Serveur : `_sse_stream` s'abonne avant tout (y compris avant l'événement `server_instance`), rejoue l'instantané, puis écarte de la file ce qui a déjà été rejoué (`seq` ≤ dernier rejoué, repère initial 0 pour ne pas écarter les événements en direct d'un nouveau journal quand le client envoie le `Last-Event-ID` d'une autre instance). Page : `isLive(envelope)` (`seq > store.liveFrom`) protège les états « dernier connu » rejoués (`session_state` et modèle actif, architecture, briques, actions armées — libellés toujours retenus —, scénario, mémoire, jauge, message de réinitialisation) ; `sendMessage` n'ignore plus rien sans message ; `body[data-journal-replayed]` signale la fin du rejeu. `diagnostic.html` inchangé : il traitait déjà le rejeu sans effets de bord, seule la perte serveur pouvait le bloquer sur « Chargement de … ».
+
+**Intégration.** Pendant le travail, l'intégration a reçu un correctif serveur parallèle (story 16, 2974307). À la fusion, une seule implémentation est gardée : celle-ci (abonnement avant `server_instance`, repère initial 0, désabonnement garanti) ; le test de la story 16 (`test_an_event_emitted_during_the_replay_is_never_lost_nor_repeated`) est retiré car couvert par `test_stream_keeps_an_event_emitted_during_the_replay` et `test_stream_drops_the_overlap_between_subscription_and_snapshot`.
+
+**Fichiers.**
+- `src/wavestack/web/app.py` — abonnement avant l'instantané, dédoublonnage par `seq`.
+- `tests/test_web_app.py` — 4 tests : émission pendant le rejeu, recouvrement abonnement/instantané, `Last-Event-ID` d'une autre instance, désabonnement au départ du client.
+- `src/wavestack/web/static/app.js` — `isLive`, refus visible dans `sendMessage`, marqueur de fin de rejeu.
+- `tools/e2e/run_e2e.py` — `wait_turn_started` (5 s, puis état du champ, du bouton et de `#composer-reason`) dans `send` et `replay` ; `wait_replayed`, `goto_app`, `reload_app` ; barrière dans `wait_idle`, `s_local_server`, `s_relaunch` ; vérifications ajoutées (champ jamais désactivé au rejeu, envoi pendant un tour, message vide). Aucune vérification retirée.
+
+**Revue.** Revue brève par l'agent lui-même (pas d'outil de sous-agent ; voir le journal de tri) : 3 correctifs appliqués (2 medium, 1 low), 0 différé, 3 rejetés (1 low jugé voulu, 2 réfutés).
+
+**Recommandation de revue complémentaire :** `false` (aucun `high` corrigé ; 2 `medium` corrigés, mais chacun vérifié par un test ou une vérification E2E qui échoue sans le correctif).
+
+**Vérifications.** Sur la base fusionnée (2974307 + ce correctif) : `ruff check` et `ruff format --check` OK ; `pytest -q` : 770 réussis, 5 ignorés ; `node --check app.js` OK ; parcours E2E complet ×3 de suite : 327/327, 327/327, 327/327 (0 échec, 0 anomalie connue). Mutations : sans le filtre de `seq`, le test de recouvrement échoue ; avec l'ancien serveur, le test d'émission pendant le rejeu échoue ; avec `isLive` forcé à `true`, le parcours complet échoue sur « le rejeu ne désactive jamais le champ » (`[True, True, True, False]`).
+
+**Risques résiduels.** La vérification E2E du champ au rejeu ne détecte la régression que sur un journal long (parcours complet), pas avec `--only reload_and_reset` seul. Le message « Écrivez un message avant d'envoyer. » reste affiché jusqu'au prochain envoi ou état `idle`.
