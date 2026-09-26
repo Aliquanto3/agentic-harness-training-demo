@@ -128,8 +128,22 @@
       }
     }
 
-    function renderCheck(payload) {
+    // Keeps every row whose rendering did not change, with its buttons, its typed key and
+    // its focus: a button replaced under the pointer loses the click.
+    function patchList(container, rows) {
+      rows.forEach((row, i) => {
+        const old = container.children[i];
+        if (!old) container.appendChild(row);
+        else if (old.outerHTML !== row.outerHTML) old.replaceWith(row);
+      });
+      while (container.children.length > rows.length) container.lastElementChild.remove();
+    }
+
+    // `live`: false for the journal's history, replayed by the stream when the page opens;
+    // /api/diagnostic already says what it led to (the lists, each model's last test).
+    function renderCheck(payload, live) {
       if (payload.check === "cloud_test") {
+        if (!live) return;
         testResults.set(payload.model_id, payload);
         renderCloud();
         return;
@@ -143,7 +157,7 @@
       }
       li.className = payload.status;
       fillLine(li, payload.check, payload.message_fr, payload.action_fr);
-      if (payload.check === "model") loadDiagnostic();
+      if (payload.check === "model" && live) loadDiagnostic();
     }
 
     function renderHarnessError(payload) {
@@ -154,16 +168,16 @@
     }
 
     function renderCandidates(candidates) {
-      candidatesEl.innerHTML = "";
       if (!candidates.length) {
         const li = document.createElement("li");
         li.textContent = "Aucun candidat trouvé.";
-        candidatesEl.appendChild(li);
+        patchList(candidatesEl, [li]);
         return;
       }
+      const rows = [];
       for (const c of candidates) {
         if (c.source === "server") {
-          candidatesEl.appendChild(servedRow(c));
+          rows.push(servedRow(c));
           continue;
         }
         const li = document.createElement("li");
@@ -185,8 +199,9 @@
         if (c.status === "found" && c.path && !isModel(loadedModel, "file", c.path)) {
           li.appendChild(chooseButton({ kind: "file", ref: c.path }));
         }
-        candidatesEl.appendChild(li);
+        rows.push(li);
       }
+      patchList(candidatesEl, rows);
     }
 
     function addMarks(li, kind, ref) {
@@ -246,7 +261,9 @@
     // ---------- cloud models (story 11): key, « Tester », « Choisir » behind the warning ----------
     const cloudEl = document.getElementById("cloud-models");
     const warningEl = document.getElementById("cloud-warning");
-    const testResults = new Map(); // model id -> last `diagnostic_check{check: cloud_test}`
+    // model id -> the live `diagnostic_check{check: cloud_test}` (null: a test under way),
+    // over the row's `last_test`
+    const testResults = new Map();
     const cloudStatus = new Map(); // model id -> the last intention's message
     let cloud = { models: [], key_hint_fr: "" };
     let warningFor = null;
@@ -259,12 +276,15 @@
       return element;
     }
 
+    // A row kept by `patchList` keeps its listeners: they read the model as it is now.
+    const currentModel = (m) => cloud.models.find((x) => x.id === m.id) || m;
+
     function renderCloud() {
-      cloudEl.replaceChildren();
       if (!cloud.models.length) {
-        cloudEl.appendChild(node("li", "", "Aucun modèle cloud déclaré (voir wavestack.toml)."));
+        patchList(cloudEl, [node("li", "", "Aucun modèle cloud déclaré (voir wavestack.toml).")]);
         return;
       }
+      const rows = [];
       for (const m of cloud.models) {
         const li = node("li", "cloud");
         const d = m.disclosure;
@@ -293,7 +313,7 @@
         save.type = "button";
         save.disabled = busy;
         save.addEventListener("click", () => {
-          if (input.value.trim()) setApiKey(m, input.value);
+          if (input.value.trim()) setApiKey(currentModel(m), input.value);
         });
         keyRow.append(input, save);
         if (fromEnv) li.appendChild(node("div", "action", `Clé fournie par la variable ${m.key_env}`));
@@ -306,14 +326,17 @@
         for (const button of [test, choose]) {
           button.type = "button";
           button.disabled = busy || Boolean(m.disabled_fr);
-          if (m.disabled_fr) button.title = m.disabled_fr;
+          if (m.disabled_fr) {
+            button.title = m.disabled_fr;
+            button.dataset.blocked = "true"; // `setBusy(false)` leaves it disabled
+          }
         }
-        test.addEventListener("click", () => testCloud(m));
-        choose.addEventListener("click", () => openWarning(m, choose));
+        test.addEventListener("click", () => testCloud(currentModel(m)));
+        choose.addEventListener("click", () => openWarning(currentModel(m), choose));
         li.append(test, " ", choose);
         if (m.disabled_fr) li.appendChild(node("div", "action", m.disabled_fr));
         li.appendChild(node("div", "action", m.test_hint_fr));
-        const result = testResults.get(m.id);
+        const result = testResults.has(m.id) ? testResults.get(m.id) : m.last_test;
         if (result) {
           const parts = [result.message_fr];
           if (result.answer) parts.push(`Réponse : « ${result.answer} »`);
@@ -322,8 +345,9 @@
           li.appendChild(node("div", `cloud-result ${result.status}`, parts.join(" · ")));
         }
         if (cloudStatus.has(m.id)) li.appendChild(node("div", "cloud-result", cloudStatus.get(m.id)));
-        cloudEl.appendChild(li);
+        rows.push(li);
       }
+      patchList(cloudEl, rows);
     }
 
     async function post(path, payload) {
@@ -362,7 +386,7 @@
     }
 
     function testCloud(m) {
-      testResults.delete(m.id);
+      testResults.set(m.id, null);
       cloudIntention(m, "/api/intentions/test_cloud_model", { id: m.id }, "Test en cours…");
     }
 
@@ -418,9 +442,30 @@
       }
     });
 
-    async function loadDiagnostic() {
+    // One `/api/diagnostic` request at a time; the calls made meanwhile give one more.
+    let loading = null;
+    let loadAgain = false;
+    function loadDiagnostic() {
+      if (loading) {
+        loadAgain = true;
+        return loading;
+      }
+      loading = fetchDiagnostic()
+        .catch(() => {}) // the next event or intention reads it again
+        .finally(() => {
+          loading = null;
+          if (loadAgain) {
+            loadAgain = false;
+            loadDiagnostic();
+          }
+        });
+      return loading;
+    }
+
+    async function fetchDiagnostic() {
       const response = await fetch("/api/diagnostic");
       const body = await response.json();
+      if (historyUpTo === null) historyUpTo = body.seq ?? 0;
       selectedModel = body.selected;
       loadedModel = body.loaded;
       cloud = body.cloud || cloud;
@@ -436,17 +481,28 @@
         setTimeout(() => { if (switching === mine) finishSwitch(text); }, 3000);
       }
     }
-    loadDiagnostic();
 
-    const source = new EventSource("/api/diagnostic/stream");
-    source.addEventListener("diagnostic_check", (event) => {
-      renderCheck(JSON.parse(event.data).payload);
-    });
-    source.addEventListener("harness_error", (event) => {
-      renderHarnessError(JSON.parse(event.data).payload);
-    });
-    source.addEventListener("model_load_ended", (event) => {
-      const payload = JSON.parse(event.data).payload;
+    // The stream replays the whole journal first. Its events up to `historyUpTo` (the
+    // journal's `seq` when the page first read /api/diagnostic) are history: their lines
+    // are shown, without reloading the lists nor being taken for a switch's outcome.
+    let historyUpTo = null;
+
+    // `live`: false for the history.
+    function onEnvelope(event, handle) {
+      const envelope = JSON.parse(event.data);
+      handle(envelope.payload, historyUpTo === null || envelope.seq > historyUpTo);
+    }
+
+    function openStream() {
+      const source = new EventSource("/api/diagnostic/stream");
+      source.addEventListener("diagnostic_check", (event) => onEnvelope(event, renderCheck));
+      source.addEventListener("harness_error", (event) => onEnvelope(event, renderHarnessError));
+      source.addEventListener("model_load_ended", (event) => onEnvelope(event, onModelLoadEnded));
+    }
+    loadDiagnostic().then(openStream);
+
+    function onModelLoadEnded(payload, live) {
+      if (!live) return; // an earlier load: the lists already show where it led
       if (switching) {
         const text = payload.status === "ok"
           ? [`${payload.model.label} est actif.`, payload.reason_fr].filter(Boolean).join(" ")
@@ -456,11 +512,13 @@
         else if (ref === switching.ref) finishSwitch(text); // another model's load: ignored
       }
       loadDiagnostic();
-    });
+    }
 
     function setBusy(value) {
       busy = value;
-      for (const button of document.querySelectorAll("button.choose")) button.disabled = value;
+      for (const button of document.querySelectorAll("button.choose")) {
+        button.disabled = value || button.dataset.blocked === "true";
+      }
     }
 
     async function chooseModel(model) {

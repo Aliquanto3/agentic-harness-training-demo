@@ -236,6 +236,31 @@ def test_a_failing_factory_leaves_the_brick_unavailable_and_the_registry_free(in
     session.close()
 
 
+def test_a_model_that_fails_then_is_deleted_is_offered_again_on_reactivation(index):
+    """The failure's text says what works without a relaunch: delete the file, switch the
+    brick off and on; the card then reads the files again and offers the download."""
+    path = place_model()
+
+    def broken(model):  # noqa: ANN001
+        raise RuntimeError("GGUF illisible")
+
+    session, _ = rag_session(rag_config(index), embedders=broken)
+    reason = card(session)["reason_fr"]
+    assert "relancez" not in reason and "réactivez la brique RAG" in reason
+
+    path.unlink()
+    session.set_brick("rag", False)
+    session.join()
+    mark = get_journal().last_seq()
+    session.set_brick("rag", True)
+    session.join()
+
+    rag = card(session, mark)
+    assert rag["available"] is False and "modèle absent" in rag["reason_fr"]
+    assert rag["download"] is not None
+    session.close()
+
+
 def test_switching_the_brick_off_while_it_loads_closes_the_model(index):
     place_model()
     entered, gate = threading.Event(), threading.Event()

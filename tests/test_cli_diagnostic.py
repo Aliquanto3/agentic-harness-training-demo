@@ -76,6 +76,16 @@ def test_no_model_found_blocks_diagnostic(monkeypatch, tmp_path):
     assert model_checks[-1].payload["blocking"] is True
 
 
+def test_diagnostic_gives_the_journal_tip_for_the_page_replay(monkeypatch, tmp_path):
+    """The page treats the stream's events up to this `seq` as history (no side effects)."""
+    session, app = _build(monkeypatch, tmp_path)
+    session.check_model()
+
+    body = _client(app).get("/api/diagnostic").json()
+
+    assert body["seq"] == get_journal().last_seq() > 0
+
+
 def test_model_in_models_dir_passes_without_blocking(monkeypatch, tmp_path):
     session, _ = _build(monkeypatch, tmp_path)
     models_dir = config.models_dir()

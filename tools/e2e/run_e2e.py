@@ -1757,10 +1757,12 @@ def s_model_switch(r: Run) -> None:
         list(options)[-1] == "Autre fichier ou clé API…",
         "sélecteur : dernière entrée « Autre fichier ou clé API… »",
     )
+    # Story 11b's texts, gone with the hot switch. Other « relancez WaveStack » stay true (a
+    # file read at launch only, e.g. the Compression card without the extra installed).
     body = page.inner_text("body")
     r.check(
-        "Prochain lancement" not in body and "relancez WaveStack" not in body,
-        "aucune mention « Prochain lancement » ni « relancez »",
+        "Prochain lancement" not in body and "relancez WaveStack pour l'utiliser" not in body,
+        "aucune mention « Prochain lancement » ni « relancez WaveStack pour l'utiliser »",
     )
 
     seq = r.ev.mark()
@@ -1855,10 +1857,8 @@ def s_model_switch(r: Run) -> None:
     row_a = page.locator("#cloud-models li", has_text="wavestack-fake")
     row_a.get_by_role("button", name="Choisir").click()
     page.click("#cloud-warning-confirm")
-    # The page's own fallback (« Le modèle choisi est actif. ») wins when the stream is still
-    # replaying a long journal after 3 s: both say the switch succeeded (deferred-work.md).
     expect(row_a.locator(".cloud-result").last).to_have_text(
-        re.compile(r"^(wavestack-fake|Le modèle choisi) est actif\.$"), timeout=20_000
+        "wavestack-fake est actif.", timeout=20_000
     )
     r.check(True, "diagnostic : « Choisir » change de modèle sans relance, issue affichée")
     body = page.inner_text("body")
@@ -1902,15 +1902,11 @@ def s_local_server(r: Run) -> None:
     )
     r.check("palier 2" not in page.inner_text("body"), "diagnostic : plus de « palier 2 »")
 
-    # « Choisir » at the diagnostic: a hot switch from the cloud fake model.
-    # The page replays the whole journal first, and each replayed model check re-renders the
-    # list: a click on a button replaced meanwhile is lost. Clicked again until it starts.
+    # « Choisir » at the diagnostic: a hot switch from the cloud fake model, at the first
+    # click (the page no longer rebuilds its rows while it replays the journal).
     seq = r.ev.mark()
-    for _ in range(5):
-        llama_row.get_by_role("button", name="Choisir").click()
-        started, _ = r.poll(lambda: bool(r.ev.since(seq, "model_load_started")), 3)
-        if started:
-            break
+    llama_row.get_by_role("button", name="Choisir").click()
+    r.ev.wait("model_load_started", seq, timeout=5)
     ended = r.ev.wait("model_load_ended", seq, timeout=30)
     r.check(ended["payload"]["status"] == "ok", "diagnostic : « Choisir » prépare le modèle servi")
     expect(page.locator("#select-model-status")).to_have_text(

@@ -350,7 +350,8 @@ class Config:
         if raw is None:
             return None, (
                 "La section [rag.embedding] de wavestack.toml est absente : elle nomme le "
-                "modèle d'embedding. Rétablissez-la, puis relancez WaveStack."
+                "modèle d'embedding. Rétablissez-la, puis relancez WaveStack (la configuration "
+                "n'est lue qu'au lancement)."
             )
         try:
             return EmbeddingModel.model_validate(raw), None
@@ -360,7 +361,8 @@ class Config:
             )
             return None, (
                 f"La section [rag.embedding] est invalide ({fields}). Corrigez wavestack.toml "
-                "ou settings.json, puis relancez WaveStack."
+                "ou settings.json, puis relancez WaveStack (la configuration n'est lue qu'au "
+                "lancement)."
             )
 
     @property
