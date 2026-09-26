@@ -10,7 +10,8 @@ scriptée et déterministe.
 uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py
 ```
 
-- `--only h5 caveman` : seulement ces scénarios (le diagnostic est toujours joué).
+- `--only h5 caveman` : seulement ces scénarios (le diagnostic est toujours joué). Chaque
+  scénario se lance seul : aucun ne dépend de ceux qui le précèdent dans le parcours.
 - `--keep` : garde le dossier de données temporaire (journaux `wavestack.log`,
   `fake_openai.log`, `settings.json`, `audit.log`) ; son chemin s'affiche au début.
 - `--headed` : navigateur visible.
@@ -57,19 +58,20 @@ Pour explorer à la main : `uv run python tools/e2e/stack.py` lance le faux mod�
 
 ## Changement de modèle (story 17)
 
-Le scénario `model_switch`, joué avant `relaunch` : sélecteur de la barre haute (modèle actif
+Le scénario `model_switch` : sélecteur de la barre haute (modèle actif
 marqué « (actif) » et grisé, dernière entrée « Autre fichier ou clé API… », aucune mention
 « Prochain lancement »), choix noté sans effet tant que « Choisir… » n'est pas cliqué,
 avertissement cloud dans la page (« Annuler » ne change rien, « Utiliser ce modèle » charge),
 chronomètre dans la barre haute et en fin de Vue humain, envoi et sélecteur désactivés avec la
 raison, conversation gardée, appel envoyé avec le nouveau modèle, lignes « Modèle : … », rejeu
 joué par le nouveau modèle, « Comparer » avec le modèle de chaque colonne, puis retour au
-premier modèle par « Choisir » au diagnostic, issue affichée, jamais « relancez ». Capture :
+premier modèle par « Choisir » au diagnostic, issue exacte « wavestack-fake est actif. », jamais
+« relancez WaveStack pour l'utiliser ». Capture :
 `22-changement-de-modele.jpg`.
 
 ## Serveur local déjà lancé (story 18)
 
-Le scénario `local_server`, joué après `model_switch` : au diagnostic, le modèle du faux
+Le scénario `local_server` : au diagnostic, le modèle du faux
 llama-server est listé (« Local », adresse, mémoire, « Choisir ») et celui du faux Ollama est
 incompatible, sans « Choisir » (GGUF introuvable) ; plus de mention « palier 2 ». Dans le
 sélecteur de la barre haute, le modèle servi est choisi puis chargé (« Préparation du modèle
@@ -82,7 +84,7 @@ le scénario revient enfin au faux modèle cloud. Capture : `23-serveur-local-ll
 
 ## Compression du contexte (story 20)
 
-Le scénario `compression`, joué après `rag`, utilise le vrai Headroom : l'environnement du
+Le scénario `compression` utilise le vrai Headroom : l'environnement du
 parcours doit avoir l'extra (`uv sync --extra compression` une fois ; `uv run --with
 playwright…` le garde). Carte disponible avec son seuil, puce 🗜️ dans le harnais ; un tour
 brique éteinte (le journal `journal_serveur.log` part en entier), puis le rejeu brique allumée :

@@ -1639,8 +1639,9 @@ class AppSession:
 
     def _rag_refresh(self) -> None:
         """Story 15: what the availability reads of the index (`meta`, the preview's
-        excerpts) and of the model's files, at launch, after a download or a build, and when
-        a search finds the index replaced. Never at each emission."""
+        excerpts) and of the model's files, at launch, before loading the model (the brick
+        switched on), after a download or a build, and when a search finds the index
+        replaced. Never at each emission."""
         model = self._rag_model
         content = self._rag_content
         if model is None or content is None:
@@ -1829,6 +1830,8 @@ class AppSession:
         with self._lock:
             wanted, embedder = "rag" in self._wanted, self._embedder
         changed = False
+        if wanted and embedder is None:
+            self._rag_refresh()  # a file deleted or copied since: read again, no relaunch
         if not wanted or model is None or self._rag_static_reason() is not None:
             changed = embedder is not None
             self._release_embedder()
@@ -1893,8 +1896,9 @@ class AppSession:
                 None,
                 (
                     f"Indisponible : le modèle d'embedding n'a pas pu être chargé "
-                    f"({type(exc).__name__}: {exc}). Vérifiez le fichier {path}, ou supprimez-le "
-                    "et relancez WaveStack pour le télécharger à nouveau."
+                    f"({type(exc).__name__}: {exc}). Vérifiez le fichier {path}, ou "
+                    "supprimez-le, puis désactivez et réactivez la brique RAG : elle relit ses "
+                    "fichiers et propose de le télécharger à nouveau."
                 ),
             )
         self._load_registry.grant(model.label_fr, cost, EMBEDDING)

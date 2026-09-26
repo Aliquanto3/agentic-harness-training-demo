@@ -501,6 +501,9 @@ def test_cloud_test_makes_two_calls_without_key_in_the_trace(monkeypatch, caplog
     assert check["check"] == "cloud_test" and check["status"] == "ok"
     assert check["tool_call"] == {"name": "get_datetime", "arguments": "{}"}
     assert check["answer"] == "Il est 9 h."
+    # The diagnostic page opened afterwards reads it from its row, not from the replay.
+    rows = {r["id"]: r for r in client.get("/api/diagnostic").json()["cloud"]["models"]}
+    assert rows["groq"]["last_test"] == check and rows["mistral"]["last_test"] is None
     states = [e.payload["state"] for e in _of(events, "session_state")]
     assert states[0] == "model_load" and states[-1] == "diagnostic"
     assert app_session._ratio == config.load_config().estimate_ratio  # never trained

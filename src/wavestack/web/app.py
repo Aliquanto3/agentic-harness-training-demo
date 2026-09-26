@@ -257,6 +257,9 @@ def create_app(
 
     @app.get("/api/diagnostic")
     def diagnostic_state() -> dict[str, object]:
+        # The journal's last `seq` before anything is read: the page's stream replays the
+        # events up to it as history, without their side effects; a later one is live.
+        tip = get_journal().last_seq()
         result = session.last_result
         # Story 17: the application session alone says which model is loaded (AD-12).
         active = app_session.active_choice()
@@ -286,6 +289,7 @@ def create_app(
             ),
             # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
             "cloud": session.cloud_rows(active.ref if active and active.kind == "cloud" else None),
+            "seq": tip,
         }
 
     @app.post("/api/intentions/select_model")

@@ -114,6 +114,8 @@ class DiagnosticSession:
         self.last_result: DiagnosticResult | None = None
         self._lock = threading.Lock()
         self._tests = 0  # « Tester » runs, for their `diag.{n}` ids (AD-21)
+        # model id -> its last « Tester » outcome, for the page opened after it
+        self._last_tests: dict[str, dict[str, object]] = {}
         self._cloud_factory = cloud_factory or (
             lambda entry, key: OpenAIChatEngine(
                 entry,
@@ -723,6 +725,7 @@ class DiagnosticSession:
                     "loaded": entry.id == active,
                     "test_hint_fr": fill(content.test_hint_fr, entry, content) if content else "",
                     "warning": warning_fr(entry, content) if content else None,
+                    "last_test": self._last_tests.get(entry.id),
                 }
             )
         return {"models": rows, "key_hint_fr": content.key_hint_fr if content else ""}
@@ -915,20 +918,19 @@ class DiagnosticSession:
         tool_call: dict[str, object] | None = None,
         tps: int | None = None,
     ) -> None:
-        get_journal().emit(
-            "diagnostic_check",
-            {
-                "check": "cloud_test",
-                "status": status,
-                "message_fr": message_fr,
-                "action_fr": " ".join(hints_fr) or None,
-                "blocking": False,
-                "model_id": entry.id,
-                "answer": answer,
-                "tool_call": tool_call,
-                "output_tps": tps,
-            },
-        )
+        payload: dict[str, object] = {
+            "check": "cloud_test",
+            "status": status,
+            "message_fr": message_fr,
+            "action_fr": " ".join(hints_fr) or None,
+            "blocking": False,
+            "model_id": entry.id,
+            "answer": answer,
+            "tool_call": tool_call,
+            "output_tps": tps,
+        }
+        self._last_tests[entry.id] = payload
+        get_journal().emit("diagnostic_check", payload)
 
     def run(self) -> DiagnosticResult:
         """Run every diagnostic check once, in the order the story mandates."""
