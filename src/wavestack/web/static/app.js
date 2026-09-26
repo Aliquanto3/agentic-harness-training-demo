@@ -19,6 +19,13 @@ const store = {
   // ({ model, startedAt }), and the model picker's list (`GET /api/diagnostic`).
   modelLoad: null,
   modelList: null,
+  // The picker's choice waiting for « Charger » (a keyboard arrow already fires `change`
+  // under Windows), and whether its list failed to load.
+  pickerPending: "",
+  modelListError: false,
+  // The journal's tip when `/api/state` answered: an older `model_load_ended`, replayed by
+  // the stream after a reload, does not come back in the top bar.
+  liveFrom: 0,
   architecture: { nodes: [], edges: [] },
   journal: [],
   selection: null,
@@ -245,8 +252,8 @@ function applyEnvelope(envelope) {
       break;
     case "model_load_ended":
       store.modelLoad = null;
-      // A load that fell back, or a choice not saved, says so in the top bar.
-      store.topStatus = p.reason_fr ?? null;
+      // A load that fell back, or a choice not saved, says so in the top bar (live only).
+      if (envelope.seq > store.liveFrom) store.topStatus = p.reason_fr ?? null;
       scheduleModelList();
       break;
     case "turn_started":
@@ -1414,13 +1421,19 @@ function scheduleModelList() {
   modelListTimer = setTimeout(loadModelList, 150);
 }
 
-// The last diagnostic's list: no new discovery nor probe at the picker's opening.
+// The last diagnostic's list: no new discovery nor probe at the picker's opening. A failed
+// fetch keeps the last list and tries again a few seconds later.
+let modelListRetry = null;
 async function loadModelList() {
+  clearTimeout(modelListRetry);
   try {
     const response = await fetch("/api/diagnostic");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     store.modelList = await response.json();
+    store.modelListError = false;
   } catch {
-    // The picker keeps its last list.
+    store.modelListError = true;
+    modelListRetry = setTimeout(loadModelList, 5000);
   }
   renderModelPicker();
 }
@@ -1437,16 +1450,35 @@ let renderedPickerKey = null;
 
 function renderModelPicker() {
   const picker = document.getElementById("model-picker");
+  const apply = document.getElementById("model-picker-apply");
   const state = store.sessionState;
   const idle = state?.state === "idle"; // class (b): between two turns only
   picker.disabled = !idle || !store.modelList;
-  picker.title = idle
-    ? "Changer de modèle : la conversation est conservée."
-    : state?.reason_fr || "Disponible hors d'un tour.";
+  picker.title = !idle
+    ? state?.reason_fr || "Disponible hors d'un tour."
+    : !store.modelList
+      ? "Liste des modèles indisponible : nouvel essai dans quelques secondes."
+      : "Changer de modèle : la conversation est conservée.";
+  if (!idle) store.pickerPending = "";
   const active = store.activeModel;
   const key = JSON.stringify([store.modelList, modelKey(active)]);
-  if (key === renderedPickerKey) return;
-  renderedPickerKey = key;
+  // A native list open under the pointer must not lose its options: rebuilt once it closes.
+  if (key !== renderedPickerKey && document.activeElement !== picker) {
+    renderedPickerKey = key;
+    rebuildModelPicker(picker, active);
+  }
+  if (picker.value !== store.pickerPending) picker.value = store.pickerPending;
+  if (picker.value !== store.pickerPending) store.pickerPending = ""; // its option left
+  const pending = store.pickerPending;
+  apply.hidden = !pending;
+  apply.disabled = !idle;
+  setText(
+    apply,
+    pending === PICK_OTHER ? "Ouvrir le diagnostic" : pending.startsWith("cloud:") ? "Choisir…" : "Charger"
+  );
+}
+
+function rebuildModelPicker(picker, active) {
   const list = store.modelList ?? { candidates: [], cloud: { models: [] } };
   const local = el("optgroup");
   local.label = "Sur ce poste";
@@ -1483,13 +1515,19 @@ function renderModelPicker() {
   const head = pickerOption("", "Changer de modèle…");
   const groups = [local, network].filter((g) => g.children.length);
   picker.replaceChildren(head, ...groups, pickerOption(PICK_OTHER, "Autre fichier ou clé API…"));
-  picker.value = "";
 }
 
-async function pickModel(event) {
-  const picker = event.target;
-  const value = picker.value;
-  picker.value = "";
+// `change` only notes the choice: « Charger » (or « Choisir… », « Ouvrir le diagnostic »)
+// acts on it.
+function notePick(event) {
+  store.pickerPending = event.target.value;
+  renderModelPicker();
+}
+
+async function applyPick() {
+  const value = store.pickerPending;
+  store.pickerPending = "";
+  renderModelPicker();
   if (!value) return;
   if (value === PICK_OTHER) {
     window.location.href = "/diagnostic"; // the key and a free path stay there
@@ -1523,7 +1561,15 @@ async function selectModel(body) {
 let warningModel = null;
 
 function openCloudWarning(model) {
-  if (!model?.warning) return;
+  if (!model?.warning) {
+    // Without its warning text, a cloud model cannot be confirmed, hence not chosen (AD-21).
+    store.topStatus = model
+      ? "L'avertissement de ce modèle cloud est indisponible (fichier content/cloud.yaml " +
+        "absent ou invalide) : il ne peut pas être choisi tant que le fichier n'est pas corrigé."
+      : "Ce modèle n'est plus dans la liste : rouvrez le sélecteur.";
+    render();
+    return;
+  }
   warningModel = model;
   const w = model.warning;
   setText(document.getElementById("cloud-warning-title"), w.title_fr);
@@ -1626,12 +1672,14 @@ function renderChat() {
   const cards = new Map();
   const turns = shownTurns();
   if (turns.length === 0) nodes.push(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
+  let shownBefore = null;
   for (const turn of turns) {
-    // Story 17: « Modèle : … » before a turn played by another model than the one before.
-    const before = store.turns[store.turns.indexOf(turn) - 1];
-    if (before && turn.model && modelKey(before.model) !== modelKey(turn.model)) {
+    // Story 17: « Modèle : … » above the first turn shown, then above each turn played by
+    // another model than the turn shown before it.
+    if (turn.model && modelKey(shownBefore?.model) !== modelKey(turn.model)) {
       nodes.push(el("div", "model-switch-line", `Modèle : ${turn.model.label}`));
     }
+    shownBefore = turn;
     const user = el("div", "bubble bubble-user", turn.message);
     const origin = turn.replayOf && store.turns.find((t) => t.id === turn.replayOf);
     if (origin) {
@@ -4070,8 +4118,10 @@ async function boot() {
   document.getElementById("replay-last").addEventListener("click", replayLast);
   document.getElementById("scenario-picker").addEventListener("change", launchScenario);
   const modelPicker = document.getElementById("model-picker");
-  modelPicker.addEventListener("change", pickModel);
+  modelPicker.addEventListener("change", notePick);
   modelPicker.addEventListener("focus", loadModelList);
+  modelPicker.addEventListener("blur", renderModelPicker); // a rebuild waiting for the close
+  document.getElementById("model-picker-apply").addEventListener("click", applyPick);
   bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
@@ -4135,6 +4185,7 @@ async function boot() {
     const response = await fetch("/api/state");
     const body = await response.json();
     store.serverInstance = body.instance_id ?? null;
+    store.liveFrom = body.seq ?? 0;
     store.sessionState = body.session_state;
     store.activeModel = body.active_model ?? null;
     store.architecture = body.architecture_changed || { nodes: [], edges: [] };

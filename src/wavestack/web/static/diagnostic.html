@@ -74,26 +74,42 @@
     // Story 17: a choice may start a hot switch, answered « Chargement de {modèle}… »; its
     // `model_load_ended` gives the outcome (it may come before the answer), then the marks
     // come from the application session.
-    let switching = null; // { show(text), answered, outcome }
+    // `switching`: the request that may start a switch; `ref` (from its answer) is the model
+    // it loads, and `outcomes` the `model_load_ended` texts that came before the answer.
+    let switching = null; // { show(text), ref, answered, outcomes, timer }
+    const SWITCH_TIMEOUT_MS = 5 * 60 * 1000; // a missed outcome never pins a message
 
     function startSwitch(show) {
-      switching = { show, answered: false, outcome: null };
+      finishSwitch();
+      switching = { show, ref: null, answered: false, outcomes: new Map() };
+      const mine = switching;
+      mine.timer = setTimeout(() => { if (switching === mine) finishSwitch(); }, SWITCH_TIMEOUT_MS);
+      return mine;
     }
 
-    // The intention's answer: `message` now, unless the load already ended.
-    function answerSwitch(body, message) {
+    function finishSwitch(text) {
       const pending = switching;
       if (!pending) return;
-      if (!body.switching) {
-        switching = null;
-        pending.show(message);
-      } else if (pending.outcome !== null) {
-        switching = null;
-        pending.show(pending.outcome);
-      } else {
-        pending.answered = true;
-        pending.show(message);
+      clearTimeout(pending.timer);
+      switching = null;
+      if (text !== undefined) pending.show(text);
+    }
+
+    // The answer of the request `mine` started: its message now, unless the load it started
+    // (`body.ref`) already ended.
+    function answerSwitch(mine, body, message) {
+      if (switching !== mine) {
+        mine.show(message);
+        return;
       }
+      if (!body.switching) {
+        finishSwitch(message);
+        return;
+      }
+      mine.ref = body.ref;
+      mine.answered = true;
+      if (mine.outcomes.has(body.ref)) finishSwitch(mine.outcomes.get(body.ref));
+      else mine.show(message);
     }
 
     // Messages carry file names and paths: build nodes, never innerHTML.
@@ -271,7 +287,8 @@
       return { ok: response.ok, body };
     }
 
-    async function cloudIntention(m, path, payload, pending) {
+    // `mine`: the switch this request may start (« Choisir »), else none.
+    async function cloudIntention(m, path, payload, pending, mine = null) {
       if (busy) return;
       setBusy(true);
       cloudStatus.set(m.id, pending);
@@ -279,10 +296,10 @@
       try {
         const { body } = await post(path, payload);
         const message = body.message_fr || body.detail || "";
-        if (switching) answerSwitch(body, message);
+        if (mine) answerSwitch(mine, body, message);
         else cloudStatus.set(m.id, message);
       } catch (error) {
-        switching = null;
+        if (mine && switching === mine) finishSwitch();
         cloudStatus.set(m.id, `La demande n'a pas abouti : ${error.message}. Réessayez.`);
       } finally {
         setBusy(false);
@@ -301,7 +318,14 @@
     }
 
     function openWarning(m, opener) {
-      if (!m.warning) return;
+      if (!m.warning) {
+        // Without its warning, a cloud model cannot be confirmed, hence not chosen (AD-21).
+        cloudStatus.set(m.id, "L'avertissement de ce modèle est indisponible (fichier " +
+          "content/cloud.yaml absent ou invalide) : il ne peut pas être choisi tant que le " +
+          "fichier n'est pas corrigé.");
+        renderCloud();
+        return;
+      }
       warningFor = m;
       warningOpener = opener;
       document.getElementById("cloud-warning-title").textContent = m.warning.title_fr;
@@ -327,8 +351,11 @@
     document.getElementById("cloud-warning-confirm").addEventListener("click", () => {
       const m = warningFor;
       warningEl.close();
-      if (m && !busy) {
-        startSwitch((text) => {
+      if (m && busy) {
+        cloudStatus.set(m.id, "Une demande est déjà en cours : réessayez dans un instant.");
+        renderCloud();
+      } else if (m) {
+        const mine = startSwitch((text) => {
           cloudStatus.set(m.id, text);
           renderCloud();
         });
@@ -336,7 +363,8 @@
           m,
           "/api/intentions/select_model",
           { kind: "cloud", ref: m.id, acknowledged: true },
-          "Choix en cours…"
+          "Choix en cours…",
+          mine
         );
       }
     });
@@ -350,6 +378,12 @@
       renderCloud();
       renderCandidates(body.candidates || []);
       document.getElementById("open-link").style.display = body.ready ? "block" : "none";
+      // An outcome missed by the stream (a reconnection): the loaded model says it.
+      const mine = switching;
+      const active = body.loaded_model ?? (body.cloud?.models ?? []).find((m) => m.loaded)?.id;
+      if (mine?.answered && active === mine.ref) {
+        setTimeout(() => { if (switching === mine) finishSwitch("Le modèle choisi est actif."); }, 3000);
+      }
     }
     loadDiagnostic();
 
@@ -366,12 +400,9 @@
         const text = payload.status === "ok"
           ? [`${payload.model.label} est actif.`, payload.reason_fr].filter(Boolean).join(" ")
           : payload.reason_fr || `${payload.model.label} n'a pas pu être chargé.`;
-        if (switching.answered) {
-          switching.show(text);
-          switching = null;
-        } else {
-          switching.outcome = text;
-        }
+        const ref = payload.model.ref;
+        if (!switching.answered) switching.outcomes.set(ref, text); // matched by the answer
+        else if (ref === switching.ref) finishSwitch(text); // another model's load: ignored
       }
       loadDiagnostic();
     });
@@ -385,7 +416,7 @@
       if (busy) return;
       setBusy(true);
       selectStatusEl.textContent = "Vérification en cours…";
-      startSwitch((text) => {
+      const mine = startSwitch((text) => {
         selectStatusEl.textContent = text;
       });
       try {
@@ -395,10 +426,10 @@
           body: JSON.stringify({ kind: "file", ref: path }),
         });
         const body = await response.json();
-        answerSwitch(body, body.message_fr || body.detail ||
+        answerSwitch(mine, body, body.message_fr || body.detail ||
           (body.ready ? "Modèle prêt." : "Voir ci-dessus."));
       } catch (error) {
-        switching = null;
+        if (switching === mine) finishSwitch();
         selectStatusEl.textContent = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
       } finally {
         setBusy(false);

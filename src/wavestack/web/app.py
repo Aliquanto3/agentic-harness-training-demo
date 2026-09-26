@@ -284,6 +284,8 @@ def create_app(
             result = session.select_model(ref, hot=hot)
         switching = bool(result.model_path or result.cloud_model)
         message_fr = result.message_fr
+        # The model this answer loads: the page matches it with `model_load_ended.model.ref`.
+        ref_loading = result.cloud_model.id if result.cloud_model else result.model_path
         if result.hot:
             try:
                 message_fr, switching = session.switch(app_session, result)
@@ -297,6 +299,7 @@ def create_app(
             # A hot switch is saved once it succeeded: `model_load_ended` says so.
             "saved": result.saved,
             "switching": switching,
+            "ref": ref_loading if switching else None,
             "message_fr": message_fr,
         }
 

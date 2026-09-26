@@ -27,6 +27,9 @@ REPO = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 KEY_ENV = "WAVESTACK_FAKE_API_KEY"
 MODEL_ENTRY_ID = "fake"
+# Story 17: a second fake model, for the hot switch; `launch_app.py` slows its loading.
+SECOND_ENTRY_ID = "fake_b"
+SECOND_MODEL = "faux-modele-b"
 
 
 def free_port() -> int:
@@ -35,24 +38,29 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
+def _entry(fake_port: int, entry_id: str, provider: str, model: str) -> dict:
+    return {
+        "id": entry_id,
+        "provider": provider,
+        "base_url": f"http://127.0.0.1:{fake_port}/v1",
+        "model": model,
+        "stream_usage": True,
+        "tools": True,
+        "context": 32768,
+        "hosting_fr": "Ce poste (faux serveur de test, boucle locale)",
+        "training": "no",
+        "notes_fr": "Faux modèle scripté pour les tests de bout en bout.",
+        "key_env": KEY_ENV,
+    }
+
+
 def settings(fake_port: int) -> dict:
-    """The `settings.json` override: one cloud model, the fake server."""
+    """The `settings.json` override: two cloud models, both on the fake server."""
     return {
         "cloud": {
             "models": [
-                {
-                    "id": MODEL_ENTRY_ID,
-                    "provider": "Faux fournisseur (e2e)",
-                    "base_url": f"http://127.0.0.1:{fake_port}/v1",
-                    "model": "wavestack-fake",
-                    "stream_usage": True,
-                    "tools": True,
-                    "context": 32768,
-                    "hosting_fr": "Ce poste (faux serveur de test, boucle locale)",
-                    "training": "no",
-                    "notes_fr": "Faux modèle scripté pour les tests de bout en bout.",
-                    "key_env": KEY_ENV,
-                }
+                _entry(fake_port, MODEL_ENTRY_ID, "Faux fournisseur (e2e)", "wavestack-fake"),
+                _entry(fake_port, SECOND_ENTRY_ID, "Faux fournisseur B (e2e)", SECOND_MODEL),
             ]
         }
     }
@@ -101,7 +109,7 @@ class Stack:
         log = open(self.log_dir / f"wavestack{suffix}.log", "w", encoding="utf-8")  # noqa: SIM115
         self.procs.append(
             subprocess.Popen(
-                [sys.executable, "-m", "wavestack.cli", "--port", str(self.app_port)],
+                [sys.executable, str(HERE / "launch_app.py"), "--port", str(self.app_port)],
                 cwd=REPO,
                 env=self.env,
                 stdout=log,

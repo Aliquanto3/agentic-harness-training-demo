@@ -12,22 +12,24 @@ context:
 warnings: ['oversized']
 deferred:
   - summary: >-
-      Ajouter les vérifications du sélecteur de modèle au parcours E2E tools/e2e/.
-    evidence: |-
-      Le harnais tools/e2e/ n'est pas dans ce worktree (fusion de sa branche refusée par le
-      contrôle de permissions) ; le sélecteur a été vérifié par un script Playwright hors dépôt.
-    location: >-
-      tools/e2e/
-    severity: low
-  - summary: >-
       Vérifier sur le PC cible que l'estimation du cache KV ne refuse pas à tort un modèle
       hybride (Qwen3.5) sous le budget de 4 Go.
     evidence: |-
-      kv_bytes_per_token suppose une attention complète à toutes les couches ; à confirmer avec
-      le rss_bytes réel de la sonde et un changement 2B vers 4B sur le PC cible.
+      kv_bytes_per_token additionne les têtes KV par couche quand le GGUF les donne en tableau,
+      mais ne tient pas compte de la fenêtre glissante ; un tableau que llama-cpp-python ne
+      rend qu'en texte donne un cache inconnu (0). À confirmer avec le rss_bytes réel de la
+      sonde et un changement 2B vers 4B. Consigné dans deferred-work.md.
     location: >-
       src/wavestack/models/probe.py:kv_bytes_per_token
     severity: medium (unverified)
+  - summary: >-
+      Budget mémoire non contrôlé au lancement (hypothèse C2), seulement enregistré.
+    evidence: |-
+      Choix gardé par la revue indépendante : aucun modèle actif à protéger au lancement. À
+      valider au test manuel. Consigné dans deferred-work.md.
+    location: >-
+      src/wavestack/session/app_session.py:_boot
+    severity: low
 ---
 
 <intent-contract>
@@ -130,6 +132,16 @@ deferred:
   - `[low]` `[defer]` Le parcours `tools/e2e/` ne couvre pas encore le sélecteur — harnais absent du worktree ; vérifié par un script Playwright hors dépôt.
   - `[maybe-false]` `[defer]` Estimation du cache KV sur les vrais GGUF Qwen3.5 (hybrides) : surestimation possible au point de refuser un 4B sous 4 Go — à mesurer sur le PC cible avec `rss_bytes` réel de la sonde.
 
+### 2026-09-26 — Revue indépendante (4 relecteurs, triage de l'orchestrateur)
+Tous les points ont été appliqués sauf un, faux après vérification, et un appliqué en partie. Tests Python ajoutés dans `tests/test_model_switch.py`, section « independent review » (17 tests de plus) ; front couvert par le nouveau scénario E2E `model_switch` (21 vérifications de plus).
+- Intention : parcours E2E `model_switch` (sélecteur, choix noté puis appliqué, avertissement « Annuler » puis « Utiliser », chronomètre barre haute et Vue humain, envoi et sélecteur désactivés, conversation gardée, appel parti avec le nouveau modèle, lignes « Modèle : … », rejeu, « Comparer », retour par le diagnostic sans « relancez ») ; tests web : sonde en échec → candidat incompatible avec la raison et `restored` ; refus qui atteint le contrôle sous verrou de `switch_model` (`diagnostic` passe le filtre `_diagnostic_class_b`) ; refus budget en 409 chiffré ; relance après changement vers B (fichier) et vers un modèle cloud (sans avertissement). Budget au lancement (C2) gardé et reporté dans deferred-work.md.
+- Écarts de vérification : test de la soustraction du coût du modèle actif (actif 2 Gio, RSS 3 Gio, candidat 2,5 Gio accepté ; 3,1 Gio refusé avec « 1,0 Go sans le modèle actif ») ; test du ratio groq → mistral (valeur par défaut) → groq (1,3) ; course réponse / `model_load_ended` du diagnostic couverte par le parcours E2E (retour au premier modèle, préparation instantanée).
+- Blind hunter : entrée de sonde sans `rss_bytes` ressondée (`probe.measured`) ; `rss_bytes` = RSS après `Llama(...)` moins RSS avant ; `kv_bytes_per_token` : têtes KV par couche (tableau) additionnées, `value_length` pris en compte, valeur illisible → inconnu (plus de repli silencieux sur `head_count`), limite de la fenêtre glissante documentée ; `_install` et `_install_cloud` ferment le moteur ouvert si une étape suivante échoue ; `_switched` ne présente le choix comme enregistré que si `settings.json` le contient (sinon « Choix non mémorisé », contrôle `warn`) ; `_save_choice` rattrape toute exception ; sélecteur à bouton « Charger » ; liste en échec : `response.ok` contrôlé, nouvel essai toutes les 5 s, infobulle « Liste des modèles indisponible » ; `ModelChoice.name` : un blob Ollama s'appelle `model:tag` partout (indicateur, schéma, messages), jamais `sha256-…`, et `.gguf` retiré de façon cohérente ; modèle cloud sans avertissement : message explicite (barre haute et diagnostic) ; après un rechargement, un ancien `model_load_ended` ne revient pas dans la barre haute (`liveFrom` = `seq` de `/api/state`) ; ligne « Modèle : … » comparée au tour affiché précédent et affichée sur le premier tour ; EXPERIENCE.md (lignes `model-picker` et « Changement de modèle en cours ») à jour ; front matter de cette story à jour.
+- Cas limites : `_release` libère le registre même si `close()` échoue, et est appelé dans le `try` interne, donc un échec de fermeture restaure le modèle précédent ; coût = max(`rss_bytes`, taille du fichier) ; après la sonde d'un fichier jamais mesuré, le budget est recontrôlé avec la mesure (dépassement → retour arrière, raison chiffrée) ; changement terminé sans aucun modèle → diagnostic `ready = false`, contrôle bloquant, plus de lien « Ouvrir WaveStack » ; diagnostic.html : la réponse n'est appliquée qu'à la requête qui a lancé le changement, un `model_load_ended` d'une autre `ref` est ignoré (réponse `select_model` enrichie de `ref`), délai de 5 min et repli sur le modèle chargé, message si une demande est déjà en cours à la confirmation de l'avertissement ; app.js : les options ne sont pas remplacées tant que le sélecteur a le focus (liste native ouverte), reconstruites à la perte du focus.
+- Écarté après vérification (faux) : « `_install_cloud` doit appeler `grant` (coût 0) ». `_install` appelle déjà `grant` après les deux branches, cloud compris (coût 0) : le registre nomme le modèle cloud actif (visible dans le message de refus « {modèle cloud} reste actif »).
+- Appliqué en partie : « réémettre architecture et briques après `model_load_started` ». Le schéma est réémis juste après la libération (le modèle libéré n'y figure plus) ; les briques ne le sont qu'en fin de chargement : les réémettre au milieu les ferait toutes passer « indisponible : aucun modèle chargé » quelques secondes, alors que l'envoi et le sélecteur sont déjà désactivés avec la raison.
+- Hors code produit, pour le parcours : second faux modèle `fake_b` (`faux-modele-b`) dans `tools/e2e/stack.py` ; `tools/e2e/launch_app.py` ralentit sa seule préparation (2 s) pour que le chronomètre soit observable.
+
 ## Design Notes
 
 Séquence d'un changement (thread de travail, après acceptation sous verrou) :
@@ -178,7 +190,9 @@ Le contrôle du budget précède la libération : c'est la seule façon de tenir
 - **(ajoutée) Textes d'erreur des fournisseurs cloud** : « Revenez au modèle local au prochain lancement » devient « Revenez au modèle local depuis le sélecteur de modèle de la barre haute. ».
 - **(ajoutée) Serveur local dans le sélecteur** : listé comme entrée désactivée « Serveur local {url} (palier 2) » (story 18).
 - **(ajoutée) `ModelChoice`** vit dans `models/load_registry.py`, à côté du registre, pour que `session/diagnostic.py` et `session/app_session.py` le partagent sans dépendance entre eux.
-- **(ajoutée) Parcours E2E** : le harnais `tools/e2e/` n'a pas pu être fusionné dans ce worktree (fusion refusée par le contrôle de permissions). Le sélecteur a été vérifié dans Chromium par un script Playwright hors dépôt (deux faux modèles, 20 vérifications) ; les vérifications restent à ajouter au parcours `tools/e2e/` après fusion.
+- **(ajoutée) Parcours E2E** : d'abord vérifié hors dépôt (fusion du harnais refusée), puis, après la revue indépendante, ajouté au parcours `tools/e2e/` (scénario `model_switch`).
+- **(ajoutée, revue indépendante) Choix du sélecteur** : choisir une entrée ne fait que la noter ; un bouton « Charger » (« Choisir… » pour un modèle cloud, « Ouvrir le diagnostic ») l'applique, car sous Windows les flèches du clavier déclenchent `change` sur un `<select>` natif.
+- **(ajoutée, revue indépendante) Sonde d'avant la story 17** : une entrée du cache sans `rss_bytes` est ressondée au premier changement vers ce fichier (après la libération), jamais au lancement, pour ne pas allonger le diagnostic de démarrage.
 
 ## Auto Run Result
 
@@ -203,4 +217,6 @@ Blocking condition: aucune
 
 **Vérification.** `uv run ruff check .` : OK ; `uv run ruff format --check .` : OK ; `node --check src/wavestack/web/static/app.js` (et le script de `diagnostic.html`) : OK ; `uv run pytest -q` : 447 réussis, 3 ignorés. Navigateur (Chromium, script Playwright hors dépôt, serveur à deux faux modèles) : 20/20 vérifications (liste du sélecteur, « (actif) », cloud sans clé grisé, chronomètre barre haute et Vue humain, composeur et sélecteur désactivés avec la raison, conversation gardée, aperçu de jauge, ligne « Modèle : Qwen-B », « Comparer » par modèle, avertissement cloud et « Annuler », passage au cloud, diagnostic « Choisir » sans « relancez » avec marque « chargé »).
 
-**Risques résiduels.** Estimation du coût sur de vrais GGUF (surestimation KV des modèles hybrides) ; durée réelle de chargement et de sonde sur le PC cible ; parcours `tools/e2e/` à compléter après fusion.
+**Revue indépendante :** voir le Review Triage Log. Vérification finale : `ruff check` et `ruff format --check` (verts), `node --check` sur `app.js` et le script de `diagnostic.html` (verts), `uv run pytest -q` : 526 réussis, 3 sautés ; parcours E2E complet : 195 vérifications réussies, 0 échec, 0 anomalie connue.
+
+**Risques résiduels.** Estimation du coût sur de vrais GGUF (surestimation KV des modèles hybrides, `rss_bytes` d'un modèle en mmap) ; durée réelle de chargement et de sonde sur le PC cible ; budget non contrôlé au lancement (C2, à valider).

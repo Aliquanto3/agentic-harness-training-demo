@@ -18,7 +18,6 @@ import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
-from pathlib import Path
 from typing import Any, NamedTuple
 
 from wavestack import config
@@ -910,20 +909,21 @@ class AppSession:
     def _load_reason(choice: ModelChoice) -> str:
         if choice.entry is not None:
             return f"Préparation du modèle cloud {choice.entry.model} chez {choice.entry.provider}…"
-        return f"Chargement du modèle {Path(choice.ref).name}…"
+        return f"Chargement du modèle {choice.file_name}…"
 
     @staticmethod
     def _model_payload(choice: ModelChoice) -> dict[str, Any]:
         """The `ActiveModel` of a model not loaded yet: `model_load_*`."""
         if choice.entry is not None:
             return active_model(choice.entry)
-        name = Path(choice.ref).stem
-        return {"id": name, "label": name, "hosting": "local", "kind": "file", "ref": choice.ref}
+        label = choice.label
+        return {"id": label, "label": label, "hosting": "local", "kind": "file", "ref": choice.ref}
 
-    def boot(self, model_path: str | None) -> Future[str]:
+    def boot(self, model_path: str | None, name: str | None = None) -> Future[str]:
         """The launch's model (AD-21) on the worker thread: `model_load` → `idle`, then
-        `context_preview`. `None`: a local server only, no file to load."""
-        choice = ModelChoice("file", model_path) if model_path else None
+        `context_preview`. `None`: a local server only, no file to load. `name`: the
+        candidate's readable name (an Ollama `model:tag`)."""
+        choice = ModelChoice("file", model_path, name=name) if model_path else None
         return self._executor.submit(self._boot, choice)
 
     def boot_cloud(self, entry: CloudModel) -> Future[str]:
@@ -975,9 +975,10 @@ class AppSession:
         save: bool,
     ) -> str:
         """The single load path, on the worker, in `model_load` (AD-3, AD-8): release the
-        active model, probe a GGUF never probed (AD-7), load; on failure, reload `previous`.
-        Then `model_load_ended`, `idle`, and the bricks, schema and preview again. The choice
-        is saved (`save`) after a success only. Returns `ok`, `restored` or `error`."""
+        active model, probe a GGUF never measured (AD-7) and check the budget again with the
+        measure, load; on failure, reload `previous`. Then `model_load_ended`, `idle`, and the
+        bricks, schema and preview again. The choice is saved (`save`) after a success only.
+        Returns `ok`, `restored` or `error`."""
         started = time.monotonic()
         model = self._model_payload(choice)
         journal = get_journal()
@@ -988,24 +989,29 @@ class AppSession:
             )
         status, reason_fr, idle_fr = "error", None, _LOAD_FAILED_FR
         try:
-            self._release()
             try:
+                self._release()
+                self._emit_architecture()  # the schema no longer shows the released model
                 if (
                     choice.kind == "file"
                     and probe is not None
-                    and probe_module.probed_entry(choice.ref) is None
+                    and not probe_module.measured(choice.ref)
                 ):
                     why = probe(choice.ref)
                     if why is not None:
-                        name = Path(choice.ref).name
-                        raise _LoadFailed(f"Le fichier {name} est incompatible.", why)
+                        raise _LoadFailed(f"Le fichier {choice.file_name} est incompatible.", why)
+                    # AD-8: the probe's measure replaces the file size of the first check.
+                    refusal = self._load_registry.check(choice.label, self._cost(choice))
+                    if refusal is not None:
+                        over_fr = "Le modèle dépasse le budget mémoire une fois mesuré."
+                        raise _LoadFailed(over_fr, refusal)
                 self._install(choice)
                 status, idle_fr = "ok", None
             except Exception as exc:  # noqa: BLE001 - AD-16
                 reason_fr, idle_fr, status = self._load_failed(choice, previous, exc)
             if status == "ok" and save:
                 reason_fr = self._save_choice(choice)
-        except Exception as exc:  # noqa: BLE001 - AD-16: e.g. the release itself failed
+        except Exception as exc:  # noqa: BLE001 - AD-16: never let the worker die silently
             self._error("Le changement de modèle s'est interrompu.", exc, _NO_TURN_FR)
             status, reason_fr, idle_fr = "error", str(exc), _LOAD_FAILED_FR
         finally:
@@ -1067,38 +1073,46 @@ class AppSession:
         )
 
     def _release(self) -> None:
-        """AD-8: the active model is closed and leaves the registry before anything loads."""
+        """AD-8: the active model is closed and leaves the registry before anything loads;
+        the registry forgets it even when `close()` fails (raised afterwards)."""
         with self._lock:
             engine = self._engine
             self._engine, self._caps, self._cloud, self._active = None, None, None, None
             self._model_name = None
-        if engine is not None:
-            engine.close()
-        self._load_registry.release()
+        try:
+            if engine is not None:
+                engine.close()
+        finally:
+            self._load_registry.release()
 
     def _install(self, choice: ModelChoice) -> None:
-        """Load `choice` as the active model, nothing being loaded: raises on failure."""
+        """Load `choice` as the active model, nothing being loaded: raises on failure, the
+        engine it opened closed first (AD-8: never two models)."""
         if choice.entry is not None:
             self._install_cloud(choice.entry)
         else:
             engine = self._engine_factory(choice.ref, n_ctx=self.cfg.context_window)
-            caps = capabilities_for(engine.metadata())
-            if caps.incompatible_reason:
+            try:
+                caps = capabilities_for(engine.metadata())
+                if caps.incompatible_reason:
+                    raise _LoadFailed(
+                        "Modèle incompatible.", caps.incompatible_reason, caps.incompatible_reason
+                    )
+                window = effective_window(self.cfg.context_window, caps.native_context)
+                labels = self._load_labels()
+            except BaseException:
                 engine.close()
-                raise _LoadFailed(
-                    "Modèle incompatible.", caps.incompatible_reason, caps.incompatible_reason
-                )
-            window = effective_window(self.cfg.context_window, caps.native_context)
-            labels = self._load_labels()
+                raise
             with self._lock:
                 self._engine, self._caps, self._cloud = engine, caps, None
-                self._model_name = Path(choice.ref).stem
+                self._model_name = choice.label
                 self._window = window
                 self._window_source = (
                     "configured" if window == self.cfg.context_window else "native"
                 )
                 self._labels = labels
                 self._active = choice
+        # A cloud model is granted too (cost 0): the registry names the active model.
         self._load_registry.grant(choice.label, self._cost(choice))
 
     def _install_cloud(self, entry: CloudModel) -> None:
@@ -1110,20 +1124,24 @@ class AppSession:
             raise ValueError(unavailable)
         self._cloud_content = load_cloud_content()
         engine = self._cloud_factory(entry, key)
-        # AD-6: declared capabilities; the API's structured format parses the tool calls.
-        caps = Capabilities(
-            family="openai_chat",
-            chat_template=None,
-            tool_call_parser="openai_chat" if entry.tools else None,
-            stop_sequences=(),
-            reasoning_variable=None,
-            native_context=entry.context,
-            reasoning_tags=None,
-            reasoning=entry.reasoning is not None,
-            reasoning_always=entry.always_reasons,
-        )
-        window, source = config.cloud_window(entry, self.cfg.context_window)
-        labels = self._load_labels()
+        try:
+            # AD-6: declared capabilities; the API's structured format parses the tool calls.
+            caps = Capabilities(
+                family="openai_chat",
+                chat_template=None,
+                tool_call_parser="openai_chat" if entry.tools else None,
+                stop_sequences=(),
+                reasoning_variable=None,
+                native_context=entry.context,
+                reasoning_tags=None,
+                reasoning=entry.reasoning is not None,
+                reasoning_always=entry.always_reasons,
+            )
+            window, source = config.cloud_window(entry, self.cfg.context_window)
+            labels = self._load_labels()
+        except BaseException:
+            engine.close()
+            raise
         with self._lock:
             self._engine, self._caps, self._cloud = engine, caps, entry
             self._model_name = entry.model
@@ -1133,11 +1151,12 @@ class AppSession:
 
     def _save_choice(self, choice: ModelChoice) -> str | None:
         """AD-20: `selected_model`, by the single applier (AD-23), after a success only.
-        Returns the French notice when settings.json could not be written."""
+        Returns the French notice when it could not be written; whatever the failure, the
+        model loaded stays active."""
         value = {"kind": choice.kind, "ref": choice.ref}
         try:
             apply_setting(SettingWrite(key="selected_model", value=value))
-        except OSError as exc:
+        except Exception as exc:  # noqa: BLE001 - AD-16: a success is never undone by this
             notice = f"{choice.label} est actif ; choix non mémorisé pour les prochains lancements."
             self._error("Impossible d'écrire le fichier de réglages settings.json.", exc, notice)
             return notice

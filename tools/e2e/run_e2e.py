@@ -26,7 +26,13 @@ import httpx
 from playwright.sync_api import Page, expect, sync_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from stack import MODEL_ENTRY_ID, Stack, running_stack  # noqa: E402
+from stack import (  # noqa: E402
+    MODEL_ENTRY_ID,
+    SECOND_ENTRY_ID,
+    SECOND_MODEL,
+    Stack,
+    running_stack,
+)
 
 SHOTS = Path(__file__).resolve().parent / "screenshots"
 CHROMIUM = "/opt/pw-browsers/chromium"  # fallback when the bundled revision is missing
@@ -1161,6 +1167,141 @@ def s_stream_resync(r: Run) -> None:
         r.page.remove_listener("framenavigated", on_nav)
 
 
+def _picker_options(r: Run) -> dict[str, bool]:
+    """The model picker's options: label → disabled."""
+    return dict(
+        r.page.eval_on_selector_all(
+            "#model-picker option", "os => os.map(o => [o.textContent, o.disabled])"
+        )
+    )
+
+
+def s_model_switch(r: Run) -> None:
+    """Story 17: the hot switch from the top bar (warning, stopwatch, conversation kept, model
+    line, replay, compare), then back from the diagnostic, with no « relancez »."""
+    page = r.page
+    a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+    b_label = f"RÉSEAU · Faux fournisseur B (e2e) · {SECOND_MODEL}"
+    r.launch("short_memory")
+    r.send("Je m'appelle Camille.")
+    options = _picker_options(r)
+    r.check(options.get(f"{a_label} (actif)") is True, "sélecteur : modèle actif marqué et grisé")
+    r.check(
+        options.get(b_label) is False, "sélecteur : le second modèle est choisissable", str(options)
+    )
+    r.check(
+        list(options)[-1] == "Autre fichier ou clé API…",
+        "sélecteur : dernière entrée « Autre fichier ou clé API… »",
+    )
+    body = page.inner_text("body")
+    r.check(
+        "Prochain lancement" not in body and "relancez WaveStack" not in body,
+        "aucune mention « Prochain lancement » ni « relancez »",
+    )
+
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label=b_label)
+    apply = page.locator("#model-picker-apply")
+    expect(apply).to_be_visible(timeout=5000)
+    time.sleep(0.5)
+    r.check(
+        not r.ev.since(seq, "model_load_started") and page.locator("#cloud-warning").is_hidden(),
+        "choisir une entrée ne fait que la noter (flèches du clavier sans effet)",
+        apply.inner_text(),
+    )
+    apply.click()
+    dialog = page.locator("#cloud-warning")
+    expect(dialog).to_be_visible(timeout=5000)
+    r.check(
+        "Faux fournisseur B (e2e)" in dialog.inner_text(),
+        "« Choisir… » : avertissement cloud dans la page, qui nomme le fournisseur",
+    )
+    page.click("#cloud-warning-cancel")
+    time.sleep(0.5)
+    r.check(
+        not r.ev.since(seq, "model_load_started")
+        and "wavestack-fake" in page.inner_text("#model-indicator"),
+        "« Annuler » : aucun changement",
+    )
+
+    page.select_option("#model-picker", label=b_label)
+    page.click("#model-picker-apply")
+    expect(dialog).to_be_visible(timeout=5000)
+    page.click("#cloud-warning-confirm")
+    top = page.locator("#top-status")
+    expect(top).to_contain_text(f"Chargement du modèle {SECOND_MODEL}…", timeout=5000)
+    time.sleep(0.6)
+    stopwatch = top.inner_text()
+    r.check(
+        re.search(r"… \d+(,\d)? s$", stopwatch) is not None,
+        "barre haute : « Chargement du modèle … » avec chronomètre",
+        stopwatch,
+    )
+    indicator = page.locator("#chat .model-load-indicator")
+    r.check(
+        indicator.count() == 1 and SECOND_MODEL in indicator.inner_text(),
+        "Vue humain : indicateur de chargement en fin de fil",
+    )
+    reason = page.inner_text("#composer-reason")
+    r.check(
+        page.locator("#composer-input").is_disabled() and SECOND_MODEL in reason,
+        "envoi désactivé pendant le chargement, avec la raison",
+        reason,
+    )
+    r.check(page.locator("#model-picker").is_disabled(), "sélecteur désactivé au chargement")
+    r.shot("22-changement-de-modele")
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)
+    r.check(ended["payload"]["status"] == "ok", "chargement terminé", ended["payload"]["status"])
+    expect(page.locator("#model-indicator")).to_contain_text(SECOND_MODEL, timeout=10_000)
+    r.wait_idle()
+    r.check("Je m'appelle Camille." in page.inner_text("#chat"), "la conversation est conservée")
+
+    r.send("Comment je m'appelle ?")
+    r.check("Camille" in r.last_answer(), "le nouveau modèle reçoit l'historique", r.last_answer())
+    r.check(r.fake_calls()[-1].get("model") == SECOND_MODEL, "l'appel part avec le nouveau modèle")
+    lines = page.locator("#chat .model-switch-line").all_inner_texts()
+    r.check(
+        lines == ["Modèle : wavestack-fake", f"Modèle : {SECOND_MODEL}"],
+        "« Modèle : … » sur le premier tour, puis au changement",
+        str(lines),
+    )
+    seq = r.ev.mark()
+    r.replay()
+    started = r.ev.since(seq, "turn_started")[0]["payload"]
+    r.check(
+        (started.get("active_model") or {}).get("ref") == SECOND_ENTRY_ID,
+        "le rejeu est joué par le nouveau modèle",
+    )
+    page.click("#compare-turns")
+    page.locator("#ctx .turn-compare-head select").first.select_option(index=0)  # A's turn
+    time.sleep(0.3)
+    models = page.locator(".turn-compare-model").all_inner_texts()
+    r.check(
+        models == ["Modèle : wavestack-fake", f"Modèle : {SECOND_MODEL}"],
+        "« Comparer » affiche le modèle de chaque colonne",
+        str(models),
+    )
+    page.locator("#ctx .turn-compare-head button").click()
+
+    # Back to the first model from the diagnostic: « Choisir », no relaunch.
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    row_b = page.locator("#cloud-models li", has_text=SECOND_MODEL)
+    expect(row_b).to_contain_text("actif", timeout=10_000)
+    r.check(True, "diagnostic : le modèle actif est lu dans la session applicative")
+    row_a = page.locator("#cloud-models li", has_text="wavestack-fake")
+    row_a.get_by_role("button", name="Choisir").click()
+    page.click("#cloud-warning-confirm")
+    expect(row_a.locator(".cloud-result").last).to_have_text(
+        "wavestack-fake est actif.", timeout=20_000
+    )
+    r.check(True, "diagnostic : « Choisir » change de modèle sans relance, issue affichée")
+    body = page.inner_text("body")
+    r.check("relancez WaveStack pour l'utiliser" not in body, "diagnostic : jamais « relancez »")
+    page.goto(f"{r.stack.app_url}/")
+    expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=10_000)
+    r.wait_idle()
+
+
 def s_relaunch(r: Run) -> None:
     """Story 11: the cloud model chosen is kept at the next launch, without a new warning."""
     saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
@@ -1237,6 +1378,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
     ("stream_resync", s_stream_resync),
+    ("model_switch", s_model_switch),
     ("relaunch", s_relaunch),
 ]
 

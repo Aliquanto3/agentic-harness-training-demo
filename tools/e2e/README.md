@@ -30,11 +30,27 @@ Pour explorer à la main : `uv run python tools/e2e/stack.py` lance le faux mod�
 
 - `fake_openai.py` : le faux serveur (`/v1/chat/completions` en SSE avec `usage`,
   `/v1/models`, `/_e2e/requests` pour relire les corps reçus). Clé attendue : `e2e-fake-key`.
-- `stack.py` : dossier de données temporaire, `settings.json` qui déclare le modèle `fake`
-  (clé par `key_env = WAVESTACK_FAKE_API_KEY`), lancement des deux serveurs sur `127.0.0.1`.
-  `wavestack.toml` n'est jamais modifié.
+- `stack.py` : dossier de données temporaire, `settings.json` qui déclare deux modèles sur le
+  faux serveur, `fake` (`wavestack-fake`) et `fake_b` (`faux-modele-b`, pour le changement de
+  modèle de la story 17), clé par `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux
+  serveurs sur `127.0.0.1`. `wavestack.toml` n'est jamais modifié.
+- `launch_app.py` : lance `wavestack.cli` en ralentissant la seule préparation de `fake_b`
+  (`WAVESTACK_E2E_LOAD_DELAY_S`, 2 s par défaut) : sans cela, un modèle cloud se prépare trop
+  vite pour que le parcours voie le chronomètre « Chargement du modèle… ».
 - `run_e2e.py` : les scénarios Playwright ; le journal est lu en parallèle sur `/api/stream`.
 - `tests/test_e2e_fake_openai.py` : tests pytest du faux serveur, sans navigateur.
+
+## Changement de modèle (story 17)
+
+Le scénario `model_switch`, joué avant `relaunch` : sélecteur de la barre haute (modèle actif
+marqué « (actif) » et grisé, dernière entrée « Autre fichier ou clé API… », aucune mention
+« Prochain lancement »), choix noté sans effet tant que « Choisir… » n'est pas cliqué,
+avertissement cloud dans la page (« Annuler » ne change rien, « Utiliser ce modèle » charge),
+chronomètre dans la barre haute et en fin de Vue humain, envoi et sélecteur désactivés avec la
+raison, conversation gardée, appel envoyé avec le nouveau modèle, lignes « Modèle : … », rejeu
+joué par le nouveau modèle, « Comparer » avec le modèle de chaque colonne, puis retour au
+premier modèle par « Choisir » au diagnostic, issue affichée, jamais « relancez ». Capture :
+`22-changement-de-modele.jpg`.
 
 ## Déclencheurs du faux modèle
 

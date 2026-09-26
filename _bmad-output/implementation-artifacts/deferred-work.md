@@ -251,3 +251,16 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/12-tests-prealables-headroom-embedding-et-reranking.md`
   summary: Le verdict embedding et reranking de la story 12 reste provisoire (granite-embedding-107m-multilingual Q8_0, bge-reranker-v2-m3 Q4_K_M) ; lancer sur le PC cible, avant la story 15, `uv run --with huggingface-hub --with fastembed python tools/bench/story12_bench.py embed --download`, puis `uv run --with headroom-ai==0.38.0 python tools/bench/story12_bench.py headroom`, et reporter les deux sorties `--json` dans la story 12.
   evidence: Le conteneur de développement n'atteint pas huggingface.co (`ProxyError('403 Forbidden')` pour les 7 candidats) : aucune qualité, aucun RSS de modèle n'a été mesuré ; le code du banc est seulement validé sur des GGUF synthétiques. Les mesures Headroom (+130 Mo, aucune tentative réseau) viennent de Linux, pas du HP EliteBook sous Windows 11, où `strace` manque pour voir le code natif.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
+  summary: Le budget mémoire n'est pas contrôlé au chargement du lancement (hypothèse C2) : le coût du modèle est seulement enregistré dans le `LoadRegistry` ; seuls les changements à chaud sont refusés sur budget.
+  evidence: Choix gardé par la revue indépendante de la story 17 : au lancement, aucun modèle actif n'est à protéger, et un refus bloquerait la séance sans autre recours que d'éditer `wavestack.toml`. À valider au test manuel sur le PC cible ; si un modèle trop gros au lancement fait échouer la séance, refuser avec le message chiffré et renvoyer au diagnostic.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
+  summary: L'estimation du cache KV (`kv_bytes_per_token`) n'est pas mesurée sur un vrai GGUF Qwen3.5 : surestimation possible (fenêtre glissante non prise en compte) au point de refuser un 4B sous le budget de 4 Go, ou cache inconnu (0) si llama-cpp-python ne rend le tableau des têtes KV qu'en texte.
+  evidence: Revue de la story 17 (blind hunter, maybe-false). Aucun GGUF dans le conteneur de développement. À mesurer sur le PC cible : sonder Qwen3.5-2B et 4B, relire `rss_bytes` et `kv_bytes_per_token` dans `settings.json` (`probed_models`), puis tenter le changement 2B vers 4B.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
+  summary: Le critère d'acceptation 3 de la story 13 (brique Raisonnement redevenue effective sans nouveau clic avec un modèle qui raisonne) reste sans test dédié, bien que le changement à chaud existe maintenant.
+  evidence: La story 17 teste la même règle pour la brique Outils (`test_lost_capability_leaves_wanted_and_comes_back`) : disponibilité au point unique `_availability`, `wanted` jamais modifié. Un test Raisonnement demande un faux moteur dont le gabarit porte `enable_thinking` ; à écrire avec la prochaine story qui touche au raisonnement.
+

@@ -10,7 +10,7 @@ reranking) next to `generative`.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import psutil
@@ -30,10 +30,23 @@ class ModelChoice:
     kind: str  # file | cloud
     ref: str
     entry: CloudModel | None = None
+    # The candidate's readable name (discovery): an Ollama `model:tag`, else the file name.
+    name: str | None = field(default=None, compare=False)
 
     @property
     def label(self) -> str:
-        return self.entry.model if self.entry is not None else Path(self.ref).stem
+        """The model's name everywhere (indicator, schema, messages): the cloud `model`, an
+        Ollama `model:tag`, else the file name without `.gguf` (never a `sha256-…` blob)."""
+        if self.entry is not None:
+            return self.entry.model
+        if self.name and not self.name.lower().endswith(".gguf"):
+            return self.name
+        return Path(self.ref).stem
+
+    @property
+    def file_name(self) -> str:
+        """What « Chargement du modèle … » names: the candidate's name, else the file's."""
+        return self.name or Path(self.ref).name
 
     def same_as(self, other: ModelChoice | None) -> bool:
         return other is not None and (self.kind, self.ref) == (other.kind, other.ref)
@@ -77,15 +90,17 @@ class LoadRegistry:
         self._slots: dict[str, _Grant] = {}
 
     def file_cost(self, path: str, window: int) -> int:
-        """A GGUF's estimated cost: the probe's measured RSS, else the file's size; plus its
-        KV cache at `window` tokens (0 when the probe did not read it); plus the margin."""
+        """A GGUF's estimated cost: the probe's measured RSS or the file's size, whichever is
+        larger; plus its KV cache at `window` tokens (0 when the probe did not read it); plus
+        the margin."""
         entry = probe.probed_entry(path) or {}
-        weights = entry.get("rss_bytes")
-        if not weights:
-            try:
-                weights = Path(path).stat().st_size
-            except OSError:
-                weights = 0
+        try:
+            size = Path(path).stat().st_size
+        except OSError:
+            size = 0
+        # The probe's measure, but never less than the file: mmap'd weights may not all be
+        # resident when the probe measures them.
+        weights = max(int(entry.get("rss_bytes") or 0), size)
         kv = (entry.get("kv_bytes_per_token") or 0) * max(window, 0)
         return int(weights) + int(kv) + self.margin_bytes
 

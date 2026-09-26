@@ -455,17 +455,18 @@ class DiagnosticSession:
         if result.cloud_model is not None:
             app_session.boot_cloud(result.cloud_model)
         elif result.model_path or (launch and result.ready):
-            app_session.boot(result.model_path)
+            app_session.boot(result.model_path, _name(result, result.model_path))
 
     def switch(self, app_session: Any, result: DiagnosticResult) -> tuple[str, bool]:
         """Story 17: the hot switch `result` asks for, on `app_session` (class b, AD-3). Raises
         its `SendRefused` (state, budget). Returns the French answer and whether a load
         started. The probe is this session's single probe code (AD-7)."""
         entry = result.cloud_model
+        path = result.model_path or ""
         choice = (
             ModelChoice("cloud", entry.id, entry)
             if entry is not None
-            else ModelChoice("file", result.model_path or "")
+            else ModelChoice("file", path, name=_name(result, path))
         )
         message_fr, future = app_session.switch_model(choice, probe=self.probe_path)
         if future is not None:
@@ -473,28 +474,50 @@ class DiagnosticSession:
         return message_fr, future is not None
 
     def _switched(self, choice: ModelChoice, future: Any) -> None:
-        """A hot switch ended: after a success, the choice is the one saved (settings.json
-        was written by the application session) and nothing blocks any more."""
+        """A hot switch ended. `ok`: nothing blocks any more, and the choice is the saved one
+        only if settings.json holds it. `error` (no model active any more): the diagnostic
+        blocks again, so the page offers no « Ouvrir WaveStack ». `restored`: unchanged."""
         try:
-            ok = future.result() == "ok"
+            status = future.result()
         except Exception:  # noqa: BLE001 - the session traced it (AD-16)
-            ok = False
-        if not ok:
-            return
-        with self._lock:
-            if choice.kind == "cloud":
-                self.selected_cloud, self.selected_model_path = choice.ref, None
-            else:
-                self.selected_model_path, self.selected_cloud = choice.ref, None
-            if self.last_result is not None:
-                self.last_result.ready, self.last_result.blocking_checks = True, []
+            status = "error"
         label = (
             f"{choice.entry.model} chez {choice.entry.provider}"
             if choice.entry is not None
-            else Path(choice.ref).name
+            else choice.file_name
         )
+        if status == "error":
+            with self._lock:
+                if self.last_result is not None:
+                    self.last_result.ready, self.last_result.blocking_checks = False, ["model"]
+            self._emit_check(
+                "model",
+                "fail",
+                f"Aucun modèle n'est chargé : {label} n'a pas pu être chargé, ni le modèle "
+                "précédent.",
+                "Choisissez un autre modèle ci-dessous.",
+                blocking=True,
+            )
+            return
+        if status != "ok":
+            return
+        saved = config.read_settings().get("selected_model") == {
+            "kind": choice.kind,
+            "ref": choice.ref,
+        }
+        with self._lock:
+            if saved and choice.kind == "cloud":
+                self.selected_cloud, self.selected_model_path = choice.ref, None
+            elif saved:
+                self.selected_model_path, self.selected_cloud = choice.ref, None
+            if self.last_result is not None:
+                self.last_result.ready, self.last_result.blocking_checks = True, []
         self._emit_check(
-            "model", "ok", f"Modèle actif : {label} (changé sans relance).", blocking=False
+            "model",
+            "ok" if saved else "warn",
+            f"Modèle actif : {label} (changé sans relance)."
+            + ("" if saved else " Choix non mémorisé pour les prochains lancements."),
+            blocking=False,
         )
 
     def probe_path(self, path: str) -> str | None:
@@ -809,6 +832,11 @@ def launch_page(result: DiagnosticResult) -> str:
     """AD-21, step 2: the main page when the launch is ready and nothing blocks, else the
     diagnostic."""
     return "/" if result.ready and not result.blocking_checks else "/diagnostic"
+
+
+def _name(result: DiagnosticResult, path: str | None) -> str | None:
+    """The readable name discovery gave `path` (an Ollama `model:tag`), if listed."""
+    return next((c.name for c in result.candidates if path and c.path == path), None)
 
 
 def _usable(
