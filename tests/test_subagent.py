@@ -795,3 +795,73 @@ def test_token_count_falls_back_to_an_estimate():
     engine.tokenize = broken
     assert session._count_tokens("x" * 40) == (10, True)
     session.close()
+
+
+# ---------- follow-up review (2026-09-26) ----------
+
+
+@pytest.mark.parametrize(("ratio", "tokens"), [(1.3, 10), (0.9, 9)])
+def test_chat_result_tokens_follow_the_segments_scaling(ratio, tokens):
+    """As `distribute`: a main ratio above 1 never grows a segment, below 1 shrinks it."""
+    session = _cloud_session("groq", Provider(sse(delta(content="Oui."), delta("stop"))))
+    session._ratios["groq"] = ratio
+    assert session._count_tokens("x" * 40) == (tokens, True)  # 40 characters: 10 estimated
+    session.close()
+
+
+def _delegating_provider(*sub_answers):
+    delegate = sse(
+        delta(
+            tool_calls=[
+                {
+                    "index": 0,
+                    "id": "c1",
+                    "function": {"name": "delegate", "arguments": '{"task": "R"}'},
+                }
+            ]
+        ),
+        delta("tool_calls"),
+    )
+    return Provider(delegate, *sub_answers, sse(delta(content="Voilà."), delta("stop")))
+
+
+def test_chat_cut_output_keeps_the_reconciled_context_figure():
+    cut = sse(
+        delta(content="Début…"),
+        {**delta("length"), "usage": {"prompt_tokens": 4321, "completion_tokens": 512}},
+    )
+    session = _cloud_session("groq", _delegating_provider(cut), bricks=("subagent",))
+
+    events = run(session, "Résume.")
+
+    ended = of(events, "subagent_ended")[0].payload
+    assert ended["status"] == "limit" and ended["context_tokens"] == 4321
+    assert ended["context_estimated"] is False
+    session.close()
+
+
+def test_chat_context_without_usage_is_marked_estimated():
+    answer = sse(delta(content="Résultat."), delta("stop"))  # no `usage`
+    session = _cloud_session("groq", _delegating_provider(answer), bricks=("subagent",))
+
+    events = run(session, "Résume.")
+
+    ended = of(events, "subagent_ended")[0].payload
+    assert ended["status"] == "completed" and ended["context_estimated"] is True
+    session.close()
+
+
+def test_a_failed_delegation_counts_the_error_actually_reinjected():
+    reads = [call("read_file", path="notes_reunion.txt")] * 4
+    engine, session = sub_session([delegation(), *reads, "Voilà."])
+
+    events = run(session, "Quelles décisions ?")
+
+    ended = of(events, "subagent_ended")[0].payload
+    main = of(events, "context_rendered", "main")[-1].payload
+    (reinjected,) = _segments(main, "subagent_result")
+    assert ended["result"] == reinjected["text"]
+    assert ended["result"].startswith("Erreur : La délégation au sous-agent a échoué")
+    assert ended["result_tokens"] == len(ended["result"].encode("utf-8"))
+    assert ended["saved_tokens"] == 0
+    session.close()

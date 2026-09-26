@@ -2354,7 +2354,8 @@ class AppSession:
         sub = _SubContext(f"sub{self._subs}", task, text.prompt, state.subagent_tools)
         journal = get_journal()
         started = time.monotonic()
-        figures = {"calls": 0, "context_tokens": 0, "kept_tokens": 0}
+        # `estimated`: chat mode, the context's figures not reconciled by `usage` (AD-4).
+        figures = {"calls": 0, "context_tokens": 0, "kept_tokens": 0, "estimated": 0}
         outcome = _SubOutcome("error", message_fr="le sous-agent s'est interrompu.")
         # AD-11: every event of the sub-agent hangs on the step of `delegate`; the trigger
         # (model or user) is inherited.
@@ -2380,11 +2381,14 @@ class AppSession:
                 )
             finally:
                 done = outcome.status == "completed"
-                result = outcome.result if done else outcome.message_fr
+                failure = None if done else self._delegation_failure(outcome)
+                # What the main context reads: the result, or the error the executor
+                # reinjects in its place (« Erreur : … »).
+                result = outcome.result if done else f"Erreur : {failure.message_fr}"
                 result_tokens, estimated = self._count_tokens(result)
-                # The saving: what the main context would have read (the tool results that
-                # stayed in the sub-agent) against the result it reads instead; none when the
-                # delegation failed, the main model getting an error in place of the result.
+                # The saving: what the main context would have read (every tool reply that
+                # stayed in the sub-agent, errors and refusals included) against the result it
+                # reads instead; none when the delegation failed.
                 kept = figures["kept_tokens"]
                 journal.emit(
                     "subagent_ended",
@@ -2396,16 +2400,24 @@ class AppSession:
                         "result_tokens": result_tokens,
                         "saved_tokens": max(0, kept - result_tokens) if done else 0,
                         "estimated": estimated,
+                        "context_estimated": bool(figures["estimated"]),
                         "calls": figures["calls"],
                         "duration_ms": _ms(time.monotonic() - started),
                     },
                 )
-        if outcome.status == "completed":
-            return outcome.result
+        if failure is not None:
+            raise failure
+        return outcome.result
+
+    @staticmethod
+    def _delegation_failure(outcome: _SubOutcome) -> DelegationFailed:
+        """The error a failed delegation reinjects (AD-11), with `delegate`'s status."""
         if outcome.status == "cancelled":
-            raise DelegationFailed("Délégation arrêtée à la demande de l'utilisateur.", "cancelled")
+            return DelegationFailed(
+                "Délégation arrêtée à la demande de l'utilisateur.", "cancelled"
+            )
         status = outcome.status if outcome.status in ("limit", "overflow") else "error"
-        raise DelegationFailed(
+        return DelegationFailed(
             f"La délégation au sous-agent a échoué : {outcome.message_fr} Réponds sans ce "
             "résultat, ou délègue une tâche plus simple.",
             status,
@@ -2431,12 +2443,13 @@ class AppSession:
 
     def _count_tokens(self, text: str) -> tuple[int, bool]:
         """AD-1: the tokens `text` takes in the main context: by the model's tokenizer
-        locally; in chat mode (then `True`), the estimate corrected by the main context's
-        ratio, the unit of its segments (AD-4). Never raises: an estimate then."""
+        locally; in chat mode (then `True`), the estimate scaled as `distribute` scales the
+        main context's segments (AD-4): shrunk by a ratio below 1, never grown (a ratio above
+        1 goes to the provider's segment). Never raises: an estimate then."""
         estimate = config.estimate_tokens(text, self.cfg.chars_per_token)
         if self._cloud is not None or self._engine is None:
             ratio = self._ratios.get(self._cloud.id if self._cloud else "", self.cfg.estimate_ratio)
-            return round(estimate * ratio), True
+            return round(estimate * min(1.0, ratio)), True
         try:
             return len(self._engine.tokenize(text)), False
         except Exception:  # noqa: BLE001 - AD-16: `subagent_ended` is always emitted
@@ -2475,6 +2488,7 @@ class AppSession:
                 journal.emit("context_rendered", payload)
                 figures["context_tokens"] = payload["used"]
                 figures["kept_tokens"] = _kind_tokens(payload, SegmentKind.TOOL_RESULT)
+                figures["estimated"] = int(payload.get("usage_source") == "estimate")
                 if previous is not None:
                     self._check_prefix(*previous, rendered.ids)
                 if payload["overflow"]:
@@ -2489,6 +2503,7 @@ class AppSession:
             if out.reconciled is not None:  # chat mode: `usage` reconciled the figures (AD-4)
                 figures["context_tokens"] = out.reconciled["used"]
                 figures["kept_tokens"] = _kind_tokens(out.reconciled, SegmentKind.TOOL_RESULT)
+                figures["estimated"] = 0
             if out.status == "cancelled":
                 return stopped
             if out.status == "limit":  # `output_truncated` emitted in `sub{n}` (AD-9)
@@ -3988,8 +4003,8 @@ class AppSession:
                     "max_tokens": reserve,
                 },
             )
-            if call.channel != "tool_call":
-                return _ModelOutput("limit")
+            if call.channel != "tool_call":  # the reconciled figures stay (AD-4)
+                return _ModelOutput("limit", reconciled=out.reconciled)
             out.calls, out.ids, out.arguments = [], [], []
             out.malformed = Malformed(
                 out.raw,
