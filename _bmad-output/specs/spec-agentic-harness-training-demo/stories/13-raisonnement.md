@@ -24,7 +24,7 @@ deferred:
       Aucun préréglage ne déclare `resend = true` ; la forme est tirée d'AD-4 (« dans la forme reçue ») et du champ lu par l'adaptateur. À trancher par un tour réel avec `resend = true` déclaré dans settings.json : si le fournisseur refuse (400), renvoyer sous le nom de champ reçu.
     location: >-
       src/wavestack/session/app_session.py (_assistant_message)
-    severity: medium (unverified)
+    severity: medium
 ---
 
 <intent-contract>
@@ -94,7 +94,7 @@ deferred:
 **Execution:**
 - [x] `src/wavestack/models/capabilities.py` -- capacités `reasoning`, `reasoning_always`.
 - [x] `src/wavestack/bricks/registry.py`, `content/bricks/reasoning.yaml` -- déclaration et contenu de la brique.
-- [x] `src/wavestack/config.py`, `src/wavestack/cloud.py`, `src/wavestack/session/diagnostic.py` -- paramètres et réserve selon le raisonnement actif.
+- [x] `src/wavestack/config.py`, `src/wavestack/cloud.py` -- paramètres et réserve selon le raisonnement actif. `src/wavestack/session/diagnostic.py` n'a pas eu à changer : `chat_fields(entry, entry.reserve)` garde le corps « brique éteinte » par la valeur par défaut `reasoning=False`.
 - [x] `src/wavestack/context/render.py` -- contenu en blocs.
 - [x] `src/wavestack/trace/catalog.py` -- `always_fr`.
 - [x] `src/wavestack/session/app_session.py` -- disponibilité, réserve par tour, variable du gabarit, corps cloud, renvoi, attribution, appels d'outils hors raisonnement.
@@ -108,6 +108,13 @@ deferred:
 - Given la brique voulue puis un modèle sans capacité, when le panneau s'affiche, then la carte est indisponible avec sa raison et redevient effective sans nouveau clic avec un modèle qui raisonne.
 
 ## Spec Change Log
+
+### 2026-09-26 — Revue indépendante (hors boucle de l'auto-run)
+
+- **Déclencheur :** point 10 du triage de la revue indépendante (scénario non cumulatif, contraire à l'en-tête de `content/scenarios.yaml`).
+- **Amendement :** le scénario `reasoning` déclare `short_memory, system_prompt, tools, mcp, skills, hooks, reasoning` et `mcp_lazy: true`. La ligne « Always » et la ligne « Scénario » de la matrice, dans `<intent-contract>`, sont laissées telles quelles (contrat en lecture seule) : cette entrée les remplace.
+- **État évité :** un module qui démarre sans les briques des modules précédents (CAP-40).
+- **KEEP :** le module « Raisonnement » de 30 min en fin de programme et le prompt du train.
 
 ## Review Triage Log
 
@@ -129,6 +136,38 @@ Revue faite dans la même session que l'implémentation (aucun outil de sous-age
   - `[low]` `[reject]` `store.openReasoning` jamais purgé — quelques clés par tour, négligeable.
   - `[low]` `[reject]` `flex-wrap` sur `.pane-actions` touche tous les volets — voulu : un en-tête trop étroit passe à la ligne au lieu de déborder.
 
+### 2026-09-26 — Revue indépendante
+
+Quatre relecteurs indépendants lancés par le coordinateur (aveugle, cas limites, lacunes de vérification, alignement d'intention) sur le diff `81dba76..7337a1b`. Triage du coordinateur : 19 points « À corriger », 4 « Reporté ». Tous les points « À corriger » ont été vérifiés dans le code et appliqués ; aucun n'a été écarté.
+
+- verdicts: 23 findings — 19 à corriger (patch), 4 reportés (defer), 0 écarté
+- findings:
+  - `[patch]` 1. Troncature brique active : tests local (raisonnement coupé : `output_truncated` à 1 536, `engine.max_tokens == [1536]`, tour `limit`) et local/chat (appel d'outil coupé : détail « 1 536 tokens »).
+  - `[patch]` 2. `<think>` jamais refermé contenant un `<tool_call>` : test, ni `tool_started` ni `tool_call_malformed`.
+  - `[patch]` 3. Ordre au renvoi sur le message passé (`_bodies(provider)[2]`) : `thinking` avant `text`, `<think>…</think>` en tête ; ajouté au test paramétré.
+  - `[patch]` 4. `_outside_reasoning` (coupe au dernier `</think>`) supprimé : le séparateur d'AD-6 (`ChannelSplitter`) tient désormais `outside`, la sortie sans le raisonnement ni ses balises, balises d'appel d'outil gardées ; aucun second séparateur. Tests : appel valide suivi d'un `<think>` non refermé, puis d'un `</think>` littéral.
+  - `[patch]` 5. Pas mal formé local : `content` = sortie hors raisonnement (`_ModelOutput.answer`), raisonnement passé à part ; test (raisonnement en `assistant_turn`, aucun `</think>` dans les segments, raisonnement rendu une fois).
+  - `[patch]` 6. `content_blocks` : plus de bloc `text` vide ; test d'une réponse passée de raisonnement seul.
+  - `[patch]` 7. Sans modèle chargé : « Indisponible : aucun modèle chargé. » ; test.
+  - `[patch]` 8. Modèle `always` : composant `reasoning.mode` dessiné sans toucher à `wanted`, icône 💭 dans `BRICK_ICONS` ; test sur `architecture_changed`.
+  - `[patch]` 9. `always_fr` attribué au modèle (« … ; ce modèle ne permet pas de l'éteindre ») ; test (fournisseur absent du texte).
+  - `[patch]` 10. Scénario cumulatif (voir Spec Change Log) ; test des briques voulues, du lazy loading et de la réserve de l'aperçu.
+  - `[patch]` 11. Option décochée : « Le modèle raisonne… » avec chronomètre pendant le raisonnement (front).
+  - `[patch]` 12. Sortie coupée dans le raisonnement : message dédié (front).
+  - `[patch]` 13. Tour à plusieurs appels : un bloc de raisonnement par appel dans la Vue humain (`pastReasoning`, front).
+  - `[patch]` 14. Règle unique de la réserve : `config.output_reserve(reasoning)`, utilisée par `CloudModel.reserve_for` et `AppSession._reserve_of` ; `OUTPUT_RESERVE` déplacé de `context/window.py` vers `config` (plus de 512 en dur).
+  - `[patch]` 15. `think_tags` renvoyé dans la forme reçue : `Joined` sans séparateur (`<think>…</think>Il est 9 h.`), testé.
+  - `[patch]` 16. Fenêtre ≤ 1 536 : brique indisponible avec une raison qui cite la réserve (même logique que le garde `tpm // 2`) ; test.
+  - `[patch]` 17. `aria-describedby` de l'interrupteur verrouillé vers le paragraphe `brick-always`, règle CSS dédiée (violet du harnais).
+  - `[patch]` 18. Fichier de story : `severity` standard, ligne de `diagnostic.py` corrigée, revue indépendante consignée ici.
+  - `[patch]` 19. Écart H6 (Mistral `resend = false` contre AD-20) consigné dans `deferred-work.md`.
+  - `[defer]` Critère d'acceptation 3 : test à écrire avec la story 17.
+  - `[defer]` `_resend()` lu en direct et renvoi brique éteinte : comportement non spécifié.
+  - `[defer]` Contexte LLM : raisonnement du dernier appel seulement.
+  - `[defer]` Front sans banc de test JS : déjà consigné au premier passage, non dupliqué.
+
+Remarque sur le test du scénario : l'aperçu du scénario `reasoning` déborde avec `FakeEngine` (un token par octet), comme celui du scénario `skills` déjà livré ; le test vérifie donc la réserve, et le fait que le contexte tienne relève du test `model` d'AD-9 avec le vrai tokenizer (à confirmer sur le PC cible).
+
 ## Design Notes
 
 Réserve et paramètres découlent du `TurnState` figé (AD-17), pas d'un attribut de session : une bascule en plein tour ne change rien avant le tour suivant, et l'aperçu (rendu sur `build_turn_state()`) suit la configuration courante sans code à part.
@@ -145,7 +184,7 @@ Renvoi en `content_blocks` : `content` du message assistant = `[{"type": "thinki
 
 - H1 — « Afficher le raisonnement » est une préférence d'interface (AD-18), mémorisée par le navigateur et cochée par défaut, comme le comportement actuel qui montre déjà le raisonnement reçu.
 - H2 — Catégorie « prompt engineering » : la brique change ce que le harnais écrit (variable du gabarit, paramètre du corps).
-- H3 — Le scénario ouvre un module « Raisonnement » de 30 min en fin de programme, sans les briques des modules précédents : l'insertion des modules du palier 2 et leur cumul relèvent de la story 21.
+- H3 — Le scénario ouvre un module « Raisonnement » de 30 min en fin de programme. Revu après la revue indépendante (point 10) : il suit la convention cumulative de `content/scenarios.yaml` (briques des modules précédents actives, MCP en lazy loading pour garder de la place) ; la place définitive des modules du palier 2 reste à la story 21.
 - H4 — Brique voulue mais indisponible : dessinée en style indisponible (règle d'AD-12, comme les outils), malgré « Absente du schéma » d'EXPERIENCE.md.
 - H5 — En local, seule la variable de raisonnement du gabarit rend la brique disponible ; un gabarit à balises `<think>` sans variable reste indisponible, mais son raisonnement reçu est séparé et affiché.
 - H6 — Forme du renvoi par format (`field` → champ `reasoning`) ; le préréglage Mistral reste `resend = false` (AD-20 « vrai pour Mistral » non appliqué sans test réel).
@@ -185,3 +224,8 @@ Status: done
 **Vérification :** `uv run ruff check .` (vert), `uv run ruff format --check .` (vert), `node --check src/wavestack/web/static/app.js` (vert), `uv run pytest -q` : 396 réussis, 3 sautés. Audit de la matrice : chaque ligne couverte par un test de `tests/test_reasoning.py` ou `tests/test_scenarios.py` ; contrôle par mutation de cinq chemins (analyse hors raisonnement, variable du gabarit, attribution, `always`, raison d'indisponibilité) : chaque mutation fait échouer au moins un test.
 
 **Risques résiduels :** front non testé automatiquement ; comportement réel de Qwen3.5 avec `enable_thinking=True` (longueur du raisonnement face à la réserve de 1 536 et à NFR-1 sur CPU) ; renvoi `resend` jamais essayé contre un fournisseur réel.
+
+### Correctifs de la revue indépendante (2026-09-26)
+
+Les 19 points « À corriger » ont été appliqués (détail dans le Review Triage Log), avec 12 tests Python de plus dans `tests/test_reasoning.py` (25 au total) ; le front (points 11, 12, 13, 17) n'a pas de banc de test JS. Vérification : `uv run ruff check .`, `uv run ruff format --check .`, `node --check src/wavestack/web/static/app.js` verts ; `uv run pytest -q` : 408 réussis, 3 sautés. `followup_review_recommended` reste `false` : la revue indépendante a eu lieu, et chaque correctif testable côté Python a son test.
+

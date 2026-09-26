@@ -211,6 +211,9 @@ function applyEnvelope(envelope) {
         context: null,
         text: "",
         reasoning: "",
+        // Story 13: the reasoning of the turn's earlier calls, in order (the current one is
+        // `reasoning`), so a multi-call turn keeps them all in the Vue humain.
+        pastReasoning: [],
         callEnded: null,
         overflow: null,
         truncated: null,
@@ -244,6 +247,7 @@ function applyEnvelope(envelope) {
     case "model_call_started":
       if (turn) {
         // A new call of the same turn: the indicator comes back until its first token.
+        if (turn.reasoning) turn.pastReasoning.push(turn.reasoning);
         Object.assign(turn, {
           phaseLabel: p.phase_label,
           callStartedAt: Date.parse(envelope.ts),
@@ -549,7 +553,12 @@ function renderBricks() {
     card.append(head, tags);
 
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
-    if (always) card.appendChild(el("p", "brick-reason brick-always", brick.always_fr));
+    if (always) {
+      const why = el("p", "brick-reason brick-always", brick.always_fr);
+      why.id = `always-${brick.id}`;
+      toggle.setAttribute("aria-describedby", why.id);
+      card.appendChild(why);
+    }
     if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
@@ -1128,6 +1137,9 @@ function turnNote(turn) {
       return "Contexte dépassé : le modèle n'a pas été appelé.";
     case "limit":
       if (turn.limit) return turn.limit.message_fr;
+      if (turn.truncated?.channel === "reasoning") {
+        return `Sortie coupée pendant le raisonnement : la limite de ${fmt(turn.truncated.max_tokens)} tokens a été atteinte avant toute réponse. Le raisonnement reçu reste visible dans Contexte LLM.`;
+      }
       return `Sortie coupée : la réponse a atteint la limite de ${fmt(turn.truncated?.max_tokens ?? 0)} tokens. Le texte reçu est conservé.`;
     case "cancelled":
       return "Arrêté à votre demande : le texte déjà reçu est conservé.";
@@ -1202,8 +1214,16 @@ function renderChat() {
     nodes.push(user);
     const answer = el("div", "bubble bubble-model");
     // FR-9: shown here only if « Afficher le raisonnement » is ticked; Contexte LLM always.
-    if (turn.reasoning && store.showReasoning) {
-      answer.appendChild(reasoningBlock(turn.reasoning, `chat:${turn.id}`, "Raisonnement"));
+    const reasonings = [...turn.pastReasoning, ...(turn.reasoning ? [turn.reasoning] : [])];
+    if (store.showReasoning) {
+      reasonings.forEach((text, i) => {
+        const title = reasonings.length > 1 ? `Raisonnement (appel ${i + 1})` : "Raisonnement";
+        answer.appendChild(reasoningBlock(text, `chat:${turn.id}:${i}`, title));
+      });
+    } else if (turn.status === null && turn.firstToken && turn.reasoning && !turn.text) {
+      // The reasoning is hidden: the bubble still says the model is working.
+      const since = turn.callStartedAt ?? turn.startedAt;
+      answer.appendChild(el("div", "working-indicator", `Le modèle raisonne… ${seconds(Date.now() - since)}`));
     }
     if (turn.text) answer.appendChild(el("div", "bubble-text", turn.text));
     if (turn.status === null && !turn.firstToken) {
@@ -3068,6 +3088,7 @@ function svgEl(tag, attrs) {
 const BRICK_ICONS = {
   short_memory: "🧠",
   system_prompt: "📜",
+  reasoning: "💭",
   tools: "🔧",
   mcp: "🔌",
   skills: "📘",

@@ -31,7 +31,7 @@ from wavestack.bricks.contract import (
 )
 from wavestack.bricks.registry import BRICKS, check_unique_ids
 from wavestack.cloud import active_model, chat_fields, load_cloud_content
-from wavestack.config import MAX_RESERVE, CloudModel
+from wavestack.config import MAX_RESERVE, CloudModel, output_reserve
 from wavestack.context.render import (
     RenderedChat,
     RenderedContext,
@@ -40,7 +40,7 @@ from wavestack.context.render import (
     with_total,
 )
 from wavestack.context.segments import Joined, Part, SegmentKind, SegmentLabels, load_labels
-from wavestack.context.window import OUTPUT_RESERVE, effective_window, gauge
+from wavestack.context.window import effective_window, gauge
 from wavestack.hooks import (
     ALLOWED,
     AUDIT,
@@ -206,6 +206,9 @@ class Exchange(NamedTuple):
 class _ModelOutput:
     status: str  # completed | cancelled | limit
     raw: str = ""
+    # The output without its reasoning (local: the separator's `outside`, AD-6): what a
+    # malformed call's step re-renders, its reasoning passed apart (AD-10).
+    answer: str = ""
     text: str = ""
     reasoning: str = ""
     calls: list[ToolCall] = field(default_factory=list)
@@ -299,16 +302,6 @@ class SendRefused(Exception):
     def __init__(self, reason_fr: str) -> None:
         super().__init__(reason_fr)
         self.reason_fr = reason_fr
-
-
-def _outside_reasoning(raw: str, tags: tuple[str, str] | None, last_channel: str) -> str:
-    """AD-6: the part of a local output where tool calls count, the reasoning left out: after
-    its last closing tag, or nothing when the output ends inside the reasoning."""
-    if not tags:
-        return raw
-    if last_channel == "reasoning":
-        return ""
-    return raw.rsplit(tags[1], 1)[-1]
 
 
 def _fr(n: int) -> str:
@@ -541,8 +534,14 @@ class AppSession:
 
     def _emit_architecture(self) -> None:
         """AD-12: a component is drawn as soon as its brick is `wanted`, even unavailable."""
+        always = self._caps is not None and self._caps.reasoning_always
         with self._lock:
-            wanted = [b for b in self._bricks.values() if b.id in self._wanted]
+            # A model that always reasons draws the reasoning brick, as its card shows it on.
+            wanted = [
+                b
+                for b in self._bricks.values()
+                if b.id in self._wanted or (always and b.id == "reasoning")
+            ]
         model = {**_CORE_MODEL, "model": self._model_name}
         edges: list[dict[str, Any]] = []
         if self._cloud is not None:  # AD-12: drawn in the network zone, with its provider
@@ -1052,6 +1051,12 @@ class AppSession:
         missing = [c for c in brick.capabilities if not getattr(self._caps, c, None)]
         if "reasoning" in missing:
             return False, self._no_reasoning_fr()
+        if brick_id == "reasoning" and self._window <= MAX_RESERVE:  # as the cloud `tpm` guard
+            return False, (
+                f"Indisponible : la fenêtre de contexte ({_fr(self._window)} tokens) ne laisse "
+                f"aucune place au contexte une fois réservés les {_fr(MAX_RESERVE)} tokens de "
+                "sortie du raisonnement. Agrandissez la fenêtre dans la configuration."
+            )
         if missing and self._cloud is not None:  # AD-6: a capability not declared is absent
             return False, (
                 f"Le modèle cloud « {self._cloud.id} » ne déclare pas l'appel d'outils (tools) : "
@@ -1066,7 +1071,10 @@ class AppSession:
         return True, None
 
     def _no_reasoning_fr(self) -> str:
-        """EXPERIENCE.md's reason, then its cause: the template, or the cloud declaration."""
+        """EXPERIENCE.md's reason, then its cause: no model, the template, or the cloud
+        declaration."""
+        if self._caps is None:
+            return "Indisponible : aucun modèle chargé."
         if self._cloud is not None:
             return (
                 "Indisponible : le modèle actif ne sait pas raisonner. Le modèle cloud "
@@ -1084,8 +1092,8 @@ class AppSession:
         if entry is None or not entry.always_reasons:
             return None
         return (
-            f"Toujours active pour ce modèle : {entry.model} raisonne à chaque réponse, et "
-            f"{entry.provider} ne permet pas de l'éteindre. La réserve de sortie reste de "
+            f"Toujours active pour ce modèle : {entry.model} raisonne à chaque réponse ; ce "
+            f"modèle ne permet pas de l'éteindre. La réserve de sortie reste de "
             f"{_fr(MAX_RESERVE)} tokens."
         )
 
@@ -1097,7 +1105,7 @@ class AppSession:
 
     def _reserve_of(self, state: TurnState) -> int:
         """AD-9: the output reserve of a turn (or of the preview), from its frozen state."""
-        return MAX_RESERVE if self._reasoning_on(state) else OUTPUT_RESERVE
+        return output_reserve(self._reasoning_on(state))
 
     def _resend(self) -> str | None:
         """AD-4, chat mode: the `format` the reasoning goes back in, when `resend` is set."""
@@ -1248,9 +1256,14 @@ class AppSession:
         thought = content._replace(text=reasoning) if reasoning else None
         if thought is not None and chat and resend == "content_blocks":
             blocks = [{"type": "thinking", "thinking": [{"type": "text", "text": thought}]}]
-            answer["content"] = blocks + [{"type": "text", "text": part} for part in text]
+            # No empty `text` block: a past answer of reasoning only keeps its thinking alone.
+            answer["content"] = blocks + [
+                {"type": "text", "text": part} for part in text if part.text
+            ]
         elif thought is not None and chat and resend == "think_tags":
-            answer["content"] = [thought._replace(text=f"<think>{reasoning}</think>"), *text]
+            # As received: the closing tag right before the text, no separator added.
+            tagged = thought._replace(text=f"<think>{reasoning}</think>")
+            answer["content"] = [Joined((tagged, *(p for p in text if p.text)), sep="")]
         elif text:
             answer["content"] = text
         if thought is not None and not chat:
@@ -2243,8 +2256,12 @@ class AppSession:
                         error = self._tool_executor.reject(
                             out.raw, out.malformed.fragment, out.malformed.detail_fr, reaction
                         )
-                    # The raw output already holds any reasoning: not passed twice.
-                    steps.append({"role": "assistant", "content": out.raw, "tool_calls": []})
+                    # The output without its reasoning, the reasoning apart (AD-4); in chat
+                    # mode, the raw output AD-10 reinjects.
+                    steps.append(
+                        {"role": "assistant", "content": out.answer or out.raw, "tool_calls": []}
+                        | ({"reasoning": out.reasoning} if out.reasoning and out.answer else {})
+                    )
                     steps.append(
                         {
                             "role": "tool",
@@ -2845,12 +2862,13 @@ class AppSession:
             raw="".join(raw),
             text="".join(channels["text"]),
             reasoning="".join(channels["reasoning"]),
+            answer=splitter.outside,
         )
         if tools and out.status == "completed":
             assert self._caps.tool_call_parser is not None  # the brick requires it (AD-6)
             schemas = {name: spec.params for name in tools if (spec := self._registry.get(name))}
             out.calls, out.malformed = parse_tool_calls(
-                _outside_reasoning(out.raw, tags, splitter.channel),
+                out.answer,  # a `<tool_call>` inside the reasoning never counts (AD-6)
                 self._caps.tool_call_parser,
                 schemas,
             )

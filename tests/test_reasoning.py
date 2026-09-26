@@ -334,6 +334,34 @@ def test_resend_sends_the_reasoning_back_in_the_declared_form(preset, form):
     assert "Il faut l'heure." in history and "Lire l'outil." in history
     body = later["context_rendered"][0]["body"]
     assert body == provider.requests[2].content.decode("utf-8")
+    # The past answer, in the form received: the thinking before the text (review item 3, 15).
+    past = _assistant(_bodies(provider)[2])[-1]
+    if form == "content_blocks":
+        assert past["content"] == [
+            {"type": "thinking", "thinking": [{"type": "text", "text": "Lire l'outil."}]},
+            {"type": "text", "text": "Il est 9 h."},
+        ]
+    elif form == "field":
+        assert past["reasoning"] == "Lire l'outil." and past["content"] == "Il est 9 h."
+    else:
+        assert past["content"] == "<think>Lire l'outil.</think>Il est 9 h."
+    session.close()
+
+
+def test_a_past_answer_of_reasoning_only_sends_no_empty_text_block():
+    entry = _preset("mistral")
+    reasoning = entry.reasoning.model_copy(update={"resend": True})
+    entry = entry.model_copy(update={"reasoning": reasoning})
+    provider = Provider(sse(_thinking("Rien à dire."), _usage()), TEXT)
+    session = _cloud(entry, provider, "short_memory", "reasoning")
+
+    _run(session, "Bonjour")
+    _run(session, "Encore")
+
+    past = _assistant(_bodies(provider)[1])[-1]
+    assert past["content"] == [
+        {"type": "thinking", "thinking": [{"type": "text", "text": "Rien à dire."}]}
+    ]
     session.close()
 
 
@@ -348,4 +376,171 @@ def test_without_resend_the_reasoning_never_goes_back():
         text = request.content.decode("utf-8")
         assert "Il faut l'heure." not in text and "Lire l'outil." not in text
         assert "thinking" not in text
+    session.close()
+
+
+# ---------- independent review (2026-09-26) ----------
+
+
+LONG_REASONING = "je réfléchis " * 200  # 2 600 characters: one token each in `FakeEngine`
+
+
+def test_local_output_cut_in_the_reasoning_is_cut_at_the_reasoning_reserve():
+    engine, session = _qwen([LONG_REASONING])
+    session.set_brick("reasoning", True)
+    session.join()
+
+    events = _run(session, "Bonjour")
+
+    assert engine.max_tokens == [1536]
+    truncated = events["output_truncated"][0]
+    assert truncated == {"channel": "reasoning", "output_tokens": 1536, "max_tokens": 1536}
+    assert events["turn_ended"][0]["status"] == "limit"
+    session.close()
+
+
+def test_local_tool_call_cut_names_the_reasoning_reserve():
+    cut = "Il faut calculer.\n</think>\n\n<tool_call>\n<function=calculator>\n" + "1+" * 1000
+    engine, session = _qwen([cut, "Abandon."])
+    session.set_brick("tools", True)
+    session.set_brick("reasoning", True)
+    session.join()
+
+    events = _run(session, "Combien ?")
+
+    assert events["output_truncated"][0]["max_tokens"] == 1536
+    assert "1\u202f536 tokens" in events["tool_call_malformed"][0]["detail_fr"]
+    session.close()
+
+
+def test_chat_tool_call_cut_names_the_reasoning_reserve():
+    cut = sse(
+        delta(
+            tool_calls=[
+                {
+                    "index": 0,
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "get_datetime", "arguments": '{"tz'},
+                }
+            ]
+        ),
+        {**delta("length"), "usage": {"prompt_tokens": 50, "completion_tokens": 1536}},
+    )
+    provider = Provider(cut, TEXT)
+    session = _cloud(_preset("mistral"), provider, "tools", "reasoning")
+
+    events = _run(session, "Quelle heure est-il ?")
+
+    truncated = events["output_truncated"][0]
+    assert truncated["channel"] == "tool_call" and truncated["max_tokens"] == 1536
+    assert "1\u202f536 tokens" in events["tool_call_malformed"][0]["detail_fr"]
+    assert _bodies(provider)[0]["max_tokens"] == 1536
+    session.close()
+
+
+def test_a_tool_call_in_an_unclosed_reasoning_is_never_run():
+    engine, session = _qwen(["Je pourrais " + call("calculator", expression="1+1") + " voyons"])
+    session.set_brick("tools", True)
+    session.set_brick("reasoning", True)
+    session.join()
+
+    events = _run(session, "Bonjour")
+
+    assert "tool_started" not in events and "tool_call_malformed" not in events
+    assert len(engine.calls) == 1
+    session.close()
+
+
+@pytest.mark.parametrize(
+    "after",
+    ["\n<think>je continue sans refermer", " fin </think> puis du texte"],
+    ids=["second-unclosed-think", "literal-closing-tag"],
+)
+def test_a_valid_call_counts_whatever_follows_it(after):
+    first = "Il faut calculer.\n</think>\n\n" + call("calculator", expression="12*37") + after
+    engine, session = _qwen([first, "C'est fait.\n</think>\n\nCela fait 444."])
+    session.set_brick("tools", True)
+    session.set_brick("reasoning", True)
+    session.join()
+
+    events = _run(session, "Combien font 12 × 37 ?")
+
+    assert [e["tool"] for e in events["tool_started"]] == ["calculator"]
+    assert events["tool_ended"][0]["result"] == "444"
+    session.close()
+
+
+def test_a_malformed_step_rerenders_its_text_without_the_reasoning():
+    broken = "Il faut calculer.\n</think>\n\n<tool_call>\n<function=calculator>\n"
+    engine, session = _qwen([broken, "C'est fait.\n</think>\n\nJe ne sais pas."])
+    session.set_brick("tools", True)
+    session.set_brick("reasoning", True)
+    session.join()
+
+    events = _run(session, "Combien ?")
+
+    assert events["tool_call_malformed"][0]["reaction"] == "retry"
+    second = events["context_rendered"][1]
+    turn = [s for s in second["segments"] if s["kind"] == "assistant_turn"]
+    assert any(s["text"] == "Il faut calculer." for s in turn)  # the reasoning, apart
+    assert not any("</think>" in s["text"] for s in turn)  # the content holds no reasoning
+    assert _prompt(second).count("Il faut calculer.") == 1
+    session.close()
+
+
+def test_without_a_model_the_reason_says_so():
+    session = AppSession(config.Config(values={}))
+    mark = get_journal().last_seq()
+    session.boot(None).result()
+
+    assert _card(mark)["reason_fr"] == "Indisponible : aucun modèle chargé."
+    session.close()
+
+
+def test_a_window_too_small_for_the_reasoning_reserve_makes_it_unavailable():
+    engine = RecordingEngine(output="ok", template=QWEN.decode("utf-8"), architecture="qwen35")
+    session = booted_session(engine, window=1536)
+    mark = get_journal().last_seq()
+    session.set_brick("reasoning", True)
+    session.join()
+
+    card = _card(mark)
+    assert not card["available"] and "1\u202f536" in card["reason_fr"]
+    assert _run(session, "Bonjour")["context_rendered"][0]["reserve"] == 512
+    session.close()
+
+
+def test_a_model_that_always_reasons_draws_the_brick_and_names_the_model():
+    entry = _preset("groq")
+    session = _cloud(entry, Provider(TEXT))
+
+    card = _card()
+    assert not card["wanted"]
+    assert f"{entry.model} raisonne à chaque réponse ; ce modèle ne permet pas" in card["always_fr"]
+    assert entry.provider not in card["always_fr"]
+    nodes = {n["id"] for n in _latest("architecture_changed")["nodes"]}
+    assert "reasoning.mode" in nodes
+    session.close()
+
+
+def test_reasoning_scenario_keeps_the_previous_modules_bricks():
+    _, session = _qwen(["ok"])
+
+    session.launch_scenario("reasoning")
+    session.join()
+
+    assert session._wanted == {
+        "short_memory",
+        "system_prompt",
+        "tools",
+        "mcp",
+        "skills",
+        "hooks",
+        "reasoning",
+    }
+    assert session._mcp_lazy is True
+    preview = _latest("context_preview")
+    # The fit itself needs the real tokenizer (AD-9's `model` test): one token per byte here.
+    assert preview["reserve"] == 1536 and preview["usable"] == 4096 - 1536
     session.close()

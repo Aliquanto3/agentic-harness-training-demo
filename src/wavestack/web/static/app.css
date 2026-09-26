@@ -541,6 +541,12 @@ body.is-resizing-y * {
   outline-offset: 2px;
 }
 
+/* Story 13: the model keeps the brick on; said in the harness violet, not as a fault. */
+.brick-reason.brick-always {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
 .reasoning-text {
   margin-top: var(--spacing-1);
   white-space: pre-wrap;

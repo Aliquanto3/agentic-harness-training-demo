@@ -81,7 +81,13 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+OUTPUT_RESERVE = 512  # AD-9: the output reserve of a model that does not reason
 MAX_RESERVE = 1536  # AD-9: the largest output reserve; `tpm // 2` must exceed it
+
+
+def output_reserve(reasoning: bool) -> int:
+    """AD-9, the single rule of the output reserve: 1 536 while the model reasons, else 512."""
+    return MAX_RESERVE if reasoning else OUTPUT_RESERVE
 
 
 class CloudModel(_Strict):
@@ -130,7 +136,7 @@ class CloudModel(_Strict):
 
     def reserve_for(self, reasoning: bool) -> int:
         """AD-9: the reasoning reserve while it reasons (brick on, or `always`), else 512."""
-        return MAX_RESERVE if reasoning or self.always_reasons else 512
+        return output_reserve(reasoning or self.always_reasons)
 
     @property
     def reserve(self) -> int:

@@ -80,6 +80,8 @@ class ChannelSplitter:
 
     Tags are dropped from the channels (they stay in the raw output); a
     possibly partial tag at the end of a chunk is held back until the next one.
+    `outside` is the raw output without the reasoning and its tags, tool-call tags kept:
+    where tool calls count (AD-6).
     """
 
     def __init__(
@@ -96,6 +98,16 @@ class ChannelSplitter:
         }
         self._channel = "reasoning" if in_reasoning else "text"
         self._buffer = ""
+        self._outside: list[str] = []
+
+    @property
+    def outside(self) -> str:
+        return "".join(self._outside)
+
+    def _emit(self, out: list[tuple[str, str]], text: str) -> None:
+        out.append((self._channel, text))
+        if self._channel != "reasoning":
+            self._outside.append(text)
 
     @property
     def channel(self) -> str:
@@ -122,16 +134,20 @@ class ChannelSplitter:
                 if at < 0:
                     break
             if at:
-                out.append((self._channel, self._buffer[:at]))
+                self._emit(out, self._buffer[:at])
+            if "reasoning" not in (self._channel, following):  # a tool-call tag stays
+                self._outside.append(tag)
             self._buffer = self._buffer[at + len(tag) :]
             self._channel = following
         keep = partial_suffix_len(self._buffer, markers)
         if len(self._buffer) > keep:
-            out.append((self._channel, self._buffer[: len(self._buffer) - keep]))
+            self._emit(out, self._buffer[: len(self._buffer) - keep])
             self._buffer = self._buffer[len(self._buffer) - keep :]
         return out
 
     def flush(self) -> list[tuple[str, str]]:
-        out = [(self._channel, self._buffer)] if self._buffer else []
+        out: list[tuple[str, str]] = []
+        if self._buffer:
+            self._emit(out, self._buffer)
         self._buffer = ""
         return out
