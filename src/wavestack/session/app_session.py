@@ -268,6 +268,22 @@ class TurnState:
     armed: tuple[ArmedAction, ...] = ()
 
 
+def _with_loaded(state: TurnState, loaded_in_turn: list[str]) -> TurnState:
+    """Chat mode (AD-25): the documentations loaded in this turn join `tools` at once, by
+    `build_turn_state`'s rule: out of `loadable`, and `load_tool_doc` gone once nothing is
+    left to load."""
+    added = [n for n in state.loadable if n in loaded_in_turn and n not in state.tools]
+    if not added:
+        return state
+    loadable = tuple(n for n in state.loadable if n not in added)
+    tools = list(state.tools)
+    at = tools.index(LOAD_TOOL_DOC) if LOAD_TOOL_DOC in tools else len(tools)
+    tools[at:at] = added
+    if not loadable and LOAD_TOOL_DOC in tools:
+        tools.remove(LOAD_TOOL_DOC)
+    return replace(state, tools=tuple(tools), loadable=loadable)
+
+
 @dataclass
 class _Approval:
     """H5's pending (then answered) human validation (AD-13): the HTTP thread answers, the
@@ -2086,8 +2102,9 @@ class AppSession:
         max_calls, max_retries = self.cfg.tool_max_calls, self.cfg.tool_max_retries
         retries = 0
         previous: tuple[list[int], str] | None = None  # last call's ids and raw output
-        # AD-25: documentations loaded in this turn are callable at once, but enter `tools`
-        # only from the next turn (the prefix stays append only).
+        # AD-25: documentations loaded in this turn are callable at once. Locally, they enter
+        # `tools` only from the next turn (the prefix stays append only); in chat mode, from
+        # the next call, since a provider refuses a call to a tool its `tools` lacks.
         loaded_in_turn: list[str] = []
         # AD-3: the armed actions, after `on_user_message` and before the first call, outside
         # the call budget (AD-10).
@@ -2102,7 +2119,8 @@ class AppSession:
                 return "blocked", "", ""
             step += 1
             with scoped(call_id=call_id, step_id=f"{turn_id}.main.s{step}", component="core.model"):
-                rendered, payload = self._render(state, message, call_id, steps)
+                shown = state if self._cloud is None else _with_loaded(state, loaded_in_turn)
+                rendered, payload = self._render(shown, message, call_id, steps)
                 journal.emit("context_rendered", payload)
                 if previous is not None:  # not in chat mode, which has no ids (AD-4)
                     self._check_prefix(*previous, rendered.ids)

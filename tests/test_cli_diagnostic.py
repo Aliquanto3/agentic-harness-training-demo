@@ -497,9 +497,12 @@ def test_choice_after_load_is_saved_for_next_launch_only(monkeypatch, tmp_path):
     app.state.app_session.join()
 
     assert body["saved"] is True and body["next_launch"] is True
-    assert "prochain lancement" in body["message_fr"]
+    assert body["message_fr"] == "Choix enregistré : relancez WaveStack pour l'utiliser."
     assert received == [] and probed == []  # no reload, no second model's weights in RAM
     assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(other)}
+    # Story 11b: kept on the page, reload included, while the choice waits for a relaunch.
+    diagnostic = _client(app).get("/api/diagnostic").json()
+    assert diagnostic["next_launch_fr"] == body["message_fr"]
 
 
 def test_settings_write_failure_is_traced_and_model_still_loads(monkeypatch, tmp_path):
@@ -651,3 +654,46 @@ def test_quoted_pasted_path_is_accepted(monkeypatch, tmp_path):
 
     assert body["saved"] is True and received == [str(chosen)]
     assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(chosen)}
+
+
+def test_two_models_and_no_choice_launch_on_the_diagnostic_page(monkeypatch, tmp_path):
+    """Story 11b: a blocked launch opens `/diagnostic`, a ready one `/`."""
+    from wavestack.session.diagnostic import launch_page
+
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"))
+
+    assert launch_page(session.check_model()) == "/diagnostic"
+
+    session, _ = _build(monkeypatch, tmp_path / "one", models=("a.gguf",))
+    assert launch_page(session.check_model()) == "/"
+
+
+def test_no_relaunch_notice_after_a_launch_fallback(monkeypatch, tmp_path):
+    """Story 11b: a saved cloud model without key falls back on the file at launch; nothing
+    was chosen after the load, so no notice."""
+    monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path / "data"))
+    config.save_setting("selected_model", {"kind": "cloud", "ref": "groq"})
+    session, app = _build(monkeypatch, tmp_path, models=("a.gguf",))
+
+    result = session.check_model()
+
+    assert result.model_path and session.selected_cloud == "groq"
+    assert session.next_launch_fr() is None
+    assert _client(app).get("/api/diagnostic").json()["next_launch_fr"] is None
+
+
+def test_no_relaunch_notice_when_the_choice_could_not_be_saved(monkeypatch, tmp_path):
+    session, app = _build(monkeypatch, tmp_path, models=("a.gguf",))
+    assert session.check_model().model_path
+
+    def _refuse(key, value):
+        raise PermissionError("settings.json en lecture seule")
+
+    monkeypatch.setattr(config, "save_setting", _refuse)
+    other = tmp_path / "other.gguf"
+    other.write_bytes(b"placeholder")
+
+    body = _select(app, other)
+
+    assert body["saved"] is False and session.next_launch_fr() is None
+    assert _client(app).get("/api/diagnostic").json()["next_launch_fr"] is None

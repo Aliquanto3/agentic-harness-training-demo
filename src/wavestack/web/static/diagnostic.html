@@ -35,10 +35,12 @@
     .cloud-result.warn { color: #8a5a00; }
     .cloud-result.fail { color: #b71c1c; }
     dialog#cloud-warning { max-width: 560px; border: 2px solid #0A0A14; border-radius: 8px; }
+    #next-launch { background: #fff4e0; border: 1px solid #8a5a00; border-radius: 6px; padding: 0.6rem; font-weight: bold; }
   </style>
 </head>
 <body>
   <h1>Diagnostic de démarrage WaveStack</h1>
+  <p id="next-launch" role="status" hidden></p>
   <p id="open-link" style="display: none;"><a href="/">Ouvrir WaveStack</a></p>
   <ul id="checks"></ul>
 
@@ -194,7 +196,11 @@
         const input = node("input");
         input.type = "password";
         input.autocomplete = "off";
-        input.placeholder = m.key_set ? "Clé enregistrée (la saisir de nouveau pour la remplacer)" : "Clé API";
+        // AD-20: the variable's name only, never its value; a key typed here comes first.
+        const fromEnv = m.key_source === "env";
+        input.placeholder = fromEnv
+          ? `Clé lue dans ${m.key_env} (en saisir une pour la remplacer)`
+          : m.key_set ? "Clé enregistrée (la saisir de nouveau pour la remplacer)" : "Clé API";
         input.setAttribute("aria-label", `Clé API ${m.provider}`);
         const save = node("button", "choose", "Enregistrer la clé");
         save.type = "button";
@@ -203,6 +209,10 @@
           if (input.value.trim()) setApiKey(m, input.value);
         });
         keyRow.append(input, save);
+        if (fromEnv) li.appendChild(node("div", "action", `Clé fournie par la variable ${m.key_env}`));
+        else if (m.key_env && !m.key_set) {
+          li.appendChild(node("div", "action", `Ou définissez la variable ${m.key_env}, puis ouvrez un nouveau terminal.`));
+        }
         li.append(keyRow, node("div", "action", cloud.key_hint_fr));
         const test = node("button", "choose", "Tester");
         const choose = node("button", "choose", "Choisir");
@@ -311,6 +321,10 @@
       renderCloud();
       renderCandidates(body.candidates || []);
       document.getElementById("open-link").style.display = body.ready ? "block" : "none";
+      // Story 11b: kept while the saved choice waits for a relaunch, reload included.
+      const nextLaunch = document.getElementById("next-launch");
+      nextLaunch.textContent = body.next_launch_fr || "";
+      nextLaunch.hidden = !body.next_launch_fr;
     }
     loadDiagnostic();
 

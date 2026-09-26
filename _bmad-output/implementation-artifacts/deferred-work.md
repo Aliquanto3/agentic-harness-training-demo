@@ -195,3 +195,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/11-modeles-cloud-via-api-groq-mistral.md`
   summary: Non vérifié (medium si réel) — en mode chat, un échange d'historique sans texte (réponse de raisonnement seul) part en message `assistant` au `content` vide et sans `tool_calls`, que Mistral pourrait refuser (400) aux tours suivants.
   evidence: Relevé par la revue de la story 11 (couche cas limites), `AppSession._messages`. À trancher : obtenir un tour terminé sans texte avec Mistral, puis envoyer un second message et lire la réponse du fournisseur ; si 400, omettre `content` vide ou sauter l'échange dans le corps chat.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11b-corrections-test-manuel-story-11.md`
+  summary: Le front de la story 11b (entrée « Diagnostic » du menu « Volets ▾ », bloc `#next-launch` du diagnostic, ligne « Clé fournie par la variable X » et piste `key_env`) n'a aucun test automatique.
+  evidence: Même écart que pour les stories 5b à 11 : aucun banc de test JS ; retirer le lien de `renderMenu` ou le remplissage de `#next-launch` dans `loadDiagnostic` passerait pytest et `node --check`. Relevé par la couche verification-gap de la revue de la story 11b. Piste sans dépendance : `node:test` avec `node:vm`.

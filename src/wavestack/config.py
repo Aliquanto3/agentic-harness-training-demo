@@ -84,7 +84,9 @@ MAX_RESERVE = 1536  # AD-9: the largest output reserve; `tpm // 2` must exceed i
 
 
 class CloudModel(_Strict):
-    """One `[[cloud.models]]` entry (AD-20): an OpenAI-compatible model. No key field."""
+    """One `[[cloud.models]]` entry (AD-20): an OpenAI-compatible model. No key field:
+    `key_env` names an environment variable, never holds a value. `min_interval_s`: the
+    least time between two sends to this entry (AD-16)."""
 
     id: str = Field(pattern=r"^[a-z0-9_]+$")
     provider: str = Field(min_length=1)
@@ -103,6 +105,8 @@ class CloudModel(_Strict):
     trial: bool = False
     notes_fr: str = ""
     enabled: bool = True
+    key_env: str | None = Field(default=None, pattern=r"^[A-Z_][A-Z0-9_]*$")
+    min_interval_s: float | None = Field(default=None, gt=0, le=60)
 
     @field_validator("base_url")
     @classmethod
@@ -399,12 +403,31 @@ def _api_keys() -> dict[str, Any]:
     return keys if isinstance(keys, dict) else {}
 
 
-def cloud_key(entry: CloudModel) -> SecretStr | None:
-    """The only reader of a key: `None` when absent, or saved for another host (AD-20)."""
+def _file_key(entry: CloudModel) -> str | None:
     saved = _api_keys().get(entry.id)
     if not isinstance(saved, dict) or saved.get("host") != entry.host or not saved.get("key"):
         return None
-    return SecretStr(str(saved["key"]))
+    return str(saved["key"])
+
+
+def _env_key(entry: CloudModel) -> str | None:
+    if not entry.key_env:
+        return None
+    return os.environ.get(entry.key_env, "").strip() or None
+
+
+def cloud_key(entry: CloudModel) -> SecretStr | None:
+    """The only reader of a key (AD-20): `api_keys.json` for this host first, else the
+    variable `key_env` names (blank counts as absent); `None` when neither gives one."""
+    key = _file_key(entry) or _env_key(entry)
+    return SecretStr(key) if key else None
+
+
+def cloud_key_source(entry: CloudModel) -> Literal["file", "env"] | None:
+    """Where `cloud_key` finds the key, for display only: never the key itself."""
+    if _file_key(entry):
+        return "file"
+    return "env" if _env_key(entry) else None
 
 
 def api_key_host_changed(entry: CloudModel) -> bool:

@@ -23,8 +23,8 @@ l'archive zip, décompressez-la, ouvrez un terminal dans le dossier obtenu, puis
 `uv run wavestack`.
 
 `uv run` télécharge automatiquement Python 3.13 (dans le profil utilisateur, sans élévation) et
-synchronise les dépendances depuis `uv.lock`. La commande ouvre ensuite un navigateur sur le
-diagnostic de démarrage (`http://127.0.0.1:8420/diagnostic`).
+synchronise les dépendances depuis `uv.lock`. La commande ouvre ensuite un navigateur (voir
+« Page ouverte au lancement »).
 
 **Derrière un proxy d'entreprise :**
 - `UV_SYSTEM_CERTS=1` pour utiliser les certificats du système.
@@ -56,6 +56,20 @@ poste, l'accès réseau et la disponibilité du port — chaque résultat s'affi
 terminal et sur la page de diagnostic. Si aucun modèle n'est trouvé, la page propose de saisir le
 chemin d'un fichier `.gguf` (partage, clé USB, cache Hugging Face, LM Studio, Ollama).
 
+**Page ouverte au lancement.**
+- Au premier lancement sur le poste, le navigateur s'ouvre sur le diagnostic
+  (`http://127.0.0.1:8420/diagnostic`) au bout d'une seconde, pour voir défiler les vérifications.
+- Aux lancements suivants, il s'ouvre une fois le diagnostic terminé : sur l'interface principale
+  (`/`) si tout est prêt, sinon sur le diagnostic. Si le diagnostic dure plus de 30 s, le
+  diagnostic s'ouvre.
+- Si WaveStack tourne déjà, la commande ouvre l'interface principale quand l'instance est prête,
+  sinon le diagnostic.
+- Le diagnostic reste accessible par l'indicateur de modèle de la barre haute et par l'entrée
+  « Diagnostic » du menu « Volets ▾ ».
+
+Un modèle choisi alors qu'un autre est déjà chargé attend une relance : le diagnostic affiche
+« Choix enregistré : relancez WaveStack pour l'utiliser. » tant que ce n'est pas fait.
+
 ## Modèle cloud (Groq, Mistral)
 
 Un modèle cloud compatible OpenAI peut remplacer le SLM local : plus rapide, meilleur avec les
@@ -67,6 +81,24 @@ OpenRouter y figurent en exemples commentés, avec leur avertissement.
    diagnostic, dans la ligne du modèle (« Enregistrer la clé »). Elle est stockée sur ce poste
    seulement (`api_keys.json` dans le dossier de données), jamais affichée ni tracée, et envoyée au
    seul hôte déclaré. Si l'adresse du fournisseur change, la clé est à ressaisir.
+
+   **Ou par variable d'environnement.** Chaque préréglage nomme une variable (`key_env`) :
+   `GROQ_API_KEY` pour Groq, `MISTRAL_API_KEY` pour Mistral. Sous Windows, sans droits
+   administrateur :
+
+   ```bat
+   setx GROQ_API_KEY votre-clé
+   ```
+
+   `setx` n'agit que sur les **nouveaux** terminaux : fermez celui-ci, ouvrez-en un autre, puis
+   `uv run wavestack`. La ligne du modèle indique alors « Clé fournie par la variable
+   GROQ_API_KEY » (le nom seul, jamais la valeur). Une clé saisie au diagnostic passe avant la
+   variable ; une variable vide compte comme absente.
+
+   `setx` enregistre la clé **en clair** dans l'environnement de l'utilisateur
+   (`HKCU\Environment`) : tout programme lancé sous votre session peut la lire. Un terminal
+   intégré à un éditeur (VS Code, par exemple) ne la voit qu'après le redémarrage complet de
+   l'éditeur, pas seulement du terminal.
 2. **Tester avant chaque séance.** « Tester » envoie une invite et un outil fixes, sans vos données
    (deux appels au plus), et affiche la réponse, l'appel d'outil reçu et le débit. Les offres
    gratuites et leurs quotas changent souvent : seul ce test prouve que la clé et le préréglage
@@ -113,6 +145,15 @@ entrée nouvelle doit être complète :
 
 Une entrée de même `id` qu'un préréglage le modifie champ par champ (par exemple
 `{"id": "groq", "tpm": 6000}`), et `"enabled": false` le masque.
+
+Deux champs facultatifs :
+- `key_env` : nom de la variable d'environnement qui fournit la clé (lettres majuscules,
+  chiffres et `_`), jamais la clé elle-même.
+- `min_interval_s` : délai minimal, en secondes (au plus 60), entre deux envois au même modèle,
+  tour ou « Tester ». Mistral gratuit refuse (429) deux requêtes à moins d'une seconde : son
+  préréglage vaut `1`. Si des 429 « par seconde » persistent, augmentez-le, par exemple
+  `{"id": "mistral", "min_interval_s": 1.5}`. L'attente n'entre pas dans les durées affichées, et
+  un appel refusé n'est jamais réessayé.
 
 ## Développement
 

@@ -133,7 +133,7 @@ Règles de dépendance :
   - **Verrou d’opération.** La session est toujours dans l’un de ces états : `idle`, `turn`, `awaiting_human`, `model_load`, `download`, `reset` ou `diagnostic`. Elle l’émet par `session_state{state, reason_fr}`, que le front utilise pour désactiver ses commandes en affichant la raison.
     - **Diagnostic.** En diagnostic bloquant, une `Session` minimale existe dans l’état `diagnostic`. Elle accepte les quatre intentions du diagnostic (`select_model`, `download_model`, `set_api_key`, `test_cloud_model`) et refuse toutes les autres.
     - `download_model` et `test_cloud_model` tiennent le verrou pendant leur durée (`download`, ou `model_load` avec la raison « Test de {modèle} »), puis rendent l’état précédent.
-    - **Choix du modèle.** Seul `select_model` en diagnostic change le modèle actif. Ailleurs, et jusqu’au changement à chaud (CAP-34), il ne change que `selected_model`, qui prend effet au prochain lancement ; l’interface l’indique (« Prochain lancement : {modèle} »). La session refuse `test_cloud_model` et `select_model` d’un modèle cloud sans clé valide (AD-20), avec la raison.
+    - **Choix du modèle.** Seul `select_model` en diagnostic change le modèle actif. Ailleurs, et jusqu’au changement à chaud (CAP-34), il ne change que `selected_model`, qui prend effet au prochain lancement ; l’interface l’indique (« Choix enregistré : relancez WaveStack pour l’utiliser. », gardé par `/api/diagnostic.next_launch_fr` tant que le choix enregistré diffère du modèle chargé). La session refuse `test_cloud_model` et `select_model` d’un modèle cloud sans clé valide (AD-20), avec la raison.
   - **Classes d’intentions** (`POST`, JSON) :
     - **(a) Acceptées à tout moment**, prises en compte au tour suivant : bascule d’une brique ou d’une sous-option, armer ou désarmer une action, enregistrer le prompt système.
     - **(b) Refusées hors `idle`** (et hors `diagnostic` pour les quatre intentions du diagnostic), avec la raison : envoyer, rejouer, changer de modèle (`select_model`), de fenêtre ou de bornes, télécharger un modèle (`download_model`), enregistrer une clé (`set_api_key`), tester un modèle cloud (`test_cloud_model`), modifier la mémoire globale, vider la conversation, lancer un scénario.
@@ -277,7 +277,7 @@ Règles de dépendance :
     - **Modèle cloud** : min(`window` de l’entrée, sinon fenêtre configurée ; `context` ; `tpm // 2`). Un changement de fenêtre ne recharge rien et prend effet au tour suivant ; le réglage est désactivé si `window` est déclaré, avec la raison. Une entrée dont `tpm // 2` ne dépasse pas la plus grande réserve (1 536) est indisponible, avec la raison.
     - Les événements de jauge portent `window_source: configured|native|server|tpm|override`.
     - **Quota par minute.** Un fournisseur compte `prompt + max_tokens` par appel, et chaque appel tient dans la fenêtre. Avec un plafond de `tpm // 2`, un tour avec un appel d’outil (deux appels) tient donc dans la minute : 4 000 tokens pour Groq gpt-oss-120b (8 000 par minute).
-    - Au-delà, le 429 en plein tour est assumé comme matériau pédagogique : erreur expliquée (AD-16), sans attente ni nouvel essai.
+    - Au-delà, le 429 en plein tour est assumé comme matériau pédagogique : erreur expliquée (AD-16), sans attente déduite des en-têtes ni nouvel essai. Seul l’espacement déclaré `min_interval_s` (AD-16) retarde un envoi.
   - **Réserve de sortie** : 512 tokens, ou 1 536 quand la brique raisonnement est active. `usable = fenêtre − réserve`. Chaque appel est envoyé avec `max_tokens = réserve`.
   - **Dépassement.** Si le contexte dépasse `usable`, l’appel n’est pas envoyé : `context_overflow`, puis `turn_ended{status: overflow}`.
   - **Sortie coupée.** Quand `model_call_ended.stop_reason = length`, la session émet `output_truncated`, avec le canal en cours.
@@ -440,7 +440,7 @@ Règles de dépendance :
 - **Rule:** Aucune exception ne traverse la frontière de la session. Toute erreur d’une brique, d’un outil, du MCP, du réseau, du contenu ou du moteur devient `harness_error` : message en français, cause, effet sur le tour. Le tour se termine avec `turn_ended{status: error}` et l’application reste utilisable.
   - Limite assumée : un plantage natif de llama.cpp en cours d’inférence emporte le processus. La sonde d’AD-7 réduit ce risque au premier chargement.
   - **Issues d’un appel cloud.** Elles forment une liste fermée. Chacune devient `harness_error`, avec cause (filtrée, AD-15) et pistes en français, sans nouvel essai automatique :
-    - 429 : quota par minute ou par jour ;
+    - 429 : quota par seconde, par minute ou par jour (« quota dépassé par seconde », etc. ; portée inconnue : « quota dépassé (par seconde, par minute ou par jour) »). Si l’entrée déclare `min_interval_s`, une piste propose de l’augmenter ;
     - 413 : requête plus grosse que le quota par minute, non réessayable (« réduisez la fenêtre ») ;
     - 400 « contexte dépassé » ;
     - 400 ou 422, autre cas : requête refusée par le fournisseur, défaut du harnais ou du préréglage, message du fournisseur cité ;
@@ -451,7 +451,8 @@ Règles de dépendance :
     - délai dépassé, ou réseau absent (`NetworkBlocked`, échec DNS) ;
     - objet `error`, ou ligne non SSE, reçu après un 200.
 
-    `harness_error` porte alors `http_status`, `retry_after_s` et `quota_scope: minute|day|unknown`, construits en Python. Un appel mal formé signalé par le fournisseur (`tool_use_failed`) n’est pas une issue de cette liste : il suit AD-10.
+    `harness_error` porte alors `http_status`, `retry_after_s` et `quota_scope: second|minute|day|unknown`, construits en Python. Quand la réponse porte un message, `message_fr` se termine par « Message du fournisseur : {message} », masqué (AD-15) et tronqué à 500 caractères avec « … » ; le délai dépassé et le réseau absent n’en ont pas. Un appel mal formé signalé par le fournisseur (`tool_use_failed`) n’est pas une issue de cette liste : il suit AD-10, et son `error.message`, masqué, entre dans le détail (« le fournisseur a refusé l’appel d’outil : {message} ») repris par `tool_call_malformed.detail_fr` et par l’erreur réinjectée ; `failed_generation` reste la sortie brute.
+  - **Espacement déclaré.** `min_interval_s` (AD-20) sépare d’au moins cette durée deux envois au même `id` d’entrée, comptée entre leurs départs, tour ou « Tester », toutes instances d’adaptateur confondues (registre du module `openai_chat`). L’attente a lieu dans `run_call`, avant `model_call_started` et le chronomètre : elle n’entre ni dans `prompt_ms` ni dans `duration_ms`. Une annulation pendant l’attente termine l’appel `cancelled`, sans envoi ni événement `model_call_*`. L’attente n’est jamais déduite des en-têtes `x-ratelimit-*`, et aucun appel n’est réessayé.
 
 ### AD-17 — Instantané conversationnel, branche et rejeu
 
@@ -503,19 +504,20 @@ Règles de dépendance :
   - **Formats :**
     - `memory.json` est une liste `{id, text, created_at, source: model|user|demo}` ;
     - `audit.log` est en JSON Lines ;
-    - `api_keys.json` est un objet `{id: {host, key}}`, indexé par l’`id` de l’entrée cloud. L’hôte est enregistré à la saisie. Si l’hôte déclaré a changé depuis, la clé est ignorée (`key_set = false`) et doit être ressaisie. Le fichier n’est jamais lu par `trace` ni renvoyé par l’API locale : le front ne reçoit que `key_set: bool` ;
+    - `api_keys.json` est un objet `{id: {host, key}}`, indexé par l’`id` de l’entrée cloud. L’hôte est enregistré à la saisie. Si l’hôte déclaré a changé depuis, la clé est ignorée (`key_set = false`) et doit être ressaisie. Le fichier n’est jamais lu par `trace` ni renvoyé par l’API locale : le front ne reçoit que `key_set: bool`, `key_source` et le nom `key_env` ;
     - `settings.json` mémorise le modèle choisi sous la forme `selected_model = {kind: file|server|cloud, ref}` ; une chaîne héritée de la story 1b se lit `{kind: file, ref}`.
-  - **Accès à la clé.** Une seule fonction, `config.cloud_key(entry) → SecretStr | None`, lit `api_keys.json` ; elle renvoie `None` si l’hôte enregistré diffère de celui de `base_url`. L’adaptateur, `key_set`, `test_cloud_model` et `select_model` n’ont pas d’autre accès. Seul `config.write_api_key(id, host, key)` l’écrit, de façon atomique.
+  - **Accès à la clé.** Une seule fonction, `config.cloud_key(entry) → SecretStr | None`, lit la clé. Elle lit d’abord `api_keys.json`, dont la clé ne vaut que si l’hôte enregistré est celui de `base_url`. Sinon, elle lit la variable d’environnement que nomme `key_env`, après `strip()` ; une valeur vide compte comme absente. `config.cloud_key_source(entry) → file|env|None` sert le seul affichage : le diagnostic reçoit `key_source` et `key_env` (le nom, jamais la valeur) et affiche « Clé fournie par la variable X ». Une clé saisie passe avant la variable, et une clé du fichier pour un autre hôte cède devant elle, sans « Clé à ressaisir ». La valeur lue dans l’environnement suit les mêmes règles que celle du fichier : masque d’AD-15, absente du journal, des logs, de `settings.json`, de `/api/*` et des intentions. L’adaptateur, `key_set`, `test_cloud_model` et `select_model` n’ont pas d’autre accès. Seul `config.write_api_key(id, host, key)` l’écrit, de façon atomique.
   - **Déclaration d’un modèle cloud.** Un modèle pydantic `CloudModel` unique, dans `config`, avec `extra = "forbid"` et aucun champ de clé :
 
     ```text
     CloudModel{id, provider, base_url, model, auth_header{name, scheme}, max_tokens_field,
                stream_usage, tools, reasoning?, context, tpm?, window?,
-               hosting_fr, training, trial, notes_fr, enabled}
+               hosting_fr, training, trial, notes_fr, enabled, key_env?, min_interval_s?}
     reasoning{format: field|content_blocks|think_tags, on, off, always, resend}
     ```
 
     - `id` (`[a-z0-9_]+`) est un identifiant WaveStack, distinct de `model`, le nom envoyé à l’API. Il est unique après fusion.
+    - `key_env` (`^[A-Z_][A-Z0-9_]*$`) nomme une variable d’environnement, jamais une valeur : `GROQ_API_KEY` pour le préréglage `groq`, `MISTRAL_API_KEY` pour `mistral`. `min_interval_s` (`> 0`, `≤ 60`) est l’espacement d’AD-16 ; le préréglage `mistral` vaut `1` (429 de l’offre gratuite dès deux appels à moins d’une seconde).
     - `base_url` est en https (http pour la seule boucle locale), sans paramètre de requête. `auth_header` vaut `{name: Authorization, scheme: Bearer}` par défaut. `max_tokens_field` vaut `max_tokens` ou `max_completion_tokens` (modèles de raisonnement Azure).
     - `on` et `off` sont les champs que la brique raisonnement ajoute au corps (AD-6) ; `training` vaut `yes`, `no` ou `opt_out`.
     - **Fusion.** Les entrées de `wavestack.toml` et de `settings.json` fusionnent par `id`, champ par champ, sur les dictionnaires bruts ; `CloudModel` valide le résultat. Une entrée de `settings.json` sans équivalent doit être complète, et `enabled = false` masque un préréglage. Une entrée fusionnée invalide est écartée avec un `diagnostic_check` d’avertissement, sans bloquer le lancement.
@@ -532,8 +534,11 @@ Règles de dépendance :
     - Mise à jour : `git pull` ou une nouvelle archive zip, puis `uv run`, qui synchronise sur le verrou.
   - **README d’installation (en français).** Il documente `UV_SYSTEM_CERTS=1` derrière un proxy, `UV_PYTHON_INSTALL_MIRROR` si GitHub est bloqué, et les domaines à autoriser : PyPI, `abetlen.github.io`, `github.com` et ses domaines de téléchargement, `huggingface.co` et `*.hf.co`. Il explique aussi la clé d’un modèle cloud et demande le test avant chaque séance.
   - **Lancement** (`uv run wavestack`) :
-    1. Réserver le port. S’il est occupé et qu’une instance WaveStack répond à `GET /api/health`, ouvrir le navigateur sur cette instance et quitter avec le code 0. Sinon, message français (port en conflit, option `--port`), code non nul.
-    2. Démarrer le serveur en état `diagnostic` et ouvrir `/diagnostic`.
+    1. Réserver le port. S’il est occupé et qu’une instance WaveStack répond à `GET /api/health`, ouvrir le navigateur sur cette instance (`/` si son `GET /api/diagnostic` répond `ready`, sinon `/diagnostic`) et quitter avec le code 0. Sinon, message français (port en conflit, option `--port`), code non nul.
+    2. Démarrer le serveur en état `diagnostic`, puis ouvrir le navigateur :
+       - au premier lancement, repéré par l’absence de `diagnostic_shown` dans `settings.json`, sur `/diagnostic` au bout d’1 s, pour voir défiler les vérifications. `diagnostic_shown = true` est écrit par l’effet `SettingWrite` ; un échec d’écriture est ignoré ;
+       - ensuite, quand `session.run()` rend son résultat, et au plus tôt 1 s après le démarrage : sur `/` si `ready` et sans `blocking_checks`, sinon sur `/diagnostic` ; au bout de 30 s sans résultat, sur `/diagnostic`.
+       - Le diagnostic reste accessible par l’indicateur de modèle et par l’entrée « Diagnostic » du menu « Volets ▾ ».
     3. Exécuter les vérifications (mémoire, modèle, réseau) dans le thread de travail. Chacune émet `diagnostic_check{check, status, message_fr, action_fr, blocking}`, écrit dans le terminal et poussé dans le flux : une seule source.
     4. En cas d’échec bloquant, aucune session n’est créée. La page liste les candidats d’AD-7 et un champ de chemin (intention `select_model`), puis relance la vérification.
     5. `GET /api/diagnostic` garde le dernier résultat, ainsi que la version de WaveStack.
@@ -600,7 +605,7 @@ Règles de dépendance :
     - `load_tool_doc` → `tool_catalog` (brique `mcp`) ;
     - `delegate` → `subagent_result` ;
     - `remember` → `tool_result` (brique `global_memory`).
-  - **Lazy loading.** Les outils MCP ne figurent pas dans la variable `tools`. Leur liste, une ligne par outil, est dans la description de `load_tool_doc`, dans un segment `tool_catalog` par outil. La documentation chargée entre en réponse d’outil pendant le tour (effet `ToolDocLoaded`), puis dans la variable `tools` aux tours suivants. L’exécuteur tient pour chargée toute documentation du `TurnState` ou de `loaded_in_turn` (AD-4) : l’outil qu’on vient de documenter est donc appelable dans le même tour. Appeler un outil dont la documentation n’est pas chargée produit une erreur réinjectée, sauf par une action forcée, qui ajoute la définition de son outil à `tools`.
+  - **Lazy loading.** Les outils MCP ne figurent pas dans la variable `tools`. Leur liste, une ligne par outil, est dans la description de `load_tool_doc`, dans un segment `tool_catalog` par outil. La documentation chargée entre en réponse d’outil pendant le tour (effet `ToolDocLoaded`), puis dans la variable `tools` aux tours suivants. En mode chat, elle entre dans `tools` dès l’appel suivant du même tour, sortie de `loadable` et du catalogue de `load_tool_doc` (qui disparaît quand plus rien n’est à charger), car le fournisseur refuse un appel à un outil absent de `tools` (`tool_use_failed`) ; le rendu local garde son préfixe en ajout seul. L’exécuteur tient pour chargée toute documentation du `TurnState` ou de `loaded_in_turn` (AD-4) : l’outil qu’on vient de documenter est donc appelable dans le même tour. Appeler un outil dont la documentation n’est pas chargée produit une erreur réinjectée, sauf par une action forcée, qui ajoute la définition de son outil à `tools`.
   - **Tours suivants.** La réponse d’un méta-outil de chargement reste dans l’historique sous forme de talon court (AD-4), pour ne pas compter deux fois son contenu.
   - **Action forcée.** Elle est rendue comme un appel d’outil de l’assistant, suivi de sa réponse, placé après le message de l’utilisateur. Elle porte `trigger = user`, et ses segments restent attribués à la brique. Son identifiant vient de la session (AD-4). En mode chat, la définition de son outil figure dans `tools` ; sans `tools` déclaré, elle est rendue en injection (AD-6).
 

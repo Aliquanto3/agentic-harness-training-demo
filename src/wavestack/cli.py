@@ -8,6 +8,7 @@ are imported and used at module load time, ahead of everything else.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import socket
@@ -40,11 +41,17 @@ truststore.inject_into_ssl()
 import uvicorn  # noqa: E402
 
 from wavestack.session.app_session import AppSession  # noqa: E402
-from wavestack.session.diagnostic import DiagnosticSession  # noqa: E402
+from wavestack.session.diagnostic import (  # noqa: E402
+    DiagnosticResult,
+    DiagnosticSession,
+    launch_page,
+)
 from wavestack.trace.journal import get_journal  # noqa: E402
 from wavestack.web.app import create_app  # noqa: E402
 
 VERSION = "0.1.0"
+BROWSER_DELAY_S = 1.0  # the page opens 1 s after the start at the earliest
+LAUNCH_WAIT_S = 30.0  # past this, the diagnostic page opens while the checks go on
 
 
 def _print_journal_event(envelope) -> None:  # noqa: ANN001
@@ -86,10 +93,53 @@ def _existing_instance_healthy(port: int) -> bool:
         return False
 
 
-def _run_diagnostic_then_boot(session: DiagnosticSession, app_session: AppSession) -> None:
+def _existing_instance_ready(port: int) -> bool:
+    """The running instance's `GET /api/diagnostic` says `ready`, with nothing blocking:
+    `launch_page`'s rule."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/diagnostic", timeout=2) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        result = DiagnosticResult(
+            ready=bool(body.get("ready")), blocking_checks=list(body.get("blocking_checks") or [])
+        )
+    except (urllib.error.URLError, OSError, ValueError, AttributeError, TypeError):
+        return False
+    return launch_page(result) == "/"
+
+
+class _Launched:
+    """The launch diagnostic's result, once `session.run()` returned it."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.result: DiagnosticResult | None = None
+
+    def set(self, result: DiagnosticResult) -> None:
+        self.result = result
+        self.done.set()
+
+
+def _run_diagnostic_then_boot(
+    session: DiagnosticSession, app_session: AppSession, launched: _Launched | None = None
+) -> None:
     """The launch's diagnostic, then its model: a cloud model chosen at an earlier launch is
-    prepared without any request (AD-21)."""
-    session.hand_to(app_session, session.run(), launch=True)
+    prepared without any request (AD-21). `launched` learns the result first."""
+    result = session.run()
+    if launched is not None:
+        launched.set(result)
+    session.hand_to(app_session, result, launch=True)
+
+
+def _open_browser(port: int, first: bool, launched: _Launched) -> None:
+    """AD-21, step 2: at the first launch, the diagnostic after 1 s, to watch the checks.
+    Later, once the result is known (1 s at the earliest, 30 s at most): the main page when
+    ready with nothing blocking, else the diagnostic."""
+    started = time.monotonic()
+    page = "/diagnostic"
+    if not first and launched.done.wait(LAUNCH_WAIT_S) and launched.result is not None:
+        page = launch_page(launched.result)
+    time.sleep(max(0.0, BROWSER_DELAY_S - (time.monotonic() - started)))
+    webbrowser.open(f"http://127.0.0.1:{port}{page}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -102,7 +152,8 @@ def main(argv: list[str] | None = None) -> int:
     reserved = _try_reserve_port(args.port)
     if reserved is None:
         if _existing_instance_healthy(args.port):
-            webbrowser.open(f"http://127.0.0.1:{args.port}/diagnostic")
+            page = "/" if _existing_instance_ready(args.port) else "/diagnostic"
+            webbrowser.open(f"http://127.0.0.1:{args.port}{page}")
             return 0
         print(
             f"Le port {args.port} est déjà utilisé par un autre programme. "
@@ -119,18 +170,20 @@ def main(argv: list[str] | None = None) -> int:
 
     get_journal().subscribe(_print_journal_event)
 
+    first = session.first_launch()
+    launched = _Launched()
     threading.Thread(
         target=_run_diagnostic_then_boot,
-        args=(session, app_session),
+        args=(session, app_session, launched),
         name="wavestack-diagnostic",
         daemon=True,
     ).start()
-
-    def _open_browser() -> None:
-        time.sleep(1.0)
-        webbrowser.open(f"http://127.0.0.1:{args.port}/diagnostic")
-
-    threading.Thread(target=_open_browser, name="wavestack-browser", daemon=True).start()
+    threading.Thread(
+        target=_open_browser,
+        args=(args.port, first, launched),
+        name="wavestack-browser",
+        daemon=True,
+    ).start()
 
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     return 0

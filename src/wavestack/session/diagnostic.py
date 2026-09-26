@@ -13,6 +13,7 @@ no hot model switch before palier 2).
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import threading
@@ -54,6 +55,8 @@ PROBE_TIMEOUT_S = 120
 SEARCHED_SOURCES_FR = (
     "dossier de modèles WaveStack, Ollama, LM Studio, cache Hugging Face, serveur local"
 )
+# Story 11b: a choice made once a model is loaded waits for the next launch (AD-21).
+NEXT_LAUNCH_FR = "Choix enregistré : relancez WaveStack pour l'utiliser."
 
 
 @dataclass
@@ -95,6 +98,8 @@ class DiagnosticSession:
         )
         self.booted_path: str | None = None  # set once a file is handed out for loading
         self.booted_cloud: str | None = None  # set once a cloud model is handed out
+        # Story 11b: a choice saved once a model was loaded, which waits for a relaunch.
+        self._next_launch_saved = False
         self.state = "diagnostic"
         self.last_result: DiagnosticResult | None = None
         self._lock = threading.Lock()
@@ -418,6 +423,8 @@ class DiagnosticSession:
 
         self.selected_model_path, self.selected_cloud = chosen.path, None
         saved = self._save_choice("file", chosen.path)
+        if loaded:
+            self._next_launch_saved = saved
         if not loaded:
             result = self._hand_out(chosen, candidates)
             result.saved = saved
@@ -431,7 +438,7 @@ class DiagnosticSession:
             candidates=candidates,
             saved=saved,
             message_fr=(
-                f"Choix enregistré : {chosen.name}, pris en compte au prochain lancement."
+                NEXT_LAUNCH_FR
                 if saved
                 else f"Choix non enregistré ({chosen.name}) : settings.json n'a pas pu être écrit."
             ),
@@ -454,6 +461,36 @@ class DiagnosticSession:
         else:
             return
         future.add_done_callback(lambda _: self.boot_finished(app_session.model_loaded))
+
+    def next_launch_fr(self) -> str | None:
+        """`/api/diagnostic`: the notice kept while a choice saved after the load differs
+        from the model loaded. Read without the lock, which a probe holds for up to 2 min."""
+        if not self._next_launch_saved:
+            return None
+        cloud, path = self.selected_cloud, self.selected_model_path
+        same = (cloud is not None and cloud == self.booted_cloud) or (
+            cloud is None and path is not None and path == self.booted_path
+        )
+        return None if same else NEXT_LAUNCH_FR
+
+    def first_launch(self) -> bool:
+        """AD-21: no `diagnostic_shown` in settings.json yet. Writes it, by the single
+        applier; a failed write is ignored (the next launch counts as first again)."""
+        if "diagnostic_shown" in config.read_settings():
+            return False
+        path = config.settings_path()
+        if path.exists():  # a hand-edited file that does not parse is never rewritten
+            try:
+                valid = isinstance(json.loads(path.read_text(encoding="utf-8")), dict)
+            except (OSError, ValueError):
+                valid = False
+            if not valid:
+                return True
+        try:
+            apply_setting(SettingWrite(key="diagnostic_shown", value=True))
+        except OSError:
+            pass
+        return True
 
     def boot_finished(self, loaded: bool) -> None:
         """A load that failed frees the choice: the next `select_model` loads again."""
@@ -508,6 +545,9 @@ class DiagnosticSession:
                         else entry.training
                     ),
                     "key_set": config.cloud_key(entry) is not None,
+                    # AD-20: where the key comes from, and the variable's name, never its value.
+                    "key_source": config.cloud_key_source(entry),
+                    "key_env": entry.key_env,
                     "disabled_fr": reason,
                     "selected": entry.id == self.selected_cloud,
                     "loaded": entry.id == self.booted_cloud,
@@ -550,14 +590,14 @@ class DiagnosticSession:
                     + ("" if saved else " Ce choix n'a pas pu être mémorisé."),
                 )
                 return self.last_result
+            self._next_launch_saved = saved
             self.last_result = DiagnosticResult(
                 ready=previous.ready,
                 blocking_checks=previous.blocking_checks,
                 candidates=previous.candidates,
                 saved=saved,
                 message_fr=(
-                    f"Prochain lancement : {label}. Le changement de modèle à chaud n'existe "
-                    "pas encore."
+                    NEXT_LAUNCH_FR
                     if saved
                     else f"Choix non enregistré ({label}) : settings.json n'a pas pu être écrit."
                 ),
@@ -730,6 +770,12 @@ class DiagnosticSession:
             return model_result
         except Exception as exc:  # noqa: BLE001 - AD-16: never let the thread die silently
             return self._handle_unexpected(exc)
+
+
+def launch_page(result: DiagnosticResult) -> str:
+    """AD-21, step 2: the main page when the launch is ready and nothing blocks, else the
+    diagnostic."""
+    return "/" if result.ready and not result.blocking_checks else "/diagnostic"
 
 
 def _usable(

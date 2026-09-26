@@ -51,7 +51,9 @@ mslearn = "https://learn.microsoft.com/api/mcp"
 
 [cloud]
 # Modèles cloud compatibles OpenAI (story 11, AD-4, AD-5, AD-20). Aucune clé ici : la clé
-# se saisit au diagnostic et reste dans api_keys.json, dans le dossier de données.
+# se saisit au diagnostic et reste dans api_keys.json, dans le dossier de données, ou vient
+# de la variable d'environnement que nomme key_env (jamais sa valeur ici). Une clé saisie
+# passe avant la variable.
 # Tokens estimés en mode chat : caractères / chars_per_token, puis corrigés par le ratio
 # réel usage.prompt_tokens / estimation (borné à [0,8 ; 1,5], initialisé à estimate_ratio).
 chars_per_token = 4
@@ -82,6 +84,7 @@ hosting_fr = "États-Unis (Groq)"
 training = "no"
 notes_fr = "Aucune rétention des entrées et sorties par défaut, 30 jours au plus pour le débogage ou la lutte contre les abus. Quotas à lire dans la console Groq."
 reasoning = { format = "field", always = true, on = { reasoning_effort = "low" }, resend = false }
+key_env = "GROQ_API_KEY"
 
 # Préréglage Mistral : fournisseur français, plan gratuit toujours actif (décision du
 # 2026-09-25 : mistral-small-latest).
@@ -97,9 +100,16 @@ hosting_fr = "Mistral AI, France (hébergement dans l'UE plausible, non confirm�
 training = "opt_out"
 notes_fr = "Sur le plan gratuit, les prompts servent à l'entraînement par défaut : décochez l'option dans Admin Console > Privacy. Quotas à lire dans la console Mistral."
 reasoning = { format = "content_blocks", on = { reasoning_effort = "high" }, off = { reasoning_effort = "none" } }
+key_env = "MISTRAL_API_KEY"
+# Le plan gratuit refuse (429) deux requêtes à moins d'une seconde : au moins 1 s entre deux
+# envois à ce modèle (tour ou « Tester »). Augmentez la valeur si des 429 persistent.
+min_interval_s = 1
 
 # Exemples à recopier dans settings.json (entrée complète, enabled = true), avec leur
 # avertissement. Leur hôte rejoint alors la liste d'adresses autorisées.
+# Champs facultatifs de toute entrée : key_env (nom d'une variable d'environnement qui
+# fournit la clé, par exemple "GOOGLE_API_KEY") et min_interval_s (secondes au moins entre
+# deux envois au même modèle, de 0 exclu à 60).
 #
 # Google AI Studio : clause EEE. « You may use only Paid Services when making API Clients
 # available to users in the European Economic Area, Switzerland, or the United Kingdom. »

@@ -343,3 +343,97 @@ def test_joined_description_with_two_servers_attributes_each_line():
     assert catalog[1:] == [(p.component, p.text) for p in lines]
     assert catalog[0][0] == "core.harness" and catalog[0][1].endswith(intro.text)
     assert '"description": "Charge une documentation :\\n- local__define_term' in rendered.prompt
+
+
+# ---------- story 11b: chat mode ----------
+
+
+def test_chat_mode_documented_tool_enters_tools_at_the_next_call(loop):  # noqa: F811
+    """A provider refuses a call to a tool its `tools` lacks (`tool_use_failed`): in chat
+    mode, a documentation loaded in the turn enters `tools` from the next call."""
+    from pydantic import SecretStr
+    from test_cloud import SENTINEL, Provider, delta, sse
+
+    from wavestack import config
+    from wavestack.session.app_session import AppSession
+
+    def calling(name: str, arguments: str) -> bytes:
+        tool_call = {"index": 0, "id": "p1", "function": {"name": name, "arguments": arguments}}
+        return sse(delta(tool_calls=[tool_call]), delta("tool_calls"))
+
+    provider = Provider(
+        calling("load_tool_doc", json.dumps({"tool": "local__list_terms"})),
+        calling("local__list_terms", "{}"),
+        sse(delta(content="Le glossaire contient MCP."), delta("stop")),
+    )
+    cfg = config.load_config()
+    entry = cfg.cloud_model("groq")
+    config.write_api_key(entry.id, entry.host, SecretStr(SENTINEL))
+    session = AppSession(cfg, cloud_factory=provider.factory)
+    session.boot_cloud(entry).result()
+    session.attach_loop(loop)
+    enable(session)
+    session.set_mcp_mode(True)
+    session.join()
+    mark = get_journal().last_seq()
+
+    session.send("Quels termes contient le glossaire ?")
+    session.join()
+
+    bodies = [json.loads(r.content) for r in provider.requests]
+    names = [[t["function"]["name"] for t in b.get("tools", [])] for b in bodies]
+    assert names[0] == ["load_tool_doc"]
+    assert names[1] == ["local__list_terms", "load_tool_doc"] == names[2]
+    catalog = bodies[1]["tools"][1]["function"]["description"]
+    assert "- local__define_term" in catalog and "- local__list_terms" not in catalog
+    assert since(mark, "tool_call_malformed") == []
+    ran = [e.payload for e in since(mark, "tool_ended")]
+    assert [p["status"] for p in ran] == ["ok", "ok"] and "MCP" in ran[1]["result"]
+    assert since(mark, "turn_ended")[0].payload["status"] == "completed"
+    # The next turn starts from `build_turn_state`, where the documentation is loaded.
+    assert session.build_turn_state().tools == ("local__list_terms", "load_tool_doc")
+    session.close()
+
+
+def test_chat_mode_everything_loaded_in_the_turn_drops_the_meta_tool(loop):  # noqa: F811
+    from pydantic import SecretStr
+    from test_cloud import SENTINEL, Provider, delta, sse
+
+    from wavestack import config
+    from wavestack.session.app_session import AppSession
+
+    def loading(tool: str) -> bytes:
+        arguments = json.dumps({"tool": tool})
+        tool_call = {
+            "index": 0,
+            "id": "p1",
+            "function": {"name": "load_tool_doc", "arguments": arguments},
+        }
+        return sse(delta(tool_calls=[tool_call]), delta("tool_calls"))
+
+    provider = Provider(
+        loading("local__list_terms"),
+        loading("local__define_term"),
+        sse(delta(content="Deux outils documentés."), delta("stop")),
+    )
+    cfg = config.load_config()
+    entry = cfg.cloud_model("groq")
+    config.write_api_key(entry.id, entry.host, SecretStr(SENTINEL))
+    session = AppSession(cfg, cloud_factory=provider.factory)
+    session.boot_cloud(entry).result()
+    session.attach_loop(loop)
+    enable(session)
+    session.set_mcp_mode(True)
+    session.join()
+
+    session.send("Documente les deux outils du glossaire.")
+    session.join()
+
+    bodies = [json.loads(r.content) for r in provider.requests]
+    names = [[t["function"]["name"] for t in b.get("tools", [])] for b in bodies]
+    assert names == [
+        ["load_tool_doc"],
+        ["local__list_terms", "load_tool_doc"],
+        ["local__list_terms", "local__define_term"],
+    ]
+    session.close()

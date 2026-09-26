@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 
 import httpx
 import pytest
@@ -16,7 +18,7 @@ from starlette.testclient import TestClient
 from wavestack import config
 from wavestack.context.render import distribute
 from wavestack.models import discovery
-from wavestack.models.openai_chat import OpenAIChatEngine
+from wavestack.models.openai_chat import OpenAIChatEngine, _quota_scope
 from wavestack.session.app_session import AppSession
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.journal import get_journal
@@ -63,9 +65,11 @@ class Provider:
     def __init__(self, *responses: httpx.Response | bytes) -> None:
         self.responses = responses
         self.requests: list[httpx.Request] = []
+        self.sent_at: list[float] = []  # `time.monotonic()` of each request
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        self.sent_at.append(time.monotonic())
         answer = self.responses[min(len(self.requests) - 1, len(self.responses) - 1)]
         if isinstance(answer, bytes):
             return httpx.Response(
@@ -196,6 +200,15 @@ def test_mistral_content_blocks_split_reasoning_and_text():
         (401, {}, "Invalid API Key " + SENTINEL, "Clé refusée", None),
         (404, {}, "model not found", "Modèle introuvable", None),
         (503, {}, "overloaded", "indisponible", None),
+        (
+            400,
+            {},
+            "This model's maximum context length is 131072 tokens",
+            "Contexte dépassé",
+            None,
+        ),
+        (400, {}, "Invalid parameter 'foo' " + SENTINEL, "Requête refusée", None),
+        (422, {}, "Unprocessable entity", "Requête refusée", None),
     ],
 )
 def test_provider_refusals_become_explained_errors(status, headers, error, fragment, scope):
@@ -207,6 +220,9 @@ def test_provider_refusals_become_explained_errors(status, headers, error, fragm
 
     harness = _of(events, "harness_error")[0].payload
     assert fragment in harness["message_fr"] and harness["hints_fr"]
+    # Story 11b: the provider's own message ends every refusal, masked.
+    masked = error.replace(SENTINEL, "•••")
+    assert harness["message_fr"].endswith(f"Message du fournisseur : {masked}")
     assert harness["http_status"] == status and harness["quota_scope"] == scope
     if status == 429:
         assert harness["retry_after_s"] == 7
@@ -255,11 +271,12 @@ def test_invalid_arguments_retry_and_run_no_tool():
 
 
 def test_tool_use_failed_follows_the_malformed_path():
+    said = f"Tool call validation failed: tool is not in request.tools ({SENTINEL})"
     failed = httpx.Response(
         400,
         json={
             "error": {
-                "message": "Failed to call a function",
+                "message": said,
                 "code": "tool_use_failed",
                 "failed_generation": "<function=get_datetime>",
             }
@@ -270,9 +287,52 @@ def test_tool_use_failed_follows_the_malformed_path():
 
     events = _turn(session, "Heure ?")
 
-    assert _of(events, "tool_call_malformed")[0].payload["raw"] == "<function=get_datetime>"
+    malformed = _of(events, "tool_call_malformed")[0].payload
+    assert malformed["raw"] == "<function=get_datetime>"
+    # Story 11b: the provider's message, masked, in the detail and in the reinjected text.
+    masked = said.replace(SENTINEL, "•••")
+    assert malformed["detail_fr"] == f"le fournisseur a refusé l'appel d'outil : {masked}"
+    reinjected = json.loads(provider.requests[1].content)["messages"][-1]
+    assert reinjected["role"] == "user" and masked in reinjected["content"]
+    assert reinjected["content"].endswith("Corrige l'appel ou réponds sans outil.")
     assert _of(events, "harness_error") == []
     assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    _no_sentinel(_journal_text())
+
+
+def test_tool_use_failed_in_the_stream_carries_the_masked_message():
+    said = f"Tool call validation failed ({SENTINEL})"
+    failed = sse(
+        {
+            "error": {
+                "message": said,
+                "code": "tool_use_failed",
+                "failed_generation": "<function=get_datetime>",
+            }
+        }
+    )
+    provider = Provider(failed, GROQ_TEXT)
+    session = _cloud_session("groq", provider, bricks=("tools",))
+
+    events = _turn(session, "Heure ?")
+
+    malformed = _of(events, "tool_call_malformed")[0].payload
+    assert malformed["raw"] == "<function=get_datetime>"
+    masked = said.replace(SENTINEL, "•••")
+    assert malformed["detail_fr"] == f"le fournisseur a refusé l'appel d'outil : {masked}"
+    assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    _no_sentinel(_journal_text())
+
+
+def test_an_html_page_stays_out_of_the_french_message():
+    page = "<html><body>Accès bloqué par le proxy de l'entreprise</body></html>"
+    answer = httpx.Response(502, text=page, headers={"content-type": "text/html"})
+    session = _cloud_session("groq", Provider(answer))
+
+    harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
+
+    assert "Message du fournisseur" not in harness["message_fr"]
+    assert "proxy" in harness["cause"]
 
 
 def test_without_tools_declared_the_tools_brick_is_unavailable(monkeypatch):
@@ -543,6 +603,9 @@ def test_a_choice_after_a_model_is_loaded_waits_for_the_next_launch(monkeypatch,
 
     assert body["next_launch"] is True and app_session._cloud is None
     assert config.read_settings()["selected_model"] == {"kind": "cloud", "ref": "groq"}
+    # Story 11b: the same text, kept by `/api/diagnostic` for every reload of the page.
+    assert body["message_fr"] == "Choix enregistré : relancez WaveStack pour l'utiliser."
+    assert client.get("/api/diagnostic").json()["next_launch_fr"] == body["message_fr"]
 
     session.booted_path, session.booted_cloud = None, "groq"  # a cloud model is loaded
     gguf = tmp_path / "other.gguf"
@@ -554,7 +617,12 @@ def test_a_choice_after_a_model_is_loaded_waits_for_the_next_launch(monkeypatch,
 
     assert body["next_launch"] is True and not app_session.model_loaded
     assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(gguf)}
+    assert body["message_fr"] == "Choix enregistré : relancez WaveStack pour l'utiliser."
+    assert client.get("/api/diagnostic").json()["next_launch_fr"] == body["message_fr"]
     assert provider.requests == []
+
+    session.selected_cloud, session.selected_model_path = "groq", None  # the loaded one
+    assert client.get("/api/diagnostic").json()["next_launch_fr"] is None
 
 
 def test_diagnostic_intentions_are_refused_while_the_session_is_busy(monkeypatch):
@@ -617,3 +685,215 @@ def test_api_state_gives_the_reconciled_context_after_a_cloud_turn(monkeypatch):
 
     state = client.get("/api/state").json()
     assert state["context_reconciled"]["payload"]["usage_source"] == "api"
+
+
+# ---------- story 11b: key from the environment ----------
+
+
+def _row(client, model_id="groq") -> dict:
+    rows = client.get("/api/diagnostic").json()["cloud"]["models"]
+    return next(r for r in rows if r["id"] == model_id)
+
+
+def test_key_from_the_environment_variable_tests_and_never_shows(monkeypatch, caplog):
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setenv("GROQ_API_KEY", f"  {SENTINEL}  ")
+    provider = Provider(GROQ_TOOL, GROQ_TEXT)
+    _, _, _, client = _app(monkeypatch, provider)
+
+    row = _row(client)
+    response = client.post("/api/intentions/test_cloud_model", json={"id": "groq"}, headers=ORIGIN)
+
+    assert row["key_set"] is True and row["disabled_fr"] is None
+    assert row["key_source"] == "env" and row["key_env"] == "GROQ_API_KEY"
+    assert response.status_code == 200 and response.json()["ok"] is True
+    assert provider.requests[0].headers["authorization"] == f"Bearer {SENTINEL}"  # stripped
+    assert not config.api_keys_path().exists()
+    _no_sentinel(_journal_text(), caplog.text, response.text, client.get("/api/diagnostic").text)
+
+
+def test_the_saved_key_comes_before_the_variable(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "env-key-0123456789")
+    config.write_api_key("groq", "api.groq.com", SecretStr(SENTINEL))
+    provider = Provider(GROQ_TEXT)
+    session = _cloud_session("groq", provider)
+    _, _, _, client = _app(monkeypatch)
+
+    _turn(session, "Bonjour")
+
+    assert provider.requests[0].headers["authorization"] == f"Bearer {SENTINEL}"
+    assert _row(client)["key_source"] == "file"
+
+
+def test_a_blank_variable_counts_as_no_key(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "   ")
+    _, _, _, client = _app(monkeypatch)
+
+    row = _row(client)
+
+    assert row["key_set"] is False and row["key_source"] is None
+    assert "clé API" in row["disabled_fr"]
+    response = client.post("/api/intentions/test_cloud_model", json={"id": "groq"}, headers=ORIGIN)
+    assert response.status_code == 409
+
+
+def test_a_key_for_another_host_gives_way_to_the_variable(monkeypatch):
+    config.write_api_key("groq", "old.example", SecretStr("old-key-0123456789"))
+    monkeypatch.setenv("GROQ_API_KEY", SENTINEL)
+    _, _, _, client = _app(monkeypatch)
+
+    row = _row(client)
+
+    assert row["key_set"] is True and row["key_source"] == "env" and row["disabled_fr"] is None
+    key = config.cloud_key(config.load_config().cloud_model("groq"))
+    assert key is not None and key.get_secret_value() == SENTINEL
+
+
+def test_presets_name_their_variable_and_key_env_is_a_name_only():
+    cfg = config.load_config()
+    assert cfg.cloud_model("groq").key_env == "GROQ_API_KEY"
+    assert cfg.cloud_model("mistral").key_env == "MISTRAL_API_KEY"
+    assert cfg.cloud_model("mistral").min_interval_s == 1
+    groq = cfg.cloud_model("groq").model_dump()
+    for bad in ({"key_env": "gsk_value-with-dash"}, {"min_interval_s": 0}, {"min_interval_s": 61}):
+        with pytest.raises(ValueError):
+            config.CloudModel.model_validate(groq | bad)
+
+
+# ---------- story 11b: provider messages and quotas (AD-16) ----------
+
+
+def test_invalid_key_ends_with_the_provider_message():
+    answer = httpx.Response(401, json={"error": {"message": "Invalid API Key"}})
+    session = _cloud_session("groq", Provider(answer))
+
+    harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
+
+    assert harness["message_fr"].endswith("Message du fournisseur : Invalid API Key")
+
+
+def test_a_long_provider_message_is_cut_at_500_characters():
+    answer = httpx.Response(503, text="x" * 800)
+    session = _cloud_session("groq", Provider(answer))
+
+    harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
+
+    assert harness["message_fr"].endswith("Message du fournisseur : " + "x" * 500 + "…")
+
+
+def test_an_error_in_the_stream_carries_the_provider_message():
+    stream = sse({"error": {"message": "Internal overload"}})
+    session = _cloud_session("groq", Provider(stream))
+
+    harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
+
+    assert harness["message_fr"].endswith("Message du fournisseur : Internal overload")
+
+
+def test_per_second_quota_names_the_second_and_the_spacing():
+    answer = httpx.Response(
+        429, json={"message": "Requests rate limit exceeded per second", "type": "rate_limited"}
+    )
+    session = _cloud_session("mistral", Provider(answer))
+
+    harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
+
+    assert harness["quota_scope"] == "second"
+    assert "quota dépassé par seconde" in harness["message_fr"]
+    assert any("min_interval_s" in hint for hint in harness["hints_fr"])
+
+
+@pytest.mark.parametrize(
+    ("message", "scope"),
+    [
+        ("Requests rate limit exceeded per second", "second"),
+        ("Limit 1 rps reached", "second"),
+        ("Limit: 5 req/s", "second"),
+        ("Rate limit: 1 request per sec", "second"),
+        ("Limit 2 req/sec", "second"),
+        ("Limit 2 requests/second", "second"),
+        ("tokens per minute (TPM). Upgrade today at https://console.groq.com/settings", "minute"),
+        ("see https://console.groq.com/settings/billing", "unknown"),
+        ("tokens per day (TPD)", "day"),
+    ],
+)
+def test_quota_scope(message, scope):
+    assert _quota_scope(message) == scope
+
+
+def test_unknown_quota_names_the_three_scopes():
+    answer = httpx.Response(429, json={"error": {"message": "Too many requests"}})
+    session = _cloud_session("groq", Provider(answer))
+
+    harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
+
+    assert harness["quota_scope"] == "unknown"
+    assert "quota dépassé (par seconde, par minute ou par jour)" in harness["message_fr"]
+    assert not any("min_interval_s" in hint for hint in harness["hints_fr"])
+
+
+# ---------- story 11b: spacing of the sends (min_interval_s) ----------
+
+
+def _spaced(interval: float) -> None:
+    settings = {"cloud": {"models": [{"id": "mistral", "min_interval_s": interval}]}}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+
+
+MISTRAL_TEXT = sse(
+    delta(content="Oui."), {**delta("stop"), "usage": {"prompt_tokens": 40, "completion_tokens": 2}}
+)
+
+
+def test_two_close_sends_are_spaced_across_adapters_and_the_wait_is_not_timed(monkeypatch):
+    _spaced(0.4)
+    provider = Provider(MISTRAL_TEXT)
+    session = _cloud_session("mistral", provider)
+    _, _, _, client = _app(monkeypatch, provider)
+
+    first = _turn(session, "Bonjour")
+    mark = get_journal().last_seq()
+    response = client.post(  # « Tester » builds its own adapter
+        "/api/intentions/test_cloud_model", json={"id": "mistral"}, headers=ORIGIN
+    )
+    tested = get_journal().events_since(mark)
+    second = _turn(session, "Encore")
+
+    assert response.status_code == 200
+    gaps = [b - a for a, b in zip(provider.sent_at, provider.sent_at[1:], strict=False)]
+    # Counted between departures: the arrival here may come a few ms closer.
+    assert len(provider.sent_at) == 3 and all(gap >= 0.38 for gap in gaps)
+    for events in (first, tested, second):
+        ended = _of(events, "model_call_ended")[0].payload
+        assert ended["prompt_ms"] < 350 and ended["duration_ms"] < 350
+
+
+def test_a_cancel_during_the_wait_sends_nothing():
+    from wavestack.models import openai_chat
+    from wavestack.models.engine import CancelToken
+
+    _spaced(30)
+    provider = Provider(MISTRAL_TEXT)
+    entry = config.load_config().cloud_model("mistral")
+    engine = provider.factory(entry, SecretStr(SENTINEL))
+    seeded = openai_chat._last_start[entry.id] = time.monotonic()  # a send just left
+    cancel = CancelToken()
+    threading.Timer(0.1, cancel.cancel).start()
+    mark = get_journal().last_seq()
+    started = time.monotonic()
+
+    call = openai_chat.run_call(
+        engine,
+        openai_chat.ChatBody(b"{}"),
+        cancel,
+        phase_label="test",
+        estimated_prompt=1,
+        chars_per_token=4,
+        call_id=lambda i: f"id{i}",
+    )
+
+    assert call.stop_reason == "cancelled" and time.monotonic() - started < 5
+    assert provider.requests == [] and get_journal().events_since(mark) == []
+    assert openai_chat._last_start[entry.id] == seeded  # the slot is given back
+    engine.close()

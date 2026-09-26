@@ -2498,6 +2498,18 @@ function renderMenu() {
     li.appendChild(label);
     list.appendChild(li);
   }
+  // Story 11b: the diagnostic, besides the model indicator, after a separator.
+  const separator = document.createElement("li");
+  separator.className = "pane-menu-separator";
+  separator.setAttribute("role", "separator");
+  list.appendChild(separator);
+  const item = document.createElement("li");
+  const link = document.createElement("a");
+  link.href = "/diagnostic";
+  link.className = "pane-menu-link";
+  link.textContent = "Diagnostic";
+  item.appendChild(link);
+  list.appendChild(item);
 }
 
 function renderPaneVisibility() {

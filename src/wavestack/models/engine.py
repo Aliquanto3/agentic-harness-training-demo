@@ -33,6 +33,10 @@ class CancelToken:
     def cancelled(self) -> bool:
         return self._event.is_set()
 
+    def wait(self, timeout: float) -> bool:
+        """Wait up to `timeout` seconds; `True` as soon as the cancellation arrives."""
+        return self._event.wait(timeout)
+
 
 @dataclass(frozen=True)
 class Fragment:

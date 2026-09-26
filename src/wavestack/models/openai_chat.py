@@ -8,12 +8,15 @@ from AD-16's closed list, never retried; `tool_use_failed` ends the call with
 `provider_error`, for the malformed-call path (AD-10).
 
 `run_call` is the one place that turns a completion into `model_*` events, for a turn's
-call as for the diagnostic's test.
+call as for the diagnostic's test. It first spaces the sends to one entry by its
+`min_interval_s` (`pace`), whatever adapter instance sends them.
 """
 
 from __future__ import annotations
 
 import json
+import re
+import threading
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -33,6 +36,7 @@ DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
 # Mistral ends a cut output with `model_length`.
 _FINISH = {"stop": "stop", "tool_calls": "stop", "length": "length", "model_length": "length"}
 _CONTEXT_WORDS = ("context length", "context_length", "context window", "maximum context")
+PROVIDER_MESSAGE_MAX = 500  # characters of the provider's own message shown, then « … »
 
 
 @dataclass(frozen=True)
@@ -45,13 +49,15 @@ class ChatBody:
 @dataclass
 class ChatEnd:
     """A completion's end. `tool_calls`: `{provider_id, name, arguments}` in index order,
-    `arguments` as emitted. `provider_error`: `tool_use_failed`'s generation (AD-10)."""
+    `arguments` as emitted. `provider_error`: `tool_use_failed`'s generation (AD-10), and
+    `provider_message` its `error.message`; both masked."""
 
     stop_reason: str
     tool_calls: list[dict[str, Any]]
     usage: dict[str, Any] | None
     raw_output: str
     provider_error: str | None = None
+    provider_message: str | None = None
 
 
 class ProviderError(Exception):
@@ -99,19 +105,30 @@ def mask_key(text: str, key: SecretStr | None) -> str:
     return text
 
 
-def _provider_message(response: httpx.Response) -> tuple[str, dict[str, Any]]:
-    """The provider's own message and error object, from its JSON or its text."""
+def _clip(text: str, limit: int = PROVIDER_MESSAGE_MAX) -> str:
+    text = text.strip()
+    return text if len(text) <= limit else text[:limit].rstrip() + "…"
+
+
+def _provider_message(response: httpx.Response) -> tuple[str, dict[str, Any], bool]:
+    """The provider's own message and error object, from its JSON or its text; the flag
+    says whether the message may be shown: not an HTML page (a proxy's, say)."""
     try:
         data = response.json()
     except ValueError:
-        return response.text[:500], {}
+        html = "text/html" in response.headers.get("content-type", "").lower()
+        return response.text, {}, not html
     error = data.get("error") if isinstance(data, dict) else None
     if isinstance(error, dict):
-        return str(error.get("message") or error), error
+        return str(error.get("message") or error), error, True
     if isinstance(data, dict):
         detail = data.get("message") or data.get("detail") or error or data
-        return str(detail)[:500], data
-    return str(data)[:500], {}
+        return str(detail), data, True
+    return str(data), {}, True
+
+
+# `/s` as a unit only: Groq's messages link to `console.groq.com/settings`.
+_SECOND = re.compile(r"per sec(ond)?\b|/s(ec(ond)?)?\b|\brps\b")
 
 
 def _quota_scope(message: str) -> str:
@@ -119,9 +136,51 @@ def _quota_scope(message: str) -> str:
     lowered = message.lower()
     if any(w in lowered for w in ("per minute", "(tpm)", "(rpm)", " tpm", " rpm")):
         return "minute"
+    if _SECOND.search(lowered):
+        return "second"
     if any(w in lowered for w in ("per day", "(tpd)", "(rpd)", " tpd", " rpd", "daily")):
         return "day"
     return "unknown"
+
+
+_QUOTA_FR = {
+    "second": "quota dépassé par seconde",
+    "minute": "quota dépassé par minute",
+    "day": "quota dépassé par jour",
+}
+
+
+# ---------- spacing of the sends to one entry (AD-16) ----------
+
+_pace_lock = threading.Lock()
+_last_start: dict[str, float] = {}  # entry.id → the monotonic time of its last send
+
+
+def pace(entry: CloudModel, cancel: CancelToken) -> bool:
+    """Wait until `min_interval_s` has passed since the last send to `entry.id`, from any
+    adapter instance (« Tester » builds its own). `False` when cancelled while waiting: the
+    call is then not sent. Never read from `x-ratelimit-*` headers."""
+    interval = entry.min_interval_s
+    if not interval:
+        return True
+    with _pace_lock:
+        now = time.monotonic()
+        previous = _last_start.get(entry.id)
+        start = now if previous is None else max(now, previous + interval)
+        _last_start[entry.id] = start  # reserved now: a concurrent send waits after it
+    while (delay := start - time.monotonic()) > 0:  # a timer may wake a little early
+        if cancel.wait(delay):
+            with _pace_lock:  # the slot is freed, unless another send took a later one
+                if _last_start.get(entry.id) == start:
+                    if previous is None:
+                        del _last_start[entry.id]
+                    else:
+                        _last_start[entry.id] = previous
+            return False
+    with _pace_lock:  # the real departure, unless a later send already reserved its own
+        if _last_start.get(entry.id) == start:
+            _last_start[entry.id] = time.monotonic()
+    return True
 
 
 class OpenAIChatEngine:
@@ -156,9 +215,23 @@ class OpenAIChatEngine:
     def close(self) -> None:
         self._client.close()
 
-    def _error(self, message_fr: str, cause: str, hints_fr: list[str], **figures: Any) -> Any:
+    def _error(
+        self,
+        message_fr: str,
+        cause: str,
+        hints_fr: list[str],
+        *,
+        provider_message: str | None = None,
+        **figures: Any,
+    ) -> Any:
+        """A masked `ProviderError`; `message_fr` ends with the provider's own message, when
+        its answer carries one (AD-16)."""
+        if provider_message and provider_message.strip():
+            message_fr = (
+                f"{message_fr} Message du fournisseur : {_clip(self.mask(provider_message))}"
+            )
         return ProviderError(
-            self.mask(message_fr), cause=self.mask(cause), hints_fr=hints_fr, **figures
+            self.mask(message_fr), cause=_clip(self.mask(cause)), hints_fr=hints_fr, **figures
         )
 
     def complete(self, body: ChatBody, cancel: CancelToken) -> Iterator[tuple[str, str] | ChatEnd]:
@@ -207,12 +280,20 @@ class OpenAIChatEngine:
         """A non-200 answer: `tool_use_failed` ends the call, anything else raises."""
         status = response.status_code
         provider = self.entry.provider
-        message, error = _provider_message(response)
+        message, error, shown = _provider_message(response)
         cause = f"HTTP {status} : {message}"
         if error.get("code") == "tool_use_failed":
             generation = str(error.get("failed_generation") or message)
-            return ChatEnd("stop", [], None, "", provider_error=self.mask(generation))
+            return ChatEnd(
+                "stop",
+                [],
+                None,
+                "",
+                provider_error=self.mask(generation),
+                provider_message=_clip(self.mask(message)) or None,
+            )
         local = ["Revenez au modèle local au prochain lancement (diagnostic)."]
+        said = {"provider_message": message if shown else None}  # HTML: in `cause` only
         if 300 <= status < 400:
             raise self._error(
                 f"Redirection refusée : {provider} a répondu {status} vers "
@@ -221,6 +302,7 @@ class OpenAIChatEngine:
                 cause,
                 ["Vérifiez base_url dans la déclaration du modèle.", *local],
                 http_status=status,
+                **said,
             )
         if status == 429:
             retry = response.headers.get("retry-after")
@@ -229,17 +311,30 @@ class OpenAIChatEngine:
             except ValueError:
                 retry_after = None
             wait = [f"Attendez {retry_after:g} s avant de relancer."] if retry_after else []
+            scope = _quota_scope(message)
+            interval = self.entry.min_interval_s
+            spacing = (
+                [
+                    f"Augmentez min_interval_s ({interval:g} s aujourd'hui) dans la déclaration "
+                    f"du modèle « {self.entry.id} »."
+                ]
+                if interval
+                else []
+            )
+            quota = _QUOTA_FR.get(scope, "quota dépassé (par seconde, par minute ou par jour)")
             raise self._error(
-                "Le fournisseur refuse l'appel : quota dépassé (par minute ou par jour).",
+                f"Le fournisseur refuse l'appel : {quota}.",
                 cause,
                 [
                     *(wait or ["Attendez un peu avant de relancer."]),
+                    *spacing,
                     "Réduisez le contexte : lazy loading, moins d'outils, conversation vidée.",
                     *local,
                 ],
                 http_status=status,
                 retry_after_s=retry_after,
-                quota_scope=_quota_scope(message),
+                quota_scope=scope,
+                **said,
             )
         if status == 413:
             raise self._error(
@@ -247,6 +342,7 @@ class OpenAIChatEngine:
                 cause,
                 ["Réduisez la fenêtre de contexte : attendre ne sert à rien.", *local],
                 http_status=status,
+                **said,
             )
         if status == 400 and any(w in message.lower() for w in _CONTEXT_WORDS):
             raise self._error(
@@ -254,14 +350,15 @@ class OpenAIChatEngine:
                 cause,
                 ["Videz la conversation, ou passez la brique MCP en lazy loading.", *local],
                 http_status=status,
+                **said,
             )
         if status in (400, 422):
             raise self._error(
-                f"Requête refusée par {provider} ({status}) : défaut du harnais ou du "
-                f"préréglage. Message du fournisseur : {self.mask(message)}",
+                f"Requête refusée par {provider} ({status}) : défaut du harnais ou du préréglage.",
                 cause,
                 ["Vérifiez la déclaration du modèle (wavestack.toml ou settings.json).", *local],
                 http_status=status,
+                **said,
             )
         if status in (401, 403):
             raise self._error(
@@ -269,6 +366,7 @@ class OpenAIChatEngine:
                 cause,
                 ["Ressaisissez la clé au diagnostic, puis « Tester ».", *local],
                 http_status=status,
+                **said,
             )
         if status == 404:
             raise self._error(
@@ -277,6 +375,7 @@ class OpenAIChatEngine:
                 cause,
                 ["Vérifiez le nom du modèle dans la console du fournisseur.", *local],
                 http_status=status,
+                **said,
             )
         if status >= 500:
             raise self._error(
@@ -284,9 +383,14 @@ class OpenAIChatEngine:
                 cause,
                 ["Réessayez dans quelques minutes.", *local],
                 http_status=status,
+                **said,
             )
         raise self._error(
-            f"Réponse inattendue de {provider} ({status}).", cause, local, http_status=status
+            f"Réponse inattendue de {provider} ({status}).",
+            cause,
+            local,
+            http_status=status,
+            **said,
         )
 
     def _read(
@@ -321,15 +425,25 @@ class OpenAIChatEngine:
                 )
             if chunk.get("error"):
                 error = chunk["error"] if isinstance(chunk["error"], dict) else {}
+                said = str(error.get("message") or chunk["error"])
                 if error.get("code") == "tool_use_failed":
-                    generation = str(error.get("failed_generation") or error.get("message"))
+                    generation = str(error.get("failed_generation") or said)
                     raw_output = self.mask("\n".join(raw))
-                    yield ChatEnd("stop", [], usage, raw_output, self.mask(generation))
+                    message = _clip(self.mask(said)) or None
+                    yield ChatEnd(
+                        "stop",
+                        [],
+                        usage,
+                        raw_output,
+                        provider_error=self.mask(generation),
+                        provider_message=message,
+                    )
                     return
                 raise self._error(
                     f"{entry.provider} a interrompu la réponse sur une erreur.",
-                    str(error.get("message") or chunk["error"]),
+                    said,
                     ["Relancez le tour.", "Revenez au modèle local au prochain lancement."],
+                    provider_message=said,
                 )
             usage = chunk.get("usage") or usage
             groq_usage = (chunk.get("x_groq") or {}).get("usage") or groq_usage
@@ -455,6 +569,11 @@ def run_call(
     """One streamed call under the caller's scope: `model_call_started`, `model_first_token`,
     `model_delta` (grouped), `model_call_ended`. Raises `ProviderError` after ending the call
     with `stop_reason: error`. `call_id(index)` gives a valid call's session id (AD-4)."""
+    entry = getattr(engine, "entry", None)
+    # AD-16: the spacing wait, before the call starts, so neither `prompt_ms` nor
+    # `duration_ms` counts it; cancelled while waiting, nothing is sent.
+    if isinstance(entry, CloudModel) and not pace(entry, cancel):
+        return ChatCall(stop_reason="cancelled")
     journal = get_journal()
     started = time.monotonic()
     journal.emit("model_call_started", {"phase_label": phase_label})
@@ -532,7 +651,12 @@ def run_call(
     out.text, out.reasoning = "".join(channels["text"]), "".join(channels["reasoning"])
     out.stop_reason, out.usage, out.calls = end.stop_reason, end.usage, end.tool_calls
     if end.provider_error is not None:
-        out.malformed = (end.provider_error, "le fournisseur a refusé l'appel d'outil mal formé")
+        detail = (
+            f"le fournisseur a refusé l'appel d'outil : {end.provider_message}"
+            if end.provider_message
+            else "le fournisseur a refusé l'appel d'outil mal formé"
+        )
+        out.malformed = (end.provider_error, detail)
     elif out.calls and out.stop_reason == "stop":
         detail = _check_calls(out.calls)
         if detail is not None:

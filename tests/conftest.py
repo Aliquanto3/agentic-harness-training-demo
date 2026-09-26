@@ -28,3 +28,20 @@ def _network_guard() -> None:
 def _isolated_data_dir(tmp_path, monkeypatch):
     """Never touch the real user data dir (AD-20) while testing."""
     monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path / "wavestack-data"))
+
+
+@pytest.fixture(autouse=True)
+def _no_cloud_key_variables(monkeypatch):
+    """Story 11b: a key the machine's environment provides never reaches a test."""
+    for name in ("GROQ_API_KEY", "MISTRAL_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_pacing():
+    """Story 11b: the spacing of cloud sends starts afresh in each test."""
+    from wavestack.models import openai_chat
+
+    openai_chat._last_start.clear()
+    yield
+    openai_chat._last_start.clear()

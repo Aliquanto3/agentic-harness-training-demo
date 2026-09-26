@@ -232,6 +232,8 @@ def create_app(
             "candidates": [c.model_dump() for c in result.candidates] if result else [],
             "selected_model": session.selected_model_path,
             "loaded_model": session.booted_path,
+            # Story 11b: kept while the saved choice waits for a relaunch (AD-21).
+            "next_launch_fr": session.next_launch_fr(),
             # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
             "cloud": session.cloud_rows(),
         }

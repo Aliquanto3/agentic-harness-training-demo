@@ -45,7 +45,7 @@ class HarnessErrorPayload(BaseModel):
     hints_fr: list[str] = []
     http_status: int | None = None
     retry_after_s: float | None = None
-    quota_scope: Literal["minute", "day", "unknown"] | None = None
+    quota_scope: Literal["second", "minute", "day", "unknown"] | None = None
 
 
 SessionState = Literal[
