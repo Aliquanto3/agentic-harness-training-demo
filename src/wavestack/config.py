@@ -324,6 +324,30 @@ class Config:
         return self._seconds("mcp", "call_timeout_s", default=30.0)
 
     @property
+    def model_server_connect_timeout_s(self) -> float:
+        """Story 18: connecting to an already-running local server, `[model_servers]`."""
+        return self._seconds("model_servers", "connect_timeout_s", default=2.0)
+
+    @property
+    def model_server_read_timeout_s(self) -> float:
+        """Story 18: reading a local server's answer or stream, `[model_servers]`."""
+        return self._seconds("model_servers", "read_timeout_s", default=300.0)
+
+    @property
+    def loopback_ports(self) -> dict[str, int]:
+        """AD-7: the already-running local servers to probe, `[net.loopback_ports]`."""
+        value = self.get("net", "loopback_ports", default=None)
+        if not isinstance(value, dict):
+            return {"ollama": 11434, "llama_server": 8080}
+        ports = {}
+        for name, port in value.items():
+            try:
+                ports[str(name)] = int(port)
+            except (TypeError, ValueError):
+                continue
+        return ports
+
+    @property
     def selected_model(self) -> dict[str, str] | None:
         """AD-20: `{kind: file|server|cloud, ref}`; a plain string (story 1b) is a file."""
         value = self.get("selected_model")

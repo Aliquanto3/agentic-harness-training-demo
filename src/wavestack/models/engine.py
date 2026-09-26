@@ -55,6 +55,8 @@ class EngineMetadata:
     bos_token: str
     eos_token: str
     special_tokens: tuple[str, ...]
+    # A local server's own context (llama-server `n_ctx`), a bound of the window (AD-9).
+    server_context: int | None = None
 
 
 class Engine(Protocol):
@@ -88,15 +90,34 @@ def cut_stop(pending: str, stops: Sequence[str]) -> tuple[str, str, bool]:
     return pending[: len(pending) - keep], pending[len(pending) - keep :], False
 
 
-class LlamaCppEngine:
-    """In-process adapter. `Llama.detokenize` is banned here: its 32-byte buffer truncates."""
+def _int(value: object) -> int:
+    try:
+        return int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return 0
 
-    def __init__(self, model_path: str, n_ctx: int) -> None:
+
+class VocabTokenizer:
+    """A GGUF's tokenizer, token pieces and metadata (AD-4, AD-5): the single local tokenizer
+    code, shared by `LlamaCppEngine` (its loaded model) and `ollama_raw` (the GGUF opened
+    `vocab_only`, no weights). `Llama.detokenize` is banned here: its 32-byte buffer
+    truncates without error."""
+
+    def __init__(self, model_path: str | None = None, *, model: object | None = None) -> None:
         import llama_cpp
 
         self._lib = llama_cpp
-        self._llm = llama_cpp.Llama(model_path=model_path, n_ctx=n_ctx, verbose=False)
-        self._vocab = self._llm._model.vocab
+        self._owned = model is None
+        if model is None:
+            from llama_cpp import _internals
+
+            if not model_path:
+                raise ValueError("aucun fichier GGUF pour le tokenizer")
+            params = llama_cpp.llama_model_default_params()
+            params.vocab_only = True
+            model = _internals.LlamaModel(path_model=model_path, params=params, verbose=False)
+        self._model = model
+        self._vocab = model.vocab  # type: ignore[attr-defined]
         self._metadata = self._read_metadata()
 
     def _token_text(self, token: int) -> str:
@@ -106,7 +127,10 @@ class LlamaCppEngine:
 
     def _read_metadata(self) -> EngineMetadata:
         lib = self._lib
-        meta = self._llm.metadata or {}
+        try:
+            meta = self._model.metadata() or {}  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - as `Llama`: metadata unreadable, empty
+            meta = {}
         mask = lib.LLAMA_TOKEN_ATTR_CONTROL | lib.LLAMA_TOKEN_ATTR_USER_DEFINED
         special = []
         for token in range(lib.llama_vocab_n_tokens(self._vocab)):
@@ -114,10 +138,13 @@ class LlamaCppEngine:
                 text = self._token_text(token)
                 if len(text) >= 2 and text.strip():
                     special.append(text)
+        arch = meta.get("general.architecture")
+        # `vocab_only` loads no hyperparameters: `n_ctx_train()` is 0, the GGUF key says it.
+        native = self._model.n_ctx_train() or _int(meta.get(f"{arch}.context_length"))  # type: ignore[attr-defined]
         return EngineMetadata(
-            architecture=meta.get("general.architecture"),
+            architecture=arch,
             chat_template=meta.get("tokenizer.chat_template"),
-            native_context=self._llm._model.n_ctx_train() or None,
+            native_context=native or None,
             bos_token=self._token_text(lib.llama_vocab_bos(self._vocab)),
             eos_token=self._token_text(lib.llama_vocab_eos(self._vocab)),
             special_tokens=tuple(special),
@@ -126,8 +153,11 @@ class LlamaCppEngine:
     def metadata(self) -> EngineMetadata:
         return self._metadata
 
+    def is_eog(self, token: int) -> bool:
+        return bool(self._lib.llama_vocab_is_eog(self._vocab, token))
+
     def tokenize(self, text: str) -> list[int]:
-        return self._llm.tokenize(text.encode("utf-8"), add_bos=False, special=True)
+        return self._model.tokenize(text.encode("utf-8"), add_bos=False, special=True)  # type: ignore[attr-defined]
 
     def token_pieces(self, ids: Sequence[int]) -> list[bytes]:
         pieces = []
@@ -139,6 +169,30 @@ class LlamaCppEngine:
                 n = self._lib.llama_token_to_piece(self._vocab, token, buf, len(buf), 0, True)
             pieces.append(buf.raw[:n])
         return pieces
+
+    def close(self) -> None:
+        """Frees the model only when this tokenizer opened it (`vocab_only`)."""
+        if self._owned:
+            self._model.close()  # type: ignore[attr-defined]
+
+
+class LlamaCppEngine:
+    """In-process adapter; its tokenizer is `VocabTokenizer` on the loaded model."""
+
+    def __init__(self, model_path: str, n_ctx: int) -> None:
+        import llama_cpp
+
+        self._llm = llama_cpp.Llama(model_path=model_path, n_ctx=n_ctx, verbose=False)
+        self._tokenizer = VocabTokenizer(model=self._llm._model)
+
+    def metadata(self) -> EngineMetadata:
+        return self._tokenizer.metadata()
+
+    def tokenize(self, text: str) -> list[int]:
+        return self._tokenizer.tokenize(text)
+
+    def token_pieces(self, ids: Sequence[int]) -> list[bytes]:
+        return self._tokenizer.token_pieces(ids)
 
     def complete(
         self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
@@ -155,7 +209,7 @@ class LlamaCppEngine:
                 if cancel.cancelled:
                     reason = "cancelled"
                     break
-                if self._lib.llama_vocab_is_eog(self._vocab, token):
+                if self._tokenizer.is_eog(token):
                     break
                 count += 1
                 pending += decoder.decode(self.token_pieces([token])[0])

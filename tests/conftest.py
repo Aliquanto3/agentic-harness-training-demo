@@ -45,3 +45,17 @@ def _fresh_pacing():
     openai_chat._last_start.clear()
     yield
     openai_chat._last_start.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_local_model_server(monkeypatch):
+    """Story 18: no real Ollama nor llama-server is ever reached from a test; a test that
+    needs one passes its own `httpx.MockTransport`."""
+    import httpx
+
+    from wavestack.models import servers
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("aucun serveur local en test", request=request)
+
+    monkeypatch.setattr(servers, "default_transport", httpx.MockTransport(refuse))

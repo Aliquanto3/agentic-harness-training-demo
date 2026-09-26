@@ -73,7 +73,8 @@ Le modèle se change sans relancer WaveStack, entre deux tours (pas pendant un t
 validation) :
 - **Barre haute** : le sélecteur « Changer de modèle… », à droite de l'indicateur de modèle,
   liste les fichiers GGUF du poste (« Sur ce poste », avec leur taille, par exemple « 2B », une
-  fois le fichier sondé) et les modèles cloud déclarés (« Réseau », grisés sans clé). Un modèle
+  fois le fichier sondé), les modèles d'un serveur local déjà lancé et les modèles cloud déclarés
+  (« Réseau », grisés sans clé). Un modèle
   cloud affiche d'abord son avertissement. « Autre fichier ou clé API… » ouvre le diagnostic.
 - **Diagnostic** : « Choisir » en face d'un fichier ou d'un modèle cloud, ou un chemin saisi.
 
@@ -109,7 +110,50 @@ Apache-2.0), validé sur le PC cible. WaveStack ne le télécharge pas : copiez 
 dans le dossier `models/` du dossier de données (`%LOCALAPPDATA%\WaveStack\models` sous
 Windows, `~/.local/share/wavestack/models` ailleurs), ou indiquez son chemin au diagnostic.
 Les GGUF `qwen35` d'Ollama ne se chargent pas avec llama-cpp-python 0.3.35 : préférez le fichier
-amont.
+amont, ou un serveur déjà lancé (section suivante).
+
+## Utiliser un serveur déjà lancé (Ollama, llama-server)
+
+WaveStack peut faire tourner le modèle d'un serveur local que **vous** avez lancé : Ollama ou
+llama-server (llama.cpp). WaveStack ne lance, n'installe ni n'arrête jamais ces serveurs ; il
+les interroge sur la boucle locale (`127.0.0.1`, sans proxy), aux ports de `wavestack.toml` :
+
+```toml
+[net.loopback_ports]
+ollama = 11434
+llama_server = 8080
+
+[model_servers]
+connect_timeout_s = 2   # connexion au serveur
+read_timeout_s = 300    # lecture de la réponse (le premier appel d'Ollama charge le modèle)
+```
+
+Lancez le serveur avant WaveStack, par exemple `ollama serve`, ou
+`llama-server -m C:\modeles\Qwen3.5-2B-Q4_K_M.gguf --port 8080`. Au diagnostic, chaque modèle
+servi apparaît avec l'étiquette « Local », son serveur, son adresse et sa mémoire ; « Choisir »
+le charge, comme un fichier. Il est aussi dans le sélecteur de la barre haute
+(« Local · Ollama · … », « Local · llama-server · … »). Un modèle servi n'est jamais choisi
+d'office ; un choix mémorisé est repris au lancement si le serveur le sert encore.
+
+**Le harnais construit toujours le texte.** Le gabarit de conversation du modèle est appliqué
+par WaveStack, comme pour un fichier : le serveur reçoit le texte déjà rendu, jamais des
+messages au format chat.
+- **llama-server** reçoit les tokens du prompt (`/completion`) et tokenise lui-même
+  (`/tokenize`) : la jauge compte exactement ce que lit le modèle. La fenêtre est la plus petite
+  de la fenêtre configurée, du contexte natif et du contexte du serveur (`-c`).
+- **Ollama** reçoit le texte en mode `raw` (`/api/generate`), avec `num_ctx` égal à la fenêtre
+  effective. WaveStack compte les tokens avec le tokenizer lu dans le fichier GGUF du modèle,
+  dans le dossier d'Ollama (`OLLAMA_MODELS`). Un modèle sans GGUF lisible y est « incompatible ».
+  Si Ollama annonce un autre nombre de tokens que le harnais, ou renvoie un raisonnement séparé
+  (`thinking`), une erreur « transparence réduite » l'explique dans le journal ; le tour
+  continue.
+
+**Mémoire.** En mode serveur, aucun modèle ne reste chargé dans WaveStack ; la mémoire du modèle
+servi compte dans le budget `[memory]` (celle qu'annonce Ollama une fois le modèle chargé, sinon
+la taille du fichier). En quittant un modèle Ollama (changement de modèle ou fermeture de
+WaveStack), WaveStack demande à Ollama de le décharger (`keep_alive: 0`). Le schéma
+d'architecture dessine ce modèle hors du cadre Harnais, sur le poste de travail : c'est un
+processus distinct.
 
 ## Modèle cloud (Groq, Mistral)
 

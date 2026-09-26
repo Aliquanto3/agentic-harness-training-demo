@@ -13,6 +13,7 @@
     li.warn { background: #fff4e0; }
     li.fail, li.incompatible { background: #fce8e6; }
     li.found, li.server { background: #e6f4ea; }
+    .served { font-size: 0.9rem; color: #444; }
     .action { font-size: 0.9rem; color: #444; }
     #select-model { margin-top: 1.5rem; }
     .saved-mark { font-size: 0.85rem; font-weight: bold; margin-left: 0.5rem; }
@@ -68,8 +69,10 @@
     const candidatesEl = document.getElementById("candidates");
     const selectStatusEl = document.getElementById("select-model-status");
     const items = new Map();
+    // `{kind, ref}` of the saved choice and of the loaded model, whatever their kind (story 18).
     let selectedModel = null;
     let loadedModel = null;
+    const isModel = (model, kind, ref) => Boolean(model && model.kind === kind && model.ref === ref);
     let busy = false;  // one select_model request at a time
     // Story 17: a choice may start a hot switch, answered « Chargement de {modèle}… »; its
     // `model_load_ended` gives the outcome (it may come before the answer), then the marks
@@ -159,6 +162,10 @@
         return;
       }
       for (const c of candidates) {
+        if (c.source === "server") {
+          candidatesEl.appendChild(servedRow(c));
+          continue;
+        }
         const li = document.createElement("li");
         li.className = c.status;
         const title = document.createElement("strong");
@@ -167,31 +174,72 @@
         const details = [
           c.architecture ? `architecture ${c.architecture}` : null,
           c.source,
-          c.status === "server" ? "serveur local, utilisable au palier 2" : null,
           c.reason,
         ].filter(Boolean).join(" · ");
         li.append(` — ${details}`);
-        for (const [path, text] of [[loadedModel, "chargé"], [selectedModel, "choix enregistré"]]) {
-          if (!c.path || c.path !== path) continue;
-          const mark = document.createElement("span");
-          mark.className = "saved-mark";
-          mark.textContent = text;
-          li.appendChild(mark);
-        }
+        addMarks(li, "file", c.path);
         const where = document.createElement("div");
         where.className = "action";
         where.textContent = c.path || c.server_url || "";
         li.appendChild(where);
-        if (c.status === "found" && c.path && c.path !== loadedModel) {
-          const button = document.createElement("button");
-          button.className = "choose";
-          button.disabled = busy;
-          button.textContent = "Choisir";
-          button.addEventListener("click", () => chooseModel(c.path));
-          li.appendChild(button);
+        if (c.status === "found" && c.path && !isModel(loadedModel, "file", c.path)) {
+          li.appendChild(chooseButton({ kind: "file", ref: c.path }));
         }
         candidatesEl.appendChild(li);
       }
+    }
+
+    function addMarks(li, kind, ref) {
+      for (const [model, text] of [[loadedModel, "chargé"], [selectedModel, "choix enregistré"]]) {
+        if (!ref || !isModel(model, kind, ref)) continue;
+        const mark = document.createElement("span");
+        mark.className = "saved-mark";
+        mark.textContent = text;
+        li.appendChild(mark);
+      }
+    }
+
+    function chooseButton(model) {
+      const button = document.createElement("button");
+      button.className = "choose";
+      button.disabled = busy;
+      button.textContent = "Choisir";
+      button.addEventListener("click", () => chooseModel(model));
+      return button;
+    }
+
+    // Story 18: a model an already-running local server serves. « Local », `provider · nom`,
+    // its address and the memory it takes; WaveStack neither launches nor stops the server.
+    function servedRow(c) {
+      const li = document.createElement("li");
+      li.className = c.status;
+      const tag = document.createElement("span");
+      tag.className = "hosting-tag-local";
+      tag.textContent = "Local";
+      const title = document.createElement("strong");
+      title.textContent = `${c.provider} · ${c.name}`;
+      li.append(tag, title, " — serveur local déjà lancé");
+      addMarks(li, "server", c.ref);
+      const where = document.createElement("div");
+      where.className = "action";
+      where.textContent = c.server_url || "";
+      li.appendChild(where);
+      if (c.served_bytes) {
+        const size = document.createElement("div");
+        size.className = "served";
+        const go = (c.served_bytes / 1024 ** 3).toFixed(1).replace(".", ",");
+        size.textContent = `Mémoire du modèle servi : ≈ ${go} Go (processus distinct de WaveStack)`;
+        li.appendChild(size);
+      }
+      if (c.status === "incompatible") {
+        const why = document.createElement("div");
+        why.className = "action";
+        why.textContent = c.reason || "Modèle inutilisable.";
+        li.appendChild(why);
+      } else if (!isModel(loadedModel, "server", c.ref)) {
+        li.appendChild(chooseButton({ kind: "server", ref: c.ref }));
+      }
+      return li;
     }
 
     // ---------- cloud models (story 11): key, « Tester », « Choisir » behind the warning ----------
@@ -372,17 +420,19 @@
     async function loadDiagnostic() {
       const response = await fetch("/api/diagnostic");
       const body = await response.json();
-      selectedModel = body.selected_model;
-      loadedModel = body.loaded_model;
+      selectedModel = body.selected;
+      loadedModel = body.loaded;
       cloud = body.cloud || cloud;
       renderCloud();
       renderCandidates(body.candidates || []);
       document.getElementById("open-link").style.display = body.ready ? "block" : "none";
       // An outcome missed by the stream (a reconnection): the loaded model says it.
       const mine = switching;
-      const active = body.loaded_model ?? (body.cloud?.models ?? []).find((m) => m.loaded)?.id;
+      const active = body.loaded?.ref;
       if (mine?.answered && active === mine.ref) {
-        setTimeout(() => { if (switching === mine) finishSwitch("Le modèle choisi est actif."); }, 3000);
+        // Named like `model_load_ended` would: the outcome reads the same whichever comes first.
+        const text = `${body.loaded.label} est actif.`;
+        setTimeout(() => { if (switching === mine) finishSwitch(text); }, 3000);
       }
     }
     loadDiagnostic();
@@ -412,7 +462,7 @@
       for (const button of document.querySelectorAll("button.choose")) button.disabled = value;
     }
 
-    async function chooseModel(path) {
+    async function chooseModel(model) {
       if (busy) return;
       setBusy(true);
       selectStatusEl.textContent = "Vérification en cours…";
@@ -423,7 +473,7 @@
         const response = await fetch("/api/intentions/select_model", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind: "file", ref: path }),
+          body: JSON.stringify(model),
         });
         const body = await response.json();
         answerSwitch(mine, body, body.message_fr || body.detail ||
@@ -439,7 +489,7 @@
 
     document.getElementById("submit-path").addEventListener("click", () => {
       const path = document.getElementById("model-path").value.trim();
-      if (path) chooseModel(path);
+      if (path) chooseModel({ kind: "file", ref: path });
     });
   </script>
 </body>

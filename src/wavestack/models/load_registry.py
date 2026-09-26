@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import psutil
 
@@ -24,14 +25,28 @@ _GIB = 1024**3
 
 @dataclass(frozen=True)
 class ModelChoice:
-    """A model to load (AD-3): a GGUF file (`ref`: its path) or a declared cloud model
-    (`ref`: its `id`, `entry`: its declaration)."""
+    """A model to load (AD-3): a GGUF file (`ref`: its path), a model an already-running
+    local server serves (`ref`: `ollama/{name}` or `llama_server/{file}`, `server`: its
+    discovery candidate, story 18) or a declared cloud model (`ref`: its `id`, `entry`: its
+    declaration)."""
 
-    kind: str  # file | cloud
+    kind: str  # file | server | cloud
     ref: str
     entry: CloudModel | None = None
     # The candidate's readable name (discovery): an Ollama `model:tag`, else the file name.
     name: str | None = field(default=None, compare=False)
+    # `kind = server`: the `discovery.ModelCandidate` (engine, address, GGUF of `ollama_raw`).
+    server: Any = field(default=None, compare=False)
+
+    @classmethod
+    def served(cls, candidate: Any) -> ModelChoice:
+        """The choice of a served-model candidate (`discovery.ModelCandidate`, story 18)."""
+        return cls("server", candidate.ref, name=candidate.name, server=candidate)
+
+    @property
+    def provider(self) -> str | None:
+        """A served model's server: « Ollama » or « llama-server »."""
+        return getattr(self.server, "provider", None) if self.server is not None else None
 
     @property
     def label(self) -> str:

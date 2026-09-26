@@ -49,7 +49,9 @@ def capabilities_for(meta: EngineMetadata) -> Capabilities:
             ),
         )
     reasoning_variable = "enable_thinking" if "enable_thinking" in template else None
-    if arch.startswith("qwen3") and "<|im_start|>" in template:
+    # AD-6: llama-server exposes no architecture; its template says the family then.
+    by_template = meta.architecture is None and "<tool_call>" in template
+    if (arch.startswith("qwen3") or by_template) and "<|im_start|>" in template:
         return Capabilities(
             family="qwen3",
             chat_template=template,

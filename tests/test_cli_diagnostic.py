@@ -604,18 +604,27 @@ def test_ollama_tags_sharing_one_blob_count_as_one_file(monkeypatch, tmp_path):
     assert result.ready is True and result.model_path == str(blob)
 
 
-def test_server_only_is_ready_without_a_file_to_load(monkeypatch, tmp_path):
+def test_served_models_only_block_until_one_is_chosen(monkeypatch, tmp_path):
+    """Story 18: a served model is never chosen by default (Ollama would load it)."""
     session, _ = _build(monkeypatch, tmp_path)
     server = discovery.ModelCandidate(
-        source="server", status="server", server_url="http://127.0.0.1:11434"
+        source="server",
+        status="server",
+        server_url="http://127.0.0.1:11434",
+        name="qwen3:0.6b",
+        engine="ollama",
+        ref="ollama/qwen3:0.6b",
+        provider="Ollama",
     )
     monkeypatch.setattr(discovery, "_server_candidates", lambda cfg: [server])
     before = get_journal().last_seq()
 
     result = session.check_model()
 
-    assert result.ready is True and result.model_path is None
-    assert _last_model_check(before)["blocking"] is False
+    assert result.ready is False and result.blocking_checks == ["model"]
+    assert result.model_path is None and result.server is None
+    check = _last_model_check(before)
+    assert check["blocking"] is True and "choisissez un modèle servi" in check["message_fr"]
 
 
 def test_failed_load_lets_a_new_choice_load(monkeypatch, tmp_path):

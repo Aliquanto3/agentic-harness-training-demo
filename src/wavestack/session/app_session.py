@@ -71,6 +71,7 @@ from wavestack.models.openai_chat import (
     output_tps,
     run_call,
 )
+from wavestack.models.servers import ServerError, open_engine, served_bytes
 from wavestack.scenarios import EMPTY_PROGRAM, ScenariosContent, load_scenarios
 from wavestack.session.effects import (
     ArmConsumed,
@@ -132,10 +133,8 @@ _CORE_MODEL = {
 
 _TURN_FR = "Un tour est en cours : attendez sa fin ou arrêtez-le."
 _AWAITING_FR = "En attente de votre validation : autorisez ou refusez l'appel réseau."
-_SERVER_ONLY_FR = (
-    "Envoi indisponible : seul un serveur local (Ollama ou llama-server) a été trouvé, et son "
-    "adaptateur arrive au palier 2. Indiquez le chemin d'un fichier GGUF sur la page de "
-    "diagnostic."
+_NO_MODEL_FR = (
+    "Envoi indisponible : aucun modèle n'est choisi. Choisissez-en un sur la page de diagnostic."
 )
 _LOAD_FAILED_FR = (
     "Envoi indisponible : le modèle n'a pas pu être chargé. Choisissez un autre fichier GGUF "
@@ -349,9 +348,15 @@ class AppSession:
         hooks: tuple[Hook, ...] = DEMO_HOOKS,
         cloud_factory: Callable[..., Any] | None = None,
         rss_fn: Callable[[], int] | None = None,
+        server_factory: Callable[..., Engine] | None = None,
     ) -> None:
         self.cfg = cfg or config.load_config()
         self._engine_factory = engine_factory
+        # Story 18: the adapter of a model an already-running local server serves
+        # (`llama_server`, `ollama_raw`), a fake one in tests.
+        self._server_factory = server_factory or (
+            lambda candidate, n_ctx: open_engine(candidate, n_ctx, self.cfg)
+        )
         # Story 11: the cloud model's adapter (`openai_chat`), a fake one in tests.
         self._cloud_factory = cloud_factory or (
             lambda entry, key: OpenAIChatEngine(
@@ -504,6 +509,8 @@ class AppSession:
         if self._model_name is None:
             return None
         active = self._active
+        if active is not None and active.kind == "server":
+            return self._model_payload(active)
         return {
             "id": self._model_name,
             "label": self._model_name,
@@ -594,9 +601,19 @@ class AppSession:
             ]
         model = {**_CORE_MODEL, "model": self._model_name}
         edges: list[dict[str, Any]] = []
+        active = self._active
         if self._cloud is not None:  # AD-12: drawn in the network zone, with its provider
             model |= {"hosting": "network", "provider": self._cloud.provider}
             edges.append({"from": "core.harness", "to": "core.model", "crosses_boundary": True})
+        elif active is not None and active.kind == "server":
+            # Story 18: a process of this workstation apart from the harness; the call stays
+            # on the loopback, it never crosses the workstation's boundary.
+            model |= {
+                "process": "external",
+                "provider": active.provider,
+                "server_url": getattr(active.server, "server_url", None),
+            }
+            edges.append({"from": "core.harness", "to": "core.model", "crosses_boundary": False})
         nodes: list[dict[str, Any]] = [_CORE_HARNESS, model]
         components = {b.id: self._drawn_components(b) for b in wanted}
         # A file node is drawn once a drawn component points to it: its brick, its label
@@ -903,12 +920,23 @@ class AppSession:
         effective one); a cloud model costs nothing."""
         if choice.kind == "cloud":
             return 0
+        if choice.kind == "server":  # AD-8: the served model's memory, outside WaveStack
+            c = choice.server
+            return served_bytes(
+                c.engine,
+                c.server_url,
+                c.name,
+                path=c.gguf_path,
+                fallback=c.served_bytes,
+            )
         return self._load_registry.file_cost(choice.ref, self.cfg.context_window)
 
     @staticmethod
     def _load_reason(choice: ModelChoice) -> str:
         if choice.entry is not None:
             return f"Préparation du modèle cloud {choice.entry.model} chez {choice.entry.provider}…"
+        if choice.kind == "server":
+            return f"Préparation du modèle servi par {choice.provider}…"
         return f"Chargement du modèle {choice.file_name}…"
 
     @staticmethod
@@ -917,6 +945,17 @@ class AppSession:
         if choice.entry is not None:
             return active_model(choice.entry)
         label = choice.label
+        if choice.kind == "server":  # AD-12, story 18: a local process apart from WaveStack
+            return {
+                "id": choice.ref,
+                "label": label,
+                "hosting": "local",
+                "provider": choice.provider,
+                "server_url": getattr(choice.server, "server_url", None),
+                "disclosure": None,
+                "kind": "server",
+                "ref": choice.ref,
+            }
         return {"id": label, "label": label, "hosting": "local", "kind": "file", "ref": choice.ref}
 
     def boot(self, model_path: str | None, name: str | None = None) -> Future[str]:
@@ -930,9 +969,14 @@ class AppSession:
         """The launch's cloud model, prepared without any request (AD-21)."""
         return self._executor.submit(self._boot, ModelChoice("cloud", entry.id, entry))
 
+    def boot_server(self, candidate: Any) -> Future[str]:
+        """The launch's served model (story 18): `candidate` is its discovery candidate
+        (`source = server`). Nothing is launched; no model loads in-process."""
+        return self._executor.submit(self._boot, ModelChoice.served(candidate))
+
     def _boot(self, choice: ModelChoice | None) -> str:
         if choice is None:
-            self._set_state("idle", _SERVER_ONLY_FR)
+            self._set_state("idle", _NO_MODEL_FR)
             self._emit_architecture()
             self._emit_bricks()
             return "error"
@@ -1043,6 +1087,13 @@ class AppSession:
         elif choice.entry is not None:
             message_fr = f"Le modèle cloud {choice.label} n'a pas pu être préparé."
             idle_fr = _CLOUD_FAILED_FR
+        elif choice.kind == "server":
+            message_fr = (
+                f"Le modèle {choice.label}, servi par {choice.provider}, n'a pas pu être préparé."
+            )
+            idle_fr = None
+            if isinstance(exc, ServerError):
+                cause = exc.message_fr
         else:
             message_fr, idle_fr = "Le modèle n'a pas pu être chargé.", None
         cause_fr = cause if isinstance(cause, str) else str(cause)
@@ -1091,14 +1142,23 @@ class AppSession:
         if choice.entry is not None:
             self._install_cloud(choice.entry)
         else:
-            engine = self._engine_factory(choice.ref, n_ctx=self.cfg.context_window)
+            configured = self.cfg.context_window
+            if choice.kind == "server":  # story 18: its adapter; nothing loads in-process
+                engine = self._server_factory(choice.server, n_ctx=configured)
+            else:
+                engine = self._engine_factory(choice.ref, n_ctx=configured)
             try:
-                caps = capabilities_for(engine.metadata())
+                meta = engine.metadata()
+                caps = capabilities_for(meta)
                 if caps.incompatible_reason:
                     raise _LoadFailed(
                         "Modèle incompatible.", caps.incompatible_reason, caps.incompatible_reason
                     )
-                window = effective_window(self.cfg.context_window, caps.native_context)
+                window = effective_window(configured, caps.native_context)
+                source = "configured" if window == configured else "native"
+                # AD-9: min(configured, native, the server's own context).
+                if meta.server_context and meta.server_context < window:
+                    window, source = meta.server_context, "server"
                 labels = self._load_labels()
             except BaseException:
                 engine.close()
@@ -1107,9 +1167,7 @@ class AppSession:
                 self._engine, self._caps, self._cloud = engine, caps, None
                 self._model_name = choice.label
                 self._window = window
-                self._window_source = (
-                    "configured" if window == self.cfg.context_window else "native"
-                )
+                self._window_source = source
                 self._labels = labels
                 self._active = choice
         # A cloud model is granted too (cost 0): the registry names the active model.
@@ -2687,7 +2745,10 @@ class AppSession:
                 status, text, reasoning = self._turn(turn_id, message, cancel, state, steps)
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error(
-                    "Le tour s'est interrompu sur une erreur.",
+                    # Story 18: a local server stopped while the prompt was tokenized.
+                    exc.message_fr
+                    if isinstance(exc, ServerError)
+                    else "Le tour s'est interrompu sur une erreur.",
                     exc,
                     "Le tour est terminé ; WaveStack reste utilisable.",
                 )
@@ -3392,6 +3453,13 @@ class AppSession:
                     flush()
             take(splitter.flush())
             flush()
+        except ServerError as error:  # story 18: the local server stopped or refused
+            flush()
+            end("error")
+            self._error(
+                error.message_fr, error.cause, "Le tour est terminé ; WaveStack reste utilisable."
+            )
+            return _ModelOutput("error")
         except Exception:
             flush()
             end("error")

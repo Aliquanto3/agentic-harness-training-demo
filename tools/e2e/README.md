@@ -34,6 +34,12 @@ Pour explorer à la main : `uv run python tools/e2e/stack.py` lance le faux mod�
   faux serveur, `fake` (`wavestack-fake`) et `fake_b` (`faux-modele-b`, pour le changement de
   modèle de la story 17), clé par `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux
   serveurs sur `127.0.0.1`. `wavestack.toml` n'est jamais modifié.
+- `fake_local_server.py` (story 18) : un faux llama-server (`/health`, `/props` avec le gabarit
+  Qwen3.5, `/v1/models`, `/tokenize` avec les pièces, `/detokenize`, `/completion` en SSE ;
+  tokenizer octet par octet, marqueurs du gabarit en un token) et un faux Ollama (`/api/tags`,
+  `/api/ps`, `/api/generate` pour `keep_alive: 0`) qui sert un modèle sans GGUF sur le disque.
+  `stack.py` les lance sur deux ports libres, que `settings.json` déclare en
+  `[net.loopback_ports]` ; `/_e2e/requests` relit les corps reçus.
 - `launch_app.py` : lance `wavestack.cli` en ralentissant la seule préparation de `fake_b`
   (`WAVESTACK_E2E_LOAD_DELAY_S`, 2 s par défaut) : sans cela, un modèle cloud se prépare trop
   vite pour que le parcours voie le chronomètre « Chargement du modèle… ».
@@ -51,6 +57,19 @@ raison, conversation gardée, appel envoyé avec le nouveau modèle, lignes « M
 joué par le nouveau modèle, « Comparer » avec le modèle de chaque colonne, puis retour au
 premier modèle par « Choisir » au diagnostic, issue affichée, jamais « relancez ». Capture :
 `22-changement-de-modele.jpg`.
+
+## Serveur local déjà lancé (story 18)
+
+Le scénario `local_server`, joué après `model_switch` : au diagnostic, le modèle du faux
+llama-server est listé (« Local », adresse, mémoire, « Choisir ») et celui du faux Ollama est
+incompatible, sans « Choisir » (GGUF introuvable) ; plus de mention « palier 2 ». Dans le
+sélecteur de la barre haute, le modèle servi est choisi puis chargé (« Préparation du modèle
+servi par llama-server… »), l'indicateur devient « Local · llama-server » (infobulle : processus
+distinct), et le schéma dessine le robot hors du cadre Harnais, dans une boîte
+« llama-server · 127.0.0.1:port » de la zone Poste de travail. Un tour complet avec
+`get_datetime` vérifie que les ids reçus par le serveur sont ceux du texte rendu par le harnais
+(somme des segments = `prompt_tokens`). Après un rechargement, indicateur et boîte reviennent ;
+le scénario revient enfin au faux modèle cloud. Capture : `23-serveur-local-llama-server.jpg`.
 
 ## Déclencheurs du faux modèle
 

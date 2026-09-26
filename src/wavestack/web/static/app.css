@@ -2772,6 +2772,22 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   border-radius: 8px;
 }
 
+/* Story 18: a model served by a local server (Ollama, llama-server), outside the harness
+   frame but on the workstation: a process of its own, local colours. */
+.arch-server-model {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 2px solid var(--color-hosting-local);
+  border-radius: 8px;
+  background: var(--color-primary-soft);
+  max-width: 180px;
+  text-align: center;
+}
+
 .ctx-banner {
   margin: 0 0 8px;
   padding: 8px 10px;

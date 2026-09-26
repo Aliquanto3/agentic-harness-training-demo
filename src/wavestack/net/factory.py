@@ -72,6 +72,30 @@ def create_client(
     )
 
 
+def _loopback_only(request: httpx.Request) -> None:
+    host = request.url.host
+    if not is_loopback(host):
+        raise NetworkBlocked(f"Hôte hors boucle locale refusé : {host}")
+
+
+def create_loopback_client(
+    *, timeout: float | httpx.Timeout = 5.0, transport: httpx.BaseTransport | None = None
+) -> httpx.Client:
+    """Synchronous httpx client for an already-running local server (Ollama, llama-server):
+    no proxy (`trust_env=False`: an office `HTTP_PROXY` would receive `127.0.0.1`, story 1e),
+    no redirect, and any host outside the loopback range refused (`NetworkBlocked`) before
+    anything is sent. Loopback requests are never traced as `outbound_request` (AD-15).
+    `transport` is for tests only (`httpx.MockTransport`)."""
+    return httpx.Client(
+        timeout=timeout,
+        follow_redirects=False,
+        trust_env=False,
+        transport=transport,
+        headers={"User-Agent": USER_AGENT},
+        event_hooks={"request": [_loopback_only]},
+    )
+
+
 def create_async_client(
     scope: Callable[[], TraceScope],
     transport: httpx2.AsyncBaseTransport | None = None,

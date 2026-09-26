@@ -2,14 +2,22 @@
 title: 'Serveur local déjà lancé (Ollama, llama-server)'
 type: 'feature'
 created: '2026-09-26'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '3442f99880e4930df05fc00d900e13c9ab908411'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-agentic-harness-training-demo-2026-09-23/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-agentic-harness-training-demo-2026-09-22/EXPERIENCE.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      Les champs réels de llama-server et d'Ollama lus par les adaptateurs ne sont vérifiés que sur des doublures.
+    evidence: |-
+      Faute de réseau, aucun vrai serveur ici : `with_pieces`, `stop_type`, `tokens_predicted`, `default_generation_settings.n_ctx` (llama-server), `prompt_eval_count` avec cache et `done_reason` (Ollama) viennent de la documentation. Un tour réel avec chacun des deux serveurs, sur le PC cible, tranche.
+    location: >-
+      src/wavestack/models/servers.py
+    severity: medium (unverified)
 ---
 
 <intent-contract>
@@ -104,16 +112,16 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/wavestack/models/engine.py` -- extraire `VocabTokenizer` (`tokenize`, `token_pieces`, `metadata`, `close`) et le faire utiliser par `LlamaCppEngine` -- un seul code de tokenizer local (AD-5, `ollama_raw`).
-- [ ] `src/wavestack/net/factory.py` -- `create_loopback_client(timeout, transport=None)` : sans proxy, refuse (`NetworkBlocked`) tout hôte hors boucle locale -- AD-15, proxy d'entreprise en boucle locale (story 1e).
-- [ ] `src/wavestack/models/servers.py` (nouveau) -- `LlamaServerEngine(url, transport=None)`, `OllamaRawEngine(url, name, gguf_path, n_ctx, tokenizer=None, transport=None)`, `list_served(cfg, transport=None)`, `served_bytes(...)` et `release_ollama(url, name)` (`keep_alive: 0`). Les erreurs HTTP deviennent une exception française (adresse, cause) -- AD-5, AD-8, AD-16.
-- [ ] `src/wavestack/models/discovery.py` -- `_server_candidates(cfg, transport=None)` : un candidat par modèle servi, `ref`, `engine`, `served_bytes`, blob Ollama résolu par `_ollama_candidates`, `incompatible` avec la raison -- AD-7.
-- [ ] `src/wavestack/models/capabilities.py` -- détection par le gabarit quand `architecture is None` -- AD-6.
-- [ ] `src/wavestack/session/diagnostic.py` -- `selected_model` `server`, `booted_server`, `select_server(ref)` (même parcours que `_select_model_locked`, candidat relu par la découverte), `DiagnosticResult.server`, `hand_to` → `boot_server`. Serveurs seuls : contrôle `model` bloquant, jamais de choix d'office. Choix mémorisé repris si servi -- AD-7, AD-21.
-- [ ] `src/wavestack/session/app_session.py` -- `boot_server`, `server_factory`, budget (AD-8), `release_ollama` en quittant un modèle Ollama et dans `close`, `active_model` et `core.model` (`process: external`, arête locale), fenêtre `server`. Brancher `kind: server` dans le changement à chaud de la story 17. Retirer `_SERVER_ONLY_FR`.
-- [ ] `src/wavestack/web/app.py`, `static/diagnostic.html`, `static/app.js`, `static/app.css` -- intention `kind: server`, champs `selected` et `loaded`, lignes serveur, indicateur, boîte du schéma. Le sélecteur de modèle de la story 17 liste aussi les modèles servis.
-- [ ] `wavestack.toml`, `README.md` -- délais `[model_servers]`, budget, section française « Utiliser un serveur déjà lancé (Ollama, llama-server) » : lancement du serveur par l'utilisateur, ports, `raw`, transparence réduite, `keep_alive`.
-- [ ] `tests/test_model_servers.py` (nouveau) -- une ligne de la matrice par test, par `httpx.MockTransport` et un tokenizer factice octet = token. À vérifier aussi : corps envoyés (ids, `num_ctx`, `raw`), `_server_candidates` (ferme l'entrée de `deferred-work.md`), refus d'un hôte non local par le client boucle locale, `keep_alive: 0` à la fermeture. Adapter `test_cli_diagnostic.py:601` au choix bloquant.
+- [x] `src/wavestack/models/engine.py` -- extraire `VocabTokenizer` (`tokenize`, `token_pieces`, `metadata`, `close`) et le faire utiliser par `LlamaCppEngine` -- un seul code de tokenizer local (AD-5, `ollama_raw`).
+- [x] `src/wavestack/net/factory.py` -- `create_loopback_client(timeout, transport=None)` : sans proxy, refuse (`NetworkBlocked`) tout hôte hors boucle locale -- AD-15, proxy d'entreprise en boucle locale (story 1e).
+- [x] `src/wavestack/models/servers.py` (nouveau) -- `LlamaServerEngine(url, transport=None)`, `OllamaRawEngine(url, name, gguf_path, n_ctx, tokenizer=None, transport=None)`, `list_served(cfg, transport=None)`, `served_bytes(...)` et `release_ollama(url, name)` (`keep_alive: 0`). Les erreurs HTTP deviennent une exception française (adresse, cause) -- AD-5, AD-8, AD-16.
+- [x] `src/wavestack/models/discovery.py` -- `_server_candidates(cfg, transport=None)` : un candidat par modèle servi, `ref`, `engine`, `served_bytes`, blob Ollama résolu par `_ollama_candidates`, `incompatible` avec la raison -- AD-7.
+- [x] `src/wavestack/models/capabilities.py` -- détection par le gabarit quand `architecture is None` -- AD-6.
+- [x] `src/wavestack/session/diagnostic.py` -- `selected_model` `server`, `booted_server`, `select_server(ref)` (même parcours que `_select_model_locked`, candidat relu par la découverte), `DiagnosticResult.server`, `hand_to` → `boot_server`. Serveurs seuls : contrôle `model` bloquant, jamais de choix d'office. Choix mémorisé repris si servi -- AD-7, AD-21.
+- [x] `src/wavestack/session/app_session.py` -- `boot_server`, `server_factory`, budget (AD-8), `release_ollama` en quittant un modèle Ollama et dans `close`, `active_model` et `core.model` (`process: external`, arête locale), fenêtre `server`. Brancher `kind: server` dans le changement à chaud de la story 17. Retirer `_SERVER_ONLY_FR`.
+- [x] `src/wavestack/web/app.py`, `static/diagnostic.html`, `static/app.js`, `static/app.css` -- intention `kind: server`, champs `selected` et `loaded`, lignes serveur, indicateur, boîte du schéma. Le sélecteur de modèle de la story 17 liste aussi les modèles servis.
+- [x] `wavestack.toml`, `README.md` -- délais `[model_servers]`, budget, section française « Utiliser un serveur déjà lancé (Ollama, llama-server) » : lancement du serveur par l'utilisateur, ports, `raw`, transparence réduite, `keep_alive`.
+- [x] `tests/test_model_servers.py` (nouveau) -- une ligne de la matrice par test, par `httpx.MockTransport` et un tokenizer factice octet = token. À vérifier aussi : corps envoyés (ids, `num_ctx`, `raw`), `_server_candidates` (ferme l'entrée de `deferred-work.md`), refus d'un hôte non local par le client boucle locale, `keep_alive: 0` à la fermeture. Adapter `test_cli_diagnostic.py:601` au choix bloquant.
 
 **Acceptance Criteria:**
 - Given un llama-server simulé qui sert un modèle, when l'utilisateur le choisit au diagnostic puis envoie un message, then Contexte LLM montre le texte rendu par le harnais, gabarit compris, et la somme des segments égale `prompt_tokens`.
@@ -124,6 +132,17 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-26 — Review pass
+- Revue par l'agent d'implémentation lui-même (aucun outil de sous-agent dans cette exécution) ; une revue indépendante suit.
+- verdicts: 6 findings — high 0, medium 1, low 3, false 1, maybe-false 1
+- findings:
+  - `[medium]` `[patch]` `release_ollama` passait par le client de l'adaptateur, au délai de lecture de 300 s : à la fermeture de WaveStack, un Ollama bloqué pouvait retenir l'arrêt cinq minutes — délai propre au déchargement (`RELEASE_TIMEOUT`, 10 s, connexion 2 s).
+  - `[low]` `[patch]` Le parcours E2E complet échouait une fois sur deux sur « wavestack-fake est actif. » : sur une page de diagnostic dont le flux rejoue un long journal, le repli de 3 s affichait « Le modèle choisi est actif. » avant l'événement — `/api/diagnostic.loaded` porte `label`, et le repli nomme le modèle comme `model_load_ended`.
+  - `[low]` `[reject]` Les métadonnées de llama-server envoient une requête `/tokenize` par marqueur de `[cloud] neutralize_markers` (17) au chargement — quelques millisecondes en boucle locale ; les regrouper demanderait un découpage des pièces par marqueur.
+  - `[low]` `[reject]` Le cache id → octets de `LlamaServerEngine` n'est pas borné — il ne dépasse pas la taille du vocabulaire (≈ 150 000 entrées), libéré avec l'adaptateur.
+  - `[false]` `[reject]` « Une sonde enfant pourrait être lancée pour un modèle servi » — `_load` ne sonde que `choice.kind == "file"` ; `select_server` appelle `_discover(None, probe_only=set())`.
+  - `[maybe-false]` `[defer]` Champs réels de llama-server et d'Ollama (`with_pieces`, `stop_type`, `default_generation_settings.n_ctx`, `prompt_eval_count` avec cache) non vérifiés sur de vrais serveurs, faute de réseau — à vérifier sur le PC cible (voir Auto Run Result).
 
 ## Design Notes
 
@@ -149,6 +168,16 @@ elif result.model_path or (launch and result.ready): app_session.boot(result.mod
 8. **`keep_alive: 0`.** Il est envoyé au changement de modèle et à la fermeture de WaveStack, lecture de « en quittant Ollama ». Au lancement, aucun préchargement : Ollama charge le modèle au premier appel, et le coût mesuré devient celui de `/api/ps` dès qu'il existe.
 9. **Formes choisies ici.** Les refs `ollama/{nom}` et `llama_server/{fichier}`, ainsi que `process: "external"` sur `core.model`, sont des choix de forme de cette story : AD-12 ne fixe que `hosting`.
 
+10. **(ajoutée à l'implémentation) Budget en Go.** La matrice dit « message chiffré en Mo » ; le refus reprend le message du `LoadRegistry` de la story 17 (« demande environ 5,0 Go ; … budget de 4,0 Go »), déjà livré et testé : un seul format pour tous les refus de changement. Le coût du modèle servi est chiffré, comme celui d'un fichier.
+11. **(ajoutée) Fenêtre d'Ollama.** `num_ctx` = min(fenêtre configurée, contexte natif lu dans le GGUF), calculé par l'adaptateur : c'est la fenêtre effective de la session, puisqu'Ollama n'a pas de contexte propre tant qu'on ne lui en envoie pas. En `vocab_only`, llama-cpp-python ne charge pas les hyperparamètres (`n_ctx_train()` vaut 0) : le contexte natif est lu dans `{architecture}.context_length`.
+12. **(ajoutée) `VocabTokenizer`.** Il ouvre le GGUF par `llama_cpp._internals.LlamaModel` avec `vocab_only = True`, et non par `Llama(vocab_only=True)`, qui crée aussi un contexte d'inférence. Vérifié sur un GGUF réel du poste de développement (granite-embedding 107M) : chargement en ≈ 44 Mo, échec d'un faux GGUF en `ValueError` (repris par le chemin de chargement).
+13. **(ajoutée) Chemin du fichier servi.** `ModelCandidate.gguf_path` porte le blob d'Ollama (tokenizer) ou le fichier chargé par llama-server (`/props model_path`, pour sa taille seulement) ; `path` reste réservé aux fichiers chargeables en processus, pour qu'un modèle servi ne soit jamais confondu avec le fichier du même blob.
+14. **(ajoutée) `booted_server`.** La story 17 a supprimé `booted_path` et `booted_cloud` : le modèle chargé vient de la session applicative (`/api/diagnostic.loaded = {kind, ref, label}`), et le choix enregistré de `selected = {kind, ref}`. Les champs `selected_model` et `loaded_model` restent pour les fichiers.
+15. **(ajoutée) Erreur de serveur.** Un serveur arrêté pendant l'appel (connexion refusée, 5xx, objet `error` dans le flux) donne `harness_error` « Serveur local injoignable ({adresse}) : {cause} », puis `turn_ended{error}` ; la même erreur pendant la tokenisation du rendu (llama-server) passe par l'erreur de tour, avec le même message.
+16. **(ajoutée) Tests sans serveur réel.** Toute la suite pytest passe par `servers.default_transport`, qu'une fixture automatique remplace par un transport qui refuse toute connexion ; les tests de la story y posent leur `httpx.MockTransport`.
+17. **(ajoutée) « /api/architecture ».** Le critère d'acceptation 2 cite `/api/architecture`, qui n'existe pas : le schéma rechargé vient de `architecture_changed` dans `/api/state` (AD-1), vérifié par test et dans le navigateur.
+18. **(ajoutée) Parcours E2E.** Le faux llama-server et le faux Ollama tournent pendant tout le parcours (ports libres, `settings.json`) : le diagnostic de départ bloque sur « choisissez un modèle servi » au lieu de « aucun modèle », et le scénario `local_server` revient au faux modèle cloud pour `relaunch`. Le faux Ollama sert un modèle sans GGUF sur le disque (ligne « incompatible ») : la voie `ollama_raw` n'est vérifiée que par pytest.
+
 ## Verification
 
 **Commands:**
@@ -161,5 +190,52 @@ elif result.model_path or (launch and result.ready): app_session.boot(result.mod
 
 ## Auto Run Result
 
-Status: ready-for-dev
-Blocking condition: aucune (arrêt demandé après la planification)
+Status: done
+Blocking condition: aucune
+
+**Résumé.** Un modèle servi par un Ollama ou un llama-server déjà lancé devient un candidat
+`{kind: server, ref}` qu'on choisit comme un fichier, au diagnostic et dans le sélecteur de la
+barre haute (entrée « (palier 2) » de la story 17 activée). Deux adaptateurs de texte rendu
+derrière le port `Engine`, inchangé : `llama_server` (ids par `/completion`, tokenizer du serveur
+par `/tokenize` avec pièces) et `ollama_raw` (texte par `/api/generate` en `raw`, `num_ctx` =
+fenêtre effective, tokenizer `vocab_only` du GGUF, « transparence réduite » sur écart de
+`prompt_eval_count` ou champ `thinking`). Le moteur en processus est libéré, la mémoire du modèle
+servi est comptée dans le budget, `keep_alive: 0` part en quittant Ollama (changement, fermeture).
+Fenêtre `server` quand le contexte du serveur l'emporte. Schéma : robot hors du cadre Harnais,
+boîte « {provider} · {adresse} » dans la zone Poste de travail ; indicateur « Local · {provider} ».
+Serveurs seuls : choix bloquant, jamais d'office ; choix mémorisé repris s'il est encore servi.
+
+**Fichiers.**
+- `src/wavestack/models/servers.py` (nouveau) : `LlamaServerEngine`, `OllamaRawEngine`, `ServerError`, `list_served`, `served_bytes`, `release_ollama`, `open_engine`.
+- `src/wavestack/models/engine.py` : `VocabTokenizer` factorisé (`vocab_only` ou modèle chargé), réutilisé par `LlamaCppEngine` ; `EngineMetadata.server_context`.
+- `src/wavestack/net/factory.py` : `create_loopback_client` (sans proxy, boucle locale seule).
+- `src/wavestack/models/discovery.py` : un candidat par modèle servi (`engine`, `ref`, `provider`, `served_bytes`, `gguf_path`), blob Ollama vérifié.
+- `src/wavestack/models/capabilities.py` : famille `qwen3` par le gabarit quand l'architecture manque.
+- `src/wavestack/models/load_registry.py` : `ModelChoice.served`, `server`, `provider`.
+- `src/wavestack/session/app_session.py` : `boot_server`, `server_factory`, coût servi, installation serveur (fenêtre `server`), `active_model` et `core.model` (`process: external`, arête locale), erreur « serveur local injoignable » ; `_SERVER_ONLY_FR` retiré.
+- `src/wavestack/session/diagnostic.py` : `selected_server`, `select_server`, `DiagnosticResult.server`, reprise du choix mémorisé, serveurs seuls bloquants, `hand_to`/`switch` serveur.
+- `src/wavestack/trace/catalog.py` : `ActiveModel.kind = server`, `server_url` ; `ArchitectureNode.process`, `server_url`.
+- `src/wavestack/web/app.py`, `static/diagnostic.html`, `static/app.js`, `static/app.css` : intention `kind: server`, `selected`/`loaded`, lignes serveur, sélecteur, indicateur, boîte `arch-server-model`.
+- `src/wavestack/config.py`, `wavestack.toml` : `[model_servers]` (délais), `loopback_ports`.
+- `tests/test_model_servers.py` (nouveau, 26 tests), `tests/conftest.py` (aucun serveur réel en test), `tests/test_cli_diagnostic.py` (serveurs seuls bloquants).
+- `tools/e2e/fake_local_server.py` (nouveau), `stack.py`, `run_e2e.py` (scénario `local_server`), `README.md`, capture `23-serveur-local-llama-server.jpg`.
+- `README.md` : section « Utiliser un serveur déjà lancé (Ollama, llama-server) » ; `deferred-work.md` : première entrée fermée.
+
+**Revue.** 6 constats (auto-revue brève, sans sous-agent) : 2 correctifs (1 medium, 1 low),
+1 différé (maybe-false, champs réels des serveurs), 3 rejetés (voir le journal de triage).
+`followup_review_recommended: false` (un seul `medium` corrigé, aucun `high`).
+
+**Vérification.** `uv run ruff check .` : OK ; `uv run ruff format --check .` : OK ;
+`node --check` sur `app.js` et le script de `diagnostic.html` : OK ; `uv run python -m pytest -q` :
+552 réussis, 3 sautés ; parcours E2E complet (`tools/e2e/run_e2e.py`) : 211 vérifications
+réussies, 0 échec, 0 anomalie connue, dont 18 du scénario `local_server` (détection, choix dans le
+sélecteur, schéma, tour complet avec `get_datetime`, ids reçus = texte rendu, rechargement).
+
+**Risques résiduels (à tester sur le PC cible).**
+- Champs réels de llama-server (`/props`, `with_pieces`, `stop_type`, `tokens_predicted`) et
+  d'Ollama (`raw`, `prompt_eval_count` quand son cache sert, `done_reason`) : non vérifiés ici.
+- `vocab_only` de llama-cpp-python 0.3.35 sur les blobs `qwen35` d'Ollama : l'échec doit rester
+  une raison affichée (modèle précédent gardé).
+- `keep_alive: 0` : vérifier `ollama ps` vide après un changement de modèle et après la fermeture.
+- Budget : la taille d'Ollama (`/api/ps`) après chargement, et le cas d'un modèle Ollama déjà
+  chargé par un autre client.

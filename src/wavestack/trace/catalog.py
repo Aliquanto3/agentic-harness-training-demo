@@ -64,9 +64,11 @@ class ActiveModel(BaseModel):
     warning_fr: str | None = None  # the `cloud-warning`'s text, the indicator's tooltip
     banner_fr: str | None = None  # Contexte LLM's banner (chat mode)
     # Story 17: which entry of the model lists is active: a file (`ref`: its path) or a
-    # cloud model (`ref`: its `id`).
-    kind: Literal["file", "cloud"] | None = None
+    # cloud model (`ref`: its `id`); story 18: a served model (`ref`: `ollama/{name}` or
+    # `llama_server/{file}`), `provider` its server, `server_url` its loopback address.
+    kind: Literal["file", "server", "cloud"] | None = None
     ref: str | None = None
+    server_url: str | None = None
 
 
 class SessionStatePayload(BaseModel):
@@ -94,6 +96,10 @@ class ArchitectureNode(BaseModel):
     tools: list[str] = []  # MCP servers: the names of the tools they expose
     model: str | None = None  # `core.model`: file name (no extension) of the loaded model
     provider: str | None = None  # `core.model` of a cloud model: its provider (story 11)
+    # Story 18, `core.model` served by a local server: a process apart from the harness, on
+    # this workstation, at `server_url`.
+    process: Literal["external"] | None = None
+    server_url: str | None = None
     # Skills (story 7): loaded in the conversation or not. Any node: what its tooltip adds
     # (a skill's or a hook's description, the audit log's path).
     loaded: bool | None = None

@@ -1302,6 +1302,130 @@ def s_model_switch(r: Run) -> None:
     r.wait_idle()
 
 
+LLAMA_FILE = "faux-llama-server.gguf"
+LLAMA_OPTION = f"Local · llama-server · {LLAMA_FILE}"
+
+
+def s_local_server(r: Run) -> None:
+    """Story 18: models of already-running local servers. Detection at the diagnostic, choice
+    in the picker, the schema (a local process apart from the harness), a whole turn with a
+    tool, a reload; then back to the cloud fake model."""
+    page = r.page
+    address = r.stack.llama_url.removeprefix("http://")
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    llama_row = page.locator("#candidates li", has_text=f"llama-server · {LLAMA_FILE}")
+    expect(llama_row).to_be_visible(timeout=20_000)
+    text = llama_row.inner_text()
+    r.check(
+        "Local" in text and r.stack.llama_url in text and "Mémoire du modèle servi" in text,
+        "diagnostic : le modèle servi par llama-server est listé (Local, adresse, mémoire)",
+        text.replace("\n", " · "),
+    )
+    r.check(
+        llama_row.get_by_role("button", name="Choisir").count() == 1,
+        "diagnostic : « Choisir » en face du modèle servi",
+    )
+    ollama_row = page.locator("#candidates li", has_text="Ollama · faux-ollama:latest")
+    r.check(
+        ollama_row.count() == 1
+        and "introuvable" in ollama_row.inner_text()
+        and ollama_row.get_by_role("button", name="Choisir").count() == 0,
+        "diagnostic : un modèle Ollama sans GGUF lisible est incompatible, sans « Choisir »",
+        ollama_row.inner_text().replace("\n", " · ") if ollama_row.count() else "absent",
+    )
+    r.check("palier 2" not in page.inner_text("body"), "diagnostic : plus de « palier 2 »")
+
+    page.goto(f"{r.stack.app_url}/")
+    r.launch("native_tools")
+    options = _picker_options(r)
+    r.check(
+        options.get(LLAMA_OPTION) is False,
+        "sélecteur : le modèle servi est choisissable",
+        str([o for o in options if "Local" in o]),
+    )
+    r.check(
+        options.get("Local · Ollama · faux-ollama:latest (incompatible)") is True,
+        "sélecteur : le modèle Ollama incompatible est grisé",
+    )
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label=LLAMA_OPTION)
+    page.click("#model-picker-apply")
+    started = r.ev.wait("model_load_started", seq, timeout=10)
+    r.check(
+        started["payload"]["phase_label"] == "Préparation du modèle servi par llama-server…",
+        "chargement : « Préparation du modèle servi par llama-server… »",
+        started["payload"]["phase_label"],
+    )
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)
+    r.check(ended["payload"]["status"] == "ok", "modèle servi prêt", str(ended["payload"]))
+    indicator = page.locator("#model-indicator")
+    expect(indicator).to_contain_text("Local · llama-server", timeout=10_000)
+    title = indicator.get_attribute("title") or ""
+    r.check(
+        "processus distinct de WaveStack" in title and address in title,
+        "indicateur : « Local · llama-server », infobulle processus distinct",
+        title,
+    )
+    r.wait_idle()
+    box = page.locator("#schema .arch-zone-local .arch-server-model")
+    expect(box).to_be_visible(timeout=10_000)
+    r.check(
+        f"llama-server · {address}" in box.inner_text()
+        and box.locator(".robot").count() == 1
+        and page.locator("#schema .arch-harness .robot").count() == 0
+        and page.locator("#schema .arch-zone-network .robot").count() == 0,
+        "schéma : robot hors du cadre Harnais, en zone Poste de travail, boîte llama-server",
+        box.inner_text(),
+    )
+
+    seq = r.ev.mark()
+    ended = r.send("Quelle heure est-il ?")
+    r.check(ended["payload"]["status"] == "completed", "un tour complet avec le modèle servi")
+    r.check(
+        "D'après le résultat de l'outil" in r.last_answer(),
+        "l'appel d'outil get_datetime est parsé puis exécuté",
+        r.last_answer()[:120],
+    )
+    rendered = [e["payload"] for e in r.ev.since(seq, "context_rendered")]
+    calls = [e["payload"] for e in r.ev.since(seq, "model_call_ended")]
+    sent = [
+        q["body"]["prompt"]
+        for q in r.stack.local_requests(r.stack.llama_url)
+        if q["path"] == "/completion"
+    ][-2:]
+    prompts = ["".join(s["text"] for s in ctx["segments"]) for ctx in rendered]
+    r.check(
+        len(sent) == 2 and all(p.startswith("<|im_start|>system") for p in prompts),
+        "Contexte LLM : texte rendu par le harnais, gabarit compris",
+    )
+    r.check(
+        [sum(s["tokens"] for s in ctx["segments"]) for ctx in rendered]
+        == [c["prompt_tokens"] for c in calls]
+        == [len(ids) for ids in sent],
+        "somme des segments = prompt_tokens = ids reçus par llama-server",
+        str([c["prompt_tokens"] for c in calls]),
+    )
+    r.shot("23-serveur-local-llama-server")
+
+    page.reload()
+    expect(page.locator("#model-indicator")).to_contain_text("Local · llama-server", timeout=10_000)
+    expect(page.locator("#schema .arch-zone-local .arch-server-model .robot")).to_be_visible(
+        timeout=10_000
+    )
+    r.check(True, "rechargement : indicateur et robot hors du Harnais reviennent (AD-1)")
+
+    # Back to the cloud fake model: `relaunch` expects it saved.
+    r.wait_idle()
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label="RÉSEAU · Faux fournisseur (e2e) · wavestack-fake")
+    page.click("#model-picker-apply")
+    page.click("#cloud-warning-confirm")
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)
+    r.check(ended["payload"]["status"] == "ok", "retour au modèle cloud depuis le modèle servi")
+    expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=10_000)
+    r.wait_idle()
+
+
 def s_relaunch(r: Run) -> None:
     """Story 11: the cloud model chosen is kept at the next launch, without a new warning."""
     saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
@@ -1379,6 +1503,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("reload_and_reset", s_reload_and_reset),
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
+    ("local_server", s_local_server),
     ("relaunch", s_relaunch),
 ]
 

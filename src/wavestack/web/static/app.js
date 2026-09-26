@@ -1396,17 +1396,21 @@ function renderModelIndicator() {
   button.hidden = !model;
   if (!model) return;
   const network = model.hosting === "network";
+  const served = model.kind === "server"; // story 18: a local server's model
   const key = JSON.stringify(model);
   if (button.dataset.key === key) return;
   button.dataset.key = key;
   const tag = el(
     "span",
     network ? "hosting-tag-network" : "hosting-tag-local",
-    network ? `RÉSEAU · ${model.provider}` : "Local"
+    network ? `RÉSEAU · ${model.provider}` : served ? `Local · ${model.provider}` : "Local"
   );
   button.replaceChildren(tag, el("span", "model-indicator-name", model.label));
-  button.title =
-    model.warning_fr ?? `Modèle local ${model.label}, sur ce poste. Cliquez pour ouvrir le diagnostic.`;
+  button.title = served
+    ? `Modèle servi par ${model.provider} sur ce poste (${model.server_url}) : processus distinct ` +
+      "de WaveStack ; le texte envoyé est construit par le harnais."
+    : model.warning_fr ??
+      `Modèle local ${model.label}, sur ce poste. Cliquez pour ouvrir le diagnostic.`;
   button.setAttribute("aria-label", `Modèle actif : ${model.label}. ${button.title}`);
 }
 
@@ -1484,9 +1488,17 @@ function rebuildModelPicker(picker, active) {
   local.label = "Sur ce poste";
   const seen = new Set();
   for (const c of list.candidates ?? []) {
-    if (c.status === "server") {
-      // Story 18: an already running local server is listed, not choosable yet.
-      local.append(pickerOption("", `Serveur local ${c.server_url} (palier 2)`, { disabled: true }));
+    if (c.source === "server") {
+      // Story 18: a model an already-running local server serves, chosen like a file.
+      const isActive = active?.kind === "server" && active.ref === c.ref;
+      const unusable = c.status !== "server";
+      const suffix = isActive ? " (actif)" : unusable ? " (incompatible)" : "";
+      local.append(
+        pickerOption(`server:${c.ref}`, `Local · ${c.provider} · ${c.name}${suffix}`, {
+          disabled: isActive || unusable,
+          title: unusable ? c.reason ?? "" : `${c.provider} sur ${c.server_url}`,
+        })
+      );
       continue;
     }
     if (c.status !== "found" || !c.path || seen.has(c.path)) continue;
@@ -1540,7 +1552,7 @@ async function applyPick() {
     openCloudWarning(store.modelList?.cloud?.models?.find((m) => m.id === ref));
     return;
   }
-  await selectModel({ kind: "file", ref });
+  await selectModel({ kind, ref }); // a file, or a served model (story 18)
 }
 
 async function selectModel(body) {
@@ -3809,16 +3821,28 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
     chips.appendChild(chip);
   }
   if (!anyBrick) chips.appendChild(el("p", "arch-harness-empty", "Aucune brique : LLM nu"));
-  // AD-12: a cloud model is drawn in the network zone, with its provider.
+  // AD-12: a cloud model is drawn in the network zone, with its provider; a served model
+  // (story 18) out of the harness frame, on the workstation, as the process it is.
   const model = byId["core.model"];
   const cloud = model?.hosting === "network";
-  core.append(...(cloud ? [chips] : [robotNode, chips]));
+  const served = model?.process === "external";
+  core.append(...(cloud || served ? [chips] : [robotNode, chips]));
   frame.append(tag, core);
   if (hooks) frame.appendChild(hookStrip(hooks, byId, blocked));
 
   const local = el("div", "arch-zone arch-zone-local");
   const localRow = el("div", "arch-zone-row");
-  localRow.append(frame, ...schemaColumns("local", nodes));
+  localRow.append(frame);
+  if (served) {
+    const address = (model.server_url || "").replace(/^https?:\/\//, "");
+    const box = el("div", "arch-server-model");
+    box.title =
+      `${model.provider} · processus local distinct du harnais, sur ce poste (${address}) : ` +
+      "l'appel reste sur la boucle locale, le texte envoyé est construit par le harnais.";
+    box.append(robotNode, el("span", "arch-node-name", `🖥 ${model.provider} · ${address}`));
+    localRow.appendChild(box);
+  }
+  localRow.append(...schemaColumns("local", nodes));
   local.append(el("span", "arch-zone-label", "🖥 Poste de travail"), localRow);
 
   const boundary = el("div", "arch-boundary");
