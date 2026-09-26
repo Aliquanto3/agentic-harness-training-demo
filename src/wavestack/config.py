@@ -464,9 +464,11 @@ class Config:
         ports = {}
         for name, port in value.items():
             try:
-                ports[str(name)] = int(port)
+                number = int(port)
             except (TypeError, ValueError):
                 continue
+            if 1 <= number <= 65535:  # any other value would break the diagnostic's URLs
+                ports[str(name)] = number
         return ports
 
     @property

@@ -296,3 +296,18 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
   summary: Page de diagnostic, « Choisir » un modèle : quand `/api/diagnostic/stream` rejoue un long journal depuis le début, le repli de la page (« Le modèle choisi est actif. », après 3 s) s'affiche avant le `model_load_ended` et son texte « {modèle} est actif. ».
   evidence: Vu au parcours E2E complet après la revue de la story 15 (plus d'événements avant le scénario `model_switch`) ; le scénario seul passe. Les deux textes disent que le changement a réussi : le parcours accepte les deux. À corriger dans diagnostic.html (reprendre le flux au `seq` de `/api/state`, ou armer le repli seulement une fois le rejeu fini).
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: Les champs réels de llama-server (`/props`, `with_pieces`, `stop_type`, `tokens_predicted`, `default_generation_settings.n_ctx` par emplacement) et d'Ollama (`raw`, `prompt_eval_count` avec cache, `done_reason`, `/api/ps`) ne sont vérifiés que sur des doublures.
+  evidence: Aucun réseau ni serveur réel pendant la story. Un tour avec `get_datetime` sur chacun des deux serveurs, sur le PC cible, tranche ; noter toute alerte « transparence réduite » et les deux comptes qu'elle cite.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: Le tokenizer `vocab_only` des blobs `qwen35` d'Ollama avec llama-cpp-python 0.3.35 n'est pas vérifié sur un vrai blob.
+  evidence: Un GGUF synthétique étiqueté `qwen35` s'ouvre en `vocab_only` (architecture et tokenizer seuls) ; l'échec connu de ces blobs (story 9) concerne le chargement complet. Sur le PC cible : choisir un modèle Qwen3.5 servi par Ollama ; s'il est refusé, la raison doit renvoyer vers llama-server et le modèle précédent rester actif.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: `keep_alive: 0` et le budget d'un modèle servi ne sont vérifiés qu'avec des doublures.
+  evidence: Sur le PC cible, `ollama ps` doit être vide après un changement de modèle et après la fermeture de WaveStack, pour un modèle que WaveStack a fait charger ; un modèle déjà chargé par un autre programme doit y rester. La taille rapportée par `/api/ps` après le premier appel doit correspondre au coût compté.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: La coupure de la socket à l'annulation (`shutdown` depuis un fil de veille) n'est vérifiée que sous Linux, contre une socket de test.
+  evidence: Sous Windows, face à un vrai Ollama qui charge un modèle, « Arrêter » et la fermeture de WaveStack doivent rendre la main en moins d'une seconde ; sinon, l'arrêt attend le premier token ou le délai de lecture (`[model_servers] read_timeout_s`).

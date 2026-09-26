@@ -5,7 +5,7 @@ created: '2026-09-26'
 status: 'done'
 baseline_revision: '3442f99880e4930df05fc00d900e13c9ab908411'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-agentic-harness-training-demo-2026-09-23/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-agentic-harness-training-demo-2026-09-22/EXPERIENCE.md'
@@ -144,6 +144,13 @@ deferred:
   - `[false]` `[reject]` « Une sonde enfant pourrait être lancée pour un modèle servi » — `_load` ne sonde que `choice.kind == "file"` ; `select_server` appelle `_discover(None, probe_only=set())`.
   - `[maybe-false]` `[defer]` Champs réels de llama-server et d'Ollama (`with_pieces`, `stop_type`, `default_generation_settings.n_ctx`, `prompt_eval_count` avec cache) non vérifiés sur de vrais serveurs, faute de réseau — à vérifier sur le PC cible (voir Auto Run Result).
 
+### 2026-09-26 — Revue indépendante (4 relecteurs, triage de l'orchestrateur)
+Tous les points ont été appliqués ; aucun ne s'est révélé faux à la vérification. Tests Python dans `tests/test_model_servers.py`, section « independent review of story 18 » (27 tests de plus, dont 3 sur un GGUF synthétique réel) ; front couvert par le parcours E2E `local_server`.
+- Intention : « Choisir » d'un modèle servi cliqué au diagnostic (changement à chaud depuis le modèle cloud, issue « faux-llama-server est actif. », ligne « chargé ») puis le sélecteur ; `num_ctx` donné par la session (`use_window`), une seule source ; mémoire du tokenizer `vocab_only` couverte par la marge au contrôle et mesurée ensuite dans le RSS (documenté, testé par le coût d'un modèle Ollama non chargé) ; hypothèse 6 corrigée (contradiction avec 11) ; refus du tokenizer expliqué dans la raison (« servez-le plutôt avec llama-server ») et le README ; reconstruction du texte d'Ollama testée avec le vrai tokenizer `vocab_only` du GGUF synthétique (« É », « 🙂 » coupés en pièces d'octets, marqueurs en un token).
+- Blind hunter : « transparence réduite » seulement si Ollama lit plus de tokens que le harnais ; moins = son cache, nouvel événement d'information `server_cache_used` (libellé « Cache du serveur local ») ; `keep_alive: 0` seulement pour un modèle qu'Ollama n'avait pas en mémoire au listage (`resident`) et après au moins une génération ; budget : modèle servi déjà résident compté, jamais refusé, modèle Ollama non chargé compté comme un fichier (taille, KV à la fenêtre, marge) ; arrêt pendant le chargement d'Ollama : un fil de veille coupe la socket (`shutdown`) dès l'annulation, `AppSession.close` compris (test sur une vraie socket de boucle locale) ; réponses mal formées (JSON illisible, non-objet, lignes de flux, flux sans fin) → `ServerError`, `list_served` ignore le serveur ; README (`-np 1`, fenêtre « serveur », Qwen3.5 d'Ollama, budget, `keep_alive`) ; modèles « cloud » d'Ollama (`-cloud`, `remote_host`) jamais listés ; reports dans deferred-work.md ; `/api/ps` lu une fois par serveur au listage, aucun appel réseau dans `switch_model` (le coût vient du candidat relu par la découverte) ; famille `qwen3` par le gabarit seulement avec `enable_thinking` ou `<think>` ; échantillonnage : pénalités neutres de llama-cpp-python envoyées (`repeat_penalty` 1, `presence_penalty` et `frequency_penalty` 0 ; Ollama applique 1,1 par défaut), pas de graine (aléatoire comme en processus) ; tests `loopback_ports`, marqueur d'arrêt d'Ollama, `/api/diagnostic.selected`/`loaded` pour un fichier et un modèle cloud, `VocabTokenizer`.
+- Écarts de vérification : changement à chaud vers un modèle servi par `/api/intentions/select_model` après un fichier ; blob sans magie GGUF ; délai propre du déchargement (`timeout.read == 10`) ; **refactor de `LlamaCppEngine` exercé par la suite par défaut** : `tests/fixtures/tiny-llama.gguf` (≈ 40 Ko, architecture `llama` à une couche, vocabulaire octet par octet, gabarit ChatML), écrit une fois par `uv run --with gguf python tests/fixtures/make_tiny_gguf.py` (le paquet `gguf` n'entre pas dans `uv.lock` : `uv add --dev gguf` échoue hors ligne, l'index de llama-cpp-python étant injoignable) ; chargement complet et `vocab_only`, métadonnées, repli `{arch}.context_length`, tokenisation, pièces, génération, fermeture.
+- Cas limites : l'index des échecs connus du diagnostic exclut les candidats sans chemin (un modèle servi incompatible marquait tous les autres incompatibles au choix d'un fichier) ; ports hors 1..65535 ignorés ; `[DONE]` ignoré, autre ligne non JSON refusée ; flux fini sans `stop`/`done` → « flux interrompu avant la fin de la réponse » ; pièces manquantes demandées une fois chacune, U+FFFD de `/detokenize` refusé sans mise en cache ; marqueurs du gabarit (`<tool_call>`, `<think>`…) neutralisés quand le vocabulaire du serveur en fait un token ; taille inconnue d'un modèle servi affichée « inconnue » au diagnostic (un tel modèle est toujours résident, donc jamais refusé) ; modèle servi mémorisé devenu incompatible : sa raison dans l'avertissement du diagnostic.
+
 ## Design Notes
 
 Le port garde `complete(ids)`. `ollama_raw` rebâtit son texte par ses propres pièces, que le contrôle 6 d'AD-4 garantit égales à `rendered.prompt` : cela évite d'ajouter `RenderedPrompt` au port et de toucher le moteur factice. Même esprit pour `llama_server` : les ids qu'il reçoit sont ceux qu'il a lui-même produits par `/tokenize`, donc la jauge est exacte sans tokenizer local.
@@ -163,13 +170,13 @@ elif result.model_path or (launch and result.ready): app_session.boot(result.mod
 3. **Texte d'Ollama.** Il est reconstruit à partir des ids (voir Design Notes), sans nouveau champ au port.
 4. **Transparence réduite.** La règle est appliquée à la lettre (`prompt_eval_count` ≠ compte du harnais). Hypothèse : les versions actuelles d'Ollama renvoient le compte complet même quand le cache sert. Le message cite les deux causes possibles (tokenisation d'Ollama, cache). Un champ `thinking` reçu en `raw` déclenche le même événement.
 5. **Métadonnées de llama-server.** Elles viennent du serveur seul (`/props`, `/v1/models`, `/tokenize`), sans `vocab_only`. La famille est détectée par le gabarit, puisque l'architecture n'est pas exposée. L'hypothèse s'appuie sur les champs actuels de llama-server (`model_path`, `default_generation_settings.n_ctx`, `with_pieces`, `parse_special`), non vérifiés ici faute de réseau.
-6. **Qwen3.5 d'Ollama et `vocab_only`.** llama-cpp-python 0.3.35 lit les hyperparamètres même en `vocab_only` : les blobs `qwen35` d'Ollama (deferred-work, story 9) peuvent y échouer. L'échec est alors une raison affichée, pas un plantage. llama-server, qui tokenise lui-même, reste la voie pour ces modèles.
+6. **Qwen3.5 d'Ollama et `vocab_only`.** *(corrigée à la revue indépendante)* En `vocab_only`, llama-cpp-python 0.3.35 ne lit pas les hyperparamètres (`n_ctx_train()` vaut 0, voir 11) : il lit l'architecture et le tokenizer seulement. Un GGUF synthétique étiqueté `qwen35` s'ouvre ainsi en `vocab_only` ; l'échec des blobs `qwen35` d'Ollama en chargement complet (deferred-work, story 9) ne dit donc rien de leur tokenizer, à vérifier sur le PC cible. Si le tokenizer est refusé, la raison affichée le dit et renvoie vers llama-server, qui tokenise lui-même ; le modèle précédent reste actif.
 7. **Client sans proxy.** Il est réservé à la boucle locale : avec `HTTP_PROXY` défini sur le PC pro, un client `trust_env` enverrait `127.0.0.1` au proxy.
 8. **`keep_alive: 0`.** Il est envoyé au changement de modèle et à la fermeture de WaveStack, lecture de « en quittant Ollama ». Au lancement, aucun préchargement : Ollama charge le modèle au premier appel, et le coût mesuré devient celui de `/api/ps` dès qu'il existe.
 9. **Formes choisies ici.** Les refs `ollama/{nom}` et `llama_server/{fichier}`, ainsi que `process: "external"` sur `core.model`, sont des choix de forme de cette story : AD-12 ne fixe que `hosting`.
 
 10. **(ajoutée à l'implémentation) Budget en Go.** La matrice dit « message chiffré en Mo » ; le refus reprend le message du `LoadRegistry` de la story 17 (« demande environ 5,0 Go ; … budget de 4,0 Go »), déjà livré et testé : un seul format pour tous les refus de changement. Le coût du modèle servi est chiffré, comme celui d'un fichier.
-11. **(ajoutée) Fenêtre d'Ollama.** `num_ctx` = min(fenêtre configurée, contexte natif lu dans le GGUF), calculé par l'adaptateur : c'est la fenêtre effective de la session, puisqu'Ollama n'a pas de contexte propre tant qu'on ne lui en envoie pas. En `vocab_only`, llama-cpp-python ne charge pas les hyperparamètres (`n_ctx_train()` vaut 0) : le contexte natif est lu dans `{architecture}.context_length`.
+11. **(ajoutée) Fenêtre d'Ollama.** `num_ctx` est la fenêtre effective de la session (min(fenêtre configurée, contexte natif lu dans le GGUF)), que la session donne à l'adaptateur (`use_window`) : une seule source (revue indépendante). En `vocab_only`, llama-cpp-python ne charge pas les hyperparamètres (`n_ctx_train()` vaut 0) : le contexte natif est lu dans `{architecture}.context_length`.
 12. **(ajoutée) `VocabTokenizer`.** Il ouvre le GGUF par `llama_cpp._internals.LlamaModel` avec `vocab_only = True`, et non par `Llama(vocab_only=True)`, qui crée aussi un contexte d'inférence. Vérifié sur un GGUF réel du poste de développement (granite-embedding 107M) : chargement en ≈ 44 Mo, échec d'un faux GGUF en `ValueError` (repris par le chemin de chargement).
 13. **(ajoutée) Chemin du fichier servi.** `ModelCandidate.gguf_path` porte le blob d'Ollama (tokenizer) ou le fichier chargé par llama-server (`/props model_path`, pour sa taille seulement) ; `path` reste réservé aux fichiers chargeables en processus, pour qu'un modèle servi ne soit jamais confondu avec le fichier du même blob.
 14. **(ajoutée) `booted_server`.** La story 17 a supprimé `booted_path` et `booted_cloud` : le modèle chargé vient de la session applicative (`/api/diagnostic.loaded = {kind, ref, label}`), et le choix enregistré de `selected = {kind, ref}`. Les champs `selected_model` et `loaded_model` restent pour les fichiers.
@@ -223,9 +230,18 @@ Serveurs seuls : choix bloquant, jamais d'office ; choix mémorisé repris s'il 
 
 **Revue.** 6 constats (auto-revue brève, sans sous-agent) : 2 correctifs (1 medium, 1 low),
 1 différé (maybe-false, champs réels des serveurs), 3 rejetés (voir le journal de triage).
-`followup_review_recommended: false` (un seul `medium` corrigé, aucun `high`).
+Revue indépendante (4 relecteurs) : tous les points appliqués, voir le journal de triage.
+`followup_review_recommended: true` : la revue indépendante a corrigé des défauts sérieux
+(fausse « transparence réduite » dès que le cache d'Ollama sert, déchargement du modèle d'un
+autre client, arrêt bloqué jusqu'à 300 s) ; le risque non vérifié qui reste est la coupure de
+la socket à l'annulation sous Windows, face à un vrai Ollama qui charge un modèle.
 
-**Vérification.** `uv run ruff check .` : OK ; `uv run ruff format --check .` : OK ;
+**Vérification après la revue indépendante.** `uv lock --check --offline`, `ruff check`,
+`ruff format --check`, `node --check` (`app.js`, script de `diagnostic.html`) : OK ;
+`pytest -q` : 656 réussis, 4 sautés ; parcours E2E complet : 267 vérifications réussies,
+0 échec, 0 anomalie connue.
+
+**Vérification (première passe).** `uv run ruff check .` : OK ; `uv run ruff format --check .` : OK ;
 `node --check` sur `app.js` et le script de `diagnostic.html` : OK ; `uv run python -m pytest -q` :
 552 réussis, 3 sautés ; parcours E2E complet (`tools/e2e/run_e2e.py`) : 211 vérifications
 réussies, 0 échec, 0 anomalie connue, dont 18 du scénario `local_server` (détection, choix dans le
@@ -238,4 +254,6 @@ sélecteur, schéma, tour complet avec `get_datetime`, ids reçus = texte rendu,
   une raison affichée (modèle précédent gardé).
 - `keep_alive: 0` : vérifier `ollama ps` vide après un changement de modèle et après la fermeture.
 - Budget : la taille d'Ollama (`/api/ps`) après chargement, et le cas d'un modèle Ollama déjà
-  chargé par un autre client.
+  chargé par un autre client (compté, jamais refusé ni déchargé).
+- Arrêt pendant le chargement d'un gros modèle par Ollama : « Arrêter » et la fermeture de
+  WaveStack doivent rendre la main en moins d'une seconde (coupure de la socket).

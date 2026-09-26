@@ -1694,8 +1694,9 @@ LLAMA_OPTION = f"Local · llama-server · {LLAMA_FILE}"
 
 def s_local_server(r: Run) -> None:
     """Story 18: models of already-running local servers. Detection at the diagnostic, choice
-    in the picker, the schema (a local process apart from the harness), a whole turn with a
-    tool, a reload; then back to the cloud fake model."""
+    by its « Choisir », the schema (a local process apart from the harness), a whole turn with
+    a tool, a reload; back to the cloud fake model, then the served model again from the
+    picker, and back."""
     page = r.page
     address = r.stack.llama_url.removeprefix("http://")
     page.goto(f"{r.stack.app_url}/diagnostic")
@@ -1721,29 +1722,38 @@ def s_local_server(r: Run) -> None:
     )
     r.check("palier 2" not in page.inner_text("body"), "diagnostic : plus de « palier 2 »")
 
+    # « Choisir » at the diagnostic: a hot switch from the cloud fake model.
+    # The page replays the whole journal first, and each replayed model check re-renders the
+    # list: a click on a button replaced meanwhile is lost. Clicked again until it starts.
+    seq = r.ev.mark()
+    for _ in range(5):
+        llama_row.get_by_role("button", name="Choisir").click()
+        started, _ = r.poll(lambda: bool(r.ev.since(seq, "model_load_started")), 3)
+        if started:
+            break
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)
+    r.check(ended["payload"]["status"] == "ok", "diagnostic : « Choisir » prépare le modèle servi")
+    expect(page.locator("#select-model-status")).to_have_text(
+        "faux-llama-server est actif.", timeout=10_000
+    )
+    expect(llama_row).to_contain_text("chargé", timeout=10_000)
+    r.check(
+        llama_row.get_by_role("button", name="Choisir").count() == 0,
+        "diagnostic : issue affichée, ligne marquée « chargé », sans « Choisir »",
+    )
+
     page.goto(f"{r.stack.app_url}/")
     r.launch("native_tools")
     options = _picker_options(r)
     r.check(
-        options.get(LLAMA_OPTION) is False,
-        "sélecteur : le modèle servi est choisissable",
+        options.get(f"{LLAMA_OPTION} (actif)") is True,
+        "sélecteur : le modèle servi actif est marqué et grisé",
         str([o for o in options if "Local" in o]),
     )
     r.check(
         options.get("Local · Ollama · faux-ollama:latest (incompatible)") is True,
         "sélecteur : le modèle Ollama incompatible est grisé",
     )
-    seq = r.ev.mark()
-    page.select_option("#model-picker", label=LLAMA_OPTION)
-    page.click("#model-picker-apply")
-    started = r.ev.wait("model_load_started", seq, timeout=10)
-    r.check(
-        started["payload"]["phase_label"] == "Préparation du modèle servi par llama-server…",
-        "chargement : « Préparation du modèle servi par llama-server… »",
-        started["payload"]["phase_label"],
-    )
-    ended = r.ev.wait("model_load_ended", seq, timeout=30)
-    r.check(ended["payload"]["status"] == "ok", "modèle servi prêt", str(ended["payload"]))
     indicator = page.locator("#model-indicator")
     expect(indicator).to_contain_text("Local · llama-server", timeout=10_000)
     title = indicator.get_attribute("title") or ""
@@ -1808,6 +1818,32 @@ def s_local_server(r: Run) -> None:
     page.click("#cloud-warning-confirm")
     ended = r.ev.wait("model_load_ended", seq, timeout=30)
     r.check(ended["payload"]["status"] == "ok", "retour au modèle cloud depuis le modèle servi")
+    expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=10_000)
+    r.wait_idle()
+
+    # The served model from the top bar's picker, then back again. The warning's dialog gave
+    # the focus back to the picker, which is rebuilt only once it loses it (story 17).
+    page.locator("#model-picker").blur()
+    ok, _ = r.poll(lambda: _picker_options(r).get(LLAMA_OPTION) is False, 10)
+    r.check(ok, "sélecteur : le modèle servi est choisissable", str(_picker_options(r)))
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label=LLAMA_OPTION)
+    page.click("#model-picker-apply")
+    started = r.ev.wait("model_load_started", seq, timeout=10)
+    r.check(
+        started["payload"]["phase_label"] == "Préparation du modèle servi par llama-server…",
+        "sélecteur : « Préparation du modèle servi par llama-server… »",
+        started["payload"]["phase_label"],
+    )
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)
+    r.check(ended["payload"]["status"] == "ok", "sélecteur : modèle servi prêt")
+    expect(page.locator("#model-indicator")).to_contain_text("Local · llama-server", timeout=10_000)
+    r.wait_idle()
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label="RÉSEAU · Faux fournisseur (e2e) · wavestack-fake")
+    page.click("#model-picker-apply")
+    page.click("#cloud-warning-confirm")
+    r.ev.wait("model_load_ended", seq, timeout=30)
     expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=10_000)
     r.wait_idle()
 

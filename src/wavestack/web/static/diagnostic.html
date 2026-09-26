@@ -224,11 +224,12 @@
       where.className = "action";
       where.textContent = c.server_url || "";
       li.appendChild(where);
-      if (c.served_bytes) {
+      if (c.status !== "incompatible") {
         const size = document.createElement("div");
         size.className = "served";
-        const go = (c.served_bytes / 1024 ** 3).toFixed(1).replace(".", ",");
-        size.textContent = `Mémoire du modèle servi : ≈ ${go} Go (processus distinct de WaveStack)`;
+        const go = c.served_bytes ? `≈ ${(c.served_bytes / 1024 ** 3).toFixed(1).replace(".", ",")} Go` : "inconnue";
+        const where = c.resident ? "déjà en mémoire" : "chargé par le serveur au premier appel";
+        size.textContent = `Mémoire du modèle servi : ${go}, ${where} (processus distinct de WaveStack)`;
         li.appendChild(size);
       }
       if (c.status === "incompatible") {

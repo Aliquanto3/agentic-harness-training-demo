@@ -529,6 +529,15 @@ class MemoryChangedPayload(BaseModel):
 # ---------- story 17: hot model switch (AD-2, AD-3, AD-8) ----------
 
 
+class ServerCacheUsedPayload(BaseModel):
+    """Story 18, information: Ollama read fewer prompt tokens than the harness counted, the
+    start of the prompt coming from its cache (not a « transparence réduite »)."""
+
+    prompt_tokens: int
+    evaluated_tokens: int
+    message_fr: str
+
+
 class ModelLoadStartedPayload(BaseModel):
     """A model load starts, out of any turn: at launch or on a switch. Its `ts` anchors the
     « Chargement du modèle… » stopwatch."""
@@ -611,6 +620,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
     "outbound_request": OutboundRequestPayload,
     "harness_error": HarnessErrorPayload,
+    "server_cache_used": ServerCacheUsedPayload,
     "session_state": SessionStatePayload,
     "architecture_changed": ArchitectureChangedPayload,
     "turn_started": TurnStartedPayload,
