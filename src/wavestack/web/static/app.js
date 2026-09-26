@@ -40,6 +40,10 @@ const store = {
   // Story 9b: the turn comparison open in Contexte LLM, UI state only: { left, right } turn ids.
   compare: null,
   bricks: null, // last `bricks_changed` payload: cards and system prompt, as the session computed them
+  // Story 14: the last `memory_changed` ({ entries, path, error_fr }), as the session wrote it
+  // (AD-1); the drawer's unsaved texts, by entry id (UI state only).
+  memory: null,
+  memoryDrafts: new Map(),
   openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
   openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
@@ -166,6 +170,10 @@ function applyEnvelope(envelope) {
       break;
     case "bricks_changed":
       store.bricks = p;
+      break;
+    case "memory_changed":
+      store.memory = p;
+      renderMemoryDrawer();
       break;
     case "armed_actions_changed":
       // AD-1: the chips are this list, never a local computation.
@@ -326,9 +334,15 @@ function applyEnvelope(envelope) {
       }
       break;
     case "effect_applied": {
+      if (p.effect === "memory_write") {
+        // Story 14: the entry `remember` wrote, shown in its own step (model's or forced).
+        const step = turn?.steps.filter((s) => s.type === "tool" && s.started.tool === "remember").at(-1);
+        if (step) (step.memoryWrites ||= []).push(p);
+        break;
+      }
       // The lines H2 appended to the audit log, shown in its own step.
       const step = turn?.steps.filter((s) => s.type === "hook").at(-1);
-      if (step) step.lines.push(...p.lines);
+      if (step) step.lines.push(...(p.lines ?? []));
       break;
     }
     case "approval_requested": {
@@ -489,6 +503,7 @@ const cleared = () => store.clearedSeq !== null && store.clearedSeq > (store.res
 let renderedBricks = null;
 let renderedArmed = null;
 let renderedForceUi = null;
+let renderedMemory = null;
 
 // Story 9: the forced actions' UI changed (toggle, form): the panel is rebuilt at next render.
 function forceUiChanged() {
@@ -499,10 +514,18 @@ function forceUiChanged() {
 function renderBricks() {
   // Rebuilt only when the session sends new cards or armed actions, or the forced actions' UI
   // changes, so an unfolded explanation stays open.
-  if (renderedBricks === store.bricks && renderedArmed === store.armed && renderedForceUi === store.forceForm) return;
+  if (
+    renderedBricks === store.bricks &&
+    renderedArmed === store.armed &&
+    renderedForceUi === store.forceForm &&
+    renderedMemory === store.memory
+  ) {
+    return;
+  }
   renderedBricks = store.bricks;
   renderedArmed = store.armed;
   renderedForceUi = store.forceForm;
+  renderedMemory = store.memory;
   const pane = document.getElementById("bricks");
   // The rebuild would drop keyboard focus: note it, restore it on the new element. A closed
   // forced-call form gives it back to its Forcer button.
@@ -559,6 +582,7 @@ function renderBricks() {
       toggle.setAttribute("aria-describedby", why.id);
       card.appendChild(why);
     }
+    if (brick.note_fr) card.appendChild(el("p", "brick-note", brick.note_fr));
     if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
@@ -596,6 +620,7 @@ function renderBricks() {
       card.append(help, popover);
       if (store.openBrickHelp.has(brick.id)) reopenPopovers.push(popover);
     }
+    if (brick.id === "global_memory") card.append(...memoryCardParts(brick));
     if (brick.id === "system_prompt") {
       const edit = el("button", "brick-edit", "Modifier le prompt");
       edit.type = "button";
@@ -683,6 +708,15 @@ const FORCE_LABELS = {
   tools: "Forcer l'appel",
   skills: "Déclencher le skill",
   mcp: "Charger la documentation",
+  global_memory: "Écrire en mémoire",
+};
+// Story 14: the memory write is forced from the card itself, a form with one field.
+const MEMORY_FORCE_OPTION = {
+  id: "remember",
+  label_fr: "Mémoire globale",
+  parameters: { text: "L'information à retenir, en une phrase courte (300 caractères au plus)." },
+  fieldLabels: { text: "Texte" },
+  presets: [],
 };
 
 // Hidden by default: the SLMs are meant to act on their own. Remembered like the panes'
@@ -746,7 +780,9 @@ function forceButton(brick, option) {
   button.dataset.focusKey = `force:${brick.id}:${option.id}`;
   // A tool without parameter and a skill are armed at once; the others open their form.
   const needsForm =
-    brick.id === "mcp" || (brick.id === "tools" && Object.keys(option.parameters || {}).length > 0);
+    brick.id === "mcp" ||
+    brick.id === "global_memory" ||
+    (brick.id === "tools" && Object.keys(option.parameters || {}).length > 0);
   if (needsForm) button.setAttribute("aria-expanded", String(isFormOpen(brick.id, option.id)));
   button.addEventListener("click", () => {
     if (!needsForm) {
@@ -792,7 +828,9 @@ function forceForm(brick, option) {
   const arm = () =>
     brick.id === "mcp"
       ? armAction("tool_doc", form.values.tool, {}, form)
-      : armAction("tool", option.id, { ...form.values }, form);
+      : brick.id === "global_memory"
+        ? armAction("memory", option.id, { text: form.values.text ?? "" }, form)
+        : armAction("tool", option.id, { ...form.values }, form);
   if (brick.id === "mcp") {
     box.setAttribute("aria-label", `Charger la documentation d'un outil de ${option.label_fr}`);
     const select = el("select");
@@ -846,7 +884,7 @@ function forceForm(brick, option) {
           arm();
         }
       });
-      box.appendChild(forceField(name, input, help));
+      box.appendChild(forceField(option.fieldLabels?.[name] ?? name, input, help));
     }
   }
   if (form.error) {
@@ -1029,6 +1067,158 @@ async function saveSystemPrompt(text) {
     drawerAlert("Enregistrement refusé : WaveStack ne répond pas. Réessayez.");
     return false;
   }
+}
+
+// ---------- global memory: card and edit drawer (story 14, FR-12, AD-23) ----------
+
+const MEMORY_SOURCES = { model: "écrite par le modèle", user: "écrite par l'utilisateur", demo: "démonstration" };
+const memoryDrawer = () => document.getElementById("memory-drawer");
+
+function memoryCardParts(brick) {
+  // The count the last `memory_changed` gives, the forced write, then the drawer's button.
+  const parts = [];
+  const memory = store.memory;
+  if (memory && !memory.error_fr) {
+    const n = memory.entries.length;
+    parts.push(el("p", "brick-limits", n ? `${plural(n, "entrée")} en mémoire globale.` : "Mémoire globale vide."));
+  }
+  if (store.showForced) {
+    parts.push(forceButton(brick, MEMORY_FORCE_OPTION));
+    if (isFormOpen(brick.id, MEMORY_FORCE_OPTION.id)) parts.push(forceForm(brick, MEMORY_FORCE_OPTION));
+  }
+  const edit = el("button", "brick-edit", "Modifier la mémoire");
+  edit.type = "button";
+  edit.disabled = !memory || Boolean(memory.error_fr);
+  edit.id = "edit-memory";
+  edit.dataset.focusKey = "edit-memory";
+  edit.addEventListener("click", openMemoryDrawer);
+  parts.push(edit);
+  return parts;
+}
+
+function memoryAlert(text, dirtyChoice = false) {
+  const alert = document.getElementById("memory-alert");
+  alert.hidden = !text;
+  alert.textContent = text || "";
+  document.getElementById("memory-dirty").hidden = !dirtyChoice;
+}
+
+// The entries whose text differs from the one the session wrote: what « Enregistrer » sends.
+function memoryDirty() {
+  const entries = store.memory?.entries ?? [];
+  return entries.filter((e) => store.memoryDrafts.has(e.id) && store.memoryDrafts.get(e.id) !== e.text);
+}
+
+function openMemoryDrawer() {
+  if (!store.memory || store.memory.error_fr) return;
+  // The drawer lives in the bricks pane: shown first when hidden, or behind another focus.
+  if (store.hiddenPanes.has("bricks")) showPane("bricks");
+  if (store.focusedPane && store.focusedPane !== "bricks") {
+    store.focusedPane = null;
+    render();
+  }
+  if (!drawer().hidden) {
+    closeDrawer(); // an unsaved system prompt asks first, and the memory waits
+    if (!drawer().hidden) return;
+  }
+  store.memoryDrafts.clear();
+  memoryAlert(null);
+  memoryDrawer().hidden = false;
+  document.getElementById("bricks").inert = true; // cards under the drawer leave the Tab order
+  renderMemoryDrawer();
+  const first = document.querySelector("#memory-list textarea") || document.getElementById("memory-close");
+  first.focus();
+}
+
+function closeMemoryDrawer(force = false) {
+  if (!force && memoryDirty().length) {
+    memoryAlert("Modification non enregistrée. Enregistrer ou abandonner ?", true);
+    return;
+  }
+  store.memoryDrafts.clear();
+  memoryAlert(null);
+  memoryDrawer().hidden = true;
+  document.getElementById("bricks").inert = false;
+  document.getElementById("edit-memory")?.focus();
+}
+
+function renderMemoryDrawer() {
+  // Rebuilt from the last `memory_changed`, the texts being typed kept (AD-1).
+  if (memoryDrawer().hidden) return;
+  const memory = store.memory;
+  const list = document.getElementById("memory-list");
+  const focusKey = list.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  const entries = memory?.entries ?? [];
+  for (const id of [...store.memoryDrafts.keys()]) {
+    if (!entries.some((e) => e.id === id)) store.memoryDrafts.delete(id); // deleted meanwhile
+  }
+  document.getElementById("memory-path").textContent = memory ? `Fichier : ${memory.path}` : "";
+  document.getElementById("memory-empty").hidden = entries.length > 0;
+  document.getElementById("memory-clear").disabled = entries.length === 0;
+  list.innerHTML = "";
+  entries.forEach((entry, i) => {
+    const item = el("li", "memory-entry");
+    const label = `Entrée ${i + 1}`;
+    const head = el("div", "memory-entry-head");
+    head.append(el("span", "memory-entry-name", label), el("span", "memory-entry-source", MEMORY_SOURCES[entry.source] ?? entry.source));
+    const text = el("textarea", "memory-entry-text");
+    text.rows = 2;
+    text.maxLength = 300;
+    text.spellcheck = false;
+    text.value = store.memoryDrafts.get(entry.id) ?? entry.text;
+    text.setAttribute("aria-label", `Texte de l'entrée ${i + 1}`);
+    text.dataset.focusKey = `memory:${entry.id}:text`;
+    const save = el("button", "memory-entry-save", "Enregistrer");
+    save.type = "button";
+    save.disabled = text.value === entry.text;
+    save.setAttribute("aria-label", `Enregistrer l'entrée ${i + 1}`);
+    save.dataset.focusKey = `memory:${entry.id}:save`;
+    text.addEventListener("input", () => {
+      store.memoryDrafts.set(entry.id, text.value); // kept in place: typing never rebuilds
+      save.disabled = text.value === entry.text;
+    });
+    save.addEventListener("click", () => saveMemoryEntries([entry.id]));
+    const remove = el("button", "memory-entry-delete", "Supprimer");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Supprimer l'entrée ${i + 1}`);
+    remove.dataset.focusKey = `memory:${entry.id}:delete`;
+    remove.addEventListener("click", () => editMemory({ op: "delete", entry_id: entry.id }));
+    const actions = el("div", "drawer-actions memory-entry-actions");
+    actions.append(save, remove);
+    item.append(head, text, actions);
+    list.appendChild(item);
+  });
+  if (focusKey) {
+    const target = list.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`);
+    (target || document.getElementById("memory-close")).focus();
+  }
+}
+
+async function editMemory(body) {
+  // Class (b): the session writes `memory.json`; `memory_changed` redraws the list (AD-23).
+  try {
+    const response = await postIntention("/api/intentions/memory", body);
+    if (!response.ok) {
+      const answer = await response.json().catch(() => ({}));
+      memoryAlert(typeof answer.detail === "string" ? answer.detail : "Modification refusée.");
+      return false;
+    }
+  } catch {
+    memoryAlert("WaveStack ne répond pas : la mémoire n'a pas été modifiée.");
+    return false;
+  }
+  if (body.entry_id) store.memoryDrafts.delete(body.entry_id);
+  memoryAlert(null);
+  return true;
+}
+
+async function saveMemoryEntries(ids) {
+  for (const id of ids) {
+    const text = store.memoryDrafts.get(id);
+    if (text === undefined) continue;
+    if (!(await editMemory({ op: "replace", entry_id: id, text }))) return false;
+  }
+  return true;
 }
 
 async function clearConversation() {
@@ -1758,6 +1948,7 @@ function toolBody(step) {
     nodes.push(el("span", "step-badge is-mcp", "MCP"));
   }
   if (step.brick === "skills") nodes.push(el("span", "step-badge is-skill", "Skill"));
+  if (step.brick === "global_memory") nodes.push(el("span", "step-badge is-memory", "Mémoire globale"));
   // EXPERIENCE: trigger badge, read from the envelope's `trigger` (story 9).
   const badge = triggerBadge(step.trigger);
   if (badge) nodes.push(badge);
@@ -1773,6 +1964,10 @@ function toolBody(step) {
   nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
   if (ended.status === "ok") {
     nodes.push(el("p", "label", "Résultat"), el("pre", "step-code", ended.result));
+    for (const write of step.memoryWrites || []) {
+      // Story 14: what the harness wrote in memory.json, the model having only asked.
+      nodes.push(el("p", "label", "Entrée écrite dans memory.json par le harnais"), el("pre", "step-code", write.text));
+    }
   } else {
     nodes.push(
       el("span", "step-badge", "erreur d'exécution"),
@@ -2092,7 +2287,7 @@ function turnRows(turn) {
       const forced = step.trigger === "user";
       rows.push({
         key,
-        icon: harness ? (step.brick === "skills" ? "📘" : "📖") : "🔧",
+        icon: harness ? { skills: "📘", global_memory: "💾" }[step.brick] || "📖" : "🔧",
         title: harness ? step.started.phase_label : `Exécution · ${toolLabel(step.started.tool)}`,
         actor: forced ? "user" : harness ? "model" : "harness",
         trigger: step.trigger,
@@ -2889,7 +3084,9 @@ const KIND_LABELS = {
   approval_resolved: "Validation résolue",
   armed_actions_changed: "Actions armées",
   action_dropped: "Action forcée abandonnée",
+  memory_changed: "Mémoire globale modifiée",
 };
+const MEMORY_OPS = { add: "Ajout en mémoire", replace: "Modification en mémoire", delete: "Suppression en mémoire" };
 const SESSION_STATES = {
   idle: "prête",
   turn: "tour en cours",
@@ -2942,7 +3139,11 @@ function eventSummary(group) {
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_fr} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
-      return `${plural(p.lines.length, "ligne")} au journal d'audit`;
+      if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · « ${p.text} »`;
+      if (p.effect === "audit_append") return `${plural(p.lines.length, "ligne")} au journal d'audit`;
+      return p.key ?? p.id ?? p.effect;
+    case "memory_changed":
+      return p.error_fr ?? `${plural(p.entries.length, "entrée")} · ${p.path}`;
     case "approval_requested":
       return `${p.tool} → ${p.destination}`;
     case "approval_resolved":
@@ -3088,6 +3289,7 @@ function svgEl(tag, attrs) {
 const BRICK_ICONS = {
   short_memory: "🧠",
   system_prompt: "📜",
+  global_memory: "💾",
   reasoning: "💭",
   tools: "🔧",
   mcp: "🔌",
@@ -3428,6 +3630,7 @@ function schemaNode(node, shape) {
   button.title = tooltip.join("\n");
   button.setAttribute("aria-label", tooltip.join(". "));
   if (node.id === "file.audit") button.addEventListener("click", openAudit); // the whole log
+  if (node.id === "file.memory") button.addEventListener("click", openMemoryDrawer); // story 14
 
   if (shape !== "mcp" || !tools.length) return [button];
   // A selected MCP server unfolds its tools under it, in its bin (FR-3).
@@ -3625,6 +3828,12 @@ async function boot() {
     if (await saveSystemPrompt(drawerText().value)) closeDrawer(true);
   });
   document.getElementById("drawer-dirty-discard").addEventListener("click", () => closeDrawer(true));
+  document.getElementById("memory-close").addEventListener("click", () => closeMemoryDrawer());
+  document.getElementById("memory-clear").addEventListener("click", () => editMemory({ op: "clear" }));
+  document.getElementById("memory-dirty-save").addEventListener("click", async () => {
+    if (await saveMemoryEntries(memoryDirty().map((e) => e.id))) closeMemoryDrawer(true);
+  });
+  document.getElementById("memory-dirty-discard").addEventListener("click", () => closeMemoryDrawer(true));
   document.getElementById("audit-close").addEventListener("click", () =>
     document.getElementById("audit-dialog").close()
   );
@@ -3644,6 +3853,8 @@ async function boot() {
     if (document.getElementById("audit-dialog").open) return; // the dialog closes itself
     if (!drawer().hidden) {
       closeDrawer();
+    } else if (!memoryDrawer().hidden) {
+      closeMemoryDrawer();
     } else if (!document.getElementById("pane-menu-list").hidden) {
       closePaneMenu();
     } else if (store.focusedPane !== null) {
@@ -3661,6 +3872,7 @@ async function boot() {
     store.bricks = body.bricks_changed;
     store.armed = body.armed_actions_changed?.actions ?? [];
     store.scenarios = body.scenario_changed;
+    store.memory = body.memory_changed ?? null;
     const preview = body.context_preview;
     const rendered = body.context_rendered;
     const reconciled = body.context_reconciled;

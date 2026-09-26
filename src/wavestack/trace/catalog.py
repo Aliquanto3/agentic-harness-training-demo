@@ -273,6 +273,8 @@ class BrickState(BaseModel):
     lazy_label_fr: str | None = None
     # Story 13, `reasoning` brick only: the model always reasons, whatever the switch says.
     always_fr: str | None = None
+    # Story 14, `global_memory` brick: what the card adds (e.g. no tool parser, AD-6).
+    note_fr: str | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -360,8 +362,12 @@ class HookDecidedPayload(BaseModel):
 
 
 class EffectAppliedPayload(BaseModel):
-    effect: Literal["audit_append", "setting_write", "api_key_set"]
+    effect: Literal["audit_append", "setting_write", "api_key_set", "memory_write"]
     lines: list[str] = []
+    # `memory_write` (story 14, AD-23): the change applied to `memory.json`.
+    op: Literal["add", "replace", "delete"] | None = None
+    entry_id: str | None = None
+    text: str | None = None
     key: str | None = None  # `setting_write`: the settings.json key, never a secret
     # `api_key_set` (AD-23): only the cloud model's id and whether a key is now set.
     id: str | None = None
@@ -399,7 +405,7 @@ class ArmedActionState(BaseModel):
     """An armed action, as the session holds it (AD-3): the front projects its chips."""
 
     armed_id: str
-    kind: Literal["tool", "skill", "tool_doc"]
+    kind: Literal["tool", "skill", "tool_doc", "memory"]
     brick: str
     target: str
     args: dict[str, object] = {}
@@ -445,6 +451,25 @@ class HarnessResetPayload(BaseModel):
     pass
 
 
+# ---------- story 14: global memory (AD-20, AD-23) ----------
+
+
+class MemoryEntryState(BaseModel):
+    id: str
+    text: str
+    created_at: str
+    source: Literal["model", "user", "demo"]
+
+
+class MemoryChangedPayload(BaseModel):
+    """The whole memory after a change (AD-1): the drawer and the card project it."""
+
+    entries: list[MemoryEntryState]
+    path: str
+    # Unreadable or invalid `memory.json`: why the brick is unavailable, until a reset.
+    error_fr: str | None = None
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -481,4 +506,5 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "action_dropped": ActionDroppedPayload,
     "scenario_changed": ScenarioChangedPayload,
     "harness_reset": HarnessResetPayload,
+    "memory_changed": MemoryChangedPayload,
 }

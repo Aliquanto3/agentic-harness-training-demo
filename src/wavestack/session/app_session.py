@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from wavestack import config
+from wavestack import memory as memory_file
 from wavestack.bricks.contract import (
     BrickContent,
     BrickDeclaration,
@@ -74,6 +75,7 @@ from wavestack.session.effects import (
     ArmConsumed,
     AuditAppend,
     Effect,
+    MemoryWrite,
     SkillLoaded,
     ToolDocLoaded,
     ToolReply,
@@ -103,6 +105,8 @@ DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
 LOAD_TOOL_DOC = "load_tool_doc"  # the harness meta-tool of the lazy loading mode (AD-25)
 DOC_LINE_MAX = 120  # characters of a tool's first description line in `load_tool_doc`
 LOAD_SKILL = "load_skill"  # the harness meta-tool of the skills brick (AD-25)
+REMEMBER = "remember"  # the harness meta-tool of the global memory brick (AD-25)
+MEMORY = "file.memory"  # the schema node of `memory.json` (AD-12, AD-23)
 
 _CORE_HARNESS = {
     "id": "core.harness",
@@ -222,10 +226,11 @@ class _ModelOutput:
 @dataclass(frozen=True)
 class ArmedAction:
     """An action the user armed for the next turn (AD-3, AD-25): the session alone holds
-    them. `kind`: a native tool call with its `args`, a skill or an MCP documentation."""
+    them. `kind`: a native tool call with its `args`, a skill, an MCP documentation, or a
+    memory write with its `text` (story 14)."""
 
     armed_id: str
-    kind: str  # tool | skill | tool_doc
+    kind: str  # tool | skill | tool_doc | memory
     brick: str
     target: str
     args: dict[str, Any]
@@ -269,6 +274,9 @@ class TurnState:
     injection: str = ""
     # Story 9: the armed actions taken when the turn is sent, consumed in arming order.
     armed: tuple[ArmedAction, ...] = ()
+    # Story 14 (AD-4): the global memory's texts, read at the turn's start; empty when the
+    # brick is not effective. A write during the turn waits for the next one.
+    memory: tuple[str, ...] = ()
 
 
 def _with_loaded(state: TurnState, loaded_in_turn: list[str]) -> TurnState:
@@ -364,6 +372,12 @@ class AppSession:
         self._skills_content: SkillsContent | None = None
         self._hooks = hooks  # tests replace them to reach every point (CAP-27)
         self._hooks_content: HooksContent | None = None
+        # Story 14 (AD-20, AD-23): the global memory, the mirror of `memory.json` the session
+        # alone writes; `_memory_error` while the file is unreadable (brick unavailable).
+        self._memory_content: memory_file.MemoryContent | None = None
+        self._memory: list[memory_file.MemoryEntry] = []
+        self._memory_error: str | None = None
+        self._memory_lock = threading.Lock()  # one write at a time, whichever thread
         self._hook_steps = 0  # hook steps of the running turn, for their step ids
         self._turn_seq = 0  # seq of the running turn's `turn_started`: its events follow it
         self._load_content()
@@ -417,6 +431,7 @@ class AppSession:
         self._scenarios: ScenariosContent | None = None
         self._active_scenario: str | None = None
         self._load_scenarios()
+        self._emit_memory()
 
     def _apply_launch_config(self) -> None:
         """The launch configuration, applied again by a reset or before a scenario: no
@@ -562,6 +577,11 @@ class AppSession:
                 "hooks",
                 self._hooks_content.audit_label_fr if self._hooks_content else "audit.log",
                 str(config.audit_path()),
+            ),
+            MEMORY: (
+                "global_memory",
+                self._memory_content.file_label_fr if self._memory_content else "memory.json",
+                str(config.memory_path()),
             ),
         }
         for file_id, (brick_id, label, detail_fr) in files.items():
@@ -775,6 +795,8 @@ class AppSession:
             )
             if brick.id == "reasoning":
                 bricks[-1]["always_fr"] = self._always_fr()
+            if brick.id == "global_memory":
+                bricks[-1]["note_fr"] = self._memory_note_fr()
             if brick.id == "mcp":
                 bricks[-1] |= {
                     "mode": "lazy" if lazy else "full",
@@ -1017,6 +1039,8 @@ class AppSession:
                     exc,
                     "La brique « Hooks » est indisponible ; le reste de WaveStack fonctionne.",
                 )
+        if "global_memory" in self._bricks:
+            self._load_memory()
         if "system_prompt" not in self._bricks:
             return
         try:
@@ -1031,6 +1055,55 @@ class AppSession:
                 exc,
                 "La brique « Prompt système » est indisponible ; le reste fonctionne.",
             )
+
+    def _load_memory(self) -> None:
+        """Story 14 (AD-19, AD-20): its texts, then `memory.json`. An absent file gives the
+        demonstration memory, in memory only; an unreadable one makes the brick unavailable,
+        and is never written again but by a reset."""
+        try:
+            self._memory_content = memory_file.load_memory_content()
+        except Exception as exc:  # noqa: BLE001
+            self._content_errors["global_memory"] = (
+                "Le fichier content/memory/memory.yaml est absent ou invalide : corrigez-le puis "
+                "relancez WaveStack."
+            )
+            self._error(
+                "Les textes de la mémoire globale sont invalides.",
+                exc,
+                "La brique « Mémoire globale » est indisponible ; le reste de WaveStack "
+                "fonctionne.",
+            )
+            return
+        path = config.memory_path()
+        try:
+            entries = memory_file.read_memory(path)
+        except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+            self._memory_error = (
+                f"Le fichier de la mémoire globale ({path}) est illisible ou invalide : "
+                "corrigez-le puis relancez WaveStack, ou cliquez sur « Réinitialiser » pour "
+                "restaurer la mémoire de démonstration (le fichier sera remplacé)."
+            )
+            self._error(
+                "La mémoire globale est illisible.",
+                exc,
+                "La brique « Mémoire globale » est indisponible ; le fichier n'est pas modifié.",
+            )
+            return
+        if entries is None:  # H5: the demonstration, not written until a change
+            entries = memory_file.demo_entries(self._memory_content.demo, memory_file.now())
+        self._memory = entries
+
+    def _emit_memory(self) -> None:
+        """AD-1: the drawer and the card project the last `memory_changed`."""
+        if "global_memory" not in self._bricks:
+            return
+        with self._lock:
+            entries = [e.model_dump() for e in self._memory]
+            error_fr = self._memory_error
+        get_journal().emit(
+            "memory_changed",
+            {"entries": entries, "path": str(config.memory_path()), "error_fr": error_fr},
+        )
 
     # ---------- bricks (AD-12) ----------
 
@@ -1068,6 +1141,11 @@ class AppSession:
             return False, f"Le modèle chargé n'offre pas {needs} : choisissez un autre modèle."
         if brick_id in self._content_errors:
             return False, self._content_errors[brick_id]
+        if brick_id == "global_memory":
+            with self._lock:
+                error_fr = self._memory_error
+            if error_fr is not None:
+                return False, error_fr
         return True, None
 
     def _no_reasoning_fr(self) -> str:
@@ -1084,6 +1162,17 @@ class AppSession:
         return (
             "Indisponible : le modèle actif ne sait pas raisonner. Son gabarit de conversation "
             "n'a pas de variable de raisonnement : choisissez un modèle qui raisonne."
+        )
+
+    def _memory_note_fr(self) -> str | None:
+        """H4: without a tool parser, the memory is injected and edited, not written by the
+        model."""
+        if self._caps is None or self._caps.tool_call_parser:
+            return None
+        return (
+            "Le modèle actif ne sait pas appeler d'outil : il ne peut pas écrire en mémoire "
+            "lui-même, et « Écrire en mémoire » ne s'applique pas. La mémoire reste injectée "
+            "dans le contexte et modifiable depuis « Modifier la mémoire »."
         )
 
     def _always_fr(self) -> str | None:
@@ -1153,6 +1242,12 @@ class AppSession:
             skills = [s for s in enabled_skills if s in skills_loaded]
             catalog = [s for s in enabled_skills if s not in skills_loaded]
             tools += [LOAD_SKILL] if catalog else []
+        memory: tuple[str, ...] = ()
+        if "global_memory" in effective:  # AD-4: read now, frozen for the turn's calls
+            with self._lock:
+                memory = tuple(e.text for e in self._memory)
+            if self._caps is not None and self._caps.tool_call_parser:  # H4, AD-25
+                tools.append(REMEMBER)
         hooks = [h for h in self._hook_ids() if h in hooks_enabled] if "hooks" in effective else []
         return TurnState(
             history=tuple(history),
@@ -1163,6 +1258,7 @@ class AppSession:
             skills=tuple(skills),
             skill_catalog=tuple(catalog),
             hooks=tuple(hooks),
+            memory=memory,
         )
 
     # ---------- rendering ----------
@@ -1273,8 +1369,9 @@ class AppSession:
         return answer
 
     def _system_parts(self, state: TurnState) -> list[Part | Joined]:
-        """AD-4: the system prompt, then the skills catalog (its intro and one line per
-        skill), then the bodies of the skills loaded (AD-25)."""
+        """AD-4: the system prompt, then the global memory (its intro and one line per
+        entry), then the skills catalog (its intro and one line per skill), then the bodies
+        of the skills loaded (AD-25)."""
         parts: list[Part | Joined] = []
         if "system_prompt" in state.effective:
             parts.append(
@@ -1285,6 +1382,11 @@ class AppSession:
                     "system_prompt.prompt",
                 )
             )
+        if state.memory and self._memory_content is not None:
+            memory = (SegmentKind.GLOBAL_MEMORY, "global_memory", MEMORY)
+            intro = Part(memory[0], self._memory_content.intro, *memory[1:])
+            lines = [Part(memory[0], f"- {text}", *memory[1:]) for text in state.memory]
+            parts.append(Joined((intro, *lines), sep="\n"))
         content = self._skills_content
         if content is None:  # invalid content: the skills brick is unavailable anyway
             return parts
@@ -1674,6 +1776,17 @@ class AppSession:
                     not_found=True,
                 )
             args, brick, label_fr = {}, "mcp", f"Documentation de {target}"
+        elif kind == "memory":
+            if self._memory_content is None or target != REMEMBER:
+                raise ArmRefused(
+                    f"Action de mémoire inconnue : « {target} ». Rien n'est armé.", not_found=True
+                )
+            try:
+                text = memory_file.check_text(args.get("text"))
+            except ValueError as exc:
+                raise ArmRefused(f"{exc} Rien n'est armé.") from None
+            shown = text if len(text) <= 40 else f"{text[:40].rstrip()}…"
+            args, brick, label_fr = {"text": text}, "global_memory", f"Écrire en mémoire ({shown})"
         else:
             raise ArmRefused(f"Action inconnue : « {kind} ». Rien n'est armé.", not_found=True)
         with self._lock:
@@ -1728,8 +1841,8 @@ class AppSession:
         self._executor.submit(self._emit_preview)
 
     def _harness_tools(self) -> list[ToolSpec]:
-        """`load_tool_doc` and `load_skill`, registered once; the turn state decides when
-        they are offered. Invalid content: their brick is unavailable anyway."""
+        """`load_tool_doc`, `load_skill` and `remember`, registered once; the turn state
+        decides when they are offered. Invalid content: their brick is unavailable anyway."""
         specs = []
         if self._mcp_content is not None:
             specs.append(self._load_tool_doc_spec())
@@ -1751,6 +1864,26 @@ class AppSession:
                         "required": ["skill"],
                     },
                     required=("skill",),
+                )
+            )
+        if self._memory_content is not None:
+            text = self._memory_content.remember
+            specs.append(
+                ToolSpec(
+                    name=REMEMBER,
+                    run=self._remember,
+                    params={"text": "string"},
+                    component="core.harness",
+                    source="harness",
+                    brick="global_memory",
+                    label_fr=text.label_fr,
+                    description=text.description,
+                    schema={
+                        "type": "object",
+                        "properties": {"text": {"type": "string", "description": text.text}},
+                        "required": ["text"],
+                    },
+                    required=("text",),
                 )
             )
         return specs
@@ -1805,6 +1938,108 @@ class AppSession:
                 f"{', '.join(loadable) or 'aucun'}."
             )
         return ToolReply(text.body, (SkillLoaded(skill_id=skill),))
+
+    def _remember(self, text: str) -> ToolReply | str:
+        """AD-25: reads the memory, writes nothing; the session applies the effect (AD-23).
+        A refusal (empty, too long, full) is reinjected; a duplicate adds nothing."""
+        try:
+            text = memory_file.check_text(text)
+        except ValueError as exc:
+            raise ToolError(str(exc)) from None
+        with self._lock:
+            entries, error_fr = list(self._memory), self._memory_error
+        if error_fr is not None:  # the brick is unavailable then: kept as a safety net
+            raise ToolError("La mémoire globale est illisible : rien n'est écrit.")
+        if any(memory_file.same_text(e.text, text) for e in entries):
+            return f"Déjà en mémoire : « {text} ». Rien n'est ajouté."
+        if len(entries) >= memory_file.MAX_ENTRIES:
+            raise ToolError(
+                f"La mémoire globale est pleine ({memory_file.MAX_ENTRIES} entrées) : rien "
+                "n'est écrit. Réponds sans retenir cette information."
+            )
+        write = MemoryWrite(op="add", entry_id=memory_file.new_entry_id(), text=text)
+        return ToolReply(
+            f"Retenu en mémoire globale : « {text} ». Cette information sera dans le "
+            "contexte des prochaines conversations.",
+            (write,),
+        )
+
+    def _apply_memory(self, writes: list[MemoryWrite], source: memory_file.Source) -> str | None:
+        """AD-23, the single applier of `MemoryWrite`: applied in order on a copy, the file
+        written once, then one `effect_applied` per effect and one `memory_changed`. Returns
+        the French error reinjected when the file could not be written (memory unchanged)."""
+        with self._memory_lock:
+            with self._lock:
+                entries = list(self._memory)
+            updated = memory_file.apply_writes(entries, writes, source, memory_file.now())
+            try:
+                memory_file.write_memory(config.memory_path(), updated)
+            except OSError as exc:
+                self._error(
+                    "La mémoire globale n'a pas pu être écrite.",
+                    exc,
+                    "Elle reste inchangée ; le reste de WaveStack fonctionne.",
+                )
+                return "Erreur : la mémoire globale n'a pas pu être écrite ; rien n'est retenu."
+            with self._lock:
+                self._memory = updated
+                self._memory_error = None  # written: readable again (reset, H5)
+        with scoped(brick="global_memory", component=MEMORY):
+            for write in writes:
+                get_journal().emit(
+                    "effect_applied",
+                    {
+                        "effect": "memory_write",
+                        "op": write.op,
+                        "entry_id": write.entry_id,
+                        "text": write.text,
+                    },
+                )
+        self._emit_memory()
+        return None
+
+    def edit_memory(self, op: str, entry_id: str | None = None, text: str | None = None) -> None:
+        """Class (b), the edit drawer (AD-23): `replace` or `delete` one entry, or `clear`
+        them all (one `delete` each). Raises `SendRefused` outside `idle` or while the file is
+        unreadable, `KeyError` for an unknown entry, `ValueError` for an invalid text, and
+        `OSError` when the file could not be written."""
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+            if self._memory_error is not None:
+                raise SendRefused(self._memory_error)
+            entries = list(self._memory)
+        if op == "clear":
+            writes = [MemoryWrite(op="delete", entry_id=e.id, text=e.text) for e in entries]
+        else:
+            entry = next((e for e in entries if e.id == entry_id), None)
+            if entry is None:
+                raise KeyError(entry_id)
+            if op == "replace":
+                writes = [
+                    MemoryWrite(op="replace", entry_id=entry.id, text=memory_file.check_text(text))
+                ]
+            elif op == "delete":
+                writes = [MemoryWrite(op="delete", entry_id=entry.id, text=entry.text)]
+            else:
+                raise ValueError(f"Opération inconnue : « {op} ».")
+        if writes and self._apply_memory(writes, "user") is not None:
+            raise OSError("La mémoire globale n'a pas pu être écrite : elle reste inchangée.")
+        self._executor.submit(self._emit_preview)
+
+    def _restore_memory(self) -> None:
+        """FR-39 (CAP-41, H6): one `delete` per entry, then one `add` per demonstration
+        entry, by the single applier; an unreadable memory becomes available once written."""
+        if self._memory_content is None:
+            return
+        with self._lock:
+            entries = list(self._memory)
+        writes = [MemoryWrite(op="delete", entry_id=e.id, text=e.text) for e in entries]
+        writes += [
+            MemoryWrite(op="add", entry_id=f"demo{i}", text=text)
+            for i, text in enumerate(self._memory_content.demo, start=1)
+        ]
+        self._apply_memory(writes, "demo")
 
     def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """The asyncio loop MCP clients live on (FastAPI's); set once, before any intention."""
@@ -2083,6 +2318,8 @@ class AppSession:
             self._active_scenario = scenario_id
         journal = get_journal()
         journal.emit("conversation_cleared" if scenario_id else "harness_reset", {})
+        if scenario_id is None:  # FR-39: the reset alone restores the demonstration memory
+            self._restore_memory()
         self._emit_armed()
         self._emit_scenario()
         for server_id in sorted(before - after):
@@ -2243,7 +2480,8 @@ class AppSession:
             reaction = "retry" if retries < max_retries and n < max_calls else "stop"
             failed = False
             harness_brick = next(
-                (b for b in ("tools", "mcp", "skills") if b in state.effective), "tools"
+                (b for b in ("tools", "mcp", "skills", "global_memory") if b in state.effective),
+                "tools",
             )
             # AD-25: what the model decided carries `trigger = model`, a forced action `user`.
             with scoped(
@@ -2398,6 +2636,12 @@ class AppSession:
                 tool_step |= self._apply_doc_loaded(effect.tool, loaded_in_turn)
             elif isinstance(effect, SkillLoaded):
                 tool_step |= self._apply_skill_loaded(effect.skill_id)
+        writes = [e for e in effects if isinstance(e, MemoryWrite)]
+        if writes:  # `remember`: the model's own call, or a forced one (AD-25)
+            source = "user" if current().trigger == "user" else "model"
+            error = self._apply_memory(writes, source)
+            if error is not None:  # the model reads the failure, not a success
+                tool_step["content"] = error
         return tool_step
 
     def _consume_armed(
@@ -2486,6 +2730,8 @@ class AppSession:
             return ToolCall(LOAD_SKILL, {"skill": action.target})
         if action.kind == "tool_doc":
             return ToolCall(LOAD_TOOL_DOC, {"tool": action.target})
+        if action.kind == "memory":
+            return ToolCall(REMEMBER, {"text": action.args.get("text", "")})
         return ToolCall(action.target, dict(action.args))
 
     def _armed_unavailable(
@@ -2509,6 +2755,15 @@ class AppSession:
                 return f"le skill « {self._skill_label(target)} » est déjà chargé"
             if target not in state.skill_catalog:
                 return f"le skill « {self._skill_label(target)} » est décoché"
+            return None
+        if action.kind == "memory":
+            if "global_memory" not in state.effective:
+                return "la brique « Mémoire globale » n'est pas active dans ce tour"
+            if REMEMBER not in state.tools:  # H4: no tool parser
+                return (
+                    "le modèle actif ne sait pas appeler d'outil, et l'écriture forcée passe par "
+                    "l'outil remember"
+                )
             return None
         if "mcp" not in state.effective:
             return "la brique « MCP » n'est pas active dans ce tour"

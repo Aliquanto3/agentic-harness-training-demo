@@ -90,15 +90,24 @@ class ApprovalIntention(BaseModel):
 
 
 class ArmIntention(BaseModel):
-    """Story 9: a native tool call with its arguments, a skill, or an MCP documentation."""
+    """Story 9: a native tool call with its arguments, a skill, or an MCP documentation;
+    story 14: a memory write (`target = remember`, `args = {text}`)."""
 
-    kind: Literal["tool", "skill", "tool_doc"]
+    kind: Literal["tool", "skill", "tool_doc", "memory"]
     target: str
     args: dict[str, Any] = {}
 
 
 class DisarmIntention(BaseModel):
     armed_id: str
+
+
+class MemoryIntention(BaseModel):
+    """Story 14, the edit drawer: `replace` or `delete` one entry, or `clear` them all."""
+
+    op: Literal["replace", "delete", "clear"]
+    entry_id: str | None = None
+    text: str | None = None
 
 
 class SystemPromptIntention(BaseModel):
@@ -207,6 +216,7 @@ def create_app(
         pending = asked.payload if asked and (not resolved or resolved.seq < asked.seq) else None
         armed = _latest(events, "armed_actions_changed")  # story 9: the chips after a reload
         scenario = _latest(events, "scenario_changed")  # story 10: programme and active one
+        memory = _latest(events, "memory_changed")  # story 14: the drawer and the card
         return {
             "session_state": session_state.payload if session_state else None,
             # AD-12: the model indicator, rebuilt from the session on every reload.
@@ -219,6 +229,7 @@ def create_app(
             "pending_approval": pending,
             "armed_actions_changed": armed.payload if armed else None,
             "scenario_changed": scenario.payload if scenario else None,
+            "memory_changed": memory.payload if memory else None,
             "seq": seq,
         }
 
@@ -419,6 +430,22 @@ def create_app(
         except SendRefused as refused:
             raise HTTPException(status_code=409, detail=refused.reason_fr) from None
         return {"cleared": True}
+
+    @app.post("/api/intentions/memory")
+    def memory(intention: MemoryIntention) -> dict[str, bool]:
+        """Class (b), the edit drawer (AD-23): outside `idle` or unreadable memory: 409,
+        unknown entry: 404, invalid text: 422, file not written: 500."""
+        try:
+            app_session.edit_memory(intention.op, intention.entry_id, intention.text)
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Entrée de mémoire inconnue.") from None
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from None
+        return {"accepted": True}
 
     @app.post("/api/intentions/scenario")
     def scenario(intention: ScenarioIntention) -> dict[str, bool]:

@@ -462,6 +462,11 @@ def write_api_key(model_id: str, host: str, key: SecretStr) -> None:
     os.replace(tmp, path)
 
 
+def memory_path() -> Path:
+    """The global memory (AD-20), read and written by the session only (AD-23)."""
+    return data_dir() / "memory.json"
+
+
 def audit_path() -> Path:
     """The audit log H2 feeds, written by the session only (AD-20, AD-23)."""
     return data_dir() / "audit.log"

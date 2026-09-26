@@ -1,0 +1,26 @@
+# Mémoire globale (story 14, AD-19, AD-20). Les entrées vivent dans memory.json, dans le
+# dossier de données ; ce fichier-ci porte les textes du harnais et la mémoire de
+# démonstration, restaurée par « Réinitialiser ».
+
+# Libellé du nœud du fichier dans le schéma (bac Fichiers).
+file_label_fr: Mémoire globale
+
+# Lu par le modèle, dans le message système, avant une ligne par entrée.
+intro: >-
+  Mémoire globale : informations retenues lors de conversations précédentes avec
+  l'utilisateur. Tiens-en compte quand elles sont utiles, sans les répéter.
+
+# Méta-outil du harnais (AD-25). `description` et `text` sont lus par le modèle.
+remember:
+  label_fr: Écriture en mémoire
+  description: >-
+    Retient une information durable sur l'utilisateur (préférence, prénom, contexte de
+    travail) pour les prochaines conversations. Appelle cet outil quand l'utilisateur
+    demande de retenir quelque chose.
+  text: L'information à retenir, en une phrase courte et autonome.
+
+# Mémoire de démonstration : fictive et non confidentielle (NFR-11).
+demo:
+  - L'utilisateur s'appelle Camille.
+  - Camille est consultante en cybersécurité.
+  - Camille prépare une formation sur les agents IA.

@@ -55,6 +55,21 @@ BRICKS = [
             )
         ],
     ),
+    # Story 14: the global memory, a local file the harness alone writes (AD-20, AD-23); no
+    # capability required: without a tool parser, it is injected and edited, not written by
+    # the model.
+    BrickDeclaration(
+        id="global_memory",
+        category="context",
+        components=[
+            Component(
+                id="global_memory.memory",
+                kind="memory",
+                hosting="local_file",
+                edges_to=["core.harness", "file.memory"],
+            )
+        ],
+    ),
     # Story 13: the model's reasoning mode, available when the model can reason (AD-6).
     BrickDeclaration(
         id="reasoning",

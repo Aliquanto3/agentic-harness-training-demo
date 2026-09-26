@@ -774,7 +774,8 @@ body.is-resizing-y * {
 /* A step run by an MCP server (story 6): the tool is not the harness's own. A skill
    loaded (story 7) is shown the same way. */
 .step-badge.is-mcp,
-.step-badge.is-skill {
+.step-badge.is-skill,
+.step-badge.is-memory {
   margin: 0 0 var(--spacing-1);
   background: var(--color-primary);
   border-color: var(--color-primary);
@@ -1666,6 +1667,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .brick-reason,
+.brick-note,
 .brick-pending,
 .brick-explanation {
   margin: 0;
@@ -1918,6 +1920,66 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .drawer-actions[hidden] {
   display: none;
+}
+
+/* Story 14: the global memory's entries, one card each, in the edit drawer. */
+.memory-drawer {
+  overflow-y: auto;
+}
+
+.memory-path {
+  font-family: var(--typography-code-font-family);
+  overflow-wrap: anywhere;
+}
+
+.memory-empty {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.memory-empty[hidden] {
+  display: none;
+}
+
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-line);
+  border-left: var(--spacing-stroke-min) solid var(--color-segment-global-memory);
+  border-radius: var(--rounded-sm);
+}
+
+.memory-entry-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  font-size: var(--typography-body-sm-font-size);
+}
+
+.memory-entry-name {
+  font-weight: 600;
+}
+
+.memory-entry-source {
+  color: var(--color-ink-soft);
+}
+
+.edit-drawer .memory-entry-text {
+  flex: none;
+  min-height: 0;
+  resize: vertical;
 }
 
 /* The whole audit log (story 8), read only, over the page. */
