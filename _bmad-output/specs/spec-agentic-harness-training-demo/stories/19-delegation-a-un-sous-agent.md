@@ -5,7 +5,7 @@ created: '2026-09-26'
 status: 'done'
 baseline_revision: 'f61dcafdef2bad1624409db770fba56cff452973'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-agentic-harness-training-demo-2026-09-23/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-agentic-harness-training-demo-2026-09-22/EXPERIENCE.md'
@@ -114,7 +114,7 @@ deferred:
 - [x] `src/wavestack/session/app_session.py` -- méta-outil, `TurnState`, boucle `sub{n}`, rendu, ratios, hooks par contexte, échecs, économie, armement, carte, schéma -- AD-4, AD-9 à AD-11, AD-25.
 - [x] `src/wavestack/web/app.py` -- `delegate` dans `ArmIntention` -- AD-18.
 - [x] `src/wavestack/web/static/app.js`, `app.css` -- projection par contexte, ligne et lignes filles, bascule de Contexte LLM, Forcer au niveau de la carte, second robot -- EXPERIENCE.
-- [x] `content/scenarios.yaml` -- scénario `subagent` (briques `short_memory`, `system_prompt`, `tools`, `subagent` ; outils `read_file` ; prompt de délégation du `guide_harnais.md` puis trois questions de quiz) -- CAP-40.
+- [x] `content/scenarios.yaml` -- scénario `subagent` (briques des modules précédents sans `reasoning` : `short_memory`, `system_prompt`, `tools`, `mcp` en lazy loading, `skills`, `hooks`, `global_memory`, `subagent` ; outils `read_file` ; prompt de délégation du `guide_harnais.md` puis trois questions de quiz, voir H-12) -- CAP-40.
 - [x] `tests/test_subagent.py` (nouveau) -- une ligne de la matrice par test, plus : contexte `sub1` sans historique ni prompt principal, identifiants et `parent_step`, `subagent_result` seul dans l'appel principal suivant, chiffres d'économie, schéma (`core.model_sub`, cloud en réseau), ratio `sub` distinct en mode chat, carte (`force`, `limits_fr`), intention HTTP 404/422.
 
 **Acceptance Criteria:**
@@ -126,7 +126,46 @@ deferred:
 
 ## Spec Change Log
 
+### 2026-09-26 — Revue indépendante (hors contrat d'intention)
+- Déclencheur : triage de la revue indépendante (4 relecteurs), point bloquant H5 dans le sous-agent.
+- Amendé : tâche `content/scenarios.yaml` alignée sur H-12 (et la brique `global_memory` de la story 14, fusionnée avant) ; hypothèses H-3 et H-4 précisées par H-20 et H-21 ; nouvelles hypothèses H-22 à H-26.
+- État évité : un tour bloqué par une validation H5 demandée dans le sous-agent ; une « économie » qui comptait tout le contexte du sous-agent.
+- KEEP : boucle `sub{n}`, rattachement par `parent_step`, `subagent_result`, identifiants, parcours E2E.
+
 ## Review Triage Log
+
+### 2026-09-26 — Revue indépendante (4 relecteurs séparés, triage du coordinateur)
+- verdicts: 29 findings — high 1, medium 9, low 17, false 0, maybe-false 2
+- findings:
+  - `[high]` `[patch]` BLOQUANT : H5 dans le sous-agent, le `session_state` `awaiting_human` porte `context_id = sub1` et partait dans la projection du sous-agent : boutons de la carte désactivés, tour bloqué — `app.js` ne route vers le sous-agent que ses propres types d'événements (`SUB_KINDS`) ; test Python (`/api/state` et réponse HTTP pendant l'attente) et vérification E2E (carte active, refus, tour terminé).
+  - `[medium]` `[patch]` `contributes_to` déclaré mais jamais lu — lu désormais pour les outils du sous-agent (brique `tools` déclarée `main` + `sub`) et pour le raisonnement (H-22) ; la composition du reste du contexte `sub{n}` reste écrite dans `_sub_messages` : écart consigné dans deferred-work.
+  - `[medium]` `[patch]` Économie malhonnête : elle comptait tout le contexte du sous-agent — `kept_tokens` (résultats d'outils restés dans `sub{n}`, ce que le principal aurait lu) comparé au résultat réinjecté ; libellés explicites (H-21).
+  - `[medium]` `[patch]` Économie affichée sur un échec — `saved_tokens = 0` si le statut n'est pas `completed`, statut visible sur la ligne repliée.
+  - `[medium]` `[patch]` Mode chat : `result_tokens` estimé brut face à des segments corrigés par le ratio — ratio appris du contexte principal appliqué au résultat.
+  - `[medium]` `[patch]` Politique de raisonnement du sous-agent non décidée — il ne raisonne pas (la brique Raisonnement ne contribue qu'à `main`), réserve de 512 tokens ; test.
+  - `[medium]` `[patch]` Test manquant : exception dans `_run_subagent` — test ajouté (`harness_error` en `sub1`, `subagent_ended{error}`, `tool_ended{error}` en français, tour `completed`).
+  - `[medium]` `[patch]` Test manquant : mode chat, second corps du sous-agent (appel `read_file` avec `arguments` en chaîne, réponse `tool` au même `tool_call_id`) — test ajouté.
+  - `[medium]` `[patch]` Test manquant : H1 bloque un `read_file` du dossier confidentiel demandé par le sous-agent — test ajouté.
+  - `[medium]` `[patch]` `delegate` refusé par `check` (arguments invalides) étiqueté « Résultat du sous-agent » — `subagent_result` seulement si la délégation a tourné ; test.
+  - `[low]` `[patch]` H-2 : délégation via `fetch_page` non testée — test Python avec client réseau simulé ; le scénario dit que le document est un fichier local pour une démo hors ligne.
+  - `[low]` `[patch]` « La délégation compte pour 1 » peu lisible — la carte l'explique (appel principal qui la demande, 4 appels propres au sous-agent).
+  - `[low]` `[patch]` Test manquant : `/api/state` après une délégation arrêtée — test (`context_rendered.context_id == "main"`).
+  - `[low]` `[patch]` Test manquant : H3 — test (injection dans le contexte principal, absente de `sub1`).
+  - `[low]` `[patch]` Message de borne des nouveaux essais du tour réutilisé dans le sous-agent — `limit_reached{sub_retries}` avec son message (le tour principal continue) (H-20).
+  - `[low]` `[patch]` Arrêt utilisateur rendu comme une erreur rouge — `tool_ended{cancelled}`, ligne neutre « arrêtée ».
+  - `[low]` `[patch]` Audit H2 sans le contexte — `HookContext.context_id`, et les lignes des événements du sous-agent écrivent `t1.sub1` ; test.
+  - `[low]` `[patch]` Scénario : quoi observer, risque que le principal relise le guide, question 3 — description réécrite (comparaison lecture directe / délégation, résumé qui perd des détails : redéléguer ou avouer), prompt « sans le lire toi-même ».
+  - `[low]` `[patch]` `[subagent]` : nouveaux essais non documentés, nom d'outil inconnu ignoré en silence — commentaire de `wavestack.toml`, `harness_error` au chargement ; test.
+  - `[low]` `[patch]` Schéma : arête `core.harness → core.model_sub` dessinée en local, pas celle de `core.model` — même règle (arête seulement en cloud) ; test.
+  - `[low]` `[patch]` Fichier de story : `followup_review_recommended` et tâche `scenarios.yaml` incohérents — corrigés.
+  - `[low]` `[patch]` `special_token_neutralized` et `model_first_token` ignorés dans `sub{n}` — projetés (notes du contexte du sous-agent ; l'indicateur « Sous-agent · … » reste).
+  - `[low]` `[patch]` `_count_tokens` pouvait lever dans le `finally` — repli sur l'estimation ; test.
+  - `[low]` `[patch]` « Voir le contexte du sous-agent » sur un tour ancien affichait le dernier tour ; bouton présent sans contexte — Contexte LLM affiche le tour nommé, bouton masqué sans `context_rendered`.
+  - `[low]` `[patch]` Lignes filles : « tour arrêté », « Borne du tour atteinte » — « délégation arrêtée », « Borne du sous-agent atteinte », « Contexte du sous-agent dépassé ».
+  - `[low]` `[patch]` Armement : `task` non texte ou arguments en plus acceptés — 422 ; tests.
+  - `[low]` `[patch]` Doublon du point « économie à 0 si échec » (edge cases) — même correctif.
+  - `[maybe-false]` `[defer]` Comportement d'un SLM local réel (délégation spontanée, taille du contexte du sous-agent) — reporté (deferred-work).
+  - `[maybe-false]` `[defer]` `prefix_not_reused` dans `sub{n}` avec Qwen3.5 — reporté (deferred-work).
 
 ### 2026-09-26 — Review pass
 Revue faite par l'agent d'implémentation lui-même (aucun outil de sous-agent dans cette exécution, consigne de l'appelant : revue honnête mais brève ; une revue indépendante suivra).
@@ -175,7 +214,14 @@ def _sub_messages(self, sub, steps, chat):
 - H-16 (implémentation) Un blocage `before_model_call` dans le sous-agent fait échouer la délégation (`tool_ended{error}`, message « le hook … a bloqué son appel au modèle ») ; le tour principal continue.
 - H-17 (implémentation) H2 : chaque `tool_ended` du journal d'audit nomme l'outil de son `tool_started` (même `step_id`), pour que la ligne de `delegate` ne prenne pas le nom d'un outil du sous-agent.
 - H-18 (implémentation) `/api/state` ignore les contextes `sub{n}` pour la jauge restaurée au rechargement (la jauge reste sur le contexte principal).
-- H-19 (implémentation) Arrêt pendant la délégation : l'exécuteur émet `tool_ended{error}` « Délégation arrêtée… », puis le tour se termine `cancelled` sans `after_tool` ni autre appel ; même chose pour une délégation forcée.
+- H-19 (implémentation) Arrêt pendant la délégation : l'exécuteur émet `tool_ended{cancelled}` (revue indépendante ; `error` auparavant) « Délégation arrêtée… », puis le tour se termine `cancelled` sans `after_tool` ni autre appel ; même chose pour une délégation forcée.
+- H-20 (revue) Précise H-3 : nouveaux essais épuisés dans le sous-agent → `limit_reached{sub_retries}` (message propre : le tour principal continue), puis `tool_ended{limit}`.
+- H-21 (revue) Remplace le chiffre de H-4 : `kept_tokens` = tokens des résultats d'outils du dernier contexte du sous-agent (réconcilié s'il l'a été), c'est-à-dire ce que l'agent principal aurait lu sans délégation ; `saved_tokens = max(0, kept_tokens − result_tokens)`, 0 si la délégation échoue ; `context_tokens` reste affiché à part. En mode chat, `result_tokens` = estimation × ratio du contexte principal.
+- H-22 (revue) Le sous-agent ne raisonne pas : la brique Raisonnement ne déclare que `main` dans `contributes_to` ; réserve de 512 tokens (sauf un modèle cloud qui raisonne toujours). Les outils du sous-agent viennent des briques qui déclarent `sub` (`tools`).
+- H-23 (revue) Ratio d'estimation (AD-4) : clé `{id du modèle}` pour le contexte principal (story 17), `{id}#sub` pour tous les sous-agents.
+- H-24 (revue) Le front ne route vers la projection d'un sous-agent que ses types d'événements (`SUB_KINDS` dans `app.js`) ; `session_state`, `architecture_changed`, `bricks_changed` émis pendant le sous-agent restent ceux de la session.
+- H-25 (revue) Arête `core.harness → core.model_sub` : même règle que `core.model` (seulement pour un modèle cloud, qui franchit la frontière).
+- H-26 (revue) Scénario : `global_memory` (story 14, fusionnée) rejoint les briques cumulées ; la troisième question peut dépasser le résumé : c'est voulu (le résumé perd des détails ; le modèle doit redéléguer ou avouer).
 
 ## Verification
 
@@ -208,8 +254,10 @@ Blocking condition: aucune.
 - `tests/test_subagent.py` (nouveau, 24 tests) ; `tests/test_bricks.py`, `test_cloud.py`, `test_scenarios.py`, `test_e2e_fake_openai.py` adaptés.
 - `tools/e2e/fake_openai.py`, `run_e2e.py`, `README.md` — script `delegate`, scénario `subagent` ; capture `tools/e2e/screenshots/19-sous-agent-delegation.jpg`.
 
-**Revue.** 5 corrections appliquées (1 medium, 4 low), 1 rejet (low : champ `task` sur une ligne), 2 reports non vérifiés (comportement d'un SLM réel). Recommandation de revue de suivi : `false` (un seul medium corrigé, aucun high).
+**Revue.** Auto-revue : 5 corrections appliquées (1 medium, 4 low), 1 rejet (low : champ `task` sur une ligne), 2 reports non vérifiés. Revue indépendante (4 relecteurs) : 27 corrections (1 high bloquant, 9 medium, 17 low), aucun point écarté, 2 reports (SLM réel). Recommandation de revue de suivi : `true`, car cette passe corrige un high : risque à revoir, le routage des événements par type dans `app.js` (`SUB_KINDS`) et le nouveau calcul de l'économie (`kept_tokens`).
 
 **Vérification.** `uv run ruff check .` et `ruff format --check .` : aucun écart ; `uv run python -m pytest -q` : 479 réussis, 3 ignorés ; `node --check app.js` : OK ; parcours E2E complet (`uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py`) : 156 vérifications réussies, 0 échec, 5 anomalies connues (A1 à A4, antérieures). Audit de la matrice : chaque ligne a son test dans `tests/test_subagent.py`, tous exécutés et verts.
 
-**Risques résiduels.** Comportement d'un SLM local réel non mesuré (délégation spontanée, taille du contexte du sous-agent, latence de la relecture du contexte principal) ; conflits attendus avec les stories 14 et 17 dans `app_session.py`, `app.js`, `content/scenarios.yaml` et `tests/test_scenarios.py` (compte des scénarios).
+**Vérification après la revue indépendante.** Fusion de la branche d'intégration (stories 14 et 17) ; `ruff check .` et `ruff format --check .` : aucun écart ; `pytest -q` : 547 réussis, 3 ignorés (37 tests dans `tests/test_subagent.py`) ; `node --check app.js` : OK ; parcours E2E complet : 204 vérifications réussies, 0 échec, 0 anomalie connue (H5 dans le sous-agent compris). Reports ajoutés à `_bmad-output/implementation-artifacts/deferred-work.md`.
+
+**Risques résiduels.** Comportement d'un SLM local réel non mesuré (délégation spontanée, taille du contexte du sous-agent, latence de la relecture du contexte principal). Fusion avec les stories 14 et 17 faite (ratio par modèle et par contexte, H-23).

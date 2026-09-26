@@ -193,6 +193,11 @@ _LIMITS_FR = {
         "outil inconnu ou arguments invalides). Le harnais arrête là au lieu de relancer "
         "indéfiniment."
     ),
+    "sub_retries": (
+        "Le sous-agent n'a pas pu utiliser ses outils : {n} appels refusés (mal formés, outil "
+        "inconnu ou arguments invalides). Le harnais arrête le sous-agent ; le tour principal "
+        "continue avec une erreur à la place du résultat."
+    ),
     "sub_calls": (
         "Borne du sous-agent atteinte : {n} appels au modèle pour cette délégation. Le harnais "
         "arrête le sous-agent ; le tour principal continue avec une erreur à la place du "
@@ -239,9 +244,9 @@ class _ModelOutput:
     # `arguments` as the provider emitted them.
     ids: list[str] = field(default_factory=list)
     arguments: list[str] = field(default_factory=list)
-    # Chat mode: the call's `usage.prompt_tokens` once reconciled (AD-4); a provider's
-    # refusal: its French message (for a failed delegation, AD-11).
-    used: int | None = None
+    # Chat mode: the call's `context_reconciled` payload once `usage` came back (AD-4); a
+    # provider's refusal: its French message (for a failed delegation, AD-11).
+    reconciled: dict[str, Any] | None = None
     message_fr: str = ""
 
 
@@ -366,6 +371,11 @@ class _LoadFailed(Exception):
         self.message_fr, self.reason_fr, self.idle_fr = message_fr, reason_fr, idle_fr
 
 
+def _kind_tokens(payload: dict[str, Any], kind: SegmentKind) -> int:
+    """The tokens of a context's segments of `kind` (AD-1: the session's own figures)."""
+    return sum(s["tokens"] for s in payload["segments"] if s["kind"] == kind)
+
+
 def _fr(n: int) -> str:
     return f"{n:,}".replace(",", "\u202f")  # narrow no-break space, French style
 
@@ -454,6 +464,7 @@ class AppSession:
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
         )
         self._tool_executor = ToolExecutor(self._registry)
+        self._check_subagent_tools()
         self._tools_enabled: set[str]  # sub-options: see `_apply_launch_config`
         # MCP servers (story 6): the local one starts enabled, the public ones disabled. A
         # server is contacted only while enabled with the brick wanted (AD-15).
@@ -649,10 +660,10 @@ class AppSession:
                 "reason_fr": reason_fr,
             }
             nodes.append(sub_model)
-            crosses = sub_model["hosting"] == "network"
-            edges.append(
-                {"from": "core.harness", "to": "core.model_sub", "crosses_boundary": crosses}
-            )
+            if self._cloud is not None:  # as `core.model`: an edge only across the boundary
+                edges.append(
+                    {"from": "core.harness", "to": "core.model_sub", "crosses_boundary": True}
+                )
         components = {b.id: self._drawn_components(b) for b in wanted}
         # A file node is drawn once a drawn component points to it: its brick, its label
         # and what its tooltip adds.
@@ -1500,9 +1511,19 @@ class AppSession:
 
     def _reasoning_on(self, state: TurnState) -> bool:
         """AD-6, AD-9: the model reasons in this turn: brick effective, or a cloud model
-        that always reasons."""
+        that always reasons. In a sub-agent's context (AD-11), the brick counts only if it
+        contributes to it (`contributes_to`): the reasoning brick does not, so the sub-agent
+        keeps the 512-token reserve and the room for its document."""
         always = self._caps is not None and self._caps.reasoning_always
-        return always or "reasoning" in state.effective
+        brick_on = "reasoning" in state.effective
+        if self._ratio_key() == "sub":
+            brick_on = brick_on and self._contributes("reasoning", "sub")
+        return always or brick_on
+
+    def _contributes(self, brick_id: str, context: str) -> bool:
+        """AD-11, AD-12: the brick declares it contributes to `context` (`main` or `sub`)."""
+        brick = self._bricks.get(brick_id)
+        return brick is not None and context in brick.contributes_to
 
     def _reserve_of(self, state: TurnState) -> int:
         """AD-9: the output reserve of a turn (or of the preview), from its frozen state."""
@@ -1561,10 +1582,16 @@ class AppSession:
             if self._caps is not None and self._caps.tool_call_parser:  # H4, AD-25
                 tools.append(REMEMBER)
         sub_tools: list[str] = []
-        if "subagent" in effective:  # AD-11: its tools among those retained, no meta-tool
-            wanted = self.cfg.subagent_tools
-            meta = (LOAD_TOOL_DOC, LOAD_SKILL)
-            sub_tools = [n for n in tools if n in wanted and n not in meta]
+        if "subagent" in effective:  # AD-11: `[subagent] tools` among the tools retained
+            wanted = self.cfg.subagent_tools  # of the bricks contributing to `sub`
+            sub_tools = [
+                n
+                for n in tools
+                if n in wanted
+                and (spec := self._registry.get(n)) is not None
+                and spec.source != "harness"  # no meta-tool, no nested delegation
+                and self._contributes(spec.brick or spec.component.split(".")[0], "sub")
+            ]
             tools.append(DELEGATE)
         hooks = [h for h in self._hook_ids() if h in hooks_enabled] if "hooks" in effective else []
         return TurnState(
@@ -2151,7 +2178,16 @@ class AppSession:
                     "Rien n'est armé.",
                     not_found=True,
                 )
-            task = str(args.get("task") or "").strip()
+            extra = sorted(set(args) - {"task"})
+            if extra:
+                raise ArmRefused(
+                    f"Argument inconnu pour la délégation : {', '.join(extra)}. Seule la tâche "
+                    "(« task ») est attendue. Rien n'est armé."
+                )
+            task = args.get("task", "")
+            if not isinstance(task, str):
+                raise ArmRefused("La tâche du sous-agent doit être un texte. Rien n'est armé.")
+            task = task.strip()
             if not task:
                 raise ArmRefused("La tâche du sous-agent est vide. Rien n'est armé.")
             shown = task if len(task) <= 40 else f"{task[:40].rstrip()}…"
@@ -2299,7 +2335,7 @@ class AppSession:
         sub = _SubContext(f"sub{self._subs}", task, text.prompt, state.subagent_tools)
         journal = get_journal()
         started = time.monotonic()
-        figures = {"calls": 0, "context_tokens": 0}
+        figures = {"calls": 0, "context_tokens": 0, "kept_tokens": 0}
         outcome = _SubOutcome("error", message_fr="le sous-agent s'est interrompu.")
         # AD-11: every event of the sub-agent hangs on the step of `delegate`; the trigger
         # (model or user) is inherited.
@@ -2324,16 +2360,22 @@ class AppSession:
                     "La délégation échoue ; le tour principal continue.",
                 )
             finally:
-                result = outcome.result if outcome.status == "completed" else outcome.message_fr
+                done = outcome.status == "completed"
+                result = outcome.result if done else outcome.message_fr
                 result_tokens, estimated = self._count_tokens(result)
+                # The saving: what the main context would have read (the tool results that
+                # stayed in the sub-agent) against the result it reads instead; none when the
+                # delegation failed, the main model getting an error in place of the result.
+                kept = figures["kept_tokens"]
                 journal.emit(
                     "subagent_ended",
                     {
                         "status": outcome.status,
                         "result": result,
                         "context_tokens": figures["context_tokens"],
+                        "kept_tokens": kept,
                         "result_tokens": result_tokens,
-                        "saved_tokens": max(0, figures["context_tokens"] - result_tokens),
+                        "saved_tokens": max(0, kept - result_tokens) if done else 0,
                         "estimated": estimated,
                         "calls": figures["calls"],
                         "duration_ms": _ms(time.monotonic() - started),
@@ -2342,7 +2384,7 @@ class AppSession:
         if outcome.status == "completed":
             return outcome.result
         if outcome.status == "cancelled":
-            raise DelegationFailed("Délégation arrêtée à la demande de l'utilisateur.", "error")
+            raise DelegationFailed("Délégation arrêtée à la demande de l'utilisateur.", "cancelled")
         status = outcome.status if outcome.status in ("limit", "overflow") else "error"
         raise DelegationFailed(
             f"La délégation au sous-agent a échoué : {outcome.message_fr} Réponds sans ce "
@@ -2350,12 +2392,36 @@ class AppSession:
             status,
         )
 
+    def _check_subagent_tools(self) -> None:
+        """AD-19: a name of `[subagent] tools` that no tool of the tools brick bears is
+        traced at load, not silently ignored."""
+        if "subagent" not in self._bricks:
+            return
+        known = {
+            n
+            for n in self._registry.names
+            if (spec := self._registry.get(n)).source != "harness" and not spec.is_mcp
+        }
+        unknown = [n for n in self.cfg.subagent_tools if n not in known]
+        if unknown:
+            self._error(
+                f"[subagent] tools nomme des outils inconnus : {', '.join(unknown)}.",
+                f"Outils de la brique Outils : {', '.join(sorted(known))}.",
+                "Ces noms sont ignorés : le sous-agent n'a que les outils connus et activés.",
+            )
+
     def _count_tokens(self, text: str) -> tuple[int, bool]:
-        """AD-1: the tokens of `text`, by the model's tokenizer locally, estimated in chat
-        mode (then `True`)."""
+        """AD-1: the tokens `text` takes in the main context: by the model's tokenizer
+        locally; in chat mode (then `True`), the estimate corrected by the main context's
+        ratio, the unit of its segments (AD-4). Never raises: an estimate then."""
+        estimate = config.estimate_tokens(text, self.cfg.chars_per_token)
         if self._cloud is not None or self._engine is None:
-            return config.estimate_tokens(text, self.cfg.chars_per_token), True
-        return len(self._engine.tokenize(text)), False
+            ratio = self._ratios.get(self._cloud.id if self._cloud else "", self.cfg.estimate_ratio)
+            return round(estimate * ratio), True
+        try:
+            return len(self._engine.tokenize(text)), False
+        except Exception:  # noqa: BLE001 - AD-16: `subagent_ended` is always emitted
+            return estimate, True
 
     def _run_subagent(
         self,
@@ -2389,6 +2455,7 @@ class AppSession:
                 rendered, payload = self._render(state, "", call_id, steps, sub)
                 journal.emit("context_rendered", payload)
                 figures["context_tokens"] = payload["used"]
+                figures["kept_tokens"] = _kind_tokens(payload, SegmentKind.TOOL_RESULT)
                 if previous is not None:
                     self._check_prefix(*previous, rendered.ids)
                 if payload["overflow"]:
@@ -2400,8 +2467,9 @@ class AppSession:
                     )
                 figures["calls"] += 1
                 out = self._call_model(rendered, cancel, sub.tools, payload["reserve"])
-            if out.used:  # chat mode: `usage` reconciled the figure (AD-4)
-                figures["context_tokens"] = out.used
+            if out.reconciled is not None:  # chat mode: `usage` reconciled the figures (AD-4)
+                figures["context_tokens"] = out.reconciled["used"]
+                figures["kept_tokens"] = _kind_tokens(out.reconciled, SegmentKind.TOOL_RESULT)
             if out.status == "cancelled":
                 return stopped
             if out.status == "limit":  # `output_truncated` emitted in `sub{n}` (AD-9)
@@ -2474,7 +2542,7 @@ class AppSession:
             if failed:
                 retries += 1
                 if retries > max_retries:
-                    self._emit_limit("retries", retries)
+                    self._emit_limit("sub_retries", retries)
                     return _SubOutcome(
                         "limit",
                         message_fr=f"{retries} appels d'outil refusés (mal formés, outil inconnu "
@@ -2530,7 +2598,7 @@ class AppSession:
         }
         if blocker is not None:
             return step | {"component": f"hooks.{blocker}", "brick": "hooks"}
-        if name == DELEGATE:
+        if name == DELEGATE and component == "subagent.agent":  # it ran (not refused)
             kind = SegmentKind.SUBAGENT_RESULT
             return step | {"kind": kind, "brick": "subagent", "component": "subagent.agent"}
         return step
@@ -3519,7 +3587,14 @@ class AppSession:
             # From this turn's start: another session's turn may share its id (AD-2).
             since = journal.events_since(self._turn_seq - 1)
             events = tuple(e for e in since if e.turn_id == turn_id)
-            view = HookContext(point, turn_id, events=events, content=texts, **ctx)
+            view = HookContext(
+                point,
+                turn_id,
+                events=events,
+                content=texts,
+                context_id=current().context_id or "main",
+                **ctx,
+            )
             self._hook_steps += 1
             step_id = f"{turn_id}.{current().context_id or 'main'}.h{self._hook_steps}"
             label = self._hook_label(hook.id)
@@ -3865,7 +3940,10 @@ class AppSession:
         if call.stop_reason == "cancelled":
             return _ModelOutput("cancelled")
         out = _ModelOutput(
-            "completed", text=call.text, reasoning=call.reasoning, used=prompt_tokens or None
+            "completed",
+            text=call.text,
+            reasoning=call.reasoning,
+            reconciled=payload if prompt_tokens else None,
         )
         # AD-10: what a malformed output reinjects: `failed_generation`, else the text and
         # each call's name and arguments as emitted.

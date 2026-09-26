@@ -14,10 +14,15 @@ explanation_fr:
     - >-
       Le modèle décide de déléguer en appelant le méta-outil delegate ; « Déléguer au
       sous-agent » force la délégation au prochain tour.
+    - >-
+      Bornes : la délégation coûte au tour principal l'appel au modèle qui l'a demandée ;
+      le sous-agent a ses propres appels, 4 au plus, nouveaux essais compris. Il ne raisonne
+      pas, pour garder de la place à son document.
   - >-
-    Économie : Orchestration compare les tokens restés dans le contexte du sous-agent à
-    ceux réinjectés dans le contexte principal. Contexte LLM bascule entre les deux
-    contextes, et le schéma dessine un second nœud Modèle.
+    Économie : Orchestration compare les résultats d'outils restés dans le contexte du
+    sous-agent (ce que l'agent principal aurait lu sans délégation) au résultat réinjecté
+    dans le contexte principal. Contexte LLM bascule entre les deux contextes, et le schéma
+    dessine un second nœud Modèle.
   - >-
     Les hooks s'appliquent aussi au sous-agent, avant chaque appel au modèle et avant et
     après chaque outil : le garde-fou et la validation humaine le surveillent comme

@@ -325,7 +325,7 @@ class ToolStartedPayload(BaseModel):
 
 
 class ToolEndedPayload(BaseModel):
-    status: Literal["ok", "error", "blocked", "limit", "overflow"]
+    status: Literal["ok", "error", "blocked", "limit", "overflow", "cancelled"]
     result: str | None = None
     error_fr: str | None = None
     duration_ms: int
@@ -339,7 +339,7 @@ class ToolCallMalformedPayload(BaseModel):
 
 
 class LimitReachedPayload(BaseModel):
-    limit: Literal["calls", "retries", "sub_calls"]
+    limit: Literal["calls", "retries", "sub_calls", "sub_retries"]
     message_fr: str
 
 
@@ -532,12 +532,15 @@ class SubagentEndedPayload(BaseModel):
     """The delegation's outcome and its saving, computed by the session (AD-1).
 
     `context_tokens`: the `used` of the sub-agent's last call (reconciled when it was);
-    `result_tokens`: the result's tokens, `estimated` in chat mode; `saved_tokens`:
-    `max(0, context_tokens - result_tokens)`; `calls`: the sub-agent's model calls."""
+    `kept_tokens`: its tool results, what the main context would have read without the
+    delegation; `result_tokens`: the result's tokens in the main context (`estimated` in
+    chat mode); `saved_tokens`: `max(0, kept_tokens - result_tokens)`, 0 unless
+    `completed`; `calls`: the sub-agent's model calls."""
 
     status: Literal["completed", "limit", "overflow", "error", "cancelled"]
     result: str
     context_tokens: int
+    kept_tokens: int = 0  # the tool results that stayed in the sub-agent's context
     result_tokens: int
     saved_tokens: int
     estimated: bool = False

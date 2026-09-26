@@ -251,3 +251,15 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/12-tests-prealables-headroom-embedding-et-reranking.md`
   summary: Le verdict embedding et reranking de la story 12 reste provisoire (granite-embedding-107m-multilingual Q8_0, bge-reranker-v2-m3 Q4_K_M) ; lancer sur le PC cible, avant la story 15, `uv run --with huggingface-hub --with fastembed python tools/bench/story12_bench.py embed --download`, puis `uv run --with headroom-ai==0.38.0 python tools/bench/story12_bench.py headroom`, et reporter les deux sorties `--json` dans la story 12.
   evidence: Le conteneur de développement n'atteint pas huggingface.co (`ProxyError('403 Forbidden')` pour les 7 candidats) : aucune qualité, aucun RSS de modèle n'a été mesuré ; le code du banc est seulement validé sur des GGUF synthétiques. Les mesures Headroom (+130 Mo, aucune tentative réseau) viennent de Linux, pas du HP EliteBook sous Windows 11, où `strace` manque pour voir le code natif.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/19-delegation-a-un-sous-agent.md`
+  summary: Écart d'architecture (AD-11, AD-12) : `contributes_to` n'est lu que pour les outils du sous-agent (brique `tools`) et pour le raisonnement ; la composition du reste du contexte `sub{n}` (prompt du sous-agent, tâche, aucune autre brique) est écrite dans `_sub_messages`, pas dérivée des briques qui déclarent `sub`.
+  evidence: Revue indépendante de la story 19. Aucune autre brique ne contribue au sous-agent aujourd'hui, le résultat est donc le même ; à généraliser quand une brique (RAG, mémoire globale…) devra y entrer : itérer sur les briques effectives qui déclarent `sub`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/19-delegation-a-un-sous-agent.md`
+  summary: Sur un SLM local réel (Qwen3.5 0.8B ou 2B), vérifier que le modèle délègue au lieu de lire guide_harnais.md lui-même, et que le contexte du sous-agent (guide ≈ 2 000 tokens) tient dans 4 096 − 512 tokens.
+  evidence: Aucun GGUF dans le conteneur : le faux moteur compte un token par octet, le faux modèle cloud du parcours E2E donne 2 112 tokens de contexte au sous-agent. À régler au test manuel, scénario « Sous-agent ».
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/19-delegation-a-un-sous-agent.md`
+  summary: Avec Qwen3.5, le gabarit peut réécrire l'appel d'outil du sous-agent (`prefix_not_reused` dans `sub{n}`).
+  evidence: Même mécanisme qu'en contexte principal (AD-4) ; à observer sur le PC cible, sans effet sur le résultat de la délégation.

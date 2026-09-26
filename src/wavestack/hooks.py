@@ -96,6 +96,7 @@ class HookContext:
     result: str | None = None  # after_tool: the text reinjected
     events: tuple[Envelope, ...] = ()  # the turn's events so far
     status: str | None = None  # on_turn_end: the turn's status
+    context_id: str = "main"  # `main` or a sub-agent's `sub{n}` (AD-11)
     content: HooksContent | None = None
     now: datetime = field(default_factory=lambda: datetime.now().astimezone())
 
@@ -170,26 +171,32 @@ def audit(ctx: HookContext) -> HookResult | None:
     asked = {  # a refused call has no `tool_started`: its tool and host come from here
         e.payload["approval_id"]: e.payload for e in events if e.kind == "approval_requested"
     }
+
+    def where(event: Envelope) -> str:
+        """The turn, and a sub-agent's context when the event is its own (story 19)."""
+        context = event.context_id or ""
+        return f"{ctx.turn_id}.{context}" if context.startswith("sub") else ctx.turn_id
+
     for event in events[last + 1 :]:
         p = event.payload
         if event.kind == "model_call_ended":
             read, made = p["prompt_tokens"], p["output_tokens"]
             detail = f"{read} tokens lus, {made} produits"
-            lines.append(_line(event.ts, ctx.turn_id, "appel au modèle", detail, p["stop_reason"]))
+            lines.append(_line(event.ts, where(event), "appel au modèle", detail, p["stop_reason"]))
         elif event.kind == "tool_ended":
             tool = started.get(event.step_id, "?")
-            lines.append(_line(event.ts, ctx.turn_id, "appel d'outil", tool, p["status"]))
+            lines.append(_line(event.ts, where(event), "appel d'outil", tool, p["status"]))
         elif event.kind == "tool_call_malformed":
             what = "appel d'outil refusé"
-            lines.append(_line(event.ts, ctx.turn_id, what, p["detail_fr"], "refusé"))
+            lines.append(_line(event.ts, where(event), what, p["detail_fr"], "refusé"))
         elif event.kind == "hook_decided" and p["decision"] == "block":
             what = f"appel bloqué par {p['hook'].upper()}"
-            lines.append(_line(event.ts, ctx.turn_id, what, p["detail_fr"], "bloqué"))
+            lines.append(_line(event.ts, where(event), what, p["detail_fr"], "bloqué"))
         elif event.kind == "approval_resolved":
             request = asked.get(p["approval_id"], {"tool": "?", "destination": "?"})
             detail = f"{request['tool']} vers {request['destination']}"
             status = _APPROVAL_FR[p["decision"]]
-            lines.append(_line(event.ts, ctx.turn_id, "validation humaine", detail, status))
+            lines.append(_line(event.ts, where(event), "validation humaine", detail, status))
     if ctx.point == "on_turn_end":
         lines.append(_line(ctx.now, ctx.turn_id, "fin du tour", "", ctx.status or "?"))
     if not lines:

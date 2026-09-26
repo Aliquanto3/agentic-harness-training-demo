@@ -84,11 +84,13 @@ BRICKS = [
             )
         ],
     ),
+    # Story 19: its tools also serve the sub-agent's context (AD-11), per `[subagent] tools`.
     BrickDeclaration(
         id="tools",
         category="harness",
         capabilities=["tool_call_parser"],
         network=True,
+        contributes_to=["main", "sub"],
         components=[
             Component(
                 id="tools.get_datetime",

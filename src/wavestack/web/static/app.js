@@ -187,7 +187,7 @@ function applyEnvelope(envelope) {
   const turn = envelope.turn_id ? store.turns.find((t) => t.id === envelope.turn_id) : null;
   // Story 19 (AD-11): a sub-agent's events fill its own projection, never the turn's gauge,
   // context or text; the Vue humain only gets the phase and H5's validations.
-  if (turn && envelope.context_id?.startsWith("sub")) {
+  if (turn && envelope.context_id?.startsWith("sub") && SUB_KINDS.has(envelope.kind)) {
     applySubEnvelope(turn, subProjection(turn, envelope), envelope);
     scheduleRender();
     return;
@@ -455,6 +455,33 @@ function applyEnvelope(envelope) {
   scheduleRender();
 }
 
+// Story 19: the kinds a sub-agent's projection takes; any other event emitted while it runs
+// (`session_state` of H5's wait, `architecture_changed`, `bricks_changed`…) is the session's.
+const SUB_KINDS = new Set([
+  "subagent_started",
+  "subagent_ended",
+  "context_rendered",
+  "context_reconciled",
+  "context_overflow",
+  "model_call_started",
+  "model_first_token",
+  "model_delta",
+  "model_call_ended",
+  "tool_started",
+  "tool_ended",
+  "outbound_request",
+  "hook_decided",
+  "effect_applied",
+  "approval_requested",
+  "approval_resolved",
+  "tool_call_malformed",
+  "prefix_not_reused",
+  "limit_reached",
+  "output_truncated",
+  "special_token_neutralized",
+  "harness_error",
+]);
+
 // Story 19 (AD-11): the projection of the sub-agent `context_id`, created at its first event
 // and hung on the `delegate` step whose `step_id` is its `parent_step`, never by position.
 function subProjection(turn, envelope) {
@@ -475,6 +502,8 @@ function subProjection(turn, envelope) {
       limit: null,
       truncated: null,
       errors: [],
+      notices: [],
+      firstToken: false,
       status: null,
     };
     turn.subs.set(envelope.context_id, sub);
@@ -511,12 +540,18 @@ function applySubEnvelope(turn, sub, envelope) {
       sub.overflow = p;
       break;
     case "model_call_started":
-      Object.assign(sub, { text: "", reasoning: "" });
+      Object.assign(sub, { text: "", reasoning: "", firstToken: false });
       lastCall(sub).startedAt = Date.parse(envelope.ts);
       phase(p.phase_label);
       break;
+    case "model_first_token":
+      sub.firstToken = true; // the Vue humain keeps its « Sous-agent · … » indicator
+      break;
     case "model_delta":
       if (p.channel !== "tool_call") sub[p.channel] += p.text;
+      break;
+    case "special_token_neutralized":
+      sub.notices.push(p.message_fr);
       break;
     case "model_call_ended":
       Object.assign(sub, { callEnded: p, text: p.text, reasoning: p.reasoning });
@@ -2094,7 +2129,10 @@ function renderContext() {
 
 function renderContextBody(pane) {
   pane.innerHTML = "";
-  const turn = shownTurns().reverse().find((t) => t.context);
+  const chosen = store.ctxView && shownTurns().find((t) => t.id === store.ctxView.turn);
+  const turn = chosen?.subs.get(store.ctxView.sub)?.context
+    ? chosen
+    : shownTurns().reverse().find((t) => t.context);
   if (!turn) {
     pane.appendChild(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
     return;
@@ -2200,13 +2238,16 @@ function renderSubContext(pane, sub) {
       el(
         "p",
         "subagent-saving",
-        `Ce contexte reste dans le sous-agent : ${fmt(sub.ended.context_tokens)} tokens. Seul son résultat, ` +
-          `${guess}${fmt(sub.ended.result_tokens)} tokens, entre dans le contexte principal : ` +
-          `${guess}${fmt(sub.ended.saved_tokens)} tokens économisés.`
+        sub.ended.status === "completed"
+          ? `Ce contexte reste dans le sous-agent. Ses résultats d'outils (${guess}${fmt(sub.ended.kept_tokens ?? 0)} tokens) ` +
+              `n'entrent pas dans le contexte principal ; seul son résultat y entre (${guess}${fmt(sub.ended.result_tokens)} tokens) : ` +
+              `${guess}${fmt(sub.ended.saved_tokens)} tokens économisés.`
+          : "Délégation sans résultat : une erreur entre dans le contexte principal à sa place, aucune économie."
       )
     );
   }
   appendSegments(pane, p);
+  for (const notice of sub.notices) pane.appendChild(el("p", "bubble-note", notice));
   for (const error of sub.errors) pane.appendChild(el("p", "bubble-note is-error", error));
   pane.appendChild(el("h3", "ctx-heading", "Sortie brute du sous-agent"));
   const raw = sub.callEnded ? sub.callEnded.raw_output : sub.reasoning + sub.text;
@@ -2694,7 +2735,12 @@ const TURN_STATUS = {
   blocked: ["is-failed", "bloqué"],
   error: ["is-failed", "erreur"],
 };
-const LIMITS = { calls: "limite d'appels", retries: "limite d'essais", sub_calls: "limite de sous-appels" };
+const LIMITS = {
+  calls: "limite d'appels",
+  retries: "limite d'essais",
+  sub_calls: "limite de sous-appels",
+  sub_retries: "limite d'essais du sous-agent",
+};
 const APPROVAL_FIGURES = { approved: "autorisé", refused: "refusé", cancelled: "annulé" };
 
 function plural(count, word) {
@@ -2839,24 +2885,25 @@ function turnRows(turn) {
         icon: "✖",
         title: "Appel d'outil mal formé",
         actor: "harness",
-        figure: step.payload.reaction === "retry" ? "nouvel essai" : "tour arrêté",
+        figure: step.payload.reaction === "retry" ? "nouvel essai" : turn.contextId ? "délégation arrêtée" : "tour arrêté",
         tone: "error",
         sticky: true,
         sig: 1,
         body: () => [malformedCard(step.payload)],
       });
     } else if (step.type === "limit_reached") {
-      const retries = step.payload.limit === "retries";
+      const retries = step.payload.limit.endsWith("retries");
+      const title = turn.contextId ? "Borne du sous-agent atteinte" : "Borne du tour atteinte";
       rows.push({
         key,
         icon: retries ? "✖" : "⏹",
-        title: "Borne du tour atteinte",
+        title,
         actor: "harness",
         figure: LIMITS[step.payload.limit] || step.payload.limit,
         tone: retries ? "error" : "hook",
         sticky: retries,
         sig: 1,
-        body: () => [harnessEvent("Borne du tour atteinte", retries ? "error" : "info", [el("p", "", step.payload.message_fr)])],
+        body: () => [harnessEvent(title, retries ? "error" : "info", [el("p", "", step.payload.message_fr)])],
       });
     } else if (step.type === "prefix_not_reused") {
       rows.push({
@@ -2875,7 +2922,7 @@ function turnRows(turn) {
     rows.push({
       key: `${turn.id}:overflow`,
       icon: "✖",
-      title: "Contexte dépassé",
+      title: turn.contextId ? "Contexte du sous-agent dépassé" : "Contexte dépassé",
       actor: "harness",
       figure: `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`,
       tone: "error",
@@ -2893,13 +2940,15 @@ function delegateRow(turn, step, key) {
   const ended = step.ended;
   const done = step.sub?.ended;
   let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
-  if (done) {
+  if (done?.status === "completed") {
     const guess = approx(done.estimated);
     figure = `${guess}${fmt(done.result_tokens)} tokens réinjectés · ${guess}${fmt(done.saved_tokens)} économisés`;
+  } else if (done) {
+    figure = `${SUB_STATUS[done.status] ?? done.status} · ${seconds(done.duration_ms)}`;
   } else if (ended) {
-    figure = `erreur · ${seconds(ended.duration_ms)}`;
+    figure = `${ended.status === "cancelled" ? "arrêtée" : "refusée"} · ${seconds(ended.duration_ms)}`;
   }
-  const failed = Boolean(ended && ended.status !== "ok");
+  const failed = Boolean(ended && !["ok", "cancelled"].includes(ended.status));
   return {
     key,
     icon: "👥",
@@ -2949,16 +2998,22 @@ function delegateBody(turn, step) {
     el(
       "p",
       "subagent-saving",
-      `Restés dans le contexte du sous-agent : ${fmt(done.context_tokens)} tokens. Réinjectés dans le contexte principal : ` +
-        `${guess}${fmt(done.result_tokens)} tokens. Économie pour le contexte principal : ${guess}${fmt(done.saved_tokens)} tokens.`
+      done.status === "completed"
+        ? `Résultats d'outils restés dans le contexte du sous-agent (ce que l'agent principal aurait lu sans délégation) : ` +
+            `${guess}${fmt(done.kept_tokens ?? 0)} tokens. Résultat réinjecté dans le contexte principal : ` +
+            `${guess}${fmt(done.result_tokens)} tokens. Économie pour le contexte principal : ${guess}${fmt(done.saved_tokens)} tokens. ` +
+            `Contexte complet du sous-agent : ${fmt(done.context_tokens)} tokens.`
+        : `Délégation sans résultat : aucune économie. Le contexte du sous-agent comptait ${fmt(done.context_tokens)} tokens.`
     ),
     el("p", "label", done.status === "completed" ? "Résultat (seul à revenir dans le contexte principal)" : "Erreur réinjectée à la place du résultat"),
     el("pre", "step-code", step.ended?.status === "ok" ? step.ended.result : step.ended?.error_fr ?? done.result)
   );
-  const show = el("button", "subagent-show", "Voir le contexte du sous-agent");
-  show.type = "button";
-  show.addEventListener("click", () => showSubContext(turn.id, sub.contextId));
-  nodes.push(show);
+  if (sub.context) {  // no call rendered (e.g. blocked first): nothing to show
+    const show = el("button", "subagent-show", "Voir le contexte du sous-agent");
+    show.type = "button";
+    show.addEventListener("click", () => showSubContext(turn.id, sub.contextId));
+    nodes.push(show);
+  }
   return nodes;
 }
 

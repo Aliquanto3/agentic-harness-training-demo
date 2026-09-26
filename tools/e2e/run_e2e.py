@@ -906,6 +906,47 @@ def s_subagent(r: Run) -> None:
     )
     r.show_forced(False)
 
+    # H5 inside the sub-agent (independent review): the session waits, the Vue humain card
+    # is answerable, a refusal goes back to the sub-agent and the turn ends.
+    r.set_option("Outils", "Lecture de page web", True)
+    r.set_option("Hooks", "Validation humaine", True)
+    enabled = {
+        b: [o["id"] for o in r.bricks()[b]["options"] if o["enabled"]] for b in ("tools", "hooks")
+    }
+    r.check(
+        "fetch_page" in enabled["tools"] and "h5" in enabled["hooks"],
+        "« Lecture de page web » et H5 activés",
+        str(enabled),
+    )
+    asked = r.send(
+        "Délègue à ton sous-agent la lecture de la page web de Paris.", expect_approval=True
+    )
+    r.check(
+        asked["context_id"].startswith("sub") and asked["payload"]["tool"] == "fetch_page",
+        "H5 demande la validation dans le contexte du sous-agent",
+        f"{asked['context_id']} · {asked['payload']['tool']}",
+    )
+    card = page.locator("#chat .approval-card").last
+    refuse = card.get_by_role("button", name="Refuser", exact=True)
+    ok, took = r.poll(lambda: card.count() == 1 and refuse.is_enabled(), 10)
+    r.check(ok, "Vue humain : la carte de validation du sous-agent est active", f"{took:.1f} s")
+    r.check(
+        "awaiting_human" == (r.state()["session_state"] or {}).get("state"),
+        "la session attend la validation",
+    )
+    seq = r.ev.mark()
+    refuse.click()
+    resolved = r.ev.wait("approval_resolved", seq, timeout=10)
+    ended = r.ev.wait("turn_ended", seq)
+    r.check(resolved["payload"]["decision"] == "refused", "« Refuser » dans le sous-agent")
+    r.check(not r.ev.since(seq, "outbound_request"), "refusé : rien ne sort du poste")
+    r.check(
+        ended["payload"]["status"] == "completed",
+        "le tour se termine après le refus",
+        ended["payload"]["status"],
+    )
+    r.set_option("Hooks", "Validation humaine", False)
+
 
 def s_data_flows(r: Run) -> None:
     r.launch("data_flows")

@@ -141,7 +141,11 @@ def test_ids_steps_and_figures_of_the_sub_agent():
     ended = of(events, "subagent_ended")[0].payload
     assert ended["context_tokens"] == calls[-1].payload["used"]
     assert ended["result_tokens"] == len(RESULT.encode("utf-8"))  # the model's tokenizer
-    assert ended["saved_tokens"] == ended["context_tokens"] - ended["result_tokens"] > 0
+    # The saving: the tool results kept in the sub-agent against the result reinjected.
+    kept = sum(s["tokens"] for s in _segments(calls[-1].payload, "tool_result"))
+    assert ended["kept_tokens"] == kept > 0
+    assert ended["saved_tokens"] == kept - ended["result_tokens"] > 0
+    assert ended["context_tokens"] > kept  # the whole context is not the saving
     assert ended["estimated"] is False
     session.close()
 
@@ -226,7 +230,8 @@ def test_sub_agent_overflow_fails_the_delegation_not_the_turn():
     (ended,) = of(events, "tool_ended", "main")
     assert ended.payload["status"] == "overflow"
     assert "La délégation au sous-agent a échoué" in ended.payload["error_fr"]
-    assert of(events, "subagent_ended")[0].payload["status"] == "overflow"
+    ended_sub = of(events, "subagent_ended")[0].payload
+    assert ended_sub["status"] == "overflow" and ended_sub["saved_tokens"] == 0
     second = of(events, "context_rendered", "main")[-1].payload
     (result,) = _segments(second, "subagent_result")  # the error, as the result (H-6)
     assert "dépassé" in result["text"]
@@ -261,7 +266,8 @@ def test_sub_agent_retries_count_in_its_calls():
         "stop",
     ]
     (limit,) = of(events, "limit_reached", "sub1")
-    assert limit.payload["limit"] == "retries"
+    assert limit.payload["limit"] == "sub_retries"
+    assert "le tour principal continue" in limit.payload["message_fr"]
     assert of(events, "tool_ended", "main")[0].payload["status"] == "limit"
     assert status(events) == "completed"
     session.close()
@@ -383,7 +389,8 @@ def test_stop_during_the_sub_agent_cancels_the_turn_without_another_call():
 
     assert of(events, "subagent_ended")[0].payload["status"] == "cancelled"
     (ended,) = of(events, "tool_ended", "main")
-    assert ended.payload["status"] == "error" and "Délégation arrêtée" in ended.payload["error_fr"]
+    assert ended.payload["status"] == "cancelled"
+    assert "Délégation arrêtée" in ended.payload["error_fr"]
     assert status(events) == "cancelled" and len(engine.calls) == 2
     session.close()
 
@@ -456,8 +463,8 @@ def test_the_schema_draws_a_second_model_and_the_card_its_force():
         "Modèle (sous-agent)",
     )
     assert nodes["subagent.agent"]["kind"] == "brick"
-    edges = [(e["from"], e["to"], e["crosses_boundary"]) for e in arch["edges"]]
-    assert ("core.harness", "core.model_sub", False) in edges
+    # As `core.model`: drawn inside the harness locally, with no edge.
+    assert all(e["to"] != "core.model_sub" for e in arch["edges"])
     cards = of(get_journal().events_since(mark), "bricks_changed")[-1].payload["bricks"]
     card = next(b for b in cards if b["id"] == "subagent")
     assert card["force"]["label_fr"] == "Déléguer au sous-agent"
@@ -553,4 +560,238 @@ def test_h2_logs_the_delegation_under_its_own_name():
     lines = path.read_text("utf-8").splitlines()[len(before) :]
     tools = [line.split(" | ")[3] for line in lines if " | appel d'outil | " in line]
     assert tools[0].startswith("read_file") and tools[1].startswith("delegate")
+    session.close()
+
+
+# ---------- independent review (2026-09-26) ----------
+
+
+def test_h5_state_during_the_sub_agent_is_the_sessions(web):  # noqa: F811
+    """The blocker: `session_state` `awaiting_human` emitted in `sub1` reaches `/api/state`
+    and the front as the session's state (the front routes by kind, see app.js SUB_KINDS)."""
+    web(lambda r: httpx.Response(200, text="<p>Paris</p>"))
+    page = call("fetch_page", url="https://fr.wikipedia.org/wiki/Paris")
+    engine, session = sub_session(
+        [delegation("Lis la page Paris."), page, "Paris.", "Voilà."],
+        bricks=("tools", "subagent", "hooks"),
+        tools=("fetch_page",),
+    )
+    session.set_hook("h5", True)
+    session.join()
+    client = _client(session)
+    mark = get_journal().last_seq()
+    session.send("Parle-moi de Paris.")
+    deadline = time.monotonic() + 30
+    while session.state != "awaiting_human":
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    state = client.get("/api/state").json()
+    assert state["session_state"]["state"] == "awaiting_human"
+    assert state["pending_approval"]["tool"] == "fetch_page"
+    answered = client.post(
+        "/api/intentions/approval",
+        json={"approval_id": state["pending_approval"]["approval_id"], "approved": True},
+        headers=HEADERS,
+    )
+    assert answered.status_code == 200
+    session.join()
+    events = get_journal().events_since(mark)
+    waiting = [e for e in of(events, "session_state") if e.payload["state"] == "awaiting_human"]
+    assert waiting and waiting[0].context_id == "sub1"
+    assert of(events, "subagent_ended")[0].payload["status"] == "completed"
+    assert status(events) == "completed"
+    session.close()
+
+
+def test_delegation_through_fetch_page(web):  # noqa: F811
+    sent = web(lambda r: httpx.Response(200, text="<p>Paris est la capitale.</p>"))
+    page = call("fetch_page", url="https://fr.wikipedia.org/wiki/Paris")
+    engine, session = sub_session(
+        [delegation("Lis la page Paris."), page, "Paris est la capitale.", "Voilà."],
+        tools=("fetch_page",),
+    )
+
+    events = run(session, "Parle-moi de Paris.")
+
+    assert of(events, "subagent_started")[0].payload["tools"] == ["read_file", "fetch_page"]
+    (fetched,) = of(events, "tool_started", "sub1")
+    assert fetched.payload["tool"] == "fetch_page" and len(sent) == 1
+    (outbound,) = of(events, "outbound_request")
+    assert outbound.context_id == "sub1" and outbound.parent_step is not None
+    assert of(events, "subagent_ended")[0].payload["result"] == "Paris est la capitale."
+    session.close()
+
+
+def test_state_after_a_stopped_delegation_shows_the_main_context():
+    engine, session = sub_session([delegation(), "x" * 400, "Jamais lu."])
+    engine.delay = 0.005
+    mark = get_journal().last_seq()
+    session.send("Quelles décisions ?")
+    deadline = time.monotonic() + 30
+    while not of(get_journal().events_since(mark), "model_call_started", "sub1"):
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    session.stop()
+    session.join()
+    last = [e for e in get_journal().events_since(mark) if e.kind == "context_rendered"][-1]
+    assert last.context_id == "sub1"  # the journal's last one is the sub-agent's
+
+    with _client(session) as client:
+        state = client.get("/api/state", headers=HEADERS).json()
+    assert state["context_rendered"]["context_id"] == "main"
+    session.close()
+
+
+def test_cloud_sub_agent_tool_call_and_reply_are_paired_in_its_second_body():
+    def calls(name, arguments, call_id):
+        return sse(
+            delta(
+                tool_calls=[
+                    {"index": 0, "id": call_id, "function": {"name": name, "arguments": arguments}}
+                ]
+            ),
+            delta("tool_calls"),
+        )
+
+    provider = Provider(
+        calls("delegate", '{"task": "Lis notes_reunion.txt."}', "p1"),
+        calls("read_file", '{"path": "notes_reunion.txt"}', "p2"),
+        sse(delta(content=RESULT), delta("stop")),
+        sse(delta(content="Voilà."), delta("stop")),
+    )
+    session = _cloud_session("groq", provider, bricks=("tools", "subagent"))
+
+    events = run(session, "Quelles décisions ?")
+
+    import json
+
+    second = json.loads(provider.requests[2].content)  # the sub-agent's second call
+    assert second["messages"][0]["content"].startswith("Tu es un sous-agent")
+    (assistant,) = [m for m in second["messages"] if m.get("tool_calls")]
+    (tool_call,) = assistant["tool_calls"]
+    assert tool_call["function"] == {
+        "name": "read_file",
+        "arguments": '{"path": "notes_reunion.txt"}',
+    }
+    (reply,) = [m for m in second["messages"] if m["role"] == "tool"]
+    assert reply["tool_call_id"] == tool_call["id"] != "p2"  # the session's id (AD-4)
+    assert "delegate" not in [t["function"]["name"] for t in second.get("tools", [])]
+    assert status(events) == "completed"
+    session.close()
+
+
+def test_an_exception_in_the_sub_agent_fails_the_delegation_only(monkeypatch):
+    engine, session = sub_session([delegation(), "Voilà."])
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("panne du sous-agent")
+
+    monkeypatch.setattr(session, "_run_subagent", broken)
+
+    events = run(session, "Quelles décisions ?")
+
+    (error,) = of(events, "harness_error")
+    assert error.context_id == "sub1" and "RuntimeError" in error.payload["cause"]
+    assert of(events, "subagent_ended")[0].payload["status"] == "error"
+    (ended,) = of(events, "tool_ended", "main")
+    assert ended.payload["status"] == "error"
+    assert ended.payload["error_fr"].startswith("La délégation au sous-agent a échoué")
+    assert status(events) == "completed"
+    session.close()
+
+
+def test_h3_injection_stays_in_the_main_context():
+    engine, session = sub_session(
+        [delegation(), RESULT, "Voilà."], bricks=("tools", "subagent", "hooks")
+    )
+
+    events = run(session, "Quelles décisions ?")
+
+    main = of(events, "context_rendered", "main")[0].payload
+    assert _segments(main, "hook_injection")
+    for rendered in of(events, "context_rendered", "sub1"):
+        assert _segments(rendered.payload, "hook_injection") == []
+    session.close()
+
+
+def test_h1_blocks_a_confidential_read_asked_by_the_sub_agent():
+    secret = call("read_file", path="confidentiel/budget_projet.txt")
+    engine, session = sub_session(
+        [delegation(), secret, "Bloqué.", "Voilà."], bricks=("tools", "subagent", "hooks")
+    )
+
+    events = run(session, "Résume le budget.")
+
+    (blocked,) = [e for e in of(events, "hook_decided", "sub1") if e.payload["decision"] == "block"]
+    assert blocked.payload["hook"] == "h1" and blocked.step_id.startswith("t1.sub1.h")
+    assert of(events, "tool_started", "sub1") == []  # the tool never ran
+    second = of(events, "context_rendered", "sub1")[-1].payload
+    refusal = [s for s in second["segments"] if s["brick"] == "hooks"]
+    assert refusal and "garde-fou" in refusal[0]["text"]
+    lines = config.audit_path().read_text("utf-8").splitlines()
+    assert any(" | t1.sub1 | appel bloqué par H1 | " in line for line in lines)
+    session.close()
+
+
+def test_the_sub_agent_does_not_reason_and_keeps_the_small_reserve():
+    thought = "Je délègue.\n</think>\n\n"  # the main model reasons, then calls
+    engine, session = sub_session([thought + delegation(), RESULT, thought + "Voilà."])
+    session.set_brick("reasoning", True)
+    session.join()
+
+    events = run(session, "Quelles décisions ?")
+
+    main = of(events, "context_rendered", "main")[0].payload
+    sub = of(events, "context_rendered", "sub1")[0].payload
+    assert main["reserve"] == 1536 and sub["reserve"] == 512
+    prompt = "".join(s["text"] for s in sub["segments"])
+    assert not prompt.endswith("<think>\n")  # enable_thinking off in the sub-agent
+    session.close()
+
+
+def test_a_refused_delegate_call_is_not_a_sub_agent_result():
+    engine, session = sub_session([call("delegate"), "Voilà."])  # no `task`
+
+    events = run(session, "Quelles décisions ?")
+
+    assert of(events, "subagent_started") == []
+    second = of(events, "context_rendered", "main")[1].payload
+    assert _segments(second, "subagent_result") == []
+    assert "argument « task » manquant" in _segments(second, "tool_result")[0]["text"]
+    session.close()
+
+
+@pytest.mark.parametrize(
+    ("args", "reason"),
+    [({"task": 12}, "doit être un texte"), ({"task": "Lis.", "path": "x"}, "Argument inconnu")],
+)
+def test_arming_refuses_a_non_text_task_or_another_argument(args, reason):
+    _, session = sub_session(["Voilà."])
+    with _client(session) as client:
+        response = client.post(
+            "/api/intentions/arm",
+            json={"kind": "delegate", "target": "delegate", "args": args},
+            headers=HEADERS,
+        )
+    assert response.status_code == 422 and reason in response.json()["detail"]
+    assert session._armed == []
+    session.close()
+
+
+def test_an_unknown_tool_in_the_subagent_section_is_traced_at_load():
+    mark = get_journal().last_seq()
+    session = AppSession(config.Config(values={"subagent": {"tools": ["read_file", "lire_tout"]}}))
+    (error,) = of(get_journal().events_since(mark), "harness_error")
+    assert "lire_tout" in error.payload["message_fr"]
+    session.close()
+
+
+def test_token_count_falls_back_to_an_estimate():
+    engine, session = sub_session(["Voilà."])
+
+    def broken(text):
+        raise RuntimeError("tokenizer")
+
+    engine.tokenize = broken
+    assert session._count_tokens("x" * 40) == (10, True)
     session.close()
