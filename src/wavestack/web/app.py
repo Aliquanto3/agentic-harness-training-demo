@@ -7,6 +7,7 @@ Protected per AD-18's subset: `TrustedHostMiddleware` on
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -208,6 +209,8 @@ def create_app(
         armed = _latest(events, "armed_actions_changed")  # story 9: the chips after a reload
         scenario = _latest(events, "scenario_changed")  # story 10: programme and active one
         return {
+            # A1: the front compares it with the stream's `server_instance` event.
+            "instance_id": journal.instance_id,
             "session_state": session_state.payload if session_state else None,
             # AD-12: the model indicator, rebuilt from the session on every reload.
             "active_model": app_session.active_model(),
@@ -466,6 +469,9 @@ def _sse_stream(request: Request) -> StreamingResponse:
         loop.call_soon_threadsafe(queue.put_nowait, envelope)
 
     async def _generate():  # noqa: ANN202
+        # First, which journal this stream reads: a tab left open across a relaunch sees
+        # a new instance and resyncs (its `Last-Event-ID` belongs to the old journal).
+        yield _format_instance(journal.instance_id)
         for envelope in journal.events_since(since_seq):
             yield _format_sse(envelope)
         journal.subscribe(_on_event)
@@ -487,3 +493,9 @@ def _sse_stream(request: Request) -> StreamingResponse:
 def _format_sse(envelope: Envelope) -> str:
     data = envelope.model_dump_json()
     return f"id: {envelope.seq}\nevent: {envelope.kind}\ndata: {data}\n\n"
+
+
+def _format_instance(instance_id: str) -> str:
+    """Outside the AD-2 envelope and without `id:`: it never moves `Last-Event-ID`."""
+    data = json.dumps({"instance_id": instance_id})
+    return f"event: server_instance\ndata: {data}\n\n"

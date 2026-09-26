@@ -51,3 +51,4 @@ outils proposés et des résultats déjà reçus dans le tour :
 | `[tool_use_failed]` | 400 `tool_use_failed` (façon Groq) |
 | `[erreur429]`, `[erreur500]`, `[erreur401]`, `[flux-erreur]` | refus du fournisseur, erreur au milieu du flux |
 | `[coupé]`, `[long]`, `[lent]`, `[raisonne]` | `finish_reason: length`, texte long, flux lent (pour « Arrêter »), champ `reasoning` |
+| `[sans-usage]` | réponse sans `usage` en fin de flux (tokens estimés par WaveStack) |

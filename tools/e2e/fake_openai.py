@@ -50,6 +50,7 @@ class Reply:
     headers: dict[str, str] = field(default_factory=dict)
     delay_s: float = CHUNK_DELAY_S
     stream_error: dict[str, Any] | None = None  # an `error` chunk in the middle of the stream
+    usage: bool = True  # `usage` at the end when asked; False: as a provider that omits it
 
 
 # ---------- reading the request ----------
@@ -257,7 +258,7 @@ def plan_reply(body: dict[str, Any]) -> Reply:
     text = _final_text(user, messages, results)
     if "[long]" in low:
         text = " ".join([_LONG_HARNESS] * 6)
-    return Reply(text=text, reasoning=reasoning, delay_s=delay)
+    return Reply(text=text, reasoning=reasoning, delay_s=delay, usage="[sans-usage]" not in low)
 
 
 # ---------- the stream ----------
@@ -295,7 +296,7 @@ def sse_chunks(reply: Reply, body: dict[str, Any], completion_id: str) -> list[d
             out.append(chunk({"tool_calls": [{"index": index, "function": {"arguments": piece}}]}))
     finish = "tool_calls" if reply.tool_calls and reply.finish == "stop" else reply.finish
     out.append(chunk({}, finish))
-    if (body.get("stream_options") or {}).get("include_usage"):
+    if reply.usage and (body.get("stream_options") or {}).get("include_usage"):
         prompt = estimate_tokens(json.dumps(body.get("messages"), ensure_ascii=False))
         prompt += estimate_tokens(json.dumps(body.get("tools") or [], ensure_ascii=False))
         completion = estimate_tokens(reply.reasoning + reply.text) + sum(
