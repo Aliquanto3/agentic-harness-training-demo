@@ -119,12 +119,26 @@ def strip_rag(text: str) -> str:
     return text[:at] + rest.lstrip("\n")
 
 
-def called_in_turn(after: list[dict[str, Any]]) -> list[str]:
-    names = []
+def called_in_turn(after: list[dict[str, Any]]) -> list[tuple[str, Any]]:
+    """The calls already made in the turn: `(name, arguments)`, arguments parsed when they
+    are JSON (a turn may call the same tool again with other arguments, story 21)."""
+    calls = []
     for m in after:
         for call in m.get("tool_calls") or []:
-            names.append(str((call.get("function") or {}).get("name", "")))
-    return names
+            function = call.get("function") or {}
+            try:
+                arguments = json.loads(function.get("arguments") or "{}")
+            except ValueError:
+                arguments = function.get("arguments")
+            calls.append((str(function.get("name", "")), arguments))
+    return calls
+
+
+def lazy_names(body: dict[str, Any]) -> list[str]:
+    """Story 21: the MCP tools (`server__tool`) named in the tools offered, among them
+    those the lazy loading lists in `load_tool_doc`'s description."""
+    text = json.dumps(body.get("tools") or [], ensure_ascii=False)
+    return sorted(set(re.findall(r"\b([a-z0-9]+__[A-Za-z0-9_]+)", text)))
 
 
 def tool_results(after: list[dict[str, Any]]) -> list[str]:
@@ -162,8 +176,25 @@ _SHORT_HARNESS = (
 )
 
 
-def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
-    """The tool calls a prompt leads to, in order; unavailable tools are skipped later."""
+def _mcp_search(
+    server: str, query: str, offered: list[str], lazy: list[str]
+) -> list[tuple[str, dict[str, Any]]]:
+    """A public server's search tool: called when offered; in lazy loading, its
+    documentation is loaded first; nothing when the server is not connected."""
+    found = [n for n in offered if n.startswith(f"{server}__") and "search" in n]
+    if found:
+        return [(found[0], {"query": query})]
+    found = [n for n in lazy if n.startswith(f"{server}__") and "search" in n]
+    if found and "load_tool_doc" in offered:
+        return [("load_tool_doc", {"tool": found[0]}), (found[0], {"query": query})]
+    return []
+
+
+def _plan(
+    user: str, offered: list[str], lazy: list[str] = (), results: list[str] = ()
+) -> list[tuple[str, dict[str, Any]]]:
+    """The tool calls a prompt leads to, in order; unavailable tools are skipped later.
+    A trigger whose server is not connected falls through to the next ones."""
     low = user.lower()
     if "test de connexion wavestack" in low:
         return [("get_datetime", {})]
@@ -178,17 +209,19 @@ def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
         return [("read_file", {"path": "guide_harnais.md"})]
     if "alertes_siem" in low:  # story 21: the SOC scenario's alerts
         return [("read_file", {"path": "alertes_siem.log"})]
+    if "fichiers disponibles" in low:  # story 21, SOC: the model looks for the file itself
+        listed = re.findall(r"confidentiel/[\w./-]*\w", "\n".join(results))
+        wanted = [f for f in listed if "compte" in f or "privil" in f][:1]
+        return [("read_file", {"path": "."})] + [("read_file", {"path": f}) for f in wanted]
     if "confidentiel" in low:  # the file named in the message, else the hooks scenario's
-        named = re.search(r"confidentiel/[\w.-]+\.\w+", user)
+        named = re.search(r"confidentiel/[\w./-]*\w", user)
         return [
             ("read_file", {"path": named.group(0) if named else "confidentiel/budget_projet.txt"})
         ]
-    if "entra id" in low:  # story 21, IAM: Microsoft Learn's search, when connected
-        mslearn = [n for n in offered if n.startswith("mslearn__") and "search" in n]
-        return [(mslearn[0], {"query": "Entra ID"})] if mslearn else []
-    if "data.gouv.fr" in low:  # story 21, sovereignty: data.gouv.fr's search, when connected
-        datagouv = [n for n in offered if n.startswith("datagouv__") and "search" in n]
-        return [(datagouv[0], {"query": "cybersécurité"})] if datagouv else []
+    if "entra id" in low and (hit := _mcp_search("mslearn", "Entra ID", offered, lazy)):
+        return hit  # story 21: IAM and sovereignty, Microsoft Learn's search
+    if "data.gouv" in low and (hit := _mcp_search("datagouv", "cybersécurité", offered, lazy)):
+        return hit  # story 21: sovereignty, data.gouv.fr's search
     if "recette_crepes" in low or "crêpes" in low:
         return [("read_file", {"path": "recette_crepes.txt"})]
     if "notes_reunion" in low:
@@ -209,9 +242,8 @@ def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
             ("load_tool_doc", {"tool": "local__define_term"}),
             ("local__define_term", {"term": "MCP"}),
         ]
-    if "qualité de l'air" in low:
-        datagouv = [n for n in offered if n.startswith("datagouv__") and "search" in n]
-        return [(datagouv[0], {"query": "qualité de l'air"})] if datagouv else []
+    if "qualité de l'air" in low and (hit := _mcp_search("datagouv", "air", offered, lazy)):
+        return hit
     if "compte rendu" in low:
         return [("load_skill", {"skill": "meeting_minutes"})]
     remember = re.search(r"retiens que (.+)", user, re.IGNORECASE)
@@ -235,6 +267,11 @@ def _final_text(user: str, messages: list[dict[str, Any]], results: list[str]) -
         if hit:
             return f"D'après le journal : {hit.strip()}"
         return f"Le résultat de l'outil ne mentionne pas le lot {asked.group(1)}."
+    if results and results[-1].startswith("Bloqué par le hook garde-fou"):  # story 21, SOC
+        return (
+            "Le harnais m'a bloqué l'accès à ce fichier confidentiel : je transmets la "
+            "vérification à un analyste habilité."
+        )
     errors = [line for line in (results[-1] if results else "").splitlines() if " ERROR " in line]
     if errors:  # story 20: the log's error, kept by the compression
         return f"D'après le journal : {errors[0].strip()}"
@@ -271,7 +308,7 @@ def _final_text(user: str, messages: list[dict[str, Any]], results: list[str]) -
         return "Je ne connais pas les règles d'Exemplia ; en général, on conseille 8 caractères."
     if "entra id" in low:  # story 21: Microsoft Learn unreachable (no network in the run)
         return "Sans la documentation Microsoft Learn, je ne peux pas détailler Entra ID."
-    if "data.gouv.fr" in low:
+    if "data.gouv" in low:
         return "Sans accès à data.gouv.fr, je ne peux pas chercher dans les données publiques."
     if "présente-toi" in low:
         return "Je suis le faux modèle de WaveStack : mes réponses sont écrites d'avance."
@@ -318,7 +355,7 @@ def plan_reply(body: dict[str, Any]) -> Reply:
                 tool_calls=[{"name": "get_datetime", "arguments": '{"oops": '}],
                 delay_s=delay,
             )
-        if "get_datetime" not in called:
+        if "get_datetime" not in [name for name, _ in called]:
             return Reply(tool_calls=[{"name": "get_datetime", "arguments": "{}"}], delay_s=delay)
     if "[outil-inconnu]" in low and not results:
         return Reply(tool_calls=[{"name": "outil_imaginaire", "arguments": "{}"}], delay_s=delay)
@@ -334,8 +371,8 @@ def plan_reply(body: dict[str, Any]) -> Reply:
     if "[coupé]" in low:
         return Reply(text=_LONG_HARNESS, finish="length", delay_s=delay)
 
-    for name, arguments in _plan(user, offered):
-        if name in offered and name not in called:
+    for name, arguments in _plan(user, offered, lazy_names(body), results):
+        if name in offered and (name, arguments) not in called:
             return Reply(
                 reasoning=reasoning,
                 tool_calls=[{"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)}],

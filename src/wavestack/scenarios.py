@@ -27,6 +27,11 @@ class Scenario(BaseModel):
     hooks: list[str] | None = None
     mcp_lazy: bool = False
     rag_rerank: bool = False  # story 16: the RAG brick's reranking sub-option
+    # Story 21: launching the scenario restores the demonstration global memory, as the
+    # reset does (a module started directly always starts from the same memory).
+    restore_memory: bool = False
+    # AD-9: the first call of the scenario overflows the window on purpose.
+    expects_overflow: bool = False
     prompts: list[str] = Field(min_length=1)
 
 

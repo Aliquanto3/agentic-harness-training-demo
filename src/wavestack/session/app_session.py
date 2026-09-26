@@ -3996,15 +3996,18 @@ class AppSession:
             self._mcp_lazy = scenario.mcp_lazy
             self._rag_rerank = scenario.rag_rerank  # story 16
 
-        self._reconfigure(scenario_id, apply)
+        self._reconfigure(scenario_id, apply, restore_memory=scenario.restore_memory)
 
     def reset(self) -> None:
         """Class (b): back to the launch state: bare LLM, no turn, no scenario."""
         self._reconfigure(None, lambda: None)
 
-    def _reconfigure(self, scenario_id: str | None, apply: Callable[[], None]) -> None:
+    def _reconfigure(
+        self, scenario_id: str | None, apply: Callable[[], None], *, restore_memory: bool = False
+    ) -> None:
         """One `bricks_changed`, one `architecture_changed`, one preview; MCP servers
-        connect or close on the difference only (AD-15)."""
+        connect or close on the difference only (AD-15). The reset, and a scenario that
+        declares `restore_memory` (story 21), restore the demonstration memory."""
         with self._memory_lock:  # no turn starts before the memory is restored
             with self._lock:
                 if self.state != "idle":
@@ -4021,7 +4024,7 @@ class AppSession:
                 self._active_scenario = scenario_id
             journal = get_journal()
             journal.emit("conversation_cleared" if scenario_id else "harness_reset", {})
-            if scenario_id is None:  # FR-39: the reset alone restores the demonstration memory
+            if scenario_id is None or restore_memory:  # FR-39; story 21, a module's start
                 self._restore_memory()
         self._emit_armed()
         self._emit_scenario()

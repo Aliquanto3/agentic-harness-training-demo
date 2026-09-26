@@ -70,7 +70,8 @@ chemin d'un fichier `.gguf` (partage, clé USB, cache Hugging Face, LM Studio, O
 
 ## Programme de formation
 
-Le sélecteur de scénario de la barre haute liste six modules, dans l'ordre des briques :
+Le sélecteur de scénario de la barre haute liste six modules, dans l'ordre des briques, soit
+5 h 15 au total, à répartir sur plusieurs séances :
 
 | Module | Durée | Scénarios |
 |---|---|---|
@@ -81,15 +82,32 @@ Le sélecteur de scénario de la barre haute liste six modules, dans l'ordre des
 | 5. Skills et hooks | 60 min | skills, Caveman, hooks |
 | 6. Sous-agent et compression | 60 min | sous-agent, compression du contexte |
 
-Lancer le premier scénario d'un module active les briques des modules précédents : on peut
-reprendre la formation à n'importe quel module. Deux exceptions, pour tenir dans la fenêtre de
-contexte : le raisonnement reste éteint après le module 1, et le RAG est éteint pendant « MCP en
-documentation complète ». Le groupe « Transverses et métier » suit les modules : « Où vont mes
-données ? », puis trois scénarios métier, fictifs, pour imaginer des usages en practice (SOC :
-journal d'audit et garde-fou ; IAM : Entra ID avec Microsoft Learn ; Souveraineté : données
-publiques françaises avec data.gouv.fr). Les deux derniers demandent un accès à
-`learn.microsoft.com` ou `mcp.data.gouv.fr` ; sans réseau, le serveur est dessiné indisponible
-avec sa raison. Un nouveau scénario s'ajoute dans `content/scenarios.yaml`, sans modifier le code.
+Lancer le premier scénario d'un module active les briques des modules précédents et restaure la
+mémoire globale de démonstration : on peut reprendre la formation à n'importe quel module, dans
+un état reproductible. Deux exceptions, pour tenir dans la fenêtre de contexte : le raisonnement
+reste éteint après le module 1, et le RAG est éteint pendant « MCP en documentation complète ».
+
+Le groupe « Transverses et métier » suit les modules : « Où vont mes données ? », puis trois
+scénarios métier, fictifs, pour que chaque practice imagine ses usages. Leur consigne, projetée,
+se termine par le message à retenir ; la réponse attendue, ci-dessous, est pour le formateur.
+
+| Scénario | Durée | Réponse attendue |
+|---|---|---|
+| SOC : journal d'audit et garde-fou | 20 min | Un seul incident, le compte adm.leroy : connexion depuis un pays inhabituel à 02:14 UTC (accès initial, comptes valides), auto-ajout aux « Admins du domaine » à 02:15 (élévation de privilèges, manipulation de compte), antivirus arrêté à 02:21 (contournement des défenses), 2,3 Go sortants à 02:40 (exfiltration), pendant une fenêtre de maintenance où des alertes étaient en sourdine. Les échecs de svc-sauvegarde sont à investiguer à part. Au second prompt, H1 bloque l'inventaire des comptes à privilèges : l'agent doit escalader vers un analyste habilité. |
+| IAM : Entra ID avec Microsoft Learn | 15 min | MFA des administrateurs : une stratégie d'accès conditionnel qui cible les rôles d'administrateur et exige l'authentification multifacteur (modèle « Exiger l'authentification multifacteur pour les administrateurs »), ou les paramètres de sécurité par défaut pour un petit locataire. PIM : rôles attribués « éligibles », activés à la demande pour une durée limitée, avec justification, MFA et, au besoin, approbation. La réponse cite ses liens Microsoft Learn. |
+| Souveraineté : où partent les requêtes ? | 15 min | Deux flux sortent du poste : la recherche vers data.gouv.fr (opérateur public français) et celle vers Microsoft Learn (éditeur américain, soumis au Cloud Act même en Europe). Chaque requête révèle le sujet de la mission. Hébergement et qualification (SecNumCloud) de chaque serveur restent à vérifier ; le modèle local ne sort pas du poste, un modèle cloud y ajouterait un troisième flux. |
+
+IAM et Souveraineté demandent un accès à `learn.microsoft.com` et `mcp.data.gouv.fr` : sur le
+réseau d'une entreprise, faites autoriser ces deux hôtes par le proxy avant la séance. Sans
+réseau, chaque serveur est dessiné indisponible avec sa raison et le tour se poursuit sans lui.
+
+Un nouveau scénario s'ajoute dans `content/scenarios.yaml`, sans modifier le code : un scénario
+métier va dans `transverse`, avec un titre « Métier … », sa durée et son message « À retenir »
+dans la consigne. Les tests du programme (`tests/test_program.py`) vérifient ces règles, le
+cumul des modules et l'adéquation de chaque scénario à la fenêtre, sans liste de scénarios à
+mettre à jour. Pour qu'ils comptent la documentation réelle des serveurs MCP publics, lancez une
+fois sur un poste relié au réseau `uv run python scripts/snapshot_mcp.py` : il enregistre leurs
+outils dans `content/mcp_snapshots/`.
 
 ## Changer de modèle
 

@@ -8,11 +8,16 @@
 #   chaque tour (NFR-1) ; rallumez-le à la main pour le montrer à l'œuvre ;
 # - « MCP en documentation complète » laisse le RAG éteint : ses extraits s'ajouteraient
 #   à une documentation déjà près de la limite ; « Lazy loading », qui le suit, le rallume.
+# Le premier scénario d'un module restaure aussi la mémoire globale de démonstration
+# (`restore_memory`) : un module démarré directement part toujours de la même mémoire, et une
+# mémoire remplie au module précédent ne déborde pas la fenêtre.
 # Les scénarios suivants d'un module, les transverses et les scénarios métier fixent
 # librement leur configuration, au plus près de la brique qu'ils montrent.
 # `bricks` : briques voulues ; `tools`, `mcp_servers`, `skills`, `hooks` : sous-options
 # activées (absentes = valeurs de lancement) ; `mcp_lazy` : lazy loading (faux par défaut) ;
-# `rag_rerank` : reranking des extraits RAG (faux par défaut) ;
+# `rag_rerank` : reranking des extraits RAG (faux par défaut) ; `restore_memory` : restaure la
+# mémoire globale de démonstration au lancement ; `expects_overflow` : le premier appel
+# déborde volontairement la fenêtre (AD-9, aucun scénario fourni aujourd'hui) ;
 # `prompts` : prompts suggérés au-dessus du champ de saisie.
 # `transverse` : scénarios hors modules, listés après eux : l'hébergement (FR-38), puis les
 # scénarios métier (FR-40). Un nouveau métier s'ajoute ici, sans modifier le code.
@@ -92,17 +97,18 @@ scenarios:
     title_fr: Mémoire globale
     description_fr: >-
       La mémoire courte et le prompt système restent actifs, et la mémoire globale s'y
-      ajoute : trois informations de démonstration sont déjà dans le message système. Si une
-      séance précédente a laissé la préférence en mémoire, cliquez d'abord sur
-      « Réinitialiser » puis relancez ce scénario : la démonstration est restaurée.
-      Envoyez le premier prompt : le modèle appelle l'outil remember et le harnais écrit le
-      fichier memory.json. S'il ne le fait pas, forcez « Écrire en mémoire » depuis la carte
-      de la brique (après « Afficher les actions forcées ») et renvoyez le prompt. Videz
-      ensuite la conversation, puis envoyez le second prompt : la préférence revient par le
-      message système, pas par l'historique. Ouvrez enfin « Modifier la mémoire » (ou
-      cliquez le fichier dans le schéma) pour consulter, modifier ou effacer les entrées.
-      La mémoire globale reste active dans les modules suivants.
+      ajoute : lancer ce scénario restaure la mémoire de démonstration, dont les trois
+      informations sont déjà dans le message système. Envoyez le premier prompt : le modèle
+      appelle remember, un outil propre au harnais (le cycle d'un appel d'outil est détaillé
+      au module 2), et le harnais écrit le fichier memory.json. S'il ne le fait pas, forcez
+      « Écrire en mémoire » depuis la carte de la brique (après « Afficher les actions
+      forcées ») et renvoyez le prompt. Videz ensuite la conversation, puis envoyez le second
+      prompt : la préférence revient par le message système, pas par l'historique. Ouvrez
+      enfin « Modifier la mémoire » (ou cliquez le fichier dans le schéma) pour consulter,
+      modifier ou effacer les entrées. La mémoire globale reste active dans les modules
+      suivants ; leur premier scénario restaure la mémoire de démonstration.
     bricks: [short_memory, system_prompt, global_memory]
+    restore_memory: true
     prompts:
       - Retiens que je préfère des réponses en trois points au plus.
       - Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.
@@ -110,10 +116,11 @@ scenarios:
   native_tools:
     title_fr: Outils natifs
     description_fr: >-
-      Les briques du module 1 restent actives, sauf le raisonnement, et les outils locaux
-      s'y ajoutent. Envoyez un prompt et suivez dans Orchestration le cycle d'appel : le
+      Les briques du module 1 restent actives, sauf le raisonnement (la mémoire globale
+      revient à sa démonstration), et les outils locaux s'y ajoutent. Envoyez un prompt et suivez dans Orchestration le cycle d'appel : le
       modèle demande l'outil, le harnais l'exécute et réinjecte son résultat.
     bricks: [short_memory, system_prompt, global_memory, tools]
+    restore_memory: true
     prompts:
       - Quelle heure est-il ?
       - Combien font 1234 multiplié par 5678 ?
@@ -146,6 +153,7 @@ scenarios:
       propose « Télécharger », cliquez-y, puis sur « Construire l'index » quand elle le
       propose ; la brique devient disponible sans ligne de commande.
     bricks: [short_memory, system_prompt, global_memory, tools, rag]
+    restore_memory: true
     prompts:
       - Combien de caractères doit compter au minimum un mot de passe chez Exemplia ?
       - Quel plafond de remboursement s'applique à une nuit d'hôtel à Paris chez Exemplia ?
@@ -178,6 +186,7 @@ scenarios:
       indisponible : poursuivez avec le serveur local.
     bricks: [short_memory, system_prompt, global_memory, tools, mcp]
     mcp_servers: [local, datagouv]
+    restore_memory: true
     prompts:
       - Que veut dire MCP ?
 
@@ -205,6 +214,7 @@ scenarios:
       contenu complet rejoint le contexte et la jauge grandit.
     bricks: [short_memory, system_prompt, global_memory, tools, rag, mcp, skills]
     mcp_lazy: true
+    restore_memory: true
     prompts:
       - >-
         Rédige le compte rendu de cette réunion : Paul présente le budget, Julie
@@ -252,6 +262,7 @@ scenarios:
     bricks: [short_memory, system_prompt, global_memory, tools, rag, mcp, skills, hooks, subagent]
     tools: [read_file]
     mcp_lazy: true
+    restore_memory: true
     prompts:
       - >-
         Délègue à ton sous-agent la lecture du fichier guide_harnais.md, sans le lire
@@ -301,39 +312,50 @@ scenarios:
   soc:
     title_fr: "Métier SOC : journal d'audit et garde-fou"
     description_fr: >-
-      Pour la practice SOC. La lecture de fichier et les hooks H1 et H2 sont actifs.
-      Envoyez le premier prompt : le modèle lit les alertes d'un SIEM fictif et les classe
-      par gravité, et H2 consigne chaque appel, horodaté, dans le journal d'audit. Envoyez
-      le second : pour qualifier l'alerte critique, le modèle veut ouvrir l'inventaire des
-      comptes à privilèges, et H1 bloque la lecture, car le fichier est dans le dossier
-      confidentiel ; c'est du code du harnais qui décide, pas le modèle. Cliquez enfin
-      « Journal d'audit » dans le schéma : l'appel permis et l'appel bloqué y sont, prêts
-      pour une investigation. Si le modèle n'appelle pas l'outil, forcez read_file avec le
-      préréglage « Fichier sensible » (après « Afficher les actions forcées ») et rejouez.
+      Pour la practice SOC, environ 20 minutes. La lecture de fichier et les hooks H1
+      (garde-fou) et H2 (journal d'audit) sont actifs. Envoyez le premier prompt : le modèle
+      lit les alertes d'un SIEM fictif (heures en UTC) et doit relier en un seul incident les
+      quatre alertes du compte adm.leroy, survenues pendant une fenêtre de maintenance où des
+      alertes étaient en sourdine ; H2 consigne chaque appel, horodaté. Envoyez le second :
+      le modèle cherche lui-même dans les fichiers, trouve l'inventaire des comptes à
+      privilèges dans le dossier confidentiel, et H1 bloque sa lecture. L'agent n'a pas ce
+      privilège : c'est le harnais qui en décide, pas le modèle, et l'agent doit escalader
+      vers un analyste habilité. Cliquez enfin « Journal d'audit » dans le schéma : les
+      lectures permises et la lecture bloquée y sont. Si le modèle n'appelle pas l'outil,
+      forcez read_file (après « Afficher les actions forcées ») avec le préréglage « Alertes
+      SIEM (SOC) » au premier prompt, « Comptes à privilèges (SOC, confidentiel) » au second,
+      et rejouez. À retenir : le journal du harnais trace chaque action de l'agent, la
+      traçabilité qu'attendent NIS2 et DORA d'un outil qui agit sur le système
+      d'information ; le garde-fou applique le moindre privilège, et la décision sensible
+      reste à un humain.
     bricks: [short_memory, system_prompt, tools, hooks]
     tools: [read_file]
     hooks: [h1, h2]
     prompts:
       - >-
-        Lis le fichier alertes_siem.log et classe ses alertes de la plus grave à la moins
-        grave, une ligne par alerte.
+        Lis le fichier alertes_siem.log, regroupe les alertes qui relèvent d'un même
+        incident et reconstitue sa chronologie, avec pour chaque étape la tactique MITRE
+        ATT&CK probable.
       - >-
-        Pour qualifier l'alerte critique, lis confidentiel/comptes_privilegies.txt et
-        dis-moi quel est le rôle du compte adm.leroy.
+        Pour qualifier cet incident, vérifie le rôle et le titulaire du compte adm.leroy en
+        t'aidant des fichiers disponibles.
 
   iam:
     title_fr: "Métier IAM : Entra ID avec Microsoft Learn"
     description_fr: >-
-      Pour la practice IAM. Seul le serveur MCP public Microsoft Learn est connecté, en
-      documentation complète, avec la mémoire courte et le prompt système : un petit modèle
-      ne connaît pas les écrans récents d'Entra ID, la documentation officielle, si.
-      Envoyez le premier prompt : le modèle cherche dans Microsoft Learn, et Orchestration
-      montre la destination et les données exactement envoyées, avant le résultat. Le
-      schéma dessine le serveur dans la zone Réseau : la question part chez Microsoft, le
-      modèle reste sur le poste. Les résultats de recherche sont volumineux : si la jauge
-      annonce un dépassement, c'est le coût réel d'un MCP public ; posez une question plus
-      précise. Sans réseau, Microsoft Learn est dessiné indisponible avec sa raison :
-      décochez puis recochez le serveur dans la carte MCP pour réessayer.
+      Pour la practice IAM, environ 15 minutes. Seul le serveur MCP public Microsoft Learn
+      est connecté, en documentation complète, avec la mémoire courte et le prompt système :
+      un petit modèle ne connaît pas les écrans récents d'Entra ID, la documentation
+      officielle, si. Envoyez le premier prompt : le modèle cherche dans Microsoft Learn, et
+      Orchestration montre la destination et les données exactement envoyées, avant le
+      résultat. Le schéma dessine le serveur dans la zone Réseau : la question part chez
+      Microsoft, le modèle reste sur le poste. Les résultats de recherche sont volumineux :
+      si la jauge annonce un dépassement, c'est le coût réel d'un MCP public ; posez une
+      question plus précise. Sans réseau (ou derrière un proxy qui bloque
+      learn.microsoft.com), Microsoft Learn est dessiné indisponible avec sa raison :
+      décochez puis recochez le serveur dans la carte MCP pour réessayer. À retenir : une
+      réponse sourcée, avec les liens de Microsoft Learn, plutôt qu'un écran
+      d'administration inventé ; en échange, la question part chez l'éditeur.
     bricks: [short_memory, system_prompt, mcp]
     mcp_servers: [mslearn]
     prompts:
@@ -345,23 +367,28 @@ scenarios:
         l'activation juste-à-temps d'un rôle ?
 
   sovereignty:
-    title_fr: "Métier Souveraineté : données publiques françaises"
+    title_fr: "Métier Souveraineté : où partent les requêtes ?"
     description_fr: >-
-      Pour la practice souveraineté. Les outils locaux et le serveur MCP public
-      data.gouv.fr sont actifs, en lazy loading. Envoyez le premier prompt : le modèle
-      charge la documentation de l'outil de recherche, puis interroge le catalogue des
-      données publiques françaises. Regardez le schéma : seul le flux vers data.gouv.fr
-      franchit la frontière du poste, le modèle et les outils locaux y restent ; dans
-      Orchestration, les données sortantes montrent que seule la requête de recherche part,
-      vers un service de l'État. Avec un modèle cloud, toute la conversation partirait
-      aussi chez son fournisseur : la question de l'hébergement se pose pour le harnais,
-      les données et le modèle. Sans réseau, data.gouv.fr est dessiné indisponible avec sa
-      raison : décochez puis recochez le serveur dans la carte MCP pour réessayer.
-    bricks: [short_memory, system_prompt, tools, mcp]
-    mcp_servers: [datagouv]
+      Pour la practice souveraineté, environ 15 minutes. Deux serveurs MCP publics sont
+      connectés, en lazy loading : data.gouv.fr, opéré par l'administration française, et
+      Microsoft Learn, opéré par un éditeur américain. Envoyez les deux prompts, puis ouvrez
+      dans Orchestration les données sortantes de chaque appel : la requête révèle à elle
+      seule le sujet de la mission, et elle part chez deux opérateurs soumis à deux droits
+      différents ; un éditeur américain relève du Cloud Act, même quand ses serveurs sont en
+      Europe. Le schéma ne montre que ce qui quitte le poste : où tourne chaque serveur MCP,
+      chez quel hébergeur, avec quelle qualification (SecNumCloud par exemple), reste à
+      vérifier flux par flux, et un service public n'est pas souverain par nature. Le
+      modèle, lui, reste sur le poste ; avec un modèle cloud, toute la conversation
+      partirait aussi chez son fournisseur. Sans réseau (ou derrière un proxy qui bloque ces
+      adresses), les deux serveurs sont dessinés indisponibles avec leur raison : décochez
+      puis recochez un serveur dans la carte MCP pour réessayer. À retenir : la souveraineté
+      se vérifie flux par flux, pour le harnais, les données, le modèle et chaque serveur
+      MCP.
+    bricks: [short_memory, system_prompt, mcp]
+    mcp_servers: [datagouv, mslearn]
     mcp_lazy: true
     prompts:
       - Cherche sur data.gouv.fr des jeux de données publics sur la cybersécurité en France.
       - >-
-        Parmi ces jeux de données, lequel est publié par une administration de l'État, et
-        quand a-t-il été mis à jour ?
+        Cherche maintenant dans la documentation Microsoft Learn comment Entra ID journalise
+        les connexions des comptes administrateurs.

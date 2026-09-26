@@ -81,7 +81,10 @@ def test_lazy_loading_chain_follows_the_offered_tools():
     ask = _user("Que veut dire MCP ?")
     first = fake.plan_reply(_body(ask, tools=("load_tool_doc",)))
     assert first.tool_calls[0]["name"] == "load_tool_doc"
-    call = {"id": "c1", "function": {"name": "load_tool_doc", "arguments": "{}"}}
+    # The harness sends back the call as the model made it (story 21: compared with its
+    # arguments, the same tool may be called again with others).
+    arguments = first.tool_calls[0]["arguments"]
+    call = {"id": "c1", "function": {"name": "load_tool_doc", "arguments": arguments}}
     second = fake.plan_reply(
         _body(
             ask,
@@ -198,23 +201,86 @@ def test_delegation_then_the_sub_agent_reads_the_guide():
     assert sub.tool_calls == [{"name": "read_file", "arguments": '{"path": "guide_harnais.md"}'}]
 
 
-def test_business_scenarios_triggers():
-    """Story 21: the SOC reads the file its message names; IAM and sovereignty call their
-    public server's search when it is offered, and say so when it is not."""
-    soc = "Lis le fichier alertes_siem.log et classe ses alertes."
-    assert fake.plan_reply(_body(_user(soc), tools=("read_file",))).tool_calls == [
-        {"name": "read_file", "arguments": '{"path": "alertes_siem.log"}'}
-    ]
-    secret = "Pour qualifier l'alerte, lis confidentiel/comptes_privilegies.txt."
-    reply = fake.plan_reply(_body(_user(secret), tools=("read_file",)))
-    assert json.loads(reply.tool_calls[0]["arguments"]) == {
-        "path": "confidentiel/comptes_privilegies.txt"
+def _prompts(scenario_id: str) -> list[str]:
+    """The scenario's prompts, as `content/scenarios.yaml` writes them (folded)."""
+    import yaml
+
+    from wavestack import config
+
+    path = config.content_dir() / "scenarios.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))["scenarios"][scenario_id]["prompts"]
+
+
+def _called(body: dict, name: str, arguments: dict, result: str) -> dict:
+    """`body` after the call `name(arguments)` and its result."""
+    call = {
+        "id": f"c{len(body['messages'])}",
+        "type": "function",
+        "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)},
     }
-    iam = "Dans Microsoft Entra ID, comment exiger l'authentification multifacteur ?"
-    offered = ("mslearn__microsoft_docs_search",)
-    assert fake.plan_reply(_body(_user(iam), tools=offered)).tool_calls[0]["name"] == offered[0]
-    assert "Microsoft Learn" in fake.plan_reply(_body(_user(iam))).text
-    data = "Cherche sur data.gouv.fr des jeux de données sur la cybersécurité."
-    offered = ("datagouv__search_datasets",)
-    assert fake.plan_reply(_body(_user(data), tools=offered)).tool_calls[0]["name"] == offered[0]
-    assert "data.gouv.fr" in fake.plan_reply(_body(_user(data))).text
+    body["messages"] += [
+        {"role": "assistant", "tool_calls": [call]},
+        {"role": "tool", "tool_call_id": call["id"], "content": result},
+    ]
+    return body
+
+
+def _calls(reply) -> list[tuple[str, dict]]:  # noqa: ANN001
+    return [(c["name"], json.loads(c["arguments"])) for c in reply.tool_calls]
+
+
+def test_soc_prompts_read_the_alerts_then_look_for_the_file_and_escalate():
+    """Story 21: the scenario's own prompts. The second names no file: the model lists the
+    folder, then reads the privileged accounts' inventory, which H1 blocks."""
+    first, second = _prompts("soc")
+    tools = ("read_file",)
+    assert _calls(fake.plan_reply(_body(_user(first), tools=tools))) == [
+        ("read_file", {"path": "alertes_siem.log"})
+    ]
+    body = _body(_user(second), tools=tools)
+    assert _calls(fake.plan_reply(body)) == [("read_file", {"path": "."})]
+    listing = (
+        "alertes_siem.log\nconfidentiel/budget_projet.txt\nconfidentiel/comptes_privilegies.txt"
+    )
+    body = _called(body, "read_file", {"path": "."}, listing)
+    wanted = ("read_file", {"path": "confidentiel/comptes_privilegies.txt"})
+    assert _calls(fake.plan_reply(body)) == [wanted]
+    body = _called(body, *wanted, "Bloqué par le hook garde-fou : « … » est confidentiel.")
+    final = fake.plan_reply(body)
+    assert not final.tool_calls and "analyste habilité" in final.text
+
+
+def test_confidential_path_keeps_its_sub_folders():
+    ask = _user("Lis confidentiel/rh/salaires.csv.")
+    assert _calls(fake.plan_reply(_body(ask, tools=("read_file",)))) == [
+        ("read_file", {"path": "confidentiel/rh/salaires.csv"})
+    ]
+
+
+@pytest.mark.parametrize("scenario_id", ["iam", "sovereignty"])
+def test_business_mcp_prompts_search_offered_or_lazy_and_say_when_offline(scenario_id):
+    """Story 21: every prompt of IAM and sovereignty calls its server's search when it is
+    offered, loads its documentation first in lazy loading, and says so offline."""
+    searches = {
+        "mslearn": "mslearn__microsoft_docs_search",
+        "datagouv": "datagouv__search_datasets",
+    }
+    for prompt in _prompts(scenario_id):
+        server = "datagouv" if "data.gouv" in prompt.lower() else "mslearn"
+        search = searches[server]
+        assert _calls(fake.plan_reply(_body(_user(prompt), tools=(search,))))[0][0] == search
+        lazy = {
+            "type": "function",
+            "function": {"name": "load_tool_doc", "description": f"… {search} : recherche."},
+        }
+        body = _body(_user(prompt))
+        body["tools"] = [lazy]
+        assert _calls(fake.plan_reply(body)) == [("load_tool_doc", {"tool": search})]
+        offline = fake.plan_reply(_body(_user(prompt)))
+        label = "data.gouv.fr" if server == "datagouv" else "Microsoft Learn"
+        assert not offline.tool_calls and label in offline.text
+
+
+def test_an_absent_server_does_not_hide_the_next_triggers():
+    ask = _user("Sur data.gouv.fr, quelle heure est-il ?")
+    assert _calls(fake.plan_reply(_body(ask, tools=("get_datetime",)))) == [("get_datetime", {})]

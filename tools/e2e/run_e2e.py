@@ -1017,38 +1017,49 @@ def schema_fits(r: Run, node: str) -> None:
 
 # ---------- story 21: the programme in FR-38's order, the business scenarios ----------
 
-PROGRAMME = [
-    (
-        "Module 1 · Du LLM nu au harnais · 60 min",
-        ["bare_llm", "reasoning", "short_memory", "system_prompt", "global_memory"],
-    ),
-    ("Module 2 · Outils · 45 min", ["native_tools", "network_tools"]),
-    ("Module 3 · RAG · 45 min", ["rag", "rag_rerank"]),
-    ("Module 4 · MCP · 45 min", ["mcp_full", "mcp_lazy"]),
-    ("Module 5 · Skills et hooks · 60 min", ["skills", "caveman", "hooks"]),
-    ("Module 6 · Sous-agent et compression · 60 min", ["subagent", "compression"]),
-    ("Transverses et métier", ["data_flows", "soc", "iam", "sovereignty"]),
-]
+
+def _scenarios_yaml() -> dict[str, Any]:
+    """`content/scenarios.yaml`, the source of the expected programme and prompts: a
+    scenario added by its rules needs no change here."""
+    import yaml
+
+    return yaml.safe_load((REPO / "content" / "scenarios.yaml").read_text(encoding="utf-8"))
+
+
+def _prompts(scenario_id: str) -> list[str]:
+    return [" ".join(p.split()) for p in _scenarios_yaml()["scenarios"][scenario_id]["prompts"]]
 
 
 def s_programme(r: Run) -> None:
     """The scenario picker lists FR-38's modules, then the hosting and business scenarios;
     a module launched directly has the previous modules' bricks (CAP-40)."""
-    r.wait_idle()
-    groups = r.page.evaluate(
+    content = _scenarios_yaml()
+    expected = [
+        [f"Module {i} · {m['title_fr']} · {m['duration_min']} min", m["scenarios"]]
+        for i, m in enumerate(content["program"], start=1)
+    ] + [["Transverses et métier", content["transverse"]]]
+    read = (
         "() => [...document.querySelectorAll('#scenario-picker optgroup')].map(g =>"
         " [g.label, [...g.querySelectorAll('option')].map(o => o.value)])"
     )
+    r.wait_idle()
+    ok, took = r.poll(lambda: r.page.evaluate(read) == expected, 10)
     r.check(
-        [tuple(g) for g in groups] == [(label, ids) for label, ids in PROGRAMME],
+        ok,
         "sélecteur : modules dans l'ordre de FR-38, puis « Transverses et métier »",
-        str(groups)[:400],
+        str(r.page.evaluate(read))[:400],
     )
-    r.launch("skills")  # module 5, launched directly
+    first = content["program"][4]["scenarios"][0]
+    earlier = {
+        b
+        for m in content["program"][:4]
+        for i in m["scenarios"]
+        for b in content["scenarios"][i]["bricks"]
+    } - {"reasoning"}
+    r.launch(first)  # module 5, launched directly
     wanted = {k for k, b in r.bricks().items() if b["wanted"]}
-    expected = {"short_memory", "system_prompt", "global_memory", "tools", "rag", "mcp", "skills"}
     r.check(
-        wanted == expected,
+        earlier <= wanted and "reasoning" not in wanted,
         "module 5 lancé directement : les briques des modules 1 à 4, sans le raisonnement",
         str(sorted(wanted)),
     )
@@ -1064,22 +1075,15 @@ def s_programme(r: Run) -> None:
     )
 
 
-SOC_PROMPTS = [
-    "Lis le fichier alertes_siem.log et classe ses alertes de la plus grave à la moins grave, "
-    "une ligne par alerte.",
-    "Pour qualifier l'alerte critique, lis confidentiel/comptes_privilegies.txt et dis-moi quel "
-    "est le rôle du compte adm.leroy.",
-]
-
-
 def s_soc(r: Run) -> None:
-    """FR-40, SOC: H2 logs the allowed read, H1 blocks the confidential one; the audit log
-    opens from the schema."""
+    """FR-40, SOC: H2 logs the reads; the model looks for the privileged accounts' inventory
+    itself and H1 blocks it; the audit log opens from the schema."""
+    first, second = _prompts("soc")
     r.launch("soc")
     guide = r.page.locator("#scenario-guide")
     r.check("Métier SOC" in guide.inner_text(), "consigne du scénario SOC affichée")
     seq = r.ev.mark()
-    ended = r.send(SOC_PROMPTS[0])
+    ended = r.send(first)
     reads = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
     r.check(
         bool(reads) and reads[0]["status"] == "ok",
@@ -1094,39 +1098,54 @@ def s_soc(r: Run) -> None:
         r.last_answer()[:160],
     )
     seq = r.ev.mark()
-    ended = r.send(SOC_PROMPTS[1])
+    ended = r.send(second)
+    started = [e["payload"]["arguments"] for e in r.ev.since(seq, "tool_started")]
+    r.check(
+        started[:1] == [{"path": "."}],
+        "le prompt ne nomme aucun fichier : le modèle liste le dossier",
+        str(started)[:200],
+    )
     decided = [e["payload"] for e in r.ev.since(seq, "hook_decided")]
     r.check(
         any(d["hook"] == "h1" and d["decision"] == "block" for d in decided),
-        "H1 bloque l'inventaire des comptes à privilèges",
+        "H1 bloque l'inventaire des comptes à privilèges que le modèle a trouvé",
         str([(d["hook"], d["decision"]) for d in decided]),
     )
-    r.check(ended["payload"]["status"] == "completed", "le tour se termine après le blocage")
-    sent = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
-    r.check("adm.nguyen" not in sent, "le contenu confidentiel n'atteint pas le modèle")
+    r.check(
+        ended["payload"]["status"] == "completed" and "analyste habilité" in r.last_answer(),
+        "le tour se termine par une escalade vers un humain",
+        r.last_answer()[:160],
+    )
+    calls = r.fake_calls()
+    sent = json.dumps(calls[-1]["messages"], ensure_ascii=False) if calls else ""
+    r.check(
+        bool(calls) and "adm.nguyen" not in sent, "le contenu confidentiel n'atteint pas le modèle"
+    )
     audit = r.api("GET", "/api/audit").json().get("text", "")
     r.check(
         "alertes_siem.log" in audit and "bloqué par H1" in audit,
-        "journal d'audit : la lecture permise et la lecture bloquée",
+        "journal d'audit : les lectures permises et la lecture bloquée",
         audit.strip().splitlines()[-1][:200] if audit.strip() else "vide",
     )
     r.page.locator('#schema .arch-node[data-component="file.audit"]').click()
-    dialog = r.page.locator("#audit-dialog")
-    expect(dialog).to_be_visible(timeout=5000)
-    r.check(
-        "bloqué par H1" in r.page.locator("#audit-text").inner_text(),
-        "clic sur « Journal d'audit » dans le schéma : le fichier s'ouvre",
-    )
+    text = r.page.locator("#audit-text")
+    expect(r.page.locator("#audit-dialog")).to_be_visible(timeout=5000)
+    try:
+        expect(text).to_contain_text("bloqué par H1", timeout=10_000)
+        opened = True
+    except AssertionError:
+        opened = False
+    r.check(opened, "clic sur « Journal d'audit » dans le schéma : le fichier s'ouvre")
     # The scenario's lines are the last ones of a log the whole run feeds.
-    r.page.locator("#audit-text").evaluate(
-        "e => { for (let n = e; n; n = n.parentElement) n.scrollTop = n.scrollHeight; }"
-    )
+    text.evaluate("e => { for (let n = e; n; n = n.parentElement) n.scrollTop = n.scrollHeight; }")
     r.shot("26-metier-soc-journal-audit")
     r.page.click("#audit-close")
 
 
-def _public_server_offline(r: Run, seq: int, server: str, label: str) -> None:
-    ends = {e["payload"]["server"]: e["payload"] for e in r.ev.since(seq, "mcp_connect_ended")}
+def _public_server_offline(r: Run, server: str, label: str) -> None:
+    # A server already enabled by the previous scenario is not contacted again (AD-15):
+    # its last answer, from before `seq`, still stands.
+    ends = {e["payload"]["server"]: e["payload"] for e in r.ev.since(0, "mcp_connect_ended")}
     ended = ends.get(server, {})
     r.check(
         ended.get("status") == "error" and bool(ended.get("error_fr")),
@@ -1144,6 +1163,11 @@ def _public_server_offline(r: Run, seq: int, server: str, label: str) -> None:
     r.check(label in zone.inner_text(), f"le nœud {label} est dans la zone Réseau du schéma")
 
 
+def _enabled_servers(r: Run) -> tuple[list[str], str]:
+    mcp = r.bricks()["mcp"]
+    return sorted(o["id"] for o in mcp["options"] if o["enabled"]), mcp.get("mode", "")
+
+
 def s_iam(r: Run) -> None:
     """FR-40, IAM: Microsoft Learn alone, full documentation; offline here (to test with
     the network on the target PC)."""
@@ -1151,60 +1175,61 @@ def s_iam(r: Run) -> None:
     r.launch("iam")
     started = [e["payload"]["server"] for e in r.ev.since(seq, "mcp_connect_started")]
     r.check("mslearn" in started, "le scénario contacte Microsoft Learn", str(started))
-    mcp = r.bricks()["mcp"]
-    enabled = [o["id"] for o in mcp["options"] if o["enabled"]]
+    enabled, mode = _enabled_servers(r)
     r.check(
-        enabled == ["mslearn"] and mcp["mode"] == "full",
+        enabled == ["mslearn"] and mode == "full",
         "carte MCP : Microsoft Learn seul, documentation complète",
-        f"{enabled} · {mcp.get('mode')}",
+        f"{enabled} · {mode}",
     )
-    _public_server_offline(r, seq, "mslearn", "Microsoft Learn")
-    seq = r.ev.mark()
-    ended = r.send(
-        "Dans Microsoft Entra ID, comment exiger l'authentification multifacteur pour tous les "
-        "administrateurs ? Appuie-toi sur la documentation Microsoft Learn."
-    )
-    r.check(
-        ended["payload"]["status"] == "completed" and not r.ev.since(seq, "tool_started"),
-        "le tour aboutit sans outil, serveur indisponible",
-        r.last_answer()[:160],
-    )
+    _public_server_offline(r, "mslearn", "Microsoft Learn")
+    for prompt in _prompts("iam"):
+        seq = r.ev.mark()
+        ended = r.send(prompt)
+        r.check(
+            ended["payload"]["status"] == "completed"
+            and not r.ev.since(seq, "tool_started")
+            and "Microsoft Learn" in r.last_answer(),
+            "le tour aboutit sans outil, serveur indisponible",
+            r.last_answer()[:160],
+        )
 
 
 def s_sovereignty(r: Run) -> None:
-    """FR-40, sovereignty: data.gouv.fr in lazy loading; only its flow crosses the
-    workstation's boundary."""
-    seq = r.ev.mark()
+    """FR-40, sovereignty: data.gouv.fr and Microsoft Learn in lazy loading, two flows out
+    of the workstation to two operators."""
     r.launch("sovereignty")
-    mcp = r.bricks()["mcp"]
-    enabled = [o["id"] for o in mcp["options"] if o["enabled"]]
+    enabled, mode = _enabled_servers(r)
     r.check(
-        enabled == ["datagouv"] and mcp["mode"] == "lazy",
-        "carte MCP : data.gouv.fr seul, lazy loading",
-        f"{enabled} · {mcp.get('mode')}",
+        enabled == ["datagouv", "mslearn"] and mode == "lazy",
+        "carte MCP : data.gouv.fr et Microsoft Learn, lazy loading",
+        f"{enabled} · {mode}",
     )
-    _public_server_offline(r, seq, "datagouv", "data.gouv.fr")
+    _public_server_offline(r, "datagouv", "data.gouv.fr")
+    _public_server_offline(r, "mslearn", "Microsoft Learn")
     arch = r.state()["architecture_changed"]
     crossing = [e for e in arch["edges"] if e.get("crosses_boundary")]
     # The run's model is a cloud one: its flow crosses too, as the instructions say.
-    others = [e for e in crossing if "core.model" not in e["from"] + e["to"]]
+    others = {e["from"] + e["to"] for e in crossing if "core.model" not in e["from"] + e["to"]}
     r.check(
-        bool(others) and all("datagouv" in e["from"] + e["to"] for e in others),
-        "hors modèle cloud, seul le flux vers data.gouv.fr franchit la frontière du poste",
+        any("datagouv" in e for e in others)
+        and any("mslearn" in e for e in others)
+        and all("datagouv" in e or "mslearn" in e for e in others),
+        "hors modèle cloud, seuls les flux vers data.gouv.fr et Microsoft Learn sortent du poste",
         str(crossing)[:300],
     )
     r.check(
         any("core.model" in e["from"] + e["to"] for e in crossing),
         "le modèle cloud du parcours franchit lui aussi la frontière",
     )
-    ended = r.send(
-        "Cherche sur data.gouv.fr des jeux de données publics sur la cybersécurité en France."
-    )
-    r.check(
-        ended["payload"]["status"] == "completed" and "data.gouv.fr" in r.last_answer(),
-        "le tour aboutit, sans le service public",
-        r.last_answer()[:160],
-    )
+    for prompt, label in zip(
+        _prompts("sovereignty"), ("data.gouv.fr", "Microsoft Learn"), strict=True
+    ):
+        ended = r.send(prompt)
+        r.check(
+            ended["payload"]["status"] == "completed" and label in r.last_answer(),
+            f"le tour aboutit, sans {label}",
+            r.last_answer()[:160],
+        )
 
 
 def s_forced_native(r: Run) -> None:
