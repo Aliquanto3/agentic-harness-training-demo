@@ -14,7 +14,7 @@ deferred:
   - summary: >-
       Le vrai reranker (bge-reranker-v2-m3 Q4_K_M) n'a jamais tourné : latence de l'étape, mémoire ajoutée, pertinence et pooling déclaré dans le GGUF de gpustack restent à mesurer.
     evidence: |-
-      Aucun modèle téléchargeable ici (huggingface.co bloqué). L'adaptateur a tourné sur le GGUF synthétique de la story 12 (paire, score, sigmoïde, refus d'un GGUF d'embedding). À trancher sur le PC cible : `uv run python -m pytest -m model tests/test_rag_rerank.py`, puis le scénario « RAG avec reranking » (durée de l'étape « Reranking », NFR-1 < 30 s au premier token ; budget AD-8).
+      Aucun modèle téléchargeable ici (huggingface.co bloqué). L'adaptateur est exercé dans la suite par défaut sur des GGUF BERT synthétiques (tests/fixtures/tiny-bert-rank.gguf et tiny-bert-cls.gguf : paire, score, troncature, progression, refus d'un GGUF d'embedding). À trancher sur le PC cible : `uv run python -m pytest -m model tests/test_rag_rerank.py`, puis le scénario « RAG avec reranking » (RSS ajouté ≤ 800 Mo, seuil de la story 12, NFR-2 ; durée de l'étape « Reranking », NFR-1 < 30 s au premier token). Reporté dans deferred-work.md.
     location: >-
       src/wavestack/models/reranker.py:LlamaCppReranker
     severity: medium (unverified)
@@ -26,11 +26,18 @@ deferred:
       wavestack.toml:[rag.reranker]
     severity: medium
   - summary: >-
-      Le refus d'un GGUF qui déclare un autre pooling que RANK n'a pas de test automatisé.
+      AD-21 amendé dans le spine, « à valider » : sans son modèle, seule la sous-option « Reranking » est indisponible, le RAG simple continue.
     evidence: |-
-      Vérifié à la main sur les GGUF synthétiques de la story 12 (celui d'embedding est refusé en français) ; un test demanderait le paquet gguf, absent des dépendances.
+      Revue indépendante (intent). Décision attendue d'Anaël au test manuel ; défaut : garder la sous-option seule indisponible (hypothèse 1). Reporté dans deferred-work.md.
     location: >-
-      src/wavestack/models/reranker.py:LlamaCppReranker.__init__
+      ARCHITECTURE-SPINE.md:AD-21
+    severity: medium
+  - summary: >-
+      Le parcours E2E ne joue ni l'échec d'un téléchargement du reranker ni une étape « Reranking » en erreur.
+    evidence: |-
+      Couverts par pytest ; l'affichage n'est vérifié qu'à la lecture du code. Reporté dans deferred-work.md.
+    location: >-
+      tools/e2e/run_e2e.py:s_rag_rerank
     severity: low
 ---
 
@@ -140,6 +147,39 @@ Revue faite par l'agent d'implémentation lui-même, sans sous-agent (aucun outi
   - `[low]` `[reject]` Le tri se fait sur le score arrondi à 3 décimales, puis sur le rang avant : deux scores très proches gardent l'ordre de l'embedding. — Voulu : l'ordre affiché correspond aux scores affichés.
   - `[low]` `[reject]` Pendant un chargement, deux synchronisations successives pouvaient émettre deux fois le refus de budget du reranker. — Corrigé pendant l'implémentation (un refus attend une nouvelle demande, test `test_a_budget_refusal_*`) ; la même course existe pour l'embedding (story 15), non touchée ici.
 
+### 2026-09-26 — Revue indépendante (4 relecteurs séparés), triage du coordinateur
+
+Tous les points ont été vérifiés dans le code puis appliqués ; aucun n'a été jugé faux. Le troisième report de la première passe (refus d'un GGUF non RANK sans test) est levé : il est testé sur un GGUF synthétique.
+- `[medium]` `[patch]` Intent : AD-21 contredit par la sous-option seule indisponible. — Garde de C1 ; AD-21 amendé dans le spine, marqué « à valider » ; report dans deferred-work.md.
+- `[medium]` `[patch]` Tour lancé pendant le chargement du reranker : reranking ignoré sans le dire. — `TurnState.rag_rerank_skipped_fr`, porté par `rag_search_ended.rerank_skipped_fr` et affiché dans l'étape « Recherche RAG » ; `_sent_rerank` vaut ce qui a tourné (la case reste « Prend effet au prochain tour » pendant le chargement). Tests `test_the_reason_is_said_*`, `test_a_missing_reranker_*`.
+- `[medium]` `[patch]` E2E : aucun prompt du scénario joué. — La question sur l'hôtel à Paris devient le premier prompt de `rag_rerank` ; le parcours vérifie qu'il la joue et que la consigne est chiffrée.
+- `[medium]` `[defer]` Coût mémoire et latence du vrai reranker. — deferred-work.md (seuil 800 Mo, NFR-1, NFR-2).
+- `[low]` `[patch]` Tests manquants (verification-gap) : index remplacé avec reranker chargé, refus de budget puis changement de modèle, nœud du schéma indisponible avec sa raison, `load_path` hors de `reranker/`, adaptateur sur GGUF synthétique. — Tests `test_an_index_replaced_with_the_reranker_*`, `test_a_reranker_refused_by_the_budget_loads_*`, `test_the_schema_node_says_*`, `test_the_reranker_file_outside_its_folder_*`, `test_the_adapter_scores_pairs_*`, `test_the_adapter_refuses_an_embedding_gguf` ; fixtures `tests/fixtures/tiny-bert-rank.gguf` et `tiny-bert-cls.gguf` (`make_tiny_rerank_gguf.py`).
+- `[low]` `[defer]` E2E : notice d'échec de téléchargement et étape en erreur. — Couverts par pytest ; deferred-work.md.
+- `[medium]` `[patch]` Adaptateur : `LLAMA_TOKEN_NULL` pris pour un vrai jeton, binding absent pris pour « ajouté ». — `special_tokens` : `None` dans les deux cas.
+- `[low]` `[patch]` Tests : fabrique qui lève, sha256 déclaré faux, route 404 sans brique RAG, sous-agent jamais reranké, règle de la moitié. — Tests `test_a_factory_that_raises_*`, `test_a_declared_sha256_*`, `test_the_rag_rerank_route_is_404_*`, `test_the_sub_agent_context_is_never_reranked`, `test_the_query_keeps_at_least_half_*`.
+- `[low]` `[patch]` `pair_tokens` : la question ne récupérait pas la place laissée par un extrait court ; troncature muette. — La question garde au moins la moitié et prend le reste laissé par l'extrait ; `RerankScore.truncated`, `rag_rerank_ended.excerpts[].truncated`, « coupé » dans l'étape.
+- `[low]` `[patch]` Progression du reranking invisible. — `progress` du port, événement `rag_rerank_progress{done, total}`, « 3 / 8 » dans l'étape en cours et au journal.
+- `[low]` `[patch]` Pluriels en dur. — `plural()` et « Seul le premier… ».
+- `[low]` `[patch]` « 8 » et « 3 » en dur dans la carte et le scénario. — `{candidates}` et `{keep}`, remplis par la session (`_fill`) depuis `[rag]`.
+- `[low]` `[patch]` Colonne « Avant » : gardé/écarté seulement en infobulle ; CSS `.rerank-column`, `.rerank-note` absentes. — Libellés visibles, CSS ajoutées.
+- `[low]` `[patch]` `store.rerankNotice` montré seulement avec « Télécharger ». — Montré tant que la sous-option est indisponible (échec de chargement, sha256).
+- `[low]` `[patch]` Doublons `EmbeddingModel`/`RerankerModel`, noms propres à l'embedding. — `LocalModelSpec` et `ModelFile` dans `config.py`, `component_cost`, `_rag_model_files`, `_missing_model_fr` pour les deux modèles.
+- `[low]` `[patch]` Accès disque à chaque émission (raison « modèle absent »). — Raisons calculées à la relecture des fichiers (`_rag_refresh`, `_rerank_refresh`) et mémorisées.
+- `[low]` `[patch]` Journal : `rag_rerank_ended` répétait les textes. — Référence par `chunk_id` ; le front reprend le texte de l'étape de recherche.
+- `[low]` `[patch]` Fichier de story : triage et front matter à mettre en cohérence. — Ce passage.
+- `[low]` `[patch]` README : bornes, réglage de lenteur, coût mémoire, verdict provisoire. — Section « Reranking » réécrite.
+- `[low]` `[patch]` Edge : score non numérique hors du `try`. — Conversion et contrôle dans le `try` : repli sur l'ordre d'embedding, `rag_rerank_ended{error}` toujours émis. Test `test_scores_that_are_not_figures_*`.
+- `[low]` `[patch]` Edge : `_request_rag_sync` demandait le reranker sans l'embedder. — Même condition que `_sync_reranker` (embedder chargé ou en cours).
+- `[low]` `[patch]` Edge : embedder non chargé, sous-option dite disponible. — Raison « Indisponible tant que la brique RAG l'est… ». Test `test_the_reranker_waits_for_the_embedding_model`.
+- `[low]` `[patch]` Edge : `top_k` > 20. — `rag_top_k` borné à 20, candidats jamais au-delà.
+- `[low]` `[patch]` Edge : `_rerank_missing` non calculé si `[rag.embedding]` est invalide. — `_rerank_refresh` avant tout retour anticipé de `_load_rag`.
+- `[low]` `[patch]` Edge : lectures du vocabulaire hors du `try`. — Dans le `try`, `close()` en cas d'échec.
+- `[low]` `[patch]` Edge : dossiers `embedding/`, `reranker/` comparés à la casse près (Windows). — `casefold` et `os.path.normcase`.
+- `[low]` `[patch]` Edge : « Arrêter » affiché en erreur rouge. — Statut `cancelled`, étape « arrêté », ton neutre.
+
+Constat hors story pendant le parcours E2E complet : `local_server` puis `relaunch` échouaient une fois sur deux, aussi sur le commit d'intégration d'avant la revue (2 échecs sur 3). Cause : `/api/stream` et `/api/diagnostic/stream` s'abonnaient au journal après avoir envoyé tout l'historique ; un événement émis pendant ce rejeu (5,7 Mo à ce stade du parcours) était perdu, ici le `model_load_ended` d'un « Choisir » cliqué dès l'ouverture du diagnostic. Corrigé dans `web/app.py:_sse_stream` (abonnement avant la lecture de l'historique, doublons écartés par `seq`) ; test `test_an_event_emitted_during_the_replay_is_never_lost_nor_repeated` (il échoue sur l'ancien code). Deux parcours complets verts ensuite.
+
 ## Design Notes
 
 **Pourquoi une étape distincte.** EXPERIENCE.md range « recherche RAG, reranking » comme deux étapes dépliables d'Orchestration : la première montre ce que l'embedding trouve (8 candidats), la seconde ce que le reranker en fait. Le lecteur voit ainsi qu'un extrait classé 5ᵉ par l'embedding peut entrer dans le contexte et qu'un 2ᵉ peut en sortir.
@@ -169,6 +209,14 @@ Ajoutées pendant l'implémentation (exécution sans humain, 2026-09-26) :
 9. **Arrêt.** « Arrêter » pendant le reranking termine l'étape en « Reranking arrêté. », sans `harness_error`, et le tour est annulé.
 10. **Second prompt du scénario.** « Que faut-il faire en premier quand on perd son ordinateur portable chez Exemplia ? » (document « Incidents de sécurité »). Le parcours E2E utilise la question de l'hôtel à Paris, que le faux reranker réordonne nettement.
 11. **Pas de trace réseau en boucle locale.** Le téléchargement du faux reranker (E2E, 127.0.0.1) n'émet pas `outbound_request`, comme celui de l'embedding ; le test pytest vérifie la trace vers huggingface.co.
+
+Ajoutées après la revue indépendante (2026-09-26) :
+
+12. **Reranking non appliqué.** Sous-option cochée mais reranker absent, refusé ou en cours de chargement au départ du tour : l'étape « Recherche RAG » le dit, avec la raison. Pendant un chargement, la carte garde « Prend effet au prochain tour » ; sinon, la raison de la sous-option suffit.
+13. **Paire.** La question garde au moins la moitié des `max_tokens`, et prend la place qu'un extrait court laisse ; un extrait coupé est marqué « coupé » dans l'étape.
+14. **Jetons spéciaux.** BOS, EOS et SEP ne sont ajoutés que si le vocabulaire le dit et que le jeton existe ; sans binding pour le savoir, ils sont omis (jamais supposés).
+15. **Bornes.** `[rag] top_k` va de 1 à 20, `[rag] rerank_candidates` de `top_k` à 20.
+16. **Textes chiffrés.** La carte et le scénario disent `{candidates}` et `{keep}`, remplis depuis `[rag]` à l'émission.
 
 ## Verification
 
@@ -209,3 +257,5 @@ Blocking condition: aucune.
 - Adaptateur exercé sur les GGUF synthétiques de la story 12 : chargement en RANK, drapeaux du vocabulaire, trois paires notées, texte long tronqué, GGUF d'embedding refusé en français.
 
 **Risques résiduels.** Voir `deferred` : le vrai reranker sur le PC cible (latence de 8 passes sur CPU, mémoire, pertinence), sha256 et révision à épingler.
+
+**Revue indépendante (2026-09-26).** Tous les points appliqués (voir « Review Triage Log »), aucun jugé faux ; reports dans deferred-work.md (mémoire et latence du vrai reranker, sha256, AD-21 à valider, deux cas E2E, prompt réordonné avec le vrai modèle). AD-21 amendé dans le spine, marqué « à valider ». Vérifications après correctifs : `uv lock --check --offline`, `ruff check`, `ruff format --check`, `node --check` : OK ; `pytest -q` complet : 751 réussis, 4 sautés ; E2E complet : 312 vérifications réussies, 0 échec (deux parcours de suite), après le correctif du flux SSE ci-dessus.

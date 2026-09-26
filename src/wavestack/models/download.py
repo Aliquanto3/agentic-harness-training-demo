@@ -18,7 +18,7 @@ from pathlib import Path
 
 import httpx
 
-from wavestack.config import EmbeddingFile
+from wavestack.config import ModelFile
 from wavestack.models.engine import CancelToken
 from wavestack.net.factory import create_client
 from wavestack.net.guard import NetworkBlocked, find_blocked, is_loopback
@@ -59,7 +59,7 @@ class DownloadError(Exception):
         self.cancelled = cancelled
 
 
-def missing_files(files: Sequence[EmbeddingFile], dest: Path) -> list[EmbeddingFile]:
+def missing_files(files: Sequence[ModelFile], dest: Path) -> list[ModelFile]:
     """The declared files not yet in `dest`, or there with another size (another model's
     file: « Télécharger » replaces it)."""
     return [f for f in files if not _same_size(dest / f.path, f.size)]
@@ -79,7 +79,7 @@ def _check_hop(request: httpx.Request) -> None:
 
 
 def download_files(
-    files: Sequence[EmbeddingFile],
+    files: Sequence[ModelFile],
     dest: Path,
     cancel: CancelToken,
     on_progress: Callable[[int, int], None],
@@ -116,7 +116,7 @@ def download_files(
 
 
 def _download_one(
-    file: EmbeddingFile,
+    file: ModelFile,
     part: Path,
     cancel: CancelToken,
     on_progress: Callable[[int, int], None],
@@ -167,7 +167,7 @@ def _download_one(
     return done + written, digest.hexdigest()
 
 
-def _network_error(exc: Exception, file: EmbeddingFile) -> Exception:
+def _network_error(exc: Exception, file: ModelFile) -> Exception:
     """A network failure as a `DownloadError` in French; anything else unchanged."""
     if isinstance(exc, httpx.TooManyRedirects):
         return DownloadError("trop de redirections")

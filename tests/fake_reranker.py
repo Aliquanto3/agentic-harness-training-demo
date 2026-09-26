@@ -8,7 +8,7 @@ from collections.abc import Callable, Sequence
 
 from fake_embedder import _STOP, _WORD
 
-from wavestack.models.reranker import RerankCancelled
+from wavestack.models.reranker import RerankCancelled, RerankScore
 
 MODEL_ID = "fake-reranker"
 
@@ -34,6 +34,9 @@ class FakeReranker:
     def __init__(self, *, model_id: str = MODEL_ID, fail: bool = False) -> None:
         self.model_id = model_id
         self.fail = fail  # `score` raises: a reranking that fails
+        # Excerpts longer than this many characters are said cut (the pair's limit).
+        self.truncate_over: int | None = None
+        self.bad_score: object = None  # given as the first score instead of a figure
         self.closed = False
         self.calls: list[tuple[str, list[str]]] = []
         self.before_each: Callable[[], None] | None = None  # e.g. « Arrêter » mid-way
@@ -43,7 +46,8 @@ class FakeReranker:
         query: str,
         passages: Sequence[str],
         cancelled: Callable[[], bool] | None = None,
-    ) -> list[float]:
+        progress: Callable[[int, int], None] | None = None,
+    ) -> list[RerankScore]:
         if self.fail:
             raise RuntimeError("reranker en panne")
         self.calls.append((query, list(passages)))
@@ -53,7 +57,12 @@ class FakeReranker:
                 self.before_each()
             if cancelled is not None and cancelled():
                 raise RerankCancelled("reranking arrêté")
-            scores.append(relevance(query, passage))
+            cut = self.truncate_over is not None and len(passage) > self.truncate_over
+            scores.append(RerankScore(relevance(query, passage), cut))
+            if progress is not None:
+                progress(len(scores), len(passages))
+        if self.bad_score is not None:
+            scores[0] = RerankScore(self.bad_score, False)  # type: ignore[arg-type]
         return scores
 
     def close(self) -> None:

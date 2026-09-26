@@ -640,6 +640,8 @@ class RagSearchEndedPayload(BaseModel):
     placement_fr: str  # where the excerpts go in the context
     error_fr: str | None = None
     duration_ms: int
+    # Story 16: the reranking enabled but not applied to this turn, and why.
+    rerank_skipped_fr: str | None = None
 
 
 # ---------- story 16: reranking (AD-2, AD-22) ----------
@@ -650,10 +652,10 @@ class RerankedExcerpt(BaseModel):
     before: int  # rank given by the embedding search, from 1
     chunk_id: int
     doc_id: str
-    title_fr: str
-    text: str
+    title_fr: str  # the text is the search's, found by `chunk_id`
     score: float  # the reranker's, 0 to 1, 3 decimals
     retrieval_score: float  # the embedding search's
+    truncated: bool = False  # cut to fit the reranker's pair (`[rag.reranker] max_tokens`)
 
 
 class RagRerankStartedPayload(BaseModel):
@@ -663,8 +665,13 @@ class RagRerankStartedPayload(BaseModel):
     phase_label: str
 
 
+class RagRerankProgressPayload(BaseModel):
+    done: int  # candidates scored so far
+    total: int
+
+
 class RagRerankEndedPayload(BaseModel):
-    status: Literal["ok", "error"]
+    status: Literal["ok", "error", "cancelled"]
     excerpts: list[RerankedExcerpt]  # every candidate, in the reranker's order
     keep: int  # the first `keep` go to the context
     placement_fr: str
@@ -756,6 +763,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "rag_search_started": RagSearchStartedPayload,
     "rag_search_ended": RagSearchEndedPayload,
     "rag_rerank_started": RagRerankStartedPayload,
+    "rag_rerank_progress": RagRerankProgressPayload,
     "rag_rerank_ended": RagRerankEndedPayload,
     "compression_started": CompressionStartedPayload,
     "compression_ended": CompressionEndedPayload,

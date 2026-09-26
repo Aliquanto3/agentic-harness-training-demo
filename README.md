@@ -243,13 +243,23 @@ brique indisponible, avec la raison, et la carte propose « Construire l'index �
 ### Reranking (sous-option de la brique RAG)
 
 La case « Reranking » de la carte RAG ajoute une seconde passe : la recherche retient
-`[rag] rerank_candidates` candidats (8), un reranker local les note avec la question, et seuls
-les `top_k` premiers (3) entrent dans le message. L'étape « Reranking » d'Orchestration montre
-l'ordre avant et après. Le modèle est nommé dans la seule section `[rag.reranker]` de
-`wavestack.toml` (BGE Reranker v2 M3, GGUF Q4_K_M, 438 Mo, Apache-2.0, verdict provisoire de la
-story 12). Sans lui, la case propose « Télécharger le modèle de reranking » (fichier dans
-`models/reranker/`, ou copie à la main au même endroit) et le RAG fonctionne sans reranking.
-Le dossier `models/reranker/` n'est jamais proposé comme modèle de conversation.
+`[rag] rerank_candidates` candidats (8 par défaut, de `top_k` à 20), un reranker local les note
+un par un avec la question, et seuls les `[rag] top_k` premiers (3 par défaut, 20 au plus)
+entrent dans le message. L'étape « Reranking » d'Orchestration montre l'ordre avant et après.
+
+- **Modèle.** Il est nommé dans la seule section `[rag.reranker]` de `wavestack.toml` : BGE
+  Reranker v2 M3, GGUF Q4_K_M, 438 Mo, Apache-2.0. C'est le verdict **provisoire** de la
+  story 12 : sa latence et sa mémoire restent à mesurer sur le PC cible.
+- **Mémoire.** Il est compté dans le budget (`[memory] budget_mb`) pour la taille de son fichier
+  plus `[memory] load_margin_mb` (environ 690 Mo), ou pour `measured_rss_mb` une fois mesuré.
+  Refusé, seule la case est indisponible, avec la raison chiffrée.
+- **Lenteur.** Un passage du reranker par candidat, avant le premier appel au modèle : si
+  l'étape « Reranking » est trop lente sur le poste, baissez `[rag] rerank_candidates` dans
+  `settings.json`.
+- **Sans le modèle,** la case propose « Télécharger le modèle de reranking » (fichier dans
+  `models/reranker/`, ou copie à la main au même endroit) et le RAG fonctionne sans reranking.
+  Le dossier `models/reranker/` n'est jamais proposé comme modèle de conversation.
+
 ## Compression du contexte (Headroom)
 
 La brique Compression passe les gros résultats d'outils et les extraits RAG à

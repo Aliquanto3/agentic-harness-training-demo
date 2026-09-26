@@ -149,6 +149,41 @@ def test_stream_resumes_from_last_event_id_without_duplicates():
     assert f"id: {before.seq}" not in body
 
 
+class _OpenOnceRequest:
+    """Connected for one wait on the live queue, then disconnected."""
+
+    def __init__(self) -> None:
+        self.headers: dict[str, str] = {}
+        self.checks = 0
+
+    async def is_disconnected(self) -> bool:
+        self.checks += 1
+        return self.checks > 1
+
+
+def test_an_event_emitted_during_the_replay_is_never_lost_nor_repeated():
+    """A long journal streams slowly: an event emitted while the history is being sent (a
+    model switch clicked on a page that just opened) still reaches the page, once."""
+    journal = get_journal()
+    journal.emit("session_state", {"state": "idle", "reason_fr": "un"})
+    journal.emit("session_state", {"state": "idle", "reason_fr": "deux"})
+
+    async def _collect() -> list[str]:
+        response = _sse_stream(_OpenOnceRequest())
+        chunks = response.body_iterator
+        received = [await anext(chunks), await anext(chunks)]  # the instance, then history
+        live = journal.emit("session_state", {"state": "idle", "reason_fr": "pendant"})
+        received += [chunk async for chunk in chunks]
+        received.append(f"live={live.seq}")
+        return received
+
+    received = asyncio.run(_collect())
+    live = int(received.pop().removeprefix("live="))
+    ids = [c.split("\n")[0] for c in received if c.startswith("id: ")]
+    assert f"id: {live}" in ids
+    assert len(ids) == len(set(ids))  # the replay and the queue never give one twice
+
+
 def test_stream_starts_with_the_server_instance_outside_the_envelope():
     """A1: a tab left open across a relaunch learns, on reconnecting, that the journal
     behind the stream is another one, whatever `Last-Event-ID` it sends."""

@@ -604,18 +604,27 @@ def _sse_stream(request: Request) -> StreamingResponse:
         # First, which journal this stream reads: a tab left open across a relaunch sees
         # a new instance and resyncs (its `Last-Event-ID` belongs to the old journal).
         yield _format_instance(journal.instance_id)
-        for envelope in journal.events_since(since_seq):
-            yield _format_sse(envelope)
+        # Subscribed before the history is read: an event emitted while the replay streams
+        # (a long journal, a slow reader) waits in the queue instead of being lost; one the
+        # replay already gave is skipped by its `seq`.
         journal.subscribe(_on_event)
         try:
+            last = since_seq
+            for envelope in journal.events_since(since_seq):
+                last = envelope.seq
+                yield _format_sse(envelope)
             while True:
                 if await request.is_disconnected():
                     break
                 try:
                     envelope = await asyncio.wait_for(queue.get(), timeout=15)
-                    yield _format_sse(envelope)
                 except TimeoutError:
                     yield ": keep-alive\n\n"
+                    continue
+                if envelope.seq <= last:
+                    continue
+                last = envelope.seq
+                yield _format_sse(envelope)
         finally:
             journal.unsubscribe(_on_event)
 
