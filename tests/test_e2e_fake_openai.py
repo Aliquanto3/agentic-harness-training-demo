@@ -146,6 +146,13 @@ def test_http_routes_and_key():
     assert client.get("/_e2e/requests").json()[-1]["messages"][0]["content"] == "Bonjour"
 
 
+def test_without_usage_trigger_omits_the_usage_chunk():
+    reply = fake.plan_reply(_body(_user("Bonjour [sans-usage]")))
+    chunks = fake.sse_chunks(reply, {"stream_options": {"include_usage": True}}, "c1")
+    assert not any("usage" in chunk for chunk in chunks)
+    assert reply.text
+
+
 def _entry() -> CloudModel:
     return CloudModel(
         id="fake",

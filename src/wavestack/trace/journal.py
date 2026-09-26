@@ -7,6 +7,7 @@ the web layer is responsible for waking its own event loop (AD-24).
 from __future__ import annotations
 
 import threading
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -21,6 +22,9 @@ class Journal:
         self._seq = 0
         self._session_epoch = 0
         self._subscribers: list[Callable[[Envelope], None]] = []
+        # This process's journal: a client holding a `seq` of another instance (WaveStack
+        # relaunched while its tab stayed open) must resync from scratch, not resume.
+        self.instance_id = uuid.uuid4().hex
 
     def subscribe(self, callback: Callable[[Envelope], None]) -> None:
         with self._lock:

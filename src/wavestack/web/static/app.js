@@ -36,6 +36,7 @@ const store = {
   resetSeq: null,
   logFrom: 0,
   topStatus: null,
+  serverInstance: null, // A1: the journal instance this page follows
   composerError: null,
   // Story 9b: the turn comparison open in Contexte LLM, UI state only: { left, right } turn ids.
   compare: null,
@@ -121,10 +122,13 @@ async function streamEvents(fromSeq, onEnvelope) {
         while ((sep = buffer.indexOf("\n\n")) !== -1) {
           const rawEvent = buffer.slice(0, sep);
           buffer = buffer.slice(sep + 2);
-          const envelope = parseSseEvent(rawEvent);
-          if (envelope) {
-            lastSeq = envelope.seq;
-            onEnvelope(envelope);
+          const { event, data } = parseSseEvent(rawEvent);
+          if (event === "server_instance") {
+            // A1: another process's journal, where lastSeq means nothing: resync by reloading.
+            if (!sameServerInstance(data?.instance_id)) return;
+          } else if (data) {
+            lastSeq = data.seq;
+            onEnvelope(data);
           }
         }
       }
@@ -136,20 +140,39 @@ async function streamEvents(fromSeq, onEnvelope) {
 }
 
 function parseSseEvent(rawEvent) {
+  let event = null;
   let data = null;
   for (const line of rawEvent.split("\n")) {
     if (line.startsWith("data:")) {
       data = line.slice(5).trim();
+    } else if (line.startsWith("event:")) {
+      // Only `server_instance` needs it: an envelope's own `kind` says the rest.
+      event = line.slice(6).trim();
     }
-    // `id:`/`event:` are redundant with the envelope's own `seq`/`kind`.
+    // `id:` is redundant with the envelope's own `seq`.
   }
-  if (!data) return null;
+  if (!data) return { event, data: null };
   try {
-    return JSON.parse(data);
+    return { event, data: JSON.parse(data) };
   } catch {
-    return null;
+    return { event, data: null };
   }
 }
+
+// The journal this page was built from (`/api/state`, else the first stream). WaveStack
+// relaunched while the tab stayed open: a new journal, from seq 1, with turn ids already
+// used; the page reloads, which replays it whole (AD-1). False when reloading.
+function sameServerInstance(instanceId) {
+  if (!instanceId) return true;
+  if (store.serverInstance === null) store.serverInstance = instanceId;
+  if (instanceId === store.serverInstance) return true;
+  location.reload();
+  return false;
+}
+
+const RESET_STATUS_FR = "WaveStack réinitialisé : LLM nu.";
+const RESET_STATUS_MS = 6000;
+let resetStatusTimer = null;
 
 function applyEnvelope(envelope) {
   store.journal.push(envelope);
@@ -202,7 +225,14 @@ function applyEnvelope(envelope) {
       store.logFrom = store.journal.length;
       eventLog.list?.remove();
       Object.assign(eventLog, { groups: [], processed: store.logFrom, rows: [], list: null });
-      store.topStatus = "WaveStack réinitialisé : LLM nu.";
+      store.topStatus = RESET_STATUS_FR;
+      // A4: a discreet confirmation, over the panes: it leaves on its own.
+      clearTimeout(resetStatusTimer);
+      resetStatusTimer = setTimeout(() => {
+        if (store.topStatus !== RESET_STATUS_FR) return;
+        store.topStatus = null;
+        render();
+      }, RESET_STATUS_MS);
       store.memoryDrafts.clear();
       break;
     case "turn_started":
@@ -1717,12 +1747,13 @@ function renderContext() {
     const banner = store.activeModel?.banner_fr ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
     pane.appendChild(el("p", "ctx-banner", banner));
   }
-  const source = p.usage_source === "api" ? " (total renvoyé par le fournisseur)" : "";
+  // AD-4: the provider's total replaces the sum of the segments, it is not added to it.
+  const source = p.usage_source === "api" ? "total renvoyé par le fournisseur" : "somme des segments";
   pane.appendChild(
     el(
       "p",
       "ctx-total",
-      `Tour ${turn.id} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments)${source} · ` +
+      `${turnName(turn)} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (${source}) · ` +
         `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
     )
   );
@@ -3909,6 +3940,7 @@ async function boot() {
   try {
     const response = await fetch("/api/state");
     const body = await response.json();
+    store.serverInstance = body.instance_id ?? null;
     store.sessionState = body.session_state;
     store.activeModel = body.active_model ?? null;
     store.architecture = body.architecture_changed || { nodes: [], edges: [] };
