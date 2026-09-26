@@ -3039,6 +3039,10 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   color: var(--color-primary-deep);
 }
 
+.ctx-segment.ctx-compressed {
+  border-left-style: dashed;
+}
+
 .ctx-compressed-badge {
   margin-left: var(--spacing-2);
   color: var(--color-primary-deep);

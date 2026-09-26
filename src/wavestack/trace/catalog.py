@@ -147,8 +147,12 @@ class TurnEndedPayload(BaseModel):
 
 
 class CompressedFromPayload(BaseModel):
+    """Story 20: the tokens before; the text before is in the step `step_id`, rank `item`."""
+
     tokens_before: int
-    text_before: str
+    estimated: bool = False
+    step_id: str
+    item: int
 
 
 class SegmentPayload(BaseModel):
@@ -637,7 +641,7 @@ class CompressionItem(BaseModel):
     tokens_before: int
     tokens_after: int
     text_before: str
-    text_after: str
+    text_after: str | None = None  # only when `changed`: else the text before goes on
     changed: bool  # false: the compressor left it as it was (or did not shorten it)
     transforms: list[str] = []
     error_fr: str | None = None

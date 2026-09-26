@@ -10,6 +10,7 @@ Run by `stack.py`: `python tools/e2e/wavestack_e2e.py --port N`.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -23,6 +24,13 @@ from fake_embedder import FakeEmbedder  # noqa: E402
 from wavestack.models import embedding  # noqa: E402
 
 embedding.open_embedder = lambda model: FakeEmbedder(model_id=model.id)
+
+if os.environ.get("WAVESTACK_E2E_NO_HEADROOM") == "1":
+    # Story 20 (`run_e2e.py --no-headroom`): as a machine without the `compression` extra.
+    from wavestack.compression import headroom_adapter  # noqa: E402
+
+    _find_spec = headroom_adapter._find_spec
+    headroom_adapter._find_spec = lambda name: None if name == "headroom" else _find_spec(name)
 
 if __name__ == "__main__":
     raise SystemExit(cli.main())

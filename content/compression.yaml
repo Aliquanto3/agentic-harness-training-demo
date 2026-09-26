@@ -14,4 +14,5 @@ unchanged_fr: >-
 limits_fr: >-
   Compressés : les résultats d'outils (natifs, réseau, MCP) et les extraits RAG d'au moins
   {min_chars} caractères, dans le contexte principal. Jamais : l'historique, les skills, le
-  résultat du sous-agent, un refus de hook.
+  résultat du sous-agent, un refus de hook. Sans effet tant que ni Outils (ou MCP) ni RAG ne
+  sont actifs : il n'y a alors rien à compresser.

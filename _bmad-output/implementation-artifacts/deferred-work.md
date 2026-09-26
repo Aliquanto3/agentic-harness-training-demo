@@ -311,3 +311,23 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
   summary: La coupure de la socket à l'annulation (`shutdown` depuis un fil de veille) n'est vérifiée que sous Linux, contre une socket de test.
   evidence: Sous Windows, face à un vrai Ollama qui charge un modèle, « Arrêter » et la fermeture de WaveStack doivent rendre la main en moins d'une seconde ; sinon, l'arrêt attend le premier token ou le délai de lecture (`[model_servers] read_timeout_s`).
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
+  summary: AD-13 : `transform_context` n'est pas un point d'accroche de hook. La compression agit sur les parties du tour avant l'assemblage (réponses d'outils, extraits RAG), à la place de l'étape d'AD-4, sans qu'un hook puisse l'observer ni la modifier.
+  evidence: Revue indépendante de la story 20. Aucun hook de démonstration n'en a besoin en V1 ; à ouvrir si un hook doit voir le contexte compressé (ajouter le point au catalogue d'AD-13 et l'appeler depuis `_transform_context`).
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
+  summary: H-1 de la story 20 : `transform_context` compresse chaque texte avant le premier appel qui le lit (et non seulement avant le premier appel du tour). Décision provisoire, ligne de règle d'AD-4 amendée et marquée « à valider ».
+  evidence: Question posée à Anaël (memlog de la spec) ; décision attendue au test manuel. Défaut : garder H-1. Si la lecture stricte l'emporte, seuls les extraits RAG et les actions forcées seraient compressés.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
+  summary: `compress()` de Headroom n'a pas de borne de temps : un texte pathologique pourrait retenir le tour ; « Arrêter » n'agit qu'entre deux textes.
+  evidence: Headroom ne s'annule pas et n'est pas sûr entre fils : l'appeler dans un fil séparé abandonné laisserait un calcul concurrent. Mesuré : 2,2 s au pire (premier appel, JSON de 6 600 tokens), 0,02 s ensuite. À rouvrir si le PC cible montre une attente gênante.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
+  summary: Sur le PC cible : mémoire ajoutée par Headroom, absence de sortie réseau, AppLocker et WDAC face à `_core.pyd` et `ast-grep` ; le scénario « Compression » doit tenir dans la fenêtre sans compression, avec un vrai SLM, et le modèle ne doit pas appeler un outil « Retrieve more » inexistant.
+  evidence: Mesures hors PC cible seulement (story 12 : 130 Mo, aucune tentative réseau). Parcours E2E : 1 865 tokens sans compression, 1 437 envoyés, pour 3 584 utilisables.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
+  summary: uv.lock : les entrées de headroom-ai 0.38.0 et de ses dépendances ont été écrites à la main, l'index abetlen étant injoignable.
+  evidence: `uv lock --check --offline`, `uv sync --locked` et `uv sync --locked --extra compression` passent ; `uv lock` sur un poste qui joint l'index abetlen doit ne rien changer.

@@ -383,7 +383,8 @@ function applyEnvelope(envelope) {
       // Story 20: the harness compresses tool results and RAG excerpts before a call.
       if (turn) {
         Object.assign(turn, { phaseLabel: p.phase_label, callStartedAt: Date.parse(envelope.ts), firstToken: false });
-        turn.steps.push({ type: "compression", started: p, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null });
+        // `stepId`: a compressed segment finds its text before here (`compressed_from.step_id`).
+        turn.steps.push({ type: "compression", stepId: envelope.step_id, started: p, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null });
       }
       break;
     case "compression_ended": {
@@ -2330,7 +2331,7 @@ function renderContextBody(pane) {
       )
     );
   }
-  appendSegments(pane, p);
+  appendSegments(pane, p, turn);
   for (const error of turn.errors) pane.appendChild(el("p", "bubble-note is-error", error));
   // FR-9: the reasoning of the last call, always here, whatever the Vue humain option says:
   // its `model_call_ended` once there, the live deltas while it streams.
@@ -2347,7 +2348,13 @@ function renderContextBody(pane) {
   );
 }
 
-function appendSegments(pane, p) {
+// Story 20: the text a compressed segment had before, kept once by its compression step.
+function textBefore(turn, was) {
+  const step = turn?.steps.find((s) => s.type === "compression" && s.stepId === was.step_id);
+  return step?.ended?.items[was.item]?.text_before ?? null;
+}
+
+function appendSegments(pane, p, turn = null) {
   for (const segment of p.segments) {
     const group = p.breakdown.find((item) => item.kinds.includes(segment.kind));
     const box = el("div", "ctx-segment");
@@ -2365,11 +2372,15 @@ function appendSegments(pane, p) {
     if (segment.compressed_from) {
       // Story 20: a compressed segment, and what it was before (AD-22).
       const was = segment.compressed_from;
+      const tokens = `${approx(was.estimated)}${fmt(was.tokens_before)} tokens`;
       box.classList.add("ctx-compressed");
-      label.append(el("span", "ctx-compressed-badge", `🗜️ compressé, ${fmt(was.tokens_before)} tokens avant`));
-      const before = el("details");
-      before.append(el("summary", "", `Texte avant compression (${fmt(was.tokens_before)} tokens)`), el("pre", "", was.text_before));
-      box.appendChild(before);
+      label.append(el("span", "ctx-compressed-badge", `🗜️ compressé, ${tokens} avant`));
+      const text = textBefore(turn, was);
+      if (text !== null) {
+        const before = el("details");
+        before.append(el("summary", "", `Texte avant compression (${tokens})`), el("pre", "", text));
+        box.appendChild(before);
+      }
     }
     pane.appendChild(box);
   }
@@ -2805,8 +2816,7 @@ function compressionBody(step) {
     ),
     el("div", "token-counter number", `Contexte réduit : ${compressionFigure(ended)} · ${seconds(ended.duration_ms)}`),
   ];
-  if (ended.error_fr) lines.push(el("p", "", ended.error_fr));
-  const list = el("ol", "compression-items");
+  const list = el("ol", "compression-items"); // each error once, under its own text
   for (const item of ended.items) {
     const entry = el("li", "compression-item");
     const head = el("button", "compression-item-head");

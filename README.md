@@ -47,7 +47,8 @@ Ce fichier surcharge `wavestack.toml` sans le modifier ; les hôtes en boucle lo
 (`127.0.0.1`, `localhost`) et les hôtes de proxy détectés sont toujours autorisés.
 
 **Mise à jour :** `git pull` (ou un nouveau zip), puis `uv run wavestack`, qui resynchronise sur
-`uv.lock`.
+`uv.lock`. Si vous utilisez la brique Compression, relancez aussi `uv sync --extra compression`
+(voir « Compression du contexte »).
 
 ## Diagnostic de démarrage
 
@@ -210,11 +211,20 @@ uv sync --extra compression
 uv run wavestack
 ```
 
-Sans elle, la carte de la brique est indisponible et donne cette commande ; le reste de
-WaveStack fonctionne. Headroom tourne hors ligne, sans télémétrie ni modèle d'apprentissage
-automatique (variables posées par WaveStack au lancement), et ajoute environ 130 Mo de mémoire
-(`[compression] cost_mb`, contrôlé par le budget). Un texte plus court que
-`[compression] min_chars` (300 caractères) n'est pas compressé.
+- **Installation et mise à jour.** Relancez `uv sync --extra compression` après chaque mise à
+  jour. Attention : un `uv sync` sans `--extra compression` retire Headroom et ses dépendances
+  (`uv run wavestack`, lui, les garde).
+- **Réseau à l'installation.** L'extra se télécharge depuis PyPI (`pypi.org`,
+  `files.pythonhosted.org`) : environ 40 paquets, 285 Mo sur disque. Ensuite, Headroom tourne
+  hors ligne, sans télémétrie ni modèle d'apprentissage automatique (variables posées par
+  WaveStack au lancement).
+- **Poste verrouillé.** headroom-ai apporte deux binaires natifs non signés (`_core.pyd` et
+  l'exécutable `ast-grep`) : AppLocker ou WDAC peuvent les bloquer. La carte de la brique dit
+  alors pourquoi elle est indisponible ; le reste de WaveStack fonctionne.
+- **Sans l'extra,** la carte de la brique est indisponible et donne la commande d'installation.
+- **Réglages.** Headroom ajoute environ 130 Mo de mémoire (`[compression] cost_mb`, contrôlé par
+  le budget). Un texte plus court que `[compression] min_chars` (300 caractères) n'est pas
+  compressé. La brique n'a d'effet qu'avec Outils, MCP ou RAG : sans eux, rien à compresser.
 
 ## Modèle cloud (Groq, Mistral)
 

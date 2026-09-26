@@ -31,12 +31,17 @@ class SegmentKind(StrEnum):
 
 
 class CompressedFrom(BaseModel):
-    """Story 20 (AD-22): what a compressed segment was, before the compressor replaced it."""
+    """Story 20 (AD-22): what a compressed segment weighed before the compressor, and where
+    its text before is (the compression step)."""
 
     model_config = ConfigDict(frozen=True)
 
     tokens_before: int
-    text_before: str
+    estimated: bool = False  # chat mode: an estimate (AD-4), shown with « ≈ »
+    # The compression step that holds the text before (its `step_id`) and its rank there:
+    # the original is traced once, in the step, never again in each call's context.
+    step_id: str
+    item: int
 
 
 class Part(NamedTuple):

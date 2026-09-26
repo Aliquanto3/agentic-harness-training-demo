@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import threading
@@ -1426,6 +1427,9 @@ COMPRESSION_QUESTION = (
 )
 
 
+COMPRESSION_SECOND = "Dans le journal_serveur.log, à quelle heure le lot 12 a-t-il été copié ?"
+
+
 def _compression_step(r: Run):
     """The last « Compression (…) » step of Orchestration."""
     name = r.page.locator(".turn-step-name", has_text="Compression (")
@@ -1439,6 +1443,25 @@ def s_compression(r: Run) -> None:
     log = (REPO / "content" / "demo_files" / "journal_serveur.log").read_text(encoding="utf-8")
     error_line = next(line for line in log.splitlines() if " ERROR " in line)
     r.launch("compression")
+    brick = r.bricks()["compression"]
+    reason = brick.get("reason_fr") or ""
+    if not brick["available"] and "uv sync --extra compression" in reason:
+        # headroom-ai absent (the `compression` extra, or `--no-headroom`): a clean skip.
+        text = r.card("Compression").inner_text()
+        r.check(
+            "uv sync --extra compression" in text,
+            "headroom-ai absent : la carte donne la commande d'installation, scénario sauté",
+            reason[:160],
+        )
+        seq = r.ev.mark()
+        ended = r.send(COMPRESSION_QUESTION)
+        r.check(
+            ended["payload"]["status"] == "completed"
+            and not r.ev.since(seq, "compression_started"),
+            "headroom-ai absent : le tour aboutit, sans étape de compression",
+        )
+        print("  SKIP compression : headroom-ai n'est pas installé (uv sync --extra compression)")
+        return
     seq = r.ev.mark()
     ready = r.bricks()["compression"]["available"] or r.ev.wait(
         "bricks_changed",
@@ -1554,6 +1577,26 @@ def s_compression(r: Run) -> None:
     step = _compression_step(r)
     expect(step).to_be_visible(timeout=10_000)
     r.check(True, "après rechargement, l'étape « Compression » est toujours là")
+
+    # The second prompt: what Headroom cut is lost for the model (lot 12 is left out).
+    seq = r.ev.mark()
+    ended = r.send(COMPRESSION_SECOND)
+    done = r.ev.since(seq, "compression_ended")
+    r.check(
+        ended["payload"]["status"] == "completed" and len(done) >= 1,
+        "second prompt : le journal relu est compressé de nouveau",
+    )
+    answer = r.last_answer()
+    r.check(
+        "ne mentionne pas le lot 12" in answer,
+        "second prompt : la ligne du lot 12, coupée par Headroom, manque au modèle",
+        answer,
+    )
+    kept = [i["text_after"] for e in done for i in e["payload"]["items"] if i["changed"]]
+    r.check(
+        bool(kept) and all("lot 12 " not in text for text in kept) and "lot 12 copié" in log,
+        "second prompt : le lot 12 est dans le fichier, pas dans la version compressée",
+    )
 
 
 def s_busy_and_stop(r: Run) -> None:
@@ -2075,7 +2118,14 @@ def main() -> int:
     parser.add_argument("--only", nargs="*", help="scénarios à jouer (diagnostic toujours)")
     parser.add_argument("--keep", action="store_true", help="garder le dossier de données")
     parser.add_argument("--headed", action="store_true")
+    parser.add_argument(
+        "--no-headroom",
+        action="store_true",
+        help="WaveStack comme sans l'extra compression (le scénario compression est sauté)",
+    )
     args = parser.parse_args()
+    if args.no_headroom:  # read by `wavestack_e2e.py` through the stack's environment
+        os.environ["WAVESTACK_E2E_NO_HEADROOM"] = "1"
     chosen = [s for s in SCENARIOS if not args.only or s[0] in args.only or s[0] == "diagnostic"]
 
     console: list[str] = []
