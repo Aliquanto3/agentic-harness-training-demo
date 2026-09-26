@@ -14,13 +14,21 @@ import sys
 import tomllib
 from dataclasses import dataclass, field
 from functools import cached_property
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
 # ponytail: pydantic is imported before the network guard (cli imports config first); it
 # opens no connection at import, so the guard still precedes any network access.
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 
 def data_dir() -> Path:
@@ -178,10 +186,11 @@ class EmbeddingFile(_Strict):
 
 
 def _relative_path(value: str) -> str:
-    """A path relative to `models_dir()` that stays inside it."""
-    path = Path(value)
-    if path.is_absolute() or path.drive or ".." in path.parts:
-        raise ValueError("path must be relative to the models folder, without '..'")
+    """A path relative to `models_dir()` that stays inside it, read as a Windows and as a
+    POSIX path alike (« \\x », « C:x », « /x » and « .. » refused everywhere)."""
+    for path in (PureWindowsPath(value), PurePosixPath(value)):
+        if path.is_absolute() or path.drive or path.root or ".." in path.parts:
+            raise ValueError("path must be relative to the models folder, without '..'")
     return value
 
 
@@ -205,6 +214,17 @@ class EmbeddingModel(_Strict):
     @classmethod
     def _inside_models_dir(cls, value: str) -> str:
         return _relative_path(value)
+
+    @model_validator(mode="after")
+    def _load_path_is_declared(self) -> EmbeddingModel:
+        """The file loaded is one of `files`: its size (and sha256) identify the model."""
+        if PurePosixPath(self.load_path) not in {PurePosixPath(f.path) for f in self.files}:
+            raise ValueError("load_path must be one of files[].path")
+        return self
+
+    @property
+    def load_file(self) -> EmbeddingFile:
+        return next(f for f in self.files if PurePosixPath(f.path) == PurePosixPath(self.load_path))
 
 
 def _merge_cloud_models(base: Any, override: Any) -> list[Any]:
@@ -434,6 +454,32 @@ class Config:
     @property
     def mcp_call_timeout_s(self) -> float:
         return self._seconds("mcp", "call_timeout_s", default=30.0)
+
+    @property
+    def model_server_connect_timeout_s(self) -> float:
+        """Story 18: connecting to an already-running local server, `[model_servers]`."""
+        return self._seconds("model_servers", "connect_timeout_s", default=2.0)
+
+    @property
+    def model_server_read_timeout_s(self) -> float:
+        """Story 18: reading a local server's answer or stream, `[model_servers]`."""
+        return self._seconds("model_servers", "read_timeout_s", default=300.0)
+
+    @property
+    def loopback_ports(self) -> dict[str, int]:
+        """AD-7: the already-running local servers to probe, `[net.loopback_ports]`."""
+        value = self.get("net", "loopback_ports", default=None)
+        if not isinstance(value, dict):
+            return {"ollama": 11434, "llama_server": 8080}
+        ports = {}
+        for name, port in value.items():
+            try:
+                number = int(port)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= number <= 65535:  # any other value would break the diagnostic's URLs
+                ports[str(name)] = number
+        return ports
 
     @property
     def selected_model(self) -> dict[str, str] | None:

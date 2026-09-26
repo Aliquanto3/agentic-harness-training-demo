@@ -49,7 +49,7 @@ class HarnessErrorPayload(BaseModel):
 
 
 SessionState = Literal[
-    "idle", "turn", "awaiting_human", "model_load", "download", "reset", "diagnostic"
+    "idle", "turn", "awaiting_human", "model_load", "download", "index_build", "reset", "diagnostic"
 ]
 
 
@@ -64,9 +64,11 @@ class ActiveModel(BaseModel):
     warning_fr: str | None = None  # the `cloud-warning`'s text, the indicator's tooltip
     banner_fr: str | None = None  # Contexte LLM's banner (chat mode)
     # Story 17: which entry of the model lists is active: a file (`ref`: its path) or a
-    # cloud model (`ref`: its `id`).
-    kind: Literal["file", "cloud"] | None = None
+    # cloud model (`ref`: its `id`); story 18: a served model (`ref`: `ollama/{name}` or
+    # `llama_server/{file}`), `provider` its server, `server_url` its loopback address.
+    kind: Literal["file", "server", "cloud"] | None = None
     ref: str | None = None
+    server_url: str | None = None
 
 
 class SessionStatePayload(BaseModel):
@@ -94,6 +96,10 @@ class ArchitectureNode(BaseModel):
     tools: list[str] = []  # MCP servers: the names of the tools they expose
     model: str | None = None  # `core.model`: file name (no extension) of the loaded model
     provider: str | None = None  # `core.model` of a cloud model: its provider (story 11)
+    # Story 18, `core.model` served by a local server: a process apart from the harness, on
+    # this workstation, at `server_url`.
+    process: Literal["external"] | None = None
+    server_url: str | None = None
     # Skills (story 7): loaded in the conversation or not. Any node: what its tooltip adds
     # (a skill's or a hook's description, the audit log's path).
     loaded: bool | None = None
@@ -286,6 +292,12 @@ class DownloadOffer(BaseModel):
     label_fr: str
 
 
+class IndexBuildOffer(BaseModel):
+    """Story 15: « Construire l'index » on the RAG card, once its model is there."""
+
+    label_fr: str
+
+
 class BrickState(BaseModel):
     """One brick card: its content, and `available`/`pending` as computed by the session."""
 
@@ -316,6 +328,7 @@ class BrickState(BaseModel):
     force: BrickForce | None = None
     # Story 15, `rag` brick: offered when the embedding model's files are missing (AD-21).
     download: DownloadOffer | None = None
+    build_index: IndexBuildOffer | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -403,7 +416,15 @@ class HookDecidedPayload(BaseModel):
 
 
 class EffectAppliedPayload(BaseModel):
-    effect: Literal["audit_append", "setting_write", "api_key_set", "memory_write"]
+    # Story 15: `model_download` (each file and its sha256), `rag_index_write` (the index).
+    effect: Literal[
+        "audit_append",
+        "setting_write",
+        "api_key_set",
+        "memory_write",
+        "model_download",
+        "rag_index_write",
+    ]
     lines: list[str] = []
     # `memory_write` (story 14, AD-23): the change applied to `memory.json`.
     op: Literal["add", "replace", "delete"] | None = None
@@ -515,6 +536,15 @@ class MemoryChangedPayload(BaseModel):
 
 
 # ---------- story 17: hot model switch (AD-2, AD-3, AD-8) ----------
+
+
+class ServerCacheUsedPayload(BaseModel):
+    """Story 18, information: Ollama read fewer prompt tokens than the harness counted, the
+    start of the prompt coming from its cache (not a « transparence réduite »)."""
+
+    prompt_tokens: int
+    evaluated_tokens: int
+    message_fr: str
 
 
 class ModelLoadStartedPayload(BaseModel):
@@ -638,6 +668,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
     "outbound_request": OutboundRequestPayload,
     "harness_error": HarnessErrorPayload,
+    "server_cache_used": ServerCacheUsedPayload,
     "session_state": SessionStatePayload,
     "architecture_changed": ArchitectureChangedPayload,
     "turn_started": TurnStartedPayload,

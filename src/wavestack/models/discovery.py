@@ -15,8 +15,7 @@ import httpx
 from pydantic import BaseModel
 
 from wavestack import config
-from wavestack.net.factory import create_client
-from wavestack.trace.scope import scoped
+from wavestack.models import servers
 
 CandidateSource = Literal["explicit", "models_dir", "hf_cache", "lm_studio", "ollama", "server"]
 CandidateStatus = Literal["found", "incompatible", "server"]
@@ -31,12 +30,28 @@ class ModelCandidate(BaseModel):
     name: str | None = None  # readable: `model:tag` for Ollama, the file name otherwise
     architecture: str | None = None  # from the probe cache, once probed
     size_label: str | None = None  # `general.size_label` (« 2B »), from the probe cache
+    # Story 18, a model an already-running server serves (`source = server`): its adapter,
+    # its `ref` (`ollama/{name}`, `llama_server/{file}`), the provider's name, the memory
+    # it takes (AD-8), and its GGUF: the blob `ollama_raw` reads its tokenizer from, or the
+    # file llama-server loaded (its size only).
+    engine: Literal["ollama", "llama_server"] | None = None
+    ref: str | None = None
+    provider: str | None = None
+    served_bytes: int | None = None
+    # Already in memory when listed (llama-server; an Ollama model in `/api/ps`): counted,
+    # never refused by the budget, and never unloaded by WaveStack (AD-8).
+    resident: bool | None = None
+    gguf_path: str | None = None
 
 
 def _glob_gguf(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
     return sorted(root.rglob("*.gguf"))
+
+
+# Story 15: `models/embedding/` holds embedding models, never offered as chat models.
+EMBEDDING_DIR = "embedding"
 
 
 def _embedding_files(cfg: config.Config) -> set[Path]:
@@ -116,27 +131,57 @@ def _ollama_candidates() -> list[ModelCandidate]:
     return candidates
 
 
-def _server_candidates(cfg: config.Config) -> list[ModelCandidate]:
-    ports: dict[str, int] = cfg.get(
-        "net", "loopback_ports", default={"ollama": 11434, "llama_server": 8080}
-    )
-    probe_paths = {"ollama": "/api/tags", "llama_server": "/health"}
+def _is_gguf(path: str) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) == b"GGUF"
+    except OSError:
+        return False
+
+
+def _server_candidates(
+    cfg: config.Config, transport: httpx.BaseTransport | None = None
+) -> list[ModelCandidate]:
+    """One candidate per model an already-running server serves (AD-7, story 18). An Ollama
+    model needs its GGUF blob, read by `_ollama_candidates`, for its tokenizer: without a
+    readable one, it is `incompatible`, with the reason."""
+    served = servers.list_served(cfg, transport)
+    blobs: dict[str, ModelCandidate] = {}
+    if any(s.engine == "ollama" for s in served):
+        for blob in _ollama_candidates():
+            if blob.name and (blob.name not in blobs or blob.status == "found"):
+                blobs[blob.name] = blob
     candidates: list[ModelCandidate] = []
-    with scoped(origin="diagnostic"):
-        client = create_client(timeout=1.0)
-        try:
-            for name, port in ports.items():
-                url = f"http://127.0.0.1:{port}"
-                try:
-                    response = client.get(url + probe_paths.get(name, "/"))
-                except httpx.HTTPError:
-                    continue
-                if response.status_code < 500:
-                    candidates.append(
-                        ModelCandidate(source="server", status="server", server_url=url)
-                    )
-        finally:
-            client.close()
+    for model in served:
+        candidate = ModelCandidate(
+            source="server",
+            status="server",
+            server_url=model.server_url,
+            name=model.name,
+            engine=model.engine,  # type: ignore[arg-type]
+            ref=model.ref,
+            provider=model.provider,
+        )
+        if model.engine == "ollama":
+            blob = blobs.get(model.name)
+            if blob is None or not blob.path:
+                candidate.status = "incompatible"
+                candidate.reason = (
+                    f"Fichier GGUF du modèle introuvable dans le dossier d'Ollama "
+                    f"({_ollama_root()}) : WaveStack ne peut pas lire son tokenizer."
+                )
+            elif blob.status != "found":
+                candidate.status, candidate.reason = "incompatible", blob.reason
+            elif not _is_gguf(blob.path):
+                candidate.status = "incompatible"
+                candidate.reason = "Le fichier du modèle n'est pas un GGUF lisible."
+            else:
+                candidate.gguf_path = blob.path
+        else:  # llama-server: the file it loaded, for its size (AD-8)
+            candidate.gguf_path = model.model_path
+        candidate.served_bytes = servers.served_bytes(model, candidate.gguf_path)
+        candidate.resident = model.resident
+        candidates.append(candidate)
     return candidates
 
 
@@ -148,7 +193,7 @@ def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
     candidates += [
         ModelCandidate(source="models_dir", status="found", path=str(p))
         for p in _glob_gguf(config.models_dir())
-        if p not in embedding
+        if p not in embedding and p.relative_to(config.models_dir()).parts[0] != EMBEDDING_DIR
     ]
     candidates += [
         ModelCandidate(source="hf_cache", status="found", path=str(p))

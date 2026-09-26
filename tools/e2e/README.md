@@ -36,9 +36,15 @@ Pour explorer à la main : `uv run python tools/e2e/stack.py` lance le faux mod�
   faux serveur, `fake` (`wavestack-fake`) et `fake_b` (`faux-modele-b`, pour le changement de
   modèle de la story 17), clé par `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux
   serveurs sur `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
-  `settings.json` pointe `[rag]` vers un index construit dans ce dossier (le vrai corpus,
-  découpé et embarqué par le faux modèle d'embedding) et déclare un faux fichier de modèle
-  servi par le faux serveur.
+  `settings.json` pointe `[rag]` vers un index dans ce dossier, absent au départ comme sur
+  une installation neuve (le scénario `rag` le construit depuis la carte), et déclare un faux
+  fichier de modèle servi par le faux serveur.
+- `fake_local_server.py` (story 18) : un faux llama-server (`/health`, `/props` avec le gabarit
+  Qwen3.5, `/v1/models`, `/tokenize` avec les pièces, `/detokenize`, `/completion` en SSE ;
+  tokenizer octet par octet, marqueurs du gabarit en un token) et un faux Ollama (`/api/tags`,
+  `/api/ps`, `/api/generate` pour `keep_alive: 0`) qui sert un modèle sans GGUF sur le disque.
+  `stack.py` les lance sur deux ports libres, que `settings.json` déclare en
+  `[net.loopback_ports]` ; `/_e2e/requests` relit les corps reçus.
 - `wavestack_e2e.py` : le lanceur de WaveStack pendant le parcours. Il lance `wavestack.cli`
   tel quel (garde réseau d'abord), la brique RAG chargeant le faux modèle d'embedding de
   `tests/fake_embedder.py` (sac de mots haché, 64 dimensions, aucun GGUF nécessaire), et
@@ -61,6 +67,19 @@ joué par le nouveau modèle, « Comparer » avec le modèle de chaque colonne, 
 premier modèle par « Choisir » au diagnostic, issue affichée, jamais « relancez ». Capture :
 `22-changement-de-modele.jpg`.
 
+## Serveur local déjà lancé (story 18)
+
+Le scénario `local_server`, joué après `model_switch` : au diagnostic, le modèle du faux
+llama-server est listé (« Local », adresse, mémoire, « Choisir ») et celui du faux Ollama est
+incompatible, sans « Choisir » (GGUF introuvable) ; plus de mention « palier 2 ». Dans le
+sélecteur de la barre haute, le modèle servi est choisi puis chargé (« Préparation du modèle
+servi par llama-server… »), l'indicateur devient « Local · llama-server » (infobulle : processus
+distinct), et le schéma dessine le robot hors du cadre Harnais, dans une boîte
+« llama-server · 127.0.0.1:port » de la zone Poste de travail. Un tour complet avec
+`get_datetime` vérifie que les ids reçus par le serveur sont ceux du texte rendu par le harnais
+(somme des segments = `prompt_tokens`). Après un rechargement, indicateur et boîte reviennent ;
+le scénario revient enfin au faux modèle cloud. Capture : `23-serveur-local-llama-server.jpg`.
+
 ## Compression du contexte (story 20)
 
 Le scénario `compression`, joué après `rag`, utilise le vrai Headroom : l'environnement du
@@ -70,7 +89,7 @@ brique éteinte (le journal `journal_serveur.log` part en entier), puis le rejeu
 étape « Compression (Headroom) » avant → après, erreur du journal gardée dans le corps reçu par
 le faux fournisseur et dans la réponse, segment marqué « compressé » et total « Sans
 compression » dans Contexte LLM, « Comparer », étape toujours là après rechargement. Capture :
-`23-compression-avant-apres.jpg`.
+`24-compression-avant-apres.jpg`.
 
 ## Déclencheurs du faux modèle
 

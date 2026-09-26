@@ -3,6 +3,8 @@
 The fake model is declared as a cloud model in that data dir's `settings.json`, never in
 `wavestack.toml`; its key comes from the variable its `key_env` names. WaveStack opens no
 browser (`BROWSER=true`) and finds no local GGUF (`HF_HOME`, `OLLAMA_MODELS` in the dir).
+Story 18: a fake llama-server and a fake Ollama (`fake_local_server.py`) run on free ports,
+which `settings.json` gives as `[net.loopback_ports]`.
 
 Run alone to explore by hand: `uv run python tools/e2e/stack.py` (Ctrl+C stops both).
 """
@@ -59,8 +61,9 @@ def _entry(fake_port: int, entry_id: str, provider: str, model: str) -> dict:
 
 
 def rag_settings(fake_port: int, data_dir: Path) -> dict:
-    """Story 15: the index built in the data dir, the fake embedding model (its file served
-    by the fake server, over the loopback)."""
+    """Story 15: the index in the data dir (absent at first, built from the RAG card, as on a
+    fresh install), the fake embedding model (its file served by the fake server, over the
+    loopback)."""
     return {
         "index_path": str(data_dir / "rag_index.sqlite"),
         "embedding": {
@@ -79,21 +82,11 @@ def rag_settings(fake_port: int, data_dir: Path) -> dict:
     }
 
 
-def build_rag_index(path: Path) -> None:
-    """The index of the real corpus, with the fake embedding model of the tests."""
-    sys.path.insert(0, str(REPO / "tests"))
-    from fake_embedder import FakeEmbedder
-
-    from wavestack.rag.corpus import load_rag_content
-    from wavestack.rag.index import build_index
-
-    build_index(load_rag_content(), FakeEmbedder(), path, chunk_max_chars=700)
-
-
-def settings(fake_port: int, data_dir: Path) -> dict:
+def settings(fake_port: int, data_dir: Path, llama_port: int = 0, ollama_port: int = 0) -> dict:
     """The `settings.json` override: two cloud models, both on the fake server; the RAG's
-    index and fake embedding model (story 15)."""
-    return {
+    index and fake embedding model (story 15); the ports of the fake local servers (story
+    18)."""
+    values: dict = {
         "rag": rag_settings(fake_port, data_dir),
         "cloud": {
             "models": [
@@ -102,6 +95,9 @@ def settings(fake_port: int, data_dir: Path) -> dict:
             ]
         },
     }
+    if llama_port and ollama_port:
+        values["net"] = {"loopback_ports": {"ollama": ollama_port, "llama_server": llama_port}}
+    return values
 
 
 def wait_http(url: str, timeout_s: float = 60.0) -> None:
@@ -133,11 +129,19 @@ class Stack:
     log_dir: Path
     app_port: int
     env: dict[str, str]
-    procs: list[subprocess.Popen] = field(default_factory=list)  # fake server, WaveStack
+    llama_url: str = ""
+    ollama_url: str = ""
+    # Fake servers first, WaveStack last (`restart_app` pops it).
+    procs: list[subprocess.Popen] = field(default_factory=list)
     launches: int = 0
 
     def fake_requests(self) -> list[dict]:
         with urllib.request.urlopen(f"{self.fake_url}/_e2e/requests", timeout=5) as r:
+            return json.loads(r.read().decode("utf-8"))
+
+    def local_requests(self, url: str) -> list[dict]:
+        """What a fake local server received: `{path, body}`, newest last."""
+        with urllib.request.urlopen(f"{url}/_e2e/requests", timeout=5) as r:
             return json.loads(r.read().decode("utf-8"))
 
     def start_app(self) -> None:
@@ -188,10 +192,13 @@ def running_stack(
     log_dir.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
     fake_port, app_port = free_port(), free_port()
+    llama_port, ollama_port = free_port(), free_port()
     (data_dir / "settings.json").write_text(
-        json.dumps(settings(fake_port, data_dir), ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(
+            settings(fake_port, data_dir, llama_port, ollama_port), ensure_ascii=False, indent=2
+        ),
+        encoding="utf-8",
     )
-    build_rag_index(data_dir / "rag_index.sqlite")
     stack = Stack(
         app_url=f"http://127.0.0.1:{app_port}",
         fake_url=f"http://127.0.0.1:{fake_port}",
@@ -199,6 +206,8 @@ def running_stack(
         log_dir=log_dir,
         app_port=app_port,
         env=_env(data_dir),
+        llama_url=f"http://127.0.0.1:{llama_port}",
+        ollama_url=f"http://127.0.0.1:{ollama_port}",
     )
     try:
         fake_log = open(log_dir / "fake_openai.log", "w", encoding="utf-8")  # noqa: SIM115
@@ -212,6 +221,26 @@ def running_stack(
             )
         )
         wait_http(f"{stack.fake_url}/v1/models")
+        for flavor, port in (("llama_server", llama_port), ("ollama", ollama_port)):
+            log = open(log_dir / f"fake_{flavor}.log", "w", encoding="utf-8")  # noqa: SIM115
+            stack.procs.append(
+                subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(HERE / "fake_local_server.py"),
+                        "--flavor",
+                        flavor,
+                        "--port",
+                        str(port),
+                    ],
+                    cwd=REPO,
+                    env=stack.env,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                )
+            )
+        wait_http(f"{stack.llama_url}/health")
+        wait_http(f"{stack.ollama_url}/api/tags")
         stack.start_app()
         yield stack
     finally:
@@ -225,6 +254,7 @@ def main() -> None:
     with running_stack(keep=True) as stack:
         print(f"WaveStack : {stack.app_url}/diagnostic")
         print(f"Faux modèle : {stack.fake_url}/v1 (clé via {KEY_ENV})")
+        print(f"Faux llama-server : {stack.llama_url} · faux Ollama : {stack.ollama_url}")
         print(f"Dossier de données : {stack.data_dir}")
         try:
             while True:

@@ -1,6 +1,6 @@
 # Classification de l'information chez Exemplia
 
-Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : cette politique ne décrit aucune entreprise réelle.
+<!-- Texte fictif rédigé pour WaveStack. Exemplia est une organisation imaginaire : cette politique ne décrit aucune entreprise réelle. -->
 
 Toute information produite ou reçue par Exemplia porte l'un des 4 niveaux de classification suivants : Public, Interne, Confidentiel et Secret. Par défaut, un document sans marquage est traité comme Interne.
 

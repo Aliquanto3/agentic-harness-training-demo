@@ -30,9 +30,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 
 class SelectModelIntention(BaseModel):
-    """AD-21: `{kind, ref, acknowledged}`; `path` (story 1b) still names a file."""
+    """AD-21: `{kind, ref, acknowledged}`; `path` (story 1b) still names a file. Story 18:
+    `kind = server`, `ref` = `ollama/{name}` or `llama_server/{file}`."""
 
-    kind: Literal["file", "cloud"] = "file"
+    kind: Literal["file", "server", "cloud"] = "file"
     ref: str | None = None
     path: str | None = None
     acknowledged: bool = False  # a cloud model: the `cloud-warning` was confirmed
@@ -259,6 +260,18 @@ def create_app(
         result = session.last_result
         # Story 17: the application session alone says which model is loaded (AD-12).
         active = app_session.active_choice()
+        selected = next(
+            (
+                {"kind": kind, "ref": ref}
+                for kind, ref in (
+                    ("file", session.selected_model_path),
+                    ("server", session.selected_server),
+                    ("cloud", session.selected_cloud),
+                )
+                if ref
+            ),
+            None,
+        )
         return {
             "version": version,
             "ready": result.ready if result else False,
@@ -266,6 +279,11 @@ def create_app(
             "candidates": [c.model_dump() for c in result.candidates] if result else [],
             "selected_model": session.selected_model_path,
             "loaded_model": active.ref if active and active.kind == "file" else None,
+            # Story 18: the saved choice and the loaded model, whatever their kind.
+            "selected": selected,
+            "loaded": (
+                {"kind": active.kind, "ref": active.ref, "label": active.label} if active else None
+            ),
             # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
             "cloud": session.cloud_rows(active.ref if active and active.kind == "cloud" else None),
         }
@@ -289,12 +307,20 @@ def create_app(
                 result = session.select_cloud(ref, intention.acknowledged, hot=hot)
             except Refused as refused:
                 raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        elif intention.kind == "server":
+            result = session.select_server(ref, hot=hot)
         else:
             result = session.select_model(ref, hot=hot)
-        switching = bool(result.model_path or result.cloud_model)
+        switching = bool(result.model_path or result.cloud_model or result.server)
         message_fr = result.message_fr
         # The model this answer loads: the page matches it with `model_load_ended.model.ref`.
-        ref_loading = result.cloud_model.id if result.cloud_model else result.model_path
+        ref_loading = (
+            result.cloud_model.id
+            if result.cloud_model
+            else result.server.ref
+            if result.server
+            else result.model_path
+        )
         if result.hot:
             try:
                 message_fr, switching = session.switch(app_session, result)
@@ -504,6 +530,18 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail="Cible de téléchargement inconnue."
             ) from None
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"started": True, "reason_fr": reason_fr}
+
+    @app.post("/api/intentions/build_rag_index")
+    def build_rag_index() -> dict[str, object]:
+        """Class (b), story 15: outside `idle`, or nothing to build: 409, with the reason.
+        « Arrêter » (`stop`) cancels it."""
+        try:
+            reason_fr = app_session.build_rag_index()
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Aucune brique RAG.") from None
         except SendRefused as refused:
             raise HTTPException(status_code=409, detail=refused.reason_fr) from None
         return {"started": True, "reason_fr": reason_fr}

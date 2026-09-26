@@ -24,6 +24,13 @@ connectivity_probe_host = "huggingface.co"
 ollama = 11434
 llama_server = 8080
 
+[model_servers]
+# Serveurs locaux déjà lancés par l'utilisateur (story 18) : Ollama et llama-server, jamais
+# lancés ni arrêtés par WaveStack. Délais en secondes : connexion, puis lecture de la réponse
+# (le premier appel d'Ollama charge le modèle, d'où une lecture longue).
+connect_timeout_s = 2
+read_timeout_s = 300
+
 [context]
 window = 4096
 near_limit_ratio = 0.8

@@ -1,6 +1,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1-fondations-lancement-diagnostic-modele-local.md`
   summary: Aucun test n'exerce la branche « serveur déjà lancé » (`status: "server"`) de `DiagnosticSession.check_model()` — tous les tests forcent `discovery._server_candidates` à retourner une liste vide pour rester déterministes.
   evidence: Une régression qui exclurait `"server"` des candidats utilisables (ou casserait `_server_candidates`) empêcherait WaveStack de reconnaître un serveur Ollama/llama.cpp déjà lancé sans qu'aucun test n'échoue. Fermer l'écart demande un test de `_server_candidates` avec un transport httpx simulé ; raisonnable à ajouter lors du premier usage réel de la découverte serveur.
+  closed: story 18 (2026-09-26) — `tests/test_model_servers.py::test_server_candidates_one_per_served_model` teste `_server_candidates` avec un transport `httpx.MockTransport` ; la branche serveur de `check_model` est couverte par `test_servers_only_block_with_a_choice` et `test_saved_server_choice_*`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/2-interface-a-volets-et-journal-devenements.md`
   summary: Le schéma d'architecture (`app.js::renderSchema`) ignore les champs `hosting`, `wanted`, `available`, `reason_fr` du payload `architecture_changed` : tout nœud est peint en violet « local » quel que soit son état réel.
@@ -275,3 +276,38 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/19-delegation-a-un-sous-agent.md`
   summary: Avec Qwen3.5, le gabarit peut réécrire l'appel d'outil du sous-agent (`prefix_not_reused` dans `sub{n}`).
   evidence: Même mécanisme qu'en contexte principal (AD-4) ; à observer sur le PC cible, sans effet sur le résultat de la délégation.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
+  summary: AD-9, adéquation du scénario « RAG » : l'aperçu compte les 3 extraits les plus longs de l'index (leur maximum déclaré) ; vérifier sur le PC cible, avec Qwen3.5 et la fenêtre de 4 096 tokens, que le scénario cumulatif (modules 1 à 4, MCP en lazy loading, RAG) tient, et mesurer la latence de l'étape « Recherche RAG » (NFR-1).
+  evidence: Revue indépendante de la story 15. Le faux moteur compte un token par octet et le faux modèle cloud estime à 4 caractères par token : aucune mesure réelle. À relever au test manuel (jauge avant envoi, durée de l'étape dans Orchestration).
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
+  summary: Intégrité du modèle d'embedding : l'URL de `[rag.embedding]` vise `resolve/main` et `sha256` est vide ; épingler l'URL sur un commit du dépôt bartowski et renseigner le sha256.
+  evidence: Le connecteur Hugging Face de la session ne donne que la taille (121 020 096 octets, LFS), ni l'oid LFS ni le commit ; huggingface.co est bloqué dans le conteneur. Le premier téléchargement sur le PC cible trace le sha256 du fichier (effet `model_download` dans le journal) ; le recopier dans `files[].sha256`, et remplacer `main` par le commit affiché sur la page du fichier. Dès lors, `Télécharger`, le chargement et `scripts/build_rag_index.py --model` le vérifient.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
+  summary: Sur le PC cible (Windows, Python de uv) : chargement de l'extension sqlite-vec, pooling CLS déclaré par le GGUF granite (sonde au chargement), et `uv lock` à confirmer (entrée sqlite-vec écrite à la main faute d'accès à l'index abetlen).
+  evidence: Vérifiés ici seulement sous Linux, sans vrai modèle (GGUF BERT synthétique, faux embedder). À trancher : la carte RAG ne doit pas dire « sqlite-vec ne se charge pas » ; `uv run python -m pytest -m model tests/test_rag.py` doit passer, modèle en place ; `uv lock` ne doit rien changer.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
+  summary: « Arrêter » un téléchargement pendant l'établissement de la connexion ne prend effet qu'au bout du délai de connexion (10 s au plus) ; pendant l'attente des données, il agit aussitôt (la réponse est fermée).
+  evidence: Revue indépendante de la story 15 (edge cases). httpx ne permet pas d'interrompre proprement un `connect` depuis un autre fil ; le délai a été ramené de 30 à 10 s. À rouvrir si le test manuel montre une attente gênante sur le réseau du client.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
+  summary: Page de diagnostic, « Choisir » un modèle : quand `/api/diagnostic/stream` rejoue un long journal depuis le début, le repli de la page (« Le modèle choisi est actif. », après 3 s) s'affiche avant le `model_load_ended` et son texte « {modèle} est actif. ».
+  evidence: Vu au parcours E2E complet après la revue de la story 15 (plus d'événements avant le scénario `model_switch`) ; le scénario seul passe. Les deux textes disent que le changement a réussi : le parcours accepte les deux. À corriger dans diagnostic.html (reprendre le flux au `seq` de `/api/state`, ou armer le repli seulement une fois le rejeu fini).
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: Les champs réels de llama-server (`/props`, `with_pieces`, `stop_type`, `tokens_predicted`, `default_generation_settings.n_ctx` par emplacement) et d'Ollama (`raw`, `prompt_eval_count` avec cache, `done_reason`, `/api/ps`) ne sont vérifiés que sur des doublures.
+  evidence: Aucun réseau ni serveur réel pendant la story. Un tour avec `get_datetime` sur chacun des deux serveurs, sur le PC cible, tranche ; noter toute alerte « transparence réduite » et les deux comptes qu'elle cite.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: Le tokenizer `vocab_only` des blobs `qwen35` d'Ollama avec llama-cpp-python 0.3.35 n'est pas vérifié sur un vrai blob.
+  evidence: Un GGUF synthétique étiqueté `qwen35` s'ouvre en `vocab_only` (architecture et tokenizer seuls) ; l'échec connu de ces blobs (story 9) concerne le chargement complet. Sur le PC cible : choisir un modèle Qwen3.5 servi par Ollama ; s'il est refusé, la raison doit renvoyer vers llama-server et le modèle précédent rester actif.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: `keep_alive: 0` et le budget d'un modèle servi ne sont vérifiés qu'avec des doublures.
+  evidence: Sur le PC cible, `ollama ps` doit être vide après un changement de modèle et après la fermeture de WaveStack, pour un modèle que WaveStack a fait charger ; un modèle déjà chargé par un autre programme doit y rester. La taille rapportée par `/api/ps` après le premier appel doit correspondre au coût compté.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: La coupure de la socket à l'annulation (`shutdown` depuis un fil de veille) n'est vérifiée que sous Linux, contre une socket de test.
+  evidence: Sous Windows, face à un vrai Ollama qui charge un modèle, « Arrêter » et la fermeture de WaveStack doivent rendre la main en moins d'une seconde ; sinon, l'arrêt attend le premier token ou le délai de lecture (`[model_servers] read_timeout_s`).

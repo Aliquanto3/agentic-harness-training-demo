@@ -177,5 +177,5 @@ Status: done
 - `uv lock --check --offline` : à jour (91 paquets) ; `uv sync --locked --extra compression` : OK.
 - `ruff check` et `ruff format --check` : aucun écart ; `node --check` : OK.
 - `pytest -q` : 618 réussis, 4 sautés (dont aucun de `tests/test_compression.py`, qui a joué le vrai Headroom), 3 désélectionnés (`model`).
-- E2E complet : 267 vérifications réussies, 0 échec, 0 anomalie connue ; scénario `compression` : 25 vérifications, capture `23-compression-avant-apres.jpg`.
+- E2E complet : 267 vérifications réussies, 0 échec, 0 anomalie connue ; scénario `compression` : 25 vérifications, capture `24-compression-avant-apres.jpg`.
 - Audit de la matrice : chaque ligne a son test dans `tests/test_compression.py`, joué et vert.

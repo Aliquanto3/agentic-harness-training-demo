@@ -232,8 +232,9 @@ scenarios:
       « Comparer » : les extraits RAG sont dans votre message, et la réponse s'appuie sur le
       bon document.
       Dépliez l'étape « Recherche RAG » dans Orchestration (requête, extraits, scores) et
-      regardez le fichier d'index dans le schéma. Si la carte indique « modèle absent »,
-      cliquez sur « Télécharger ».
+      regardez le fichier d'index dans le schéma. Première installation : si la carte
+      propose « Télécharger », cliquez-y, puis sur « Construire l'index » quand elle le
+      propose ; la brique devient disponible sans ligne de commande.
     bricks: [short_memory, system_prompt, tools, mcp, skills, hooks, rag]
     mcp_lazy: true
     hooks: [h1, h2]

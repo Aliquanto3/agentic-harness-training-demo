@@ -25,6 +25,8 @@ node_modules/
 /models/
 data/indexes/
 *.gguf
+# Story 18: the synthetic model of the default test suite (a few KB).
+!tests/fixtures/tiny-llama.gguf
 *.safetensors
 
 # OS / IDE
@@ -32,3 +34,6 @@ data/indexes/
 Thumbs.db
 .vscode/
 .idea/
+
+# Story 15: a RAG index being written (removed on failure)
+data/*.tmp

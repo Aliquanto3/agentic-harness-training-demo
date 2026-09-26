@@ -6,9 +6,12 @@ the other states (`idle`, `turn`, ...); this module is not to be pre-built
 for them.
 
 Startup rule (story 1b): the saved `selected_model` if still usable; else the
-only usable file; with several, block until the user picks one. Once a model is
-handed out for loading, a new choice is a hot switch (story 17, CAP-34): the
-application session loads it, and saves it after a success.
+only usable file; with several, block until the user picks one. A model served by
+an already-running local server (story 18) is taken back when it was the saved
+choice and is still served, but never chosen by default: served models only block
+until the user picks one. Once a model is handed out for loading, a new choice is a
+hot switch (story 17, CAP-34): the application session loads it, and saves it after
+a success.
 """
 
 from __future__ import annotations
@@ -67,6 +70,9 @@ class DiagnosticResult:
     saved: bool = False  # `select_model`: the choice was recorded in settings.json
     message_fr: str | None = None  # `select_model`: the outcome, in French
     cloud_model: CloudModel | None = None  # the cloud model the caller must boot now, if any
+    # Story 18: the served model (`discovery.ModelCandidate`, `source = server`) the caller
+    # must boot now, if any.
+    server: discovery.ModelCandidate | None = None
     # Story 17: `model_path` or `cloud_model` is a hot switch for the application session,
     # which saves the choice after a success (nothing written yet).
     hot: bool = False
@@ -97,6 +103,9 @@ class DiagnosticSession:
         )
         self.selected_cloud: str | None = (
             selected["ref"] if selected.get("kind") == "cloud" else None
+        )
+        self.selected_server: str | None = (  # story 18: `ollama/{name}`, `llama_server/{file}`
+            selected["ref"] if selected.get("kind") == "server" else None
         )
         # Set once a model is handed out for loading: from then on a choice is a hot switch
         # (story 17). What is loaded is the application session's to say.
@@ -337,6 +346,22 @@ class DiagnosticSession:
                 )
                 return self.last_result
             notice_fr = f"Le modèle cloud enregistré n'est plus utilisable : {reason} "
+        if self.selected_server:
+            served = _served(candidates, self.selected_server)
+            if served is not None:  # still served: taken back, never launched (story 18)
+                return self._hand_out_server(
+                    served, candidates, " (choisi lors d'un lancement précédent)"
+                )
+            listed = next((c for c in candidates if c.ref == self.selected_server), None)
+            why = (
+                listed.reason
+                if listed is not None and listed.reason
+                else "serveur arrêté, ou modèle absent."
+            )
+            notice_fr = (
+                f"Le modèle servi enregistré n'est plus disponible : {self.selected_server} "
+                f"({why.rstrip('.')}). "
+            )
         if saved:
             chosen = _usable(candidates, saved)
             if chosen:
@@ -362,14 +387,20 @@ class DiagnosticSession:
             return self.last_result
 
         servers = [c for c in candidates if c.status == "server"]
-        if servers:
+        if servers:  # story 18: never chosen by default, since Ollama would load it
             self._emit_check(
                 "model",
-                "warn" if notice_fr else "ok",
-                f"{notice_fr}Serveur local trouvé : {servers[0].server_url}.",
-                blocking=False,
+                "warn",
+                f"{notice_fr}Aucun fichier GGUF, mais un serveur local sert "
+                f"{len(servers)} modèle{'s' if len(servers) > 1 else ''} : choisissez un "
+                "modèle servi.",
+                "Cliquez sur « Choisir » en face d'un modèle servi (WaveStack ne lance ni "
+                "n'arrête le serveur), ou indiquez le chemin d'un fichier GGUF.",
+                blocking=True,
             )
-            self.last_result = DiagnosticResult(ready=True, candidates=candidates)
+            self.last_result = DiagnosticResult(
+                ready=False, blocking_checks=["model"], candidates=candidates
+            )
             return self.last_result
 
         if candidates:
@@ -408,7 +439,9 @@ class DiagnosticSession:
         # weights, so the application session probes it once the active model is released.
         candidates = self._discover(path, probe_only=set() if hot else {path})
         previous = self.last_result or DiagnosticResult(ready=False, blocking_checks=["model"])
-        known = {c.path: c for c in previous.candidates if c.status == "incompatible"}
+        known = {  # files only: a served model has no path (story 18)
+            c.path: c for c in previous.candidates if c.status == "incompatible" and c.path
+        }
         for candidate in candidates:  # keep earlier probe failures of the unprobed others
             if candidate.path != path and candidate.path in known:
                 candidate.status, candidate.reason = "incompatible", known[candidate.path].reason
@@ -434,12 +467,85 @@ class DiagnosticSession:
             )
             return self.last_result
 
-        self.selected_model_path, self.selected_cloud = chosen.path, None
+        self.selected_model_path, self.selected_cloud, self.selected_server = (
+            chosen.path,
+            None,
+            None,
+        )
         saved = self._save_choice("file", chosen.path)
         result = self._hand_out(chosen, candidates)
         result.saved = saved
         result.message_fr = f"Modèle choisi : {chosen.name}. Chargement en cours." + (
             "" if saved else " Ce choix n'a pas pu être mémorisé pour les prochains lancements."
+        )
+        return result
+
+    def _hand_out_server(
+        self,
+        chosen: discovery.ModelCandidate,
+        candidates: list[discovery.ModelCandidate],
+        why_fr: str = "",
+    ) -> DiagnosticResult:
+        """`chosen`, a served model, is the model to prepare now (story 18)."""
+        self.handed_out = True
+        self._emit_check(
+            "model",
+            "ok",
+            f"Modèle retenu : {chosen.name}, servi par {chosen.provider} "
+            f"({chosen.server_url}){why_fr}.",
+            blocking=False,
+        )
+        self.last_result = DiagnosticResult(ready=True, candidates=candidates, server=chosen)
+        return self.last_result
+
+    def select_server(self, ref: str, *, hot: bool = False) -> DiagnosticResult:
+        """Intention `select_model{kind: server}` (story 18): the model `ref` as the servers
+        list it now, or its reason. Same path as a file: before any model is handed out, saved
+        and prepared now; after (`hot`), a hot switch for the application session."""
+        with self._lock:
+            try:
+                return self._select_server_locked(ref.strip(), hot)
+            except Exception as exc:  # noqa: BLE001 - AD-16: never let the thread die silently
+                return self._handle_unexpected(exc)
+
+    def _select_server_locked(self, ref: str, hot: bool) -> DiagnosticResult:
+        candidates = self._discover(None, probe_only=set())  # read again: is it still served?
+        previous = self.last_result or DiagnosticResult(ready=False, blocking_checks=["model"])
+        known = {  # files only: a served model has no path (story 18)
+            c.path: c for c in previous.candidates if c.status == "incompatible" and c.path
+        }
+        for candidate in candidates:  # keep earlier probe failures of the unprobed files
+            if candidate.path in known and candidate.status == "found":
+                candidate.status, candidate.reason = "incompatible", known[candidate.path].reason
+        chosen = _served(candidates, ref)
+        if chosen is None:
+            listed = next((c for c in candidates if c.ref == ref), None)
+            reason = (listed.reason if listed else None) or (
+                "aucun serveur local ne sert ce modèle (serveur arrêté ?)."
+            )
+            self.last_result = DiagnosticResult(
+                ready=previous.ready,
+                blocking_checks=previous.blocking_checks,
+                candidates=candidates,
+                message_fr=f"Modèle non retenu ({ref}) : {reason}",
+            )
+            return self.last_result
+        if hot:
+            self.last_result = DiagnosticResult(
+                ready=previous.ready,
+                blocking_checks=previous.blocking_checks,
+                candidates=candidates,
+                server=chosen,
+                hot=True,
+            )
+            return self.last_result
+        self.selected_server, self.selected_model_path, self.selected_cloud = ref, None, None
+        saved = self._save_choice("server", ref)
+        result = self._hand_out_server(chosen, candidates)
+        result.saved = saved
+        result.message_fr = (
+            f"Modèle choisi : {chosen.name}, servi par {chosen.provider}. Préparation en cours."
+            + ("" if saved else " Ce choix n'a pas pu être mémorisé pour les prochains lancements.")
         )
         return result
 
@@ -454,6 +560,8 @@ class DiagnosticSession:
         session leaves `diagnostic` with its reason. The same path for the cli and the web."""
         if result.cloud_model is not None:
             app_session.boot_cloud(result.cloud_model)
+        elif result.server is not None:
+            app_session.boot_server(result.server)
         elif result.model_path or (launch and result.ready):
             app_session.boot(result.model_path, _name(result, result.model_path))
 
@@ -463,11 +571,12 @@ class DiagnosticSession:
         started. The probe is this session's single probe code (AD-7)."""
         entry = result.cloud_model
         path = result.model_path or ""
-        choice = (
-            ModelChoice("cloud", entry.id, entry)
-            if entry is not None
-            else ModelChoice("file", path, name=_name(result, path))
-        )
+        if entry is not None:
+            choice = ModelChoice("cloud", entry.id, entry)
+        elif result.server is not None:
+            choice = ModelChoice.served(result.server)
+        else:
+            choice = ModelChoice("file", path, name=_name(result, path))
         message_fr, future = app_session.switch_model(choice, probe=self.probe_path)
         if future is not None:
             future.add_done_callback(lambda f: self._switched(choice, f))
@@ -481,11 +590,12 @@ class DiagnosticSession:
             status = future.result()
         except Exception:  # noqa: BLE001 - the session traced it (AD-16)
             status = "error"
-        label = (
-            f"{choice.entry.model} chez {choice.entry.provider}"
-            if choice.entry is not None
-            else choice.file_name
-        )
+        if choice.entry is not None:
+            label = f"{choice.entry.model} chez {choice.entry.provider}"
+        elif choice.kind == "server":
+            label = f"{choice.label}, servi par {choice.provider}"
+        else:
+            label = choice.file_name
         if status == "error":
             with self._lock:
                 if self.last_result is not None:
@@ -506,10 +616,10 @@ class DiagnosticSession:
             "ref": choice.ref,
         }
         with self._lock:
-            if saved and choice.kind == "cloud":
-                self.selected_cloud, self.selected_model_path = choice.ref, None
-            elif saved:
-                self.selected_model_path, self.selected_cloud = choice.ref, None
+            if saved:
+                self.selected_model_path = choice.ref if choice.kind == "file" else None
+                self.selected_cloud = choice.ref if choice.kind == "cloud" else None
+                self.selected_server = choice.ref if choice.kind == "server" else None
             if self.last_result is not None:
                 self.last_result.ready, self.last_result.blocking_checks = True, []
         self._emit_check(
@@ -643,7 +753,11 @@ class DiagnosticSession:
                     hot=True,
                 )
                 return self.last_result
-            self.selected_cloud, self.selected_model_path = entry.id, None
+            self.selected_cloud, self.selected_model_path, self.selected_server = (
+                entry.id,
+                None,
+                None,
+            )
             saved = self._save_choice("cloud", entry.id)
             label = f"{entry.model} chez {entry.provider}"
             self.handed_out = True
@@ -837,6 +951,13 @@ def launch_page(result: DiagnosticResult) -> str:
 def _name(result: DiagnosticResult, path: str | None) -> str | None:
     """The readable name discovery gave `path` (an Ollama `model:tag`), if listed."""
     return next((c.name for c in result.candidates if path and c.path == path), None)
+
+
+def _served(
+    candidates: list[discovery.ModelCandidate], ref: str
+) -> discovery.ModelCandidate | None:
+    """The served model `ref`, if a server serves it now and WaveStack can use it."""
+    return next((c for c in candidates if c.ref == ref and c.status == "server"), None)
 
 
 def _usable(
