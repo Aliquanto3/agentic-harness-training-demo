@@ -146,6 +146,15 @@ class TurnEndedPayload(BaseModel):
     duration_ms: int | None = None
 
 
+class CompressedFromPayload(BaseModel):
+    """Story 20: the tokens before; the text before is in the step `step_id`, rank `item`."""
+
+    tokens_before: int
+    estimated: bool = False
+    step_id: str
+    item: int
+
+
 class SegmentPayload(BaseModel):
     id: str
     kind: str
@@ -155,6 +164,8 @@ class SegmentPayload(BaseModel):
     text: str
     tokens: int
     estimated: bool = False  # chat mode: an estimate, shown with « ≈ » (AD-4)
+    # Story 20 (AD-22): a compressed tool result or RAG excerpt, with what it was before.
+    compressed_from: CompressedFromPayload | None = None
 
 
 class BreakdownItem(BaseModel):
@@ -184,6 +195,8 @@ class ContextWindowPayload(BaseModel):
     body: str | None = None
     usage_source: Literal["engine", "api", "estimate"] = "engine"
     uncertain_fr: str | None = None
+    # Story 20: the total if the compressed segments were not, computed by the session.
+    uncompressed_used: int | None = None
 
 
 class ContextReconciledPayload(ContextWindowPayload):
@@ -543,6 +556,15 @@ class MemoryChangedPayload(BaseModel):
 # ---------- story 17: hot model switch (AD-2, AD-3, AD-8) ----------
 
 
+class ServerCacheUsedPayload(BaseModel):
+    """Story 18, information: Ollama read fewer prompt tokens than the harness counted, the
+    start of the prompt coming from its cache (not a « transparence réduite »)."""
+
+    prompt_tokens: int
+    evaluated_tokens: int
+    message_fr: str
+
+
 class ModelLoadStartedPayload(BaseModel):
     """A model load starts, out of any turn: at launch or on a switch. Its `ts` anchors the
     « Chargement du modèle… » stopwatch."""
@@ -650,11 +672,51 @@ class RagRerankEndedPayload(BaseModel):
     duration_ms: int
 
 
+# ---------- story 20: context compression (AD-4, AD-22) ----------
+
+
+class CompressionItem(BaseModel):
+    """One candidate of a compression step: a tool result or a RAG excerpt."""
+
+    source_fr: str  # « Résultat de l'outil « read_file » », « Extrait RAG n° 2 »
+    kind: Literal["tool_result", "rag_excerpt"]
+    brick: str | None = None
+    component: str | None = None
+    tokens_before: int
+    tokens_after: int
+    text_before: str
+    text_after: str | None = None  # only when `changed`: else the text before goes on
+    changed: bool  # false: the compressor left it as it was (or did not shorten it)
+    transforms: list[str] = []
+    error_fr: str | None = None
+
+
+class CompressionStartedPayload(BaseModel):
+    phase_label: str
+    title_fr: str  # the step's title, « Compression (Headroom) » (content/compression.yaml)
+    items: int  # candidates given to the compressor
+    compressor_fr: str
+
+
+class CompressionEndedPayload(BaseModel):
+    status: Literal["ok", "error"]
+    compressor_fr: str
+    items: list[CompressionItem]
+    tokens_before: int
+    tokens_after: int
+    saved_tokens: int
+    estimated: bool = False  # chat mode: tokens estimated (AD-4)
+    unchanged_fr: str  # why a candidate may come back as it was (content/compression.yaml)
+    error_fr: str | None = None
+    duration_ms: int
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
     "outbound_request": OutboundRequestPayload,
     "harness_error": HarnessErrorPayload,
+    "server_cache_used": ServerCacheUsedPayload,
     "session_state": SessionStatePayload,
     "architecture_changed": ArchitectureChangedPayload,
     "turn_started": TurnStartedPayload,
@@ -695,4 +757,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "rag_search_ended": RagSearchEndedPayload,
     "rag_rerank_started": RagRerankStartedPayload,
     "rag_rerank_ended": RagRerankEndedPayload,
+    "compression_started": CompressionStartedPayload,
+    "compression_ended": CompressionEndedPayload,
 }

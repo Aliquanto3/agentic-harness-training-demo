@@ -392,6 +392,19 @@ function applyEnvelope(envelope) {
       if (rerank) rerank.ended = p;
       break;
     }
+    case "compression_started":
+      // Story 20: the harness compresses tool results and RAG excerpts before a call.
+      if (turn) {
+        Object.assign(turn, { phaseLabel: p.phase_label, callStartedAt: Date.parse(envelope.ts), firstToken: false });
+        // `stepId`: a compressed segment finds its text before here (`compressed_from.step_id`).
+        turn.steps.push({ type: "compression", stepId: envelope.step_id, started: p, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null });
+      }
+      break;
+    case "compression_ended": {
+      const step = turn?.steps.filter((s) => s.type === "compression").at(-1);
+      if (step) step.ended = p;
+      break;
+    }
     case "tool_ended": {
       const tool = turn?.steps.filter((s) => s.type === "tool").at(-1);
       if (tool) tool.ended = p;
@@ -2365,7 +2378,17 @@ function renderContextBody(pane) {
     )
   );
   if (p.uncertain_fr) pane.appendChild(el("p", "bubble-note", p.uncertain_fr));
-  appendSegments(pane, p);
+  if (p.uncompressed_used != null) {
+    // Story 20: the session's total without compression, next to the one sent (FR-31).
+    pane.appendChild(
+      el(
+        "p",
+        "ctx-compressed-total",
+        `🗜️ Sans compression : ≈ ${fmt(p.uncompressed_used)} tokens ; envoyés : ${approxTotal(p)}${fmt(p.used)}.`
+      )
+    );
+  }
+  appendSegments(pane, p, turn);
   for (const error of turn.errors) pane.appendChild(el("p", "bubble-note is-error", error));
   // FR-9: the reasoning of the last call, always here, whatever the Vue humain option says:
   // its `model_call_ended` once there, the live deltas while it streams.
@@ -2382,7 +2405,13 @@ function renderContextBody(pane) {
   );
 }
 
-function appendSegments(pane, p) {
+// Story 20: the text a compressed segment had before, kept once by its compression step.
+function textBefore(turn, was) {
+  const step = turn?.steps.find((s) => s.type === "compression" && s.stepId === was.step_id);
+  return step?.ended?.items[was.item]?.text_before ?? null;
+}
+
+function appendSegments(pane, p, turn = null) {
   for (const segment of p.segments) {
     const group = p.breakdown.find((item) => item.kinds.includes(segment.kind));
     const box = el("div", "ctx-segment");
@@ -2397,6 +2426,19 @@ function appendSegments(pane, p) {
         `${approx(segment.estimated)}${fmt(segment.tokens)} ${segment.tokens > 1 ? "tokens" : "token"}`
     );
     box.append(label, el("pre", "", segment.text));
+    if (segment.compressed_from) {
+      // Story 20: a compressed segment, and what it was before (AD-22).
+      const was = segment.compressed_from;
+      const tokens = `${approx(was.estimated)}${fmt(was.tokens_before)} tokens`;
+      box.classList.add("ctx-compressed");
+      label.append(el("span", "ctx-compressed-badge", `🗜️ compressé, ${tokens} avant`));
+      const text = textBefore(turn, was);
+      if (text !== null) {
+        const before = el("details");
+        before.append(el("summary", "", `Texte avant compression (${tokens})`), el("pre", "", text));
+        box.appendChild(before);
+      }
+    }
     pane.appendChild(box);
   }
 }
@@ -2873,6 +2915,71 @@ function rerankBody(step) {
   return nodes;
 }
 
+// Story 20: « 1 240 → 310 tokens (−75 %) », the session's own sums (AD-1).
+function compressionFigure(p) {
+  const percent = p.tokens_before ? Math.round((100 * p.saved_tokens) / p.tokens_before) : 0;
+  const mark = approx(p.estimated);
+  return `${mark}${fmt(p.tokens_before)} → ${mark}${fmt(p.tokens_after)} tokens (−${percent} %)`;
+}
+
+function compressionBody(step) {
+  // What each candidate was and became, with the tokens of both versions (FR-31); a click on
+  // a candidate selects the compressor in the schema (CAP-4).
+  const ended = step.ended;
+  if (!ended) {
+    const running = el("div", "token-counter number", `${step.started.phase_label} `);
+    running.appendChild(tick(step.startedAt));
+    return [running];
+  }
+  const many = ended.items.length > 1;
+  const lines = [
+    el(
+      "p",
+      "",
+      `Décision du harnais (code) : avant l'appel au modèle, ${plural(ended.items.length, "texte")} ` +
+        `passé${many ? "s" : ""} à ${ended.compressor_fr}. Un texte déjà lu par le modèle n'est jamais réécrit.`
+    ),
+    el("div", "token-counter number", `Contexte réduit : ${compressionFigure(ended)} · ${seconds(ended.duration_ms)}`),
+  ];
+  const list = el("ol", "compression-items"); // each error once, under its own text
+  for (const item of ended.items) {
+    const entry = el("li", "compression-item");
+    const head = el("button", "compression-item-head");
+    head.type = "button";
+    head.title = "Sélectionne le compresseur dans le schéma";
+    const mark = approx(ended.estimated);
+    head.append(
+      el("span", "compression-source", item.source_fr),
+      el(
+        "span",
+        "compression-tokens number",
+        item.changed
+          ? `${mark}${fmt(item.tokens_before)} → ${mark}${fmt(item.tokens_after)} tokens`
+          : `${mark}${fmt(item.tokens_before)} tokens · inchangé`
+      )
+    );
+    head.addEventListener("click", () => {
+      store.selection = step.component || "compression.compressor";
+      scheduleRender();
+    });
+    entry.appendChild(head);
+    if (item.error_fr) entry.appendChild(el("p", "bubble-note is-error", item.error_fr));
+    else if (!item.changed) entry.appendChild(el("p", "label", ended.unchanged_fr));
+    const before = el("details");
+    before.append(el("summary", "", `Avant (${mark}${fmt(item.tokens_before)} tokens)`), el("pre", "step-code", item.text_before));
+    entry.appendChild(before);
+    if (item.changed) {
+      const after = el("details");
+      after.append(el("summary", "", `Après (${mark}${fmt(item.tokens_after)} tokens)`), el("pre", "step-code", item.text_after));
+      entry.appendChild(after);
+    }
+    list.appendChild(entry);
+  }
+  lines.push(list);
+  const tone = ended.status === "error" ? "error" : "info";
+  return [harnessEvent(`Compression du contexte (${ended.compressor_fr})`, tone, lines)];
+}
+
 const HOOK_DECISIONS = {
   allow: "laissé passer",
   modify: "modifié",
@@ -3201,6 +3308,22 @@ function turnRows(turn) {
         sticky: failed,
         sig: [Boolean(ended), ended?.status],
         body: () => rerankBody(step),
+      });
+    } else if (step.type === "compression") {
+      const ended = step.ended;
+      const failed = ended?.status === "error";
+      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+      if (ended) figure = compressionFigure(ended);
+      rows.push({
+        key,
+        icon: "🗜️",
+        title: step.started.title_fr,
+        actor: "harness",
+        figure,
+        tone: failed ? "error" : null,
+        sticky: failed,
+        sig: [Boolean(ended), ended?.status],
+        body: () => compressionBody(step),
       });
     } else if (step.type === "action_dropped") {
       const label = step.label || "action forcée";
@@ -4078,6 +4201,7 @@ const KIND_LABELS = {
   tool_call_malformed: "Appel d'outil mal formé",
   limit_reached: "Borne du tour atteinte",
   prefix_not_reused: "Préfixe non réutilisé",
+  server_cache_used: "Cache du serveur local",
   mcp_connect_started: "Connexion MCP commencée",
   mcp_connect_ended: "Connexion MCP terminée",
   hook_decided: "Décision d'un hook",
@@ -4095,6 +4219,8 @@ const KIND_LABELS = {
   rag_search_ended: "Recherche RAG terminée",
   rag_rerank_started: "Reranking commencé",
   rag_rerank_ended: "Reranking terminé",
+  compression_started: "Compression commencée",
+  compression_ended: "Compression terminée",
 };
 const MODEL_LOAD_STATUS = { ok: "chargé", restored: "retour au modèle précédent", error: "échec" };
 const MEMORY_OPS = { add: "Ajout en mémoire", replace: "Modification en mémoire", delete: "Suppression en mémoire" };
@@ -4183,6 +4309,10 @@ function eventSummary(group) {
         ? `${p.keep} gardés sur ${p.excerpts.length} · ${seconds(p.duration_ms)}` +
             (p.excerpts.length ? ` · premier : ${p.excerpts[0].title_fr} (avant : #${p.excerpts[0].before})` : "")
         : p.error_fr;
+    case "compression_started":
+      return `${plural(p.items, "texte")} · ${p.compressor_fr}`;
+    case "compression_ended":
+      return p.status === "ok" ? compressionFigure(p) : p.error_fr;
     case "rag_search_ended":
       return p.status === "ok"
         ? `${plural(p.excerpts.length, "extrait")} · ${seconds(p.duration_ms)}` +
@@ -4333,6 +4463,7 @@ const BRICK_ICONS = {
   hooks: "🪝",
   subagent: "👥",
   rag: "📚",
+  compression: "🗜️",
 };
 // A component with its own icon in the harness frame (story 16: the reranker).
 const COMPONENT_ICONS = { "rag.reranker": "↕️" };
@@ -4455,7 +4586,7 @@ function schemaActivity(nodes) {
   if (!turn || turn.status !== null) return null;
   const steps = allSteps(turn); // a sub-agent's tools and hooks light up too (story 19)
   let i = steps.length - 1;
-  while (i >= 0 && !["tool", "hook", "rag", "rerank"].includes(steps[i].type)) i--;
+  while (i >= 0 && !["tool", "hook", "rag", "rerank", "compression"].includes(steps[i].type)) i--;
   if (i < 0) return null;
   const step = steps[i];
   const drawn = (id) => nodes.some((n) => n.id === id); // only enabled hooks can act
@@ -4469,6 +4600,12 @@ function schemaActivity(nodes) {
     // Story 16: the reranker scores in the harness itself: no path.
     const id = step.component || "rag.reranker";
     return step.ended || !drawn(id) ? null : { component: id, mode: "on", target: null };
+  }
+  if (step.type === "compression") {
+    // Story 20: the compressor works inside the harness, no path.
+    const id = step.component || "compression.compressor";
+    if (step.ended || !drawn(id)) return null;
+    return { component: id, mode: "on", target: null };
   }
   if (step.type === "tool") {
     // A harness tool (documentation, skills, delegation) runs in the harness itself: no path.

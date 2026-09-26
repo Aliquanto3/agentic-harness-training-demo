@@ -25,6 +25,10 @@ from wavestack.net.guard import install as _install_guard
 _cfg = _config.load_config()
 _install_guard(_cfg.allowed_hosts)
 
+from wavestack.compression.env import apply_offline_env as _headroom_offline  # noqa: E402
+
+_headroom_offline()  # story 20: Headroom's offline variables, before any third-party import
+
 os.environ["HF_HUB_DISABLE_XET"] = "1"
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 # HF_HUB_OFFLINE is never set: it is read at import time and would block a

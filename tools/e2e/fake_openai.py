@@ -172,6 +172,8 @@ def _plan(user: str, offered: list[str]) -> list[tuple[str, dict[str, Any]]]:
         if "page web" in low:  # the sub-agent fetches a page (H5 asks inside it)
             task = "Lis la page web https://fr.wikipedia.org/wiki/Paris et résume-la."
         return [("delegate", {"task": task + (" [lent]" if "[lent]" in low else "")})]
+    if "journal_serveur" in low:  # story 20: a big log, for the compression
+        return [("read_file", {"path": "journal_serveur.log"})]
     if "guide_harnais" in low:  # the sub-agent's task (or a main agent reading it itself)
         return [("read_file", {"path": "guide_harnais.md"})]
     if "confidentiel" in low:
@@ -215,6 +217,16 @@ def _final_text(user: str, messages: list[dict[str, Any]], results: list[str]) -
     everything = all_text(messages)
     if "homme des cavernes" in everything and "harnais" in low:
         return _SHORT_HARNESS  # the Caveman skill's instructions are in the context
+    asked = re.search(r"\blot (\d+)\b", user)
+    if asked and results:  # story 20: a line of the log, there or cut by the compression
+        wanted = f"lot {asked.group(1)} "
+        hit = next((line for line in results[-1].splitlines() if wanted in line + " "), None)
+        if hit:
+            return f"D'après le journal : {hit.strip()}"
+        return f"Le résultat de l'outil ne mentionne pas le lot {asked.group(1)}."
+    errors = [line for line in (results[-1] if results else "").splitlines() if " ERROR " in line]
+    if errors:  # story 20: the log's error, kept by the compression
+        return f"D'après le journal : {errors[0].strip()}"
     if results:
         last = " ".join(results[-1].split())
         excerpt = last if len(last) <= 240 else last[:240] + "…"

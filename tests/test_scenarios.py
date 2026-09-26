@@ -32,12 +32,13 @@ def test_real_content_loads_and_every_scenario_launches():
     program = _latest("scenario_changed")["program"]
     ids = [s["id"] for m in program["modules"] for s in m["scenarios"]]
     ids += [s["id"] for s in program["transverse"]]
-    assert len(ids) == 16 and ids[0] == "bare_llm" and ids[-1] == "data_flows"
-    assert program["modules"][-4]["scenarios"][0]["id"] == "reasoning"  # story 13
-    assert program["modules"][-3]["scenarios"][0]["id"] == "global_memory"  # story 14
-    assert program["modules"][-2]["scenarios"][0]["id"] == "subagent"  # story 19
-    assert program["modules"][-1]["scenarios"][0]["id"] == "rag"  # story 15
-    assert program["modules"][-1]["scenarios"][1]["id"] == "rag_rerank"  # story 16
+    assert len(ids) == 17 and ids[0] == "bare_llm" and ids[-1] == "data_flows"
+    assert program["modules"][-5]["scenarios"][0]["id"] == "reasoning"  # story 13
+    assert program["modules"][-4]["scenarios"][0]["id"] == "global_memory"  # story 14
+    assert program["modules"][-3]["scenarios"][0]["id"] == "subagent"  # story 19
+    assert program["modules"][-2]["scenarios"][0]["id"] == "rag"  # story 15
+    assert program["modules"][-2]["scenarios"][1]["id"] == "rag_rerank"  # story 16
+    assert program["modules"][-1]["scenarios"][0]["id"] == "compression"  # story 20
     assert all(30 <= m["duration_min"] <= 60 for m in program["modules"])
 
     for scenario_id in ids:
@@ -222,7 +223,7 @@ _UNKNOWN_BRICK = (
     "  rag:\n"
     "    title_fr: RAG\n"
     "    description_fr: Pas encore construit.\n"
-    "    bricks: [compression]\n"
+    "    bricks: [reranking]\n"
     "    prompts: [Bonjour]\n"
 )
 _MISSING_ENTRY = (
@@ -239,7 +240,7 @@ _MISSING_ENTRY = (
 
 
 @pytest.mark.parametrize(
-    ("text", "cause"), [(_UNKNOWN_BRICK, "compression"), (_MISSING_ENTRY, "missing")]
+    ("text", "cause"), [(_UNKNOWN_BRICK, "reranking"), (_MISSING_ENTRY, "missing")]
 )
 def test_invalid_content_gives_an_error_and_an_empty_programme(tmp_path, monkeypatch, text, cause):
     (tmp_path / "scenarios.yaml").write_text(text, encoding="utf-8")

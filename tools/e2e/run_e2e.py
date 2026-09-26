@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import threading
@@ -37,6 +38,7 @@ from stack import (  # noqa: E402
 from wavestack.rag import index as rag_index  # noqa: E402
 
 SHOTS = Path(__file__).resolve().parent / "screenshots"
+REPO = Path(__file__).resolve().parents[2]
 CHROMIUM = "/opt/pw-browsers/chromium"  # fallback when the bundled revision is missing
 TURN_TIMEOUT_S = 60.0
 
@@ -1560,7 +1562,7 @@ def s_rag_rerank(r: Run) -> None:
         "un clic sur un extrait sélectionne la puce du reranker, qui nomme son modèle",
         chip.get_attribute("title") or "",
     )
-    r.shot("24-reranking-avant-apres")
+    r.shot("25-reranking-avant-apres")
 
     # AD-1: after a reload, the reranking step is rebuilt from the journal.
     r.page.reload()
@@ -1585,6 +1587,184 @@ def s_rag_rerank(r: Run) -> None:
         not r.ev.since(seq, "rag_rerank_started")
         and r.ev.since(seq, "rag_search_started")[0]["payload"]["top_k"] == 3,
         "rejeu sans reranking : 3 extraits, aucune étape « Reranking »",
+    )
+
+
+COMPRESSION_QUESTION = (
+    "Lis le fichier journal_serveur.log et dis-moi quelle erreur grave la sauvegarde de cette "
+    "nuit a rencontrée."
+)
+
+
+COMPRESSION_SECOND = "Dans le journal_serveur.log, à quelle heure le lot 12 a-t-il été copié ?"
+
+
+def _compression_step(r: Run):
+    """The last « Compression (…) » step of Orchestration."""
+    name = r.page.locator(".turn-step-name", has_text="Compression (")
+    return r.page.locator("#orch-scroll .turn-step", has=name).last
+
+
+def s_compression(r: Run) -> None:
+    """Story 20: a turn without then with the compression (Headroom, the real library), the
+    step with the tokens before and after, the compressed segment and the total without
+    compression in Contexte LLM, the compressor in the schema, « Comparer », a reload."""
+    log = (REPO / "content" / "demo_files" / "journal_serveur.log").read_text(encoding="utf-8")
+    error_line = next(line for line in log.splitlines() if " ERROR " in line)
+    r.launch("compression")
+    brick = r.bricks()["compression"]
+    reason = brick.get("reason_fr") or ""
+    if not brick["available"] and "uv sync --extra compression" in reason:
+        # headroom-ai absent (the `compression` extra, or `--no-headroom`): a clean skip.
+        text = r.card("Compression").inner_text()
+        r.check(
+            "uv sync --extra compression" in text,
+            "headroom-ai absent : la carte donne la commande d'installation, scénario sauté",
+            reason[:160],
+        )
+        seq = r.ev.mark()
+        ended = r.send(COMPRESSION_QUESTION)
+        r.check(
+            ended["payload"]["status"] == "completed"
+            and not r.ev.since(seq, "compression_started"),
+            "headroom-ai absent : le tour aboutit, sans étape de compression",
+        )
+        print("  SKIP compression : headroom-ai n'est pas installé (uv sync --extra compression)")
+        return
+    seq = r.ev.mark()
+    ready = r.bricks()["compression"]["available"] or r.ev.wait(
+        "bricks_changed",
+        seq,
+        lambda p: next(b for b in p["bricks"] if b["id"] == "compression")["available"],
+        30,
+    )
+    r.check(bool(ready), "brique Compression disponible (Headroom chargé)")
+    card = r.card("Compression")
+    r.check(
+        "300 caractères" in card.inner_text(),
+        "carte Compression : ce qui est compressé et le seuil",
+        card.inner_text()[:200],
+    )
+    chip = r.page.locator('#schema .arch-chip[data-component="compression.compressor"]')
+    r.check(
+        "🗜️" in chip.inner_text() and "Headroom 0.38.0" in (chip.get_attribute("title") or ""),
+        "schéma : la puce 🗜️ du compresseur, dans le processus du harnais",
+        chip.get_attribute("title") or "",
+    )
+
+    # Compression off: the whole log goes to the model.
+    r.set_brick("Compression", False)
+    seq = r.ev.mark()
+    ended = r.send(COMPRESSION_QUESTION)
+    r.check(ended["payload"]["status"] == "completed", "tour sans compression terminé")
+    r.check(not r.ev.since(seq, "compression_started"), "sans compression : aucune étape")
+    body = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
+    r.check("lot 12 copié" in body, "sans compression : le journal entier part au modèle")
+
+    # On again, the prompt replayed: the log is compressed before the second call.
+    seq = r.ev.mark()
+    r.set_brick("Compression", True)
+    r.ev.wait(
+        "bricks_changed",
+        seq,
+        lambda p: next(b for b in p["bricks"] if b["id"] == "compression")["available"],
+        30,
+    )
+    seq = r.ev.mark()
+    ended = r.replay()
+    r.check(ended["payload"]["status"] == "completed", "rejeu avec compression terminé")
+    done = r.ev.since(seq, "compression_ended")
+    tool_items = [i for e in done for i in e["payload"]["items"] if i["kind"] == "tool_result"]
+    r.check(
+        len(tool_items) == 1
+        and tool_items[0]["changed"]
+        and error_line in tool_items[0]["text_after"],
+        "le résultat de read_file est compressé, l'erreur gardée",
+        str([(i["source_fr"], i["tokens_before"], i["tokens_after"]) for i in tool_items]),
+    )
+    rag_items = [i for e in done for i in e["payload"]["items"] if i["kind"] == "rag_excerpt"]
+    r.check(
+        all(not i["changed"] for i in rag_items),
+        "extraits RAG candidats, prose inchangée",
+        f"{len(rag_items)} extraits",
+    )
+    tool = next(m for m in r.fake_calls()[-1]["messages"] if m.get("role") == "tool")
+    content = tool["content"] if isinstance(tool["content"], str) else json.dumps(tool["content"])
+    r.check(
+        "lot 12 copié" not in content and error_line in content,
+        "le fournisseur reçoit la version courte (corps JSON)",
+    )
+    r.check(error_line in r.last_answer(), "la réponse cite l'erreur gardée", r.last_answer())
+
+    # Orchestration: the step, its figure, its unfolded body.
+    step = _compression_step(r)
+    figure = step.locator(".turn-step-figure").inner_text()
+    r.check(
+        re.search(r"→ .*tokens \(−\d+ %\)", figure) is not None
+        and "⚙ harnais" in step.locator(".turn-step-actor").inner_text(),
+        "Orchestration : « 🗜️ Compression (Headroom) », acteur harnais, avant → après",
+        figure,
+    )
+    step.locator(".turn-step-line").click()
+    items = step.locator(".compression-items li")
+    expect(items.first).to_be_visible(timeout=5000)
+    text = step.inner_text()
+    r.check(
+        "Résultat de l'outil « read_file »" in text and "Décision du harnais" in text,
+        "l'étape dépliée nomme la source et la décision du harnais",
+    )
+    step.locator(".compression-item-head").first.click()
+    expect(chip).to_have_class(re.compile("is-selected"), timeout=5000)
+    r.check(True, "un clic sur un texte compressé sélectionne le compresseur dans le schéma")
+
+    # Contexte LLM: the compressed segment, its text before, the total without compression.
+    ctx = r.page.locator("#ctx")
+    total = ctx.locator(".ctx-compressed-total").inner_text()
+    r.check("Sans compression" in total, "Contexte LLM : total sans compression affiché", total)
+    badge = ctx.locator(".ctx-compressed-badge")
+    r.check(
+        badge.count() == 1, "Contexte LLM : un segment marqué « compressé »", str(badge.count())
+    )
+    r.check(
+        ctx.get_by_text("Texte avant compression").count() == 1,
+        "Contexte LLM : le texte d'avant compression se déplie",
+    )
+    r.shot("24-compression-avant-apres")
+
+    # « Comparer » the replay with the turn without compression.
+    r.page.locator("#chat .replay-badge").last.click()
+    compare = r.page.locator("#ctx")
+    r.check(
+        "Comparaison de tours" in compare.inner_text() and "tokens (−" in compare.inner_text(),
+        "« Comparer » : le contexte compressé pèse moins que l'original",
+    )
+    compare.get_by_role("button", name="Fermer").click()
+
+    # AD-1: after a reload, the step is rebuilt from the journal.
+    r.page.reload()
+    r.wait_idle()
+    step = _compression_step(r)
+    expect(step).to_be_visible(timeout=10_000)
+    r.check(True, "après rechargement, l'étape « Compression » est toujours là")
+
+    # The second prompt: what Headroom cut is lost for the model (lot 12 is left out).
+    seq = r.ev.mark()
+    ended = r.send(COMPRESSION_SECOND)
+    done = r.ev.since(seq, "compression_ended")
+    r.check(
+        ended["payload"]["status"] == "completed" and len(done) >= 1,
+        "second prompt : le journal relu est compressé de nouveau",
+    )
+    answer = r.last_answer()
+    r.check(
+        "ne mentionne pas le lot 12" in answer,
+        "second prompt : la ligne du lot 12, coupée par Headroom, manque au modèle",
+        answer,
+    )
+    kept = [i["text_after"] for e in done for i in e["payload"]["items"] if i["changed"]]
+    r.check(
+        bool(kept) and all("lot 12 " not in text for text in kept) and "lot 12 copié" in log,
+        "second prompt : le lot 12 est dans le fichier, pas dans la version compressée",
     )
 
 
@@ -1863,8 +2043,9 @@ LLAMA_OPTION = f"Local · llama-server · {LLAMA_FILE}"
 
 def s_local_server(r: Run) -> None:
     """Story 18: models of already-running local servers. Detection at the diagnostic, choice
-    in the picker, the schema (a local process apart from the harness), a whole turn with a
-    tool, a reload; then back to the cloud fake model."""
+    by its « Choisir », the schema (a local process apart from the harness), a whole turn with
+    a tool, a reload; back to the cloud fake model, then the served model again from the
+    picker, and back."""
     page = r.page
     address = r.stack.llama_url.removeprefix("http://")
     page.goto(f"{r.stack.app_url}/diagnostic")
@@ -1890,29 +2071,38 @@ def s_local_server(r: Run) -> None:
     )
     r.check("palier 2" not in page.inner_text("body"), "diagnostic : plus de « palier 2 »")
 
+    # « Choisir » at the diagnostic: a hot switch from the cloud fake model.
+    # The page replays the whole journal first, and each replayed model check re-renders the
+    # list: a click on a button replaced meanwhile is lost. Clicked again until it starts.
+    seq = r.ev.mark()
+    for _ in range(5):
+        llama_row.get_by_role("button", name="Choisir").click()
+        started, _ = r.poll(lambda: bool(r.ev.since(seq, "model_load_started")), 3)
+        if started:
+            break
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)
+    r.check(ended["payload"]["status"] == "ok", "diagnostic : « Choisir » prépare le modèle servi")
+    expect(page.locator("#select-model-status")).to_have_text(
+        "faux-llama-server est actif.", timeout=10_000
+    )
+    expect(llama_row).to_contain_text("chargé", timeout=10_000)
+    r.check(
+        llama_row.get_by_role("button", name="Choisir").count() == 0,
+        "diagnostic : issue affichée, ligne marquée « chargé », sans « Choisir »",
+    )
+
     page.goto(f"{r.stack.app_url}/")
     r.launch("native_tools")
     options = _picker_options(r)
     r.check(
-        options.get(LLAMA_OPTION) is False,
-        "sélecteur : le modèle servi est choisissable",
+        options.get(f"{LLAMA_OPTION} (actif)") is True,
+        "sélecteur : le modèle servi actif est marqué et grisé",
         str([o for o in options if "Local" in o]),
     )
     r.check(
         options.get("Local · Ollama · faux-ollama:latest (incompatible)") is True,
         "sélecteur : le modèle Ollama incompatible est grisé",
     )
-    seq = r.ev.mark()
-    page.select_option("#model-picker", label=LLAMA_OPTION)
-    page.click("#model-picker-apply")
-    started = r.ev.wait("model_load_started", seq, timeout=10)
-    r.check(
-        started["payload"]["phase_label"] == "Préparation du modèle servi par llama-server…",
-        "chargement : « Préparation du modèle servi par llama-server… »",
-        started["payload"]["phase_label"],
-    )
-    ended = r.ev.wait("model_load_ended", seq, timeout=30)
-    r.check(ended["payload"]["status"] == "ok", "modèle servi prêt", str(ended["payload"]))
     indicator = page.locator("#model-indicator")
     expect(indicator).to_contain_text("Local · llama-server", timeout=10_000)
     title = indicator.get_attribute("title") or ""
@@ -1977,6 +2167,32 @@ def s_local_server(r: Run) -> None:
     page.click("#cloud-warning-confirm")
     ended = r.ev.wait("model_load_ended", seq, timeout=30)
     r.check(ended["payload"]["status"] == "ok", "retour au modèle cloud depuis le modèle servi")
+    expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=10_000)
+    r.wait_idle()
+
+    # The served model from the top bar's picker, then back again. The warning's dialog gave
+    # the focus back to the picker, which is rebuilt only once it loses it (story 17).
+    page.locator("#model-picker").blur()
+    ok, _ = r.poll(lambda: _picker_options(r).get(LLAMA_OPTION) is False, 10)
+    r.check(ok, "sélecteur : le modèle servi est choisissable", str(_picker_options(r)))
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label=LLAMA_OPTION)
+    page.click("#model-picker-apply")
+    started = r.ev.wait("model_load_started", seq, timeout=10)
+    r.check(
+        started["payload"]["phase_label"] == "Préparation du modèle servi par llama-server…",
+        "sélecteur : « Préparation du modèle servi par llama-server… »",
+        started["payload"]["phase_label"],
+    )
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)
+    r.check(ended["payload"]["status"] == "ok", "sélecteur : modèle servi prêt")
+    expect(page.locator("#model-indicator")).to_contain_text("Local · llama-server", timeout=10_000)
+    r.wait_idle()
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label="RÉSEAU · Faux fournisseur (e2e) · wavestack-fake")
+    page.click("#model-picker-apply")
+    page.click("#cloud-warning-confirm")
+    r.ev.wait("model_load_ended", seq, timeout=30)
     expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=10_000)
     r.wait_idle()
 
@@ -2057,6 +2273,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("global_memory", s_global_memory),
     ("rag", s_rag),
     ("rag_rerank", s_rag_rerank),
+    ("compression", s_compression),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
     ("stream_resync", s_stream_resync),
@@ -2071,7 +2288,14 @@ def main() -> int:
     parser.add_argument("--only", nargs="*", help="scénarios à jouer (diagnostic toujours)")
     parser.add_argument("--keep", action="store_true", help="garder le dossier de données")
     parser.add_argument("--headed", action="store_true")
+    parser.add_argument(
+        "--no-headroom",
+        action="store_true",
+        help="WaveStack comme sans l'extra compression (le scénario compression est sauté)",
+    )
     args = parser.parse_args()
+    if args.no_headroom:  # read by `wavestack_e2e.py` through the stack's environment
+        os.environ["WAVESTACK_E2E_NO_HEADROOM"] = "1"
     chosen = [s for s in SCENARIOS if not args.only or s[0] in args.only or s[0] == "diagnostic"]
 
     console: list[str] = []

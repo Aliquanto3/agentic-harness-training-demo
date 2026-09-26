@@ -2997,6 +2997,57 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   color: var(--color-ink-soft);
 }
 
+/* Story 20: the compression step and the compressed segments of Contexte LLM. */
+.compression-items {
+  margin: var(--spacing-1) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.compression-item-head {
+  display: flex;
+  width: 100%;
+  gap: var(--spacing-2);
+  align-items: baseline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.compression-source {
+  flex: 1;
+  min-width: 0;
+  font-weight: var(--typography-label-font-weight);
+}
+
+.compression-tokens {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-soft);
+}
+
+.ctx-compressed-total {
+  margin: 0 0 var(--spacing-2);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  color: var(--color-primary-deep);
+}
+
+.ctx-segment.ctx-compressed {
+  border-left-style: dashed;
+}
+
+.ctx-compressed-badge {
+  margin-left: var(--spacing-2);
+  color: var(--color-primary-deep);
+}
+
 /* Story 16: the RAG card's reranking sub-option, and the step's order before and after. */
 .brick-suboption {
   margin-top: var(--spacing-2);

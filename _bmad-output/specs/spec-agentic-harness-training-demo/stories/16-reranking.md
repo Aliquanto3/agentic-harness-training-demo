@@ -198,7 +198,7 @@ Blocking condition: aucune.
 - `src/wavestack/web/static/app.js`, `app.css` : case et bouton sur la carte, ligne « ↕️ Reranking » du rail (avant/après, gardés/écartés), puce du schéma, journal.
 - `content/scenarios.yaml` : scénario `rag_rerank`.
 - `tests/fake_reranker.py`, `tests/test_rag_rerank.py` (nouveaux), `tests/test_scenarios.py` (16 scénarios).
-- `tools/e2e/` : faux reranker au lanceur, fichier servi, `rag_settings`, scénario `rag_rerank`, README, capture `24-reranking-avant-apres.jpg` ; `README.md` : section « Reranking ».
+- `tools/e2e/` : faux reranker au lanceur, fichier servi, `rag_settings`, scénario `rag_rerank`, README, capture `25-reranking-avant-apres.jpg` ; `README.md` : section « Reranking ».
 
 **Revue.** 2 corrections (low), 3 reports (dont 1 medium non vérifiable ici), 2 rejets motivés (Review Triage Log). Relecture de suivi recommandée : non selon la règle (aucune correction medium ou high) ; une revue indépendante est prévue par l'appelant.
 

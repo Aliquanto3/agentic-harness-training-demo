@@ -32,6 +32,12 @@ from wavestack.bricks.contract import (
 )
 from wavestack.bricks.registry import BRICKS, check_unique_ids
 from wavestack.cloud import active_model, chat_fields, load_cloud_content
+from wavestack.compression import headroom_adapter
+from wavestack.compression.port import (
+    CompressionContent,
+    Compressor,
+    load_compression_content,
+)
 from wavestack.config import (
     MAX_RESERVE,
     CloudModel,
@@ -47,7 +53,14 @@ from wavestack.context.render import (
     render_context,
     with_total,
 )
-from wavestack.context.segments import Joined, Part, SegmentKind, SegmentLabels, load_labels
+from wavestack.context.segments import (
+    CompressedFrom,
+    Joined,
+    Part,
+    SegmentKind,
+    SegmentLabels,
+    load_labels,
+)
 from wavestack.context.window import effective_window, gauge
 from wavestack.hooks import (
     ALLOWED,
@@ -76,6 +89,7 @@ from wavestack.models.capabilities import (
 from wavestack.models.embedding import Embedder
 from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
 from wavestack.models.load_registry import (
+    COMPRESSOR,
     EMBEDDING,
     RERANKER,
     LoadRegistry,
@@ -90,7 +104,7 @@ from wavestack.models.openai_chat import (
     run_call,
 )
 from wavestack.models.reranker import RerankCancelled, Reranker
-from wavestack.models.servers import ServerError, open_engine, served_bytes
+from wavestack.models.servers import ServerError, open_engine
 from wavestack.rag import index as rag_index
 from wavestack.rag.corpus import Chunk, RagContent, chunk_corpus, load_rag_content
 from wavestack.rag.retriever import Excerpt, SqliteVecRetriever
@@ -337,6 +351,8 @@ class TurnState:
     rag_excerpts: tuple[str, ...] = ()
     # Story 16: the RAG's search is reranked (sub-option enabled, reranker loaded at start).
     rag_rerank: bool = False
+    # Story 20 (AD-22): what each of `rag_excerpts` was before the compressor (same order).
+    rag_compressed: tuple[CompressedFrom | None, ...] = ()
     # Story 19 (AD-11): the sub-agent's tools, `[subagent] tools` among the enabled ones.
     subagent_tools: tuple[str, ...] = ()
 
@@ -446,6 +462,7 @@ class AppSession:
         embedder_factory: Callable[[EmbeddingModel], Embedder] | None = None,
         reranker_factory: Callable[[RerankerModel], Reranker] | None = None,
         download_transport: Any = None,
+        compressor_factory: Callable[[], Compressor] | None = None,
     ) -> None:
         self.cfg = cfg or config.load_config()
         self._engine_factory = engine_factory
@@ -545,6 +562,19 @@ class AppSession:
         self._rerank_load_error: str | None = None
         self._rag_rerank = False  # launch value: `_apply_launch_config`
         self._sent_rerank = False  # what the last `send` froze, for `pending`
+        # Story 20 (AD-8, AD-22): Headroom, an optional dependency, loaded while the brick is
+        # wanted; why it cannot be (not installed) is read once, for the default adapter only.
+        self._compressor_factory: Callable[[], Compressor] = (
+            compressor_factory or headroom_adapter.HeadroomCompressor
+        )
+        self._compression_missing = (
+            headroom_adapter.missing_fr() if compressor_factory is None else None
+        )
+        self._compression_content: CompressionContent | None = None
+        self._compressor: Compressor | None = None
+        self._compression_loading = False
+        self._compression_load_error: str | None = None
+        self._compressor_imported = False  # AD-8: its memory stays counted by the RSS once in
         self._load_content()
         self._registry = ToolRegistry(
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
@@ -862,6 +892,11 @@ class AppSession:
                     ok, why = self._rerank_availability()
                     if node["available"] and not ok:
                         node["available"], node["reason_fr"] = False, why
+                if component.id == "compression.compressor":
+                    node["detail_fr"] = (
+                        f"{self._compressor_label()}, bibliothèque dans le processus du "
+                        "harnais, hors ligne"
+                    )
                 nodes.append(node)
                 edges += [
                     {"from": component.id, "to": target, "crosses_boundary": hosting == "network"}
@@ -1041,6 +1076,10 @@ class AppSession:
                 bricks[-1] |= self._subagent_card(self._subagent_content)
             if brick.id == "rag":
                 bricks[-1] |= self._rag_offers() | {"rerank": self._rerank_card()}
+            if brick.id == "compression" and self._compression_content is not None:
+                bricks[-1]["limits_fr"] = self._compression_content.limits_fr.format(
+                    min_chars=self.cfg.compression_min_chars
+                )
             if brick.id == "mcp":
                 bricks[-1] |= {
                     "mode": "lazy" if lazy else "full",
@@ -1077,6 +1116,7 @@ class AppSession:
         self._executor.shutdown(wait=True, cancel_futures=True)
         self._release_embedder()  # story 15 (AD-8)
         self._release_reranker()  # story 16
+        self._release_compressor()  # story 20 (AD-8)
         if self._engine is not None:
             self._engine.close()
             self._engine = None
@@ -1119,15 +1159,20 @@ class AppSession:
         if choice.kind == "cloud":
             return 0
         if choice.kind == "server":  # AD-8: the served model's memory, outside WaveStack
-            c = choice.server
-            return served_bytes(
-                c.engine,
-                c.server_url,
-                c.name,
-                path=c.gguf_path,
-                fallback=c.served_bytes,
-            )
+            served = choice.server
+            if served.resident or not served.gguf_path:
+                return served.served_bytes or 0  # already in memory: what it takes there
+            # Ollama will load it: its file, its KV cache at the window, and the margin,
+            # which also covers its tokenizer opened `vocab_only` in WaveStack (measured
+            # afterwards in WaveStack's RSS).
+            return self._load_registry.file_cost(served.gguf_path, self.cfg.context_window)
         return self._load_registry.file_cost(choice.ref, self.cfg.context_window)
+
+    @staticmethod
+    def _checked(choice: ModelChoice) -> bool:
+        """AD-8: a served model already in memory (llama-server's, a model Ollama holds)
+        takes nothing more once chosen: it is counted, never refused."""
+        return not (choice.kind == "server" and choice.server.resident)
 
     @staticmethod
     def _load_reason(choice: ModelChoice) -> str:
@@ -1199,7 +1244,9 @@ class AppSession:
             previous = self._active
             if choice.same_as(previous):
                 return f"{choice.label} est déjà actif.", None
-            refusal = self._load_registry.check(choice.label, cost)
+            refusal = (
+                self._load_registry.check(choice.label, cost) if self._checked(choice) else None
+            )
             if refusal is None:  # switched under the lock: a second choice racing it is refused
                 self.state, self.reason_fr = "model_load", self._load_reason(choice)
         if refusal is not None:
@@ -1280,6 +1327,10 @@ class AppSession:
                 )
             if retry:
                 self._request_rag_sync()
+            with self._lock:  # story 20: the same second chance for Headroom
+                retry = "compression" in self._wanted and self._compression_load_error is not None
+            if retry:
+                self._request_compression_sync()
         return status
 
     def _load_failed(
@@ -1365,6 +1416,8 @@ class AppSession:
                 # AD-9: min(configured, native, the server's own context).
                 if meta.server_context and meta.server_context < window:
                     window, source = meta.server_context, "server"
+                if hasattr(engine, "use_window"):  # `ollama_raw`: num_ctx = this window
+                    engine.use_window(window)
                 labels = self._load_labels()
             except BaseException:
                 engine.close()
@@ -1540,6 +1593,19 @@ class AppSession:
                 )
         if "rag" in self._bricks:
             self._load_rag()
+        if "compression" in self._bricks:
+            try:
+                self._compression_content = load_compression_content()
+            except Exception as exc:  # noqa: BLE001
+                self._content_errors["compression"] = (
+                    "Le fichier content/compression.yaml est absent ou invalide : corrigez-le "
+                    "puis relancez WaveStack."
+                )
+                self._error(
+                    "Les textes de la compression sont invalides.",
+                    exc,
+                    "La brique « Compression » est indisponible ; le reste fonctionne.",
+                )
         if "system_prompt" not in self._bricks:
             return
         try:
@@ -2098,6 +2164,120 @@ class AppSession:
         if reranker is not None:
             self._close_reranker(reranker)
 
+    def _compressor_label(self) -> str:
+        """The loaded compressor's own label; before it loads, its factory's (Headroom's)."""
+        with self._lock:
+            compressor = self._compressor
+        if compressor is not None:
+            return compressor.label_fr
+        return str(getattr(self._compressor_factory, "label_fr", "le compresseur"))
+
+    def _compression_unavailable(self) -> str | None:
+        """Story 20: Headroom not installed (or another version), then, once wanted, loading
+        and a refused or failed load."""
+        if self._compression_missing is not None:
+            return self._compression_missing
+        with self._lock:
+            wanted = "compression" in self._wanted
+            loading, error = self._compression_loading, self._compression_load_error
+            loaded = self._compressor is not None
+        if not wanted or loaded:
+            return None
+        if loading:
+            named = getattr(self._compressor_factory, "label_fr", None)
+            return f"Chargement de {named}…" if named else "Chargement du compresseur…"
+        return error or "Compresseur non chargé : désactivez puis réactivez la brique."
+
+    def _request_compression_sync(self) -> None:
+        """As the RAG's model (story 15): Headroom follows the brick's `wanted`, loaded or
+        released on the worker; « Chargement » from now on, so no turn takes the brick first."""
+        if "compression" not in self._bricks:
+            return
+        with self._lock:
+            wanted, loaded = "compression" in self._wanted, self._compressor is not None
+            if not wanted:
+                self._compression_load_error, self._compression_loading = None, False
+        static = self._compression_missing or self._content_errors.get("compression")
+        if wanted == loaded or (wanted and static is not None):
+            return
+        if wanted:
+            with self._lock:
+                self._compression_loading, self._compression_load_error = True, None
+        self._executor.submit(self._sync_compression)
+
+    def _sync_compression(self) -> None:
+        """On the worker: load through the registry when wanted, release otherwise; then the
+        card and the schema again. Switched off while it loaded: closed and released."""
+        with self._lock:
+            wanted, compressor = "compression" in self._wanted, self._compressor
+        static = self._compression_missing or self._content_errors.get("compression")
+        changed = False
+        if not wanted or static is not None:
+            changed = compressor is not None
+            self._release_compressor()
+        elif compressor is None:
+            loaded, error = self._load_compressor()
+            with self._lock:
+                still = "compression" in self._wanted
+                if still:
+                    self._compressor, self._compression_load_error = loaded, error
+            if not still:
+                self._close_compressor(loaded)
+            changed = True
+        with self._lock:
+            changed = changed or self._compression_loading
+            self._compression_loading = False
+        if changed:
+            self._emit_bricks()
+            self._emit_architecture()
+
+    def _load_compressor(self) -> tuple[Compressor | None, str | None]:
+        """The budget first (a refusal in figures, nothing imported), then the import and the
+        warm-up call. Once imported, the library stays in memory until WaveStack stops: a
+        later load costs nothing more, its memory being in the RSS measured (AD-8)."""
+        label = self._compressor_label()
+        cost = 0 if self._compressor_imported else self.cfg.compression_cost_bytes
+        refusal = self._load_registry.check_component(label, cost, COMPRESSOR) if cost else None
+        if refusal is not None:
+            with scoped(brick="compression", component="compression.compressor"):
+                self._error(
+                    refusal,
+                    "budget mémoire dépassé (AD-8)",
+                    "La brique « Compression » est indisponible ; rien n'est chargé. Elle se "
+                    "charge d'elle-même après un changement de modèle, ou en la réactivant.",
+                )
+            return None, f"Indisponible : {refusal}"
+        try:
+            compressor = self._compressor_factory()
+        except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+            with scoped(brick="compression", component="compression.compressor"):
+                self._error(
+                    "Headroom n'a pas pu être chargé.",
+                    exc,
+                    "La brique « Compression » est indisponible ; le reste de WaveStack "
+                    "fonctionne.",
+                )
+            return None, (
+                f"Indisponible : Headroom n'a pas pu être chargé ({type(exc).__name__}: {exc}). "
+                "Réinstallez-le avec `uv sync --extra compression`, puis relancez WaveStack."
+            )
+        self._compressor_imported = True
+        self._load_registry.grant(compressor.label_fr, cost, COMPRESSOR)
+        return compressor, None
+
+    def _close_compressor(self, compressor: Compressor | None) -> None:
+        if compressor is not None:
+            try:
+                compressor.close()
+            except Exception as exc:  # noqa: BLE001 - AD-16
+                self._error("Le compresseur n'a pas pu être fermé.", exc, "Il est oublié.")
+        self._load_registry.release(COMPRESSOR)
+
+    def _release_compressor(self) -> None:
+        with self._lock:
+            compressor, self._compressor = self._compressor, None
+        self._close_compressor(compressor)
+
     def _emit_memory(self) -> None:
         """AD-1: the drawer and the card project the last `memory_changed`."""
         if "global_memory" not in self._bricks:
@@ -2158,6 +2338,8 @@ class AppSession:
             if error_fr is not None:
                 return False, error_fr
         if brick_id == "rag" and (reason := self._rag_unavailable()) is not None:
+            return False, reason
+        if brick_id == "compression" and (reason := self._compression_unavailable()) is not None:
             return False, reason
         return True, None
 
@@ -2346,7 +2528,9 @@ class AppSession:
                     )
                 )
                 text = step.get("stub", step["content"]) if history else step["content"]
-                content = [Part(kind, text, brick, component)]
+                # Story 20: in the turn, a compressed reply carries what it was (AD-22).
+                was = None if history else step.get("compressed_from")
+                content = [Part(kind, text, brick, component, compressed_from=was)]
                 if chat and step.get("id") is None:  # a malformed call's error (AD-10)
                     messages.append({"role": "user", "content": content})
                     continue
@@ -2497,7 +2681,12 @@ class AppSession:
                     )
                 )
         # Story 15 (AD-4): the RAG's intro and excerpts, each its own part, before the message.
-        rag = [Part(SegmentKind.RAG_EXCERPT, t, "rag", "rag.retriever") for t in state.rag_excerpts]
+        # Story 20: an excerpt the compressor replaced carries what it was.
+        was = state.rag_compressed + (None,) * (len(state.rag_excerpts) - len(state.rag_compressed))
+        rag = [
+            Part(SegmentKind.RAG_EXCERPT, t, "rag", "rag.retriever", compressed_from=w)
+            for t, w in zip(state.rag_excerpts, was, strict=True)
+        ]
         user = [*rag, Part(SegmentKind.USER_MESSAGE, message)]
         if state.injection:  # AD-13: added before the message, never rewriting it
             user.insert(0, Part(SegmentKind.HOOK_INJECTION, state.injection, "hooks", "hooks.h3"))
@@ -2797,6 +2986,8 @@ class AppSession:
                 self._mcp_disconnect(server_id)
         if brick_id == "rag":  # story 15: its embedding model loads or leaves on the worker
             self._request_rag_sync()
+        if brick_id == "compression":  # story 20: Headroom loads or leaves on the worker
+            self._request_compression_sync()
         self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
@@ -3328,9 +3519,12 @@ class AppSession:
         component: str,
         brick: str,
         blocker: str | None,
+        spec: ToolSpec | None = None,
     ) -> dict[str, Any]:
         """A tool's reply step (AD-4): a hook's refusal is the hook's text; `delegate`'s reply
-        is the sub-agent's result (`subagent_result`), even a failure (AD-11)."""
+        is the sub-agent's result (`subagent_result`), even a failure (AD-11). `spec`: the tool
+        that ran; its own output (native, network, MCP, never a meta-tool's) is marked
+        `tool_output`, what the compression may take (story 20, AD-22), decided here once."""
         step = {
             "role": "tool",
             "id": call_ref,
@@ -3339,6 +3533,8 @@ class AppSession:
             "component": component,
             "brick": brick,
         }
+        if blocker is None and spec is not None and spec.source != "harness":
+            step["tool_output"] = True
         if blocker is not None:
             return step | {"component": f"hooks.{blocker}", "brick": "hooks"}
         if name == DELEGATE and component == "subagent.agent":  # it ran (not refused)
@@ -3831,6 +4027,7 @@ class AppSession:
         for server_id in sorted(after - before):
             self._mcp_connect(server_id)
         self._request_rag_sync()  # story 15: loaded or released as the brick is now wanted
+        self._request_compression_sync()  # story 20: the same for Headroom
         self._emit_bricks()
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
@@ -4239,8 +4436,15 @@ class AppSession:
             state = replace(state, rag_excerpts=self._rag_texts(texts))
             if cancel.cancelled:
                 return "cancelled", "", ""
+        sent = 0  # story 20: the steps the model has read already, never rewritten (AD-4)
         for n in range(1, max_calls + 1):
             call_id = f"{turn_id}.main.c{n}"
+            if "compression" in state.effective:  # AD-4 `transform_context`, AD-22
+                step, state = self._transform_context(
+                    turn_id, step, state, steps, sent, n == 1, cancel
+                )
+                if cancel.cancelled:
+                    return "cancelled", "", ""
             with scoped(call_id=call_id):
                 decided = self._hook("before_model_call", state)
             if decided is not None and decided[1].decision == "block":
@@ -4249,6 +4453,7 @@ class AppSession:
             with scoped(call_id=call_id, step_id=f"{turn_id}.main.s{step}", component="core.model"):
                 shown = state if self._cloud is None else _with_loaded(state, loaded_in_turn)
                 rendered, payload = self._render(shown, message, call_id, steps)
+                sent = len(steps)
                 journal.emit("context_rendered", payload)
                 if previous is not None:  # not in chat mode, which has no ids (AD-4)
                     self._check_prefix(*previous, rendered.ids)
@@ -4335,7 +4540,7 @@ class AppSession:
                                 return "cancelled", "", ""
                             result, blocker = ran
                         tool_step = self._reply_step(
-                            call_ref, call.name, result, component, brick, blocker
+                            call_ref, call.name, result, component, brick, blocker, spec
                         )
                         steps.append(self._apply_effects(effects, tool_step, loaded_in_turn))
             if failed:
@@ -4347,6 +4552,177 @@ class AppSession:
                 return "cancelled", "", ""
         self._emit_limit("calls", max_calls)
         return "limit", "", ""
+
+    def _compressible(self, reply: dict[str, Any]) -> bool:
+        """Story 20 (AD-22): a tool's own output (`tool_output`, set by `_reply_step`), long
+        enough. Never a meta-tool's reply (`delegate`, `load_skill`…), a hook's refusal, a
+        call the harness refused, nor a malformed call's error."""
+        if reply.get("role") != "tool" or not reply.get("tool_output"):
+            return False
+        if reply.get("kind", SegmentKind.TOOL_RESULT) != SegmentKind.TOOL_RESULT:
+            return False
+        return len(reply["content"].strip()) >= self.cfg.compression_min_chars
+
+    def _transform_context(
+        self,
+        turn_id: str,
+        step: int,
+        state: TurnState,
+        steps: list[dict[str, Any]],
+        sent: int,
+        first: bool,
+        cancel: CancelToken,
+    ) -> tuple[int, TurnState]:
+        """Story 20, AD-4's `transform_context` (AD-22), as a step of the harness with its pair
+        of events: before a call, the tool outputs no call has read yet (`steps[sent:]`) and,
+        before the first call, the RAG excerpts, each compressed once. It works on the turn's
+        parts before they are assembled (the same place in the turn), and offers no hook point
+        (AD-13). What a call has read is never rewritten (append only). Returns the steps
+        numbered and the state with the excerpts replaced; the outputs are replaced in
+        `steps`. A stop between two texts leaves the others as they are."""
+        with self._lock:
+            compressor = self._compressor
+        content = self._compression_content
+        if compressor is None or content is None:
+            return step, state  # unloaded meanwhile: the turn goes on uncompressed
+        minimum = self.cfg.compression_min_chars
+        # (source_fr, kind, brick, component, text, where: ("step" | "rag", index))
+        candidates: list[tuple[str, SegmentKind, str | None, str | None, str, tuple]] = []
+        if first:
+            for i, text in enumerate(state.rag_excerpts):
+                if i > 0 and len(text.strip()) >= minimum:  # 0: the excerpts' intro
+                    source = content.rag_source_fr.format(n=i)
+                    candidates.append(
+                        (source, SegmentKind.RAG_EXCERPT, "rag", "rag.retriever", text, ("rag", i))
+                    )
+        for i in range(sent, len(steps)):
+            reply = steps[i]
+            if self._compressible(reply):
+                source = content.tool_source_fr.format(tool=reply.get("name"))
+                candidates.append(
+                    (
+                        source,
+                        SegmentKind.TOOL_RESULT,
+                        reply.get("brick"),
+                        reply.get("component"),
+                        reply["content"],
+                        ("step", i),
+                    )
+                )
+        if not candidates:
+            return step, state
+        step += 1
+        step_id = f"{turn_id}.main.s{step}"
+        journal = get_journal()
+        scope = {
+            "step_id": step_id,
+            "brick": "compression",
+            "component": "compression.compressor",
+            "actor": "harness",
+            "trigger": "harness",
+        }
+        excerpts = list(state.rag_excerpts)
+        was = list(state.rag_compressed) + [None] * (len(excerpts) - len(state.rag_compressed))
+        items: list[dict[str, Any]] = []
+        errors: list[str] = []
+        estimated = False
+        with scoped(**scope):
+            journal.emit(
+                "compression_started",
+                {
+                    "phase_label": content.phase_label_fr,
+                    "title_fr": content.step_title_fr,
+                    "items": len(candidates),
+                    "compressor_fr": compressor.label_fr,
+                },
+            )
+            started = time.monotonic()
+            try:
+                for source, kind, brick, component, text, (where, i) in candidates:
+                    if cancel.cancelled:
+                        break  # the turn stops right after: the others stay as they were
+                    item = self._compress_one(compressor, source, kind, text, errors)
+                    item |= {"brick": brick, "component": component}
+                    estimated = estimated or item.pop("estimated")
+                    items.append(item)
+                    if not item["changed"]:
+                        continue
+                    origin = CompressedFrom(
+                        tokens_before=item["tokens_before"],
+                        estimated=estimated,
+                        step_id=step_id,
+                        item=len(items) - 1,
+                    )
+                    if where == "rag":
+                        excerpts[i], was[i] = item["text_after"], origin
+                    else:
+                        steps[i] = steps[i] | {
+                            "content": item["text_after"],
+                            "compressed_from": origin,
+                        }
+            finally:  # AD-2: the pair is always complete
+                total_before = sum(item["tokens_before"] for item in items)
+                total_after = sum(item["tokens_after"] for item in items)
+                journal.emit(
+                    "compression_ended",
+                    {
+                        "status": "error" if errors else "ok",
+                        "compressor_fr": compressor.label_fr,
+                        "items": items,
+                        "tokens_before": total_before,
+                        "tokens_after": total_after,
+                        "saved_tokens": max(0, total_before - total_after),
+                        "estimated": estimated,
+                        "unchanged_fr": content.unchanged_fr,
+                        "error_fr": " ".join(errors) or None,
+                        "duration_ms": _ms(time.monotonic() - started),
+                    },
+                )
+        if first and state.rag_excerpts:
+            state = replace(state, rag_excerpts=tuple(excerpts), rag_compressed=tuple(was))
+        return step, state
+
+    def _compress_one(
+        self,
+        compressor: Compressor,
+        source: str,
+        kind: SegmentKind,
+        text: str,
+        errors: list[str],
+    ) -> dict[str, Any]:
+        """One candidate: its tokens before and after, counted by WaveStack (AD-1). An empty
+        result, one not shorter in tokens, or a failure keeps the original (`changed` false);
+        `text_after` is then left out of the trace (the original is already there)."""
+        original = text.strip()
+        before, estimated = self._count_tokens(original)
+        after_text, transforms, error_fr = original, (), None
+        try:
+            result = compressor.compress(text)
+            after_text = (result.text or "").strip()
+            transforms = tuple(str(t) for t in (result.transforms or ()))
+        except Exception as exc:  # noqa: BLE001 - AD-16: the original goes on
+            error_fr = f"{source} : la compression a échoué ({type(exc).__name__}: {exc})."
+            errors.append(error_fr)
+            self._error(
+                "La compression d'un texte a échoué.",
+                exc,
+                "Le texte d'origine part tel quel ; le tour continue.",
+            )
+        after, estimate_after = self._count_tokens(after_text) if after_text else (0, False)
+        changed = error_fr is None and bool(after_text) and after_text != original
+        changed = changed and after < before
+        return {
+            "source_fr": source,
+            "kind": kind.value,
+            "tokens_before": before,
+            "tokens_after": after if changed else before,
+            "text_before": original,
+            "text_after": after_text if changed else None,
+            "changed": changed,
+            "transforms": list(transforms),
+            "error_fr": error_fr,
+            "estimated": estimated or estimate_after,
+        }
 
     def _rag_current_retriever(self) -> SqliteVecRetriever:
         """The loaded retriever, on the index as it is now. An index replaced since it was
@@ -4661,7 +5037,7 @@ class AppSession:
                 }
             )
             tool_step = self._reply_step(
-                call_ref, call.name, result, component, action.brick, blocker
+                call_ref, call.name, result, component, action.brick, blocker, spec
             )
             steps.append(self._apply_effects(effects, tool_step, loaded_in_turn))
         return False, step

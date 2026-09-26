@@ -198,7 +198,7 @@ Règles de dépendance :
     - Le contrôle d’ajout seul ne s’applique pas.
     - L’interface marque « ≈ » toute valeur `estimated`, et le total sauf quand `usage_source = api` : c’est un matériau pédagogique (un harnais cloud compte sans tokenizer local).
   - **Ajout seul pendant un tour.** Le rendu du gabarit fait foi, et l’ajout seul est un contrôle, pas une hypothèse. La session compare les ids de l’appel n+1 à ceux de l’appel n suivis de sa sortie. Si le préfixe commun est plus court, elle émet `prefix_not_reused{common_tokens}`, et la relecture s’explique dans la trace. Le test de non-régression Qwen3.5 couvre un tour à deux appels.
-  - **Étape `transform_context`.** Elle est appelée par la session entre l’assemblage et le rendu, et seulement avant le premier appel d’un tour. C’est là que s’applique la compression (AD-22).
+  - **Étape `transform_context`.** Elle est appelée par la session avant chaque appel du tour, sur les parties que cet appel est le premier à lire : avant le premier appel, les extraits RAG et les réponses des actions forcées ; avant chaque appel suivant, les réponses d’outils arrivées depuis le précédent. Chaque texte y passe une seule fois, et ce qu’un appel a déjà lu n’est jamais réécrit : l’ajout seul tient. C’est là que s’applique la compression (AD-22). *Décision provisoire, à valider (story 20, H-1) : la règle initiale limitait l’étape au seul premier appel, ce qui excluait les réponses d’outils demandées par le modèle.*
 
 ### AD-5 — Le port moteur reçoit une requête entièrement construite par le harnais, rien de plus
 
@@ -560,7 +560,7 @@ Règles de dépendance :
 - **Binds:** compression, rag, session, FR-16 à FR-18, FR-31
 - **Prevents:** une dépendance lourde qui fuit dans la session ; des segments compressés en double ; un index incohérent avec son modèle d’embedding.
 - **Rule:**
-  - **Compression.** Le `Compressor` s’applique à l’étape `transform_context` (AD-4), aux seuls types `tool_result` et `rag_excerpt`. Les réponses des méta-outils (AD-25) ne sont jamais compressées. Il renvoie des remplaçants qui gardent leur `brick` et leur `kind`, avec `compressed_from{tokens_before, text_before}`. Il est tracé avec l’avant, l’après et les tokens des deux versions. `skill_body`, `subagent_result` et `history` ne sont jamais compressés en V1.
+  - **Compression.** Le `Compressor` s’applique à l’étape `transform_context` (AD-4), aux seuls types `tool_result` et `rag_excerpt`. Les réponses des méta-outils (AD-25) ne sont jamais compressées. Il renvoie des remplaçants qui gardent leur `brick` et leur `kind`, avec `compressed_from{tokens_before, estimated, step_id, item}`. Il est tracé, comme une étape du harnais, avec l’avant, l’après et les tokens des deux versions : le texte d’avant n’y figure qu’une fois, et le segment le désigne par `step_id` et `item` (story 20). `skill_body`, `subagent_result` et `history` ne sont jamais compressés en V1.
   - **RAG.** L’index `sqlite-vec` est précalculé par `scripts/build_rag_index.py` et fourni dans le dépôt, avec l’identifiant de son modèle d’embedding. Si le modèle chargé est différent, la brique RAG est indisponible, avec la raison. L’embedding et le reranking passent par le moteur llama-cpp-python et par AD-8. Le port `Retriever.search(query) → extraits scorés` accueillera les stratégies de V2.
 
 ### AD-23 — Effets typés, appliqués par la session seule

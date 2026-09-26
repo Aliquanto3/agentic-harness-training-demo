@@ -430,6 +430,16 @@ class Config:
         """Story 15: the largest excerpt the chunking makes, in characters."""
         return max(50, self._int("rag", "chunk_max_chars", default=700))
 
+    @property
+    def compression_min_chars(self) -> int:
+        """Story 20: a shorter tool result or RAG excerpt is not given to the compressor."""
+        return max(0, self._int("compression", "min_chars", default=300))
+
+    @property
+    def compression_cost_bytes(self) -> int:
+        """Story 20 (AD-8): what loading Headroom is expected to add (story 12: 130 MB)."""
+        return max(0, self._int("compression", "cost_mb", default=130)) * 1024 * 1024
+
     def rag_index_path(self) -> Path:
         """Story 15: the sqlite-vec index; a relative path is from the repository root."""
         path = Path(str(self.get("rag", "index_path", default="data/rag_index.sqlite")))
@@ -521,9 +531,11 @@ class Config:
         ports = {}
         for name, port in value.items():
             try:
-                ports[str(name)] = int(port)
+                number = int(port)
             except (TypeError, ValueError):
                 continue
+            if 1 <= number <= 65535:  # any other value would break the diagnostic's URLs
+                ports[str(name)] = number
         return ports
 
     @property

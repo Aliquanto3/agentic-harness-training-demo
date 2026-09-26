@@ -24,6 +24,11 @@ dependencies = [
 [project.scripts]
 wavestack = "wavestack.cli:main"
 
+[project.optional-dependencies]
+compression = [
+    "headroom-ai==0.38.0",
+]
+
 [dependency-groups]
 dev = [
     "ruff>=0.16,<0.17",

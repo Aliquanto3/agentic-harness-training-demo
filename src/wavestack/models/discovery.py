@@ -38,6 +38,9 @@ class ModelCandidate(BaseModel):
     ref: str | None = None
     provider: str | None = None
     served_bytes: int | None = None
+    # Already in memory when listed (llama-server; an Ollama model in `/api/ps`): counted,
+    # never refused by the budget, and never unloaded by WaveStack (AD-8).
+    resident: bool | None = None
     gguf_path: str | None = None
 
 
@@ -180,14 +183,8 @@ def _server_candidates(
                 candidate.gguf_path = blob.path
         else:  # llama-server: the file it loaded, for its size (AD-8)
             candidate.gguf_path = model.model_path
-        candidate.served_bytes = servers.served_bytes(
-            model.engine,
-            model.server_url,
-            model.name,
-            path=candidate.gguf_path,
-            fallback=model.size,
-            transport=transport,
-        )
+        candidate.served_bytes = servers.served_bytes(model, candidate.gguf_path)
+        candidate.resident = model.resident
         candidates.append(candidate)
     return candidates
 

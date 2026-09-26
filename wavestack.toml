@@ -107,6 +107,15 @@ max_retries = 2
 fetch_page_hosts = ["fr.wikipedia.org", "calendrier.api.gouv.fr"]
 fetch_page_max_chars = 4000
 
+[compression]
+# Compression du contexte (story 20, AD-22) par Headroom, dépendance optionnelle installée
+# par `uv sync --extra compression`. Un résultat d'outil ou un extrait RAG plus court que
+# min_chars caractères n'est pas compressé. cost_mb : mémoire ajoutée par Headroom, en Mo,
+# contrôlée par le budget [memory] au chargement (130 Mo mesurés par la story 12, hors PC
+# cible).
+min_chars = 300
+cost_mb = 130
+
 [subagent]
 # Sous-agent (story 19, AD-10, AD-11) : les outils qu'il peut utiliser, s'ils sont activés
 # dans la brique Outils (un nom inconnu est signalé au lancement), et ses appels au modèle
