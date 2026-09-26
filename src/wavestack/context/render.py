@@ -268,9 +268,13 @@ def _attribute(
     plain: list[dict[str, Any]] = []
     marked: list[dict[str, Any]] = []
     for message in messages:
-        # A `Part` or a `Joined` each; chat mode omits an empty `content` (AD-4).
-        texts = [prepare(part) for part in message["content"]] if "content" in message else None
-        rest = {key: value for key, value in message.items() if key != "content"}
+        # A `Part` or a `Joined` each; chat mode omits an empty `content` (AD-4). A content
+        # made of blocks (a reasoning sent back as `thinking`, AD-4) is prepared as any value.
+        parted = "content" in message and all(
+            isinstance(part, (Part, Joined)) for part in message["content"]
+        )
+        texts = [prepare(part) for part in message["content"]] if parted else None
+        rest = {key: value for key, value in message.items() if key != "content" or not parted}
         plain_rest, marked_rest = prepare(rest)
         if texts is not None:  # in the message's own key order (the chat body keeps it)
             plain_rest["content"] = PART_SEPARATOR.join(p for p, _ in texts if p)

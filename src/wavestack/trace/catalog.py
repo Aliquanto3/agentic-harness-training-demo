@@ -271,6 +271,8 @@ class BrickState(BaseModel):
     # Story 6b, `mcp` brick only: documentation complète or lazy loading (AD-25).
     mode: Literal["full", "lazy"] | None = None
     lazy_label_fr: str | None = None
+    # Story 13, `reasoning` brick only: the model always reasons, whatever the switch says.
+    always_fr: str | None = None
 
 
 class SystemPromptState(BaseModel):

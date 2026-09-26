@@ -6,7 +6,6 @@ from typing import Any
 
 from wavestack.context.segments import Segment, SegmentKind, SegmentLabels
 
-OUTPUT_RESERVE = 512
 _MESSAGE_GROUP = "message"
 # AD-4: `user_message` and `template` form one gauge group, « Message et gabarit ».
 _GROUP_OF = {SegmentKind.USER_MESSAGE: _MESSAGE_GROUP, SegmentKind.TEMPLATE: _MESSAGE_GROUP}

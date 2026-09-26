@@ -80,14 +80,15 @@ def warning_fr(entry: CloudModel, content: CloudContent) -> dict[str, str]:
     }
 
 
-def chat_fields(entry: CloudModel, max_tokens: int) -> dict[str, Any]:
+def chat_fields(entry: CloudModel, max_tokens: int, reasoning: bool = False) -> dict[str, Any]:
     """AD-4, chat mode: the body's fields besides `messages` and `tools`, in their order:
-    `model`, `stream`, the output limit, `stream_options`, the reasoning parameters."""
+    `model`, `stream`, the output limit, `stream_options`, the reasoning parameters (`on`
+    while the reasoning brick is effective or the model always reasons, else `off`)."""
     fields: dict[str, Any] = {"model": entry.model, "stream": True}
     fields[entry.max_tokens_field] = max_tokens
     if entry.stream_usage:
         fields["stream_options"] = {"include_usage": True}
-    return {**fields, **entry.reasoning_params}
+    return {**fields, **entry.reasoning_params(reasoning)}
 
 
 def disclosure(entry: CloudModel) -> dict[str, Any]:

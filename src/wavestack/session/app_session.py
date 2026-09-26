@@ -31,7 +31,7 @@ from wavestack.bricks.contract import (
 )
 from wavestack.bricks.registry import BRICKS, check_unique_ids
 from wavestack.cloud import active_model, chat_fields, load_cloud_content
-from wavestack.config import CloudModel
+from wavestack.config import MAX_RESERVE, CloudModel, output_reserve
 from wavestack.context.render import (
     RenderedChat,
     RenderedContext,
@@ -40,7 +40,7 @@ from wavestack.context.render import (
     with_total,
 )
 from wavestack.context.segments import Joined, Part, SegmentKind, SegmentLabels, load_labels
-from wavestack.context.window import OUTPUT_RESERVE, effective_window, gauge
+from wavestack.context.window import effective_window, gauge
 from wavestack.hooks import (
     ALLOWED,
     AUDIT,
@@ -206,6 +206,9 @@ class Exchange(NamedTuple):
 class _ModelOutput:
     status: str  # completed | cancelled | limit
     raw: str = ""
+    # The output without its reasoning (local: the separator's `outside`, AD-6): what a
+    # malformed call's step re-renders, its reasoning passed apart (AD-10).
+    answer: str = ""
     text: str = ""
     reasoning: str = ""
     calls: list[ToolCall] = field(default_factory=list)
@@ -333,7 +336,6 @@ class AppSession:
         )
         self._cloud: CloudModel | None = None  # the active cloud model: chat mode (AD-4)
         self._window_source = "configured"
-        self._reserve = OUTPUT_RESERVE
         # AD-4: the last real `usage.prompt_tokens / Σ estimates` of the main context.
         self._ratio = self.cfg.estimate_ratio
         self._call_ids: set[str] = set()  # the running turn's `tool_call_id`s (AD-4)
@@ -532,8 +534,14 @@ class AppSession:
 
     def _emit_architecture(self) -> None:
         """AD-12: a component is drawn as soon as its brick is `wanted`, even unavailable."""
+        always = self._caps is not None and self._caps.reasoning_always
         with self._lock:
-            wanted = [b for b in self._bricks.values() if b.id in self._wanted]
+            # A model that always reasons draws the reasoning brick, as its card shows it on.
+            wanted = [
+                b
+                for b in self._bricks.values()
+                if b.id in self._wanted or (always and b.id == "reasoning")
+            ]
         model = {**_CORE_MODEL, "model": self._model_name}
         edges: list[dict[str, Any]] = []
         if self._cloud is not None:  # AD-12: drawn in the network zone, with its provider
@@ -765,6 +773,8 @@ class AppSession:
                     "limits_fr": self._limits_fr() if brick.id == "tools" else None,
                 }
             )
+            if brick.id == "reasoning":
+                bricks[-1]["always_fr"] = self._always_fr()
             if brick.id == "mcp":
                 bricks[-1] |= {
                     "mode": "lazy" if lazy else "full",
@@ -848,7 +858,6 @@ class AppSession:
             self._window_source = (
                 "configured" if self._window == self.cfg.context_window else "native"
             )
-            self._reserve = OUTPUT_RESERVE
             self._labels = self._load_labels()
         except Exception as exc:  # noqa: BLE001 - AD-16
             self._error("Le modèle n'a pas pu être chargé.", exc, "Aucun tour possible.")
@@ -917,11 +926,12 @@ class AppSession:
             reasoning_variable=None,
             native_context=entry.context,
             reasoning_tags=None,
+            reasoning=entry.reasoning is not None,
+            reasoning_always=entry.always_reasons,
         )
         self._engine, self._cloud = engine, entry
         self._model_name = entry.model
         self._window, self._window_source = config.cloud_window(entry, self.cfg.context_window)
-        self._reserve = entry.reserve
         self._ratio = self.cfg.estimate_ratio
         self._labels = self._load_labels()
         self._set_state("idle")
@@ -1039,6 +1049,14 @@ class AppSession:
             if dep not in wanted or not self._availability(dep)[0]:
                 return False, f"Nécessite la brique « {self._label(dep)} » : activez-la d'abord."
         missing = [c for c in brick.capabilities if not getattr(self._caps, c, None)]
+        if "reasoning" in missing:
+            return False, self._no_reasoning_fr()
+        if brick_id == "reasoning" and self._window <= MAX_RESERVE:  # as the cloud `tpm` guard
+            return False, (
+                f"Indisponible : la fenêtre de contexte ({_fr(self._window)} tokens) ne laisse "
+                f"aucune place au contexte une fois réservés les {_fr(MAX_RESERVE)} tokens de "
+                "sortie du raisonnement. Agrandissez la fenêtre dans la configuration."
+            )
         if missing and self._cloud is not None:  # AD-6: a capability not declared is absent
             return False, (
                 f"Le modèle cloud « {self._cloud.id} » ne déclare pas l'appel d'outils (tools) : "
@@ -1051,6 +1069,48 @@ class AppSession:
         if brick_id in self._content_errors:
             return False, self._content_errors[brick_id]
         return True, None
+
+    def _no_reasoning_fr(self) -> str:
+        """EXPERIENCE.md's reason, then its cause: no model, the template, or the cloud
+        declaration."""
+        if self._caps is None:
+            return "Indisponible : aucun modèle chargé."
+        if self._cloud is not None:
+            return (
+                "Indisponible : le modèle actif ne sait pas raisonner. Le modèle cloud "
+                f"« {self._cloud.id} » ne déclare pas de raisonnement (reasoning) : déclarez-le "
+                "si le modèle le gère, ou choisissez un autre modèle."
+            )
+        return (
+            "Indisponible : le modèle actif ne sait pas raisonner. Son gabarit de conversation "
+            "n'a pas de variable de raisonnement : choisissez un modèle qui raisonne."
+        )
+
+    def _always_fr(self) -> str | None:
+        """AD-6: a cloud model that always reasons shows it on the reasoning card."""
+        entry = self._cloud
+        if entry is None or not entry.always_reasons:
+            return None
+        return (
+            f"Toujours active pour ce modèle : {entry.model} raisonne à chaque réponse ; ce "
+            f"modèle ne permet pas de l'éteindre. La réserve de sortie reste de "
+            f"{_fr(MAX_RESERVE)} tokens."
+        )
+
+    def _reasoning_on(self, state: TurnState) -> bool:
+        """AD-6, AD-9: the model reasons in this turn: brick effective, or a cloud model
+        that always reasons."""
+        always = self._caps is not None and self._caps.reasoning_always
+        return always or "reasoning" in state.effective
+
+    def _reserve_of(self, state: TurnState) -> int:
+        """AD-9: the output reserve of a turn (or of the preview), from its frozen state."""
+        return output_reserve(self._reasoning_on(state))
+
+    def _resend(self) -> str | None:
+        """AD-4, chat mode: the `format` the reasoning goes back in, when `resend` is set."""
+        reasoning = self._cloud.reasoning if self._cloud is not None else None
+        return reasoning.format if reasoning is not None and reasoning.resend else None
 
     def _effective(self) -> frozenset[str]:
         with self._lock:
@@ -1114,13 +1174,15 @@ class AppSession:
         history: bool,
         group: str,
         chat: bool = False,
+        resend: str | None = None,
     ) -> list[dict[str, Any]]:
         """Intermediate messages of a turn: `assistant_turn`/`tool_result` in the turn itself
         (or the step's own `kind`), `history` afterwards, where a step's `stub` replaces its
         content. Each call's name and arguments form one group (AD-4). Calls carry their
-        session `id`, replies its `tool_call_id`. Chat mode (AD-4): no reasoning sent back,
-        an empty `content` omitted, `arguments` as the string emitted, a reply without
-        `name`, and a malformed call's error sent as a `user` message."""
+        session `id`, replies its `tool_call_id`. Chat mode (AD-4): the reasoning sent back
+        only with `resend` (its `format`), an empty `content` omitted, `arguments` as the
+        string emitted, a reply without `name`, and a malformed call's error sent as a `user`
+        message."""
         memory = (SegmentKind.HISTORY, "short_memory", "short_memory.history")
         messages: list[dict[str, Any]] = []
         for i, step in enumerate(steps):
@@ -1154,11 +1216,13 @@ class AppSession:
                     step.get("component", "core.model"),
                 )
             )
-            answer: dict[str, Any] = {"role": "assistant"}
-            if step["content"] or not chat:
-                answer["content"] = [Part(kind, step["content"], brick, component)]
-            if step.get("reasoning") and not chat:  # AD-4: never sent back in V1 (`resend`)
-                answer["reasoning_content"] = step["reasoning"]  # plain, as for the history
+            answer = AppSession._assistant_message(
+                Part(kind, step["content"], brick, component),
+                step.get("reasoning", ""),
+                chat=chat,
+                resend=resend,
+                omit_empty=chat,
+            )
             if step["tool_calls"]:
                 answer["tool_calls"] = []
                 for j, call in enumerate(step["tool_calls"]):
@@ -1179,6 +1243,34 @@ class AppSession:
                     )
             messages.append(answer)
         return messages
+
+    @staticmethod
+    def _assistant_message(
+        content: Part, reasoning: str, *, chat: bool, resend: str | None, omit_empty: bool
+    ) -> dict[str, Any]:
+        """An assistant message with its reasoning, attributed like its text (AD-4): locally
+        the `reasoning_content` variable, the template deciding whether it keeps it; in chat
+        mode, only with `resend`, in the form of the entry's `format`."""
+        answer: dict[str, Any] = {"role": "assistant"}
+        text = [content] if content.text or not omit_empty else []
+        thought = content._replace(text=reasoning) if reasoning else None
+        if thought is not None and chat and resend == "content_blocks":
+            blocks = [{"type": "thinking", "thinking": [{"type": "text", "text": thought}]}]
+            # No empty `text` block: a past answer of reasoning only keeps its thinking alone.
+            answer["content"] = blocks + [
+                {"type": "text", "text": part} for part in text if part.text
+            ]
+        elif thought is not None and chat and resend == "think_tags":
+            # As received: the closing tag right before the text, no separator added.
+            tagged = thought._replace(text=f"<think>{reasoning}</think>")
+            answer["content"] = [Joined((tagged, *(p for p in text if p.text)), sep="")]
+        elif text:
+            answer["content"] = text
+        if thought is not None and not chat:
+            answer["reasoning_content"] = thought
+        elif thought is not None and chat and resend == "field":
+            answer["reasoning"] = thought
+        return answer
 
     def _system_parts(self, state: TurnState) -> list[Part | Joined]:
         """AD-4: the system prompt, then the skills catalog (its intro and one line per
@@ -1227,6 +1319,7 @@ class AppSession:
         Every brick off gives the bare LLM's single user message, byte for byte.
         """
         messages: list[dict[str, Any]] = []
+        resend = self._resend() if chat else None
         if system := self._system_parts(state):
             messages.append({"role": "system", "content": system})
         if "short_memory" in state.effective:
@@ -1236,21 +1329,25 @@ class AppSession:
                 if ex.injection:  # H3's text stays before its message
                     user.insert(0, Part(SegmentKind.HISTORY, ex.injection, *memory))
                 messages.append({"role": "user", "content": user})
-                messages += self._step_messages(ex.steps, history=True, group=ex.turn_id, chat=chat)
-                answer: dict[str, Any] = {
-                    "role": "assistant",
-                    "content": [Part(SegmentKind.HISTORY, ex.text, *memory)],
-                }
-                if ex.reasoning and not chat:
-                    # ponytail: passed as a plain template variable, so a template that keeps
-                    # past reasoning counts it as `template`; attribute it once one does.
-                    answer["reasoning_content"] = ex.reasoning
-                messages.append(answer)
+                messages += self._step_messages(
+                    ex.steps, history=True, group=ex.turn_id, chat=chat, resend=resend
+                )
+                messages.append(
+                    self._assistant_message(
+                        Part(SegmentKind.HISTORY, ex.text, *memory),
+                        ex.reasoning,
+                        chat=chat,
+                        resend=resend,
+                        omit_empty=False,  # a past answer keeps its `content`, even empty
+                    )
+                )
         user = [Part(SegmentKind.USER_MESSAGE, message)]
         if state.injection:  # AD-13: added before the message, never rewriting it
             user.insert(0, Part(SegmentKind.HOOK_INJECTION, state.injection, "hooks", "hooks.h3"))
         messages.append({"role": "user", "content": user})
-        messages += self._step_messages(steps or [], history=False, group="turn", chat=chat)
+        messages += self._step_messages(
+            steps or [], history=False, group="turn", chat=chat, resend=resend
+        )
         return messages
 
     def _tool_definitions(self, state: TurnState) -> list[dict[str, Any]] | None:
@@ -1309,8 +1406,8 @@ class AppSession:
             return self._render_chat(state, message, call_id, steps)
         meta = self._engine.metadata()
         template_vars: dict[str, Any] = {}
-        if self._caps.reasoning_variable:
-            template_vars[self._caps.reasoning_variable] = False  # no reasoning brick yet
+        if self._caps.reasoning_variable:  # AD-6: the brick sets the template's variable
+            template_vars[self._caps.reasoning_variable] = self._reasoning_on(state)
         rendered = render_context(
             self._engine,
             self._caps.chat_template or "",
@@ -1326,7 +1423,7 @@ class AppSession:
         payload = gauge(
             rendered.segments,
             window=self._window,
-            reserve=self._reserve,
+            reserve=self._reserve_of(state),
             near_limit_ratio=self.cfg.near_limit_ratio,
             labels=self._labels,
             window_source=self._window_source,
@@ -1344,28 +1441,33 @@ class AppSession:
         estimates × `ratio`, and only their raw sum can block the call."""
         entry, content = self._cloud, self._cloud_content
         assert entry is not None and content is not None
+        reserve = self._reserve_of(state)
         rendered = render_chat_body(
             self._messages(state, message, steps, chat=True),
             self._tool_definitions(state),
             call_id=call_id,
-            fields=chat_fields(entry, self._reserve),
+            fields=chat_fields(entry, reserve, reasoning=self._reasoning_on(state)),
             markers=self.cfg.cloud_markers,
             estimate=lambda text: config.estimate_tokens(text, self.cfg.chars_per_token),
             provider_label_fr=content.provider_segment_fr,
         )
-        payload = self._chat_gauge(rendered, round(rendered.raw_total * self._ratio), "estimate")
+        payload = self._chat_gauge(
+            rendered, round(rendered.raw_total * self._ratio), "estimate", reserve
+        )
         if not payload["overflow"] and payload["used"] > payload["usable"]:
             payload["uncertain_fr"] = content.uncertain_fr
         return rendered, payload
 
-    def _chat_gauge(self, rendered: RenderedChat, total: int, source: str) -> dict[str, Any]:
+    def _chat_gauge(
+        self, rendered: RenderedChat, total: int, source: str, reserve: int
+    ) -> dict[str, Any]:
         """The gauge fields of a chat call for `total`: before the call (`estimate`) or once
         `usage` came back (`api`); one function for both (AD-9)."""
         assert self._labels is not None
         payload = gauge(
             with_total(rendered, total),
             window=self._window,
-            reserve=self._reserve,
+            reserve=reserve,
             near_limit_ratio=self.cfg.near_limit_ratio,
             labels=self._labels,
             window_source=self._window_source,
@@ -2127,7 +2229,9 @@ class AppSession:
                 if payload["overflow"]:
                     self._emit_overflow(payload, getattr(rendered, "raw_total", None))
                     return "overflow", "", ""
-                out = self._call_model(rendered, cancel, state.tools + tuple(loaded_in_turn))
+                out = self._call_model(
+                    rendered, cancel, state.tools + tuple(loaded_in_turn), payload["reserve"]
+                )
             if out.status != "completed":
                 return out.status, "", ""
             if not out.calls and out.malformed is None:
@@ -2152,8 +2256,12 @@ class AppSession:
                         error = self._tool_executor.reject(
                             out.raw, out.malformed.fragment, out.malformed.detail_fr, reaction
                         )
-                    # The raw output already holds any reasoning: not passed twice.
-                    steps.append({"role": "assistant", "content": out.raw, "tool_calls": []})
+                    # The output without its reasoning, the reasoning apart (AD-4); in chat
+                    # mode, the raw output AD-10 reinjects.
+                    steps.append(
+                        {"role": "assistant", "content": out.answer or out.raw, "tool_calls": []}
+                        | ({"reasoning": out.reasoning} if out.reasoning and out.answer else {})
+                    )
                     steps.append(
                         {
                             "role": "tool",
@@ -2663,11 +2771,13 @@ class AppSession:
         rendered: RenderedContext | RenderedChat,
         cancel: CancelToken,
         tools: tuple[str, ...],
+        reserve: int,
     ) -> _ModelOutput:
-        """One streamed call; with tools on, its `<tool_call>` blocks are parsed (AD-6)."""
+        """One streamed call of at most `reserve` output tokens (AD-9); with tools on, its
+        `<tool_call>` blocks are parsed, outside the reasoning (AD-6)."""
         assert self._engine is not None and self._caps is not None
         if isinstance(rendered, RenderedChat):
-            return self._call_model_chat(rendered, cancel)
+            return self._call_model_chat(rendered, cancel, reserve)
         step_id = current().step_id or ""
         journal = get_journal()
         started = time.monotonic()
@@ -2729,7 +2839,7 @@ class AppSession:
 
         try:
             for fragment in self._engine.complete(
-                rendered.ids, self._caps.stop_sequences, OUTPUT_RESERVE, cancel
+                rendered.ids, self._caps.stop_sequences, reserve, cancel
             ):
                 output_tokens = fragment.output_tokens
                 if first_at is None and output_tokens:
@@ -2752,12 +2862,15 @@ class AppSession:
             raw="".join(raw),
             text="".join(channels["text"]),
             reasoning="".join(channels["reasoning"]),
+            answer=splitter.outside,
         )
         if tools and out.status == "completed":
             assert self._caps.tool_call_parser is not None  # the brick requires it (AD-6)
             schemas = {name: spec.params for name in tools if (spec := self._registry.get(name))}
             out.calls, out.malformed = parse_tool_calls(
-                out.raw, self._caps.tool_call_parser, schemas
+                out.answer,  # a `<tool_call>` inside the reasoning never counts (AD-6)
+                self._caps.tool_call_parser,
+                schemas,
             )
         if stop_reason != "length":
             out.ids = [self._new_call_id(step_id, j) for j in range(len(out.calls))]
@@ -2769,7 +2882,7 @@ class AppSession:
                 {
                     "channel": splitter.channel,
                     "output_tokens": output_tokens,
-                    "max_tokens": OUTPUT_RESERVE,
+                    "max_tokens": reserve,
                 },
             )
             if splitter.channel != "tool_call":
@@ -2781,12 +2894,14 @@ class AppSession:
                 [],
                 Malformed(
                     fragment,
-                    f"la sortie a été coupée à {_fr(OUTPUT_RESERVE)} tokens au milieu de l'appel",
+                    f"la sortie a été coupée à {_fr(reserve)} tokens au milieu de l'appel",
                 ),
             )
         return out
 
-    def _call_model_chat(self, rendered: RenderedChat, cancel: CancelToken) -> _ModelOutput:
+    def _call_model_chat(
+        self, rendered: RenderedChat, cancel: CancelToken, reserve: int
+    ) -> _ModelOutput:
         """AD-5, chat mode: the body sent as is, under `origin = model`; a provider's refusal
         becomes `harness_error` (AD-16); `usage` reconciles the gauge (AD-4)."""
         entry = self._cloud
@@ -2814,7 +2929,7 @@ class AppSession:
             return _ModelOutput("error")
         prompt_tokens = int((call.usage or {}).get("prompt_tokens") or 0)
         if prompt_tokens:  # AD-4: `usage` is the total; the ratio learns from real calls only
-            payload = self._chat_gauge(rendered, prompt_tokens, "api")
+            payload = self._chat_gauge(rendered, prompt_tokens, "api", reserve)
             journal.emit("context_reconciled", payload | {"call_id": scope.call_id or ""})
             if rendered.raw_total:
                 self._ratio = min(1.5, max(0.8, prompt_tokens / rendered.raw_total))
@@ -2842,7 +2957,7 @@ class AppSession:
                 {
                     "channel": call.channel,
                     "output_tokens": call.output_tokens,
-                    "max_tokens": self._reserve,
+                    "max_tokens": reserve,
                 },
             )
             if call.channel != "tool_call":
@@ -2850,6 +2965,6 @@ class AppSession:
             out.calls, out.ids, out.arguments = [], [], []
             out.malformed = Malformed(
                 out.raw,
-                f"la sortie a été coupée à {_fr(self._reserve)} tokens au milieu de l'appel",
+                f"la sortie a été coupée à {_fr(reserve)} tokens au milieu de l'appel",
             )
         return out
