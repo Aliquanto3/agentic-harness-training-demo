@@ -362,3 +362,23 @@
   summary: Parcours E2E complet instable en fin de séance : sur quatre parcours complets de la story 21, deux ont échoué une fois, dans des scénarios que la story ne touche pas (`local_server` : « Chargement de faux-llama-server… » encore affiché après 10 s ; `relaunch` : un « Bonjour » sans `turn_ended` en 60 s, puis échecs en cascade).
   evidence: Les mêmes scénarios passent seuls (`--only model_switch local_server relaunch`, puis `--only rag rag_rerank compression model_switch local_server relaunch`), et le quatrième parcours complet passe (337 vérifications, 0 échec). La séance est plus longue qu'avant (quatre scénarios de plus, ≈ 1 850 événements) : piste d'un délai d'attente trop court face à un long journal, ou d'une file du fil de travail encombrée. À instrumenter (horodatage de `model_load_started`/`model_load_ended` dans le parcours) si l'échec se répète.
   closed: story 21, revue indépendante (2026-09-26) — cause identifiée : deux courses du rejeu du flux (`_sse_stream`, `sessionState` au rejeu, attente de `turn_started` dans `r.send`), corrigées par un autre agent en parallèle.
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
+  summary: Le vrai reranker (bge-reranker-v2-m3 Q4_K_M) n'a jamais tourné : mémoire ajoutée, latence de l'étape « Reranking » et pertinence restent à mesurer sur le PC cible.
+  evidence: Aucun modèle téléchargeable pendant la story (huggingface.co bloqué). L'adaptateur est exercé sur un GGUF BERT synthétique (`tests/fixtures/tiny-bert-rank.gguf`). Sur le PC cible, relever le RSS ajouté (seuil de la story 12 : 800 Mo au plus, NFR-2 ; le reporter dans `[rag.reranker] measured_rss_mb`), la durée de l'étape pour 8 candidats (NFR-1 : premier token en moins de 30 s avec la configuration du scénario, sinon baisser `[rag] rerank_candidates`), et lancer `uv run python -m pytest -m model tests/test_rag_rerank.py`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
+  summary: L'URL du reranker vise resolve/main et son sha256 n'est pas renseigné.
+  evidence: Le connecteur Hugging Face donne la taille (438 376 864 octets), ni l'oid LFS ni le commit. Le premier téléchargement sur le PC cible trace le sha256 (effet model_download) : le recopier dans `[rag.reranker] files[].sha256` et épingler l'URL sur le commit.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
+  summary: AD-21 amendé (à valider) : sans son modèle, seule la sous-option « Reranking » est indisponible, le RAG simple continue.
+  evidence: Revue indépendante de la story 16 ; la lettre d'AD-21 rendait toute la brique indisponible. Décision attendue d'Anaël au test manuel. Défaut : garder la sous-option seule indisponible.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
+  summary: Le parcours E2E ne joue ni l'échec d'un téléchargement du reranker (notice sous l'interrupteur) ni une étape « Reranking » en erreur dans le rail.
+  evidence: Couverts par pytest (`test_a_failed_reranker_download_removes_the_part`, `test_a_failing_reranker_keeps_the_embedding_order`, `test_scores_that_are_not_figures_keep_the_embedding_order`) ; l'affichage n'est vérifié qu'à la lecture du code. À ajouter au parcours si l'interface de ces cas change.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
+  summary: Le prompt « hôtel à Paris » du scénario `rag_rerank` réordonne avec le faux reranker ; avec le vrai modèle, l'effet reste à constater.
+  evidence: Au test manuel sur le PC cible : l'étape « Reranking » doit montrer au moins un extrait qui change de rang sur ce prompt ; sinon choisir un autre prompt du corpus.
+

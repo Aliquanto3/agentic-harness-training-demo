@@ -159,9 +159,10 @@ class CloudModel(_Strict):
         return dict(self.reasoning.on if on else self.reasoning.off)
 
 
-class EmbeddingFile(_Strict):
-    """A file of the embedding model (story 15): where to download it, where it goes under
-    `models_dir()`, its size in bytes and, when declared, its sha256 (empty: not checked)."""
+class ModelFile(_Strict):
+    """A file of a local model the harness downloads (stories 15 and 16: embedding,
+    reranker): where to download it, where it goes under `models_dir()`, its size in bytes
+    and, when declared, its sha256 (empty: not checked)."""
 
     url: str
     path: str = Field(min_length=1)
@@ -194,21 +195,19 @@ def _relative_path(value: str) -> str:
     return value
 
 
-class EmbeddingModel(_Strict):
-    """`[rag.embedding]` (story 15): the single place that names the embedding model, with
-    the values of story 12's verdict. Only the `llama_cpp` backend has an adapter."""
+class LocalModelSpec(_Strict):
+    """What `[rag.embedding]` and `[rag.reranker]` share: the model's name, licence and
+    files (downloaded and identified by their size and sha256), the one loaded, and the RSS
+    story 12 measured when declared. Only the `llama_cpp` backend has an adapter."""
 
     id: str = Field(min_length=1)
     backend: Literal["llama_cpp"]
     label_fr: str = Field(min_length=1)
     license: str = Field(min_length=1)
-    dims: int = Field(gt=0)
     max_tokens: int = Field(gt=0)
-    query_prefix: str = ""
-    passage_prefix: str = ""
     load_path: str = Field(min_length=1)
     measured_rss_mb: int | None = Field(default=None, gt=0)
-    files: list[EmbeddingFile] = Field(min_length=1)
+    files: list[ModelFile] = Field(min_length=1)
 
     @field_validator("load_path")
     @classmethod
@@ -216,45 +215,31 @@ class EmbeddingModel(_Strict):
         return _relative_path(value)
 
     @model_validator(mode="after")
-    def _load_path_is_declared(self) -> EmbeddingModel:
+    def _load_path_is_declared(self) -> LocalModelSpec:
         """The file loaded is one of `files`: its size (and sha256) identify the model."""
         if PurePosixPath(self.load_path) not in {PurePosixPath(f.path) for f in self.files}:
             raise ValueError("load_path must be one of files[].path")
         return self
 
     @property
-    def load_file(self) -> EmbeddingFile:
+    def load_file(self) -> ModelFile:
         return next(f for f in self.files if PurePosixPath(f.path) == PurePosixPath(self.load_path))
 
 
-class RerankerModel(_Strict):
+class EmbeddingModel(LocalModelSpec):
+    """`[rag.embedding]` (story 15): the single place that names the embedding model, with
+    the values of story 12's verdict."""
+
+    dims: int = Field(gt=0)
+    query_prefix: str = ""
+    passage_prefix: str = ""
+
+
+class RerankerModel(LocalModelSpec):
     """`[rag.reranker]` (story 16): the single place that names the reranking model, with
-    the values of story 12's verdict. Only the `llama_cpp` backend has an adapter; its files
-    are declared, downloaded and identified as the embedding model's are."""
+    the values of story 12's verdict. `max_tokens`: one query-excerpt pair."""
 
-    id: str = Field(min_length=1)
-    backend: Literal["llama_cpp"]
-    label_fr: str = Field(min_length=1)
-    license: str = Field(min_length=1)
-    max_tokens: int = Field(gt=8)  # one query-excerpt pair, in tokens
-    load_path: str = Field(min_length=1)
-    measured_rss_mb: int | None = Field(default=None, gt=0)
-    files: list[EmbeddingFile] = Field(min_length=1)
-
-    @field_validator("load_path")
-    @classmethod
-    def _inside_models_dir(cls, value: str) -> str:
-        return _relative_path(value)
-
-    @model_validator(mode="after")
-    def _load_path_is_declared(self) -> RerankerModel:
-        if PurePosixPath(self.load_path) not in {PurePosixPath(f.path) for f in self.files}:
-            raise ValueError("load_path must be one of files[].path")
-        return self
-
-    @property
-    def load_file(self) -> EmbeddingFile:
-        return next(f for f in self.files if PurePosixPath(f.path) == PurePosixPath(self.load_path))
+    max_tokens: int = Field(gt=8)
 
 
 def _merge_cloud_models(base: Any, override: Any) -> list[Any]:
@@ -397,8 +382,9 @@ class Config:
 
     @property
     def rag_top_k(self) -> int:
-        """Story 15: the excerpts placed in the context at each turn."""
-        return max(1, self._int("rag", "top_k", default=3))
+        """Story 15: the excerpts placed in the context at each turn, 1 to 20 (story 16: the
+        reranker's candidates never exceed 20 either)."""
+        return min(20, max(1, self._int("rag", "top_k", default=3)))
 
     @cached_property
     def rag_reranker(self) -> tuple[RerankerModel | None, str | None]:

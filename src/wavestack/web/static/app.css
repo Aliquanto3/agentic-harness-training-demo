@@ -3088,3 +3088,17 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   font-weight: var(--typography-label-font-weight);
   color: var(--color-primary);
 }
+
+.rerank-column {
+  min-width: 0;
+}
+
+.rerank-note {
+  margin: var(--spacing-2) 0 0;
+  color: var(--color-ink-soft);
+}
+
+.rerank-cut {
+  color: var(--color-ink-soft);
+  font-style: italic;
+}

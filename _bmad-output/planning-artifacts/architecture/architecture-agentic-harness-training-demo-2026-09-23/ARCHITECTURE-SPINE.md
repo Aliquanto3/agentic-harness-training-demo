@@ -552,7 +552,7 @@ Règles de dépendance :
   - **Processus.** Le serveur MCP local (`MCPServer`, stdio) démarre à l’activation de la brique MCP, avec `sys.executable -m …`, et s’arrête à sa désactivation. À l’arrêt, le `lifespan` ferme les moteurs et les processus enfants : attente bornée, puis `terminate`.
   - **Modèles.** Rien ne se télécharge automatiquement.
     - Le diagnostic propose le bouton « Télécharger » (intention `download_model`, classe b, état `download`). Il passe par `models/download.py` (AD-15) et affiche une progression chiffrée.
-    - Une brique RAG activée sans ses modèles d’embedding ou de reranking est indisponible, avec la raison « modèle absent » et la même action « Télécharger ».
+    - Une brique RAG activée sans son modèle d’embedding est indisponible, avec la raison « modèle absent » et la même action « Télécharger ». Sans son modèle de reranking, seule la sous-option « Reranking » est indisponible, avec la même raison et la même action : le RAG simple continue, et l’étape « Recherche RAG » dit que le reranking demandé n’est pas appliqué. *Décision provisoire, à valider (story 16, hypothèse 1) : la règle initiale rendait toute la brique RAG indisponible sans le reranker, ce qui privait le module de son RAG pour un modèle facultatif.*
     - La voie hors ligne consiste à copier un GGUF ou à choisir un modèle découvert.
 
 ### AD-22 — Compression et RAG derrière des ports

@@ -13,15 +13,23 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 from wavestack import config
 from wavestack.config import RerankerModel
 
 
+class RerankScore(NamedTuple):
+    """One excerpt's relevance in [0, 1], and whether it was cut to fit the pair."""
+
+    score: float
+    truncated: bool = False
+
+
 class Reranker(Protocol):
     """What the RAG needs from a reranking model: one relevance score in [0, 1] per excerpt,
-    for a query. `cancelled` is checked between two excerpts."""
+    for a query. `cancelled` is checked between two excerpts; `progress(done, total)` is
+    called after each one."""
 
     model_id: str
 
@@ -30,7 +38,8 @@ class Reranker(Protocol):
         query: str,
         passages: Sequence[str],
         cancelled: Callable[[], bool] | None = None,
-    ) -> list[float]: ...
+        progress: Callable[[int, int], None] | None = None,
+    ) -> list[RerankScore]: ...
 
     def close(self) -> None: ...
 
@@ -57,17 +66,37 @@ def pair_tokens(
     eos: int | None,
     sep: int | None,
     max_tokens: int,
-) -> list[int]:
+) -> tuple[list[int], bool]:
     """`[BOS] q [EOS] [SEP] d [EOS]` (llama-server's `format_rerank`), a special token left
-    out when `None` (the vocabulary does not add it). The passage is cut so the pair fits in
-    `max_tokens`; the query (a user's message) keeps at most half of the room."""
+    out when `None` (the vocabulary does not add it), and whether something was cut. When the
+    pair does not fit in `max_tokens`, the query (a user's message) keeps at least half of the
+    room, more when the passage leaves some; the passage takes the rest."""
     head = [bos] if bos is not None else []
     close = [eos] if eos is not None else []
     middle = close + ([sep] if sep is not None else [])
-    fixed = len(head) + len(middle) + len(close)
-    query = query[: max(1, (max_tokens - fixed) // 2)]
-    room = max(0, max_tokens - fixed - len(query))
-    return head + query + middle + passage[:room] + close
+    room = max(2, max_tokens - len(head) - len(middle) - len(close))
+    cut = len(query) + len(passage) > room
+    if cut:
+        keep_query = min(len(query), max(room // 2, room - len(passage)))
+        query, passage = query[: max(1, keep_query)], passage[: room - max(1, keep_query)]
+    return head + query + middle + passage + close, cut
+
+
+def special_tokens(llama_cpp, llm) -> tuple[int | None, int | None, int | None]:  # noqa: ANN001
+    """BOS, EOS and SEP as the vocabulary adds them to a pair: `None` when it does not add
+    one, when the token is `LLAMA_TOKEN_NULL` (-1), or when this llama-cpp-python has no
+    binding to say so (never assumed)."""
+    vocab = llama_cpp.llama_model_get_vocab(llm._model.model)
+    null = getattr(llama_cpp, "LLAMA_TOKEN_NULL", -1)
+
+    def token(name: str) -> int | None:
+        adds = getattr(llama_cpp, f"llama_vocab_get_add_{name}", None)
+        if adds is None or not adds(vocab):
+            return None
+        value = int(getattr(llama_cpp, f"llama_vocab_{name}")(vocab))
+        return None if value in (null, -1) else value
+
+    return token("bos"), token("eos"), token("sep")
 
 
 def model_path(model: RerankerModel) -> Path:
@@ -105,17 +134,9 @@ class LlamaCppReranker:
                 f"le fichier déclare le pooling {declared} dans ses métadonnées GGUF, pas RANK "
                 "(4) : c'est un modèle d'embedding, pas un modèle de reranking"
             )
-        vocab = llama_cpp.llama_model_get_vocab(self._llm._model.model)
-
-        def flag(name: str) -> bool:
-            fn = getattr(llama_cpp, f"llama_vocab_get_add_{name}", None)
-            return bool(fn(vocab)) if fn else True
-
-        self._bos = llama_cpp.llama_vocab_bos(vocab) if flag("bos") else None
-        self._eos = llama_cpp.llama_vocab_eos(vocab) if flag("eos") else None
-        self._sep = llama_cpp.llama_vocab_sep(vocab) if flag("sep") else None
         try:
-            probe = self._logit("Exemplia", "Politique des mots de passe")
+            self._bos, self._eos, self._sep = special_tokens(llama_cpp, self._llm)
+            probe = self._logit("Exemplia", "Politique des mots de passe")[0]
         except Exception as exc:  # noqa: BLE001 - said in French, below
             self.close()
             raise ValueError(
@@ -132,11 +153,11 @@ class LlamaCppReranker:
     def _tokens(self, text: str) -> list[int]:
         return self._llm.tokenize(text.encode("utf-8"), add_bos=False, special=False)
 
-    def _logit(self, query: str, passage: str) -> float:
+    def _logit(self, query: str, passage: str) -> tuple[float, bool]:
         import llama_cpp
 
         llm = self._llm
-        tokens = pair_tokens(
+        tokens, cut = pair_tokens(
             self._tokens(query),
             self._tokens(passage),
             bos=self._bos,
@@ -150,7 +171,7 @@ class LlamaCppReranker:
         try:
             llm._ctx.decode(llm._batch)
             ptr = llama_cpp.llama_get_embeddings_seq(llm._ctx.ctx, 0)
-            return float(ptr[0])
+            return float(ptr[0]), cut
         finally:
             llm._batch.reset()
 
@@ -159,12 +180,16 @@ class LlamaCppReranker:
         query: str,
         passages: Sequence[str],
         cancelled: Callable[[], bool] | None = None,
-    ) -> list[float]:
+        progress: Callable[[int, int], None] | None = None,
+    ) -> list[RerankScore]:
         scores = []
         for passage in passages:
             if cancelled is not None and cancelled():
                 raise RerankCancelled("reranking arrêté")
-            scores.append(sigmoid(self._logit(query, passage)))
+            logit, cut = self._logit(query, passage)
+            scores.append(RerankScore(sigmoid(logit), cut))
+            if progress is not None:
+                progress(len(scores), len(passages))
         return scores
 
     def close(self) -> None:

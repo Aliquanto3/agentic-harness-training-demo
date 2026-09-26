@@ -32,9 +32,10 @@ explanation_fr:
     Sous-option « Reranking » : l'embedding compare des vecteurs calculés séparément pour la
     question et pour chaque extrait ; il est rapide, mais approximatif. Le reranker, un
     second modèle local, lit la question et un extrait ensemble et note leur pertinence de 0
-    à 1. Le harnais retient d'abord plus de candidats (8 par défaut), les fait noter un par
-    un, puis ne garde que les 3 premiers : l'étape « Reranking » d'Orchestration montre
-    l'ordre avant et après. Les deux scores ne se comparent pas entre eux.
+    à 1. Le harnais retient d'abord plus de candidats ({candidates}, [rag]
+    rerank_candidates), les fait noter un par un, puis ne garde que les {keep} premiers
+    ([rag] top_k) : l'étape « Reranking » d'Orchestration montre l'ordre avant et après. Les
+    deux scores ne se comparent pas entre eux.
   - - "Gain : les extraits gardés répondent plus souvent à la question."
     - >-
       Coût : un passage du reranker par candidat avant le premier appel au modèle (le
