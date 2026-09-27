@@ -494,6 +494,7 @@ function applyEnvelope(envelope) {
     }
     case "tool_call_malformed":
     case "prefix_not_reused":
+    case "reasoning_cut": // lot C: the harness closed a reasoning at its budget
       if (turn) turn.steps.push({ type: envelope.kind, payload: p });
       break;
     case "limit_reached":
@@ -550,6 +551,7 @@ const SUB_KINDS = new Set([
   "approval_resolved",
   "tool_call_malformed",
   "prefix_not_reused",
+  "reasoning_cut",
   "limit_reached",
   "output_truncated",
   "special_token_neutralized",
@@ -679,6 +681,7 @@ function applySubEnvelope(turn, sub, envelope) {
     }
     case "tool_call_malformed":
     case "prefix_not_reused":
+    case "reasoning_cut":
       sub.steps.push({ type: envelope.kind, payload: p });
       break;
     case "limit_reached":
@@ -3462,6 +3465,18 @@ function turnRows(turn) {
         sig: 1,
         body: () => [harnessEvent("Préfixe non réutilisé", "info", [el("p", "", step.payload.message_fr)])],
       });
+    } else if (step.type === "reasoning_cut") {
+      // Lot C (N4): the reasoning reached its budget; the harness closed it and relaunched.
+      rows.push({
+        key,
+        icon: "✂",
+        title: "Raisonnement coupé",
+        actor: "harness",
+        figure: `${fmt(step.payload.reasoning_tokens)} tokens · ${fmt(step.payload.answer_reserve)} pour la réponse`,
+        tone: "hook",
+        sig: 1,
+        body: () => [harnessEvent("Raisonnement coupé", "info", [el("p", "", step.payload.message_fr)])],
+      });
     }
   });
   if (turn.overflow) {
@@ -4277,6 +4292,7 @@ const KIND_LABELS = {
   context_preview: "Aperçu du contexte",
   context_overflow: "Contexte dépassé",
   output_truncated: "Sortie coupée",
+  reasoning_cut: "Raisonnement coupé",
   model_call_started: "Appel au modèle commencé",
   model_first_token: "Premier token",
   model_delta: "Morceau de réponse",
@@ -4419,6 +4435,8 @@ function eventSummary(group) {
       return p.detail_fr;
     case "output_truncated":
       return `${fmt(p.output_tokens)} / ${fmt(p.max_tokens)} tokens`;
+    case "reasoning_cut":
+      return `coupé à ${fmt(p.reasoning_tokens)} tokens (budget ${fmt(p.budget)}) · ${fmt(p.answer_reserve)} pour la réponse`;
     case "diagnostic_check":
       return `${p.check} : ${p.status} · ${p.message_fr}`;
     case "conversation_cleared":

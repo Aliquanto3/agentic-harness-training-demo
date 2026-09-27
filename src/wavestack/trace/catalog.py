@@ -218,6 +218,17 @@ class OutputTruncatedPayload(BaseModel):
     max_tokens: int
 
 
+class ReasoningCutPayload(BaseModel):
+    """Lot C (N4), local mode: the reasoning reached `budget` tokens without closing; the
+    harness closed it (`reasoning_tokens` generated) and relaunched the model with
+    `answer_reserve` tokens left for the answer."""
+
+    budget: int
+    reasoning_tokens: int
+    answer_reserve: int
+    message_fr: str
+
+
 class ModelCallStartedPayload(BaseModel):
     phase_label: str
 
@@ -762,6 +773,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "context_reconciled": ContextReconciledPayload,
     "context_overflow": ContextOverflowPayload,
     "output_truncated": OutputTruncatedPayload,
+    "reasoning_cut": ReasoningCutPayload,
     "model_call_started": ModelCallStartedPayload,
     "model_first_token": ModelFirstTokenPayload,
     "model_delta": ModelDeltaPayload,

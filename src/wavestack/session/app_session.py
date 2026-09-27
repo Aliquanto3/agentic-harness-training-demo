@@ -43,6 +43,7 @@ from wavestack.compression.port import (
 )
 from wavestack.config import (
     MAX_RESERVE,
+    MIN_REASONING_BUDGET,
     CloudModel,
     EmbeddingModel,
     ModelFile,
@@ -1231,6 +1232,7 @@ class AppSession:
             )
             if brick.id == "reasoning":
                 bricks[-1]["always_fr"] = self._always_fr()
+                bricks[-1]["limits_fr"] = self._reasoning_budget_fr()
             if brick.id == "global_memory":
                 bricks[-1] |= self._memory_card()
             if brick.id == "subagent" and self._subagent_content is not None:
@@ -2552,6 +2554,18 @@ class AppSession:
             f"{_fr(MAX_RESERVE)} tokens."
         )
 
+    def _reasoning_budget_fr(self) -> str | None:
+        """Lot C (N4): the reasoning budget, local mode only (a cloud provider manages its
+        own reasoning effort)."""
+        caps = self._caps
+        if self._cloud is not None or caps is None or not (caps.reasoning_tags and caps.reasoning):
+            return None
+        budget = self.cfg.reasoning_budget_tokens
+        return (
+            f"Budget de réflexion : {_fr(budget)} tokens ; au-delà, le harnais ferme la "
+            f"réflexion et garde {_fr(MAX_RESERVE - budget)} tokens pour la réponse."
+        )
+
     def _reasoning_on(self, state: TurnState) -> bool:
         """AD-6, AD-9: the model reasons in this turn: brick effective, or a cloud model
         that always reasons. In a sub-agent's context (AD-11), the brick counts only if it
@@ -3652,7 +3666,9 @@ class AppSession:
                         f"{_fr(payload['usable'])} utilisables).",
                     )
                 figures["calls"] += 1
-                out = self._call_model(rendered, cancel, sub.tools, payload["reserve"])
+                out = self._call_model(
+                    rendered, cancel, sub.tools, payload["reserve"], self._reasoning_on(state)
+                )
             if out.reconciled is not None:  # chat mode: `usage` reconciled the figures (AD-4)
                 figures["context_tokens"] = out.reconciled["used"]
                 figures["kept_tokens"] = _kind_tokens(out.reconciled, SegmentKind.TOOL_RESULT)
@@ -4743,7 +4759,11 @@ class AppSession:
                 done: _ModelOutput | None = None
                 try:
                     done = out = self._call_model(
-                        rendered, cancel, state.tools + tuple(loaded_in_turn), payload["reserve"]
+                        rendered,
+                        cancel,
+                        state.tools + tuple(loaded_in_turn),
+                        payload["reserve"],
+                        self._reasoning_on(state),
                     )
                 finally:  # lot A: what the engine holds now, even after a failed call
                     if isinstance(rendered, RenderedContext):
@@ -5815,9 +5835,11 @@ class AppSession:
         cancel: CancelToken,
         tools: tuple[str, ...],
         reserve: int,
+        reasons: bool = False,
     ) -> _ModelOutput:
         """One streamed call of at most `reserve` output tokens (AD-9); with tools on, its
-        `<tool_call>` blocks are parsed, outside the reasoning (AD-6)."""
+        `<tool_call>` blocks are parsed, outside the reasoning (AD-6). `reasons`: the model
+        reasons in this call (`_reasoning_on`), which the reasoning budget requires (lot C)."""
         assert self._engine is not None and self._caps is not None
         if isinstance(rendered, RenderedChat):
             return self._call_model_chat(rendered, cancel, reserve)
@@ -5834,12 +5856,22 @@ class AppSession:
             in_reasoning=bool(tags) and rendered.prompt.rstrip().endswith(tags[0]),
             tool_tags=TOOL_CALL_TAGS if tools else None,
         )
+        # Lot C (N4): a reasoning longer than the budget is closed by the harness, the rest
+        # of the reserve going to the answer; only when the call reasons and the reserve
+        # leaves the answer at least the floor.
+        budget = self.cfg.reasoning_budget_tokens
+        budget = budget if tags and reasons and reserve - budget >= MIN_REASONING_BUDGET else None
+        # The last generation: its output tokens could reach `limit`, after `before` (AD-9).
+        limit, before = reserve, 0
         raw: list[str] = []
         channels: dict[str, list[str]] = {"reasoning": [], "text": [], "tool_call": []}
         pending: list[tuple[str, str]] = []
         first_at: float | None = None
         last_flush = started
         output_tokens = 0
+        reasoning_tokens = 0
+        # The prompt tokens each generation evaluated, as its engine says (AD-4).
+        evaluations: list[int | None] = []
         stop_reason = "stop"
 
         def flush() -> None:
@@ -5861,6 +5893,11 @@ class AppSession:
             ended = time.monotonic()
             first = first_at or ended
             gen_ms = _ms(ended - first)
+            if not evaluations:  # the engine failed before any generation was read
+                evaluations.append(_evaluated(self._engine))
+            # A server's count comes in its last chunk, never read after a cut: the known ones.
+            known = [n for n in evaluations if n is not None]
+            evaluated = sum(known) if known else None
             journal.emit(
                 "model_call_ended",
                 {
@@ -5876,25 +5913,85 @@ class AppSession:
                     "duration_ms": _ms(ended - started),
                     "output_tps": output_tps(output_tokens, gen_ms),
                     "usage_source": "engine",
-                    "evaluated_tokens": _evaluated(self._engine),
+                    "evaluated_tokens": evaluated,
                 },
                 actor="model",
             )
 
+        def generate(ids: list[int], max_tokens: int, cut_at: int | None) -> str:
+            """One generation of the engine, its tokens counted after the ones before it;
+            `cut`: the reasoning reached `cut_at` tokens without closing, the generation is
+            stopped there (lot C)."""
+            nonlocal first_at, output_tokens, reasoning_tokens
+            assert self._engine is not None and self._caps is not None
+            base, reason = output_tokens, "stop"
+            fragments = self._engine.complete(ids, self._caps.stop_sequences, max_tokens, cancel)
+            try:
+                for fragment in fragments:
+                    produced = base + fragment.output_tokens
+                    new, output_tokens = produced - output_tokens, produced
+                    if first_at is None and output_tokens:
+                        first_at = time.monotonic()
+                        journal.emit("model_first_token", {}, actor="model")
+                    raw.append(fragment.text)
+                    take(splitter.feed(fragment.text))
+                    if splitter.channel == "reasoning":
+                        reasoning_tokens += new
+                    if fragment.stop_reason:
+                        reason = fragment.stop_reason
+                    elif (
+                        cut_at is not None
+                        and reasoning_tokens >= cut_at
+                        and fragment.text  # else the engine holds bytes back
+                        and fragment.output_tokens < max_tokens  # else `length` follows
+                        and splitter.channel == "reasoning"
+                        and (
+                            # never inside a closing tag, nor after a blank, which the
+                            # history's render trims (AD-4)...
+                            not splitter.holding
+                            and not "".join(channels["reasoning"][-1:])[-1:].isspace()
+                            # ...unless waiting would eat the answer's floor
+                            or max_tokens - fragment.output_tokens <= MIN_REASONING_BUDGET
+                        )
+                    ):
+                        reason = "cut"
+                        break
+                    if pending and time.monotonic() - last_flush >= DELTA_INTERVAL_S:
+                        flush()
+            finally:
+                fragments.close()  # stops the engine's generation when cut (lot C)
+                evaluations.append(_evaluated(self._engine))
+            return reason
+
         try:
-            for fragment in self._engine.complete(
-                rendered.ids, self._caps.stop_sequences, reserve, cancel
-            ):
-                output_tokens = fragment.output_tokens
-                if first_at is None and output_tokens:
-                    first_at = time.monotonic()
-                    journal.emit("model_first_token", {}, actor="model")
-                raw.append(fragment.text)
-                take(splitter.feed(fragment.text))
-                if fragment.stop_reason:
-                    stop_reason = fragment.stop_reason
-                if pending and time.monotonic() - last_flush >= DELTA_INTERVAL_S:
-                    flush()
+            stop_reason = generate(rendered.ids, reserve, budget)
+            if stop_reason == "cut" and cancel.cancelled:
+                stop_reason = "cancelled"
+            elif stop_reason == "cut":
+                assert budget is not None and tags  # a cut needs both
+                closure = self._reasoning_closure(tags[1])
+                ids = self._relaunch_ids(rendered.ids, "".join(raw), closure)
+                # AD-9: the room left after the prompt, the output and the closure.
+                limit = left = len(rendered.ids) + reserve - len(ids)
+                before = output_tokens
+                journal.emit(
+                    "reasoning_cut",
+                    {
+                        "budget": budget,
+                        "reasoning_tokens": reasoning_tokens,
+                        "answer_reserve": left,
+                        "message_fr": (
+                            f"Raisonnement coupé par le harnais à {_fr(reasoning_tokens)} "
+                            f"tokens : la réflexion a atteint le budget de {_fr(budget)} tokens "
+                            f"sans se fermer. Le harnais la ferme lui-même ({tags[1]}) et "
+                            f"relance le modèle, qui garde {_fr(left)} tokens pour la réponse."
+                        ),
+                    },
+                )
+                raw.append(closure)  # the closure, as if the model had written it (AD-4)
+                take(splitter.feed(closure))
+                flush()
+                stop_reason = generate(ids, left, None)
             take(splitter.flush())
             flush()
         except ServerError as error:  # story 18: the local server stopped or refused
@@ -5932,8 +6029,8 @@ class AppSession:
                 "output_truncated",
                 {
                     "channel": splitter.channel,
-                    "output_tokens": output_tokens,
-                    "max_tokens": reserve,
+                    "output_tokens": output_tokens - before,
+                    "max_tokens": limit,
                 },
             )
             if splitter.channel != "tool_call":
@@ -5945,10 +6042,39 @@ class AppSession:
                 [],
                 Malformed(
                     fragment,
-                    f"la sortie a été coupée à {_fr(reserve)} tokens au milieu de l'appel",
+                    f"la sortie a été coupée à {_fr(limit)} tokens au milieu de l'appel",
                 ),
             )
         return out
+
+    def _reasoning_closure(self, closing_tag: str) -> str:
+        """Lot C (N4): what the harness writes to close a reasoning cut at the budget, the
+        text the template writes between reasoning and answer (`reasoning_wrap`, Qwen3.5:
+        `"\\n</think>\\n\\n"`), so that the answer goes on as the template renders it (AD-4);
+        else the closing tag followed by a blank line."""
+        template = self._caps.chat_template if self._caps is not None else None
+        wrap = reasoning_wrap(template) if template else None
+        if wrap is not None and closing_tag in wrap[1]:
+            return wrap[1]
+        return closing_tag + "\n\n"
+
+    def _relaunch_ids(self, prompt_ids: list[int], produced: str, closure: str) -> list[int]:
+        """Lot C (AD-4): the ids of the relaunch after a cut reasoning. The engine's cached
+        ids when they extend the prompt with bytes of what was produced, followed by the rest
+        and the closure: nothing already evaluated is tokenized again, which a hybrid model
+        would read again in full. Else the prompt followed by the output and the closure."""
+        assert self._engine is not None
+        cached = _engine_cached_ids(self._engine)
+        if cached is not None and cached[: len(prompt_ids)] == prompt_ids:
+            try:
+                done = b"".join(self._engine.token_pieces(cached[len(prompt_ids) :]))
+                data = produced.encode("utf-8")
+                if data.startswith(done):
+                    rest = data[len(done) :].decode("utf-8")  # a cut character: the fallback
+                    return cached + self._engine.tokenize(rest + closure)
+            except Exception:  # noqa: BLE001 - AD-16: the ids of the output instead
+                pass
+        return list(prompt_ids) + self._engine.tokenize(produced + closure)
 
     def _call_model_chat(
         self, rendered: RenderedChat, cancel: CancelToken, reserve: int

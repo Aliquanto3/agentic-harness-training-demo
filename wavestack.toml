@@ -117,6 +117,16 @@ fetch_page_max_chars = 4000
 # Plancher 200.
 result_max_tokens = 1200
 
+[reasoning]
+# Budget de raisonnement (lot C, décision N4), en mode local seulement : quand la réflexion
+# atteint budget_tokens tokens sans s'être fermée, le harnais arrête la génération, ferme
+# lui-même la réflexion (le </think> du gabarit) et relance le modèle, qui garde le reste de la
+# réserve de sortie (1 536 tokens avec le raisonnement) pour la réponse. Les modèles cloud gèrent
+# leur propre effort de raisonnement. Borné entre 128 et 1 408 (1 536 − 128). À environ
+# 11 tokens/s sur le PC cible, 1 024 tokens de réflexion prennent ≈ 90 s : baissez le budget
+# si les réponses arrivent trop tard.
+budget_tokens = 1024
+
 [compression]
 # Compression du contexte (story 20, AD-22) par Headroom, dépendance optionnelle installée
 # par `uv sync --extra compression`. Un résultat d'outil ou un extrait RAG plus court que

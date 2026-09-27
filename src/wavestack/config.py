@@ -92,6 +92,8 @@ def _is_loopback(host: str) -> bool:
 OUTPUT_RESERVE = 512  # AD-9: the output reserve of a model that does not reason
 MAX_RESERVE = 1536  # AD-9: the largest output reserve; `tpm // 2` must exceed it
 DEFAULT_TOOL_RESULT_MAX_TOKENS = 1200  # lot B (N3): `[tools] result_max_tokens`
+DEFAULT_REASONING_BUDGET = 1024  # lot C (N4): `[reasoning] budget_tokens`
+MIN_REASONING_BUDGET = 128  # lot C: the floor, and what is always left to the answer
 
 
 def output_reserve(reasoning: bool) -> int:
@@ -487,6 +489,19 @@ class Config:
         if isinstance(raw, bool) or (isinstance(raw, float) and not raw.is_integer()):
             return default
         return max(200, self._int("tools", "result_max_tokens", default=default))
+
+    @property
+    def reasoning_budget_tokens(self) -> int:
+        """Lot C (N4), local mode: the reasoning tokens after which the harness closes the
+        reasoning itself, the rest of the reserve going to the answer. A missing or
+        non-integer value is the default; bounded so that the reasoning and the answer each
+        keep at least 128 of the 1 536 tokens of the reserve."""
+        default = DEFAULT_REASONING_BUDGET
+        raw = self.get("reasoning", "budget_tokens", default=default)
+        if isinstance(raw, bool) or (isinstance(raw, float) and not raw.is_integer()):
+            return default
+        value = self._int("reasoning", "budget_tokens", default=default)
+        return min(MAX_RESERVE - MIN_REASONING_BUDGET, max(MIN_REASONING_BUDGET, value))
 
     @property
     def mcp_urls(self) -> dict[str, str]:

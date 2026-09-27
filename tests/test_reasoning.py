@@ -385,17 +385,25 @@ def test_without_resend_the_reasoning_never_goes_back():
 LONG_REASONING = "je réfléchis " * 200  # 2 600 characters: one token each in `FakeEngine`
 
 
-def test_local_output_cut_in_the_reasoning_is_cut_at_the_reasoning_reserve():
-    engine, session = _qwen([LONG_REASONING])
+def test_local_reasoning_that_never_closes_still_answers_within_the_reasoning_reserve():
+    """Lot C (N4): no more empty bubble; the harness closes the reasoning at its budget and
+    the answer takes the rest of the 1 536-token reserve (`tests/test_reasoning_budget.py`)."""
+    engine, session = _qwen([LONG_REASONING, "Bonjour."])
     session.set_brick("reasoning", True)
     session.join()
 
     events = _run(session, "Bonjour")
 
-    assert engine.max_tokens == [1536]
-    truncated = events["output_truncated"][0]
-    assert truncated == {"channel": "reasoning", "output_tokens": 1536, "max_tokens": 1536}
-    assert events["turn_ended"][0]["status"] == "limit"
+    assert events["context_rendered"][0]["reserve"] == 1536
+    # The reserve, shared: what the relaunch adds to the prompt comes out of it (AD-9).
+    left = len(engine.calls[0]) + 1536 - len(engine.calls[1])
+    assert (
+        engine.max_tokens == [1536, left] and events["reasoning_cut"][0]["answer_reserve"] == left
+    )
+    assert events["reasoning_cut"][0]["reasoning_tokens"] == 1024
+    assert "output_truncated" not in events
+    assert events["model_call_ended"][0]["text"].strip() == "Bonjour."
+    assert events["turn_ended"][0]["status"] == "completed"
     session.close()
 
 

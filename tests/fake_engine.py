@@ -31,6 +31,7 @@ class FakeEngine:
         delay: float = 0.0,
         stateful: bool = True,
         fail_restore: bool = False,
+        cache_lags: bool = False,
     ) -> None:
         self.output = output
         self.outputs = outputs  # one per call, the last one repeated
@@ -46,6 +47,8 @@ class FakeEngine:
         # `restore` that fails.
         self.stateful = stateful
         self.fail_restore = fail_restore
+        # Lot C: as llama.cpp, the last token sampled is not in the cache (not evaluated yet).
+        self.cache_lags = cache_lags
         self.cache: list[int] = []
         self.evaluated: list[int] = []
         self.snapshots = 0
@@ -101,13 +104,18 @@ class FakeEngine:
         n = len(self.calls) - 1
         output = self.outputs[min(n, len(self.outputs) - 1)] if self.outputs else self.output
         count = 0
+        held: list[int] = []  # `cache_lags`: the last token sampled, not evaluated yet
         for char in output:
             time.sleep(self.delay)
             if cancel.cancelled:
                 yield Fragment("", count, "cancelled")
                 return
             count += 1
-            self.cache += list(char.encode("utf-8"))
+            if self.cache_lags:
+                self.cache += held
+                held = list(char.encode("utf-8"))
+            else:
+                self.cache += list(char.encode("utf-8"))
             yield Fragment(char, count)
             if count >= max_tokens:
                 yield Fragment("", count, "length")

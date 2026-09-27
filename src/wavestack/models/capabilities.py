@@ -121,6 +121,11 @@ class ChannelSplitter:
     def channel(self) -> str:
         return self._channel
 
+    @property
+    def holding(self) -> bool:
+        """A possibly partial tag is held back: the channel may be about to change."""
+        return bool(self._buffer)
+
     def feed(self, text: str) -> list[tuple[str, str]]:
         self._buffer += text
         out: list[tuple[str, str]] = []
