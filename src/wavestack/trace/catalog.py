@@ -376,11 +376,21 @@ class ToolStartedPayload(BaseModel):
     source: Literal["native", "harness", "mcp_local", "mcp_public"] = "native"
 
 
+class ToolResultTruncated(BaseModel):
+    """Lot B (N3): the harness cut a network or MCP tool's result to `[tools]
+    result_max_tokens`; `tokens` kept of `total_tokens`, estimated in chat mode (« ≈ »)."""
+
+    tokens: int
+    total_tokens: int
+    estimated: bool = False
+
+
 class ToolEndedPayload(BaseModel):
     status: Literal["ok", "error", "blocked", "limit", "overflow", "cancelled"]
     result: str | None = None
     error_fr: str | None = None
     duration_ms: int
+    truncated: ToolResultTruncated | None = None
 
 
 class ToolCallMalformedPayload(BaseModel):

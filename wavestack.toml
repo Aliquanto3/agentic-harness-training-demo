@@ -109,6 +109,13 @@ max_retries = 2
 # [net] allowed_hosts). Le texte de la page est coupé à fetch_page_max_chars caractères.
 fetch_page_hosts = ["fr.wikipedia.org", "calendrier.api.gouv.fr"]
 fetch_page_max_chars = 4000
+# Borne d'un résultat d'outil, en tokens, pour les outils réseau et MCP (locaux compris),
+# dans le tour, le sous-agent et les actions forcées ; jamais les outils natifs locaux comme
+# read_file, ni un message d'erreur, ni le résultat du sous-agent (delegate). Le harnais coupe
+# au plus près de la borne, au dernier saut de ligne s'il tombe dans la seconde moitié du
+# texte gardé, avant la compression, et le signale au modèle et dans Orchestration.
+# Plancher 200.
+result_max_tokens = 1200
 
 [compression]
 # Compression du contexte (story 20, AD-22) par Headroom, dépendance optionnelle installée

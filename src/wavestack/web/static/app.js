@@ -2768,6 +2768,12 @@ function toolBody(step) {
   }
   nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
   if (ended.status === "ok") {
+    const cut = ended.truncated;
+    if (cut) {
+      // Lot B (N3): the harness cut a network or MCP result before the model read it.
+      const approx = cut.estimated ? "≈ " : "";
+      nodes.push(el("p", "", `Résultat tronqué par le harnais : ${approx}${fmt(cut.tokens)} tokens sur ${approx}${fmt(cut.total_tokens)} (borne [tools] result_max_tokens)`));
+    }
     nodes.push(el("p", "label", "Résultat"), el("pre", "step-code", ended.result));
     for (const write of step.memoryWrites || []) {
       // Story 14: what the harness wrote in memory.json, the model having only asked.
@@ -3308,7 +3314,7 @@ function turnRows(turn) {
       const ended = step.ended;
       const harness = step.started.source === "harness";
       let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
-      if (ended) figure = `${ended.status === "ok" ? "OK" : "erreur"} · ${seconds(ended.duration_ms)}`;
+      if (ended) figure = `${ended.status === "ok" ? (ended.truncated ? "OK · tronqué" : "OK") : "erreur"} · ${seconds(ended.duration_ms)}`;
       const forced = step.trigger === "user";
       rows.push({
         key,
@@ -4359,7 +4365,7 @@ function eventSummary(group) {
     case "tool_started":
       return formatCall({ name: p.tool, arguments: p.arguments });
     case "tool_ended":
-      return `${p.status} · ${seconds(p.duration_ms)}`;
+      return `${p.status}${p.truncated ? " · tronqué" : ""} · ${seconds(p.duration_ms)}`;
     case "outbound_request":
       return `${p.method} ${p.url}`;
     case "mcp_connect_ended":

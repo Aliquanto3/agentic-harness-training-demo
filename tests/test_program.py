@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import time
 from pathlib import Path
 
@@ -49,8 +50,22 @@ LEFT_OFF = {"mcp_full": {"rag"}}
 # `mcp_lazy`, which lights the RAG again (the room the lazy loading frees).
 VARIANTS = {"network_tools": "native_tools", "rag_rerank": "rag", "mcp_lazy": "mcp_full"}
 LAUNCH_HOOKS = {"h1", "h2", "h3"}  # `hooks` absent: the launch values (story 8)
-CHARS_PER_TOKEN = 4  # the cloud estimate (wavestack.toml `[cloud] chars_per_token`)
-SAFETY = 1.3  # AD-9: room for the real tokenizer, which counts more than the estimate
+# Lot B (B3): without `WAVESTACK_TEST_GGUF`, the test session estimates 2 characters per
+# token, calibrated on the target PC (`mcp_full`: 3 204 tokens by Qwen3.5's tokenizer, 1 530
+# at 4 characters per token); with it, the GGUF's tokenizer counts the preview's segments.
+CHARS_PER_TOKEN = 2
+SAFETY = 1.1  # AD-9: room for the template and what the estimate still misses
+# Lot B (N3): the scenarios whose first prompt calls a public MCP server or a network tool,
+# which must leave room for its first result, bounded to `[tools] result_max_tokens`.
+# `data_flows` as its description says: the MCP brick, local and data.gouv.fr.
+FIRST_RESULT_ROOM = {"network_tools", "data_flows", "iam", "sovereignty"}
+# `mcp_full` and `mcp_lazy`: their first prompt (« Que veut dire MCP ? ») calls the local
+# server's `define_term`, whose real answer is measured in the test (227 characters, 114
+# tokens at 2 characters per token) and must fit too.
+LOCAL_FIRST = {"mcp_full", "mcp_lazy"}
+LOCAL_FIRST_CALL = ("local__define_term", {"term": "MCP"})
+LOCAL_ANSWER_MAX = 200  # the measure above, with margin: a longer answer revisits the room
+BY_HAND = {"data_flows": {"bricks": ["mcp"], "mcp_servers": ["local", "datagouv"]}}
 FIXTURES = Path(__file__).parent / "fixtures" / "mcp_tools"
 
 
@@ -276,36 +291,57 @@ def _wait_mcp(mark: int, timeout: float = 30) -> None:
     raise AssertionError(f"serveurs MCP sans réponse : {started} / {ended}")
 
 
-def _verdict(scenario: scenarios.Scenario, ctx: dict) -> str | None:
-    """Why the preview does not suit the scenario, or `None`: it must fit with the safety
-    factor, or overflow when the scenario says so (`expects_overflow`, AD-9)."""
-    prompt = -(-len(scenario.prompts[0]) // CHARS_PER_TOKEN)
+def _gguf_tokenizer():  # noqa: ANN202 - `VocabTokenizer`, imported only when used
+    """The GGUF's tokenizer when `WAVESTACK_TEST_GGUF` points to one, else `None`."""
+    path = os.environ.get("WAVESTACK_TEST_GGUF")
+    if not path or not Path(path).is_file():
+        return None
+    from wavestack.models.engine import VocabTokenizer
+
+    return VocabTokenizer(path)
+
+
+def _verdict(
+    scenario: scenarios.Scenario, used: int, ctx: dict, prompt: int, room: int = 0
+) -> str | None:
+    """Why the preview (`used` tokens) does not suit the scenario, or `None`: it must fit
+    with the safety factor, its first prompt (`prompt` tokens) and `room` for a first tool
+    result, or overflow when the scenario says so (`expects_overflow`, AD-9)."""
     if scenario.expects_overflow:
-        return None if ctx["overflow"] or ctx["used"] + prompt > ctx["usable"] else "tient"
-    if ctx["overflow"] or ctx["used"] * SAFETY + prompt > ctx["usable"]:
-        return f"déborde : {ctx['used']} × {SAFETY} + {prompt} > {ctx['usable']}"
+        return None if ctx["overflow"] or used + prompt > ctx["usable"] else "tient"
+    if ctx["overflow"] or used * SAFETY + prompt + room > ctx["usable"]:
+        return f"déborde : {used} × {SAFETY} + {prompt} + {room} > {ctx['usable']}"
     return None
 
 
-def test_verdict_honours_expects_overflow_and_the_safety_factor():
-    fits = {"used": 1000, "usable": 3584, "overflow": False}
-    full = {"used": 3584, "usable": 3584, "overflow": True}
+def test_verdict_honours_expects_overflow_the_safety_factor_and_the_room():
+    fits = {"usable": 3584, "overflow": False}
+    full = {"usable": 3584, "overflow": True}
     plain = scenarios.Scenario(title_fr="t", description_fr="d", prompts=["x" * 40])
     over = plain.model_copy(update={"expects_overflow": True})
-    assert _verdict(plain, fits) is None and _verdict(plain, full)
-    assert _verdict(over, full) is None and _verdict(over, fits) == "tient"
-    assert _verdict(plain, {"used": 2900, "usable": 3584, "overflow": False})  # × 1,3
+    assert _verdict(plain, 1000, fits, 20) is None and _verdict(plain, 3584, full, 20)
+    assert _verdict(over, 3584, full, 20) is None and _verdict(over, 1000, fits, 20) == "tient"
+    assert _verdict(plain, 3250, fits, 20)  # × 1,1
+    assert _verdict(plain, 2000, fits, 20, room=1200) is None
+    assert _verdict(plain, 2300, fits, 20, room=1200)  # no room for a bounded result
 
 
 def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loop, web):  # noqa: F811
-    """Counted as the cloud estimate does (4 characters per token), with a safety factor,
-    the reasoning reserve, the RAG excerpts at their declared maximum, the demonstration
-    memory, the real local MCP server and the public servers' tools (snapshot or fixture)."""
+    """Counted by the GGUF's tokenizer (`WAVESTACK_TEST_GGUF`), else as the cloud estimate
+    does at 2 characters per token, with a safety factor, the reasoning reserve, the RAG
+    excerpts at their declared maximum, the demonstration memory, the real local MCP server
+    and the public servers' tools (snapshot or fixture); and, when the first prompt calls a
+    public server or a network tool, the room of its first bounded result (lot B)."""
     public = PublicServers()
     web(public)
     place_model()
     values = config._deep_merge(
-        config.load_config().values, {"rag": rag_values(index), "memory": {"load_margin_mb": 1}}
+        config.load_config().values,
+        {
+            "rag": rag_values(index),
+            "memory": {"load_margin_mb": 1},
+            "cloud": {"chars_per_token": CHARS_PER_TOKEN},
+        },
     )
     cfg = config.Config(values=values)
     entry = cfg.cloud_model("mistral")  # reasoning on demand, 4 096-token window
@@ -315,36 +351,75 @@ def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loo
     session.boot_cloud(entry).result()
     session.attach_loop(loop)
     content = session._scenarios
-    measured = {}
+    tokenizer = _gguf_tokenizer()
 
-    for scenario_id in [i for m in content.program for i in m.scenarios] + content.transverse:
-        scenario = content.scenarios[scenario_id]
-        mark = get_journal().last_seq()
-        session.launch_scenario(scenario_id)
-        session.join()
-        _wait_mcp(mark)
-        session.join()
-        session._emit_preview()
-        events = get_journal().events_since(mark)
-        ctx = [e.payload for e in events if e.kind == "context_preview"][-1]
-        failed = [e.payload for e in events if e.kind == "mcp_connect_ended"]
-        assert all(p["status"] == "ok" for p in failed), (scenario_id, failed)
-        measured[scenario_id] = (ctx["used"], ctx["usable"])
-        assert ctx["window"] == 4096, scenario_id
-        assert ctx["reserve"] == (1536 if "reasoning" in scenario.bricks else 512), scenario_id
-        assert _verdict(scenario, ctx) is None, (scenario_id, ctx["used"])
-        segments = " ".join(s["text"] for s in ctx["segments"])
-        if "rag" in scenario.bricks:  # counted: the brick is available here
-            assert any(s["kind"] == "rag_excerpt" for s in ctx["segments"]), scenario_id
-        if "mcp" in scenario.bricks and not scenario.mcp_lazy:
-            for server_id in scenario.mcp_servers or ["local"]:
-                assert f"{server_id}__" in segments, (scenario_id, server_id)
-    print("\nAD-9, aperçu (sans le prompt) / utilisables, marge :")
-    for scenario_id, (used, usable) in measured.items():
-        print(f"  {scenario_id:<14} {used:>5} / {usable}  marge {usable - used:>5}")
-    for server_id, source in public.sources.items():
-        print(f"  outils de {server_id} : {source}")
-    session.close()
+    def count(text: str) -> int:
+        return (
+            -(-len(text) // CHARS_PER_TOKEN) if tokenizer is None else len(tokenizer.tokenize(text))
+        )
+
+    measured = {}
+    local_answer = ""
+    try:
+        for scenario_id in [i for m in content.program for i in m.scenarios] + content.transverse:
+            scenario = content.scenarios[scenario_id]
+            mark = get_journal().last_seq()
+            session.launch_scenario(scenario_id)
+            session.join()
+            _wait_mcp(mark)
+            session.join()
+            by_hand = BY_HAND.get(scenario_id, {})
+            for brick in by_hand.get("bricks", []):
+                session.set_brick(brick, True)
+            for server_id in by_hand.get("mcp_servers", []):
+                session.set_mcp_server(server_id, True)
+            session.join()
+            _wait_mcp(mark)
+            session.join()
+            session._emit_preview()
+            events = get_journal().events_since(mark)
+            ctx = [e.payload for e in events if e.kind == "context_preview"][-1]
+            failed = [e.payload for e in events if e.kind == "mcp_connect_ended"]
+            assert all(p["status"] == "ok" for p in failed), (scenario_id, failed)
+            if scenario_id in LOCAL_FIRST and not local_answer:  # the real local server
+                local_answer = session._registry.get(LOCAL_FIRST_CALL[0]).run(**LOCAL_FIRST_CALL[1])
+            if tokenizer is not None:  # the GGUF's count decides, the overflow with it
+                used = count("".join(s["text"] for s in ctx["segments"]))
+                ctx = ctx | {"overflow": used > ctx["usable"]}
+            else:
+                used = ctx["used"]
+            room = cfg.tool_result_max_tokens if scenario_id in FIRST_RESULT_ROOM else 0
+            if scenario_id in LOCAL_FIRST:
+                room = count(local_answer)
+            measured[scenario_id] = (used, ctx["usable"], room)
+            assert ctx["window"] == 4096, scenario_id
+            assert ctx["reserve"] == (1536 if "reasoning" in scenario.bricks else 512), scenario_id
+            verdict = _verdict(scenario, used, ctx, count(scenario.prompts[0]), room)
+            assert verdict is None, (scenario_id, verdict)
+            segments = " ".join(s["text"] for s in ctx["segments"])
+            if "rag" in scenario.bricks:  # counted: the brick is available here
+                assert any(s["kind"] == "rag_excerpt" for s in ctx["segments"]), scenario_id
+            mcp_servers = scenario.mcp_servers or by_hand.get("mcp_servers") or ["local"]
+            if "mcp" in scenario.bricks and not scenario.mcp_lazy:
+                for server_id in mcp_servers:
+                    assert f"{server_id}__" in segments, (scenario_id, server_id)
+            if scenario_id in BY_HAND:  # the servers turned on by hand are in the context
+                assert all(f"{s}__" in segments for s in mcp_servers), (scenario_id, segments)
+        # Lot B (B3): the full documentation, 3 204 tokens on the target PC, is not underrated.
+        assert measured["mcp_full"][0] > 2800, measured["mcp_full"]
+        assert local_answer.startswith("MCP : ") and count(local_answer) < LOCAL_ANSWER_MAX
+        counted = "tokenizer du GGUF" if tokenizer is not None else f"{CHARS_PER_TOKEN} car./token"
+        print(f"\nAD-9, aperçu (sans le prompt, {counted}) / utilisables, marge, place réservée :")
+        for scenario_id, (used, usable, room) in measured.items():
+            print(
+                f"  {scenario_id:<14} {used:>5} / {usable}  marge {usable - used:>5}  {room or ''}"
+            )
+        for server_id, source in public.sources.items():
+            print(f"  outils de {server_id} : {source}")
+    finally:
+        if tokenizer is not None:
+            tokenizer.close()
+        session.close()
 
 
 def test_business_mcp_servers_are_drawn_unavailable_with_their_reason_offline(loop, web):  # noqa: F811

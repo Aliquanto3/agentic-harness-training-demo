@@ -302,8 +302,11 @@ scenarios:
     description_fr: >-
       Seuls les outils locaux sont actifs. Activez la brique MCP (serveur local), puis
       le serveur public data.gouv.fr, et regardez le schéma : seul le flux vers le
-      serveur public franchit la frontière du poste.
+      serveur public franchit la frontière du poste. La carte MCP est déjà en lazy
+      loading : la documentation complète de data.gouv.fr ne laisserait pas la place à
+      son résultat de recherche.
     bricks: [short_memory, system_prompt, tools]
+    mcp_lazy: true
     prompts:
       - Quels jeux de données publics existent sur la qualité de l'air ?
 

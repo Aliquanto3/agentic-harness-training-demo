@@ -91,6 +91,7 @@ def _is_loopback(host: str) -> bool:
 
 OUTPUT_RESERVE = 512  # AD-9: the output reserve of a model that does not reason
 MAX_RESERVE = 1536  # AD-9: the largest output reserve; `tpm // 2` must exceed it
+DEFAULT_TOOL_RESULT_MAX_TOKENS = 1200  # lot B (N3): `[tools] result_max_tokens`
 
 
 def output_reserve(reasoning: bool) -> int:
@@ -476,6 +477,16 @@ class Config:
     @property
     def fetch_page_max_chars(self) -> int:
         return max(1, self._int("tools", "fetch_page_max_chars", default=4000))
+
+    @property
+    def tool_result_max_tokens(self) -> int:
+        """Lot B (N3): the most tokens a network or MCP tool's result may take, cut before the
+        compression; a missing or non-integer value is the default, and 200 the floor."""
+        default = DEFAULT_TOOL_RESULT_MAX_TOKENS
+        raw = self.get("tools", "result_max_tokens", default=default)
+        if isinstance(raw, bool) or (isinstance(raw, float) and not raw.is_integer()):
+            return default
+        return max(200, self._int("tools", "result_max_tokens", default=default))
 
     @property
     def mcp_urls(self) -> dict[str, str]:

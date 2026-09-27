@@ -319,7 +319,9 @@ def test_network_and_mcp_outputs_are_compressed(web):  # noqa: F811
     page += "\n2026-09-21 03:00:00 ERROR page introuvable"
     web(lambda r: httpx.Response(200, text=page, headers={"content-type": "text/plain"}))
     session, compressors, _ = session_with(
-        [call("fetch_page", url="https://fr.wikipedia.org/wiki/Paris"), "Voilà."]
+        [call("fetch_page", url="https://fr.wikipedia.org/wiki/Paris"), "Voilà."],
+        # Lot B: the fake engine counts a token per byte; the whole page reaches the compressor.
+        values={"tools": {"result_max_tokens": 4000}},
     )
     session.set_tool("fetch_page", True)
     session.join()

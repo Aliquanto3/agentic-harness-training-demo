@@ -241,7 +241,8 @@ _CLOUD_FAILED_FR = (
     "page de diagnostic."
 )
 _NO_TURN_FR = "Aucun tour possible."
-# The heaviest harness-controlled segment names the cause (message first on ties).
+# Lot B: the heaviest kind of segment names the cause (message first on ties), every kind
+# but the template counted, some with another (`_OVERFLOW_GROUP`).
 _OVERFLOW_CAUSES_FR = {
     SegmentKind.USER_MESSAGE: (
         "Cause : le message à lui seul est trop long. "
@@ -265,7 +266,37 @@ _OVERFLOW_CAUSES_FR = {
         "continuer la démo : désactivez un serveur MCP (ou des outils) dans le panneau des "
         "briques, ou videz la conversation pour décharger les documentations chargées."
     ),
+    SegmentKind.TOOL_RESULT: (  # lot B: `_compression_hint_fr` fills `{compression}`
+        "Cause : les résultats d'outils (fichiers lus, recherches) occupent la plus grande part "
+        "du contexte. Pour continuer la démo : posez une question plus précise, pour des "
+        "résultats plus courts{compression}, ou videz la conversation."
+    ),
+    SegmentKind.HOOK_INJECTION: (
+        "Cause : le texte injecté par le hook H3 (injection de contexte) occupe la plus grande "
+        "part du contexte. Pour continuer la démo : désactivez H3 dans la carte des hooks, ou "
+        "raccourcissez son texte (injection dans content/hooks.yaml)."
+    ),
+    SegmentKind.SUBAGENT_RESULT: (
+        "Cause : le résultat du sous-agent occupe la plus grande part du contexte. Pour "
+        "continuer la démo : confiez-lui une tâche plus ciblée, ou videz la conversation."
+    ),
+    SegmentKind.GLOBAL_MEMORY: (
+        "Cause : la mémoire globale occupe la plus grande part du contexte. Pour continuer la "
+        "démo : retirez des entrées depuis « Modifier la mémoire », ou désactivez la brique "
+        "Mémoire globale."
+    ),
+    SegmentKind.SKILL_BODY: (  # with the catalog (`_OVERFLOW_GROUP`)
+        "Cause : les skills (leur catalogue et les skills chargés) occupent la plus grande "
+        "part du contexte. Pour continuer la démo : videz la conversation pour décharger les "
+        "skills chargés, ou désactivez la brique Skills."
+    ),
 }
+# Lot B: the kinds counted with another's cause.
+_OVERFLOW_GROUP = {
+    SegmentKind.SKILL_CATALOG: SegmentKind.SKILL_BODY,
+    SegmentKind.ASSISTANT_TURN: SegmentKind.HISTORY,  # the turn's calls, its exchanges
+}
+_OVERFLOW_COMPRESSION_FR = " ; allumez la compression, qui raccourcit les gros résultats"
 _TOOL_CATALOG_FULL_FR = (
     "Cause : les descriptions d'outils occupent la plus grande part du contexte, chaque outil "
     "y entrant avec sa documentation complète. Pour continuer la démo : passez la carte MCP en "
@@ -298,6 +329,11 @@ _LIMITS_FR = {
         "résultat."
     ),
 }
+# Lot B (N3): appended to a network or MCP tool's result the harness cut, seen by the model.
+_TRUNCATED_FR = (
+    "\n\n[Résultat tronqué par le harnais : {kept} tokens sur {total}. Réponds avec ce qui "
+    "est gardé, ou relance l'outil avec une demande plus précise.]"
+)
 _OVERFLOW_STRATEGIES_FR = [
     "Fenêtre glissante : ne garder que les échanges les plus récents.",
     "Compaction : résumer les anciens échanges en quelques lignes.",
@@ -3557,15 +3593,16 @@ class AppSession:
                 "Ces noms sont ignorés : le sous-agent n'a que les outils connus et activés.",
             )
 
-    def _count_tokens(self, text: str) -> tuple[int, bool]:
+    def _count_tokens(self, text: str, *, uncapped: bool = False) -> tuple[int, bool]:
         """AD-1: the tokens `text` takes in the main context: by the model's tokenizer
         locally; in chat mode (then `True`), the estimate scaled as `distribute` scales the
         main context's segments (AD-4): shrunk by a ratio below 1, never grown (a ratio above
-        1 goes to the provider's segment). Never raises: an estimate then."""
+        1 goes to the provider's segment), unless `uncapped` (lot B: a bound the provider's
+        count must respect). Never raises: an estimate then."""
         estimate = config.estimate_tokens(text, self.cfg.chars_per_token)
         if self._cloud is not None or self._engine is None:
             ratio = self._ratios.get(self._cloud.id if self._cloud else "", self.cfg.estimate_ratio)
-            return round(estimate * min(1.0, ratio)), True
+            return round(estimate * (ratio if uncapped else min(1.0, ratio))), True
         try:
             return len(self._engine.tokenize(text)), False
         except Exception:  # noqa: BLE001 - AD-16: `subagent_ended` is always emitted
@@ -5216,8 +5253,15 @@ class AppSession:
                         f"« {call.name} » vers {host(result.preview['url'])} n'a pas été envoyé.",
                         hook_id,
                     )
+        bounded = (spec.network or spec.is_mcp) and spec.name != DELEGATE
         with scoped(step_id=step_id, brick=brick, component=spec.component):
-            text = self._tool_executor.run(call, cancel, effects, apply=self._apply_now)
+            text = self._tool_executor.run(
+                call,
+                cancel,
+                effects,
+                apply=self._apply_now,
+                bound=self._bound_result if bounded else None,
+            )
         if spec.is_mcp and text is not None:
             self._after_mcp_call(call.name, spec)
         if spec.network or spec.is_mcp:
@@ -5226,6 +5270,46 @@ class AppSession:
             return None  # AD-11: a delegation stopped ends the turn, no other call
         self._hook("after_tool", state, call=call, spec=spec, result=text)
         return text, None
+
+    def _bound_result(self, text: str) -> tuple[str, dict[str, Any] | None]:
+        """Lot B (N3): a network or MCP tool's result cut to `[tools] result_max_tokens`,
+        before the compression. The longest prefix that fits with the mention (a bisection on
+        the characters), back to its last line break when that is in its second half; the
+        mention says what was kept, for the model. Returns the text and, when it cut,
+        `{tokens, total_tokens, estimated}` for `tool_ended`. In chat mode, counted with the
+        provider's ratio even above 1: what it will count. Never raises (`_count_tokens`)."""
+        limit = self.cfg.tool_result_max_tokens
+
+        def count(piece: str) -> tuple[int, bool]:
+            return self._count_tokens(piece, uncapped=True)
+
+        total, estimated = count(text)
+        if total <= limit:
+            return text, None
+
+        def cut(prefix: str) -> tuple[str, int, bool]:
+            kept, rough = count(prefix)
+            return prefix + _TRUNCATED_FR.format(kept=kept, total=total), kept, rough
+
+        # The mention at its widest (as many digits kept as in total): one count per step.
+        widest = _TRUNCATED_FR.format(kept=total, total=total)
+        low, high = 0, len(text) - 1  # the longest fitting prefix is in [low, high]
+        while low < high:
+            middle = (low + high + 1) // 2
+            if count(text[:middle] + widest)[0] <= limit:
+                low = middle
+            else:
+                high = middle - 1
+        end = low
+        line = text.rfind("\n", 0, end + 1)  # `text[end]` a break: the prefix ends a line
+        if line >= end / 2 and line > 0:
+            end = line
+        prefix = text[:end].rstrip()
+        bounded, kept, rough = cut(prefix)
+        while prefix and count(bounded)[0] > limit:  # a tokenizer's quirk
+            prefix = prefix[: len(prefix) * 9 // 10]
+            bounded, kept, rough = cut(prefix)
+        return bounded, {"tokens": kept, "total_tokens": total, "estimated": estimated or rough}
 
     def _apply_effects(
         self, effects: list[Effect], tool_step: dict[str, Any], loaded_in_turn: list[str]
@@ -5691,13 +5775,16 @@ class AppSession:
         shown = f"≈ {_fr(raw_used)}" if raw_used is not None else _fr(used)
         tokens = dict.fromkeys(_OVERFLOW_CAUSES_FR, 0)
         for segment in payload["segments"]:
-            if segment["kind"] in tokens:
-                tokens[segment["kind"]] += segment["tokens"]
+            kind = _OVERFLOW_GROUP.get(segment["kind"], segment["kind"])
+            if kind in tokens:  # every kind but the template
+                tokens[kind] += segment["tokens"]
         heaviest = max(tokens, key=tokens.__getitem__)  # ties: the message
         with self._lock:
             lazy = self._sent[4]  # the mode frozen for this turn by `send`
         full = heaviest == SegmentKind.TOOL_CATALOG and not lazy
         cause = _TOOL_CATALOG_FULL_FR if full else _OVERFLOW_CAUSES_FR[heaviest]
+        if heaviest == SegmentKind.TOOL_RESULT:
+            cause = cause.format(compression=self._compression_hint_fr())
         if self._ratio_key() == "sub" and self._subagent_content is not None:
             cause = self._subagent_content.overflow_cause_fr  # AD-11: the sub-agent's context
         get_journal().emit(
@@ -5713,6 +5800,14 @@ class AppSession:
                 "strategies_fr": _OVERFLOW_STRATEGIES_FR,
             },
         )
+
+    def _compression_hint_fr(self) -> str:
+        """Lot B: « allumez la compression » only when the brick is available and off."""
+        if "compression" not in self._bricks or not self._availability("compression")[0]:
+            return ""
+        with self._lock:
+            off = "compression" not in self._wanted
+        return _OVERFLOW_COMPRESSION_FR if off else ""
 
     def _call_model(
         self,

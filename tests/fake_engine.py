@@ -118,9 +118,12 @@ class FakeEngine:
         pass
 
 
-def booted_session(engine: FakeEngine, *, window: int = 4096) -> AppSession:
+def booted_session(
+    engine: FakeEngine, *, window: int = 4096, values: dict | None = None
+) -> AppSession:
+    context = {"context": {"window": window, "near_limit_ratio": 0.8}}
     session = AppSession(
-        config.Config(values={"context": {"window": window, "near_limit_ratio": 0.8}}),
+        config.Config(values=config._deep_merge(context, values or {})),
         engine_factory=lambda path, n_ctx: engine,
     )
     session.boot("fake.gguf").result()
