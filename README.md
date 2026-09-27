@@ -168,8 +168,10 @@ Le modèle recommandé est **Qwen3.5-2B en Q4_K_M** (GGUF amont publié par unsl
 Apache-2.0), validé sur le PC cible. WaveStack ne le télécharge pas : copiez le fichier `.gguf`
 dans le dossier `models/` du dossier de données (`%LOCALAPPDATA%\WaveStack\models` sous
 Windows, `~/.local/share/wavestack/models` ailleurs), ou indiquez son chemin au diagnostic.
-Les GGUF `qwen35` d'Ollama ne se chargent pas avec llama-cpp-python 0.3.35 : préférez le fichier
-amont, ou le même modèle servi par llama-server (section suivante).
+Un blob GGUF d'Ollama choisi comme un fichier peut être refusé par llama-cpp-python 0.3.35
+(fichier incompatible, raison expliquée, modèle précédent gardé) : préférez le fichier amont.
+Servi par Ollama lui-même, le même modèle fonctionne avec un Ollama récent (`qwen3.5:2b` au test
+du 2026-09-27), ou par llama-server (section suivante).
 
 ## Utiliser un serveur déjà lancé (Ollama, llama-server)
 
@@ -213,12 +215,15 @@ messages au format chat. L'échantillonnage est celui du modèle en processus (t
 - **Ollama** reçoit le texte en mode `raw` (`/api/generate`), avec `num_ctx` égal à la fenêtre
   effective. WaveStack compte les tokens avec le tokenizer lu dans le fichier GGUF du modèle,
   dans le dossier d'Ollama (`OLLAMA_MODELS`), par llama-cpp-python : un modèle sans GGUF
-  lisible y est « incompatible », et un tokenizer que llama-cpp-python ne sait pas lire (cas
-  possible des modèles Qwen3.5 d'Ollama) est refusé avec la raison, le modèle précédent restant
-  actif. Servez alors ce modèle avec llama-server. Si Ollama lit plus de tokens que le harnais
-  n'en a comptés, ou renvoie un raisonnement séparé (`thinking`), une erreur « transparence
-  réduite » l'explique dans le journal ; s'il en lit moins, c'est son cache (début du prompt
-  identique à l'appel précédent), noté pour information. Le tour continue dans les deux cas.
+  lisible y est « incompatible », et un tokenizer que llama-cpp-python ne sait pas lire est
+  refusé avec la raison, le modèle précédent restant actif. Qwen3.5 (`qwen3.5:2b`) passe avec un
+  Ollama récent (test du 2026-09-27). Avec un Ollama trop ancien pour servir l'architecture
+  `qwen35`, le modèle est accepté, puis le premier tour échoue sur une erreur brute « HTTP 500 »
+  d'Ollama : mettez Ollama à jour, ou servez ce modèle avec llama-server. Si Ollama lit plus
+  de tokens que le harnais n'en a comptés, ou renvoie un raisonnement séparé (`thinking`), une
+  erreur « transparence réduite » l'explique dans le journal ; s'il en lit moins, c'est son
+  cache (début du prompt identique à l'appel précédent), noté pour information. Le tour
+  continue dans les deux cas.
 
 **Mémoire.** En mode serveur, aucun modèle ne reste chargé dans WaveStack (seul le tokenizer
 d'un modèle Ollama y est ouvert, sans les poids). Le budget `[memory]` compte le modèle servi :
@@ -400,7 +405,10 @@ Deux champs facultatifs :
   tour ou « Tester ». Mistral gratuit refuse (429) deux requêtes à moins d'une seconde : son
   préréglage vaut `1`. Si des 429 « par seconde » persistent, augmentez-le, par exemple
   `{"id": "mistral", "min_interval_s": 1.5}`. L'attente n'entre pas dans les durées affichées, et
-  un appel refusé n'est jamais réessayé.
+  un appel refusé n'est jamais réessayé. Un 429 au premier appel de « Tester », premier envoi
+  de la séance, ne vient pas de l'espacement : le quota du compte est épuisé, et
+  `min_interval_s` n'y peut rien. Lisez d'abord le message du fournisseur dans le journal
+  (capacité saturée ou quota), puis vérifiez le quota dans la console Mistral.
 
 ## Développement
 
