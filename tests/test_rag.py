@@ -6,7 +6,9 @@ nothing touches the network, and no real model is needed (except the `model` tes
 
 from __future__ import annotations
 
+import os
 import re
+import sys
 import threading
 from pathlib import Path
 
@@ -20,7 +22,7 @@ from test_cloud import GROQ_TEXT, SENTINEL, Provider
 from test_turn import _run
 
 from wavestack import config
-from wavestack.models.embedding import LlamaCppEmbedder, model_path
+from wavestack.models.embedding import LlamaCppEmbedder
 from wavestack.models.load_registry import EMBEDDING, LoadRegistry
 from wavestack.rag import index as rag_index
 from wavestack.rag.corpus import chunk_corpus, load_rag_content, split_text
@@ -68,6 +70,20 @@ def rag_config(index: Path, *, window: int = 4096, budget_mb: int = 4096, **embe
         "memory": {"budget_mb": budget_mb, "load_margin_mb": 1},
         "rag": rag_values(index, **embedding),
     }
+
+
+# Lot G: the index replaced while the session reads it. Portable variant: the session's
+# connection closes first, so the file can be replaced on every OS. The other one replaces it
+# while still open, which only POSIX allows (skipped under Windows and its simulated rules).
+CLOSED_FIRST = pytest.param(True, id="connection-closed-first")
+REPLACED_WHILE_OPEN = pytest.param(
+    False,
+    id="replaced-while-open",
+    marks=pytest.mark.skipif(
+        sys.platform == "win32" or os.environ.get("WAVESTACK_TEST_WINDOWS_FILES") == "1",
+        reason="Windows refuse de remplacer un fichier qu'une connexion tient ouvert",
+    ),
+)
 
 
 def build(path: Path, model_id: str = MODEL_ID) -> rag_index.IndexMeta:
@@ -527,16 +543,22 @@ def test_shipped_index_matches_the_corpus():
 
 
 @pytest.mark.model
-def test_real_embedding_model_finds_the_password_document(tmp_path):
-    model, _ = config.load_config().rag_embedding
-    path = model_path(model)
+def test_real_embedding_model_finds_the_password_document(tmp_path, real_models_dir):
+    model, error = config.load_config().rag_embedding
+    if model is None:
+        pytest.skip(error or "[rag.embedding] non déclarée")
+    path = real_models_dir / model.load_path
     if not path.is_file():
         pytest.skip(f"modèle d'embedding absent : {path}")
     embedder = LlamaCppEmbedder(model, path)
     try:
         index = tmp_path / "real.sqlite"
         rag_index.build_index(load_rag_content(), embedder, index, 700)
-        excerpts = SqliteVecRetriever(index, embedder, 3).search(COVERED)
+        retriever = SqliteVecRetriever(index, embedder, 3)
+        try:
+            excerpts = retriever.search(COVERED)
+        finally:
+            retriever.close()  # lot G: no connection left on the temporary index
     finally:
         embedder.close()
     assert excerpts[0].doc_id == "mots_de_passe"

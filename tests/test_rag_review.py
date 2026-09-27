@@ -7,11 +7,13 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import pickle
 import sqlite3
 import sys
 import threading
 import time
 import types
+from pathlib import Path
 
 import httpx
 import httpx2
@@ -20,9 +22,11 @@ from fake_embedder import DIMS, MODEL_ID, FakeEmbedder
 from fake_engine import FakeEngine
 from pydantic import ValidationError
 from test_rag import (
+    CLOSED_FIRST,
     COVERED,
     MODEL_FILE,
     MODEL_SIZE,
+    REPLACED_WHILE_OPEN,
     Embedders,
     build,
     card,
@@ -44,7 +48,7 @@ from wavestack.net import factory
 from wavestack.rag import index as rag_index
 from wavestack.rag.corpus import load_rag_content
 from wavestack.rag.retriever import score_of
-from wavestack.session.app_session import SendRefused
+from wavestack.session.app_session import INDEX_HELD_FR, SendRefused
 from wavestack.trace.journal import get_journal
 
 URL = "https://huggingface.co/demo/resolve/main/fake.gguf"
@@ -333,11 +337,15 @@ def test_a_file_that_is_no_sqlite_index_is_unreadable(tmp_path):
     session.close()
 
 
-def test_an_index_replaced_during_the_session_is_read_again(index):
+@pytest.mark.parametrize("close_first", [CLOSED_FIRST, REPLACED_WHILE_OPEN])
+def test_an_index_replaced_during_the_session_is_read_again(index, close_first):
     place_model()
     session, _ = rag_session(rag_config(index))
     time.sleep(0.01)
-    build(index, model_id="autre-modele")  # rebuilt by the script meanwhile
+    if close_first:  # so the file can be replaced on every OS (lot G)
+        session._rag_retriever.close()
+    # Another build meanwhile: the session notices it by the file's stamp (mtime, size).
+    build(index, model_id="autre-modele")
 
     events = turn_events(COVERED, session)
 
@@ -430,6 +438,102 @@ def test_a_failed_write_leaves_no_temporary_file(tmp_path, monkeypatch):
     with pytest.raises(sqlite3.OperationalError):
         build(path)
     assert not path.exists() and not path.with_name(path.name + ".tmp").exists()
+
+
+def refuse_replacing(monkeypatch, target, winerror: int | None = 32) -> None:  # noqa: ANN001
+    """Lot G: the system refuses to replace `target`. `winerror` 32 (or 5, on a writable
+    target): what Windows does when a handle holds it open; `None`: a POSIX refusal."""
+    replace = rag_index.os.replace
+
+    def refused(src, dst, **kwargs):  # noqa: ANN001, ANN003
+        if Path(dst) == target:
+            exc = PermissionError(13, "Accès refusé", str(dst))
+            if winerror is not None:
+                exc.winerror = winerror
+            raise exc
+        replace(src, dst, **kwargs)
+
+    monkeypatch.setattr(rag_index.os, "replace", refused)
+
+
+def test_an_index_in_use_is_refused_in_french_and_left_as_it_was(index, monkeypatch):
+    refuse_replacing(monkeypatch, index)
+
+    with pytest.raises(rag_index.IndexInUse) as refused:
+        build(index, model_id="autre-modele")
+
+    assert isinstance(refused.value, OSError)
+    assert str(refused.value) == (
+        "L'index est ouvert par un autre programme (WaveStack, un antivirus ou un outil de "
+        "synchronisation) : il ne peut pas être remplacé."
+    )
+    assert isinstance(refused.value.__cause__, PermissionError)
+    assert not index.with_name(index.name + ".tmp").exists()
+    assert rag_index.read_meta(index).embedding_model_id == MODEL_ID  # the old one, intact
+    copy = pickle.loads(pickle.dumps(refused.value))
+    assert type(copy) is rag_index.IndexInUse and str(copy) == str(refused.value)
+
+
+@pytest.mark.parametrize("read_only", [True, False], ids=["read-only-target", "posix"])
+def test_another_refusal_is_not_taken_for_an_index_in_use(index, monkeypatch, read_only):
+    if read_only:  # Windows' access denied on a read-only file
+        refuse_replacing(monkeypatch, index, winerror=5)
+        index.chmod(0o444)
+        access = rag_index.os.access  # root may write anyway: say what the mode says
+        monkeypatch.setattr(
+            rag_index.os,
+            "access",
+            lambda p, mode, **kw: False if Path(p) == index else access(p, mode, **kw),  # noqa: ANN001, ANN003
+        )
+    else:  # EACCES: the folder is not writable (an open file never blocks it on POSIX)
+        refuse_replacing(monkeypatch, index, winerror=None)
+    try:
+        with pytest.raises(PermissionError) as refused:
+            build(index, model_id="autre-modele")
+    finally:
+        index.chmod(0o644)
+
+    assert not isinstance(refused.value, rag_index.IndexInUse)
+    assert "Accès refusé" in str(refused.value)
+    assert not index.with_name(index.name + ".tmp").exists()
+
+
+def test_the_simulated_windows_rules_refuse_replacing_an_open_index(index, windows_file_rules):
+    if not Path("/proc/self/fd").is_dir():
+        pytest.skip("simulation sans /proc : sous Windows, le système applique ses règles")
+    conn = rag_index.connect(index)  # what the session's retriever holds
+    try:
+        with pytest.raises(rag_index.IndexInUse):
+            build(index, model_id="autre-modele")
+        with pytest.raises(PermissionError):
+            index.unlink()
+    finally:
+        conn.close()
+    assert rag_index.read_meta(index).embedding_model_id == MODEL_ID
+
+    build(index, model_id="autre-modele")  # closed: replaced
+
+    assert rag_index.read_meta(index).embedding_model_id == "autre-modele"
+
+
+def test_the_card_says_another_program_holds_the_index(tmp_path, monkeypatch):
+    index = tmp_path / "rag_index.sqlite"
+    rag_index.build_index(load_rag_content(), FakeEmbedder(), index, chunk_max_chars=600)
+    place_model()
+    session, _ = rag_session(rag_config(index))  # a stale index: « Construire l'index »
+    refuse_replacing(monkeypatch, index)
+    mark = get_journal().last_seq()
+
+    session.build_rag_index()
+    wait_idle(session)
+
+    error = next(e for e in since(mark, "harness_error") if e.component == "file.rag_index")
+    assert error.payload["message_fr"] == "L'index RAG n'a pas pu être construit."
+    assert error.payload["cause"] == INDEX_HELD_FR
+    assert "relancez ce script" not in str(error.payload)
+    assert rag_index.read_meta(index).chunk_max_chars == 600  # left as it was
+    assert not index.with_name(index.name + ".tmp").exists()
+    session.close()
 
 
 def test_a_redirected_post_is_traced_with_its_body_and_an_async_hop_with_a_marker():
@@ -541,3 +645,22 @@ def test_script_refuses_another_file_and_invalid_content(tmp_path, capsys, monke
     monkeypatch.setattr(script, "load_rag_content", invalid)
     assert script.main([], embedder_factory=fake_factory) == 2
     assert "content/rag.yaml est absent ou invalide" in capsys.readouterr().err
+
+
+def test_script_says_in_french_that_wavestack_uses_the_index(tmp_path, capsys, monkeypatch):
+    _settings(tmp_path)
+    place_model()
+    target = tmp_path / "script.sqlite"
+    build(target)
+    before = rag_index.read_meta(target)
+    refuse_replacing(monkeypatch, target)
+
+    assert _script().main([], embedder_factory=fake_factory) == 1
+
+    err = capsys.readouterr().err
+    assert err.strip() == (
+        f"{rag_index.INDEX_IN_USE_FR} Construisez-le depuis la carte RAG, ou arrêtez "
+        "WaveStack, puis relancez ce script."
+    )
+    assert not target.with_name(target.name + ".tmp").exists()
+    assert rag_index.read_meta(target) == before  # the old index, intact

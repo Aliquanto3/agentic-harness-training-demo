@@ -157,6 +157,12 @@ MEMORY = "file.memory"  # the schema node of `memory.json` (AD-12, AD-23)
 DELEGATE = "delegate"  # the harness meta-tool of the subagent brick (AD-11, AD-25)
 _NO_SUB_TEXT_FR = "(Le sous-agent n'a rendu aucun texte.)"
 RAG_INDEX = "file.rag_index"  # the schema node of the RAG index (story 15, AD-12)
+# Lot G: the card's reason when another program keeps the index open (Windows).
+INDEX_HELD_FR = (
+    "un autre programme garde l'index ouvert (un antivirus, un outil de synchronisation ou "
+    "le script de construction) : fermez-le, puis cliquez de nouveau sur « Construire "
+    "l'index »"
+)
 RAG_TARGET = "rag_embedding"  # a `download_model` target: the embedding model (story 15)
 RERANK_TARGET = "rag_reranker"  # the other one: the reranking model (story 16)
 RAG_RERANKER = "rag.reranker"  # the reranker's schema node (story 16, AD-12)
@@ -4697,6 +4703,8 @@ class AppSession:
                 )
             except rag_index.BuildCancelled as exc:
                 failed, stopped = str(exc), True
+            except rag_index.IndexInUse:  # lot G: another program holds it open (Windows)
+                failed = INDEX_HELD_FR
             except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
                 failed = exc
             finally:

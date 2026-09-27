@@ -29,7 +29,16 @@ from wavestack.models import download  # noqa: E402
 from wavestack.models.embedding import LlamaCppEmbedder, model_path  # noqa: E402
 from wavestack.models.engine import CancelToken  # noqa: E402
 from wavestack.rag.corpus import load_rag_content  # noqa: E402
-from wavestack.rag.index import VecUnavailable, build_index, file_sha256  # noqa: E402
+from wavestack.rag.index import (  # noqa: E402
+    IndexInUse,
+    VecUnavailable,
+    build_index,
+    file_sha256,
+)
+
+BUILD_FROM_THE_CARD_FR = (
+    "Construisez-le depuis la carte RAG, ou arrêtez WaveStack, puis relancez ce script."
+)
 
 
 def _fail(message: str, code: int = 2) -> int:
@@ -106,6 +115,8 @@ def main(argv: list[str] | None = None, embedder_factory=LlamaCppEmbedder) -> in
             on_progress=lambda i, n: print(f"\r  extrait {i} / {n}", end="", flush=True),
             model_file=path,
         )
+    except IndexInUse as exc:  # held open (Windows): its message, then what to do
+        return _fail(f"\n{exc} {BUILD_FROM_THE_CARD_FR}", 1)
     except (ValueError, OSError, sqlite3.Error, VecUnavailable) as exc:
         return _fail(f"\nIndex non construit : {exc}.", 1)
     finally:

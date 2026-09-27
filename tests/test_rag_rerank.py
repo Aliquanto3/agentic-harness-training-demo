@@ -17,14 +17,23 @@ from fake_engine import FakeEngine
 from fake_reranker import MODEL_ID, FakeReranker, relevance
 from starlette.testclient import TestClient
 from test_bricks import HEADERS
-from test_rag import COVERED, Embedders, build, place_model, rag_config, segments
+from test_rag import (
+    CLOSED_FIRST,
+    COVERED,
+    REPLACED_WHILE_OPEN,
+    Embedders,
+    build,
+    place_model,
+    rag_config,
+    segments,
+)
 from test_tools import QWEN
 
 from wavestack import config
 from wavestack.config import RerankerModel
 from wavestack.models import discovery
 from wavestack.models.load_registry import RERANKER, ModelChoice
-from wavestack.models.reranker import LlamaCppReranker, model_path, pair_tokens, sigmoid
+from wavestack.models.reranker import LlamaCppReranker, pair_tokens, sigmoid
 from wavestack.session.app_session import AppSession, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.journal import get_journal
@@ -567,12 +576,15 @@ def test_the_reranker_waits_for_the_embedding_model(index):
     session.close()
 
 
-def test_an_index_replaced_with_the_reranker_loaded_closes_it(index):
+@pytest.mark.parametrize("close_first", [CLOSED_FIRST, REPLACED_WHILE_OPEN])
+def test_an_index_replaced_with_the_reranker_loaded_closes_it(index, close_first):
     place_model()
     place_reranker()
     session, rerankers = session_for(rerank_config(index))
     time.sleep(0.01)
-    build(index, model_id="autre-modele")  # rebuilt by the script meanwhile
+    if close_first:  # so the file can be replaced on every OS (lot G)
+        session._rag_retriever.close()
+    build(index, model_id="autre-modele")  # another build meanwhile, noticed by its stamp
 
     turn(session)
 
@@ -777,9 +789,11 @@ def test_the_adapter_refuses_an_embedding_gguf():
 
 
 @pytest.mark.model
-def test_real_reranker_puts_the_password_document_first():
-    model, _ = config.load_config().rag_reranker
-    path = model_path(model)
+def test_real_reranker_puts_the_password_document_first(real_models_dir):
+    model, error = config.load_config().rag_reranker
+    if model is None:
+        pytest.skip(error or "[rag.reranker] non déclarée")
+    path = real_models_dir / model.load_path
     if not path.is_file():
         pytest.skip(f"modèle de reranking absent : {path}")
     reranker = LlamaCppReranker(model, path)
@@ -792,5 +806,5 @@ def test_real_reranker_puts_the_password_document_first():
         scores = reranker.score(COVERED, passages)
     finally:
         reranker.close()
-    assert all(0 <= s <= 1 for s in scores)
-    assert max(range(3), key=scores.__getitem__) == 1
+    assert all(0 <= s.score <= 1 for s in scores)  # `RerankScore(score, truncated)`
+    assert max(range(3), key=lambda i: scores[i].score) == 1

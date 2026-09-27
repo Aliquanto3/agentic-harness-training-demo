@@ -43,6 +43,29 @@ class BuildCancelled(Exception):
     """The build was stopped (« Arrêter »): nothing is written."""
 
 
+INDEX_IN_USE_FR = (
+    "L'index est ouvert par un autre programme (WaveStack, un antivirus ou un outil de "
+    "synchronisation) : il ne peut pas être remplacé."
+)
+_WINERRORS_IN_USE = (5, 32)  # ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION
+
+
+class IndexInUse(OSError):
+    """The system refused to replace the index because another program holds it open
+    (lot G): Windows refuses to replace a file an open handle holds. Its message, in
+    French, says so; the caller adds what to do."""
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(*(args or (INDEX_IN_USE_FR,)))
+
+
+def _held_open(exc: PermissionError, path: Path) -> bool:
+    """A refusal to replace `path` that only an open handle explains: Windows' access
+    denied or sharing violation (`winerror`, absent elsewhere) on a writable target. A
+    read-only target, or any POSIX refusal (an open file never blocks it there), is not."""
+    return getattr(exc, "winerror", None) in _WINERRORS_IN_USE and os.access(path, os.W_OK)
+
+
 def serialize_vector(vector: Sequence[float]) -> bytes:
     import sqlite_vec
 
@@ -120,7 +143,8 @@ def write_index(
     model_size: int = 0,
     model_sha256: str = "",
 ) -> IndexMeta:
-    """Write the index into `path` (a temporary file first, removed on failure)."""
+    """Write the index into `path` (a temporary file first, removed on failure). The
+    system refusing to replace `path` because it is open elsewhere: `IndexInUse`."""
     if not chunks:
         raise ValueError("corpus vide : aucun extrait à indexer")
     if len(vectors) != len(chunks) or any(len(v) != dims for v in vectors):
@@ -145,7 +169,12 @@ def write_index(
                 _fill(conn, meta, chunks, vectors)
         finally:
             conn.close()
-        os.replace(tmp, path)
+        try:
+            os.replace(tmp, path)
+        except PermissionError as exc:
+            if not _held_open(exc, path):
+                raise
+            raise IndexInUse() from exc
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
