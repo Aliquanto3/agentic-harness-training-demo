@@ -66,9 +66,8 @@ git log --oneline -12
 ```
 
 - [ ] HEAD : `docs: rapport des corrections du palier 2 (lots A à G et I)` ou plus récent.
-  En dessous, les commits des lots, du plus récent au plus ancien : le lot I (guide de test et
-  documentation) et un petit correctif de textes du code, puis
-  `2abad49 … (lot G)`, `515c858 … (lot F)`, `12faad6 … (lot E)`, `8afb1d5 … (lot D)`,
+  En dessous, du plus récent au plus ancien : `cb3a20e` (correctif de deux textes du code,
+  suite des lots A et E), `e2b399c … (lot I)`, puis `2abad49 … (lot G)`, `515c858 … (lot F)`, `12faad6 … (lot E)`, `8afb1d5 … (lot D)`,
   `dc193ca … (lot C)`, `0f54120 … (lot B)`, `7b22faf … (lot A)` et `373d30a … (lot 0)`. La
   référence est le dernier commit de la PR #1.
 - Zip, sans Git : sur GitHub, choisissez la branche, puis « Code » → « Download ZIP ». Avec
