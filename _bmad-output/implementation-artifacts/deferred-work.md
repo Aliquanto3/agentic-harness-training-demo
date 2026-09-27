@@ -285,6 +285,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
   summary: Intégrité du modèle d'embedding : l'URL de `[rag.embedding]` vise `resolve/main` et `sha256` est vide ; épingler l'URL sur un commit du dépôt bartowski et renseigner le sha256.
   evidence: Le connecteur Hugging Face de la session ne donne que la taille (121 020 096 octets, LFS), ni l'oid LFS ni le commit ; huggingface.co est bloqué dans le conteneur. Le premier téléchargement sur le PC cible trace le sha256 du fichier (effet `model_download` dans le journal) ; le recopier dans `files[].sha256`, et remplacer `main` par le commit affiché sur la page du fichier. Dès lors, `Télécharger`, le chargement et `scripts/build_rag_index.py --model` le vérifient.
+  closed: test sur PC cible (2026-09-27) — sha256 `15691dfe…5e07` identique à l'oid LFS de Hugging Face, URL épinglée sur le commit `52fed1c8…`, dans `wavestack.toml`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
   summary: Sur le PC cible (Windows, Python de uv) : chargement de l'extension sqlite-vec, pooling CLS déclaré par le GGUF granite (sonde au chargement), et `uv lock` à confirmer (entrée sqlite-vec écrite à la main faute d'accès à l'index abetlen).
@@ -365,10 +366,12 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
   summary: Le vrai reranker (bge-reranker-v2-m3 Q4_K_M) n'a jamais tourné : mémoire ajoutée, latence de l'étape « Reranking » et pertinence restent à mesurer sur le PC cible.
   evidence: Aucun modèle téléchargeable pendant la story (huggingface.co bloqué). L'adaptateur est exercé sur un GGUF BERT synthétique (`tests/fixtures/tiny-bert-rank.gguf`). Sur le PC cible, relever le RSS ajouté (seuil de la story 12 : 800 Mo au plus, NFR-2 ; le reporter dans `[rag.reranker] measured_rss_mb`), la durée de l'étape pour 8 candidats (NFR-1 : premier token en moins de 30 s avec la configuration du scénario, sinon baisser `[rag] rerank_candidates`), et lancer `uv run python -m pytest -m model tests/test_rag_rerank.py`.
+  closed: test sur PC cible (2026-09-27) — RSS ajoutée 729 à 736 Mo (seuil 800, `measured_rss_mb = 740`), score 0,919 pour le bon passage contre 0,0 ; `pytest -m model` ne peut pas le vérifier (lot G du plan de correction).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
   summary: L'URL du reranker vise resolve/main et son sha256 n'est pas renseigné.
   evidence: Le connecteur Hugging Face donne la taille (438 376 864 octets), ni l'oid LFS ni le commit. Le premier téléchargement sur le PC cible trace le sha256 (effet model_download) : le recopier dans `[rag.reranker] files[].sha256` et épingler l'URL sur le commit.
+  closed: test sur PC cible (2026-09-27) — sha256 `e186a244…3673` identique à l'oid LFS, URL épinglée sur le commit `3093af03…`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
   summary: AD-21 amendé (à valider) : sans son modèle, seule la sous-option « Reranking » est indisponible, le RAG simple continue.
@@ -381,4 +384,96 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
   summary: Le prompt « hôtel à Paris » du scénario `rag_rerank` réordonne avec le faux reranker ; avec le vrai modèle, l'effet reste à constater.
   evidence: Au test manuel sur le PC cible : l'étape « Reranking » doit montrer au moins un extrait qui change de rang sur ce prompt ; sinon choisir un autre prompt du corpus.
+  closed: test sur PC cible (2026-09-27) — avec le vrai reranker, « Déplacements » (score 0,819) reste 1er, « Accord de télétravail » passe du 3e au 2e rang et l'autre extrait « Déplacements » du 2e au 3e.
 
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
+  summary: En mode local, l'historique est rendu sans le bloc `<think>\n\n</think>` des réponses passées, alors que ces tokens sont dans le cache : Qwen3.5 étant hybride, llama.cpp relit tout le contexte à chaque tour (NFR-1).
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : prompt_ms du premier appel : 20 s à 729 tokens, 43 s à 1 466, 111 à 119 s vers 3 200 ; divergence constatée entre le prompt + la sortie du tour N et le prompt du tour N+1 (outils natifs). `prefix_not_reused` ne contrôle que l'intérieur d'un tour et n'a rien signalé. Lot A du plan. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
+  summary: Une écriture en mémoire globale réécrit le message système dès le tour suivant : le prompt diverge au début, tout le contexte est relu (modèle hybride).
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Divergence au caractère ≈ 1 860 (fin du message système) après `remember`. Décision N1 proposée : instantané de la mémoire par conversation. Lot A. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/19-delegation-a-un-sous-agent.md`
+  summary: Le sous-agent occupe le même contexte llama.cpp que l'agent principal : au retour, le contexte principal est relu en entier.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Tour de délégation : 275 s, dont 67 s de relecture de 2 246 tokens après le retour ; quiz suivants : 68 à 99 s avant le premier token. Décision N2 proposée : sauvegarde et restauration de l'état. Lot A. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
+  summary: Les résultats des serveurs MCP publics ne sont pas bornés : data.gouv (≈ 2 500 tokens) et Microsoft Learn (≈ 5 800) font déborder la fenêtre.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Débordements : `mcp_lazy` 4 680 / 3 584, `data_flows` 5 605, `iam` 6 864, tours terminés sans réponse. `soc` déborde aussi sur `journal_serveur.log` (3 586). Lot B (borne N3). Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
+  summary: Le message de débordement cite « les descriptions d'outils » alors que c'est un résultat d'outil qui déborde.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Messages relevés dans `mcp_lazy`, `data_flows` et `iam` (lazy loading actif ou documentation d'un seul serveur). Lot B. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
+  summary: Le test `fits` sous-estime la jauge de moitié (4 caractères par token).
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : `mcp_full` : 1 530 estimés contre 3 204 réels (jauge avant envoi, vrais outils). Lot B. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
+  summary: Avec Qwen3.5-2B, le raisonnement épuise la réserve de 1 536 tokens : aucune réponse.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Scénario Raisonnement, prompt du train : `output_truncated` sur le canal `reasoning`, bulle vide, 137 s. Décision N4 proposée : budget de raisonnement fermé par le harnais. Lot C. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/5b-outils-reseau.md`
+  summary: Wikipédia répond 403 à `wikipedia_summary` et `fetch_page` : l'User-Agent n'a pas de contact, exigé par la politique robots de Wikimedia.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : « Please respect our robot policy https://w.wiki/4wJS » avec `WaveStack/0.1 (demonstrateur pedagogique)` ; 200 avec l'URL du dépôt ajoutée. Lot D. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
+  summary: Le parcours E2E suppose un poste sans Internet : 30 échecs sur un poste connecté.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : 331 vérifications passent ; les 30 échecs attendent un échec réseau expliqué (`public_holidays`, data.gouv, Microsoft Learn répondent). Le lanceur doit couper le réseau lui-même. Lot D. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: La mémoire d'un modèle servi par llama-server est comptée à la taille du fichier : lancé sans `-c`, llama-server occupe 5 137 Mo pour un fichier de 1,28 Go.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : `llama-server -m Qwen3.5-2B-Q4_K_M.gguf --port 8080 -np 1` (commande du guide), b11207 CPU. Lire `n_ctx` dans `/props`, et `-c 4096` dans le guide. Lot E. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
+  summary: L'estimation mémoire d'un modèle ignore les tampons de calcul ; le 2B sondé avant la story 17 n'a ni `rss_bytes` ni `kv_bytes_per_token`.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : 4B : 3,4 Go estimés, 4,27 Go mesurés après 3 000 tokens (refus du changement à chaud justifié). 2B : 2,0 Go après 3 000 tokens. Lot E (décision N5 : garder 4 096 Mo). Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
+  summary: Le message de refus par le budget affiche « WaveStack occupe 0,0 Go sans le modèle actif » alors que le processus pèse ≈ 200 Mo.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Refus d'`olmo-3:7b` via Ollama (4,4 Go pour un budget de 4,0 Go). Lot E. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: « Arrêter » n'agit pas pendant le chargement d'un modèle servi : `stop` répond `stopping: false` en `model_load`.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Chargement de `ministral-3:3b` via Ollama ; la main est revenue en 2,2 s seulement parce que le chargement a échoué seul (pas de gabarit). Lot E. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
+  summary: Avec `llama3.2:3b` via Ollama, les briques ne semblent pas s'appliquer : jauge à 141 tokens dans `native_tools` (≈ 724 attendus), aucun outil proposé, sans explication.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Le modèle répond « je n'ai pas accès à la date ». À diagnostiquer. Lot E. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
+  summary: La raison d'un fichier incompatible reste le message anglais de llama.cpp (« Failed to load model from file »).
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Choix d'un blob Ollama que llama-cpp-python 0.3.35 ne charge pas. Lot E. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
+  summary: Headroom compte ses tokens avec `o200k_base` (`gpt-4o`), que litellm 1.102.1 n'embarque pas : il tente de télécharger la table vers `openaipublic.blob.core.windows.net` (AD-15).
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Banc headroom sur le PC cible : verdict ÉCARTÉ, même en variante configurée ; le cache de litellm ne contient que `cl100k_base` et `p50k_base`. La compression marche quand même (repli). Lot F. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
+  summary: `[compression] cost_mb = 130` alors que Headroom ajoute 57 Mo sur le PC cible.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Banc headroom : RSS 36 Mo avant l'import, 93 Mo après la compression. Lot F. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/12-tests-prealables-headroom-embedding-et-reranking.md`
+  summary: Le banc mesure le RSS « ajouté » après la libération du modèle : 3 à 6 Mo affichés sous Windows.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Vrais RSS (pic moins base) : granite +428 Mo, bge-m3 +731, Qwen3-Embedding +900, reranker +736 ; confirmés hors banc (+441 et +729 Mo). Lot F. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/12-tests-prealables-headroom-embedding-et-reranking.md`
+  summary: Le candidat `e5small_q8` ne se charge pas (« Failed to load model from file ») avec llama-cpp-python 0.3.35.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Banc embed sur le PC cible ; candidat non retenu. Lot F. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
+  summary: Deux tests échouent sous Windows : remplacer `rag_index.sqlite` pendant qu'une session l'a ouvert lève `WinError 5`.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : `test_an_index_replaced_during_the_session_is_read_again` et `test_an_index_replaced_with_the_reranker_loaded_closes_it` (772 réussis, 2 échecs). La carte RAG libère l'index avant ; le script lancé pendant une session échoue. Lot G. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
+  summary: Les tests `model` du RAG ne trouvent jamais les modèles (`_isolated_data_dir`), et celui du reranker planterait (`0 <= s` sur un `RerankScore`).
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Rejoués hors pytest avec les vrais modèles : les deux vérifications passent (scores 0,0 / 0,919 / 0,0 en comparant `s.score`). Lot G. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
+  summary: Scénarios avec le 2B : extraits RAG hors sujet dans `mcp_lazy`, `skills`, `subagent` et `compression` ; `load_tool_doc` appelé pour un skill ; SOC sans escalade après le blocage de H1 ; compression éteinte sans lecture du journal ; souveraineté sans appel de recherche.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Parcours réel des six modules et du métier. À revoir après les lots A à C (contexte plus court et plus rapide). Lot H, décisions D5 et D6. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
+  summary: Guide de test du palier 2 à corriger : 2 560 utilisables avec le raisonnement (et non 3 072), `-c 4096` pour llama-server, Ollama `qwen3.5` accepté, résultat E2E sur poste connecté, 4B refusé par le budget.
+  evidence: Test manuel du 2026-09-27 sur le PC cible (Qwen3.5-2B Q4_K_M, CPU) : Écarts constatés en suivant `guide-test-pc-palier-2.md`. Lot I. Voir `_bmad-output/implementation-artifacts/plan-corrections-palier-2.md`.

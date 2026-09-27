@@ -213,6 +213,28 @@ Pour la story 16, le reranker : `gpustack/bge-reranker-v2-m3-GGUF`, fichier `bge
 
 **Statut de la story.** `done`, avec la mention « verdict provisoire, mesure sur PC cible à faire » pour l'embedding et le reranking. Les stories 15, 16 et 20 s'appuient sur les candidats recommandés. Headroom n'est pas rédhibitoire.
 
+### Mesures sur le PC cible (2026-09-27)
+
+HP EliteBook i5-1145G7, 16 Go, Windows 11, headroom-ai 0.38.0 et llama-cpp-python 0.3.35 du
+verrou. Résultats bruts : `tools/bench/results/2026-09-27-pc-cible/`.
+
+- **Headroom : ÉCARTÉ par le banc**, sur un seul critère. Même en variante configurée, une
+  tentative réseau vers `openaipublic.blob.core.windows.net` : le cache de litellm 1.102.1 ne
+  contient que `cl100k_base` et `p50k_base`, pas `o200k_base` (condition 2 ci-dessus fausse avec
+  cette version). Les autres critères passent : sans torch, +57 Mo (pic 93 Mo), 64 paquets sous
+  licence permissive. Compression : JSON 5 933 → 1 902 tokens, journal 2 342 → 149, prose
+  inchangée. Correction : lot F du plan de correction du palier 2.
+- **Embedding : granite-107m Q8_0 retenu**, recall@1 0,9, MRR 0,95, 43 ms par élément,
+  `pooling_gguf` 2 (CLS), RSS +428 Mo au pic (seuil 600). bge-m3 et Qwen3-Embedding font mieux
+  (recall@1 1,0) mais coûtent 731 et 900 Mo. `e5small_q8` ne se charge pas.
+- **Reranker : bge-reranker-v2-m3 Q4_K_M retenu**, MRR 0,95 (égal à l'embedding), 415 ms par
+  paire, RSS +736 Mo au pic (seuil 800, marge faible). Replis fastembed : mesurés (MRR 0,95).
+- Le RSS « ajouté » affiché par le banc (3 à 6 Mo) est faux sous Windows : il est lu après la
+  libération du modèle. Les valeurs ci-dessus sont pic moins base, confirmées hors banc (+441 et
+  +729 Mo). Reportées dans `measured_rss_mb` (430 et 740).
+- sha256 identiques à l'oid LFS de Hugging Face ; URL épinglées sur les commits `52fed1c8…`
+  (embedding) et `3093af03…` (reranker).
+
 ## Hypothèses à valider
 
 1. **Seuils de verdict.** Ils ont été choisis ici, faute de valeur dans le spine : Headroom ≤ 300 Mo ajoutés, embedding ≤ 600 Mo, reranker ≤ 800 Mo, recall@1 ≥ 0,75 sur le mini jeu. Anaël peut les resserrer.
