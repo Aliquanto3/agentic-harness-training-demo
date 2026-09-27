@@ -135,8 +135,9 @@ budget_tokens = 1024
 # Compression du contexte (story 20, AD-22) par Headroom, dépendance optionnelle installée
 # par `uv sync --extra compression`. Un résultat d'outil ou un extrait RAG plus court que
 # min_chars caractères n'est pas compressé. cost_mb : mémoire ajoutée par Headroom, en Mo,
-# contrôlée par le budget [memory] au chargement (130 Mo mesurés par la story 12, hors PC
-# cible).
+# contrôlée par le budget [memory] au chargement. Gardé à 130 par prudence : 57 Mo mesurés
+# sur le PC cible le 2026-09-27 (comptage gpt-4o, table absente), 107 Mo au pic sous Linux avec le
+# comptage gpt-4 (lot F), à remesurer sur le PC cible.
 min_chars = 300
 cost_mb = 130
 

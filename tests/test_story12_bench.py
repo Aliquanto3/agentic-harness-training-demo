@@ -6,9 +6,11 @@ nothing leaves the machine: the heavy paths are replaced by injected fakes.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -216,6 +218,45 @@ def test_headroom_without_strace_or_netns_says_so(bench):
     assert "non disponible" in _criterion(verdict, "adoption")["detail"]
 
 
+def _stub_child(bench, monkeypatch, rss: list[int], peaks: list[int]) -> None:
+    """No audit hook nor guard added to the pytest process; RSS and peaks in sequence (the
+    last value repeats)."""
+    monkeypatch.setattr(bench, "_record_and_guard", lambda allowed_hosts: ([], "factice"))
+
+    def reader(values: list[int]):
+        return lambda: values.pop(0) if len(values) > 1 else values[0]
+
+    monkeypatch.setattr(bench, "_rss_mb", reader(rss))
+    monkeypatch.setattr(bench, "_peak_rss_mb", reader(peaks))
+
+
+def test_headroom_child_counts_with_the_adapter_model_in_both_variants(bench, monkeypatch):
+    from wavestack.compression import headroom_adapter
+
+    seen: list[tuple] = []
+
+    def compress(messages, **kwargs):
+        seen.append((kwargs.get("model"), kwargs.get("kompress_model")))
+        return SimpleNamespace(
+            messages=messages,
+            tokens_before=10,
+            tokens_after=5,
+            transforms_applied=["factice"],
+        )
+
+    monkeypatch.setitem(sys.modules, "headroom", SimpleNamespace(compress=compress))
+    monkeypatch.setattr(bench.time, "sleep", lambda seconds: None)
+    for variant, kompress in (("naive", None), ("configured", "disabled")):
+        seen.clear()
+        # RSS before import, after import, after compression; peak at the baseline, then after.
+        _stub_child(bench, monkeypatch, rss=[25, 28, 97], peaks=[30, 124])
+        out = bench._headroom_child(variant)
+        assert out["counting_model"] == bench.COUNTING_MODEL
+        assert seen and set(seen) == {(bench.COUNTING_MODEL, kompress)}
+        assert out["rss_added_mb"] == 124 - 30  # the peak minus the baseline, as the embed bench
+    assert bench.COUNTING_MODEL == headroom_adapter.COUNTING_MODEL == "gpt-4"
+
+
 def test_headroom_missing_prints_the_uv_command(bench, monkeypatch, capsys):
     monkeypatch.setattr(bench.importlib.util, "find_spec", lambda name: None)
     assert bench.main(["headroom"]) == 2
@@ -264,7 +305,18 @@ def test_embed_main_without_models_prints_the_provisional_verdict(bench, tmp_pat
     assert "Apache-2.0" in out
 
 
-def test_embed_download_measures_each_candidate_and_survives_a_failure(bench, tmp_path):
+def test_embed_download_measures_each_candidate_and_survives_a_failure(
+    bench, tmp_path, monkeypatch
+):
+    # A dummy candidate that fails to load: no real candidate is known to fail (lot F).
+    dummy = dataclasses.replace(
+        bench.candidate("granite107m_q8"),
+        id="factice_q8",
+        repo="factice/factice-GGUF",
+        filename="factice-Q8_0.gguf",
+        size_mb=50,
+    )
+    monkeypatch.setattr(bench, "CANDIDATES", [*bench.CANDIDATES, dummy])
     downloaded = []
 
     def downloader(models_dir, selected):
@@ -277,7 +329,7 @@ def test_embed_download_measures_each_candidate_and_survives_a_failure(bench, tm
         return {"guard": "wavestack.net.guard", "hosts": ["huggingface.co"], "errors": {}}
 
     def runner(c, models_dir):
-        if c.id == "e5small_q8":
+        if c.id == "factice_q8":
             raise RuntimeError("chargement impossible")
         if c.id == "qwen3emb06_q8":
             return {"fatal": "code -11"}
@@ -287,9 +339,10 @@ def test_embed_download_measures_each_candidate_and_survives_a_failure(bench, tm
     report = bench.run_embed(
         tmp_path, download=True, runner=runner, downloader=downloader, find_spec=_no_fastembed
     )
-    assert "granite107m_q8" in downloaded
+    assert "granite107m_q8" in downloaded and "factice_q8" in downloaded
     rows = {r["id"]: r for r in report["results"]}
-    assert rows["e5small_q8"]["status"] == "erreur"
+    assert rows["factice_q8"]["status"] == "erreur"
+    assert "chargement impossible" in rows["factice_q8"]["error"]
     assert rows["qwen3emb06_q8"]["status"] == "erreur"
     assert rows["bgem3_q4km"]["status"] == "measured"
     verdict = report["verdict"]
@@ -318,3 +371,145 @@ def test_embed_verdict_when_nothing_passes(bench):
     assert verdict["embedding"]["id"] is None
     assert verdict["embedding"]["measured"] is True
     assert verdict["reranker"]["status"] == "provisoire, mesure sur PC cible à faire"
+
+
+def test_e5small_is_no_longer_a_candidate_and_says_why(bench):
+    assert "e5small_q8" not in {c.id for c in bench.CANDIDATES}
+    reasons = dict(bench.EXCLUDED)
+    assert "llama-cpp-python 0.3.35" in reasons["cstr/multilingual-e5-small-GGUF"]
+
+
+# -- added RSS: the peak, model loaded (lot F) -------------------------------
+
+
+def _perfect_scores(bench) -> list[list[float]]:
+    return [[1.0 if doc == gold else 0.0 for doc in bench.DOCUMENTS] for _, gold in bench.QUERIES]
+
+
+def test_added_rss_is_the_peak_minus_the_baseline_not_the_rss_after_close(bench):
+    stats = {
+        "rss_before_load_mb": 100,
+        "peak_before_load_mb": 90,
+        "rss_after_load_mb": 480,
+        "rss_loaded_mb": 510,
+        "rss_peak_mb": 528,
+    }
+    scores = _perfect_scores(bench)
+    row = bench.measured_result(scores, stats, rss_after_run_mb=104)  # after close(): +4
+    assert row["rss_added_mb"] == 428
+    assert row["rss_after_run_mb"] == 104 and row["recall_at_1"] == 1.0
+    # The high-water mark never goes down: one already higher at the baseline is the base.
+    row = bench.measured_result(scores, dict(stats, peak_before_load_mb=150), 104)
+    assert row["rss_added_mb"] == 378
+    # No high-water mark on this system: the largest RSS read with the model loaded.
+    row = bench.measured_result(scores, dict(stats, rss_peak_mb=None), rss_after_run_mb=104)
+    assert row["rss_added_mb"] == 410
+
+
+class _FakeLlama:
+    """Enough of `llama_cpp.Llama` for both llama.cpp runners; records its instances."""
+
+    made: list[_FakeLlama] = []
+
+    def __init__(self, **_kwargs) -> None:
+        self.closed = False
+        self.metadata = {}
+        self._ctx = SimpleNamespace(kv_cache_clear=lambda: None, decode=lambda b: None, ctx=None)
+        self._batch = SimpleNamespace(reset=lambda: None, add_sequence=lambda *a: None)
+        self._model = SimpleNamespace(model=None)
+        _FakeLlama.made.append(self)
+
+    def tokenize(self, text, add_bos=True, special=False):
+        return [1, 2, 3]
+
+    def n_embd(self) -> int:
+        return 2
+
+    def pooling_type(self) -> int:
+        return 2
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _fake_llama_cpp() -> SimpleNamespace:
+    _FakeLlama.made = []
+    return SimpleNamespace(
+        Llama=_FakeLlama,
+        LLAMA_POOLING_TYPE_CLS=2,
+        LLAMA_POOLING_TYPE_MEAN=1,
+        LLAMA_POOLING_TYPE_LAST=3,
+        LLAMA_POOLING_TYPE_RANK=4,
+        llama_get_embeddings_seq=lambda ctx, seq: [1.0, 0.0],
+        llama_model_get_vocab=lambda model: None,
+        llama_vocab_bos=lambda vocab: 0,
+        llama_vocab_eos=lambda vocab: 2,
+        llama_vocab_sep=lambda vocab: 2,
+    )
+
+
+@pytest.mark.parametrize("candidate_id", ["granite107m_q8", "bgererank_m3_q4km"])
+def test_embed_child_reports_the_peak_not_the_rss_after_close(
+    bench, monkeypatch, tmp_path, candidate_id
+):
+    monkeypatch.setitem(sys.modules, "llama_cpp", _fake_llama_cpp())
+    monkeypatch.setattr(bench, "model_path", lambda models_dir, c: tmp_path / "x.gguf")
+    # RSS: 100 at the baseline, 480 after load, 510 loaded after the run, 104 after close().
+    # High-water mark: 120 at the baseline (reached by the imports), 528 afterwards.
+    _stub_child(bench, monkeypatch, rss=[100, 480, 510, 104], peaks=[120, 528])
+
+    out = bench._embed_child(candidate_id, tmp_path)
+
+    assert _FakeLlama.made and _FakeLlama.made[-1].closed
+    assert out["status"] == "measured" and out["attempts"] == []
+    assert out["rss_before_load_mb"] == 100 and out["peak_before_load_mb"] == 120
+    assert out["rss_loaded_mb"] == 510 and out["rss_peak_mb"] == 528
+    assert out["rss_after_run_mb"] == 104
+    assert out["rss_added_mb"] == 528 - 120
+
+
+def test_embed_child_fastembed_reports_the_peak(bench, monkeypatch, tmp_path):
+    model = SimpleNamespace(
+        passage_embed=lambda docs: [[1.0, 0.0] for _ in docs],
+        query_embed=lambda queries: [[1.0, 0.0] for _ in queries],
+    )
+    monkeypatch.setitem(sys.modules, "fastembed", SimpleNamespace())
+    monkeypatch.setattr(bench, "_fastembed_model", lambda c, models_dir, local_only: model)
+    _stub_child(bench, monkeypatch, rss=[100, 300, 320, 320], peaks=[100, 350])
+
+    out = bench._embed_child("fe_minilm_multi", tmp_path)
+
+    assert out["status"] == "measured" and out["rss_loaded_mb"] == 320
+    assert out["rss_added_mb"] == 250
+
+
+def test_embed_verdict_with_the_target_pc_peaks_keeps_the_recommended_models(bench):
+    # Peaks measured on the target PC (2026-09-27), with the thresholds set before them.
+    results = [
+        _measured(bench, "granite107m_q8", rss_added_mb=428),
+        _measured(bench, "bgem3_q4km", rss_added_mb=731, mrr=0.99),
+        _measured(bench, "qwen3emb06_q8", rss_added_mb=900, mrr=0.99),
+        _measured(bench, "bgererank_m3_q4km", rss_added_mb=736, mrr=0.97),
+    ]
+    rows = {r["id"]: r for r in results}
+    assert not bench._passes(rows["bgem3_q4km"], bench.EMBED_RSS_BUDGET_MB, None)
+    assert not bench._passes(rows["qwen3emb06_q8"], bench.EMBED_RSS_BUDGET_MB, None)
+    assert bench._passes(rows["bgererank_m3_q4km"], bench.RERANK_RSS_BUDGET_MB, 0.93)
+    verdict = bench.embed_verdict(results)
+    assert verdict["embedding"]["id"] == bench.RECOMMENDED["embedding"]
+    assert verdict["reranker"]["id"] == bench.RECOMMENDED["reranker"]
+
+
+def test_embed_report_says_how_the_added_rss_was_measured(bench, tmp_path):
+    report = bench.run_embed(tmp_path, find_spec=_no_fastembed)
+    assert report["rss_added_method"] == "pic"
+
+
+def test_embed_only_with_an_unknown_or_removed_id_stops_and_says_why(bench, tmp_path, capsys):
+    argv = ["embed", "--models-dir", str(tmp_path), "--only", "granite107m_q8", "e5small_q8"]
+    assert bench.main(argv) == 2
+    out = capsys.readouterr().out
+    assert "Candidat inconnu : e5small_q8" in out and "retiré" in out
+    assert "granite107m_q8" in out and "Verdict" not in out
+    assert bench.main(["embed", "--models-dir", str(tmp_path), "--only", "nimporte"]) == 2
+    assert "Candidat inconnu : nimporte" in capsys.readouterr().out

@@ -31,6 +31,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 HEADROOM_VERSION = "0.38.0"
+# Headroom's own token count, in both variants: the same model as the adapter
+# (`wavestack.compression.headroom_adapter.COUNTING_MODEL`, checked equal by
+# `tests/test_story12_bench.py`; only the standard library is imported here).
+# `cl100k_base` is in every copy of litellm; `o200k_base` (`gpt-4o`) was missing
+# on the target PC, and tiktoken tried to download it (lot F).
+COUNTING_MODEL = "gpt-4"
 PROXY_VARS = ("http_proxy", "https_proxy", "all_proxy")
 HEAVY_MODULES = ("torch", "transformers", "onnxruntime", "sentence_transformers")
 HEAVY_DISTRIBUTIONS = ("torch", "transformers", "onnxruntime", "sentence-transformers")
@@ -228,21 +234,6 @@ CANDIDATES: list[Candidate] = [
         note="IBM (ibm-granite), XLM-RoBERTa, quantifié avec llama.cpp par bartowski",
     ),
     Candidate(
-        id="e5small_q8",
-        role="embedding",
-        backend="llama_cpp",
-        repo="cstr/multilingual-e5-small-GGUF",
-        filename="multilingual-e5-small-q8_0.gguf",
-        license="MIT",
-        size_mb=132,
-        dim=384,
-        french="oui (multilingue, ~100 langues)",
-        pooling="mean",
-        query_prefix="query: ",
-        doc_prefix="passage: ",
-        note="conversion faite pour CrispEmbed : chargement par llama.cpp à vérifier",
-    ),
-    Candidate(
         id="bgem3_q4km",
         role="embedding",
         backend="llama_cpp",
@@ -271,7 +262,7 @@ CANDIDATES: list[Candidate] = [
             "the query\nQuery: "
         ),
         suffix_special="<|endoftext|>",
-        note="GGUF officiel Qwen, décodeur 0.6B : le plus lent des quatre",
+        note="GGUF officiel Qwen, décodeur 0.6B : le plus lent des trois",
     ),
     Candidate(
         id="bgererank_m3_q4km",
@@ -326,9 +317,32 @@ EXCLUDED = [
         "Qwen/Qwen3-Reranker-0.6B",
         "gabarit de reranking à reproduire à la main dans llama-cpp-python ; GGUF communautaires",
     ),
+    (
+        "cstr/multilingual-e5-small-GGUF",
+        "conversion faite pour CrispEmbed : « Failed to load model » avec llama-cpp-python "
+        "0.3.35 (PC cible, 2026-09-27)",
+    ),
 ]
 
 RECOMMENDED = {"embedding": "granite107m_q8", "reranker": "bgererank_m3_q4km"}
+# Former candidates, so `embed --only` says why they are gone.
+REMOVED = {
+    "e5small_q8": "retiré des candidats : ne se charge pas avec llama-cpp-python 0.3.35 "
+    "(PC cible, 2026-09-27)",
+}
+
+
+def unknown_candidates_message(only: list[str] | None) -> str | None:
+    """French message naming the ids of `--only` that are not candidates, else None."""
+    known = {c.id for c in CANDIDATES}
+    unknown = [i for i in only or [] if i not in known]
+    if not unknown:
+        return None
+    lines = [
+        f"Candidat inconnu : {i}" + (f" ({REMOVED[i]})" if i in REMOVED else "") for i in unknown
+    ]
+    lines.append(f"Candidats : {', '.join(c.id for c in CANDIDATES)}.")
+    return "\n".join(lines)
 
 
 def candidate(candidate_id: str) -> Candidate:
@@ -428,7 +442,7 @@ def headroom_verdict(report: dict) -> dict:
             "id": "budget",
             "label": f"RSS ajouté ≤ {HEADROOM_RSS_BUDGET_MB} Mo (part du budget AD-8)",
             "ok": rss_added is not None and rss_added <= HEADROOM_RSS_BUDGET_MB,
-            "detail": f"{rss_added} Mo ajoutés (import + compression), "
+            "detail": f"{rss_added} Mo ajoutés au pic (import + compression), "
             f"pic {conf.get('rss_peak_mb')} Mo",
         }
     )
@@ -569,6 +583,17 @@ def _rss_mb() -> int:
 
 
 def _peak_rss_mb() -> int | None:
+    """The process's RSS high-water mark, in MB; it never goes down. Linux: `VmHWM` of
+    /proc/self/status (`ru_maxrss` keeps the parent's high-water mark across fork and
+    exec); Windows: `peak_wset`; elsewhere `ru_maxrss`."""
+    if sys.platform.startswith("linux"):
+        try:
+            with open("/proc/self/status", encoding="ascii", errors="replace") as f:
+                for line in f:
+                    if line.startswith("VmHWM:"):
+                        return int(line.split()[1]) >> 10  # kB
+        except (OSError, ValueError, IndexError):
+            pass
     try:
         import psutil
 
@@ -584,6 +609,32 @@ def _peak_rss_mb() -> int | None:
         return peak >> 20 if sys.platform == "darwin" else peak >> 10
     except (ImportError, AttributeError):
         return None
+
+
+def _baseline_rss() -> dict:
+    """RSS and high-water mark before loading: what the process had already reached."""
+    return {"rss_before_load_mb": _rss_mb(), "peak_before_load_mb": _peak_rss_mb()}
+
+
+def _loaded_rss() -> dict:
+    """RSS with the model loaded (the fallback without a high-water mark), and the
+    high-water mark after the measure."""
+    return {"rss_loaded_mb": _rss_mb(), "rss_peak_mb": _peak_rss_mb()}
+
+
+def added_rss_mb(
+    base: int | None, peak_at_base: int | None, peak: int | None, loaded: tuple = ()
+) -> int | None:
+    """What a measure adds to the process (lot F): the high-water mark after it minus the
+    baseline. The mark never goes down, so the baseline is the larger of the RSS and the
+    mark before the measure. Without a mark: the largest RSS read while loaded."""
+    if base is None:
+        return None
+    if peak is None:
+        peak, peak_at_base = max((v for v in loaded if v is not None), default=None), None
+    if peak is None:
+        return None
+    return max(0, peak - max(base, peak_at_base or 0))
 
 
 def _blocked_host(exc: BaseException) -> str | None:
@@ -687,8 +738,13 @@ def headroom_samples() -> list[dict]:
 
 def _headroom_child(variant: str) -> dict:
     attempts, guard = _record_and_guard(allowed_hosts=[])
-    out: dict = {"variant": variant, "guard": guard, "python": platform.python_version()}
-    rss0 = _rss_mb()
+    out: dict = {
+        "variant": variant,
+        "guard": guard,
+        "python": platform.python_version(),
+        "counting_model": COUNTING_MODEL,
+    }
+    rss0, peak0 = _rss_mb(), _peak_rss_mb()
     t0 = time.monotonic()
     try:
         from headroom import compress
@@ -715,7 +771,9 @@ def _headroom_child(variant: str) -> dict:
         row: dict = {"id": sample["id"], "chars_before": len(sample["text"])}
         t1 = time.monotonic()
         try:
-            result = compress(messages, model="gpt-4o", kompress_model=kompress, protect_recent=0)
+            result = compress(
+                messages, model=COUNTING_MODEL, kompress_model=kompress, protect_recent=0
+            )
             after = str(result.messages[-1].get("content"))
             row.update(
                 tokens_before=result.tokens_before,
@@ -733,15 +791,19 @@ def _headroom_child(variant: str) -> dict:
             warm = [*messages[:2], dict(messages[2], content=sample["text"] + "\n ")]
             t2 = time.monotonic()
             try:
-                compress(warm, model="gpt-4o", kompress_model=kompress, protect_recent=0)
+                compress(warm, model=COUNTING_MODEL, kompress_model=kompress, protect_recent=0)
                 row["seconds_warm"] = round(time.monotonic() - t2, 3)
             except Exception as exc:  # noqa: BLE001 - recorded, criterion fails
                 row.update(error=f"second appel : {exc!r}"[:300], blocked=_blocked_host(exc))
         samples.append(row)
     out["samples"] = samples
     out["rss_after_compress_mb"] = _rss_mb()
-    out["rss_added_mb"] = out["rss_after_compress_mb"] - rss0
     out["rss_peak_mb"] = _peak_rss_mb()
+    out["peak_before_import_mb"] = peak0
+    # Same definition as the embedding bench: the peak minus the baseline (lot F).
+    out["rss_added_mb"] = added_rss_mb(
+        rss0, peak0, out["rss_peak_mb"], (out["rss_after_compress_mb"],)
+    )
     out["heavy_modules_loaded"] = [m for m in HEAVY_MODULES if m in sys.modules]
     time.sleep(2)  # leave a background beacon or update check the time to fire
     import threading
@@ -814,7 +876,11 @@ def run_headroom(use_strace: bool = True) -> tuple[int, dict]:
         return 2, {}
     from importlib.metadata import version
 
-    report: dict = {"headroom_version": version("headroom-ai"), "platform": platform.platform()}
+    report: dict = {
+        "headroom_version": version("headroom-ai"),
+        "platform": platform.platform(),
+        "rss_added_method": "pic",
+    }
     base_env = dict(os.environ)
     _strip_proxy_env(base_env)
     for name in HEADROOM_ENV_NAMES:
@@ -861,6 +927,7 @@ def run_headroom(use_strace: bool = True) -> tuple[int, dict]:
 
 def print_headroom(report: dict) -> None:
     print(f"== Headroom (headroom-ai {report['headroom_version']}) — {report['platform']}")
+    print(f"   modèle de comptage de Headroom : {COUNTING_MODEL} (table cl100k_base)")
     for variant, title in (("naive", "naïve (aucune variable)"), ("configured", "configurée")):
         r = report.get(variant) or {}
         print(f"\n-- Variante {title}")
@@ -954,7 +1021,7 @@ def _llama_scores_embedding(c: Candidate, path: Path) -> tuple[list[list[float]]
         "mean": llama_cpp.LLAMA_POOLING_TYPE_MEAN,
         "last": llama_cpp.LLAMA_POOLING_TYPE_LAST,
     }[c.pooling]
-    rss0 = _rss_mb()
+    baseline = _baseline_rss()
     t0 = time.monotonic()
     llm = llama_cpp.Llama(
         model_path=str(path),
@@ -989,13 +1056,14 @@ def _llama_scores_embedding(c: Candidate, path: Path) -> tuple[list[list[float]]
     stats = {
         "load_s": round(load_s, 2),
         "ms_per_item": round(per_text_ms, 1),
-        "rss_before_load_mb": rss0,
+        **baseline,
         "rss_after_load_mb": rss_loaded,
         "pooling_used": str(llm.pooling_type()),
         # What an adapter that passes no pooling_type would get (story 15):
         # 1 = mean, 2 = cls, 3 = last, absent = llama.cpp falls back to none.
         "pooling_gguf": _gguf_pooling(llm),
         "n_embd": llm.n_embd(),
+        **_loaded_rss(),
     }
     llm.close()
     return scores, stats
@@ -1031,7 +1099,7 @@ def _decode_sequence(llm, tokens: list[int]) -> list[float]:
 def _llama_scores_rerank(c: Candidate, path: Path) -> tuple[list[list[float]], dict]:
     import llama_cpp
 
-    rss0 = _rss_mb()
+    baseline = _baseline_rss()
     t0 = time.monotonic()
     llm = llama_cpp.Llama(
         model_path=str(path),
@@ -1072,15 +1140,16 @@ def _llama_scores_rerank(c: Candidate, path: Path) -> tuple[list[list[float]], d
     stats = {
         "load_s": round(load_s, 2),
         "ms_per_item": round(per_pair_ms, 1),
-        "rss_before_load_mb": rss0,
+        **baseline,
         "rss_after_load_mb": rss_loaded,
+        **_loaded_rss(),
     }
     llm.close()
     return scores, stats
 
 
 def _fastembed_scores(c: Candidate, models_dir: Path) -> tuple[list[list[float]], dict]:
-    rss0 = _rss_mb()
+    baseline = _baseline_rss()
     t0 = time.monotonic()
     model = _fastembed_model(c, models_dir, local_only=True)
     load_s = time.monotonic() - t0
@@ -1103,8 +1172,9 @@ def _fastembed_scores(c: Candidate, models_dir: Path) -> tuple[list[list[float]]
     stats = {
         "load_s": round(load_s, 2),
         "ms_per_item": round((time.monotonic() - t1) * 1000 / items, 1),
-        "rss_before_load_mb": rss0,
+        **baseline,
         "rss_after_load_mb": rss_loaded,
+        **_loaded_rss(),
     }
     return scores, stats
 
@@ -1123,20 +1193,35 @@ def _embed_child(candidate_id: str, models_dir: Path) -> dict:
         import fastembed  # noqa: F401 - imported before the RSS baseline
 
         scores, stats = _fastembed_scores(c, models_dir)
+    out.update(measured_result(scores, stats, rss_after_run_mb=_rss_mb()))
+    out["attempts"] = attempts
+    return out
+
+
+def measured_result(scores: list[list[float]], stats: dict, rss_after_run_mb: int) -> dict:
+    """A measured candidate's row: quality, then the RSS its model adds (`rss_added_mb`).
+
+    The added RSS is the peak minus the baseline (`added_rss_mb`, lot F). The RSS
+    after `close()` falls back near the baseline (3 to 6 MB shown on the target PC,
+    for +428 to +900 MB really used): `rss_after_run_mb` stays as information only.
+    """
     ranks = ranks_of_gold(scores, list(DOCUMENTS), [gold for _, gold in QUERIES])
-    out.update(stats)
-    out.update(
+    row = dict(stats)
+    row.update(
         status="measured",
         ranks=ranks,
         recall_at_1=recall_at(ranks, 1),
         recall_at_3=recall_at(ranks, 3),
         mrr=mrr(ranks),
-        rss_after_run_mb=_rss_mb(),
-        rss_peak_mb=_peak_rss_mb(),
-        attempts=attempts,
+        rss_after_run_mb=rss_after_run_mb,
     )
-    out["rss_added_mb"] = out["rss_after_run_mb"] - out["rss_before_load_mb"]
-    return out
+    row["rss_added_mb"] = added_rss_mb(
+        row.get("rss_before_load_mb"),
+        row.get("peak_before_load_mb"),
+        row.get("rss_peak_mb"),
+        (row.get("rss_after_load_mb"), row.get("rss_loaded_mb")),
+    )
+    return row
 
 
 def download_candidates(models_dir: Path, selected: list[Candidate]) -> dict:
@@ -1215,7 +1300,11 @@ def run_embed(
     find_spec=importlib.util.find_spec,
 ) -> dict:
     selected = [c for c in CANDIDATES if not only or c.id in only]
-    report: dict = {"models_dir": str(models_dir), "platform": platform.platform()}
+    report: dict = {
+        "models_dir": str(models_dir),
+        "platform": platform.platform(),
+        "rss_added_method": "pic",  # peak minus baseline (lot F); absent: after close()
+    }
     if download:
         models_dir.mkdir(parents=True, exist_ok=True)
         report["download"] = downloader(models_dir, selected)
@@ -1262,7 +1351,7 @@ def print_embed(report: dict) -> None:
             print(
                 f"      mesuré : recall@1 {r['recall_at_1']}, MRR {r['mrr']}, "
                 f"{r['ms_per_item']} ms/élément, chargement {r['load_s']} s, RSS ajouté "
-                f"{r['rss_added_mb']} Mo, "
+                f"{r['rss_added_mb']} Mo (au pic), "
                 f"réseau {summarize_attempts(r.get('attempts', [])) or 'aucun'}"
             )
             if "pooling_gguf" in r:
@@ -1329,6 +1418,10 @@ def main(argv: list[str] | None = None) -> int:
     if problems:
         print("\n".join(problems))
         return 1
+    unknown = unknown_candidates_message(args.only)
+    if unknown:
+        print(unknown)
+        return 2
     report = run_embed(Path(args.models_dir), download=args.download, only=args.only)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=1))

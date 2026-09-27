@@ -22,8 +22,9 @@ OFFLINE_ENV = {
 
 
 def tiktoken_cache_dir() -> Path | None:
-    """The tiktoken tables litellm ships (`cl100k_base`, `o200k_base`), found without
-    importing litellm; `None` when litellm is not installed."""
+    """The tiktoken tables litellm ships, found without importing litellm; `None` when
+    litellm is not installed. `cl100k_base`, the table of the adapter's `COUNTING_MODEL`, is
+    in every copy; `o200k_base` was missing from the target PC's (2026-09-27)."""
     try:
         spec = importlib.util.find_spec("litellm")
     except (ImportError, ValueError):

@@ -31,9 +31,11 @@ from wavestack.compression.env import apply_offline_env
 from wavestack.compression.port import Compressed
 
 HEADROOM_VERSION = "0.38.0"
-# Headroom counts its own tokens with this model's tiktoken table (`o200k_base`, shipped by
-# litellm): only its internal decisions use them, WaveStack counts its own (AD-1).
-COUNTING_MODEL = "gpt-4o"
+# Headroom counts its own tokens with this model's tiktoken table: only its internal decisions
+# use them, WaveStack counts its own (AD-1). `gpt-4` reads `cl100k_base`, which every copy of
+# litellm ships (`TIKTOKEN_CACHE_DIR`, see `env`); `gpt-4o` read `o200k_base`, missing from the
+# target PC's cache (2026-09-27), so tiktoken tried to download it (AD-15). Lot F.
+COUNTING_MODEL = "gpt-4"
 _INSTALL_FR = "Installez-la depuis le dossier de WaveStack avec `uv sync --extra compression`"
 # A short JSON array: the warm-up call pays the lazy imports once, at load time.
 _WARM_UP = '[{"id": 1, "etat": "ok"}, {"id": 2, "etat": "ok"}, {"id": 3, "etat": "erreur"}]'

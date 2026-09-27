@@ -6,10 +6,14 @@ Only `test_headroom_adapter_*` runs the real library, skipped when it is not ins
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import ipaddress
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import threading
 
@@ -735,6 +739,168 @@ def test_headroom_adapter_compresses_the_demo_log_offline(monkeypatch):
     assert len(result.text) <= len(LOG) * 0.4 and ERROR_LINE in result.text  # measured: −73 %
     assert "lot 12 copié" not in result.text  # what is cut is lost for the model
     assert compressor.compress(prose).text.strip() == prose.strip()
+
+
+# Child of the offline test: records every resolution or connection attempt (the recording hook
+# first, as the bench's `_record_and_guard`: the guard raising must not hide it), installs the
+# guard, sets the offline variables as `cli` does, then imports the adapter and compresses.
+# argv: the log, the tiktoken cache to use in place of litellm's, optionally another counting
+# model (the negative control).
+_OFFLINE_CHILD = r"""
+import json, sys
+from pathlib import Path
+
+attempts, phase = [], ["start"]
+
+
+def record(event, args):
+    if event == "socket.getaddrinfo":
+        host = args[0]
+        if host is None:  # passive lookup (a local bind), not a destination
+            return
+        if isinstance(host, bytes):
+            host = host.decode("ascii", "replace")
+        attempts.append([phase[0], event, str(host)])
+    elif event == "socket.connect":
+        address = args[1]
+        if isinstance(address, tuple) and address:
+            attempts.append([phase[0], event, str(address[0])])
+
+
+sys.addaudithook(record)
+import urllib.request
+
+urllib.request.getproxies_registry = lambda: {}
+from wavestack.net.guard import install
+
+install(allowed_hosts=[])
+from wavestack.compression import env
+
+env.tiktoken_cache_dir = lambda: Path(sys.argv[2])
+env.apply_offline_env()
+phase[0] = "import"
+from wavestack.compression import headroom_adapter
+
+if len(sys.argv) > 3:
+    headroom_adapter.COUNTING_MODEL = sys.argv[3]
+compressor = headroom_adapter.HeadroomCompressor()
+phase[0] = "compression"
+with open(sys.argv[1], encoding="utf-8") as f:
+    log = f.read()
+result = compressor.compress(log)
+print(json.dumps({
+    "attempts": attempts,
+    "model": headroom_adapter.COUNTING_MODEL,
+    "before": len(log),
+    "text": result.text,
+}))
+"""
+
+
+def _outside_loopback(host: str) -> bool:
+    """A destination off this machine: not loopback (IPv4-mapped included), not unspecified."""
+    if host.lower() in ("", "localhost"):
+        return False
+    try:
+        ip = ipaddress.ip_address(host.split("%")[0])
+    except ValueError:
+        return True
+    mapped = getattr(ip, "ipv4_mapped", None)
+    return not (ip.is_loopback or ip.is_unspecified or (mapped and mapped.is_loopback))
+
+
+def test_outside_loopback_keeps_local_addresses_local():
+    for host in ("", "localhost", "127.0.0.1", "::1", "0.0.0.0", "::", "::ffff:127.0.0.1"):
+        assert not _outside_loopback(host), host
+    for host in ("openaipublic.blob.core.windows.net", "57.150.192.193", "::ffff:8.8.8.8"):
+        assert _outside_loopback(host), host
+
+
+def _tiktoken_file(encoding: str) -> str:
+    """tiktoken's cache file name for an OpenAI table: the sha1 of its URL."""
+    url = f"https://openaipublic.blob.core.windows.net/encodings/{encoding}.tiktoken"
+    return hashlib.sha1(url.encode()).hexdigest()
+
+
+def _run_offline_child(tmp_path, model: str | None = None) -> dict:  # noqa: ANN001
+    """The child above, with a tiktoken cache holding `cl100k_base` only, as litellm's copy on
+    the target PC (2026-09-27)."""
+    shipped = compression_env.tiktoken_cache_dir()
+    if shipped is None:
+        pytest.skip("litellm absent")
+    table = _tiktoken_file("cl100k_base")
+    assert (shipped / table).is_file(), "litellm ne livre pas cl100k_base"
+    cache = tmp_path / "tiktoken"
+    cache.mkdir(exist_ok=True)
+    shutil.copy(shipped / table, cache / table)
+    env = {
+        var: value
+        for var, value in os.environ.items()
+        if var.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")
+        and var not in (*compression_env.OFFLINE_ENV, "TIKTOKEN_CACHE_DIR", "HF_HUB_OFFLINE")
+    }
+    env["PYTHONIOENCODING"] = "utf-8"
+    path = config.content_dir() / "demo_files" / "journal_serveur.log"
+    argv = [sys.executable, "-c", _OFFLINE_CHILD, str(path), str(cache)]
+    proc = subprocess.run(
+        [*argv, model] if model else argv,
+        env=env,
+        cwd=config.repo_root(),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=300,
+    )
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    last = next((line for line in reversed(proc.stdout.splitlines()) if line.startswith("{")), None)
+    assert last is not None, proc.stdout[-2000:]
+    return json.loads(last)
+
+
+_NO_HEADROOM = pytest.mark.skipif(
+    importlib.util.find_spec("headroom") is None, reason="headroom-ai (extra) absent"
+)
+
+
+@_NO_HEADROOM
+def test_headroom_makes_no_network_attempt_at_import_nor_compression(tmp_path):
+    """Lot F (AD-15): the in-process test above passes even when Headroom tries the network
+    (it falls back silently); here every attempt is recorded, in a fresh process."""
+    out = _run_offline_child(tmp_path)
+
+    public = [a for a in out["attempts"] if _outside_loopback(a[2])]
+    assert public == [], f"tentatives réseau de Headroom : {public}"
+    assert out["model"] == "gpt-4"
+    assert ERROR_LINE in out["text"] and len(out["text"]) < out["before"]  # compressed
+
+
+@_NO_HEADROOM
+def test_headroom_offline_check_sees_the_old_counting_model_reach_out(tmp_path):
+    """Negative control: with `gpt-4o`, the same child records tiktoken's attempt to fetch
+    `o200k_base`, as on the target PC."""
+    out = _run_offline_child(tmp_path, model="gpt-4o")
+
+    hosts = {a[2] for a in out["attempts"] if _outside_loopback(a[2])}
+    assert "openaipublic.blob.core.windows.net" in hosts
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("tiktoken") is None or compression_env.tiktoken_cache_dir() is None,
+    reason="litellm ou tiktoken (extra) absent",
+)
+def test_headroom_counts_with_a_table_litellm_ships():
+    # `gpt-4o` (`o200k_base`) sent tiktoken to the network on the target PC (lot F).
+    from tiktoken.model import encoding_name_for_model
+
+    encoding = encoding_name_for_model(headroom_adapter.COUNTING_MODEL)
+    assert encoding == "cl100k_base"
+    assert (compression_env.tiktoken_cache_dir() / _tiktoken_file(encoding)).is_file()
+
+
+def test_compression_cost_is_130_mb_by_default():
+    mib = 1024 * 1024
+    assert config.load_config().compression_cost_bytes == 130 * mib  # wavestack.toml
+    assert config.Config(values={}).compression_cost_bytes == 130 * mib  # key absent
 
 
 def test_headroom_reply_of_another_shape_keeps_the_original():

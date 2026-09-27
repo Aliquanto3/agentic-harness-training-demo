@@ -442,7 +442,8 @@ class Config:
 
     @property
     def compression_cost_bytes(self) -> int:
-        """Story 20 (AD-8): what loading Headroom is expected to add (story 12: 130 MB)."""
+        """Story 20 (AD-8): what loading Headroom is expected to add (lot F: 57 MB on the
+        target PC with `gpt-4o`, 107 MB at peak on Linux with `gpt-4`; 130 kept for safety)."""
         return max(0, self._int("compression", "cost_mb", default=130)) * 1024 * 1024
 
     def rag_index_path(self) -> Path:
