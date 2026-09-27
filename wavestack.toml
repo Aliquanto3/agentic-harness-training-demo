@@ -16,6 +16,10 @@ allowed_hosts = [
     "mcp.data.gouv.fr",
     "learn.microsoft.com",
 ]
+# Contact envoyé dans l'User-Agent à chaque service sortant : la politique robots de Wikimedia
+# l'exige (403 sans lui). Une URL ou une adresse électronique, en ASCII ; valeur par défaut si
+# absent ou invalide.
+contact = "https://github.com/Aliquanto3/agentic-harness-training-demo"
 # Adresse fixe utilisée par la sonde de connectivité du diagnostic (CAP-39).
 connectivity_probe_host = "huggingface.co"
 

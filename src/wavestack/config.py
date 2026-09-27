@@ -94,6 +94,8 @@ MAX_RESERVE = 1536  # AD-9: the largest output reserve; `tpm // 2` must exceed i
 DEFAULT_TOOL_RESULT_MAX_TOKENS = 1200  # lot B (N3): `[tools] result_max_tokens`
 DEFAULT_REASONING_BUDGET = 1024  # lot C (N4): `[reasoning] budget_tokens`
 MIN_REASONING_BUDGET = 128  # lot C: the floor, and what is always left to the answer
+# Lot D: `[net] contact`, the way to reach the demo's maintainers, sent in the User-Agent.
+DEFAULT_NET_CONTACT = "https://github.com/Aliquanto3/agentic-harness-training-demo"
 
 
 def output_reserve(reasoning: bool) -> int:
@@ -286,6 +288,18 @@ class Config:
         """AD-15: the configured hosts, plus the host of every enabled cloud model."""
         hosts = list(self.get("net", "allowed_hosts", default=[]))
         return hosts + [m.host for m in self.cloud_models[0] if m.host not in hosts]
+
+    @property
+    def net_contact(self) -> str:
+        """Lot D: `[net] contact` for the User-Agent; the default when missing or invalid
+        (not a string, empty, longer than 200, or outside printable ASCII without parentheses,
+        which would break the header's comment)."""
+        value = self.get("net", "contact", default=None)
+        if not isinstance(value, str):
+            return DEFAULT_NET_CONTACT
+        value = value.strip()
+        valid = 0 < len(value) <= 200 and all(" " <= c <= "~" and c not in "()" for c in value)
+        return value if valid else DEFAULT_NET_CONTACT
 
     @cached_property
     def cloud_models(self) -> tuple[list[CloudModel], list[str]]:

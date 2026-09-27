@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import re
+from pathlib import Path
 
 import httpx
 import httpx2
 import pytest
 
+from wavestack.config import DEFAULT_NET_CONTACT, load_config
 from wavestack.net.factory import _trace_request, create_async_client, create_client
 from wavestack.net.guard import NetworkBlocked
 from wavestack.trace.journal import get_journal
@@ -73,6 +78,52 @@ def test_every_redirect_hop_is_checked_again():
     ]
 
 
+# Lot D: Wikimedia answers 403 to a user agent without a way to contact its client.
+_CONTACT = re.compile(r"https://\S+|[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def _assert_user_agent_has_a_contact(user_agent: str) -> None:
+    assert user_agent.startswith("WaveStack/")
+    assert user_agent.isascii()
+    assert _CONTACT.search(user_agent), user_agent
+
+
+def _sent_user_agent() -> str:
+    sent = []
+    with _client(lambda r: sent.append(r) or httpx.Response(200)) as client:
+        client.get("https://fr.wikipedia.org/wiki/Paris")
+    return sent[0].headers["user-agent"]
+
+
+def _set_contact(value: object) -> None:
+    path = Path(os.environ["WAVESTACK_DATA_DIR"]) / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"net": {"contact": value}}), encoding="utf-8")
+
+
+def test_sent_user_agent_carries_the_configured_contact_in_ascii():
+    assert load_config().net_contact == DEFAULT_NET_CONTACT
+    user_agent = _sent_user_agent()
+    _assert_user_agent_has_a_contact(user_agent)
+    assert DEFAULT_NET_CONTACT in user_agent
+
+
+def test_a_net_contact_override_is_sent():
+    _set_contact("formation-ia@exemple.fr")
+    user_agent = _sent_user_agent()
+    _assert_user_agent_has_a_contact(user_agent)
+    assert "formation-ia@exemple.fr" in user_agent
+    assert DEFAULT_NET_CONTACT not in user_agent
+
+
+@pytest.mark.parametrize("value", ["", "   ", 42, "équipe@exemple.fr", "a) b", "x\r\nX: y"])
+def test_an_invalid_net_contact_falls_back_to_the_default(value):
+    _set_contact(value)
+    user_agent = _sent_user_agent()
+    _assert_user_agent_has_a_contact(user_agent)
+    assert DEFAULT_NET_CONTACT in user_agent
+
+
 # ---------- story 6: the async client (MCP Streamable HTTP) ----------
 
 
@@ -105,7 +156,7 @@ def test_async_client_traces_with_the_given_scope_before_sending():
         "url": "https://learn.microsoft.com/api/mcp",
         "body": '{"jsonrpc": "2.0"}',
     }
-    assert sent[0].headers["user-agent"].startswith("WaveStack/")
+    _assert_user_agent_has_a_contact(sent[0].headers["user-agent"])
 
 
 def test_async_client_refuses_a_host_outside_the_list_before_sending():

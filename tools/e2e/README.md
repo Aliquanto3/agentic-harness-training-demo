@@ -19,6 +19,18 @@ uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py
   `compression` vérifie alors la carte (commande d'installation) et un tour sans étape, puis
   se saute (`--only compression --no-headroom`).
 
+Le parcours coupe lui-même le réseau sortant de WaveStack, pour donner le même résultat sur un
+poste connecté, derrière un proxy d'entreprise ou hors ligne (Linux comme Windows) : `stack.py`
+remplace les variables de proxy du processus lancé (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`)
+par un port de la boucle locale sur lequel rien n'écoute, et contourne ce proxy fermé pour la
+boucle locale (`NO_PROXY=127.0.0.1,localhost,::1`), où tournent le faux serveur, le faux
+llama-server, le faux Ollama et WaveStack. Une requête vers un service public (`public_holidays`,
+Wikipédia, data.gouv.fr, Microsoft Learn) passe donc la garde réseau et est tracée
+(`outbound_request`), puis échoue : service injoignable, échec expliqué. Ni `allowed_hosts` ni le
+réseau du poste ne changent (pas de pare-feu, pas de droits administrateur). Sous Windows, ce
+parcours reste à vérifier sur le PC cible : une connexion refusée sur la boucle locale y prend
+1 à 2 s (le système retente), l'échec arrive donc plus lentement que sous Linux.
+
 Playwright n'est pas une dépendance du projet : `--with` l'ajoute le temps de la commande.
 Il faut un Chromium de la révision attendue par Playwright 1.56 (`PLAYWRIGHT_BROWSERS_PATH`),
 sinon le script essaie `/opt/pw-browsers/chromium`. Code de sortie 1 si une vérification
@@ -28,7 +40,9 @@ sinon le script essaie `/opt/pw-browsers/chromium`. Code de sortie 1 si une vér
 Les captures (JPEG) sont réécrites dans `tools/e2e/screenshots/`.
 
 Pour explorer à la main : `uv run python tools/e2e/stack.py` lance le faux modèle et WaveStack
-(adresse affichée), puis choisissez « Faux fournisseur (e2e) » au diagnostic.
+(adresse affichée), puis choisissez « Faux fournisseur (e2e) » au diagnostic. Le réseau sortant
+y est coupé comme pendant le parcours ; `--network` garde les proxys du poste, pour joindre les
+vrais services.
 
 ## Fichiers
 
@@ -37,10 +51,11 @@ Pour explorer à la main : `uv run python tools/e2e/stack.py` lance le faux mod�
   `/_e2e/model.gguf` est le fichier du faux modèle d'embedding : 503 tant que
   `POST /_e2e/model_ready` n'a pas été appelé (un téléchargement qui échoue, puis réussit).
   `/_e2e/reranker.gguf` est celui du faux reranker (story 16), toujours servi.
-- `stack.py` : dossier de données temporaire, `settings.json` qui déclare deux modèles sur le
-  faux serveur, `fake` (`wavestack-fake`) et `fake_b` (`faux-modele-b`, pour le changement de
-  modèle de la story 17), clé par `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux
-  serveurs sur `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
+- `stack.py` : réseau sortant de WaveStack coupé (proxy fermé, voir plus haut), dossier de
+  données temporaire, `settings.json` qui déclare deux modèles sur le faux serveur, `fake`
+  (`wavestack-fake`) et `fake_b` (`faux-modele-b`, pour le changement de modèle de la
+  story 17), clé par `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux serveurs sur
+  `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
   `settings.json` pointe `[rag]` vers un index dans ce dossier, absent au départ comme sur
   une installation neuve (le scénario `rag` le construit depuis la carte), et déclare un faux
   fichier de modèle servi par le faux serveur ; de même pour `[rag.reranker]` (story 16).
@@ -128,15 +143,17 @@ le raisonnement, consigne qui le dit) et « MCP en documentation complète » (R
   n'atteint pas le modèle ; `/api/audit` porte les lectures ; un clic sur « Journal d'audit »
   dans le schéma ouvre le fichier (attendu jusqu'au blocage de H1, puis défilé en bas).
   Capture : `26-metier-soc-journal-audit.jpg`.
-- `iam` : Microsoft Learn seul, en documentation complète ; sans réseau, échec expliqué, nœud
-  indisponible dans la zone Réseau ; ses deux prompts aboutissent sans outil.
-- `sovereignty` : data.gouv.fr et Microsoft Learn, en lazy loading ; sans réseau, échec
+- `iam` : Microsoft Learn seul, en documentation complète ; réseau coupé par le lanceur, échec
+  expliqué, nœud indisponible dans la zone Réseau ; ses deux prompts aboutissent sans outil.
+- `sovereignty` : data.gouv.fr et Microsoft Learn, en lazy loading ; réseau coupé, échec
   expliqué pour les deux (un serveur déjà contacté par le scénario précédent ne l'est pas de
   nouveau : sa dernière réponse fait foi) ; hors du modèle cloud du parcours, seules leurs
   deux arêtes franchissent la frontière du poste ; ses deux prompts aboutissent.
 
-Avec le réseau (PC cible), les appels réels à Microsoft Learn et à data.gouv.fr restent à tester
-à la main : le parcours n'en vérifie que l'échec expliqué.
+Les appels réels restent à tester à la main, avec le réseau (PC cible, hors du parcours, ou
+`stack.py --network`) : Wikipédia (`wikipedia_summary`, `fetch_page`), `public_holidays`,
+Microsoft Learn et data.gouv.fr. Le parcours, qui coupe le réseau, n'en vérifie que l'échec
+expliqué.
 
 ## Déclencheurs du faux modèle
 

@@ -24,8 +24,12 @@ from wavestack.trace.scope import TraceScope, current
 
 # The body traced for an async redirect hop, whose stream cannot be read again here.
 REDIRECT_BODY_NOT_READ = "(corps non relu : redirection)"
-# Wikimedia refuses generic user agents; header values must stay ASCII.
-USER_AGENT = "WaveStack/0.1 (demonstrateur pedagogique)"
+
+
+def user_agent() -> str:
+    """Wikimedia's robot policy wants a way to contact the client (403 without one): the
+    `[net] contact` of the configuration (lot D). ASCII only, as header values must be."""
+    return f"WaveStack/0.1 (demonstrateur pedagogique; {load_config().net_contact})"
 
 
 def _check_and_trace(request: httpx.Request | httpx2.Request, scope: TraceScope) -> None:
@@ -79,7 +83,7 @@ def create_client(
         follow_redirects=False,
         trust_env=True,
         transport=transport,
-        headers={"User-Agent": USER_AGENT},
+        headers={"User-Agent": user_agent()},
         event_hooks={"request": [_trace_request]},
     )
 
@@ -103,7 +107,7 @@ def create_loopback_client(
         follow_redirects=False,
         trust_env=False,
         transport=transport,
-        headers={"User-Agent": USER_AGENT},
+        headers={"User-Agent": user_agent()},
         event_hooks={"request": [_loopback_only]},
     )
 
@@ -130,6 +134,6 @@ def create_async_client(
         timeout=httpx2.Timeout(timeout, read=300.0),
         trust_env=True,
         transport=transport,
-        headers={"User-Agent": USER_AGENT},
+        headers={"User-Agent": user_agent()},
         event_hooks={"request": [trace]},
     )

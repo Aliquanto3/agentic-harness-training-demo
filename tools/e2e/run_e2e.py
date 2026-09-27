@@ -551,8 +551,8 @@ def s_network_tools(r: Run) -> None:
         r.check(bool(outbound), f"{tool} : la requête sortante est tracée", str(outbound)[:200])
         res = results[-1] if results else {}
         r.check(
-            res.get("status") == "error" and bool(res.get("error_fr")),
-            f"{tool} : échec réseau expliqué (pas d'Internet dans le conteneur)",
+            res.get("status") == "error" and "Service injoignable" in (res.get("error_fr") or ""),
+            f"{tool} : échec réseau expliqué (réseau sortant coupé par le lanceur)",
             (res.get("error_fr") or str(res))[:300],
         )
         r.check(
@@ -1207,8 +1207,8 @@ def _enabled_servers(r: Run) -> tuple[list[str], str]:
 
 
 def s_iam(r: Run) -> None:
-    """FR-40, IAM: Microsoft Learn alone, full documentation; offline here (to test with
-    the network on the target PC)."""
+    """FR-40, IAM: Microsoft Learn alone, full documentation; offline here, since the launcher
+    cuts the outbound network (to test with the network on the target PC)."""
     seq = r.ev.mark()
     r.launch("iam")
     started = [e["payload"]["server"] for e in r.ev.since(seq, "mcp_connect_started")]
