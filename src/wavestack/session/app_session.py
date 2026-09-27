@@ -5907,7 +5907,7 @@ class AppSession:
             tail = f" Le moteur relit les {_fr(again)} tokens du contexte."
         get_journal().emit(
             "prefix_not_reused",
-            {"common_tokens": common, "cause": cause, "message_fr": why + tail + hybrid},
+            {"common_tokens": common, "cause": cause, "message_fr": why + tail},
         )
 
     def _diverging_cause(self, rendered: RenderedContext, common: int) -> str:

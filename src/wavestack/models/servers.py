@@ -588,9 +588,8 @@ def _open_tokenizer(gguf_path: str | None) -> VocabTokenizer:
         except PackageNotFoundError:
             lib = "llama-cpp-python"
         raise TokenizerRefused(
-            f"{lib} ne sait pas lire le tokenizer de ce modèle. C'est le cas de modèles "
-            "récents d'Ollama, comme Qwen3.5 : servez-le plutôt avec llama-server, qui "
-            "tokenise lui-même.",
+            f"{lib} ne sait pas lire le tokenizer de ce modèle (certains modèles "
+            "récents d'Ollama) : servez-le plutôt avec llama-server, qui tokenise lui-même.",
             str(exc),
         ) from exc
 

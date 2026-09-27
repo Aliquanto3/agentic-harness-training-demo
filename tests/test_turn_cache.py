@@ -261,7 +261,7 @@ def test_a_system_prompt_changed_between_turns_is_named():
     again = len(engine.calls[1]) - reread["common_tokens"]
     assert f"sur {cached} en cache" in reread["message_fr"].replace(" ", "")
     assert f"relit {again} tokens" in reread["message_fr"].replace(" ", "")
-    assert "modèle hybride" in reread["message_fr"]  # the cost on Qwen3.5: everything
+    assert reread["message_fr"].count("modèle hybride") == 1  # the cost on Qwen3.5: everything
     assert engine.evaluated[1] == len(engine.calls[1])
     exact(second)
     session.close()
