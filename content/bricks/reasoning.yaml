@@ -14,7 +14,7 @@ explanation_fr:
     - >-
       Coût : plus de tokens de sortie, donc plus de temps. La réserve de sortie passe de
       512 à 1 536 tokens, ce qui laisse moins de place au contexte. En local, ces 1 536
-      tokens se partagent entre la réflexion, jusqu'au budget de réflexion (1 024 tokens par
+      tokens se partagent entre la réflexion, jusqu'au budget de réflexion (768 tokens par
       défaut, réglage [reasoning] budget_tokens, en local), et la réponse : une réflexion qui
       atteint ce budget sans se fermer est fermée par le harnais, et le reste de la réserve va
       à la réponse.

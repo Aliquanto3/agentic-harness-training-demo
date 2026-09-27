@@ -32,7 +32,7 @@ ci-dessous. Les tests manuels reprennent une fois les lots 0 à G terminés (lot
 | N1 | Mémoire globale : une écriture modifie-t-elle le message système dès le tour suivant ? | Non : le message système garde l'instantané pris au début de la conversation ; l'entrée écrite est visible dans le tiroir et revient après « Vider la conversation » (c'est déjà la leçon du scénario). | A |
 | N2 | Sous-agent : garder le cache du contexte principal pendant la délégation ? | Oui, par sauvegarde et restauration de l'état llama.cpp (`save_state` / `load_state`), si la mesure confirme le gain ; sinon afficher le coût. | A |
 | N3 | Borne des résultats d'outils (MCP publics et outils réseau) | 1 200 tokens par résultat par défaut (`[tools] result_max_tokens`), coupe visible dans Orchestration et dans le texte réinjecté. | B |
-| N4 | Raisonnement du 2B qui épuise la réserve | Budget de raisonnement : à 1 024 tokens de réflexion, le harnais ferme `</think>` et laisse 512 tokens pour la réponse ; la coupe est tracée. | C |
+| N4 | Raisonnement du 2B qui épuise la réserve | Budget de raisonnement : à 1 024 tokens de réflexion, le harnais ferme `</think>` et laisse 512 tokens pour la réponse ; la coupe est tracée. Révisé au lot J : 768 (1 024 dépassait 120 s sur le PC cible). | C, J |
 | N5 | 4B dans le budget de 4 Go | Le refus est juste (4,3 Go réels après 3 000 tokens). Garder D4 à 4 096 Mo, corriger l'estimation, et dire dans le guide que le 4B demande de relever le budget. | E |
 | N6 | Moteur conseillé pour Qwen3.5 si le lot A ne suffit pas | llama-server (réutilise son cache entre les tours : 0,8 à 1,3 s au lieu de 23 s). À décider après la mesure du lot A. | A |
 
@@ -223,3 +223,35 @@ après le test suivant, pas avant.
 Vérifications visuelles (raisonnement replié, schéma, tiroir mémoire, chronomètre, « Comparer »
 par modèle), D2 (sans le fichier du reranker), D3 (lancement avec seulement un serveur), D9 et
 Mistral avec un quota disponible, « Arrêter » pendant un chargement, puis le guide complet.
+
+## Test sur PC du 2026-09-27 au soir et lot J
+
+Résultats complets : `resultats-test-pc-palier-2-2026-09-27.md` (branche au commit `2f43f8f`).
+
+**Critères des lots A à G.**
+- A : tenu. 2e tour de `native_tools` : `prompt_ms` 1,1 s (32 tokens évalués sur 844) ; deux
+  tours avec raisonnement sans relecture ; quiz du sous-agent RAG éteint : 3,4 à 4,1 s ; état
+  sauvegardé 35,8 Mo, restauré en 20 ms. RAG allumé : 87 à 114 s par quiz (D5, lot H).
+- B : tenu. `mcp_lazy`, `data_flows`, `iam`, `sovereignty` sans débordement ; résultats
+  bornés à 1 153 / 4 352 et 1 141 / 2 438 tokens. Le 2B n'appelle pas d'outil dans `mcp_lazy`
+  ni `iam` (lot H). Test `fits` avec le vrai tokenizer : corrigé au lot J.
+- C : non tenu à 1 024 (127 à 134 s) ; tenu à 768 (111 s). Budget passé à 768 au lot J.
+- D : tenu (Wikipédia en 165 ms ; E2E 356 vérifications, 0 échec).
+- E : tenu (sonde du 2B ≈ 33 s ; 4B resondé en ≈ 53 s, 4 262 Mo, refusé par 4 096 Mo, 2B
+  restauré).
+- F : tenu (Headroom RETENU, +84 Mo au pic ; granite +428, reranker +736).
+- G : tenu (934 réussis, 3 sautés ; 6 tests `model` réussis).
+
+**Décisions.**
+- N6 : moteur intégré par défaut, les critères du lot A étant tenus sans llama-server ; la
+  comparaison avec llama-server `-c 4096` reste à mesurer au test manuel.
+- F2 : `[compression] cost_mb` = 110 (84 Mo + 30 %), lot J.
+- Budget de raisonnement : 768 (N4 révisé), lot J.
+- D2, D3, D9 : à faire au test manuel.
+
+**Lot J** (`spec-lot-j-suites-du-test-pc-palier-2.md`) : journal de llama.cpp coupé quand le
+tokenizer ouvre seul un GGUF ; test `fits` sur la jauge locale exacte avec
+`WAVESTACK_TEST_GGUF` ; budget 768 ; `cost_mb` 110 ; guide corrigé. Anomalies reportées, avec
+leur criticité, dans `deferred-work.md` : sous-agent avec RAG (moyenne, lot H), comportement du
+2B (moyenne, lot H), premier tour lent (faible à moyenne, spec), relecture après chargement
+d'une documentation en lazy loading (faible, spec).

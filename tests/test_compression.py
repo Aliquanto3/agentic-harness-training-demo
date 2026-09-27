@@ -383,7 +383,7 @@ def test_budget_refusal_loads_nothing():
 
     compression = card(session)
     assert not compression["available"] and "Mémoire insuffisante" in compression["reason_fr"]
-    assert "environ 130 de plus" in compression["reason_fr"] and compressors.made == []
+    assert "environ 110 de plus" in compression["reason_fr"] and compressors.made == []
     assert session._load_registry.holder(COMPRESSOR) is None
 
 
@@ -897,10 +897,10 @@ def test_headroom_counts_with_a_table_litellm_ships():
     assert (compression_env.tiktoken_cache_dir() / _tiktoken_file(encoding)).is_file()
 
 
-def test_compression_cost_is_130_mb_by_default():
+def test_compression_cost_is_110_mb_by_default():
     mib = 1024 * 1024
-    assert config.load_config().compression_cost_bytes == 130 * mib  # wavestack.toml
-    assert config.Config(values={}).compression_cost_bytes == 130 * mib  # key absent
+    assert config.load_config().compression_cost_bytes == 110 * mib  # wavestack.toml
+    assert config.Config(values={}).compression_cost_bytes == 110 * mib  # key absent
 
 
 def test_headroom_reply_of_another_shape_keeps_the_original():

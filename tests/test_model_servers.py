@@ -1168,6 +1168,53 @@ def test_vocab_tokenizer_on_a_real_gguf():
     tokenizer.close()
 
 
+_LOG_SPY = """
+import builtins, sys
+calls = []
+real = builtins.print
+def spy(*args, **kwargs):
+    if "file" in kwargs:  # llama-cpp-python's log callback prints to a file (sys.stderr)
+        calls.append(args)
+    return real(*args, **kwargs)
+builtins.print = spy
+if sys.argv[2] == "raw":  # the control: the model opened as before lot J
+    import llama_cpp
+    from llama_cpp import _internals
+    params = llama_cpp.llama_model_default_params()
+    params.vocab_only = True
+    _internals.LlamaModel(path_model=sys.argv[1], params=params, verbose=False)
+else:
+    from wavestack.models.engine import VocabTokenizer
+    tokenizer = VocabTokenizer(sys.argv[1])
+    tokenizer.tokenize("Bonjour")
+    tokenizer.close()
+real(len(calls))
+"""
+
+
+def test_vocab_tokenizer_opened_alone_keeps_llama_cpp_quiet():
+    """Lot J: in a fresh process (nothing has set llama.cpp's log level yet), opening a GGUF
+    `vocab_only` does not let llama.cpp's log callback print. Unquieted, it printed the whole
+    vocabulary load (45 lines for this file) into the null file llama-cpp-python swaps for
+    stderr, opened in cp1252 on Windows: Qwen3.5's pieces (« Ċ », « Ġ ») raised an ignored
+    `UnicodeEncodeError` (target PC, 2026-09-27)."""
+    import subprocess
+    import sys
+
+    def printed(mode: str) -> int:
+        proc = subprocess.run(
+            [sys.executable, "-c", _LOG_SPY, str(TINY), mode],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert proc.returncode == 0, proc.stderr
+        return int(proc.stdout.strip().splitlines()[-1])
+
+    assert printed("raw") > 0  # the spy sees the callback's output when nothing quiets it
+    assert printed("tokenizer") == 0
+
+
 def test_llama_cpp_engine_on_a_real_gguf():
     engine = LlamaCppEngine(str(TINY), n_ctx=128)
     meta = engine.metadata()

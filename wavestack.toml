@@ -126,20 +126,21 @@ result_max_tokens = 1200
 # atteint budget_tokens tokens sans s'être fermée, le harnais arrête la génération, ferme
 # lui-même la réflexion (le </think> du gabarit) et relance le modèle, qui garde le reste de la
 # réserve de sortie (1 536 tokens avec le raisonnement) pour la réponse. Les modèles cloud gèrent
-# leur propre effort de raisonnement. Borné entre 128 et 1 408 (1 536 − 128). À environ
-# 11 tokens/s sur le PC cible, 1 024 tokens de réflexion prennent ≈ 90 s : baissez le budget
-# si les réponses arrivent trop tard.
-budget_tokens = 1024
+# leur propre effort de raisonnement. Borné entre 128 et 1 408 (1 536 − 128). Mesuré sur le PC
+# cible (2026-09-27, Qwen3.5-2B, ≈ 9,5 tokens/s) sur le prompt du train : 127 à 134 s avec 1 024,
+# 111 s avec 768, pour une réponse visée en moins de 120 s. Baissez-le si les réponses arrivent
+# trop tard.
+budget_tokens = 768
 
 [compression]
 # Compression du contexte (story 20, AD-22) par Headroom, dépendance optionnelle installée
 # par `uv sync --extra compression`. Un résultat d'outil ou un extrait RAG plus court que
 # min_chars caractères n'est pas compressé. cost_mb : mémoire ajoutée par Headroom, en Mo,
-# contrôlée par le budget [memory] au chargement. Gardé à 130 par prudence : 57 Mo mesurés
-# sur le PC cible le 2026-09-27 (comptage gpt-4o, table absente), 107 Mo au pic sous Linux avec le
-# comptage gpt-4 (lot F), à remesurer sur le PC cible.
+# contrôlée par le budget [memory] au chargement. 84 Mo ajoutés au pic sur le PC cible
+# (2026-09-27, banc headroom, comptage gpt-4), plus 30 %, arrondi : 110 (lot J), au-dessus des
+# 107 Mo mesurés au pic sous Linux.
 min_chars = 300
-cost_mb = 130
+cost_mb = 110
 
 [subagent]
 # Sous-agent (story 19, AD-10, AD-11) : les outils qu'il peut utiliser, s'ils sont activés

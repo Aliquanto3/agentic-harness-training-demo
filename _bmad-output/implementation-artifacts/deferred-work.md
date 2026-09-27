@@ -503,3 +503,19 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
   summary: Avec un Ollama trop ancien pour servir l'architecture `qwen35`, le modèle est accepté au chargement (seul le tokenizer est lu), puis le premier tour échoue sur une erreur brute « HTTP 500 », sans raison en français ni retour au modèle précédent.
   evidence: Lecture du code au lot I (2026-09-27), non reproduit : `OllamaRawEngine` n'ouvre que le tokenizer au chargement ; l'erreur d'`/api/generate` devient `ServerError` (« Serveur local injoignable (…) : HTTP 500 : … ») au premier tour. Correctif de code à planifier (raison française, et retour au modèle précédent ou refus au chargement). Voir `_bmad-output/implementation-artifacts/guide-test-pc-palier-2.md`, section 6.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/19-delegation-a-un-sous-agent.md`
+  summary: Scénario « Sous-agent » tel que livré (RAG allumé) : chaque quiz relit tout le contexte (87 à 114 s de premier token) et le 2B redélègue chaque quiz avec une tâche sans contexte, que les sous-agents ne savent pas traiter. Criticité moyenne (module 6 dégradé ; RAG éteint, 3,4 à 4,1 s et réponses directes).
+  evidence: Test du 2026-09-27 au soir sur le PC cible (Qwen3.5-2B Q4_K_M, CPU, script hors dépôt) : `prefix_not_reused` cause `history` à chaque quiz ; délégations « Réponds à la question du quiz… », résultats « Je ne vois pas de quiz dans les fichiers disponibles ». Voir `_bmad-output/implementation-artifacts/resultats-test-pc-palier-2-2026-09-27.md`. Lot H, décision D5 : extraits RAG dans l'historique, ou scénario sans RAG (une ligne de `content/scenarios.yaml`).
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6b-lazy-loading-mcp.md`
+  summary: En lazy loading, charger la documentation d'un outil change le message système : le tour suivant relit tout le contexte sur Qwen3.5 (cache hybride non tronquable). Criticité faible (une relecture par documentation chargée, ≈ 40 s).
+  evidence: Test du 2026-09-27 au soir sur le PC cible : `sovereignty`, second prompt, `prefix_not_reused` cause `system`, 1 259 tokens relus, 46,7 s. Correctif d'architecture (documentation chargée placée en résultat d'outil dans l'historique plutôt que dans le message système) : spec à écrire.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
+  summary: Premier tour des scénarios chargés lent : 46 s (`subagent`) à 56 s (`mcp_lazy`) avant le premier token, au-delà de la cible NFR-1 de 30 s au plus chargé. Criticité faible à moyenne (une attente par scénario, limite du CPU à ≈ 30 tokens/s).
+  evidence: Test du 2026-09-27 au soir sur le PC cible : `prompt_ms` 46 136 pour 1 365 tokens, 55 927 pour 1 640. Piste : évaluer le contexte du scénario dès son lancement, pendant la lecture de la consigne (préremplissage du cache). Spec à écrire.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
+  summary: Comportement du 2B dans les scénarios (lot H) : `mcp_lazy` et `iam` sans appel d'outil (sens de MCP inventé), `sovereignty` premier prompt sans recherche après `load_tool_doc`, `soc` avec un nom de fichier mal orthographié, sans débordement ni escalade ; le raisonnement va jusqu'au budget même sur « Bonjour ». Criticité moyenne (démos qui ne montrent pas l'effet voulu).
+  evidence: Test du 2026-09-27 au soir sur le PC cible (script hors dépôt, scénarios joués avec leurs prompts). Voir `_bmad-output/implementation-artifacts/resultats-test-pc-palier-2-2026-09-27.md`, lot B et `soc`. Lot H : consignes, prompts et actions forcées.

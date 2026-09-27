@@ -92,7 +92,7 @@ def _is_loopback(host: str) -> bool:
 OUTPUT_RESERVE = 512  # AD-9: the output reserve of a model that does not reason
 MAX_RESERVE = 1536  # AD-9: the largest output reserve; `tpm // 2` must exceed it
 DEFAULT_TOOL_RESULT_MAX_TOKENS = 1200  # lot B (N3): `[tools] result_max_tokens`
-DEFAULT_REASONING_BUDGET = 1024  # lot C (N4): `[reasoning] budget_tokens`
+DEFAULT_REASONING_BUDGET = 768  # lot C (N4), lot J: `[reasoning] budget_tokens`
 MIN_REASONING_BUDGET = 128  # lot C: the floor, and what is always left to the answer
 # Lot D: `[net] contact`, the way to reach the demo's maintainers, sent in the User-Agent.
 DEFAULT_NET_CONTACT = "https://github.com/Aliquanto3/agentic-harness-training-demo"
@@ -442,9 +442,9 @@ class Config:
 
     @property
     def compression_cost_bytes(self) -> int:
-        """Story 20 (AD-8): what loading Headroom is expected to add (lot F: 57 MB on the
-        target PC with `gpt-4o`, 107 MB at peak on Linux with `gpt-4`; 130 kept for safety)."""
-        return max(0, self._int("compression", "cost_mb", default=130)) * 1024 * 1024
+        """Story 20 (AD-8): what loading Headroom is expected to add (lot J: 84 MB at peak on
+        the target PC with `gpt-4`, plus 30 %; 107 MB at peak on Linux)."""
+        return max(0, self._int("compression", "cost_mb", default=110)) * 1024 * 1024
 
     def rag_index_path(self) -> Path:
         """Story 15: the sqlite-vec index; a relative path is from the repository root."""

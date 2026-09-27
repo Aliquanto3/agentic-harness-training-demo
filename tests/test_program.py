@@ -52,9 +52,12 @@ VARIANTS = {"network_tools": "native_tools", "rag_rerank": "rag", "mcp_lazy": "m
 LAUNCH_HOOKS = {"h1", "h2", "h3"}  # `hooks` absent: the launch values (story 8)
 # Lot B (B3): without `WAVESTACK_TEST_GGUF`, the test session estimates 2 characters per
 # token, calibrated on the target PC (`mcp_full`: 3 204 tokens by Qwen3.5's tokenizer, 1 530
-# at 4 characters per token); with it, the GGUF's tokenizer counts the preview's segments.
+# at 4 characters per token). Lot J: with it, the session boots that GGUF in local mode and
+# the gauge is exact, template included (counting the chat rendering with the local tokenizer
+# gave 2 572 for `mcp_full`, 20 % under the local gauge).
 CHARS_PER_TOKEN = 2
 SAFETY = 1.1  # AD-9: room for the template and what the estimate still misses
+EXACT = 1.0  # lot J: the local gauge counts every token, template included
 # Lot B (N3): the scenarios whose first prompt calls a public MCP server or a network tool,
 # which must leave room for its first result, bounded to `[tools] result_max_tokens`.
 # `data_flows` as its description says: the MCP brick, local and data.gouv.fr.
@@ -302,15 +305,20 @@ def _gguf_tokenizer():  # noqa: ANN202 - `VocabTokenizer`, imported only when us
 
 
 def _verdict(
-    scenario: scenarios.Scenario, used: int, ctx: dict, prompt: int, room: int = 0
+    scenario: scenarios.Scenario,
+    used: int,
+    ctx: dict,
+    prompt: int,
+    room: int = 0,
+    safety: float = SAFETY,
 ) -> str | None:
     """Why the preview (`used` tokens) does not suit the scenario, or `None`: it must fit
     with the safety factor, its first prompt (`prompt` tokens) and `room` for a first tool
     result, or overflow when the scenario says so (`expects_overflow`, AD-9)."""
     if scenario.expects_overflow:
         return None if ctx["overflow"] or used + prompt > ctx["usable"] else "tient"
-    if ctx["overflow"] or used * SAFETY + prompt + room > ctx["usable"]:
-        return f"déborde : {used} × {SAFETY} + {prompt} + {room} > {ctx['usable']}"
+    if ctx["overflow"] or used * safety + prompt + room > ctx["usable"]:
+        return f"déborde : {used} × {safety} + {prompt} + {room} > {ctx['usable']}"
     return None
 
 
@@ -324,14 +332,16 @@ def test_verdict_honours_expects_overflow_the_safety_factor_and_the_room():
     assert _verdict(plain, 3250, fits, 20)  # × 1,1
     assert _verdict(plain, 2000, fits, 20, room=1200) is None
     assert _verdict(plain, 2300, fits, 20, room=1200)  # no room for a bounded result
+    assert _verdict(plain, 3250, fits, 20, safety=EXACT) is None  # an exact count: no factor
 
 
 def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loop, web):  # noqa: F811
-    """Counted by the GGUF's tokenizer (`WAVESTACK_TEST_GGUF`), else as the cloud estimate
-    does at 2 characters per token, with a safety factor, the reasoning reserve, the RAG
-    excerpts at their declared maximum, the demonstration memory, the real local MCP server
-    and the public servers' tools (snapshot or fixture); and, when the first prompt calls a
-    public server or a network tool, the room of its first bounded result (lot B)."""
+    """With `WAVESTACK_TEST_GGUF`, that GGUF booted in local mode: the exact local gauge
+    (lot J). Else as the cloud estimate does at 2 characters per token, with a safety factor.
+    Both with the reasoning reserve, the RAG excerpts at their declared maximum, the
+    demonstration memory, the real local MCP server and the public servers' tools (snapshot
+    or fixture); and, when the first prompt calls a public server or a network tool, the room
+    of its first bounded result (lot B)."""
     public = PublicServers()
     web(public)
     place_model()
@@ -344,14 +354,20 @@ def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loo
         },
     )
     cfg = config.Config(values=values)
-    entry = cfg.cloud_model("mistral")  # reasoning on demand, 4 096-token window
-    config.write_api_key(entry.id, entry.host, SecretStr(SENTINEL))
-    provider = Provider(GROQ_TEXT)
-    session = AppSession(cfg, cloud_factory=provider.factory, embedder_factory=Embedders())
-    session.boot_cloud(entry).result()
+    tokenizer = _gguf_tokenizer()
+    if tokenizer is not None:  # the local rendering, its template and its gauge (lot J)
+        session = AppSession(cfg, embedder_factory=Embedders())
+        assert session.boot(os.environ["WAVESTACK_TEST_GGUF"]).result() == "ok"
+        safety = EXACT
+    else:
+        entry = cfg.cloud_model("mistral")  # reasoning on demand, 4 096-token window
+        config.write_api_key(entry.id, entry.host, SecretStr(SENTINEL))
+        provider = Provider(GROQ_TEXT)
+        session = AppSession(cfg, cloud_factory=provider.factory, embedder_factory=Embedders())
+        session.boot_cloud(entry).result()
+        safety = SAFETY
     session.attach_loop(loop)
     content = session._scenarios
-    tokenizer = _gguf_tokenizer()
 
     def count(text: str) -> int:
         return (
@@ -383,18 +399,14 @@ def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loo
             assert all(p["status"] == "ok" for p in failed), (scenario_id, failed)
             if scenario_id in LOCAL_FIRST and not local_answer:  # the real local server
                 local_answer = session._registry.get(LOCAL_FIRST_CALL[0]).run(**LOCAL_FIRST_CALL[1])
-            if tokenizer is not None:  # the GGUF's count decides, the overflow with it
-                used = count("".join(s["text"] for s in ctx["segments"]))
-                ctx = ctx | {"overflow": used > ctx["usable"]}
-            else:
-                used = ctx["used"]
+            used = ctx["used"]  # exact in local mode, the 2-character estimate otherwise
             room = cfg.tool_result_max_tokens if scenario_id in FIRST_RESULT_ROOM else 0
             if scenario_id in LOCAL_FIRST:
                 room = count(local_answer)
             measured[scenario_id] = (used, ctx["usable"], room)
             assert ctx["window"] == 4096, scenario_id
             assert ctx["reserve"] == (1536 if "reasoning" in scenario.bricks else 512), scenario_id
-            verdict = _verdict(scenario, used, ctx, count(scenario.prompts[0]), room)
+            verdict = _verdict(scenario, used, ctx, count(scenario.prompts[0]), room, safety)
             assert verdict is None, (scenario_id, verdict)
             segments = " ".join(s["text"] for s in ctx["segments"])
             if "rag" in scenario.bricks:  # counted: the brick is available here
@@ -408,7 +420,9 @@ def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loo
         # Lot B (B3): the full documentation, 3 204 tokens on the target PC, is not underrated.
         assert measured["mcp_full"][0] > 2800, measured["mcp_full"]
         assert local_answer.startswith("MCP : ") and count(local_answer) < LOCAL_ANSWER_MAX
-        counted = "tokenizer du GGUF" if tokenizer is not None else f"{CHARS_PER_TOKEN} car./token"
+        counted = (
+            "jauge locale du GGUF" if tokenizer is not None else f"{CHARS_PER_TOKEN} car./token"
+        )
         print(f"\nAD-9, aperçu (sans le prompt, {counted}) / utilisables, marge, place réservée :")
         for scenario_id, (used, usable, room) in measured.items():
             print(

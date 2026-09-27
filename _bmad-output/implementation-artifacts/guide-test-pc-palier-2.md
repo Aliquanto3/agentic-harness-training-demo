@@ -32,7 +32,9 @@ le plan range dans « Ce qui marche déjà » n'est pas re-testé en détail : p
     `llama-server.exe` (llama.cpp) ;
   - **Edge, Outlook et Teams fermés pendant les mesures** : ils saturaient la RAM à la story 9,
     et Edge ouvert a faussé la mesure de Skills le 2026-09-27 (compression mémoire de Windows
-    ≈ 1 Go).
+    ≈ 1 Go). Edge se relance seul en arrière-plan après sa fermeture (`--no-startup-window`,
+    ≈ 1 Go, constaté le 2026-09-27 au soir) : quittez-le depuis l'icône de la zone de
+    notification et vérifiez avec `Get-Process msedge`.
 - **Ordre** : 1 → 2 → 3 → 4 → 5, avec les bancs avant de lancer WaveStack. Ensuite 6, dans
   l'ordre des modules, puis le métier et les modèles, et 7. La séance s'arrête à « Où
   consigner » (section 8) : la fusion attend le lot H.
@@ -111,8 +113,9 @@ garde. Relancez `uv sync --extra compression` après chaque mise à jour.
 uv run pytest -q
 ```
 
-- [ ] Attendu sous Windows, avec l'extra `compression` : **934 réussis, 3 sautés,
-  6 désélectionnés** (937 tests collectés hors `model`). Les 3 sauts attendus :
+- [ ] Attendu sous Windows, avec l'extra `compression` : **935 réussis, 3 sautés,
+  6 désélectionnés** (938 tests collectés hors `model` ; 934 avant le test du journal de
+  llama.cpp ajouté au lot J, mesurés le 2026-09-27 au soir). Les 3 sauts attendus :
   - `test_an_index_replaced_during_the_session_is_read_again[replaced-while-open]` et
     `test_an_index_replaced_with_the_reranker_loaded_closes_it[replaced-while-open]` :
     « Windows refuse de remplacer un fichier qu'une connexion tient ouvert ». Leur variante
@@ -121,9 +124,9 @@ uv run pytest -q
     /proc : sous Windows, le système applique ses règles ».
 - Les 4 tests Headroom (dont le test hors ligne du lot F) et les 3 tests propres à Windows
   (`ProactorEventLoop`, chemin `C:/Windows/win.ini`) tournent. Sans l'extra, ces 4 tests
-  sont sautés (« … (extra) absent ») : 930 réussis, 7 sautés. Référence Linux au
+  sont sautés (« … (extra) absent ») : 931 réussis, 7 sautés. Référence Linux au
   commit du lot G : 934 réussis, 3 sautés avec l'extra (les 3 tests propres à Windows), 930 et
-  7 sans. Tout autre échec est un écart à remonter.
+  7 sans ; un de plus depuis le lot J. Tout autre échec est un écart à remonter.
 - `WAVESTACK_TEST_WINDOWS_FILES=1` ne sert qu'à simuler les règles de Windows sous Linux :
   inutile ici.
 
@@ -144,7 +147,9 @@ uv run python -m pytest -m model
     modèle hybride) ;
   - `WAVESTACK_TEST_MODELS_DIR` (lot G) : `test_real_embedding_model_finds_the_password_document`
     et `test_real_reranker_puts_the_password_document_first`.
-- Gardez ces deux variables dans ce terminal pour le test `fits` (section 4.4).
+- Gardez ces deux variables dans ce terminal pour le test `fits` (section 4.4). Depuis le
+  lot J, avec `WAVESTACK_TEST_GGUF` posée, ce test charge le vrai modèle (≈ 20 s de plus,
+  ≈ 1,3 Go) : pour un `uv run pytest -q` rapide, lancez-le dans un terminal sans ces variables.
 
 **Parcours E2E Playwright**, facultatif : il rejoue l'interface avec un faux modèle. Chromium
 s'installe dans le profil (`%LOCALAPPDATA%\ms-playwright`), sans droits d'administrateur.
@@ -195,8 +200,8 @@ uv run python tools/bench/story12_bench.py embed --only e5small_q8; $LASTEXITCOD
 
 - [ ] Headroom : `verdict.retained` vaut `True` (« ÉCARTÉ » le 2026-09-27) ; critère
   `network` à `True`, sans `openaipublic.blob.core.windows.net` ; `no_torch` à `True` ;
-  RSS ajoutée au pic (`configured.rss_added_mb`) ≤ 300 Mo (107 Mo sous Linux ; 57 Mo sur ce
-  poste avant le lot F). Sans `--json`, la dernière ligne dit « == Verdict Headroom : RETENU ».
+  RSS ajoutée au pic (`configured.rss_added_mb`) ≤ 300 Mo (107 Mo sous Linux ; 84 Mo sur ce
+  poste le 2026-09-27 au soir, après le lot F). Sans `--json`, la dernière ligne dit « == Verdict Headroom : RETENU ».
 - [ ] Les deux rapports portent `rss_added_method` = `pic`.
 - [ ] `granite107m_q8` : `recall_at_1` ≥ 0,75, `rss_added_mb` ≈ 428 (≤ 600), `pooling_gguf`
   (2 = CLS). bge-m3 (≈ 731 Mo) et Qwen3-Embedding (≈ 900 Mo) dépassent désormais 600 Mo : leur
@@ -206,9 +211,10 @@ uv run python tools/bench/story12_bench.py embed --only e5small_q8; $LASTEXITCOD
   inconnu : e5small_q8 (retiré des candidats : ne se charge pas avec llama-cpp-python
   0.3.35 …) » et sort avec le code 2.
 - Où reporter : les deux JSON et le verdict dans la section « Verdict » de la story 12.
-  `measured_rss_mb` (430 et 740 aujourd'hui) et `[compression] cost_mb` (130) ne changent que
-  si la mesure s'en écarte nettement, c'est-à-dire de plus de 20 % ou de plus de 50 Mo : la
-  nouvelle valeur est alors la mesure plus 30 %, arrondie à la dizaine (section 5.6).
+  `measured_rss_mb` (430 et 740 aujourd'hui) et `[compression] cost_mb` (110 depuis le
+  lot J) ne changent que si la mesure s'en écarte nettement, c'est-à-dire de plus de 20 % ou
+  de plus de 50 Mo : la nouvelle valeur est alors la mesure plus 30 %, arrondie à la dizaine
+  (section 5.6).
 
 ### 4.2 Modèles d'embedding et de reranker
 
@@ -228,8 +234,10 @@ section 5.7.
 ### 4.4 Instantanés des serveurs MCP publics et test `fits`
 
 Les instantanés sont committés (`content/mcp_snapshots/` : datagouv 10 outils, mslearn 3).
-Depuis le lot B, le test `fits` compte avec le vrai tokenizer quand `WAVESTACK_TEST_GGUF` est
-posée (sinon à 2 caractères par token) et réserve la place d'un premier résultat borné.
+Depuis le lot J, quand `WAVESTACK_TEST_GGUF` est posée, le test `fits` démarre ce GGUF en mode
+local et lit la jauge exacte (gabarit compris : `mcp_full` 3 204 / 3 584) ; sinon il compte à 2
+caractères par token, avec un facteur de sécurité de 1,1. Il réserve la place d'un premier
+résultat borné.
 
 ```powershell
 uv run pytest -s tests/test_program.py -k fits    # dans le terminal de la section 3
@@ -276,8 +284,8 @@ Où lire les mesures :
   Raisonnement avant le premier prompt, puis jouez les deux prompts.
   - Attendu : pas de « Préfixe non réutilisé » au second tour ; la réflexion du premier tour
     est comptée dans l'historique de la jauge.
-  - Hypothèse : les blancs réels autour de `</think>` peuvent différer de ceux du gabarit ; la
-    relecture serait alors signalée avec la cause « historique ». Notez-le.
+  - Vérifié le 2026-09-27 au soir (script) : pas de relecture au second tour, 22 tokens
+    évalués ; les blancs autour de `</think>` prolongent bien le cache.
 - [ ] **Sous-agent** (décision N2) : scénario « Sous-agent », délégation puis trois quiz,
   deux fois : d'abord tel que livré (RAG allumé), puis relancé avec la brique RAG éteinte
   avant le premier prompt.
@@ -288,8 +296,8 @@ Où lire les mesures :
     Relevez `prompt_ms` dans les deux passages. RAG allumé, chaque tour relit tout le contexte
     par conception (« Préfixe non réutilisé », cause historique : extraits RAG retirés, voir
     l'hypothèse ci-dessous), ce que le lot A ne corrige pas : l'acceptation du lot A se juge
-    RAG éteint, et le RAG dans ce scénario relève de D5, au lot H. Décision prise par défaut, à
-    confirmer.
+    RAG éteint, et le RAG dans ce scénario relève de D5, au lot H. Mesuré le 2026-09-27 au
+    soir : 3,4 à 4,1 s RAG éteint, 87 à 114 s RAG allumé (et redélégation de chaque quiz).
   - Relevez la taille de la copie : elle n'entre pas dans le budget mémoire (écart différé du
     lot A).
 - Hypothèse (lot A) : les extraits RAG restent hors de l'historique (story 15). Dans tout
@@ -322,20 +330,23 @@ Où lire les mesures :
 
 ### 5.3 Lot C : budget de raisonnement
 
-- [ ] **Carte Raisonnement** (modèle local) : « Budget de réflexion : 1 024 tokens ; au-delà,
-  le harnais ferme la réflexion et garde 512 tokens pour la réponse. »
+- [ ] **Carte Raisonnement** (modèle local) : « Budget de réflexion : 768 tokens ; au-delà,
+  le harnais ferme la réflexion et garde 768 tokens pour la réponse. » (768 depuis le lot J :
+  1 024 donnait 127 à 134 s sur le prompt du train, 768 donne 111 s.)
 - [ ] **Scénario Raisonnement**, prompt du train (réponse juste : 17 h 50).
   - Attendu : une réponse dans la bulle. Si la réflexion atteint le budget, Orchestration
     montre l'étape « Raisonnement coupé » (« Raisonnement coupé par le harnais à N tokens… »),
     puis la réponse ; un seul « Appel au modèle terminé ».
   - **Critère : une réponse, même courte, en moins de 120 s** (137 s et bulle vide le
     2026-09-27).
-  - Envoyez ensuite un second message (par exemple « Et avec 10 minutes de retard ? ») :
-    aucune étape « Préfixe non réutilisé » (la réflexion coupée, sa fermeture et la réponse
-    prolongent le cache).
-  - Hypothèse : à ≈ 11 tokens/s, 1 024 tokens de réflexion prennent ≈ 90 s. Au-delà de 120 s,
-    WaveStack arrêté, baissez le budget dans `settings.json`
-    (`{"reasoning": {"budget_tokens": 768}}`, borné de 128 à 1 408), rejouez et notez la valeur
+  - Un second message dans ce scénario (« Et avec 10 minutes de retard ? ») affiche « Préfixe
+    non réutilisé », cause historique : la mémoire courte y est éteinte, l'échange précédent
+    n'est pas renvoyé. C'est attendu. Le cache avec le raisonnement se vérifie dans « Mémoire
+    courte », brique Raisonnement allumée (section 5.1) : vérifié le 2026-09-27 au soir, 22
+    tokens évalués au second tour.
+  - Mesure : ≈ 9,5 tokens/s de réflexion (et non 11) ; le 2B va au budget même sur « Bonjour ».
+    Au-delà de 120 s, WaveStack arrêté, baissez le budget dans `settings.json`
+    (`{"reasoning": {"budget_tokens": 640}}`, borné de 128 à 1 408), rejouez et notez la valeur
     qui tient.
 
 ### 5.4 Lot D : User-Agent et parcours E2E
@@ -378,7 +389,9 @@ llama-server -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --po
     mesurés après 3 000 tokens le 2026-09-27, et la sonde compte désormais les poids, le cache
     de toute la fenêtre et les tampons de calcul (3,4 Go estimés avant le lot E). Relevez
     l'estimation affichée, et si le 4B a été resondé, la durée de la sonde.
-  - Hypothèse : l'estimation du 4B n'a été vérifiée qu'avec une RSS injectée.
+  - Mesuré le 2026-09-27 au soir : sonde du 4B ≈ 53 s (libération du 2B comprise), RSS
+    4 262 Mo, refus « demande environ 4,4 Go ; WaveStack occupe 118 Mo sans le modèle actif,
+    pour un budget de 4,0 Go ». Une sonde prend 30 à 60 s selon le modèle.
 - [ ] **« Arrêter » pendant un chargement** (E4), sur le chargement d'un GGUF, assez long pour
   cliquer : la sonde d'un fichier jamais sondé, ou le 4B avec un budget relevé (section 6,
   « Changement à chaud »). Pendant le chronomètre de chargement, cliquez « Arrêter ». Un
@@ -408,14 +421,13 @@ llama-server -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --po
 - [ ] Banc `embed` mesuré au pic : granite ≈ +428 Mo, reranker ≈ +736 Mo (section 4.1).
 - [ ] Scénario « Compression du contexte » : l'étape « Compression (Headroom) » garde l'erreur
   du journal, comme le 2026-09-27 (le changement de comptage ne doit rien casser).
-- Hypothèse : `[compression] cost_mb` reste à 130 (décision par défaut du lot F : 99 à 107 Mo
-  au pic sous Linux avec `gpt-4`). Reportez la RSS ajoutée du banc sous Windows ; si elle
-  s'écarte de 130 de plus de 20 % ou de plus de 50 Mo, la nouvelle valeur est la mesure plus
-  30 %, arrondie à la dizaine (section 4.1).
+- `[compression] cost_mb` vaut 110 depuis le lot J (84 Mo mesurés au pic sous Windows le
+  2026-09-27 au soir, plus 30 %). Si une nouvelle mesure s'en écarte de plus de 20 % ou de plus
+  de 50 Mo, la nouvelle valeur est la mesure plus 30 %, arrondie à la dizaine (section 4.1).
 
 ### 5.7 Lot G : tests sous Windows et tests `model`
 
-- [ ] `uv run pytest -q` : 934 réussis, 3 sautés, les deux tests G1 compris (section 3).
+- [ ] `uv run pytest -q` : 935 réussis, 3 sautés, les deux tests G1 compris (section 3).
 - [ ] Tests `model` du RAG avec `WAVESTACK_TEST_MODELS_DIR` : réussis (section 3).
 - [ ] **Script pendant une session** : WaveStack lancé, un tour du scénario RAG (l'index est
   ouvert), puis, dans un second terminal :
@@ -604,7 +616,7 @@ Le détail est dans `plan-corrections-palier-2.md` et `weekend-report-2026-09-26
 | D2 | Sans reranker, seule la sous-option est indisponible | Sans le fichier du reranker (procédure ci-dessous), le RAG simple reste utilisable |
 | D3 | Serveurs seuls : « Choisissez un modèle servi » | Lancement sans GGUF ni clé, avec seulement Ollama ou llama-server (procédure ci-dessous) |
 | D9 | Mistral : raisonnement non renvoyé (`resend = false`) | Avec un quota disponible, `resend: true` accepté ou refusé (400) |
-| F2 | `[compression] cost_mb` = 130 | RSS ajoutée du banc `headroom` sous Windows (section 5.6) |
+| F2 | Tranchée au lot J : `[compression] cost_mb` = 110 | — |
 
 D5 et D6 passent au lot H ; D7 à D18 se confirment en passant (par exemple D11 : jauge avec
 une mémoire globale pleine, section 6).

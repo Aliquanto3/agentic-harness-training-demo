@@ -33,7 +33,7 @@ from wavestack.trace.journal import get_journal
 
 CLOSURE = "\n</think>\n\n"  # `reasoning_wrap(QWEN)[1]`
 ANSWER = "Il arrive à 17 h 25."
-CUT = LONG_REASONING[:1024]  # the reasoning kept: 1 024 characters, one token each
+CUT = LONG_REASONING[:768]  # the reasoning kept: 768 characters, one token each (lot J)
 # AD-9: the reserve after the ids of the reasoning and the closure (one id per byte here)
 LEFT = 1536 - len((CUT + CLOSURE).encode("utf-8"))
 
@@ -69,12 +69,12 @@ def test_a_reasoning_longer_than_the_budget_is_closed_and_the_model_answers():
     assert engine.max_tokens == [1536, LEFT]  # the whole reserve, shared with the closure
     (cut,) = events["reasoning_cut"]
     assert {k: cut[k] for k in ("budget", "reasoning_tokens", "answer_reserve")} == {
-        "budget": 1024,
-        "reasoning_tokens": 1024,
+        "budget": 768,
+        "reasoning_tokens": 768,
         "answer_reserve": LEFT,
     }
     assert f"garde {LEFT} tokens" in cut["message_fr"]
-    assert cut["message_fr"].startswith("Raisonnement coupé par le harnais à 1 024 tokens")
+    assert cut["message_fr"].startswith("Raisonnement coupé par le harnais à 768 tokens")
     # The relaunch: the ids in the engine's cache, then the template's closure.
     first, relaunch = engine.calls
     assert relaunch == first + list((CUT + CLOSURE).encode("utf-8"))
@@ -83,7 +83,7 @@ def test_a_reasoning_longer_than_the_budget_is_closed_and_the_model_answers():
     (ended,) = events["model_call_ended"]
     assert ended["raw_output"] == CUT + CLOSURE + ANSWER
     assert ended["reasoning"].strip() == CUT.strip() and ended["text"].strip() == ANSWER
-    assert ended["output_tokens"] == 1024 + len(ANSWER)
+    assert ended["output_tokens"] == 768 + len(ANSWER)
     assert ended["evaluated_tokens"] == engine.evaluated[0] + engine.evaluated[1]
     assert ended["stop_reason"] == "stop" and ended["prompt_tokens"] == len(first)
     assert len(events["model_first_token"]) == 1
@@ -108,7 +108,7 @@ def test_a_reasoning_closed_before_the_budget_is_never_cut():
 
 
 def test_an_answer_longer_than_the_reserve_left_is_cut_on_the_text():
-    engine, session = _session([LONG_REASONING, "x" * 600], "reasoning")
+    engine, session = _session([LONG_REASONING, "x" * (LEFT + 100)], "reasoning")
 
     events = _run(session, "À quelle heure ?")
 
@@ -221,10 +221,10 @@ def test_a_cut_waits_for_the_first_token_after_a_blank():
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        (None, 1024),
-        ("beaucoup", 1024),
-        (512.5, 1024),
-        (True, 1024),
+        (None, 768),
+        ("beaucoup", 768),
+        (512.5, 768),
+        (True, 768),
         (600, 600),
         ("700", 700),
         (800.0, 800),
@@ -286,7 +286,7 @@ def test_the_sub_agent_takes_the_same_path_when_it_reasons():
 
     envelopes = get_journal().events_since(mark)
     (cut,) = [e for e in envelopes if e.kind == "reasoning_cut"]
-    assert cut.context_id != "main" and cut.payload["reasoning_tokens"] == 1024
+    assert cut.context_id != "main" and cut.payload["reasoning_tokens"] == 768
     assert engine.max_tokens[:3] == [512, 1536, cut.payload["answer_reserve"]]
     assert bytes(engine.calls[2]).endswith(CLOSURE.encode("utf-8"))
     (sub_ended,) = [e.payload for e in envelopes if e.kind == "subagent_ended"]
@@ -323,7 +323,7 @@ def test_a_cache_without_the_last_token_relaunches_on_it_and_its_rest():
 
 
 def test_the_models_own_closing_tag_across_the_budget_is_never_cut():
-    output = LONG_REASONING[:1020] + "</think>\n\n" + ANSWER
+    output = LONG_REASONING[:764] + "</think>\n\n" + ANSWER  # the tag across the 768 budget
     engine, session = _session([output, "jamais lu"], "reasoning")
 
     events = _run(session, "À quelle heure ?")

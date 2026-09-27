@@ -1,0 +1,567 @@
+{
+  "headroom_version": "0.38.0",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "rss_added_method": "pic",
+  "tiktoken_cache_dir": "C:\\Users\\anael.yahi\\Documents\\GitHub\\agentic-harness-training-demo\\.venv\\Lib\\site-packages\\litellm\\litellm_core_utils\\tokenizers",
+  "configured_env": {
+    "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+    "HEADROOM_OFFLINE": "1",
+    "HEADROOM_BEACON": "off",
+    "HEADROOM_UPDATE_CHECK": "off",
+    "DO_NOT_TRACK": "1",
+    "HF_HUB_OFFLINE": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "HF_HUB_DISABLE_XET": "1",
+    "TIKTOKEN_CACHE_DIR": "C:\\Users\\anael.yahi\\Documents\\GitHub\\agentic-harness-training-demo\\.venv\\Lib\\site-packages\\litellm\\litellm_core_utils\\tokenizers"
+  },
+  "strace": false,
+  "naive": {
+    "variant": "naive",
+    "guard": "wavestack.net.guard",
+    "python": "3.13.5",
+    "counting_model": "gpt-4",
+    "import_s": 0.184,
+    "rss_before_import_mb": 37,
+    "rss_after_import_mb": 40,
+    "samples": [
+      {
+        "id": "json_tool_result",
+        "chars_before": 18865,
+        "tokens_before": 5933,
+        "tokens_after": 1902,
+        "chars_after": 7456,
+        "marker_kept": true,
+        "transforms": [
+          "router:protected:user_message",
+          "router:smart_crusher:0.32"
+        ],
+        "seconds": 4.237,
+        "seconds_warm": 0.062
+      },
+      {
+        "id": "log_tool_result",
+        "chars_before": 9214,
+        "tokens_before": 2342,
+        "tokens_after": 149,
+        "chars_after": 442,
+        "marker_kept": true,
+        "transforms": [
+          "router:protected:user_message",
+          "router:search:0.05"
+        ],
+        "seconds": 0.122,
+        "seconds_warm": 0.035
+      },
+      {
+        "id": "prose_rag_excerpt",
+        "chars_before": 2707,
+        "tokens_before": 715,
+        "tokens_after": 715,
+        "chars_after": 2707,
+        "marker_kept": true,
+        "transforms": [
+          "router:protected:user_message"
+        ],
+        "seconds": 0.011,
+        "seconds_warm": 0.011
+      }
+    ],
+    "rss_after_compress_mb": 93,
+    "rss_peak_mb": 93,
+    "peak_before_import_mb": 37,
+    "rss_added_mb": 56,
+    "heavy_modules_loaded": [],
+    "threads": [
+      "MainThread"
+    ],
+    "attempts": [
+      [
+        "socket.getaddrinfo",
+        "openaipublic.blob.core.windows.net"
+      ]
+    ]
+  },
+  "configured": {
+    "variant": "configured",
+    "guard": "wavestack.net.guard",
+    "python": "3.13.5",
+    "counting_model": "gpt-4",
+    "import_s": 0.199,
+    "rss_before_import_mb": 37,
+    "rss_after_import_mb": 40,
+    "samples": [
+      {
+        "id": "json_tool_result",
+        "chars_before": 18865,
+        "tokens_before": 6806,
+        "tokens_after": 2910,
+        "chars_after": 7456,
+        "marker_kept": true,
+        "transforms": [
+          "router:protected:user_message",
+          "router:smart_crusher:0.32"
+        ],
+        "seconds": 4.358,
+        "seconds_warm": 0.054
+      },
+      {
+        "id": "log_tool_result",
+        "chars_before": 9214,
+        "tokens_before": 4242,
+        "tokens_after": 230,
+        "chars_after": 442,
+        "marker_kept": true,
+        "transforms": [
+          "router:protected:user_message",
+          "router:search:0.05"
+        ],
+        "seconds": 0.09,
+        "seconds_warm": 0.035
+      },
+      {
+        "id": "prose_rag_excerpt",
+        "chars_before": 2707,
+        "tokens_before": 729,
+        "tokens_after": 729,
+        "chars_after": 2707,
+        "marker_kept": true,
+        "transforms": [
+          "router:protected:user_message"
+        ],
+        "seconds": 0.009,
+        "seconds_warm": 0.009
+      }
+    ],
+    "rss_after_compress_mb": 121,
+    "rss_peak_mb": 121,
+    "peak_before_import_mb": 37,
+    "rss_added_mb": 84,
+    "heavy_modules_loaded": [],
+    "threads": [
+      "MainThread"
+    ],
+    "attempts": []
+  },
+  "netns": null,
+  "closure": [
+    {
+      "name": "aiohappyeyeballs",
+      "version": "2.7.1",
+      "license": "Python Software Foundation License",
+      "class": "ok"
+    },
+    {
+      "name": "aiohttp",
+      "version": "3.14.3",
+      "license": "Apache-2.0 AND MIT",
+      "class": "ok"
+    },
+    {
+      "name": "aiosignal",
+      "version": "1.4.0",
+      "license": "Apache Software License",
+      "class": "ok"
+    },
+    {
+      "name": "annotated-types",
+      "version": "0.8.0",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "anyio",
+      "version": "4.15.1",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "ast-grep-cli",
+      "version": "0.45.3",
+      "license": "MIT License",
+      "class": "ok"
+    },
+    {
+      "name": "attrs",
+      "version": "26.1.0",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "boto3",
+      "version": "1.43.103",
+      "license": "Apache-2.0",
+      "class": "ok"
+    },
+    {
+      "name": "botocore",
+      "version": "1.43.103",
+      "license": "Apache-2.0",
+      "class": "ok"
+    },
+    {
+      "name": "certifi",
+      "version": "2026.7.22",
+      "license": "Mozilla Public License 2.0 (MPL 2.0)",
+      "class": "ok"
+    },
+    {
+      "name": "charset-normalizer",
+      "version": "3.5.1",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "click",
+      "version": "8.5.0",
+      "license": "BSD-3-Clause",
+      "class": "ok"
+    },
+    {
+      "name": "colorama",
+      "version": "0.4.6",
+      "license": "BSD License",
+      "class": "ok"
+    },
+    {
+      "name": "distro",
+      "version": "1.9.0",
+      "license": "Apache Software License",
+      "class": "ok"
+    },
+    {
+      "name": "fastuuid",
+      "version": "0.14.0",
+      "license": "BSD License",
+      "class": "ok"
+    },
+    {
+      "name": "filelock",
+      "version": "4.0.3",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "frozenlist",
+      "version": "1.8.0",
+      "license": "Apache-2.0",
+      "class": "ok"
+    },
+    {
+      "name": "fsspec",
+      "version": "2026.9.0",
+      "license": "BSD-3-Clause",
+      "class": "ok"
+    },
+    {
+      "name": "h11",
+      "version": "0.16.0",
+      "license": "MIT License",
+      "class": "ok"
+    },
+    {
+      "name": "headroom-ai",
+      "version": "0.38.0",
+      "license": "Apache-2.0",
+      "class": "ok"
+    },
+    {
+      "name": "hf-xet",
+      "version": "1.6.0",
+      "license": "Apache-2.0",
+      "class": "ok"
+    },
+    {
+      "name": "httpcore",
+      "version": "1.0.9",
+      "license": "BSD-3-Clause",
+      "class": "ok"
+    },
+    {
+      "name": "httpx",
+      "version": "0.28.1",
+      "license": "BSD License",
+      "class": "ok"
+    },
+    {
+      "name": "huggingface_hub",
+      "version": "1.33.0",
+      "license": "Apache Software License",
+      "class": "ok"
+    },
+    {
+      "name": "idna",
+      "version": "3.20",
+      "license": "BSD-3-Clause",
+      "class": "ok"
+    },
+    {
+      "name": "importlib_metadata",
+      "version": "8.9.0",
+      "license": "Apache-2.0",
+      "class": "ok"
+    },
+    {
+      "name": "Jinja2",
+      "version": "3.1.6",
+      "license": "BSD License",
+      "class": "ok"
+    },
+    {
+      "name": "jiter",
+      "version": "0.17.0",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "jmespath",
+      "version": "1.1.0",
+      "license": "MIT License",
+      "class": "ok"
+    },
+    {
+      "name": "jsonschema",
+      "version": "4.26.0",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "jsonschema-specifications",
+      "version": "2025.9.1",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "litellm",
+      "version": "1.102.1",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "markdown-it-py",
+      "version": "4.2.0",
+      "license": "MIT License",
+      "class": "ok"
+    },
+    {
+      "name": "MarkupSafe",
+      "version": "3.0.3",
+      "license": "BSD-3-Clause",
+      "class": "ok"
+    },
+    {
+      "name": "mdurl",
+      "version": "0.1.2",
+      "license": "MIT License",
+      "class": "ok"
+    },
+    {
+      "name": "multidict",
+      "version": "6.9.1",
+      "license": "Apache License 2.0",
+      "class": "ok"
+    },
+    {
+      "name": "openai",
+      "version": "2.54.0",
+      "license": "Apache Software License",
+      "class": "ok"
+    },
+    {
+      "name": "opentelemetry-api",
+      "version": "1.44.0",
+      "license": "Apache-2.0",
+      "class": "ok"
+    },
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "class": "ok"
+    },
+    {
+      "name": "propcache",
+      "version": "0.5.4",
+      "license": "Apache-2.0",
+      "class": "ok"
+    },
+    {
+      "name": "pydantic",
+      "version": "2.13.5",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "pydantic-settings",
+      "version": "2.15.0",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "pydantic_core",
+      "version": "2.46.5",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "Pygments",
+      "version": "2.21.0",
+      "license": "BSD-2-Clause",
+      "class": "ok"
+    },
+    {
+      "name": "python-dateutil",
+      "version": "2.9.0.post0",
+      "license": "BSD License; Apache Software License",
+      "class": "ok"
+    },
+    {
+      "name": "python-dotenv",
+      "version": "1.2.3",
+      "license": "BSD-3-Clause",
+      "class": "ok"
+    },
+    {
+      "name": "PyYAML",
+      "version": "6.0.3",
+      "license": "MIT License",
+      "class": "ok"
+    },
+    {
+      "name": "referencing",
+      "version": "0.37.0",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "regex",
+      "version": "2026.9.10",
+      "license": "Apache-2.0 AND CNRI-Python",
+      "class": "ok"
+    },
+    {
+      "name": "requests",
+      "version": "2.34.2",
+      "license": "Apache Software License",
+      "class": "ok"
+    },
+    {
+      "name": "rich",
+      "version": "15.0.0",
+      "license": "MIT License",
+      "class": "ok"
+    },
+    {
+      "name": "rpds-py",
+      "version": "2026.6.3",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "s3transfer",
+      "version": "0.19.2",
+      "license": "Apache Software License",
+      "class": "ok"
+    },
+    {
+      "name": "six",
+      "version": "1.17.0",
+      "license": "MIT License",
+      "class": "ok"
+    },
+    {
+      "name": "sniffio",
+      "version": "1.3.1",
+      "license": "MIT License; Apache Software License",
+      "class": "ok"
+    },
+    {
+      "name": "tiktoken",
+      "version": "0.14.0",
+      "license": "MIT License",
+      "class": "ok"
+    },
+    {
+      "name": "tokenizers",
+      "version": "0.23.2",
+      "license": "Apache Software License",
+      "class": "ok"
+    },
+    {
+      "name": "tomlkit",
+      "version": "0.15.1",
+      "license": "MIT License",
+      "class": "ok"
+    },
+    {
+      "name": "tqdm",
+      "version": "4.70.1",
+      "license": "MPL-2.0 AND MIT",
+      "class": "ok"
+    },
+    {
+      "name": "typing-inspection",
+      "version": "0.4.4",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "typing_extensions",
+      "version": "4.16.0",
+      "license": "PSF-2.0",
+      "class": "ok"
+    },
+    {
+      "name": "urllib3",
+      "version": "2.8.0",
+      "license": "MIT",
+      "class": "ok"
+    },
+    {
+      "name": "yarl",
+      "version": "1.25.1",
+      "license": "Apache-2.0",
+      "class": "ok"
+    },
+    {
+      "name": "zipp",
+      "version": "4.1.0",
+      "license": "MIT",
+      "class": "ok"
+    }
+  ],
+  "verdict": {
+    "retained": true,
+    "criteria": [
+      {
+        "id": "network",
+        "label": "Hors ligne, aucune tentative réseau (import et compression)",
+        "ok": true,
+        "detail": "0 hôte(s) Python , natif non observé (strace absent)"
+      },
+      {
+        "id": "no_torch",
+        "label": "Sans torch (ni transformers, ni onnxruntime)",
+        "ok": true,
+        "detail": "chargés : aucun ; installés par headroom-ai : aucun"
+      },
+      {
+        "id": "budget",
+        "label": "RSS ajouté ≤ 300 Mo (part du budget AD-8)",
+        "ok": true,
+        "detail": "84 Mo ajoutés au pic (import + compression), pic 121 Mo"
+      },
+      {
+        "id": "license",
+        "label": "Licences compatibles (NFR-10)",
+        "ok": true,
+        "detail": "64 paquets ; interdites : aucune ; à vérifier : aucune"
+      },
+      {
+        "id": "adoption",
+        "label": "Règle d'adoption AD-15 : fonctionne hors ligne",
+        "ok": true,
+        "detail": "échantillons en échec : aucun ; sans aucun réseau (unshare -rn) : non disponible"
+      }
+    ]
+  }
+}

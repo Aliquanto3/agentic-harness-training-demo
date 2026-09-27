@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import codecs
 import ctypes
+import logging
 import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -141,6 +142,10 @@ class VocabTokenizer:
 
             if not model_path:
                 raise ValueError("aucun fichier GGUF pour le tokenizer")
+            # Lot J: opened alone, no `Llama(verbose=False)` has quieted llama.cpp's log, which
+            # would print the whole vocabulary load (UnicodeEncodeError on a cp1252 stderr).
+            # Errors only: the process-wide level `Llama(verbose=False)` sets for the engine.
+            logging.getLogger("llama-cpp-python").setLevel(logging.ERROR)
             params = llama_cpp.llama_model_default_params()
             params.vocab_only = True
             model = _internals.LlamaModel(path_model=model_path, params=params, verbose=False)

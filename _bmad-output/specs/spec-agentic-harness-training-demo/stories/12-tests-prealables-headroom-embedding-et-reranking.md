@@ -235,6 +235,23 @@ verrou. Résultats bruts : `tools/bench/results/2026-09-27-pc-cible/`.
 - sha256 identiques à l'oid LFS de Hugging Face ; URL épinglées sur les commits `52fed1c8…`
   (embedding) et `3093af03…` (reranker).
 
+### Mesures sur le PC cible après le lot F (2026-09-27, soir)
+
+Même poste, banc du lot F (comptage `gpt-4`, RSS ajoutée au pic). Résultats bruts :
+`tools/bench/results/2026-09-27-pc-cible-lot-f/`.
+
+- **Headroom : RETENU.** Les cinq critères passent. Variante configurée : aucune tentative
+  réseau vue par la garde Python (sous Windows, ni `strace` ni `unshare -rn` : le code natif
+  n'est pas observé ; la variante naïve, témoin, tente toujours
+  `openaipublic.blob.core.windows.net`),
+  sans torch, **+84 Mo au pic** (pic 121 Mo), 64 paquets sous licence permissive.
+  `[compression] cost_mb` passe de 130 à **110** (84 Mo + 30 %, arrondi ; lot J).
+- **Embedding : granite-107m Q8_0 retenu**, recall@1 0,9, MRR 0,95, +428 Mo au pic, pooling 2.
+  bge-m3 (+731 Mo) et Qwen3-Embedding (+899 Mo) dépassent le seuil de 600 Mo.
+- **Reranker : bge-reranker-v2-m3 Q4_K_M retenu**, MRR 0,95, +736 Mo au pic (seuil 800).
+- `measured_rss_mb` (430 et 740) inchangés : écarts inférieurs à 1 %.
+- `e5small_q8` : « Candidat inconnu … (retiré des candidats …) », code 2.
+
 ## Hypothèses à valider
 
 1. **Seuils de verdict.** Ils ont été choisis ici, faute de valeur dans le spine : Headroom ≤ 300 Mo ajoutés, embedding ≤ 600 Mo, reranker ≤ 800 Mo, recall@1 ≥ 0,75 sur le mini jeu. Anaël peut les resserrer.

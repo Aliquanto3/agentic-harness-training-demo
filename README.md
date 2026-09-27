@@ -315,9 +315,9 @@ uv run wavestack
   l'exécutable `ast-grep`) : AppLocker ou WDAC peuvent les bloquer. La carte de la brique dit
   alors pourquoi elle est indisponible ; le reste de WaveStack fonctionne.
 - **Sans l'extra,** la carte de la brique est indisponible et donne la commande d'installation.
-- **Réglages.** Headroom ajoute 107 Mo de mémoire (pic), mesurés sous Linux avec le comptage `gpt-4`
-  (57 Mo sur le PC cible avec l'ancien comptage, à remesurer) ; `[compression] cost_mb` en
-  compte 130 par prudence, contrôlés par le budget. Un texte plus court que
+- **Réglages.** Headroom ajoute 84 Mo de mémoire au pic sur le PC cible (107 Mo sous Linux),
+  avec le comptage `gpt-4` ; `[compression] cost_mb` en compte 110, contrôlés par le budget.
+  Un texte plus court que
   `[compression] min_chars` (300 caractères) n'est pas compressé. La brique n'a d'effet
   qu'avec Outils, MCP ou RAG : sans eux, rien à compresser.
 

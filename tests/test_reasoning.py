@@ -400,7 +400,7 @@ def test_local_reasoning_that_never_closes_still_answers_within_the_reasoning_re
     assert (
         engine.max_tokens == [1536, left] and events["reasoning_cut"][0]["answer_reserve"] == left
     )
-    assert events["reasoning_cut"][0]["reasoning_tokens"] == 1024
+    assert events["reasoning_cut"][0]["reasoning_tokens"] == 768
     assert "output_truncated" not in events
     assert events["model_call_ended"][0]["text"].strip() == "Bonjour."
     assert events["turn_ended"][0]["status"] == "completed"
