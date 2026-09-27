@@ -189,6 +189,7 @@ class FakeServer:
             output = self._output()
             lines = [f"data: {json.dumps({'content': c, 'stop': False})}" for c in output]
             end = {"content": "", "stop": True, "stop_type": self.stop_type}
+            end["timings"] = {"prompt_n": len(body["prompt"]) + self.extra_prompt_tokens}
             lines.append(f"data: {json.dumps(end | {'tokens_predicted': len(output)})}")
             return self._stream(lines)
         return httpx.Response(404)
@@ -837,6 +838,20 @@ def test_ollama_cache_is_an_information_not_reduced_transparency(fake):
     [cached] = events["server_cache_used"]
     assert (cached["prompt_tokens"], cached["evaluated_tokens"]) == (used, used - 10)
     assert "cache" in cached["message_fr"]
+    # Lot A: the call's `evaluated_tokens` is Ollama's `prompt_eval_count`.
+    assert events["model_call_ended"][0]["evaluated_tokens"] == used - 10
+
+
+def test_llama_server_evaluated_tokens_are_its_timings(fake):
+    """Lot A: llama-server's closing chunk says the prompt tokens it evaluated
+    (`timings.prompt_n`, fewer when its cache served the start)."""
+    fake.extra_prompt_tokens = -7
+    session = _booted("llama_server")
+    events = _run(session, "Bonjour")
+
+    used = events["context_rendered"][0]["used"]
+    assert events["model_call_ended"][0]["evaluated_tokens"] == used - 7
+    assert _errors(events) == []
 
 
 class Blocking(httpx.SyncByteStream):

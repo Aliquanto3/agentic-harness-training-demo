@@ -12,7 +12,7 @@ import ctypes
 import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 StopReason = Literal["stop", "length", "cancelled", "error"]
 
@@ -59,6 +59,15 @@ class EngineMetadata:
     server_context: int | None = None
 
 
+@dataclass(frozen=True)
+class EngineSnapshot:
+    """A copy of an engine's state (AD-11): opaque `data` for `restore`, and what the copy
+    weighs in memory (`size_bytes`)."""
+
+    data: Any
+    size_bytes: int
+
+
 class Engine(Protocol):
     def complete(
         self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
@@ -71,6 +80,25 @@ class Engine(Protocol):
     def metadata(self) -> EngineMetadata: ...
 
     def close(self) -> None: ...
+
+    # Cache and state (AD-4, AD-11). The session tolerates an engine without them.
+
+    def cached_ids(self) -> list[int] | None:
+        """The ids the engine holds in its cache now; `None` when it cannot say."""
+        ...
+
+    def snapshot(self) -> EngineSnapshot | None:
+        """A copy of the engine's state; `None` when it cannot save it."""
+        ...
+
+    def restore(self, snapshot: EngineSnapshot) -> bool:
+        """Put back a `snapshot`; `False` when it could not."""
+        ...
+
+    @property
+    def last_evaluated(self) -> int | None:
+        """The prompt tokens the last `complete` really evaluated; `None` when unknown."""
+        ...
 
 
 def partial_suffix_len(text: str, markers: Sequence[str]) -> int:
@@ -182,8 +210,49 @@ class LlamaCppEngine:
     def __init__(self, model_path: str, n_ctx: int) -> None:
         import llama_cpp
 
+        self._lib = llama_cpp
         self._llm = llama_cpp.Llama(model_path=model_path, n_ctx=n_ctx, verbose=False)
         self._tokenizer = VocabTokenizer(model=self._llm._model)
+        self._last_evaluated: int | None = None
+
+    @property
+    def last_evaluated(self) -> int | None:
+        return self._last_evaluated
+
+    def cached_ids(self) -> list[int] | None:
+        """`generate` evaluates only the ids that extend these (the last token sampled is
+        not among them)."""
+        return [int(t) for t in self._llm.input_ids[: self._llm.n_tokens]]
+
+    def snapshot(self) -> EngineSnapshot | None:
+        """`Llama.save_state` without its copy of the logits (`scores`, up to n_batch ×
+        vocabulary floats, ≈ 500 Mo for Qwen3.5): only the llama.cpp state and the ids in
+        cache, which `generate` needs to reuse it."""
+        lib, ctx = self._lib, self._llm.ctx
+        size = int(lib.llama_state_get_size(ctx))
+        buffer = (ctypes.c_uint8 * size)()
+        written = int(lib.llama_state_get_data(ctx, buffer, size))
+        if written <= 0 or written > size:
+            raise RuntimeError(f"copie de l'état llama.cpp en échec ({written} octets)")
+        n_tokens = self._llm.n_tokens
+        ids = self._llm.input_ids[:n_tokens].copy()
+        return EngineSnapshot((buffer, written, ids, n_tokens), written + int(ids.nbytes))
+
+    def restore(self, snapshot: EngineSnapshot) -> bool:
+        """`Llama.load_state`'s steps, without the logits: the next `generate` evaluates at
+        least one token again (`_requires_eval`)."""
+        buffer, written, ids, n_tokens = snapshot.data
+        try:
+            restored = int(self._lib.llama_state_set_data(self._llm.ctx, buffer, written))
+        except Exception:  # noqa: BLE001 - the state is unknown: treated as a failure
+            restored = -1
+        if restored != written:
+            self._llm.n_tokens = 0  # a state half set is never reused: all evaluated again
+            return False
+        self._llm.input_ids[:n_tokens] = ids
+        self._llm.n_tokens = n_tokens
+        self._llm._requires_eval = True
+        return True
 
     def metadata(self) -> EngineMetadata:
         return self._tokenizer.metadata()
@@ -201,6 +270,8 @@ class LlamaCppEngine:
         pending = ""
         count = 0
         reason: StopReason = "stop"
+        self._last_evaluated = None
+        self._lib.llama_perf_context_reset(self._llm.ctx)
         tokens = self._llm.generate(
             prompt_ids, temp=TEMPERATURE, top_p=TOP_P, top_k=TOP_K, min_p=0.0
         )
@@ -223,6 +294,8 @@ class LlamaCppEngine:
                     break
         finally:
             tokens.close()
+            # The prompt tokens evaluated, the ones reused from the cache excluded (AD-4).
+            self._last_evaluated = int(self._lib.llama_perf_context(self._llm.ctx).n_p_eval)
         yield Fragment(pending + decoder.decode(b"", final=True), count, reason)
 
     def close(self) -> None:

@@ -6,7 +6,7 @@ explanation_fr:
   - >-
     La mémoire courte s'efface avec la conversation. La mémoire globale, elle, survit :
     le harnais garde quelques informations dans un fichier local, memory.json, et les
-    replace dans le message système au début de chaque tour.
+    replace dans le message système au début de chaque conversation.
   - >-
     Le modèle n'a aucun souvenir : il écrit en mémoire en appelant un outil du harnais,
     remember, et c'est le harnais qui écrit le fichier. Vous pouvez aussi forcer une
@@ -19,5 +19,10 @@ explanation_fr:
       Données : avec un modèle cloud, chaque entrée part chez le fournisseur à chaque appel,
       dans le message système. N'y mettez jamais de secret.
   - >-
-    Une écriture faite pendant un tour ne rejoint le message système qu'au tour suivant.
-    « Réinitialiser » restaure la mémoire de démonstration.
+    Une entrée écrite (par le modèle, par une écriture forcée ou dans « Modifier la
+    mémoire ») est aussitôt dans le fichier, mais n'entre dans le message système qu'à la
+    prochaine conversation : après « Vider la conversation » ou un changement de scénario.
+    Une suppression ou une modification, elle, s'applique aussitôt. Le message système
+    reste ainsi identique d'un tour à l'autre, et le moteur réutilise son cache au lieu de
+    relire tout le contexte. « Réinitialiser » restaure la mémoire de
+    démonstration.

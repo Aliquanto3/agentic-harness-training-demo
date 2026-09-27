@@ -40,6 +40,7 @@ from wavestack.models.engine import (
     TOP_P,
     CancelToken,
     EngineMetadata,
+    EngineSnapshot,
     Fragment,
     StopReason,
     VocabTokenizer,
@@ -262,6 +263,7 @@ class LlamaServerEngine:
         self.url = url.rstrip("/")
         self._client = _client(connect_timeout_s, read_timeout_s, transport)
         self._pieces: dict[int, bytes] = {}  # id -> bytes, filled by `tokenize`
+        self._last_evaluated: int | None = None
         try:
             self._metadata = self._read_metadata(markers)
         except BaseException:
@@ -300,6 +302,22 @@ class LlamaServerEngine:
 
     def metadata(self) -> EngineMetadata:
         return self._metadata
+
+    # AD-4, AD-11: no access to the server's cache nor to its state.
+
+    def cached_ids(self) -> list[int] | None:
+        return None
+
+    def snapshot(self) -> EngineSnapshot | None:
+        return None
+
+    def restore(self, snapshot: EngineSnapshot) -> bool:
+        return False
+
+    @property
+    def last_evaluated(self) -> int | None:
+        """The prompt tokens the server says it evaluated in the last call, if it said."""
+        return self._last_evaluated
 
     def tokenize(self, text: str) -> list[int]:
         body = {"content": text, "add_special": False, "parse_special": True, "with_pieces": True}
@@ -346,6 +364,7 @@ class LlamaServerEngine:
         pending = ""
         count = 0
         reason: StopReason | None = None
+        self._last_evaluated = None
         with _stream(self._client, self.url, "/completion", body, cancel) as response:
             for data in _lines(response, self.url, cancel, prefix="data:"):
                 if cancel.cancelled:
@@ -365,6 +384,9 @@ class LlamaServerEngine:
                     yield Fragment(emit, count)
                 if data.get("stop"):
                     reason = "length" if data.get("stop_type") == "limit" else "stop"
+                    timings = data.get("timings")  # its last chunk: `prompt_n` evaluated
+                    if isinstance(timings, dict) and isinstance(timings.get("prompt_n"), int):
+                        self._last_evaluated = timings["prompt_n"]
                     break
         if cancel.cancelled:
             reason = "cancelled"
@@ -402,6 +424,7 @@ class OllamaRawEngine:
         self._used = False  # a generation was asked: Ollama may have loaded the model
         self._client = _client(connect_timeout_s, read_timeout_s, transport)
         self._closed = False
+        self._last_evaluated: int | None = None
 
     def use_window(self, window: int) -> None:
         """AD-9: the session's effective window, the single source of `num_ctx`."""
@@ -409,6 +432,22 @@ class OllamaRawEngine:
 
     def metadata(self) -> EngineMetadata:
         return self._tokenizer.metadata()
+
+    # AD-4, AD-11: no access to the server's cache nor to its state.
+
+    def cached_ids(self) -> list[int] | None:
+        return None
+
+    def snapshot(self) -> EngineSnapshot | None:
+        return None
+
+    def restore(self, snapshot: EngineSnapshot) -> bool:
+        return False
+
+    @property
+    def last_evaluated(self) -> int | None:
+        """The prompt tokens the server says it evaluated in the last call, if it said."""
+        return self._last_evaluated
 
     def tokenize(self, text: str) -> list[int]:
         return self._tokenizer.tokenize(text)
@@ -437,6 +476,7 @@ class OllamaRawEngine:
         reason: StopReason | None = None
         stopped = thinking = False
         self._used = True
+        self._last_evaluated = None
         with _stream(self._client, self.url, "/api/generate", body, cancel) as response:
             for data in _lines(response, self.url, cancel):
                 if cancel.cancelled:
@@ -463,7 +503,10 @@ class OllamaRawEngine:
                     reason = (
                         "length" if not stopped and data.get("done_reason") == "length" else "stop"
                     )
-                    self._check_count(data.get("prompt_eval_count"), len(prompt_ids))
+                    evaluated = data.get("prompt_eval_count")
+                    if isinstance(evaluated, int):
+                        self._last_evaluated = evaluated
+                    self._check_count(evaluated, len(prompt_ids))
                     break
         if cancel.cancelled:
             reason = "cancelled"

@@ -27,7 +27,7 @@ from pydantic import SecretStr
 
 from wavestack.config import CloudModel, estimate_tokens
 from wavestack.models.capabilities import _THINK_TAGS, ChannelSplitter
-from wavestack.models.engine import CancelToken
+from wavestack.models.engine import CancelToken, EngineSnapshot
 from wavestack.net.factory import create_client
 from wavestack.net.guard import find_blocked
 from wavestack.trace.journal import get_journal
@@ -217,6 +217,22 @@ class OpenAIChatEngine:
 
     def close(self) -> None:
         self._client.close()
+
+    # AD-4, AD-11: the provider's cache and state are out of reach; the whole context is
+    # sent again at every call.
+
+    def cached_ids(self) -> list[int] | None:
+        return None
+
+    def snapshot(self) -> EngineSnapshot | None:
+        return None
+
+    def restore(self, snapshot: EngineSnapshot) -> bool:
+        return False
+
+    @property
+    def last_evaluated(self) -> int | None:
+        return None
 
     def _error(
         self,

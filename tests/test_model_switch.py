@@ -353,6 +353,7 @@ def test_conversation_is_kept_and_replay_plays_the_new_model(tmp_path):
     assert "[B] user\nPremier" in prompt and "[B] assistant\nRéponse A" in prompt
     assert "[B] user\nSecond" in prompt
     assert _events(mark, "turn_started")[0]["active_model"]["label"] == "B"
+    assert _events(mark, "prefix_not_reused") == []  # lot A: a new engine, nothing cached
 
     mark = get_journal().last_seq()
     session.replay()

@@ -111,7 +111,7 @@ def test_injection_puts_the_demo_between_system_prompt_and_skills_catalog():
     session.close()
 
 
-def test_the_model_writes_then_the_next_turn_reads_it():
+def test_the_model_writes_then_the_next_conversation_reads_it():
     _, session = memory_session([remember(PREFERENCE), "C'est noté.", "Voici trois points."])
     mark = get_journal().last_seq()
 
@@ -141,12 +141,23 @@ def test_the_model_writes_then_the_next_turn_reads_it():
     reply = [s for s in _segments(second, "tool_result") if PREFERENCE in s["text"]]
     assert [(s["brick"], s["component"]) for s in reply] == [("global_memory", "core.harness")]
 
+    # N1 (lot A): the next turn keeps the conversation's system message, the entry waits in
+    # the drawer; the engine reuses its cache.
     after = run(session, "Quelles bonnes pratiques pour un mot de passe ?")
     ctx = of(after, "context_rendered")[0].payload
-    assert f"- {PREFERENCE}" in memory_texts(ctx)
+    assert f"- {PREFERENCE}" not in memory_texts(ctx)
+    assert memory_texts(ctx) == memory_texts(first)
+    assert of(after, "prefix_not_reused") == []
+    assert PREFERENCE in [e["text"] for e in last("memory_changed")["entries"]]
     # No stub: the reply stays in the history as it was (AD-25).
     history = [s["text"] for s in _segments(ctx, "history")]
     assert any("Retenu en mémoire globale" in text for text in history)
+
+    session.clear_conversation()  # the next conversation reads the memory again
+    session.join()
+    assert f"- {PREFERENCE}" in memory_texts(last("context_preview"))
+    ctx = of(run(session, "Et pour une clé d'API ?"), "context_rendered")[0].payload
+    assert f"- {PREFERENCE}" in memory_texts(ctx)
     session.close()
 
 
@@ -364,18 +375,19 @@ def test_reset_restores_the_demonstration_but_scenarios_and_clearing_do_not():
     session.close()
 
 
-def test_replay_reads_the_current_memory():
+def test_replay_reads_the_memory_of_its_conversation():
     _, session = memory_session([remember(PREFERENCE), "Noté.", "Rejoué."])
     events = run(session, "Retiens ceci.")
     assert f"- {PREFERENCE}" not in memory_texts(of(events, "context_rendered")[0].payload)
     mark = get_journal().last_seq()
 
-    session.replay()  # t1 again, from before t1: the memory it wrote is read now
+    session.replay()  # t1 again, from before t1, with the memory its conversation read (N1)
     session.join()
 
     replayed = since(mark, "context_rendered")[0]
-    assert f"- {PREFERENCE}" in memory_texts(replayed)
+    assert f"- {PREFERENCE}" not in memory_texts(replayed)
     assert since(mark, "turn_started")[0]["replay_of"] == "t1"
+    assert PREFERENCE in [e["text"] for e in saved()]  # written all the same
     session.close()
 
 

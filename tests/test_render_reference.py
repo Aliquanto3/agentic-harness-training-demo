@@ -126,3 +126,67 @@ def test_real_gguf_passes_checks_4_and_6():
         assert found[1:] == [(p.component, p.text) for p in lines]
     finally:
         engine.close()
+
+
+@pytest.mark.model
+def test_real_gguf_reuses_its_cache_between_two_turns():
+    """Lot A (A5, AD-4): two turns of `native_tools` on the real model; the second turn's
+    first call evaluates, as llama.cpp counts them, only the tokens after the first turn's
+    last call and its output. Set WAVESTACK_TEST_GGUF; skipped otherwise."""
+    from wavestack import config
+    from wavestack.session.app_session import AppSession
+
+    path = os.environ.get("WAVESTACK_TEST_GGUF")
+    if not path or not Path(path).is_file():
+        pytest.skip("WAVESTACK_TEST_GGUF does not point to a GGUF file.")
+    session = AppSession(config.Config(values={"context": {"window": 4096}}))
+    try:
+        assert session.boot(path).result() != "error"
+        session.launch_scenario("native_tools")
+        session.join()
+        turns = []
+        for message in ("Quelle heure est-il ?", "Et quel jour sommes-nous ?"):
+            mark = get_journal().last_seq()
+            session.send(message)
+            session.join()
+            events = [e for e in get_journal().events_since(mark) if e.context_id == "main"]
+            assert [e.payload["status"] for e in events if e.kind == "turn_ended"] == ["completed"]
+            turns.append(events)
+        last = [e.payload for e in turns[0] if e.kind == "model_call_ended"][-1]
+        second = [e.payload for e in turns[1] if e.kind == "model_call_ended"][0]
+        assert [e for e in turns[1] if e.kind == "prefix_not_reused"] == []
+        # llama.cpp keeps the output but its last token sampled (±1 by how the call ended).
+        new = second["prompt_tokens"] - (last["prompt_tokens"] + last["output_tokens"])
+        assert abs(second["evaluated_tokens"] - new) <= 1
+    finally:
+        session.close()
+
+
+@pytest.mark.model
+def test_real_gguf_state_restored_after_a_divergent_prompt():
+    """Lot A (N2, AD-11): the main context's state saved, a sub-agent's prompt evaluated in
+    its place, the state restored: a prompt extending the main context evaluates its new
+    tokens only, on the real (hybrid, for Qwen3.5) model. Set WAVESTACK_TEST_GGUF."""
+    from wavestack.models.engine import CancelToken, LlamaCppEngine
+
+    path = os.environ.get("WAVESTACK_TEST_GGUF")
+    if not path or not Path(path).is_file():
+        pytest.skip("WAVESTACK_TEST_GGUF does not point to a GGUF file.")
+    engine = LlamaCppEngine(path, n_ctx=4096)
+    try:
+
+        def complete(ids: list[int]) -> None:
+            list(engine.complete(ids, [], 8, CancelToken()))
+
+        complete(engine.tokenize("<|im_start|>system\nContexte principal.<|im_end|>\n"))
+        main = engine.cached_ids()
+        saved = engine.snapshot()
+        assert saved is not None and saved.size_bytes > 0
+        complete(engine.tokenize("<|im_start|>system\nSous-agent.<|im_end|>\n"))
+        assert engine.restore(saved) is True
+        assert engine.cached_ids() == main
+        added = engine.tokenize("<|im_start|>user\nSuite.<|im_end|>\n")
+        complete(main + added)
+        assert abs(engine.last_evaluated - len(added)) <= 1
+    finally:
+        engine.close()

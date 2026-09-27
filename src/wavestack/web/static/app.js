@@ -3210,6 +3210,18 @@ const LIMITS = {
   sub_retries: "limite d'essais du sous-agent",
 };
 const APPROVAL_FIGURES = { approved: "autorisé", refused: "refusé", cancelled: "annulé" };
+// Lot A: why the engine reads the context again (`prefix_not_reused.cause`); the full
+// French explanation is its `message_fr`.
+const PREFIX_CAUSES = {
+  in_turn: "dans le tour",
+  system: "message système modifié",
+  history: "historique réécrit",
+  template: "gabarit",
+  reset: "conversation vidée",
+  replay: "rejeu",
+  abandoned: "tour précédent abandonné",
+  subagent: "sous-agent",
+};
 
 function plural(count, word) {
   return `${fmt(count)} ${word}${count > 1 ? "s" : ""}`;
@@ -3258,6 +3270,8 @@ function turnRows(turn) {
       if (ended) {
         const guess = approx(ended.usage_source === "estimate");
         figure = `${guess}${fmt(ended.prompt_tokens)} lus · ${guess}${fmt(ended.output_tokens)} écrits · ${seconds(ended.duration_ms)}`;
+        // Lot A: what the engine really evaluated, the tokens reused from its cache excluded.
+        if (ended.evaluated_tokens != null) figure += ` · ${fmt(ended.evaluated_tokens)} tokens évalués`;
         const stopped = { length: "sortie coupée", cancelled: "arrêté" }[ended.stop_reason];
         if (stopped) figure += ` · ${stopped}`;
       } else if (step.startedAt) {
@@ -3431,12 +3445,13 @@ function turnRows(turn) {
         body: () => [harnessEvent(title, retries ? "error" : "info", [el("p", "", step.payload.message_fr)])],
       });
     } else if (step.type === "prefix_not_reused") {
+      const cause = PREFIX_CAUSES[step.payload.cause];
       rows.push({
         key,
         icon: "ℹ",
         title: "Préfixe non réutilisé",
         actor: "harness",
-        figure: `${fmt(step.payload.common_tokens)} tokens communs`,
+        figure: `${cause ? `${cause} · ` : ""}${fmt(step.payload.common_tokens)} tokens communs`,
         tone: "hook",
         sig: 1,
         body: () => [harnessEvent("Préfixe non réutilisé", "info", [el("p", "", step.payload.message_fr)])],
@@ -3474,6 +3489,7 @@ function delegateRow(turn, step, key) {
   } else if (ended) {
     figure = `${ended.status === "cancelled" ? "arrêtée" : "refusée"} · ${seconds(ended.duration_ms)}`;
   }
+  if (done && subState(done)) figure += ` · ${subState(done)}`;
   const failed = Boolean(ended && !["ok", "cancelled"].includes(ended.status));
   return {
     key,
@@ -3514,6 +3530,14 @@ function subSaving(done) {
     return `${figures} Aucune économie : le résultat pèse autant ou plus que ce qu'il remplace (déléguer n'est pas gratuit).`;
   }
   return `${figures} Économie pour le contexte principal : ${guess}${fmt(done.saved_tokens)} tokens.`;
+}
+
+// Lot A (AD-11): the main context's state saved around the delegation, when it was.
+function subState(done) {
+  if (done.state_saved_bytes == null) return "";
+  const size = (done.state_saved_bytes / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+  const restored = done.state_restore_ms != null ? `, restauré en ${seconds(done.state_restore_ms)}` : ", non restauré";
+  return `état sauvegardé : ${size} Mo${restored}`;
 }
 
 // The delegation line's key figure once the sub-agent is done.
@@ -4328,8 +4352,10 @@ function eventSummary(group) {
       return [`${p.model.label} : ${MODEL_LOAD_STATUS[p.status] ?? p.status}`, seconds(p.duration_ms), p.reason_fr]
         .filter(Boolean)
         .join(" · ");
-    case "model_call_ended":
-      return `${fmt(p.prompt_tokens)} lus · ${fmt(p.output_tokens)} écrits · ${seconds(p.duration_ms)} · ${p.stop_reason}`;
+    case "model_call_ended": {
+      const evaluated = p.evaluated_tokens != null ? ` · ${fmt(p.evaluated_tokens)} évalués` : "";
+      return `${fmt(p.prompt_tokens)} lus${evaluated} · ${fmt(p.output_tokens)} écrits · ${seconds(p.duration_ms)} · ${p.stop_reason}`;
+    }
     case "tool_started":
       return formatCall({ name: p.tool, arguments: p.arguments });
     case "tool_ended":
@@ -4360,7 +4386,9 @@ function eventSummary(group) {
     case "subagent_started":
       return p.task;
     case "subagent_ended":
-      return p.status === "completed" ? subFigure(p) : SUB_STATUS[p.status] ?? p.status;
+      return [p.status === "completed" ? subFigure(p) : SUB_STATUS[p.status] ?? p.status, subState(p)]
+        .filter(Boolean)
+        .join(" · ");
     case "rag_search_started":
       return `« ${p.query} » · ${fmt(p.top_k)} au plus`;
     case "rag_rerank_started":

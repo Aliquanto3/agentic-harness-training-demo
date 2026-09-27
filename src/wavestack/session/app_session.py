@@ -12,6 +12,7 @@ exception (AD-16).
 from __future__ import annotations
 
 import asyncio
+import bisect
 import json
 import math
 import threading
@@ -19,6 +20,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
+from itertools import accumulate
 from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
 
@@ -50,6 +52,7 @@ from wavestack.config import (
 from wavestack.context.render import (
     RenderedChat,
     RenderedContext,
+    reasoning_wrap,
     render_chat_body,
     render_context,
     with_total,
@@ -88,7 +91,7 @@ from wavestack.models.capabilities import (
     capabilities_for,
 )
 from wavestack.models.embedding import Embedder
-from wavestack.models.engine import CancelToken, Engine, LlamaCppEngine
+from wavestack.models.engine import CancelToken, Engine, EngineSnapshot, LlamaCppEngine
 from wavestack.models.load_registry import (
     COMPRESSOR,
     EMBEDDING,
@@ -177,6 +180,54 @@ _CORE_MODEL = {
 }
 
 _TURN_FR = "Un tour est en cours : attendez sa fin ou arrêtez-le."
+# Lot A (AD-4): why a turn's first call does not extend what the engine holds in cache.
+_PREFIX_CAUSES_FR = {
+    "system": (
+        "Le message système a changé depuis le tour précédent (prompt système, mémoire "
+        "globale, descriptions d'outils, catalogue de skills ou skill chargé)."
+    ),
+    "history": (
+        "L'historique n'est plus rendu tel que le modèle l'a lu (mémoire courte éteinte : "
+        "l'échange précédent n'est pas renvoyé ; extraits RAG retirés, documentation "
+        "remplacée par son talon, texte compressé ou réponse réécrite)."
+    ),
+    "template": (
+        "Une brique activée ou désactivée, ou le gabarit, rend autrement une partie du "
+        "contexte déjà lue."
+    ),
+    "reset": (
+        "La conversation a été vidée, ou un scénario ou la réinitialisation l'a remplacée : "
+        "le cache du moteur contient encore l'ancienne."
+    ),
+    "replay": (
+        "Rejeu : le tour repart de l'état qui précédait le tour rejoué, alors que le cache "
+        "du moteur contient ce tour."
+    ),
+    "abandoned": (
+        "Le tour précédent n'a pas abouti (arrêté, en erreur, bloqué ou dépassé) : sa "
+        "sortie est dans le cache du moteur, pas dans l'historique."
+    ),
+    "subagent": "Le sous-agent a occupé le cache du moteur{why}.",
+}
+_SUBAGENT_EVICTED_FR = {
+    "stateless": " : ce moteur ne sait pas sauvegarder l'état du contexte principal",
+    "failed": " : la sauvegarde ou la restauration de l'état du contexte principal a échoué",
+}
+# Lot A (AD-4): the segment kinds of the system message, for the `system` cause, and those
+# of the conversation, for `history`.
+_CONVERSATION_KINDS = {
+    SegmentKind.HISTORY,
+    SegmentKind.USER_MESSAGE,
+    SegmentKind.RAG_EXCERPT,
+    SegmentKind.HOOK_INJECTION,
+}
+_SYSTEM_KINDS = {
+    SegmentKind.SYSTEM_PROMPT,
+    SegmentKind.GLOBAL_MEMORY,
+    SegmentKind.TOOL_CATALOG,
+    SegmentKind.SKILL_CATALOG,
+    SegmentKind.SKILL_BODY,
+}
 _AWAITING_FR = "En attente de votre validation : autorisez ou refusez l'appel réseau."
 _NO_MODEL_FR = (
     "Envoi indisponible : aucun modèle n'est choisi. Choisissez-en un sur la page de diagnostic."
@@ -429,6 +480,31 @@ def _kind_tokens(payload: dict[str, Any], kind: SegmentKind) -> int:
     return sum(s["tokens"] for s in payload["segments"] if s["kind"] == kind)
 
 
+def _common_prefix(a: list[int], b: list[int]) -> int:
+    """How many ids `a` and `b` share from their start."""
+    pairs = enumerate(zip(a, b, strict=False))
+    return next((i for i, (x, y) in pairs if x != y), min(len(a), len(b)))
+
+
+def _engine_cached_ids(engine: Any) -> list[int] | None:
+    """Lot A (AD-4): the ids an engine holds in its cache, `None` when it cannot say (an
+    engine without `cached_ids`, or one that fails)."""
+    try:
+        cached = getattr(engine, "cached_ids", None)
+        return None if cached is None else cached()
+    except Exception:  # noqa: BLE001 - AD-16: unknown, the ids sent are kept instead
+        return None
+
+
+def _evaluated(engine: Any) -> int | None:
+    """Lot A (AD-4): the prompt tokens the engine says its last call evaluated."""
+    try:
+        value = getattr(engine, "last_evaluated", None)
+    except Exception:  # noqa: BLE001 - AD-16: unknown
+        return None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 def _fr(n: int) -> str:
     return f"{n:,}".replace(",", "\u202f")  # narrow no-break space, French style
 
@@ -634,9 +710,32 @@ class AppSession:
         self._arms = 0
         # Story 9b (AD-17): the last turn started and the conversational state it started
         # from (turn id, message, history, skills and documentations loaded), for the replay.
-        self._last: tuple[str, str, tuple[Exchange, ...], frozenset[str], frozenset[str]] | None = (
-            None
-        )
+        # Lot A (N1): with the global memory it read, frozen for the conversation.
+        self._last: (
+            tuple[
+                str,
+                str,
+                tuple[Exchange, ...],
+                frozenset[str],
+                frozenset[str],
+                tuple[tuple[str, str], ...] | None,
+            ]
+            | None
+        ) = None
+        # Lot A (N1, AD-17): the global memory the conversation reads, taken at its first
+        # turn; `None` until then (the preview reads the file's current entries).
+        # `(id, text)` pairs: an entry deleted or edited since leaves it at once.
+        self._memory_snapshot: tuple[tuple[str, str], ...] | None = None
+        # Lot A (AD-4, AD-11): the ids the engine holds for the main context after its last
+        # call (`None`: nothing known, no check); why the next turn's first call may not
+        # extend them (`reset`, `replay`); a sub-agent's context left in the engine's cache
+        # (`stateless` or `failed`); and the last turn's status (`abandoned`).
+        self._main_cache: list[int] | None = None
+        self._cache_cause: str | None = None
+        self._cache_evicted: str | None = None
+        self._last_status: str | None = None
+        self._turn_called = False  # the running turn made a main call (`abandoned`)
+        self._save_failed = False  # the last `_save_main_state` failed (not unavailable)
         # Configuration frozen by the last `send`: `pending` is measured against it.
         self._sent: tuple[
             frozenset[str],
@@ -1413,6 +1512,8 @@ class AppSession:
             engine = self._engine
             self._engine, self._caps, self._cloud, self._active = None, None, None, None
             self._model_name = None
+            # Lot A: the next engine starts with an empty cache, nothing to check against.
+            self._main_cache = self._cache_evicted = None
         try:
             if engine is not None:
                 engine.close()
@@ -2482,9 +2583,14 @@ class AppSession:
             catalog = [s for s in enabled_skills if s not in skills_loaded]
             tools += [LOAD_SKILL] if catalog else []
         memory: tuple[str, ...] = ()
-        if "global_memory" in effective:  # AD-4: read now, frozen for the turn's calls
-            with self._lock:
-                memory = tuple(e.text for e in self._memory)
+        if "global_memory" in effective:  # AD-4: frozen for the turn's calls
+            with self._lock:  # N1: the conversation's snapshot, else the file's entries
+                snapshot, entries = self._memory_snapshot, list(self._memory)
+            if snapshot is None:
+                memory = tuple(e.text for e in entries)
+            else:  # an addition waits for the next conversation; a deletion or an edit
+                current = {e.id: e.text for e in entries}  # applies at once
+                memory = tuple(text for id_, text in snapshot if current.get(id_) == text)
             if self._caps is not None and self._caps.tool_call_parser:  # H4, AD-25
                 tools.append(REMEMBER)
         sub_tools: list[str] = []
@@ -2529,6 +2635,7 @@ class AppSession:
         group: str,
         chat: bool = False,
         resend: str | None = None,
+        wrap: tuple[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         """Intermediate messages of a turn: `assistant_turn`/`tool_result` in the turn itself
         (or the step's own `kind`), `history` afterwards, where a step's `stub` replaces its
@@ -2536,7 +2643,8 @@ class AppSession:
         session `id`, replies its `tool_call_id`. Chat mode (AD-4): the reasoning sent back
         only with `resend` (its `format`), an empty `content` omitted, `arguments` as the
         string emitted, a reply without `name`, and a malformed call's error sent as a `user`
-        message."""
+        message. `wrap` (lot A, local mode): a past step rendered as it was produced
+        (`_as_produced`)."""
         memory = (SegmentKind.HISTORY, "short_memory", "short_memory.history")
         messages: list[dict[str, Any]] = []
         for i, step in enumerate(steps):
@@ -2572,13 +2680,18 @@ class AppSession:
                     step.get("component", "core.model"),
                 )
             )
-            answer = AppSession._assistant_message(
-                Part(kind, step["content"], brick, component),
-                step.get("reasoning", ""),
-                chat=chat,
-                resend=resend,
-                omit_empty=chat,
-            )
+            if history and wrap is not None:
+                answer = AppSession._as_produced(
+                    Part(kind, step["content"], brick, component), step.get("reasoning", ""), wrap
+                )
+            else:
+                answer = AppSession._assistant_message(
+                    Part(kind, step["content"], brick, component),
+                    step.get("reasoning", ""),
+                    chat=chat,
+                    resend=resend,
+                    omit_empty=chat,
+                )
             if step["tool_calls"]:
                 answer["tool_calls"] = []
                 for j, call in enumerate(step["tool_calls"]):
@@ -2627,6 +2740,30 @@ class AppSession:
         elif thought is not None and chat and resend == "field":
             answer["reasoning"] = thought
         return answer
+
+    @staticmethod
+    def _as_produced(content: Part, reasoning: str, wrap: tuple[str, str]) -> dict[str, Any]:
+        """Lot A (AD-4, append only over the conversation): a past assistant message, locally,
+        as the model produced it, since its tokens are in the engine's cache. The template
+        omits the reasoning block of a past message; the harness writes it itself, with the
+        template's own texts (`reasoning_wrap`, `template` parts, its literals), the
+        reasoning (empty or not) and the text attributed like the text, and an empty
+        `reasoning_content` so that the template keeps the content as it is. As any
+        content, its outer blanks go (the template trims it)."""
+        texts = [wrap[0], reasoning.strip(), wrap[1], content.text.strip()]
+        for ends in (range(4), range(3, -1, -1)):  # from the start, then from the end
+            for i in ends:
+                texts[i] = texts[i].lstrip() if ends.step > 0 else texts[i].rstrip()
+                if texts[i]:
+                    break
+        template = SegmentKind.TEMPLATE
+        parts = (
+            Part(template, texts[0]),
+            content._replace(text=reasoning),
+            Part(template, texts[2]),
+            content,
+        )
+        return {"role": "assistant", "content": [Joined(parts, sep="")], "reasoning_content": ""}
 
     def _system_parts(self, state: TurnState) -> list[Part | Joined]:
         """AD-4: the system prompt, then the global memory (its intro and one line per
@@ -2682,6 +2819,9 @@ class AppSession:
         """
         messages: list[dict[str, Any]] = []
         resend = self._resend() if chat else None
+        wrap = None
+        if not chat and self._caps is not None and self._caps.chat_template:
+            wrap = reasoning_wrap(self._caps.chat_template)  # lot A: None for most templates
         if system := self._system_parts(state):
             messages.append({"role": "system", "content": system})
         if "short_memory" in state.effective:
@@ -2692,11 +2832,14 @@ class AppSession:
                     user.insert(0, Part(SegmentKind.HISTORY, ex.injection, *memory))
                 messages.append({"role": "user", "content": user})
                 messages += self._step_messages(
-                    ex.steps, history=True, group=ex.turn_id, chat=chat, resend=resend
+                    ex.steps, history=True, group=ex.turn_id, chat=chat, resend=resend, wrap=wrap
                 )
+                text = Part(SegmentKind.HISTORY, ex.text, *memory)
                 messages.append(
-                    self._assistant_message(
-                        Part(SegmentKind.HISTORY, ex.text, *memory),
+                    self._as_produced(text, ex.reasoning, wrap)
+                    if wrap is not None
+                    else self._assistant_message(
+                        text,
                         ex.reasoning,
                         chat=chat,
                         resend=resend,
@@ -2950,9 +3093,11 @@ class AppSession:
             if message is None:
                 if self._last is None:
                     raise SendRefused("Aucun prompt à rejouer : envoyez d'abord un message.")
-                replay_of, message, history, skills, docs = self._last
+                replay_of, message, history, skills, docs, memory = self._last
                 self._history[:] = history
                 self._loaded_skills, self._loaded_docs = set(skills), set(docs)
+                self._memory_snapshot = memory  # N1: the memory of its conversation
+                self._cache_cause = self._cache_cause or "replay"
             self._turns += 1
             turn_id = f"t{self._turns}"
             cancel = self._cancel = CancelToken()
@@ -2966,8 +3111,16 @@ class AppSession:
                 tuple(self._history),
                 frozenset(self._loaded_skills),
                 frozenset(self._loaded_docs),
+                self._memory_snapshot,
             )
         self._emit_state()
+        # N1: the conversation's memory, taken at its first turn with the brick effective
+        # (no write can run meanwhile: the state is `turn`).
+        if "global_memory" in self._effective():
+            with self._lock:
+                if self._memory_snapshot is None:
+                    self._memory_snapshot = tuple((e.id, e.text) for e in self._memory)
+                self._last = (*self._last[:5], self._memory_snapshot)  # type: ignore[index]
         # Frozen now: a later toggle waits for the next turn.
         state = replace(self.build_turn_state(), armed=armed)
         had_pending = bool(self._pending_ids())
@@ -3282,6 +3435,7 @@ class AppSession:
         # `estimated`: chat mode, the context's figures not reconciled by `usage` (AD-4).
         figures = {"calls": 0, "context_tokens": 0, "kept_tokens": 0, "estimated": 0}
         outcome = _SubOutcome("error", message_fr="le sous-agent s'est interrompu.")
+        saved = self._save_main_state()  # AD-11 (N2): the main context's cache, kept
         # AD-11: every event of the sub-agent hangs on the step of `delegate`; the trigger
         # (model or user) is inherited.
         with scoped(
@@ -3305,6 +3459,7 @@ class AppSession:
                     "La délégation échoue ; le tour principal continue.",
                 )
             finally:
+                restore_ms = self._restore_main_state(saved, figures["calls"])
                 done = outcome.status == "completed"
                 failure = None if done else self._delegation_failure(outcome)
                 # What the main context reads: the result, or the error the executor
@@ -3328,11 +3483,47 @@ class AppSession:
                         "context_estimated": bool(figures["estimated"]),
                         "calls": figures["calls"],
                         "duration_ms": _ms(time.monotonic() - started),
+                        "state_saved_bytes": saved.size_bytes if saved else None,
+                        "state_restore_ms": restore_ms,
                     },
                 )
         if failure is not None:
             raise failure
         return outcome.result
+
+    def _save_main_state(self) -> EngineSnapshot | None:
+        """AD-11 (N2), local mode: a copy of the engine's state before a sub-agent takes its
+        cache; `None` when the engine cannot (a server) or the copy failed, then the main
+        context is read again after the delegation (`_restore_main_state` says why)."""
+        self._save_failed = False
+        if self._cloud is not None:
+            return None  # chat mode: the whole context is sent at every call anyway
+        save = getattr(self._engine, "snapshot", None)
+        try:
+            return save() if save is not None else None
+        except Exception:  # noqa: BLE001 - AD-16: the turn goes on, the reading is traced
+            self._save_failed = True
+            return None
+
+    def _restore_main_state(self, saved: EngineSnapshot | None, calls: int) -> int | None:
+        """AD-11 (N2): the main context's state put back once the sub-agent made calls;
+        returns the restore's ms. Never raises: without a copy, or when the restore fails,
+        the sub-agent's context stays in the cache and the next main call traces it
+        (`prefix_not_reused`, cause `subagent`)."""
+        if self._cloud is not None or not calls:
+            return None  # chat mode, or the engine's cache untouched
+        if saved is None:
+            self._cache_evicted = "failed" if self._save_failed else "stateless"
+            return None
+        started = time.monotonic()
+        try:
+            restored = bool(self._engine.restore(saved))  # type: ignore[union-attr]
+        except Exception:  # noqa: BLE001 - AD-16: the main context is read again
+            restored = False
+        if not restored:
+            self._cache_evicted = "failed"
+            return None
+        return _ms(time.monotonic() - started)
 
     @staticmethod
     def _delegation_failure(outcome: _SubOutcome) -> DelegationFailed:
@@ -3963,6 +4154,8 @@ class AppSession:
             self._loaded_docs.clear()  # AD-25: the documentations leave with the conversation
             self._loaded_skills.clear()  # and so do the skills
             self._last = None  # nothing left to replay (story 9b)
+            self._memory_snapshot = None  # N1: the next conversation reads the memory again
+            self._cache_cause = "reset"
         get_journal().emit("conversation_cleared", {})
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
@@ -4054,6 +4247,8 @@ class AppSession:
                 self._loaded_docs.clear()
                 self._loaded_skills.clear()
                 self._last = None  # nothing left to replay (story 9b)
+                self._memory_snapshot = None  # N1: the next conversation reads it again
+                self._cache_cause = "reset"
                 self._armed.clear()
                 self._apply_launch_config()
                 apply()
@@ -4390,6 +4585,7 @@ class AppSession:
         journal = get_journal()
         self._hook_steps = 0
         self._approvals = 0
+        self._turn_called = False  # lot A: set by `_keep_cache`
         self._hooks_off.clear()
         self._call_ids.clear()
         steps: list[dict[str, Any]] = []
@@ -4445,6 +4641,8 @@ class AppSession:
                 )
                 with self._lock:
                     self._cancel = None
+                    if self._turn_called:  # lot A: `abandoned` only for a turn that
+                        self._last_status = status  # left its output in the engine's cache
                 self._set_state("idle")
 
     def _turn(
@@ -4500,14 +4698,19 @@ class AppSession:
                 rendered, payload = self._render(shown, message, call_id, steps)
                 sent = len(steps)
                 journal.emit("context_rendered", payload)
-                if previous is not None:  # not in chat mode, which has no ids (AD-4)
-                    self._check_prefix(*previous, rendered.ids)
                 if payload["overflow"]:
                     self._emit_overflow(payload, getattr(rendered, "raw_total", None))
                     return "overflow", "", ""
-                out = self._call_model(
-                    rendered, cancel, state.tools + tuple(loaded_in_turn), payload["reserve"]
-                )
+                if isinstance(rendered, RenderedContext):  # chat mode has no ids (AD-4)
+                    self._check_reuse(rendered, previous)
+                done: _ModelOutput | None = None
+                try:
+                    done = out = self._call_model(
+                        rendered, cancel, state.tools + tuple(loaded_in_turn), payload["reserve"]
+                    )
+                finally:  # lot A: what the engine holds now, even after a failed call
+                    if isinstance(rendered, RenderedContext):
+                        self._keep_cache(rendered.ids, done)
             if out.status != "completed":
                 return out.status, "", ""
             if not out.calls and out.malformed is None:
@@ -5374,15 +5577,13 @@ class AppSession:
         """AD-4: within a turn, call n+1 should extend call n and its output (append only)."""
         assert self._engine is not None
         expected = previous_ids + self._engine.tokenize(raw)
-        common = next(
-            (i for i, (a, b) in enumerate(zip(expected, ids, strict=False)) if a != b),
-            min(len(expected), len(ids)),
-        )
+        common = _common_prefix(expected, ids)
         if common < len(expected):
             get_journal().emit(
                 "prefix_not_reused",
                 {
                     "common_tokens": common,
+                    "cause": "in_turn",
                     "message_fr": (
                         f"Cet appel ne prolonge pas exactement le précédent : seuls "
                         f"{_fr(common)} tokens sur {_fr(len(expected))} sont réutilisés, le "
@@ -5391,6 +5592,97 @@ class AppSession:
                     ),
                 },
             )
+
+    def _keep_cache(self, ids: list[int], out: _ModelOutput | None) -> None:
+        """Lot A (AD-4): after a call of the main context, the ids its engine holds: its own
+        word when it gives it, else the ids sent followed by the output (the ids sent alone
+        when the call failed)."""
+        cached = _engine_cached_ids(self._engine)
+        if cached is None:
+            cached = list(ids)
+            if out is not None and out.raw and self._engine is not None:
+                try:
+                    cached += self._engine.tokenize(out.raw)
+                except Exception:  # noqa: BLE001 - a server gone: the ids sent alone
+                    pass
+        self._main_cache = cached
+        self._cache_evicted = None  # the main context is back in the engine's cache
+        self._turn_called = True
+
+    def _check_reuse(
+        self, rendered: RenderedContext, previous: tuple[list[int], str] | None
+    ) -> None:
+        """Lot A (AD-4, append only over the conversation): within a turn, `_check_prefix`;
+        at a turn's first call, the ids the engine holds for the main context must be a
+        prefix of the new ones, else `prefix_not_reused` with its cause; after a sub-agent
+        whose context stayed in the engine's cache, `subagent` at the next call."""
+        ids, evicted = rendered.ids, self._cache_evicted
+        if previous is not None and evicted is None:
+            self._check_prefix(*previous, ids)
+            return
+        cause = None
+        if previous is None:  # the turn's first call: what happened since the last one
+            cause, self._cache_cause = self._cache_cause, None
+            if cause is None and self._last_status not in (None, "completed"):
+                cause = "abandoned"
+        if evicted is not None:  # the engine holds the sub-agent's context, not the main one
+            cached = _engine_cached_ids(self._engine) or []
+            cause = cause or "subagent"
+        else:
+            cached = self._main_cache
+            if cached is None or ids[: len(cached)] == cached:
+                return
+        common = _common_prefix(cached, ids)
+        cause = cause or self._diverging_cause(rendered, common)
+        why = _PREFIX_CAUSES_FR[cause].format(why=_SUBAGENT_EVICTED_FR.get(evicted or "", ""))
+        again = len(ids) - common
+        hybrid = (
+            f", et tout le contexte ({_fr(len(ids))} tokens) sur un modèle hybride comme "
+            "Qwen3.5, qui ne sait pas tronquer son cache."
+        )
+        if not again:  # the new ids end inside the cache: nothing new, but a cut
+            tail = (
+                f" Les {_fr(len(ids))} tokens du contexte sont déjà en cache, suivis d'autres "
+                f"({_fr(len(cached))} en tout) : le moteur doit recalculer au moins le dernier "
+                "token" + hybrid
+            )
+        elif cached:
+            tail = (
+                f" Seuls {_fr(common)} tokens sur {_fr(len(cached))} en cache sont "
+                f"réutilisés : le moteur relit {_fr(again)} tokens" + (hybrid if common else ".")
+            )
+        else:
+            tail = f" Le moteur relit les {_fr(again)} tokens du contexte."
+        get_journal().emit(
+            "prefix_not_reused",
+            {"common_tokens": common, "cause": cause, "message_fr": why + tail + hybrid},
+        )
+
+    def _diverging_cause(self, rendered: RenderedContext, common: int) -> str:
+        """The cause named by the segment holding the first byte that differs: the system
+        message (its texts and the template between them) `system`, `history`, or
+        `template`."""
+        assert self._engine is not None
+        segments = rendered.segments
+        if not segments:
+            return "template"
+        try:
+            offset = len(b"".join(self._engine.token_pieces(rendered.ids[:common])))
+        except Exception:  # noqa: BLE001 - AD-16: the cause stays unnamed
+            return "template"
+        ends = list(accumulate(len(s.text.encode("utf-8")) for s in segments))
+        index = min(bisect.bisect_right(ends, offset), len(segments) - 1)
+        # The system message: the leading run of its texts and of the template around them
+        # (a skill or a documentation loaded in the turn comes later, after the history).
+        system_end = None
+        for i, segment in enumerate(segments):
+            if segment.kind in _SYSTEM_KINDS:
+                system_end = ends[i]
+            elif segment.kind != SegmentKind.TEMPLATE:
+                break
+        if system_end is not None and offset <= system_end:
+            return "system"
+        return "history" if segments[index].kind in _CONVERSATION_KINDS else "template"
 
     def _emit_overflow(self, payload: dict[str, Any], raw_used: int | None = None) -> None:
         """`raw_used` (chat mode): the raw sum of the estimates, which decided the block
@@ -5489,6 +5781,7 @@ class AppSession:
                     "duration_ms": _ms(ended - started),
                     "output_tps": output_tps(output_tokens, gen_ms),
                     "usage_source": "engine",
+                    "evaluated_tokens": _evaluated(self._engine),
                 },
                 actor="model",
             )

@@ -244,6 +244,9 @@ class ModelCallEndedPayload(BaseModel):
     duration_ms: int
     output_tps: int | None = None  # computed by the session (AD-2); `None` when `gen_ms` is 0
     usage_source: Literal["engine", "api", "estimate"] = "engine"
+    # Lot A (AD-4): the prompt tokens the engine really evaluated, the ones reused from its
+    # cache excluded; `None` when the engine cannot say.
+    evaluated_tokens: int | None = None
 
 
 class SpecialTokenNeutralizedPayload(BaseModel):
@@ -392,9 +395,21 @@ class LimitReachedPayload(BaseModel):
     message_fr: str
 
 
+# Lot A (AD-4): why the engine reads again. `in_turn`: call n+1 does not extend call n and
+# its output. At a turn's first call, against the ids in the engine's cache: `reset` (the
+# conversation cleared, a scenario or the reset), `replay`, `abandoned` (the previous turn
+# not `completed`), `subagent` (a sub-agent's context in the cache), else by the segment
+# of the first byte that differs: `system` (system message, memory, catalogs, skills),
+# `history`, or `template`.
+PrefixCause = Literal[
+    "in_turn", "system", "history", "template", "reset", "replay", "abandoned", "subagent"
+]
+
+
 class PrefixNotReusedPayload(BaseModel):
     common_tokens: int
     message_fr: str
+    cause: PrefixCause = "in_turn"
 
 
 # ---------- story 6: MCP servers (AD-12, AD-15) ----------
@@ -614,6 +629,10 @@ class SubagentEndedPayload(BaseModel):
     # Chat mode: `context_tokens` and `kept_tokens` estimated, not reconciled by `usage`.
     context_estimated: bool = False
     calls: int
+    # Lot A (AD-11): the main context's state saved before the sub-agent (bytes of the
+    # copy) and restored after it (ms); `None` when the engine cannot, or it failed.
+    state_saved_bytes: int | None = None
+    state_restore_ms: int | None = None
 
 
 # ---------- story 15: simple RAG (AD-2, AD-22) ----------

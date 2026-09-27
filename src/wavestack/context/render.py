@@ -118,6 +118,45 @@ def render_template(
     )
 
 
+# Private markers of `reasoning_wrap`'s probe renders (never in a real text: step 2).
+_PROBE_REASONING, _PROBE_TEXT = "\ue010", "\ue011"
+
+
+@cache
+def reasoning_wrap(template: str) -> tuple[str, str] | None:
+    """AD-4, append only over the conversation (local mode): what `template` writes before
+    an assistant message's reasoning and between reasoning and text in the turn itself
+    (Qwen3.5: `"<think>\n"`, `"\n</think>\n\n"`), returned only when the template omits
+    that block for a past message and keeps a content already wrapped as it is, with
+    `reasoning_content = ""`. The session then renders a past answer as it was produced.
+    `None` otherwise (the template keeps the past reasoning, or has none), or when a probe
+    render fails."""
+    question = {"role": "user", "content": "Q"}
+    answer = {"role": "assistant", "content": _PROBE_TEXT, "reasoning_content": _PROBE_REASONING}
+    later = {"role": "user", "content": "R"}
+    try:
+        in_turn = render_template(template, [question, answer], add_generation_prompt=False)
+        past = render_template(template, [question, answer, later])
+        at_reasoning, at_text = in_turn.find(_PROBE_REASONING), in_turn.find(_PROBE_TEXT)
+        past_text = past.find(_PROBE_TEXT)
+        if _PROBE_REASONING in past or not 0 <= at_reasoning < at_text or past_text < 0:
+            return None
+        head = past[:past_text]  # the message's header, up to its content
+        if not in_turn[:at_reasoning].startswith(head):
+            return None
+        before = in_turn[len(head) : at_reasoning]
+        middle = in_turn[at_reasoning + len(_PROBE_REASONING) : at_text]
+        if not before and not middle:
+            return None
+        wrapped = f"{before}{_PROBE_REASONING}{middle}{_PROBE_TEXT}"
+        kept = render_template(
+            template, [question, answer | {"content": wrapped, "reasoning_content": ""}, later]
+        )
+    except Exception:  # noqa: BLE001 - a template the probes do not suit: nothing changes
+        return None
+    return (before, middle) if head + wrapped in kept else None
+
+
 # ---------- attribution ----------
 
 
@@ -129,7 +168,11 @@ class RenderedContext:
 
 
 def _neutralize(part: Part, special: re.Pattern[str] | None) -> Part:
-    """Step 2: strip outer blanks and private-use chars, break special-token strings."""
+    """Step 2: strip outer blanks and private-use chars, break special-token strings. A
+    `template` part is a literal of the harness (the reasoning block of `reasoning_wrap`):
+    left intact, blanks and special tokens included."""
+    if part.kind == SegmentKind.TEMPLATE:
+        return part
     text = _PRIVATE_USE.sub("", part.text).strip()
     found: list[str] = []
     while special is not None and (hits := special.findall(text)):
