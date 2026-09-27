@@ -6,6 +6,7 @@ GGUF, no child process, no network.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -109,8 +110,12 @@ def _events(mark: int, kind: str) -> list[dict]:
 
 
 def _record_probe(path: str, **fields) -> None:
-    """A successful probe of story 17, which measured the model (`rss_bytes`)."""
+    """A successful probe of lot E (version 2), which measured the model (`rss_bytes`) with a
+    context of `probe_window` tokens (0 by default here: the whole KV counted apart)."""
     fields.setdefault("rss_bytes", 1)
+    fields.setdefault("probe_version", probe.PROBE_VERSION)
+    fields.setdefault("probe_window", 0)
+    fields.setdefault("rss_eval_tokens", 0)
     stat = Path(path).stat()
     probe.record_success(
         probe.ProbeResult(
@@ -392,6 +397,11 @@ def test_load_registry_cost_from_the_probe_cache(tmp_path):
 
     _record_probe(path, rss_bytes=GIB, kv_bytes_per_token=1000)
     assert registry.file_cost(path, 4096) == GIB + 4_096_000 + 256 * 1024**2
+    # Lot E (E2): llama.cpp cleared the KV of the probe's whole context: in its RSS already.
+    _record_probe(path, rss_bytes=GIB, kv_bytes_per_token=1000, probe_window=4096)
+    assert registry.file_cost(path, 4096) == GIB + 256 * 1024**2
+    _record_probe(path, rss_bytes=GIB, kv_bytes_per_token=1000, probe_window=1024)
+    assert registry.file_cost(path, 4096) == GIB + 3_072_000 + 256 * 1024**2  # the rest only
     assert registry.check("B", 0) is None  # a cloud model only frees memory
     assert registry.check("B", 5 * GIB).startswith("Changement refusé : B demande environ 5,0 Go")
 
@@ -595,15 +605,19 @@ def test_probe_entry_without_measure_is_probed_again(tmp_path):
 
 
 def test_probe_measures_the_model_share_of_rss(monkeypatch, tmp_path):
+    """Lot E (E2): loaded at the window and the engine's batch, then one full batch of a
+    neutral prompt evaluated; the RSS peak (Windows: `peak_wset`) read after it."""
     import sys
     import types
 
     path = _files(tmp_path, "B")["B"]
-    rss = iter([400, 1400])  # before, then after `Llama(...)`
+    rss = iter([400, 1400])  # before `Llama(...)`, then after the evaluation
+    loaded: dict = {}
 
     class _Memory:
         def __init__(self) -> None:
             self.rss = next(rss)
+            self.peak_wset = 1600 if self.rss == 1400 else None  # the peak, in the evaluation
 
     class _Process:
         def __init__(self, pid: int) -> None:
@@ -614,19 +628,30 @@ def test_probe_measures_the_model_share_of_rss(monkeypatch, tmp_path):
 
     class _Llama:
         metadata = {"general.architecture": "qwen3", "general.size_label": "2B"}
+        n_batch = 512
 
         def __init__(self, **kwargs) -> None:
-            pass
+            loaded.update(kwargs)
+
+        def tokenize(self, text: bytes, add_bos: bool, special: bool) -> list[int]:
+            return list(range(7))
+
+        def eval(self, tokens: list[int]) -> None:
+            loaded["evaluated"] = len(tokens)
 
         def close(self) -> None:
             pass
 
     monkeypatch.setitem(sys.modules, "llama_cpp", types.SimpleNamespace(Llama=_Llama))
     monkeypatch.setattr(probe.psutil, "Process", _Process)
+    monkeypatch.setattr(probe, "_os_peak_rss", lambda: None)
 
-    result = probe.probe_file(path)
+    result = probe.probe_file(path, window=4096)
 
-    assert result.ok and result.rss_bytes == 1000 and result.size_label == "2B"
+    assert result.ok and result.rss_bytes == 1200 and result.size_label == "2B"
+    assert loaded["n_ctx"] == 4096 and "n_batch" not in loaded  # the engine's own batch
+    assert loaded["evaluated"] == 512 and result.rss_eval_tokens == 512
+    assert result.probe_version == probe.PROBE_VERSION == 2
 
 
 def test_kv_cache_per_layer_and_value_length():
@@ -768,3 +793,292 @@ def test_diagnostic_blocks_again_when_no_model_is_left(monkeypatch, tmp_path):
     diagnostic = client.get("/api/diagnostic").json()
     assert diagnostic["ready"] is False and diagnostic["blocking_checks"] == ["model"]
     assert not app_session.model_loaded
+
+
+# ---------- lot E: estimate, refusal, stop during a load ----------
+
+MIB = 1024**2
+
+
+def test_refusal_gives_wavestack_memory_in_mo_under_one_go():
+    """E3: WaveStack's real memory without the active model, in Mo under 1 Go."""
+    registry = LoadRegistry(4 * GIB, 0, rss_fn=lambda: 210 * MIB + 2 * GIB)
+    registry.grant("A", 2 * GIB)
+
+    refusal = registry.check("B", round(3.9 * GIB))
+
+    assert "WaveStack occupe 210 Mo sans le modèle actif, pour un budget de 4,0 Go." in refusal
+    assert refusal.startswith("Changement refusé : B demande environ 3,9 Go ;")
+
+
+def test_a_served_model_is_never_subtracted_from_the_rss():
+    """E3: a served model's memory is in another process: WaveStack's RSS stays whole."""
+    registry = LoadRegistry(4 * GIB, 0, rss_fn=lambda: 210 * MIB)
+    registry.grant("qwen3.5:2b", 3 * GIB, in_process=False)
+
+    refusal = registry.check("olmo-3:7b", round(4.4 * GIB))
+
+    assert "WaveStack occupe 210 Mo sans le modèle actif" in refusal  # never « 0,0 Go »
+    assert registry.check("petit", 3 * GIB) is None  # 210 Mo + 3 Go ≤ 4 Go
+
+
+def test_4b_estimate_after_the_new_probe_exceeds_the_budget(tmp_path):
+    """Acceptance (N5): the 4B, probed at the window after an evaluation (weights, the whole
+    window's KV, compute buffers: ≈ 4,05 Go injected here, to measure on the PC), plus the
+    margin, is past the 4 096 Mo budget (≈ 4,3 Go); the refusal gives WaveStack's real
+    memory."""
+    engines = {"Qwen3.5-2B": FakeEngine(), "Qwen3.5-4B": FakeEngine()}
+    tracker = Tracker(engines)
+    paths = _files(tmp_path, *engines)
+    held = Path(paths["Qwen3.5-2B"]).stat().st_size  # the 2B's share of the RSS (its file)
+    session = _session(tracker, rss=210 * MIB + held, margin_mb=256)
+    session.boot(paths["Qwen3.5-2B"]).result()
+    kv = 131_072  # bytes per token: 0,5 Go at 4 096 tokens, as the story 17 probe read it
+    _record_probe(
+        paths["Qwen3.5-4B"],
+        rss_bytes=round(4.05 * GIB),
+        kv_bytes_per_token=kv,
+        probe_window=4096,
+        rss_eval_tokens=512,
+    )
+
+    cost = session._cost(ModelChoice("file", paths["Qwen3.5-4B"]))
+    with pytest.raises(SendRefused) as refused:
+        session.switch_model(ModelChoice("file", paths["Qwen3.5-4B"]))
+
+    assert cost == round(4.05 * GIB) + 256 * MIB > 4096 * MIB  # no KV counted twice
+    assert "Qwen3.5-4B demande environ 4,3 Go" in refused.value.reason_fr
+    assert "WaveStack occupe 210 Mo sans le modèle actif" in refused.value.reason_fr
+    assert tracker.open == {"Qwen3.5-2B"}
+
+
+def _gated(session: AppSession, tracker: Tracker, name: str):  # noqa: ANN202
+    """`name`'s load waits for `gate`; `entered` once it is under way."""
+    entered, gate = threading.Event(), threading.Event()
+    factory = tracker.factory
+
+    def slow(path: str, n_ctx: int) -> FakeEngine:
+        if Path(path).stem == name:
+            entered.set()
+            gate.wait(5)
+        return factory(path, n_ctx)
+
+    session._engine_factory = slow
+    return entered, gate
+
+
+def test_stop_during_a_slow_load_brings_the_previous_model_back(tmp_path):
+    """E4: « Arrêter » in `model_load`: accepted, then at the next checkpoint (after the
+    load: llama.cpp cannot interrupt it) B is released and A reloaded, never both."""
+    session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
+    _record_probe(paths["B"])
+    entered, gate = _gated(session, tracker, "B")
+    mark = get_journal().last_seq()
+
+    _, future = session.switch_model(ModelChoice("file", paths["B"]))
+    assert entered.wait(5) and session.state == "model_load"
+    assert session.stop() is True
+    gate.set()
+
+    assert future.result() == "cancelled"
+    assert tracker.log[-3:] == ["open B", "close B", "open A"] and tracker.open == {"A"}
+    assert not tracker.overlap
+    ended = _events(mark, "model_load_ended")[-1]
+    assert (ended["status"], ended["reason_fr"]) == (
+        "cancelled",
+        "Chargement arrêté : A est de nouveau actif.",
+    )
+    assert session.state == "idle" and session.reason_fr is None
+    assert session.active_model()["label"] == "A" and session._load_registry.holder() == "A"
+    assert "selected_model" not in config.read_settings()  # never saved
+    assert session.stop() is False  # nothing left to stop
+
+
+def test_stop_during_the_probe_never_loads_the_new_model(tmp_path):
+    session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
+
+    def probe_and_stop(path: str) -> None:
+        tracker.log.append("probe B")
+        assert session.stop() is True  # the click lands while the child process runs
+        return None
+
+    _, status = _switch(session, ModelChoice("file", paths["B"]), probe_and_stop)
+
+    assert status == "cancelled" and "open B" not in tracker.log
+    assert tracker.log[-3:] == ["close A", "probe B", "open A"]
+    assert session.active_model()["label"] == "A"
+
+
+def test_stop_without_a_previous_model_leaves_none_with_the_reason(tmp_path):
+    """E4: the launch's load stopped: no model is active, and `idle` says why."""
+    from wavestack.session.app_session import _LOAD_STOPPED_FR
+
+    tracker = Tracker({"A": FakeEngine()})
+    paths = _files(tmp_path, "A")
+    session = _session(tracker)
+    entered, gate = _gated(session, tracker, "A")
+    mark = get_journal().last_seq()
+
+    future = session.boot(paths["A"])
+    assert entered.wait(5) and session.stop() is True
+    gate.set()
+
+    assert future.result() == "cancelled"
+    assert not session.model_loaded and tracker.open == set()
+    assert session.state == "idle" and session.reason_fr == _LOAD_STOPPED_FR
+    ended = _events(mark, "model_load_ended")[-1]
+    assert (ended["status"], ended["reason_fr"]) == (
+        "cancelled",
+        "Chargement arrêté : aucun modèle n'est actif.",
+    )
+
+
+def test_web_stop_answers_stopping_during_a_load(monkeypatch, tmp_path):
+    session, app_session, client, tracker = _web(monkeypatch, tmp_path)
+    entered, gate = _gated(app_session, tracker, "B")
+    b = str(config.models_dir() / "B.gguf")
+    _record_probe(b)
+
+    client.post("/api/intentions/select_model", json={"ref": b}, headers=ORIGIN)
+    assert entered.wait(5)
+    stop = client.post("/api/intentions/stop", json={}, headers=ORIGIN)
+    gate.set()
+    app_session.join()
+
+    assert stop.json() == {"stopping": True}
+    assert app_session.active_model()["label"] == "A"
+    diagnostic = client.get("/api/diagnostic").json()
+    assert diagnostic["ready"] is True and diagnostic["loaded_model"].endswith("A.gguf")
+
+
+@pytest.mark.parametrize(
+    "error", [ValueError("Failed to load model from file: B.gguf"), RuntimeError("abort")]
+)
+def test_llama_cpp_refusal_at_the_load_is_said_in_french(tmp_path, error):
+    """E6: any failure of the in-process engine's factory: the French reason, llama.cpp's own
+    message as the cause (a technical detail)."""
+    session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
+    factory = tracker.factory
+
+    def refuse(path: str, n_ctx: int) -> FakeEngine:
+        if Path(path).stem == "B":
+            raise error
+        return factory(path, n_ctx)
+
+    session._engine_factory = refuse
+    mark = get_journal().last_seq()
+
+    _, status = _switch(session, ModelChoice("file", paths["B"]))
+
+    assert status == "restored"
+    ended = _events(mark, "model_load_ended")[-1]
+    assert "ne sait pas charger ce fichier" in ended["reason_fr"]
+    assert str(error) not in ended["reason_fr"]
+    assert _events(mark, "harness_error")[-1]["cause"] == str(error)
+
+
+def test_refusal_with_a_local_model_active_gives_the_real_remainder(tmp_path):
+    """E3: the active file's measured share of the RSS comes off, never its estimate (margin
+    and KV), which could leave « 0 Mo »."""
+    engines = {"A": FakeEngine(), "B": FakeEngine()}
+    tracker = Tracker(engines)
+    paths = _files(tmp_path, *engines)
+    share = round(1.5 * GIB)
+    _record_probe(paths["A"], rss_bytes=share, kv_bytes_per_token=131_072)  # estimate: 2,25 Go
+    _record_probe(paths["B"], rss_bytes=round(3.9 * GIB))
+    session = _session(tracker, rss=210 * MIB + share, margin_mb=256)
+    session.boot(paths["A"]).result()
+
+    with pytest.raises(SendRefused) as refused:
+        session.switch_model(ModelChoice("file", paths["B"]))
+
+    assert "WaveStack occupe 210 Mo sans le modèle actif" in refused.value.reason_fr
+
+
+def test_stop_whose_previous_model_fails_to_come_back_is_an_error(tmp_path):
+    session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
+    _record_probe(paths["B"])
+    entered, gate = _gated(session, tracker, "B")
+    mark = get_journal().last_seq()
+
+    _, future = session.switch_model(ModelChoice("file", paths["B"]))
+    assert entered.wait(5) and session.stop() is True
+    tracker.fail = {"A"}
+    gate.set()
+
+    assert future.result() == "error"
+    assert not session.model_loaded and tracker.open == set()
+    assert session.reason_fr == _LOAD_FAILED_FR
+    ended = _events(mark, "model_load_ended")[-1]
+    assert (ended["status"], ended["reason_fr"]) == (
+        "error",
+        "Chargement arrêté ; le modèle précédent (A) n'a pas pu être rechargé.",
+    )
+
+
+def test_stop_after_the_last_checkpoint_answers_false(tmp_path):
+    """E4: past the last checkpoint, « Arrêter » is refused, never accepted then ignored."""
+    session, _, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
+    answers = []
+    save = session._save_choice
+
+    def save_and_stop(choice: ModelChoice) -> str | None:
+        answers.append(session.stop())  # the click lands after the load
+        return save(choice)
+
+    session._save_choice = save_and_stop
+
+    _, status = _switch(session, ModelChoice("file", paths["B"]))
+
+    assert answers == [False] and status == "ok"
+    assert session.active_model()["label"] == "B"
+
+
+def test_web_hot_switch_stopped_with_no_model_blocks_the_diagnostic(monkeypatch, tmp_path):
+    session, app_session, client, tracker = _web(monkeypatch, tmp_path)
+    b = str(config.models_dir() / "B.gguf")
+    _record_probe(b)
+    tracker.fail = {"A", "B"}  # B and A fail: no model left
+    client.post("/api/intentions/select_model", json={"ref": b}, headers=ORIGIN)
+    app_session.join()
+    assert not app_session.model_loaded
+    tracker.fail = set()
+    entered, gate = _gated(app_session, tracker, "B")
+    mark = get_journal().last_seq()
+
+    client.post("/api/intentions/select_model", json={"ref": b}, headers=ORIGIN)
+    assert entered.wait(5)
+    assert client.post("/api/intentions/stop", json={}, headers=ORIGIN).json()["stopping"]
+    gate.set()
+    app_session.join()
+
+    diagnostic = client.get("/api/diagnostic").json()
+    assert diagnostic["ready"] is False and diagnostic["blocking_checks"] == ["model"]
+    check = [c for c in _events(mark, "diagnostic_check") if c["check"] == "model"][-1]
+    assert check["blocking"] and "le chargement a été arrêté" in check["message_fr"]
+
+
+def test_launch_boot_stopped_blocks_the_diagnostic(monkeypatch, tmp_path):
+    """E4: « Arrêter » during the launch's load: no model, the diagnostic blocks again."""
+    monkeypatch.setenv("OLLAMA_MODELS", str(tmp_path / "no-ollama"))
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "no-hf-cache"))
+    monkeypatch.setattr(discovery, "_lm_studio_dirs", lambda: [])
+    monkeypatch.setattr(discovery, "_server_candidates", lambda cfg: [])
+    config.models_dir().mkdir(parents=True)
+    (config.models_dir() / "A.gguf").write_bytes(b"placeholder")
+    session = DiagnosticSession(config.load_config(), port=8420)
+    monkeypatch.setattr(session, "check_network", lambda: None)
+    monkeypatch.setattr(session, "_probe_candidate", lambda candidate: None)
+    tracker = Tracker({"A": FakeEngine()})
+    app_session = _session(tracker)
+    entered, gate = _gated(app_session, tracker, "A")
+    result = session.run()
+    assert result.ready is True
+
+    session.hand_to(app_session, result, launch=True)
+    assert entered.wait(5) and app_session.stop() is True
+    gate.set()
+    app_session.join()
+
+    assert not app_session.model_loaded
+    assert session.last_result.ready is False and session.last_result.blocking_checks == ["model"]

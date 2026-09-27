@@ -42,6 +42,13 @@ class ModelCandidate(BaseModel):
     # never refused by the budget, and never unloaded by WaveStack (AD-8).
     resident: bool | None = None
     gguf_path: str | None = None
+    # Lot E (E1): llama-server's context (`/props`), and the French warning when it is much
+    # larger than the window (memory reserved for nothing: « relancez-le avec -c … »).
+    n_ctx: int | None = None
+    warning_fr: str | None = None
+    # llama-server: its memory counts its context cache (the KV read in its GGUF); `False`
+    # when the file could not be read here (the figure leaves the cache out).
+    context_counted: bool | None = None
 
 
 def _glob_gguf(root: Path) -> list[Path]:
@@ -192,8 +199,13 @@ def _server_candidates(
                 candidate.reason = "Le fichier du modèle n'est pas un GGUF lisible."
             else:
                 candidate.gguf_path = blob.path
-        else:  # llama-server: the file it loaded, for its size (AD-8)
+        else:  # llama-server: the file it loaded, for its size and KV cache (AD-8)
             candidate.gguf_path = model.model_path
+            candidate.n_ctx = model.n_ctx
+            candidate.warning_fr = servers.context_warning_fr(
+                model.n_ctx, cfg.context_window, model.slot_ctx
+            )
+            candidate.context_counted = servers.served_kv(model, model.model_path) is not None
         candidate.served_bytes = servers.served_bytes(model, candidate.gguf_path)
         candidate.resident = model.resident
         candidates.append(candidate)

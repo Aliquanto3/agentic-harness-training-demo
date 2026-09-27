@@ -55,7 +55,7 @@ from wavestack.trace.scope import scoped
 # ponytail: fixed threshold, revisit once AD-8's measured memory budget lands
 MEMORY_WARN_MB = 1024
 NETWORK_CHECK_TIMEOUT = 3.0
-PROBE_TIMEOUT_S = 120
+PROBE_TIMEOUT_S = 300  # lot E: the probe also reads a first batch of 512 tokens
 SEARCHED_SOURCES_FR = (
     "dossier de modèles WaveStack, Ollama, LM Studio, cache Hugging Face, serveur local"
 )
@@ -192,8 +192,17 @@ class DiagnosticSession:
         assert candidate.path is not None
         proc = None
         try:
+            # Lot E (E2): at the window the engine loads it with (the path stays last).
+            window = str(self.cfg.context_window)
             proc = subprocess.run(
-                [sys.executable, "-m", "wavestack.models.probe", candidate.path],
+                [
+                    sys.executable,
+                    "-m",
+                    "wavestack.models.probe",
+                    "--window",
+                    window,
+                    candidate.path,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=PROBE_TIMEOUT_S,
@@ -201,8 +210,11 @@ class DiagnosticSession:
             last_line = proc.stdout.strip().splitlines()[-1]
             result = probe.ProbeResult.model_validate_json(last_line)
         except Exception as exc:  # noqa: BLE001 - any probe failure marks the file incompatible
+            if isinstance(exc, subprocess.TimeoutExpired):  # lot E: time, not the file
+                self._probe_transient(candidate, probe.transient_fr(), str(exc))
+                return
             # Only a native crash of the load says something about the file. Exit code 1 is
-            # a Python error (config, guard...); no process or a timeout, the environment.
+            # a Python error (config, guard...); no process, the environment.
             if proc is not None and proc.returncode not in (0, 1):
                 self._persist(
                     lambda: probe.record_failure(
@@ -226,12 +238,16 @@ class DiagnosticSession:
             candidate.size_label = result.size_label
             self._persist(lambda: probe.record_success(result))
             return
+        if result.transient:  # lot E: memory or time, not the file: never remembered
+            self._probe_transient(candidate, result.reason or probe.transient_fr(), result.detail)
+            return
 
         get_journal().emit(
             "harness_error",
             {
                 "message_fr": f"Modèle incompatible : {result.reason}",
-                "cause": result.reason,
+                # Lot E (E6): the loader's own message, as the technical detail.
+                "cause": result.detail or result.reason,
                 "effect_fr": "Le fichier est marqué incompatible.",
             },
         )
@@ -242,6 +258,24 @@ class DiagnosticSession:
                 candidate.path, result.reason or "La sonde n'a pas pu confirmer ce fichier."
             )
         )
+
+    def _probe_transient(
+        self, candidate: discovery.ModelCandidate, reason_fr: str, detail: str | None
+    ) -> None:
+        """Lot E: the probe lacked memory or time. Unusable for now, never remembered: the
+        file is probed again when chosen."""
+        get_journal().emit(
+            "harness_error",
+            {
+                "message_fr": f"La sonde n'a pas pu mesurer {candidate.path}.",
+                "cause": detail or reason_fr,
+                "effect_fr": (
+                    "Le fichier n'est pas utilisable pour l'instant ; rien n'est mémorisé, il "
+                    "sera sondé de nouveau quand vous le choisirez."
+                ),
+            },
+        )
+        candidate.status, candidate.reason = "incompatible", reason_fr
 
     def _persist(self, write: Callable[[], None]) -> bool:
         """AD-16: a settings.json write failure is traced, never fatal. True if written."""
@@ -287,23 +321,35 @@ class DiagnosticSession:
                 return self._handle_unexpected(exc)
 
     def _discover(
-        self, explicit_path: str | None, probe_only: set[str] | None = None
+        self,
+        explicit_path: str | None,
+        probe_only: set[str] | None = None,
+        reprobe: frozenset[str] | set[str] = frozenset(),
     ) -> list[discovery.ModelCandidate]:
-        """Every candidate, architecture from the probe cache. Unprobed files are probed
-        in a child process, all of them or only those in `probe_only`."""
+        """Every candidate, architecture from the probe cache. Unprobed files are probed in a
+        child process, all of them or only those in `probe_only`. Lot E (E2): a file whose
+        entry is an older probe's or incomplete (`probe.measured`) is probed again only when
+        in `reprobe` (the model about to boot, nothing loaded yet); the others are measured
+        again when chosen (`AppSession._load`, after the release). A remembered failure of
+        the current probe wins over an older success: no endless reprobe."""
         candidates = discovery.discover(explicit_path)
         for candidate in candidates:
             if candidate.status != "found" or not candidate.path:
                 continue
-            entry = probe.probed_entry(candidate.path)
-            if entry is not None:
+            path = candidate.path
+            probing = probe_only is None or path in probe_only
+            entry = probe.probed_entry(path)
+            if entry is not None and probe.measured(path):
                 candidate.architecture = entry.get("architecture")
                 candidate.size_label = entry.get("size_label")
-            elif (failed := probe.failed_entry(candidate.path)) is not None:
+            elif (failed := probe.failed_entry(path)) is not None:
                 # Remembered failure: no reprobe, same reason.
                 candidate.status, candidate.reason = "incompatible", failed.get("reason")
-            elif probe_only is None or candidate.path in probe_only:
+            elif probing and (entry is None or path in reprobe):
                 self._probe_candidate(candidate)
+            elif entry is not None:
+                candidate.architecture = entry.get("architecture")
+                candidate.size_label = entry.get("size_label")
         return candidates
 
     def _hand_out(
@@ -329,7 +375,8 @@ class DiagnosticSession:
         for error_fr in self.cfg.cloud_models[1]:  # AD-20: left out, never blocking
             self._emit_check("cloud", "warn", error_fr, blocking=False)
         saved = self.selected_model_path
-        candidates = self._discover(saved)
+        # Lot E (E2): the saved file, about to boot, is measured again if its entry is old.
+        candidates = self._discover(saved, reprobe={saved} if saved else set())
         notice_fr = ""
         if self.selected_cloud:
             entry = self.cfg.cloud_model(self.selected_cloud)
@@ -439,7 +486,9 @@ class DiagnosticSession:
     def _select_model_locked(self, path: str, hot: bool) -> DiagnosticResult:
         # Probe only the chosen file, and not here for a hot switch: a probe loads full
         # weights, so the application session probes it once the active model is released.
-        candidates = self._discover(path, probe_only=set() if hot else {path})
+        candidates = self._discover(
+            path, probe_only=set() if hot else {path}, reprobe=set() if hot else {path}
+        )
         previous = self.last_result or DiagnosticResult(ready=False, blocking_checks=["model"])
         known = {  # files only: a served model has no path (story 18)
             c.path: c for c in previous.candidates if c.status == "incompatible" and c.path
@@ -488,13 +537,15 @@ class DiagnosticSession:
         candidates: list[discovery.ModelCandidate],
         why_fr: str = "",
     ) -> DiagnosticResult:
-        """`chosen`, a served model, is the model to prepare now (story 18)."""
+        """`chosen`, a served model, is the model to prepare now (story 18). Lot E (E1): a
+        llama-server launched with a context much larger than the window is a warning."""
         self.handed_out = True
+        warning = f" {chosen.warning_fr}" if chosen.warning_fr else ""
         self._emit_check(
             "model",
-            "ok",
+            "warn" if warning else "ok",
             f"Modèle retenu : {chosen.name}, servi par {chosen.provider} "
-            f"({chosen.server_url}){why_fr}.",
+            f"({chosen.server_url}){why_fr}.{warning}",
             blocking=False,
         )
         self.last_result = DiagnosticResult(ready=True, candidates=candidates, server=chosen)
@@ -560,12 +611,40 @@ class DiagnosticSession:
         """Boot the model `result` hands out on `app_session`: the cloud model, else the file.
         At launch (`launch`), a ready result without file still boots (a server only), so the
         session leaves `diagnostic` with its reason. The same path for the cli and the web."""
+        future = None
         if result.cloud_model is not None:
-            app_session.boot_cloud(result.cloud_model)
+            future = app_session.boot_cloud(result.cloud_model)
         elif result.server is not None:
-            app_session.boot_server(result.server)
-        elif result.model_path or (launch and result.ready):
-            app_session.boot(result.model_path, _name(result, result.model_path))
+            future = app_session.boot_server(result.server)
+        elif result.model_path:
+            future = app_session.boot(result.model_path, _name(result, result.model_path))
+        elif launch and result.ready:
+            app_session.boot(None)  # a server only: no model, the session says why
+        if hasattr(future, "add_done_callback"):  # lot E: a boot left without any model
+            future.add_done_callback(lambda f: self._booted(f, _loaded(app_session)))
+
+    def _booted(self, future: Any, loaded: Callable[[], bool]) -> None:
+        """Lot E (E4): the launch's load ended `cancelled` (« Arrêter ») or `error` with no
+        model loaded: the diagnostic blocks again, as after a hot switch."""
+        try:
+            status = future.result()
+        except Exception:  # noqa: BLE001 - the session traced it (AD-16)
+            status = "error"
+        if status not in ("cancelled", "error") or loaded():
+            return
+        self._block(
+            "Aucun modèle n'est chargé : le chargement a été arrêté."
+            if status == "cancelled"
+            else "Aucun modèle n'est chargé : le modèle retenu n'a pas pu être chargé.",
+            "Choisissez un modèle ci-dessous.",
+        )
+
+    def _block(self, message_fr: str, action_fr: str) -> None:
+        """No model is active any more: the page offers no « Ouvrir WaveStack »."""
+        with self._lock:
+            if self.last_result is not None:
+                self.last_result.ready, self.last_result.blocking_checks = False, ["model"]
+        self._emit_check("model", "fail", message_fr, action_fr, blocking=True)
 
     def switch(self, app_session: Any, result: DiagnosticResult) -> tuple[str, bool]:
         """Story 17: the hot switch `result` asks for, on `app_session` (class b, AD-3). Raises
@@ -581,17 +660,28 @@ class DiagnosticSession:
             choice = ModelChoice("file", path, name=_name(result, path))
         message_fr, future = app_session.switch_model(choice, probe=self.probe_path)
         if future is not None:
-            future.add_done_callback(lambda f: self._switched(choice, f))
+            loaded = _loaded(app_session)
+            future.add_done_callback(lambda f: self._switched(choice, f, loaded))
         return message_fr, future is not None
 
-    def _switched(self, choice: ModelChoice, future: Any) -> None:
+    def _switched(
+        self, choice: ModelChoice, future: Any, loaded: Callable[[], bool] = lambda: True
+    ) -> None:
         """A hot switch ended. `ok`: nothing blocks any more, and the choice is the saved one
         only if settings.json holds it. `error` (no model active any more): the diagnostic
-        blocks again, so the page offers no « Ouvrir WaveStack ». `restored`: unchanged."""
+        blocks again, so the page offers no « Ouvrir WaveStack ». `restored`: unchanged.
+        `cancelled` (lot E, E4): unchanged, unless no model is active any more (`loaded`)."""
         try:
             status = future.result()
         except Exception:  # noqa: BLE001 - the session traced it (AD-16)
             status = "error"
+        if status == "cancelled":
+            if not loaded():
+                self._block(
+                    "Aucun modèle n'est chargé : le chargement a été arrêté.",
+                    "Choisissez un modèle ci-dessous.",
+                )
+            return
         if choice.entry is not None:
             label = f"{choice.entry.model} chez {choice.entry.provider}"
         elif choice.kind == "server":
@@ -599,16 +689,10 @@ class DiagnosticSession:
         else:
             label = choice.file_name
         if status == "error":
-            with self._lock:
-                if self.last_result is not None:
-                    self.last_result.ready, self.last_result.blocking_checks = False, ["model"]
-            self._emit_check(
-                "model",
-                "fail",
+            self._block(
                 f"Aucun modèle n'est chargé : {label} n'a pas pu être chargé, ni le modèle "
                 "précédent.",
                 "Choisissez un autre modèle ci-dessous.",
-                blocking=True,
             )
             return
         if status != "ok":
@@ -624,11 +708,14 @@ class DiagnosticSession:
                 self.selected_server = choice.ref if choice.kind == "server" else None
             if self.last_result is not None:
                 self.last_result.ready, self.last_result.blocking_checks = True, []
+        # Lot E (E1): llama-server launched with a context much larger than the window.
+        warning = getattr(choice.server, "warning_fr", None) if choice.kind == "server" else None
         self._emit_check(
             "model",
-            "ok" if saved else "warn",
+            "ok" if saved and not warning else "warn",
             f"Modèle actif : {label} (changé sans relance)."
-            + ("" if saved else " Choix non mémorisé pour les prochains lancements."),
+            + ("" if saved else " Choix non mémorisé pour les prochains lancements.")
+            + (f" {warning}" if warning else ""),
             blocking=False,
         )
 
@@ -948,6 +1035,11 @@ def launch_page(result: DiagnosticResult) -> str:
     """AD-21, step 2: the main page when the launch is ready and nothing blocks, else the
     diagnostic."""
     return "/" if result.ready and not result.blocking_checks else "/diagnostic"
+
+
+def _loaded(app_session: Any) -> Callable[[], bool]:
+    """Whether `app_session` has a model loaded now (a double without the property: yes)."""
+    return lambda: bool(getattr(app_session, "model_loaded", True))
 
 
 def _name(result: DiagnosticResult, path: str | None) -> str | None:

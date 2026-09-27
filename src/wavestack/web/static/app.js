@@ -250,7 +250,8 @@ function applyEnvelope(envelope) {
     case "scenario_changed":
       if (!isLive(envelope)) break;
       store.scenarios = p;
-      if (p.active) store.topStatus = null;
+      // Lot E (E5): a refresh after a model load is no launch: the load's outcome stays.
+      if (p.active && !p.refresh) store.topStatus = null;
       break;
     case "harness_reset":
       // Like `conversation_cleared`, but the panes go back to « Aucun tour », the MCP
@@ -1998,7 +1999,10 @@ function bindCloudWarning() {
 // The top bar and the Vue humain's stopwatch, anchored on `model_load_started.ts` (AD-1).
 function modelLoadText() {
   const load = store.modelLoad;
-  return load ? `Chargement du modèle ${load.model.label}… ${seconds(Date.now() - load.startedAt)}` : null;
+  if (!load) return null;
+  // Lot E (E4): llama.cpp cannot interrupt a load; the stop acts at the end of the step.
+  const stopping = load.stopRequested ? "Arrêt demandé, effectif à la fin de l'étape en cours · " : "";
+  return `${stopping}Chargement du modèle ${load.model.label}… ${seconds(Date.now() - load.startedAt)}`;
 }
 
 // ---------- human view: bubbles, working indicator, composer ----------
@@ -2187,8 +2191,10 @@ function renderComposer() {
   compare.disabled = shownTurns().length < 2;
   compare.title = compare.disabled ? "Il faut au moins deux tours pour comparer." : "";
   const stop = document.getElementById("composer-stop");
-  stop.hidden = state?.state !== "turn" && state?.state !== "awaiting_human";
-  stop.disabled = Boolean(activeTurn()?.stopRequested);
+  // Lot E (E4): « Arrêter » also stops a model load (the previous model comes back).
+  const loading = state?.state === "model_load" && Boolean(store.modelLoad);
+  stop.hidden = state?.state !== "turn" && state?.state !== "awaiting_human" && !loading;
+  stop.disabled = loading ? Boolean(store.modelLoad.stopRequested) : Boolean(activeTurn()?.stopRequested);
   const reason = document.getElementById("composer-reason");
   const text = store.composerError || (ready ? null : state?.reason_fr || "En attente du modèle…");
   reason.hidden = !text;
@@ -2258,6 +2264,7 @@ function renderScenarioControls(state) {
 
   // Vue humain: the active scenario's instructions, then one chip per suggested prompt.
   const scenario = findScenario(store.scenarios?.active);
+  renderScenarioUnavailable(scenario ? store.scenarios?.unavailable ?? [] : []);
   if (renderedGuide === scenario) return;
   renderedGuide = scenario;
   const guide = document.getElementById("scenario-guide");
@@ -2283,6 +2290,32 @@ function renderScenarioControls(state) {
       return chip;
     })
   );
+}
+
+// Lot E (E5): the bricks the scenario wants and the active model cannot offer, each with its
+// reason, under the scenario's instructions (the session computed them, AD-1).
+let renderedUnavailable = null;
+
+function renderScenarioUnavailable(unavailable) {
+  const key = JSON.stringify(unavailable);
+  if (renderedUnavailable === key) return;
+  renderedUnavailable = key;
+  const box = document.getElementById("scenario-unavailable");
+  box.hidden = unavailable.length === 0;
+  if (!unavailable.length) {
+    box.replaceChildren();
+    return;
+  }
+  const title = unavailable.length > 1
+    ? "Briques du scénario indisponibles avec ce modèle :"
+    : "Brique du scénario indisponible avec ce modèle :";
+  const list = el("ul", "scenario-unavailable-list");
+  for (const brick of unavailable) {
+    const item = el("li");
+    item.append(el("strong", "", brick.label_fr), ` : ${brick.reason_fr}`);
+    list.appendChild(item);
+  }
+  box.replaceChildren(el("strong", "", title), list);
 }
 
 async function scenarioIntention(path, body, failure) {
@@ -2353,8 +2386,12 @@ async function sendMessage(event) {
 }
 
 async function stopTurn() {
-  const turn = activeTurn();
-  if (turn) turn.stopRequested = true;
+  if (store.sessionState?.state === "model_load" && store.modelLoad) {
+    store.modelLoad.stopRequested = true; // lot E (E4)
+  } else {
+    const turn = activeTurn();
+    if (turn) turn.stopRequested = true;
+  }
   render();
   try {
     await postIntention("/api/intentions/stop", {});
@@ -4329,7 +4366,12 @@ const KIND_LABELS = {
   compression_started: "Compression commencée",
   compression_ended: "Compression terminée",
 };
-const MODEL_LOAD_STATUS = { ok: "chargé", restored: "retour au modèle précédent", error: "échec" };
+const MODEL_LOAD_STATUS = {
+  ok: "chargé",
+  restored: "retour au modèle précédent",
+  cancelled: "chargement arrêté",
+  error: "échec",
+};
 const MEMORY_OPS = { add: "Ajout en mémoire", replace: "Modification en mémoire", delete: "Suppression en mémoire" };
 const SESSION_STATES = {
   idle: "prête",
@@ -4457,6 +4499,7 @@ const eventLog = { groups: [], processed: 0, rows: [], list: null };
 function syncLogGroups() {
   for (; eventLog.processed < store.journal.length; eventLog.processed++) {
     const e = store.journal[eventLog.processed];
+    if (e.kind === "scenario_changed" && e.payload?.refresh) continue; // lot E: not a launch
     const last = eventLog.groups.at(-1);
     const first = last?.events[0];
     if (e.kind === "model_delta" && first?.kind === "model_delta" && first.call_id === e.call_id && first.turn_id === e.turn_id) {

@@ -2719,8 +2719,24 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .suggested-prompts[hidden],
-.scenario-guide[hidden] {
+.scenario-guide[hidden],
+.scenario-unavailable[hidden] {
   display: none;
+}
+
+/* Lot E (E5): the scenario's bricks the active model cannot offer. */
+.scenario-unavailable {
+  margin: 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-surface);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.scenario-unavailable-list {
+  margin: var(--spacing-1) 0 0;
+  padding-left: var(--spacing-3);
 }
 
 .suggested-prompt {

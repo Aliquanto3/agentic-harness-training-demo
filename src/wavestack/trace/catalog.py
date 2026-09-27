@@ -558,9 +558,22 @@ class Program(BaseModel):
     transverse: list[ScenarioEntry]
 
 
+class UnavailableBrick(BaseModel):
+    """Lot E (E5): a brick the active scenario wants and the active model cannot offer."""
+
+    brick: str
+    label_fr: str
+    reason_fr: str
+
+
 class ScenarioChangedPayload(BaseModel):
     program: Program
     active: str | None  # the scenario launched, `None` at launch and after a reset
+    # Lot E (E5): the scenario's bricks the active model cannot offer, with their reasons
+    # (at the launch, and again after a model change); empty without a scenario.
+    unavailable: list[UnavailableBrick] = []
+    # Lot E (E5): the same scenario, `unavailable` read again after a model load (no launch).
+    refresh: bool = False
 
 
 class HarnessResetPayload(BaseModel):
@@ -611,10 +624,11 @@ class ModelLoadStartedPayload(BaseModel):
 
 class ModelLoadEndedPayload(BaseModel):
     """`ok`: the model is active; `restored`: it failed and the previous one is active again;
-    `error`: no model is active."""
+    `cancelled` (lot E): « Arrêter » stopped it, the previous one is active again (or none,
+    when there was none, `reason_fr` says it); `error`: no model is active."""
 
     model: ActiveModel  # the model that was being loaded
-    status: Literal["ok", "restored", "error"]
+    status: Literal["ok", "restored", "cancelled", "error"]
     duration_ms: int
     reason_fr: str | None = None
 

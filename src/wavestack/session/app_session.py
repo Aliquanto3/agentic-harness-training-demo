@@ -109,7 +109,7 @@ from wavestack.models.openai_chat import (
     run_call,
 )
 from wavestack.models.reranker import RerankCancelled, Reranker
-from wavestack.models.servers import ServerError, open_engine
+from wavestack.models.servers import ServerError, TokenizerRefused, open_engine
 from wavestack.rag import index as rag_index
 from wavestack.rag.corpus import Chunk, RagContent, chunk_corpus, load_rag_content
 from wavestack.rag.retriever import Excerpt, SqliteVecRetriever
@@ -242,6 +242,11 @@ _CLOUD_FAILED_FR = (
     "page de diagnostic."
 )
 _NO_TURN_FR = "Aucun tour possible."
+# Lot E (E4): a load stopped with no previous model to come back to.
+_LOAD_STOPPED_FR = (
+    "Envoi indisponible : le chargement du modèle a été arrêté et aucun modèle n'est chargé. "
+    "Choisissez un modèle sur la page de diagnostic."
+)
 # Lot B: the heaviest kind of segment names the cause (message first on ties), every kind
 # but the template counted, some with another (`_OVERFLOW_GROUP`).
 _OVERFLOW_CAUSES_FR = {
@@ -502,14 +507,31 @@ class SendRefused(Exception):
         self.reason_fr = reason_fr
 
 
+class _LoadCancelled(Exception):
+    """Lot E (E4): « Arrêter » during a load, seen at one of `_load`'s checkpoints."""
+
+
 class _LoadFailed(Exception):
     """A load refused for a known reason (probe, incompatible template): `message_fr` for
     `harness_error`, `reason_fr` its cause, `idle_fr` the reason left in `idle` when no
     model is active afterwards."""
 
-    def __init__(self, message_fr: str, reason_fr: str, idle_fr: str | None = None) -> None:
+    def __init__(
+        self,
+        message_fr: str,
+        reason_fr: str,
+        idle_fr: str | None = None,
+        detail: str | None = None,
+    ) -> None:
         super().__init__(reason_fr)
         self.message_fr, self.reason_fr, self.idle_fr = message_fr, reason_fr, idle_fr
+        self.detail = detail  # lot E (E6): the loader's own message, `harness_error.cause`
+
+
+def _checkpoint(cancel: CancelToken | None) -> None:
+    """Lot E (E4): a point of `_load` where « Arrêter » takes effect."""
+    if cancel is not None and cancel.cancelled:
+        raise _LoadCancelled
 
 
 def _kind_tokens(payload: dict[str, Any], kind: SegmentKind) -> int:
@@ -689,6 +711,8 @@ class AppSession:
         self._rag_loading = False
         self._rag_load_error: str | None = None  # the budget's refusal, or the load's failure
         self._download_cancel: CancelToken | None = None  # « Arrêter » a download or a build
+        # Lot E (E4): « Arrêter » a model load, read by `_load` at its checkpoints.
+        self._load_cancel: CancelToken | None = None
         # Story 16 (AD-8): the reranking sub-option, its model (`[rag.reranker]`, or why it is
         # invalid), the files missing, and the reranker loaded.
         self._reranker_factory = reranker_factory or reranker_module.open_reranker
@@ -1389,6 +1413,7 @@ class AppSession:
         with self._lock:
             previous = self._active
             self.state, self.reason_fr = "model_load", self._load_reason(choice)
+            self._load_cancel = CancelToken()
         self._emit_state()
         return self._load(choice, previous, None, save=False)
 
@@ -1412,6 +1437,7 @@ class AppSession:
             )
             if refusal is None:  # switched under the lock: a second choice racing it is refused
                 self.state, self.reason_fr = "model_load", self._load_reason(choice)
+                self._load_cancel = CancelToken()  # lot E (E4): « Arrêter » from now on
         if refusal is not None:
             self._error(refusal, "budget mémoire dépassé (AD-8)", "Rien n'est libéré ni écrit.")
             raise SendRefused(refusal)
@@ -1428,9 +1454,12 @@ class AppSession:
     ) -> str:
         """The single load path, on the worker, in `model_load` (AD-3, AD-8): release the
         active model, probe a GGUF never measured (AD-7) and check the budget again with the
-        measure, load; on failure, reload `previous`. Then `model_load_ended`, `idle`, and the
-        bricks, schema and preview again. The choice is saved (`save`) after a success only.
-        Returns `ok`, `restored` or `error`."""
+        measure, load; on failure, reload `previous`. Lot E (E4): « Arrêter » is seen after
+        the release, after the probe and after the load (llama.cpp cannot interrupt a load):
+        what was loaded is released and `previous` reloaded (`cancelled`). Then
+        `model_load_ended`, `idle`, and the bricks, schema and preview again. The choice is
+        saved (`save`) after a success only. Returns `ok`, `restored`, `cancelled` or
+        `error`."""
         started = time.monotonic()
         model = self._model_payload(choice)
         journal = get_journal()
@@ -1440,16 +1469,20 @@ class AppSession:
                 "model_load_started", {"model": model, "phase_label": self._load_reason(choice)}
             )
         status, reason_fr, idle_fr = "error", None, _LOAD_FAILED_FR
+        with self._lock:
+            cancel = self._load_cancel
         try:
             try:
                 self._release()
                 self._emit_architecture()  # the schema no longer shows the released model
+                _checkpoint(cancel)
                 if (
                     choice.kind == "file"
                     and probe is not None
                     and not probe_module.measured(choice.ref)
                 ):
                     why = probe(choice.ref)
+                    _checkpoint(cancel)
                     if why is not None:
                         raise _LoadFailed(f"Le fichier {choice.file_name} est incompatible.", why)
                     # AD-8: the probe's measure replaces the file size of the first check.
@@ -1458,8 +1491,13 @@ class AppSession:
                         over_fr = "Le modèle dépasse le budget mémoire une fois mesuré."
                         raise _LoadFailed(over_fr, refusal)
                 self._install(choice)
+                self._last_checkpoint(cancel)
                 status, idle_fr = "ok", None
+            except _LoadCancelled:
+                self._last_checkpoint(None)
+                reason_fr, idle_fr, status = self._load_cancelled(previous)
             except Exception as exc:  # noqa: BLE001 - AD-16
+                self._last_checkpoint(None)  # « Arrêter » cannot stop the way back
                 reason_fr, idle_fr, status = self._load_failed(choice, previous, exc)
             if status == "ok" and save:
                 reason_fr = self._save_choice(choice)
@@ -1467,6 +1505,18 @@ class AppSession:
             self._error("Le changement de modèle s'est interrompu.", exc, _NO_TURN_FR)
             status, reason_fr, idle_fr = "error", str(exc), _LOAD_FAILED_FR
         finally:
+            with self._lock:  # « Arrêter » acts on this load no longer
+                self._load_cancel = None
+                scenario = self._active_scenario
+            if scenario is not None:  # lot E (E5): the bricks the new model cannot offer
+                try:
+                    self._emit_scenario(refresh=True)
+                except Exception as exc:  # noqa: BLE001 - AD-16: the load still ends
+                    self._error(
+                        "Les briques indisponibles du scénario n'ont pas pu être relues.",
+                        exc,
+                        "Le chargement se termine ; la carte de chaque brique reste juste.",
+                    )
             with scoped(**off_turn):
                 journal.emit(
                     "model_load_ended",
@@ -1502,8 +1552,10 @@ class AppSession:
         """AD-3: back to `previous` when there was one. Returns the `model_load_ended`
         reason, the reason left in `idle` and the status."""
         cause: BaseException | str = exc
+        reason: str | None = None  # lot E (E6): the French reason, when the cause is not
         if isinstance(exc, _LoadFailed):
-            message_fr, cause, idle_fr = exc.message_fr, exc.reason_fr, exc.idle_fr
+            message_fr, reason, idle_fr = exc.message_fr, exc.reason_fr, exc.idle_fr
+            cause = exc.detail or exc.reason_fr  # lot E (E6): the raw message, a detail
         elif choice.entry is not None:
             message_fr = f"Le modèle cloud {choice.label} n'a pas pu être préparé."
             idle_fr = _CLOUD_FAILED_FR
@@ -1514,9 +1566,11 @@ class AppSession:
             idle_fr = None
             if isinstance(exc, ServerError):
                 cause = exc.message_fr
+            elif isinstance(exc, TokenizerRefused):  # the loader's message, a detail
+                cause, reason = exc.detail, exc.reason_fr
         else:
             message_fr, idle_fr = "Le modèle n'a pas pu être chargé.", None
-        cause_fr = cause if isinstance(cause, str) else str(cause)
+        cause_fr = reason or (cause if isinstance(cause, str) else str(cause))
         self._release()  # whatever the failed load left
         if previous is None:
             self._error(message_fr, cause, _NO_TURN_FR)
@@ -1543,6 +1597,38 @@ class AppSession:
             "restored",
         )
 
+    def _last_checkpoint(self, cancel: CancelToken | None) -> None:
+        """Lot E (E4): past this point « Arrêter » acts on this load no longer (`stop()`
+        answers `False`): under the lock, a stop is either seen here or refused."""
+        with self._lock:
+            self._load_cancel = None
+            _checkpoint(cancel)
+
+    def _load_cancelled(self, previous: ModelChoice | None) -> tuple[str, str | None, str]:
+        """Lot E (E4): « Arrêter » during a load. What was loaded is released and `previous`
+        reloaded (none: no model is active). Returns the `model_load_ended` reason, the
+        reason left in `idle` and the status (`cancelled`; `error` when `previous` fails to
+        come back)."""
+        self._release()
+        if previous is None:
+            return "Chargement arrêté : aucun modèle n'est actif.", _LOAD_STOPPED_FR, "cancelled"
+        try:
+            self._install(previous)
+        except Exception as back:  # noqa: BLE001 - AD-16
+            self._release()
+            self._error(
+                f"Le modèle précédent ({previous.label}) n'a pas pu être rechargé.",
+                back,
+                _NO_TURN_FR,
+            )
+            return (
+                f"Chargement arrêté ; le modèle précédent ({previous.label}) n'a pas pu être "
+                "rechargé.",
+                _LOAD_FAILED_FR,
+                "error",
+            )
+        return f"Chargement arrêté : {previous.label} est de nouveau actif.", None, "cancelled"
+
     def _release(self) -> None:
         """AD-8: the active model is closed and leaves the registry before anything loads;
         the registry forgets it even when `close()` fails (raised afterwards)."""
@@ -1568,7 +1654,14 @@ class AppSession:
             if choice.kind == "server":  # story 18: its adapter; nothing loads in-process
                 engine = self._server_factory(choice.server, n_ctx=configured)
             else:
-                engine = self._engine_factory(choice.ref, n_ctx=configured)
+                try:
+                    engine = self._engine_factory(choice.ref, n_ctx=configured)
+                except Exception as exc:  # lot E (E6): llama.cpp's message is the detail
+                    raise _LoadFailed(
+                        "Le modèle n'a pas pu être chargé.",
+                        probe_module.incompatible_fr(),
+                        detail=str(exc) or type(exc).__name__,
+                    ) from exc
             try:
                 meta = engine.metadata()
                 caps = capabilities_for(meta)
@@ -1594,8 +1687,13 @@ class AppSession:
                 self._window_source = source
                 self._labels = labels
                 self._active = choice
-        # A cloud model is granted too (cost 0): the registry names the active model.
-        self._load_registry.grant(choice.label, self._cost(choice))
+        # A cloud model is granted too (cost 0): the registry names the active model. Lot E
+        # (E3): only a file's cost is in WaveStack's RSS, never a served model's.
+        in_process = choice.kind == "file"
+        share = self._load_registry.file_share(choice.ref) if in_process else None
+        self._load_registry.grant(
+            choice.label, self._cost(choice), in_process=in_process, share=share
+        )
 
     def _install_cloud(self, entry: CloudModel) -> None:
         key = config.cloud_key(entry)
@@ -2471,24 +2569,8 @@ class AppSession:
         for dep in brick.requires:
             if dep not in wanted or not self._availability(dep)[0]:
                 return False, f"Nécessite la brique « {self._label(dep)} » : activez-la d'abord."
-        missing = [c for c in brick.capabilities if not getattr(self._caps, c, None)]
-        if "reasoning" in missing:
-            return False, self._no_reasoning_fr()
-        if brick_id == "reasoning" and self._window <= MAX_RESERVE:  # as the cloud `tpm` guard
-            return False, (
-                f"Indisponible : la fenêtre de contexte ({_fr(self._window)} tokens) ne laisse "
-                f"aucune place au contexte une fois réservés les {_fr(MAX_RESERVE)} tokens de "
-                "sortie du raisonnement. Agrandissez la fenêtre dans la configuration."
-            )
-        if missing and self._cloud is not None:  # AD-6: a capability not declared is absent
-            return False, (
-                f"Le modèle cloud « {self._cloud.id} » ne déclare pas l'appel d'outils (tools) : "
-                "aucune action d'outil, pas même forcée. Déclarez tools = true si le modèle le "
-                "gère, ou choisissez un autre modèle."
-            )
-        if missing:
-            needs = ", ".join(_CAPABILITIES_FR.get(c, c) for c in missing)
-            return False, f"Le modèle chargé n'offre pas {needs} : choisissez un autre modèle."
+        if (reason := self._capability_reason(brick_id)) is not None:
+            return False, reason
         if brick_id in self._content_errors:
             return False, self._content_errors[brick_id]
         if brick_id == "global_memory":
@@ -2501,6 +2583,33 @@ class AppSession:
         if brick_id == "compression" and (reason := self._compression_unavailable()) is not None:
             return False, reason
         return True, None
+
+    def _capability_reason(self, brick_id: str) -> str | None:
+        """AD-6: why the active model cannot offer `brick_id` (a capability it lacks, or a
+        window too small for the reasoning), else `None`. Part of `_availability`; lot E
+        (E5): the scenario's warning."""
+        brick = self._bricks.get(brick_id)
+        if brick is None:
+            return None
+        missing = [c for c in brick.capabilities if not getattr(self._caps, c, None)]
+        if "reasoning" in missing:
+            return self._no_reasoning_fr()
+        if brick_id == "reasoning" and self._window <= MAX_RESERVE:  # as the cloud `tpm` guard
+            return (
+                f"Indisponible : la fenêtre de contexte ({_fr(self._window)} tokens) ne laisse "
+                f"aucune place au contexte une fois réservés les {_fr(MAX_RESERVE)} tokens de "
+                "sortie du raisonnement. Agrandissez la fenêtre dans la configuration."
+            )
+        if missing and self._cloud is not None:  # AD-6: a capability not declared is absent
+            return (
+                f"Le modèle cloud « {self._cloud.id} » ne déclare pas l'appel d'outils (tools) : "
+                "aucune action d'outil, pas même forcée. Déclarez tools = true si le modèle le "
+                "gère, ou choisissez un autre modèle."
+            )
+        if missing:
+            needs = ", ".join(_CAPABILITIES_FR.get(c, c) for c in missing)
+            return f"Le modèle chargé n'offre pas {needs} : choisissez un autre modèle."
+        return None
 
     def _no_reasoning_fr(self) -> str:
         """EXPERIENCE.md's reason, then its cause: no model, the template, or the cloud
@@ -4253,11 +4362,39 @@ class AppSession:
             for block in content.explanation_fr
         ]
 
-    def _emit_scenario(self) -> None:
+    def _emit_scenario(self, *, refresh: bool = False) -> None:
+        """`refresh` (lot E, E5): the same scenario, its unavailable bricks read again after a
+        model load; not a launch."""
         program = self._scenarios.payload(self._fill) if self._scenarios else EMPTY_PROGRAM
         with self._lock:
             active = self._active_scenario
-        get_journal().emit("scenario_changed", {"program": program, "active": active})
+        get_journal().emit(
+            "scenario_changed",
+            {
+                "program": program,
+                "active": active,
+                "unavailable": self._scenario_unavailable(),
+                "refresh": refresh,
+            },
+        )
+
+    def _scenario_unavailable(self) -> list[dict[str, str]]:
+        """Lot E (E5): the active scenario's bricks the active model cannot offer (a
+        capability it lacks), each with its reason: said at the launch, and again after a
+        model change. Empty with no scenario, or no model active (the composer says why)."""
+        with self._lock:
+            active = self._active_scenario
+        scenario = self._scenarios.scenarios.get(active) if self._scenarios and active else None
+        if scenario is None or self._caps is None:
+            return []
+        unavailable = []
+        for brick_id in scenario.bricks:
+            reason = self._capability_reason(brick_id)
+            if reason is not None:
+                unavailable.append(
+                    {"brick": brick_id, "label_fr": self._label(brick_id), "reason_fr": reason}
+                )
+        return unavailable
 
     def launch_scenario(self, scenario_id: str) -> None:
         """Class (b): empties the conversation, applies the launch configuration, then the
@@ -4333,10 +4470,13 @@ class AppSession:
     def stop(self) -> bool:
         """Intention class (c): arms the turn's `CancelToken`; no effect outside a turn. A
         pending human validation is resolved as `cancelled`. Story 15: stops a download or an
-        index build."""
+        index build. Lot E (E4): stops a model load at its next checkpoint."""
         with self._lock:
             if self.state in ("download", "index_build") and self._download_cancel is not None:
                 self._download_cancel.cancel()
+                return True
+            if self.state == "model_load" and self._load_cancel is not None:
+                self._load_cancel.cancel()
                 return True
             if self.state not in ("turn", "awaiting_human") or self._cancel is None:
                 return False

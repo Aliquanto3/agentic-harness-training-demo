@@ -131,6 +131,8 @@ class FakeServer:
         self.streams: list[Lines] = []
         self.on_line = None
         self.stream_override = None  # a stream of its own for the next completion
+        self.model_path = "/modeles/Qwen3.5-2B-Q4_K_M.gguf"  # `/props`: the file it loaded
+        self.n_ctx_total: int | None = None  # `/props` top-level `n_ctx` (`-np N`: N slots)
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
@@ -164,11 +166,12 @@ class FakeServer:
             return httpx.Response(
                 200,
                 json={
-                    "model_path": "/modeles/Qwen3.5-2B-Q4_K_M.gguf",
+                    "model_path": self.model_path,
                     "chat_template": QWEN,
                     "bos_token": "",
                     "eos_token": "<|im_end|>",
                     "default_generation_settings": {"n_ctx": self.n_ctx},
+                    **({"n_ctx": self.n_ctx_total} if self.n_ctx_total else {}),
                 },
             )
         if path == "/v1/models":
@@ -521,9 +524,10 @@ def test_vocab_only_failure_keeps_the_previous_model(monkeypatch, fake):
     assert session.active_model()["label"] == "A" and session.state == "idle"
     events = [e.payload for e in get_journal().events_since(mark)]
     error = next(e for e in events if "message_fr" in e and "Ollama" in e["message_fr"])
-    assert "Failed to load model from file" in error["cause"]
+    assert "Failed to load model from file" in error["cause"]  # lot E (E6): the detail
     ended = next(e for e in events if e.get("status") == "restored")
-    assert "Failed to load model from file" in ended["reason_fr"]
+    assert "Failed to load model" not in ended["reason_fr"]  # the reason, in French only
+    assert "ne sait pas lire le tokenizer de ce modèle" in ended["reason_fr"]
     assert "servez-le plutôt avec llama-server" in ended["reason_fr"]  # the way out
 
 
@@ -1232,3 +1236,132 @@ def test_stop_unblocks_a_real_socket_read():
     assert time.monotonic() - started < 3
     assert fragments[-1].stop_reason == "cancelled"
     engine.close()
+
+
+# ---------- lot E: llama-server's context (E1), the refusal with a served model (E3) ----------
+
+TINY = str(Path(__file__).parent / "fixtures" / "tiny-llama.gguf")
+
+
+def _llama_candidate(fake: FakeServer) -> discovery.ModelCandidate:
+    fake.ollama = False
+    [candidate] = discovery._server_candidates(
+        config.load_config(), transport=httpx.MockTransport(fake)
+    )
+    return candidate
+
+
+@pytest.mark.parametrize(
+    ("n_ctx", "warned"), [(262_144, True), (4096, False), (6144, False), (6145, True)]
+)
+def test_llama_server_memory_counts_its_whole_context(fake, n_ctx, warned):
+    """E1: its file plus its KV cache for its whole `n_ctx` (the KV read in the GGUF it
+    loaded, without the weights), and a warning past 1,5 times the window."""
+    fake.n_ctx, fake.model_path = n_ctx, TINY
+    size = Path(TINY).stat().st_size
+
+    candidate = _llama_candidate(fake)
+
+    assert candidate.n_ctx == n_ctx and candidate.gguf_path == TINY
+    assert candidate.served_bytes == size + 128 * n_ctx and candidate.context_counted
+    if warned:
+        assert f"lancé avec un contexte de {n_ctx:,} tokens".replace(",", "\u202f") in (
+            candidate.warning_fr
+        )
+        assert candidate.warning_fr.endswith("relancez-le avec `-c 4096`.")
+    else:
+        assert candidate.warning_fr is None
+
+
+def test_llama_server_kv_unreadable_counts_the_file_and_keeps_the_warning(fake):
+    fake.n_ctx = 262_144  # `model_path` is not on this disk: no KV readable
+
+    candidate = _llama_candidate(fake)
+
+    assert candidate.served_bytes == 2 * GIB  # the size `/v1/models` gives
+    assert candidate.context_counted is False  # the page says the cache is left out
+    assert "262\u202f144 tokens" in candidate.warning_fr
+
+
+def test_llama_server_relative_model_path_is_not_read_here(fake, monkeypatch):
+    """A relative `model_path` is the server's working directory's, not WaveStack's."""
+    monkeypatch.chdir(Path(TINY).parent)
+    fake.n_ctx, fake.model_path = 4096, "tiny-llama.gguf"  # readable from here, by chance
+
+    candidate = _llama_candidate(fake)
+
+    assert candidate.served_bytes == 2 * GIB and candidate.context_counted is False
+
+
+def test_llama_server_with_several_slots_counts_the_whole_context(fake):
+    """`-np 4` without `-c`: each slot has a quarter of the native context; the memory is the
+    whole context's, and `-c 4096` alone would shrink each slot: `-np 1 -c 4096`."""
+    fake.model_path, fake.n_ctx, fake.n_ctx_total = TINY, 65_536, 262_144
+
+    candidate = _llama_candidate(fake)
+
+    assert candidate.n_ctx == 262_144
+    assert candidate.served_bytes == Path(TINY).stat().st_size + 128 * 262_144
+    assert "65\u202f536 par emplacement, 4 emplacements" in candidate.warning_fr
+    assert candidate.warning_fr.endswith("relancez-le avec `-np 1 -c 4096`.")
+    fake.n_ctx = 4096  # `-np 4 -c 16384`: each slot fits the window, nothing to advise
+    fake.n_ctx_total = 16_384
+    assert _llama_candidate(fake).warning_fr is None
+
+
+def test_hot_switch_to_llama_server_carries_its_warning(monkeypatch, tmp_path, fake):
+    fake.n_ctx, fake.model_path = 262_144, TINY
+    _, app_session, client = _web_file_loaded(monkeypatch, tmp_path)
+    mark = get_journal().last_seq()
+
+    client.post(
+        "/api/intentions/select_model",
+        json={"kind": "server", "ref": "llama_server/tiny-llama.gguf"},
+        headers=ORIGIN,
+    )
+    app_session.join()
+
+    check = [
+        e.payload
+        for e in get_journal().events_since(mark)
+        if e.kind == "diagnostic_check" and e.payload["check"] == "model"
+    ][-1]
+    assert check["status"] == "warn" and check["message_fr"].startswith("Modèle actif :")
+    assert "relancez-le avec `-c 4096`" in check["message_fr"]
+
+
+def test_diagnostic_advises_c_4096_for_the_served_model(monkeypatch, tmp_path, fake):
+    """E1: the line of the model retained, and the candidate's, say it."""
+    fake.ollama, fake.n_ctx, fake.model_path = False, 262_144, TINY
+    ref = "llama_server/tiny-llama.gguf"
+    config.save_setting("selected_model", {"kind": "server", "ref": ref})
+    session = _diagnostic(monkeypatch, tmp_path)
+    mark = get_journal().last_seq()
+
+    result = session.check_model()
+
+    assert result.server is not None and result.server.ref == ref
+    check = [
+        e.payload
+        for e in get_journal().events_since(mark)
+        if e.kind == "diagnostic_check" and e.payload["check"] == "model"
+    ][-1]
+    assert check["status"] == "warn" and "servi par llama-server" in check["message_fr"]
+    assert "relancez-le avec `-c 4096`" in check["message_fr"]
+    assert result.server.warning_fr and result.server.served_bytes > 128 * 262_144
+
+
+def test_refusal_with_a_served_model_active_counts_wavestack_whole(fake, tmp_path):
+    """E3: llama-server's model is in another process: WaveStack's RSS is not reduced by it
+    (the refusal said « 0,0 Go »)."""
+    blob = tmp_path / "blob"
+    with open(blob, "wb") as f:
+        f.truncate(5 * GIB)  # sparse: nothing written
+    session = _session(rss_fn=lambda: 210 * 1024**2)
+    assert session.boot_server(_candidate("llama_server")).result() == "ok"
+
+    with pytest.raises(SendRefused) as refused:
+        session.switch_model(ModelChoice.served(_candidate("ollama", str(blob))))
+
+    assert "WaveStack occupe 210 Mo sans le modèle actif" in refused.value.reason_fr
+    assert "Qwen3.5-2B-Q4_K_M reste actif" in refused.value.reason_fr

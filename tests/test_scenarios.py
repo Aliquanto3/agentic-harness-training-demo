@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -254,4 +255,82 @@ def test_invalid_content_gives_an_error_and_an_empty_programme(tmp_path, monkeyp
     assert session.model_loaded and session.state == "idle"
     with pytest.raises(KeyError):
         session.launch_scenario("rag")
+    session.close()
+
+
+# ---------- lot E (E5): the bricks a scenario wants and the model cannot offer ----------
+
+
+def test_scenario_with_a_model_without_tool_calls_says_which_bricks_are_unavailable():
+    """E5: Llama 3.2 (family `llama`, no tool call format): `native_tools` warns at launch
+    that `tools` is unavailable, with its reason; the other bricks apply."""
+    session = booted_session(FakeEngine(architecture="llama"))
+    mark = get_journal().last_seq()
+
+    session.launch_scenario("native_tools")
+    session.join()
+
+    changed = _latest("scenario_changed", mark)
+    assert changed["active"] == "native_tools" and changed["refresh"] is False
+    [tools] = changed["unavailable"]
+    assert (tools["brick"], tools["label_fr"]) == ("tools", session._label("tools"))
+    assert (
+        "l'appel d'outils" in tools["reason_fr"]
+        and "choisissez un autre modèle" in (tools["reason_fr"])
+    )
+    assert tools["reason_fr"] == session._availability("tools")[1]
+    session.close()
+
+
+def test_scenario_with_a_capable_model_warns_nothing_and_a_switch_says_it_again(tmp_path):
+    """E5: nothing to say with Qwen3's tool calls; a model change with the scenario active
+    says it again (`scenario_changed` before `model_load_ended`)."""
+    from wavestack.models.load_registry import ModelChoice
+
+    engines = {"qwen": FakeEngine(architecture="qwen3"), "llama": FakeEngine(architecture="llama")}
+    session = booted_session(engines["qwen"])
+    session._engine_factory = lambda path, n_ctx: engines[Path(path).stem]
+    session.launch_scenario("native_tools")
+    session.join()
+    assert _latest("scenario_changed")["unavailable"] == []
+
+    mark = get_journal().last_seq()
+    llama = tmp_path / "llama.gguf"
+    llama.write_bytes(b"placeholder")
+    _, future = session.switch_model(ModelChoice("file", str(llama)))
+    assert future.result() == "ok"
+
+    kinds = _kinds(mark)
+    assert kinds.index("scenario_changed") < kinds.index("model_load_ended")
+    changed = _latest("scenario_changed", mark)
+    assert changed["active"] == "native_tools" and changed["refresh"] is True  # no launch
+    assert [b["brick"] for b in changed["unavailable"]] == ["tools"]
+
+    session.reset()
+    session.join()
+    assert _latest("scenario_changed")["unavailable"] == []  # no scenario: nothing to say
+    session.close()
+
+
+def test_a_failing_scenario_refresh_never_blocks_the_load_end(tmp_path, monkeypatch):
+    """E5: the refresh after a load is guarded: `model_load_ended` and `idle` still come."""
+    from wavestack.models.load_registry import ModelChoice
+
+    session = booted_session(FakeEngine())
+    session.launch_scenario("native_tools")
+    session.join()
+
+    def boom() -> list:
+        raise RuntimeError("relecture en panne")
+
+    monkeypatch.setattr(session, "_scenario_unavailable", boom)
+    other = tmp_path / "autre.gguf"
+    other.write_bytes(b"placeholder")
+    mark = get_journal().last_seq()
+
+    _, future = session.switch_model(ModelChoice("file", str(other)))
+
+    assert future.result() == "ok" and session.state == "idle"
+    assert _latest("model_load_ended", mark)["status"] == "ok"
+    assert "relecture en panne" in _latest("harness_error", mark)["cause"]
     session.close()

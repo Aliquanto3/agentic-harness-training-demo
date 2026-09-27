@@ -34,6 +34,7 @@ from typing import Any, Protocol
 import httpx
 
 from wavestack import config
+from wavestack.models import probe
 from wavestack.models.engine import (
     TEMPERATURE,
     TOP_K,
@@ -297,7 +298,7 @@ class LlamaServerEngine:
             bos_token=bos,
             eos_token=eos,
             special_tokens=tuple(special),
-            server_context=_positive(settings.get("n_ctx")) or _positive(props.get("n_ctx")),
+            server_context=_server_n_ctx(props),
         )
 
     def metadata(self) -> EngineMetadata:
@@ -566,9 +567,19 @@ class OllamaRawEngine:
             self._tokenizer.close()
 
 
+class TokenizerRefused(ValueError):
+    """Lot E (E6): llama-cpp-python refused a served model's GGUF. `reason_fr` in French,
+    `detail` the loader's own message (a technical detail, never the reason)."""
+
+    def __init__(self, reason_fr: str, detail: str) -> None:
+        super().__init__(reason_fr)
+        self.reason_fr, self.detail = reason_fr, detail
+
+
 def _open_tokenizer(gguf_path: str | None) -> VocabTokenizer:
     """The GGUF's tokenizer, `vocab_only`; a refusal of llama-cpp-python becomes a French
-    reason that names the way out (llama-server tokenizes by itself)."""
+    reason that names the way out (llama-server tokenizes by itself), its own message kept
+    as the detail."""
     try:
         return VocabTokenizer(gguf_path)
     except Exception as exc:  # noqa: BLE001 - any refusal of the native loader
@@ -576,10 +587,11 @@ def _open_tokenizer(gguf_path: str | None) -> VocabTokenizer:
             lib = f"llama-cpp-python {version('llama-cpp-python')}"
         except PackageNotFoundError:
             lib = "llama-cpp-python"
-        raise ValueError(
-            f"{lib} ne sait pas lire le tokenizer de ce modèle ({exc}). C'est le cas de "
-            "modèles récents d'Ollama, comme Qwen3.5 : servez-le plutôt avec llama-server, "
-            "qui tokenise lui-même."
+        raise TokenizerRefused(
+            f"{lib} ne sait pas lire le tokenizer de ce modèle. C'est le cas de modèles "
+            "récents d'Ollama, comme Qwen3.5 : servez-le plutôt avec llama-server, qui "
+            "tokenise lui-même.",
+            str(exc),
         ) from exc
 
 
@@ -622,6 +634,10 @@ class ServedModel:
     # the memory it reports there (`resident_size`).
     resident: bool = False
     resident_size: int | None = None
+    # Lot E (E1): llama-server's whole context (`/props`), whose KV cache it reserved at
+    # launch, and one slot's (`-np N` shares the whole between N slots).
+    n_ctx: int | None = None
+    slot_ctx: int | None = None
 
     @property
     def provider(self) -> str:
@@ -675,7 +691,30 @@ def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]
     model_path = str(props.get("model_path") or "") or None
     name = _file_name(model_path) if model_path else str(first.get("id") or "modèle")
     size = _positive((first.get("meta") or {}).get("size"))
-    return [ServedModel(engine, url, name, f"llama_server/{name}", model_path, size, True)]
+    return [
+        ServedModel(
+            engine,
+            url,
+            name,
+            f"llama_server/{name}",
+            model_path,
+            size,
+            True,
+            n_ctx=_server_n_ctx(props, whole=True),
+            slot_ctx=_server_n_ctx(props),
+        )
+    ]
+
+
+def _server_n_ctx(props: dict[str, Any], *, whole: bool = False) -> int | None:
+    """llama-server's context, as `/props` says it: one slot's (the window's bound, AD-9),
+    else the whole; `whole`: the larger of both (the memory it reserved, lot E)."""
+    settings = props.get("default_generation_settings")
+    settings = settings if isinstance(settings, dict) else {}
+    slot, total = _positive(settings.get("n_ctx")), _positive(props.get("n_ctx"))
+    if whole:
+        return max(slot or 0, total or 0) or None
+    return slot or total
 
 
 def list_served(
@@ -701,17 +740,63 @@ def list_served(
 
 
 def served_bytes(model: ServedModel, path: str | None) -> int | None:
-    """AD-8: the served model's memory. Resident: what Ollama reports in `/api/ps`, else
-    (llama-server) its file's size; not loaded yet (Ollama): its blob's size. `None` when
-    nothing says it."""
+    """AD-8: the served model's memory. Resident: what Ollama reports in `/api/ps`; else
+    (llama-server) its file's size plus its KV cache for its whole context `n_ctx` (lot E,
+    E1: llama-server reserves it at launch), the KV read in the file's metadata, without the
+    weights (the file's size alone when unreadable); not loaded yet (Ollama): its blob's
+    size. `None` when nothing says it."""
     if model.resident and model.resident_size:
         return model.resident_size
-    if path:
+    size = model.size
+    local = _local(path)
+    if local:
         try:
-            return Path(path).stat().st_size
+            size = Path(local).stat().st_size
         except OSError:
             pass
-    return model.size
+    kv = served_kv(model, path)
+    return size + kv * (model.n_ctx or 0) if size is not None and kv else size
+
+
+def served_kv(model: ServedModel, path: str | None) -> int | None:
+    """Lot E (E1): the KV cache's bytes per token of llama-server's model, read in its GGUF
+    header when `path` is a file of this disk (an absolute path: a relative one was the
+    server's, not WaveStack's); `None` otherwise, the memory then leaving the cache out."""
+    if model.engine != "llama_server" or not model.n_ctx:
+        return None
+    return probe.gguf_kv_bytes_per_token(_local(path))
+
+
+def _local(path: str | None) -> str | None:
+    return path if path and Path(path).is_absolute() else None
+
+
+# Lot E (E1): llama-server's context counts as « much larger » than the window past this.
+CONTEXT_WARN_FACTOR = 1.5
+
+
+def context_warning_fr(n_ctx: int | None, window: int, slot_ctx: int | None = None) -> str | None:
+    """Lot E (E1): the French warning when a slot of llama-server has a context much larger
+    than WaveStack's window (`-c` omitted: the model's whole native context), whose memory
+    it reserved for nothing; `None` otherwise. With several slots (`-np N`), `-c {window}`
+    alone would shrink each slot below the window: the advice is `-np 1 -c {window}`."""
+    slot = slot_ctx or n_ctx
+    if not slot or slot <= window * CONTEXT_WARN_FACTOR:
+        return None
+    whole = max(n_ctx or 0, slot)
+    slots = whole // slot if whole > slot else 1
+    shared = f" ({_fr_int(slot)} par emplacement, {slots} emplacements)" if slots > 1 else ""
+    advice = f"-np 1 -c {window}" if slots > 1 else f"-c {window}"
+    return (
+        f"llama-server a été lancé avec un contexte de {_fr_int(whole)} tokens{shared}, alors "
+        f"que WaveStack n'en utilise que {_fr_int(window)} : il réserve la mémoire de tout ce "
+        f"contexte. Arrêtez-le et relancez-le avec `{advice}`."
+    )
+
+
+def _fr_int(n: int) -> str:
+    """« 262 144 »: French thousands separator (narrow no-break space)."""
+    return f"{n:,}".replace(",", "\u202f")
 
 
 def open_engine(

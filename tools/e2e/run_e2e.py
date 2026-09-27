@@ -2329,6 +2329,48 @@ def s_model_switch(r: Run) -> None:
     expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=10_000)
     r.wait_idle()
 
+    # Lot E (E4): « Arrêter » during the slow load of B (`launch_app.py`): A comes back.
+    stop = page.locator("#composer-stop")
+    r.check(stop.is_hidden(), "« Arrêter » caché hors d'un tour ou d'un chargement")
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label=b_label)
+    page.click("#model-picker-apply")
+    expect(dialog).to_be_visible(timeout=5000)
+    page.click("#cloud-warning-confirm")
+    r.ev.wait("model_load_started", seq, timeout=10)
+    ok = True
+    try:
+        expect(stop).to_be_visible(timeout=5000)
+    except AssertionError:
+        ok = False
+    r.check(ok, "« Arrêter » visible pendant le chargement du modèle")
+    stop.click()
+    ok, _ = r.poll(lambda: "Arrêt demandé" in top.inner_text(), 5)
+    r.check(ok, "barre haute : « Arrêt demandé » pendant la fin de l'étape", top.inner_text())
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)["payload"]
+    r.check(
+        ended["status"] == "cancelled"
+        and ended["reason_fr"] == "Chargement arrêté : wavestack-fake est de nouveau actif.",
+        "« Arrêter » : chargement arrêté, le modèle précédent est de nouveau actif",
+        f"{ended['status']} · {ended['reason_fr']}",
+    )
+    ok = True
+    try:
+        expect(top).to_contain_text("Chargement arrêté", timeout=5000)
+    except AssertionError:
+        ok = False
+    r.check(ok, "barre haute : issue « Chargement arrêté »", top.inner_text())
+    expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=10_000)
+    active = r.state()["active_model"] or {}
+    r.check(active.get("ref") == MODEL_ENTRY_ID, "le modèle précédent est actif", str(active))
+    r.wait_idle()
+    r.check(stop.is_hidden(), "« Arrêter » de nouveau caché une fois le modèle rétabli")
+    r.send("Encore là ?")
+    r.check(
+        r.fake_calls()[-1].get("model") != SECOND_MODEL,
+        "le tour suivant part avec le modèle précédent",
+    )
+
 
 LLAMA_FILE = "faux-llama-server.gguf"
 LLAMA_OPTION = f"Local · llama-server · {LLAMA_FILE}"
@@ -2353,6 +2395,12 @@ def s_local_server(r: Run) -> None:
     r.check(
         llama_row.get_by_role("button", name="Choisir").count() == 1,
         "diagnostic : « Choisir » en face du modèle servi",
+    )
+    # Lot E (E1): the fake llama-server has a context of 8 192 tokens, twice the window.
+    r.check(
+        "relancez-le avec `-c 4096`" in text and "8\u202f192 tokens" in text,
+        "diagnostic : llama-server à grand contexte, conseil « -c 4096 »",
+        text.replace("\n", " · "),
     )
     ollama_row = page.locator("#candidates li", has_text="Ollama · faux-ollama:latest")
     r.check(

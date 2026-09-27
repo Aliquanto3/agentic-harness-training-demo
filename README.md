@@ -126,7 +126,10 @@ reconstruit à chaque tour avec le gabarit du nouveau modèle, et « Rejouer le 
 le fait jouer par le nouveau modèle. Une ligne « Modèle : … » marque dans la Vue humain le
 premier tour d'un autre modèle, et « Comparer » affiche le modèle de chaque tour. Les briques
 qui exigent une capacité absente (appel d'outils, raisonnement) passent indisponibles avec leur
-raison, et redeviennent disponibles au retour à un modèle qui l'offre.
+raison, et redeviennent disponibles au retour à un modèle qui l'offre. Un scénario qui en veut
+une le signale sous sa consigne, avec la raison : par exemple, la famille Llama (Llama 3.2 via
+Ollama) n'a pas de format d'appel d'outils connu de WaveStack, donc pas d'outils, de MCP, de
+skills ni de sous-agent.
 
 Le choix est mémorisé pour les lancements suivants une fois le chargement réussi. Si le nouveau
 modèle ne se charge pas (fichier incompatible, erreur), WaveStack recharge le modèle précédent et
@@ -136,7 +139,21 @@ l'explique.
 chargement du nouveau (et avant la sonde d'un fichier jamais chargé). Avant de libérer quoi que
 ce soit, WaveStack estime le coût du nouveau modèle (mémoire mesurée par la sonde, sinon taille
 du fichier, plus son cache de contexte et une marge) et refuse le changement, chiffres à
-l'appui, s'il dépasse le budget ; le modèle actif reste alors chargé. Le budget se règle dans
+l'appui, s'il dépasse le budget ; le modèle actif reste alors chargé. La sonde charge le
+fichier une fois, dans un processus à part, avec un contexte de la taille de la fenêtre, et lui
+fait lire un premier lot de 512 tokens : la mémoire qu'elle mesure comprend ses poids, le cache
+de contexte de toute la fenêtre (llama.cpp le réserve et l'initialise en créant le contexte) et
+les tampons de calcul d'un lot. Cela prend quelques dizaines de secondes de plus, une seule fois
+par fichier ; un fichier sondé par une version précédente de WaveStack est mesuré de nouveau au
+lancement s'il est le modèle enregistré, sinon quand on le choisit. Une sonde à court de
+mémoire ou de temps n'est pas retenue contre le fichier. Avec le budget de 4 Go, Qwen3.5-4B
+devrait être refusé : 4,27 Go mesurés après 3 000 tokens lors du test du 2026-09-27 (à vérifier
+sur PC avec la nouvelle sonde) ; relevez `budget_mb` pour l'utiliser. Le refus dit aussi ce
+qu'occupe WaveStack sans le modèle actif.
+
+« Arrêter » (à droite du champ de message) interrompt un chargement en cours : il prend effet
+à la fin de l'étape en cours (libération, sonde ou chargement, que llama.cpp ne sait pas
+interrompre), puis WaveStack recharge le modèle précédent. Le budget se règle dans
 `wavestack.toml` (ou `settings.json`) :
 
 ```toml
@@ -171,7 +188,13 @@ read_timeout_s = 300    # lecture de la réponse (le premier appel d'Ollama char
 ```
 
 Lancez le serveur avant WaveStack, par exemple `ollama serve`, ou
-`llama-server -m C:\modeles\Qwen3.5-2B-Q4_K_M.gguf --port 8080 -np 1`. Au diagnostic, chaque
+`llama-server -m C:\modeles\Qwen3.5-2B-Q4_K_M.gguf --port 8080 -np 1 -c 4096`. **Donnez
+toujours `-c 4096` à llama-server** (la fenêtre de WaveStack, `[context] window`) : sans `-c`,
+il prend tout le contexte natif du modèle (262 144 tokens pour Qwen3.5) et réserve dès son
+lancement la mémoire de ce contexte entier, quelle que soit la longueur des conversations
+(5 137 Mo mesurés pour le 2B lors du test du 2026-09-27, pour un fichier de 1,28 Go). Avec
+plusieurs emplacements (`-np N`), `-c` est partagé entre eux : gardez `-np 1`. Le diagnostic
+signale un contexte trop grand et conseille la commande à relancer. Au diagnostic, chaque
 modèle servi apparaît avec l'étiquette « Local », son serveur, son adresse et sa mémoire ;
 « Choisir » le charge, comme un fichier. Il est aussi dans le sélecteur de la barre haute
 (« Local · Ollama · … », « Local · llama-server · … »). Un modèle servi n'est jamais choisi
@@ -200,7 +223,11 @@ messages au format chat. L'échantillonnage est celui du modèle en processus (t
 **Mémoire.** En mode serveur, aucun modèle ne reste chargé dans WaveStack (seul le tokenizer
 d'un modèle Ollama y est ouvert, sans les poids). Le budget `[memory]` compte le modèle servi :
 - déjà en mémoire (le modèle de llama-server, un modèle qu'Ollama a déjà chargé) : compté pour
-  ce qu'il occupe, jamais refusé, puisque le choisir n'ajoute rien ;
+  ce qu'il occupe, jamais refusé, puisque le choisir n'ajoute rien. Pour llama-server, c'est la
+  taille de son fichier plus son cache de contexte pour tout son contexte (`n_ctx`, lu dans
+  `/props`), la taille d'un token du cache étant lue dans l'en-tête du fichier GGUF (sans les
+  poids, sans llama.cpp) ; si WaveStack ne peut pas lire ce fichier, le chiffre affiché le dit
+  et ne compte que la taille du fichier. Pour Ollama, la mémoire qu'il annonce (`/api/ps`) ;
 - pas encore chargé par Ollama : compté comme un fichier (taille, cache de contexte à la
   fenêtre, marge `load_margin_mb`, qui couvre aussi le tokenizer), et refusé, chiffres à
   l'appui, s'il dépasse le budget.

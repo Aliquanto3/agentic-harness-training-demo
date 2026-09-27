@@ -13,7 +13,9 @@
     li.warn { background: #fff4e0; }
     li.fail, li.incompatible { background: #fce8e6; }
     li.found, li.server { background: #e6f4ea; }
+    li.server.warn { background: #fff4e0; }
     .served { font-size: 0.9rem; color: #444; }
+    .served-warning { color: #8a5a00; }
     .action { font-size: 0.9rem; color: #444; }
     #select-model { margin-top: 1.5rem; }
     .saved-mark { font-size: 0.85rem; font-weight: bold; margin-left: 0.5rem; }
@@ -244,8 +246,20 @@
         size.className = "served";
         const go = c.served_bytes ? `≈ ${(c.served_bytes / 1024 ** 3).toFixed(1).replace(".", ",")} Go` : "inconnue";
         const where = c.resident ? "déjà en mémoire" : "chargé par le serveur au premier appel";
-        size.textContent = `Mémoire du modèle servi : ${go}, ${where} (processus distinct de WaveStack)`;
+        // Lot E (E1): llama-server's context cache, when its GGUF could not be read here.
+        const cache = c.engine === "llama_server" && c.context_counted === false
+          ? ", sans son cache de contexte (fichier du modèle illisible depuis WaveStack)"
+          : "";
+        size.textContent = `Mémoire du modèle servi : ${go}${cache}, ${where} (processus distinct de WaveStack)`;
         li.appendChild(size);
+      }
+      if (c.warning_fr) {
+        // Lot E (E1): llama-server launched with a context much larger than the window.
+        li.classList.add("warn");
+        const warning = document.createElement("div");
+        warning.className = "served served-warning";
+        warning.textContent = c.warning_fr;
+        li.appendChild(warning);
       }
       if (c.status === "incompatible") {
         const why = document.createElement("div");

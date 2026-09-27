@@ -572,6 +572,10 @@ def test_ollama_candidate_named_from_manifest_with_cached_architecture(monkeypat
             architecture="qwen35",
             size_bytes=stat.st_size,
             mtime=stat.st_mtime,
+            rss_bytes=1,  # lot E: a complete entry of the current probe, never probed again
+            probe_version=probe.PROBE_VERSION,
+            probe_window=4096,
+            rss_eval_tokens=512,
         )
     )
 
@@ -709,3 +713,116 @@ def test_launch_fallback_loads_the_file(monkeypatch, tmp_path):
     assert result.model_path and session.selected_cloud == "groq"
     diagnostic = _client(app).get("/api/diagnostic").json()
     assert diagnostic["loaded_model"] == result.model_path and "next_launch_fr" not in diagnostic
+
+
+def test_old_or_incomplete_probe_entries_are_probed_again(monkeypatch, tmp_path):
+    """Lot E (E2): at launch, only the saved file about to boot is measured again when its
+    entry is an older probe's (no `probe_version = 2`) or incomplete, at the window; the
+    others keep their entry until chosen (`AppSession._load` probes them after the
+    release). A remembered failure of the current probe wins over an older success."""
+    names = ("old.gguf", "incomplete.gguf", "complete.gguf")
+    session, _ = _build(monkeypatch, tmp_path, models=names)
+    complete = {"rss_bytes": 1, "probe_version": probe.PROBE_VERSION, "probe_window": 4096}
+    for name, fields in zip(
+        names,
+        (
+            {"rss_bytes": 1, "kv_bytes_per_token": 128},  # story 17: no version
+            {"probe_version": probe.PROBE_VERSION},  # no measure
+            {**complete, "rss_eval_tokens": 512},
+        ),
+        strict=True,
+    ):
+        path = config.models_dir() / name
+        stat = path.stat()
+        probe.record_success(
+            probe.ProbeResult(
+                ok=True,
+                path=str(path),
+                architecture="qwen35",
+                size_bytes=stat.st_size,
+                mtime=stat.st_mtime,
+                **fields,
+            )
+        )
+    assert [probe.measured(str(config.models_dir() / n)) for n in names] == [False, False, True]
+    windows = []
+    calls = _fake_probe_ok(monkeypatch, session)
+    real_run = diagnostic_module.subprocess.run
+
+    def run(cmd, **kwargs):  # noqa: ANN001, ANN202
+        windows.append(cmd[cmd.index("--window") + 1])
+        return real_run(cmd, **kwargs)
+
+    monkeypatch.setattr(diagnostic_module.subprocess, "run", run)
+
+    kept = session._discover(None)
+    assert calls == [] and all(c.architecture == "qwen35" for c in kept)  # entries read
+
+    session.selected_model_path = str(config.models_dir() / "old.gguf")
+    assert session.check_model().model_path == session.selected_model_path
+    assert [Path(c).name for c in calls] == ["old.gguf"]  # the saved one, about to boot
+    assert windows == [str(session.cfg.context_window)]
+
+    incomplete = str(config.models_dir() / "incomplete.gguf")
+    monkeypatch.setattr(probe, "_llama_cpp_version", lambda: "0.3.35")
+    probe.record_failure(incomplete, probe.incompatible_fr())  # its reprobe failed
+    listed = session._discover(None, reprobe={incomplete})
+    assert len(calls) == 1  # no endless reprobe
+    failed = next(c for c in listed if c.path == incomplete)
+    assert (failed.status, failed.reason) == ("incompatible", probe.incompatible_fr())
+
+
+def test_transient_probe_failure_is_never_remembered(monkeypatch, tmp_path):
+    """Lot E: a probe short of memory (or time) says nothing about the file."""
+    import subprocess as sp
+
+    session, _ = _build(monkeypatch, tmp_path, models=("m.gguf",))
+    monkeypatch.setattr(
+        session, "_probe_candidate", DiagnosticSession._probe_candidate.__get__(session)
+    )
+    monkeypatch.setattr(probe, "_llama_cpp_version", lambda: "0.3.35")
+    path = str(config.models_dir() / "m.gguf")
+
+    class _Done:
+        returncode = 1
+        stdout = probe.ProbeResult(
+            ok=False, path=path, reason=probe.transient_fr(), detail="oom", transient=True
+        ).model_dump_json()
+
+    def timeout(cmd, **kwargs):  # noqa: ANN001, ANN202
+        raise sp.TimeoutExpired(cmd, kwargs["timeout"])
+
+    for run in (lambda cmd, **kw: _Done(), timeout):
+        monkeypatch.setattr(diagnostic_module.subprocess, "run", run)
+        [candidate] = session._discover(None)
+        assert (candidate.status, candidate.reason) == ("incompatible", probe.transient_fr())
+        assert probe.failed_entry(path) is None
+    assert diagnostic_module.PROBE_TIMEOUT_S == 300
+
+
+def test_incompatible_probe_keeps_the_loader_message_as_the_cause(monkeypatch, tmp_path):
+    """Lot E (E6): the reason in French, llama.cpp's own message as the technical detail."""
+    session, _ = _build(monkeypatch, tmp_path, models=("bad.gguf",))
+    monkeypatch.setattr(
+        session, "_probe_candidate", DiagnosticSession._probe_candidate.__get__(session)
+    )
+    path = str(config.models_dir() / "bad.gguf")
+    reason = probe.incompatible_fr()
+
+    class _Done:
+        returncode = 1
+        stdout = probe.ProbeResult(
+            ok=False, path=path, reason=reason, detail=f"Failed to load model from file: {path}"
+        ).model_dump_json()
+
+    monkeypatch.setattr(diagnostic_module.subprocess, "run", lambda cmd, **kw: _Done())
+    before = get_journal().last_seq()
+
+    session.check_model()
+
+    listed = next(c for c in session.last_result.candidates if c.path == path)
+    assert (listed.status, listed.reason) == ("incompatible", reason)
+    assert reason.startswith("llama-cpp-python") and "ne sait pas charger ce fichier" in reason
+    error = [e.payload for e in get_journal().events_since(before) if e.kind == "harness_error"][0]
+    assert error["message_fr"] == f"Modèle incompatible : {reason}"
+    assert error["cause"] == f"Failed to load model from file: {path}"
