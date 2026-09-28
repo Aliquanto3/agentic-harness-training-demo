@@ -155,6 +155,28 @@ Les appels réels restent à tester à la main, avec le réseau (PC cible, hors 
 Microsoft Learn et data.gouv.fr. Le parcours, qui coupe le réseau, n'en vérifie que l'échec
 expliqué.
 
+## Retours de recette (story 22)
+
+Vérifications ajoutées aux scénarios existants :
+
+- `bare_llm` : « Raisonnement » en tête du panneau ; MCP (passé en lazy loading par l'API,
+  brique éteinte), Outils, Skills et Hooks éteints : sous-options désactivées, raison au
+  survol, « · brique éteinte » dans le résumé ; « Afficher plus » seulement si la consigne
+  dépasse 3 lignes.
+- `system_prompt` : « Enregistrer » désactivé tant que le texte est inchangé, puis
+  « Prompt système enregistré. » (`role=status`), effacé à la saisie suivante.
+- `subagent` : onglets « Agent principal » / « Sous-agent subN » (`role=tablist`), retour à
+  « Agent principal » au tour suivant ; « Annuler » et un second clic sur « Déléguer au
+  sous-agent » ferment le formulaire.
+- `soc` : consigne de 1 276 caractères sur 3 lignes, « Afficher plus » / « Réduire », champ
+  et dernière bulle visibles ; laissée dépliée, repliée au lancement d'un autre scénario.
+- `global_memory` : 6 entrées ; croix, « Tout effacer » (danger) et « Fermer » visibles sans
+  défiler ; la croix ferme le tiroir.
+- `rag_rerank` : « Reranking » coché, brique RAG éteinte : grisé, désactivé, raison au
+  survol ; rallumée : de nouveau réglable. Capture : `27-reranking-brique-rag-eteinte.jpg`.
+- `reload_and_reset` : après « Réinitialiser » puis « Vider la conversation », Orchestration
+  repart à « Tour 1 », l'infobulle et le journal gardant l'identifiant `t{n}` suivant.
+
 ## Déclencheurs du faux modèle
 
 La réponse dépend du dernier message de l'utilisateur (sans le texte ajouté par H3 ni les

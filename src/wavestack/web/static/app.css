@@ -75,6 +75,24 @@ body {
   border: 1px solid var(--color-line);
 }
 
+/* Story 22 (DESIGN.md > button-danger): an erasing button, flat, danger border and ink text
+   (white on the danger red would not reach 4.5:1); confirmed, it fills with the danger red. */
+.drawer-actions button.danger {
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--spacing-stroke-min) solid var(--color-danger);
+  box-shadow: none;
+}
+
+.drawer-actions button.danger.is-confirm {
+  background: var(--color-danger);
+}
+
+.drawer-actions button.danger:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
 /* ---------- top bar ---------- */
 
 .top-bar {
@@ -1627,6 +1645,26 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   cursor: not-allowed;
 }
 
+/* Story 22: a sub-option whose brick is off keeps its state, greyed: never the violet of an
+   active switch. The reason is on the row (`title`) and on the switch (`aria-description`). */
+.is-parent-off .brick-toggle:checked {
+  background: var(--color-muted);
+}
+
+/* Full opacity: the muted colour says « off »; checked and unchecked stay told apart. */
+.is-parent-off .brick-toggle:disabled {
+  opacity: 1;
+}
+
+.brick-option.is-parent-off {
+  cursor: not-allowed;
+  color: var(--color-ink-soft);
+}
+
+.brick-options.is-parent-off > summary {
+  color: var(--color-ink-soft);
+}
+
 .brick-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1860,7 +1898,8 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .brick-edit:disabled,
-.pane-actions .pane-text-action:disabled {
+.pane-actions .pane-text-action:disabled,
+.drawer-actions button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -1919,14 +1958,74 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   gap: var(--spacing-2);
 }
 
+/* Story 22 (M1): the confirmation of a save, beside the buttons, not an alert. */
+.drawer-status {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink);
+}
+
+.drawer-status:not(:empty)::before {
+  content: "✓ ";
+}
+
+/* Silent: an empty live region, kept in the accessibility tree; its flex gap cancelled. */
+.drawer-status:empty {
+  margin-top: calc(-1 * var(--spacing-2));
+}
+
+/* Story 22 (C1): the memory drawer's head (title and cross) and foot stay in view; only the
+   middle scrolls. */
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.drawer-x {
+  flex: none;
+  min-width: var(--spacing-hit-target-min);
+  min-height: var(--spacing-hit-target-min);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font-size: var(--typography-heading-font-size);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.drawer-x:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.drawer-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.drawer-foot {
+  flex: none;
+  max-height: 50%; /* at 150 % or in a short pane, its buttons stay reachable */
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-line);
+}
+
 .drawer-actions[hidden] {
   display: none;
 }
 
 /* Story 14: the global memory's entries, one card each, in the edit drawer. */
-.memory-drawer {
-  overflow-y: auto;
-}
 
 .memory-path {
   font-family: var(--typography-code-font-family);
@@ -1981,6 +2080,39 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   flex: none;
   min-height: 0;
   resize: vertical;
+}
+
+/* Story 22: an entry's actions, compact and flat, unlike the footer's buttons. */
+.memory-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+}
+
+.memory-entry-actions button {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.memory-entry-actions .memory-entry-delete {
+  color: var(--color-ink-soft);
+}
+
+.memory-entry-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.memory-entry-actions button:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 /* The whole audit log (story 8), read only, over the page. */
@@ -2708,6 +2840,47 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   color: var(--color-ink-soft);
 }
 
+/* Story 22 (C1): three lines, then « Afficher plus »; unfolded, the whole text. */
+.scenario-guide-text {
+  margin: 0;
+  line-height: var(--typography-body-sm-line-height);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* Unfolded, it still leaves the conversation its room: past 12 lines, it scrolls. */
+.scenario-guide.is-expanded .scenario-guide-text {
+  display: block;
+  -webkit-line-clamp: none;
+  line-clamp: none;
+  max-height: calc(12 * var(--typography-body-sm-line-height) * 1em);
+  overflow-y: auto;
+}
+
+.scenario-guide-more {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.scenario-guide-more[hidden] {
+  display: none;
+}
+
+.scenario-guide-more:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .scenario-guide strong {
   color: var(--color-primary-deep);
 }
@@ -2912,8 +3085,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   color: var(--color-primary-deep);
 }
 
-.subagent-show,
-.ctx-view-button {
+.subagent-show {
   min-height: var(--spacing-hit-target-min);
   padding: 0 var(--spacing-2);
   border: 1px solid var(--color-primary-deep);
@@ -2925,17 +3097,32 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   cursor: pointer;
 }
 
+/* Story 22 (M6): tabs, the selected one underlined in violet, over a line. */
 .ctx-view-switch {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-1);
+  gap: var(--spacing-3);
   margin-bottom: var(--spacing-2);
+  border-bottom: var(--spacing-stroke-min) solid var(--color-line);
 }
 
-.ctx-view-button[aria-pressed="true"] {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: var(--color-on-primary);
+.ctx-view-button {
+  min-height: var(--spacing-hit-target-min);
+  margin-bottom: calc(-1 * var(--spacing-stroke-min));
+  padding: 0 var(--spacing-2);
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.ctx-view-button[aria-selected="true"] {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-ink);
 }
 
 .subagent-show:focus-visible,

@@ -50,6 +50,7 @@
         <p class="drawer-help">Placé avant la conversation, relu par le modèle à chaque appel. Prend effet au prochain tour.</p>
         <textarea id="drawer-text" aria-label="Texte du prompt système" spellcheck="false"></textarea>
         <p class="drawer-alert" id="drawer-alert" role="alert" hidden></p>
+        <p class="drawer-status" id="drawer-status" role="status"></p>
         <div class="drawer-actions">
           <button type="button" id="drawer-save" class="primary">Enregistrer</button>
           <button type="button" id="drawer-reset">Rétablir le prompt par défaut</button>
@@ -61,24 +62,31 @@
         </div>
       </aside>
       <aside class="edit-drawer memory-drawer" id="memory-drawer" hidden role="dialog" aria-modal="true" aria-labelledby="memory-drawer-title">
-        <h3 id="memory-drawer-title">Mémoire globale</h3>
-        <p class="drawer-help" id="memory-help">Placée dans le message système au début de chaque conversation. Une entrée écrite ou ajoutée n'y entre qu'à la prochaine conversation (après « Vider la conversation » ou un changement de scénario) ; une suppression ou une modification s'applique aussitôt.</p>
-        <p class="drawer-help memory-path" id="memory-path"></p>
-        <p class="memory-empty" id="memory-empty" hidden></p>
-        <ul class="memory-list" id="memory-list" aria-label="Entrées de la mémoire globale"></ul>
-        <p class="drawer-alert" id="memory-alert" role="alert" hidden></p>
-        <div class="drawer-actions">
-          <button type="button" id="memory-clear">Tout effacer</button>
-          <button type="button" id="memory-close">Fermer</button>
+        <header class="drawer-head">
+          <h3 id="memory-drawer-title">Mémoire globale</h3>
+          <button type="button" id="memory-x" class="drawer-x" aria-label="Fermer la mémoire globale" title="Fermer la mémoire globale">×</button>
+        </header>
+        <div class="drawer-scroll" id="memory-scroll">
+          <p class="drawer-help" id="memory-help">Placée dans le message système au début de chaque conversation. Une entrée écrite ou ajoutée n'y entre qu'à la prochaine conversation (après « Vider la conversation » ou un changement de scénario) ; une suppression ou une modification s'applique aussitôt.</p>
+          <p class="drawer-help memory-path" id="memory-path"></p>
+          <p class="memory-empty" id="memory-empty" hidden></p>
+          <ul class="memory-list" id="memory-list" aria-label="Entrées de la mémoire globale"></ul>
         </div>
-        <div class="drawer-actions" id="memory-dirty" hidden>
-          <button type="button" id="memory-dirty-save" class="primary">Enregistrer</button>
-          <button type="button" id="memory-dirty-discard">Abandonner</button>
-        </div>
-        <div class="drawer-actions" id="memory-confirm" hidden>
-          <button type="button" id="memory-confirm-clear" class="primary">Oui, tout effacer</button>
-          <button type="button" id="memory-confirm-cancel">Annuler</button>
-        </div>
+        <footer class="drawer-foot" id="memory-foot">
+          <p class="drawer-alert" id="memory-alert" role="alert" hidden></p>
+          <div class="drawer-actions" id="memory-dirty" hidden>
+            <button type="button" id="memory-dirty-save" class="primary">Enregistrer</button>
+            <button type="button" id="memory-dirty-discard">Abandonner</button>
+          </div>
+          <div class="drawer-actions" id="memory-confirm" hidden>
+            <button type="button" id="memory-confirm-clear" class="danger is-confirm">Oui, tout effacer</button>
+            <button type="button" id="memory-confirm-cancel">Annuler</button>
+          </div>
+          <div class="drawer-actions">
+            <button type="button" id="memory-clear" class="danger">Tout effacer</button>
+            <button type="button" id="memory-close">Fermer</button>
+          </div>
+        </footer>
       </aside>
     </section>
 
@@ -105,7 +113,10 @@
             <div class="chat" id="chat"></div>
             <div class="sr-only" id="chat-live" aria-live="polite"></div>
             <p class="composer-reason" id="composer-reason" hidden></p>
-            <p class="scenario-guide" id="scenario-guide" hidden></p>
+            <div class="scenario-guide" id="scenario-guide" hidden>
+              <p class="scenario-guide-text" id="scenario-guide-text"></p>
+              <button type="button" class="scenario-guide-more" id="scenario-guide-more" aria-expanded="false" aria-controls="scenario-guide-text" hidden>Afficher plus</button>
+            </div>
             <div class="scenario-unavailable" id="scenario-unavailable" role="status" hidden></div>
             <div class="suggested-prompts" id="suggested-prompts" role="group" aria-label="Prompts suggérés" hidden></div>
             <div class="armed-chips-row" id="armed-chips" role="group" aria-label="Actions armées pour le prochain tour" hidden></div>

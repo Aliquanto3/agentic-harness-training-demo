@@ -439,3 +439,46 @@ def test_overflow_cause_is_the_heaviest_segment():
     assert "prompt système" in _overflow(session, "Bonjour")
     session.save_system_prompt(None)
     assert "le message à lui seul" in _overflow(session, "m" * 300)
+
+
+# ---------- story 22: display order, turn ids across clearing and reset ----------
+
+
+def test_reasoning_card_comes_first_and_the_ids_are_unchanged():
+    mark = get_journal().last_seq()
+    booted_session(FakeEngine())
+
+    cards = _latest("bricks_changed", mark)["bricks"]
+
+    assert cards[0]["id"] == "reasoning"
+    assert {b["id"] for b in cards} == {
+        "short_memory",
+        "system_prompt",
+        "global_memory",
+        "reasoning",
+        "tools",
+        "mcp",
+        "skills",
+        "hooks",
+        "subagent",
+        "rag",
+        "compression",
+    }
+    assert [b.id for b in BRICKS] == [b["id"] for b in cards]
+
+
+def test_turn_ids_keep_growing_after_clearing_and_reset():
+    session = booted_session(FakeEngine(output="Bonjour !"))
+    mark = get_journal().last_seq()
+
+    _run(session, "Un")
+    _run(session, "Deux")
+    session.clear_conversation()
+    session.join()
+    _run(session, "Trois")
+    session.reset()
+    session.join()
+    _run(session, "Quatre")
+
+    started = [e.turn_id for e in get_journal().events_since(mark) if e.kind == "turn_started"]
+    assert started == ["t1", "t2", "t3", "t4"]

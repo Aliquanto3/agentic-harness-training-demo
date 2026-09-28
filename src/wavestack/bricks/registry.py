@@ -31,6 +31,21 @@ SKILLS = (
 HOOKS = ("h1", "h2", "h3", "h5")
 
 BRICKS = [
+    # Story 13: the model's reasoning mode, available when the model can reason (AD-6).
+    # Story 22: first in the bricks panel (the order of this list is the display order only).
+    BrickDeclaration(
+        id="reasoning",
+        category="prompt",
+        capabilities=["reasoning"],
+        components=[
+            Component(
+                id="reasoning.mode",
+                kind="reasoning",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            )
+        ],
+    ),
     BrickDeclaration(
         id="short_memory",
         category="context",
@@ -67,20 +82,6 @@ BRICKS = [
                 kind="memory",
                 hosting="local_file",
                 edges_to=["core.harness", "file.memory"],
-            )
-        ],
-    ),
-    # Story 13: the model's reasoning mode, available when the model can reason (AD-6).
-    BrickDeclaration(
-        id="reasoning",
-        category="prompt",
-        capabilities=["reasoning"],
-        components=[
-            Component(
-                id="reasoning.mode",
-                kind="reasoning",
-                hosting="local_process",
-                edges_to=["core.harness"],
             )
         ],
     ),

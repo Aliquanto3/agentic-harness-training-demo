@@ -133,6 +133,10 @@ class Run:
     def state(self) -> dict[str, Any]:
         return self.api("GET", "/api/state").json()
 
+    def bricks_state(self) -> dict[str, Any]:
+        """The last `bricks_changed` payload: cards and system prompt."""
+        return self.state()["bricks_changed"]
+
     def bricks(self) -> dict[str, dict[str, Any]]:
         return {b["id"]: b for b in self.state()["bricks_changed"]["bricks"]}
 
@@ -220,6 +224,18 @@ class Run:
             has=self.page.locator(".brick-name", has_text=name)
         )
 
+    def parent_off(self, brick: str) -> dict[str, Any]:
+        """Story 22: the sub-options of a card, as its brick off shows them."""
+        self.open_options(brick)
+        details = self.card(brick).locator("details.brick-options")
+        return details.evaluate(
+            "d => ({ summary: d.querySelector('summary').textContent,"
+            " switches: [...d.querySelectorAll('input.brick-toggle')].map(t => ({"
+            " key: t.dataset.focusKey, disabled: t.disabled,"
+            " title: t.closest('.brick-option').title,"
+            " described: t.getAttribute('aria-description') || '' })) })"
+        )
+
     def set_brick(self, name: str, on: bool) -> None:
         toggle = self.card(name).locator(".brick-head input.brick-toggle")
         if toggle.is_checked() != on:
@@ -240,6 +256,11 @@ class Run:
             .locator("label.brick-option", has_text=option)
             .locator("input.brick-toggle")
         )
+        if toggle.is_disabled():  # story 22: a brick off greys its sub-options
+            raise AssertionError(
+                f"« {option} » est désactivé : allumez la brique {brick} avant de régler "
+                "ses options"
+            )
         if toggle.is_checked() != on:
             seq = self.ev.mark()
             toggle.click()
@@ -316,6 +337,17 @@ def s_bare_llm(r: Run) -> None:
     r.launch("bare_llm")
     guide = r.page.locator("#scenario-guide")
     r.check(guide.is_visible() and "LLM nu" in guide.inner_text(), "consigne affichée")
+    overflow, more = r.page.evaluate(
+        "() => { const t = document.getElementById('scenario-guide-text');"
+        " return [t.scrollHeight > t.clientHeight + 1,"
+        " !document.getElementById('scenario-guide-more').hidden]; }"
+    )
+    r.check(
+        overflow == more,
+        "« Afficher plus » seulement si la consigne dépasse 3 lignes",
+        f"déborde : {overflow} · bouton : {more}",
+    )
+    _parent_off_at_launch(r)
     before = len(r.fake_calls())
     r.page.locator("#suggested-prompts button").first.click()
     r.check(
@@ -365,6 +397,65 @@ def s_bare_llm(r: Run) -> None:
     )
 
 
+def _parent_off_at_launch(r: Run) -> None:
+    """Story 22: « Raisonnement » heads the panel; the bricks off at launch grey their
+    sub-options (MCP's lazy loading too), with the reason on hover and « brique éteinte »."""
+    first = r.page.locator("article.brick-card").first.locator(".brick-name").inner_text()
+    r.check(first == "Raisonnement", "panneau des briques : « Raisonnement » en tête", first)
+    # X1: MCP off in lazy loading. The session still accepts the mode, brick off (API);
+    # restored whatever happens, so that no later scenario inherits it.
+    seq = r.ev.mark()
+    lazy_on = r.api("POST", "/api/intentions/mcp_mode", {"lazy": True})
+    try:
+        r.ev.wait("bricks_changed", seq, timeout=10)
+        time.sleep(0.3)
+        _parent_off_cards(r, lazy_on)
+    finally:
+        seq = r.ev.mark()
+        r.api("POST", "/api/intentions/mcp_mode", {"lazy": False})
+        r.ev.wait("bricks_changed", seq, timeout=10)
+
+
+def _parent_off_cards(r: Run, lazy_on: httpx.Response) -> None:
+    cards = r.bricks()
+    r.check(
+        lazy_on.status_code == 200 and cards["mcp"]["mode"] == "lazy",
+        "brique MCP éteinte : la session accepte le lazy loading (API inchangée)",
+        str(lazy_on.status_code),
+    )
+    for brick_id in ("mcp", "tools", "skills", "hooks"):
+        card = cards[brick_id]
+        label = card["label_fr"]
+        expected = (
+            card["reason_fr"] or f"La brique {label} est indisponible."
+            if not card["available"]
+            else f"Activez la brique {label} pour régler cette option."
+        )
+        seen = r.parent_off(label)
+        switches = seen["switches"]
+        r.check(
+            not card["wanted"]
+            and bool(switches)
+            and all(
+                sw["disabled"] and sw["title"] == expected and sw["described"] == expected
+                for sw in switches
+            )
+            and "brique éteinte" in seen["summary"],
+            f"brique {label} éteinte : sous-options désactivées, raison au survol, "
+            "« brique éteinte » dans le résumé",
+            f"{seen['summary']} · {len(switches)} interrupteurs · {expected}",
+        )
+        if brick_id == "mcp":
+            lazy = r.card(label).locator('input[data-focus-key="option:mcp:lazy"]')
+            r.check(
+                lazy.is_disabled() and card["lazy_label_fr"] not in seen["summary"],
+                "MCP éteint : « Lazy loading » désactivé, le résumé ne le montre plus actif",
+                f"mode {card['mode']} · {seen['summary']}",
+            )
+        else:  # folded again: only MCP's list stays open for the capture
+            r.card(label).locator("details.brick-options").evaluate("d => { d.open = false; }")
+
+
 def s_short_memory(r: Run) -> None:
     r.launch("short_memory")
     prompts = [
@@ -386,9 +477,32 @@ def s_system_prompt(r: Run) -> None:
     first = r.fake_calls()[-1]
     r.check(first["messages"][0]["role"] == "system", "le prompt système part en tête du contexte")
     r.page.click("#edit-system-prompt")
+    save = r.page.locator("#drawer-save")
+    status = r.page.locator("#drawer-status")
+    r.check(
+        save.is_disabled(), "tiroir du prompt système : « Enregistrer » désactivé, texte inchangé"
+    )
     r.page.fill("#drawer-text", "Réponds toujours en une phrase, comme un pirate.")
+    r.check(save.is_enabled(), "texte modifié : « Enregistrer » actif")
     r.page.click("#drawer-save")
-    time.sleep(0.5)
+    try:
+        expect(status).to_contain_text("Prompt système enregistré", timeout=5000)
+        confirmed = True
+    except AssertionError:
+        confirmed = False
+    r.check(
+        confirmed and status.get_attribute("role") == "status" and save.is_disabled(),
+        "« Enregistrer » : « Prompt système enregistré. » (role=status), bouton de nouveau "
+        "désactivé",
+        status.inner_text() or "(aucun message)",
+    )
+    r.page.type("#drawer-text", " ")
+    r.check(
+        status.inner_text() == "" and save.is_enabled(),
+        "saisie suivante : la confirmation s'efface, « Enregistrer » redevient actif",
+    )
+    r.page.fill("#drawer-text", "Réponds toujours en une phrase, comme un pirate.")
+    r.check(save.is_disabled(), "texte revenu à celui enregistré : « Enregistrer » désactivé")
     if r.page.locator("#edit-drawer").is_visible():
         r.page.click("#drawer-close")
     ended = r.replay()
@@ -408,6 +522,21 @@ def s_system_prompt(r: Run) -> None:
     r.check(heading.is_visible(), "« Comparer » ouvre la comparaison de tours")
     r.shot("04-prompt-systeme-rejeu-comparer")
     r.page.locator("#ctx").get_by_role("button", name="Fermer").click()
+
+    # Story 22: « Rétablir le prompt par défaut » confirms too.
+    r.page.click("#edit-system-prompt")
+    r.page.click("#drawer-reset")
+    try:
+        expect(status).to_contain_text("Prompt par défaut rétabli", timeout=5000)
+        restored = True
+    except AssertionError:
+        restored = False
+    r.check(
+        restored and save.is_disabled() and r.bricks_state()["system_prompt"]["is_default"],
+        "« Rétablir » : « Prompt par défaut rétabli. », « Enregistrer » désactivé",
+        status.inner_text() or "(aucun message)",
+    )
+    r.page.click("#drawer-close")
 
 
 def s_native_tools(r: Run) -> None:
@@ -897,32 +1026,72 @@ def s_subagent(r: Run) -> None:
     expect(body).to_contain_text("Économie pour le contexte principal", timeout=5000)
     r.check(True, "l'étape dépliée donne tâche, tokens restés, réinjectés et économisés")
 
-    # Contexte LLM: the main context, then the sub-agent's, each with its total.
-    body.get_by_role("button", name="Voir le contexte du sous-agent").click()
+    # Contexte LLM (story 22): tabs « Agent principal » / « Sous-agent subN », the main one
+    # selected after the turn; each shows its context with its total.
     ctx = page.locator("#ctx")
-    switch = ctx.locator(".ctx-view-switch")
+    switch = ctx.get_by_role("tablist", name="Contexte affiché")
     expect(switch).to_be_visible(timeout=5000)
-    sub_button = switch.get_by_role("button", name="Contexte du sous-agent")
+    main_tab = switch.get_by_role("tab", name="Agent principal", exact=True)
+    sub_tab = switch.get_by_role("tab", name=re.compile(r"^Sous-agent sub\d+$"))
     r.check(
-        sub_button.get_attribute("aria-pressed") == "true", "bascule sur le contexte du sous-agent"
+        main_tab.get_attribute("aria-selected") == "true"
+        and sub_tab.count() == 1
+        and sub_tab.get_attribute("aria-selected") == "false",
+        "Contexte LLM : onglets « Agent principal » (sélectionné) et « Sous-agent subN »",
+        " | ".join(switch.get_by_role("tab").all_inner_texts()),
     )
+    sub_tab.click()
     text = ctx.inner_text()
     r.check(
-        "sous-agent de WaveStack" in text
+        sub_tab.get_attribute("aria-selected") == "true"
+        and "sous-agent de WaveStack" in text
         and "Résultats d'outils" in text
         and "Sous-agent sub" in text,
-        "contexte du sous-agent : son prompt, la tâche, le résultat d'outil, son total",
+        "onglet du sous-agent : son prompt, la tâche, le résultat d'outil, son total",
     )
-    switch.get_by_role("button", name="Contexte principal").click()
+    main_tab.click()
     text = ctx.inner_text()
     r.check(
-        "Résultat du sous-agent" in text and guide not in text,
-        "contexte principal : le seul résultat, en « Résultat du sous-agent »",
+        main_tab.get_attribute("aria-selected") == "true"
+        and "Résultat du sous-agent" in text
+        and guide not in text,
+        "onglet « Agent principal » : le seul résultat, en « Résultat du sous-agent »",
+    )
+    body.get_by_role("button", name="Voir le contexte du sous-agent").click()
+    r.check(
+        sub_tab.get_attribute("aria-selected") == "true"
+        and "sous-agent de WaveStack" in ctx.inner_text(),
+        "« Voir le contexte du sous-agent » sélectionne son onglet",
     )
     r.shot("19-sous-agent-delegation")
 
-    # Forced delegation: the card's button, its preset, the chip (disarmed by keyboard too).
+    # Story 22: « Annuler » and a second click on the button close the form.
     r.show_forced(True)
+    delegate = page.get_by_role("button", name="Déléguer au sous-agent")
+    form = page.locator(".force-form")
+    delegate.click()
+    expect(form).to_be_visible(timeout=5000)
+    form.get_by_role("button", name="Annuler").click()
+    closed, took = r.poll(lambda: form.count() == 0, 2)
+    focused = page.evaluate("() => document.activeElement?.dataset.focusKey || ''")
+    r.check(
+        closed
+        and delegate.get_attribute("aria-expanded") == "false"
+        and focused.startswith("force:subagent:"),
+        "« Annuler » ferme le formulaire « Déléguer au sous-agent », focus sur le bouton",
+        f"{took:.2f} s · focus {focused}",
+    )
+    delegate.click()
+    expect(form).to_be_visible(timeout=5000)
+    delegate.click()
+    closed, took = r.poll(lambda: form.count() == 0, 2)
+    r.check(
+        closed and delegate.get_attribute("aria-expanded") == "false",
+        "re-clic sur « Déléguer au sous-agent » : le formulaire se ferme",
+        f"{took:.2f} s",
+    )
+
+    # Forced delegation: the card's button, its preset, the chip (disarmed by keyboard too).
     armed = r.arm("Déléguer au sous-agent", preset="Résumer le guide du harnais")
     action = armed["payload"]["actions"][0]
     r.check(
@@ -948,6 +1117,10 @@ def s_subagent(r: Run) -> None:
         "délégation forcée consommée par le tour (déclenchée par l'utilisateur)",
     )
     r.check(ended["payload"]["status"] == "completed", "tour forcé terminé")
+    ok, _ = r.poll(
+        lambda: main_tab.count() == 1 and main_tab.get_attribute("aria-selected") == "true", 5
+    )
+    r.check(ok, "au tour suivant, l'onglet « Agent principal » est de nouveau sélectionné")
     delegation = rail.locator(".turn-step-line", has_text="Délégation au sous-agent").last
     r.check(
         "Forcé par l'utilisateur" in delegation.inner_text(), "badge « Forcé par l'utilisateur »"
@@ -1122,6 +1295,7 @@ def s_soc(r: Run) -> None:
     r.check("Métier SOC" in guide.inner_text(), "consigne du scénario SOC affichée")
     seq = r.ev.mark()
     ended = r.send(first)
+    _folded_guide(r)
     reads = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
     r.check(
         bool(reads) and reads[0]["status"] == "ok",
@@ -1178,6 +1352,77 @@ def s_soc(r: Run) -> None:
     text.evaluate("e => { for (let n = e; n; n = n.parentElement) n.scrollTop = n.scrollHeight; }")
     r.shot("26-metier-soc-journal-audit")
     r.page.click("#audit-close")
+
+    # Story 22: left unfolded, the guide folds again when another scenario is launched.
+    more = r.page.locator("#scenario-guide-more")
+    more.click()
+    expect(more).to_have_attribute("aria-expanded", "true", timeout=5000)
+    r.launch("reasoning")
+    folded = r.page.evaluate(
+        "() => [document.getElementById('scenario-guide-more').getAttribute('aria-expanded'),"
+        " document.getElementById('scenario-guide').classList.contains('is-expanded')]"
+    )
+    r.check(
+        folded == ["false", False],
+        "nouveau scénario : la consigne dépliée se replie",
+        str(folded),
+    )
+
+
+def _folded_guide(r: Run) -> None:
+    """Story 22 (C1): a long scenario guide holds 3 lines, « Afficher plus » unfolds it; the
+    field and the last bubble stay in view."""
+    text = r.page.locator("#scenario-guide-text")
+    more = r.page.locator("#scenario-guide-more")
+    measure = (
+        "e => { const s = getComputedStyle(e);"
+        " return [e.getBoundingClientRect().height, parseFloat(s.lineHeight)]; }"
+    )
+    height, line = text.evaluate(measure)
+    r.check(
+        height <= 3 * line + 1
+        and more.is_visible()
+        and more.get_attribute("aria-expanded") == "false",
+        "consigne longue : 3 lignes au plus, « Afficher plus » visible",
+        f"{height:.1f} px pour des lignes de {line:.1f} px",
+    )
+
+    def in_view() -> str:
+        """Empty when the field is whole in the pane and 20 px of the last bubble show."""
+        body = r.page.locator("section[data-pane='human'] .pane-body-human").bounding_box()
+        chat = r.page.locator("#chat").bounding_box()
+        field = r.page.locator("#composer-input").bounding_box()
+        bubble = r.page.locator("#chat .bubble").last.bounding_box()
+        if not (body and chat and field and bubble):
+            return f"champ {field} · bulle {bubble} · fil {chat}"
+        fits = field["y"] + field["height"] <= body["y"] + body["height"]
+        shown = min(bubble["y"] + bubble["height"], chat["y"] + chat["height"]) - max(
+            bubble["y"], chat["y"]
+        )
+        return "" if fits and shown >= 20 else f"champ {field} · bulle {bubble} · fil {chat}"
+
+    missing = in_view()
+    r.check(
+        not missing, "consigne repliée : le champ et la dernière bulle restent visibles", missing
+    )
+    more.click()
+    unfolded = text.evaluate(measure)[0]
+    r.check(
+        more.get_attribute("aria-expanded") == "true"
+        and more.inner_text() == "Réduire"
+        and unfolded > height,
+        "« Afficher plus » : le texte entier, « Réduire »",
+        f"{height:.1f} puis {unfolded:.1f} px",
+    )
+    missing = in_view()
+    r.check(
+        not missing, "consigne dépliée : le champ et la dernière bulle restent visibles", missing
+    )
+    more.click()
+    r.check(
+        more.get_attribute("aria-expanded") == "false" and more.inner_text() == "Afficher plus",
+        "« Réduire » replie la consigne",
+    )
 
 
 def _public_server_offline(r: Run, server: str, label: str) -> None:
@@ -1307,6 +1552,65 @@ def _memory_step(r: Run):
     return r.page.locator("#orch-scroll .turn-step", has=name).last
 
 
+# A color token of tokens.css, as `getComputedStyle` writes a color (`rgb(…)`).
+_CSS_COLOR_JS = (
+    "name => { const probe = document.createElement('span');"
+    " probe.style.color = `var(${name})`; document.body.appendChild(probe);"
+    " const color = getComputedStyle(probe).color; probe.remove(); return color; }"
+)
+
+
+def _memory_drawer_frame(r: Run) -> None:
+    """Story 22 (C1): the cross, « Tout effacer » and « Fermer » in view without scrolling,
+    inside the drawer; « Tout effacer » a danger button, unlike an entry's « Enregistrer »."""
+    drawer = r.page.locator("#memory-drawer")
+    frame = drawer.bounding_box() or {}
+    viewport = r.page.viewport_size or {}
+    buttons = {
+        "×": drawer.get_by_role("button", name="Fermer la mémoire globale"),
+        "Tout effacer": drawer.get_by_role("button", name="Tout effacer", exact=True),
+        "Fermer": drawer.get_by_role("button", name="Fermer", exact=True),
+    }
+    outside = []
+    for name, button in buttons.items():
+        box = button.bounding_box()
+        if not (
+            box
+            and box["y"] >= frame["y"]
+            and box["y"] + box["height"] <= frame["y"] + frame["height"]
+            and box["x"] >= frame["x"]
+            and box["x"] + box["width"] <= frame["x"] + frame["width"]
+            and box["y"] + box["height"] <= viewport.get("height", 0)
+        ):
+            outside.append(f"{name} {box}")
+    scrolled, overflows = drawer.locator("#memory-scroll").evaluate(
+        "e => [e.scrollTop, e.scrollHeight > e.clientHeight]"
+    )
+    r.check(overflows, "la liste des 6 entrées déborde : seule la zone centrale défile")
+    r.check(
+        not outside and scrolled == 0,
+        "tiroir de la mémoire (6 entrées) : croix, « Tout effacer » et « Fermer » visibles "
+        "sans défiler",
+        "; ".join(outside) or f"cadre {frame}",
+    )
+    read = (
+        "b => { const s = getComputedStyle(b);"
+        " return [b.className, s.borderTopColor, s.boxShadow]; }"
+    )
+    clear = buttons["Tout effacer"].evaluate(read)
+    save = drawer.get_by_role("button", name="Enregistrer l'entrée 1").evaluate(read)
+    danger = r.page.evaluate(_CSS_COLOR_JS, "--color-danger")
+    r.check(
+        "danger" in clear[0].split() and clear[1] == danger and save[1] != clear[1],
+        "« Tout effacer » : classe danger, bordure danger, distincte d'« Enregistrer » d'une "
+        "entrée",
+        f"Tout effacer {clear} · Enregistrer {save} · danger {danger}",
+    )
+    r.check(
+        save[2] == "none", "« Enregistrer » d'une entrée : action compacte sans relief", save[2]
+    )
+
+
 def s_global_memory(r: Run) -> None:
     """Story 14: written by the model, then forced, read back after clearing, edited in the
     drawer (from the schema's node and from the card), restored by the reset."""
@@ -1395,17 +1699,21 @@ def s_global_memory(r: Run) -> None:
     )
     r.check(_memory_file(r)[-1]["source"] == "user", "memory.json : entrée forcée, source user")
     r.show_forced(False)
+    # Story 22: a sixth entry, so that the drawer's list is long.
+    r.send("Retiens que j'anime aussi un atelier sur les hooks le mardi.")
+    r.check(len(_memory_file(r)) == 6, "memory.json : 6 entrées", str(len(_memory_file(r))))
 
     # The drawer, opened by a click on the schema's node.
     drawer = r.page.locator("#memory-drawer")
     r.page.locator('#schema .arch-node[data-component="file.memory"]').click()
     expect(drawer).to_be_visible(timeout=5000)
     entries = drawer.locator("#memory-list li")
-    r.check(entries.count() == 5, "clic sur le nœud memory.json : le tiroir liste 5 entrées")
+    r.check(entries.count() == 6, "clic sur le nœud memory.json : le tiroir liste 6 entrées")
     r.check(
         str(r.stack.data_dir / "memory.json") in drawer.inner_text(),
         "le tiroir donne le chemin du fichier",
     )
+    _memory_drawer_frame(r)
     r.shot("20-memoire-tiroir")
 
     seq = r.ev.mark()
@@ -1427,8 +1735,8 @@ def s_global_memory(r: Run) -> None:
     seq = r.ev.mark()
     drawer.get_by_role("button", name="Supprimer l'entrée 2").click()
     r.ev.wait("memory_changed", seq, timeout=10)
-    expect(entries).to_have_count(4, timeout=5000)
-    r.check(len(_memory_file(r)) == 4, "supprimer : 4 entrées restent")
+    expect(entries).to_have_count(5, timeout=5000)
+    r.check(len(_memory_file(r)) == 5, "supprimer : 5 entrées restent")
 
     entries.first.locator("textarea").fill("Texte modifié sans l'enregistrer.")
     r.page.keyboard.press("Escape")
@@ -1437,13 +1745,30 @@ def s_global_memory(r: Run) -> None:
     r.check(drawer.is_visible(), "Échap avec une modification : le tiroir demande quoi faire")
     drawer.get_by_role("button", name="Abandonner").click()
     expect(drawer).to_be_hidden(timeout=5000)
-    r.check(len(_memory_file(r)) == 4, "abandonner : rien n'est écrit")
+    r.check(len(_memory_file(r)) == 5, "abandonner : rien n'est écrit")
+
+    # Story 22: the cross closes the drawer like « Fermer ».
+    card.get_by_role("button", name="Modifier la mémoire").click()
+    expect(drawer).to_be_visible(timeout=5000)
+    drawer.get_by_role("button", name="Fermer la mémoire globale").click()
+    closed, _ = r.poll(lambda: drawer.is_hidden(), 5)
+    r.check(closed, "la croix « × » ferme le tiroir de la mémoire")
 
     card.get_by_role("button", name="Modifier la mémoire").click()
     expect(drawer).to_be_visible(timeout=5000)
     drawer.get_by_role("button", name="Tout effacer", exact=True).click()
-    expect(alert).to_contain_text("Effacer les 4 entrées")
-    r.check(len(_memory_file(r)) == 4, "« Tout effacer » demande d'abord confirmation")
+    expect(alert).to_contain_text("Effacer les 5 entrées")
+    confirm = drawer.get_by_role("button", name="Oui, tout effacer")
+    look = confirm.evaluate(
+        "b => { const s = getComputedStyle(b); return [b.className, s.backgroundColor]; }"
+    )
+    danger = r.page.evaluate(_CSS_COLOR_JS, "--color-danger")
+    r.check(
+        "danger" in look[0] and look[1] == danger,
+        "« Oui, tout effacer » : bouton danger, fond de la couleur danger",
+        f"{look} · danger {danger}",
+    )
+    r.check(len(_memory_file(r)) == 5, "« Tout effacer » demande d'abord confirmation")
     seq = r.ev.mark()
     drawer.get_by_role("button", name="Oui, tout effacer").click()
     r.ev.wait("memory_changed", seq, lambda p: p["entries"] == [], timeout=10)
@@ -1455,7 +1780,7 @@ def s_global_memory(r: Run) -> None:
         empty.inner_text(),
     )
     r.shot("21-memoire-tiroir-vide")
-    drawer.get_by_role("button", name="Fermer").click()
+    drawer.get_by_role("button", name="Fermer", exact=True).click()
     expect(drawer).to_be_hidden(timeout=5000)
 
     # The reset restores the demonstration.
@@ -1501,6 +1826,16 @@ def s_rag(r: Run) -> None:
         and rag["download"]["target"] == "rag_embedding"
         and rag["build_index"] is None,
         "/api/state : RAG voulue, indisponible, téléchargement proposé, pas encore de construction",
+    )
+    # Story 22: wanted but unavailable, the brick greys « Reranking » with its own reason.
+    rerank = card.locator('input[data-focus-key="option:rag:rerank"]')
+    row = card.locator("label.brick-option:has(input[data-focus-key='option:rag:rerank'])")
+    r.check(
+        rerank.is_disabled()
+        and row.get_attribute("title") == rag["reason_fr"]
+        and rerank.get_attribute("aria-description") == rag["reason_fr"],
+        "RAG voulue mais indisponible : « Reranking » désactivé, raison de la brique au survol",
+        f"« {row.get_attribute('title')} » · raison « {rag['reason_fr']} »",
     )
 
     # The file is not served yet: the download fails, explained on the card.
@@ -1853,6 +2188,34 @@ def s_rag_rerank(r: Run) -> None:
         "rejeu sans reranking : 3 extraits, aucune étape « Reranking »",
     )
 
+    # Story 22 (M3): « Reranking » checked, then the RAG brick off: greyed, disabled, the
+    # reason on hover; the brick back on, the switch is active again, still checked.
+    seq = r.ev.mark()
+    toggle.click()
+    r.ev.wait("bricks_changed", seq, timeout=10)
+    r.set_brick("RAG", False)
+    row = card.locator("label.brick-option:has(input[data-focus-key='option:rag:rerank'])")
+    look = toggle.evaluate("t => getComputedStyle(t).backgroundColor")
+    primary = r.page.evaluate(_CSS_COLOR_JS, "--color-primary")
+    muted = r.page.evaluate(_CSS_COLOR_JS, "--color-muted")
+    title = row.get_attribute("title") or ""
+    r.check(
+        toggle.is_checked()
+        and toggle.is_disabled()
+        and look != primary
+        and look == muted
+        and "Activez la brique RAG" in title
+        and toggle.get_attribute("aria-description") == title,
+        "brique RAG éteinte : « Reranking » coché mais grisé, désactivé, raison au survol",
+        f"fond {look} (violet {primary}) · « {title} »",
+    )
+    r.shot("27-reranking-brique-rag-eteinte")
+    r.set_brick("RAG", True)
+    r.check(
+        toggle.is_checked() and toggle.is_enabled() and not row.get_attribute("title"),
+        "brique RAG rallumée : « Reranking » de nouveau réglable, toujours coché",
+    )
+
 
 COMPRESSION_QUESTION = (
     "Lis le fichier journal_serveur.log et dis-moi quelle erreur grave la sauvegarde de cette "
@@ -2083,8 +2446,10 @@ new MutationObserver((records) => {
 
 def s_reload_and_reset(r: Run) -> None:
     r.launch("hooks")
+    seq = r.ev.mark()
     for _ in range(3):  # past turns: `session_state` « turn » then « idle » in the journal
         r.send("Bonjour")
+    past_ids = [e["turn_id"] for e in r.ev.since(seq, "turn_started")]
     r.page.add_init_script(COMPOSER_FLIPS_JS)
     r.reload_app()
     flips = r.page.evaluate("() => window.__composerFlips")
@@ -2151,6 +2516,35 @@ def s_reload_and_reset(r: Run) -> None:
     )
     replay = r.page.locator("#replay-last")
     r.check(replay.is_disabled(), "rien à rejouer après réinitialisation")
+
+    # Story 22: « Tour 1 » again after the reset, then after « Vider la conversation »; the
+    # journal's ids go on (t{n} unique for the session), said by the title's tooltip.
+    r.check(len(past_ids) == 3, "trois tours avant la réinitialisation", str(past_ids))
+    last = int(past_ids[-1][1:])
+    _first_turn_after(r, "Réinitialiser", f"t{last + 1}")
+    seq = r.ev.mark()
+    r.page.click("#clear-conversation")
+    r.ev.wait("conversation_cleared", seq, timeout=10)
+    _first_turn_after(r, "Vider la conversation", f"t{last + 2}")
+
+
+def _first_turn_after(r: Run, gesture: str, turn_id: str) -> None:
+    seq = r.ev.mark()
+    r.send("Bonjour")
+    started = [e["turn_id"] for e in r.ev.since(seq, "turn_started")]
+    title = r.page.locator("#orch-scroll .turn-group-title", has_text="Tour ")
+    shown = title.all_inner_texts()
+    tooltip = title.last.get_attribute("title") if shown else None
+    total = r.page.locator("#ctx .ctx-total").inner_text()
+    r.check(
+        started == [turn_id]
+        and shown == ["Tour 1"]
+        and tooltip == f"Identifiant du tour dans le journal : {turn_id}"
+        and total.startswith("Tour 1 · "),
+        f"après « {gesture} » : Orchestration et Contexte LLM « Tour 1 », infobulle et journal "
+        f"en {turn_id}",
+        f"journal {started} · titres {shown} · infobulle « {tooltip} » · contexte « {total[:40]} »",
+    )
 
 
 def s_stream_resync(r: Run) -> None:

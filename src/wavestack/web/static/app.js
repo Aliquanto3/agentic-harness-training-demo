@@ -225,7 +225,10 @@ function applyEnvelope(envelope) {
       if (isLive(envelope)) store.gauge = { payload: p, preview: true };
       break;
     case "bricks_changed":
-      if (isLive(envelope)) store.bricks = p;
+      if (isLive(envelope)) {
+        store.bricks = p;
+        syncDrawerSave(); // story 22: the prompt the session holds may have changed
+      }
       break;
     case "memory_changed":
       if (!isLive(envelope)) break;
@@ -286,6 +289,7 @@ function applyEnvelope(envelope) {
     case "turn_started":
       store.topStatus = null;
       store.compare = null; // the new turn's live context shows in Contexte LLM
+      store.ctxView = null; // story 22: each new turn opens on « Agent principal »
       store.turns.push({
         id: envelope.turn_id,
         message: p.message,
@@ -813,8 +817,11 @@ let renderedMemory = null;
 let renderedSessionKey = null; // story 15: the download's state and progress, on the RAG card
 
 // Story 9: the forced actions' UI changed (toggle, form): the panel is rebuilt at next render.
+// Story 22: a sentinel no `store.forceForm` can equal; `null` let a closed form (back to
+// `null`) pass the guard of `renderBricks`, so « Annuler » left the form open.
+const STALE = Symbol("stale");
 function forceUiChanged() {
-  renderedForceUi = null;
+  renderedForceUi = STALE;
   scheduleRender();
 }
 
@@ -864,7 +871,10 @@ function renderBricks() {
     const card = el("article", "brick-card");
     // Story 13: a model that always reasons keeps the reasoning brick on, whatever `wanted`.
     const always = Boolean(brick.always_fr);
-    card.classList.toggle("is-active", always || (brick.wanted && brick.available));
+    // Story 22: the brick is off (or unavailable): its sub-options apply nothing, and say so.
+    const parentOff = !(always || (brick.wanted && brick.available));
+    const offReason = parentOff ? parentOffReason(brick) : null;
+    card.classList.toggle("is-active", !parentOff);
     card.classList.toggle("is-unavailable", !brick.available);
 
     const head = el("label", "brick-head");
@@ -885,7 +895,7 @@ function renderBricks() {
     card.append(head, tags);
 
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
-    if (brick.id === "rag") card.append(...downloadParts(brick), ...rerankParts(brick));
+    if (brick.id === "rag") card.append(...downloadParts(brick), ...rerankParts(brick, offReason));
     if (always) {
       const why = el("p", "brick-reason brick-always", brick.always_fr);
       why.id = `always-${brick.id}`;
@@ -898,7 +908,7 @@ function renderBricks() {
     const armed = store.armed.filter((a) => a.brick === brick.id);
     if (armed.length) card.appendChild(armedChips(armed, `card:${brick.id}`));
 
-    if (brick.options?.length) card.appendChild(brickOptions(brick));
+    if (brick.options?.length) card.appendChild(brickOptions(brick, offReason));
     if (brick.limits_fr) card.appendChild(el("p", "brick-limits", brick.limits_fr));
     // Story 19: a brick without sub-option forces its action from the card itself.
     if (brick.force && store.showForced) card.append(...cardForce(brick));
@@ -956,6 +966,23 @@ function renderBricks() {
   }
 }
 
+// Story 22: why a sub-option cannot be set while its brick is off: the brick's own reason when
+// it is unavailable, else how to turn it on. Said on hover (`title`) and to screen readers.
+function parentOffReason(brick) {
+  if (!brick.available) return brick.reason_fr || `La brique ${brick.label_fr} est indisponible.`;
+  return `Activez la brique ${brick.label_fr} pour régler cette option.`;
+}
+
+// Story 22: a sub-option's row whose brick is off: its switch keeps its state but is greyed
+// and disabled; the session would still accept it (the API is unchanged), the UI does not.
+function markParentOff(row, toggle, offReason) {
+  if (!offReason) return;
+  toggle.disabled = true;
+  toggle.setAttribute("aria-description", offReason);
+  row.classList.add("is-parent-off");
+  row.title = offReason;
+}
+
 function sessionKey() {
   return `${store.sessionState?.state ?? ""}|${store.sessionState?.reason_fr ?? ""}|${store.ragNotice ?? ""}|${store.rerankNotice ?? ""}`;
 }
@@ -1005,7 +1032,7 @@ function downloadParts(brick) {
 
 // Story 16: the « Reranking » sub-option of the RAG card: its switch and hosting tag, its
 // reason when unavailable, and « Télécharger » while its model is missing (AD-21).
-function rerankParts(brick) {
+function rerankParts(brick, offReason = null) {
   const option = brick.rerank;
   if (!option) return [];
   const box = el("div", "brick-suboption");
@@ -1018,6 +1045,7 @@ function rerankParts(brick) {
   toggle.disabled = !option.available && !option.enabled;
   toggle.dataset.focusKey = "option:rag:rerank";
   toggle.addEventListener("change", () => setOption("rag_rerank", null, toggle.checked));
+  markParentOff(row, toggle, offReason);
   row.append(toggle, el("span", "brick-option-name", option.label_fr), el("span", "hosting-tag-local", option.hosting_fr));
   box.appendChild(row);
   if (!option.available && option.reason_fr) {
@@ -1058,7 +1086,7 @@ async function ragAction(path, body) {
   scheduleRender();
 }
 
-function brickOptions(brick) {
+function brickOptions(brick, offReason = null) {
   // Sub-options (EXPERIENCE: brick-card): one switch per tool, with its hosting tag.
   const key = `options:${brick.id}`;
   const details = el("details", "brick-options");
@@ -1069,8 +1097,10 @@ function brickOptions(brick) {
   });
   const on = brick.options.filter((o) => o.enabled).length;
   const noun = { mcp: "Serveurs", skills: "Skills", hooks: "Hooks" }[brick.id] || "Outils";
-  // The closed card still shows the MCP documentation mode.
-  const mode = brick.mode === "lazy" ? ` · ${brick.lazy_label_fr}` : "";
+  // The closed card still shows the MCP documentation mode; the brick off, that it is off
+  // (story 22: a lazy loading shown while MCP is off seemed to act).
+  const mode = offReason ? " · brique éteinte" : brick.mode === "lazy" ? ` · ${brick.lazy_label_fr}` : "";
+  details.classList.toggle("is-parent-off", Boolean(offReason));
   details.appendChild(
     el("summary", "", `${noun} : ${on} activé${on > 1 ? "s" : ""} sur ${brick.options.length}${mode}`)
   );
@@ -1083,6 +1113,7 @@ function brickOptions(brick) {
     toggle.checked = option.enabled;
     toggle.dataset.focusKey = `option:${brick.id}:${option.id}`;
     toggle.addEventListener("change", () => setOption(brick.id, option.id, toggle.checked));
+    markParentOff(row, toggle, offReason);
     row.append(
       toggle,
       el("span", "brick-option-name", option.label_fr),
@@ -1108,6 +1139,7 @@ function brickOptions(brick) {
     toggle.checked = brick.mode === "lazy";
     toggle.dataset.focusKey = "option:mcp:lazy";
     toggle.addEventListener("change", () => setOption("mcp_mode", null, toggle.checked));
+    markParentOff(row, toggle, offReason);
     row.append(toggle, el("span", "brick-option-name", brick.lazy_label_fr));
     details.appendChild(row);
   }
@@ -1479,9 +1511,26 @@ function drawerAlert(text, dirtyChoice = false) {
   document.getElementById("drawer-dirty").hidden = !dirtyChoice;
 }
 
+// Story 22 (M1): « Enregistrer » only when the text differs from the one the session holds;
+// checked on opening, typing, saving and at each `bricks_changed`.
+function syncDrawerSave() {
+  const save = document.getElementById("drawer-save");
+  save.disabled = drawerText().value === (store.bricks?.system_prompt.text ?? "");
+  // A disabled button drops the keyboard focus to the page: it goes to the text instead.
+  if (save.disabled && document.activeElement === save) drawerText().focus();
+}
+
+// Story 22 (M1): the confirmation of a save, read by screen readers (`role=status`, a live
+// region always in the page, empty when silent); cleared by the next keystroke or the closing.
+function drawerStatus(text) {
+  document.getElementById("drawer-status").textContent = text || "";
+}
+
 function openDrawer() {
   drawerText().value = store.bricks?.system_prompt.text ?? "";
   drawerAlert(null);
+  drawerStatus(null);
+  syncDrawerSave();
   drawer().hidden = false;
   document.getElementById("bricks").inert = true; // cards under the drawer leave the Tab order
   drawerText().focus();
@@ -1493,6 +1542,7 @@ function closeDrawer(force = false) {
     return;
   }
   drawerAlert(null);
+  drawerStatus(null);
   drawer().hidden = true;
   document.getElementById("bricks").inert = false;
   document.getElementById("edit-system-prompt")?.focus();
@@ -1507,8 +1557,11 @@ async function saveSystemPrompt(text) {
     if (store.bricks) store.bricks.system_prompt = saved;
     drawerText().value = saved.text;
     drawerAlert(null);
+    drawerStatus(text === null ? "Prompt par défaut rétabli." : "Prompt système enregistré.");
+    syncDrawerSave();
     return true;
   } catch {
+    drawerStatus(null);
     drawerAlert("Enregistrement refusé : WaveStack ne répond pas. Réessayez.");
     return false;
   }
@@ -1557,6 +1610,8 @@ function memoryAlert(text, choice = null) {
   alert.textContent = text || "";
   document.getElementById("memory-dirty").hidden = choice !== "dirty";
   document.getElementById("memory-confirm").hidden = choice !== "clear";
+  // Story 22: while « Oui, tout effacer » waits, « Tout effacer » is not offered twice.
+  document.getElementById("memory-clear").disabled = choice === "clear" || !store.memory?.entries.length;
   if (choice) document.getElementById(choice === "dirty" ? "memory-dirty-save" : "memory-confirm-clear").focus();
 }
 
@@ -1632,7 +1687,8 @@ function renderMemoryDrawer() {
   const empty = document.getElementById("memory-empty");
   empty.textContent = memoryCard()?.empty_fr ?? "";
   empty.hidden = entries.length > 0;
-  document.getElementById("memory-clear").disabled = entries.length === 0;
+  document.getElementById("memory-clear").disabled =
+    entries.length === 0 || !document.getElementById("memory-confirm").hidden;
   list.innerHTML = "";
   entries.forEach((entry, i) => {
     const item = el("li", "memory-entry");
@@ -1661,7 +1717,8 @@ function renderMemoryDrawer() {
     remove.setAttribute("aria-label", `Supprimer l'entrée ${i + 1}`);
     remove.dataset.focusKey = `memory:${entry.id}:delete`;
     remove.addEventListener("click", () => editMemory({ op: "delete", entry_id: entry.id }));
-    const actions = el("div", "drawer-actions memory-entry-actions");
+    // Story 22: compact and flat, told apart from the footer's « Tout effacer » and « Fermer ».
+    const actions = el("div", "memory-entry-actions");
     actions.append(save, remove);
     item.append(head, text, actions);
     list.appendChild(item);
@@ -2228,6 +2285,38 @@ function findScenario(id) {
 let renderedProgram = null;
 let renderedGuide = null;
 
+// Story 22 (C1): the scenario's instructions fold to 3 lines so they never hide the
+// conversation; « Afficher plus » only when the text overflows them, measured after each
+// rendering and whenever the text's box changes size (pane resized, text size). UI state
+// only, not remembered.
+let guideExpanded = false;
+const GUIDE_LINES = 3;
+
+function setGuideExpanded(expanded) {
+  guideExpanded = expanded;
+  const more = document.getElementById("scenario-guide-more");
+  document.getElementById("scenario-guide").classList.toggle("is-expanded", expanded);
+  more.setAttribute("aria-expanded", String(expanded));
+  more.textContent = expanded ? "Réduire" : "Afficher plus";
+  measureGuide();
+}
+
+function measureGuide() {
+  const guide = document.getElementById("scenario-guide");
+  const text = document.getElementById("scenario-guide-text");
+  const more = document.getElementById("scenario-guide-more");
+  if (guide.hidden || !text.clientHeight) {
+    more.hidden = true;
+    return;
+  }
+  const line = parseFloat(getComputedStyle(text).lineHeight) || 0;
+  // Folded: the clamp cuts the text; unfolded: it is taller than the three lines.
+  const overflows = guideExpanded
+    ? text.scrollHeight > GUIDE_LINES * line + 1
+    : text.scrollHeight > text.clientHeight + 1;
+  more.hidden = !overflows;
+}
+
 function renderScenarioControls(state) {
   const idle = state?.state === "idle"; // class (b)
   const reason = idle ? "" : state?.reason_fr || "Disponible hors d'un tour.";
@@ -2266,16 +2355,23 @@ function renderScenarioControls(state) {
   const scenario = findScenario(store.scenarios?.active);
   renderScenarioUnavailable(scenario ? store.scenarios?.unavailable ?? [] : []);
   if (renderedGuide === scenario) return;
+  // A refresh of the same scenario keeps the guide as the user left it (unfolded or not).
+  const sameScenario = Boolean(scenario) && renderedGuide?.id === scenario.id;
   renderedGuide = scenario;
   const guide = document.getElementById("scenario-guide");
+  const guideText = document.getElementById("scenario-guide-text");
   const chips = document.getElementById("suggested-prompts");
   guide.hidden = chips.hidden = !scenario;
   if (!scenario) {
-    guide.replaceChildren();
+    guideText.replaceChildren();
     chips.replaceChildren();
+    setGuideExpanded(false);
     return;
   }
-  guide.replaceChildren(el("strong", "", scenario.title_fr), ` · ${scenario.description_fr}`);
+  guideText.replaceChildren(el("strong", "", scenario.title_fr), ` · ${scenario.description_fr}`);
+  // Story 22: folded again at each new scenario, then measured.
+  if (sameScenario) measureGuide();
+  else setGuideExpanded(false);
   chips.replaceChildren(
     ...scenario.prompts.map((prompt) => {
       const chip = el("button", "suggested-prompt", prompt);
@@ -2424,10 +2520,19 @@ function renderContextBody(pane) {
     pane.appendChild(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
     return;
   }
-  // Story 19: « Contexte principal » / « Contexte du sous-agent », one button per sub-agent.
+  // Story 19: « Agent principal » / « Sous-agent sub1 », one tab per sub-agent (story 22);
+  // what follows is the selected tab's panel.
   const subs = [...turn.subs.values()].filter((s) => s.context);
   const view = store.ctxView?.turn === turn.id ? turn.subs.get(store.ctxView.sub) : null;
-  if (subs.length) pane.appendChild(ctxViewSwitch(turn, subs, view?.context ? view : null));
+  if (subs.length) {
+    const tabs = ctxViewSwitch(turn, subs, view?.context ? view : null);
+    const panel = el("div", "ctx-view-panel");
+    panel.id = "ctx-view-panel";
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", tabs.querySelector("[aria-selected='true']").id);
+    pane.append(tabs, panel);
+    pane = panel;
+  }
   if (view?.context) {
     renderSubContext(pane, view);
     return;
@@ -2514,15 +2619,19 @@ function appendSegments(pane, p, turn = null) {
   }
 }
 
-// Story 19 (EXPERIENCE: Sous-agent au travail): toggle buttons, `aria-pressed` on the one shown.
+// Story 19 (EXPERIENCE: Sous-agent au travail), story 22 (M6): tabs, `aria-selected` on the
+// one shown. No arrow-key navigation: every tab stays in the Tab order.
 function ctxViewSwitch(turn, subs, view) {
   const bar = el("div", "ctx-view-switch");
-  bar.setAttribute("role", "group");
+  bar.setAttribute("role", "tablist");
   bar.setAttribute("aria-label", "Contexte affiché");
   const button = (label, target, pressed) => {
     const b = el("button", "ctx-view-button", label);
     b.type = "button";
-    b.setAttribute("aria-pressed", String(pressed));
+    b.id = `ctx-tab-${target ?? "main"}`;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(pressed));
+    b.setAttribute("aria-controls", "ctx-view-panel");
     b.dataset.focusKey = `ctxview:${target ?? "main"}`;
     b.addEventListener("click", () => {
       store.ctxView = target ? { turn: turn.id, sub: target } : null;
@@ -2530,11 +2639,8 @@ function ctxViewSwitch(turn, subs, view) {
     });
     return b;
   };
-  bar.appendChild(button("Contexte principal", null, !view));
-  subs.forEach((sub, i) => {
-    const label = subs.length > 1 ? `Contexte du sous-agent ${i + 1}` : "Contexte du sous-agent";
-    bar.appendChild(button(label, sub.contextId, view === sub));
-  });
+  bar.appendChild(button("Agent principal", null, !view));
+  for (const sub of subs) bar.appendChild(button(`Sous-agent ${sub.contextId}`, sub.contextId, view === sub));
   return bar;
 }
 
@@ -2567,8 +2673,14 @@ function renderSubContext(pane, sub) {
 
 // ---------- turn comparison (story 9b, EXPERIENCE.md turn-compare) ----------
 
-// The rail's name of a turn: its rank since the launch.
-const turnName = (turn) => `Tour ${store.turns.indexOf(turn) + 1}`;
+// Story 22: the rail's name of a turn, its rank in the conversation shown (back to 1 after
+// « Vider la conversation » or « Réinitialiser »); its id `t{n}` stays unique in the journal.
+const turnNumber = (turn) => {
+  const i = shownTurns().indexOf(turn);
+  return i < 0 ? null : i + 1;
+};
+const turnName = (turn) => (turnNumber(turn) ? `Tour ${turnNumber(turn)}` : turn.id);
+const turnIdTitle = (turn) => `Identifiant du tour dans le journal : ${turn.id}`;
 
 function openCompare(left, right) {
   const turns = shownTurns();
@@ -3653,7 +3765,7 @@ function showSubContext(turnId, contextId) {
   if (store.hiddenPanes.delete("ctx")) savePaneLayout();
   if (store.focusedPane !== null && store.focusedPane !== "ctx") store.focusedPane = null;
   render();
-  document.querySelector("#ctx .ctx-view-switch [aria-pressed='true']")?.focus();
+  document.querySelector("#ctx .ctx-view-switch [aria-selected='true']")?.focus();
 }
 
 function mcpServerLabel(server) {
@@ -3956,13 +4068,14 @@ function renderSteps() {
     const duration = turnDuration(turn);
     const figures = [duration === null ? null : seconds(duration), `${plural(calls, "appel")} au modèle`];
     headParts(node, [
-      ["turn-group-title", `Tour ${index + 1}`],
+      ["turn-group-title", `Tour ${i + 1}`],
       [`turn-group-status ${statusClass}`, statusLabel],
       ["turn-group-replay", turn.replayOf ? "Rejeu" : null],
       ["turn-group-figures", figures.filter(Boolean).join(" · ")],
       ["turn-group-message", `« ${turn.message} »`],
     ]);
     node.head.title = turn.message;
+    node.parts[0].title = turnIdTitle(turn); // story 22: links « Tour N » to the journal
     const rowNodes = open
       ? (isLast ? lastRows : turnRows(turn)).map((row) => {
           const isCurrent = isLast && row.key === o.current;
@@ -5191,6 +5304,8 @@ async function boot() {
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
   document.getElementById("replay-last").addEventListener("click", replayLast);
   document.getElementById("scenario-picker").addEventListener("change", launchScenario);
+  document.getElementById("scenario-guide-more").addEventListener("click", () => setGuideExpanded(!guideExpanded));
+  new ResizeObserver(measureGuide).observe(document.getElementById("scenario-guide-text"));
   const modelPicker = document.getElementById("model-picker");
   modelPicker.addEventListener("change", notePick);
   modelPicker.addEventListener("focus", loadModelList);
@@ -5205,12 +5320,18 @@ async function boot() {
     saveSystemPrompt(drawerText().value)
   );
   document.getElementById("drawer-reset").addEventListener("click", () => saveSystemPrompt(null));
+  drawerText().addEventListener("input", () => {
+    drawerStatus(null);
+    syncDrawerSave();
+  });
   document.getElementById("drawer-close").addEventListener("click", () => closeDrawer());
   document.getElementById("drawer-dirty-save").addEventListener("click", async () => {
     if (await saveSystemPrompt(drawerText().value)) closeDrawer(true);
   });
   document.getElementById("drawer-dirty-discard").addEventListener("click", () => closeDrawer(true));
   document.getElementById("memory-close").addEventListener("click", () => closeMemoryDrawer());
+  // Story 22: the cross of the drawer's head, the same path as « Fermer ».
+  document.getElementById("memory-x").addEventListener("click", () => closeMemoryDrawer());
   document.getElementById("memory-clear").addEventListener("click", askClearMemory);
   document.getElementById("memory-confirm-clear").addEventListener("click", confirmClearMemory);
   document.getElementById("memory-confirm-cancel").addEventListener("click", () => {
