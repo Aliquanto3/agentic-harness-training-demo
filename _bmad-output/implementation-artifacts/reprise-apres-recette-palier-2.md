@@ -1,5 +1,11 @@
 # Reprise après la recette manuelle du palier 2
 
+> **Mise à jour du 2026-09-28** : la recette est faite. Ses retours sont consignés dans
+> `retours-recette-palier-2-2026-09-28.md`, convertis en stories 22 à 31 (`stories.yaml`), et
+> confiés à Claude Code dans le cloud pour la nuit (`plan-nuit-2026-09-28.md`). Au réveil, partir
+> de `rapport-nuit-2026-09-28.md`. La suite de ce document reste valable pour les recettes à
+> venir.
+
 Point d'entrée d'une nouvelle session (après `/clear`) qui reçoit les retours de la recette
 manuelle et propose puis implémente les dernières corrections du palier 2.
 
