@@ -114,6 +114,36 @@ const GROUP_COLORS = {
   message: "--color-segment-message",
 };
 
+// Story 33: the disciplines, in the order of the legends. A segment, a gauge group and a brick
+// card carry theirs from the session (`discipline`, `category`, AD-1); the colours are the
+// `--color-discipline-*` tokens, read by `[data-discipline]` in app.css.
+const DISCIPLINES = [
+  ["prompt", "Prompt engineering"],
+  ["context", "Context engineering"],
+  ["harness", "Harness engineering"],
+];
+const DISCIPLINE_NAMES = Object.fromEntries(DISCIPLINES);
+// Neutral: no brick (message, template), an assistant turn, or a brick the table lacks; one
+// label in the legend and in the tooltips.
+const NEUTRAL_FR = "Hors brique";
+const NETWORK_FR = "Sort du poste de travail";
+const disciplineName = (d) => DISCIPLINE_NAMES[d] || NEUTRAL_FR;
+
+// A legend: one bordered swatch and a name per discipline. `network`: the yellow never alone,
+// its swatch carries the globe (DESIGN.md > Colors).
+function disciplineLegend(className, items) {
+  const list = el("ul", className);
+  for (const [discipline, label] of items) {
+    const item = el("li", "discipline-legend-item");
+    item.dataset.discipline = discipline;
+    const swatch = el("span", "discipline-swatch", discipline === "network" ? "🌐" : "");
+    swatch.setAttribute("aria-hidden", "true");
+    item.append(swatch, el("span", "", label));
+    list.appendChild(item);
+  }
+  return list;
+}
+
 const numberFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
 const fmt = (n) => numberFormat.format(n);
 const seconds = (ms) => `${numberFormat.format(Math.max(ms, 0) / 1000)} s`;
@@ -775,6 +805,7 @@ function select(componentId) {
 
 function render() {
   renderBricks();
+  updateBrickStatuses();
   renderChips();
   renderMenu();
   renderPaneVisibility();
@@ -860,6 +891,10 @@ function renderBricks() {
     pane.appendChild(emptyNote("En attente du harnais…"));
     return;
   }
+  // Story 33: the four disciplines first, then the cards in their two groups.
+  pane.appendChild(
+    disciplineLegend("discipline-legend brick-legend", [...DISCIPLINES, ["network", NETWORK_FR]])
+  );
   pane.appendChild(forcedToggle());
   if (store.armError) {
     const error = el("p", "force-error", store.armError);
@@ -867,8 +902,17 @@ function renderBricks() {
     pane.appendChild(error);
   }
   const reopenPopovers = []; // help popovers that were open before this rebuild
+  let group = null;
   for (const brick of store.bricks.bricks) {
+    // Story 33: the group comes with the card (AD-1); the list's order is the display order.
+    const brickGroup = brick.group === "reads" ? "reads" : "acts";
+    if (brickGroup !== group) {
+      group = brickGroup;
+      pane.appendChild(el("h3", "brick-group-title", BRICK_GROUPS[group]));
+    }
     const card = el("article", "brick-card");
+    card.dataset.discipline = brick.category;
+    card.dataset.brick = brick.id;
     // Story 13: a model that always reasons keeps the reasoning brick on, whatever `wanted`.
     const always = Boolean(brick.always_fr);
     // Story 22: the brick is off (or unavailable): its sub-options apply nothing, and say so.
@@ -886,13 +930,27 @@ function renderBricks() {
     toggle.disabled = always || (!brick.available && !brick.wanted);
     toggle.dataset.focusKey = `toggle:${brick.id}`;
     toggle.addEventListener("change", () => setBrick(brick.id, toggle.checked));
-    head.append(toggle, el("span", "brick-name", brick.label_fr));
+    head.append(toggle);
+    if (always) {
+      // Story 33: the switch the model locks, said by the padlock beside it.
+      const lock = el("span", "brick-lock", "🔒");
+      lock.title = "Verrouillé : imposé par ce modèle";
+      lock.setAttribute("aria-hidden", "true");
+      head.appendChild(lock);
+    }
+    head.appendChild(el("span", "brick-name", brick.label_fr));
 
     const tags = el("div", "brick-tags");
     tags.appendChild(el("span", "category-chip", brick.category_fr));
-    // ponytail: every brick so far is local; the network tag comes with the first network brick.
     if (brick.hosting_fr) tags.appendChild(el("span", "hosting-tag-local", brick.hosting_fr));
-    card.append(head, tags);
+    // Story 33: an enabled option leaves the workstation: « 🌐 RÉSEAU » on the card itself.
+    if (!parentOff && (brick.options || []).some((o) => o.enabled && o.network)) {
+      tags.appendChild(el("span", "hosting-tag-network brick-network", "RÉSEAU"));
+    }
+    // Story 33: what the brick weighs or does now, refreshed in place (`updateBrickStatuses`).
+    const status = el("p", "brick-status", brickStatus(brick));
+    status.dataset.brick = brick.id;
+    card.append(head, tags, status);
 
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
     if (brick.id === "rag") card.append(...downloadParts(brick), ...rerankParts(brick, offReason));
@@ -963,6 +1021,49 @@ function renderBricks() {
       target = find(nextChipKey) || find(`toggle:${brickId}`);
     }
     target?.focus();
+  }
+}
+
+const BRICK_GROUPS = { reads: "Ce que le modèle lit", acts: "Ce que le harnais fait" };
+
+// Story 33: the card's status line, from received values only (AD-1): the gauge's `by_brick`,
+// `reserve` and `uncompressed_used`, the memory's entries, the schema's network nodes.
+// Counting a received list and the gap between two received values stay formatting.
+function brickStatus(brick) {
+  const always = Boolean(brick.always_fr);
+  if (always) return "Imposé par ce modèle";
+  if (!brick.available) return "Indisponible"; // wanted or not: it cannot be switched on
+  if (!brick.wanted) return "Éteinte";
+  const p = store.gauge?.payload;
+  if (!p) return "En attente du modèle";
+  if (brick.id === "reasoning") return `Réserve de sortie : ${plural(p.reserve, "token")}`;
+  const row = (p.by_brick || []).find((b) => b.brick === brick.id);
+  // Only « n tokens dans le contexte » says « ≈ » (EXPERIENCE.md > brick-card); the others count.
+  const count = plural(row?.tokens ?? 0, "token");
+  if (brick.id === "global_memory") return `${plural(store.memory?.entries?.length ?? 0, "entrée")} · ${count}`;
+  if (brick.id === "tools" || brick.id === "mcp") {
+    const on = (brick.options || []).filter((o) => o.enabled);
+    const declared = `${fmt(on.length)} déclaré${on.length > 1 ? "s" : ""}`;
+    if (!on.some((o) => o.network)) return `${declared} · ${count}`;
+    const contacted = (store.architecture.nodes || []).filter(
+      (n) =>
+        n.id.startsWith(`${brick.id}.`) && n.hosting === "network" && n.contact && n.contact !== "not_contacted"
+    ).length;
+    return `${declared} · ${fmt(contacted)} contacté${contacted > 1 ? "s" : ""}`;
+  }
+  if (brick.id === "compression") {
+    const gain = p.uncompressed_used == null ? 0 : p.uncompressed_used - p.used;
+    return gain > 0 ? `Gain : ${plural(gain, "token")}` : "Aucun gain pour l'instant";
+  }
+  return `${approx(Boolean(row?.estimated))}${count} dans le contexte`;
+}
+
+// Story 33: the status lines follow the gauge, the memory and the schema without rebuilding
+// the cards, so an open explanation and the keyboard focus stay put.
+function updateBrickStatuses() {
+  for (const brick of store.bricks?.bricks || []) {
+    const line = document.querySelector(`#bricks p.brick-status[data-brick="${cssEscape(brick.id)}"]`);
+    if (line) setText(line, brickStatus(brick));
   }
 }
 
@@ -1791,25 +1892,29 @@ function renderGauge() {
   const figures = document.getElementById("gauge-figures");
   const threshold = document.getElementById("gauge-threshold");
   const root = document.getElementById("gauge");
-  bar.querySelectorAll(".gauge-seg").forEach((node) => node.remove());
+  bar.querySelectorAll(".gauge-seg, .gauge-free").forEach((node) => node.remove());
   const gauge = store.gauge;
   root.classList.toggle("is-overflow", Boolean(gauge?.payload.overflow));
   root.classList.toggle("is-near-limit", Boolean(gauge?.payload.near_limit));
   if (!gauge) {
     threshold.hidden = true;
+    renderGaugeLegend([]);
     figures.textContent = "Contexte : en attente du modèle";
+    figures.title = figures.textContent;
     return;
   }
   const p = gauge.payload;
-  // flex-grow = received token counts: the bar is laid out, never recomputed (AD-1).
+  // flex-grow = received token counts: the bar is laid out, never recomputed (AD-1). Story 33:
+  // each group in its discipline's colour (from the session), its type named in the tooltip.
   for (const item of p.breakdown) {
     const seg = el("span", "gauge-seg");
     seg.style.flexGrow = String(item.tokens);
-    seg.style.background = `var(${GROUP_COLORS[item.group] || "--color-muted"})`;
-    seg.title = `${item.label_fr} : ${fmt(item.tokens)} tokens`;
+    seg.dataset.discipline = item.discipline || "neutral";
+    seg.title = `${item.label_fr} : ${fmt(item.tokens)} tokens · ${disciplineName(seg.dataset.discipline)}`;
     bar.appendChild(seg);
   }
-  const free = el("span", "gauge-seg gauge-free");
+  renderGaugeLegend(p.breakdown);
+  const free = el("span", "gauge-free");
   free.style.flexGrow = String(Math.max(p.usable - p.used, 0));
   free.title = `Espace libre : ${fmt(Math.max(p.usable - p.used, 0))} tokens`;
   bar.appendChild(free);
@@ -1823,9 +1928,24 @@ function renderGauge() {
   if (p.uncertain_fr) text += ` · ${p.uncertain_fr}`;
   if (gauge.preview) text += " · prochain tour";
   figures.textContent = text;
+  figures.title = text; // story 33: cut on a narrow window, whole in the tooltip
   root.title =
     `Fenêtre de ${fmt(p.window)} tokens, dont ${fmt(p.reserve)} réservés à la réponse : ` +
     `${fmt(p.usable)} utilisables.`;
+}
+
+// Story 33: the disciplines present in the gauge, prompt, context, harness, then the neutral
+// one; names only, no tokens per discipline (the total stays in the figures).
+let renderedGaugeLegend = null;
+function renderGaugeLegend(breakdown) {
+  const present = new Set(breakdown.map((item) => item.discipline || "neutral"));
+  const items = DISCIPLINES.filter(([d]) => present.has(d));
+  if (present.has("neutral")) items.push(["neutral", NEUTRAL_FR]);
+  const key = items.map(([d]) => d).join(",");
+  if (key === renderedGaugeLegend) return;
+  renderedGaugeLegend = key;
+  const legend = document.getElementById("gauge-legend");
+  legend.replaceChildren(...disciplineLegend("", items).children);
 }
 
 // AD-4: « ≈ » on an estimate; the total loses it once it comes from the API.
@@ -2349,7 +2469,7 @@ function renderScenarioControls(state) {
   const reset = document.getElementById("reset-button");
   reset.disabled = !idle;
   reset.title = reason || "Retour au LLM nu, conversation vide.";
-  setText(document.getElementById("top-status"), modelLoadText() ?? store.topStatus ?? "");
+  setTopStatus(modelLoadText() ?? store.topStatus ?? "");
 
   // Vue humain: the active scenario's instructions, then one chip per suggested prompt.
   const scenario = findScenario(store.scenarios?.active);
@@ -2591,6 +2711,9 @@ function appendSegments(pane, p, turn = null) {
   for (const segment of p.segments) {
     const group = p.breakdown.find((item) => item.kinds.includes(segment.kind));
     const box = el("div", "ctx-segment");
+    // Story 33: the rule and the background say the discipline (from the session); the swatch
+    // keeps the segment type's colour, so the type stays readable.
+    box.dataset.discipline = segment.discipline || "neutral";
     box.style.setProperty(
       "--segment-color",
       `var(${GROUP_COLORS[group?.group] || "--color-muted"})`
@@ -2740,6 +2863,7 @@ function compareCell(turn, group, other) {
   const first = group.segments[0];
   const colorGroup = turn.context.breakdown.find((item) => item.kinds.includes(first.kind))?.group;
   cell.style.setProperty("--segment-color", `var(${GROUP_COLORS[colorGroup] || "--color-muted"})`);
+  cell.dataset.discipline = first.discipline || "neutral"; // story 33
   cell.classList.add("ctx-segment");
   const label = el("div", "ctx-segment-label");
   const delta = other === undefined ? "" : ` (${signed(group.tokens - (other?.tokens ?? 0), fmt)} tokens)`;
@@ -3392,6 +3516,41 @@ function turnRows(turn) {
   const rows = [];
   const calls = turn.steps.filter((s) => s.type === "call");
   turn.steps.forEach((step, i) => {
+    const from = rows.length;
+    stepRows(turn, step, i, calls, rows);
+    // Story 33: each new row's tile in its discipline (a sub-agent's rows already have theirs).
+    for (const row of rows.slice(from)) row.discipline ??= rowDiscipline(row, step);
+  });
+  if (turn.overflow) {
+    rows.push({
+      key: `${turn.id}:overflow`,
+      icon: "✖",
+      title: turn.contextId ? "Contexte du sous-agent dépassé" : "Contexte dépassé",
+      actor: "harness",
+      discipline: "harness",
+      figure: `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`,
+      tone: "error",
+      sticky: true,
+      sig: 1,
+      body: () => [overflowCard(turn.overflow)],
+    });
+  }
+  return rows;
+}
+
+// Story 33: `model` for what the model does (calls, tool requests, final answers), `network`
+// for what leaves the workstation, else the category of the step's brick, `harness` by default.
+function rowDiscipline(row, step) {
+  if (row.net) return "network";
+  return brickCategory(step.brick ?? step.component?.split(".")[0]) ?? "harness";
+}
+
+// Story 33: a brick's category, as its card received it (AD-1).
+const brickCategory = (id) => store.bricks?.bricks?.find((b) => b.id === id)?.category ?? null;
+
+// The rows of one step, pushed onto `rows`.
+function stepRows(turn, step, i, calls, rows) {
+  {
     const key = `${turn.id}:${i}`;
     if (step.type === "call") {
       if (turn.overflow && step === calls.at(-1)) return; // the overflow row replaces it
@@ -3440,6 +3599,7 @@ function turnRows(turn) {
         icon: isFinal ? "💬" : "🤖",
         title: isFinal ? "Réponse finale" : "Appel au modèle",
         actor: "model",
+        discipline: "model",
         figure,
         tone: ended && ended.stop_reason === "error" ? "error" : null,
         sticky: Boolean(ended && ended.stop_reason === "error"),
@@ -3453,6 +3613,7 @@ function turnRows(turn) {
           icon: "🗨",
           title: "Demande d'outil",
           actor: "model",
+          discipline: "model",
           figure: asked.length > 1 ? plural(asked.length, "outil") : asked[0].name,
           sig: asked.length,
           body: () => asked.map((call) => el("pre", "step-code", formatCall(call))),
@@ -3627,21 +3788,7 @@ function turnRows(turn) {
         body: () => [harnessEvent("Raisonnement coupé", "info", [el("p", "", step.payload.message_fr)])],
       });
     }
-  });
-  if (turn.overflow) {
-    rows.push({
-      key: `${turn.id}:overflow`,
-      icon: "✖",
-      title: turn.contextId ? "Contexte du sous-agent dépassé" : "Contexte dépassé",
-      actor: "harness",
-      figure: `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`,
-      tone: "error",
-      sticky: true,
-      sig: 1,
-      body: () => [overflowCard(turn.overflow)],
-    });
   }
-  return rows;
 }
 
 // Story 19 (EXPERIENCE: Sous-agent au travail): the delegation, its trigger, and the tokens
@@ -3787,6 +3934,8 @@ function connectRow(step) {
     actor: "harness",
     figure,
     net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
+    // Story 33: a public server's connection leaves the workstation; a local one is MCP's.
+    discipline: step.outbound?.length ? "network" : "harness",
     tone: failed ? "unavailable" : null,
     sig: [ended, step.outbound?.length ?? 0],
     body: () => connectBody(step),
@@ -3838,6 +3987,7 @@ function stepNode(row, open, flags) {
   node.seen = true;
   node.sticky = Boolean(row.sticky);
   setText(node.tile, row.icon);
+  if (node.tile.dataset.discipline !== row.discipline) node.tile.dataset.discipline = row.discipline;
   setText(node.name, row.title);
   setText(node.note, row.note ? ` · ${row.note}` : "");
   node.note.hidden = !row.note;
@@ -4103,6 +4253,13 @@ function renderSteps() {
   wasRunning = running;
   document.getElementById("follow-live").hidden = o.live;
   renderOrchWorking();
+}
+
+// Story 33: the top bar's message may be cut on a narrow window: its whole text in the tooltip.
+function setTopStatus(text) {
+  const status = document.getElementById("top-status");
+  setText(status, text);
+  if (status.title !== text) status.title = text;
 }
 
 function renderChips() {
@@ -4974,6 +5131,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   for (const node of nodes.filter((n) => n.kind === "brick")) {
     const icon = COMPONENT_ICONS[node.id] || BRICK_ICONS[node.id.split(".")[0]] || "🧩";
     const chip = schemaButton("arch-chip", node.id, `${icon} ${node.label_fr}`);
+    chip.dataset.discipline = nodeDiscipline(node); // story 33
     chip.classList.toggle("is-unavailable", !node.available);
     chip.title = [node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`, node.detail_fr]
       .filter(Boolean)
@@ -5045,6 +5203,7 @@ function hookStrip(options, byId, blocked) {
     const point = HOOK_POINTS[option.id] || "";
     const state = isBlocked ? " · ✖ a bloqué" : off ? " · désactivé" : "";
     const hook = schemaButton("arch-hook", id);
+    hook.dataset.discipline = brickCategory("hooks") ?? "harness"; // story 33
     hook.classList.toggle("is-off", off);
     hook.classList.toggle("is-blocked", isBlocked);
     hook.append(
@@ -5087,8 +5246,17 @@ function schemaGroup(group, members) {
   return bin;
 }
 
-// A node: its category reads by its shape and icon, its hosting by its colours (DESIGN.md >
-// arch-group). Returns the node, then the list of its tools for a selected MCP server.
+// Story 33: a node's discipline: `network` when it leaves the workstation, `neutral` for a file
+// of the harness (`file.*`), else the category of its brick (`{brick}.*`).
+function nodeDiscipline(node) {
+  if (node.hosting === "network") return "network";
+  const prefix = node.id.split(".")[0];
+  return prefix === "file" ? "neutral" : brickCategory(prefix) ?? "neutral";
+}
+
+// A node: its category reads by its shape and icon, its hosting by its zone and its globe, its
+// colour is its discipline's (story 33; DESIGN.md > arch-group). Returns the node, then the
+// list of its tools for a selected MCP server.
 function schemaNode(node, shape) {
   const network = node.hosting === "network";
   const unavailable = !node.available;
@@ -5096,6 +5264,7 @@ function schemaNode(node, shape) {
   const loaded = shape === "skill" && Boolean(node.loaded);
   const tools = node.tools || [];
   const button = schemaButton(`arch-node arch-node-${shape} ${network ? "is-network" : "is-local"}`, node.id);
+  button.dataset.discipline = nodeDiscipline(node); // story 33
   button.classList.toggle("is-unavailable", unavailable);
   button.classList.toggle("is-loaded", loaded);
   let icon = { tool: TOOL_ICONS[node.id.slice(6)] || "🔧", mcp: "🔌", file: "📄" }[shape] || null;
@@ -5356,7 +5525,7 @@ async function boot() {
     }
     if (store.modelLoad) {
       renderChat();
-      setText(document.getElementById("top-status"), modelLoadText());
+      setTopStatus(modelLoadText());
     }
   }, 250);
 

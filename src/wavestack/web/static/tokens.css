@@ -19,7 +19,6 @@
   --color-relief: #D9D0F6;
   --color-relief-active: #C9BCF5;
   --color-dot: #D6CCF5;
-  --color-hosting-local: #451DC7;
   --color-hosting-network: #FFCA4A;
   --color-hosting-boundary: #0A0A14;
   --color-state-active: #04F06A;
@@ -35,6 +34,18 @@
   --color-segment-tool-results: #E0762B;
   --color-segment-message: #9C5BB5;
   --color-segment-free: #F6F5FA;
+  --color-discipline-prompt: #451DC7;
+  --color-discipline-prompt-soft: #EEE9FC;
+  --color-discipline-context: #0F7B6C;
+  --color-discipline-context-soft: #E2F3EF;
+  --color-discipline-harness: #B8327A;
+  --color-discipline-harness-soft: #FBE7F1;
+  --color-discipline-network: #D9A400;
+  --color-discipline-network-soft: #FFF5D1;
+  --color-discipline-neutral: #8A8A9E;
+  --color-discipline-neutral-soft: #EFEFF4;
+  --color-on-ink: #FFFFFF;
+  --color-on-ink-soft: #CFCDE4;
 
   /* typography */
   --typography-pane-title-font-family: Fredoka, system-ui, sans-serif;
@@ -93,7 +104,7 @@
   --spacing-6: 32px;
   --spacing-gutter: 8px;
   --spacing-pane-padding: 12px;
-  --spacing-top-bar-height: 48px;
+  --spacing-top-bar-height: 56px;
   --spacing-brick-panel-width: 280px;
   --spacing-architecture-band-height: 250px;
   --spacing-stroke-min: 2px;

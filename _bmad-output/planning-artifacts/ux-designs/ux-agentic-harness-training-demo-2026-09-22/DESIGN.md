@@ -7,7 +7,7 @@ sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/addendum.md
 name: WaveStack
-description: Démonstrateur pédagogique local de harnais agentique, à la charte Wavestone, dans une direction « atelier de construction » pensée pour la projection. Thème clair uniquement en V1.
+description: Démonstrateur pédagogique local de harnais agentique, à la charte Wavestone, dans une direction « atelier de construction » pensée pour la projection. Thème clair en V1, jetons prêts pour un second thème (story 31).
 colors:
   # Charte Wavestone
   primary: '#451DC7'
@@ -28,8 +28,7 @@ colors:
   relief: '#D9D0F6'
   relief-active: '#C9BCF5'
   dot: '#D6CCF5'
-  # Codage local / réseau (lieu d'hébergement)
-  hosting-local: '#451DC7'
+  # Lieu d'hébergement (story 33 : le local n'a plus de couleur, voir Colors)
   hosting-network: '#FFCA4A'
   hosting-boundary: '#0A0A14'
   # Couleurs d'état
@@ -47,6 +46,20 @@ colors:
   segment-tool-results: '#E0762B'
   segment-message: '#9C5BB5'
   segment-free: '#F6F5FA'
+  # Code couleur par discipline (story 33) : une couleur et son fond doux par discipline
+  discipline-prompt: '#451DC7'
+  discipline-prompt-soft: '#EEE9FC'
+  discipline-context: '#0F7B6C'
+  discipline-context-soft: '#E2F3EF'
+  discipline-harness: '#B8327A'
+  discipline-harness-soft: '#FBE7F1'
+  discipline-network: '#D9A400'
+  discipline-network-soft: '#FFF5D1'
+  discipline-neutral: '#8A8A9E'
+  discipline-neutral-soft: '#EFEFF4'
+  # Sur encre (story 33) : textes et traits posés sur un fond {colors.ink}
+  on-ink: '#FFFFFF'
+  on-ink-soft: '#CFCDE4'
 typography:
   # Base à 100 % ; les paliers 125 % et 150 % (NFR-9) multiplient toutes les tailles.
   pane-title:
@@ -113,7 +126,7 @@ spacing:
   '6': 32px
   gutter: 8px
   pane-padding: 12px
-  top-bar-height: 48px
+  top-bar-height: 56px
   brick-panel-width: 280px
   architecture-band-height: 250px
   stroke-min: 2px
@@ -127,14 +140,37 @@ components:
     background: '{colors.surface}'
     dot: '{colors.dot}'
     dot-grid: '{spacing.dot-grid}'
+  # Story 33 : une couleur et son fond doux par discipline ; `model` = ce que fait le modèle.
+  discipline-code:
+    prompt: '{colors.discipline-prompt}'
+    prompt-soft: '{colors.discipline-prompt-soft}'
+    context: '{colors.discipline-context}'
+    context-soft: '{colors.discipline-context-soft}'
+    harness: '{colors.discipline-harness}'
+    harness-soft: '{colors.discipline-harness-soft}'
+    network: '{colors.discipline-network}'
+    network-soft: '{colors.discipline-network-soft}'
+    neutral: '{colors.discipline-neutral}'
+    neutral-soft: '{colors.discipline-neutral-soft}'
+    model: '{colors.ink}'
+    on-model: '{colors.on-ink}'
+  discipline-legend:
+    swatch-border: '{colors.ink-soft}'
+    swatch-border-on-ink: '{colors.on-ink-soft}'
+    foreground: '{colors.ink-soft}'
+    foreground-on-ink: '{colors.on-ink-soft}'
+    typography: '{typography.label}'
   top-bar:
-    background: '{colors.surface-raised}'
-    foreground: '{colors.ink}'
+    background: '{colors.ink}'
+    foreground: '{colors.on-ink}'
+    title-color: '{colors.on-ink}'
+    focus-ring: '{colors.on-ink}'
     shadow: '{colors.relief}'
     radius: '{rounded.lg}'
     height: '{spacing.top-bar-height}'
   pane:
     background: '{colors.surface-raised}'
+    header-background: '{colors.surface}'
     shadow: '{colors.relief}'
     radius: '{rounded.lg}'
     padding: '{spacing.pane-padding}'
@@ -207,10 +243,14 @@ components:
     shadow: '{colors.relief}'
     radius: '{rounded.md}'
   context-gauge:
-    track: '{colors.segment-free}'
-    border: '{colors.line}'
+    track: '{colors.surface-raised}'
+    border: '{colors.on-ink-soft}'
+    segment: '{components.discipline-code}'
+    separator: '{colors.surface-raised}'
     radius: '{rounded.full}'
     label-typography: '{typography.number}'
+    label-color: '{colors.on-ink}'
+    legend-color: '{colors.on-ink-soft}'
     near-limit-marker: '{colors.ink}'
     overflow-color: '{colors.danger}'
   context-gauge-detail:
@@ -222,33 +262,46 @@ components:
     radius: '{rounded.lg}'
   context-segment:
     radius: '{rounded.md}'
+    rule: '{components.discipline-code}'
+    background: '{components.discipline-code}'
+    swatch: '{colors.segment-system-prompt}' # celle de son type : segment-*
     label-color: '{colors.ink}'
     label-typography: '{typography.label}'
     body-typography: '{typography.code}'
     selected-outline: '{colors.ink}'
   brick-card:
-    background: '{colors.surface-raised}'
+    background: '{colors.discipline-neutral-soft}'
     border: '{colors.line}'
+    rule: '{colors.discipline-neutral}'
+    rule-width: 5px
+    foreground: '{colors.ink-soft}'
     shadow: '{colors.relief}'
     radius: '{rounded.md}'
-    active-border: '{colors.primary}'
-    active-background: '{colors.primary-soft}'
+    active-rule: '{components.discipline-code}'
+    active-background: '{components.discipline-code}'
+    active-foreground: '{colors.ink}'
     active-shadow: '{colors.relief-active}'
-    unavailable-foreground: '{colors.muted}'
+    unavailable-foreground: '{colors.ink-soft}'
     reason-color: '{colors.ink-soft}'
+    status-typography: '{typography.body-sm}'
+    status-color: '{colors.ink-soft}'
+    group-title-typography: '{typography.label}'
+    group-title-color: '{colors.ink-soft}'
   brick-toggle:
-    on: '{colors.primary}'
+    on: '{components.discipline-code}'
     off: '{colors.line}'
     parent-off: '{colors.muted}'
     radius: '{rounded.full}'
   category-chip:
-    background: '{colors.primary-soft}'
-    foreground: '{colors.primary-deep}'
+    background: '{components.discipline-code}'
+    foreground: '{colors.ink}'
+    border: '{components.discipline-code}'
     radius: '{rounded.full}'
     typography: '{typography.label}'
   hosting-tag-local:
-    background: '{colors.hosting-local}'
-    foreground: '{colors.on-primary}'
+    background: '{colors.surface-raised}'
+    foreground: '{colors.ink}'
+    border: '{colors.ink-soft}'
     border-style: solid
     radius: '{rounded.full}'
   hosting-tag-network:
@@ -263,8 +316,8 @@ components:
     shadow: '{colors.relief}'
     radius: '{rounded.lg}'
   chat-message-user:
-    background: '{colors.primary-soft}'
-    foreground: '{colors.ink}'
+    background: '{colors.ink}'
+    foreground: '{colors.on-ink}'
     radius: '{rounded.lg}'
     typography: '{typography.chat}'
   chat-message-model:
@@ -300,6 +353,9 @@ components:
   turn-step:
     foreground: '{colors.ink}'
     radius: '{rounded.sm}'
+    tile: '{components.discipline-code}'
+    model-tile: '{colors.ink}'
+    model-icon: '{colors.on-ink}'
     current-marker: '{colors.state-active}'
     selected-background: '{colors.primary-soft}'
   token-counter:
@@ -368,8 +424,12 @@ components:
     brick-foreground: '{colors.primary-deep}'
     radius: '{rounded.lg}'
   arch-model:
+    plate: '{colors.ink}'
+    label-color: '{colors.on-ink}'
+    name-color: '{colors.on-ink-soft}'
     body: '{colors.primary}'
     ears: '{colors.primary-deep}'
+    outline: '{colors.on-ink}'
     visor: '{colors.surface-raised}'
     face: '{colors.ink}'
     antenna-idle: '{colors.muted}'
@@ -380,16 +440,18 @@ components:
     stroke: '{colors.hosting-boundary}'
     stroke-width: '{spacing.stroke-min}'
   arch-node-local:
-    background: '{colors.surface-raised}'
+    background: '{components.discipline-code}'
     foreground: '{colors.ink}'
-    border: '{colors.hosting-local}'
+    border: '{components.discipline-code}'
     border-style: solid
     radius: '{rounded.sm}'
   arch-node-network:
-    background: '{colors.hosting-network}'
+    background: '{colors.discipline-network-soft}'
     foreground: '{colors.ink}'
     border: '{colors.ink}'
     border-style: dashed
+    rule: '{colors.discipline-network}'
+    rule-width: 6px
     radius: '{rounded.sm}'
   arch-node-unavailable:
     background: '{colors.surface}'
@@ -419,21 +481,22 @@ WaveStack est un tableau de démonstration, pas une vitrine. Il vit dans une sal
 
 **Direction « atelier de construction ».** Le harnais se construit brique par brique autour du modèle ; l'interface le dit par sa forme. Elle ressemble à un jeu de construction posé sur un cahier : pièces aux grands arrondis, relief de jouet par une ombre pleine, fond de page à pois. Le modèle est un petit robot, et le harnais, tout ce qu'on branche autour de lui. Chaque volet porte sous son titre une phrase qui dit ce qu'il montre (« Ce que le modèle lit »). Le ton est ludique, mais l'écran reste un outil : le jeu sert la lecture en projection, jamais l'inverse. Référence : maquette canvas « WaveStack, refonte ludique » ([planches Écran principal et Planche de style](https://claude.ai/artifact/7fM7Cy2UiEnPXiNGvtX7Sq)). Cette spine l'emporte sur la maquette en cas d'écart, notamment sur les couleurs (voir Colors).
 
-L'identité reste celle de la charte Wavestone : violet ancre, vert en unique accent secondaire, crème, encre. L'information est dense mais rangée. Les couleurs vives ont chacune un rôle précis : violet = local et marque, jaune = réseau, vert = « en train d'agir » et « OK », rouge = « bloqué / en échec ». Le fond à pois est la seule ornementation, et il reste derrière les volets.
+L'identité reste celle de la charte Wavestone : violet ancre, vert en unique accent secondaire, crème, encre. L'information est dense mais rangée. Les couleurs vives ont chacune un rôle précis : violet = marque et prompt engineering, vert d'eau = context engineering, framboise = harness engineering, jaune = ce qui sort du poste, vert = « en train d'agir » et « OK », rouge = « bloqué / en échec ». Les éléments clés (barre haute, message de l'utilisateur, ce que fait le modèle) reposent sur l'encre (story 33, maquette de refonte du 2026-09-28). Le fond à pois est la seule ornementation, et il reste derrière les volets.
 
 Les composants vitrine de la charte (curseur personnalisé, révélations au scroll, compteurs animés) ne s'appliquent pas : une application qui s'anime pour elle-même vole l'attention que la démonstration doit capter.
 
-Thème clair uniquement en V1 `[ASSUMPTION]` : plus robuste en projection dans une salle éclairée. Pas de tokens sombres.
+Thème clair en V1 `[ASSUMPTION]` : plus robuste en projection dans une salle éclairée. Jetons prêts pour un second thème (story 31) : chaque couleur passe par une variable de `tokens.css`, jamais écrite en dur dans `app.css` ni `app.js` (`tests/test_web_tokens.py`) ; un thème sombre n'aura qu'à redéfinir les jetons.
 
 ## Colors
 
 **Charte Wavestone.**
-- **Violet (`#451DC7`)** : couleur ancre. Boutons primaires, brique active, et couleur du lieu d'hébergement local. Contraste 9,3:1 sur blanc.
+- **Violet (`#451DC7`)** : couleur ancre, celle de la marque et du prompt engineering (`discipline-prompt` a la même valeur). Boutons primaires, cadre du harnais, focus. Il ne dit plus le lieu d'hébergement local (story 33). Contraste 9,3:1 sur blanc.
 - **Violet foncé (`#250F6B`)** : texte sur fonds violet doux (puces de catégorie, badge « déclenché par le modèle »).
-- **Violet doux (`#EDE7FE`)** : fond de brique active, de message utilisateur, d'étape sélectionnée.
+- **Violet doux (`#EDE7FE`)** : fond d'étape sélectionnée, de puce de volet et de sélecteur de scénario. La brique active et le message de l'utilisateur ont quitté ce fond (story 33).
 - **Vert (`#04F06A`)** : seul accent secondaire. Réservé à « composant en cours d'action » (halo, flux animé, étape courante) et à « diagnostic OK ». Contraste 1,5:1 sur blanc : jamais en texte ni en trait fin isolé, toujours en fond ou halo avec texte encre (12,8:1).
 - **Vert clair (`#CAFEE0`)** : réserve de la charte, sans usage assigné en V1.
-- **Encre (`#0A0A14`)**, **encre douce (`#4A4A5E`)** : texte principal et secondaire. **Gris (`#8A8A9E`)** : 3,4:1, donc réservé à l'état indisponible et aux éléments non textuels ; jamais pour un texte à lire.
+- **Encre (`#0A0A14`)**, **encre douce (`#4A4A5E`)** : texte principal et secondaire. L'encre sert aussi de fond aux éléments clés (story 33) : barre haute, bulle de l'utilisateur, tuile d'une étape du modèle, plaque du modèle dans le schéma. L'encre de la charte reste en place, pas celle de la maquette (`#1A1733`).
+- **Sur encre** (`on-ink` `#FFFFFF`, `on-ink-soft` `#CFCDE4`) : texte et traits posés sur l'encre, 19,7:1 et 12,7:1. **Gris (`#8A8A9E`)** : 3,4:1, donc réservé à l'état indisponible et aux éléments non textuels ; jamais pour un texte à lire.
 - **Ligne (`#E6E6EC`)**, **crème (`#F6F5FA`)**, **blanc (`#FFFFFF`)** : séparateurs, fond de page, fond des volets. Le blanc n'est pas listé dans la charte relevée au memlog `[ASSUMPTION]`.
 - **Relief (`#D9D0F6`)**, **relief actif (`#C9BCF5`)**, **pois (`#D6CCF5`)** : trois teintes du violet de charte, ajoutées pour la direction « atelier de construction ». Elles ne servent qu'à l'ombre pleine (`{colors.relief}` sous volets et cartes, `{colors.relief-active}` sous pièces actives et bouton secondaire) et aux pois du fond de page (`{colors.dot}`). Jamais en texte, en fond de contenu ni en trait porteur de sens.
 
@@ -441,10 +504,39 @@ La maquette de référence teinte aussi les neutres en lilas (encre `#1C1535`, e
 - **Jaune (`#FFCA4A`)** et **rouge (`#FF2A49`)** : avec parcimonie, chacun avec une seule signification (ci-dessous).
 
 **Codage local / réseau** `[ASSUMPTION]`. Il porte le message sur la souveraineté (FR-3, SM-3) et doit se lire en une seconde, projeté.
-- Local = `{colors.hosting-local}` plein, trait continu.
-- Réseau = `{colors.hosting-network}` en fond, bordure en tirets couleur encre, icône globe, libellé « RÉSEAU ». Le jaune seul sur blanc n'a pas assez de contraste (1,5:1) : la bordure en tirets est donc tracée en `{colors.ink}`, le texte est en encre sur jaune (12,9:1).
+- Le lieu d'hébergement est porté par les zones du schéma (« Poste de travail », « RÉSEAU · hors du poste »), la frontière, l'icône globe et le libellé « RÉSEAU ». Le local n'a plus de couleur propre (story 33) : le violet dit le prompt engineering, et un nœud local prend la couleur de la discipline de sa brique. L'étiquette « Local » (`hosting-tag-local`) est neutre : fond blanc, bordure encre douce.
+- Réseau = jaune, jamais seul : `{colors.hosting-network}` en fond des étiquettes « RÉSEAU » et de l'en-tête des données sortantes, texte encre (12,9:1) et bordure en tirets encre ; `{colors.discipline-network}` en trait épais ou en fond sous texte encre (8,7:1) dans le code couleur des disciplines, toujours doublé du globe ou du libellé « RÉSEAU ». Seul sur blanc, ni l'un (1,5:1) ni l'autre (2,3:1) ne suffit.
 - La frontière Poste de travail / Réseau est un trait `{colors.hosting-boundary}` de `{spacing.stroke-min}`.
-- Le jaune ne sert **qu'au** réseau. Il n'est pas utilisé comme couleur d'avertissement, pour que « jaune » veuille toujours dire « ça sort du poste ».
+- Le jaune ne sert **qu'au** réseau, c'est-à-dire à ce qui sort du poste. Il n'est pas utilisé comme couleur d'avertissement, pour que « jaune » veuille toujours dire « ça sort du poste ».
+
+**Code couleur par discipline** (story 33, maquette de refonte du 2026-09-28). Une discipline, une couleur, dans les cinq volets : carte de brique, segment de la jauge et de Contexte LLM, tuile d'étape, nœud et puce du schéma. Chaque discipline a une couleur (trait, interrupteur, segment de jauge) et un fond doux (carte active, segment, nœud). Les valeurs viennent de la maquette, sauf l'encre, qui reste celle de la charte. La session porte la discipline de chaque segment et de chaque groupe de la jauge (sa catégorie de brique, AD-9) ; l'interface ne la calcule pas (AD-1).
+
+| Discipline | Couleur | Fond doux | Où |
+|---|---|---|---|
+| Prompt engineering | `discipline-prompt` `#451DC7` | `discipline-prompt-soft` `#EEE9FC` | Raisonnement, prompt système |
+| Context engineering | `discipline-context` `#0F7B6C` | `discipline-context-soft` `#E2F3EF` | mémoires, RAG, skills, compression |
+| Harness engineering | `discipline-harness` `#B8327A` | `discipline-harness-soft` `#FBE7F1` | outils, MCP, hooks, sous-agent, étapes du harnais |
+| Sort du poste de travail | `discipline-network` `#D9A400` | `discipline-network-soft` `#FFF5D1` | nœuds réseau, étapes avec données sortantes, puce « RÉSEAU » |
+| Neutre | `discipline-neutral` `#8A8A9E` | `discipline-neutral-soft` `#EFEFF4` | message et gabarit, fichiers du harnais, brique éteinte |
+| Modèle | `ink` | `ink` | tuiles des appels, demandes d'outil et réponses finales ; plaque du modèle |
+
+Contrastes, verrouillés par `tests/test_web_tokens.py` (calcul WCAG en Python) :
+
+| Paire | Ratio | Seuil |
+|---|---|---|
+| `on-ink` sur `ink` | 19,7 | 4,5 |
+| `on-ink-soft` sur `ink` | 12,7 | 4,5 |
+| `on-ink` sur prompt | 9,3 | 4,5 |
+| `on-ink` sur context | 5,2 | 4,5 |
+| `on-ink` sur harness | 5,6 | 4,5 |
+| `ink` sur network | 8,7 | 4,5 |
+| `ink-soft` sur chaque fond doux | ≥ 7,2 | 4,5 |
+| prompt, context, harness et neutral sur `surface-raised` | ≥ 3,4 | 3 |
+
+- `discipline-network` fait 2,3:1 sur blanc : il sert toujours de fond sous un texte encre, ou de trait accompagné du globe ou du libellé « RÉSEAU ».
+- Le violet sur l'encre fait 2,1:1 : la jauge garde donc une piste claire (`surface-raised`) dans la barre foncée, et les pastilles des légendes sont bordées (`on-ink-soft` sur l'encre, `ink-soft` sur blanc). Pour la même raison, le robot posé sur sa plaque d'encre a un contour `on-ink`.
+- La discipline « réseau » ne s'applique qu'à ce qui sort du poste : nœuds `hosting: network`, étapes avec données sortantes, puces « RÉSEAU », légende. Les segments et la jauge n'ont que prompt, context, harness et neutre : un résultat d'outil réseau est entré dans le contexte, il n'en sort pas.
+- La catégorie d'une brique (sa discipline) n'est pas son groupe du panneau : skills et compression sont en context engineering mais rangés dans « Ce que le harnais fait ».
 
 **Couleurs d'état** `[ASSUMPTION]`.
 - `{colors.state-active}` (vert) : composant en cours d'action, étape courante, diagnostic OK.
@@ -467,7 +559,9 @@ La maquette de référence teinte aussi les neutres en lilas (encre `#1C1535`, e
 
 Validation (`validate_palette.js`, mode clair) : les paires de segments **voisins** dans l'empilement passent, y compris le nouveau segment « Message et gabarit » à côté des résultats d'outils. Le contrôle sur **toutes** les paires échoue déjà entre prompt système (`#6B4EE6`) et descriptions d'outils (`#2A78D6`) ; c'est acceptable pour une barre empilée, où ces deux segments ne se touchent jamais, à condition que les étiquettes directes et la légende restent obligatoires. Avertissement de contraste sur `#27B060` et `#B39CF7` (faibles sur blanc) : même règle. Les étiquettes de segment sont posées **hors** du segment, en encre, avec une pastille de couleur ; le blanc sur `#2A78D6` (4,4:1) et `#0E8C7E` (4,1:1) ne passe pas pour du petit texte, et l'encre sur `#9C5BB5` non plus (4,3:1).
 
-À éviter : dégradés, fonds colorés derrière du texte courant, toute couleur hors de cette liste, et toute réutilisation d'une couleur de segment pour autre chose que son segment.
+Depuis la story 33, la couleur de segment ne sert plus qu'à la pastille du type (Contexte LLM, détail de la jauge) : le filet et le fond du segment, comme les segments de la jauge, prennent la couleur de sa discipline. Le type reste lisible par la pastille, l'étiquette et l'infobulle.
+
+À éviter : dégradés, fonds colorés derrière du texte courant autres que les fonds doux de discipline et l'encre, toute couleur hors de cette liste, et toute réutilisation d'une couleur de segment pour autre chose que son type.
 
 ## Typography
 
@@ -532,8 +626,8 @@ Les nœuds réseau gardent le même rayon que les nœuds locaux : seule la bordu
 Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 
 - **Fond de page (`page`)** : crème à pois, voir Layout & Spacing.
-- **Barre haute (`top-bar`)** : carte blanche flottante, rayon `{rounded.lg}`, relief `{colors.relief}`. De gauche à droite : sélecteur de scénario, jauge de contexte (élément le plus large), puces des volets masqués et menu « Volets ▾ », sélecteur de modèle, réglage de taille de texte, bouton Réinitialiser.
-- **Volet (`pane`)** : carte blanche sans bordure, rayon `{rounded.lg}`, relief `{colors.relief}`. En haut à gauche, titre `pane-title` en encre et, dessous, sous-titre pédagogique `pane-subtitle` en encre douce, qui dit en quatre ou cinq mots ce que le volet montre :
+- **Barre haute (`top-bar`)** : carte flottante sur l'encre (story 33), haute de `{spacing.top-bar-height}` (56 px, pour loger la légende sous la jauge), rayon `{rounded.lg}`, relief `{colors.relief}`. Titre, chiffres de la jauge et statut en `{colors.on-ink}` ; anneau de focus `{colors.on-ink}` de 2 px (la liste « Volets ▾ », sur blanc, garde le sien). Les commandes gardent leur fond propre et ne passent jamais sur deux lignes. La jauge a une largeur fixe (barre et légende sur 300 px, la légende sur deux lignes au plus), pour que rien ne la fasse bouger ; sur une fenêtre étroite (1280 px), le nom du scénario et celui du modèle cèdent la place, entiers dans la liste et l'infobulle. De gauche à droite : sélecteur de scénario, jauge de contexte (élément le plus large), puces des volets masqués et menu « Volets ▾ », sélecteur de modèle, réglage de taille de texte, bouton Réinitialiser.
+- **Volet (`pane`)** : carte blanche sans bordure, rayon `{rounded.lg}`, relief `{colors.relief}`. L'en-tête est un bandeau `{colors.surface}` séparé du contenu par un filet `{colors.line}` (story 33). En haut à gauche, titre `pane-title` en encre et, dessous, sous-titre pédagogique `pane-subtitle` en encre douce, qui dit en quatre ou cinq mots ce que le volet montre :
 
   | Volet | Sous-titre |
   |---|---|
@@ -551,18 +645,19 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Sélecteur de scénario (`scenario-picker`)** : pastille violet doux avec le nom du module et du scénario en cours.
 - **Sélecteur de modèle (`model-picker`)** : liste déroulante neutre, nom du modèle et taille (ex. « 2B »).
 - **Réglage de taille de texte (`text-size-control`)** : contrôle unique « Aa 100 % », pastille neutre ; le nombre affiche le palier courant (100, 125 ou 150 %).
-- **Jauge de contexte (`context-gauge`)** : barre horizontale empilée, rayons pleins, segments dans l'ordre de la palette catégorielle, espace libre en crème hachuré. À droite : `number` « 1 840 / 4 096 tokens · 45 % ». Un marqueur vertical en encre indique le seuil d'alerte. Au dépassement, le pourcentage passe sur pastille rouge avec icône.
+- **Jauge de contexte (`context-gauge`)** : barre horizontale empilée, rayons pleins, sur une piste claire (`{colors.surface-raised}`, bordure `{colors.on-ink-soft}`) dans la barre foncée. Les groupes gardent l'ordre d'empilement de la palette catégorielle, mais chacun prend la couleur de sa discipline (`discipline` reçu de la session), séparé du suivant par un filet blanc de 1 px ; l'infobulle nomme le groupe, ses tokens et sa discipline (« Prompt système : 31 tokens · Prompt engineering » ; « Hors brique » (message, gabarit, tour du modèle) pour le neutre, même libellé que la légende). La discipline d'un groupe est celle qui porte le plus de tokens parmi ses segments (à égalité, la première dans l'ordre du contexte). Espace libre hachuré. Sous la barre, la légende (`#gauge-legend`, `discipline-legend`) : une pastille bordée `{colors.on-ink-soft}` et le nom de chaque discipline présente, dans l'ordre prompt, context, harness, puis « Hors brique » (message, gabarit, tour du modèle), en `label` `{colors.on-ink-soft}` ; elle passe à la ligne plutôt que d'être coupée, et ne donne pas de tokens par discipline. À droite : `number` « 1 840 / 4 096 tokens · 45 % » en `{colors.on-ink}`. Un marqueur vertical en encre indique le seuil d'alerte. Au dépassement, le pourcentage passe sur pastille rouge avec icône.
 - **Détail de la jauge (`context-gauge-detail`)** : grille de cellules à la manière de `/context`, une cellule par tranche de tokens, colorée selon la palette catégorielle, cellules libres en crème hachuré. Légende à droite : pastille, nom du segment, tokens et pourcentage en `number`.
-- **Segment de contexte (`context-segment`)** : bloc de texte brut en `{typography.code}`, filet latéral gauche de 4 px dans la couleur du segment, étiquette `label` en encre avec pastille de couleur et nombre de tokens. Segment sélectionné : contour encre de 2 px.
-- **Carte de brique (`brick-card`)** : nom, interrupteur (`brick-toggle`), puce de catégorie (`category-chip` : « prompt engineering », « context engineering », « harness engineering »), étiquette de lieu d'hébergement (`hosting-tag-local` ou `hosting-tag-network`), explication dépliable. Relief `{colors.relief}`. Active : fond violet doux, bordure violette, relief `{colors.relief-active}`. Indisponible : posée à plat (sans relief), bordure en tirets, texte gris, interrupteur désactivé, raison toujours visible en `{colors.ink-soft}`. Sous-option d'une brique éteinte ou indisponible : interrupteur désactivé, coché en `{colors.muted}` au lieu du violet (`brick-toggle.parent-off`), libellé et résumé en `{colors.ink-soft}`.
+- **Segment de contexte (`context-segment`)** : bloc de texte brut en `{typography.code}`, filet latéral gauche de 4 px et fond doux de sa discipline (story 33, `data-discipline`), étiquette `label` en encre avec pastille de la couleur du type de segment (palette catégorielle) et nombre de tokens. Même traitement dans la comparaison de tours. Segment sélectionné : contour encre de 2 px.
+- **Panneau des briques** (story 33) : en tête, la légende des quatre disciplines (`discipline-legend` : « Prompt engineering », « Context engineering », « Harness engineering », « Sort du poste de travail » avec 🌐 dans sa pastille), puis deux groupes titrés en `label` majuscule encre douce, « Ce que le modèle lit » et « Ce que le harnais fait », selon le groupe que la session déclare pour chaque brique.
+- **Carte de brique (`brick-card`)** : nom, interrupteur (`brick-toggle`), puce de catégorie (`category-chip` : « prompt engineering », « context engineering », « harness engineering », bordée et teintée de sa discipline), étiquette de lieu d'hébergement (`hosting-tag-local`, neutre), puce « 🌐 RÉSEAU » (`hosting-tag-network`) quand une option activée sort du poste, ligne d'état (`brick-status`, `body-sm`), explication dépliable. Relief `{colors.relief}`. Active : fond doux de sa discipline, trait gauche de 5 px de sa couleur, interrupteur coché de sa couleur, texte encre, relief `{colors.relief-active}`. Éteinte : grisée, fond `{colors.discipline-neutral-soft}`, trait `{colors.discipline-neutral}`, texte `{colors.ink-soft}`. Raisonnement imposé par le modèle : interrupteur coché et désactivé, 🔒 à côté. Indisponible : posée à plat (sans relief), bordure en tirets, texte encre douce, interrupteur désactivé, raison toujours visible en `{colors.ink-soft}`. Sous-option d'une brique éteinte ou indisponible : interrupteur désactivé, coché en `{colors.muted}` au lieu du violet (`brick-toggle.parent-off`), libellé et résumé en `{colors.ink-soft}`.
 - **Tiroir d'édition (`edit-drawer`)** : panneau qui glisse par-dessus le panneau des briques pour éditer le prompt système ou la mémoire globale ; champ en `{typography.code}`. Confirmation d'enregistrement en `body-sm` encre, précédée de « ✓ ». Mémoire globale : en-tête (titre, croix « × » en bouton icône `{rounded.sm}` bordé `{colors.line}`), liste défilante, pied fixe séparé par un filet `{colors.line}` avec « Tout effacer » (`button-danger`) et « Fermer » (`button-secondary`) ; « Enregistrer » et « Supprimer » d'une entrée en actions compactes à plat, fond crème, bordure `{colors.line}`, `{rounded.sm}`.
-- **Messages (`chat-message-user`, `chat-message-model`)** : bulles `{rounded.lg}` à coin de 6 px côté locuteur ; utilisateur sur violet doux, modèle sur blanc bordé. Typographie `chat`. Bloc de raisonnement (`reasoning-block`) replié sur crème, en `body-sm`.
+- **Messages (`chat-message-user`, `chat-message-model`)** : bulles `{rounded.lg}` à coin de 6 px côté locuteur ; utilisateur sur l'encre, texte `{colors.on-ink}` (story 33), modèle sur blanc bordé. Typographie `chat`. Bloc de raisonnement (`reasoning-block`) replié sur crème, en `body-sm`.
 - **Champ de saisie (`composer`)** : pilule en `chat`, bordure `{colors.line}`, `{colors.primary}` au focus ; bouton d'envoi primaire rond à droite.
 - **Prompt suggéré (`suggested-prompt-chip`)** : puce contour violet au-dessus du champ de saisie.
 - **Consigne du scénario (`scenario-guide`)** : `body-sm` encre douce, titre en violet foncé, coupée à 3 lignes ; « Afficher plus » / « Réduire » en lien souligné violet, `label`.
 - **Onglets de Contexte LLM** (sous-agent) : libellés `label` sur un filet `{colors.line}` de 2 px ; onglet sélectionné en encre, souligné de 3 px `{colors.primary}`, les autres en encre douce.
 - **Indicateur de travail (`working-indicator`)** : point vert pulsé, libellé de phase et chronomètre en `body-sm`.
-- **Rail d'étapes (`turn-rail`, `turn-group`, `turn-step`)** : groupe de tour (`turn-group`) avec en-tête « Tour N » en `heading`, extrait du message en `body-sm` encre douce, statut en badge, chiffres en `number` ; les étapes sont reliées par un filet vertical `{colors.line}` de 2 px. Étape (`turn-step`) repliée : une ligne, tuile d'icône `{rounded.sm}`, titre en `label`, chiffre clé en `number` aligné à droite, chevron ▸ / ▾. Icône par type (appel au modèle, demande d'outil, exécution, chargement de documentation, skill, hook, validation humaine, réinjection, réponse finale), toujours doublée du titre. Étape courante : point vert ; étape sélectionnée : violet doux. Contenu interne sans relief.
+- **Rail d'étapes (`turn-rail`, `turn-group`, `turn-step`)** : groupe de tour (`turn-group`) avec en-tête « Tour N » en `heading`, extrait du message en `body-sm` encre douce, statut en badge, chiffres en `number` ; les étapes sont reliées par un filet vertical `{colors.line}` de 2 px. Étape (`turn-step`) repliée : une ligne, tuile d'icône `{rounded.sm}`, titre en `label`, chiffre clé en `number` aligné à droite, chevron ▸ / ▾. Icône par type (appel au modèle, demande d'outil, exécution, chargement de documentation, skill, hook, validation humaine, réinjection, réponse finale), toujours doublée du titre. La tuile prend la couleur de la discipline de l'étape (story 33) : encre, icône `{colors.on-ink}`, pour ce que fait le modèle (appel, demande d'outil, réponse finale) ; réseau pour une étape qui fait sortir des données du poste ; sinon la catégorie de la brique de l'étape, harness par défaut (fond doux, bordure de la couleur). Une étape en échec reste rouge. Étape courante : point vert ; étape sélectionnée : violet doux. Contenu interne sans relief.
 - **Préparation du harnais (`harness-prep`)** : même traitement qu'un groupe de tour, titre « Préparation du harnais », sans relief.
 - **Journal des événements (`event-log`)** : en-tête repliable en `label` avec chevron ; lignes en `body-sm`, nom technique en `{typography.code}` encre douce, JSON en `{typography.code}` sur crème. Aucune couleur d'état ni de segment.
 - **Compteur de tokens (`token-counter`)** : nombres Fredoka tabulaires ; entrée, sortie, temps écoulé.
@@ -572,12 +667,12 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Carte de dépassement (`overflow-card`)** : carte à bordure rouge de `{spacing.stroke-min}`, icône d'alerte, titre « Contexte dépassé — l'appel au modèle n'a pas été envoyé », compte de tokens en `number`, puis deux sous-parties titrées en `label` : « En production, un harnais pourrait » et « Pour continuer la démo ».
 - **Données sortantes (`outbound-payload`)** : en-tête jaune « RÉSEAU » avec icône globe et adresse de destination ; corps en `{typography.code}`, bordure en tirets encre.
 - **Comparaison de tours (`turn-compare`)** : deux colonnes alignées segment par segment, écarts signalés par un signe (+ / −) et une valeur, jamais par la couleur seule.
-- **Schéma d'architecture (`arch-zone-local`, `arch-zone-network`, `arch-boundary`, `arch-node-local`, `arch-node-network`, `arch-node-unavailable`, `arch-node-active`, `arch-flow`)** : deux zones séparées par la frontière verticale ; nœuds locaux violets à trait continu, nœuds réseau jaunes à tirets encre avec globe et « RÉSEAU ». Processus local et fichier local se distinguent par l'icône (engrenage / document) et le libellé `[ASSUMPTION]`. Nœud indisponible : fond crème, tirets gris, icône barrée et raison. Nœud en action : halo vert. Flux : trait `{spacing.stroke-min}` encre douce, vert quand il est parcouru.
+- **Schéma d'architecture (`arch-zone-local`, `arch-zone-network`, `arch-boundary`, `arch-node-local`, `arch-node-network`, `arch-node-unavailable`, `arch-node-active`, `arch-flow`)** : deux zones séparées par la frontière verticale ; chaque nœud prend la couleur de la discipline de sa brique (`{brick}.*`, story 33), fond doux et trait continu de sa couleur ; les fichiers du harnais (`file.*`) sont neutres ; les nœuds réseau ont un fond jaune doux, des tirets encre, un trait jaune épais à gauche, le globe et « RÉSEAU » (zone). Processus local et fichier local se distinguent par l'icône (engrenage / document) et le libellé `[ASSUMPTION]`. Nœud indisponible : fond crème, tirets gris, icône barrée et raison. Nœud en action : halo vert. Flux : trait `{spacing.stroke-min}` encre douce, vert quand il est parcouru.
   - **Bac (`arch-group`)** : contenant blanc à bordure `{colors.line}` 2 px, `{rounded.md}`, sans relief ; titre `label` posé sur la bordure (icône, nom, nombre). Côté Réseau : fond crème.
-  - **Forme par catégorie**, dans les couleurs du lieu d'hébergement : outil = tuile d'icône ronde à gauche du nom ; serveur MCP = double trait (local) ou double tirets (réseau), pastille « N outils » ; skill = filet gauche épais de 7 px ; fichier = fond crème, icône document. Toutes gardent `{rounded.sm}` ; la maquette utilise des coins de 4 à 6 px sur skill et fichier, cette spine l'emporte.
-  - **Bande des hooks (`arch-hook-strip`)** : dans le cadre Harnais, séparée du modèle par un tiret violet, étiquette pilule « Points d'accroche » ; hook en pièce violet doux à deux lignes (nom, point d'accroche). En action : halo vert. Bloquant : filet rouge de 7 px et « ✖ a bloqué ». Désactivé : tirets gris.
+  - **Forme par catégorie**, dans la couleur de la discipline : outil = tuile d'icône ronde à gauche du nom ; serveur MCP = double trait (local) ou double tirets (réseau), pastille « N outils » ; skill = filet gauche épais de 7 px ; fichier = fond neutre doux (`{colors.discipline-neutral-soft}`), icône document. Toutes gardent `{rounded.sm}` ; la maquette utilise des coins de 4 à 6 px sur skill et fichier, cette spine l'emporte.
+  - **Bande des hooks (`arch-hook-strip`)** : dans le cadre Harnais, séparée du modèle par un tiret violet, étiquette pilule « Points d'accroche » ; hook en pièce à deux lignes (nom, point d'accroche), dans la couleur de la brique Hooks (harness engineering, story 33). En action : halo vert. Bloquant : filet rouge de 7 px et « ✖ a bloqué ». Désactivé : tirets gris.
   - **Tronc et rails (`arch-trunk`)** : trait `{spacing.stroke-min}` encre douce, en tirets après la frontière ; chemin parcouru en halo vert 7 px avec un trait encre au centre, en tirets animés quand il franchit la frontière. Marqueurs ✋ (violet, validation H5 en attente) et ✖ (rouge, blocage par un hook).
-- **Harnais et modèle dans le schéma (`arch-harness`, `arch-model`)** : dans la zone locale, un cadre « Harnais » (bordure violette `{spacing.stroke-min}`, étiquette pilule violette en haut à gauche, relief `{colors.relief-active}`) entoure le modèle et liste en puces violet doux, avec leur icône, les briques actives sans composant externe (mémoire courte, prompt système) ; les autres briques sont représentées par leurs bacs et par la bande des hooks. Le robot et les puces s'empilent verticalement. Sans brique active, le cadre affiche « Aucune brique : LLM nu ». Au centre du cadre, le modèle est un **robot-mascotte** : corps violet, oreilles violet foncé, visière blanche, visage encre, nom « Modèle » en `label` et nom du modèle chargé dessous. Il signifie le modèle et rien d'autre : c'est la pièce autour de laquelle on branche le harnais. Trois poses, pilotées par l'état du tour :
+- **Harnais et modèle dans le schéma (`arch-harness`, `arch-model`)** : dans la zone locale, un cadre « Harnais » (bordure violette `{spacing.stroke-min}`, étiquette pilule violette en haut à gauche, relief `{colors.relief-active}`) entoure le modèle et liste en puces de la couleur de leur brique (story 33), avec leur icône, les briques actives sans composant externe (mémoire courte, prompt système) ; les autres briques sont représentées par leurs bacs et par la bande des hooks. Le robot et les puces s'empilent verticalement. Sans brique active, le cadre affiche « Aucune brique : LLM nu ». Au centre du cadre, le modèle est un **robot-mascotte** posé sur une plaque d'encre (story 33 ; de même la boîte du modèle cloud, bordée de tirets jaunes, et celle du modèle servi par un serveur local) : corps violet et oreilles violet foncé contournés de `{colors.on-ink}`, visière blanche, visage encre, nom « Modèle » en `label` `{colors.on-ink}` et nom du modèle chargé dessous en `{colors.on-ink-soft}`. Il signifie le modèle et rien d'autre : c'est la pièce autour de laquelle on branche le harnais. Trois poses, pilotées par l'état du tour :
 
   | Pose | Visage | Antenne |
   |---|---|---|
@@ -592,7 +687,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 
 | Do | Don't |
 |---|---|
-| Une couleur = un sens : jaune pour réseau, vert pour « en action / OK », rouge pour « bloqué / échec » | Utiliser le jaune comme avertissement générique |
+| Une couleur = un sens : une couleur par discipline (prompt, context, harness), jaune pour ce qui sort du poste, vert pour « en action / OK », rouge pour « bloqué / échec » | Utiliser le jaune comme avertissement générique, ou le violet pour dire « local » |
 | Icône + libellé + couleur pour tout état et tout lieu d'hébergement | Coder un état ou le local / réseau par la seule couleur |
 | Étiquettes de segment hors du segment, en encre, avec légende | Écrire en blanc sur les segments bleu ou vert d'eau |
 | Traits d'au moins 2 px dans le schéma | Traits fins ou gris clair, illisibles en projection et en visio |
@@ -603,7 +698,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 | Grands arrondis sur l'échelle 12 / 18 / 26 px et la pilule | Rayons hors échelle ou angles vifs |
 | Pois uniquement sur le fond de page, en `{colors.dot}` | Pois ou motif derrière du texte, dans un volet ou une carte |
 | Un sous-titre par volet, qui dit ce qu'il montre | Sous-titre décoratif, slogan, ou qui répète le titre |
-| Distinguer les catégories du schéma par le bac, la forme et l'icône | Donner une couleur à chaque catégorie |
+| Distinguer les catégories du schéma (outil, serveur, skill, fichier) par le bac, la forme et l'icône ; la couleur dit la discipline de la brique | Donner une couleur à chaque catégorie de composant |
 | Le robot représente le modèle, et seulement lui | Robot comme décoration, sur un autre composant ou dans un état sans rapport avec le modèle |
 | Animations réservées au signal « en action » (pouls, flux, antenne) et coupées sous `prefers-reduced-motion` | Curseur personnalisé, révélations au scroll, compteurs animés de la charte vitrine, robot animé au repos |
-| Thème clair uniquement | Mode sombre en V1 |
+| Chaque couleur par un jeton de `tokens.css`, prêt pour un second thème (story 31) | Couleur écrite en dur (`#hex`, `rgb(`, `hsl(`) dans `app.css` ou `app.js` |

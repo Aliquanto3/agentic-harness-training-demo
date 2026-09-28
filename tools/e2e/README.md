@@ -52,9 +52,11 @@ vrais services.
   `POST /_e2e/model_ready` n'a pas été appelé (un téléchargement qui échoue, puis réussit).
   `/_e2e/reranker.gguf` est celui du faux reranker (story 16), toujours servi.
 - `stack.py` : réseau sortant de WaveStack coupé (proxy fermé, voir plus haut), dossier de
-  données temporaire, `settings.json` qui déclare deux modèles sur le faux serveur, `fake`
-  (`wavestack-fake`) et `fake_b` (`faux-modele-b`, pour le changement de modèle de la
-  story 17), clé par `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux serveurs sur
+  données temporaire, `settings.json` qui déclare trois modèles sur le faux serveur, `fake`
+  (`wavestack-fake`), `fake_b` (`faux-modele-b`, pour le changement de modèle de la
+  story 17) et `fake_r` (`faux-modele-raisonne`, `reasoning: {format: "field", always: true}`,
+  pour la carte Raisonnement verrouillée de la story 33), clé par
+  `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux serveurs sur
   `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
   `settings.json` pointe `[rag]` vers un index dans ce dossier, absent au départ comme sur
   une installation neuve (le scénario `rag` le construit depuis la carte), et déclare un faux
@@ -176,6 +178,31 @@ Vérifications ajoutées aux scénarios existants :
   survol ; rallumée : de nouveau réglable. Capture : `27-reranking-brique-rag-eteinte.jpg`.
 - `reload_and_reset` : après « Réinitialiser » puis « Vider la conversation », Orchestration
   repart à « Tour 1 », l'infobulle et le journal gardant l'identifiant `t{n}` suivant.
+
+## Code couleur par discipline (story 33)
+
+- `disciplines`, joué après `network_tools` : scénario « Outils réseau » et un tour « Résume
+  l'article Wikipédia… ». Barre haute sur `--color-ink`, légende `#gauge-legend` (prompt,
+  context et harness engineering), chaque `.gauge-seg` avec sa discipline et le fond de son
+  jeton, total en tokens et en pourcentage, légende et chiffres entiers à 1600 × 1000. Panneau
+  des briques : légende des quatre disciplines, « Ce que le modèle lit » puis « Ce que le
+  harnais fait », premier groupe Raisonnement, Prompt système, Mémoire courte, Mémoire globale,
+  RAG ; trait de la carte Prompt système et fond de la carte RAG éteinte ; lignes d'état
+  (« n tokens dans le contexte », « n entrées · n tokens », « n déclarés · c contacté(s) », avec
+  la puce « RÉSEAU ») ; Prompt système éteint par l'API, « Éteinte », explication toujours
+  ouverte. Bulle de l'utilisateur sur l'encre, en-têtes des cinq volets sur `--color-surface`,
+  segments de Contexte LLM (filet du prompt système, pastille de son type), tuiles
+  d'Orchestration (appel au modèle sur l'encre, `wikipedia_summary` en réseau, « Description
+  des outils » en harness), plaque du modèle et nœuds du schéma. `c` compte les outils réseau
+  déjà contactés dans la session : 1 (Wikipédia) quand le scénario est joué seul, 2 après
+  `network_tools` (les jours fériés aussi). Captures `28-disciplines-barre-haute.jpg`,
+  `29-disciplines-briques.jpg`, `30-disciplines-vue-humain.jpg`, `31-disciplines-contexte.jpg`,
+  `32-disciplines-orchestration.jpg`, `33-disciplines-schema.jpg` (`Run.shot_element` : la
+  pièce seule).
+- `reasoning_locked`, joué après `model_switch` : bascule sur `fake_r` depuis le sélecteur de
+  la barre haute ; carte Raisonnement cochée et désactivée, 🔒, « Imposé par ce modèle » ; puis
+  retour à l'entrée A, qui ne raisonne pas : plus de verrou. Capture
+  `34-raisonnement-impose.jpg`.
 
 ## Déclencheurs du faux modèle
 

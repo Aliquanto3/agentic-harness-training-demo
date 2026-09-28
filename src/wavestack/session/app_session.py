@@ -33,7 +33,7 @@ from wavestack.bricks.contract import (
     load_brick_content,
     load_default_system_prompt,
 )
-from wavestack.bricks.registry import BRICKS, check_unique_ids
+from wavestack.bricks.registry import BRICKS, check_panel_groups, check_unique_ids
 from wavestack.cloud import active_model, chat_fields, load_cloud_content
 from wavestack.compression import headroom_adapter
 from wavestack.compression.port import (
@@ -669,7 +669,9 @@ class AppSession:
         self._turns = 0
         self._cancel: CancelToken | None = None
         # Bricks: in memory only, every launch starts as the bare LLM (no persistence).
-        self._bricks = check_unique_ids(BRICKS if bricks is None else bricks)
+        declared = BRICKS if bricks is None else bricks
+        check_panel_groups(declared)
+        self._bricks = check_unique_ids(declared)
         self._wanted: set[str]  # launch values: `_apply_launch_config`
         self._history: list[Exchange] = []
         self._custom_prompt: str | None  # None: the default from content/
@@ -1239,6 +1241,7 @@ class AppSession:
                     "id": brick.id,
                     "label_fr": self._label(brick.id),
                     "category": brick.category,
+                    "group": brick.group,
                     "category_fr": content.category_fr if content else brick.category,
                     "hosting_fr": content.hosting_fr if content else "",
                     "explanation_fr": self._explanation(content),
@@ -3127,6 +3130,7 @@ class AppSession:
             near_limit_ratio=self.cfg.near_limit_ratio,
             labels=self._labels,
             window_source=self._window_source,
+            categories=self._categories(),
         )
         return rendered, payload
 
@@ -3173,6 +3177,10 @@ class AppSession:
         """AD-4: `main`, or `sub` for any sub-agent context (they share one ratio)."""
         return "sub" if (current().context_id or "").startswith("sub") else "main"
 
+    def _categories(self) -> dict[str, str]:
+        """Story 33: brick id → category, for the gauge's disciplines (AD-9)."""
+        return {brick.id: brick.category for brick in self._bricks.values()}
+
     def _chat_gauge(
         self, rendered: RenderedChat, total: int, source: str, reserve: int
     ) -> dict[str, Any]:
@@ -3187,6 +3195,7 @@ class AppSession:
             labels=self._labels,
             window_source=self._window_source,
             raw_used=rendered.raw_total,
+            categories=self._categories(),
         )
         return payload | {"body": rendered.body, "usage_source": source}
 

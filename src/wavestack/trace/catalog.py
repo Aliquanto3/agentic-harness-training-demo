@@ -13,6 +13,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 Actor = Literal["model", "harness", "user"]
+# Story 33: a context segment's discipline, its brick's category (AD-9).
+Discipline = Literal["prompt", "context", "harness", "neutral"]
 Trigger = Literal["model", "user", "harness", "hook"]
 
 
@@ -166,6 +168,8 @@ class SegmentPayload(BaseModel):
     estimated: bool = False  # chat mode: an estimate, shown with « ≈ » (AD-4)
     # Story 20 (AD-22): a compressed tool result or RAG excerpt, with what it was before.
     compressed_from: CompressedFromPayload | None = None
+    # Story 33: its brick's category, `neutral` without a brick (template, user message).
+    discipline: Discipline = "neutral"
 
 
 class BreakdownItem(BaseModel):
@@ -173,6 +177,15 @@ class BreakdownItem(BaseModel):
     label_fr: str
     tokens: int
     kinds: list[str]
+    discipline: Discipline = "neutral"  # story 33: its first segment's
+
+
+class BrickTokens(BaseModel):
+    """Story 33: the tokens of one brick's segments, summed by the session (AD-1, AD-9)."""
+
+    brick: str
+    tokens: int
+    estimated: bool = False  # chat mode: at least one of its segments is an estimate
 
 
 class ContextWindowPayload(BaseModel):
@@ -197,6 +210,9 @@ class ContextWindowPayload(BaseModel):
     uncertain_fr: str | None = None
     # Story 20: the total if the compressed segments were not, computed by the session.
     uncompressed_used: int | None = None
+    # Story 33: tokens per brick, in order of first appearance, segments without a brick left
+    # out; the brick cards read them (AD-1).
+    by_brick: list[BrickTokens] = []
 
 
 class ContextReconciledPayload(ContextWindowPayload):
@@ -334,6 +350,8 @@ class BrickState(BaseModel):
     id: str
     label_fr: str
     category: Literal["prompt", "context", "harness"]
+    # Story 33: « Ce que le modèle lit » (`reads`) or « Ce que le harnais fait » (`acts`).
+    group: Literal["reads", "acts"] | None = None
     category_fr: str
     hosting_fr: str
     explanation_fr: list[str | list[str]]

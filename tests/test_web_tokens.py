@@ -93,3 +93,77 @@ def test_every_font_url_exists():
     assert len(urls) == 5, urls
     missing = [url for url in urls if not (STATIC_DIR / url).is_file()]
     assert not missing, f"fonts.css points to missing files: {missing}"
+
+
+# ---------- story 33: contrasts of the discipline tokens, colours only through tokens ----------
+
+
+def _luminance(hex_color: str) -> float:
+    """WCAG 2.x relative luminance of `#RRGGBB`."""
+    value = hex_color.lstrip("#")
+    channels = [int(value[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast(a: str, b: str) -> float:
+    light, dark = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+# (foreground, background, ratio of the design note rounded to 0.1, WCAG AA threshold): 4.5
+# for text, 3 for a stroke that carries meaning.
+_PAIRS = [
+    ("on-ink", "ink", 19.7, 4.5),
+    ("on-ink-soft", "ink", 12.7, 4.5),
+    ("on-ink", "discipline-prompt", 9.3, 4.5),
+    ("on-ink", "discipline-context", 5.2, 4.5),
+    ("on-ink", "discipline-harness", 5.6, 4.5),
+    ("ink", "discipline-network", 8.7, 4.5),
+    *(
+        ("ink-soft", f"discipline-{name}-soft", None, 4.5)
+        for name in ("prompt", "context", "harness", "network", "neutral")
+    ),
+    *(
+        (f"discipline-{name}", "surface-raised", None, 3.0)
+        for name in ("prompt", "context", "harness", "neutral")
+    ),
+]
+
+
+def test_discipline_tokens_meet_wcag_aa():
+    colors = _design_frontmatter()["colors"]
+    failures = []
+    for fg, bg, expected, threshold in _PAIRS:
+        ratio = _contrast(colors[fg], colors[bg])
+        if ratio < threshold or (expected is not None and round(ratio, 1) != expected):
+            failures.append(f"{fg} sur {bg} : {ratio:.2f} (attendu {expected}, seuil {threshold})")
+    soft_floor = min(
+        _contrast(colors["ink-soft"], colors[f"discipline-{n}-soft"])
+        for n in ("prompt", "context", "harness", "network", "neutral")
+    )
+    if soft_floor < 7.2:
+        failures.append(f"ink-soft sur un fond doux : {soft_floor:.2f} (< 7,2)")
+    assert not failures, failures
+
+
+_COMMENTS = {
+    ".css": re.compile(r"/\*.*?\*/", re.S),
+    # Block comments, then line comments not preceded by `:` (a URL keeps its `//`).
+    ".js": re.compile(r"/\*.*?\*/|(?<![:\\])//[^\n]*", re.S),
+}
+_HARD_COLOR = re.compile(r"#[0-9a-fA-F]{3,8}\b(?![-\w])|\b(?:rgba?|hsla?)\(")
+
+
+def test_app_css_and_js_write_no_color_outside_the_tokens():
+    """Every colour goes through `tokens.css`, so a second theme (story 31) only redefines the
+    tokens. CSS id selectors (`#gauge-bar`) are not colours: a hex colour is 3 to 8 hex digits
+    not followed by a name character."""
+    offenders = []
+    for name in ("app.css", "app.js"):
+        path = STATIC_DIR / name
+        text = _COMMENTS[path.suffix].sub("", path.read_text(encoding="utf-8"))
+        for line in text.splitlines():
+            for match in _HARD_COLOR.finditer(line):
+                offenders.append(f"{name}: {match.group(0)!r} in {line.strip()[:80]}")
+    assert not offenders, offenders

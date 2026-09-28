@@ -13,8 +13,11 @@
     <span class="top-bar-title">WaveStack</span>
     <select id="scenario-picker" class="scenario-picker" aria-label="Scénario"></select>
     <div class="gauge" id="gauge">
-      <div class="gauge-bar" id="gauge-bar" role="img" aria-label="Jauge de contexte">
-        <span class="gauge-threshold" id="gauge-threshold" hidden></span>
+      <div class="gauge-stack">
+        <div class="gauge-bar" id="gauge-bar" role="img" aria-label="Jauge de contexte">
+          <span class="gauge-threshold" id="gauge-threshold" hidden></span>
+        </div>
+        <ul class="gauge-legend" id="gauge-legend" aria-label="Disciplines présentes dans le contexte"></ul>
       </div>
       <span class="gauge-figures" id="gauge-figures">Contexte : en attente du modèle</span>
     </div>

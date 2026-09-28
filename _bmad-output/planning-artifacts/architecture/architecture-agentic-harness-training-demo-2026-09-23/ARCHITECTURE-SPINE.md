@@ -286,7 +286,7 @@ Règles de dépendance :
     - Dans le raisonnement ou le texte, le tour se termine par `turn_ended{status: limit}` et n’entre pas dans l’historique (AD-17).
     - Dans un appel d’outil, il suit la voie de l’appel mal formé (AD-10).
   - **Sous-agent.** Dans un contexte `sub{n}`, un dépassement ou une sortie coupée terminent la délégation, pas le tour (AD-11).
-  - **Calcul côté session.** `context_rendered` porte `window`, `window_source`, `reserve`, `usable`, `used`, `percent = used / usable`, `near_limit` (seuil 0,8, défini dans `wavestack.toml`), `overflow` et la ventilation par type de segment, tous calculés par la session. Une seule fonction produit ces champs pour `context_rendered`, `context_preview` et `context_reconciled`.
+  - **Calcul côté session.** `context_rendered` porte `window`, `window_source`, `reserve`, `usable`, `used`, `percent = used / usable`, `near_limit` (seuil 0,8, défini dans `wavestack.toml`), `overflow` et la ventilation par type de segment, tous calculés par la session. Story 33 : chaque segment et chaque groupe de la ventilation portent aussi `discipline` (`prompt|context|harness|neutral` : la catégorie de la brique du segment ; pour un groupe, la discipline qui porte le plus de tokens parmi ses segments, la première dans l'ordre du contexte à égalité ; `neutral` sans brique ou pour une brique inconnue), et la charge porte `by_brick: [{brick, tokens, estimated}]`, les tokens de chaque brique dans l'ordre d'apparition, sans les segments hors brique ; les cartes de brique les lisent, le front n'additionne rien (AD-1). Une seule fonction produit ces champs pour `context_rendered`, `context_preview` et `context_reconciled`.
   - **Aperçu.** Après chaque changement de configuration, la session émet `context_preview`, avec les mêmes champs et `turn_id = null`. Il est calculé sans message ni extraits RAG. La jauge l’affiche comme « prochain tour ».
   - **Scénarios fournis.** Chaque scénario déclare `expects_overflow`. Un test pytest marqué `model` rend, avec le tokenizer du modèle par défaut (GGUF ouvert en `vocab_only`), le contexte du premier appel du scénario, puis vérifie qu’il tient, ou qu’il déborde si le drapeau le demande. Le test est sauté si le GGUF est absent. Ce contexte comprend :
     - le premier prompt suggéré ;
@@ -338,6 +338,7 @@ Règles de dépendance :
 - **Rule:**
   - **Déclaration.** Chaque brique déclare :
     - `id` et catégorie (`prompt`, `context` ou `harness`) ;
+    - groupe du panneau (`reads`, « Ce que le modèle lit », ou `acts`, « Ce que le harnais fait » ; story 33), distinct de la catégorie et émis dans `bricks_changed` ; l'ordre de la déclaration reste l'ordre d'affichage, tous les `reads` avant les `acts` (vérifié au chargement) ;
     - dépendances et capacités exigées ;
     - besoin de réseau ;
     - `contributes_to` ;

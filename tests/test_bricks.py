@@ -11,7 +11,7 @@ from test_turn import _run
 
 from wavestack import config
 from wavestack.bricks.contract import BrickContent, BrickDeclaration, Component
-from wavestack.bricks.registry import BRICKS, check_unique_ids
+from wavestack.bricks.registry import BRICKS, check_panel_groups, check_unique_ids
 from wavestack.session import app_session as app_session_module
 from wavestack.session.app_session import AppSession, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession
@@ -241,7 +241,11 @@ def _harness_errors(mark: int) -> list:
 def _fake(brick_id: str, requires: list[str] | None = None) -> BrickDeclaration:
     component = Component(id=f"{brick_id}.part", kind="fake", hosting="local_process")
     return BrickDeclaration(
-        id=brick_id, category="harness", requires=requires or [], components=[component]
+        id=brick_id,
+        category="harness",
+        group="acts",
+        requires=requires or [],
+        components=[component],
     )
 
 
@@ -270,6 +274,7 @@ def test_duplicate_or_reserved_ids_are_refused():
     clash = BrickDeclaration(
         id="core",
         category="harness",
+        group="acts",
         components=[Component(id="core.harness", kind="fake", hosting="local_process")],
     )
     with pytest.raises(ValueError, match="duplicate"):
@@ -278,6 +283,7 @@ def test_duplicate_or_reserved_ids_are_refused():
         BrickDeclaration(
             id="a",
             category="harness",
+            group="acts",
             components=[Component(id="b.x", kind="f", hosting="local_file")],
         )
 
@@ -395,7 +401,7 @@ def test_edge_to_an_undrawn_node_is_dropped(monkeypatch):
         hosting="local_process",
         edges_to=["core.harness", "file.rag_index"],
     )
-    brick = BrickDeclaration(id="audit", category="harness", components=[component])
+    brick = BrickDeclaration(id="audit", category="harness", group="acts", components=[component])
     session = AppSession(config.Config(values={}), bricks=[brick])
     mark = get_journal().last_seq()
 
@@ -465,6 +471,78 @@ def test_reasoning_card_comes_first_and_the_ids_are_unchanged():
         "compression",
     }
     assert [b.id for b in BRICKS] == [b["id"] for b in cards]
+
+
+# ---------- story 33: panel groups, disciplines and tokens per brick ----------
+
+
+def test_cards_come_in_two_groups_in_the_story_order():
+    mark = get_journal().last_seq()
+    booted_session(FakeEngine())
+
+    cards = _latest("bricks_changed", mark)["bricks"]
+
+    assert [(b["id"], b["group"]) for b in cards] == [
+        ("reasoning", "reads"),
+        ("system_prompt", "reads"),
+        ("short_memory", "reads"),
+        ("global_memory", "reads"),
+        ("rag", "reads"),
+        ("tools", "acts"),
+        ("mcp", "acts"),
+        ("skills", "acts"),
+        ("hooks", "acts"),
+        ("subagent", "acts"),
+        ("compression", "acts"),
+    ]
+    # The categories do not change: skills and compression are context engineering.
+    assert {b["id"]: b["category"] for b in cards} == {
+        "reasoning": "prompt",
+        "system_prompt": "prompt",
+        "short_memory": "context",
+        "global_memory": "context",
+        "rag": "context",
+        "tools": "harness",
+        "mcp": "harness",
+        "skills": "context",
+        "hooks": "harness",
+        "subagent": "harness",
+        "compression": "context",
+    }
+
+
+def test_panel_groups_must_be_contiguous_reads_first():
+    def brick(brick_id: str, group: str) -> BrickDeclaration:
+        component = Component(id=f"{brick_id}.part", kind="fake", hosting="local_process")
+        return BrickDeclaration(
+            id=brick_id, category="context", group=group, components=[component]
+        )
+
+    check_panel_groups(BRICKS)
+    check_panel_groups([brick("a", "reads"), brick("b", "reads"), brick("c", "acts")])
+    with pytest.raises(ValueError, match="before `acts`"):
+        check_panel_groups([brick("a", "reads"), brick("b", "acts"), brick("c", "reads")])
+    with pytest.raises(ValueError, match="before `acts`"):
+        AppSession(config.Config(values={}), bricks=[brick("x", "acts"), brick("y", "reads")])
+
+
+def test_rendered_context_carries_disciplines_and_tokens_per_brick():
+    session = booted_session(FakeEngine(output="Bonjour !"))
+    session.set_brick("system_prompt", True)
+
+    events = _run(session, "Bonjour")
+
+    payload = events["context_rendered"][-1]
+    for segment in payload["segments"]:
+        expected = "prompt" if segment["brick"] == "system_prompt" else "neutral"
+        assert segment["discipline"] == expected, segment
+    by_group = {item["group"]: item["discipline"] for item in payload["breakdown"]}
+    assert by_group["system_prompt"] == "prompt"
+    assert by_group["message"] == "neutral"
+    prompt_tokens = sum(s["tokens"] for s in payload["segments"] if s["brick"] == "system_prompt")
+    assert payload["by_brick"] == [
+        {"brick": "system_prompt", "tokens": prompt_tokens, "estimated": False}
+    ]
 
 
 def test_turn_ids_keep_growing_after_clearing_and_reset():

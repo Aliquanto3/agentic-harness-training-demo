@@ -21,8 +21,78 @@ body {
   flex-direction: column;
   gap: var(--spacing-gutter);
   padding: var(--spacing-gutter);
-  /* Fredoka has no `tnum`: its live counters get a fixed width instead (.gauge-figures). */
+  /* Fredoka has no `tnum`: the gauge's bar keeps a fixed width instead (.gauge-stack). */
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- story 33: one colour per discipline (DESIGN.md > Colors) ----------
+   An element tagged `data-discipline` (by app.js, from what the session sent) gets its
+   colour, its soft background and the text that reads on the colour. `model`: what the model
+   does, on ink. Components read `--discipline`, `--discipline-soft`, `--on-discipline`. */
+
+[data-discipline="prompt"] {
+  --discipline: var(--color-discipline-prompt);
+  --discipline-soft: var(--color-discipline-prompt-soft);
+  --on-discipline: var(--color-on-ink);
+}
+
+[data-discipline="context"] {
+  --discipline: var(--color-discipline-context);
+  --discipline-soft: var(--color-discipline-context-soft);
+  --on-discipline: var(--color-on-ink);
+}
+
+[data-discipline="harness"] {
+  --discipline: var(--color-discipline-harness);
+  --discipline-soft: var(--color-discipline-harness-soft);
+  --on-discipline: var(--color-on-ink);
+}
+
+/* The yellow is never alone: a background under ink text, or a rule beside « RÉSEAU » / 🌐. */
+[data-discipline="network"] {
+  --discipline: var(--color-discipline-network);
+  --discipline-soft: var(--color-discipline-network-soft);
+  --on-discipline: var(--color-ink);
+}
+
+[data-discipline="neutral"] {
+  --discipline: var(--color-discipline-neutral);
+  --discipline-soft: var(--color-discipline-neutral-soft);
+  --on-discipline: var(--color-ink);
+}
+
+[data-discipline="model"] {
+  --discipline: var(--color-ink);
+  --discipline-soft: var(--color-ink);
+  --on-discipline: var(--color-on-ink);
+}
+
+/* A legend: a bordered swatch, then the name. */
+.discipline-legend,
+.gauge-legend {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.discipline-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  white-space: nowrap;
+}
+
+.discipline-swatch {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--color-ink-soft);
+  border-radius: 4px;
+  background: var(--discipline);
+  font-size: 9px;
+  line-height: 1;
 }
 
 /* ---------- toy relief (DESIGN.md > Elevation & Depth): solid offset shadow, never blurred ---------- */
@@ -101,9 +171,11 @@ body {
   height: var(--spacing-top-bar-height);
   display: flex;
   align-items: center;
-  gap: var(--spacing-4);
+  gap: var(--spacing-3);
   padding: 0 var(--spacing-4);
-  background: var(--color-surface-raised);
+  /* Story 33: the key piece on ink; its title, figures and status in on-ink. */
+  background: var(--color-ink);
+  color: var(--color-on-ink);
   border-radius: var(--rounded-lg);
   box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
 }
@@ -111,7 +183,7 @@ body {
 .top-bar-title {
   font-family: var(--typography-heading-font-family);
   font-weight: var(--typography-heading-font-weight);
-  color: var(--color-primary-deep);
+  color: var(--color-on-ink);
 }
 
 .pane-chips {
@@ -381,6 +453,7 @@ body.is-resizing-y * {
   gap: var(--spacing-2);
   padding: var(--spacing-2) var(--spacing-pane-padding);
   border-bottom: 1px solid var(--color-line);
+  background: var(--color-surface); /* story 33: the pane's band */
 }
 
 .pane-heading {
@@ -441,35 +514,119 @@ body.is-resizing-y * {
 
 /* ---------- context gauge (DESIGN.md > context-gauge) ---------- */
 
+/* Story 33: the pieces of the bar keep their width and never wrap (a squeezed
+   « Réinitialiser » went onto two lines); the gauge has a fixed width, so that nothing else
+   (a scenario's name, a message) moves its bar; only its figures give way. */
 .gauge {
+  flex: 0 0.001 auto; /* gives way last, once the scenario and model names reach their minimum */
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
   min-width: 0;
 }
 
+.top-bar > :not(.gauge) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* On a narrow window (1280 px), the scenario's name and the model's give way (their whole
+   text stays in the list and in the tooltip). */
+.top-bar > .scenario-picker {
+  flex: 0 1 auto;
+  min-width: 8rem;
+}
+
+.top-bar > .model-indicator {
+  flex: 0 1 auto;
+  min-width: 6rem;
+  overflow: hidden;
+}
+
+.top-bar > .model-indicator > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The chips of hidden panes and the gauge's figures give way too (whole text in their
+   tooltip). */
+.top-bar > .pane-chips {
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.pane-chips > .pane-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The bar, then the legend of the disciplines under it; the legend wraps rather than be cut. */
+.gauge-stack {
+  flex: 0 0 auto;
+  width: 300px; /* two legend names per line: two lines at most in the 56 px bar */
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* A light track in the dark bar: the violet on ink would only reach 2.1:1. */
 .gauge-bar {
   position: relative;
   display: flex;
-  width: 220px;
+  min-width: 160px;
   height: 12px;
   border-radius: var(--rounded-full);
   overflow: hidden;
-  border: 1px solid var(--color-line);
-  background: var(--color-segment-free);
+  border: 1px solid var(--color-on-ink-soft);
+  background: var(--color-surface-raised);
 }
 
 .gauge-seg {
   flex-basis: 0;
   min-width: 0;
+  background: var(--discipline);
+}
+
+/* A 1 px rule between two groups: the type stays told apart (named in the tooltip). */
+.gauge-seg + .gauge-seg {
+  box-shadow: inset 1px 0 0 var(--color-surface-raised);
 }
 
 .gauge-free {
+  flex-basis: 0;
+  min-width: 0;
   background: repeating-linear-gradient(
     45deg,
-    var(--color-segment-free) 0 4px,
+    var(--color-surface-raised) 0 4px,
     var(--color-line) 4px 5px
-  ) !important;
+  );
+}
+
+.gauge-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--spacing-3);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-on-ink-soft);
+}
+
+.gauge-legend:empty {
+  display: none;
+}
+
+.gauge-legend .discipline-swatch {
+  width: 10px;
+  height: 10px;
+  border-color: var(--color-on-ink-soft);
+  border-radius: 3px;
 }
 
 .gauge-threshold {
@@ -484,7 +641,10 @@ body.is-resizing-y * {
   font: var(--typography-number-font-weight) var(--typography-number-font-size) /
     var(--typography-number-line-height) var(--typography-number-font-family);
   white-space: nowrap;
-  min-width: 46ch; /* Fredoka digits are proportional: a fixed width keeps the bar still */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .gauge.is-overflow .gauge-figures {
@@ -527,7 +687,8 @@ body.is-resizing-y * {
 
 .bubble-user {
   align-self: flex-end;
-  background: var(--color-primary-soft);
+  background: var(--color-ink); /* story 33 */
+  color: var(--color-on-ink);
   border-bottom-right-radius: 6px; /* the speaker's corner */
 }
 
@@ -633,10 +794,11 @@ body.is-resizing-y * {
     var(--typography-number-line-height) var(--typography-number-font-family);
 }
 
+/* Story 33: the rule and the background say the discipline; the swatch, the segment type. */
 .ctx-segment {
-  border-left: 4px solid var(--segment-color);
+  border-left: 4px solid var(--discipline, var(--segment-color));
   border-radius: var(--rounded-md);
-  background: var(--color-surface);
+  background: var(--discipline-soft, var(--color-surface));
   padding: var(--spacing-2);
   margin-bottom: var(--spacing-2);
 }
@@ -1140,6 +1302,17 @@ body.is-resizing-y * {
   font-size: 13px;
 }
 
+/* Story 33: the tile in its discipline; the model's steps on ink. Before the tones below,
+   which win over it (an error stays red). */
+.turn-step-tile[data-discipline] {
+  background: var(--discipline-soft);
+  border-color: var(--discipline);
+}
+
+.turn-step-tile[data-discipline="model"] {
+  color: var(--color-on-ink);
+}
+
 /* The current step: a green dot on its tile. */
 .turn-step.is-current .turn-step-tile {
   border-color: var(--color-ink);
@@ -1575,19 +1748,63 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   padding-left: var(--spacing-3);
 }
 
+/* Story 33: a card on is tinted with its discipline, a 5 px rule on its left; off, greyed:
+   neutral background and rule, soft ink text. */
+.brick-card {
+  border-left: 5px solid var(--color-discipline-neutral);
+  background: var(--color-discipline-neutral-soft);
+  color: var(--color-ink-soft);
+}
+
 .brick-card.is-active {
-  background: var(--color-primary-soft);
-  border-color: var(--color-primary);
+  background: var(--discipline-soft);
+  border-left-color: var(--discipline);
+  color: var(--color-ink);
   box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief-active);
 }
 
 .brick-card.is-unavailable {
   border-style: dashed;
+  border-left-style: solid;
   box-shadow: none; /* posed flat */
 }
 
 .brick-card.is-unavailable .brick-name {
-  color: var(--color-muted);
+  color: var(--color-ink-soft);
+}
+
+.brick-status {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.brick-card.is-active .brick-status {
+  color: var(--color-ink);
+}
+
+.brick-lock {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.brick-group-title {
+  margin: var(--spacing-2) 0 0;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.brick-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
 }
 
 .brick-head {
@@ -1627,8 +1844,9 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   transition: left 0.15s;
 }
 
+/* Story 33: a card's switches in its discipline's colour. */
 .brick-toggle:checked {
-  background: var(--color-primary);
+  background: var(--discipline, var(--color-primary));
 }
 
 .brick-toggle:checked::after {
@@ -1681,18 +1899,27 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .category-chip {
-  background: var(--color-primary-soft);
-  color: var(--color-primary-deep);
+  background: var(--discipline-soft, var(--color-primary-soft));
+  color: var(--color-ink);
+  border: 1px solid var(--discipline, var(--color-primary));
 }
 
 .brick-card.is-active .category-chip {
   background: var(--color-surface-raised);
 }
 
+/* Story 33: an off card is greyed, its category chip too. */
+.brick-card:not(.is-active) .category-chip {
+  background: var(--color-surface-raised);
+  border-color: var(--color-discipline-neutral);
+  color: var(--color-ink-soft);
+}
+
+/* Story 33: the local hosting is no longer violet (the violet says prompt engineering). */
 .hosting-tag-local {
-  background: var(--color-hosting-local);
-  color: var(--color-on-primary);
-  border: 1px solid var(--color-hosting-local);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
 }
 
 .hosting-tag-network {
@@ -2183,7 +2410,8 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 /* ---------- architecture schema (DESIGN.md > arch-zone-*, arch-boundary, arch-group, arch-node-*,
    arch-hook-strip, arch-trunk, arch-harness, arch-model; story 8e) ----------
    HTML pieces laid out by flexbox, then an SVG layer drawn over them for the trunk, the rails,
-   the path and the markers. Category: bin, shape and icon; colour: hosting and state only. */
+   the path and the markers. Category: bin, shape and icon; hosting: zone, boundary, globe and
+   « RÉSEAU »; colour: the discipline of the node's brick (story 33) and the state. */
 
 .pane-body-schema {
   padding: var(--spacing-1) var(--spacing-2);
@@ -2216,6 +2444,14 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 .arch .is-selected {
   outline: var(--spacing-stroke-min) solid var(--color-ink);
   outline-offset: 2px;
+}
+
+/* Story 33: a model on its ink plate: its focus ring and its selection in on-ink, inside the
+   plate (ink on ink, or the violet at 2.1:1, would not show). */
+.arch .arch-robots .robot:focus-visible,
+.arch .arch-robots .robot.is-selected {
+  outline: var(--spacing-stroke-min) solid var(--color-on-ink);
+  outline-offset: -2px;
 }
 
 .arch-wires {
@@ -2350,12 +2586,13 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   gap: var(--spacing-1);
 }
 
+/* Story 33: a chip in its brick's discipline. */
 .arch .arch-chip {
-  padding: 3px 10px;
-  border: 0;
+  padding: 1px 10px;
+  border: var(--spacing-stroke-min) solid var(--discipline, var(--color-primary));
   border-radius: var(--rounded-full);
-  background: var(--color-primary-soft);
-  color: var(--color-primary-deep);
+  background: var(--discipline-soft, var(--color-primary-soft));
+  color: var(--color-ink);
   white-space: nowrap;
 }
 
@@ -2382,8 +2619,10 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   background: none;
 }
 
+/* Story 33: the robot lies on an ink plate (.arch-robots), its label in on-ink. */
 .robot-label {
   font-weight: 600;
+  color: var(--color-on-ink);
 }
 
 .robot-model {
@@ -2392,7 +2631,16 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--typography-body-sm-font-family);
-  color: var(--color-ink-soft);
+  color: var(--color-on-ink-soft);
+}
+
+/* On ink, the violet body, ears and antenna stick get an on-ink outline (alone: 2.1:1 and
+   1.3:1). */
+.robot-body,
+.robot-ear,
+.robot-stick {
+  stroke: var(--color-on-ink);
+  stroke-width: 1.5px;
 }
 
 .robot-body {
@@ -2474,9 +2722,10 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   flex-direction: column;
   align-items: flex-start;
   padding: 1px var(--spacing-2);
-  border: var(--spacing-stroke-min) solid var(--color-primary);
+  /* Story 33: in the hooks brick's discipline. */
+  border: var(--spacing-stroke-min) solid var(--discipline, var(--color-primary));
   border-radius: var(--rounded-sm);
-  background: var(--color-primary-soft);
+  background: var(--discipline-soft, var(--color-primary-soft));
   text-align: left;
   line-height: 1.1;
 }
@@ -2573,9 +2822,12 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   min-width: 0;
   min-height: 26px;
   padding: 1px 6px;
-  border: var(--spacing-stroke-min) solid var(--color-hosting-local);
+  /* Story 33: the colour says the discipline of the node's brick; the hosting is said by the
+     zone, the boundary, the globe and « RÉSEAU ». */
+  border: var(--spacing-stroke-min) solid var(--discipline, var(--color-ink-soft));
   border-radius: var(--rounded-sm);
-  background: var(--color-surface-raised);
+  background: var(--discipline-soft, var(--color-surface-raised));
+  color: var(--color-ink);
   text-align: left;
   white-space: nowrap;
 }
@@ -2594,8 +2846,8 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   margin-left: auto;
   padding: 0 6px;
   border-radius: var(--rounded-full);
-  background: var(--color-primary-soft);
-  color: var(--color-primary-deep);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -2607,33 +2859,32 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   width: 18px;
   height: 18px;
   border-radius: var(--rounded-full);
-  background: var(--color-primary-soft);
+  background: var(--color-surface-raised);
   font-size: 11px;
 }
 
 /* MCP server: a double line, a process of its own that exposes tools. */
 .arch .arch-node-mcp {
-  border: 4px double var(--color-hosting-local);
+  border: 4px double var(--discipline, var(--color-ink-soft));
 }
 
-/* Skill: a thick left rule, like the spine of a sheet; loaded, on soft violet. */
+/* Skill: a thick left rule, like the spine of a sheet; white until loaded, then on its
+   discipline's soft background. */
 .arch .arch-node-skill {
   border-left-width: 7px;
+  background: var(--color-surface-raised);
 }
 
 .arch .arch-node-skill.is-loaded {
-  background: var(--color-primary-soft);
+  background: var(--discipline-soft);
 }
 
-/* File: cream, with its document icon. */
-.arch .arch-node-file {
-  background: var(--color-surface);
-}
-
-/* Network: yellow, dashed ink; the globe prefixes its name, « RÉSEAU » is on the zone label. */
+/* Network: dashed ink, a thick yellow rule; the globe prefixes its name, « RÉSEAU » is on the
+   zone label (the yellow is never alone). */
 .arch .arch-node.is-network {
   border: var(--spacing-stroke-min) dashed var(--color-ink);
-  background: var(--color-hosting-network);
+  border-left: 6px solid var(--discipline);
+  background: var(--discipline-soft);
   color: var(--color-ink);
 }
 
@@ -2775,7 +3026,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .scenario-picker {
   min-height: var(--spacing-hit-target-min);
-  max-width: 22rem;
+  max-width: 12rem; /* story 33: room for the gauge's legend */
   padding: 0 var(--spacing-3);
   background: var(--color-primary-soft);
   color: var(--color-primary-deep);
@@ -2793,7 +3044,9 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   top: calc(100% + var(--spacing-1));
   right: var(--spacing-4);
   z-index: 20;
-  max-width: 28rem;
+  max-width: min(28rem, calc(100% - 2 * var(--spacing-4)));
+  overflow: hidden;
+  text-overflow: ellipsis; /* story 33: whole text in its tooltip */
   font-size: var(--typography-body-sm-font-size);
   color: var(--color-ink-soft);
   white-space: nowrap;
@@ -2951,14 +3204,17 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   font-weight: 600;
 }
 
+/* Story 33: the cloud model's box is an ink plate, a dashed yellow border and 🌐 in its name. */
 .arch-cloud-model {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   padding: 6px;
-  border: 2px dashed var(--color-ink, currentColor);
-  border-radius: 8px;
+  border: 2px dashed var(--color-discipline-network);
+  border-radius: var(--rounded-sm);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
 }
 
 /* Story 18: a model served by a local server (Ollama, llama-server), outside the harness
@@ -2970,9 +3226,10 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   align-self: flex-start;
   gap: 4px;
   padding: 6px 8px;
-  border: 2px solid var(--color-hosting-local);
-  border-radius: 8px;
-  background: var(--color-primary-soft);
+  border: 2px solid var(--color-ink);
+  border-radius: var(--rounded-sm);
+  background: var(--color-ink); /* story 33: an ink plate */
+  color: var(--color-on-ink);
   max-width: 180px;
   text-align: center;
 }
@@ -3000,7 +3257,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 /* A neutral drop-down list: model name and size (« 2B »). */
 .model-picker {
   min-height: var(--spacing-hit-target-min);
-  max-width: 16rem;
+  max-width: 10rem; /* story 33: room for the gauge's legend */
   padding: 0 var(--spacing-2);
   background: var(--color-surface-raised);
   color: var(--color-ink);
@@ -3141,6 +3398,10 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   display: flex;
   align-items: flex-end;
   gap: var(--spacing-1);
+  /* Story 33: the model's ink plate. */
+  padding: 2px var(--spacing-1);
+  border-radius: var(--rounded-sm);
+  background: var(--color-ink);
 }
 
 .robot-sub .robot-drawing {
@@ -3304,4 +3565,12 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 .rerank-cut {
   color: var(--color-ink-soft);
   font-style: italic;
+}
+
+/* ---------- story 33: focus on the ink top bar ----------
+   Last in the file: wins over each control's own ring. Its drop-down list stays on white. */
+
+.top-bar :focus-visible:not(.pane-menu-list *) {
+  outline: var(--spacing-stroke-min) solid var(--color-on-ink);
+  outline-offset: 2px;
 }

@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, model_validator
 from wavestack import config
 
 Category = Literal["prompt", "context", "harness"]
+# Story 33: the bricks panel's two groups, « Ce que le modèle lit » / « Ce que le harnais fait ».
+PanelGroup = Literal["reads", "acts"]
 Hosting = Literal["local_process", "local_file", "network_service"]
 
 
@@ -23,6 +25,7 @@ class Component(BaseModel):
 class BrickDeclaration(BaseModel):
     id: str
     category: Category
+    group: PanelGroup  # story 33: its group in the bricks panel, distinct from the category
     requires: list[str] = []  # brick ids that must be effective
     capabilities: list[str] = []  # truthy `Capabilities` fields the model must offer (AD-6)
     network: bool = False

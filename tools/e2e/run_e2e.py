@@ -29,6 +29,7 @@ from playwright.sync_api import Page, expect, sync_playwright
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stack import (  # noqa: E402
     MODEL_ENTRY_ID,
+    REASONING_MODEL,
     SECOND_ENTRY_ID,
     SECOND_MODEL,
     Stack,
@@ -122,6 +123,20 @@ class Run:
         self.page.screenshot(
             path=str(SHOTS / f"{name}.jpg"), type="jpeg", quality=70, full_page=full_page
         )
+
+    def shot_element(self, name: str, selector: str) -> None:
+        """Story 33: one piece of the page only (the top bar, a pane), for a close-up."""
+        SHOTS.mkdir(parents=True, exist_ok=True)
+        self.page.locator(selector).first.screenshot(
+            path=str(SHOTS / f"{name}.jpg"), type="jpeg", quality=80
+        )
+
+    def token_color(self, name: str) -> str:
+        """A colour token of tokens.css, as `getComputedStyle` writes a colour (`rgb(…)`)."""
+        return self.page.evaluate(_CSS_COLOR_JS, name)
+
+    def css(self, locator, prop: str) -> str:
+        return locator.evaluate(f"e => getComputedStyle(e).getPropertyValue('{prop}')")
 
     # -- the API, for what the UI does not show plainly --
 
@@ -691,6 +706,315 @@ def s_network_tools(r: Run) -> None:
         )
     r.shot("08-outils-reseau-echec-explique")
     schema_fits(r, "Wikipédia")
+
+
+# ---------- story 33: contrasts and one colour per discipline ----------
+
+_DISCIPLINE_NAMES = ["Prompt engineering", "Context engineering", "Harness engineering"]
+_FIGURES = re.compile(r"\d[\d\s\u202f]* / \d[\d\s\u202f]* tokens · [\d,]+ %")
+
+
+def _fully_visible(r: Run, selector: str) -> str:
+    """'' when `selector` is inside the viewport and its box, not cut by its own width."""
+    return r.page.evaluate(
+        "(q) => { const e = document.querySelector(q); if (!e) return 'absent';"
+        " const b = e.getBoundingClientRect(); const bar = e.closest('.top-bar')"
+        "?.getBoundingClientRect() ?? {left: 0, right: innerWidth, top: 0, bottom: innerHeight};"
+        " if (b.width === 0) return 'vide';"
+        " if (b.left < bar.left - 1 || b.right > bar.right + 1 || b.right > innerWidth)"
+        " return `hors de la barre (${Math.round(b.left)}-${Math.round(b.right)})`;"
+        " if (b.top < bar.top - 1 || b.bottom > bar.bottom + 1)"
+        " return `déborde en hauteur (${Math.round(b.top)}-${Math.round(b.bottom)})`;"
+        " if (e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1)"
+        " return `coupé (${e.scrollWidth}×${e.scrollHeight} > ${e.clientWidth}×${e.clientHeight})`;"
+        " return ''; }",
+        selector,
+    )
+
+
+def _last_gauge(r: Run) -> dict[str, Any]:
+    """The payload the gauge shows: the latest of `context_preview`, `context_rendered` and
+    `context_reconciled` in `/api/state` (as app.js keeps the most recent)."""
+    state = r.state()
+    envelopes = [
+        state[k]
+        for k in ("context_preview", "context_rendered", "context_reconciled")
+        if state.get(k)
+    ]
+    return max(envelopes, key=lambda e: e["seq"])["payload"] if envelopes else {}
+
+
+def s_disciplines(r: Run) -> None:
+    """Story 33: the dark top bar and its legend, the bricks in two groups, tinted by
+    discipline, their status lines, and the same colour in the four other panes."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    r.launch("network_tools")
+    r.send("Résume l'article Wikipédia sur le Mont-Saint-Michel.")
+    time.sleep(0.5)
+
+    # The top bar: ink, the legend of the disciplines, the figures.
+    ink = r.token_color("--color-ink")
+    r.check(
+        r.css(page.locator(".top-bar"), "background-color") == ink,
+        "barre haute : fond --color-ink",
+    )
+    r.check(
+        r.css(page.locator(".top-bar-title"), "color") == r.token_color("--color-on-ink"),
+        "barre haute : titre en --color-on-ink",
+    )
+    legend = page.inner_text("#gauge-legend")
+    r.check(
+        all(name in legend for name in _DISCIPLINE_NAMES),
+        "#gauge-legend : prompt, context et harness engineering",
+        legend.replace("\n", " · "),
+    )
+    segs = page.eval_on_selector_all(
+        ".gauge-seg",
+        "ss => ss.map(s => [s.dataset.discipline || '', getComputedStyle(s).backgroundColor])",
+    )
+    wrong = [(d, bg) for d, bg in segs if not d or bg != r.token_color(f"--color-discipline-{d}")]
+    r.check(
+        bool(segs) and not wrong,
+        "jauge : chaque segment porte sa discipline et le fond de son jeton",
+        f"{len(segs)} segments ; écarts : {wrong}",
+    )
+    figures = page.inner_text("#gauge-figures")
+    r.check(bool(_FIGURES.search(figures)), "jauge : total en tokens et en pourcentage", figures)
+    for selector in ("#gauge-legend", "#gauge-figures"):
+        cut = _fully_visible(r, selector)
+        r.check(not cut, f"1600 × 1000 : {selector} entièrement visible", cut)
+    r.shot_element("28-disciplines-barre-haute", ".top-bar")
+    # Narrower windows (EXPERIENCE.md: 1280 px of reference): the bar never overflows, the
+    # scenario's and the model's names give way; at 1280 px, with three hidden panes' chips
+    # and a long message (set in the page: nothing in the parcours shows one on demand).
+    for width, height in [(1366, 768), (1280, 720)]:
+        page.set_viewport_size({"width": width, "height": height})
+        time.sleep(0.5)
+        if width == 1280:
+            for pane in ("ctx", "orch", "schema"):
+                page.locator(f'.pane[data-pane="{pane}"] .pane-hide').click()
+            expect(page.locator("#pane-chips .pane-chip")).to_have_count(3, timeout=5000)
+            page.evaluate(
+                "() => { document.getElementById('top-status').textContent ="
+                " 'Chargement du modèle faux-modele-raisonne-avec-un-nom-tres-long… 12,5 s'; }"
+            )
+        over = page.evaluate(
+            "() => { const bar = document.querySelector('.top-bar').getBoundingClientRect();"
+            " return [...document.querySelectorAll('.top-bar > *')]"
+            ".filter(e => e.offsetParent && getComputedStyle(e).position !== 'absolute')"
+            ".map(e => [e.id || e.className, e.getBoundingClientRect()])"
+            ".filter(([, b]) => b.right > bar.right + 1 || b.bottom > bar.bottom + 1)"
+            ".map(([n, b]) => `${n} (${Math.round(b.right)} > ${Math.round(bar.right)})`); }"
+        )
+        r.check(not over, f"{width} × {height} : la barre haute tient dans sa largeur", str(over))
+        for selector in ("#gauge-legend", "#gauge-figures"):
+            cut = _fully_visible(r, selector)
+            r.check(not cut, f"{width} × {height} : {selector} entièrement visible", cut)
+        if width == 1280:
+            status = page.evaluate(
+                "() => { const s = document.getElementById('top-status').getBoundingClientRect();"
+                " return s.left >= 0 && s.right <= innerWidth + 1; }"
+            )
+            r.check(status, "1280 × 720 : le message de la barre haute tient dans la fenêtre")
+            reset = page.locator("#reset-button").bounding_box() or {}
+            r.check(
+                reset.get("x", 1e9) + reset.get("width", 0) <= width + 1,
+                "1280 × 720 : « Réinitialiser » reste dans la fenêtre, chips et message compris",
+                str(reset),
+            )
+            while page.locator("#pane-chips .pane-chip").count():
+                page.locator("#pane-chips .pane-chip").first.click()
+            page.evaluate("() => { document.getElementById('top-status').textContent = ''; }")
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    time.sleep(0.3)
+
+    # The bricks panel: legend, two groups, cards tinted by discipline.
+    bricks = page.locator("#bricks")
+    panel_legend = bricks.locator(".brick-legend").inner_text()
+    r.check(
+        all(n in panel_legend for n in [*_DISCIPLINE_NAMES, "Sort du poste de travail"]),
+        "panneau des briques : légende des quatre disciplines",
+        panel_legend.replace("\n", " · "),
+    )
+    titles = bricks.locator(".brick-group-title").all_inner_texts()
+    r.check(
+        [t.lower() for t in titles] == ["ce que le modèle lit", "ce que le harnais fait"],
+        "« Ce que le modèle lit » puis « Ce que le harnais fait »",
+        str(titles),
+    )
+    first_group = page.evaluate(
+        "() => { const names = []; let n = document.querySelector('#bricks .brick-group-title');"
+        " for (n = n?.nextElementSibling; n && !n.matches('.brick-group-title');"
+        " n = n.nextElementSibling) if (n.matches('article.brick-card'))"
+        " names.push(n.querySelector('.brick-name').textContent); return names; }"
+    )
+    r.check(
+        first_group
+        == ["Raisonnement", "Prompt système", "Mémoire courte", "Mémoire globale", "RAG"],
+        "premier groupe : Raisonnement, Prompt système, Mémoire courte, Mémoire globale, RAG",
+        str(first_group),
+    )
+    r.check(
+        r.css(r.card("Prompt système"), "border-left-color")
+        == r.token_color("--color-discipline-prompt"),
+        "carte Prompt système : trait gauche --color-discipline-prompt",
+    )
+    r.check(
+        r.css(r.card("RAG"), "background-color")
+        == r.token_color("--color-discipline-neutral-soft"),
+        "carte RAG éteinte : fond --color-discipline-neutral-soft",
+    )
+    prompt_switch = r.card("Prompt système").locator(".brick-head input.brick-toggle")
+    r.check(
+        r.css(prompt_switch, "background-color") == r.token_color("--color-discipline-prompt"),
+        "carte Prompt système : interrupteur coché de sa discipline",
+    )
+
+    # The status lines, from the values received.
+    status = {
+        name: r.card(name).locator("p.brick-status").inner_text()
+        for name in ("Prompt système", "Mémoire globale", "Outils")
+    }
+    row = next(
+        (b for b in _last_gauge(r).get("by_brick", []) if b["brick"] == "system_prompt"), None
+    )
+    expected = (
+        f"{'≈ ' if row['estimated'] else ''}{row['tokens']} "
+        f"token{'s' if row['tokens'] > 1 else ''} dans le contexte"
+        if row
+        else "(absent de by_brick)"
+    )
+    r.check(
+        bool(row) and row["tokens"] > 0 and status["Prompt système"] == expected,
+        "ligne d'état de Prompt système : les tokens de by_brick, « ≈ » en mode chat",
+        f"{status['Prompt système']} / attendu {expected}",
+    )
+    r.check(
+        re.search(r"\d+ entrées? · \d+ tokens?", status["Mémoire globale"]) is not None,
+        "ligne d'état de Mémoire globale : « n entrées · n tokens »",
+        status["Mémoire globale"],
+    )
+    # « contacté » counts the network tools nodes whose `contact` is set: the scenario alone
+    # contacts Wikipédia only; after `network_tools`, the holidays' service is counted too.
+    nodes = r.state()["architecture_changed"]["nodes"]
+    contacted = [
+        n["id"]
+        for n in nodes
+        if n["id"].startswith("tools.")
+        and n["hosting"] == "network"
+        and n.get("contact") not in (None, "not_contacted")
+    ]
+    tools_line = re.search(r"(\d+) déclarés? · (\d+) contactés?", status["Outils"])
+    r.check(
+        tools_line is not None
+        and int(tools_line.group(2)) == len(contacted)
+        and "tools.wikipedia_summary" in contacted,
+        "ligne d'état d'Outils : « n déclarés · c contacté(s) », Wikipédia compris",
+        f"{status['Outils']} ; nœuds contactés : {contacted}",
+    )
+    r.check(
+        r.card("Outils").locator(".brick-network").inner_text().strip() == "RÉSEAU",
+        "carte Outils : puce « 🌐 RÉSEAU »",
+    )
+    r.shot_element("29-disciplines-briques", '.pane[data-pane="bricks"]')
+
+    # Prompt système off (by the API, so the click does not light-dismiss the explanation):
+    # « Éteinte », the open explanation kept.
+    help_button = r.card("Prompt système").locator(".brick-help")
+    help_button.click()
+    expect(page.locator("#explain-system_prompt")).to_be_visible(timeout=5000)
+    seq = r.ev.mark()
+    r.api("POST", "/api/intentions/brick", {"brick": "system_prompt", "wanted": False})
+    r.ev.wait("bricks_changed", seq, timeout=10)
+    time.sleep(0.5)
+    r.check(
+        r.card("Prompt système").locator("p.brick-status").inner_text() == "Éteinte",
+        "Prompt système éteint : sa ligne d'état dit « Éteinte »",
+    )
+    r.check(
+        page.locator("#explain-system_prompt").evaluate("e => e.matches(':popover-open')"),
+        "l'explication ouverte reste ouverte",
+    )
+    page.keyboard.press("Escape")
+    r.set_brick("Prompt système", True)
+
+    # Vue humain: the user's bubble on ink; every pane's band on surface.
+    bubble = page.locator("#chat .bubble-user").last
+    r.check(
+        r.css(bubble, "background-color") == ink
+        and r.css(bubble, "color") == r.token_color("--color-on-ink"),
+        "dernière bulle de l'utilisateur : fond --color-ink, texte --color-on-ink",
+    )
+    bands = page.eval_on_selector_all(
+        ".pane-header", "hs => hs.map(h => getComputedStyle(h).backgroundColor)"
+    )
+    r.check(
+        len(bands) == 5 and set(bands) == {r.token_color("--color-surface")},
+        "chaque en-tête des cinq volets : fond --color-surface",
+        str(bands),
+    )
+    r.shot_element("30-disciplines-vue-humain", '.pane[data-pane="human"]')
+
+    # Contexte LLM: every segment its discipline; the system prompt's rule and swatch.
+    ctx = page.locator("#ctx .ctx-segment")
+    disciplines = ctx.evaluate_all("ss => ss.map(s => s.dataset.discipline || '')")
+    r.check(
+        bool(disciplines) and all(disciplines),
+        "Contexte LLM : chaque segment porte sa discipline",
+        str(disciplines),
+    )
+    prompt = page.locator("#ctx .ctx-segment", has_text="(system_prompt)").first
+    r.check(
+        r.css(prompt, "border-left-color") == r.token_color("--color-discipline-prompt")
+        and r.css(prompt.locator(".swatch"), "background-color")
+        == r.token_color("--color-segment-system-prompt"),
+        "segment du prompt système : filet de sa discipline, pastille de son type",
+    )
+    r.shot_element("31-disciplines-contexte", '.pane[data-pane="ctx"]')
+
+    # Orchestration: the model's tiles on ink, the network step, the harness step.
+    def tile(name: str):
+        step = page.locator(
+            "#orch-scroll .turn-step", has=page.locator(".turn-step-name", has_text=name)
+        ).last
+        return step.locator(".turn-step-tile")
+
+    r.check(
+        r.css(tile("Appel au modèle"), "background-color") == ink,
+        "Orchestration : la tuile de l'appel au modèle a le fond --color-ink",
+    )
+    r.check(
+        tile("Résumé Wikipédia").get_attribute("data-discipline") == "network",
+        "Orchestration : l'exécution de wikipedia_summary est en discipline réseau",
+    )
+    r.check(
+        tile("Description des outils").get_attribute("data-discipline") == "harness",
+        "Orchestration : « Description des outils » est en harness engineering",
+    )
+    r.shot_element("32-disciplines-orchestration", '.pane[data-pane="orch"]')
+
+    # The schema: the model's ink plate, the nodes by discipline.
+    plate = page.locator(
+        "#schema .arch-cloud-model, #schema .arch-server-model, #schema .arch-robots"
+    )
+    r.check(
+        r.css(plate.first, "background-color") == ink,
+        "schéma : la plaque du modèle a le fond --color-ink",
+    )
+
+    def node(name: str):
+        return page.locator("#schema .arch-node", has_text=name).first
+
+    r.check(
+        node("Résumé Wikipédia").get_attribute("data-discipline") == "network",
+        "schéma : le nœud Wikipédia est en discipline réseau",
+    )
+    r.check(
+        node("Calculatrice").get_attribute("data-discipline") == "harness",
+        "schéma : le nœud Calculatrice est en harness engineering",
+    )
+    r.shot_element("33-disciplines-schema", '.pane[data-pane="schema"]')
 
 
 def s_h5(r: Run) -> None:
@@ -1968,6 +2292,10 @@ def s_rag(r: Run) -> None:
         "Orchestration : « 📚 Recherche RAG », acteur harnais, « 3 extraits · durée »",
         figure,
     )
+    r.check(
+        step.locator(".turn-step-tile").get_attribute("data-discipline") == "context",
+        "Orchestration : la tuile de « Recherche RAG » est en context engineering (story 33)",
+    )
     step.locator(".turn-step-line").click()
     expect(step.locator(".rag-excerpts li")).to_have_count(3, timeout=5000)
     text = step.inner_text()
@@ -2322,6 +2650,16 @@ def s_compression(r: Run) -> None:
         "le fournisseur reçoit la version courte (corps JSON)",
     )
     r.check(error_line in r.last_answer(), "la réponse cite l'erreur gardée", r.last_answer())
+    # Story 33: the card's status line, the gap between two values of the last gauge.
+    gauge = _last_gauge(r)
+    gain = (gauge.get("uncompressed_used") or gauge.get("used", 0)) - gauge.get("used", 0)
+    line = r.card("Compression").locator("p.brick-status").inner_text()
+    found = re.search(r"Gain : (\d+)", line.replace("\u202f", "").replace("\xa0", ""))
+    r.check(
+        found is not None and gain > 0 and int(found.group(1)) == gain,
+        "carte Compression : « Gain : n tokens » = uncompressed_used − used de la jauge",
+        f"{line} / attendu {gain}",
+    )
 
     # Orchestration: the step, its figure, its unfolded body.
     step = _compression_step(r)
@@ -2983,6 +3321,56 @@ def s_relaunch(r: Run) -> None:
     r.goto_app()
 
 
+def _pick_model(r: Run, label: str) -> None:
+    """The top bar's picker: note the entry, « Choisir… », confirm the cloud warning."""
+    page = r.page
+    r.wait_idle()
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label=label)
+    page.click("#model-picker-apply")
+    expect(page.locator("#cloud-warning")).to_be_visible(timeout=5000)
+    page.click("#cloud-warning-confirm")
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)
+    r.check(ended["payload"]["status"] == "ok", f"chargement de « {label} »")
+    r.wait_idle()
+    time.sleep(0.5)
+
+
+def s_reasoning_locked(r: Run) -> None:
+    """Story 33: a model that always reasons locks the Reasoning card (🔒, « Imposé par ce
+    modèle »); back on entry A, the lock goes."""
+    r.launch("bare_llm")
+    a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+    try:
+        _pick_model(r, f"RÉSEAU · Faux fournisseur R (e2e) · {REASONING_MODEL}")
+        card = r.card("Raisonnement")
+        toggle = card.locator(".brick-head input.brick-toggle")
+        r.check(
+            toggle.is_checked() and toggle.is_disabled(),
+            "modèle qui raisonne toujours : interrupteur coché et désactivé",
+        )
+        r.check(card.locator(".brick-lock").is_visible(), "🔒 à côté de l'interrupteur")
+        status = card.locator("p.brick-status").inner_text()
+        r.check(status == "Imposé par ce modèle", "ligne d'état « Imposé par ce modèle »", status)
+        r.shot_element("34-raisonnement-impose", '.pane[data-pane="bricks"]')
+    finally:
+        # Entry A back whatever happened: the scenarios after this one play on it.
+        if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+            r.goto_app()  # a clean page, whatever dialog a failure left open
+            _pick_model(r, a_label)
+    card = r.card("Raisonnement")
+    toggle = card.locator(".brick-head input.brick-toggle")
+    status = card.locator("p.brick-status").inner_text()
+    # Entry A does not reason: the card is no longer locked, it says it is off or unavailable.
+    r.check(
+        not toggle.is_checked()
+        and card.locator(".brick-lock").count() == 0
+        and status != "Imposé par ce modèle",
+        "retour à l'entrée A : plus de verrou ni de « Imposé par ce modèle »",
+        status,
+    )
+
+
 SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("diagnostic", s_diagnostic),
     ("programme", s_programme),
@@ -2993,6 +3381,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("malformed", s_malformed),
     ("provider_errors", s_provider_errors),
     ("network_tools", s_network_tools),
+    ("disciplines", s_disciplines),
     ("h5", s_h5),
     ("mcp_full", s_mcp_full),
     ("mcp_lazy", s_mcp_lazy),
@@ -3013,6 +3402,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("reload_and_reset", s_reload_and_reset),
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
+    ("reasoning_locked", s_reasoning_locked),
     ("local_server", s_local_server),
     ("relaunch", s_relaunch),
 ]
