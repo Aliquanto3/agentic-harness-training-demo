@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WaveStack — maquette de refonte</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --canvas:#E9EBF3; --panel:#FFFFFF; --band:#F5F6FA; --ink:#1A1733; --ink2:#5B5877; --line:#D8DAE6;
+  --brand:#451DC7;
+  --prompt:#451DC7; --prompt-bg:#EEE9FC;
+  --context:#0F7B6C; --context-bg:#E2F3EF;
+  --harness:#B8327A; --harness-bg:#FBE7F1;
+  --net:#D9A400; --net-bg:#FFF5D1;
+  --neutral:#8A87A3; --neutral-bg:#EFEFF4;
+  --sans:"Atkinson Hyperlegible Next",system-ui,"Segoe UI",sans-serif;
+  --mono:"Atkinson Hyperlegible Mono",ui-monospace,Consolas,monospace;
+  font-size:14px;
+}
+html.big{font-size:18px}
+*{box-sizing:border-box;margin:0}
+body{font-family:var(--sans);color:var(--ink);background:var(--canvas);line-height:1.4}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+
+/* Barre haute */
+.top{display:flex;align-items:center;gap:1.2rem;padding:.6rem 1rem;background:var(--ink);color:#fff}
+.top .logo{font-weight:700;font-size:1.15rem;letter-spacing:.01em}
+.top select{font:inherit;padding:.3rem .5rem;border-radius:6px;border:0}
+.gauge{flex:1;min-width:260px}
+.gauge .bar{display:flex;height:12px;border-radius:6px;overflow:hidden;background:#3A3658}
+.gauge .bar span{display:block;height:100%}
+.gauge .legend{display:flex;gap:.9rem;font-size:.78rem;margin-top:.25rem;color:#CFCDE4;flex-wrap:wrap}
+.gauge .legend i{display:inline-block;width:.7rem;height:.7rem;border-radius:2px;margin-right:.3rem;vertical-align:-1px}
+.gauge .legend b{color:#fff;margin-left:auto}
+.model{display:flex;align-items:center;gap:.5rem;font-size:.9rem}
+.netbadge{background:var(--net);color:var(--ink);font-weight:700;font-size:.75rem;padding:.15rem .45rem;border-radius:4px}
+.top .ghost{background:transparent;color:#fff;border:1px solid #6B6790;border-radius:6px;padding:.3rem .7rem}
+.top .ghost[aria-pressed="true"]{background:#fff;color:var(--ink)}
+
+/* Grille */
+main{display:grid;grid-template-columns:270px 1fr 1.1fr 1fr;grid-template-rows:minmax(420px,auto) auto;gap:12px;padding:12px}
+.panel{background:var(--panel);border-radius:10px;border:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+.phead{display:flex;align-items:center;gap:.7rem;padding:.6rem .9rem;background:var(--band);border-bottom:1px solid var(--line)}
+.step{flex:none;width:1.7rem;height:1.7rem;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:700;font-size:.9rem}
+.phead h2{font-size:1.05rem}
+.phead p{font-size:.8rem;color:var(--ink2)}
+.phead .tools{margin-left:auto;display:flex;gap:.3rem}
+.icon{width:1.7rem;height:1.7rem;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--ink2)}
+.pbody{padding:.8rem .9rem;overflow:auto;flex:1}
+#bricks{grid-row:1/3}
+#archi{grid-column:2/5}
+
+/* Code couleur : une discipline = une couleur, partout */
+[data-d="prompt"]{--c:var(--prompt);--cb:var(--prompt-bg)}
+[data-d="context"]{--c:var(--context);--cb:var(--context-bg)}
+[data-d="harness"]{--c:var(--harness);--cb:var(--harness-bg)}
+[data-d="net"]{--c:var(--net);--cb:var(--net-bg)}
+[data-d="neutral"]{--c:var(--neutral);--cb:var(--neutral-bg)}
+
+/* Briques */
+.legendd{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem;color:var(--ink2);margin-bottom:.8rem}
+.legendd span::before{content:"";display:inline-block;width:.7rem;height:.7rem;border-radius:2px;background:var(--c);margin-right:.4rem;vertical-align:-1px}
+.brick{display:flex;align-items:center;gap:.6rem;padding:.55rem .6rem .55rem .7rem;border-radius:8px;background:var(--cb);border-left:5px solid var(--c);margin-bottom:.5rem;cursor:default}
+.brick .name{font-weight:600}
+.brick .meta{font-size:.75rem;color:var(--ink2)}
+.brick .right{margin-left:auto;display:flex;align-items:center;gap:.4rem}
+.brick.off{background:#F3F3F6;border-left-color:#C9C8D6;color:var(--ink2)}
+.sw{width:2.2rem;height:1.2rem;border-radius:1rem;background:var(--c);position:relative;flex:none;border:0}
+.sw::after{content:"";position:absolute;top:.15rem;right:.15rem;width:.9rem;height:.9rem;border-radius:50%;background:#fff}
+.brick.off .sw{background:#C9C8D6}.brick.off .sw::after{right:auto;left:.15rem}
+.sw.lock{opacity:.55;cursor:not-allowed}
+.q{width:1.4rem;height:1.4rem;border-radius:50%;border:1px solid var(--c);background:#fff;color:var(--c);font-weight:700;font-size:.75rem}
+.tagnet{font-size:.7rem;font-weight:700;background:var(--net);padding:.05rem .35rem;border-radius:3px}
+.group{font-size:.8rem;font-weight:700;color:var(--ink2);margin:.9rem 0 .4rem}
+
+/* Conversation */
+.user{margin-left:auto;max-width:85%;background:var(--ink);color:#fff;padding:.55rem .8rem;border-radius:12px 12px 2px 12px;width:fit-content}
+details.reason{margin:.8rem 0;border:1px dashed var(--prompt);border-radius:8px;padding:.4rem .6rem;background:var(--prompt-bg);font-size:.85rem}
+details.reason summary{font-weight:600;color:var(--prompt);cursor:pointer}
+.answer{font-size:.95rem}
+.answer h3{font-size:1rem;margin-bottom:.3rem}
+.composer{display:flex;gap:.5rem;padding:.7rem .9rem;border-top:1px solid var(--line)}
+.composer input{flex:1;font:inherit;padding:.5rem .7rem;border:1px solid var(--line);border-radius:8px}
+.primary{background:var(--brand);color:#fff;border:0;border-radius:8px;padding:.5rem .9rem;font-weight:600}
+.suggest{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.8rem}
+.suggest button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:.3rem .6rem;font-size:.8rem}
+
+/* Contexte */
+.seg{border-left:5px solid var(--c);background:var(--cb);border-radius:6px;padding:.45rem .6rem;margin-bottom:.45rem}
+.seg header{display:flex;font-size:.8rem;font-weight:600;color:var(--ink)}
+.seg header span{margin-left:auto;font-weight:400;color:var(--ink2)}
+.seg pre{font-family:var(--mono);font-size:.78rem;white-space:pre-wrap;margin-top:.25rem;color:#34304F;max-height:4.6em;overflow:hidden}
+.note{font-size:.8rem;color:var(--ink2);margin-bottom:.7rem}
+
+/* Orchestration */
+.turn{font-size:.85rem;color:var(--ink2);margin-bottom:.6rem}
+.turn b{color:var(--ink)}
+.ev{display:grid;grid-template-columns:1.6rem 1fr auto;gap:.5rem;align-items:start;position:relative;padding-bottom:.7rem}
+.ev::before{content:"";position:absolute;left:.75rem;top:1.5rem;bottom:0;width:2px;background:var(--line)}
+.ev:last-child::before{display:none}
+.dot{width:1.5rem;height:1.5rem;border-radius:50%;background:var(--c);color:#fff;display:grid;place-items:center;font-size:.7rem;font-weight:700;z-index:1}
+[data-d="net"] .dot,.dot[data-d="net"]{color:var(--ink)}
+.ev .t{font-weight:600;font-size:.9rem}
+.ev .who{font-size:.75rem;color:var(--ink2)}
+.ev .k{font-size:.78rem;color:var(--ink2);text-align:right;white-space:nowrap}
+
+/* Architecture */
+.archi{display:grid;grid-template-columns:1fr 1fr 1fr 12px 1.05fr;gap:14px;align-items:stretch}
+.zone{border-radius:10px;padding:.7rem;position:relative}
+.zone.local{grid-column:1/4;background:#F4F5FA;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.zone.remote{background:repeating-linear-gradient(135deg,var(--net-bg) 0 10px,#FFFBEA 10px 20px);border:2px dashed var(--net)}
+.zone>.zt{font-size:.8rem;font-weight:700;color:var(--ink2);grid-column:1/-1;display:flex;gap:.5rem;align-items:center}
+.frontier{display:flex;align-items:center;justify-content:center}
+.frontier span{writing-mode:vertical-rl;transform:rotate(180deg);font-size:.72rem;font-weight:700;color:var(--ink2);letter-spacing:.02em}
+.box{background:#fff;border:1px solid var(--line);border-radius:8px;padding:.5rem}
+.box h4{font-size:.85rem;margin-bottom:.4rem}
+.node{display:flex;align-items:center;gap:.4rem;font-size:.85rem;padding:.3rem .45rem;border-radius:6px;background:var(--cb);border-left:4px solid var(--c);margin-bottom:.3rem}
+.node.off{background:#F3F3F6;border-left-color:#C9C8D6;color:var(--ink2);text-decoration:line-through}
+.node small{margin-left:auto;font-size:.7rem;color:var(--ink2)}
+.model-node{background:var(--ink);color:#fff;border-radius:8px;padding:.6rem;text-align:center;margin-bottom:.6rem}
+.model-node b{display:block}
+.model-node span{font-size:.78rem;color:#CFCDE4}
+.path{margin-top:.6rem;font-size:.8rem;color:var(--ink2)}
+.path strong{color:var(--ink)}
+
+/* Liaison entre les vues : survoler une brique l'éclaire partout */
+[data-k]{transition:opacity .15s,box-shadow .15s}
+body.linking [data-k]:not(.hl){opacity:.28}
+body.linking [data-k].hl{box-shadow:0 0 0 2px var(--c)}
+.hint{font-size:.78rem;color:var(--ink2);margin-top:.8rem;border-top:1px solid var(--line);padding-top:.6rem}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (max-width:1100px){main{grid-template-columns:1fr}#bricks,#archi{grid-row:auto;grid-column:auto}.archi{grid-template-columns:1fr}.zone.local{grid-column:auto;grid-template-columns:1fr}.frontier span{writing-mode:horizontal-tb;transform:none}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <span class="logo">WaveStack</span>
+  <select aria-label="Scénario"><option>Scénario : outils réseau</option></select>
+  <div class="gauge" aria-label="Remplissage de la fenêtre de contexte">
+    <div class="bar">
+      <span data-d="neutral" style="width:6%;background:var(--neutral)"></span>
+      <span data-d="prompt" style="width:1.3%;background:var(--prompt)"></span>
+      <span data-d="context" style="width:1.6%;background:var(--context)"></span>
+      <span data-d="harness" style="width:15.5%;background:var(--harness)"></span>
+      <span style="width:4.9%;background:#fff"></span>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--neutral)"></i>Gabarit</span>
+      <span><i style="background:var(--prompt)"></i>Prompt système</span>
+      <span><i style="background:var(--context)"></i>Mémoires</span>
+      <span><i style="background:var(--harness)"></i>Description des outils</span>
+      <span><i style="background:#fff"></i>Conversation</span>
+      <b>723 / 2 464 tokens (29 %)</b>
+    </div>
+  </div>
+  <div class="model"><span class="netbadge">RÉSEAU</span> openai/gpt-oss-120b via Groq</div>
+  <button class="ghost" id="big" aria-pressed="false">Mode projection</button>
+  <button class="ghost">Réinitialiser</button>
+</header>
+
+<main>
+  <!-- Briques -->
+  <section class="panel" id="bricks">
+    <div class="phead"><div><h2>Briques</h2><p>Branchez-les une à une</p></div></div>
+    <div class="pbody">
+      <div class="legendd">
+        <span data-d="prompt">Prompt engineering</span>
+        <span data-d="context">Context engineering</span>
+        <span data-d="harness">Harness engineering</span>
+        <span data-d="net">Sort du poste de travail</span>
+      </div>
+
+      <div class="group">Ce que le modèle lit</div>
+      <div class="brick" data-d="prompt" data-k="prompt" tabindex="0">
+        <div><div class="name">Prompt système</div><div class="meta">31 tokens</div></div>
+        <div class="right"><button class="sw" aria-label="Désactiver"></button><button class="q" aria-label="Explication">?</button></div>
+      </div>
+      <div class="brick" data-d="context" data-k="mcourte" tabindex="0">
+        <div><div class="name">Mémoire courte</div><div class="meta">historique du fil</div></div>
+        <div class="right"><button class="sw" aria-label="Désactiver"></button><button class="q">?</button></div>
+      </div>
+      <div class="brick" data-d="context" data-k="mglobale" tabindex="0">
+        <div><div class="name">Mémoire globale</div><div class="meta">3 entrées · 38 tokens</div></div>
+        <div class="right"><button class="sw" aria-label="Désactiver"></button><button class="q">?</button></div>
+      </div>
+      <div class="brick" data-d="prompt" data-k="raison" tabindex="0">
+        <div><div class="name">Raisonnement</div><div class="meta">imposé par ce modèle</div></div>
+        <div class="right"><button class="sw lock" aria-label="Verrouillé" title="Toujours actif sur gpt-oss-120b"></button><button class="q">?</button></div>
+      </div>
+
+      <div class="group">Ce que le harnais fait</div>
+      <div class="brick" data-d="harness" data-k="outils" tabindex="0">
+        <div><div class="name">Outils locaux</div><div class="meta">3 actifs · 6 appels max</div></div>
+        <div class="right"><button class="sw" aria-label="Désactiver"></button><button class="q">?</button></div>
+      </div>
+      <div class="brick" data-d="harness" data-k="reseau" tabindex="0">
+        <div><div class="name">Outils réseau <span class="tagnet">RÉSEAU</span></div><div class="meta">3 déclarés · 1 contacté</div></div>
+        <div class="right"><button class="sw" aria-label="Désactiver"></button><button class="q">?</button></div>
+      </div>
+      <div class="brick off" data-d="harness" data-k="mcp" tabindex="0">
+        <div><div class="name">MCP</div><div class="meta">non branché</div></div>
+        <div class="right"><button class="sw" aria-label="Activer"></button><button class="q">?</button></div>
+      </div>
+
+      <p class="hint">Survolez une brique : elle s'éclaire dans le contexte, l'orchestration et le schéma.</p>
+    </div>
+  </section>
+
+  <!-- 1. Conversation -->
+  <section class="panel">
+    <div class="phead"><span class="step">1</span><div><h2>Conversation</h2><p>Ce que voit l'utilisateur</p></div>
+      <div class="tools"><button class="icon" title="Rejouer">↻</button><button class="icon" title="Agrandir">⤢</button></div></div>
+    <div class="pbody">
+      <p class="user">Résume l'article Wikipédia sur le Mont-Saint-Michel.</p>
+      <details class="reason" data-d="prompt" data-k="raison"><summary>Raisonnement du modèle</summary>
+        <p>Il faut récupérer le résumé. J'utilise wikipedia_summary.</p></details>
+      <div class="answer"><h3>Mont-Saint-Michel (résumé Wikipédia)</h3>
+        <p>Le Mont-Saint-Michel est une commune de la Manche, bâtie sur un îlot rocheux au fond d'une baie…</p></div>
+      <div class="suggest">
+        <button>Quels sont les jours fériés en France cette année ?</button>
+        <button>Résume l'article Wikipédia sur le Mont-Saint-Michel.</button>
+      </div>
+    </div>
+    <div class="composer"><input placeholder="Écrivez un message puis Entrée" aria-label="Message"><button class="primary">Envoyer</button></div>
+  </section>
+
+  <!-- 2. Contexte -->
+  <section class="panel">
+    <div class="phead"><span class="step">2</span><div><h2>Contexte envoyé</h2><p>Ce que le modèle lit, dans l'ordre</p></div>
+      <div class="tools"><button class="icon" title="Comparer au tour précédent">⇄</button><button class="icon" title="Agrandir">⤢</button></div></div>
+    <div class="pbody">
+      <p class="note">Tour 1 : 723 tokens envoyés à Groq, fenêtre de 4 000, réserve de sortie 1 536.</p>
+      <div class="seg" data-d="neutral" data-k="gabarit"><header>Gabarit de conversation<span>≈ 0</span></header><pre>{"model":"openai/gpt-oss-120b","messages":[{"role":"system",…</pre></div>
+      <div class="seg" data-d="prompt" data-k="prompt"><header>Prompt système<span>≈ 31</span></header><pre>Tu es l'assistant de démonstration de WaveStack. Réponds en français, de façon claire et concise.</pre></div>
+      <div class="seg" data-d="context" data-k="mglobale"><header>Mémoire globale<span>≈ 38</span></header><pre>Informations retenues lors de conversations précédentes avec l'utilisateur…</pre></div>
+      <div class="seg" data-d="harness" data-k="outils reseau"><header>Description des outils<span>≈ 381</span></header><pre>[{"name":"wikipedia_summary","description":"Renvoie le résumé…"}, …]</pre></div>
+      <div class="seg" data-d="context" data-k="mcourte"><header>Message utilisateur<span>≈ 12</span></header><pre>Résume l'article Wikipédia sur le Mont-Saint-Michel.</pre></div>
+    </div>
+  </section>
+
+  <!-- 3. Orchestration -->
+  <section class="panel">
+    <div class="phead"><span class="step">3</span><div><h2>Orchestration</h2><p>Ce que fait le harnais, pas à pas</p></div>
+      <div class="tools"><button class="icon" title="Journal brut">≡</button><button class="icon" title="Agrandir">⤢</button></div></div>
+    <div class="pbody">
+      <p class="turn"><b>Tour 1 terminé</b> en 1,8 s, 2 appels au modèle</p>
+      <div class="ev" data-d="harness" data-k="outils reseau"><span class="dot">H</span><div><div class="t">Décrit les outils</div><div class="who">harnais</div></div><span class="k">381 tok</span></div>
+      <div class="ev" data-d="neutral" data-k="prompt mglobale mcourte gabarit"><span class="dot" style="background:var(--ink)">M</span><div><div class="t">Appelle le modèle</div><div class="who">modèle, via le réseau</div></div><span class="k">641 lus · 0,5 s</span></div>
+      <div class="ev" data-d="neutral" data-k="raison"><span class="dot" style="background:var(--ink)">M</span><div><div class="t">Demande un outil</div><div class="who">wikipedia_summary</div></div><span class="k"></span></div>
+      <div class="ev" data-d="net" data-k="reseau"><span class="dot">R</span><div><div class="t">Exécute l'outil hors du poste</div><div class="who">fr.wikipedia.org</div></div><span class="k">OK · 0,2 s</span></div>
+      <div class="ev" data-d="harness" data-k="outils reseau mcourte"><span class="dot">H</span><div><div class="t">Réinjecte le résultat</div><div class="who">harnais</div></div><span class="k">+55 tok</span></div>
+      <div class="ev" data-d="neutral" data-k="prompt"><span class="dot" style="background:var(--ink)">M</span><div><div class="t">Répond</div><div class="who">modèle</div></div><span class="k">222 écrits · 1 s</span></div>
+    </div>
+  </section>
+
+  <!-- 4. Architecture -->
+  <section class="panel" id="archi">
+    <div class="phead"><span class="step">4</span><div><h2>Architecture</h2><p>Où tourne chaque pièce</p></div>
+      <div class="tools"><button class="icon" title="Exporter le schéma">⤓</button><button class="icon" title="Agrandir">⤢</button></div></div>
+    <div class="pbody">
+      <div class="archi">
+        <div class="zone local">
+          <div class="zt">Poste de travail</div>
+          <div class="box"><h4>Harnais</h4>
+            <div class="node" data-d="prompt" data-k="prompt">Prompt système</div>
+            <div class="node" data-d="context" data-k="mcourte">Mémoire courte</div>
+            <div class="node" data-d="context" data-k="mglobale">Mémoire globale</div>
+            <div class="node" data-d="prompt" data-k="raison">Raisonnement</div>
+          </div>
+          <div class="box"><h4>Outils locaux</h4>
+            <div class="node" data-d="harness" data-k="outils">Heure et date</div>
+            <div class="node" data-d="harness" data-k="outils">Calculatrice</div>
+            <div class="node" data-d="harness" data-k="outils">Lecture de fichier</div>
+            <div class="node off" data-d="harness" data-k="mcp">Serveur MCP</div>
+          </div>
+          <div class="box"><h4>Fichiers</h4>
+            <div class="node" data-d="neutral" data-k="outils">Fichiers de démonstration</div>
+            <div class="node" data-d="context" data-k="mglobale">Mémoire globale (JSON)</div>
+          </div>
+        </div>
+        <div class="frontier"><span>Frontière du poste</span></div>
+        <div class="zone remote">
+          <div class="zt"><span class="netbadge">RÉSEAU</span> Hors du poste</div>
+          <div class="model-node" data-d="neutral" data-k="prompt mglobale mcourte gabarit raison"><b>Modèle</b><span>openai/gpt-oss-120b · Groq</span></div>
+          <div class="node" data-d="net" data-k="reseau">Résumé Wikipédia <small>contacté</small></div>
+          <div class="node" data-d="net" data-k="reseau" style="opacity:.7">Jours fériés <small>non contacté</small></div>
+          <div class="node" data-d="net" data-k="reseau" style="opacity:.7">Lecture de page web <small>non contacté</small></div>
+        </div>
+      </div>
+      <p class="path">Au tour 1, les données ont quitté le poste <strong>2 fois</strong> : vers le modèle (contexte complet) et vers Wikipédia (titre de l'article).</p>
+    </div>
+  </section>
+</main>
+
+<script>
+const all=[...document.querySelectorAll('[data-k]')];
+function on(keys){document.body.classList.add('linking');
+  all.forEach(e=>{const k=e.dataset.k.split(' ');if(keys.some(x=>k.includes(x)))e.classList.add('hl')})}
+function off(){document.body.classList.remove('linking');all.forEach(e=>e.classList.remove('hl'))}
+all.forEach(e=>{const keys=e.dataset.k.split(' ');
+  e.addEventListener('mouseenter',()=>on(keys));e.addEventListener('mouseleave',off);
+  e.addEventListener('focus',()=>on(keys));e.addEventListener('blur',off)});
+const b=document.getElementById('big');
+b.addEventListener('click',()=>{const v=document.documentElement.classList.toggle('big');b.setAttribute('aria-pressed',v)});
+</script>
+</body>
+</html>

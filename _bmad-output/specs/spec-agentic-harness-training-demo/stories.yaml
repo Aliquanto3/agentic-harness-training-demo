@@ -791,3 +791,79 @@
     bibliothèque. Mettre à jour EXPERIENCE.md (Contexte LLM). Tests : E2E (tour avec outil :
     deux appels visibles, nouveau segment mis en avant, JSON indenté, lu et produit
     distincts, bascule Texte exact identique au texte envoyé) et captures.
+
+- id: "33"
+  title: "Contrastes et code couleur par discipline"
+  description: >-
+    Reprendre de la maquette de refonte validée par Anaël le 2026-09-28
+    (https://claude.ai/artifact/Y8hdfGnL7ej1ica6Z8Pt4k, copie dans
+    _bmad-output/planning-artifacts/ux-designs/maquette-refonte-2026-09-28.html) ses choix de
+    contraste et de couleur, dans l'interface existante (cinq volets, redimensionnables).
+    (1) Fonds foncés (encre) pour les éléments à mettre en avant : barre haute, nœud du
+    modèle dans le schéma, message de l'utilisateur ; bandeau teinté en tête de chaque volet.
+    (2) Un code couleur unique par discipline, appliqué partout : prompt engineering,
+    context engineering, harness engineering, et « sort du poste » (réseau), avec sa
+    légende dans le panneau des briques : trait de couleur à gauche et fond teinté des
+    cartes de briques, rail des segments dans Contexte LLM, segments de la jauge, pastilles
+    de l'Orchestration, nœuds du schéma. Chaque brique déclare déjà sa discipline
+    (category) ; la couleur par type de segment reste lisible à l'intérieur. (3) Panneau des
+    briques en deux groupes : « Ce que le modèle lit » (Raisonnement en tête, prompt
+    système, mémoires, RAG) et « Ce que le harnais fait » (outils, MCP, skills, hooks,
+    sous-agent, compression) ; une ligne d'état vivante par carte (tokens apportés,
+    « 3 entrées · 38 tokens », « 3 déclarés · 1 contacté », « imposé par ce modèle » avec
+    interrupteur verrouillé quand le modèle raisonne toujours). Une brique éteinte est
+    grisée. (4) Jauge de la barre haute avec sa légende par discipline et le total en
+    tokens et en pourcentage. Couleurs dans DESIGN.md et tokens.css, contrastes WCAG AA,
+    prêtes pour le mode sombre (story 31).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Maquette : lire la copie HTML (styles .top, .phead, .brick, .seg, .ev .dot, .node,
+    .model-node, .gauge, [data-d=...]) ; c'est une maquette statique : n'en reprendre que les
+    choix visuels, pas la structure (garder les cinq volets, le journal, les volets
+    masquables et redimensionnables, story 8f). Jetons : DESIGN.md (frontmatter) puis
+    web/static/tokens.css, vérifiés par tests/test_web_tokens.py ; app.css n'emploie que
+    des variables. Disciplines : category des briques dans bricks/registry.py (prompt,
+    context, harness ; category_fr dans bricks_changed) ; ajouter la discipline réseau ;
+    segments : GROUP_COLORS web/static/app.js:102-115 ; faire la story 22 avant (ordre des
+    briques, sous-options grisées) et garder Raisonnement en tête du premier groupe. Police
+    déjà en place (Atkinson Hyperlegible, web/static/fonts, OFL) : ne pas passer par Google
+    Fonts (hors ligne). Mettre à jour DESIGN.md et EXPERIENCE.md. Tests : jetons, E2E et
+    captures de chaque volet.
+
+- id: "34"
+  title: "Vue liée au survol et lecture guidée des volets"
+  description: >-
+    Reprendre de la même maquette (story 33) ses principes d'interaction. (1) Vue liée au
+    survol : survoler ou focaliser au clavier un élément (brique, segment de contexte, étape
+    d'Orchestration, nœud du schéma, segment de la jauge) l'éclaire dans tous les volets,
+    les éléments sans lien s'estompent, les éléments liés prennent un contour ; un élément
+    peut être lié à plusieurs (le nœud du modèle à tous les segments qu'il a lus, une
+    étape « Appel au modèle » à ses segments). Le clic garde la sélection synchronisée
+    existante (FR-4), qui devient bien visible dans chaque volet, y compris Contexte LLM et
+    Orchestration ; Échap l'efface. (2) Volets numérotés dans l'ordre de lecture, avec un
+    sous-titre : 1 Vue humain « Ce que voit l'utilisateur », 2 Contexte LLM « Ce que le modèle
+    lit, dans l'ordre », 3 Orchestration « Ce que fait le harnais, pas à pas », 4 Schéma
+    « Où tourne chaque pièce ». (3) Orchestration en frise : une pastille par acteur
+    (H harnais, M modèle, R réseau), un titre d'action en français (« Décrit les outils »,
+    « Appelle le modèle », « Exécute l'outil hors du poste », « Réinjecte le résultat »,
+    « Répond »), et à droite ses chiffres (tokens lus ou écrits, durée). (4) Bilan des
+    sorties du poste sous le schéma, pour le tour affiché : « Au tour N, les données ont
+    quitté le poste K fois : vers le modèle (contexte complet) et vers Wikipédia (titre de
+    l'article) », et nœuds réseau marqués « contacté » ou « non contacté ». (5) Mode
+    projection : un bouton de la barre haute agrandit tous les textes pour une salle de
+    formation (≈ 18 px de base), mémorisé. Respecter prefers-reduced-motion.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Maquette : attributs data-k (clés multiples) et classes body.linking / .hl de la copie
+    HTML. Existant : store.selection web/static/app.js:766 (bascule), 2918, 2956, 3060,
+    marques « lié » des puces de volets masqués JS:4004 et 4058, nœuds du schéma JS:4733,
+    4851, 5013 ; EXPERIENCE.md : Sélection synchronisée (FR-4), puces de volets masqués.
+    Les liens viennent des données du journal (component, brick, step_id, call_id) : aucune
+    table écrite à la main dans le JS (AD-1). Bilan des sorties : événements
+    outbound_request (story 23 : en-têtes) et hébergement du modèle actif ; faire 23 avant
+    si possible, sinon s'appuyer sur method et url. Frise : rail actuel de l'Orchestration
+    (story 8d) à faire évoluer, sans perdre le détail dépliable des étapes. Mettre à jour
+    EXPERIENCE.md. Tests : E2E (survol et focus clavier liés dans les quatre volets, Échap,
+    bilan du tour avec le réseau coupé par le lanceur, mode projection mémorisé), captures.
