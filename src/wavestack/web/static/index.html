@@ -14,7 +14,7 @@
     <select id="scenario-picker" class="scenario-picker" aria-label="Scénario"></select>
     <div class="gauge" id="gauge">
       <div class="gauge-stack">
-        <div class="gauge-bar" id="gauge-bar" role="img" aria-label="Jauge de contexte">
+        <div class="gauge-bar" id="gauge-bar" role="group" aria-label="Jauge de contexte">
           <span class="gauge-threshold" id="gauge-threshold" hidden></span>
         </div>
         <ul class="gauge-legend" id="gauge-legend" aria-label="Disciplines présentes dans le contexte"></ul>
@@ -32,6 +32,7 @@
     <select id="model-picker" class="model-picker" aria-label="Changer de modèle"></select>
     <button type="button" id="model-picker-apply" class="model-picker-apply" hidden>Charger</button>
     <span class="top-status" id="top-status" role="status" aria-live="polite"></span>
+    <button type="button" id="projection-toggle" class="projection-toggle" aria-pressed="false" aria-label="Mode projection" title="Mode projection : agrandit tous les textes pour la salle ; le navigateur s'en souvient"><span class="projection-toggle-long">Mode projection</span><span class="projection-toggle-short" aria-hidden="true">Projection</span></button>
     <button type="button" id="reset-button" class="reset-button">⟲ Réinitialiser</button>
   </header>
 
@@ -97,9 +98,10 @@
       <div class="top-row">
         <section class="pane" data-pane="human">
           <header class="pane-header">
+            <span class="pane-step" aria-hidden="true">1</span>
             <div class="pane-heading">
               <h2 class="pane-title">Vue humain</h2>
-              <p class="pane-subtitle">Ce que vous voyez</p>
+              <p class="pane-subtitle">Ce que voit l'utilisateur</p>
             </div>
             <div class="pane-actions">
               <label class="reasoning-toggle" title="Montre ou masque le raisonnement du modèle dans cette vue ; Contexte LLM le montre toujours.">
@@ -134,9 +136,10 @@
 
         <section class="pane" data-pane="ctx">
           <header class="pane-header">
+            <span class="pane-step" aria-hidden="true">2</span>
             <div class="pane-heading">
               <h2 class="pane-title">Contexte LLM</h2>
-              <p class="pane-subtitle">Ce que le modèle lit</p>
+              <p class="pane-subtitle">Ce que le modèle lit, dans l'ordre</p>
             </div>
             <div class="pane-actions">
               <button type="button" id="compare-turns" class="pane-text-action">Comparer</button>
@@ -149,9 +152,10 @@
 
         <section class="pane" data-pane="orch">
           <header class="pane-header">
+            <span class="pane-step" aria-hidden="true">3</span>
             <div class="pane-heading">
               <h2 class="pane-title">Orchestration</h2>
-              <p class="pane-subtitle">Ce que fait le harnais</p>
+              <p class="pane-subtitle">Ce que fait le harnais, pas à pas</p>
             </div>
             <div class="pane-actions">
               <span class="working-indicator orch-working" id="orch-working" hidden>
@@ -178,9 +182,10 @@
 
       <section class="pane" data-pane="schema">
         <header class="pane-header">
+          <span class="pane-step" aria-hidden="true">4</span>
           <div class="pane-heading">
             <h2 class="pane-title">Schéma d'architecture</h2>
-            <p class="pane-subtitle">Où chaque pièce tourne</p>
+            <p class="pane-subtitle">Où tourne chaque pièce</p>
           </div>
           <div class="pane-actions">
             <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
@@ -189,6 +194,7 @@
         </header>
         <div class="pane-body pane-body-schema">
           <div class="arch" id="schema" role="group" aria-label="Schéma d'architecture : poste de travail et réseau"></div>
+          <p class="schema-outbound" id="schema-outbound"></p>
         </div>
       </section>
     </div>

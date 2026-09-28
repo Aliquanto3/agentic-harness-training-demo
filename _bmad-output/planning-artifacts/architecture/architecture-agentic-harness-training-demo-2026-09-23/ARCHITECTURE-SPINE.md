@@ -7,7 +7,7 @@ paradigm: 'Moteur de tour à journal d’événements (event-sourced) ; interfac
 scope: 'WaveStack V1 complet (paliers 1 et 2) : harnais, moteur d’inférence, interface à 5 volets, briques, installation et lancement'
 status: final
 created: '2026-09-23'
-updated: '2026-09-26'
+updated: '2026-09-28'
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-30, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41, FR-42, FR-43, NFR-1, NFR-2, NFR-3, NFR-4, NFR-5, NFR-6, NFR-7, NFR-8, NFR-9, NFR-10, NFR-11]
 sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
@@ -347,7 +347,7 @@ Règles de dépendance :
     Les nœuds fixes sont réservés : `core.harness`, `core.model`, `core.model_sub`, `file.memory`, `file.audit`, `file.demo_dir`, `file.rag_index`. L’unicité des identifiants est vérifiée au chargement. `core.model` et `core.model_sub` prennent `hosting = network_service` quand le modèle actif est cloud. Ils sont alors dessinés en zone Réseau avec le nom du fournisseur, et les arêtes `core.harness → core.model` et `core.harness → core.model_sub` portent `crosses_boundary`.
   - **Modèle actif.** `/api/state` et `session_state` portent `active_model{id, label, hosting, provider, disclosure}`, construit par la session à partir du fichier ou de l’entrée cloud. C’est la seule source de l’indicateur de modèle et de son infobulle.
   - **État d’une brique.** Il vaut `wanted` (choix de l’utilisateur ou du scénario ; un changement de modèle ne le modifie jamais) et `available` (calculé en un seul point de la session, par mode d’action selon AD-6, avec sa raison en français). L’état effectif est `wanted ∧ available`.
-  - **État d’un composant réseau.** Il vaut `not_contacted`, `available` ou `unavailable`, avec sa raison. Un serveur MCP public est `not_contacted` tant que sa sous-option n’est pas activée (AD-15).
+  - **État d’un composant réseau.** Il vaut `not_contacted`, `available` ou `unavailable`, avec sa raison. Un serveur MCP public est `not_contacted` tant que sa sous-option n’est pas activée (AD-15). Story 34 : le nœud réseau (outil ou serveur MCP public) porte aussi `sends_fr`, ce que le harnais y envoie, en français (« le titre de l'article »), tiré de `content/tools.yaml` ou `content/mcp.yaml` (AD-19) ; le bilan des sorties sous le schéma le cite, l'interface ne sait pas ce qu'envoie chaque outil (AD-1).
   - **Schéma.** La session dérive le schéma et émet `architecture_changed{nodes, edges}` : zone locale ou réseau, disponibilité et raison, enfants (outils d’un serveur, détail d’un skill), arêtes avec `crosses_boundary`. `GET /api/architecture` en donne le dernier état.
     - Un composant est dessiné dès que sa brique est `wanted`, même indisponible.
     - Les événements d’activité portent `component` et `edge`.
@@ -483,8 +483,8 @@ Règles de dépendance :
   - **Front.** HTML, CSS et JS en modules natifs, sans compilation. Toute bibliothèque est recopiée dans `static/vendor/`, et les polices dans `static/vendor/fonts/` avec leur licence.
     - `static/tokens.css` reprend les jetons de DESIGN.md sous les mêmes noms ; un test pytest compare les deux.
     - Aptos n’est jamais embarquée : elle est appelée par `local()`.
-    - La taille de texte est une variable `--text-scale`, qui s’applique aussi aux libellés SVG.
-  - **État du navigateur.** Il se limite à l’interface : sélection, volets masqués, mode focus, taille de texte, direct ou figé.
+    - La taille de texte (story 34, NFR-9) : le mode projection redéfinit la rampe `--typography-*-font-size` (× 9/7) sous `:root.projection`, dans `app.css`, `tokens.css` restant le miroir de DESIGN.md ; les petites tailles sont en `em`.
+  - **État du navigateur.** Il se limite à l’interface : sélection (et ses clés de liaison, story 34), survol lié, volets masqués, mode focus, mode projection (mémorisé), direct ou figé.
 
 ### AD-19 — Contenus en données, en français
 

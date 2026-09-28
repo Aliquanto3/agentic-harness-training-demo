@@ -952,12 +952,15 @@ class AppSession:
         """AD-12: an MCP server node carries its connection state and its tools."""
         with self._lock:
             contact, why = self._mcp_state.get(server_id, ("not_contacted", None))
+        text = self._mcp_content.servers.get(server_id) if self._mcp_content else None
         node.update(
             kind="mcp_server",
             label_fr=self._mcp_label(server_id),
             contact=contact,
             tools=self._mcp_tools(server_id) if contact == "available" else [],
         )
+        if node["hosting"] == "network" and text is not None:  # story 34, AD-19
+            node["sends_fr"] = text.sends_fr
         if node["available"] and contact == "unavailable":
             node["available"], node["reason_fr"] = False, why
 
@@ -1072,6 +1075,7 @@ class AppSession:
                     name = component.id.removeprefix("tools.")
                     contact, why = self._tool_executor.contact.get(name, ("not_contacted", None))
                     node["contact"] = contact
+                    node["sends_fr"] = self._registry.sends(name)  # story 34, AD-19
                     if available and contact == "unavailable":
                         node["available"], node["reason_fr"] = False, why
                 if component.kind == "mcp_server":

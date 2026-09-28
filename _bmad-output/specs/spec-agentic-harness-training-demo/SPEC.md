@@ -34,7 +34,7 @@ WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à 
   - **success:** Seules les briques actives apparaissent ; le composant en cours d'action est mis en évidence pendant un tour ; un modèle cloud est dessiné comme service réseau, avec son fournisseur.
 - **CAP-4** Synchronisation des volets (FR-4, palier 1)
   - **intent:** Sélectionner un élément dans un volet met en évidence ses correspondants ailleurs.
-  - **success:** La sélection d'un segment de contexte surligne la brique et le composant correspondants dans le schéma.
+  - **success:** Le survol, le focus clavier ou le clic d'un élément (segment de contexte ou de la jauge, carte de brique, étape, nœud du schéma, plaque du modèle) éclaire l'élément lié dans chaque volet, volets masqués signalés par leur puce (« lié ») ; le clic en fait une sélection persistante, `Échap` l'efface (story 34).
 - **CAP-5** Activation indépendante des briques (FR-5, palier 1)
   - **intent:** L'utilisateur active ou désactive chaque brique sans redémarrer WaveStack.
   - **success:** Le changement prend effet au tour suivant ; toutes briques désactivées = comportement LLM nu ; une dépendance manquante indique pourquoi la brique est indisponible.
@@ -164,7 +164,7 @@ WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à 
 - **NFR-6 Plateforme.** Cible principale Windows 11 professionnel ; macOS et Linux pris en charge au mieux, sans garantie V1.
 - **NFR-7 Langue.** Interface, explications, scénarios et documentation utilisateur en français ; code et identifiants en anglais.
 - **NFR-8 Robustesse en démonstration.** Aucune défaillance du modèle (sortie mal formée, boucle d'appels, dépassement de contexte) ne fait planter l'application ; borne de 6 appels au modèle par tour (2 nouveaux essais max, 4 pour le sous-agent, action forcée non comptée, borne réglable) ; un dépassement de contexte empêche l'envoi de l'appel et explique les stratégies possibles en production sans les automatiser en V1. Pour un modèle cloud, dont les tokens sont estimés avant l'envoi, seul un dépassement certain bloque l'appel : sinon il part avec l'avertissement « estimation incertaine », et le refus du fournisseur fait foi.
-- **NFR-9 Lisibilité en projection.** L'interface reste lisible en salle ou en visio ; une taille de texte agrandie est disponible.
+- **NFR-9 Lisibilité en projection.** L'interface reste lisible en salle ou en visio ; une taille de texte agrandie est disponible : le Mode projection (story 34), mémorisé par le navigateur.
 - **NFR-10 Licences.** Dépôt privé (GitHub privé, puis GitLab interne Wavestone), dont le code peut être remis à un client au cas par cas : toutes dépendances et modèles embarqués sous licence compatible avec une redistribution à des clients et une démonstration client ; licences restrictives signalées avant adoption (Caveman proxy BSL-1.1 écarté, LM Studio propriétaire).
 - **NFR-11 Contenu non confidentiel.** Rien de confidentiel dans le dépôt (corpus RAG, scénarios, mémoire globale de démo, hooks), car il est montré et peut être remis à des clients ; aucune donnée client, document interne Wavestone, secret ni clé d'API. Le caractère privé du dépôt n'autorise aucune exception. Les clés API sont stockées hors du dépôt, dans le dossier de données ; un point d'accès interne se déclare dans `settings.json`, jamais dans le dépôt.
 

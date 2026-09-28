@@ -28,14 +28,21 @@ const store = {
   liveFrom: 0,
   architecture: { nodes: [], edges: [] },
   journal: [],
+  // FR-4: the id of the source the user clicked (a schema node's `node.id`, `brick:{id}`,
+  // `step:{key}`…), and the link keys it carried (story 34); `null` when nothing is selected.
   selection: null,
+  selectionKeys: null,
+  // Story 34, UI state only: the link keys of the element under the pointer or the keyboard
+  // focus (`data-links`); every pane lights what shares one of them.
+  linkHover: null,
   hiddenPanes: new Set(),
   focusedPane: null,
   // Sizes the user dragged (story 8f), absent until then: `bricks` width and `schema` height
   // in px, `human` / `ctx` / `orch` as flex-grow weights. Saved with `hiddenPanes`.
   paneSizes: {},
-  // Gauge source: the most recent of `context_preview` / `context_rendered` (AD-9).
-  gauge: null, // { payload, preview }
+  // Gauge source: the most recent of `context_preview` / `context_rendered` (AD-9), and the
+  // call it measures (the envelope's `call_id`, `null` for a preview; story 34).
+  gauge: null, // { payload, preview, callId }
   turns: [], // one projection per turn, filled only from its events
   // `conversation_cleared`: index of the first turn still shown (Vue humain, Contexte LLM,
   // Orchestration), and the seq of the clearing, to hide the MCP connections seen before it.
@@ -252,7 +259,7 @@ function applyEnvelope(envelope) {
       if (isLive(envelope)) store.architecture = p;
       break;
     case "context_preview":
-      if (isLive(envelope)) store.gauge = { payload: p, preview: true };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: true, callId: null };
       break;
     case "bricks_changed":
       if (isLive(envelope)) {
@@ -276,6 +283,7 @@ function applyEnvelope(envelope) {
       break;
     case "conversation_cleared":
       // Past turns leave the Vue humain, Contexte LLM and Orchestration; the event list keeps them.
+      dropSelection(); // story 34: its keys named what is gone
       store.chatFrom = store.turns.length;
       store.clearedSeq = envelope.seq;
       store.compare = null;
@@ -289,6 +297,7 @@ function applyEnvelope(envelope) {
     case "harness_reset":
       // Like `conversation_cleared`, but the panes go back to « Aucun tour », the MCP
       // connections seen so far stay in the harness preparation, and the event log restarts.
+      dropSelection();
       store.chatFrom = store.turns.length;
       store.resetSeq = envelope.seq;
       store.compare = null;
@@ -349,7 +358,7 @@ function applyEnvelope(envelope) {
       });
       break;
     case "context_rendered":
-      if (isLive(envelope)) store.gauge = { payload: p, preview: false };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: false, callId: envelope.call_id };
       if (turn) {
         turn.context = p;
         turn.steps.push({ type: "call", id: envelope.call_id, context: p, startedAt: null, ended: null });
@@ -357,7 +366,7 @@ function applyEnvelope(envelope) {
       break;
     case "context_reconciled":
       // AD-4, chat mode: `usage` came back; its figures replace the estimate of that call.
-      if (isLive(envelope)) store.gauge = { payload: p, preview: false };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: false, callId: envelope.call_id };
       if (turn) {
         const call = turn.steps.find((s) => s.type === "call" && s.id === envelope.call_id);
         if (call) call.context = p;
@@ -477,6 +486,8 @@ function applyEnvelope(envelope) {
     case "mcp_connect_started":
       store.offTurn.push({
         started: p,
+        brick: envelope.brick, // story 34: its link keys (AD-1)
+        component: envelope.component,
         startedAt: Date.parse(envelope.ts),
         ended: null,
         afterTurn: store.turns.length,
@@ -603,6 +614,7 @@ function subProjection(turn, envelope) {
     sub = {
       id: `${turn.id}:${envelope.context_id}`, // unique rail keys for its lines
       contextId: envelope.context_id,
+      model: turn.model, // story 34: « via le réseau » on its calls too
       parentStep: envelope.parent_step,
       started: null,
       ended: null,
@@ -791,18 +803,156 @@ function toggleFocus(paneId) {
   render();
 }
 
-function paneOfComponent(componentId) {
-  const el = document.querySelector(`[data-component="${cssEscape(componentId)}"]`);
-  return el ? el.closest("[data-pane]")?.dataset.pane ?? null : null;
-}
-
 function cssEscape(value) {
   return window.CSS && CSS.escape ? CSS.escape(value) : value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }
 
-function select(componentId) {
-  store.selection = store.selection === componentId ? null : componentId;
+// ---------- story 34: the linked view (FR-4) ----------
+// Every linkable element carries its link keys in `data-links`, each a field received (AD-1):
+// a brick id, a component id (`node.id`, `segment.component`, the envelope's `component`) or
+// `call:{call_id}`. Two elements are linked when they share a key. Hovering or focusing one
+// lights, in every pane, those that share a key (`.is-linked`, the rest dimmed); a click
+// selects it, and the same elements keep an ink outline (`.is-selection-linked`).
+
+// Writes the keys, space-separated, without duplicates nor empty ones; none: not linkable.
+function setLinks(node, keys) {
+  const value = [...new Set((keys || []).filter(Boolean))].join(" ");
+  if (!value) node.removeAttribute("data-links");
+  else if (node.dataset.links !== value) node.dataset.links = value;
+  return node;
+}
+
+const readLinks = (node) => (node?.dataset.links ? node.dataset.links.split(" ") : []);
+
+// A schema component is linked by its own id (brick cards and segments carry it too).
+const linkKeysOfComponent = (id) => [id];
+
+// Toggles the selection: a second click on the same source clears it.
+function select(id, keys = linkKeysOfComponent(id)) {
+  if (store.selection === id) clearSelection();
+  else setSelection(id, keys);
+}
+
+// Sets the selection without toggling (RAG excerpts, reranking, compression items).
+function setSelection(id, keys = linkKeysOfComponent(id)) {
+  store.selection = id;
+  store.selectionKeys = [...keys];
+  if (!id.startsWith("step:")) store.orch.selected = null; // no old step stays highlighted
   render();
+}
+
+// Without rendering: the envelope's own render follows.
+function dropSelection() {
+  Object.assign(store, { selection: null, selectionKeys: null });
+  store.orch.selected = null;
+}
+
+function clearSelection() {
+  store.selection = null;
+  store.selectionKeys = null;
+  store.orch.selected = null;
+  render();
+}
+
+// The hover (pointer or keyboard focus): the closest `[data-links]`, else nothing lit.
+const linkSource = (target) => (target instanceof Element ? target.closest("[data-links]") : null);
+
+function setLinkHover(source) {
+  const keys = source ? readLinks(source) : [];
+  const next = keys.length ? keys : null;
+  if ((next || []).join(" ") === (store.linkHover || []).join(" ")) return;
+  store.linkHover = next;
+  applyLinks();
+}
+
+// A focus given back by a render (the node was rebuilt) is no user's gesture: its `focusin`
+// must not take the hover from the pointer.
+let quietFocusing = false;
+function quietFocus(node) {
+  if (!node) return;
+  quietFocusing = true;
+  try {
+    node.focus();
+  } finally {
+    quietFocusing = false;
+  }
+}
+
+// Lights what shares a key with the hover and outlines what shares one with the selection,
+// in every pane (hidden ones included); runs after each render, which rebuilds some nodes.
+function applyLinks() {
+  // The hovered or focused node went away (a render, a reset) without the pointer moving:
+  // nothing is under it any more, the page must not stay dimmed.
+  if (store.linkHover && !document.querySelector("[data-links]:hover, [data-links]:focus-within")) {
+    store.linkHover = null;
+  }
+  const chosen = new Set(store.selectionKeys || []);
+  // Hovering the source of the selection (the pointer stays where it clicked): no dimming,
+  // the ink outline of the selection reads alone.
+  const onSelection =
+    store.linkHover !== null && store.selectionKeys !== null && store.linkHover.join(" ") === store.selectionKeys.join(" ");
+  const hover = new Set(onSelection ? [] : store.linkHover || []);
+  document.body.classList.toggle("linking", hover.size > 0);
+  for (const node of document.querySelectorAll("[data-links]")) {
+    const keys = readLinks(node);
+    node.classList.toggle("is-linked", hover.size > 0 && keys.some((k) => hover.has(k)));
+    node.classList.toggle("is-selection-linked", chosen.size > 0 && keys.some((k) => chosen.has(k)));
+  }
+  // A focusable source that is no button says whether it is the selection.
+  for (const node of document.querySelectorAll("[data-select-id]")) {
+    node.setAttribute("aria-pressed", String(store.selection === node.dataset.selectId));
+  }
+  renderChips(); // a hidden pane holding a linked element says so on its chip
+}
+
+function bindLinkedView() {
+  document.addEventListener("pointerover", (event) => setLinkHover(linkSource(event.target)));
+  document.addEventListener("pointerout", (event) => {
+    if (!event.relatedTarget) setLinkHover(null); // the pointer left the page
+  });
+  // A tap is no hover: it ends with the finger lifted.
+  document.addEventListener("pointerup", (event) => {
+    if (event.pointerType !== "mouse") setLinkHover(null);
+  });
+  document.addEventListener("focusin", (event) => {
+    if (!quietFocusing) setLinkHover(linkSource(event.target));
+  });
+  document.addEventListener("focusout", (event) => {
+    if (!quietFocusing && !linkSource(event.relatedTarget)) setLinkHover(null);
+  });
+}
+
+// A segment (context, gauge): a button for assistive technologies, named short; selected on
+// the mouse's press (these nodes are rebuilt while a turn streams: a click, press and release
+// on two different nodes, would never fire), by a tap, or by Enter or Space.
+function selectOnActivate(node, id, name) {
+  node.tabIndex = 0;
+  node.setAttribute("role", "button");
+  node.setAttribute("aria-label", name);
+  node.dataset.selectId = id;
+  node.setAttribute("aria-pressed", String(store.selection === id));
+  const own = (event) => event.target.closest("summary, button, a"); // its own controls (a fold)
+  node.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "mouse" || event.button !== 0 || own(event)) return;
+    select(id, readLinks(node));
+  });
+  node.addEventListener("click", (event) => {
+    if (event.pointerType === "mouse" || own(event)) return;
+    select(id, readLinks(node));
+  });
+  node.addEventListener("keydown", (event) => {
+    if (event.target !== node || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault(); // Space would scroll the pane
+    select(id, readLinks(node));
+  });
+}
+
+// Story 34: Escape clears a selection still shown somewhere (an element, or a chip saying
+// « lié »); an invisible one is dropped silently and Escape does its next job.
+function selectionShown() {
+  return [...document.querySelectorAll(".is-selection-linked")].some(
+    (node) => node.getClientRects().length > 0 || node.closest(".pane.is-hidden")
+  );
 }
 
 // ---------- rendering ----------
@@ -821,6 +971,9 @@ function render() {
   renderSteps();
   renderJournal();
   renderSchema();
+  renderOutboundSummary();
+  updateBrickLinks();
+  applyLinks();
 }
 
 function el(tag, className, text) {
@@ -899,6 +1052,8 @@ function renderBricks() {
   pane.appendChild(
     disciplineLegend("discipline-legend brick-legend", [...DISCIPLINES, ["network", NETWORK_FR]])
   );
+  // Story 34: how to read the panes together.
+  pane.appendChild(el("p", "brick-link-hint", LINK_HINT_FR));
   pane.appendChild(forcedToggle());
   if (store.armError) {
     const error = el("p", "force-error", store.armError);
@@ -917,6 +1072,22 @@ function renderBricks() {
     const card = el("article", "brick-card");
     card.dataset.discipline = brick.category;
     card.dataset.brick = brick.id;
+    // Story 34: its keys (`updateBrickLinks`); a click out of its controls selects it (the
+    // name is in the switch's label: a click on it still toggles the brick).
+    setLinks(card, brickLinkKeys(brick));
+    card.addEventListener("click", (event) => {
+      if (event.target.closest(BRICK_CONTROLS)) return;
+      select(`brick:${brick.id}`, readLinks(card));
+    });
+    // From the keyboard: the card itself takes the focus, Enter or Space selects it.
+    card.tabIndex = 0;
+    card.dataset.focusKey = `brickcard:${brick.id}`;
+    card.setAttribute("aria-label", `Brique ${brick.label_fr}`);
+    card.addEventListener("keydown", (event) => {
+      if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      select(`brick:${brick.id}`, readLinks(card));
+    });
     // Story 13: a model that always reasons keeps the reasoning brick on, whatever `wanted`.
     const always = Boolean(brick.always_fr);
     // Story 22: the brick is off (or unavailable): its sub-options apply nothing, and say so.
@@ -1026,11 +1197,28 @@ function renderBricks() {
       const brickId = focusKey.split(":")[1];
       target = find(nextChipKey) || find(`toggle:${brickId}`);
     }
-    target?.focus();
+    quietFocus(target);
   }
 }
 
 const BRICK_GROUPS = { reads: "Ce que le modèle lit", acts: "Ce que le harnais fait" };
+const LINK_HINT_FR = "Survolez une brique : elle s'éclaire dans le contexte, l'orchestration et le schéma.";
+// What a click on a card leaves to its controls (switch and its label, options, forms, help).
+const BRICK_CONTROLS = "input, button, a, select, textarea, label, summary, details, [popover], .force-form";
+
+// Story 34: a card's link keys: its id and the ids of its nodes (`{id}.*`) in the schema.
+function brickLinkKeys(brick) {
+  const nodes = (store.architecture.nodes || []).filter((n) => n.id.startsWith(`${brick.id}.`));
+  return [brick.id, ...nodes.map((n) => n.id)];
+}
+
+// The schema changes without the cards being rebuilt: their keys follow it in place.
+function updateBrickLinks() {
+  for (const brick of store.bricks?.bricks || []) {
+    const card = document.querySelector(`#bricks article.brick-card[data-brick="${cssEscape(brick.id)}"]`);
+    if (card) setLinks(card, brickLinkKeys(brick));
+  }
+}
 
 // Story 33: the card's status line, from received values only (AD-1): the gauge's `by_brick`,
 // `reserve` and `uncompressed_used`, the memory's entries, the schema's network nodes.
@@ -1898,6 +2086,8 @@ function renderGauge() {
   const figures = document.getElementById("gauge-figures");
   const threshold = document.getElementById("gauge-threshold");
   const root = document.getElementById("gauge");
+  // Story 34: a segment has the keyboard focus: given back to the rebuilt one.
+  const focusedGroup = bar.contains(document.activeElement) ? document.activeElement.dataset.group : null;
   bar.querySelectorAll(".gauge-seg, .gauge-free").forEach((node) => node.remove());
   const gauge = store.gauge;
   root.classList.toggle("is-overflow", Boolean(gauge?.payload.overflow));
@@ -1916,8 +2106,18 @@ function renderGauge() {
     const seg = el("span", "gauge-seg");
     seg.style.flexGrow = String(item.tokens);
     seg.dataset.discipline = item.discipline || "neutral";
+    seg.dataset.group = item.group;
     seg.title = `${item.label_fr} : ${fmt(item.tokens)} tokens · ${disciplineName(seg.dataset.discipline)}`;
+    seg.setAttribute("aria-label", seg.title);
+    // Story 34: the bricks and components of its segments (by `kinds`), and the call measured.
+    const segments = (p.segments || []).filter((s) => item.kinds.includes(s.kind));
+    setLinks(seg, [
+      ...segments.flatMap((s) => [s.brick, s.component]),
+      gauge.callId ? `call:${gauge.callId}` : null,
+    ]);
+    selectOnActivate(seg, `gauge:${item.group}`, seg.title);
     bar.appendChild(seg);
+    if (item.group === focusedGroup) quietFocus(seg);
   }
   renderGaugeLegend(p.breakdown);
   const free = el("span", "gauge-free");
@@ -2216,10 +2416,20 @@ function reasoningBlock(text, key, title) {
   details.open = store.openReasoning.has(key);
   const summary = el("summary", "", title);
   summary.dataset.focusKey = `reasoning:${key}`;
+  // Story 34: linked to the Raisonnement card and to the other reasoning blocks; unfolding it
+  // by hand selects it too (nothing is left to the hover alone), folding it clears that.
+  setLinks(details, ["reasoning"]);
+  let byUser = false; // a rebuilt block opened by the code must not select
+  summary.addEventListener("click", () => (byUser = true));
   details.append(summary, el("div", "reasoning-text", text));
   details.addEventListener("toggle", () => {
     if (details.open) store.openReasoning.add(key);
     else store.openReasoning.delete(key);
+    if (!byUser) return;
+    byUser = false;
+    const id = `reasoning:${key}`;
+    if (details.open) setSelection(id, ["reasoning"]);
+    else if (store.selection === id) clearSelection();
   });
   return details;
 }
@@ -2338,7 +2548,7 @@ function renderChat() {
       const cardKey = focusKey.slice(0, focusKey.lastIndexOf(":"));
       target = chat.querySelector(`[data-focus-key="${cssEscape(cardKey)}"]`);
     }
-    target?.focus();
+    quietFocus(target);
   }
   if (followTail) chat.scrollTop = chat.scrollHeight;
 }
@@ -2633,7 +2843,7 @@ function renderContext() {
   // The rebuild would drop keyboard focus (e.g. on the context switch): restore it.
   const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
   renderContextBody(pane);
-  if (focusKey) pane.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`)?.focus();
+  if (focusKey) quietFocus(pane.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`));
 }
 
 function renderContextBody(pane) {
@@ -2690,7 +2900,7 @@ function renderContextBody(pane) {
       )
     );
   }
-  appendSegments(pane, p, turn);
+  appendSegments(pane, p, turn, lastCall(turn).id);
   for (const error of turn.errors) pane.appendChild(el("p", "bubble-note is-error", error));
   // FR-9: the reasoning of the last call, always here, whatever the Vue humain option says:
   // its `model_call_ended` once there, the live deltas while it streams.
@@ -2713,10 +2923,15 @@ function textBefore(turn, was) {
   return step?.ended?.items[was.item]?.text_before ?? null;
 }
 
-function appendSegments(pane, p, turn = null) {
+function appendSegments(pane, p, turn = null, callId = null) {
   for (const segment of p.segments) {
     const group = p.breakdown.find((item) => item.kinds.includes(segment.kind));
     const box = el("div", "ctx-segment");
+    // Story 34: its brick, its component and the call shown; focusable, a click selects it.
+    setLinks(box, [segment.brick, segment.component, callId ? `call:${callId}` : null]);
+    box.dataset.focusKey = `segment:${segment.id}`;
+    const tokens = `${approx(segment.estimated)}${fmt(segment.tokens)} ${segment.tokens > 1 ? "tokens" : "token"}`;
+    selectOnActivate(box, `segment:${callId ?? ""}:${segment.id}`, `${segment.label_fr} · ${tokens}`);
     // Story 33: the rule and the background say the discipline (from the session); the swatch
     // keeps the segment type's colour, so the type stays readable.
     box.dataset.discipline = segment.discipline || "neutral";
@@ -2792,7 +3007,7 @@ function renderSubContext(pane, sub) {
       )
     );
   }
-  appendSegments(pane, p);
+  appendSegments(pane, p, null, lastCall(sub).id);
   for (const notice of sub.notices) pane.appendChild(el("p", "bubble-note", notice));
   for (const error of sub.errors) pane.appendChild(el("p", "bubble-note is-error", error));
   pane.appendChild(el("h3", "ctx-heading", "Sortie brute du sous-agent"));
@@ -3200,10 +3415,7 @@ function ragBody(step) {
       el("span", "rag-score number", scoreFormat.format(excerpt.score))
     );
     head.title = "Sélectionne le composant RAG dans le schéma ; déplie le texte de l'extrait";
-    head.addEventListener("click", () => {
-      store.selection = step.component || "rag.retriever";
-      scheduleRender();
-    });
+    head.addEventListener("click", () => setSelection(step.component || "rag.retriever"));
     details.append(head, el("pre", "step-code", excerpt.text));
     item.appendChild(details);
     list.appendChild(item);
@@ -3238,10 +3450,7 @@ function rerankBody(step) {
     return nodes;
   }
   const texts = new Map((step.search?.ended?.excerpts ?? []).map((e) => [e.chunk_id, e.text]));
-  const select = () => {
-    store.selection = step.component || "rag.reranker";
-    scheduleRender();
-  };
+  const select = () => setSelection(step.component || "rag.reranker");
   const kept = (excerpt) => excerpt.position <= ended.keep;
   const keepTag = (excerpt) => el("span", "rerank-keep", kept(excerpt) ? "gardé" : "écarté");
   const before = [...ended.excerpts].sort((a, b) => a.before - b.before);
@@ -3342,10 +3551,7 @@ function compressionBody(step) {
           : `${mark}${fmt(item.tokens_before)} tokens · inchangé`
       )
     );
-    head.addEventListener("click", () => {
-      store.selection = step.component || "compression.compressor";
-      scheduleRender();
-    });
+    head.addEventListener("click", () => setSelection(step.component || "compression.compressor"));
     entry.appendChild(head);
     if (item.error_fr) entry.appendChild(el("p", "bubble-note is-error", item.error_fr));
     else if (!item.changed) entry.appendChild(el("p", "label", ended.unchanged_fr));
@@ -3569,7 +3775,11 @@ function turnRows(turn) {
     const from = rows.length;
     stepRows(turn, step, i, calls, rows);
     // Story 33: each new row's tile in its discipline (a sub-agent's rows already have theirs).
-    for (const row of rows.slice(from)) row.discipline ??= rowDiscipline(row, step);
+    // Story 34: its link keys, its step's brick and component, else the harness.
+    for (const row of rows.slice(from)) {
+      row.discipline ??= rowDiscipline(row, step);
+      row.links ??= stepLinks(step);
+    }
   });
   if (turn.overflow) {
     rows.push({
@@ -3578,6 +3788,7 @@ function turnRows(turn) {
       title: turn.contextId ? "Contexte du sous-agent dépassé" : "Contexte dépassé",
       actor: "harness",
       discipline: "harness",
+      links: ["core.harness"],
       figure: `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`,
       tone: "error",
       sticky: true,
@@ -3594,6 +3805,17 @@ function rowDiscipline(row, step) {
   if (row.net) return "network";
   return brickCategory(step.brick ?? step.component?.split(".")[0]) ?? "harness";
 }
+
+// Story 34: a step's link keys, from its envelope (AD-1): its brick and its component; a step
+// with neither is the harness's own.
+function stepLinks(step) {
+  const keys = [step.brick, step.component].filter(Boolean);
+  return keys.length ? keys : ["core.harness"];
+}
+
+// Story 34: the bricks and components of the segments of one kind in a call's context.
+const segmentLinks = (context, kind) =>
+  (context?.segments || []).filter((s) => s.kind === kind).flatMap((s) => [s.brick, s.component]);
 
 // Story 33: a brick's category, as its card received it (AD-1).
 const brickCategory = (id) => store.bricks?.bricks?.find((b) => b.id === id)?.category ?? null;
@@ -3612,8 +3834,9 @@ function stepRows(turn, step, i, calls, rows) {
         rows.push({
           key: `${key}:catalog`,
           icon: "🧰",
-          title: "Description des outils",
+          title: "Décrit les outils",
           actor: "harness",
+          links: segmentLinks(context, "tool_catalog"),
           figure: `${fmt(catalog)} tokens`,
           sig: catalog,
           body: () => catalogBody(context, catalog),
@@ -3623,8 +3846,9 @@ function stepRows(turn, step, i, calls, rows) {
         rows.push({
           key: `${key}:reinject`,
           icon: "↩",
-          title: "Réinjection",
+          title: "Réinjecte le résultat",
           actor: "harness",
+          links: segmentLinks(context, "tool_result"),
           figure: `+${fmt(results)} tokens`,
           sig: results,
           body: () => [el("p", "", `Résultats d'outils ajoutés au contexte de cet appel : ${fmt(results)} tokens.`)],
@@ -3647,9 +3871,12 @@ function stepRows(turn, step, i, calls, rows) {
       rows.push({
         key: `${key}:call`,
         icon: isFinal ? "💬" : "🤖",
-        title: isFinal ? "Réponse finale" : "Appel au modèle",
+        title: isFinal ? "Répond" : "Appelle le modèle",
         actor: "model",
+        // Story 34: a model out of the workstation: the call crosses the boundary.
+        via: turn.model?.hosting === "network",
         discipline: "model",
+        links: [`call:${step.id}`],
         figure,
         tone: ended && ended.stop_reason === "error" ? "error" : null,
         sticky: Boolean(ended && ended.stop_reason === "error"),
@@ -3661,9 +3888,10 @@ function stepRows(turn, step, i, calls, rows) {
         rows.push({
           key: `${key}:ask`,
           icon: "🗨",
-          title: "Demande d'outil",
+          title: "Demande un outil",
           actor: "model",
           discipline: "model",
+          links: [`call:${step.id}`],
           figure: asked.length > 1 ? plural(asked.length, "outil") : asked[0].name,
           sig: asked.length,
           body: () => asked.map((call) => el("pre", "step-code", formatCall(call))),
@@ -3679,14 +3907,17 @@ function stepRows(turn, step, i, calls, rows) {
       let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
       if (ended) figure = `${ended.status === "ok" ? (ended.truncated ? "OK · tronqué" : "OK") : "erreur"} · ${seconds(ended.duration_ms)}`;
       const forced = step.trigger === "user";
+      const net = step.outbound?.length ? hostOf(step.outbound[0].url) : null;
       rows.push({
         key,
         icon: harness ? { skills: "📘", global_memory: "💾" }[step.brick] || "📖" : "🔧",
-        title: harness ? step.started.phase_label : `Exécution · ${toolLabel(step.started.tool)}`,
+        // Story 34: a verb; the tool's label follows, as a note.
+        title: harness ? step.started.phase_label : net ? "Exécute l'outil hors du poste" : "Exécute l'outil",
+        note: harness ? "" : toolLabel(step.started.tool),
         actor: forced ? "user" : harness ? "model" : "harness",
         trigger: step.trigger,
         figure,
-        net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
+        net,
         outbound: step.outbound || [], // story 23: what `revealOutbound` looks for
         tone: ended && ended.status !== "ok" ? "error" : null,
         sticky: Boolean(ended && ended.status !== "ok"),
@@ -3994,6 +4225,7 @@ function connectRow(step) {
     actor: "harness",
     figure,
     net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
+    links: stepLinks(step),
     outbound: step.outbound || [], // story 23: what `revealOutbound` looks for
     // Story 33: a public server's connection leaves the workstation; a local one is MCP's.
     discipline: step.outbound?.length ? "network" : "harness",
@@ -4011,25 +4243,42 @@ const turnDurations = new WeakMap(); // turn -> `turn_ended.payload.duration_ms`
 let seenTurns = 0;
 let wasRunning = false; // the last turn ran at the previous render
 
+// Story 34: the tile's letter, who acts: « R » the network (a tool or a connection that sent
+// data out), else the model, the harness or the user.
+const ACTOR_LETTERS = { model: "M", harness: "H", user: "U" };
+const rowLetter = (row) => (row.net && row.outbound?.length ? "R" : ACTOR_LETTERS[row.actor] || "H");
+
 function stepNode(row, open, flags) {
   let node = railNodes.get(row.key);
   if (!node) {
     const root = el("div", "turn-step");
     const line = el("button", "turn-step-line");
     line.type = "button";
+    // Story 34, two rows: the tile (who acts) on both; the type's icon and the title on top,
+    // who decides and where it goes under them; the key figure and the chevron on the right.
     const parts = {
       tile: el("span", "turn-step-tile"),
+      icon: el("span", "turn-step-icon"),
       title: el("span", "turn-step-title"),
-      trigger: el("span", "turn-step-trigger"),
-      actor: el("span", "turn-step-actor"),
-      netMark: el("span", "net-mark", "🌐 RÉSEAU →"),
-      netHost: el("span", "net-host"),
+      meta: el("span", "turn-step-meta"),
       figure: el("span", "turn-step-figure"),
       chevron: el("span", "turn-step-chevron"),
     };
     parts.tile.setAttribute("aria-hidden", "true");
+    parts.icon.setAttribute("aria-hidden", "true");
     parts.chevron.setAttribute("aria-hidden", "true");
     line.append(...Object.values(parts));
+    Object.assign(parts, {
+      trigger: el("span", "turn-step-trigger"),
+      actor: el("span", "turn-step-actor"),
+      via: el("span", "turn-step-via", " · via le réseau"),
+      netMark: el("span", "net-mark", "🌐 RÉSEAU →"),
+      netHost: el("span", "net-host"),
+    });
+    // « 🌐 RÉSEAU → host » wraps as one piece; only its host shrinks (story 8d).
+    const net = el("span", "turn-step-net");
+    net.append(parts.netMark, parts.netHost);
+    parts.meta.append(parts.trigger, parts.actor, parts.via, net);
     // Story 9: « Forcé par l'utilisateur » / « Déclenché par le modèle », icon then label.
     parts.triggerIcon = el("span");
     parts.triggerIcon.setAttribute("aria-hidden", "true");
@@ -4040,15 +4289,22 @@ function stepNode(row, open, flags) {
     parts.note = el("span", "turn-step-note");
     parts.title.append(parts.name, parts.note);
     const key = row.key;
-    line.addEventListener("click", () => toggleStep(key));
+    // Unfolds the step (story 8d) and selects it (story 34): its keys light the other panes.
+    line.addEventListener("click", () => {
+      toggleStep(key);
+      select(`step:${key}`, readLinks(root));
+    });
     root.appendChild(line);
     node = { root, line, ...parts, body: null, bodySig: null };
     railNodes.set(key, node);
   }
   node.seen = true;
   node.sticky = Boolean(row.sticky);
-  setText(node.tile, row.icon);
+  setText(node.tile, rowLetter(row));
+  setText(node.icon, row.icon);
   if (node.tile.dataset.discipline !== row.discipline) node.tile.dataset.discipline = row.discipline;
+  if (node.root.dataset.discipline !== row.discipline) node.root.dataset.discipline = row.discipline;
+  setLinks(node.root, row.links);
   setText(node.name, row.title);
   setText(node.note, row.note ? ` · ${row.note}` : "");
   node.note.hidden = !row.note;
@@ -4061,13 +4317,14 @@ function stepNode(row, open, flags) {
   const [actorClass, actorLabel] = ACTORS[row.actor];
   node.actor.className = `turn-step-actor ${actorClass}`;
   setText(node.actor, actorLabel);
+  node.via.hidden = !row.via;
   node.netMark.hidden = !row.net;
   node.netHost.hidden = !row.net;
   setText(node.netHost, row.net || "");
   setText(node.figure, row.figure);
   setText(node.chevron, open ? "▾" : "▸");
   // The whole title in the tooltip: the line truncates it first (A10).
-  const tooltip = [row.title, row.note, trigger?.[2], row.net ? `RÉSEAU → ${row.net}` : "", row.figure]
+  const tooltip = [row.title, row.note, trigger?.[2], actorLabel, row.via ? "via le réseau" : "", row.net ? `RÉSEAU → ${row.net}` : "", row.figure]
     .filter(Boolean)
     .join(" · ");
   if (node.line.title !== tooltip) node.line.title = tooltip;
@@ -4385,21 +4642,41 @@ function setTopStatus(text) {
   if (status.title !== text) status.title = text;
 }
 
+let renderedChipsKey = null;
+
 function renderChips() {
   const container = document.getElementById("pane-chips");
+  // The Vue humain waits for the user's answer to an H5 validation; story 34: a hidden pane
+  // holds an element linked to the selection (FR-4), said in words on its chip.
+  const chips = [...store.hiddenPanes].map((paneId) => ({
+    paneId,
+    awaiting: paneId === "human" && store.sessionState?.state === "awaiting_human",
+    linked: Boolean(document.querySelector(`.pane[data-pane="${paneId}"] .is-selection-linked`)),
+  }));
+  // Rebuilt only when it changes: `applyLinks` runs on each hover, under the pointer.
+  const key = JSON.stringify(chips);
+  if (key === renderedChipsKey) return;
+  renderedChipsKey = key;
   container.innerHTML = "";
-  for (const paneId of store.hiddenPanes) {
+  for (const { paneId, awaiting, linked } of chips) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "pane-chip";
-    // The Vue humain waits for the user's answer to an H5 validation.
-    const awaiting = paneId === "human" && store.sessionState?.state === "awaiting_human";
-    const linked = awaiting || (store.selection && paneOfComponent(store.selection) === paneId);
-    if (linked) chip.classList.add("is-linked");
-    chip.textContent = `+ ${PANE_LABELS[paneId]}`;
+    const name = PANE_LABELS[paneId];
+    chip.textContent = `+ ${name}${linked ? " · lié" : ""}`;
+    if (awaiting || linked) {
+      chip.classList.add("is-linked");
+      const dot = el("span", "pane-chip-dot", "● ");
+      dot.setAttribute("aria-hidden", "true");
+      chip.prepend(dot);
+    }
     chip.title = awaiting
       ? "Une validation humaine attend votre réponse : réafficher le volet Vue humain"
-      : `Réafficher le volet ${PANE_LABELS[paneId]}`;
+      : linked
+        ? `Réafficher le volet ${name} : il contient un élément lié à la sélection`
+        : `Réafficher le volet ${name}`;
+    // WCAG 2.5.3: the accessible name starts with the visible text.
+    chip.setAttribute("aria-label", `${chip.textContent.replace(/^● /, "")} : ${chip.title}`);
     chip.addEventListener("click", () => showPane(paneId));
     container.appendChild(chip);
   }
@@ -4446,10 +4723,6 @@ function renderPaneVisibility() {
     const hidden = store.hiddenPanes.has(paneId);
     section.classList.toggle("is-hidden", hidden);
     section.classList.toggle("is-focused", store.focusedPane === paneId);
-    section.classList.toggle(
-      "is-selected",
-      store.selection !== null && paneOfComponent(store.selection) === paneId
-    );
     const hideButton = section.querySelector('[data-action="hide"]');
     const disable = !hidden && lastVisible;
     hideButton.disabled = disable;
@@ -5123,9 +5396,10 @@ function schemaButton(className, componentId, text) {
   button.type = "button";
   button.dataset.component = componentId;
   button.dataset.focusKey = componentId;
+  setLinks(button, linkKeysOfComponent(componentId)); // story 34 (the model's are patched)
   button.classList.toggle("is-selected", store.selection === componentId);
   button.setAttribute("aria-pressed", String(store.selection === componentId));
-  button.addEventListener("click", () => select(componentId));
+  button.addEventListener("click", () => select(componentId, readLinks(button)));
   return button;
 }
 
@@ -5180,6 +5454,42 @@ let renderedActivityKey = null;
 let schemaActive = null; // the last `schemaActivity()`, read by `drawSchemaWires`
 
 let outboundShown = null; // story 23: `outboundComponents()` at the last `renderSchema`
+// Story 34: the last turn shown, its number and the components it sent data to (the network
+// nodes' « contacté » / « non contacté »), at the last `renderSchema`; `null` without a turn.
+let schemaTurn = null;
+
+// Story 34: a step whose outcome is known and is no success: its requests did not get through.
+const stepFailed = (step) => Boolean(step.ended && step.ended.status !== "ok");
+
+// Story 34: the requests a turn sent out (sub-agent included), each with the step that sent
+// it, in the order they left (AD-1: the `outbound_request` events of its tool steps).
+function turnRequests(turn) {
+  return allSteps(turn)
+    .filter((step) => step.type === "tool")
+    .flatMap((step) => (step.outbound || []).map((request) => ({ request, step })));
+}
+
+// Story 34: the model plate's keys: the model, then every call of its context in the turns
+// shown (the sub-agent's plate: its calls).
+function modelLinkKeys(sub) {
+  const calls = shownTurns().flatMap((turn) =>
+    (sub ? [...turn.subs.values()] : [turn]).flatMap((context) =>
+      context.steps.filter((step) => step.type === "call" && step.id).map((step) => `call:${step.id}`)
+    )
+  );
+  return [sub ? "core.model_sub" : "core.model", ...calls];
+}
+
+// Patched at each render, the schema not rebuilt: the calls come during a turn.
+function patchModelLinks(root) {
+  const main = modelLinkKeys(false);
+  const plates = root.querySelectorAll(
+    '.robot[data-component="core.model"], .arch-cloud-model, .arch-server-model'
+  );
+  for (const plate of plates) setLinks(plate, main);
+  const sub = root.querySelector('.robot[data-component="core.model_sub"]');
+  if (sub) setLinks(sub, modelLinkKeys(true));
+}
 
 function renderSchema() {
   // Layout only: nodes, edges and availability come from `architecture_changed` (AD-12), the
@@ -5200,7 +5510,18 @@ function renderSchema() {
   const subPose = subModel ? robotPose(true) : null;
   const robots = () => [robot(pose, model), ...(subModel ? [robot(subPose, subModel, true)] : [])];
   outboundShown = outboundComponents(); // story 23: the network nodes a click leads from
-  const key = JSON.stringify([store.architecture, wanted.length, hooks, blocked, store.selection, [...outboundShown].sort()]);
+  // « contacté »: a request of a step that succeeded; « en échec »: only failed attempts.
+  const requests = last ? turnRequests(last) : [];
+  const reachedIds = new Set(requests.filter((r) => r.step.ended?.status === "ok").map((r) => r.request.component));
+  schemaTurn = last
+    ? {
+        number: turnNumber(last),
+        contacted: reachedIds,
+        failed: new Set(requests.filter((r) => stepFailed(r.step) && !reachedIds.has(r.request.component)).map((r) => r.request.component)),
+      }
+    : null;
+  const turnKey = schemaTurn ? [schemaTurn.number, [...schemaTurn.contacted].sort(), [...schemaTurn.failed].sort()] : null;
+  const key = JSON.stringify([store.architecture, wanted.length, hooks, blocked, store.selection, [...outboundShown].sort(), turnKey]);
   const robotKey = JSON.stringify([pose, subPose, model?.model]);
   if (key !== renderedSchemaKey) {
     renderedSchemaKey = key;
@@ -5216,7 +5537,7 @@ function renderSchema() {
       const old = root.querySelector(`.robot[data-component="${next.dataset.component}"]`);
       const focused = old === document.activeElement;
       old?.replaceWith(next);
-      if (focused) next.focus();
+      if (focused) quietFocus(next);
     }
   }
   const activity = schemaActivity(nodes);
@@ -5233,6 +5554,70 @@ function renderSchema() {
     }
     scheduleWires();
   }
+  patchModelLinks(root);
+}
+
+// ---------- story 34: what left the workstation during the last turn shown ----------
+
+const NO_TURN_OUTBOUND_FR = "Aucun tour affiché : rien n'a quitté le poste pendant un tour.";
+
+// « a », « a et b », « a, b et c ».
+function joinFr(items) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} et ${items.at(-1)}`;
+}
+
+// The sentence under the schema (AD-1: counted from the turn's events only). The model's
+// calls when it runs out of the workstation (the E2E fake cloud, on the loopback, is not
+// traced: its calls are counted from `model_call_started`), then the requests of its tool
+// steps, by destination in the order of first contact, with what the node says it sends.
+function outboundSummary(turn) {
+  if (!turn) return NO_TURN_OUTBOUND_FR;
+  const at = `Au tour ${turnNumber(turn)}${turn.status === null ? " (en cours)" : ""}`;
+  const model = turn.model;
+  const cloud = model?.hosting === "network";
+  const provider = model?.provider ?? (cloud ? "le fournisseur" : null);
+  const calls = cloud ? allSteps(turn).filter((s) => s.type === "call" && s.startedAt).length : 0;
+  const nodes = new Map((store.architecture.nodes || []).map((n) => [n.id, n]));
+  // Destination -> { label, sends, count (requests that left), failed (failed steps) }: a
+  // failed step's requests did not reach it (network cut, refused), a single failed attempt
+  // whatever its redirect hops.
+  const groups = new Map();
+  const failedSteps = new Set();
+  for (const { request, step } of turnRequests(turn)) {
+    const node = request.component ? nodes.get(request.component) : null;
+    const key = node ? node.id : hostOf(request.url); // story 23 absent: the URL's host
+    const group = groups.get(key) ?? { label: node?.label_fr ?? key, sends: node?.sends_fr, count: 0, failed: 0 };
+    if (!stepFailed(step)) group.count += 1;
+    else if (!failedSteps.has(`${key} ${step.stepId}`)) {
+      failedSteps.add(`${key} ${step.stepId}`);
+      group.failed += 1;
+    }
+    groups.set(key, group);
+  }
+  const what = (g) => (g.sends ? ` (${g.sends})` : "");
+  const left = [...groups.values()].filter((g) => g.count);
+  const failed = [...groups.values()]
+    .filter((g) => g.failed)
+    .map((g) => `${g.failed > 1 ? `${fmt(g.failed)} tentatives` : "1 tentative"} en échec vers ${g.label}${what(g)}`);
+  const times = calls + left.reduce((sum, g) => sum + g.count, 0);
+  if (!times) {
+    const where =
+      model?.kind === "server"
+        ? `le modèle est servi sur ce poste${provider ? ` (${provider})` : ""}`
+        : cloud
+          ? `aucun appel au modèle n'est parti vers ${provider}`
+          : "le modèle tourne sur ce poste";
+    if (failed.length) return `${at}, aucune donnée n'a quitté le poste : ${where}, et ${joinFr(failed)}.`;
+    return `${at}, aucune donnée n'a quitté le poste : ${where} et aucun service réseau n'a été contacté.`;
+  }
+  const parts = [];
+  if (calls) parts.push(`vers le modèle chez ${provider} (contexte complet, ${plural(calls, "appel")})`);
+  for (const g of left) parts.push(`vers ${g.label} (${g.sends ? `${g.sends}, ` : ""}${plural(g.count, "requête")})`);
+  return `${at}, les données ont quitté le poste ${fmt(times)} fois : ${joinFr([...parts, ...failed])}.`;
+}
+
+function renderOutboundSummary() {
+  setText(document.getElementById("schema-outbound"), outboundSummary(shownTurns().at(-1)));
 }
 
 function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
@@ -5244,6 +5629,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   // The harness frame: the robot and the chips of the bricks with no outside component, stacked.
   const frame = el("div", "arch-harness");
   frame.dataset.component = "core.harness";
+  setLinks(frame, ["core.harness"]); // story 34
   frame.classList.toggle("is-selected", store.selection === "core.harness");
   frame.title = byId["core.harness"]?.label_fr || "Harnais";
   frame.addEventListener("click", (event) => {
@@ -5312,7 +5698,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   const wires = svgEl("svg", { class: "arch-wires" });
   wires.setAttribute("aria-hidden", "true");
   root.append(local, boundary, network, wires);
-  if (focusKey) root.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`)?.focus();
+  if (focusKey) quietFocus(root.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`));
 }
 
 // The « Points d'accroche » strip: every hook of the brick, one per line, name and point; a hook
@@ -5395,8 +5781,15 @@ function schemaNode(node, shape) {
   button.classList.toggle("is-loaded", loaded);
   let icon = { tool: TOOL_ICONS[node.id.slice(6)] || "🔧", mcp: "🔌", file: "📄" }[shape] || null;
   if (unavailable) icon = "⊘"; // the crossed-out icon of DESIGN.md > arch-node-unavailable
+  // Story 34: a network tool or server says whether the last turn shown reached it, as the
+  // outbound summary under the schema does; without a turn shown, the session's state.
+  const perTurn = network && (shape === "tool" || shape === "mcp") && schemaTurn !== null;
+  const reached = perTurn && schemaTurn.contacted.has(node.id);
+  const attempted = perTurn && schemaTurn.failed.has(node.id);
+  const turnState = reached ? "contacté" : attempted ? "en échec" : "non contacté";
   let pill = null;
   if (unavailable) pill = "indisponible";
+  else if (perTurn) pill = turnState;
   else if (shape === "mcp") pill = notContacted ? "non contacté" : plural(tools.length, "outil");
   else if (notContacted) pill = "non contacté";
   else if (loaded) pill = "✓"; // a skill's bin is narrow: « Chargé » is in its accessible name and tooltip
@@ -5408,6 +5801,10 @@ function schemaNode(node, shape) {
   const tooltip = [`${node.label_fr} · ${SHAPE_LABELS[shape]} · ${network ? "RÉSEAU" : "sur le poste"}`];
   if (unavailable) tooltip.push(`Indisponible : ${node.reason_fr}`);
   else if (notContacted) tooltip.push("Non contacté : aucune requête envoyée pour l'instant.");
+  if (perTurn) {
+    const state = attempted && !reached ? "tentative en échec, rien n'a atteint le service" : turnState;
+    tooltip.push(`Au tour ${schemaTurn.number} : ${state}.`);
+  }
   if (shape === "skill") tooltip.push(loaded ? "Chargé dans la conversation." : "Non chargé.");
   if (tools.length) tooltip.push(`Outils : ${tools.join(", ")}`);
   if (node.detail_fr) tooltip.push(node.detail_fr);
@@ -5562,6 +5959,39 @@ async function openAudit() {
   }
 }
 
+// ---------- story 34: projection mode (NFR-9) ----------
+// Every text a notch larger (the ramp × 9/7, in app.css), remembered by the browser; the
+// reset leaves it, like the panes' layout. Without storage, it works until the next reload.
+
+const PROJECTION_STORAGE_KEY = "wavestack.projection";
+
+function setProjection(on) {
+  document.documentElement.classList.toggle("projection", on);
+  document.getElementById("projection-toggle").setAttribute("aria-pressed", String(on));
+  scheduleWires(); // the schema's pieces moved
+}
+
+function loadProjection() {
+  let on = false;
+  try {
+    on = localStorage.getItem(PROJECTION_STORAGE_KEY) === "1";
+  } catch {
+    // No storage: the default size.
+  }
+  setProjection(on);
+}
+
+function toggleProjection() {
+  const on = !document.documentElement.classList.contains("projection");
+  setProjection(on);
+  try {
+    localStorage.setItem(PROJECTION_STORAGE_KEY, on ? "1" : "0");
+  } catch {
+    // No storage: the mode lasts until the page is reloaded.
+  }
+  measureGuide(); // the scenario's guide may now need « Afficher plus »
+}
+
 // ---------- boot ----------
 
 function closePaneMenu() {
@@ -5574,6 +6004,8 @@ function closePaneMenu() {
 async function boot() {
   // Remembered pane layout first, so the page does not open on the defaults then jump.
   loadPaneLayout();
+  loadProjection();
+  bindLinkedView();
   loadShowForced();
   loadShowReasoning();
   document.getElementById("show-reasoning").addEventListener("change", toggleShowReasoning);
@@ -5620,6 +6052,7 @@ async function boot() {
   document.getElementById("model-picker-apply").addEventListener("click", applyPick);
   bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
+  document.getElementById("projection-toggle").addEventListener("click", toggleProjection);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
   document.getElementById("event-log-head").addEventListener("click", toggleJournal);
@@ -5660,6 +6093,7 @@ async function boot() {
     if (activeTurn()) {
       renderChat();
       renderSteps();
+      applyLinks(); // story 34: the rebuilt nodes get their light back
     }
     if (store.modelLoad) {
       renderChat();
@@ -5677,8 +6111,15 @@ async function boot() {
       closeMemoryDrawer();
     } else if (!document.getElementById("pane-menu-list").hidden) {
       closePaneMenu();
-    } else if (store.focusedPane !== null) {
-      store.focusedPane = null;
+    } else if (store.selection !== null && selectionShown()) {
+      clearSelection(); // story 34: before leaving focus mode
+    } else {
+      // Story 34: a selection no element shows any more is dropped silently, then Escape
+      // does its next job.
+      const stale = store.selection !== null;
+      if (stale) Object.assign(store, { selection: null, selectionKeys: null });
+      if (store.focusedPane !== null) store.focusedPane = null;
+      else if (!stale) return;
       render();
     }
   });
@@ -5699,7 +6140,7 @@ async function boot() {
     const rendered = body.context_rendered;
     const reconciled = body.context_reconciled;
     const latest = [preview, rendered, reconciled].filter(Boolean).sort((a, b) => b.seq - a.seq)[0];
-    if (latest) store.gauge = { payload: latest.payload, preview: latest === preview };
+    if (latest) store.gauge = { payload: latest.payload, preview: latest === preview, callId: latest.call_id ?? null };
   } catch {
     // AD-16: a failed boot fetch still lets the live stream take over.
   }

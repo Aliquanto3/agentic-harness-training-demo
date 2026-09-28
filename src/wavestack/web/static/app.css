@@ -91,7 +91,7 @@ body {
   border: 1px solid var(--color-ink-soft);
   border-radius: 4px;
   background: var(--discipline);
-  font-size: 9px;
+  font-size: 0.75em; /* story 34: follows the projection mode */
   line-height: 1;
 }
 
@@ -204,8 +204,9 @@ body {
   cursor: pointer;
 }
 
-.pane-chip.is-linked::before {
-  content: "● ";
+/* The ink dot of a linked chip (a span: a generated `::before` put an ellipsis on the chip at
+   its own natural width). */
+.pane-chip-dot {
   color: var(--color-ink);
 }
 
@@ -441,9 +442,19 @@ body.is-resizing-y * {
   display: none;
 }
 
-.pane.is-selected {
-  outline: 2px solid var(--color-primary);
-  outline-offset: -2px;
+/* Story 34: the reading order, a numbered ink disc before the title (hidden from screen
+   readers: the pane's name does not change). */
+.pane-step {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 1.7em;
+  height: 1.7em;
+  border-radius: var(--rounded-full);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) / 1
+    var(--typography-number-font-family);
 }
 
 .pane-header {
@@ -518,7 +529,10 @@ body.is-resizing-y * {
    « Réinitialiser » went onto two lines); the gauge has a fixed width, so that nothing else
    (a scenario's name, a message) moves its bar; only its figures give way. */
 .gauge {
-  flex: 0 0.001 auto; /* gives way last, once the scenario and model names reach their minimum */
+  /* Gives way last, once the names and the chips reach their minimum. Story 34: the factors
+     stay ≥ 1 (a million for the names, a thousand for the chips, 1 here): a lone item whose factor sums
+     under 1 only takes that share of the missing room, and the bar overflowed. */
+  flex: 0 1 auto;
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
@@ -533,12 +547,12 @@ body.is-resizing-y * {
 /* On a narrow window (1280 px), the scenario's name and the model's give way (their whole
    text stays in the list and in the tooltip). */
 .top-bar > .scenario-picker {
-  flex: 0 1 auto;
+  flex: 0 1000000 auto; /* story 34: well before the chips (their « · lié ») */
   min-width: 8rem;
 }
 
 .top-bar > .model-indicator {
-  flex: 0 1 auto;
+  flex: 0 1000000 auto;
   min-width: 6rem;
   overflow: hidden;
 }
@@ -549,10 +563,36 @@ body.is-resizing-y * {
   text-overflow: ellipsis;
 }
 
+/* Story 34: the model picker gives way with the names (its list keeps the whole labels), and
+   under 1400 px the bar tightens its gaps and the projection button says « Projection » (its
+   accessible name stays « Mode projection »): room for that button at 1280 px. */
+.top-bar > .model-picker {
+  flex: 0 1000000 auto;
+  min-width: 5rem;
+}
+
+.projection-toggle-short {
+  display: none;
+}
+
+@media (max-width: 1400px) {
+  .top-bar {
+    gap: var(--spacing-2);
+  }
+
+  .projection-toggle-long {
+    display: none;
+  }
+
+  .projection-toggle-short {
+    display: inline;
+  }
+}
+
 /* The chips of hidden panes and the gauge's figures give way too (whole text in their
    tooltip). */
 .top-bar > .pane-chips {
-  flex: 0 1 auto;
+  flex: 0 1000 auto; /* story 34: after the names, so that « · lié » stays readable */
   min-width: 0;
   flex-wrap: nowrap;
   overflow: hidden;
@@ -562,8 +602,15 @@ body.is-resizing-y * {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Story 34: the ellipsis only where the bar squeezes the chips: at its natural width, Chromium
+   rounds a chip a fraction of a pixel under its text and cut « · lié » into « · l… ». */
+@media (max-width: 1400px) {
+  .pane-chips > .pane-chip {
+    text-overflow: ellipsis;
+  }
 }
 
 /* The bar, then the legend of the disciplines under it; the legend wraps rather than be cut. */
@@ -1246,13 +1293,19 @@ body.is-resizing-y * {
   padding-bottom: 0;
 }
 
-/* A grid, so that the title's column (1fr) only gets what the others leave: the title
-   truncates first, then the host (minmax(0, auto)); the RÉSEAU mark, the actor and the key
-   figure keep their width. Empty columns (no host, no mark) take no room. */
+/* Story 34, two rows (the maquette's frieze): the tile, who acts, on both; on top the type's
+   icon and the title, under them who decides and where it goes; the key figure and the
+   chevron on the right. A grid, so that the title's column (1fr) only gets what the others
+   leave: the title truncates first, then the host; the RÉSEAU mark, the actor and the key
+   figure keep their width (story 8d). */
 .turn-step-line {
   display: grid;
-  grid-template-columns: 26px minmax(2.5em, 1fr) auto auto auto minmax(0, auto) auto 12px;
-  grid-template-areas: "tile title trigger actor mark host figure chevron";
+  grid-template-columns: 26px auto minmax(2.5em, 1fr) auto 12px;
+  grid-template-areas:
+    "tile icon title figure chevron"
+    "tile meta meta figure chevron";
+  column-gap: 0;
+  row-gap: 1px;
   align-items: center;
   width: 100%;
   min-height: var(--spacing-hit-target-min);
@@ -1299,7 +1352,8 @@ body.is-resizing-y * {
   background: var(--color-surface-raised);
   border: var(--spacing-stroke-min) solid var(--color-line);
   border-radius: var(--rounded-sm);
-  font-size: 13px;
+  font: var(--typography-label-font-weight) var(--typography-body-sm-font-size) / 1
+    var(--typography-label-font-family);
 }
 
 /* Story 33: the tile in its discipline; the model's steps on ink. Before the tones below,
@@ -1346,12 +1400,49 @@ body.is-resizing-y * {
   border-color: var(--color-state-unavailable);
 }
 
+/* Story 34: the type's icon, before the title (the tile now says who acts). */
+.turn-step-icon {
+  grid-area: icon;
+  margin-left: var(--spacing-2);
+  line-height: 1;
+}
+
+/* Who decides, then « via le réseau » and « 🌐 RÉSEAU → host »: short of room, the pieces
+   wrap, whole; only the host shrinks. */
+.turn-step-meta {
+  grid-area: meta;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 1px;
+  min-width: 0;
+  margin-left: var(--spacing-2);
+  white-space: nowrap;
+}
+
+.turn-step-meta > * {
+  flex: 0 0 auto;
+}
+
+.turn-step-meta > .turn-step-net {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.turn-step-via {
+  margin-right: var(--spacing-1);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+}
+
 /* Truncation order (A10): the title first, then the host; never the RÉSEAU mark, the
    actor or the key figure. */
 .turn-step-title {
   grid-area: title;
   min-width: 0;
-  margin: 0 var(--spacing-2);
+  margin: 0 var(--spacing-2) 0 var(--spacing-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1369,13 +1460,11 @@ body.is-resizing-y * {
 
 /* Story 9: who caused the step (trigger badge), never truncated, like the actor. */
 .turn-step-line .turn-step-trigger {
-  grid-area: trigger;
   margin: 0 var(--spacing-1) 0 0;
   white-space: nowrap;
 }
 
 .turn-step-actor {
-  grid-area: actor;
   margin-right: var(--spacing-1);
   border: 1px solid transparent;
   border-radius: var(--rounded-full);
@@ -1412,14 +1501,16 @@ body.is-resizing-y * {
 }
 
 .net-mark {
-  grid-area: mark;
   border-right: 0;
   border-radius: var(--rounded-full) 0 0 var(--rounded-full);
   padding-left: var(--spacing-2);
 }
 
+.turn-step-net > .net-host {
+  flex: 0 1 auto;
+}
+
 .net-host {
-  grid-area: host;
   min-width: 0;
   border-left: 0;
   border-radius: 0 var(--rounded-full) var(--rounded-full) 0;
@@ -1437,16 +1528,17 @@ body.is-resizing-y * {
   white-space: nowrap;
 }
 
-/* A narrow rail cannot hold the whole line: the key figure goes under the title, still whole. */
+/* A narrow rail cannot hold the whole line: the key figure goes under the rest, still whole. */
 @container (max-width: 460px) {
   .turn-step-line {
-    grid-template-columns: 26px minmax(2.5em, 1fr) auto auto minmax(0, auto) 12px;
+    grid-template-columns: 26px auto minmax(2.5em, 1fr) 12px;
     grid-template-areas:
-      "tile title actor mark host chevron"
-      "tile trigger figure figure figure chevron";
+      "tile icon title chevron"
+      "tile meta meta chevron"
+      "tile figure figure chevron";
   }
 
-  .turn-step-line .turn-step-trigger {
+  .turn-step-figure {
     justify-self: start;
     margin-left: var(--spacing-2);
   }
@@ -1786,7 +1878,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .brick-lock {
   flex: 0 0 auto;
-  font-size: 14px;
+  font-size: var(--typography-body-font-size);
   line-height: 1;
 }
 
@@ -2725,7 +2817,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .robot-badge-icon {
-  font-size: 10px;
+  font-size: 0.7em;
 }
 
 @keyframes antenna-blink {
@@ -2904,7 +2996,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   height: 18px;
   border-radius: var(--rounded-full);
   background: var(--color-surface-raised);
-  font-size: 11px;
+  font-size: 0.85em;
 }
 
 /* MCP server: a double line, a process of its own that exposes tools. */
@@ -3609,6 +3701,166 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 .rerank-cut {
   color: var(--color-ink-soft);
   font-style: italic;
+}
+
+/* ---------- story 34: the linked view (DESIGN.md > link-state) ----------
+   An element carries its link keys in `data-links` (app.js). Hover or keyboard focus: what
+   shares a key is ringed (an outline: the element's own shadow, relief or « en action » halo,
+   stays) in its discipline's colour (ink for the network's yellow and the neutral grey, under
+   3:1), the rest dimmed; a container holding a lit element is not dimmed
+   itself, nor is an element inside a dimmed container dimmed twice. Selection: an ink outline,
+   nothing dimmed. Never the colour alone: the selection's outline is ink. */
+
+[data-links] {
+  --link-ring: var(--discipline, var(--color-ink));
+  transition: opacity 150ms ease, outline-color 150ms ease;
+}
+
+[data-links][data-discipline="network"],
+[data-links][data-discipline="neutral"] {
+  --link-ring: var(--color-ink);
+}
+
+body.linking [data-links]:not(.is-linked):not(:has(.is-linked)) {
+  opacity: 0.35;
+}
+
+body.linking [data-links]:not(.is-linked):not(:has(.is-linked)) [data-links] {
+  opacity: 1;
+}
+
+body.linking [data-links].is-linked {
+  outline: var(--spacing-stroke-min) solid var(--link-ring);
+  outline-offset: 2px;
+}
+
+/* Inside a clipping bar, or on the model's ink plate: the ring goes inside. */
+body.linking .gauge-seg.is-linked {
+  outline-color: var(--color-ink);
+  outline-offset: -2px;
+}
+
+body.linking .arch .arch-robots .robot.is-linked {
+  outline-color: var(--color-on-ink);
+  outline-offset: -2px;
+}
+
+/* The selection's ink outline wins over a hover ring on the same element. */
+body [data-links][data-links].is-selection-linked {
+  outline: var(--spacing-stroke-min) solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+body .gauge-seg[data-links].is-selection-linked {
+  outline-offset: -2px;
+}
+
+body .arch .arch-robots .robot.is-selection-linked {
+  outline-color: var(--color-on-ink);
+  outline-offset: -2px;
+}
+
+.ctx-segment:focus-visible,
+.gauge-seg:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.gauge-seg {
+  cursor: pointer;
+}
+
+.ctx-segment {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body [data-links] {
+    transition: none;
+  }
+}
+
+/* The bricks panel says how to read the panes together. */
+.brick-link-hint {
+  margin: 0;
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-line);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+/* ---------- story 34: what left the workstation, under the schema ---------- */
+
+.pane-body-schema {
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-body-schema > .arch {
+  flex: 1 0 auto;
+  min-height: 0;
+}
+
+.schema-outbound {
+  flex: 0 0 auto;
+  margin: var(--spacing-1) 0 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-top: 1px solid var(--color-line);
+  font-size: var(--typography-body-sm-font-size);
+  line-height: var(--typography-body-sm-line-height);
+  color: var(--color-ink);
+}
+
+/* ---------- story 34: projection mode (DESIGN.md > projection-toggle, NFR-9) ----------
+   The type ramp × 9/7, rounded (body 14 → 18 px); tokens.css stays DESIGN.md's mirror, so the
+   ramp is redefined here. The top bar grows so its controls stay on one line. */
+
+:root.projection {
+  --typography-pane-title-font-size: 24px;
+  --typography-pane-subtitle-font-size: 17px;
+  --typography-heading-font-size: 23px;
+  --typography-chat-font-size: 21px;
+  --typography-body-font-size: 18px;
+  --typography-body-sm-font-size: 17px;
+  --typography-label-font-size: 15px;
+  --typography-number-font-size: 18px;
+  --typography-number-lg-font-size: 26px;
+  --typography-code-font-size: 17px;
+  --spacing-top-bar-height: 72px;
+  --spacing-architecture-band-height: 320px; /* the schema and its summary, in proportion */
+}
+
+/* In projection mode the chips outrank the gauge's figures: at 1280 px, « · lié » stays whole
+   and the figures (whole in their tooltip) give way first, down to the bar and its legend. */
+:root.projection .top-bar > .gauge {
+  flex-shrink: 1000000;
+  min-width: calc(300px + var(--spacing-3));
+}
+
+:root.projection .top-bar > .pane-chips {
+  flex-shrink: 1;
+}
+
+:root.projection .top-bar > .scenario-picker,
+:root.projection .top-bar > .model-indicator {
+  min-width: 5rem;
+}
+
+.projection-toggle {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  background: transparent;
+  color: var(--color-on-ink);
+  border: 1px solid var(--color-on-ink-soft);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.projection-toggle[aria-pressed="true"] {
+  background: var(--color-on-ink);
+  color: var(--color-ink);
 }
 
 /* ---------- story 33: focus on the ink top bar ----------

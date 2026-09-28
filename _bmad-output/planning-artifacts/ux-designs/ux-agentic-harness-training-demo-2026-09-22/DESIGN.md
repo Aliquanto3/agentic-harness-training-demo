@@ -61,7 +61,7 @@ colors:
   on-ink: '#FFFFFF'
   on-ink-soft: '#CFCDE4'
 typography:
-  # Base à 100 % ; les paliers 125 % et 150 % (NFR-9) multiplient toutes les tailles.
+  # Base ; le mode projection (story 34, NFR-9) multiplie toute la rampe par 9/7, dans app.css.
   pane-title:
     fontFamily: 'Fredoka, system-ui, sans-serif'
     fontSize: 19px
@@ -178,6 +178,13 @@ components:
     title-color: '{colors.ink}'
     subtitle-typography: '{typography.pane-subtitle}'
     subtitle-color: '{colors.ink-soft}'
+  # Story 34: the reading order, a numbered disc before the title of the four demo panes.
+  pane-step:
+    background: '{colors.ink}'
+    foreground: '{colors.on-ink}'
+    typography: '{typography.number}'
+    size: 1.7em
+    radius: '{rounded.full}'
   pane-focused:
     border: '{colors.primary}'
   button-primary:
@@ -217,12 +224,17 @@ components:
     foreground: '{colors.ink}'
     border: '{colors.line}'
     radius: '{rounded.md}'
-  text-size-control:
-    background: '{colors.surface}'
-    foreground: '{colors.ink}'
-    border: '{colors.line}'
-    typography: '{typography.number}'
-    radius: '{rounded.full}'
+  # Story 34: replaces the « Aa » text-size-control, never built; on the ink top bar.
+  projection-toggle:
+    background: transparent
+    foreground: '{colors.on-ink}'
+    border: '{colors.on-ink-soft}'
+    pressed-background: '{colors.on-ink}'
+    pressed-foreground: '{colors.ink}'
+    typography: '{typography.label}'
+    radius: '{rounded.md}'
+    min-height: '{spacing.hit-target-min}'
+    scale: 9/7
   pane-hide-button:
     foreground: '{colors.ink-soft}'
     border: '{colors.line}'
@@ -236,6 +248,21 @@ components:
     radius: '{rounded.full}'
     typography: '{typography.label}'
     match-marker: '{colors.ink}'
+    match-label: ' · lié'
+  # Story 34: the linked view. Hover or focus: ring in the element's discipline (ink for the
+  # network and the neutral), the rest dimmed; selection: ink outline, nothing dimmed.
+  link-state:
+    dimmed-opacity: '0.35'
+    hover-ring: '{components.discipline-code}'
+    hover-ring-network: '{colors.ink}'
+    hover-ring-neutral: '{colors.ink}'
+    hover-ring-on-ink: '{colors.on-ink}'
+    ring-width: '{spacing.stroke-min}'
+    selected-outline: '{colors.ink}'
+    selected-outline-width: '{spacing.stroke-min}'
+    selected-outline-offset: 2px
+    transition: 150ms
+    reduced-motion-transition: none
   pane-menu:
     background: '{colors.surface-raised}'
     foreground: '{colors.ink}'
@@ -354,10 +381,17 @@ components:
     foreground: '{colors.ink}'
     radius: '{rounded.sm}'
     tile: '{components.discipline-code}'
+    tile-letter-typography: '{typography.label}'
     model-tile: '{colors.ink}'
     model-icon: '{colors.on-ink}'
     current-marker: '{colors.state-active}'
     selected-background: '{colors.primary-soft}'
+    via-color: '{colors.ink-soft}'
+  # Story 34: what left the workstation during the last turn shown, under the schema.
+  schema-outbound:
+    foreground: '{colors.ink}'
+    rule: '{colors.line}'
+    typography: '{typography.body-sm}'
   token-counter:
     foreground: '{colors.ink}'
     typography: '{typography.number}'
@@ -574,7 +608,21 @@ Depuis la story 33, la couleur de segment ne sert plus qu'à la pastille du type
 - **JetBrains Mono** (400, repli Cascadia Mono puis Consolas) : contenu brut du contexte et des sorties du modèle, en `{typography.code}`.
 - Les trois familles sont sous licence OFL et servies en local depuis l'application (fichiers WOFF2 et `@font-face`) : aucune requête vers un service de polices (NFR-3, NFR-4). La maquette de référence les charge depuis Google Fonts ; l'application, non.
 
-Rampe à 100 % : `pane-title` 19 px, `heading` 18 px, `chat` 16 px, `body` 14 px, `pane-subtitle`, `body-sm` et `code` 13 px, `label` 12 px, `number` 14 px, `number-lg` 20 px. Les paliers 125 % et 150 % (NFR-9), choisis par le contrôle unique « Aa 100 % », multiplient toute la rampe ; aucun texte ne descend sous 12 px au palier 100 %. `[ASSUMPTION]` Rampe dimensionnée pour la fenêtre utile de 1280×650.
+Rampe de base : `pane-title` 19 px, `heading` 18 px, `chat` 16 px, `body` 14 px, `pane-subtitle`, `body-sm` et `code` 13 px, `label` 12 px, `number` 14 px, `number-lg` 20 px ; aucun texte ne descend sous 12 px. `[ASSUMPTION]` Rampe dimensionnée pour la fenêtre utile de 1280×650. Aucune taille en px brut hors de la rampe dans `app.css` : les petites pièces (pastilles, icônes) sont en `em` et suivent la rampe.
+
+**Mode projection** (story 34, NFR-9 ; `projection-toggle`) : la rampe × 9/7, arrondie, redéfinie dans `app.css` sous `:root.projection` (`tokens.css` reste le miroir exact de ce fichier). Les autres paliers passent par le zoom du navigateur.
+
+| Rôle | Base | Projection |
+|---|---|---|
+| `pane-title` | 19 px | 24 px |
+| `pane-subtitle`, `body-sm`, `code` | 13 px | 17 px |
+| `heading` | 18 px | 23 px |
+| `chat` | 16 px | 21 px |
+| `body`, `number` | 14 px | 18 px |
+| `label` | 12 px | 15 px |
+| `number-lg` | 20 px | 26 px |
+| `spacing.top-bar-height` | 56 px | 72 px (la barre reste sur une ligne) |
+| `spacing.architecture-band-height` | 250 px | 320 px (le schéma et son bilan) |
 
 Titres de volet en casse normale, en `{colors.ink}`, suivis d'un sous-titre pédagogique d'une ligne en `pane-subtitle`, `{colors.ink-soft}`. Pas de tailles « display » : l'écran appartient au contenu de la démonstration.
 
@@ -592,7 +640,7 @@ Un volet masqué libère sa place : les volets visibles de la même rangée se l
 
 Fond de page (`page`) : `{colors.surface}` semé de pois `{colors.dot}` de 1,3 px sur une grille de `{spacing.dot-grid}`, comme un papier de cahier. Les pois restent dans les gouttières et autour des volets ; aucun volet, aucune carte n'en porte.
 
-`[ASSUMPTION]` L'en-tête de volet grandit (titre de 19 px et sous-titre) : le budget vertical dans 1280×650 est à vérifier à l'implémentation, les tokens d'espacement restant inchangés. Si la place manque, le sous-titre est le premier élément à masquer au palier 150 %, pas le contenu.
+`[ASSUMPTION]` L'en-tête de volet grandit (titre de 19 px et sous-titre) : le budget vertical dans 1280×650 est à vérifier à l'implémentation, les tokens d'espacement restant inchangés. Si la place manque, le sous-titre est le premier élément à masquer en mode projection, pas le contenu.
 
 ## Elevation & Depth
 
@@ -617,7 +665,7 @@ Grands arrondis, sur une échelle de trois rayons et la pilule :
 - `{rounded.lg}` (26 px) : volets, barre haute, zones du schéma, cadre du harnais, tiroir d'édition, détail de la jauge, bulles de message.
 - `{rounded.md}` (18 px) : cartes de brique, boutons texte, sélecteur de modèle, segments de contexte, événements du harnais, cartes de dépassement et de données sortantes.
 - `{rounded.sm}` (12 px) : boutons icônes (focus, masquer), tuiles d'icône, nœuds du schéma, étapes, bloc de raisonnement.
-- `{rounded.full}` : jauge, badges, puces, interrupteurs, sélecteur de scénario, réglage de taille de texte, champ de saisie et bouton d'envoi.
+- `{rounded.full}` : jauge, badges, puces, interrupteurs, sélecteur de scénario, champ de saisie et bouton d'envoi.
 
 Les bulles de message ont un coin de 6 px du côté du locuteur (bas droit pour l'utilisateur, bas gauche pour le modèle), pour se lire comme une conversation.
 
@@ -630,25 +678,28 @@ Les nœuds réseau gardent le même rayon que les nœuds locaux : seule la bordu
 Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 
 - **Fond de page (`page`)** : crème à pois, voir Layout & Spacing.
-- **Barre haute (`top-bar`)** : carte flottante sur l'encre (story 33), haute de `{spacing.top-bar-height}` (56 px, pour loger la légende sous la jauge), rayon `{rounded.lg}`, relief `{colors.relief}`. Titre, chiffres de la jauge et statut en `{colors.on-ink}` ; anneau de focus `{colors.on-ink}` de 2 px (la liste « Volets ▾ », sur blanc, garde le sien). Les commandes gardent leur fond propre et ne passent jamais sur deux lignes. La jauge a une largeur fixe (barre et légende sur 300 px, la légende sur deux lignes au plus), pour que rien ne la fasse bouger ; sur une fenêtre étroite (1280 px), le nom du scénario et celui du modèle cèdent la place, entiers dans la liste et l'infobulle. De gauche à droite : sélecteur de scénario, jauge de contexte (élément le plus large), puces des volets masqués et menu « Volets ▾ », sélecteur de modèle, réglage de taille de texte, bouton Réinitialiser.
-- **Volet (`pane`)** : carte blanche sans bordure, rayon `{rounded.lg}`, relief `{colors.relief}`. L'en-tête est un bandeau `{colors.surface}` séparé du contenu par un filet `{colors.line}` (story 33). En haut à gauche, titre `pane-title` en encre et, dessous, sous-titre pédagogique `pane-subtitle` en encre douce, qui dit en quatre ou cinq mots ce que le volet montre :
+- **Barre haute (`top-bar`)** : carte flottante sur l'encre (story 33), haute de `{spacing.top-bar-height}` (56 px, pour loger la légende sous la jauge), rayon `{rounded.lg}`, relief `{colors.relief}`. Titre, chiffres de la jauge et statut en `{colors.on-ink}` ; anneau de focus `{colors.on-ink}` de 2 px (la liste « Volets ▾ », sur blanc, garde le sien). Les commandes gardent leur fond propre et ne passent jamais sur deux lignes. La jauge a une largeur fixe (barre et légende sur 300 px, la légende sur deux lignes au plus), pour que rien ne la fasse bouger ; sur une fenêtre étroite (1280 px), le nom du scénario et celui du modèle cèdent la place, entiers dans la liste et l'infobulle. De gauche à droite : sélecteur de scénario, jauge de contexte (élément le plus large), puces des volets masqués et menu « Volets ▾ », sélecteur de modèle, bouton « Mode projection » (`projection-toggle`), bouton Réinitialiser.
+- **Volet (`pane`)** : carte blanche sans bordure, rayon `{rounded.lg}`, relief `{colors.relief}`. L'en-tête est un bandeau `{colors.surface}` séparé du contenu par un filet `{colors.line}` (story 33). En haut à gauche, le numéro de lecture (`pane-step`, story 34), puis le titre `pane-title` en encre et, dessous, le sous-titre pédagogique `pane-subtitle` en encre douce, qui dit en quelques mots ce que le volet montre :
 
-  | Volet | Sous-titre |
-  |---|---|
-  | Briques | Branchez des pièces sur le modèle |
-  | Vue humain | Ce que vous voyez |
-  | Contexte LLM | Ce que le modèle lit |
-  | Orchestration | Ce que fait le harnais |
-  | Schéma d'architecture | Où chaque pièce tourne |
+  | Volet | Numéro | Sous-titre |
+  |---|---|---|
+  | Briques | — | Branchez des pièces sur le modèle |
+  | Vue humain | 1 | Ce que voit l'utilisateur |
+  | Contexte LLM | 2 | Ce que le modèle lit, dans l'ordre |
+  | Orchestration | 3 | Ce que fait le harnais, pas à pas |
+  | Schéma d'architecture | 4 | Où tourne chaque pièce |
 
+  Un volet ne porte plus de cadre de sélection (story 34) : ses éléments liés portent le contour encre (`link-state`).
+- **Numéro de volet (`pane-step`)** : disque `{colors.ink}` de 1,7 em, chiffre `number` en `{colors.on-ink}`, devant le titre des quatre volets de la démonstration, dans l'ordre de lecture ; caché aux lecteurs d'écran (le nom du volet ne change pas). Le panneau des briques, qui sert à régler, n'en a pas ; sous sa légende, une aide en `body-sm` encre douce, séparée par un filet `{colors.line}` : « Survolez une brique : elle s'éclaire dans le contexte, l'orchestration et le schéma. »
   En haut à droite, bouton ⛶ (mode focus) puis bouton « — » (`pane-hide-button`, masquer). Volet en mode focus : bordure `{colors.primary}`.
-- **Puce de volet masqué (`pane-chip`)** : « + Nom du volet » sur violet doux, bordure en tirets violette. Quand le volet masqué contient un élément correspondant à la sélection, la puce porte un point encre et le libellé « lié ».
+- **Puce de volet masqué (`pane-chip`)** : « + Nom du volet » sur violet doux, bordure en tirets violette. Quand le volet masqué contient un élément lié à la sélection, la puce porte un point encre et devient « + Nom · lié » (story 34) ; elle se tronque après les noms du scénario et du modèle.
+- **Vue liée (`link-state`)** (story 34, d'après la maquette de refonte, `.hl`) : un élément liable porte ses clés (`data-links`). Survol ou focus : les éléments liés gardent leur opacité et prennent un anneau de `{spacing.stroke-min}` (un contour : l'ombre propre de l'élément, relief ou halo « en action », reste) de la couleur de leur discipline (`--discipline`), en encre pour le réseau et le neutre (le jaune et le gris n'atteignent pas 3:1 sur blanc) ; sur la plaque d'encre du modèle, l'anneau est `{colors.on-ink}`, à l'intérieur ; dans la jauge, encre, à l'intérieur. Les autres éléments liables passent à une opacité de 0,35 ; un conteneur qui contient un élément éclairé n'est pas estompé, et un élément dans un conteneur estompé ne l'est pas deux fois. Sélection : contour `{colors.ink}` de `{spacing.stroke-min}`, décalé de 2 px (à l'intérieur sur la plaque, en `{colors.on-ink}`), sans estomper le reste : l'estompage n'est jamais le seul signal. Transitions de 150 ms sur l'opacité, l'anneau et le contour, supprimées sous `prefers-reduced-motion`.
 - **Menu Volets (`pane-menu`)** : bouton « Volets ▾ » ; liste déroulante des cinq volets avec case à cocher chacun.
 - **Poignée de gouttière (`pane-resize-handle`)** : invisible au repos (on voit les pois de la page). Au survol ou au focus, une pilule violette de 4 × 32 px apparaît au milieu de la gouttière, avec le curseur ↔ ou ↕. Pendant le glissement, la pilule reste visible. La zone de saisie fait au moins `{spacing.hit-target-min}`, même si la gouttière visible reste à `{spacing.gutter}`.
 - **Boutons (`button-primary`, `button-secondary`, `reset-button`, `button-danger`)** : primaire violet plein sur relief violet foncé, qui s'enfonce au clic (relief de 4 px à 1 px) ; secondaire contour violet sur relief actif ; Réinitialiser neutre et sans relief, pour ne pas attirer le clic par erreur. Danger (« Tout effacer » de la mémoire globale) : fond blanc, bordure `{colors.danger}` de `{spacing.stroke-min}`, texte encre, sans relief ; sa confirmation (« Oui, tout effacer ») est pleine, fond `{colors.danger}` et texte encre (≈ 5,4:1 ; le blanc sur ce rouge ne tient pas 4,5:1). Libellés en `label` Fredoka. Hauteur minimale `{spacing.hit-target-min}`.
 - **Sélecteur de scénario (`scenario-picker`)** : pastille violet doux avec le nom du module et du scénario en cours.
 - **Sélecteur de modèle (`model-picker`)** : liste déroulante neutre, nom du modèle et taille (ex. « 2B »).
-- **Réglage de taille de texte (`text-size-control`)** : contrôle unique « Aa 100 % », pastille neutre ; le nombre affiche le palier courant (100, 125 ou 150 %).
+- **Mode projection (`projection-toggle`)** (story 34, remplace le `text-size-control` « Aa 100 % », jamais construit) : bouton texte « Mode projection » sur la barre d'encre, fond transparent, texte `{colors.on-ink}`, bordure `{colors.on-ink-soft}`, `{rounded.md}` ; pressé (`aria-pressed="true"`), fond `{colors.on-ink}` et texte encre. Il agrandit toute la rampe (voir Typography).
 - **Jauge de contexte (`context-gauge`)** : barre horizontale empilée, rayons pleins, sur une piste claire (`{colors.surface-raised}`, bordure `{colors.on-ink-soft}`) dans la barre foncée. Les groupes gardent l'ordre d'empilement de la palette catégorielle, mais chacun prend la couleur de sa discipline (`discipline` reçu de la session), séparé du suivant par un filet blanc de 1 px ; l'infobulle nomme le groupe, ses tokens et sa discipline (« Prompt système : 31 tokens · Prompt engineering » ; « Hors brique » (message, gabarit, tour du modèle) pour le neutre, même libellé que la légende). La discipline d'un groupe est celle qui porte le plus de tokens parmi ses segments (à égalité, la première dans l'ordre du contexte). Espace libre hachuré. Sous la barre, la légende (`#gauge-legend`, `discipline-legend`) : une pastille bordée `{colors.on-ink-soft}` et le nom de chaque discipline présente, dans l'ordre prompt, context, harness, puis « Hors brique » (message, gabarit, tour du modèle), en `label` `{colors.on-ink-soft}` ; elle passe à la ligne plutôt que d'être coupée, et ne donne pas de tokens par discipline. À droite : `number` « 1 840 / 4 096 tokens · 45 % » en `{colors.on-ink}`. Un marqueur vertical en encre indique le seuil d'alerte. Au dépassement, le pourcentage passe sur pastille rouge avec icône.
 - **Détail de la jauge (`context-gauge-detail`)** : grille de cellules à la manière de `/context`, une cellule par tranche de tokens, colorée selon la palette catégorielle, cellules libres en crème hachuré. Légende à droite : pastille, nom du segment, tokens et pourcentage en `number`.
 - **Segment de contexte (`context-segment`)** : bloc de texte brut en `{typography.code}`, filet latéral gauche de 4 px et fond doux de sa discipline (story 33, `data-discipline`), étiquette `label` en encre avec pastille de la couleur du type de segment (palette catégorielle) et nombre de tokens. Même traitement dans la comparaison de tours. Segment sélectionné : contour encre de 2 px.
@@ -661,7 +712,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Consigne du scénario (`scenario-guide`)** : `body-sm` encre douce, titre en violet foncé, coupée à 3 lignes ; « Afficher plus » / « Réduire » en lien souligné violet, `label`.
 - **Onglets de Contexte LLM** (sous-agent) : libellés `label` sur un filet `{colors.line}` de 2 px ; onglet sélectionné en encre, souligné de 3 px `{colors.primary}`, les autres en encre douce.
 - **Indicateur de travail (`working-indicator`)** : point vert pulsé, libellé de phase et chronomètre en `body-sm`.
-- **Rail d'étapes (`turn-rail`, `turn-group`, `turn-step`)** : groupe de tour (`turn-group`) avec en-tête « Tour N » en `heading`, extrait du message en `body-sm` encre douce, statut en badge, chiffres en `number` ; les étapes sont reliées par un filet vertical `{colors.line}` de 2 px. Étape (`turn-step`) repliée : une ligne, tuile d'icône `{rounded.sm}`, titre en `label`, chiffre clé en `number` aligné à droite, chevron ▸ / ▾. Icône par type (appel au modèle, demande d'outil, exécution, chargement de documentation, skill, hook, validation humaine, réinjection, réponse finale), toujours doublée du titre. La tuile prend la couleur de la discipline de l'étape (story 33) : encre, icône `{colors.on-ink}`, pour ce que fait le modèle (appel, demande d'outil, réponse finale) ; réseau pour une étape qui fait sortir des données du poste ; sinon la catégorie de la brique de l'étape, harness par défaut (fond doux, bordure de la couleur). Une étape en échec reste rouge. Étape courante : point vert ; étape sélectionnée : violet doux. Contenu interne sans relief.
+- **Rail d'étapes (`turn-rail`, `turn-group`, `turn-step`)** : groupe de tour (`turn-group`) avec en-tête « Tour N » en `heading`, extrait du message en `body-sm` encre douce, statut en badge, chiffres en `number` ; les étapes sont reliées par un filet vertical `{colors.line}` de 2 px. Étape (`turn-step`) repliée, une frise sur deux rangées (story 34) : à gauche, sur les deux, la tuile `{rounded.sm}` porte la lettre de qui agit, en `label` (`M` modèle, `H` harnais, `U` utilisateur, `R` réseau) ; en haut, l'icône du type puis le titre en `label` (un verbe : « Décrit les outils », « Appelle le modèle », « Répond »…, le libellé de l'outil en encre douce après « · ») ; en dessous, le badge de déclenchement, l'acteur, « · via le réseau » en `label` encre douce pour un appel à un modèle hors du poste, puis « 🌐 RÉSEAU → adresse » ; à droite, le chiffre clé en `number` et le chevron ▸ / ▾. La rangée du dessous passe à la ligne plutôt que de couper le marqueur RÉSEAU ou l'acteur ; sur un rail étroit, le chiffre passe sous le reste. Icône par type (appel au modèle, demande d'outil, exécution, chargement de documentation, skill, hook, validation humaine, réinjection, réponse finale), toujours doublée du titre. La tuile prend la couleur de la discipline de l'étape (story 33) : encre, icône `{colors.on-ink}`, pour ce que fait le modèle (appel, demande d'outil, réponse finale) ; réseau pour une étape qui fait sortir des données du poste ; sinon la catégorie de la brique de l'étape, harness par défaut (fond doux, bordure de la couleur). Une étape en échec reste rouge. Étape courante : point vert ; étape sélectionnée : violet doux. Contenu interne sans relief.
 - **Préparation du harnais (`harness-prep`)** : même traitement qu'un groupe de tour, titre « Préparation du harnais », sans relief.
 - **Journal des événements (`event-log`)** : en-tête repliable en `label` avec chevron ; lignes en `body-sm`, nom technique en `{typography.code}` encre douce, JSON en `{typography.code}` sur crème. Aucune couleur d'état ni de segment.
 - **Compteur de tokens (`token-counter`)** : nombres Fredoka tabulaires ; entrée, sortie, temps écoulé.
@@ -685,6 +736,8 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
   | Utilise un outil | sourire, pastille verte à clé | `{colors.state-active}`, clignote |
 
   L'antenne verte suit la règle du vert : elle ne s'allume que quand le modèle travaille. La pose est aussi dite par un libellé accessible (le robot est une image avec texte alternatif), jamais par l'antenne seule.
+- **Pastilles des nœuds réseau** (story 34) : « contacté », « en échec » ou « non contacté » pour le dernier tour affiché, dans la pastille existante (`arch-node-pill`) ; « indisponible » l'emporte toujours ; l'infobulle dit « Au tour N : contacté. ».
+- **Bilan des sorties (`schema-outbound`)** (story 34) : sous le schéma, dans son volet, une phrase en `body-sm` encre, séparée du schéma par un filet `{colors.line}` : « Au tour N, les données ont quitté le poste K fois : vers le modèle chez … et vers … ». Sans couleur ni icône : c'est un texte à lire à voix haute devant la salle.
 - **Ligne de diagnostic (`diagnostic-row`)** : pastille d'état (vert « OK », rouge « Échec ») avec texte encre, libellé de la vérification, action corrective en dessous.
 
 ## Do's and Don'ts
@@ -704,5 +757,5 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 | Un sous-titre par volet, qui dit ce qu'il montre | Sous-titre décoratif, slogan, ou qui répète le titre |
 | Distinguer les catégories du schéma (outil, serveur, skill, fichier) par le bac, la forme et l'icône ; la couleur dit la discipline de la brique | Donner une couleur à chaque catégorie de composant |
 | Le robot représente le modèle, et seulement lui | Robot comme décoration, sur un autre composant ou dans un état sans rapport avec le modèle |
-| Animations réservées au signal « en action » (pouls, flux, antenne) et coupées sous `prefers-reduced-motion` | Curseur personnalisé, révélations au scroll, compteurs animés de la charte vitrine, robot animé au repos |
+| Animations réservées au signal « en action » (pouls, flux, antenne) et au fondu de 150 ms de la vue liée, coupées sous `prefers-reduced-motion` | Curseur personnalisé, révélations au scroll, compteurs animés de la charte vitrine, robot animé au repos |
 | Chaque couleur par un jeton de `tokens.css`, prêt pour un second thème (story 31) | Couleur écrite en dur (`#hex`, `rgb(`, `hsl(`) dans `app.css` ou `app.js` |

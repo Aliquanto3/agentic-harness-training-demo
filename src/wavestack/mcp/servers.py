@@ -42,6 +42,8 @@ def mcp_servers(cfg: config.Config) -> dict[str, McpServer]:
 
 class ServerText(BaseModel):
     label_fr: str = Field(min_length=1)
+    # Story 34, public servers: what leaves the workstation on each call.
+    sends_fr: str | None = None
 
 
 class LoadToolDocText(BaseModel):

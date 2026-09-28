@@ -167,3 +167,48 @@ def test_app_css_and_js_write_no_color_outside_the_tokens():
             for match in _HARD_COLOR.finditer(line):
                 offenders.append(f"{name}: {match.group(0)!r} in {line.strip()[:80]}")
     assert not offenders, offenders
+
+
+# ---------- story 34: the projection mode's ramp (app.css), 9/7 of tokens.css ----------
+
+APP_CSS = STATIC_DIR / "app.css"
+
+
+def _projection_block() -> dict[str, str]:
+    text = APP_CSS.read_text(encoding="utf-8")
+    match = re.search(r":root\.projection\s*\{(.*?)\}", text, re.S)
+    assert match, "app.css must redefine the ramp under :root.projection"
+    return {n: v.strip() for n, v in re.findall(r"(--[\w-]+)\s*:\s*([^;]+);", match.group(1))}
+
+
+def test_projection_sizes_are_the_ramp_times_nine_sevenths():
+    base = _css_custom_properties()
+    projection = _projection_block()
+    sizes = {
+        n: v for n, v in base.items() if n.startswith("--typography-") and n.endswith("-font-size")
+    }
+    assert sizes.keys() <= projection.keys(), "every font size of the ramp is redefined"
+    for name, value in sizes.items():
+        expected = round(int(value.removesuffix("px")) * 9 / 7)
+        assert projection[name] == f"{expected}px", name
+
+
+def test_projection_sizes_match_the_design_table():
+    projection = _projection_block()
+    text = DESIGN_MD.read_text(encoding="utf-8")
+    rows = re.findall(r"^\| (`[^|]+`) \| (\d+) px \| (\d+) px", text, re.M)
+    assert rows, "DESIGN.md > Typography holds the projection table"
+    seen = set()
+    for roles, base, big in rows:
+        for role in re.findall(r"`([\w.-]+)`", roles):
+            name = (
+                f"--{role.replace('.', '-')}"
+                if role.startswith("spacing.")
+                else f"--typography-{role}-font-size"
+            )
+            assert projection.get(name) == f"{big}px", (role, projection.get(name), big)
+            if not role.startswith("spacing."):
+                assert _css_custom_properties()[name] == f"{base}px", role
+            seen.add(name)
+    font_sizes = {n for n in projection if n.endswith("-font-size")}
+    assert font_sizes <= seen, f"missing from the DESIGN.md table: {sorted(font_sizes - seen)}"

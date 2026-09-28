@@ -118,15 +118,25 @@ class Run:
         print(f"  {'PASS' if ok else 'FAIL'} {what}" + (f" — {detail}" if detail else ""))
         return bool(ok)
 
-    def shot(self, name: str, full_page: bool = False) -> None:
+    def rest_pointer(self) -> None:
+        """Story 34: the pointer off every linkable element, so a capture is not dimmed by the
+        linked view of whatever the last click left under it."""
+        self.page.mouse.move(0, 0)
+        time.sleep(0.2)  # the 150 ms fade
+
+    def shot(self, name: str, full_page: bool = False, keep_pointer: bool = False) -> None:
         SHOTS.mkdir(parents=True, exist_ok=True)
+        if not keep_pointer:
+            self.rest_pointer()
         self.page.screenshot(
             path=str(SHOTS / f"{name}.jpg"), type="jpeg", quality=70, full_page=full_page
         )
 
-    def shot_element(self, name: str, selector: str) -> None:
+    def shot_element(self, name: str, selector: str, keep_pointer: bool = False) -> None:
         """Story 33: one piece of the page only (the top bar, a pane), for a close-up."""
         SHOTS.mkdir(parents=True, exist_ok=True)
+        if not keep_pointer:
+            self.rest_pointer()
         self.page.locator(selector).first.screenshot(
             path=str(SHOTS / f"{name}.jpg"), type="jpeg", quality=80
         )
@@ -587,7 +597,7 @@ def s_native_tools(r: Run) -> None:
             r.last_answer()[:160],
         )
     orch = r.page.locator("#orch-scroll").inner_text()
-    r.check("Demande d'outil" in orch, "Orchestration montre la demande d'outil")
+    r.check("Demande un outil" in orch, "Orchestration montre la demande d'outil")
     r.shot("05-outils-natifs-orchestration")
 
 
@@ -716,7 +726,8 @@ def s_network_tools(r: Run) -> None:
 
 _OUTBOUND_STEP_JS = """([title, within]) => {
   const steps = [...document.querySelectorAll(`#orch-scroll ${within} .turn-step`)]
-    .filter((s) => s.querySelector('.turn-step-name')?.textContent === title);
+    .filter((s) => s.querySelector('.turn-step-name')?.textContent === title
+      || s.querySelector('.turn-step-title')?.textContent === title);
   const step = steps.at(-1);
   if (!step) return null;
   const payload = step.querySelector('.turn-step-body .outbound-payload');
@@ -751,7 +762,7 @@ def _revealed(r: Run, found: dict[str, Any], expected: list[str], what: str) -> 
 def _unfold_step(r: Run, title: str) -> None:
     """Unfolds the last step `title` of Orchestration (a failed one already is: sticky)."""
     step = r.page.locator("#orch-scroll .turn-step").filter(
-        has=r.page.locator(".turn-step-name", has_text=title)
+        has=r.page.locator(".turn-step-title", has_text=title)
     )
     if not step.last.locator(".turn-step-body").count():
         step.last.locator(".turn-step-line").click()
@@ -775,7 +786,7 @@ def _outbound_card(r: Run) -> None:
 
 
 def _holidays_outbound(r: Run, seq: int) -> None:
-    title = "Exécution · Jours fériés"
+    title = "Exécute l'outil hors du poste · Jours fériés"
     _unfold_step(r, title)
     block = _outbound_step(r, title)
     text = block.get("text", "")
@@ -813,11 +824,11 @@ def _schema_node(r: Run, name: str):
 def _reveal_from_schema(r: Run) -> None:
     """A click on the Wikipédia node leads to its outbound block, even folded, out of sight
     and with Orchestration hidden; a node never contacted leads nowhere."""
-    title = "Exécution · Résumé Wikipédia"
+    title = "Exécute l'outil hors du poste · Résumé Wikipédia"
     page = r.page
     page.keyboard.press("Escape")  # no selection: the click selects the node
     block = page.locator("#orch-scroll .turn-step").filter(
-        has=page.locator(".turn-step-name", has_text=title)
+        has=page.locator(".turn-step-title", has_text=title)
     )
     summary = block.last.locator(".outbound-payload > summary")
     if summary.count():
@@ -894,7 +905,7 @@ def _reveal_from_schema(r: Run) -> None:
     time.sleep(0.5)
     _revealed(
         r,
-        _outbound_step(r, "Exécution · Jours fériés"),
+        _outbound_step(r, "Exécute l'outil hors du poste · Jours fériés"),
         ["Données sortantes", "GET https://calendrier.api.gouv.fr/", "User-Agent: WaveStack/0.1"],
         "clic sur le nœud Jours fériés : tour replié déplié, étape dépliée, bloc ouvert et à "
         "l'écran",
@@ -1172,12 +1183,12 @@ def s_disciplines(r: Run) -> None:
     # Orchestration: the model's tiles on ink, the network step, the harness step.
     def tile(name: str):
         step = page.locator(
-            "#orch-scroll .turn-step", has=page.locator(".turn-step-name", has_text=name)
+            "#orch-scroll .turn-step", has=page.locator(".turn-step-title", has_text=name)
         ).last
         return step.locator(".turn-step-tile")
 
     r.check(
-        r.css(tile("Appel au modèle"), "background-color") == ink,
+        r.css(tile("Appelle le modèle"), "background-color") == ink,
         "Orchestration : la tuile de l'appel au modèle a le fond --color-ink",
     )
     r.check(
@@ -1185,8 +1196,8 @@ def s_disciplines(r: Run) -> None:
         "Orchestration : l'exécution de wikipedia_summary est en discipline réseau",
     )
     r.check(
-        tile("Description des outils").get_attribute("data-discipline") == "harness",
-        "Orchestration : « Description des outils » est en harness engineering",
+        tile("Décrit les outils").get_attribute("data-discipline") == "harness",
+        "Orchestration : « Décrit les outils » est en harness engineering",
     )
     r.shot_element("32-disciplines-orchestration", '.pane[data-pane="orch"]')
 
@@ -1211,6 +1222,405 @@ def s_disciplines(r: Run) -> None:
         "schéma : le nœud Calculatrice est en harness engineering",
     )
     r.shot_element("33-disciplines-schema", '.pane[data-pane="schema"]')
+
+
+# ---------- story 34: the linked view, the guided reading of the panes ----------
+
+# What the linked view lights: every `.is-linked` element, named by its class and first text.
+_LINKED_JS = """() => [...document.querySelectorAll('.is-linked')]
+  .map((e) => `${e.className.replace(/ ?is-(linked|selection-linked)/g, '')}|${
+    (e.textContent || '').trim().slice(0, 40)}`)
+  .sort()"""
+
+_STEPS_JS = """() => {
+  const groups = [...document.querySelectorAll('#orch-scroll .turn-group:not(.harness-prep)')];
+  const group = groups.at(-1);
+  return [...(group?.querySelectorAll('.turn-step') ?? [])].map((s) => ({
+    name: s.querySelector('.turn-step-name').textContent,
+    title: s.querySelector('.turn-step-title').textContent,
+    letter: s.querySelector('.turn-step-tile').textContent,
+    net: s.querySelector('.net-mark').hidden ? ''
+      : `${s.querySelector('.net-mark').textContent} ${s.querySelector('.net-host').textContent}`,
+    figure: s.querySelector('.turn-step-figure').textContent,
+  }));
+}"""
+
+
+def _linking(r: Run) -> bool:
+    return r.page.evaluate("() => document.body.classList.contains('linking')")
+
+
+def _is_linked(locator) -> bool:
+    return locator.evaluate("e => e.classList.contains('is-linked')")
+
+
+def _step(r: Run, name: str):
+    """The last step of Orchestration whose title (name and note) says `name`."""
+    return (
+        r.page.locator("#orch-scroll .turn-step")
+        .filter(has=r.page.locator(".turn-step-title", has_text=name))
+        .last
+    )
+
+
+def s_linked_view(r: Run) -> None:
+    """Story 34: hover, focus and click light what is linked in every pane, Escape clears;
+    the numbered panes, the frieze of the rail, the outbound summary, the projection mode."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    r.launch("network_tools")
+    seq = r.ev.mark()
+    ended = r.send("Résume l'article Wikipédia sur le Mont-Saint-Michel.")
+    turn_id = ended["turn_id"]
+    time.sleep(0.5)
+    r.rest_pointer()
+
+    # Hover: the Outils card lights its nodes, segments and steps; the rest is dimmed.
+    r.card("Outils").locator("p.brick-status").hover()
+    time.sleep(0.3)
+    wiki = page.locator("#schema .arch-node", has_text="Résumé Wikipédia").first
+    calc = page.locator("#schema .arch-node", has_text="Calculatrice").first
+    lit_segments = page.locator("#ctx .ctx-segment.is-linked").count()
+    tool_step = _step(r, "Exécute l'outil hors du poste")
+    memory_opacity = float(r.css(r.card("Mémoire globale"), "opacity") or 1)
+    r.check(
+        _linking(r)
+        and _is_linked(wiki)
+        and _is_linked(calc)
+        and lit_segments >= 1
+        and _is_linked(tool_step)
+        and memory_opacity < 0.5,
+        "survol de la carte Outils : nœuds, segments et étape d'outil éclairés, "
+        "carte Mémoire globale estompée",
+        f"linking {_linking(r)}, Wikipédia {_is_linked(wiki)}, Calculatrice {_is_linked(calc)}, "
+        f"{lit_segments} segments, étape {_is_linked(tool_step)}, opacité {memory_opacity}",
+    )
+    r.shot("35-vue-liee-survol", keep_pointer=True)
+    page.locator(".top-bar-title").hover()
+    time.sleep(0.2)
+    r.check(not _linking(r), "pointeur sur le titre de la barre haute : plus d'éclairage")
+
+    # Hover: a gauge segment, the model's plate, the model's calls.
+    page.locator('.gauge-seg[data-discipline="harness"]').first.hover()
+    time.sleep(0.2)
+    r.check(
+        _is_linked(r.card("Outils")),
+        "survol du segment harness de la jauge : la carte Outils s'éclaire",
+    )
+    plate = page.locator(
+        "#schema .arch-cloud-model, #schema .arch-server-model, #schema .arch-robots"
+    )
+    plate.first.hover()
+    time.sleep(0.2)
+    flags = page.locator("#ctx .ctx-segment").evaluate_all(
+        "ss => ss.map(s => s.classList.contains('is-linked'))"
+    )
+    r.check(
+        bool(flags) and all(flags),
+        "survol de la plaque du modèle : chaque segment de Contexte LLM s'éclaire",
+        f"{sum(flags)} / {len(flags)}",
+    )
+    # The last call (« Répond ») is the one Contexte LLM shows: plate and segments; an older
+    # call (« Appelle le modèle ») lights the plate and itself only (Design Notes).
+    for name, segments in (("Répond", True), ("Appelle le modèle", False)):
+        _step(r, name).locator(".turn-step-line").hover()
+        time.sleep(0.2)
+        flags = page.locator("#ctx .ctx-segment").evaluate_all(
+            "ss => ss.map(s => s.classList.contains('is-linked'))"
+        )
+        lit = bool(flags) and (all(flags) if segments else not any(flags))
+        r.check(
+            _is_linked(plate.first) and lit,
+            f"survol de « {name} » : plaque du modèle éclairée, segments "
+            f"{'éclairés' if segments else 'non éclairés (appel plus ancien)'}",
+            f"plaque {_is_linked(plate.first)}, segments {sum(flags)} / {len(flags)}",
+        )
+
+    # Keyboard: a focused segment, then a step line reached by Tab, light as the hover does.
+    segment = page.locator("#ctx .ctx-segment").first
+    segment.hover()
+    time.sleep(0.2)
+    hovered = page.evaluate(_LINKED_JS)
+    r.rest_pointer()
+    segment.focus()
+    time.sleep(0.2)
+    focused = page.evaluate(_LINKED_JS)
+    r.check(
+        bool(hovered) and focused == hovered,
+        "segment de Contexte LLM au clavier : même éclairage qu'au survol",
+        f"{len(focused)} / {len(hovered)} éléments",
+    )
+    target = _step(r, "Exécute l'outil hors du poste").locator(".turn-step-line")
+    target.hover()
+    time.sleep(0.2)
+    hovered = page.evaluate(_LINKED_JS)
+    r.rest_pointer()
+    _step(r, "Demande un outil").locator(".turn-step-line").focus()
+    page.keyboard.press("Tab")
+    time.sleep(0.2)
+    on_line = page.evaluate(
+        "() => document.activeElement?.closest('.turn-step')?.querySelector('.turn-step-title')"
+        "?.textContent ?? ''"
+    )
+    focused = page.evaluate(_LINKED_JS)
+    r.check(
+        on_line.startswith("Exécute l'outil hors du poste")
+        and bool(hovered)
+        and focused == hovered,
+        "étape d'Orchestration atteinte par Tab : même éclairage qu'au survol",
+        f"focus sur « {on_line} », {len(focused)} / {len(hovered)} éléments",
+    )
+    page.evaluate("() => document.activeElement?.blur()")
+    time.sleep(0.2)
+    r.check(not _linking(r), "focus perdu : plus d'éclairage")
+
+    # Click: a persistent selection, an ink outline in every pane, « lié » on a hidden pane's
+    # chip; Escape clears it.
+    calc.click()
+    time.sleep(0.3)
+    shown = page.evaluate(
+        "() => ['#ctx .ctx-segment', '#orch-scroll .turn-step'].map((q) =>"
+        " [...document.querySelectorAll(`${q}.is-selection-linked`)]"
+        ".some((e) => e.getClientRects().length > 0))"
+    )
+    r.check(
+        all(shown) and not _linking(r),
+        "clic sur le nœud Calculatrice : un segment et une étape visibles cerclés d'encre, "
+        "rien d'estompé sous le pointeur resté sur la source",
+        f"segment, étape : {shown} ; estompage {_linking(r)}",
+    )
+    page.locator('.pane[data-pane="ctx"] .pane-hide').click()
+    time.sleep(0.3)
+    card = r.card("Outils")
+    chip = page.locator("#pane-chips .pane-chip", has_text="Contexte LLM")
+    selected = card.evaluate("e => e.classList.contains('is-selection-linked')")
+    r.check(
+        selected
+        and r.css(card, "outline-color") == r.token_color("--color-ink")
+        and "lié" in chip.inner_text()
+        and "lié" in (chip.get_attribute("aria-label") or ""),
+        "clic sur le nœud Calculatrice : carte Outils cerclée d'encre, "
+        "puce « + Contexte LLM · lié »",
+        f"sélection {selected}, contour {r.css(card, 'outline-color')}, "
+        f"puce « {chip.inner_text()} »",
+    )
+    r.shot("36-selection-liee")
+    page.keyboard.press("Escape")
+    time.sleep(0.3)
+    left = page.locator(".is-selection-linked").count()
+    r.check(
+        left == 0 and "lié" not in chip.inner_text(),
+        "Échap : sélection effacée partout, la puce ne dit plus « lié »",
+        f"{left} éléments encore sélectionnés, puce « {chip.inner_text()} »",
+    )
+    chip.click()
+    time.sleep(0.3)
+
+    # Reduced motion: no fade.
+    page.emulate_media(reduced_motion="reduce")
+    duration = r.css(r.card("Outils"), "transition-duration")
+    page.emulate_media(reduced_motion="no-preference")
+    r.check(duration == "0s", "mouvement réduit : aucune transition sur une carte", duration)
+
+    # The panes, numbered and subtitled, in reading order; the bricks panel without a number.
+    heads = page.evaluate(
+        "() => ['human', 'ctx', 'orch', 'schema', 'bricks'].map((id) => {"
+        ' const h = document.querySelector(`.pane[data-pane="${id}"] .pane-header`);'
+        " return [h.querySelector('.pane-step')?.textContent ?? null,"
+        " h.querySelector('.pane-title').textContent,"
+        " h.querySelector('.pane-subtitle').textContent]; })"
+    )
+    expected = [
+        ["1", "Vue humain", "Ce que voit l'utilisateur"],
+        ["2", "Contexte LLM", "Ce que le modèle lit, dans l'ordre"],
+        ["3", "Orchestration", "Ce que fait le harnais, pas à pas"],
+        ["4", "Schéma d'architecture", "Où tourne chaque pièce"],
+    ]
+    r.check(
+        heads[:4] == expected and heads[4][0] is None,
+        "volets numérotés 1 à 4 avec leur sous-titre ; panneau des briques sans numéro",
+        str(heads),
+    )
+    hint = page.locator("#bricks .brick-link-hint").inner_text()
+    r.check(
+        hint.startswith("Survolez une brique"),
+        "panneau des briques : l'aide sur la vue liée sous la légende",
+        hint,
+    )
+
+    # The frieze: verbs, who acts, the network row, the final answer's figure.
+    steps = page.evaluate(_STEPS_JS)
+    names = [s["name"] for s in steps]
+    letters = [s["letter"] for s in steps]
+    r.check(
+        names
+        == [
+            "Décrit les outils",
+            "Appelle le modèle",
+            "Demande un outil",
+            "Exécute l'outil hors du poste",
+            "Réinjecte le résultat",
+            "Répond",
+        ]
+        and letters == ["H", "M", "M", "R", "H", "M"],
+        "Orchestration : titres en verbes, pastilles H, M, M, R, H, M",
+        f"{names} {letters}",
+    )
+    network = next((s for s in steps if s["name"] == "Exécute l'outil hors du poste"), {})
+    answer = next((s for s in steps if s["name"] == "Répond"), {})
+    r.check(
+        "Résumé Wikipédia" in network.get("title", "")
+        and network.get("net") == "🌐 RÉSEAU → fr.wikipedia.org",
+        "la ligne réseau nomme l'outil et « 🌐 RÉSEAU → fr.wikipedia.org »",
+        str(network),
+    )
+    r.check(
+        re.search(r"écrits · [\d,]+ s", answer.get("figure", "")) is not None,
+        "« Répond » : sa figure (écrits, durée)",
+        answer.get("figure", ""),
+    )
+    _step(r, "Décrit les outils").locator(".turn-step-line").click()
+    time.sleep(0.3)
+    r.check(
+        _step(r, "Décrit les outils").locator(".turn-step-body").count() == 1,
+        "un clic sur une ligne déplie toujours son détail",
+    )
+    r.shot_element("37-frise-orchestration", '.pane[data-pane="orch"]')
+    page.keyboard.press("Escape")  # the step's selection
+    if page.locator("#follow-live").is_visible():
+        page.click("#follow-live")
+
+    # The outbound summary under the schema.
+    # K: the model's calls and the requests of the tool steps that did not fail; a failed
+    # step (the network cut by the launcher) is one failed attempt, listed apart.
+    in_turn = [e for e in r.ev.since(seq) if e.get("turn_id") == turn_id]
+    calls = sum(1 for e in in_turn if e["kind"] == "model_call_started")
+    failed_steps = {
+        e["step_id"]
+        for e in in_turn
+        if e["kind"] == "tool_ended" and e["payload"].get("status") != "ok"
+    }
+    requests = sum(
+        1
+        for e in in_turn
+        if e["kind"] == "outbound_request"
+        and e["payload"].get("origin") == "brick"
+        and e["step_id"] not in failed_steps
+    )
+    summary = page.inner_text("#schema-outbound")
+    wanted = [
+        f"quitté le poste {calls + requests} fois",
+        "vers le modèle chez",
+        "contexte complet",
+        "1 tentative en échec vers Résumé Wikipédia (le titre de l'article)",
+    ]
+    missing = [w for w in wanted if w not in summary]
+    r.check(
+        summary.startswith("Au tour") and not missing and "requête" not in summary,
+        f"bilan des sorties : {calls} appels et {requests} requête(s) sorties, "
+        "la tentative en échec à part",
+        f"manque {missing} dans « {summary} »" if missing else summary,
+    )
+
+    def node(name: str):
+        return page.locator("#schema .arch-node", has_text=name).first
+
+    tips = {
+        name: node(name).get_attribute("title") or ""
+        for name in ("Résumé Wikipédia", "Jours fériés", "Lecture de page web")
+    }
+    pill = node("Résumé Wikipédia").locator(".arch-node-pill").inner_text()
+    page_pill = node("Lecture de page web").locator(".arch-node-pill").inner_text()
+    r.check(
+        "Au tour 1 : tentative en échec" in tips["Résumé Wikipédia"]
+        and pill in ("en échec", "indisponible")
+        and "Au tour 1 : non contacté." in tips["Jours fériés"]
+        and page_pill == "non contacté",
+        "schéma : Wikipédia en échec au tour 1 (rien ne l'a atteint), Jours fériés et Lecture "
+        "de page web non contactés",
+        f"{tips} ; pastilles « {pill} », « {page_pill} »",
+    )
+    r.shot_element("38-bilan-des-sorties", '.pane[data-pane="schema"]')
+
+    # Projection mode: every text larger, remembered, kept by the reset.
+    toggle = page.locator("#projection-toggle")
+    toggle.click()
+    time.sleep(0.3)
+
+    def projection() -> tuple[bool, str, str]:
+        return (
+            page.evaluate("() => document.documentElement.classList.contains('projection')"),
+            r.css(page.locator("body"), "font-size"),
+            toggle.get_attribute("aria-pressed") or "",
+        )
+
+    on, size, pressed = projection()
+    cut = _fully_visible(r, "#reset-button")
+    over = page.evaluate(
+        "() => { const bar = document.querySelector('.top-bar').getBoundingClientRect();"
+        " return [...document.querySelectorAll('.top-bar > *')]"
+        ".filter(e => e.offsetParent && getComputedStyle(e).position !== 'absolute')"
+        ".filter(e => { const b = e.getBoundingClientRect();"
+        " return b.right > bar.right + 1 || b.bottom > bar.bottom + 1 || b.top < bar.top - 1; })"
+        ".map(e => e.id || e.className); }"
+    )
+    r.check(
+        on and size == "18px" and pressed == "true" and not cut and not over,
+        "Mode projection : textes à 18 px, bouton pressé, barre haute sur une ligne à 1600 × 1000",
+        f"{on} {size} {pressed} ; Réinitialiser : {cut or 'visible'} ; débordent : {over}",
+    )
+    r.shot("39-mode-projection")
+    # At 1280 × 720, in projection mode, a selection shown on a hidden pane's chip.
+    page.set_viewport_size({"width": 1280, "height": 720})
+    node("Calculatrice").click()
+    page.locator('.pane[data-pane="ctx"] .pane-hide').click()
+    time.sleep(0.5)
+    cut = _fully_visible(r, "#reset-button")
+    over = page.evaluate(
+        "() => { const bar = document.querySelector('.top-bar').getBoundingClientRect();"
+        " return [...document.querySelectorAll('.top-bar > *')]"
+        ".filter(e => e.offsetParent && getComputedStyle(e).position !== 'absolute')"
+        ".filter(e => { const b = e.getBoundingClientRect();"
+        " return b.right > bar.right + 1 || b.bottom > bar.bottom + 1 || b.top < bar.top - 1; })"
+        ".map(e => e.id || e.className); }"
+    )
+    chip = page.locator("#pane-chips .pane-chip", has_text="Contexte LLM")
+    readable = chip.evaluate("c => c.scrollWidth <= c.clientWidth + 1")
+    r.check(
+        not cut and not over and readable and "· lié" in chip.inner_text(),
+        "1280 × 720 en mode projection : barre sur une ligne, « Réinitialiser » entier, "
+        "« · lié » lisible sur la puce",
+        f"Réinitialiser : {cut or 'visible'} ; débordent : {over} ; puce « {chip.inner_text()} », "
+        f"entière : {readable}",
+    )
+    page.keyboard.press("Escape")
+    chip.click()
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    time.sleep(0.3)
+    r.reload_app()
+    r.wait_idle()
+    page.click("#reset-button")
+    time.sleep(0.5)
+    on, size, pressed = projection()
+    r.check(
+        on and size == "18px" and pressed == "true",
+        "Mode projection gardé après rechargement puis Réinitialiser",
+        f"{on} {size} {pressed}",
+    )
+    r.check(
+        page.inner_text("#schema-outbound")
+        == "Aucun tour affiché : rien n'a quitté le poste pendant un tour.",
+        "après Réinitialiser : le bilan dit qu'aucun tour n'est affiché",
+        page.inner_text("#schema-outbound"),
+    )
+    toggle.click()
+    time.sleep(0.3)
+    on, size, pressed = projection()
+    r.check(
+        not on and size == "14px" and pressed == "false",
+        "second clic : retour à 14 px",
+        f"{on} {size} {pressed}",
+    )
 
 
 def s_h5(r: Run) -> None:
@@ -2137,6 +2547,9 @@ def s_forced_native(r: Run) -> None:
         "le modèle reçoit le résultat forcé (12*37 = 444)",
         r.last_answer()[:160],
     )
+    # Story 34: the forced step's tile says the user acts.
+    tile = _step(r, "Calculatrice").locator(".turn-step-tile").inner_text()
+    r.check(tile == "U", "l'étape forcée porte la pastille « U »", tile)
     r.show_forced(False)
 
 
@@ -3494,6 +3907,13 @@ def s_local_server(r: Run) -> None:
         "somme des segments = prompt_tokens = ids reçus par llama-server",
         str([c["prompt_tokens"] for c in calls]),
     )
+    # Story 34: nothing left the workstation during that turn.
+    summary = page.inner_text("#schema-outbound")
+    r.check(
+        "aucune donnée n'a quitté le poste" in summary,
+        "bilan des sorties : aucune donnée n'a quitté le poste (modèle servi, outil local)",
+        summary,
+    )
     r.shot("23-serveur-local-llama-server")
 
     r.reload_app()
@@ -3657,6 +4077,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("provider_errors", s_provider_errors),
     ("network_tools", s_network_tools),
     ("disciplines", s_disciplines),
+    ("linked_view", s_linked_view),
     ("h5", s_h5),
     ("mcp_full", s_mcp_full),
     ("mcp_lazy", s_mcp_lazy),

@@ -18,7 +18,7 @@ from wavestack.session.app_session import AppSession
 from wavestack.tools import network
 from wavestack.tools.native import calculator, read_file
 from wavestack.tools.parser import ToolCall, parse_tool_calls
-from wavestack.tools.registry import ToolError
+from wavestack.tools.registry import ToolError, load_tools_content
 from wavestack.trace.journal import get_journal
 
 QWEN = (Path(__file__).parent / "fixtures" / "qwen3_5_chat_template.jinja").read_bytes()
@@ -543,6 +543,9 @@ def test_wikipedia_summary_and_absent_page(web):
     assert absent["status"] == "error" and "Page absente" in absent["error_fr"]
     node = _node(session, "tools.wikipedia_summary")
     assert node["contact"] == "available" and node["available"]  # the service did answer
+    # Story 34: a network node says what leaves the workstation (AD-19); a local one does not.
+    assert node["sends_fr"] == "le titre de l'article"
+    assert _node(session, "tools.calculator").get("sends_fr") is None
 
 
 def test_fetch_page_converts_html_to_text_and_cuts_it(web):
@@ -708,3 +711,18 @@ def test_configured_fetch_page_hosts_and_cut_apply(web):
 
 def test_fetch_page_max_chars_below_the_minimum_is_clamped():
     assert config.Config(values={"tools": {"fetch_page_max_chars": 0}}).fetch_page_max_chars == 1
+
+
+# ---------- story 34: what each network tool sends, in content (AD-19) ----------
+
+
+@pytest.mark.parametrize("name", [spec.name for spec in network.network_tools(config.Config())])
+def test_every_network_tool_says_what_it_sends(name):
+    text = load_tools_content().tools[name]
+    assert text.sends_fr and text.sends_fr.strip()
+
+
+def test_no_local_tool_declares_what_it_sends():
+    remote = {spec.name for spec in network.network_tools(config.Config())}
+    local = {n: t for n, t in load_tools_content().tools.items() if n not in remote}
+    assert local and all(t.sends_fr is None for t in local.values())

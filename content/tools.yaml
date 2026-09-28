@@ -5,6 +5,8 @@
 # `presets` (facultatif) préremplit le formulaire d'un appel forcé par l'utilisateur
 # (story 9) : `label_fr` s'affiche dans la liste, `args` n'utilise que des paramètres
 # déclarés.
+# `sends_fr` (outils réseau, story 34) : ce qui quitte le poste quand l'outil s'exécute, repris
+# par le bilan des sorties sous le schéma.
 demo_dir_label_fr: Fichiers de démonstration
 tools:
   get_datetime:
@@ -44,6 +46,7 @@ tools:
         args: {path: confidentiel/comptes_privilegies.txt}
   public_holidays:
     label_fr: Jours fériés
+    sends_fr: l'année demandée
     description: >-
       Donne la liste des jours fériés en France métropolitaine pour une année,
       au format « date : nom ». Interroge un service public sur Internet.
@@ -54,6 +57,7 @@ tools:
         args: {year: 2026}
   wikipedia_summary:
     label_fr: Résumé Wikipédia
+    sends_fr: le titre de l'article
     description: >-
       Donne le résumé d'une page de Wikipédia en français. Interroge Wikipédia
       sur Internet.
@@ -64,6 +68,7 @@ tools:
         args: {title: Tour Eiffel}
   fetch_page:
     label_fr: Lecture de page web
+    sends_fr: l'adresse de la page
     description: >-
       Lit le texte d'une page web (sans balises), coupé s'il est trop long.
       Seules les adresses https:// de fr.wikipedia.org et calendrier.api.gouv.fr

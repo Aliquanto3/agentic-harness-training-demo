@@ -117,6 +117,9 @@ class ArchitectureNode(BaseModel):
     # (a skill's or a hook's description, the audit log's path).
     loaded: bool | None = None
     detail_fr: str | None = None
+    # Story 34, network nodes (tools, public MCP servers): what the harness sends there, in
+    # French, from `content/` (AD-19); the outbound summary under the schema quotes it.
+    sends_fr: str | None = None
 
 
 class ArchitectureEdge(BaseModel):

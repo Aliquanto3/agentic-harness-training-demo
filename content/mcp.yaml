@@ -1,12 +1,16 @@
 # Serveurs MCP de la brique « MCP » (story 6, AD-19).
 # `label_fr` s'affiche dans la carte de la brique et sur le nœud du schéma.
+# `sends_fr` (serveurs publics, story 34) : ce qui quitte le poste à chaque appel, repris par
+# le bilan des sorties sous le schéma.
 servers:
   local:
     label_fr: Glossaire WaveStack
   datagouv:
     label_fr: data.gouv.fr
+    sends_fr: la recherche et ses arguments
   mslearn:
     label_fr: Microsoft Learn
+    sends_fr: la question posée
 # Interrupteur de la carte MCP (story 6b, FR-21).
 lazy_label_fr: Lazy loading
 # Méta-outil du harnais en lazy loading (AD-25). `intro` et `tool` sont lus par le modèle ;

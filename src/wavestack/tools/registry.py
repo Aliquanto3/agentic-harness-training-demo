@@ -80,6 +80,8 @@ class ToolText(BaseModel):
     description: str = Field(min_length=1)  # seen by the model
     parameters: dict[str, str] = {}
     presets: list[ToolPreset] = []
+    # Story 34, network tools: what leaves the workstation when the tool runs.
+    sends_fr: str | None = None
 
     @model_validator(mode="after")
     def _presets_use_declared_parameters(self) -> ToolText:
@@ -164,6 +166,11 @@ class ToolRegistry:
             return spec.label_fr
         text = self.content.tools.get(name) if self.content else None
         return text.label_fr if text else name
+
+    def sends(self, name: str) -> str | None:
+        """Story 34: what a tool sends out of the workstation, from `content/tools.yaml`."""
+        text = self.content.tools.get(name) if self.content else None
+        return text.sends_fr if text else None
 
     def definition(self, name: str) -> dict[str, Any]:
         """The JSON definition for the template's `tools` variable.

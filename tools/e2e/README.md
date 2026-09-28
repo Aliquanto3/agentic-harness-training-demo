@@ -208,7 +208,7 @@ Vérifications ajoutées aux scénarios existants :
 
 - `network_tools` : la carte Outils, options repliées, dit « Peuvent sortir du poste » et nomme (Jours
   fériés, Résumé Wikipédia, Lecture de page web, data.gouv.fr, Microsoft Learn) et « Données
-  sortantes ». Après le tour des jours fériés, l'étape « Exécution · Jours fériés » dépliée
+  sortantes ». Après le tour des jours fériés, l'étape « Exécute l'outil hors du poste · Jours fériés » (story 34) dépliée
   montre « Données sortantes », l'adresse calendrier.api.gouv.fr, « En-têtes », le User-Agent
   avec contact et « Aucun corps : seule l'adresse sort du poste. » ; l'événement
   `outbound_request` porte ses en-têtes, aucun masqué. Après le tour Wikipédia : bloc replié à
@@ -228,6 +228,42 @@ Vérifications ajoutées aux scénarios existants :
   avec ses en-têtes et le User-Agent (rendu de la story 5b, jusque-là non testé).
 - `h5` : l'aperçu garde méthode, adresse et corps, avec une note sur les en-têtes posés à
   l'envoi si l'appel est accepté.
+
+## Vue liée et lecture guidée des volets (story 34)
+
+- `linked_view`, joué après `disciplines`, à 1600 × 1000 : scénario « Outils réseau » et un tour
+  « Résume l'article Wikipédia… ». Survol de la carte Outils : `body.linking`, nœuds Wikipédia
+  et Calculatrice, segments et étape « Exécute l'outil hors du poste » éclairés, carte Mémoire
+  globale estompée (opacité < 0,5) ; pointeur sur le titre de la barre haute : plus rien.
+  Survol du segment harness de la jauge (carte Outils), de la plaque du modèle (chaque segment
+  de Contexte LLM), de « Répond » (plaque et segments : l'appel que montre Contexte LLM) et de
+  « Appelle le modèle » (plaque seule : un appel plus ancien). Au clavier, un segment focalisé
+  puis une ligne d'étape atteinte par Tab éclairent comme au survol ; focus perdu : plus rien.
+  Clic sur le nœud Calculatrice, Contexte LLM masqué : carte Outils cerclée d'encre, puce
+  « + Contexte LLM · lié » ; Échap efface tout. Mouvement réduit : `transition-duration` 0s.
+  Volets numérotés 1 à 4 avec leur sous-titre, briques sans numéro, aide sous la légende.
+  Frise : « Décrit les outils », « Appelle le modèle », « Demande un outil », « Exécute l'outil
+  hors du poste », « Réinjecte le résultat », « Répond », pastilles H, M, M, R, H, M, ligne
+  réseau « 🌐 RÉSEAU → fr.wikipedia.org », figure de « Répond », dépliage au clic. Après le
+  clic sur Calculatrice, un segment et une étape visibles sont cerclés d'encre, sans estompage
+  sous le pointeur resté sur la source. Bilan sous le schéma : K = `model_call_started` +
+  `outbound_request{origin: brick}` des étapes d'outil qui n'ont pas échoué ; la requête vers
+  Wikipédia, que le réseau coupé fait échouer, est citée à part, « 1 tentative en échec vers
+  Résumé Wikipédia (le titre de l'article) ». Infobulles « Au tour 1 : tentative en échec… »
+  (Wikipédia, pastille « en échec » ou « indisponible ») et « Au tour 1 : non contacté. »
+  (Jours fériés) ; pastille « non contacté » sur « Lecture de page web ». Mode projection :
+  `html.projection`, corps à 18 px, `aria-pressed`, « Réinitialiser » entier dans la barre ; à
+  1280 × 720, barre sur une ligne et « · lié » lisible sur une puce ; gardé après rechargement
+  puis Réinitialiser, bilan « Aucun tour affiché… » ; second clic, 14 px. Captures
+  `35-vue-liee-survol.jpg`, `36-selection-liee.jpg`, `37-frise-orchestration.jpg`,
+  `38-bilan-des-sorties.jpg`, `39-mode-projection.jpg`.
+- `local_server` : après le tour avec le faux llama-server, le bilan dit « aucune donnée n'a
+  quitté le poste ».
+- `forced_native` : l'étape de la calculatrice forcée porte la pastille « U ».
+- Les captures (`Run.shot`, `Run.shot_element`) écartent d'abord le pointeur de tout élément
+  liable (`Run.rest_pointer`), pour qu'un clic précédent n'estompe pas la page ; la capture 35
+  garde le survol. Les étapes d'outil se repèrent par `.turn-step-title` (le verbe, puis le
+  libellé de l'outil).
 
 ## Déclencheurs du faux modèle
 

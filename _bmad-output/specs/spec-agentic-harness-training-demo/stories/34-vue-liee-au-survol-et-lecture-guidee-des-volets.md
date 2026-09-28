@@ -2,7 +2,8 @@
 title: 'Vue liée au survol et lecture guidée des volets'
 type: 'feature'
 created: '2026-09-28'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '19b6ee6353779b695a6ea9d1a74915e8928779f9'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -16,7 +17,27 @@ context:
   - '{project-root}/tools/e2e/README.md'
 warnings:
   - oversized
-deferred: []
+deferred:
+  - summary: >-
+      applyLinks parcourt tout le document à chaque rendu et à chaque tick de 250 ms ; les clés de la plaque du modèle croissent avec la conversation.
+    evidence: |-
+      Sans conséquence sur une démo courte ; un index clé → nœuds reconstruit au rendu le bornerait.
+    severity: low
+  - summary: >-
+      Éclairage de la vue liée pendant un tour en cours non testé en E2E.
+    evidence: |-
+      Les faux modèles ne tiennent pas un tour ouvert assez longtemps ; vérification sur PC.
+    severity: medium (unverified)
+  - summary: >-
+      Bilan d'un tour passé qui perd le libellé et « ce qu'il reçoit » si la brique est éteinte ensuite.
+    evidence: |-
+      outboundSummary lit store.architecture au rendu ; figer label_fr et sends_fr sur la requête lèverait le doute.
+    severity: low (unverified)
+  - summary: >-
+      Requête sans component (ancien journal) : bilan et nœud du schéma en désaccord.
+    evidence: |-
+      La story 23 pose toujours component ; seul un rejeu d'ancien journal y mènerait.
+    severity: low (unverified)
 ---
 
 <intent-contract>
@@ -167,6 +188,41 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-28 — Review pass
+- verdicts: 31 findings — high 0, medium 6, low 19, false 3, maybe-false 3 (écarts de l'auditeur d'intention : lecture étroite du lien appel ↔ segments et de « tour affiché », sixième titre « Demande un outil », lettre U — conformes aux décisions par défaut, rejetés ; sélection visible dans Contexte LLM et Orchestration non vérifiée — retenue ci-dessous)
+- findings:
+  - `[medium]` `[patch]` (blind) anneau de survol qui remplace les ombres (halo « en action » perdu) — anneau en `outline`.
+  - `[medium]` `[patch]` (blind + edge) bilan et pastilles comptent les tentatives en échec comme des sorties, et chaque saut d'une étape en échec — sorties = requêtes réussies, tentatives en échec à part, une par étape.
+  - `[low]` `[patch]` (blind) ligne jauge d'EXPERIENCE.md contradictoire — corrigée.
+  - `[low]` `[patch]` (blind) carte de brique non sélectionnable au clavier — carte focalisable, Entrée/Espace.
+  - `[low]` `[patch]` (blind) segments focalisables sans rôle ni nom court — `role="button"`, `aria-pressed`, nom court.
+  - `[low]` `[patch]` (blind) nom accessible de la puce sans le texte visible (WCAG 2.5.3) — texte visible en tête.
+  - `[low]` `[patch]` (blind + edge) deux sélections dans Orchestration — `orch.selected` vidé par une autre source.
+  - `[low]` `[patch]` (blind + edge) sélection figée après vidage ou réinitialisation, Échap consommé par une sélection invisible — sélection effacée au vidage et à la réinitialisation, Échap passe à l'action suivante.
+  - `[medium]` `[patch]` (blind) page estompée après chaque clic — pas d'estompage quand la source survolée est la sélection.
+  - `[low]` `[patch]` (blind) mode projection non vérifié à 1280 px — contrôle E2E ajouté.
+  - `[low]` `[patch]` (blind) rampe de projection dupliquée sans test — pytest ajouté.
+  - `[low]` `[patch]` (blind) `sends_fr` non contrôlé — test de contenu paramétré.
+  - `[low]` `[patch]` (blind) drapeau `remote` mort — retiré.
+  - `[false]` `[reject]` (blind) écarts non consignés dans la spec — ils sont dans « Décisions prises par défaut » ; ce journal les consigne ; corriger la spec est hors du périmètre du correctif.
+  - `[low]` `[patch]` (blind) formulation « servi sur ce poste (serveur local) » — nom du moteur.
+  - `[low]` `[defer]` (blind) `applyLinks` parcourt tout le document à chaque rendu ; clés de la plaque croissantes — index clé → nœuds à faire.
+  - `[low]` `[patch]` (vérif.) pastille « non contacté » par tour non vérifiée — assertion ajoutée.
+  - `[low]` `[patch]` (vérif.) bilan « Aucun tour affiché » non vérifié — assertion après Réinitialiser.
+  - `[low]` `[patch]` (vérif.) lettre U non vérifiée — assertion sur une étape forcée.
+  - `[maybe-false]` `[defer]` (vérif.) éclairage pendant un tour en cours non testé — demande un faux modèle qui tient le tour ouvert ; vérification sur PC.
+  - `[medium]` `[patch]` (edge) clic perdu sur un segment reconstruit pendant le flux — sélection au `pointerdown` pour la souris.
+  - `[low]` `[patch]` (edge) focus restauré qui relance `focusin` — drapeau.
+  - `[medium]` `[patch]` (edge) nœud survolé retiré par un rendu : page estompée — survol abandonné si plus rien n'est survolé.
+  - `[low]` `[patch]` (edge) tap tactile : page estompée — fin du survol au `pointerup` non souris.
+  - `[low]` `[patch]` (edge) Échap consommé par une sélection invisible — regroupé ci-dessus.
+  - `[low]` → regroupé (deux sélections, edge).
+  - `[maybe-false]` `[defer]` (edge) bilan d'un tour passé qui perd le libellé si la brique est éteinte ensuite — à figer sur la requête au moment de l'événement.
+  - `[maybe-false]` `[defer]` (edge) requête sans `component` (ancien journal) : bilan et nœud en désaccord — la story 23 pose toujours `component`.
+  - `[medium]` → regroupé (compte des échecs, edge).
+  - `[low]` `[patch]` (edge) clés du modèle principal sur l'enveloppe des robots (sous-agent éclairé) — clés sur le robot principal et la plaque.
+  - `[false]` `[reject]` (edge) critère « Appelle le modèle éclaire les segments » — décision par défaut : seul l'appel affiché dans Contexte LLM est lié à ses segments, documenté dans EXPERIENCE.md et vérifié par l'E2E.
+
 ## Design Notes
 
 Clés de liaison (`data-links`). Deux éléments sont liés s'ils partagent une clé.
@@ -255,3 +311,17 @@ Exemple : « Au tour 2, les données ont quitté le poste 3 fois : vers le modè
   - **Attendu** : les éléments liés sont éclairés au focus ; la puce annonce « lié » ; Échap efface.
   - **Critère** : Narrateur lit « lié » sur la puce, et le focus reste visible à chaque étape.
   - **Moyen** : à la main.
+
+## Auto Run Result
+
+Statut : done (2026-09-28, orchestrateur de nuit ; étapes 1 à 4 menées par l'orchestrateur ; un redémarrage du conteneur a interrompu les corrections de revue, reprises ensuite sans perte).
+
+**Changement :** vue liée par clés tirées du journal (`data-links` : brique, composant, `call:{id}`) : survol ou focus clavier d'une brique, d'un segment de contexte ou de jauge, d'une étape, d'un nœud du schéma éclaire les éléments liés et estompe les autres ; le clic garde la sélection FR-4, visible dans chaque volet (contour d'encre, puce « · lié » d'un volet masqué) ; Échap l'efface. Volets numérotés 1 à 4 avec sous-titres. Orchestration en frise (pastilles H/M/R/U, titres d'action, chiffres à droite). Bilan des sorties du poste sous le schéma pour le dernier tour affiché (requêtes réussies, tentatives en échec à part) et nœuds réseau « contacté / non contacté / en échec ». Mode projection mémorisé (18 px de base). Champ `sends_fr` (ce que reçoit un service) côté session.
+
+**Fichiers :** `trace/catalog.py`, `tools/registry.py`, `mcp/servers.py`, `session/app_session.py`, `content/{tools,mcp}.yaml`, `web/static/{app.js,app.css,index.html}`, `tests/test_{tools,mcp,web_tokens}.py`, `tools/e2e/{run_e2e.py,README.md}`, EXPERIENCE.md, DESIGN.md, SPEC.md, ARCHITECTURE-SPINE.md, captures 35 à 39 et captures existantes réécrites.
+
+**Revue :** 31 constats — 23 corrigés (5 medium, 18 low), 4 différés, 2 rejetés (false), 2 regroupés ; voir le triage. Revue de suivi recommandée : false (aucun high).
+
+**Vérification :** ruff check et format verts ; pytest : 977 passés, 3 ignorés ; E2E complet : 482 PASS, 0 FAIL.
+
+**Risques résiduels :** éclairage pendant un tour en cours et fluidité sur le PC cible ; lecture par Narrateur des segments devenus boutons.
