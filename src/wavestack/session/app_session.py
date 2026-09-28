@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import bisect
 import json
+import logging
 import math
 import threading
 import time
@@ -606,6 +607,16 @@ def _missing_model_fr(noun: str, label_fr: str, missing: list[ModelFile], tail: 
         f"le poste. Cliquez sur « Télécharger », ou copiez à la main {names} dans {folder}, "
         f"puis cliquez de nouveau sur « Télécharger ».{tail}"
     )
+
+
+_log = logging.getLogger(__name__)
+
+
+def _join_fr(items: list[str]) -> str:
+    """« a, b et c »: a French enumeration."""
+    if len(items) < 2:
+        return "".join(items)
+    return ", ".join(items[:-1]) + f" et {items[-1]}"
 
 
 def _ms(seconds: float) -> int:
@@ -1226,6 +1237,30 @@ class AppSession:
             ),
         }
 
+    def _outbound_fr(self, brick_id: str, content: BrickContent | None) -> str | None:
+        """Story 23: the card's « what leaves the workstation, and where to read it », built
+        from `content/bricks/*.yaml` (AD-19): the network tools, in the registry's order, and
+        the public MCP servers. None for a brick with nothing that can leave."""
+        if content is None or content.outbound_fr is None or brick_id not in ("tools", "mcp"):
+            return None
+        servers = [self._mcp_label(s.id) for s in self._mcp_servers.values() if s.network]
+        tools: list[str] = []
+        if brick_id == "tools":
+            tools = [o["label_fr"] for o in self._tool_options() if o["network"]]
+            if not tools and not servers:
+                return None
+        elif not servers:
+            return None
+        try:
+            return content.outbound_fr.format(
+                tools=_join_fr(tools) or "aucun outil réseau", servers=_join_fr(servers) or "aucun"
+            )
+        except (KeyError, IndexError, ValueError, AttributeError, TypeError) as exc:
+            # A placeholder the session does not fill (`{x}`, `{tools.x}`, `{0}`): no line,
+            # but the cards still go out.
+            _log.warning("outbound_fr of %s ignored: %s: %s", brick_id, type(exc).__name__, exc)
+            return None
+
     def _emit_bricks(self) -> None:
         pending = self._pending_ids()
         with self._lock:
@@ -1261,6 +1296,7 @@ class AppSession:
                         else []
                     ),
                     "limits_fr": self._limits_fr() if brick.id == "tools" else None,
+                    "outbound_fr": self._outbound_fr(brick.id, content),
                 }
             )
             if brick.id == "reasoning":
@@ -6246,7 +6282,7 @@ class AppSession:
         total = round(rendered.raw_total * self._ratio)
         in_sub = self._ratio_key() == "sub"
         try:
-            with scoped(origin="model"):  # AD-15: traced with the call's scope, no header
+            with scoped(origin="model"):  # AD-15: traced with the call's scope, key masked
                 call = run_call(
                     self._engine,
                     ChatBody(rendered.body.encode("utf-8")),

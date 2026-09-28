@@ -110,7 +110,7 @@ Règles de dépendance :
     - `model_call_started`, `model_first_token`, `model_delta{channel: reasoning|text|tool_call, text}` et `model_call_ended` ;
     - `tool_started` et `tool_ended{status: ok|error|blocked|limit|overflow}` ;
     - `hook_decided`, `approval_requested{approval_id}` et `approval_resolved{approval_id, decision}` ;
-    - `outbound_request{origin: brick|diagnostic|download|model}` (AD-15) ;
+    - `outbound_request{origin: brick|diagnostic|download|model, method, url, headers: [{name, value, masked}], body}` (AD-15 ; `headers` depuis la story 23, liste vide par défaut pour les événements antérieurs) ;
     - `effect_applied` ;
     - `session_state` ;
     - `architecture_changed` ;
@@ -399,7 +399,8 @@ Règles de dépendance :
     - `truststore` ;
     - le proxy de l’environnement ;
     - des délais bornés ; l’appel au modèle cloud a ses propres délais (connexion, lecture du flux), déclarés dans `wavestack.toml` ;
-    - un hook de requête qui émet `outbound_request` (adresse, corps exact, `origin`) **avant** l’envoi pour toute destination hors boucle locale ;
+    - un hook de requête qui émet `outbound_request` (adresse, en-têtes, corps exact, `origin`) **avant** l’envoi pour toute destination hors boucle locale ;
+    - **en-têtes tracés (story 23)** : dans l’ordre et la casse d’envoi (`request.headers.raw`, décodés en latin-1), à chaque saut de redirection. Une liste blanche fermée (`PUBLIC_HEADERS` : `host`, `accept`, `accept-encoding`, `accept-language`, `cache-control`, `connection`, `content-length`, `content-type`, `mcp-protocol-version`, `user-agent`, dans `config`) reste en clair. Tout autre en-tête garde son nom, mais sa valeur devient « [masqué] » (`masked: true`) dans la fabrique, avant `emit` : clé cloud (quel que soit le nom déclaré par `auth_header.name`), cookie, `Mcp-Session-Id`, `Last-Event-ID`, en-tête inconnu. Jamais une liste noire seule. Une entrée cloud dont `auth_header.name` est un en-tête de la liste blanche est écartée au chargement (AD-20), avec la raison. Limite : seuls les en-têtes de la requête sont vus ; ce que le transport ajoute sous le hook (identifiants du proxy, pseudo-en-têtes HTTP/2) n’est ni tracé ni affiché. L’interface ne recalcule ni ne filtre rien ;
     - la vérification de la liste d’adresses autorisées ;
     - des redirections suivies à la main et revérifiées, sauf pour `origin = model`, qui passe `follow_redirects=False` explicitement : un 3xx y devient `harness_error` « redirection refusée ».
 
@@ -424,7 +425,7 @@ Règles de dépendance :
     - l’appel au modèle cloud choisi explicitement, avec `origin = model`. Il garde la portée de son appel : `turn_id`, `context_id`, `call_id`, `component` `core.model` ou `core.model_sub`, et l’arête ;
     - le test d’un modèle cloud (`test_cloud_model`), avec `origin = model`.
 
-    La sonde, le téléchargement et le test sont tracés avec `turn_id = null`. Pour un appel au modèle, le corps tracé est le `ChatBody` exact (AD-5), et aucun en-tête n’est tracé.
+    La sonde, le téléchargement et le test sont tracés avec `turn_id = null`. Pour un appel au modèle, le corps tracé est le `ChatBody` exact (AD-5) ; ses en-têtes sont tracés comme les autres, l’en-tête d’authentification à « [masqué] » (story 23).
 
     Toute autre vérification réseau (serveur MCP public, page de démonstration de `fetch_page`) a lieu à l’activation de la brique ou de la sous-option concernée.
   - **Serveur MCP public.** Il n’est contacté (`initialize`, `tools/list`) qu’à l’activation de sa sous-option ; avant, il est dessiné « non contacté ». Une réactivation retente la connexion.

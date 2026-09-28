@@ -1951,6 +1951,15 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   color: var(--color-ink-soft);
 }
 
+/* Story 23: what leaves the workstation and where to read it, the network's rule beside it. */
+.brick-outbound {
+  margin: 0;
+  padding-left: var(--spacing-2);
+  border-left: var(--spacing-stroke-min) solid var(--color-discipline-network);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink);
+}
+
 .brick-options summary {
   cursor: pointer;
   font-size: var(--typography-body-sm-font-size);
@@ -2396,14 +2405,49 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   cursor: pointer;
 }
 
-.outbound-tag {
+.outbound-tag,
+.outbound-label {
   font-weight: 700;
 }
 
+/* Story 23: Requête, En-têtes, Corps, each under its label. */
+.outbound-body {
+  padding: var(--spacing-1) var(--spacing-2) var(--spacing-2);
+}
+
+.outbound-section {
+  margin: var(--spacing-2) 0 0;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+}
+
+.outbound-section:first-child {
+  margin-top: 0;
+}
+
 .outbound-payload .step-code {
-  margin: 0;
-  padding: var(--spacing-2);
+  margin: var(--spacing-1) 0 0;
+  padding: 0;
   font-family: var(--typography-code-font-family);
+  /* A long User-Agent wraps rather than scrolling sideways. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A value the harness masked before the journal: never written, only named. */
+.outbound-masked {
+  font-style: italic;
+  color: var(--color-ink-soft);
+  background: var(--color-surface);
+  border-radius: var(--rounded-sm);
+  padding: 0 var(--spacing-1);
+}
+
+.outbound-note {
+  margin: var(--spacing-1) 0 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
 }
 
 

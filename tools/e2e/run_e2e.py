@@ -684,6 +684,7 @@ def s_provider_errors(r: Run) -> None:
 
 def s_network_tools(r: Run) -> None:
     r.launch("network_tools")
+    _outbound_card(r)
     for prompt, tool in [
         ("Quels sont les jours fériés en France cette année ?", "public_holidays"),
         ("Résume l'article Wikipédia sur le Mont-Saint-Michel.", "wikipedia_summary"),
@@ -704,8 +705,203 @@ def s_network_tools(r: Run) -> None:
             f"{tool} : le tour se termine",
             ended["payload"]["status"],
         )
+        if tool == "public_holidays":
+            _holidays_outbound(r, seq)
     r.shot("08-outils-reseau-echec-explique")
+    _reveal_from_schema(r)
     schema_fits(r, "Wikipédia")
+
+
+# ---------- story 23: the outbound data, headers included, and the way to it ----------
+
+_OUTBOUND_STEP_JS = """([title, within]) => {
+  const steps = [...document.querySelectorAll(`#orch-scroll ${within} .turn-step`)]
+    .filter((s) => s.querySelector('.turn-step-name')?.textContent === title);
+  const step = steps.at(-1);
+  if (!step) return null;
+  const payload = step.querySelector('.turn-step-body .outbound-payload');
+  const pane = document.querySelector('[data-pane="orch"]');
+  const scroll = document.getElementById('orch-scroll').getBoundingClientRect();
+  const head = payload?.querySelector('summary').getBoundingClientRect();
+  return {
+    unfolded: Boolean(step.querySelector('.turn-step-body')),
+    pane: Boolean(pane && pane.offsetParent !== null && !pane.hidden),
+    open: payload ? payload.open : null,
+    text: payload ? payload.innerText : '',
+    visible: Boolean(head && head.height > 0 && head.top >= scroll.top - 1
+      && head.bottom <= scroll.bottom + 1),
+    masked: payload ? payload.querySelectorAll('.outbound-masked').length : 0,
+  };
+}"""
+
+
+def _outbound_step(r: Run, title: str, within: str = "") -> dict[str, Any]:
+    """The last step `title` (under `within`, e.g. `.harness-prep`) and its outbound block."""
+    return r.page.evaluate(_OUTBOUND_STEP_JS, [title, within]) or {}
+
+
+def _revealed(r: Run, found: dict[str, Any], expected: list[str], what: str) -> None:
+    """Orchestration shown, the step unfolded, its block open, on screen and saying `expected`."""
+    missing = [e for e in expected if e not in found.get("text", "")]
+    ok = all(found.get(flag) for flag in ("pane", "unfolded", "open", "visible")) and not missing
+    detail = {k: v for k, v in found.items() if k != "text"}
+    r.check(ok, what, "" if ok else f"{detail} manque {missing}")
+
+
+def _unfold_step(r: Run, title: str) -> None:
+    """Unfolds the last step `title` of Orchestration (a failed one already is: sticky)."""
+    step = r.page.locator("#orch-scroll .turn-step").filter(
+        has=r.page.locator(".turn-step-name", has_text=title)
+    )
+    if not step.last.locator(".turn-step-body").count():
+        step.last.locator(".turn-step-line").click()
+    time.sleep(0.3)
+
+
+def _outbound_card(r: Run) -> None:
+    """The Outils card says what leaves the workstation, its options folded."""
+    card = r.card("Outils")
+    folded = card.locator("details.brick-options").get_attribute("open") is None
+    text = card.locator(".brick-outbound").inner_text() if folded else ""
+    names = ["Jours fériés", "Résumé Wikipédia", "Lecture de page web"]
+    names += ["data.gouv.fr", "Microsoft Learn", "Données sortantes"]
+    names.insert(0, "Peuvent sortir du poste")  # declared, enabled or not
+    missing = [n for n in names if n not in text]
+    r.check(
+        folded and card.locator(".brick-outbound").is_visible() and not missing,
+        "carte Outils, options repliées : ce qui sort du poste et où le lire",
+        f"manque {missing} dans « {text[:200]} »" if missing else "",
+    )
+
+
+def _holidays_outbound(r: Run, seq: int) -> None:
+    title = "Exécution · Jours fériés"
+    _unfold_step(r, title)
+    block = _outbound_step(r, title)
+    text = block.get("text", "")
+    expected = [
+        "Données sortantes",
+        "GET https://calendrier.api.gouv.fr/jours-feries/",
+        "En-têtes",
+        "User-Agent: WaveStack/0.1 (demonstrateur pedagogique; ",
+        "Aucun corps : seule l'adresse sort du poste.",
+    ]
+    missing = [e for e in expected if e not in text]
+    ok = block.get("unfolded") and block.get("open") and not missing
+    r.check(
+        ok,
+        f"« {title} » : données sortantes, adresse, User-Agent avec contact, aucun corps",
+        "" if ok else f"{ {k: v for k, v in block.items() if k != 'text'} } manque {missing}",
+    )
+    traced = [e["payload"] for e in r.ev.since(seq, "outbound_request")]
+    headers = traced[0].get("headers", []) if traced else []
+    agent = next((h["value"] for h in headers if h["name"] == "User-Agent"), "")
+    r.check(
+        "demonstrateur pedagogique" in agent and not any(h["masked"] for h in headers),
+        "outbound_request : en-têtes tracés, User-Agent en clair, aucun masqué",
+        str(headers)[:300],
+    )
+    if r.page.locator("#follow-live").is_visible():
+        r.page.click("#follow-live")  # back to the live view for the next turn
+        time.sleep(0.3)
+
+
+def _schema_node(r: Run, name: str):
+    return r.page.locator(".arch-zone-network .arch-node").filter(has_text=name).first
+
+
+def _reveal_from_schema(r: Run) -> None:
+    """A click on the Wikipédia node leads to its outbound block, even folded, out of sight
+    and with Orchestration hidden; a node never contacted leads nowhere."""
+    title = "Exécution · Résumé Wikipédia"
+    page = r.page
+    page.keyboard.press("Escape")  # no selection: the click selects the node
+    block = page.locator("#orch-scroll .turn-step").filter(
+        has=page.locator(".turn-step-name", has_text=title)
+    )
+    summary = block.last.locator(".outbound-payload > summary")
+    if summary.count():
+        summary.click()  # folded by the user: the click on the node opens it again
+    page.evaluate("() => { document.getElementById('orch-scroll').scrollTop = 0; }")
+    page.locator('[data-pane="orch"] .pane-hide').click()
+    time.sleep(0.3)
+
+    contact = {n["id"]: n.get("contact") for n in r.state()["architecture_changed"]["nodes"]}
+    r.check(
+        contact.get("tools.fetch_page") == "not_contacted",
+        "« Lecture de page web » jamais contactée dans la session",
+        str(contact.get("tools.fetch_page")),
+    )
+    node = _schema_node(r, "Lecture de page web")
+    tip = node.get_attribute("title") or ""
+    node.click()
+    time.sleep(0.3)
+    hidden = page.locator('[data-pane="orch"]').evaluate("p => p.offsetParent === null")
+    r.check(
+        "Non contacté" in tip and "Clic : ses données sortantes" not in tip and hidden,
+        "nœud non contacté : sélection seule, infobulle « Non contacté »",
+        tip.replace("\n", " · ")[:200],
+    )
+
+    node = _schema_node(r, "Wikipédia")
+    tip = node.get_attribute("title") or ""
+    r.check(
+        "Clic : ses données sortantes dans Orchestration" in tip,
+        "nœud Wikipédia contacté : l'infobulle dit où mène le clic",
+        tip.replace("\n", " · ")[:200],
+    )
+    node.click()
+    time.sleep(0.5)
+    _revealed(
+        r,
+        _outbound_step(r, title),
+        [
+            "Données sortantes",
+            "GET https://fr.wikipedia.org/api/rest_v1/page/summary/",
+            "En-têtes",
+            "User-Agent: WaveStack/0.1 (demonstrateur pedagogique; ",
+            "Accept: */*",
+        ],
+        "clic sur le nœud Wikipédia : Orchestration montrée, étape dépliée, bloc ouvert et à "
+        "l'écran, en-têtes compris",
+    )
+    r.check(
+        not page.locator("#follow-live").is_hidden(),
+        "la vue est figée (« Suivre le direct » proposé)",
+    )
+    r.shot("08b-donnees-sortantes-en-tetes")
+    # A second click on the node, already selected: it stays selected and leads there again.
+    page.evaluate("() => { document.getElementById('orch-scroll').scrollTop = 0; }")
+    _schema_node(r, "Wikipédia").click()
+    time.sleep(0.3)
+    found = _outbound_step(r, title)
+    selected = _schema_node(r, "Wikipédia").get_attribute("aria-pressed") == "true"
+    r.check(
+        selected and found.get("visible"),
+        "second clic sur le nœud Wikipédia : toujours sélectionné, bloc de nouveau à l'écran",
+        f"sélectionné : {selected}, à l'écran : {found.get('visible')}",
+    )
+
+    # The first turn folds back with the live view: its node unfolds it again.
+    page.click("#follow-live")
+    time.sleep(0.3)
+    folded = page.locator("#orch-scroll .turn-group:not(.harness-prep) > .turn-group-head").first
+    r.check(
+        folded.get_attribute("aria-expanded") == "false",
+        "en direct, le tour des jours fériés est replié",
+    )
+    _schema_node(r, "Jours fériés").click()
+    time.sleep(0.5)
+    _revealed(
+        r,
+        _outbound_step(r, "Exécution · Jours fériés"),
+        ["Données sortantes", "GET https://calendrier.api.gouv.fr/", "User-Agent: WaveStack/0.1"],
+        "clic sur le nœud Jours fériés : tour replié déplié, étape dépliée, bloc ouvert et à "
+        "l'écran",
+    )
+    page.click("#follow-live")
+    page.keyboard.press("Escape")
+    time.sleep(0.3)
 
 
 # ---------- story 33: contrasts and one colour per discipline ----------
@@ -1032,6 +1228,19 @@ def s_h5(r: Run) -> None:
         "la carte montre la destination exacte",
         card.inner_text()[:200],
     )
+    # Story 23: the preview keeps method, address and body; its headers are set when sending.
+    preview = card.locator(".outbound-payload")
+    preview.locator("summary").click()
+    text = preview.inner_text()
+    expected = ["Données sortantes", "Requête", "GET https://calendrier.api.gouv.fr/", "Corps"]
+    expected.append("Posés par le client HTTP à l'envoi (User-Agent, Accept…)")
+    missing = [e for e in expected if e not in text]
+    r.check(
+        not missing and not preview.locator(".outbound-headers").count(),
+        "aperçu H5 : méthode, adresse et corps, note sur les en-têtes posés à l'envoi",
+        f"manque {missing}" if missing else "",
+    )
+    preview.locator("summary").click()  # folded again, as the card opens
     r.shot("09-h5-validation-humaine")
     seq = r.ev.mark()
     card.get_by_role("button", name="Refuser", exact=True).click()
@@ -1519,8 +1728,74 @@ def s_data_flows(r: Run) -> None:
         "le serveur MCP local reste sur le poste",
         str(local)[:200],
     )
+    _datagouv_node_reveals_its_connection(r)
+    _datagouv_connection_outbound(r, seq)
     r.shot("15-ou-vont-mes-donnees-schema")
     schema_fits(r, "data.gouv.fr")
+
+
+def _datagouv_node_reveals_its_connection(r: Run) -> None:
+    """Story 23: a click on the data.gouv.fr node, preparation folded and Orchestration
+    hidden, unfolds its connection there and brings its block on screen."""
+    page = r.page
+    page.keyboard.press("Escape")
+    if page.locator("#follow-live").is_visible():
+        page.click("#follow-live")  # a view an earlier scenario froze: back to live first
+    head = page.locator("#orch-scroll .harness-prep .turn-group-head")
+    if head.get_attribute("aria-expanded") == "true":
+        head.click()
+    page.locator('[data-pane="orch"] .pane-hide').click()
+    time.sleep(0.3)
+    node = _schema_node(r, "data.gouv.fr")
+    r.check(
+        "Clic : ses données sortantes dans Orchestration" in (node.get_attribute("title") or ""),
+        "nœud data.gouv.fr : l'infobulle dit où mène le clic",
+    )
+    node.click()
+    time.sleep(0.5)
+    _revealed(
+        r,
+        _outbound_step(r, "data.gouv.fr", ".harness-prep"),
+        ["Données sortantes", "mcp.data.gouv.fr", "User-Agent: WaveStack/0.1"],
+        "clic sur le nœud data.gouv.fr : Orchestration montrée, préparation et connexion "
+        "dépliées, bloc ouvert et à l'écran",
+    )
+    r.check(
+        page.locator("#follow-live").is_hidden(),
+        "une connexion ne fige pas la vue (pas de « Suivre le direct »)",
+    )
+    page.keyboard.press("Escape")
+
+
+def _datagouv_connection_outbound(r: Run, seq: int) -> None:
+    """Story 23: the connection to data.gouv.fr, unfolded in the preparation, shows what it
+    sent, headers included (story 5b's block, untested before: deferred-work item 43)."""
+    page = r.page
+    prep = page.locator("#orch-scroll .harness-prep")
+    if prep.locator(".turn-group-head").get_attribute("aria-expanded") == "false":
+        prep.locator(".turn-group-head").click()
+    line = prep.locator(".turn-step").filter(
+        has=page.locator(".turn-step-name", has_text="data.gouv.fr")
+    )
+    if not line.last.locator(".turn-step-body").count():
+        line.last.locator(".turn-step-line").click()
+    time.sleep(0.3)
+    payload = line.last.locator(".outbound-payload")
+    text = payload.inner_text() if payload.count() else ""
+    expected = ["Données sortantes", "mcp.data.gouv.fr", "En-têtes", "User-Agent: WaveStack/0.1"]
+    missing = [e for e in expected if e not in text]
+    r.check(
+        not missing,
+        "connexion data.gouv.fr dépliée : données sortantes, en-têtes et User-Agent",
+        f"manque {missing} dans « {text[:200]} »" if missing else "",
+    )
+    traced = [e["payload"] for e in r.ev.since(seq, "outbound_request")]
+    names = [h["name"] for p in traced for h in p.get("headers", [])]
+    r.check(
+        bool(traced) and "User-Agent" in names,
+        "connexion data.gouv.fr : en-têtes tracés dans outbound_request",
+        str(names)[:200],
+    )
 
 
 def schema_fits(r: Run, node: str) -> None:

@@ -32,10 +32,21 @@ class DiagnosticCheckPayload(BaseModel):
     output_tps: int | None = None
 
 
+class OutboundHeader(BaseModel):
+    """Story 23: one header as sent, in order and case. Outside the public allow-list its
+    value is « [masqué] » and `masked` is true: the real value never reaches the journal."""
+
+    name: str
+    value: str
+    masked: bool = False
+
+
 class OutboundRequestPayload(BaseModel):
     origin: Literal["brick", "diagnostic", "download", "model"]
     method: str
     url: str
+    # Story 23: the headers sent (AD-15); empty for events traced before them.
+    headers: list[OutboundHeader] = []
     body: str = ""
 
 
@@ -379,6 +390,8 @@ class BrickState(BaseModel):
     build_index: IndexBuildOffer | None = None
     # Story 16, `rag` brick: the reranking sub-option (None: no RAG content).
     rerank: RerankOption | None = None
+    # Story 23, `tools` and `mcp` bricks: what leaves the workstation and where to read it.
+    outbound_fr: str | None = None
 
 
 class SystemPromptState(BaseModel):

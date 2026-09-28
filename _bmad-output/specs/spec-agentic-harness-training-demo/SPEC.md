@@ -64,7 +64,7 @@ WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à 
   - **success:** L'utilisateur peut consulter/modifier/effacer la mémoire ; la vue harnais montre quand et comment elle est injectée et écrite (modèle ou forcé) ; le schéma montre son stockage en fichier local.
 - **CAP-14** Catalogue d'outils (FR-13, palier 1)
   - **intent:** WaveStack fournit un catalogue d'outils activables individuellement, hors ligne (heure/date, calculatrice, lecture de fichier confiné) et réseau (jours fériés, résumé Wikipedia, lecture de page web).
-  - **success:** Au moins un outil hors ligne et un outil réseau fonctionnent ; chaque outil réseau est signalé comme tel dans le panneau et le schéma.
+  - **success:** Au moins un outil hors ligne et un outil réseau fonctionnent ; chaque outil réseau est signalé comme tel dans le panneau et le schéma ; les cartes Outils et MCP disent ce qui sort du poste et où lire les données sortantes (story 23).
 - **CAP-15** Cycle d'appel d'outil visible (FR-14, palier 1)
   - **intent:** La vue harnais montre le cycle complet d'un appel d'outil, de la description à la réponse finale.
   - **success:** Les 5 étapes (description, demande, exécution, réinjection, réponse) sont observables pour chaque appel.
@@ -91,7 +91,7 @@ WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à 
   - **success:** Le compteur de tokens montre l'écart entre les deux modes pour un même prompt.
 - **CAP-23** Échanges MCP visibles (FR-22, palier 1)
   - **intent:** La vue harnais montre la découverte, l'appel et le résultat des échanges MCP, en distinguant outil MCP et outil natif.
-  - **success:** Pour un serveur public, l'adresse de destination et les données exactement envoyées sont affichées, comme pour un outil réseau.
+  - **success:** Pour un serveur public, l'adresse de destination, les en-têtes (secrets masqués par le harnais) et les données exactement envoyées sont affichés, comme pour un outil réseau.
 - **CAP-24** Catalogue de skills (FR-23, palier 1)
   - **intent:** WaveStack fournit au moins deux skills de démonstration activables, dont Caveman.
   - **success:** Les skills apparaissent dans le panneau des briques, activables individuellement.

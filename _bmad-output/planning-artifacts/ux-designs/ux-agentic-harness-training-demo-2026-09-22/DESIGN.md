@@ -398,6 +398,10 @@ components:
     header-background: '{colors.hosting-network}'
     header-foreground: '{colors.ink}'
     body-typography: '{typography.code}'
+    section-typography: '{typography.label}'
+    section-color: '{colors.ink-soft}'
+    masked-background: '{colors.surface}'
+    masked-foreground: '{colors.ink-soft}'
     radius: '{rounded.md}'
   turn-compare:
     background: '{colors.surface-raised}'
@@ -665,7 +669,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Bouton Forcer (`force-button`)** : contour encre, icône main, pour rappeler le badge « Forcé par l'utilisateur ».
 - **Événement du harnais (`harness-event`)** : carte avec filet latéral épais et icône ; rouge pour blocage et échec, violet pour information (hook qui laisse passer, compression, limite d'appels atteinte).
 - **Carte de dépassement (`overflow-card`)** : carte à bordure rouge de `{spacing.stroke-min}`, icône d'alerte, titre « Contexte dépassé — l'appel au modèle n'a pas été envoyé », compte de tokens en `number`, puis deux sous-parties titrées en `label` : « En production, un harnais pourrait » et « Pour continuer la démo ».
-- **Données sortantes (`outbound-payload`)** : en-tête jaune « RÉSEAU » avec icône globe et adresse de destination ; corps en `{typography.code}`, bordure en tirets encre.
+- **Données sortantes (`outbound-payload`)** : en-tête jaune « 🌐 RÉSEAU · Données sortantes » (étiquette et libellé en gras), puis méthode et adresse de destination ; bordure en tirets encre. Le corps a trois sections, chacune sous un libellé en `{typography.label}` `{colors.ink-soft}` : « Requête » (méthode et adresse), « En-têtes » (une ligne `Nom: valeur` par en-tête, dans l'ordre d'envoi) et « Corps » (texte exact, ou « Aucun corps : seule l'adresse sort du poste. »), en `{typography.code}`, avec retour à la ligne des longues valeurs (jamais de défilement horizontal). Une valeur masquée par le harnais (`outbound-masked`) s'affiche « [masqué] » en italique, `{colors.ink-soft}` sur `{colors.surface}`, avec une infobulle, et une note (`outbound-note`, `body-sm` `{colors.ink-soft}`) sous les en-têtes explique « [masqué] ». Dans l'aperçu H5, la section « En-têtes » est une note du même style : ils sont posés à l'envoi, si l'appel est accepté (story 23). Ce sont les en-têtes de la requête : ceux qu'ajoute le transport (proxy, HTTP/2) n'y sont pas.
 - **Comparaison de tours (`turn-compare`)** : deux colonnes alignées segment par segment, écarts signalés par un signe (+ / −) et une valeur, jamais par la couleur seule.
 - **Schéma d'architecture (`arch-zone-local`, `arch-zone-network`, `arch-boundary`, `arch-node-local`, `arch-node-network`, `arch-node-unavailable`, `arch-node-active`, `arch-flow`)** : deux zones séparées par la frontière verticale ; chaque nœud prend la couleur de la discipline de sa brique (`{brick}.*`, story 33), fond doux et trait continu de sa couleur ; les fichiers du harnais (`file.*`) sont neutres ; les nœuds réseau ont un fond jaune doux, des tirets encre, un trait jaune épais à gauche, le globe et « RÉSEAU » (zone). Processus local et fichier local se distinguent par l'icône (engrenage / document) et le libellé `[ASSUMPTION]`. Nœud indisponible : fond crème, tirets gris, icône barrée et raison. Nœud en action : halo vert. Flux : trait `{spacing.stroke-min}` encre douce, vert quand il est parcouru.
   - **Bac (`arch-group`)** : contenant blanc à bordure `{colors.line}` 2 px, `{rounded.md}`, sans relief ; titre `label` posé sur la bordure (icône, nom, nombre). Côté Réseau : fond crème.

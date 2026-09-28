@@ -469,7 +469,9 @@ function applyEnvelope(envelope) {
       const step = turn
         ? turn.steps.filter((s) => s.type === "tool").at(-1)
         : store.offTurn.filter((s) => `mcp.${s.started.server}` === envelope.component).at(-1);
-      if (step && p.origin === "brick") (step.outbound ||= []).push({ ...p, seq: envelope.seq });
+      if (step && p.origin === "brick") {
+        (step.outbound ||= []).push({ ...p, seq: envelope.seq, component: envelope.component });
+      }
       break;
     }
     case "mcp_connect_started":
@@ -688,7 +690,9 @@ function applySubEnvelope(turn, sub, envelope) {
     }
     case "outbound_request": {
       const tool = last("tool");
-      if (tool && p.origin === "brick") (tool.outbound ||= []).push({ ...p, seq: envelope.seq });
+      if (tool && p.origin === "brick") {
+        (tool.outbound ||= []).push({ ...p, seq: envelope.seq, component: envelope.component });
+      }
       break;
     }
     case "hook_decided":
@@ -961,6 +965,8 @@ function renderBricks() {
       card.appendChild(why);
     }
     if (brick.note_fr) card.appendChild(el("p", "brick-note", brick.note_fr));
+    // Story 23: what leaves the workstation and where to read it, outside the folded options.
+    if (brick.outbound_fr) card.appendChild(el("p", "brick-outbound", brick.outbound_fr));
     if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
@@ -3098,6 +3104,12 @@ function overflowCard(overflow) {
   return card;
 }
 
+const OUTBOUND_MASKED_FR = "Valeur masquée par le harnais : jamais écrite dans le journal";
+const OUTBOUND_MASKED_NOTE_FR =
+  "[masqué] : valeur secrète ou propre à la session (clé, cookie, identifiant de session…), remplacée par le harnais avant le journal. Le nom de l'en-tête reste visible.";
+const OUTBOUND_HEADERS_AT_SEND_FR =
+  "Posés par le client HTTP à l'envoi (User-Agent, Accept…) : si l'appel est accepté, ils seront visibles dans les données sortantes de l'étape de l'outil.";
+
 function outboundPayload(request, openSet = null) {
   // DESIGN.md outbound-payload: exactly what leaves the workstation, open by default in the
   // trace; given `openSet` (the ids unfolded by the user), folded by default.
@@ -3110,10 +3122,48 @@ function outboundPayload(request, openSet = null) {
     } else if (details.open) store.closedPayloads.delete(request.seq);
     else store.closedPayloads.add(request.seq);
   });
+  // Story 23: « Données sortantes », the name the user looks for and the event log's.
   const head = el("summary", "outbound-head");
-  head.append(el("span", "outbound-tag", "🌐 RÉSEAU"), ` ${request.method} ${request.url}`);
-  const body = request.body || "Aucun corps : seule l'adresse sort du poste.";
-  details.append(head, el("pre", "step-code", body));
+  head.append(
+    el("span", "outbound-tag", "🌐 RÉSEAU"),
+    " · ",
+    el("span", "outbound-label", "Données sortantes"),
+    " ",
+    el("span", "outbound-address", `${request.method} ${request.url}`)
+  );
+  const body = el("div", "outbound-body");
+  body.append(
+    el("p", "outbound-section", "Requête"),
+    el("pre", "step-code", `${request.method} ${request.url}`),
+    el("p", "outbound-section", "En-têtes")
+  );
+  if (Array.isArray(request.headers)) {
+    // As the session traced them (AD-2): a value outside its allow-list arrives masked.
+    const lines = el("pre", "step-code outbound-headers");
+    request.headers.forEach((header, index) => {
+      if (index) lines.append("\n");
+      lines.append(`${header.name}: `);
+      if (header.masked) {
+        const masked = el("span", "outbound-masked", header.value);
+        masked.title = OUTBOUND_MASKED_FR;
+        lines.append(masked);
+      } else {
+        lines.append(header.value);
+      }
+    });
+    // An event traced before story 23 carries none: nothing says what was sent.
+    if (!request.headers.length) lines.textContent = "En-têtes non tracés pour cet événement.";
+    body.append(lines);
+    if (request.headers.some((header) => header.masked)) body.append(el("p", "outbound-note", OUTBOUND_MASKED_NOTE_FR));
+  } else {
+    // The H5 preview: headers are set by the HTTP client when sending, after the decision.
+    body.append(el("p", "outbound-note", OUTBOUND_HEADERS_AT_SEND_FR));
+  }
+  body.append(
+    el("p", "outbound-section", "Corps"),
+    el("pre", "step-code", request.body || "Aucun corps : seule l'adresse sort du poste.")
+  );
+  details.append(head, body);
   return details;
 }
 
@@ -3637,6 +3687,7 @@ function stepRows(turn, step, i, calls, rows) {
         trigger: step.trigger,
         figure,
         net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
+        outbound: step.outbound || [], // story 23: what `revealOutbound` looks for
         tone: ended && ended.status !== "ok" ? "error" : null,
         sticky: Boolean(ended && ended.status !== "ok"),
         sig: [Boolean(ended), ended?.status, step.outbound?.length ?? 0],
@@ -3920,6 +3971,15 @@ function mcpServerLabel(server) {
   return option?.label_fr ?? server;
 }
 
+// The MCP connections Orchestration shows (`renderSteps`): after the last clearing, from the
+// conversation shown on, and after a reset those of the preparation too.
+function shownConnections() {
+  const visible = (s) => store.clearedSeq === null || s.seq > store.clearedSeq;
+  return store.offTurn.filter(
+    (s) => visible(s) && (store.resetSeq !== null || s.afterTurn >= store.chatFrom)
+  );
+}
+
 function connectRow(step) {
   // The same line in the harness preparation and between two turns (EXPERIENCE: harness-prep).
   const ended = step.ended;
@@ -3934,6 +3994,7 @@ function connectRow(step) {
     actor: "harness",
     figure,
     net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
+    outbound: step.outbound || [], // story 23: what `revealOutbound` looks for
     // Story 33: a public server's connection leaves the workstation; a local one is MCP's.
     discipline: step.outbound?.length ? "network" : "harness",
     tone: failed ? "unavailable" : null,
@@ -4113,6 +4174,68 @@ function toggleStep(key) {
     o.selected = key;
   }
   renderSteps();
+}
+
+// Story 23: the components some shown step or connection sent outbound data to, i.e. the
+// network nodes a click leads from (`revealOutbound` finds something for them).
+function outboundComponents() {
+  const found = new Set();
+  const add = (step) => {
+    for (const request of step.outbound || []) found.add(request.component);
+  };
+  for (const turn of shownTurns()) {
+    for (const step of turn.steps) {
+      add(step);
+      for (const sub of step.sub?.steps || []) add(sub);
+    }
+  }
+  for (const step of shownConnections()) add(step);
+  return found;
+}
+
+// Story 23: a click on a network node of the schema leads to what was sent to it. The last
+// step of the turns shown (sub-agent included) whose outbound data went to that component,
+// else the last connection shown: Orchestration shown again, turn and step unfolded, the view
+// frozen as by a click on the step, its block open and brought on screen. Nothing sent to it
+// in view: nothing to do, the node stays merely selected.
+function revealOutbound(componentId) {
+  const o = store.orch;
+  const sentTo = (row) => row.outbound?.some((request) => request.component === componentId);
+  let target = null;
+  for (const turn of shownTurns()) {
+    for (const row of turnRows(turn)) if (sentTo(row)) target = { row, turn };
+  }
+  if (!target) {
+    const row = shownConnections().map(connectRow).findLast(sentTo);
+    if (row) target = { row, turn: null };
+  }
+  if (!target) return;
+  const { row, turn } = target;
+  if (store.hiddenPanes.has("orch")) showPane("orch");
+  if (store.focusedPane !== null && store.focusedPane !== "orch") {
+    store.focusedPane = null;
+    render();
+  }
+  if (turn) {
+    // A turn step: unfolded and the view frozen, as by a click on it (`toggleStep`).
+    o.turnOpen.set(turn.id, true);
+    if (o.live) {
+      o.live = false;
+      o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+    }
+    o.userOpen.add(row.key);
+    o.selected = row.key;
+  } else {
+    // A connection line: unfolded in place, no live view to freeze (`toggleStep`).
+    o.prepGroupOpen = true;
+    o.prepOpen.add(row.key);
+  }
+  for (const request of row.outbound) store.closedPayloads.delete(request.seq);
+  renderSteps();
+  // A body kept from the last render keeps a block the user folded: open it in place.
+  const blocks = [...(railNodes.get(row.key)?.root.querySelectorAll(".outbound-payload") ?? [])];
+  for (const block of blocks) block.open = true;
+  blocks[0]?.scrollIntoView({ block: "nearest" });
 }
 
 function toggleTurn(id, open) {
@@ -5056,6 +5179,8 @@ let renderedRobotKey = null;
 let renderedActivityKey = null;
 let schemaActive = null; // the last `schemaActivity()`, read by `drawSchemaWires`
 
+let outboundShown = null; // story 23: `outboundComponents()` at the last `renderSchema`
+
 function renderSchema() {
   // Layout only: nodes, edges and availability come from `architecture_changed` (AD-12), the
   // hooks of the strip from `bricks_changed`. `render()` runs on every `model_delta`: the DOM is
@@ -5074,7 +5199,8 @@ function renderSchema() {
   const pose = robotPose();
   const subPose = subModel ? robotPose(true) : null;
   const robots = () => [robot(pose, model), ...(subModel ? [robot(subPose, subModel, true)] : [])];
-  const key = JSON.stringify([store.architecture, wanted.length, hooks, blocked, store.selection]);
+  outboundShown = outboundComponents(); // story 23: the network nodes a click leads from
+  const key = JSON.stringify([store.architecture, wanted.length, hooks, blocked, store.selection, [...outboundShown].sort()]);
   const robotKey = JSON.stringify([pose, subPose, model?.model]);
   if (key !== renderedSchemaKey) {
     renderedSchemaKey = key;
@@ -5285,10 +5411,22 @@ function schemaNode(node, shape) {
   if (shape === "skill") tooltip.push(loaded ? "Chargé dans la conversation." : "Non chargé.");
   if (tools.length) tooltip.push(`Outils : ${tools.join(", ")}`);
   if (node.detail_fr) tooltip.push(node.detail_fr);
+  // Story 23: a network tool or server leads to its outbound data, while a step shown has some
+  // (a clearing or a reset leaves the node contacted, with nothing left to show).
+  const leadsOut =
+    network && (shape === "tool" || shape === "mcp") && Boolean(outboundShown?.has(node.id));
+  if (leadsOut) tooltip.push("Clic : ses données sortantes dans Orchestration");
   button.title = tooltip.join("\n");
   button.setAttribute("aria-label", tooltip.join(". "));
   if (node.id === "file.audit") button.addEventListener("click", openAudit); // the whole log
   if (node.id === "file.memory") button.addEventListener("click", openMemoryDrawer); // story 14
+  if (leadsOut) {
+    // After `select`, which toggles: the node stays selected and always leads to its data.
+    button.addEventListener("click", () => {
+      if (store.selection !== node.id) select(node.id);
+      revealOutbound(node.id);
+    });
+  }
 
   if (shape !== "mcp" || !tools.length) return [button];
   // A selected MCP server unfolds its tools under it, in its bin (FR-3).

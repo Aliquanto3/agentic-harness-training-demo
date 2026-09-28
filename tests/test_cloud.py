@@ -135,6 +135,15 @@ def test_groq_turn_with_tool_two_calls_reconciled_body_is_the_one_sent(caplog):
         assert "".join(s["text"] for s in ctx.payload["segments"]) == ctx.payload["body"]
         assert all(s["estimated"] for s in ctx.payload["segments"])
         assert set(request.headers) >= {"authorization", "content-type"}
+        # Story 23: the headers are traced, the key's value masked before the journal.
+        traced = {h["name"]: (h["value"], h["masked"]) for h in out.payload["headers"]}
+        assert traced["Authorization"] == ("[masqué]", True)
+        assert traced["Content-Type"] == ("application/json", False)
+        assert [h["name"] for h in out.payload["headers"]] == [
+            n.decode("latin-1") for n, _ in request.headers.raw
+        ]
+        for piece in (SENTINEL[:4], SENTINEL[-4:]):
+            assert piece not in out.model_dump_json()
     body = json.loads(rendered[0].payload["body"])
     assert body["model"] == "openai/gpt-oss-120b" and body["stream"] is True
     assert body["reasoning_effort"] == "low" and body["stream_options"] == {"include_usage": True}
@@ -371,6 +380,20 @@ def test_cloud_models_merge_by_id_and_invalid_entries_are_left_out():
     assert len(errors) == 1 and "Bad-Id" in errors[0]
     assert "api.groq.com" in cfg.allowed_hosts and "api.mistral.ai" not in cfg.allowed_hosts
     assert config.cloud_window(valid[0], 4096) == (3000, "tpm")
+
+
+@pytest.mark.parametrize("name", ["User-Agent", "content-type", " Accept "])
+def test_a_key_header_traced_in_clear_is_refused_at_load(name):
+    """Story 23: a key under a public header would reach the journal in clear."""
+    settings = {"cloud": {"models": [{"id": "groq", "auth_header": {"name": name}}]}}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+
+    valid, errors = config.load_config().cloud_models
+
+    assert "groq" not in [m.id for m in valid]
+    (error,) = [e for e in errors if "groq" in e]
+    assert "auth_header.name" in error and "tracé en clair dans le journal" in error
 
 
 def test_cloud_window_sources_and_unavailable_quota():

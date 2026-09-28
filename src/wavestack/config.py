@@ -64,9 +64,38 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# Story 23: the only request headers `net` traces in clear, lower-cased (AD-15). A closed
+# allow-list, not a deny-list: any other header's value is masked before the journal.
+PUBLIC_HEADERS = frozenset(
+    {
+        "host",
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "cache-control",
+        "connection",
+        "content-length",
+        "content-type",
+        "mcp-protocol-version",
+        "user-agent",
+    }
+)
+
+
 class AuthHeader(_Strict):
     name: str = "Authorization"
     scheme: str = "Bearer"
+
+    @field_validator("name")
+    @classmethod
+    def _not_a_public_header(cls, value: str) -> str:
+        """Story 23: a key sent under a header traced in clear would reach the journal."""
+        if value.strip().lower() in PUBLIC_HEADERS:
+            raise ValueError(
+                f"L'en-tête « {value} » est tracé en clair dans le journal : "
+                "la clé ne peut pas y être envoyée."
+            )
+        return value
 
 
 class CloudReasoning(_Strict):
@@ -315,8 +344,14 @@ class Config:
                 fields = ", ".join(
                     ".".join(str(p) for p in e["loc"]) or "entrée" for e in exc.errors()
                 )
+                # Story 23: the key header's reason, in French (the other reasons are not).
+                reasons = "".join(
+                    f" {e['msg'].removeprefix('Value error, ')}"
+                    for e in exc.errors()
+                    if e["loc"][:1] == ("auth_header",) and e["type"] == "value_error"
+                )
                 errors.append(
-                    f"Modèle cloud « {name} » écarté : déclaration invalide ({fields}). "
+                    f"Modèle cloud « {name} » écarté : déclaration invalide ({fields}).{reasons} "
                     "Corrigez wavestack.toml ou settings.json, puis relancez WaveStack."
                 )
                 continue

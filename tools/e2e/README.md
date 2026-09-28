@@ -204,6 +204,31 @@ Vérifications ajoutées aux scénarios existants :
   retour à l'entrée A, qui ne raisonne pas : plus de verrou. Capture
   `34-raisonnement-impose.jpg`.
 
+## Données sortantes, en-têtes compris (story 23)
+
+- `network_tools` : la carte Outils, options repliées, dit « Peuvent sortir du poste » et nomme (Jours
+  fériés, Résumé Wikipédia, Lecture de page web, data.gouv.fr, Microsoft Learn) et « Données
+  sortantes ». Après le tour des jours fériés, l'étape « Exécution · Jours fériés » dépliée
+  montre « Données sortantes », l'adresse calendrier.api.gouv.fr, « En-têtes », le User-Agent
+  avec contact et « Aucun corps : seule l'adresse sort du poste. » ; l'événement
+  `outbound_request` porte ses en-têtes, aucun masqué. Après le tour Wikipédia : bloc replié à
+  la main, Orchestration défilée en haut puis masquée ; un clic sur le nœud « Lecture de page
+  web », jamais contacté, ne fait que le sélectionner (infobulle « Non contacté ») ; un clic
+  sur le nœud « Wikipédia » (infobulle « Clic : ses données sortantes dans Orchestration »)
+  réaffiche Orchestration, déplie l'étape, rouvre le bloc et l'amène dans `#orch-scroll`
+  (« GET https://fr.wikipedia.org/api/rest_v1/page/summary/… », « User-Agent: WaveStack/0.1
+  (demonstrateur pedagogique; … », « Accept: */* ») ; la vue est figée. Capture
+  `08b-donnees-sortantes-en-tetes.jpg`. Un second clic sur le nœud, déjà sélectionné, le
+  garde sélectionné et ramène le bloc. De retour en direct, le tour des jours fériés est
+  replié : un clic sur le nœud « Jours fériés » le déplie, avec l'étape et son bloc à l'écran.
+  « Lecture de page web » doit n'avoir jamais été contactée dans la session (vérifié).
+- `data_flows` : préparation repliée et Orchestration masquée, un clic sur le nœud
+  data.gouv.fr réaffiche le volet, déplie la préparation et la connexion, ouvre son bloc et
+  l'amène à l'écran, sans figer la vue. La connexion montre son bloc « Données sortantes »
+  avec ses en-têtes et le User-Agent (rendu de la story 5b, jusque-là non testé).
+- `h5` : l'aperçu garde méthode, adresse et corps, avec une note sur les en-têtes posés à
+  l'envoi si l'appel est accepté.
+
 ## Déclencheurs du faux modèle
 
 La réponse dépend du dernier message de l'utilisateur (sans le texte ajouté par H3 ni les

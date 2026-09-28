@@ -22,3 +22,9 @@ explanation_fr:
     Cocher « Lazy loading » montre aussitôt dans la jauge l'écart de tokens entre
     les deux modes. Un serveur public reçoit les données de chaque appel : elles
     s'affichent dans le volet Orchestration avant le résultat.
+# Story 23 : ce qui sort du poste et où le lire. La session remplit {servers}
+# (serveurs MCP publics).
+outbound_fr: >-
+  Peuvent sortir du poste : {servers}. Ce qu'ils reçoivent (adresse, en-têtes, corps) :
+  volet Orchestration, bloc « 🌐 Données sortantes » de la connexion et de chaque
+  appel ; un clic sur leur nœud 🌐 du schéma y mène.

@@ -509,6 +509,10 @@ def test_public_holidays_traces_the_exact_request_then_the_node_is_available(web
     preview = session._registry.get("public_holidays").preview(year=2026)
     assert preview == {"method": "GET", "url": HOLIDAYS_URL, "body": ""}
     assert {k: outbound[k] for k in ("method", "url", "body")} == preview  # traced = previewed
+    # Story 23: the headers sent, public ones in clear, the contact in the User-Agent.
+    traced = {h["name"]: h["value"] for h in outbound["headers"]}
+    assert config.DEFAULT_NET_CONTACT in traced["User-Agent"] and traced["Accept"] == "*/*"
+    assert not any(h["masked"] for h in outbound["headers"])
     assert (sent[0].method, str(sent[0].url), sent[0].content) == ("GET", HOLIDAYS_URL, b"")
     kinds = [e.kind for e in get_journal().events_since(mark)]
     started = kinds.index("tool_started")

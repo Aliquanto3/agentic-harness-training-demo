@@ -511,6 +511,75 @@ def test_cards_come_in_two_groups_in_the_story_order():
     }
 
 
+def test_tools_and_mcp_cards_say_what_leaves_the_workstation_and_where_to_read_it():
+    mark = get_journal().last_seq()
+    booted_session(FakeEngine())
+
+    cards = {b["id"]: b for b in _latest("bricks_changed", mark)["bricks"]}
+
+    tools = cards["tools"]["outbound_fr"]
+    for label in (
+        "Jours fériés",
+        "Résumé Wikipédia",
+        "Lecture de page web",
+        "data.gouv.fr",
+        "Microsoft Learn",
+        "Données sortantes",
+    ):
+        assert label in tools, label
+    assert "Heure et date" not in tools and "Calculatrice" not in tools  # local tools
+    assert tools.index("Jours fériés") < tools.index("Résumé Wikipédia")  # registry order
+    mcp = cards["mcp"]["outbound_fr"]
+    assert "data.gouv.fr" in mcp and "Microsoft Learn" in mcp and "Données sortantes" in mcp
+    assert "Glossaire WaveStack" not in mcp  # the local server stays on the workstation
+    assert "{" not in tools + mcp
+    assert cards["skills"]["outbound_fr"] is None
+    assert tools.startswith("Peuvent sortir du poste : ")  # disabled ones included
+
+
+@pytest.mark.parametrize(
+    ("items", "text"),
+    [([], ""), (["a"], "a"), (["a", "b"], "a et b"), (["a", "b", "c"], "a, b et c")],
+)
+def test_join_fr(items, text):
+    assert app_session_module._join_fr(items) == text
+
+
+def _outbound(session: AppSession, brick_id: str) -> str | None:
+    return session._outbound_fr(brick_id, session._content.get(brick_id))
+
+
+def test_outbound_line_without_network_tool_or_public_server():
+    session = booted_session(FakeEngine())
+    local_tools = [o for o in session._tool_options() if not o["network"]]
+    publics = {k: v for k, v in session._mcp_servers.items() if v.network}
+
+    session._tool_options = lambda: local_tools  # no network tool declared
+    tools = _outbound(session, "tools")
+    assert tools.startswith("Peuvent sortir du poste : aucun outil réseau, ")
+    assert "data.gouv.fr et Microsoft Learn" in tools
+
+    for server_id in publics:  # no public server either
+        del session._mcp_servers[server_id]
+    assert _outbound(session, "tools") is None
+    assert _outbound(session, "mcp") is None
+
+
+@pytest.mark.parametrize("template", ["{x}", "{tools.x}", "{0}", "{", "{servers!z}", "{tools:d}"])
+def test_a_bad_outbound_template_drops_the_line_not_the_cards(template, caplog):
+    session = booted_session(FakeEngine())
+    session._content["tools"] = session._content["tools"].model_copy(
+        update={"outbound_fr": template}
+    )
+
+    assert _outbound(session, "tools") is None
+    assert "outbound_fr of tools ignored" in caplog.text
+    mark = get_journal().last_seq()
+    session._emit_bricks()  # the cards still go out
+    cards = {b["id"]: b for b in _latest("bricks_changed", mark)["bricks"]}
+    assert cards["tools"]["outbound_fr"] is None and cards["mcp"]["outbound_fr"]
+
+
 def test_panel_groups_must_be_contiguous_reads_first():
     def brick(brick_id: str, group: str) -> BrickDeclaration:
         component = Component(id=f"{brick_id}.part", kind="fake", hosting="local_process")

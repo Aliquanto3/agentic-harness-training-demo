@@ -48,6 +48,9 @@ class BrickContent(BaseModel):
     hosting_fr: str = Field(min_length=1)
     # Each item is a paragraph (`str`, rendered `<p>`) or a bullet list (`list[str]`, `<ul><li>`).
     explanation_fr: list[str | list[str]] = Field(min_length=1)
+    # Story 23, `tools` and `mcp`: what leaves the workstation and where to read it, a
+    # template the session fills with `{tools}` and `{servers}` (network labels).
+    outbound_fr: str | None = None
 
 
 class SystemPromptContent(BaseModel):

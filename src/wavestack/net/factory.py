@@ -2,10 +2,21 @@
 
 A destination outside `allowed_hosts` and the loopback range is refused
 (`NetworkBlocked`) before anything is sent or traced. Every other destination
-outside the loopback range emits `outbound_request` (address and exact body)
-via the journal, before the request is sent, tagged with the scope's `origin`.
-The hook runs again on every redirect hop. Two clients share this setup: a
-synchronous `httpx.Client` and an `httpx2.AsyncClient` (MCP Streamable HTTP).
+outside the loopback range emits `outbound_request` (address, headers and exact
+body) via the journal, before the request is sent, tagged with the scope's
+`origin`. The hook runs again on every redirect hop, with that hop's headers.
+
+Headers are traced in the order and case they are sent. Only the closed
+allow-list `config.PUBLIC_HEADERS` keeps its value: any other header (a cloud key
+under whatever name its entry declares, which may not be a public one, a cookie,
+`Mcp-Session-Id`, `Last-Event-ID`, an unknown one) keeps its name, but its value
+becomes `MASKED` here, before `emit`, so it never enters the journal (AD-15,
+story 23). Only request-level headers are seen: what the transport adds below
+the event hook (proxy credentials, HTTP/2 pseudo-headers) is neither traced nor
+shown.
+
+Two clients share this setup: a synchronous `httpx.Client` and an
+`httpx2.AsyncClient` (MCP Streamable HTTP).
 """
 
 from __future__ import annotations
@@ -17,13 +28,16 @@ import httpx
 import httpx2
 import truststore
 
-from wavestack.config import load_config
+from wavestack.config import PUBLIC_HEADERS, load_config
 from wavestack.net.guard import NetworkBlocked, is_host_allowed, is_loopback
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import TraceScope, current
 
 # The body traced for an async redirect hop, whose stream cannot be read again here.
 REDIRECT_BODY_NOT_READ = "(corps non relu : redirection)"
+
+# The value traced in place of any header outside `PUBLIC_HEADERS`.
+MASKED = "[masqué]"
 
 
 def user_agent() -> str:
@@ -44,10 +58,24 @@ def _check_and_trace(request: httpx.Request | httpx2.Request, scope: TraceScope)
             "origin": scope.origin or "brick",
             "method": request.method,
             "url": str(request.url),
+            "headers": _headers(request),
             "body": _body(request).decode("utf-8", "replace"),
         },
         scope=scope,
     )
+
+
+def _headers(request: httpx.Request | httpx2.Request) -> list[dict[str, object]]:
+    """The headers as sent (order and case of `headers.raw`, decoded in latin-1), each value
+    outside `PUBLIC_HEADERS` replaced by `MASKED` before it can reach the journal."""
+    headers: list[dict[str, object]] = []
+    for raw_name, raw_value in request.headers.raw:
+        name = raw_name.decode("latin-1")
+        if name.lower() in PUBLIC_HEADERS:
+            headers.append({"name": name, "value": raw_value.decode("latin-1"), "masked": False})
+        else:
+            headers.append({"name": name, "value": MASKED, "masked": True})
+    return headers
 
 
 def _body(request: httpx.Request | httpx2.Request) -> bytes:

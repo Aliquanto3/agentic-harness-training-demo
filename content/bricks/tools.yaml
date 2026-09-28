@@ -11,3 +11,10 @@ explanation_fr:
   - >-
     Les cinq étapes (description, demande, exécution, réinjection, réponse) et
     chaque échec s'affichent dans le volet Orchestration.
+# Story 23 : ce qui sort du poste et où le lire. La session remplit {tools} (outils
+# réseau déclarés) et {servers} (serveurs MCP publics).
+outbound_fr: >-
+  Peuvent sortir du poste : {tools}, ainsi que les serveurs MCP publics ({servers}) de la
+  brique MCP. Ce qu'ils envoient (adresse, en-têtes, corps) : volet Orchestration,
+  bloc « 🌐 Données sortantes » de leur étape ; un clic sur leur nœud 🌐 du schéma y
+  mène.
