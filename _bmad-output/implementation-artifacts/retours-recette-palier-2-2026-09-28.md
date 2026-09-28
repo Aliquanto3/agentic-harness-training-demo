@@ -3,7 +3,7 @@
 Source : cahier de recette interactif (`cahier-recette-palier-2.html`, version en ligne), rempli
 par Anaël sur le PC cible (Windows 11, CPU, 16 Go), branche `claude/dreamy-cerf-gdjtee` au commit
 `6664df9`. Edge ouvert pendant la séance (lecture du cahier et interface WaveStack). Chaque
-retour renvoie à la story qui le traite (`stories.yaml`, ids 22 à 31). Décisions prises le
+retour renvoie à la story qui le traite (`stories.yaml`, ids 22 à 32). Décisions prises le
 2026-09-28 : fenêtre de contexte réglable (4 096 par défaut, 8 192, 16 384) ; budget mémoire
 dynamique plafonné ; écran RAG avec FAISS et LanceDB ; tout est implémenté par Claude Code dans
 le cloud.
@@ -53,6 +53,8 @@ le cloud.
    retirer et déplacer des composants, choisir la base vectorielle (dont FAISS et LanceDB), le
    modèle de recherche et le reranker.
 5. **Mode sombre** (story 31) : sélecteur Système, Clair, Sombre.
+6. **Contexte LLM lisible** (story 32) : texte groupé avec sa source en marge, JSON formatés,
+   texte lu et texte produit distincts, appels successifs d'un tour lisibles.
 
 ## Réponses données en séance
 

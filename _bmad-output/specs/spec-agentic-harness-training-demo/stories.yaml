@@ -753,3 +753,41 @@
     script en tête de page pour éviter le flash. Mettre à jour EXPERIENCE.md. Tests :
     pytest (jetons), E2E (bascule, mémorisation, capture dans chaque thème). Faire cette
     story avant 29 et 30.
+
+- id: "32"
+  title: "Contexte LLM lisible : texte groupé, sources en marge, lu et produit distincts"
+  description: >-
+    Rendre l'onglet Contexte LLM plus clair (demande du 2026-09-28), sans rien perdre de son
+    exactitude (ce qui est affiché est exactement ce que le modèle a lu). (1) Vue groupée
+    par défaut : le texte brut du contexte, d'un seul tenant, avec en marge gauche un trait
+    de couleur et une étiquette par section indiquant sa source (gabarit, prompt système,
+    mémoire globale, descriptions d'outils, extraits RAG, historique, message, résultat
+    d'outil…, avec la brique) ; les segments consécutifs de même source sont regroupés, le
+    nombre de tokens reste affiché par section. Une bascule « Texte exact » garde l'affichage
+    brut sans habillage. (2) Les JSON (corps envoyé à un modèle cloud, appels d'outils et
+    leurs arguments, résultats d'outils en JSON, schémas d'outils) sont indentés, colorés et
+    repliables, avec leur texte exact disponible. (3) Le texte produit par le modèle
+    (réflexion, réponse, appel d'outil) est visuellement distinct du texte lu (couleur de
+    fond, étiquette « produit par le modèle ») ; la réflexion se distingue de la réponse.
+    (4) Un tour à plusieurs appels (outils, relance après une coupe du raisonnement,
+    sous-agent) se lit comme une suite d'appels numérotés : pour chaque appel, ce qui a été
+    lu (avec « déjà lu à l'appel précédent » replié, et « nouveau » mis en avant, par
+    exemple le résultat d'outil réinjecté) puis ce qui a été produit, avec les tokens lus,
+    évalués et produits. Les couleurs viennent des jetons de design et fonctionnent dans les
+    deux thèmes (story 31). Textes en français.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Rendu actuel : renderContext / renderContextBody web/static/app.js:2405-2478 (dernier
+    contexte du tour seulement, sortie brute du dernier appel, reasoningBlock),
+    appendSegments 2485-2514 (une boîte par segment, couleur par groupe GROUP_COLORS,
+    compressed_from), ctxViewSwitch 2518 (principal / sous-agent), bannière du mode chat
+    (p.body : corps JSON). Données : événements context_rendered (segments : text, kind,
+    brick, component, label_fr, tokens) et model_call_ended (raw_output, reasoning, text,
+    tool_calls, prompt_tokens, evaluated_tokens, output_tokens) par appel, dans le store par
+    tour ; AD-1 et AD-2 : l'interface ne recalcule rien, pas de retokenisation côté
+    navigateur. Ne pas casser la vue Comparer (renderCompare) ni la bascule sous-agent (story
+    22 la transforme en onglets : faire 22 d'abord). Coloration JSON en JS natif, sans
+    bibliothèque. Mettre à jour EXPERIENCE.md (Contexte LLM). Tests : E2E (tour avec outil :
+    deux appels visibles, nouveau segment mis en avant, JSON indenté, lu et produit
+    distincts, bascule Texte exact identique au texte envoyé) et captures.
