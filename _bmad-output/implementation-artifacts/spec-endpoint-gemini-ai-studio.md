@@ -2,7 +2,7 @@
 title: 'Endpoint cloud Gemini (Google AI Studio) réel et activable'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'de47b144d7925f632e3303c695426337ba40b15f'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -166,3 +166,12 @@ Revue 1 (2026-09-29, trois relecteurs : aveugle, cas limites, trous de vérifica
 | 19 | `tags` identiques ou préfixes l'un de l'autre (EC9) | low | Erreur de configuration manuelle, improbable | rejeté |
 | 20 | `_provider_message` sur tableau vide (B11) | false | `data and …` le garde : repli sur `str(data)` | rejeté |
 | 21 | Faux fournisseur : appel qui n'est pas un objet (EC13), `stack.py` sans entrée `gemini` (EC14) | low | Outils de test, entrées contrôlées | rejeté |
+
+## Vérification finale (2026-09-30, nuit)
+
+- `ruff check`, `ruff format --check` : propres.
+- `pytest -q` : 1 336 réussis, 5 sautés.
+- E2E complet, joué en cinq tranches au premier plan (la machine manquait de mémoire pour un seul passage à côté d'autres suites) : 723 vérifications réussies, 0 échec.
+  - `[rag_rerank]` a dépassé une fois son délai de 30 s sous charge, puis est passé seul (56 sur 56).
+  - `[gemini_shape]` et `[model_catalog]` (groupe « Réseau · Gemini (Google) ») sont verts.
+- Captures relues : sélecteur, raisonnement par appel, bulle sans balise.
