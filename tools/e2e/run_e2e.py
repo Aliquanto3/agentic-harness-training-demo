@@ -1582,6 +1582,55 @@ def _bar_fits(r: Run) -> tuple[bool, str]:
     return ok, f"{controls} ; {cut}"
 
 
+def _top_bar_problems(r: Run, chip) -> list[str]:
+    """Lot K (A1): what is wrong in the top bar: a control out of the bar or cut (the chips
+    aside), « Réinitialiser » missing, the gauge's legend under the « Fenêtre » button; with
+    `chip`, the chip cut, or cut once 10 px wider (the fonts of Windows are wider)."""
+    page = r.page
+    problems = []
+    controls = page.evaluate(
+        "() => [...document.querySelectorAll('.top-bar > *')]"
+        ".filter(e => e.id && e.offsetParent && e.getBoundingClientRect().width > 0"
+        " && getComputedStyle(e).position !== 'absolute')"
+        ".map(e => '#' + e.id)"
+    )
+    for control in controls:
+        if control == "#pane-chips" and chip is None:
+            continue
+        if why := _fully_visible(r, control):
+            problems.append(f"{control} {why}")
+    if "#reset-button" not in controls:
+        problems.append("« Réinitialiser » absent")
+    covered = page.evaluate(
+        "() => { const l = document.getElementById('gauge-legend').getBoundingClientRect();"
+        " const w = document.getElementById('window-toggle').getBoundingClientRect();"
+        " return Math.round(l.right - w.left); }"
+    )
+    if covered > 0:
+        problems.append(f"légende recouverte de {covered} px par « Fenêtre ▾ »")
+    if chip is not None:
+        if "· lié" not in chip.inner_text():
+            problems.append(f"puce « {chip.inner_text()} » sans « · lié »")
+        for extra in (0, 10):
+            missing = chip.evaluate(
+                "(c, extra) => {"
+                " c.style.paddingRight = extra ? `calc(var(--spacing-3) + ${extra}px)` : '';"
+                " const m = c.scrollWidth - c.clientWidth;"
+                " const bar = document.querySelector('.top-bar').getBoundingClientRect();"
+                " const reset = document.getElementById('reset-button').getBoundingClientRect();"
+                " const out = reset.right > bar.right + 1;"
+                " c.style.paddingRight = ''; return out ? 999 : m; }",
+                extra,
+            )
+            if missing > 1:
+                problems.append(
+                    f"puce « {chip.inner_text()} » "
+                    + (f"coupée de {missing} px" if missing < 999 else ": la barre déborde")
+                    + (f" une fois {extra} px plus large" if extra else "")
+                )
+    return problems
+
+
 def _compact_picker(r: Run) -> str:
     """'' when the compact theme picker shows only its face (the symbol of the choice and a
     chevron), the native list lies whole over it, transparent, and the keyboard changes the
@@ -2275,30 +2324,41 @@ def s_linked_view(r: Run) -> None:
         f"{on} {size} {pressed} ; Réinitialiser : {cut or 'visible'} ; débordent : {over}",
     )
     r.shot("39-mode-projection")
-    # At 1280 × 720, in projection mode, a selection shown on a hidden pane's chip.
-    page.set_viewport_size({"width": 1280, "height": 720})
+    # Lot K (A1): a selection shown on a hidden pane's chip, whole with 10 px to spare (the
+    # fonts of Windows are wider than the container's), the bar on one line, « Réinitialiser »
+    # whole and the gauge's legend never under « Fenêtre ▾ », at four widths, projection mode
+    # then normal mode; at 1024 px (1280 px zoomed to 125 %), the bar and the legend only.
     node("Calculatrice").click()
     page.locator('.pane[data-pane="ctx"] .pane-hide').click()
     time.sleep(0.5)
-    cut = _fully_visible(r, "#reset-button")
-    over = page.evaluate(
-        "() => { const bar = document.querySelector('.top-bar').getBoundingClientRect();"
-        " return [...document.querySelectorAll('.top-bar > *')]"
-        ".filter(e => e.offsetParent && getComputedStyle(e).position !== 'absolute')"
-        ".filter(e => { const b = e.getBoundingClientRect();"
-        " return b.right > bar.right + 1 || b.bottom > bar.bottom + 1 || b.top < bar.top - 1; })"
-        ".map(e => e.id || e.className); }"
-    )
     chip = page.locator("#pane-chips .pane-chip", has_text="Contexte LLM")
-    missing = chip.evaluate("c => c.scrollWidth - c.clientWidth")
-    readable = missing <= 1
+    for projection_on in (True, False):
+        if not projection_on:
+            toggle.click()
+        mode = "mode projection" if projection_on else "mode normal"
+        for width, height in ((1280, 720), (1366, 768), (1440, 900), (1600, 1000)):
+            page.set_viewport_size({"width": width, "height": height})
+            time.sleep(0.3)
+            if "· lié" not in chip.inner_text():  # a click in the bar may clear the selection
+                node("Calculatrice").click()
+                time.sleep(0.3)
+            problems = _top_bar_problems(r, chip)
+            r.check(
+                not problems,
+                f"{width} × {height} en {mode} : barre sur une ligne, « Réinitialiser » entier, "
+                "légende de la jauge dégagée, « · lié » entier sur la puce (10 px de marge)",
+                "; ".join(problems) or f"puce « {chip.inner_text()} »",
+            )
+    page.set_viewport_size({"width": 1024, "height": 700})
+    time.sleep(0.3)
+    problems = _top_bar_problems(r, None)
     r.check(
-        not cut and not over and readable and "· lié" in chip.inner_text(),
-        "1280 × 720 en mode projection : barre sur une ligne, « Réinitialiser » entier, "
-        "« · lié » lisible sur la puce",
-        f"Réinitialiser : {cut or 'visible'} ; débordent : {over} ; puce « {chip.inner_text()} », "
-        f"entière : {readable} (manque {missing} px)",
+        not problems,
+        "1024 × 700 : barre sur une ligne, « Réinitialiser » entier, légende de la jauge dégagée",
+        "; ".join(problems),
     )
+    toggle.click()
+    time.sleep(0.3)
     page.keyboard.press("Escape")
     chip.click()
     page.set_viewport_size({"width": 1600, "height": 1000})
