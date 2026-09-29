@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from wavestack.context.segments import Segment, SegmentKind, SegmentLabels
+from wavestack.models.engine import EngineMetadata
 
 _MESSAGE_GROUP = "message"
 # AD-4: `user_message` and `template` form one gauge group, « Message et gabarit ».
@@ -158,6 +159,16 @@ def context_sections(
 
 def effective_window(configured: int, native: int | None) -> int:
     return min(configured, native) if native else configured
+
+
+def window_for(meta: EngineMetadata, configured: int) -> tuple[int, str]:
+    """AD-9: a local model's window, min(configured, native, the server's own context), and
+    its source. The session's load and the model table (story 25) share it."""
+    window = effective_window(configured, meta.native_context)
+    source = "configured" if window == configured else "native"
+    if meta.server_context and meta.server_context < window:
+        window, source = meta.server_context, "server"
+    return window, source
 
 
 def gauge(

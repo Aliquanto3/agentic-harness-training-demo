@@ -68,7 +68,7 @@ from wavestack.context.segments import (
     SegmentLabels,
     load_labels,
 )
-from wavestack.context.window import effective_window, gauge, seen_prefix
+from wavestack.context.window import gauge, seen_prefix, window_for
 from wavestack.hooks import (
     ALLOWED,
     AUDIT,
@@ -88,10 +88,13 @@ from wavestack.models import embedding as embedding_module
 from wavestack.models import probe as probe_module
 from wavestack.models import reranker as reranker_module
 from wavestack.models.capabilities import (
+    NO_TOOL_PARSER_FR,
     TOOL_CALL_TAGS,
     Capabilities,
     ChannelSplitter,
     capabilities_for,
+    cloud_capabilities,
+    reasoning_window_fr,
 )
 from wavestack.models.embedding import Embedder
 from wavestack.models.engine import CancelToken, Engine, EngineSnapshot, LlamaCppEngine
@@ -323,9 +326,7 @@ _TOOL_CATALOG_FULL_FR = (
 )
 # AD-6: the French name of a model capability a brick requires.
 _CAPABILITIES_FR = {
-    "tool_call_parser": (
-        "l'appel d'outils (aucun format d'appel connu pour cette famille de modèle)"
-    ),
+    "tool_call_parser": f"l'appel d'outils ({NO_TOOL_PARSER_FR})",
 }
 _LIMITS_FR = {
     "calls": (
@@ -1746,11 +1747,8 @@ class AppSession:
                     raise _LoadFailed(
                         "Modèle incompatible.", caps.incompatible_reason, caps.incompatible_reason
                     )
-                window = effective_window(configured, caps.native_context)
-                source = "configured" if window == configured else "native"
                 # AD-9: min(configured, native, the server's own context).
-                if meta.server_context and meta.server_context < window:
-                    window, source = meta.server_context, "server"
+                window, source = window_for(meta, configured)
                 if hasattr(engine, "use_window"):  # `ollama_raw`: num_ctx = this window
                     engine.use_window(window)
                 labels = self._load_labels()
@@ -1783,17 +1781,7 @@ class AppSession:
         engine = self._cloud_factory(entry, key)
         try:
             # AD-6: declared capabilities; the API's structured format parses the tool calls.
-            caps = Capabilities(
-                family="openai_chat",
-                chat_template=None,
-                tool_call_parser="openai_chat" if entry.tools else None,
-                stop_sequences=(),
-                reasoning_variable=None,
-                native_context=entry.context,
-                reasoning_tags=None,
-                reasoning=entry.reasoning is not None,
-                reasoning_always=entry.always_reasons,
-            )
+            caps = cloud_capabilities(entry)
             window, source = config.cloud_window(entry, self.cfg.context_window)
             labels = self._load_labels()
         except BaseException:
@@ -2671,12 +2659,8 @@ class AppSession:
         missing = [c for c in brick.capabilities if not getattr(self._caps, c, None)]
         if "reasoning" in missing:
             return self._no_reasoning_fr()
-        if brick_id == "reasoning" and self._window <= MAX_RESERVE:  # as the cloud `tpm` guard
-            return (
-                f"Indisponible : la fenêtre de contexte ({_fr(self._window)} tokens) ne laisse "
-                f"aucune place au contexte une fois réservés les {_fr(MAX_RESERVE)} tokens de "
-                "sortie du raisonnement. Agrandissez la fenêtre dans la configuration."
-            )
+        if brick_id == "reasoning" and (too_small := reasoning_window_fr(self._window)):
+            return too_small  # AD-9, as the cloud `tpm` guard
         if missing and self._cloud is not None:  # AD-6: a capability not declared is absent
             return (
                 f"Le modèle cloud « {self._cloud.id} » ne déclare pas l'appel d'outils (tools) : "

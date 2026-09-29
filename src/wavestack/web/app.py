@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,12 +22,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr, model_validator
 
 from wavestack import config
+from wavestack.models import catalog
 from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession, Refused
 from wavestack.trace.envelope import Envelope
 from wavestack.trace.journal import get_journal
 
 STATIC_DIR = Path(__file__).parent / "static"
+log = logging.getLogger(__name__)
 
 
 class SelectModelIntention(BaseModel):
@@ -216,6 +219,11 @@ def create_app(
     def diagnostic_page() -> FileResponse:
         return FileResponse(STATIC_DIR / "diagnostic.html")
 
+    @app.get("/models")
+    def models_page() -> FileResponse:
+        """Story 25: the table of the available models and their capabilities."""
+        return FileResponse(STATIC_DIR / "models.html")
+
     @app.get("/api/state")
     def api_state() -> dict[str, object]:
         """AD-1: what the front's store needs to boot without waiting on SSE.
@@ -281,11 +289,13 @@ def create_app(
             ),
             None,
         )
+        cloud = session.cloud_rows(active.ref if active and active.kind == "cloud" else None)
+        candidates = result.candidates if result else []
         return {
             "version": version,
             "ready": result.ready if result else False,
             "blocking_checks": result.blocking_checks if result else [],
-            "candidates": [c.model_dump() for c in result.candidates] if result else [],
+            "candidates": [c.model_dump() for c in candidates],
             "selected_model": session.selected_model_path,
             "loaded_model": active.ref if active and active.kind == "file" else None,
             # Story 18: the saved choice and the loaded model, whatever their kind.
@@ -294,11 +304,22 @@ def create_app(
                 {"kind": active.kind, "ref": active.ref, "label": active.label} if active else None
             ),
             # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
-            "cloud": session.cloud_rows(active.ref if active and active.kind == "cloud" else None),
+            "cloud": cloud,
+            # Story 25: the picker's groups and the `/models` table, built in Python (AD-1).
+            **_models(candidates, cloud),
             # Story 24: the budget the session refuses with (the diagnostic's memory line).
             "memory_budget_bytes": app_session.memory_budget_bytes,
             "seq": tip,
         }
+
+    def _models(candidates: list, cloud: dict[str, Any]) -> dict[str, object]:
+        """`models`, or nothing when it could not be built: the picker then lists the
+        candidates as before (AD-16: a failure is contained)."""
+        try:
+            return {"models": catalog.models_payload(candidates, session.cfg, cloud["models"])}
+        except Exception:  # noqa: BLE001 - the diagnostic's answer never fails for the table
+            log.exception("Tableau des modèles impossible à construire")
+            return {}
 
     @app.post("/api/intentions/select_model")
     def select_model(intention: SelectModelIntention) -> dict[str, object]:

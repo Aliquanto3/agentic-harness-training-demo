@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>WaveStack — Modèles disponibles</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/fonts.css" />
+  <link rel="stylesheet" href="/static/tokens.css" />
+  <link rel="stylesheet" href="/static/pages.css" />
+  <style>
+    /* Story 25: colours by the tokens of tokens.css only (as app.css, story 33). */
+    body {
+      margin: 0;
+      padding: var(--spacing-5) var(--spacing-5) var(--spacing-6);
+      background: var(--color-surface);
+      color: var(--color-ink);
+      font: var(--typography-body-font-weight) var(--typography-body-font-size) /
+        var(--typography-body-line-height) var(--typography-body-font-family);
+    }
+    main, .page-tabs { max-width: 1500px; margin-left: auto; margin-right: auto; }
+    h1 {
+      margin: var(--spacing-4) 0 var(--spacing-2);
+      font: var(--typography-heading-font-weight) calc(var(--typography-heading-font-size) * 1.3) /
+        var(--typography-heading-line-height) var(--typography-heading-font-family);
+    }
+    .models-legend, .models-note, #models-status {
+      color: var(--color-ink-soft);
+      margin: var(--spacing-2) 0;
+    }
+    .models-error {
+      margin: var(--spacing-3) 0;
+      padding: var(--spacing-2) var(--spacing-3);
+      background: var(--color-surface-raised);
+      border: var(--spacing-stroke-min) solid var(--color-danger);
+      border-radius: var(--rounded-sm);
+      color: var(--color-ink);
+    }
+    .model-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      background: var(--color-surface-raised);
+      border: 1px solid var(--color-line);
+      border-radius: var(--rounded-sm);
+      overflow: hidden;
+    }
+    .model-table caption {
+      text-align: left;
+      padding: var(--spacing-2) 0;
+      color: var(--color-ink-soft);
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+        var(--typography-label-line-height) var(--typography-label-font-family);
+      text-transform: uppercase;
+    }
+    .model-table th, .model-table td {
+      padding: var(--spacing-2) var(--spacing-3);
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--color-line);
+    }
+    .model-table thead th {
+      color: var(--color-ink-soft);
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+        var(--typography-label-line-height) var(--typography-label-font-family);
+      background: var(--color-surface-raised);
+    }
+    .model-table th[scope="rowgroup"] {
+      background: var(--color-surface);
+      font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+        var(--typography-heading-line-height) var(--typography-heading-font-family);
+    }
+    .model-name { display: block; margin-top: var(--spacing-1); word-break: break-word; }
+    .figures {
+      font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+        var(--typography-number-line-height) var(--typography-number-font-family);
+      white-space: nowrap;
+    }
+    .why {
+      display: block;
+      margin-top: var(--spacing-1);
+      color: var(--color-ink-soft);
+      font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+        var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+      white-space: normal;
+    }
+    .state-active { font-weight: 700; }
+    tr.unusable td { color: var(--color-ink-soft); }
+    .hosting-tag-local, .hosting-tag-network {
+      display: inline-block;
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+        var(--typography-label-line-height) var(--typography-label-font-family);
+      border-radius: var(--rounded-full);
+      padding: 2px var(--spacing-2);
+      white-space: nowrap;
+    }
+    .hosting-tag-local {
+      background: var(--color-surface-raised);
+      color: var(--color-ink);
+      border: 1px solid var(--color-ink-soft);
+    }
+    .hosting-tag-network {
+      background: var(--color-hosting-network);
+      color: var(--color-ink);
+      border: 1px dashed var(--color-ink);
+    }
+    .hosting-tag-network::before { content: "🌐 "; }
+  </style>
+</head>
+<body>
+  <nav class="page-tabs" aria-label="Pages de WaveStack">
+    <a href="/diagnostic">Diagnostic</a>
+    <a href="/models" aria-current="page">Modèles</a>
+    <!-- Shown once the diagnostic is ready (`ready`), as on the diagnostic page. -->
+    <a href="/" id="open-link" hidden>Ouvrir WaveStack</a>
+  </nav>
+  <main>
+    <h1>Modèles disponibles</h1>
+    <p id="publishers-error" class="models-error" role="alert" hidden></p>
+    <p id="models-legend" class="models-legend"></p>
+    <p id="models-status" role="status">Chargement de la liste des modèles…</p>
+    <table id="models-table" class="model-table" hidden>
+      <caption>Modèles trouvés au dernier diagnostic, par lieu d'hébergement puis par éditeur, du plus petit au plus grand ; tailles en paramètres (B : milliards) et en octets (1 Go = 1024³ octets, 1 Mo = 1024² octets)</caption>
+      <thead>
+        <tr>
+          <th scope="col">Modèle</th>
+          <th scope="col">Éditeur</th>
+          <th scope="col">Taille</th>
+          <th scope="col">Hébergement</th>
+          <th scope="col">Fenêtre</th>
+          <th scope="col">Appel d'outils</th>
+          <th scope="col">Raisonnement</th>
+          <th scope="col">État</th>
+        </tr>
+      </thead>
+    </table>
+    <p class="models-note">Capacités lues comme au chargement : mêmes règles que les cartes des briques.</p>
+  </main>
+
+  <script type="module">
+    // Story 25: read only. Groups, order, labels and capabilities come from the session
+    // (`/api/diagnostic.models`, AD-1); the page only lays them out and marks the active model.
+    const table = document.getElementById("models-table");
+    const status = document.getElementById("models-status");
+
+    function node(tag, className, text) {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      if (text !== undefined && text !== null) element.textContent = text;
+      return element;
+    }
+
+    // A word, then its reason, visible under it.
+    function withReason(word, reason, className = "") {
+      const td = node("td", className, word);
+      if (reason) td.append(node("span", "why", reason));
+      return td;
+    }
+
+    function row(m, loaded) {
+      const tr = node("tr", m.usable ? "" : "unusable");
+      tr.dataset.value = m.value;
+      const network = m.hosting === "network";
+      const model = node("td");
+      model.append(
+        node("span", network ? "hosting-tag-network" : "hosting-tag-local", m.prefix_fr),
+        node("strong", "model-name", m.name)
+      );
+      const active = loaded && loaded.kind === m.kind && loaded.ref === m.ref;
+      const state = active
+        ? node("td", "state-active", "actif")
+        : m.usable
+          ? node("td", "", "disponible")
+          : withReason(network ? "indisponible" : "incompatible", m.disabled_fr);
+      tr.append(
+        model,
+        node("td", "", m.publisher_fr),
+        node("td", "figures", m.size_fr),
+        node("td", "", m.hosting_label_fr),
+        withReason(m.window_fr, m.window_reason_fr, "figures"),
+        withReason(m.tools_fr, m.tools_reason_fr),
+        withReason(m.reasoning_fr, m.reason_fr),
+        state
+      );
+      return tr;
+    }
+
+    async function load() {
+      let body;
+      try {
+        const response = await fetch("/api/diagnostic");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        body = await response.json();
+      } catch (error) {
+        status.textContent = `Liste des modèles indisponible (${error.message}) : rechargez la page.`;
+        return;
+      }
+      const models = body.models;
+      if (!models) {
+        status.textContent = "Tableau des modèles indisponible : voir le terminal de WaveStack.";
+        return;
+      }
+      document.getElementById("open-link").hidden = !body.ready;
+      document.getElementById("models-legend").textContent = models.legend_fr;
+      const error = document.getElementById("publishers-error");
+      error.hidden = !models.publishers_error_fr;
+      error.textContent = models.publishers_error_fr ?? "";
+      for (const group of models.groups) {
+        const tbody = node("tbody");
+        const head = node("tr");
+        const th = node("th", "", group.label_fr);
+        th.scope = "rowgroup";
+        th.colSpan = 8;
+        head.append(th);
+        tbody.append(head, ...group.models.map((m) => row(m, body.loaded)));
+        table.append(tbody);
+      }
+      const count = models.groups.reduce((n, g) => n + g.models.length, 0);
+      status.textContent = count
+        ? `${count} modèle${count > 1 ? "s" : ""} au dernier diagnostic.`
+        : "Aucun modèle trouvé au dernier diagnostic.";
+      table.hidden = !count;
+    }
+
+    load();
+  </script>
+</body>
+</html>

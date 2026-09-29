@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from wavestack import config
 from wavestack.models import servers
@@ -49,6 +49,17 @@ class ModelCandidate(BaseModel):
     # llama-server: its memory counts its context cache (the KV read in its GGUF); `False`
     # when the file could not be read here (the figure leaves the cache out).
     context_counted: bool | None = None
+    # Story 25, the model table (`catalog`): Ollama's family (`details.family` of
+    # `/api/tags`), a hint of the publisher; its `parameter_size` (« 0.6B »); the bytes of
+    # the file, or those the server reports. llama-server's template, training context and
+    # slot context (`/props`, `/v1/models`) give its capabilities as its adapter reads
+    # them; never sent in `/api/diagnostic` (the template is long).
+    publisher_hint: str | None = None
+    params_label: str | None = None
+    size_bytes: int | None = None
+    server_template: str | None = Field(default=None, exclude=True)
+    native_context: int | None = Field(default=None, exclude=True)
+    server_context: int | None = Field(default=None, exclude=True)
 
 
 def _glob_gguf(root: Path) -> list[Path]:
@@ -183,6 +194,9 @@ def _server_candidates(
             engine=model.engine,  # type: ignore[arg-type]
             ref=model.ref,
             provider=model.provider,
+            publisher_hint=model.family,
+            params_label=model.parameter_size,
+            size_bytes=model.size,
         )
         if model.engine == "ollama":
             blob = blobs.get(model.name)
@@ -202,6 +216,9 @@ def _server_candidates(
         else:  # llama-server: the file it loaded, for its size and KV cache (AD-8)
             candidate.gguf_path = model.model_path
             candidate.n_ctx = model.n_ctx
+            candidate.server_template = model.chat_template
+            candidate.native_context = model.n_ctx_train
+            candidate.server_context = model.slot_ctx
             candidate.warning_fr = servers.context_warning_fr(
                 model.n_ctx, cfg.context_window, model.slot_ctx
             )
@@ -258,4 +275,13 @@ def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
     for candidate in candidates:
         if candidate.path and candidate.name is None:
             candidate.name = Path(candidate.path).name
+        if candidate.path and candidate.source != "server" and candidate.size_bytes is None:
+            candidate.size_bytes = _file_size(candidate.path)
     return candidates
+
+
+def _file_size(path: str) -> int | None:
+    try:
+        return Path(path).stat().st_size
+    except OSError:
+        return None

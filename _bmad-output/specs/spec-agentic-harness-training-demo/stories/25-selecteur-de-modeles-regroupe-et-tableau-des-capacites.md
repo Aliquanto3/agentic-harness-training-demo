@@ -2,7 +2,8 @@
 title: 'Sélecteur de modèles regroupé et tableau des capacités'
 type: 'feature'
 created: '2026-09-28'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '01e65e90671e033724e0387f8351266c07d98df2'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -14,7 +15,27 @@ context:
   - '{project-root}/_bmad-output/specs/spec-agentic-harness-training-demo/stories/33-contrastes-et-code-couleur-par-discipline.md'
   - '{project-root}/tools/e2e/README.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      Aides de formatage et de lecture recopiées entre catalog, servers, discovery, config et app_session.
+    evidence: |-
+      size_fr / go_fr, _fr_int en trois exemplaires, _text et _positive en double, taille de fichier recalculée.
+    severity: low
+  - summary: >-
+      En-têtes GGUF lus pendant la requête /api/diagnostic, cache sans borne.
+    evidence: |-
+      Premier affichage du sélecteur ou de /models : un en-tête par candidat ; objectif « < 2 s » seulement dans « À vérifier sur PC ».
+    severity: medium (unverified)
+  - summary: >-
+      Repli JS rebuildModelPickerByKind non exercé en navigateur.
+    evidence: |-
+      Le contrat d'API (models absent) est testé ; le rendu de repli ne l'est pas.
+    severity: low (unverified)
+  - summary: >-
+      Métadonnées GGUF lues en Python pur par le catalogue, par llama.cpp par la session : le contexte natif peut différer.
+    evidence: |-
+      catalog lit {arch}.context_length ; le moteur utilise n_ctx_train().
+    severity: low (unverified)
 ---
 
 <intent-contract>
@@ -203,6 +224,29 @@ Numéros de ligne indicatifs : les stories 33, 23, 34, 32 et 24 modifient `app.j
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 19 findings — high 0, medium 3, low 12, false 1, maybe-false 3 (écarts de l'auditeur d'intention : regroupement Local/Réseau × éditeur plutôt que par canal de service, tri par paramètres puis octets, page dédiée, « toujours » réservé aux déclarations cloud, correspondance par test de parité — conformes aux décisions par défaut ; les groupes réseau Mistral et gpt-oss issus des préréglages de `wavestack.toml` sont consignés ici à la place du critère d'acceptation)
+- findings:
+  - `[low]` `[patch]` (vérif. + blind) repli de `/api/diagnostic` quand le catalogue échoue non testé — test ajouté.
+  - `[medium]` `[patch]` (blind + edge) modèle sans gabarit affiché « disponible » et sélectionnable, chargement refusé ensuite — non utilisable, raison affichée.
+  - `[low]` `[patch]` (blind + edge) fichiers incompatibles absents de la table et du sélecteur — listés grisés avec leur raison.
+  - `[low]` `[patch]` (blind) onglet « Ouvrir WaveStack » hors de la garde de disponibilité du diagnostic — gardé.
+  - `[low]` `[patch]` (blind) colonne Hébergement construite en français dans le navigateur — libellé envoyé par la session.
+  - `[low]` `[defer]` (blind) aides recopiées (`size_fr`, `_fr_int`, `_text`, `_positive`, taille de fichier) — mise en commun à faire.
+  - `[low]` `[patch]` (blind) CSS des onglets recopiée et divergente — feuille commune.
+  - `[low]` `[patch]` (blind) SmolLM et DeepSeek absents, `deepseek-r1` classé Qwen — entrées ajoutées, motif de nom avant la famille.
+  - `[low]` `[patch]` (blind) raisons seulement en infobulle — texte visible.
+  - `[maybe-false]` `[defer]` (blind) lecture des en-têtes GGUF dans la requête, cache sans borne — objectif « < 2 s » à mesurer sur PC.
+  - `[low]` `[patch]` (blind) tests en double — retirés.
+  - `[false]` `[reject]` (blind) critères d'acceptation non mis à jour — l'écart (préréglages réseau) est consigné dans ce journal ; corriger la spec est hors du périmètre du correctif.
+  - `[low]` `[patch]` (blind + edge) séparateurs décimaux mêlés, « 0,0 Go » — virgule française, Mo sous 0,1 Go, convention écrite.
+  - `[low]` `[patch]` (edge) chemin relatif lu comme en-tête illisible — chemin résolu.
+  - `[low]` `[patch]` (edge) identifiants d'éditeur en double ou réservés — validation.
+  - `[medium]` `[patch]` (edge) « activable » alors que la carte est indisponible quand la fenêtre ≤ 1 536 — même règle que la carte, test de parité.
+  - `[maybe-false]` `[defer]` (vérif. — repli JS `rebuildModelPickerByKind`) non exercé en navigateur — couvert par le contrat d'API testé.
+  - `[medium]` → regroupé (modèle sans gabarit, edge).
+  - `[maybe-false]` `[defer]` (intention) familles GGUF réimplémentées en Python pur (`catalog._engine_metadata` contre `VocabTokenizer.metadata`) — divergence possible du contexte natif.
+
 ## Design Notes
 
 - Un `<select>` natif n'imbrique pas les `optgroup` : le niveau hébergement passe dans le libellé du groupe (« Sur ce poste · Qwen (Alibaba) »), et l'option garde le préfixe complet. On garde le `select` natif, accessible au clavier, avec le modèle « noter puis Charger » de la story 17.
@@ -254,3 +298,17 @@ Numéros de ligne indicatifs : les stories 33, 23, 34, 32 et 24 modifient `app.j
 - **Geste** : Ollama avec un modèle dont le blob n'a pas de gabarit GGUF, ou un modèle de famille inconnue. — **Attendu** : ligne « inconnu » avec une raison compréhensible. — **Critère** : aucune ligne vide, aucune exception dans le terminal. — **Moyen** : Claude in Chrome.
 - **Geste** : llama-server lancé avec `-c 4096` sur le 2B, puis le tableau. — **Attendu** : éditeur Qwen (par l'en-tête ou le gabarit), taille 2B si `model_path` est lisible, fenêtre 4 096. — **Critère** : valeurs exactes. — **Moyen** : Claude in Chrome.
 - **Geste** : zoom à 125 % dans Chrome, page `/models`, depuis le fond de la salle. — **Attendu** : table lisible, onglets visibles, 🌐 RÉSEAU sur les lignes cloud. — **Critère** : aucune colonne coupée à 1600 × 1000 ; contraste jugé suffisant à l'œil. — **Moyen** : à la main.
+
+## Auto Run Result
+
+Statut : done (2026-09-29, orchestrateur de nuit ; étapes 1 à 4 menées par l'orchestrateur).
+
+**Changement :** le sélecteur « Changer de modèle… » regroupe les modèles par hébergement (« Sur ce poste », « Réseau ») puis par éditeur (table en contenu `content/models/publishers.yaml` : Qwen, Llama, Gemma, Granite, Phi, Mistral, LFM, Nemotron, gpt-oss, MiniCPM, DeepSeek, SmolLM, autres), trie chaque groupe par taille (paramètres, sinon octets), avec une légende du préfixe (« Local · Ollama », « RÉSEAU · Groq »). Nouvelle page `/models`, en onglets avec le diagnostic : éditeur, taille, hébergement, fenêtre, appel d'outils, raisonnement (jamais, toujours, activable, inconnu) avec la raison visible. Capacités tirées du même code que les cartes des briques (`capabilities_for`, `cloud_capabilities`, règle de fenêtre commune), vérifiées par un test de parité. Modèles incompatibles listés grisés avec leur raison.
+
+**Fichiers :** `models/{catalog.py (nouveau),capabilities.py,servers.py,discovery.py}`, `context/window.py`, `session/app_session.py`, `web/app.py`, `web/static/{app.js,models.html (nouveau),diagnostic.html,pages.css (nouveau)}`, `content/models/publishers.yaml` (nouveau), `tests/test_model_catalog.py` (nouveau) et tests associés, `tools/e2e/{run_e2e.py,fake_*,README.md}`, EXPERIENCE.md, DESIGN.md, SPEC.md (CAP-34, CAP-35), README, ARCHITECTURE-SPINE.md, captures 43 et 44.
+
+**Revue :** 19 constats — 13 corrigés (3 medium, 10 low), 4 différés, 1 rejeté (false), 1 regroupé ; voir le triage. Écart consigné : l'E2E voit aussi les groupes réseau « Mistral » et « gpt-oss » issus des préréglages de `wavestack.toml`. Revue de suivi recommandée : false.
+
+**Vérification :** ruff check et format verts ; pytest : 1133 passés, 3 ignorés ; E2E complet : 545 PASS, 0 FAIL.
+
+**Risques résiduels :** temps de lecture des en-têtes GGUF au premier affichage sur le PC ; rendu de la légende dans les listes natives de Chrome et Edge.

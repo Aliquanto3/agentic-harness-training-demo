@@ -1,0 +1,83 @@
+# Éditeurs des modèles et textes du sélecteur de modèles (story 25, AD-19).
+#
+# `models/catalog.py` range chaque modèle disponible sous un éditeur : d'abord par les
+# préfixes d'architecture (`general.architecture` de l'en-tête GGUF, `details.family`
+# d'Ollama, famille reconnue par le registre des capacités), puis par les expressions
+# régulières sur les noms (`general.basename`, `general.name`, nom affiché, `model` d'un
+# modèle cloud ; insensibles à la casse), dans l'ordre de cette liste. Sinon : `other_fr`.
+#
+# L'architecture `llama` sert aussi à Mistral 7B et à SmolLM2 : Llama (Meta) se reconnaît
+# au nom seul. « llama-server » (le serveur) ne ressemble pas à `llama[-_. ]?\d`.
+# `names_first: true` : les noms de cet éditeur passent avant toute architecture. Un modèle
+# distillé garde l'architecture de sa base : `deepseek-r1:1.5b` est `qwen2` pour Ollama.
+#
+# Un fichier invalide ne plante rien : tous les modèles vont dans « Autres éditeurs », et la
+# page « Modèles disponibles » affiche la raison.
+
+legend_fr: >-
+  Légende : « Local » ou « RÉSEAU » dit où tourne le modèle, puis vient qui le sert
+  (fichier, Ollama, llama-server ou fournisseur cloud).
+
+# Qui sert un modèle local, après « Local · ».
+served_by_fr:
+  file: fichier
+  ollama: Ollama
+  llama_server: llama-server
+
+# Premier niveau des groupes du sélecteur : « Sur ce poste · Qwen (Alibaba) ».
+hosting_fr:
+  local: Sur ce poste
+  network: Réseau
+
+other_fr: Autres éditeurs
+
+publishers:
+  - id: qwen
+    label_fr: Qwen (Alibaba)
+    architectures: [qwen]
+    names: ['qwen', 'qwq']
+  - id: llama
+    label_fr: Llama (Meta)
+    architectures: []
+    names: ['llama[-_. ]?\d']
+  - id: gemma
+    label_fr: Gemma (Google)
+    architectures: [gemma]
+    names: ['gemma']
+  - id: granite
+    label_fr: Granite (IBM)
+    architectures: [granite]
+    names: ['granite']
+  - id: phi
+    label_fr: Phi (Microsoft)
+    architectures: [phi]
+    names: ['phi[-_. ]?\d']
+  - id: mistral
+    label_fr: Mistral (Mistral AI)
+    architectures: [mistral]
+    names: ['mistral', 'ministral', 'magistral', 'devstral', 'codestral']
+  - id: lfm
+    label_fr: LFM (Liquid AI)
+    architectures: [lfm]
+    names: ['lfm']
+  - id: nemotron
+    label_fr: Nemotron (NVIDIA)
+    architectures: [nemotron]
+    names: ['nemotron']
+  - id: gpt_oss
+    label_fr: gpt-oss (OpenAI)
+    architectures: [gpt-oss, gpt_oss]
+    names: ['gpt[-_ ]?oss']
+  - id: minicpm
+    label_fr: MiniCPM (OpenBMB)
+    architectures: [minicpm]
+    names: ['minicpm']
+  - id: deepseek
+    label_fr: DeepSeek (DeepSeek AI)
+    architectures: [deepseek]
+    names: ['deepseek']
+    names_first: true
+  - id: smollm
+    label_fr: SmolLM (Hugging Face)
+    architectures: [smollm]
+    names: ['smollm']

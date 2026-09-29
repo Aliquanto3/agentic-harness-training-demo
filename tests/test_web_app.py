@@ -46,9 +46,39 @@ def test_diagnostic_route_still_works(monkeypatch, tmp_path):
     assert response.status_code == 200
 
 
+def test_models_page_and_tabs_shared_with_the_diagnostic(monkeypatch, tmp_path):
+    """Story 25: `/models` answers, and both pages carry the same tabs, each marking itself."""
+    client = _client(_build(monkeypatch, tmp_path))
+    models = client.get("/models")
+    assert models.status_code == 200 and "text/html" in models.headers["content-type"]
+    assert '<a href="/models" aria-current="page">Modèles</a>' in models.text
+    diagnostic = client.get("/diagnostic").text
+    assert '<a href="/diagnostic" aria-current="page">Diagnostic</a>' in diagnostic
+    assert '<a href="/models">Modèles</a>' in diagnostic
+    for page in (models.text, diagnostic):  # one stylesheet; « Ouvrir » gated by `ready`
+        assert '<link rel="stylesheet" href="/static/pages.css" />' in page
+        assert '<a href="/" id="open-link" hidden>Ouvrir WaveStack</a>' in page
+
+
+def test_api_diagnostic_contains_a_model_table_failure(monkeypatch, tmp_path):
+    """Story 25 (AD-16): the table failing leaves `/api/diagnostic` whole, without `models`
+    (the picker then lists the candidates as before)."""
+    from wavestack.models import catalog
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("table cassée")
+
+    monkeypatch.setattr(catalog, "models_payload", broken)
+    response = _client(_build(monkeypatch, tmp_path)).get("/api/diagnostic")
+    assert response.status_code == 200
+    body = response.json()
+    assert "models" not in body
+    assert body["candidates"] == [] and body["cloud"]["models"]
+
+
 def test_pages_and_static_files_are_revalidated_but_api_is_not(monkeypatch, tmp_path):
     client = _client(_build(monkeypatch, tmp_path))
-    for path in ("/", "/diagnostic", "/static/app.js"):
+    for path in ("/", "/diagnostic", "/models", "/static/app.js"):
         assert client.get(path).headers["cache-control"] == "no-cache", path
     assert "cache-control" not in client.get("/api/health").headers
 

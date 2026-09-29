@@ -637,6 +637,13 @@ class ServedModel:
     # launch, and one slot's (`-np N` shares the whole between N slots).
     n_ctx: int | None = None
     slot_ctx: int | None = None
+    # Story 25, read from the answers already fetched, never by another request: Ollama's
+    # `details` in `/api/tags` (`family`, `parameter_size`); llama-server's template
+    # (`/props`) and training context (`/v1/models`), the model table's capabilities.
+    family: str | None = None
+    parameter_size: str | None = None
+    chat_template: str | None = None
+    n_ctx_train: int | None = None
 
     @property
     def provider(self) -> str:
@@ -666,6 +673,8 @@ def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]
             name = str(model.get("name") or model.get("model") or "")
             if not name or _ollama_cloud(model):
                 continue
+            details = model.get("details")
+            details = details if isinstance(details, dict) else {}
             served.append(
                 ServedModel(
                     engine,
@@ -675,6 +684,8 @@ def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]
                     size=_positive(model.get("size")),
                     resident=name in loaded,
                     resident_size=loaded.get(name),
+                    family=_text(details.get("family")),
+                    parameter_size=_text(details.get("parameter_size")),
                 )
             )
         return served
@@ -689,7 +700,8 @@ def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]
     first = (models.get("data") or [{}])[0] or {}
     model_path = str(props.get("model_path") or "") or None
     name = _file_name(model_path) if model_path else str(first.get("id") or "modèle")
-    size = _positive((first.get("meta") or {}).get("size"))
+    meta = first.get("meta") if isinstance(first.get("meta"), dict) else {}
+    size = _positive(meta.get("size"))
     return [
         ServedModel(
             engine,
@@ -701,8 +713,15 @@ def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]
             True,
             n_ctx=_server_n_ctx(props, whole=True),
             slot_ctx=_server_n_ctx(props),
+            chat_template=str(props.get("chat_template") or "") or None,
+            n_ctx_train=_positive(meta.get("n_ctx_train")),
         )
     ]
+
+
+def _text(value: Any) -> str | None:
+    """A non-empty string from a server's answer, else `None`."""
+    return (value.strip() or None) if isinstance(value, str) else None
 
 
 def _server_n_ctx(props: dict[str, Any], *, whole: bool = False) -> int | None:

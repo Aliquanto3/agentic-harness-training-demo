@@ -186,6 +186,8 @@ _COMMENTS = {
     ".css": re.compile(r"/\*.*?\*/", re.S),
     # Block comments, then line comments not preceded by `:` (a URL keeps its `//`).
     ".js": re.compile(r"/\*.*?\*/|(?<![:\\])//[^\n]*", re.S),
+    # Story 25: a page with its style and script inline.
+    ".html": re.compile(r"<!--.*?-->|/\*.*?\*/|(?<![:\\])//[^\n]*", re.S),
 }
 _HARD_COLOR = re.compile(r"#[0-9a-fA-F]{3,8}\b(?![-\w])|\b(?:rgba?|hsla?)\(")
 
@@ -193,9 +195,9 @@ _HARD_COLOR = re.compile(r"#[0-9a-fA-F]{3,8}\b(?![-\w])|\b(?:rgba?|hsla?)\(")
 def test_app_css_and_js_write_no_color_outside_the_tokens():
     """Every colour goes through `tokens.css`, so a second theme (story 31) only redefines the
     tokens. CSS id selectors (`#gauge-bar`) are not colours: a hex colour is 3 to 8 hex digits
-    not followed by a name character."""
+    not followed by a name character. Story 25: the `/models` page too."""
     offenders = []
-    for name in ("app.css", "app.js"):
+    for name in ("app.css", "app.js", "models.html", "pages.css"):
         path = STATIC_DIR / name
         text = _COMMENTS[path.suffix].sub("", path.read_text(encoding="utf-8"))
         for line in text.splitlines():

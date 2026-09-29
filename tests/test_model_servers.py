@@ -199,7 +199,9 @@ class FakeServer:
 
     def _ollama(self, path: str, body: dict) -> httpx.Response:
         if path == "/api/tags":
-            return httpx.Response(200, json={"models": [{"name": OLLAMA_NAME, "size": GIB}]})
+            details = {"family": "qwen35", "parameter_size": "2B"}  # story 25
+            model = {"name": OLLAMA_NAME, "size": GIB, "details": details}
+            return httpx.Response(200, json={"models": [model]})
         if path == "/api/ps":
             models = [{"name": OLLAMA_NAME, "size": self.ps_size}] if self.ps_size else []
             models += [{"name": "autre:latest", "size": GIB}]  # another client's model
@@ -776,6 +778,32 @@ def test_server_candidates_one_per_served_model(monkeypatch, tmp_path, fake):
     )
     fake.down = True
     assert discovery._server_candidates(cfg) == []  # a silent server: nothing listed
+
+
+def test_served_models_keep_ollama_details_and_llama_server_template(monkeypatch, fake):
+    """Story 25: what the model table needs, read from the answers discovery already
+    fetched (`/api/tags`, `/props`, `/v1/models`), never by another request."""
+    paths: list[str] = []
+
+    def recording(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return fake(request)
+
+    monkeypatch.setattr(servers, "default_transport", httpx.MockTransport(recording))
+    by_engine = {m.engine: m for m in servers.list_served(config.load_config())}
+    assert sorted(paths) == ["/api/ps", "/api/tags", "/health", "/props", "/v1/models"]
+    ollama, llama = by_engine["ollama"], by_engine["llama_server"]
+    assert (ollama.family, ollama.parameter_size) == ("qwen35", "2B")
+    assert (llama.chat_template, llama.n_ctx_train, llama.size) == (QWEN, 32768, 2 * GIB)
+    # …handed to the candidates, the template never sent in `/api/diagnostic`.
+    by_engine = {c.engine: c for c in discovery._server_candidates(config.load_config())}
+    assert (by_engine["ollama"].publisher_hint, by_engine["ollama"].params_label) == (
+        "qwen35",
+        "2B",
+    )
+    candidate = by_engine["llama_server"]
+    assert (candidate.server_template, candidate.native_context) == (QWEN, 32768)
+    assert "server_template" not in candidate.model_dump()
 
 
 def test_loopback_client_refuses_any_other_host():

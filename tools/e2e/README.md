@@ -64,7 +64,8 @@ vrais services.
 - `fake_local_server.py` (story 18) : un faux llama-server (`/health`, `/props` avec le gabarit
   Qwen3.5, `/v1/models`, `/tokenize` avec les pièces, `/detokenize`, `/completion` en SSE ;
   tokenizer octet par octet, marqueurs du gabarit en un token) et un faux Ollama (`/api/tags`,
-  `/api/ps`, `/api/generate` pour `keep_alive: 0`) qui sert un modèle sans GGUF sur le disque.
+  avec `details` `{family: qwen3, parameter_size: 0.6B}` depuis la story 25, `/api/ps`,
+  `/api/generate` pour `keep_alive: 0`) qui sert un modèle sans GGUF sur le disque.
   `stack.py` les lance sur deux ports libres, que `settings.json` déclare en
   `[net.loopback_ports]` ; `/_e2e/requests` relit les corps reçus.
 - `wavestack_e2e.py` : le lanceur de WaveStack pendant le parcours. Il lance `wavestack.cli`
@@ -264,6 +265,29 @@ Vérifications ajoutées aux scénarios existants :
   liable (`Run.rest_pointer`), pour qu'un clic précédent n'estompe pas la page ; la capture 35
   garde le survol. Les étapes d'outil se repèrent par `.turn-step-title` (le verbe, puis le
   libellé de l'outil).
+
+## Sélecteur regroupé et tableau des capacités (story 25)
+
+- `local_server` : le faux Ollama est « Local · Ollama · faux-ollama:latest · 0.6B
+  (incompatible) » (sa taille vient de `details`) ; le faux llama-server garde son libellé.
+- `model_catalog`, joué après `local_server` : la deuxième option de `#model-picker` est la
+  légende, désactivée (« où tourne le modèle », « qui le sert »), reprise dans l'infobulle ;
+  groupes « Sur ce poste · Qwen (Alibaba) » (le faux Ollama par sa famille `qwen3`, le faux
+  llama-server par la famille que `capabilities_for` lit dans son gabarit, jamais Llama pour
+  « llama-server »), puis « Réseau · Mistral (Mistral AI) » et « Réseau · gpt-oss (OpenAI) »
+  (préréglages de `wavestack.toml`, sans clé) et « Réseau · Autres éditeurs » (les trois faux
+  modèles cloud) ; dans le groupe Qwen, le faux Ollama (0.6B) avant le faux llama-server
+  (taille inconnue) ; chaque modèle commence par « Local · » ou « RÉSEAU · » ; « Tableau des
+  modèles et de leurs capacités… » puis « Autre fichier ou clé API… » en dernier. « Ouvrir le
+  tableau » mène à `/models` : onglet « Modèles » courant, « Diagnostic » vers `/diagnostic`
+  (mêmes onglets) ; lignes du faux llama-server (Qwen, outils « oui », « activable »,
+  « 4 096 tokens »), de R (« toujours »), de `wavestack-fake` (« jamais », « actif »), du faux
+  Ollama (« inconnu », raison « introuvable » visible), « RÉSEAU » sur chaque ligne cloud,
+  étiquette sur le jeton jaune, un en-tête par groupe du sélecteur. Puis R activé depuis le
+  sélecteur : carte Raisonnement verrouillée et ligne « toujours », « actif » ; retour à A :
+  ligne « jamais », carte indisponible « ne déclare pas de raisonnement ». Captures
+  `43-modeles-selecteur.jpg` (la liste affichée en boîte de liste : une liste native ne se
+  capture pas ouverte) et `44-modeles-tableau.jpg` (page entière).
 
 ## Contexte LLM lisible : lu et produit (story 32)
 

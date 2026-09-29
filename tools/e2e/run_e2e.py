@@ -29,6 +29,7 @@ from playwright.sync_api import Page, expect, sync_playwright
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stack import (  # noqa: E402
     MODEL_ENTRY_ID,
+    REASONING_ENTRY_ID,
     REASONING_MODEL,
     SECOND_ENTRY_ID,
     SECOND_MODEL,
@@ -4185,6 +4186,8 @@ def _slow_probe_stopped(r: Run) -> None:
 
 LLAMA_FILE = "faux-llama-server.gguf"
 LLAMA_OPTION = f"Local · llama-server · {LLAMA_FILE}"
+# Story 25: the fake Ollama's `details` give its size (and its publisher, Qwen).
+OLLAMA_OPTION = "Local · Ollama · faux-ollama:latest · 0.6B"
 
 
 def s_local_server(r: Run) -> None:
@@ -4248,7 +4251,7 @@ def s_local_server(r: Run) -> None:
         str([o for o in options if "Local" in o]),
     )
     r.check(
-        options.get("Local · Ollama · faux-ollama:latest (incompatible)") is True,
+        options.get(f"{OLLAMA_OPTION} (incompatible)") is True,
         "sélecteur : le modèle Ollama incompatible est grisé",
     )
     indicator = page.locator("#model-indicator")
@@ -4418,6 +4421,206 @@ def s_local_server(r: Run) -> None:
     r.wait_idle()
 
 
+PICK_MODELS_LABEL = "Tableau des modèles et de leurs capacités…"
+
+
+def _picker_groups(r: Run) -> list[dict[str, Any]]:
+    """The model picker's `optgroup`s: label, then each option's text and state."""
+    return r.page.eval_on_selector_all(
+        "#model-picker optgroup",
+        "gs => gs.map(g => ({label: g.label, options: [...g.children].map("
+        "o => ({text: o.textContent, disabled: o.disabled}))}))",
+    )
+
+
+def _models_row(r: Run, value: str) -> dict[str, str]:
+    """A row of the `/models` table by its value (`cloud:fake`…): each column's text."""
+    row = r.page.locator(f'#models-table tr[data-value="{value}"]')
+    expect(row).to_have_count(1, timeout=10_000)
+    cells = row.locator("td").all_inner_texts()
+    keys = ("model", "publisher", "size", "hosting", "window", "tools", "reasoning", "state")
+    row_texts: dict[str, str] = {}
+    for key, cell in zip(keys, cells, strict=False):
+        word, _, why = cell.replace("\u202f", " ").replace("\xa0", " ").partition("\n")
+        row_texts[key], row_texts[f"{key}_why"] = word, why  # the word, its reason under it
+    return row_texts
+
+
+def _open_models_page(r: Run) -> None:
+    r.page.goto(f"{r.stack.app_url}/models")
+    expect(r.page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
+
+
+def s_model_catalog(r: Run) -> None:
+    """Story 25: the picker grouped by hosting then publisher, sorted by size, with its
+    legend; the « Tableau des modèles » entry and the `/models` page (capabilities as the
+    cards say them after the load); the tabs shared with the diagnostic."""
+    page = r.page
+    r.goto_app()
+    r.wait_idle()
+    page.locator("#model-picker").blur()
+    ok, _ = r.poll(lambda: bool(_picker_groups(r)), 10)
+    r.check(ok, "sélecteur : groupes reçus de la session")
+    options = page.eval_on_selector_all(
+        "#model-picker option", "os => os.map(o => [o.textContent, o.disabled])"
+    )
+    legend, legend_disabled = options[1]
+    r.check(
+        legend_disabled and "où tourne le modèle" in legend and "qui le sert" in legend,
+        "sélecteur : la deuxième option est la légende désactivée",
+        legend,
+    )
+    title = page.get_attribute("#model-picker", "title") or ""
+    r.check("où tourne le modèle" in title, "sélecteur : l'infobulle reprend la légende", title)
+    groups = _picker_groups(r)
+    labels = [g["label"] for g in groups]
+    # The three fake cloud models have no known publisher; the presets of wavestack.toml
+    # (Mistral, Groq's gpt-oss), declared without a key, come in the table's order before.
+    expected = [
+        "Sur ce poste · Qwen (Alibaba)",
+        "Réseau · Mistral (Mistral AI)",
+        "Réseau · gpt-oss (OpenAI)",
+        "Réseau · Autres éditeurs",
+    ]
+    if "Sur ce poste · Autres éditeurs" in labels:
+        expected.insert(1, "Sur ce poste · Autres éditeurs")
+    r.check(labels == expected, "sélecteur : groupes par hébergement puis éditeur", str(labels))
+    qwen = [o["text"] for o in groups[0]["options"]] if groups else []
+    ollama_at = next((i for i, t in enumerate(qwen) if t.startswith(OLLAMA_OPTION)), -1)
+    llama_at = next((i for i, t in enumerate(qwen) if t.startswith(LLAMA_OPTION)), -1)
+    r.check(
+        f"{OLLAMA_OPTION} (incompatible)" in qwen and 0 <= ollama_at < llama_at,
+        "sélecteur : faux Ollama (0.6B, incompatible) avant le faux llama-server (taille inconnue)",
+        str(qwen),
+    )
+    texts = [o["text"] for g in groups for o in g["options"]]
+    r.check(
+        bool(texts) and all(t.startswith(("Local · ", "RÉSEAU · ")) for t in texts),
+        "sélecteur : chaque modèle commence par « Local · » ou « RÉSEAU · »",
+        str(texts),
+    )
+    r.check(
+        [o[0] for o in options[-2:]] == [PICK_MODELS_LABEL, "Autre fichier ou clé API…"],
+        "sélecteur : « Tableau des modèles… » puis « Autre fichier ou clé API… » en dernier",
+        str([o[0] for o in options[-2:]]),
+    )
+    # The list as it opens: a native list cannot be captured open, shown as a list box.
+    page.evaluate(
+        """() => {
+          const p = document.getElementById("model-picker");
+          p.dataset.e2eStyle = p.getAttribute("style") ?? "";
+          p.size = p.options.length + p.querySelectorAll("optgroup").length;
+          p.style.cssText = "position: fixed; top: 64px; right: 16px; max-width: none; " +
+            "width: 46rem; height: auto; z-index: 50";
+        }"""
+    )
+    r.shot("43-modeles-selecteur")
+    page.evaluate(
+        """() => {
+          const p = document.getElementById("model-picker");
+          p.removeAttribute("size");
+          p.setAttribute("style", p.dataset.e2eStyle);
+          delete p.dataset.e2eStyle;
+        }"""
+    )
+
+    # « Tableau des modèles… » noted, then « Ouvrir le tableau »: `/models`, same tab.
+    page.select_option("#model-picker", label=PICK_MODELS_LABEL)
+    apply = page.locator("#model-picker-apply")
+    r.check(apply.inner_text() == "Ouvrir le tableau", "bouton « Ouvrir le tableau »")
+    apply.click()
+    page.wait_for_url(f"{r.stack.app_url}/models", timeout=10_000)
+    expect(page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
+    current = page.locator('.page-tabs a[aria-current="page"]')
+    r.check(current.inner_text() == "Modèles", "page /models : onglet « Modèles » courant")
+    r.check(
+        page.locator(".page-tabs a", has_text="Diagnostic").get_attribute("href") == "/diagnostic",
+        "page /models : l'onglet « Diagnostic » mène à /diagnostic",
+    )
+    llama = _models_row(r, f"server:llama_server/{LLAMA_FILE}")
+    r.check(
+        llama.get("publisher") == "Qwen (Alibaba)"
+        and llama.get("tools", "").startswith("oui")
+        and llama.get("reasoning") == "activable"
+        and llama.get("window") == "4 096 tokens",
+        "tableau : faux llama-server Qwen, outils oui, raisonnement activable, 4 096 tokens",
+        str(llama),
+    )
+    reasoning_r = _models_row(r, f"cloud:{REASONING_ENTRY_ID}")
+    r.check(reasoning_r.get("reasoning") == "toujours", "tableau : modèle R « toujours »")
+    fake_a = _models_row(r, f"cloud:{MODEL_ENTRY_ID}")
+    r.check(fake_a.get("reasoning") == "jamais", "tableau : wavestack-fake « jamais »")
+    r.check(fake_a.get("state") == "actif", "tableau : la ligne du modèle actif dit « actif »")
+    ollama = _models_row(r, "server:ollama/faux-ollama:latest")
+    r.check(
+        ollama.get("reasoning") == "inconnu" and "introuvable" in ollama["reasoning_why"],
+        "tableau : faux Ollama « inconnu », raison visible « introuvable »",
+        str(ollama),
+    )
+    network = page.locator("#models-table tr[data-value^='cloud:']")
+    rows = network.all_inner_texts()
+    cloud_count = len(r.api("GET", "/api/diagnostic").json()["cloud"]["models"])
+    r.check(
+        len(rows) == cloud_count >= 3 and all("RÉSEAU" in t for t in rows),
+        "tableau : chaque ligne réseau montre « RÉSEAU »",
+        f"{len(rows)} lignes, {cloud_count} modèles cloud",
+    )
+    tag = network.first.locator(".hosting-tag-network")
+    r.check(
+        r.css(tag, "background-color") == r.token_color("--color-hosting-network"),
+        "tableau : étiquette réseau sur le jeton jaune",
+    )
+    r.check(
+        page.locator("#models-table th[scope='rowgroup']").all_inner_texts() == labels
+        and page.locator("#models-table caption").count() == 1,
+        "tableau : une légende, et un en-tête par groupe, ceux du sélecteur",
+        str(page.locator("#models-table th[scope='rowgroup']").all_inner_texts()),
+    )
+    r.check(
+        "Capacités lues comme au chargement" in page.inner_text("body"),
+        "tableau : « Capacités lues comme au chargement… »",
+    )
+    r.shot("44-modeles-tableau", full_page=True)
+    page.locator(".page-tabs a", has_text="Diagnostic").click()
+    page.wait_for_url(f"{r.stack.app_url}/diagnostic", timeout=10_000)
+    r.check(
+        page.locator('.page-tabs a[aria-current="page"]').inner_text() == "Diagnostic"
+        and page.locator(".page-tabs a", has_text="Modèles").get_attribute("href") == "/models",
+        "diagnostic : mêmes onglets, « Diagnostic » courant",
+    )
+
+    # One truth: the reasoning card after the load and the table say the same.
+    r.goto_app()
+    r.launch("bare_llm")
+    a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+    try:
+        _pick_model(r, f"RÉSEAU · Faux fournisseur R (e2e) · {REASONING_MODEL}")
+        card = r.card("Raisonnement")
+        locked = card.locator(".brick-lock").count() == 1
+        _open_models_page(r)
+        row = _models_row(r, f"cloud:{REASONING_ENTRY_ID}")
+        r.check(
+            locked and row.get("reasoning") == "toujours" and row.get("state") == "actif",
+            "modèle R actif : carte verrouillée et ligne « toujours », « actif »",
+            str(row),
+        )
+    finally:
+        r.goto_app()
+        if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+            _pick_model(r, a_label)
+    reason = r.card("Raisonnement").locator("p.brick-reason").all_inner_texts()
+    _open_models_page(r)
+    row = _models_row(r, f"cloud:{MODEL_ENTRY_ID}")
+    r.check(
+        row.get("reasoning") == "jamais"
+        and any("ne déclare pas de raisonnement" in t for t in reason),
+        "retour à l'entrée A : ligne « jamais », carte indisponible « ne déclare pas de "
+        "raisonnement »",
+        f"{row.get('reasoning')} · {reason}",
+    )
+    r.goto_app()
+
+
 def s_relaunch(r: Run) -> None:
     """Story 11: the cloud model chosen is kept at the next launch, without a new warning."""
     saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
@@ -4557,6 +4760,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),
     ("local_server", s_local_server),
+    ("model_catalog", s_model_catalog),
     ("relaunch", s_relaunch),
 ]
 

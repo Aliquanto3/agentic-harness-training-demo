@@ -114,11 +114,35 @@ outils dans `content/mcp_snapshots/`.
 Le modèle se change sans relancer WaveStack, entre deux tours (pas pendant un tour ni une
 validation) :
 - **Barre haute** : le sélecteur « Changer de modèle… », à droite de l'indicateur de modèle,
-  liste les fichiers GGUF du poste (« Sur ce poste », avec leur taille, par exemple « 2B », une
-  fois le fichier sondé), les modèles d'un serveur local déjà lancé et les modèles cloud déclarés
-  (« Réseau », grisés sans clé). Un modèle
-  cloud affiche d'abord son avertissement. « Autre fichier ou clé API… » ouvre le diagnostic.
+  liste les fichiers GGUF du poste, les modèles d'un serveur local déjà lancé et les modèles
+  cloud déclarés (grisés sans clé). Un modèle cloud affiche d'abord son avertissement. « Autre
+  fichier ou clé API… » ouvre le diagnostic.
 - **Diagnostic** : « Choisir » en face d'un fichier ou d'un modèle cloud, ou un chemin saisi.
+
+**Lire le sélecteur.** Sa deuxième ligne est une légende : chaque option commence par où tourne
+le modèle, puis qui le sert :
+- « Local · fichier » : un fichier GGUF chargé par WaveStack lui-même (blob Ollama compris) ;
+- « Local · Ollama », « Local · llama-server » : un serveur déjà lancé sur ce poste, processus
+  distinct de WaveStack ;
+- « RÉSEAU · {fournisseur} » : un modèle cloud, hors du poste.
+
+Les modèles sont regroupés par hébergement puis par éditeur (« Sur ce poste · Qwen (Alibaba) »,
+« Sur ce poste · Llama (Meta) », …, « Réseau · Autres éditeurs »), du plus petit au plus grand ;
+la taille affichée est celle en paramètres (« 2B »), lue dans l'en-tête du fichier, dans les
+détails d'Ollama ou dans le nom. L'éditeur est reconnu par `content/models/publishers.yaml`
+(architecture, puis nom) ; un modèle inconnu va dans « Autres éditeurs ».
+
+**Tableau des modèles.** L'avant-dernière entrée du sélecteur, « Tableau des modèles et de leurs
+capacités… » (bouton « Ouvrir le tableau »), ouvre la page `/models`, aussi atteinte par
+l'onglet « Modèles » du diagnostic. Pour chaque modèle : éditeur, taille (paramètres et octets),
+hébergement, fenêtre de contexte que WaveStack utiliserait, appel d'outils (oui, non, inconnu) et
+raisonnement (jamais, toujours, activable ou inconnu), avec la raison. Ces capacités sont lues
+comme au chargement, par les mêmes règles que les cartes des briques, sans charger ni sonder le
+modèle : l'en-tête du fichier GGUF (lu une fois, puis mémorisé), le gabarit de llama-server, la
+déclaration d'un modèle cloud. « Inconnu » veut dire que rien ne permet de le dire avant le
+chargement : un modèle Ollama dont le fichier est introuvable, un gabarit sans variable de
+raisonnement qui contient `<think>` (le modèle raisonne peut-être de lui-même, WaveStack ne sait
+ni l'allumer ni l'éteindre).
 
 Pendant le chargement, la barre haute et la Vue humain affichent « Chargement du modèle… » avec
 un chronomètre ; l'envoi est désactivé. La conversation est conservée : l'historique est

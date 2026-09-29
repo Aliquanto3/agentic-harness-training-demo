@@ -138,7 +138,10 @@ def create_app(flavor: str) -> Starlette:
         return StreamingResponse(stream(), media_type="text/event-stream")
 
     async def tags(_: Request) -> JSONResponse:
-        return JSONResponse({"models": [{"name": OLLAMA_MODEL, "size": 1_000_000_000}]})
+        # Story 25: `details`, as a real Ollama, for the model table's publisher and size.
+        details = {"family": "qwen3", "parameter_size": "0.6B"}
+        model = {"name": OLLAMA_MODEL, "size": 1_000_000_000, "details": details}
+        return JSONResponse({"models": [model]})
 
     async def ps(_: Request) -> JSONResponse:
         return JSONResponse({"models": []})

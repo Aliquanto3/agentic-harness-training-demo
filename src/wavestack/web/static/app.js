@@ -2212,6 +2212,9 @@ function renderModelIndicator() {
 // ---------- story 17: model picker (EXPERIENCE.md model-picker), hot switch ----------
 
 const PICK_OTHER = "other";
+// Story 25: the table of the models and their capabilities (`/models`), just before PICK_OTHER.
+const PICK_MODELS = "models";
+const PICK_LEGEND = "legend"; // a disabled option, never chosen
 const modelKey = (model) => (model ? `${model.kind ?? ""}:${model.ref ?? model.id}` : "");
 
 let modelListTimer = null;
@@ -2253,11 +2256,12 @@ function renderModelPicker() {
   const state = store.sessionState;
   const idle = state?.state === "idle"; // class (b): between two turns only
   picker.disabled = !idle || !store.modelList;
+  const legend = store.modelList?.models?.legend_fr;
   picker.title = !idle
     ? state?.reason_fr || "Disponible hors d'un tour."
     : !store.modelList
       ? "Liste des modèles indisponible : nouvel essai dans quelques secondes."
-      : "Changer de modèle : la conversation est conservée.";
+      : `Changer de modèle : la conversation est conservée.${legend ? ` ${legend}` : ""}`;
   if (!idle) store.pickerPending = "";
   const active = store.activeModel;
   const key = JSON.stringify([store.modelList, modelKey(active)]);
@@ -2273,11 +2277,60 @@ function renderModelPicker() {
   apply.disabled = !idle;
   setText(
     apply,
-    pending === PICK_OTHER ? "Ouvrir le diagnostic" : pending.startsWith("cloud:") ? "Choisir…" : "Charger"
+    pending === PICK_OTHER
+      ? "Ouvrir le diagnostic"
+      : pending === PICK_MODELS
+        ? "Ouvrir le tableau"
+        : pending.startsWith("cloud:")
+          ? "Choisir…"
+          : "Charger"
   );
 }
 
+// Story 25: the groups the session built (`/api/diagnostic.models`: hosting, then publisher,
+// sorted by size, AD-1); the browser only marks the active model. Before the story's API,
+// or when the table could not be built, the former lists.
 function rebuildModelPicker(picker, active) {
+  const models = store.modelList?.models;
+  if (!Array.isArray(models?.groups)) {
+    rebuildModelPickerByKind(picker, active);
+    return;
+  }
+  const activeKey = modelKey(active);
+  const groups = models.groups.map((group) => {
+    const optgroup = el("optgroup");
+    optgroup.label = group.label_fr;
+    for (const m of group.models) {
+      const isActive = activeKey === `${m.kind}:${m.ref}`;
+      const unusable = !m.usable;
+      const suffix = isActive
+        ? " (actif)"
+        : unusable
+          ? m.hosting === "network"
+            ? " (indisponible)"
+            : " (incompatible)"
+          : "";
+      optgroup.append(
+        pickerOption(m.value, `${m.label_fr}${suffix}`, {
+          disabled: isActive || unusable,
+          title: unusable ? m.disabled_fr ?? "" : m.title_fr,
+        })
+      );
+    }
+    return optgroup;
+  });
+  const head = pickerOption("", "Changer de modèle…");
+  const legend = pickerOption(PICK_LEGEND, models.legend_fr, { disabled: true, title: models.legend_fr });
+  picker.replaceChildren(
+    head,
+    legend,
+    ...groups.filter((g) => g.children.length),
+    pickerOption(PICK_MODELS, "Tableau des modèles et de leurs capacités…"),
+    pickerOption(PICK_OTHER, "Autre fichier ou clé API…")
+  );
+}
+
+function rebuildModelPickerByKind(picker, active) {
   const list = store.modelList ?? { candidates: [], cloud: { models: [] } };
   const local = el("optgroup");
   local.label = "Sur ce poste";
@@ -2338,6 +2391,10 @@ async function applyPick() {
   if (!value) return;
   if (value === PICK_OTHER) {
     window.location.href = "/diagnostic"; // the key and a free path stay there
+    return;
+  }
+  if (value === PICK_MODELS) {
+    window.location.href = "/models"; // same tab, as the diagnostic; a reload restores (AD-1)
     return;
   }
   const at = value.indexOf(":");
