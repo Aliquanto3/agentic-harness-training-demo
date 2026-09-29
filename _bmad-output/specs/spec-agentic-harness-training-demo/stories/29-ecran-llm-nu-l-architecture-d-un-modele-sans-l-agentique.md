@@ -2,10 +2,10 @@
 title: 'Écran « LLM nu » : l''architecture d''un modèle, sans l''agentique'
 type: 'feature'
 created: '2026-09-28'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '3ed84820dd956a75c8cd1fdfc894b3c74250db23'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-agentic-harness-training-demo-2026-09-23/ARCHITECTURE-SPINE.md'
@@ -17,7 +17,17 @@ context:
   - '{project-root}/_bmad-output/specs/spec-agentic-harness-training-demo/stories/24-modeles-memoire-comptee-juste-budget-dynamique-sonde-interruptible.md'
   - '{project-root}/tools/e2e/README.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      Lecture des logits dépendante des internes de llama-cpp-python (self._llm._model, ordre génération / évaluation), sans garde de version.
+    evidence: |-
+      Un test T=0 sur le GGUF minuscule surveille désormais la position lue ; une montée de version de llama-cpp-python peut la casser.
+    severity: medium (unverified)
+  - summary: >-
+      Candidats, échantillonnage du moteur intégré, dimensions llama.cpp et message « RAM du CPU » d'un fichier jamais vus dans le navigateur.
+    evidence: |-
+      La pile E2E n'a pas de moteur intégré ; seuls pytest (doublures, GGUF minuscule) et la vérification sur PC les couvrent.
+    severity: medium (unverified)
 ---
 
 <intent-contract>
@@ -404,6 +414,46 @@ Les stories 33, 23, 34, 32, 24, 25, 26, 27 et 31 modifient plusieurs de ces fich
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 36 findings — high 1, medium 7, low 21, false 0, maybe-false 2 (écarts de l'auditeur d'intention : échantillonnage réglable sur l'écran seulement, chargement lu dans le journal sans changement de modèle depuis l'écran, candidats calculés sur les logits du moteur intégré, débit affiché en fin d'appel, état servi par `/api/llm_lab` — conformes aux décisions par défaut ; chemins du moteur intégré non exercés hors doublure — retenu ci-dessous)
+- findings:
+  - `[medium]` `[patch]` (vérif.) changements de `LlamaCppEngine` (échantillonnage, id et morceau de token, candidats, dimensions) jamais exercés par la suite normale — test sur le GGUF minuscule du dépôt, cas T=0.
+  - `[high]` `[patch]` (vérif. + edge ×2) `session_state idle` émis dans la portée « llm » et ignoré par l'atelier : un onglet ouvert reste bloqué — état final hors portée, filtre JS assoupli, test et E2E sans rechargement.
+  - `[medium]` `[patch]` (blind + edge) libellé du contrôle de budget qui peut faire échouer un chargement ; étape placée après la libération — libellé protégé, étape au bon endroit.
+  - `[low]` `[patch]` (blind + edge) erreur de contenu vide : 500 ; contenu en cache jamais relu — repli, cache invalidé.
+  - `[medium]` `[patch]` (blind) couloirs Réflexion/Réponse en octets bruts — texte décodé.
+  - `[low]` `[patch]` (blind + edge) texte retenu en fin d'appel affiché deux fois — rappel seulement pour un morceau.
+  - `[low]` `[patch]` (blind) morceaux de flux des serveurs comptés comme tokens — libellé « fragments ».
+  - `[low]` `[patch]` (blind) bornes d'échantillonnage dupliquées — construites depuis `SAMPLING_BOUNDS` ou comparées par test.
+  - `[low]` `[patch]` (blind) top-k impossible à désactiver — 0 = désactivé.
+  - `[low]` `[patch]` (blind) ordre des filtres propre à llama.cpp présenté partout — précisé.
+  - `[low]` `[patch]` (blind + edge) erreurs 422 affichées « [object Object] » — message français, prompt vide refusé.
+  - `[medium]` `[patch]` (blind + edge) course entre les contrôles de disponibilité et le verrou (TypeError sur un moteur serveur) — contrôles sous le verrou.
+  - `[maybe-false]` `[defer]` (blind) lecture des logits dépendante des internes de llama-cpp-python, sans garde de version — le test T=0 ajouté la surveille.
+  - `[low]` `[patch]` (blind) journal et flux qui grossissent sans borne (une ligne par token) — lignes regroupées, flux plafonné.
+  - `[low]` `[patch]` (blind) candidats inaccessibles au clavier et aux lecteurs d'écran — activation clavier, liaison, libellés.
+  - `[low]` `[patch]` (blind) chronologie du chargement qui place le contrôle du budget au mauvais endroit — regroupé avec le libellé protégé.
+  - `[low]` `[patch]` (blind) petits points (conditionnelle inutile, statut en anglais, ordre des sections, dimensions vides, texte de raison de llama-server) — corrigés.
+  - `[low]` `[patch]` (edge) morceau qui traverse `</think>` attribué au mauvais couloir — attribution par partie.
+  - `[medium]` `[patch]` (edge) exception dans le `finally` : session bloquée en `llm_lab` — `finally` imbriqué.
+  - `[low]` `[patch]` (edge + edge « claim ») écran accepté quand la session a une raison de refus — refusé comme un tour.
+  - `[low]` `[patch]` (edge) échec réseau dans `post()` : boutons désactivés pour toujours — capturé.
+  - `[low]` `[patch]` (edge) champ numérique vidé ramené à 0 — valeur précédente rétablie.
+  - `[low]` `[patch]` (edge) état de session périmé appliqué après un rafraîchissement tardif — comparaison des numéros de séquence.
+  - `[low]` `[patch]` (edge) premier rafraîchissement en échec : rejeu du journal entier — nouvel essai.
+  - `[low]` `[patch]` (edge) « 2 milliard », « 1000 millions » — pluriel et unité après arrondi.
+  - `[medium]` → regroupé (course, edge).
+  - `[medium]` → regroupé (libellé du budget, edge).
+  - `[low]` → regroupé (repli d'erreur de contenu, edge).
+  - `[low]` → regroupé (fragment final, edge).
+  - `[low]` → regroupé (422, edge).
+  - `[high]` → regroupé (onglet de l'atelier bloqué, edge « claim »).
+  - `[maybe-false]` `[defer]` (intention) candidats et échantillonnage du moteur intégré, dimensions llama.cpp et « RAM du CPU » d'un fichier jamais vus dans le navigateur — la pile E2E n'a pas de moteur intégré ; vérification sur PC.
+  - `[low]` → regroupé (moteur intégré, intention n° 2).
+  - `[low]` → regroupé (moteur intégré, intention n° 3).
+  - `[low]` → regroupé (moteur intégré, intention n° 4).
+  - `[low]` → regroupé (coupe du raisonnement non vue dans l'interface, intention n° 6 — note ajoutée à « À vérifier sur PC »).
+
 ## Design Notes
 
 - **Pourquoi une page et non un volet.** L'écran n'a pas de briques et ne partage ni la jauge ni l'historique. Une page, sur le modèle de `/models` (story 25), ne touche pas à la disposition des cinq volets. Le journal reste unique : la page lit le même flux SSE et filtre le contexte `llm`.
@@ -503,3 +553,17 @@ Les stories 33, 23, 34, 32, 24, 25, 26, 27 et 31 modifient plusieurs de ces fich
   - **Attendu** : le troisième tour ne reprend rien de l'écran. Avec le moteur en processus, aucun `prefix_not_reused` à cause `llm`.
   - **Critère** : pas de relecture complète du contexte, temps du troisième tour comparable au deuxième (±20 %).
   - **Moyen** : script AppSession.
+
+## Auto Run Result
+
+Statut : done (2026-09-29, orchestrateur de nuit ; étapes 1 à 4 menées par l'orchestrateur). **Les quatre incréments sont livrés.**
+
+**Changement :** nouvel écran `/llm` « LLM nu », atteint par un lien de la barre haute et un onglet de `/diagnostic` et `/models`. (1) Tokenisation du texte par le tokenizer du modèle actif (puces avec identifiants, tokens spéciaux), schéma texte → vecteurs aux dimensions réelles. (2) Échantillonnage devenu paramètre de chaque appel (température, top-k dont 0 = désactivé, top-p, min-p), tracé dans `model_call_started.sampling` ; l'atelier envoie toujours les valeurs du harnais, octet pour octet. Génération depuis l'écran dans un état `llm_lab` : lecture du prompt, temps jusqu'au premier token, puces en direct (fragments pour un serveur ou un fournisseur), débit, « Arrêter ». (3) Chargement du modèle étape par étape (`model_load_step`), mémoire occupée, « RAM du CPU, pas de GPU » ; raisonnement en deux couloirs, budget et coupe. (4) Tokens candidats et probabilités pour le moteur intégré seulement (logits de la dernière position, jamais `logits_all`) ; option grisée avec sa raison ailleurs.
+
+**Fichiers :** `models/{engine.py,candidates.py (nouveau),gguf_meta.py,servers.py}`, `session/{llm_lab.py (nouveau),app_session.py}`, `content/llm_lab.yaml` (nouveau), `trace/catalog.py`, `config.py`, `web/app.py`, `web/static/{llm.html,llm.js,llm.css (nouveaux),app.js,index.html,diagnostic.html,models.html}`, `tests/{test_llm_lab.py,test_engine_candidates.py}` (nouveaux) et tests associés, `tools/e2e/{run_e2e.py,fake_*,README.md}`, EXPERIENCE.md, DESIGN.md, SPEC.md (CAP-44), ARCHITECTURE-SPINE.md, README, wavestack.toml, captures 52 à 54.
+
+**Revue :** 36 constats — 25 corrigés (1 high, 6 medium, 18 low), 2 différés, 9 regroupés ; voir le triage. Le défaut high (onglet de l'atelier bloqué en « écran LLM nu » après une génération) est corrigé et couvert par pytest et l'E2E. **Revue de suivi recommandée : true** — risque non vérifié : la lecture des logits dépend des internes de llama-cpp-python, et les chemins du moteur intégré (candidats, échantillonnage, dimensions) ne passent dans aucun parcours navigateur.
+
+**Vérification :** ruff check et format verts ; pytest : 1235 passés, 3 ignorés (dont un premier test des candidats sur un vrai moteur llama.cpp, avec le GGUF minuscule du dépôt) ; E2E complet : 637 PASS, 0 FAIL.
+
+**Risques résiduels :** vitesses et mémoire réelles sur le PC ; candidats sur un vrai Qwen ; comportement d'Ollama (ordre des filtres) ; barre haute serrée à 1 280 px (lien raccourci en « LLM »).
