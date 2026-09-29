@@ -268,12 +268,14 @@ min_interval_s = 1
 # gemini-3.5-flash-lite (stable) : 1 048 576 tokens en entrée, 65 536 en sortie ; niveaux de
 # raisonnement minimal (par défaut), low, medium et high ; 0,30 $ / 2,50 $ par million de
 # tokens (entrée / sortie), aucune hausse annoncée pour ce modèle.
-# Raisonnement : allumé, thinking_level "low" avec include_thoughts, seule façon de recevoir
-# le texte du raisonnement, que Gemini écrit dans content entre <thought> et </thought>
-# (relevé sur l'API réelle le 2026-09-29 ; s'il change, changez tags ou format dans
-# settings.json) ; éteint, reasoning_effort "minimal". reasoning_effort et thinking_config ne
-# se combinent pas. Son usage.completion_tokens ne compte pas les tokens de réflexion :
-# WaveStack lit total_tokens − prompt_tokens.
+# Raisonnement : allumé, thinking_level "medium" avec include_thoughts, seule façon de
+# recevoir le texte du raisonnement (à "low", le modèle ne réfléchit pas sur des questions
+# simples ni sur le prompt du scénario Raisonnement : recette réelle du 2026-09-30), que
+# Gemini écrit dans content entre <thought> et </thought> (relevé sur l'API réelle le
+# 2026-09-29 ; s'il change, changez tags ou format dans settings.json) ; éteint,
+# reasoning_effort "minimal". reasoning_effort et thinking_config ne se combinent pas. Son
+# usage.completion_tokens ne compte pas les tokens de réflexion : WaveStack lit total_tokens −
+# prompt_tokens.
 # tool_call_extra : Gemini 3.x signe une réponse qui appelle des outils (une signature de
 # pensée, sur le premier appel seulement quand il y en a plusieurs en parallèle, relevé le
 # 2026-09-29) et refuse (400) un appel du tour en cours rejoué sans elle ; WaveStack la renvoie
@@ -310,7 +312,7 @@ tool_call_extra = { extra_content = { google = { thought_signature = "skip_thoug
 [cloud.models.reasoning]
 format = "think_tags"
 tags = ["<thought>", "</thought>"]
-on = { extra_body = { google = { thinking_config = { thinking_level = "low", include_thoughts = true } } } }
+on = { extra_body = { google = { thinking_config = { thinking_level = "medium", include_thoughts = true } } } }
 off = { reasoning_effort = "minimal" }
 always = false
 resend = false

@@ -704,7 +704,7 @@ interdit l'offre gratuite pour des utilisateurs de l'EEE, de Suisse ou du Royaum
 l'offre payante les contenus ne servent pas à l'entraînement. Les prix se vérifient dans la
 console (relevé le 2026-09-29 : 0,30 $ / 2,50 $ par million de tokens pour
 `gemini-3.5-flash-lite`, sans hausse annoncée ; hausse au 2027-01-01 pour les 3.6 à 3.8 Flash). Le raisonnement s'allume et s'éteint avec la
-brique : allumé, `thinking_level` « low » et le texte de la réflexion (entre `<thought>` et
+brique : allumé, `thinking_level` « medium » et le texte de la réflexion (entre `<thought>` et
 `</thought>`) ; éteint, `reasoning_effort` « minimal ». Gemini 3.x signe une réponse qui appelle
 des outils (sur le premier appel seulement quand il y en a plusieurs en parallèle) et refuse un
 appel rejoué sans cette signature : WaveStack la lui renvoie telle quelle, et à lui seul. Si la forme réelle diffère (balises, `minimal` ou `extra_body` refusés), corrigez
