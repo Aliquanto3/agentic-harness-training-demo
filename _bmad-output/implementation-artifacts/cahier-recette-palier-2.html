@@ -259,9 +259,10 @@ const PEAK_CMD = `Get-Process python*, wavestack*, llama-server*, ollama* -Error
 // (« Obtenir llama-server sans droits d'administrateur ») : String.raw keeps the backslashes.
 const LLAMA_INSTALL = String.raw`[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12   # PowerShell 5.1
 $px = @{}   # erreur 407 : lancez la ligne « Proxy », puis reprenez ici à Invoke-RestMethod
-$rel = Invoke-RestMethod -UseBasicParsing @px https://api.github.com/repos/ggml-org/llama.cpp/releases/latest
+$rels = Invoke-RestMethod -UseBasicParsing @px "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
+$rel = $rels | Where-Object { $_.assets.name -match '^llama-b\d+-bin-win-cpu-x64\.zip$' } | Select-Object -First 1
 $asset = $rel.assets | Where-Object name -match '^llama-b\d+-bin-win-cpu-x64\.zip$'
-if (-not $asset) { throw "Aucune archive llama-bNNNNN-bin-win-cpu-x64.zip dans la dernière release : prenez le repli b11239." }
+if (-not $asset) { throw "Aucune archive llama-bNNNNN-bin-win-cpu-x64.zip dans les dix dernières releases : prenez le repli b11239." }
 $zip = "$env:TEMP\$($asset.name)"; $dest = "$env:LOCALAPPDATA\llama.cpp\$($rel.tag_name)"
 Invoke-WebRequest -UseBasicParsing @px $asset.browser_download_url -OutFile $zip
 if ($asset.digest) { if (("sha256:" + (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()) -ne $asset.digest) { throw "Empreinte SHA-256 différente de celle publiée par GitHub : archive refusée." } else { "Empreinte SHA-256 vérifiée." } }
@@ -329,7 +330,7 @@ const TESTS = [
   { id: "P3", g: "prep", title: "Installer llama-server", min: 10,
     steps: [
       "Pour C9, C10 et Z2. Ouvrez un nouveau terminal PowerShell : rien ne s'installe en administrateur, tout va dans %LOCALAPPDATA%\\llama.cpp\\<version>.",
-      "Collez le bloc « Installation » ligne par ligne. Il lit la dernière version sur l'API GitHub, télécharge l'archive llama-bNNNNN-bin-win-cpu-x64.zip depuis github.com/ggml-org/llama.cpp, vérifie son empreinte SHA-256 quand l'API la donne, la décompresse dans votre profil, débloque les fichiers et affiche la version.",
+      "Collez le bloc « Installation » ligne par ligne. Il lit les dix dernières releases sur l'API GitHub, prend la première qui porte l'archive llama-bNNNNN-bin-win-cpu-x64.zip (« releases/latest » peut désigner une release sans archive, comme v0.5.0 le 29/09), la télécharge depuis github.com/ggml-org/llama.cpp, vérifie son empreinte SHA-256 quand l'API la donne, la décompresse dans votre profil, débloque les fichiers et affiche la version.",
       "Tapez $asset.name (nom de l'archive), puis $LASTEXITCODE (après --version) : relevez-les.",
       "Si le téléchargement se traîne sous PowerShell 5.1 : $ProgressPreference = \"SilentlyContinue\", puis relancez Invoke-WebRequest.",
       "Si Invoke-RestMethod échoue : notez le code (403 ou 407) dans le champ ci-dessous. Sur une 407, lancez la ligne « Proxy » (elle passe -Proxy et -ProxyUseDefaultCredentials aux deux appels), puis reprenez le bloc à Invoke-RestMethod ; sinon, suivez le repli (colonne de droite).",
@@ -341,7 +342,7 @@ const TESTS = [
     expect: [
       "$asset.name vaut llama-bNNNNN-bin-win-cpu-x64.zip ; « Empreinte SHA-256 vérifiée. » si l'API donne l'empreinte ; l'archive est décompressée dans %LOCALAPPDATA%\\llama.cpp\\bNNNNN.",
       "& $llama --version affiche la version ; $LASTEXITCODE vaut 0 ; aucune demande d'élévation.",
-      "Aucune archive win-cpu-x64 dans la release : le bloc s'arrête et renvoie au repli b11239.",
+      "Aucune archive win-cpu-x64 dans les dix dernières releases : le bloc s'arrête et renvoie au repli b11239.",
       "Repli, erreur 407 : ligne « Proxy », puis Invoke-RestMethod et Invoke-WebRequest de nouveau.",
       "Repli, erreur 403 (ou 407 qui persiste), github.com joignable : bloc « Repli », version fixe b11239 (sans l'API, l'empreinte n'est pas vérifiée : comparez Get-FileHash à la page de la release si elle s'ouvre).",
       "Repli, GitHub entièrement bloqué : la même archive, récupérée sur un autre réseau ou un autre poste, ou auprès du formateur, copiée dans %TEMP% (partage interne, OneDrive, clé USB) ; lancez les deux premières lignes du bloc « Repli » ($tag = la version de l'archive), sautez Invoke-WebRequest, reprenez à Expand-Archive. Ni winget, ni Chocolatey, ni installeur.",

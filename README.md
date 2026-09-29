@@ -466,9 +466,10 @@ d'élévation. Dans PowerShell (Windows PowerShell 5.1 ou PowerShell 7), ligne p
 ```powershell
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12   # PowerShell 5.1
 $px = @{}   # erreur 407 : lancez la ligne « Proxy », puis reprenez ici à Invoke-RestMethod
-$rel = Invoke-RestMethod -UseBasicParsing @px https://api.github.com/repos/ggml-org/llama.cpp/releases/latest
+$rels = Invoke-RestMethod -UseBasicParsing @px "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
+$rel = $rels | Where-Object { $_.assets.name -match '^llama-b\d+-bin-win-cpu-x64\.zip$' } | Select-Object -First 1
 $asset = $rel.assets | Where-Object name -match '^llama-b\d+-bin-win-cpu-x64\.zip$'
-if (-not $asset) { throw "Aucune archive llama-bNNNNN-bin-win-cpu-x64.zip dans la dernière release : prenez le repli b11239." }
+if (-not $asset) { throw "Aucune archive llama-bNNNNN-bin-win-cpu-x64.zip dans les dix dernières releases : prenez le repli b11239." }
 $zip = "$env:TEMP\$($asset.name)"; $dest = "$env:LOCALAPPDATA\llama.cpp\$($rel.tag_name)"
 Invoke-WebRequest -UseBasicParsing @px $asset.browser_download_url -OutFile $zip
 if ($asset.digest) { if (("sha256:" + (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()) -ne $asset.digest) { throw "Empreinte SHA-256 différente de celle publiée par GitHub : archive refusée." } else { "Empreinte SHA-256 vérifiée." } }

@@ -50,3 +50,32 @@ def test_story_28_procedure_no_longer_reads_releases_latest():
 
     assert "releases/latest" not in procedure and "/releases?per_page=10" in procedure
     assert "lot K, point 8" in text.split("## Spec Change Log")[1].split("##")[0]
+
+
+# Story 28 rewrote the README, the palier 2 guide and its cahier from the older procedure: the
+# same correction there, and the three procedures stay word for word the same.
+IMPLEMENTATION = ARTIFACTS / "implementation-artifacts"
+PALIER_2 = {
+    "README": config.repo_root() / "README.md",
+    "guide": IMPLEMENTATION / "guide-test-pc-palier-2.md",
+    "cahier": IMPLEMENTATION / "cahier-recette-palier-2.html",
+}
+
+
+def _install_procedure(path) -> str:
+    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    start = text.index("$px = @{}   # erreur 407")
+    return text[start : text.index("Expand-Archive", start)]
+
+
+@pytest.mark.skipif(
+    not all(path.exists() for path in PALIER_2.values()), reason="documents de recette absents"
+)
+def test_palier_2_procedures_take_the_first_release_with_the_windows_archive():
+    procedures = {name: _install_procedure(path) for name, path in PALIER_2.items()}
+
+    for name, install in procedures.items():
+        assert "releases/latest" not in install, name
+        assert "/releases?per_page=10" in install, name
+        assert f"$_.assets.name -match {ARCHIVE} }} | Select-Object -First 1" in install, name
+    assert procedures["guide"] == procedures["README"] == procedures["cahier"]

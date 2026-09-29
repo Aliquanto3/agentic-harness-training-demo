@@ -120,6 +120,9 @@ deferred:
   `llama-b*-bin-win-cpu-x64.zip` ; le repli `b11239` reste (vérifié sur le PC cible le
   2026-09-29 : version affichée, sans élévation). Le cahier du 2026-09-28 (P5) est corrigé de
   même ; le README et le cahier du palier 2 que cette story écrit doivent reprendre ce bloc.
+- 2026-09-29 (fusion du lot K sur cette story) : le README, le guide et le cahier du palier 2
+  reprennent ce bloc, message d'arrêt compris (« dans les dix dernières releases ») ;
+  `tests/test_recette_docs.py` vérifie les trois procédures, identiques mot pour mot.
 
 ## Review Triage Log
 
