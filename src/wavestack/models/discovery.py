@@ -15,8 +15,7 @@ import httpx
 from pydantic import BaseModel
 
 from wavestack import config
-from wavestack.net.factory import create_client
-from wavestack.trace.scope import scoped
+from wavestack.models import servers
 
 CandidateSource = Literal["explicit", "models_dir", "hf_cache", "lm_studio", "ollama", "server"]
 CandidateStatus = Literal["found", "incompatible", "server"]
@@ -30,12 +29,60 @@ class ModelCandidate(BaseModel):
     reason: str | None = None
     name: str | None = None  # readable: `model:tag` for Ollama, the file name otherwise
     architecture: str | None = None  # from the probe cache, once probed
+    size_label: str | None = None  # `general.size_label` (« 2B »), from the probe cache
+    # Story 18, a model an already-running server serves (`source = server`): its adapter,
+    # its `ref` (`ollama/{name}`, `llama_server/{file}`), the provider's name, the memory
+    # it takes (AD-8), and its GGUF: the blob `ollama_raw` reads its tokenizer from, or the
+    # file llama-server loaded (its size only).
+    engine: Literal["ollama", "llama_server"] | None = None
+    ref: str | None = None
+    provider: str | None = None
+    served_bytes: int | None = None
+    # Already in memory when listed (llama-server; an Ollama model in `/api/ps`): counted,
+    # never refused by the budget, and never unloaded by WaveStack (AD-8).
+    resident: bool | None = None
+    gguf_path: str | None = None
+    # Lot E (E1): llama-server's context (`/props`), and the French warning when it is much
+    # larger than the window (memory reserved for nothing: « relancez-le avec -c … »).
+    n_ctx: int | None = None
+    warning_fr: str | None = None
+    # llama-server: its memory counts its context cache (the KV read in its GGUF); `False`
+    # when the file could not be read here (the figure leaves the cache out).
+    context_counted: bool | None = None
 
 
 def _glob_gguf(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
     return sorted(root.rglob("*.gguf"))
+
+
+# Story 15: `models/embedding/` holds embedding models, never offered as chat models; story
+# 16: `models/reranker/` the reranking ones.
+EMBEDDING_DIR = "embedding"
+RERANKER_DIR = "reranker"
+
+
+def _key(path: Path) -> str:
+    """A path as the file system compares it (case-insensitive on Windows)."""
+    return os.path.normcase(os.path.normpath(path))
+
+
+def _rag_model_files(cfg: config.Config) -> set[str]:
+    """The files `[rag.embedding]` and `[rag.reranker]` declare under `models_dir()`, as
+    `_key` gives them: never offered as a model, wherever `load_path` puts them."""
+    root = config.models_dir()
+    files: set[str] = set()
+    for model, _ in (cfg.rag_embedding, cfg.rag_reranker):
+        if model is not None:
+            files |= {_key(root / model.load_path), *(_key(root / f.path) for f in model.files)}
+    return files
+
+
+def _rag_model_dir(path: Path) -> bool:
+    """Under `models/embedding/` or `models/reranker/`, whatever the case (Windows)."""
+    first = path.relative_to(config.models_dir()).parts[0]
+    return first.casefold() in (EMBEDDING_DIR, RERANKER_DIR)
 
 
 def _hf_cache_dir() -> Path:
@@ -106,36 +153,74 @@ def _ollama_candidates() -> list[ModelCandidate]:
     return candidates
 
 
-def _server_candidates(cfg: config.Config) -> list[ModelCandidate]:
-    ports: dict[str, int] = cfg.get(
-        "net", "loopback_ports", default={"ollama": 11434, "llama_server": 8080}
-    )
-    probe_paths = {"ollama": "/api/tags", "llama_server": "/health"}
+def _is_gguf(path: str) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) == b"GGUF"
+    except OSError:
+        return False
+
+
+def _server_candidates(
+    cfg: config.Config, transport: httpx.BaseTransport | None = None
+) -> list[ModelCandidate]:
+    """One candidate per model an already-running server serves (AD-7, story 18). An Ollama
+    model needs its GGUF blob, read by `_ollama_candidates`, for its tokenizer: without a
+    readable one, it is `incompatible`, with the reason."""
+    served = servers.list_served(cfg, transport)
+    blobs: dict[str, ModelCandidate] = {}
+    if any(s.engine == "ollama" for s in served):
+        for blob in _ollama_candidates():
+            if blob.name and (blob.name not in blobs or blob.status == "found"):
+                blobs[blob.name] = blob
     candidates: list[ModelCandidate] = []
-    with scoped(origin="diagnostic"):
-        client = create_client(timeout=1.0)
-        try:
-            for name, port in ports.items():
-                url = f"http://127.0.0.1:{port}"
-                try:
-                    response = client.get(url + probe_paths.get(name, "/"))
-                except httpx.HTTPError:
-                    continue
-                if response.status_code < 500:
-                    candidates.append(
-                        ModelCandidate(source="server", status="server", server_url=url)
-                    )
-        finally:
-            client.close()
+    for model in served:
+        candidate = ModelCandidate(
+            source="server",
+            status="server",
+            server_url=model.server_url,
+            name=model.name,
+            engine=model.engine,  # type: ignore[arg-type]
+            ref=model.ref,
+            provider=model.provider,
+        )
+        if model.engine == "ollama":
+            blob = blobs.get(model.name)
+            if blob is None or not blob.path:
+                candidate.status = "incompatible"
+                candidate.reason = (
+                    f"Fichier GGUF du modèle introuvable dans le dossier d'Ollama "
+                    f"({_ollama_root()}) : WaveStack ne peut pas lire son tokenizer."
+                )
+            elif blob.status != "found":
+                candidate.status, candidate.reason = "incompatible", blob.reason
+            elif not _is_gguf(blob.path):
+                candidate.status = "incompatible"
+                candidate.reason = "Le fichier du modèle n'est pas un GGUF lisible."
+            else:
+                candidate.gguf_path = blob.path
+        else:  # llama-server: the file it loaded, for its size and KV cache (AD-8)
+            candidate.gguf_path = model.model_path
+            candidate.n_ctx = model.n_ctx
+            candidate.warning_fr = servers.context_warning_fr(
+                model.n_ctx, cfg.context_window, model.slot_ctx
+            )
+            candidate.context_counted = servers.served_kv(model, model.model_path) is not None
+        candidate.served_bytes = servers.served_bytes(model, candidate.gguf_path)
+        candidate.resident = model.resident
+        candidates.append(candidate)
     return candidates
 
 
 def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
     """List every model candidate, in AD-7 order. Never raises on a missing location."""
     candidates: list[ModelCandidate] = []
+    cfg = config.load_config()
+    rag_files = _rag_model_files(cfg)  # stories 15, 16: the RAG's models are no chat model
     candidates += [
         ModelCandidate(source="models_dir", status="found", path=str(p))
         for p in _glob_gguf(config.models_dir())
+        if _key(p) not in rag_files and not _rag_model_dir(p)
     ]
     candidates += [
         ModelCandidate(source="hf_cache", status="found", path=str(p))
@@ -151,7 +236,7 @@ def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
             break
 
     candidates += _ollama_candidates()
-    candidates += _server_candidates(config.load_config())
+    candidates += _server_candidates(cfg)
 
     # The explicit path comes first (AD-7), unless it is already listed (e.g. an Ollama blob).
     if explicit_path and str(Path(explicit_path)) not in {c.path for c in candidates}:

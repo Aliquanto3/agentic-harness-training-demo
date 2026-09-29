@@ -15,6 +15,17 @@ const store = {
   sessionState: null,
   // AD-12: the model indicator's only source (`session_state.active_model`, `/api/state`).
   activeModel: null,
+  // Story 17: the load in progress, from `model_load_started` to `model_load_ended`
+  // ({ model, startedAt }), and the model picker's list (`GET /api/diagnostic`).
+  modelLoad: null,
+  modelList: null,
+  // The picker's choice waiting for « Charger » (a keyboard arrow already fires `change`
+  // under Windows), and whether its list failed to load.
+  pickerPending: "",
+  modelListError: false,
+  // The journal's tip when `/api/state` answered: an older `model_load_ended`, replayed by
+  // the stream after a reload, does not come back in the top bar.
+  liveFrom: 0,
   architecture: { nodes: [], edges: [] },
   journal: [],
   selection: null,
@@ -36,14 +47,29 @@ const store = {
   resetSeq: null,
   logFrom: 0,
   topStatus: null,
+  serverInstance: null, // A1: the journal instance this page follows
   composerError: null,
   // Story 9b: the turn comparison open in Contexte LLM, UI state only: { left, right } turn ids.
   compare: null,
   bricks: null, // last `bricks_changed` payload: cards and system prompt, as the session computed them
+  // Story 14: the last `memory_changed` ({ entries, path, error_fr }), as the session wrote it
+  // (AD-1); the drawer's unsaved texts, by entry id (UI state only).
+  memory: null,
+  memoryDrafts: new Map(),
+  downloadError: null, // story 15: the last refusal of « Télécharger » (UI state only)
+  ragNotice: null, // story 15: the last failure of the RAG's download or build (`harness_error`)
+  rerankNotice: null, // story 16: the last failure of the reranker's download or load
   openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
   openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
   openApprovalPayloads: new Set(), // approval ids whose payload is unfolded in the Vue humain card
+  // Story 19, UI state only: the context Contexte LLM shows, `null` for the main one, else
+  // `{ turn, sub }` (a turn id and a sub-agent's `context_id`); back to the main one if absent.
+  ctxView: null,
+  // Story 13, UI state only: « Afficher le raisonnement » (remembered by the browser, shown by
+  // default), and the reasoning blocks the user unfolded (`chat:` or `ctx:` + turn id).
+  showReasoning: true,
+  openReasoning: new Set(),
   // Story 9: the armed actions as the session last sent them (AD-3), and every label seen, so
   // an `action_dropped` still names its action once the list moved on.
   armed: [],
@@ -113,10 +139,13 @@ async function streamEvents(fromSeq, onEnvelope) {
         while ((sep = buffer.indexOf("\n\n")) !== -1) {
           const rawEvent = buffer.slice(0, sep);
           buffer = buffer.slice(sep + 2);
-          const envelope = parseSseEvent(rawEvent);
-          if (envelope) {
-            lastSeq = envelope.seq;
-            onEnvelope(envelope);
+          const { event, data } = parseSseEvent(rawEvent);
+          if (event === "server_instance") {
+            // A1: another process's journal, where lastSeq means nothing: resync by reloading.
+            if (!sameServerInstance(data?.instance_id)) return;
+          } else if (data) {
+            lastSeq = data.seq;
+            onEnvelope(data);
           }
         }
       }
@@ -128,45 +157,86 @@ async function streamEvents(fromSeq, onEnvelope) {
 }
 
 function parseSseEvent(rawEvent) {
+  let event = null;
   let data = null;
   for (const line of rawEvent.split("\n")) {
     if (line.startsWith("data:")) {
       data = line.slice(5).trim();
+    } else if (line.startsWith("event:")) {
+      // Only `server_instance` needs it: an envelope's own `kind` says the rest.
+      event = line.slice(6).trim();
     }
-    // `id:`/`event:` are redundant with the envelope's own `seq`/`kind`.
+    // `id:` is redundant with the envelope's own `seq`.
   }
-  if (!data) return null;
+  if (!data) return { event, data: null };
   try {
-    return JSON.parse(data);
+    return { event, data: JSON.parse(data) };
   } catch {
-    return null;
+    return { event, data: null };
   }
 }
+
+// The journal this page was built from (`/api/state`, else the first stream). WaveStack
+// relaunched while the tab stayed open: a new journal, from seq 1, with turn ids already
+// used; the page reloads, which replays it whole (AD-1). False when reloading.
+function sameServerInstance(instanceId) {
+  if (!instanceId) return true;
+  if (store.serverInstance === null) store.serverInstance = instanceId;
+  if (instanceId === store.serverInstance) return true;
+  location.reload();
+  return false;
+}
+
+const RESET_STATUS_FR = "WaveStack réinitialisé : LLM nu.";
+const RESET_STATUS_MS = 6000;
+let resetStatusTimer = null;
+
+// The "last known" states (`session_state`, the architecture, the bricks…): `/api/state`
+// already gave the latest of each, up to `store.liveFrom`. An older one, replayed by the
+// stream after a reload, would take the page back in time (a composer enabled then
+// disabled by past turns): only a later one applies.
+const isLive = (envelope) => envelope.seq > store.liveFrom;
 
 function applyEnvelope(envelope) {
   store.journal.push(envelope);
   const p = envelope.payload;
   const turn = envelope.turn_id ? store.turns.find((t) => t.id === envelope.turn_id) : null;
+  // Story 19 (AD-11): a sub-agent's events fill its own projection, never the turn's gauge,
+  // context or text; the Vue humain only gets the phase and H5's validations.
+  if (turn && envelope.context_id?.startsWith("sub") && SUB_KINDS.has(envelope.kind)) {
+    applySubEnvelope(turn, subProjection(turn, envelope), envelope);
+    scheduleRender();
+    return;
+  }
   switch (envelope.kind) {
     case "session_state":
+      // A new attempt clears the earlier failures, replayed or not (they come from the stream only).
+      if (p.state === "download" || p.state === "index_build") store.ragNotice = store.rerankNotice = null;
+      if (!isLive(envelope)) break;
       store.sessionState = p;
       // The diagnostic session's own states carry no model: the last known one stays.
       if (p.active_model !== undefined) store.activeModel = p.active_model;
       if (p.state === "idle") store.composerError = null;
       break;
     case "architecture_changed":
-      store.architecture = p;
+      if (isLive(envelope)) store.architecture = p;
       break;
     case "context_preview":
-      store.gauge = { payload: p, preview: true };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: true };
       break;
     case "bricks_changed":
-      store.bricks = p;
+      if (isLive(envelope)) store.bricks = p;
+      break;
+    case "memory_changed":
+      if (!isLive(envelope)) break;
+      store.memory = p;
+      renderMemoryDrawer();
       break;
     case "armed_actions_changed":
-      // AD-1: the chips are this list, never a local computation.
-      store.armed = p.actions;
+      // Every label seen stays known, so that a replayed `action_dropped` still names it.
       for (const action of p.actions) store.armedLabels.set(action.armed_id, action.label_fr);
+      // AD-1: the chips are this list, never a local computation.
+      if (isLive(envelope)) store.armed = p.actions;
       break;
     case "action_dropped":
       if (turn) turn.steps.push({ type: envelope.kind, payload: p, label: store.armedLabels.get(p.armed_id) });
@@ -178,8 +248,10 @@ function applyEnvelope(envelope) {
       store.compare = null;
       break;
     case "scenario_changed":
+      if (!isLive(envelope)) break;
       store.scenarios = p;
-      if (p.active) store.topStatus = null;
+      // Lot E (E5): a refresh after a model load is no launch: the load's outcome stays.
+      if (p.active && !p.refresh) store.topStatus = null;
       break;
     case "harness_reset":
       // Like `conversation_cleared`, but the panes go back to « Aucun tour », the MCP
@@ -190,7 +262,26 @@ function applyEnvelope(envelope) {
       store.logFrom = store.journal.length;
       eventLog.list?.remove();
       Object.assign(eventLog, { groups: [], processed: store.logFrom, rows: [], list: null });
-      store.topStatus = "WaveStack réinitialisé : LLM nu.";
+      store.memoryDrafts.clear();
+      if (!isLive(envelope)) break; // an earlier reset: no confirmation in the top bar
+      store.topStatus = RESET_STATUS_FR;
+      // A4: a discreet confirmation, over the panes: it leaves on its own.
+      clearTimeout(resetStatusTimer);
+      resetStatusTimer = setTimeout(() => {
+        if (store.topStatus !== RESET_STATUS_FR) return;
+        store.topStatus = null;
+        render();
+      }, RESET_STATUS_MS);
+      break;
+    case "model_load_started":
+      store.modelLoad = { model: p.model, startedAt: Date.parse(envelope.ts) };
+      store.topStatus = null;
+      break;
+    case "model_load_ended":
+      store.modelLoad = null;
+      // A load that fell back, or a choice not saved, says so in the top bar (live only).
+      if (isLive(envelope)) store.topStatus = p.reason_fr ?? null;
+      scheduleModelList();
       break;
     case "turn_started":
       store.topStatus = null;
@@ -198,6 +289,7 @@ function applyEnvelope(envelope) {
       store.turns.push({
         id: envelope.turn_id,
         message: p.message,
+        model: p.active_model ?? null, // story 17: « Modèle : … » and « Comparer »
         replayOf: p.replay_of, // story 9b: the turn this one replays, or null
         startedAt: Date.parse(envelope.ts),
         callStartedAt: null,
@@ -207,6 +299,9 @@ function applyEnvelope(envelope) {
         context: null,
         text: "",
         reasoning: "",
+        // Story 13: the reasoning of the turn's earlier calls, in order (the current one is
+        // `reasoning`), so a multi-call turn keeps them all in the Vue humain.
+        pastReasoning: [],
         callEnded: null,
         overflow: null,
         truncated: null,
@@ -216,10 +311,11 @@ function applyEnvelope(envelope) {
         limit: null,
         // Orchestration, in the real order: model calls, tool executions, harness events.
         steps: [],
+        subs: new Map(), // story 19: `context_id` -> the projection of a sub-agent
       });
       break;
     case "context_rendered":
-      store.gauge = { payload: p, preview: false };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: false };
       if (turn) {
         turn.context = p;
         turn.steps.push({ type: "call", id: envelope.call_id, context: p, startedAt: null, ended: null });
@@ -227,7 +323,7 @@ function applyEnvelope(envelope) {
       break;
     case "context_reconciled":
       // AD-4, chat mode: `usage` came back; its figures replace the estimate of that call.
-      store.gauge = { payload: p, preview: false };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: false };
       if (turn) {
         const call = turn.steps.find((s) => s.type === "call" && s.id === envelope.call_id);
         if (call) call.context = p;
@@ -240,6 +336,7 @@ function applyEnvelope(envelope) {
     case "model_call_started":
       if (turn) {
         // A new call of the same turn: the indicator comes back until its first token.
+        if (turn.reasoning) turn.pastReasoning.push(turn.reasoning);
         Object.assign(turn, {
           phaseLabel: p.phase_label,
           callStartedAt: Date.parse(envelope.ts),
@@ -273,6 +370,7 @@ function applyEnvelope(envelope) {
         });
         turn.steps.push({
           type: "tool",
+          stepId: envelope.step_id, // a sub-agent hangs on it by `parent_step` (story 19)
           started: p,
           brick: envelope.brick,
           component: envelope.component, // the schema node in action
@@ -282,6 +380,50 @@ function applyEnvelope(envelope) {
         });
       }
       break;
+    case "rag_search_started":
+      // Story 15: the harness searches the corpus before the first call (its own step).
+      if (turn) {
+        Object.assign(turn, { phaseLabel: p.phase_label, callStartedAt: Date.parse(envelope.ts), firstToken: false });
+        turn.steps.push({ type: "rag", started: p, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null });
+      }
+      break;
+    case "rag_search_ended": {
+      const search = turn?.steps.filter((s) => s.type === "rag").at(-1);
+      if (search) search.ended = p;
+      break;
+    }
+    case "rag_rerank_started":
+      // Story 16: the reranker scores the candidates, its own step after the search.
+      if (turn) {
+        Object.assign(turn, { phaseLabel: p.phase_label, callStartedAt: Date.parse(envelope.ts), firstToken: false });
+        // The texts are the search's (by `chunk_id`): the step keeps the search it reranks.
+        const search = turn.steps.filter((s) => s.type === "rag").at(-1) ?? null;
+        turn.steps.push({ type: "rerank", started: p, search, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null, progress: null });
+      }
+      break;
+    case "rag_rerank_progress": {
+      const rerank = turn?.steps.filter((s) => s.type === "rerank").at(-1);
+      if (rerank) rerank.progress = p;
+      break;
+    }
+    case "rag_rerank_ended": {
+      const rerank = turn?.steps.filter((s) => s.type === "rerank").at(-1);
+      if (rerank) rerank.ended = p;
+      break;
+    }
+    case "compression_started":
+      // Story 20: the harness compresses tool results and RAG excerpts before a call.
+      if (turn) {
+        Object.assign(turn, { phaseLabel: p.phase_label, callStartedAt: Date.parse(envelope.ts), firstToken: false });
+        // `stepId`: a compressed segment finds its text before here (`compressed_from.step_id`).
+        turn.steps.push({ type: "compression", stepId: envelope.step_id, started: p, component: envelope.component, startedAt: Date.parse(envelope.ts), ended: null });
+      }
+      break;
+    case "compression_ended": {
+      const step = turn?.steps.filter((s) => s.type === "compression").at(-1);
+      if (step) step.ended = p;
+      break;
+    }
     case "tool_ended": {
       const tool = turn?.steps.filter((s) => s.type === "tool").at(-1);
       if (tool) tool.ended = p;
@@ -318,9 +460,15 @@ function applyEnvelope(envelope) {
       }
       break;
     case "effect_applied": {
+      if (p.effect === "memory_write") {
+        // Story 14: the entry `remember` wrote, shown in its own step (model's or forced).
+        const step = turn?.steps.filter((s) => s.type === "tool" && s.started.tool === "remember").at(-1);
+        if (step) (step.memoryWrites ||= []).push(p);
+        break;
+      }
       // The lines H2 appended to the audit log, shown in its own step.
       const step = turn?.steps.filter((s) => s.type === "hook").at(-1);
-      if (step) step.lines.push(...p.lines);
+      if (step) step.lines.push(...(p.lines ?? []));
       break;
     }
     case "approval_requested": {
@@ -347,6 +495,7 @@ function applyEnvelope(envelope) {
     }
     case "tool_call_malformed":
     case "prefix_not_reused":
+    case "reasoning_cut": // lot C: the harness closed a reasoning at its budget
       if (turn) turn.steps.push({ type: envelope.kind, payload: p });
       break;
     case "limit_reached":
@@ -364,6 +513,13 @@ function applyEnvelope(envelope) {
     case "harness_error":
       // A cloud provider's refusal carries what to try (AD-16).
       if (turn) turn.errors.push([p.message_fr, ...(p.hints_fr ?? [])].join(" "));
+      // Story 15: a failed download (or load) of the RAG's model, said on its card.
+      else if (envelope.brick === "rag") {
+        const notice = [p.message_fr, p.cause ? `Cause : ${p.cause}.` : null, p.effect_fr].filter(Boolean).join(" ");
+        // Story 16: the reranker's, said under its switch.
+        if (envelope.component === "rag.reranker") store.rerankNotice = notice;
+        else store.ragNotice = notice;
+      }
       break;
     case "turn_ended":
       if (turn) {
@@ -373,6 +529,178 @@ function applyEnvelope(envelope) {
       break;
   }
   scheduleRender();
+}
+
+// Story 19: the kinds a sub-agent's projection takes; any other event emitted while it runs
+// (`session_state` of H5's wait, `architecture_changed`, `bricks_changed`…) is the session's.
+const SUB_KINDS = new Set([
+  "subagent_started",
+  "subagent_ended",
+  "context_rendered",
+  "context_reconciled",
+  "context_overflow",
+  "model_call_started",
+  "model_first_token",
+  "model_delta",
+  "model_call_ended",
+  "tool_started",
+  "tool_ended",
+  "outbound_request",
+  "hook_decided",
+  "effect_applied",
+  "approval_requested",
+  "approval_resolved",
+  "tool_call_malformed",
+  "prefix_not_reused",
+  "reasoning_cut",
+  "limit_reached",
+  "output_truncated",
+  "special_token_neutralized",
+  "harness_error",
+]);
+
+// Story 19 (AD-11): the projection of the sub-agent `context_id`, created at its first event
+// and hung on the `delegate` step whose `step_id` is its `parent_step`, never by position.
+function subProjection(turn, envelope) {
+  let sub = turn.subs.get(envelope.context_id);
+  if (!sub) {
+    sub = {
+      id: `${turn.id}:${envelope.context_id}`, // unique rail keys for its lines
+      contextId: envelope.context_id,
+      parentStep: envelope.parent_step,
+      started: null,
+      ended: null,
+      steps: [],
+      context: null,
+      callEnded: null,
+      text: "",
+      reasoning: "",
+      overflow: null,
+      limit: null,
+      truncated: null,
+      errors: [],
+      notices: [],
+      firstToken: false,
+      status: null,
+    };
+    turn.subs.set(envelope.context_id, sub);
+    const tool = turn.steps.find((s) => s.type === "tool" && s.stepId === envelope.parent_step);
+    if (tool) tool.sub = sub;
+  }
+  return sub;
+}
+
+function applySubEnvelope(turn, sub, envelope) {
+  const p = envelope.payload;
+  const phase = (label) =>
+    Object.assign(turn, { phaseLabel: `Sous-agent · ${label}`, callStartedAt: Date.parse(envelope.ts), firstToken: false });
+  const last = (type) => sub.steps.filter((s) => s.type === type).at(-1);
+  switch (envelope.kind) {
+    case "subagent_started":
+      sub.started = p;
+      phase(p.phase_label);
+      break;
+    case "subagent_ended":
+      Object.assign(sub, { ended: p, status: p.status });
+      break;
+    case "context_rendered":
+      sub.context = p;
+      sub.steps.push({ type: "call", id: envelope.call_id, context: p, startedAt: null, ended: null });
+      break;
+    case "context_reconciled": {
+      const call = sub.steps.find((s) => s.type === "call" && s.id === envelope.call_id);
+      if (call) call.context = p;
+      if (lastCall(sub) === call) sub.context = p;
+      break;
+    }
+    case "context_overflow":
+      sub.overflow = p;
+      break;
+    case "model_call_started":
+      Object.assign(sub, { text: "", reasoning: "", firstToken: false });
+      lastCall(sub).startedAt = Date.parse(envelope.ts);
+      phase(p.phase_label);
+      break;
+    case "model_first_token":
+      sub.firstToken = true; // the Vue humain keeps its « Sous-agent · … » indicator
+      break;
+    case "model_delta":
+      if (p.channel !== "tool_call") sub[p.channel] += p.text;
+      break;
+    case "special_token_neutralized":
+      sub.notices.push(p.message_fr);
+      break;
+    case "model_call_ended":
+      Object.assign(sub, { callEnded: p, text: p.text, reasoning: p.reasoning });
+      lastCall(sub).ended = p;
+      break;
+    case "tool_started":
+      phase(p.phase_label);
+      sub.steps.push({
+        type: "tool",
+        stepId: envelope.step_id,
+        started: p,
+        brick: envelope.brick,
+        component: envelope.component,
+        trigger: envelope.trigger,
+        startedAt: Date.parse(envelope.ts),
+        ended: null,
+      });
+      break;
+    case "tool_ended": {
+      const tool = last("tool");
+      if (tool) tool.ended = p;
+      break;
+    }
+    case "outbound_request": {
+      const tool = last("tool");
+      if (tool && p.origin === "brick") (tool.outbound ||= []).push({ ...p, seq: envelope.seq });
+      break;
+    }
+    case "hook_decided":
+      sub.steps.push({ type: "hook", payload: p, component: envelope.component, trigger: envelope.trigger, lines: [] });
+      break;
+    case "effect_applied": {
+      const hook = last("hook");
+      if (hook) hook.lines.push(...(p.lines ?? []));
+      break;
+    }
+    case "approval_requested": {
+      const hook = last("hook");
+      if (hook) {
+        hook.approval = p;
+        hook.component ||= envelope.component;
+      }
+      Object.assign(turn, { phaseLabel: "En attente de validation", callStartedAt: Date.parse(envelope.ts), firstToken: false });
+      break;
+    }
+    case "approval_resolved": {
+      const hook = sub.steps.find((s) => s.approval?.approval_id === p.approval_id);
+      if (hook) hook.resolved = p;
+      turn.phaseLabel = null;
+      break;
+    }
+    case "tool_call_malformed":
+    case "prefix_not_reused":
+    case "reasoning_cut":
+      sub.steps.push({ type: envelope.kind, payload: p });
+      break;
+    case "limit_reached":
+      sub.limit = p;
+      sub.steps.push({ type: envelope.kind, payload: p });
+      break;
+    case "output_truncated":
+      sub.truncated = p;
+      break;
+    case "harness_error":
+      sub.errors.push([p.message_fr, ...(p.hints_fr ?? [])].join(" "));
+      break;
+  }
+}
+
+// A turn's steps, each `delegate` step followed by its sub-agent's (story 19).
+function allSteps(turn) {
+  return turn.steps.flatMap((step) => (step.sub ? [step, ...step.sub.steps] : [step]));
 }
 
 // One render per frame at most: `model_delta` arrives every 50 ms.
@@ -481,6 +809,8 @@ const cleared = () => store.clearedSeq !== null && store.clearedSeq > (store.res
 let renderedBricks = null;
 let renderedArmed = null;
 let renderedForceUi = null;
+let renderedMemory = null;
+let renderedSessionKey = null; // story 15: the download's state and progress, on the RAG card
 
 // Story 9: the forced actions' UI changed (toggle, form): the panel is rebuilt at next render.
 function forceUiChanged() {
@@ -491,10 +821,20 @@ function forceUiChanged() {
 function renderBricks() {
   // Rebuilt only when the session sends new cards or armed actions, or the forced actions' UI
   // changes, so an unfolded explanation stays open.
-  if (renderedBricks === store.bricks && renderedArmed === store.armed && renderedForceUi === store.forceForm) return;
+  if (
+    renderedBricks === store.bricks &&
+    renderedArmed === store.armed &&
+    renderedForceUi === store.forceForm &&
+    renderedMemory === store.memory &&
+    renderedSessionKey === sessionKey()
+  ) {
+    return;
+  }
+  renderedSessionKey = sessionKey();
   renderedBricks = store.bricks;
   renderedArmed = store.armed;
   renderedForceUi = store.forceForm;
+  renderedMemory = store.memory;
   const pane = document.getElementById("bricks");
   // The rebuild would drop keyboard focus: note it, restore it on the new element. A closed
   // forced-call form gives it back to its Forcer button.
@@ -522,15 +862,18 @@ function renderBricks() {
   const reopenPopovers = []; // help popovers that were open before this rebuild
   for (const brick of store.bricks.bricks) {
     const card = el("article", "brick-card");
-    card.classList.toggle("is-active", brick.wanted && brick.available);
+    // Story 13: a model that always reasons keeps the reasoning brick on, whatever `wanted`.
+    const always = Boolean(brick.always_fr);
+    card.classList.toggle("is-active", always || (brick.wanted && brick.available));
     card.classList.toggle("is-unavailable", !brick.available);
 
     const head = el("label", "brick-head");
     const toggle = el("input", "brick-toggle");
     toggle.type = "checkbox";
     toggle.setAttribute("role", "switch");
-    toggle.checked = brick.wanted;
-    toggle.disabled = !brick.available && !brick.wanted; // a wanted brick can always be turned off
+    toggle.checked = always || brick.wanted;
+    // A wanted brick can always be turned off, except one the model keeps on.
+    toggle.disabled = always || (!brick.available && !brick.wanted);
     toggle.dataset.focusKey = `toggle:${brick.id}`;
     toggle.addEventListener("change", () => setBrick(brick.id, toggle.checked));
     head.append(toggle, el("span", "brick-name", brick.label_fr));
@@ -542,6 +885,14 @@ function renderBricks() {
     card.append(head, tags);
 
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
+    if (brick.id === "rag") card.append(...downloadParts(brick), ...rerankParts(brick));
+    if (always) {
+      const why = el("p", "brick-reason brick-always", brick.always_fr);
+      why.id = `always-${brick.id}`;
+      toggle.setAttribute("aria-describedby", why.id);
+      card.appendChild(why);
+    }
+    if (brick.note_fr) card.appendChild(el("p", "brick-note", brick.note_fr));
     if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
@@ -549,6 +900,8 @@ function renderBricks() {
 
     if (brick.options?.length) card.appendChild(brickOptions(brick));
     if (brick.limits_fr) card.appendChild(el("p", "brick-limits", brick.limits_fr));
+    // Story 19: a brick without sub-option forces its action from the card itself.
+    if (brick.force && store.showForced) card.append(...cardForce(brick));
 
     if (brick.explanation_fr?.length) {
       // ponytail: CSS anchor positioning (Chromium) has no fallback for other engines;
@@ -579,6 +932,7 @@ function renderBricks() {
       card.append(help, popover);
       if (store.openBrickHelp.has(brick.id)) reopenPopovers.push(popover);
     }
+    if (brick.id === "global_memory") card.append(...memoryCardParts(brick));
     if (brick.id === "system_prompt") {
       const edit = el("button", "brick-edit", "Modifier le prompt");
       edit.type = "button";
@@ -600,6 +954,108 @@ function renderBricks() {
     }
     target?.focus();
   }
+}
+
+function sessionKey() {
+  return `${store.sessionState?.state ?? ""}|${store.sessionState?.reason_fr ?? ""}|${store.ragNotice ?? ""}|${store.rerankNotice ?? ""}`;
+}
+
+// Story 15 (AD-21): « Télécharger » while the model is missing, the progress and « Arrêter »
+// while it downloads; the figures come from the session (`session_state.reason_fr`).
+function downloadParts(brick) {
+  // Story 15 (AD-21): « Télécharger » while the model is missing, « Construire l'index » once
+  // it is there; the progress and « Arrêter » while either runs. Figures from the session.
+  const state = store.sessionState?.state;
+  const jobs = { download: "Arrêter le téléchargement", index_build: "Arrêter la construction" };
+  if (jobs[state]) {
+    const progress = el("p", "brick-download-progress", store.sessionState.reason_fr || "En cours…");
+    progress.setAttribute("role", "status");
+    const stop = el("button", "brick-edit brick-download-stop", jobs[state]);
+    stop.type = "button";
+    stop.dataset.focusKey = `download-stop:${brick.id}`;
+    stop.addEventListener("click", () => postIntention("/api/intentions/stop", {}).catch(() => {}));
+    return [progress, stop];
+  }
+  let offer = null;
+  if (brick.download) {
+    const body = { target: brick.download.target };
+    offer = { label: brick.download.label_fr, key: "download", run: () => ragAction("/api/intentions/download_model", body) };
+  } else if (brick.build_index) {
+    offer = { label: brick.build_index.label_fr, key: "build", run: () => ragAction("/api/intentions/build_rag_index", {}) };
+  }
+  // The last failure stays said while the card still offers an action (AD-1: from the event).
+  const notice = store.ragNotice && !brick.available && offer ? [el("p", "force-error", store.ragNotice)] : [];
+  if (!offer) return notice;
+  const button = el("button", `brick-edit brick-${offer.key}`, offer.label);
+  button.type = "button";
+  button.dataset.focusKey = `${offer.key}:${brick.id}`;
+  const idle = state === "idle";
+  button.disabled = !idle;
+  const parts = [...notice, button];
+  if (!idle) {
+    const why = el("p", "brick-download-why", store.sessionState?.reason_fr || "WaveStack est occupé.");
+    why.id = `download-why-${brick.id}`;
+    button.setAttribute("aria-describedby", why.id);
+    parts.push(why);
+  }
+  if (store.downloadError) parts.push(el("p", "force-error", store.downloadError));
+  button.addEventListener("click", offer.run);
+  return parts;
+}
+
+// Story 16: the « Reranking » sub-option of the RAG card: its switch and hosting tag, its
+// reason when unavailable, and « Télécharger » while its model is missing (AD-21).
+function rerankParts(brick) {
+  const option = brick.rerank;
+  if (!option) return [];
+  const box = el("div", "brick-suboption");
+  const row = el("label", "brick-option");
+  const toggle = el("input", "brick-toggle");
+  toggle.type = "checkbox";
+  toggle.setAttribute("role", "switch");
+  toggle.checked = option.enabled;
+  // Always switchable off; switchable on only when available (like a brick).
+  toggle.disabled = !option.available && !option.enabled;
+  toggle.dataset.focusKey = "option:rag:rerank";
+  toggle.addEventListener("change", () => setOption("rag_rerank", null, toggle.checked));
+  row.append(toggle, el("span", "brick-option-name", option.label_fr), el("span", "hosting-tag-local", option.hosting_fr));
+  box.appendChild(row);
+  if (!option.available && option.reason_fr) {
+    const why = el("p", "brick-reason", option.reason_fr);
+    why.id = "rerank-why";
+    toggle.setAttribute("aria-describedby", why.id);
+    box.appendChild(why);
+  }
+  // The last failure of its download or load (`harness_error`), while still unavailable.
+  if (store.rerankNotice && !option.available) box.appendChild(el("p", "force-error", store.rerankNotice));
+  if (option.download) {
+    const state = store.sessionState?.state;
+    const button = el("button", "brick-edit brick-download-rerank", option.download.label_fr);
+    button.type = "button";
+    button.dataset.focusKey = "download:rag:rerank";
+    button.disabled = state !== "idle";
+    if (button.disabled) button.title = store.sessionState?.reason_fr || "WaveStack est occupé.";
+    button.addEventListener("click", () => ragAction("/api/intentions/download_model", { target: option.download.target }));
+    box.appendChild(button);
+    // A refusal (409) is said here when the card's own offer does not already say it.
+    if (store.downloadError && !brick.download && !brick.build_index) box.appendChild(el("p", "force-error", store.downloadError));
+  }
+  return [box];
+}
+
+async function ragAction(path, body) {
+  store.downloadError = null;
+  try {
+    const response = await postIntention(path, body);
+    if (!response.ok) {
+      const answer = await response.json().catch(() => ({}));
+      store.downloadError = typeof answer.detail === "string" ? answer.detail : "Action refusée.";
+    }
+  } catch {
+    store.downloadError = "WaveStack ne répond pas : rien n'a commencé.";
+  }
+  renderedBricks = null;
+  scheduleRender();
 }
 
 function brickOptions(brick) {
@@ -666,7 +1122,20 @@ const FORCE_LABELS = {
   tools: "Forcer l'appel",
   skills: "Déclencher le skill",
   mcp: "Charger la documentation",
+  global_memory: "Écrire en mémoire",
+  subagent: "Déléguer au sous-agent",
 };
+// Story 14: the memory write is forced from the card itself, a form with one field whose
+// help comes with the card (AD-19).
+function memoryForceOption(brick) {
+  return {
+    id: "remember",
+    label_fr: "Mémoire globale",
+    parameters: { text: brick.text_help_fr || "" },
+    fieldLabels: { text: "Texte" },
+    presets: [],
+  };
+}
 
 // Hidden by default: the SLMs are meant to act on their own. Remembered like the panes'
 // layout; unreadable storage leaves the default, silently.
@@ -729,7 +1198,9 @@ function forceButton(brick, option) {
   button.dataset.focusKey = `force:${brick.id}:${option.id}`;
   // A tool without parameter and a skill are armed at once; the others open their form.
   const needsForm =
-    brick.id === "mcp" || (brick.id === "tools" && Object.keys(option.parameters || {}).length > 0);
+    brick.id === "mcp" ||
+    brick.id === "global_memory" ||
+    (brick.id === "tools" && Object.keys(option.parameters || {}).length > 0);
   if (needsForm) button.setAttribute("aria-expanded", String(isFormOpen(brick.id, option.id)));
   button.addEventListener("click", () => {
     if (!needsForm) {
@@ -740,6 +1211,25 @@ function forceButton(brick, option) {
     forceUiChanged();
   });
   return button;
+}
+
+// Story 19: the card's Forcer button and, once open, its form; `brick.force` gives the
+// action's target, its parameters and presets (AD-1: from `bricks_changed`).
+function cardForce(brick) {
+  const force = brick.force;
+  const option = { id: force.target, label_fr: brick.label_fr, parameters: force.parameters, presets: force.presets };
+  const label = FORCE_LABELS[brick.id] || force.label_fr;
+  const button = el("button", "force-button force-button-card");
+  button.type = "button";
+  button.append(handIcon(), label);
+  button.dataset.focusKey = `force:${brick.id}:${option.id}`;
+  const open = isFormOpen(brick.id, option.id);
+  button.setAttribute("aria-expanded", String(open));
+  button.addEventListener("click", () => {
+    store.forceForm = isFormOpen(brick.id, option.id) ? null : newForceForm(brick, option);
+    forceUiChanged();
+  });
+  return open ? [button, forceForm(brick, option)] : [button];
 }
 
 function presetValues(option, index) {
@@ -775,7 +1265,11 @@ function forceForm(brick, option) {
   const arm = () =>
     brick.id === "mcp"
       ? armAction("tool_doc", form.values.tool, {}, form)
-      : armAction("tool", option.id, { ...form.values }, form);
+      : brick.id === "global_memory"
+        ? armAction("memory", option.id, { text: form.values.text ?? "" }, form)
+      : brick.force
+        ? armAction(brick.force.kind, brick.force.target, { ...form.values }, form)
+        : armAction("tool", option.id, { ...form.values }, form);
   if (brick.id === "mcp") {
     box.setAttribute("aria-label", `Charger la documentation d'un outil de ${option.label_fr}`);
     const select = el("select");
@@ -791,7 +1285,10 @@ function forceForm(brick, option) {
     });
     box.appendChild(forceField("Outil", select));
   } else {
-    box.setAttribute("aria-label", `Arguments de l'appel forcé : ${option.label_fr}`);
+    box.setAttribute(
+      "aria-label",
+      brick.force ? `${brick.force.label_fr} : tâche et préréglages` : `Arguments de l'appel forcé : ${option.label_fr}`
+    );
     if (option.presets?.length) {
       const select = el("select");
       select.dataset.focusKey = `${base}:preset`;
@@ -816,6 +1313,7 @@ function forceForm(brick, option) {
       const input = el("input");
       input.type = "text";
       input.value = form.values[name] ?? "";
+      if (brick.id === "global_memory" && store.memory?.max_chars) input.maxLength = store.memory.max_chars;
       input.dataset.focusKey = `${base}:arg:${name}`;
       const help = el("span", "force-help", description);
       help.id = `force-help-${brick.id}-${option.id}-${name}`;
@@ -829,7 +1327,7 @@ function forceForm(brick, option) {
           arm();
         }
       });
-      box.appendChild(forceField(name, input, help));
+      box.appendChild(forceField(option.fieldLabels?.[name] ?? name, input, help));
     }
   }
   if (form.error) {
@@ -939,7 +1437,9 @@ async function setOption(brickId, id, enabled) {
   // A tool of the tools brick, a server of the MCP brick, the MCP documentation mode, a
   // skill of the skills brick, or a hook of the hooks brick.
   const [path, body] =
-    brickId === "mcp_mode"
+    brickId === "rag_rerank"
+      ? ["/api/intentions/rag_rerank", { enabled }]
+      : brickId === "mcp_mode"
       ? ["/api/intentions/mcp_mode", { lazy: enabled }]
       : brickId === "mcp"
         ? ["/api/intentions/mcp_server", { server: id, enabled }]
@@ -1012,6 +1512,191 @@ async function saveSystemPrompt(text) {
     drawerAlert("Enregistrement refusé : WaveStack ne répond pas. Réessayez.");
     return false;
   }
+}
+
+// ---------- global memory: card and edit drawer (story 14, FR-12, AD-23) ----------
+
+const MEMORY_SOURCES = { model: "écrite par le modèle", user: "écrite par l'utilisateur", demo: "démonstration" };
+const memoryDrawer = () => document.getElementById("memory-drawer");
+
+function memoryCardParts(brick) {
+  // The count the last `memory_changed` gives, the forced write, then the drawer's button.
+  const parts = [];
+  const memory = store.memory;
+  if (memory && !memory.error_fr) {
+    const n = memory.entries.length;
+    parts.push(el("p", "brick-limits", n ? `${plural(n, "entrée")} en mémoire globale.` : "Mémoire globale vide."));
+  }
+  if (store.showForced) {
+    const option = memoryForceOption(brick);
+    const force = forceButton(brick, option);
+    if (brick.note_fr) {
+      // H4: no tool parser, the forced write would be dropped: said on the button itself.
+      force.disabled = true;
+      force.title = brick.note_fr;
+      force.setAttribute("aria-description", brick.note_fr);
+    }
+    parts.push(force);
+    if (!brick.note_fr && isFormOpen(brick.id, option.id)) parts.push(forceForm(brick, option));
+  }
+  const edit = el("button", "brick-edit", "Modifier la mémoire");
+  edit.type = "button";
+  edit.disabled = !memory || Boolean(memory.error_fr);
+  edit.id = "edit-memory";
+  edit.dataset.focusKey = "edit-memory";
+  edit.addEventListener("click", openMemoryDrawer);
+  parts.push(edit);
+  return parts;
+}
+
+// `choice`: the buttons under the message, « dirty » (Enregistrer / Abandonner) or « clear »
+// (Tout effacer / Annuler), the same inline pattern as the unsaved change (EXPERIENCE.md).
+function memoryAlert(text, choice = null) {
+  const alert = document.getElementById("memory-alert");
+  alert.hidden = !text;
+  alert.textContent = text || "";
+  document.getElementById("memory-dirty").hidden = choice !== "dirty";
+  document.getElementById("memory-confirm").hidden = choice !== "clear";
+  if (choice) document.getElementById(choice === "dirty" ? "memory-dirty-save" : "memory-confirm-clear").focus();
+}
+
+function askClearMemory() {
+  const n = store.memory?.entries.length ?? 0;
+  if (!n) return;
+  memoryAlert(`Effacer ${n > 1 ? `les ${n} entrées` : "l'entrée"} de la mémoire globale ? Le fichier est réécrit aussitôt.`, "clear");
+}
+
+async function confirmClearMemory() {
+  if (await editMemory({ op: "clear" })) document.getElementById("memory-close").focus();
+}
+
+function memoryCard() {
+  return store.bricks?.bricks.find((b) => b.id === "global_memory") ?? null;
+}
+
+// The entries whose text differs from the one the session wrote: what « Enregistrer » sends.
+function memoryDirty() {
+  const entries = store.memory?.entries ?? [];
+  return entries.filter((e) => store.memoryDrafts.has(e.id) && store.memoryDrafts.get(e.id) !== e.text);
+}
+
+function openMemoryDrawer() {
+  if (!store.memory || store.memory.error_fr) return;
+  if (!memoryDrawer().hidden) {
+    // Already open (a click on the schema's node): its drafts stay, the focus comes back.
+    (document.querySelector("#memory-list textarea") || document.getElementById("memory-close")).focus();
+    return;
+  }
+  // The drawer lives in the bricks pane: shown first when hidden, or behind another focus.
+  if (store.hiddenPanes.has("bricks")) showPane("bricks");
+  if (store.focusedPane && store.focusedPane !== "bricks") {
+    store.focusedPane = null;
+    render();
+  }
+  if (!drawer().hidden) {
+    closeDrawer(); // an unsaved system prompt asks first, and the memory waits
+    if (!drawer().hidden) return;
+  }
+  store.memoryDrafts.clear();
+  memoryAlert(null);
+  memoryDrawer().hidden = false;
+  document.getElementById("bricks").inert = true; // cards under the drawer leave the Tab order
+  renderMemoryDrawer();
+  const first = document.querySelector("#memory-list textarea") || document.getElementById("memory-close");
+  first.focus();
+}
+
+function closeMemoryDrawer(force = false) {
+  if (!force && memoryDirty().length) {
+    memoryAlert("Modification non enregistrée. Enregistrer ou abandonner ?", "dirty");
+    return;
+  }
+  store.memoryDrafts.clear();
+  memoryAlert(null);
+  memoryDrawer().hidden = true;
+  document.getElementById("bricks").inert = false;
+  document.getElementById("edit-memory")?.focus();
+}
+
+function renderMemoryDrawer() {
+  // Rebuilt from the last `memory_changed`, the texts being typed kept (AD-1).
+  if (memoryDrawer().hidden) return;
+  const memory = store.memory;
+  const list = document.getElementById("memory-list");
+  const focusKey = list.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  const entries = memory?.entries ?? [];
+  for (const id of [...store.memoryDrafts.keys()]) {
+    if (!entries.some((e) => e.id === id)) store.memoryDrafts.delete(id); // deleted meanwhile
+  }
+  document.getElementById("memory-path").textContent = memory ? `Fichier : ${memory.path}` : "";
+  const empty = document.getElementById("memory-empty");
+  empty.textContent = memoryCard()?.empty_fr ?? "";
+  empty.hidden = entries.length > 0;
+  document.getElementById("memory-clear").disabled = entries.length === 0;
+  list.innerHTML = "";
+  entries.forEach((entry, i) => {
+    const item = el("li", "memory-entry");
+    const label = `Entrée ${i + 1}`;
+    const head = el("div", "memory-entry-head");
+    head.append(el("span", "memory-entry-name", label), el("span", "memory-entry-source", MEMORY_SOURCES[entry.source] ?? entry.source));
+    const text = el("textarea", "memory-entry-text");
+    text.rows = 3;
+    if (memory?.max_chars) text.maxLength = memory.max_chars;
+    text.spellcheck = false;
+    text.value = store.memoryDrafts.get(entry.id) ?? entry.text;
+    text.setAttribute("aria-label", `Texte de l'entrée ${i + 1}`);
+    text.dataset.focusKey = `memory:${entry.id}:text`;
+    const save = el("button", "memory-entry-save", "Enregistrer");
+    save.type = "button";
+    save.disabled = text.value === entry.text;
+    save.setAttribute("aria-label", `Enregistrer l'entrée ${i + 1}`);
+    save.dataset.focusKey = `memory:${entry.id}:save`;
+    text.addEventListener("input", () => {
+      store.memoryDrafts.set(entry.id, text.value); // kept in place: typing never rebuilds
+      save.disabled = text.value === entry.text;
+    });
+    save.addEventListener("click", () => saveMemoryEntries([entry.id]));
+    const remove = el("button", "memory-entry-delete", "Supprimer");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Supprimer l'entrée ${i + 1}`);
+    remove.dataset.focusKey = `memory:${entry.id}:delete`;
+    remove.addEventListener("click", () => editMemory({ op: "delete", entry_id: entry.id }));
+    const actions = el("div", "drawer-actions memory-entry-actions");
+    actions.append(save, remove);
+    item.append(head, text, actions);
+    list.appendChild(item);
+  });
+  if (focusKey) {
+    const target = list.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`);
+    (target || document.getElementById("memory-close")).focus();
+  }
+}
+
+async function editMemory(body) {
+  // Class (b): the session writes `memory.json`; `memory_changed` redraws the list (AD-23).
+  try {
+    const response = await postIntention("/api/intentions/memory", body);
+    if (!response.ok) {
+      const answer = await response.json().catch(() => ({}));
+      memoryAlert(typeof answer.detail === "string" ? answer.detail : "Modification refusée.");
+      return false;
+    }
+  } catch {
+    memoryAlert("WaveStack ne répond pas : la mémoire n'a pas été modifiée.");
+    return false;
+  }
+  if (body.entry_id) store.memoryDrafts.delete(body.entry_id);
+  memoryAlert(null);
+  return true;
+}
+
+async function saveMemoryEntries(ids) {
+  for (const id of ids) {
+    const text = store.memoryDrafts.get(id);
+    if (text === undefined) continue;
+    if (!(await editMemory({ op: "replace", entry_id: id, text }))) return false;
+  }
+  return true;
 }
 
 async function clearConversation() {
@@ -1093,23 +1778,231 @@ const approxTotal = (p) =>
 
 // The model indicator (EXPERIENCE.md model-indicator): tag, name; tooltip = the cloud warning.
 function renderModelIndicator() {
+  renderModelPicker();
   const button = document.getElementById("model-indicator");
   const model = store.activeModel;
   button.hidden = !model;
   if (!model) return;
   const network = model.hosting === "network";
+  const served = model.kind === "server"; // story 18: a local server's model
   const key = JSON.stringify(model);
   if (button.dataset.key === key) return;
   button.dataset.key = key;
   const tag = el(
     "span",
     network ? "hosting-tag-network" : "hosting-tag-local",
-    network ? `RÉSEAU · ${model.provider}` : "Local"
+    network ? `RÉSEAU · ${model.provider}` : served ? `Local · ${model.provider}` : "Local"
   );
   button.replaceChildren(tag, el("span", "model-indicator-name", model.label));
-  button.title =
-    model.warning_fr ?? `Modèle local ${model.label}, sur ce poste. Cliquez pour ouvrir le diagnostic.`;
+  button.title = served
+    ? `Modèle servi par ${model.provider} sur ce poste (${model.server_url}) : processus distinct ` +
+      "de WaveStack ; le texte envoyé est construit par le harnais."
+    : model.warning_fr ??
+      `Modèle local ${model.label}, sur ce poste. Cliquez pour ouvrir le diagnostic.`;
   button.setAttribute("aria-label", `Modèle actif : ${model.label}. ${button.title}`);
+}
+
+// ---------- story 17: model picker (EXPERIENCE.md model-picker), hot switch ----------
+
+const PICK_OTHER = "other";
+const modelKey = (model) => (model ? `${model.kind ?? ""}:${model.ref ?? model.id}` : "");
+
+let modelListTimer = null;
+function scheduleModelList() {
+  clearTimeout(modelListTimer);
+  modelListTimer = setTimeout(loadModelList, 150);
+}
+
+// The last diagnostic's list: no new discovery nor probe at the picker's opening. A failed
+// fetch keeps the last list and tries again a few seconds later.
+let modelListRetry = null;
+async function loadModelList() {
+  clearTimeout(modelListRetry);
+  try {
+    const response = await fetch("/api/diagnostic");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    store.modelList = await response.json();
+    store.modelListError = false;
+  } catch {
+    store.modelListError = true;
+    modelListRetry = setTimeout(loadModelList, 5000);
+  }
+  renderModelPicker();
+}
+
+function pickerOption(value, text, { disabled = false, title = "" } = {}) {
+  const option = el("option", "", text);
+  option.value = value;
+  option.disabled = disabled;
+  if (title) option.title = title;
+  return option;
+}
+
+let renderedPickerKey = null;
+
+function renderModelPicker() {
+  const picker = document.getElementById("model-picker");
+  const apply = document.getElementById("model-picker-apply");
+  const state = store.sessionState;
+  const idle = state?.state === "idle"; // class (b): between two turns only
+  picker.disabled = !idle || !store.modelList;
+  picker.title = !idle
+    ? state?.reason_fr || "Disponible hors d'un tour."
+    : !store.modelList
+      ? "Liste des modèles indisponible : nouvel essai dans quelques secondes."
+      : "Changer de modèle : la conversation est conservée.";
+  if (!idle) store.pickerPending = "";
+  const active = store.activeModel;
+  const key = JSON.stringify([store.modelList, modelKey(active)]);
+  // A native list open under the pointer must not lose its options: rebuilt once it closes.
+  if (key !== renderedPickerKey && document.activeElement !== picker) {
+    renderedPickerKey = key;
+    rebuildModelPicker(picker, active);
+  }
+  if (picker.value !== store.pickerPending) picker.value = store.pickerPending;
+  if (picker.value !== store.pickerPending) store.pickerPending = ""; // its option left
+  const pending = store.pickerPending;
+  apply.hidden = !pending;
+  apply.disabled = !idle;
+  setText(
+    apply,
+    pending === PICK_OTHER ? "Ouvrir le diagnostic" : pending.startsWith("cloud:") ? "Choisir…" : "Charger"
+  );
+}
+
+function rebuildModelPicker(picker, active) {
+  const list = store.modelList ?? { candidates: [], cloud: { models: [] } };
+  const local = el("optgroup");
+  local.label = "Sur ce poste";
+  const seen = new Set();
+  for (const c of list.candidates ?? []) {
+    if (c.source === "server") {
+      // Story 18: a model an already-running local server serves, chosen like a file.
+      const isActive = active?.kind === "server" && active.ref === c.ref;
+      const unusable = c.status !== "server";
+      const suffix = isActive ? " (actif)" : unusable ? " (incompatible)" : "";
+      local.append(
+        pickerOption(`server:${c.ref}`, `Local · ${c.provider} · ${c.name}${suffix}`, {
+          disabled: isActive || unusable,
+          title: unusable ? c.reason ?? "" : `${c.provider} sur ${c.server_url}`,
+        })
+      );
+      continue;
+    }
+    if (c.status !== "found" || !c.path || seen.has(c.path)) continue;
+    seen.add(c.path);
+    const isActive = active?.kind === "file" && active.ref === c.path;
+    const size = c.size_label ? ` · ${c.size_label}` : "";
+    local.append(
+      pickerOption(`file:${c.path}`, `${c.name}${size}${isActive ? " (actif)" : ""}`, {
+        disabled: isActive,
+        title: c.path,
+      })
+    );
+  }
+  const network = el("optgroup");
+  network.label = "Réseau";
+  for (const m of list.cloud?.models ?? []) {
+    const isActive = active?.kind === "cloud" && active.ref === m.id;
+    const suffix = isActive ? " (actif)" : m.disabled_fr ? " (indisponible)" : "";
+    network.append(
+      pickerOption(`cloud:${m.id}`, `RÉSEAU · ${m.provider} · ${m.model}${suffix}`, {
+        disabled: isActive || Boolean(m.disabled_fr),
+        title: m.disabled_fr ?? "",
+      })
+    );
+  }
+  const head = pickerOption("", "Changer de modèle…");
+  const groups = [local, network].filter((g) => g.children.length);
+  picker.replaceChildren(head, ...groups, pickerOption(PICK_OTHER, "Autre fichier ou clé API…"));
+}
+
+// `change` only notes the choice: « Charger » (or « Choisir… », « Ouvrir le diagnostic »)
+// acts on it.
+function notePick(event) {
+  store.pickerPending = event.target.value;
+  renderModelPicker();
+}
+
+async function applyPick() {
+  const value = store.pickerPending;
+  store.pickerPending = "";
+  renderModelPicker();
+  if (!value) return;
+  if (value === PICK_OTHER) {
+    window.location.href = "/diagnostic"; // the key and a free path stay there
+    return;
+  }
+  const at = value.indexOf(":");
+  const kind = value.slice(0, at);
+  const ref = value.slice(at + 1);
+  if (kind === "cloud") {
+    openCloudWarning(store.modelList?.cloud?.models?.find((m) => m.id === ref));
+    return;
+  }
+  await selectModel({ kind, ref }); // a file, or a served model (story 18)
+}
+
+async function selectModel(body) {
+  store.topStatus = null;
+  try {
+    const response = await postIntention("/api/intentions/select_model", body);
+    const answer = await response.json().catch(() => ({}));
+    if (!response.ok) store.topStatus = answer.detail || "Changement de modèle refusé.";
+    else if (!answer.switching) store.topStatus = answer.message_fr ?? null; // « … est déjà actif. »
+  } catch (error) {
+    store.topStatus = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
+  }
+  render();
+}
+
+// EXPERIENCE.md cloud-warning: in the page, texts from `/api/diagnostic`; nothing changes
+// before « Utiliser ce modèle ».
+let warningModel = null;
+
+function openCloudWarning(model) {
+  if (!model?.warning) {
+    // Without its warning text, a cloud model cannot be confirmed, hence not chosen (AD-21).
+    store.topStatus = model
+      ? "L'avertissement de ce modèle cloud est indisponible (fichier content/cloud.yaml " +
+        "absent ou invalide) : il ne peut pas être choisi tant que le fichier n'est pas corrigé."
+      : "Ce modèle n'est plus dans la liste : rouvrez le sélecteur.";
+    render();
+    return;
+  }
+  warningModel = model;
+  const w = model.warning;
+  setText(document.getElementById("cloud-warning-title"), w.title_fr);
+  document
+    .getElementById("cloud-warning-points")
+    .replaceChildren(...["sent_fr", "provider_fr", "unseen_fr"].map((k) => el("li", "", w[k])));
+  setText(document.getElementById("cloud-warning-confirm"), w.confirm_fr);
+  setText(document.getElementById("cloud-warning-cancel"), w.cancel_fr);
+  document.getElementById("cloud-warning").showModal();
+  document.getElementById("cloud-warning-confirm").focus();
+}
+
+function bindCloudWarning() {
+  const dialog = document.getElementById("cloud-warning");
+  dialog.addEventListener("close", () => {
+    warningModel = null;
+    document.getElementById("model-picker").focus();
+  });
+  document.getElementById("cloud-warning-cancel").addEventListener("click", () => dialog.close());
+  document.getElementById("cloud-warning-confirm").addEventListener("click", () => {
+    const model = warningModel;
+    dialog.close();
+    if (model) selectModel({ kind: "cloud", ref: model.id, acknowledged: true });
+  });
+}
+
+// The top bar and the Vue humain's stopwatch, anchored on `model_load_started.ts` (AD-1).
+function modelLoadText() {
+  const load = store.modelLoad;
+  if (!load) return null;
+  // Lot E (E4): llama.cpp cannot interrupt a load; the stop acts at the end of the step.
+  const stopping = load.stopRequested ? "Arrêt demandé, effectif à la fin de l'étape en cours · " : "";
+  return `${stopping}Chargement du modèle ${load.model.label}… ${seconds(Date.now() - load.startedAt)}`;
 }
 
 // ---------- human view: bubbles, working indicator, composer ----------
@@ -1120,6 +2013,9 @@ function turnNote(turn) {
       return "Contexte dépassé : le modèle n'a pas été appelé.";
     case "limit":
       if (turn.limit) return turn.limit.message_fr;
+      if (turn.truncated?.channel === "reasoning") {
+        return `Sortie coupée pendant le raisonnement : la limite de ${fmt(turn.truncated.max_tokens)} tokens a été atteinte avant toute réponse. Le raisonnement reçu reste visible dans Contexte LLM.`;
+      }
       return `Sortie coupée : la réponse a atteint la limite de ${fmt(turn.truncated?.max_tokens ?? 0)} tokens. Le texte reçu est conservé.`;
     case "cancelled":
       return "Arrêté à votre demande : le texte déjà reçu est conservé.";
@@ -1128,6 +2024,42 @@ function turnNote(turn) {
     default:
       return null;
   }
+}
+
+// EXPERIENCE.md reasoning-block: folded by default; the user's unfolding survives the
+// 250 ms rebuilds of the panes.
+function reasoningBlock(text, key, title) {
+  const details = el("details", "reasoning-block");
+  details.open = store.openReasoning.has(key);
+  const summary = el("summary", "", title);
+  summary.dataset.focusKey = `reasoning:${key}`;
+  details.append(summary, el("div", "reasoning-text", text));
+  details.addEventListener("toggle", () => {
+    if (details.open) store.openReasoning.add(key);
+    else store.openReasoning.delete(key);
+  });
+  return details;
+}
+
+const REASONING_STORAGE_KEY = "wavestack.showReasoning";
+
+function loadShowReasoning() {
+  try {
+    store.showReasoning = localStorage.getItem(REASONING_STORAGE_KEY) !== "0";
+  } catch {
+    store.showReasoning = true;
+  }
+  document.getElementById("show-reasoning").checked = store.showReasoning;
+}
+
+function toggleShowReasoning(event) {
+  store.showReasoning = event.target.checked;
+  try {
+    localStorage.setItem(REASONING_STORAGE_KEY, store.showReasoning ? "1" : "0");
+  } catch {
+    // No storage: the choice lasts until the page is reloaded.
+  }
+  renderChat();
 }
 
 // H5 cards of the Vue humain, kept between renders while their state is unchanged: the
@@ -1143,7 +2075,14 @@ function renderChat() {
   const cards = new Map();
   const turns = shownTurns();
   if (turns.length === 0) nodes.push(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
+  let shownBefore = null;
   for (const turn of turns) {
+    // Story 17: « Modèle : … » above the first turn shown, then above each turn played by
+    // another model than the turn shown before it.
+    if (turn.model && modelKey(shownBefore?.model) !== modelKey(turn.model)) {
+      nodes.push(el("div", "model-switch-line", `Modèle : ${turn.model.label}`));
+    }
+    shownBefore = turn;
     const user = el("div", "bubble bubble-user", turn.message);
     const origin = turn.replayOf && store.turns.find((t) => t.id === turn.replayOf);
     if (origin) {
@@ -1157,10 +2096,17 @@ function renderChat() {
     }
     nodes.push(user);
     const answer = el("div", "bubble bubble-model");
-    if (turn.reasoning) {
-      const details = el("details", "bubble-reasoning");
-      details.append(el("summary", "", "Raisonnement"), el("div", "", turn.reasoning));
-      answer.appendChild(details);
+    // FR-9: shown here only if « Afficher le raisonnement » is ticked; Contexte LLM always.
+    const reasonings = [...turn.pastReasoning, ...(turn.reasoning ? [turn.reasoning] : [])];
+    if (store.showReasoning) {
+      reasonings.forEach((text, i) => {
+        const title = reasonings.length > 1 ? `Raisonnement (appel ${i + 1})` : "Raisonnement";
+        answer.appendChild(reasoningBlock(text, `chat:${turn.id}:${i}`, title));
+      });
+    } else if (turn.status === null && turn.firstToken && turn.reasoning && !turn.text) {
+      // The reasoning is hidden: the bubble still says the model is working.
+      const since = turn.callStartedAt ?? turn.startedAt;
+      answer.appendChild(el("div", "working-indicator", `Le modèle raisonne… ${seconds(Date.now() - since)}`));
     }
     if (turn.text) answer.appendChild(el("div", "bubble-text", turn.text));
     if (turn.status === null && !turn.firstToken) {
@@ -1181,8 +2127,9 @@ function renderChat() {
       answer.appendChild(el("div", "bubble-note", "(réponse vide)"));
     }
     nodes.push(answer);
-    // H5: the validation is the user's to give, in the thread of its turn, under the answer.
-    for (const step of turn.steps) {
+    // H5: the validation is the user's to give, in the thread of its turn, under the answer;
+    // a sub-agent's too (story 19), though its text never shows here.
+    for (const step of allSteps(turn)) {
       if (step.type !== "hook" || !step.approval) continue;
       const id = step.approval.approval_id;
       const key = JSON.stringify([
@@ -1198,6 +2145,8 @@ function renderChat() {
     }
   }
   approvalCards = cards;
+  const loading = modelLoadText();
+  if (loading) nodes.push(el("div", "working-indicator model-load-indicator", loading));
   patchChildren(chat, nodes);
   if (focusKey && !chat.contains(document.activeElement)) {
     let target = chat.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`);
@@ -1242,8 +2191,10 @@ function renderComposer() {
   compare.disabled = shownTurns().length < 2;
   compare.title = compare.disabled ? "Il faut au moins deux tours pour comparer." : "";
   const stop = document.getElementById("composer-stop");
-  stop.hidden = state?.state !== "turn" && state?.state !== "awaiting_human";
-  stop.disabled = Boolean(activeTurn()?.stopRequested);
+  // Lot E (E4): « Arrêter » also stops a model load (the previous model comes back).
+  const loading = state?.state === "model_load" && Boolean(store.modelLoad);
+  stop.hidden = state?.state !== "turn" && state?.state !== "awaiting_human" && !loading;
+  stop.disabled = loading ? Boolean(store.modelLoad.stopRequested) : Boolean(activeTurn()?.stopRequested);
   const reason = document.getElementById("composer-reason");
   const text = store.composerError || (ready ? null : state?.reason_fr || "En attente du modèle…");
   reason.hidden = !text;
@@ -1298,7 +2249,8 @@ function renderScenarioControls(state) {
       groups.push(node);
     };
     program?.modules.forEach((m, i) => group(`Module ${i + 1} · ${m.title_fr} · ${m.duration_min} min`, m.scenarios));
-    if (program?.transverse.length) group("Transverse", program.transverse);
+    // Story 21: the business scenarios (FR-40) follow the hosting one, in `transverse`.
+    if (program?.transverse.length) group("Transverses et métier", program.transverse);
     picker.replaceChildren(empty, ...groups);
   }
   const active = store.scenarios?.active ?? "";
@@ -1308,10 +2260,11 @@ function renderScenarioControls(state) {
   const reset = document.getElementById("reset-button");
   reset.disabled = !idle;
   reset.title = reason || "Retour au LLM nu, conversation vide.";
-  setText(document.getElementById("top-status"), store.topStatus ?? "");
+  setText(document.getElementById("top-status"), modelLoadText() ?? store.topStatus ?? "");
 
   // Vue humain: the active scenario's instructions, then one chip per suggested prompt.
   const scenario = findScenario(store.scenarios?.active);
+  renderScenarioUnavailable(scenario ? store.scenarios?.unavailable ?? [] : []);
   if (renderedGuide === scenario) return;
   renderedGuide = scenario;
   const guide = document.getElementById("scenario-guide");
@@ -1337,6 +2290,32 @@ function renderScenarioControls(state) {
       return chip;
     })
   );
+}
+
+// Lot E (E5): the bricks the scenario wants and the active model cannot offer, each with its
+// reason, under the scenario's instructions (the session computed them, AD-1).
+let renderedUnavailable = null;
+
+function renderScenarioUnavailable(unavailable) {
+  const key = JSON.stringify(unavailable);
+  if (renderedUnavailable === key) return;
+  renderedUnavailable = key;
+  const box = document.getElementById("scenario-unavailable");
+  box.hidden = unavailable.length === 0;
+  if (!unavailable.length) {
+    box.replaceChildren();
+    return;
+  }
+  const title = unavailable.length > 1
+    ? "Briques du scénario indisponibles avec ce modèle :"
+    : "Brique du scénario indisponible avec ce modèle :";
+  const list = el("ul", "scenario-unavailable-list");
+  for (const brick of unavailable) {
+    const item = el("li");
+    item.append(el("strong", "", brick.label_fr), ` : ${brick.reason_fr}`);
+    list.appendChild(item);
+  }
+  box.replaceChildren(el("strong", "", title), list);
 }
 
 async function scenarioIntention(path, body, failure) {
@@ -1379,7 +2358,18 @@ async function sendMessage(event) {
   event.preventDefault();
   const input = document.getElementById("composer-input");
   const message = input.value.trim();
-  if (!message || input.disabled) return;
+  // Never ignored without a word: the reason stays under the field.
+  if (input.disabled) {
+    const reason = store.sessionState?.reason_fr;
+    store.composerError = `Message non envoyé : ${reason || "WaveStack n'est pas prêt à recevoir un message."}`;
+    render();
+    return;
+  }
+  if (!message) {
+    store.composerError = "Écrivez un message avant d'envoyer.";
+    render();
+    return;
+  }
   store.composerError = null;
   try {
     const response = await postIntention("/api/intentions/send", { message });
@@ -1396,8 +2386,12 @@ async function sendMessage(event) {
 }
 
 async function stopTurn() {
-  const turn = activeTurn();
-  if (turn) turn.stopRequested = true;
+  if (store.sessionState?.state === "model_load" && store.modelLoad) {
+    store.modelLoad.stopRequested = true; // lot E (E4)
+  } else {
+    const turn = activeTurn();
+    if (turn) turn.stopRequested = true;
+  }
   render();
   try {
     await postIntention("/api/intentions/stop", {});
@@ -1414,10 +2408,28 @@ function renderContext() {
     renderCompare(pane);
     return;
   }
+  // The rebuild would drop keyboard focus (e.g. on the context switch): restore it.
+  const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+  renderContextBody(pane);
+  if (focusKey) pane.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`)?.focus();
+}
+
+function renderContextBody(pane) {
   pane.innerHTML = "";
-  const turn = shownTurns().reverse().find((t) => t.context);
+  const chosen = store.ctxView && shownTurns().find((t) => t.id === store.ctxView.turn);
+  const turn = chosen?.subs.get(store.ctxView.sub)?.context
+    ? chosen
+    : shownTurns().reverse().find((t) => t.context);
   if (!turn) {
     pane.appendChild(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
+    return;
+  }
+  // Story 19: « Contexte principal » / « Contexte du sous-agent », one button per sub-agent.
+  const subs = [...turn.subs.values()].filter((s) => s.context);
+  const view = store.ctxView?.turn === turn.id ? turn.subs.get(store.ctxView.sub) : null;
+  if (subs.length) pane.appendChild(ctxViewSwitch(turn, subs, view?.context ? view : null));
+  if (view?.context) {
+    renderSubContext(pane, view);
     return;
   }
   const p = turn.context;
@@ -1426,16 +2438,51 @@ function renderContext() {
     const banner = store.activeModel?.banner_fr ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
     pane.appendChild(el("p", "ctx-banner", banner));
   }
-  const source = p.usage_source === "api" ? " (total renvoyé par le fournisseur)" : "";
+  // AD-4: the provider's total replaces the sum of the segments, it is not added to it.
+  const source = p.usage_source === "api" ? "total renvoyé par le fournisseur" : "somme des segments";
   pane.appendChild(
     el(
       "p",
       "ctx-total",
-      `Tour ${turn.id} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments)${source} · ` +
+      `${turnName(turn)} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (${source}) · ` +
         `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
     )
   );
   if (p.uncertain_fr) pane.appendChild(el("p", "bubble-note", p.uncertain_fr));
+  if (p.uncompressed_used != null) {
+    // Story 20: the session's total without compression, next to the one sent (FR-31).
+    pane.appendChild(
+      el(
+        "p",
+        "ctx-compressed-total",
+        `🗜️ Sans compression : ≈ ${fmt(p.uncompressed_used)} tokens ; envoyés : ${approxTotal(p)}${fmt(p.used)}.`
+      )
+    );
+  }
+  appendSegments(pane, p, turn);
+  for (const error of turn.errors) pane.appendChild(el("p", "bubble-note is-error", error));
+  // FR-9: the reasoning of the last call, always here, whatever the Vue humain option says:
+  // its `model_call_ended` once there, the live deltas while it streams.
+  const ended = lastCall(turn).ended;
+  const reasoning = ended ? ended.reasoning : turn.reasoning;
+  if (reasoning) {
+    pane.appendChild(el("h3", "ctx-heading", "Raisonnement du modèle"));
+    pane.appendChild(reasoningBlock(reasoning, `ctx:${turn.id}`, "Afficher le raisonnement de cet appel"));
+  }
+  pane.appendChild(el("h3", "ctx-heading", "Sortie brute du modèle"));
+  const raw = turn.callEnded ? turn.callEnded.raw_output : turn.reasoning + turn.text;
+  pane.appendChild(
+    el("pre", "ctx-raw", raw || (turn.overflow ? "Aucun appel : contexte dépassé." : "…"))
+  );
+}
+
+// Story 20: the text a compressed segment had before, kept once by its compression step.
+function textBefore(turn, was) {
+  const step = turn?.steps.find((s) => s.type === "compression" && s.stepId === was.step_id);
+  return step?.ended?.items[was.item]?.text_before ?? null;
+}
+
+function appendSegments(pane, p, turn = null) {
   for (const segment of p.segments) {
     const group = p.breakdown.find((item) => item.kinds.includes(segment.kind));
     const box = el("div", "ctx-segment");
@@ -1450,14 +2497,72 @@ function renderContext() {
         `${approx(segment.estimated)}${fmt(segment.tokens)} ${segment.tokens > 1 ? "tokens" : "token"}`
     );
     box.append(label, el("pre", "", segment.text));
+    if (segment.compressed_from) {
+      // Story 20: a compressed segment, and what it was before (AD-22).
+      const was = segment.compressed_from;
+      const tokens = `${approx(was.estimated)}${fmt(was.tokens_before)} tokens`;
+      box.classList.add("ctx-compressed");
+      label.append(el("span", "ctx-compressed-badge", `🗜️ compressé, ${tokens} avant`));
+      const text = textBefore(turn, was);
+      if (text !== null) {
+        const before = el("details");
+        before.append(el("summary", "", `Texte avant compression (${tokens})`), el("pre", "", text));
+        box.appendChild(before);
+      }
+    }
     pane.appendChild(box);
   }
-  for (const error of turn.errors) pane.appendChild(el("p", "bubble-note is-error", error));
-  pane.appendChild(el("h3", "ctx-heading", "Sortie brute du modèle"));
-  const raw = turn.callEnded ? turn.callEnded.raw_output : turn.reasoning + turn.text;
+}
+
+// Story 19 (EXPERIENCE: Sous-agent au travail): toggle buttons, `aria-pressed` on the one shown.
+function ctxViewSwitch(turn, subs, view) {
+  const bar = el("div", "ctx-view-switch");
+  bar.setAttribute("role", "group");
+  bar.setAttribute("aria-label", "Contexte affiché");
+  const button = (label, target, pressed) => {
+    const b = el("button", "ctx-view-button", label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(pressed));
+    b.dataset.focusKey = `ctxview:${target ?? "main"}`;
+    b.addEventListener("click", () => {
+      store.ctxView = target ? { turn: turn.id, sub: target } : null;
+      renderContext(); // the focus stays on the button clicked, rebuilt
+    });
+    return b;
+  };
+  bar.appendChild(button("Contexte principal", null, !view));
+  subs.forEach((sub, i) => {
+    const label = subs.length > 1 ? `Contexte du sous-agent ${i + 1}` : "Contexte du sous-agent";
+    bar.appendChild(button(label, sub.contextId, view === sub));
+  });
+  return bar;
+}
+
+function renderSubContext(pane, sub) {
+  const p = sub.context;
   pane.appendChild(
-    el("pre", "ctx-raw", raw || (turn.overflow ? "Aucun appel : contexte dépassé." : "…"))
+    el(
+      "p",
+      "ctx-total",
+      `Sous-agent ${sub.contextId} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments) · ` +
+        `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
+    )
   );
+  if (sub.ended) {
+    pane.appendChild(
+      el(
+        "p",
+        "subagent-saving",
+        `Ce contexte reste dans le sous-agent. ${subSaving(sub.ended)}`
+      )
+    );
+  }
+  appendSegments(pane, p);
+  for (const notice of sub.notices) pane.appendChild(el("p", "bubble-note", notice));
+  for (const error of sub.errors) pane.appendChild(el("p", "bubble-note is-error", error));
+  pane.appendChild(el("h3", "ctx-heading", "Sortie brute du sous-agent"));
+  const raw = sub.callEnded ? sub.callEnded.raw_output : sub.reasoning + sub.text;
+  pane.appendChild(el("pre", "ctx-raw", raw || (sub.overflow ? "Aucun appel : contexte du sous-agent dépassé." : "…")));
 }
 
 // ---------- turn comparison (story 9b, EXPERIENCE.md turn-compare) ----------
@@ -1583,6 +2688,7 @@ function renderCompare(pane) {
   for (const [turn, figures, other] of [[left, a, null], [right, b, a]]) {
     const card = el("div", "turn-compare-figures");
     card.append(el("div", "turn-group-title", `${turnName(turn)}${turn.replayOf ? " · Rejeu" : ""}`));
+    card.append(el("div", "turn-compare-model", `Modèle : ${turn.model?.label ?? "inconnu"}`));
     const diff = (key, unit) =>
       other && figures[key] !== null && other[key] !== null ? ` (${signed(figures[key] - other[key], unit)})` : "";
     card.append(
@@ -1687,6 +2793,7 @@ function toolBody(step) {
     nodes.push(el("span", "step-badge is-mcp", "MCP"));
   }
   if (step.brick === "skills") nodes.push(el("span", "step-badge is-skill", "Skill"));
+  if (step.brick === "global_memory") nodes.push(el("span", "step-badge is-memory", "Mémoire globale"));
   // EXPERIENCE: trigger badge, read from the envelope's `trigger` (story 9).
   const badge = triggerBadge(step.trigger);
   if (badge) nodes.push(badge);
@@ -1701,7 +2808,17 @@ function toolBody(step) {
   }
   nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
   if (ended.status === "ok") {
+    const cut = ended.truncated;
+    if (cut) {
+      // Lot B (N3): the harness cut a network or MCP result before the model read it.
+      const approx = cut.estimated ? "≈ " : "";
+      nodes.push(el("p", "", `Résultat tronqué par le harnais : ${approx}${fmt(cut.tokens)} tokens sur ${approx}${fmt(cut.total_tokens)} (borne [tools] result_max_tokens)`));
+    }
     nodes.push(el("p", "label", "Résultat"), el("pre", "step-code", ended.result));
+    for (const write of step.memoryWrites || []) {
+      // Story 14: what the harness wrote in memory.json, the model having only asked.
+      nodes.push(el("p", "label", "Entrée écrite dans memory.json par le harnais"), el("pre", "step-code", write.text));
+    }
   } else {
     nodes.push(
       el("span", "step-badge", "erreur d'exécution"),
@@ -1762,6 +2879,203 @@ function outboundPayload(request, openSet = null) {
   const body = request.body || "Aucun corps : seule l'adresse sort du poste.";
   details.append(head, el("pre", "step-code", body));
   return details;
+}
+
+// Story 15: a score with two decimals, French style (« 0,82 »).
+const scoreFormat = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function ragBody(step) {
+  // The query, where the excerpts go, then rank, document, score and foldable text; a click on
+  // an excerpt selects the retriever in the schema (CAP-4).
+  const ended = step.ended;
+  const nodes = [el("p", "label", "Requête"), el("pre", "step-code", step.started.query)];
+  if (!ended) {
+    const running = el("div", "token-counter number", `${step.started.phase_label} `);
+    running.appendChild(tick(step.startedAt));
+    nodes.push(running);
+    return nodes;
+  }
+  nodes.push(el("p", "", `Placement : ${ended.placement_fr}`));
+  // Story 16: the reranking enabled, but not applied to this turn, and why.
+  if (ended.rerank_skipped_fr) nodes.push(el("p", "bubble-note", ended.rerank_skipped_fr));
+  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  if (ended.status === "error") {
+    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_fr));
+    return nodes;
+  }
+  const list = el("ol", "rag-excerpts");
+  for (const excerpt of ended.excerpts) {
+    const item = el("li", "rag-excerpt");
+    const details = el("details");
+    const head = el("summary", "rag-excerpt-head");
+    head.append(
+      el("span", "rag-rank", `#${excerpt.position}`),
+      el("span", "rag-doc", excerpt.title_fr),
+      el("span", "rag-score number", scoreFormat.format(excerpt.score))
+    );
+    head.title = "Sélectionne le composant RAG dans le schéma ; déplie le texte de l'extrait";
+    head.addEventListener("click", () => {
+      store.selection = step.component || "rag.retriever";
+      scheduleRender();
+    });
+    details.append(head, el("pre", "step-code", excerpt.text));
+    item.appendChild(details);
+    list.appendChild(item);
+  }
+  nodes.push(el("p", "label", "Extraits (rang · document · score)"), list);
+  return nodes;
+}
+
+// Story 16: the order before and after reranking, side by side; the kept ones first.
+function rerankKept(keep) {
+  return keep > 1 ? `Seuls les ${keep} premiers après reranking entrent` : "Seul le premier après reranking entre";
+}
+
+function rerankBody(step) {
+  const ended = step.ended;
+  const nodes = [el("p", "label", "Requête"), el("pre", "step-code", step.started.query)];
+  if (!ended) {
+    const done = step.progress ? ` ${step.progress.done} / ${step.progress.total} ` : " ";
+    const running = el("div", "token-counter number", `${step.started.phase_label}${done}`);
+    running.appendChild(tick(step.startedAt));
+    nodes.push(running);
+    return nodes;
+  }
+  nodes.push(el("p", "", `Placement : ${ended.placement_fr}`));
+  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  if (ended.status === "cancelled") {
+    nodes.push(el("span", "step-badge", "arrêté"), el("p", "", ended.error_fr));
+    return nodes;
+  }
+  if (ended.status === "error") {
+    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_fr));
+    return nodes;
+  }
+  const texts = new Map((step.search?.ended?.excerpts ?? []).map((e) => [e.chunk_id, e.text]));
+  const select = () => {
+    store.selection = step.component || "rag.reranker";
+    scheduleRender();
+  };
+  const kept = (excerpt) => excerpt.position <= ended.keep;
+  const keepTag = (excerpt) => el("span", "rerank-keep", kept(excerpt) ? "gardé" : "écarté");
+  const before = [...ended.excerpts].sort((a, b) => a.before - b.before);
+  const columns = el("div", "rerank-columns");
+  const beforeList = el("ol", "rerank-list rerank-before");
+  for (const excerpt of before) {
+    const item = el("li", `rerank-item${kept(excerpt) ? " is-kept" : " is-dropped"}`);
+    item.append(
+      el("span", "rag-rank", `#${excerpt.before}`),
+      el("span", "rag-doc", excerpt.title_fr),
+      el("span", "rag-score number", scoreFormat.format(excerpt.retrieval_score)),
+      el("span", "rerank-move", `→ #${excerpt.position}`),
+      keepTag(excerpt)
+    );
+    beforeList.appendChild(item);
+  }
+  const afterList = el("ol", "rerank-list rerank-after");
+  for (const excerpt of ended.excerpts) {
+    const item = el("li", `rerank-item${kept(excerpt) ? " is-kept" : " is-dropped"}`);
+    const details = el("details");
+    const head = el("summary", "rag-excerpt-head");
+    const moved = excerpt.before - excerpt.position;
+    const move = moved > 0 ? `↑ ${moved}` : moved < 0 ? `↓ ${-moved}` : "=";
+    head.append(
+      el("span", "rag-rank", `#${excerpt.position}`),
+      el("span", "rerank-move", move),
+      el("span", "rag-doc", excerpt.title_fr),
+      el("span", "rag-score number", scoreFormat.format(excerpt.score)),
+      keepTag(excerpt)
+    );
+    if (excerpt.truncated) head.append(el("span", "rerank-cut", "coupé"));
+    head.title = `Rang ${excerpt.before} avant le reranking. Sélectionne le reranker dans le schéma ; déplie le texte`;
+    head.addEventListener("click", select);
+    details.append(head, el("pre", "step-code", texts.get(excerpt.chunk_id) ?? ""));
+    item.appendChild(details);
+    afterList.appendChild(item);
+  }
+  const col = (title, list) => {
+    const box = el("div", "rerank-column");
+    box.append(el("p", "label", title), list);
+    return box;
+  };
+  columns.append(
+    col("Avant (embedding) · rang · document · score · rang après", beforeList),
+    col("Après (reranker) · rang · écart · document · score", afterList)
+  );
+  const cut = ended.excerpts.filter((e) => e.truncated).length;
+  const notes = [`${rerankKept(ended.keep)} dans le contexte ; les deux scores ne se comparent pas.`];
+  if (cut) {
+    notes.push(
+      `${plural(cut, "extrait")} coupé${cut > 1 ? "s" : ""} pour tenir dans la paire question + extrait du reranker ([rag.reranker] max_tokens) : noté${cut > 1 ? "s" : ""} sur son début.`
+    );
+  }
+  nodes.push(columns, ...notes.map((note) => el("p", "rerank-note", note)));
+  return nodes;
+}
+
+// Story 20: « 1 240 → 310 tokens (−75 %) », the session's own sums (AD-1).
+function compressionFigure(p) {
+  const percent = p.tokens_before ? Math.round((100 * p.saved_tokens) / p.tokens_before) : 0;
+  const mark = approx(p.estimated);
+  return `${mark}${fmt(p.tokens_before)} → ${mark}${fmt(p.tokens_after)} tokens (−${percent} %)`;
+}
+
+function compressionBody(step) {
+  // What each candidate was and became, with the tokens of both versions (FR-31); a click on
+  // a candidate selects the compressor in the schema (CAP-4).
+  const ended = step.ended;
+  if (!ended) {
+    const running = el("div", "token-counter number", `${step.started.phase_label} `);
+    running.appendChild(tick(step.startedAt));
+    return [running];
+  }
+  const many = ended.items.length > 1;
+  const lines = [
+    el(
+      "p",
+      "",
+      `Décision du harnais (code) : avant l'appel au modèle, ${plural(ended.items.length, "texte")} ` +
+        `passé${many ? "s" : ""} à ${ended.compressor_fr}. Un texte déjà lu par le modèle n'est jamais réécrit.`
+    ),
+    el("div", "token-counter number", `Contexte réduit : ${compressionFigure(ended)} · ${seconds(ended.duration_ms)}`),
+  ];
+  const list = el("ol", "compression-items"); // each error once, under its own text
+  for (const item of ended.items) {
+    const entry = el("li", "compression-item");
+    const head = el("button", "compression-item-head");
+    head.type = "button";
+    head.title = "Sélectionne le compresseur dans le schéma";
+    const mark = approx(ended.estimated);
+    head.append(
+      el("span", "compression-source", item.source_fr),
+      el(
+        "span",
+        "compression-tokens number",
+        item.changed
+          ? `${mark}${fmt(item.tokens_before)} → ${mark}${fmt(item.tokens_after)} tokens`
+          : `${mark}${fmt(item.tokens_before)} tokens · inchangé`
+      )
+    );
+    head.addEventListener("click", () => {
+      store.selection = step.component || "compression.compressor";
+      scheduleRender();
+    });
+    entry.appendChild(head);
+    if (item.error_fr) entry.appendChild(el("p", "bubble-note is-error", item.error_fr));
+    else if (!item.changed) entry.appendChild(el("p", "label", ended.unchanged_fr));
+    const before = el("details");
+    before.append(el("summary", "", `Avant (${mark}${fmt(item.tokens_before)} tokens)`), el("pre", "step-code", item.text_before));
+    entry.appendChild(before);
+    if (item.changed) {
+      const after = el("details");
+      after.append(el("summary", "", `Après (${mark}${fmt(item.tokens_after)} tokens)`), el("pre", "step-code", item.text_after));
+      entry.appendChild(after);
+    }
+    list.appendChild(entry);
+  }
+  lines.push(list);
+  const tone = ended.status === "error" ? "error" : "info";
+  return [harnessEvent(`Compression du contexte (${ended.compressor_fr})`, tone, lines)];
 }
 
 const HOOK_DECISIONS = {
@@ -1935,8 +3249,25 @@ const TURN_STATUS = {
   blocked: ["is-failed", "bloqué"],
   error: ["is-failed", "erreur"],
 };
-const LIMITS = { calls: "limite d'appels", retries: "limite d'essais", sub_calls: "limite de sous-appels" };
+const LIMITS = {
+  calls: "limite d'appels",
+  retries: "limite d'essais",
+  sub_calls: "limite de sous-appels",
+  sub_retries: "limite d'essais du sous-agent",
+};
 const APPROVAL_FIGURES = { approved: "autorisé", refused: "refusé", cancelled: "annulé" };
+// Lot A: why the engine reads the context again (`prefix_not_reused.cause`); the full
+// French explanation is its `message_fr`.
+const PREFIX_CAUSES = {
+  in_turn: "dans le tour",
+  system: "message système modifié",
+  history: "historique réécrit",
+  template: "gabarit",
+  reset: "conversation vidée",
+  replay: "rejeu",
+  abandoned: "tour précédent abandonné",
+  subagent: "sous-agent",
+};
 
 function plural(count, word) {
   return `${fmt(count)} ${word}${count > 1 ? "s" : ""}`;
@@ -1985,6 +3316,8 @@ function turnRows(turn) {
       if (ended) {
         const guess = approx(ended.usage_source === "estimate");
         figure = `${guess}${fmt(ended.prompt_tokens)} lus · ${guess}${fmt(ended.output_tokens)} écrits · ${seconds(ended.duration_ms)}`;
+        // Lot A: what the engine really evaluated, the tokens reused from its cache excluded.
+        if (ended.evaluated_tokens != null) figure += ` · ${fmt(ended.evaluated_tokens)} tokens évalués`;
         const stopped = { length: "sortie coupée", cancelled: "arrêté" }[ended.stop_reason];
         if (stopped) figure += ` · ${stopped}`;
       } else if (step.startedAt) {
@@ -2013,15 +3346,19 @@ function turnRows(turn) {
           body: () => asked.map((call) => el("pre", "step-code", formatCall(call))),
         });
       }
+    } else if (step.type === "tool" && step.started.tool === "delegate") {
+      rows.push(delegateRow(turn, step, key));
+      // Story 19: the sub-agent's own steps, as indented child lines of the delegation.
+      if (step.sub) for (const row of turnRows(step.sub)) rows.push({ ...row, sub: true });
     } else if (step.type === "tool") {
       const ended = step.ended;
       const harness = step.started.source === "harness";
       let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
-      if (ended) figure = `${ended.status === "ok" ? "OK" : "erreur"} · ${seconds(ended.duration_ms)}`;
+      if (ended) figure = `${ended.status === "ok" ? (ended.truncated ? "OK · tronqué" : "OK") : "erreur"} · ${seconds(ended.duration_ms)}`;
       const forced = step.trigger === "user";
       rows.push({
         key,
-        icon: harness ? (step.brick === "skills" ? "📘" : "📖") : "🔧",
+        icon: harness ? { skills: "📘", global_memory: "💾" }[step.brick] || "📖" : "🔧",
         title: harness ? step.started.phase_label : `Exécution · ${toolLabel(step.started.tool)}`,
         actor: forced ? "user" : harness ? "model" : "harness",
         trigger: step.trigger,
@@ -2051,6 +3388,63 @@ function turnRows(turn) {
         sig: [p, step.approval, step.resolved, step.lines.length, toolLabel(step.approval?.tool ?? "")],
         body: () => [hookCard(step)],
       });
+    } else if (step.type === "rag") {
+      const ended = step.ended;
+      const failed = ended?.status === "error";
+      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+      if (ended) figure = failed ? "erreur" : `${plural(ended.excerpts.length, "extrait")} · ${seconds(ended.duration_ms)}`;
+      rows.push({
+        key,
+        icon: "📚",
+        title: "Recherche RAG",
+        actor: "harness",
+        figure,
+        tone: failed ? "error" : null,
+        sticky: failed,
+        sig: [Boolean(ended), ended?.status],
+        body: () => ragBody(step),
+      });
+    } else if (step.type === "rerank") {
+      // Story 16: the reranking of the search's candidates.
+      const ended = step.ended;
+      const failed = ended?.status === "error";
+      const stopped = ended?.status === "cancelled";
+      const done = step.progress ? `${step.progress.done} / ${step.progress.total} · ` : "";
+      let figure = `en cours · ${done}${seconds(Date.now() - step.startedAt)}`;
+      if (ended) {
+        figure = stopped
+          ? "arrêté"
+          : failed
+            ? "erreur"
+            : `${plural(ended.keep, "gardé")} sur ${ended.excerpts.length} · ${seconds(ended.duration_ms)}`;
+      }
+      rows.push({
+        key,
+        icon: "↕️",
+        title: "Reranking",
+        actor: "harness",
+        figure,
+        tone: failed ? "error" : null,
+        sticky: failed,
+        sig: [Boolean(ended), ended?.status, step.progress?.done],
+        body: () => rerankBody(step),
+      });
+    } else if (step.type === "compression") {
+      const ended = step.ended;
+      const failed = ended?.status === "error";
+      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+      if (ended) figure = compressionFigure(ended);
+      rows.push({
+        key,
+        icon: "🗜️",
+        title: step.started.title_fr,
+        actor: "harness",
+        figure,
+        tone: failed ? "error" : null,
+        sticky: failed,
+        sig: [Boolean(ended), ended?.status],
+        body: () => compressionBody(step),
+      });
     } else if (step.type === "action_dropped") {
       const label = step.label || "action forcée";
       rows.push({
@@ -2076,35 +3470,49 @@ function turnRows(turn) {
         icon: "✖",
         title: "Appel d'outil mal formé",
         actor: "harness",
-        figure: step.payload.reaction === "retry" ? "nouvel essai" : "tour arrêté",
+        figure: step.payload.reaction === "retry" ? "nouvel essai" : turn.contextId ? "délégation arrêtée" : "tour arrêté",
         tone: "error",
         sticky: true,
         sig: 1,
         body: () => [malformedCard(step.payload)],
       });
     } else if (step.type === "limit_reached") {
-      const retries = step.payload.limit === "retries";
+      const retries = step.payload.limit.endsWith("retries");
+      const title = turn.contextId ? "Borne du sous-agent atteinte" : "Borne du tour atteinte";
       rows.push({
         key,
         icon: retries ? "✖" : "⏹",
-        title: "Borne du tour atteinte",
+        title,
         actor: "harness",
         figure: LIMITS[step.payload.limit] || step.payload.limit,
         tone: retries ? "error" : "hook",
         sticky: retries,
         sig: 1,
-        body: () => [harnessEvent("Borne du tour atteinte", retries ? "error" : "info", [el("p", "", step.payload.message_fr)])],
+        body: () => [harnessEvent(title, retries ? "error" : "info", [el("p", "", step.payload.message_fr)])],
       });
     } else if (step.type === "prefix_not_reused") {
+      const cause = PREFIX_CAUSES[step.payload.cause];
       rows.push({
         key,
         icon: "ℹ",
         title: "Préfixe non réutilisé",
         actor: "harness",
-        figure: `${fmt(step.payload.common_tokens)} tokens communs`,
+        figure: `${cause ? `${cause} · ` : ""}${fmt(step.payload.common_tokens)} tokens communs`,
         tone: "hook",
         sig: 1,
         body: () => [harnessEvent("Préfixe non réutilisé", "info", [el("p", "", step.payload.message_fr)])],
+      });
+    } else if (step.type === "reasoning_cut") {
+      // Lot C (N4): the reasoning reached its budget; the harness closed it and relaunched.
+      rows.push({
+        key,
+        icon: "✂",
+        title: "Raisonnement coupé",
+        actor: "harness",
+        figure: `${fmt(step.payload.reasoning_tokens)} tokens · ${fmt(step.payload.answer_reserve)} pour la réponse`,
+        tone: "hook",
+        sig: 1,
+        body: () => [harnessEvent("Raisonnement coupé", "info", [el("p", "", step.payload.message_fr)])],
       });
     }
   });
@@ -2112,7 +3520,7 @@ function turnRows(turn) {
     rows.push({
       key: `${turn.id}:overflow`,
       icon: "✖",
-      title: "Contexte dépassé",
+      title: turn.contextId ? "Contexte du sous-agent dépassé" : "Contexte dépassé",
       actor: "harness",
       figure: `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`,
       tone: "error",
@@ -2122,6 +3530,130 @@ function turnRows(turn) {
     });
   }
   return rows;
+}
+
+// Story 19 (EXPERIENCE: Sous-agent au travail): the delegation, its trigger, and the tokens
+// the main context got against those that stayed in the sub-agent's.
+function delegateRow(turn, step, key) {
+  const ended = step.ended;
+  const done = step.sub?.ended;
+  let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+  if (done?.status === "completed") {
+    figure = subFigure(done);
+  } else if (done?.status === "cancelled") {
+    figure = "Délégation arrêtée";
+  } else if (done) {
+    figure = `${SUB_STATUS[done.status] ?? done.status} · ${seconds(done.duration_ms)}`;
+  } else if (ended) {
+    figure = `${ended.status === "cancelled" ? "arrêtée" : "refusée"} · ${seconds(ended.duration_ms)}`;
+  }
+  if (done && subState(done)) figure += ` · ${subState(done)}`;
+  const failed = Boolean(ended && !["ok", "cancelled"].includes(ended.status));
+  return {
+    key,
+    icon: "👥",
+    title: "Délégation au sous-agent",
+    actor: step.trigger === "user" ? "user" : "model",
+    trigger: step.trigger,
+    figure,
+    tone: failed ? "error" : null,
+    sticky: failed,
+    sig: [Boolean(ended), ended?.status, Boolean(done), step.sub?.steps.length ?? 0],
+    body: () => delegateBody(turn, step),
+  };
+}
+
+const SUB_STATUS = {
+  completed: "Terminé",
+  limit: "Borne atteinte",
+  overflow: "Contexte du sous-agent dépassé",
+  error: "Échec",
+  cancelled: "Arrêté",
+};
+
+// The saving of a finished delegation, in words (AD-1: the figures are the session's).
+// `kept_tokens` counts every tool reply that stayed in the sub-agent: results, errors, refusals.
+function subSaving(done) {
+  if (done.status === "cancelled") return "Délégation arrêtée : rien n'entre dans le contexte principal.";
+  const guess = approx(done.estimated);
+  const result = `${guess}${fmt(done.result_tokens)} tokens`;
+  if (done.status !== "completed") {
+    return `Délégation sans résultat : l'erreur (${result}) entre dans le contexte principal à sa place, aucune économie.`;
+  }
+  const kept = `${approx(done.context_estimated)}${fmt(done.kept_tokens ?? 0)} tokens`;
+  const figures =
+    `Réponses d'outils restées dans le contexte du sous-agent (ce que l'agent principal aurait lu sans délégation) : ${kept}. ` +
+    `Résultat réinjecté dans le contexte principal : ${result}.`;
+  if ((done.kept_tokens ?? 0) <= done.result_tokens) {
+    return `${figures} Aucune économie : le résultat pèse autant ou plus que ce qu'il remplace (déléguer n'est pas gratuit).`;
+  }
+  return `${figures} Économie pour le contexte principal : ${guess}${fmt(done.saved_tokens)} tokens.`;
+}
+
+// Lot A (AD-11): the main context's state saved around the delegation, when it was.
+function subState(done) {
+  if (done.state_saved_bytes == null) return "";
+  const size = (done.state_saved_bytes / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+  const restored = done.state_restore_ms != null ? `, restauré en ${seconds(done.state_restore_ms)}` : ", non restauré";
+  return `état sauvegardé : ${size} Mo${restored}`;
+}
+
+// The delegation line's key figure once the sub-agent is done.
+function subFigure(done) {
+  const guess = approx(done.estimated);
+  const saving = done.saved_tokens > 0 ? `${guess}${fmt(done.saved_tokens)} économisés` : "aucune économie";
+  return `${guess}${fmt(done.result_tokens)} tokens réinjectés · ${saving}`;
+}
+
+function delegateBody(turn, step) {
+  const sub = step.sub;
+  const done = sub?.ended;
+  const nodes = [];
+  const badge = triggerBadge(step.trigger);
+  if (badge) nodes.push(badge);
+  nodes.push(el("p", "label", "Tâche confiée au sous-agent"), el("pre", "step-code", step.started.arguments.task ?? ""));
+  if (sub?.started) {
+    const tools = sub.started.tools.length ? sub.started.tools.map(toolLabel).join(", ") : "aucun";
+    nodes.push(el("p", "", `Outils du sous-agent : ${tools}. Contexte propre : son prompt système, la tâche et ces outils, rien du contexte principal.`));
+  }
+  if (!done) {
+    const running = el("div", "token-counter number", "En cours… ");
+    running.appendChild(tick(step.startedAt));
+    nodes.push(running);
+    return nodes;
+  }
+  const context = `${approx(done.context_estimated)}${fmt(done.context_tokens)}`;
+  const cancelled = done.status === "cancelled";
+  nodes.push(
+    el(
+      "div",
+      "token-counter number",
+      `${plural(done.calls, "appel")} au modèle · Temps : ${seconds(done.duration_ms)} · ${SUB_STATUS[done.status] ?? done.status}`
+    ),
+    el("p", "subagent-saving", `${subSaving(done)} Contexte complet du sous-agent : ${context} tokens.`)
+  );
+  if (!cancelled) {
+    nodes.push(
+      el("p", "label", done.status === "completed" ? "Résultat (seul à revenir dans le contexte principal)" : "Erreur réinjectée à la place du résultat"),
+      el("pre", "step-code", step.ended?.status === "ok" ? step.ended.result : done.result)
+    );
+  }
+  if (sub.context) {  // no call rendered (e.g. blocked first): nothing to show
+    const show = el("button", "subagent-show", "Voir le contexte du sous-agent");
+    show.type = "button";
+    show.addEventListener("click", () => showSubContext(turn.id, sub.contextId));
+    nodes.push(show);
+  }
+  return nodes;
+}
+
+function showSubContext(turnId, contextId) {
+  store.ctxView = { turn: turnId, sub: contextId };
+  store.compare = null;
+  if (store.hiddenPanes.delete("ctx")) savePaneLayout();
+  if (store.focusedPane !== null && store.focusedPane !== "ctx") store.focusedPane = null;
+  render();
+  document.querySelector("#ctx .ctx-view-switch [aria-pressed='true']")?.focus();
 }
 
 function mcpServerLabel(server) {
@@ -2221,6 +3753,7 @@ function stepNode(row, open, flags) {
   if (row.tone) classes.push(`tone-${row.tone}`);
   if (flags.current) classes.push("is-current");
   if (flags.selected) classes.push("is-selected");
+  if (row.sub) classes.push("is-sub");
   const className = classes.join(" ");
   if (node.root.className !== className) node.root.className = className;
   if (open) {
@@ -2796,6 +4329,7 @@ const KIND_LABELS = {
   context_preview: "Aperçu du contexte",
   context_overflow: "Contexte dépassé",
   output_truncated: "Sortie coupée",
+  reasoning_cut: "Raisonnement coupé",
   model_call_started: "Appel au modèle commencé",
   model_first_token: "Premier token",
   model_delta: "Morceau de réponse",
@@ -2810,6 +4344,7 @@ const KIND_LABELS = {
   tool_call_malformed: "Appel d'outil mal formé",
   limit_reached: "Borne du tour atteinte",
   prefix_not_reused: "Préfixe non réutilisé",
+  server_cache_used: "Cache du serveur local",
   mcp_connect_started: "Connexion MCP commencée",
   mcp_connect_ended: "Connexion MCP terminée",
   hook_decided: "Décision d'un hook",
@@ -2818,13 +4353,33 @@ const KIND_LABELS = {
   approval_resolved: "Validation résolue",
   armed_actions_changed: "Actions armées",
   action_dropped: "Action forcée abandonnée",
+  memory_changed: "Mémoire globale modifiée",
+  model_load_started: "Chargement du modèle commencé",
+  model_load_ended: "Chargement du modèle terminé",
+  subagent_started: "Sous-agent lancé",
+  subagent_ended: "Sous-agent terminé",
+  rag_search_started: "Recherche RAG commencée",
+  rag_search_ended: "Recherche RAG terminée",
+  rag_rerank_started: "Reranking commencé",
+  rag_rerank_progress: "Reranking en cours",
+  rag_rerank_ended: "Reranking terminé",
+  compression_started: "Compression commencée",
+  compression_ended: "Compression terminée",
 };
+const MODEL_LOAD_STATUS = {
+  ok: "chargé",
+  restored: "retour au modèle précédent",
+  cancelled: "chargement arrêté",
+  error: "échec",
+};
+const MEMORY_OPS = { add: "Ajout en mémoire", replace: "Modification en mémoire", delete: "Suppression en mémoire" };
 const SESSION_STATES = {
   idle: "prête",
   turn: "tour en cours",
   awaiting_human: "attente de validation",
   model_load: "chargement du modèle",
   download: "téléchargement",
+  index_build: "construction de l'index RAG",
   reset: "réinitialisation",
   diagnostic: "diagnostic",
 };
@@ -2855,13 +4410,20 @@ function eventSummary(group) {
         .join(" · ");
     case "model_call_started":
     case "mcp_connect_started":
+    case "model_load_started":
       return p.phase_label;
-    case "model_call_ended":
-      return `${fmt(p.prompt_tokens)} lus · ${fmt(p.output_tokens)} écrits · ${seconds(p.duration_ms)} · ${p.stop_reason}`;
+    case "model_load_ended":
+      return [`${p.model.label} : ${MODEL_LOAD_STATUS[p.status] ?? p.status}`, seconds(p.duration_ms), p.reason_fr]
+        .filter(Boolean)
+        .join(" · ");
+    case "model_call_ended": {
+      const evaluated = p.evaluated_tokens != null ? ` · ${fmt(p.evaluated_tokens)} évalués` : "";
+      return `${fmt(p.prompt_tokens)} lus${evaluated} · ${fmt(p.output_tokens)} écrits · ${seconds(p.duration_ms)} · ${p.stop_reason}`;
+    }
     case "tool_started":
       return formatCall({ name: p.tool, arguments: p.arguments });
     case "tool_ended":
-      return `${p.status} · ${seconds(p.duration_ms)}`;
+      return `${p.status}${p.truncated ? " · tronqué" : ""} · ${seconds(p.duration_ms)}`;
     case "outbound_request":
       return `${p.method} ${p.url}`;
     case "mcp_connect_ended":
@@ -2871,7 +4433,12 @@ function eventSummary(group) {
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_fr} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
-      return `${plural(p.lines.length, "ligne")} au journal d'audit`;
+      if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · « ${p.text} »`;
+      if (p.effect === "model_download" || p.effect === "rag_index_write") return p.lines.join(" · ");
+      if (p.effect === "audit_append") return `${plural(p.lines.length, "ligne")} au journal d'audit`;
+      return p.key ?? p.id ?? p.effect;
+    case "memory_changed":
+      return p.error_fr ?? `${plural(p.entries.length, "entrée")} · ${p.path}`;
     case "approval_requested":
       return `${p.tool} → ${p.destination}`;
     case "approval_resolved":
@@ -2880,10 +4447,38 @@ function eventSummary(group) {
       return p.actions.length ? p.actions.map((a) => a.label_fr).join(" · ") : "aucune action armée";
     case "action_dropped":
       return p.reason_fr;
+    case "subagent_started":
+      return p.task;
+    case "subagent_ended":
+      return [p.status === "completed" ? subFigure(p) : SUB_STATUS[p.status] ?? p.status, subState(p)]
+        .filter(Boolean)
+        .join(" · ");
+    case "rag_search_started":
+      return `« ${p.query} » · ${fmt(p.top_k)} au plus`;
+    case "rag_rerank_started":
+      return `« ${p.query} » · ${plural(p.candidates, "candidat")}, ${plural(p.keep, "gardé")}`;
+    case "rag_rerank_progress":
+      return `${fmt(p.done)} / ${fmt(p.total)} extraits notés`;
+    case "rag_rerank_ended":
+      return p.status === "ok"
+        ? `${plural(p.keep, "gardé")} sur ${p.excerpts.length} · ${seconds(p.duration_ms)}` +
+            (p.excerpts.length ? ` · premier : ${p.excerpts[0].title_fr} (avant : #${p.excerpts[0].before})` : "")
+        : p.error_fr;
+    case "compression_started":
+      return `${plural(p.items, "texte")} · ${p.compressor_fr}`;
+    case "compression_ended":
+      return p.status === "ok" ? compressionFigure(p) : p.error_fr;
+    case "rag_search_ended":
+      return p.status === "ok"
+        ? `${plural(p.excerpts.length, "extrait")} · ${seconds(p.duration_ms)}` +
+            (p.excerpts.length ? ` · meilleur : ${p.excerpts[0].title_fr} (${scoreFormat.format(p.excerpts[0].score)})` : "")
+        : p.error_fr;
     case "tool_call_malformed":
       return p.detail_fr;
     case "output_truncated":
       return `${fmt(p.output_tokens)} / ${fmt(p.max_tokens)} tokens`;
+    case "reasoning_cut":
+      return `coupé à ${fmt(p.reasoning_tokens)} tokens (budget ${fmt(p.budget)}) · ${fmt(p.answer_reserve)} pour la réponse`;
     case "diagnostic_check":
       return `${p.check} : ${p.status} · ${p.message_fr}`;
     case "conversation_cleared":
@@ -2904,6 +4499,7 @@ const eventLog = { groups: [], processed: 0, rows: [], list: null };
 function syncLogGroups() {
   for (; eventLog.processed < store.journal.length; eventLog.processed++) {
     const e = store.journal[eventLog.processed];
+    if (e.kind === "scenario_changed" && e.payload?.refresh) continue; // lot E: not a launch
     const last = eventLog.groups.at(-1);
     const first = last?.events[0];
     if (e.kind === "model_delta" && first?.kind === "model_delta" && first.call_id === e.call_id && first.turn_id === e.turn_id) {
@@ -3017,11 +4613,18 @@ function svgEl(tag, attrs) {
 const BRICK_ICONS = {
   short_memory: "🧠",
   system_prompt: "📜",
+  global_memory: "💾",
+  reasoning: "💭",
   tools: "🔧",
   mcp: "🔌",
   skills: "📘",
   hooks: "🪝",
+  subagent: "👥",
+  rag: "📚",
+  compression: "🗜️",
 };
+// A component with its own icon in the harness frame (story 16: the reranker).
+const COMPONENT_ICONS = { "rag.reranker": "↕️" };
 const POSE_LABELS = { idle: "au repos", thinking: "réfléchit", tool: "utilise un outil" };
 // Hook id -> its point of attachment, in the order the strip lists them (formatting only, like
 // HOOK_ICONS): the order of a turn, from the user's message to its end.
@@ -3058,10 +4661,13 @@ const SHAPE_LABELS = {
   file: "fichier local",
 };
 
-// The robot's pose, derived from the turn's events only (AD-1).
-function robotPose() {
+// The robot's pose, derived from the turn's events only (AD-1); `sub`: the sub-agent's robot,
+// from the running sub-agent of the active turn (story 19).
+function robotPose(sub = false) {
+  const turn = activeTurn();
+  const steps = sub ? [...(turn?.subs.values() ?? [])].findLast((s) => !s.ended)?.steps : turn?.steps;
   // Only calls and tools: e.g. a `prefix_not_reused` step lands between a call and its start.
-  const step = activeTurn()?.steps.filter((s) => s.type === "call" || s.type === "tool").at(-1);
+  const step = steps?.filter((s) => s.type === "call" || s.type === "tool").at(-1);
   if (!step || step.ended) return "idle";
   if (step.type === "tool") return "tool";
   return step.type === "call" && step.startedAt ? "thinking" : "idle";
@@ -3069,10 +4675,12 @@ function robotPose() {
 
 // The robot mascot (DESIGN.md > arch-model): its own drawing, « Modèle » and the model's name
 // in HTML under it.
-function robot(pose, modelNode) {
+function robot(pose, modelNode, sub = false) {
   const name = modelNode?.model ?? null;
-  const label = `Modèle${name ? ` ${name}` : ""} : ${POSE_LABELS[pose]}`;
-  const button = schemaButton(`robot${pose === "idle" ? "" : " is-active"}`, "core.model");
+  const who = sub ? "Sous-agent : même modèle, second contexte" : `Modèle${name ? ` ${name}` : ""}`;
+  const label = `${who} : ${POSE_LABELS[pose]}`;
+  const classes = `robot${sub ? " robot-sub" : ""}${pose === "idle" ? "" : " is-active"}`;
+  const button = schemaButton(classes, sub ? "core.model_sub" : "core.model");
   button.setAttribute("aria-label", label);
   button.title = label;
   const cx = 40;
@@ -3109,9 +4717,10 @@ function robot(pose, modelNode) {
     icon.textContent = "🔧";
     svg.append(svgEl("circle", { class: "robot-badge", cx: cx + 26, cy: 72, r: 9 }), icon);
   }
-  button.append(svg, el("span", "robot-label", "Modèle"));
+  button.append(svg, el("span", "robot-label", sub ? "Sous-agent" : "Modèle"));
   // The frame is narrow: a long file name is cut by the style, the tooltip keeps it whole.
-  if (name) button.appendChild(el("span", "robot-model", name));
+  if (name && !sub) button.appendChild(el("span", "robot-model", name));
+  if (modelNode && !modelNode.available) button.classList.add("is-unavailable");
   return button;
 }
 
@@ -3133,16 +4742,33 @@ function schemaButton(className, componentId, text) {
 function schemaActivity(nodes) {
   const turn = shownTurns().at(-1);
   if (!turn || turn.status !== null) return null;
-  const steps = turn.steps;
+  const steps = allSteps(turn); // a sub-agent's tools and hooks light up too (story 19)
   let i = steps.length - 1;
-  while (i >= 0 && steps[i].type !== "tool" && steps[i].type !== "hook") i--;
+  while (i >= 0 && !["tool", "hook", "rag", "rerank", "compression"].includes(steps[i].type)) i--;
   if (i < 0) return null;
   const step = steps[i];
   const drawn = (id) => nodes.some((n) => n.id === id); // only enabled hooks can act
+  if (step.type === "rag") {
+    // Story 15: the retriever reads the index while it searches.
+    const id = step.component || "rag.retriever";
+    if (step.ended || !drawn(id)) return null;
+    return { component: id, mode: "on", target: drawn("file.rag_index") ? "file.rag_index" : null };
+  }
+  if (step.type === "rerank") {
+    // Story 16: the reranker scores in the harness itself: no path.
+    const id = step.component || "rag.reranker";
+    return step.ended || !drawn(id) ? null : { component: id, mode: "on", target: null };
+  }
+  if (step.type === "compression") {
+    // Story 20: the compressor works inside the harness, no path.
+    const id = step.component || "compression.compressor";
+    if (step.ended || !drawn(id)) return null;
+    return { component: id, mode: "on", target: null };
+  }
   if (step.type === "tool") {
-    // A harness tool (documentation, skills) runs in the harness itself: no path.
+    // A harness tool (documentation, skills, delegation) runs in the harness itself: no path.
     const id = step.component;
-    if (step.ended || !id || id === "core.harness" || !drawn(id)) return null;
+    if (step.ended || !id || id === "core.harness" || !drawn(id) || step.started.source === "harness") return null;
     return { component: id, mode: "on", target: id };
   }
   const p = step.payload;
@@ -3169,28 +4795,33 @@ function renderSchema() {
   const wanted = (store.bricks?.bricks || []).filter((b) => b.wanted);
   const hooks = wanted.find((b) => b.id === "hooks")?.options || null;
   // The hooks that blocked in the last shown turn: they stay on a red rule until the next one.
-  const blocked = (shownTurns().at(-1)?.steps || [])
+  const last = shownTurns().at(-1);
+  const blocked = (last ? allSteps(last) : [])
     .filter((s) => s.type === "hook" && s.payload.decision === "block")
     .map((s) => `hooks.${s.payload.hook}`);
   const model = nodes.find((n) => n.id === "core.model");
+  const subModel = nodes.find((n) => n.id === "core.model_sub"); // story 19
   const pose = robotPose();
+  const subPose = subModel ? robotPose(true) : null;
+  const robots = () => [robot(pose, model), ...(subModel ? [robot(subPose, subModel, true)] : [])];
   const key = JSON.stringify([store.architecture, wanted.length, hooks, blocked, store.selection]);
+  const robotKey = JSON.stringify([pose, subPose, model?.model]);
   if (key !== renderedSchemaKey) {
     renderedSchemaKey = key;
     renderedActivityKey = null;
-    renderedRobotKey = JSON.stringify([pose, model?.model]);
-    buildSchema(root, nodes, wanted.length > 0, hooks, blocked, robot(pose, model));
+    renderedRobotKey = robotKey;
+    buildSchema(root, nodes, wanted.length > 0, hooks, blocked, robots());
     scheduleWires();
   }
-  const robotKey = JSON.stringify([pose, model?.model]);
   if (robotKey !== renderedRobotKey) {
-    // A pose change swaps the robot only: the rest keeps its focus and its layout.
+    // A pose change swaps the robots only: the rest keeps its focus and its layout.
     renderedRobotKey = robotKey;
-    const old = root.querySelector(".robot");
-    const next = robot(pose, model);
-    const focused = old === document.activeElement;
-    old?.replaceWith(next);
-    if (focused) next.focus();
+    for (const next of robots()) {
+      const old = root.querySelector(`.robot[data-component="${next.dataset.component}"]`);
+      const focused = old === document.activeElement;
+      old?.replaceWith(next);
+      if (focused) next.focus();
+    }
   }
   const activity = schemaActivity(nodes);
   const activityKey = JSON.stringify(activity);
@@ -3200,13 +4831,15 @@ function renderSchema() {
     for (const node of root.querySelectorAll(".is-active:not(.robot)")) node.classList.remove("is-active");
     if (activity) {
       const id = cssEscape(activity.component);
-      root.querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"]`)?.classList.add("is-active");
+      root
+        .querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"], .arch-chip[data-component="${id}"]`)
+        ?.classList.add("is-active");
     }
     scheduleWires();
   }
 }
 
-function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
+function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   // The rebuild would drop keyboard focus: note it, restore it on the new element.
   const focusKey = root.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
   root.innerHTML = "";
@@ -3226,23 +4859,40 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
   const core = el("div", "arch-core");
   const chips = el("div", "arch-chips");
   for (const node of nodes.filter((n) => n.kind === "brick")) {
-    const icon = BRICK_ICONS[node.id.split(".")[0]] || "🧩";
+    const icon = COMPONENT_ICONS[node.id] || BRICK_ICONS[node.id.split(".")[0]] || "🧩";
     const chip = schemaButton("arch-chip", node.id, `${icon} ${node.label_fr}`);
     chip.classList.toggle("is-unavailable", !node.available);
-    chip.title = node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`;
+    chip.title = [node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`, node.detail_fr]
+      .filter(Boolean)
+      .join("\n");
     chips.appendChild(chip);
   }
   if (!anyBrick) chips.appendChild(el("p", "arch-harness-empty", "Aucune brique : LLM nu"));
-  // AD-12: a cloud model is drawn in the network zone, with its provider.
+  // AD-12: a cloud model is drawn in the network zone, with its provider; a served model
+  // (story 18) out of the harness frame, on the workstation, as the process it is.
   const model = byId["core.model"];
   const cloud = model?.hosting === "network";
-  core.append(...(cloud ? [chips] : [robotNode, chips]));
+  const served = model?.process === "external";
+  // Story 19: the sub-agent's robot beside the model's, the same model in a second context.
+  const robotRow = el("div", "arch-robots");
+  robotRow.append(...robotNodes);
+  core.append(...(cloud || served ? [chips] : [robotRow, chips]));
   frame.append(tag, core);
   if (hooks) frame.appendChild(hookStrip(hooks, byId, blocked));
 
   const local = el("div", "arch-zone arch-zone-local");
   const localRow = el("div", "arch-zone-row");
-  localRow.append(frame, ...schemaColumns("local", nodes));
+  localRow.append(frame);
+  if (served) {
+    const address = (model.server_url || "").replace(/^https?:\/\//, "");
+    const box = el("div", "arch-server-model");
+    box.title =
+      `${model.provider} · processus local distinct du harnais, sur ce poste (${address}) : ` +
+      "l'appel reste sur la boucle locale, le texte envoyé est construit par le harnais.";
+    box.append(robotRow, el("span", "arch-node-name", `🖥 ${model.provider} · ${address}`));
+    localRow.appendChild(box);
+  }
+  localRow.append(...schemaColumns("local", nodes));
   local.append(el("span", "arch-zone-label", "🖥 Poste de travail"), localRow);
 
   const boundary = el("div", "arch-boundary");
@@ -3254,7 +4904,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNode) {
   if (cloud) {
     const box = el("div", "arch-cloud-model");
     box.title = `${model.provider} · service réseau : chaque appel franchit la frontière du poste.`;
-    box.append(robotNode, el("span", "arch-node-name", `🌐 ${model.provider}`));
+    box.append(robotRow, el("span", "arch-node-name", `🌐 ${model.provider}`));
     networkCols.unshift(box);
   }
   if (networkCols.length) networkRow.append(...networkCols);
@@ -3356,6 +5006,7 @@ function schemaNode(node, shape) {
   button.title = tooltip.join("\n");
   button.setAttribute("aria-label", tooltip.join(". "));
   if (node.id === "file.audit") button.addEventListener("click", openAudit); // the whole log
+  if (node.id === "file.memory") button.addEventListener("click", openMemoryDrawer); // story 14
 
   if (shape !== "mcp" || !tools.length) return [button];
   // A selected MCP server unfolds its tools under it, in its bin (FR-3).
@@ -3504,6 +5155,8 @@ async function boot() {
   // Remembered pane layout first, so the page does not open on the defaults then jump.
   loadPaneLayout();
   loadShowForced();
+  loadShowReasoning();
+  document.getElementById("show-reasoning").addEventListener("change", toggleShowReasoning);
   createResizeHandles();
   applyPaneSizes();
   renderChips();
@@ -3538,6 +5191,12 @@ async function boot() {
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
   document.getElementById("replay-last").addEventListener("click", replayLast);
   document.getElementById("scenario-picker").addEventListener("change", launchScenario);
+  const modelPicker = document.getElementById("model-picker");
+  modelPicker.addEventListener("change", notePick);
+  modelPicker.addEventListener("focus", loadModelList);
+  modelPicker.addEventListener("blur", renderModelPicker); // a rebuild waiting for the close
+  document.getElementById("model-picker-apply").addEventListener("click", applyPick);
+  bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
@@ -3551,6 +5210,17 @@ async function boot() {
     if (await saveSystemPrompt(drawerText().value)) closeDrawer(true);
   });
   document.getElementById("drawer-dirty-discard").addEventListener("click", () => closeDrawer(true));
+  document.getElementById("memory-close").addEventListener("click", () => closeMemoryDrawer());
+  document.getElementById("memory-clear").addEventListener("click", askClearMemory);
+  document.getElementById("memory-confirm-clear").addEventListener("click", confirmClearMemory);
+  document.getElementById("memory-confirm-cancel").addEventListener("click", () => {
+    memoryAlert(null);
+    document.getElementById("memory-clear").focus();
+  });
+  document.getElementById("memory-dirty-save").addEventListener("click", async () => {
+    if (await saveMemoryEntries(memoryDirty().map((e) => e.id))) closeMemoryDrawer(true);
+  });
+  document.getElementById("memory-dirty-discard").addEventListener("click", () => closeMemoryDrawer(true));
   document.getElementById("audit-close").addEventListener("click", () =>
     document.getElementById("audit-dialog").close()
   );
@@ -3563,13 +5233,20 @@ async function boot() {
       renderChat();
       renderSteps();
     }
+    if (store.modelLoad) {
+      renderChat();
+      setText(document.getElementById("top-status"), modelLoadText());
+    }
   }, 250);
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (document.getElementById("audit-dialog").open) return; // the dialog closes itself
+    if (document.getElementById("cloud-warning").open) return;
     if (!drawer().hidden) {
       closeDrawer();
+    } else if (!memoryDrawer().hidden) {
+      closeMemoryDrawer();
     } else if (!document.getElementById("pane-menu-list").hidden) {
       closePaneMenu();
     } else if (store.focusedPane !== null) {
@@ -3581,12 +5258,15 @@ async function boot() {
   try {
     const response = await fetch("/api/state");
     const body = await response.json();
+    store.serverInstance = body.instance_id ?? null;
+    store.liveFrom = body.seq ?? 0;
     store.sessionState = body.session_state;
     store.activeModel = body.active_model ?? null;
     store.architecture = body.architecture_changed || { nodes: [], edges: [] };
     store.bricks = body.bricks_changed;
     store.armed = body.armed_actions_changed?.actions ?? [];
     store.scenarios = body.scenario_changed;
+    store.memory = body.memory_changed ?? null;
     const preview = body.context_preview;
     const rendered = body.context_rendered;
     const reconciled = body.context_reconciled;
@@ -3596,9 +5276,16 @@ async function boot() {
     // AD-16: a failed boot fetch still lets the live stream take over.
   }
   render();
+  loadModelList();
 
-  // Replay the whole journal: a reload rebuilds past and in-progress turns (AD-1).
-  streamEvents(0, applyEnvelope);
+  // Replay the whole journal: a reload rebuilds past and in-progress turns (AD-1). Once it
+  // reaches the snapshot's tip, the page says so (`data-journal-replayed`, read by the E2E run).
+  const replayed = () => (document.body.dataset.journalReplayed = "true");
+  if (store.liveFrom === 0) replayed();
+  streamEvents(0, (envelope) => {
+    applyEnvelope(envelope);
+    if (envelope.seq >= store.liveFrom) replayed();
+  });
 }
 
 boot();

@@ -14,13 +14,21 @@ import sys
 import tomllib
 from dataclasses import dataclass, field
 from functools import cached_property
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
 # ponytail: pydantic is imported before the network guard (cli imports config first); it
 # opens no connection at import, so the guard still precedes any network access.
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 
 def data_dir() -> Path:
@@ -62,7 +70,8 @@ class AuthHeader(_Strict):
 
 
 class CloudReasoning(_Strict):
-    """What the reasoning brick adds to the body (AD-6); `resend` is never used in V1."""
+    """What the reasoning brick adds to the body (AD-6). `resend`: the reasoning received goes
+    back to the provider in the form of `format` (AD-4)."""
 
     format: Literal["field", "content_blocks", "think_tags"]
     on: dict[str, Any] = {}
@@ -80,7 +89,18 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+OUTPUT_RESERVE = 512  # AD-9: the output reserve of a model that does not reason
 MAX_RESERVE = 1536  # AD-9: the largest output reserve; `tpm // 2` must exceed it
+DEFAULT_TOOL_RESULT_MAX_TOKENS = 1200  # lot B (N3): `[tools] result_max_tokens`
+DEFAULT_REASONING_BUDGET = 768  # lot C (N4), lot J: `[reasoning] budget_tokens`
+MIN_REASONING_BUDGET = 128  # lot C: the floor, and what is always left to the answer
+# Lot D: `[net] contact`, the way to reach the demo's maintainers, sent in the User-Agent.
+DEFAULT_NET_CONTACT = "https://github.com/Aliquanto3/agentic-harness-training-demo"
+
+
+def output_reserve(reasoning: bool) -> int:
+    """AD-9, the single rule of the output reserve: 1 536 while the model reasons, else 512."""
+    return MAX_RESERVE if reasoning else OUTPUT_RESERVE
 
 
 class CloudModel(_Strict):
@@ -124,16 +144,107 @@ class CloudModel(_Strict):
         return urlsplit(self.base_url).hostname or ""
 
     @property
-    def reserve(self) -> int:
-        """AD-9: the reasoning reserve when the model always reasons, else the plain one."""
-        return MAX_RESERVE if self.reasoning and self.reasoning.always else 512
+    def always_reasons(self) -> bool:
+        return self.reasoning is not None and self.reasoning.always
+
+    def reserve_for(self, reasoning: bool) -> int:
+        """AD-9: the reasoning reserve while it reasons (brick on, or `always`), else 512."""
+        return output_reserve(reasoning or self.always_reasons)
 
     @property
-    def reasoning_params(self) -> dict[str, Any]:
-        """AD-6: no reasoning brick yet, so it is off, unless the model always reasons."""
+    def reserve(self) -> int:
+        """The reserve with the reasoning brick off (« Tester », the window check)."""
+        return self.reserve_for(False)
+
+    def reasoning_params(self, reasoning: bool) -> dict[str, Any]:
+        """AD-6: `on` while the model reasons (brick on, or `always`), else `off`."""
         if self.reasoning is None:
             return {}
-        return dict(self.reasoning.on if self.reasoning.always else self.reasoning.off)
+        on = reasoning or self.reasoning.always
+        return dict(self.reasoning.on if on else self.reasoning.off)
+
+
+class ModelFile(_Strict):
+    """A file of a local model the harness downloads (stories 15 and 16: embedding,
+    reranker): where to download it, where it goes under `models_dir()`, its size in bytes
+    and, when declared, its sha256 (empty: not checked)."""
+
+    url: str
+    path: str = Field(min_length=1)
+    size: int = Field(gt=0)
+    sha256: str = Field(default="", pattern=r"^([0-9a-fA-F]{64})?$")
+
+    @field_validator("url")
+    @classmethod
+    def _https(cls, value: str) -> str:
+        parts = urlsplit(value)
+        host = parts.hostname or ""
+        if parts.scheme != "https" and not (parts.scheme == "http" and _is_loopback(host)):
+            raise ValueError("url must be https (http for the loopback only)")
+        if not host:
+            raise ValueError("url needs a host")
+        return value
+
+    @field_validator("path")
+    @classmethod
+    def _inside_models_dir(cls, value: str) -> str:
+        return _relative_path(value)
+
+
+def _relative_path(value: str) -> str:
+    """A path relative to `models_dir()` that stays inside it, read as a Windows and as a
+    POSIX path alike (« \\x », « C:x », « /x » and « .. » refused everywhere)."""
+    for path in (PureWindowsPath(value), PurePosixPath(value)):
+        if path.is_absolute() or path.drive or path.root or ".." in path.parts:
+            raise ValueError("path must be relative to the models folder, without '..'")
+    return value
+
+
+class LocalModelSpec(_Strict):
+    """What `[rag.embedding]` and `[rag.reranker]` share: the model's name, licence and
+    files (downloaded and identified by their size and sha256), the one loaded, and the RSS
+    story 12 measured when declared. Only the `llama_cpp` backend has an adapter."""
+
+    id: str = Field(min_length=1)
+    backend: Literal["llama_cpp"]
+    label_fr: str = Field(min_length=1)
+    license: str = Field(min_length=1)
+    max_tokens: int = Field(gt=0)
+    load_path: str = Field(min_length=1)
+    measured_rss_mb: int | None = Field(default=None, gt=0)
+    files: list[ModelFile] = Field(min_length=1)
+
+    @field_validator("load_path")
+    @classmethod
+    def _inside_models_dir(cls, value: str) -> str:
+        return _relative_path(value)
+
+    @model_validator(mode="after")
+    def _load_path_is_declared(self) -> LocalModelSpec:
+        """The file loaded is one of `files`: its size (and sha256) identify the model."""
+        if PurePosixPath(self.load_path) not in {PurePosixPath(f.path) for f in self.files}:
+            raise ValueError("load_path must be one of files[].path")
+        return self
+
+    @property
+    def load_file(self) -> ModelFile:
+        return next(f for f in self.files if PurePosixPath(f.path) == PurePosixPath(self.load_path))
+
+
+class EmbeddingModel(LocalModelSpec):
+    """`[rag.embedding]` (story 15): the single place that names the embedding model, with
+    the values of story 12's verdict."""
+
+    dims: int = Field(gt=0)
+    query_prefix: str = ""
+    passage_prefix: str = ""
+
+
+class RerankerModel(LocalModelSpec):
+    """`[rag.reranker]` (story 16): the single place that names the reranking model, with
+    the values of story 12's verdict. `max_tokens`: one query-excerpt pair."""
+
+    max_tokens: int = Field(gt=8)
 
 
 def _merge_cloud_models(base: Any, override: Any) -> list[Any]:
@@ -177,6 +288,18 @@ class Config:
         """AD-15: the configured hosts, plus the host of every enabled cloud model."""
         hosts = list(self.get("net", "allowed_hosts", default=[]))
         return hosts + [m.host for m in self.cloud_models[0] if m.host not in hosts]
+
+    @property
+    def net_contact(self) -> str:
+        """Lot D: `[net] contact` for the User-Agent; the default when missing or invalid
+        (not a string, empty, longer than 200, or outside printable ASCII without parentheses,
+        which would break the header's comment)."""
+        value = self.get("net", "contact", default=None)
+        if not isinstance(value, str):
+            return DEFAULT_NET_CONTACT
+        value = value.strip()
+        valid = 0 < len(value) <= 200 and all(" " <= c <= "~" and c not in "()" for c in value)
+        return value if valid else DEFAULT_NET_CONTACT
 
     @cached_property
     def cloud_models(self) -> tuple[list[CloudModel], list[str]]:
@@ -243,6 +366,92 @@ class Config:
             return 4096
 
     @property
+    def memory_budget_bytes(self) -> int:
+        """AD-8: WaveStack's memory budget, `[memory] budget_mb`."""
+        return max(1, self._int("memory", "budget_mb", default=4096)) * 1024 * 1024
+
+    @property
+    def load_margin_bytes(self) -> int:
+        """AD-8: the margin added to a local model's estimated cost, `[memory] load_margin_mb`."""
+        return max(0, self._int("memory", "load_margin_mb", default=256)) * 1024 * 1024
+
+    @cached_property
+    def rag_embedding(self) -> tuple[EmbeddingModel | None, str | None]:
+        """Story 15: the `[rag.embedding]` model, or why its declaration is invalid (French)."""
+        raw = self.get("rag", "embedding")
+        if raw is None:
+            return None, (
+                "La section [rag.embedding] de wavestack.toml est absente : elle nomme le "
+                "modèle d'embedding. Rétablissez-la, puis relancez WaveStack (la configuration "
+                "n'est lue qu'au lancement)."
+            )
+        try:
+            return EmbeddingModel.model_validate(raw), None
+        except ValidationError as exc:
+            fields = ", ".join(
+                ".".join(str(p) for p in e["loc"]) or "section" for e in exc.errors()
+            )
+            return None, (
+                f"La section [rag.embedding] est invalide ({fields}). Corrigez wavestack.toml "
+                "ou settings.json, puis relancez WaveStack (la configuration n'est lue qu'au "
+                "lancement)."
+            )
+
+    @property
+    def rag_top_k(self) -> int:
+        """Story 15: the excerpts placed in the context at each turn, 1 to 20 (story 16: the
+        reranker's candidates never exceed 20 either)."""
+        return min(20, max(1, self._int("rag", "top_k", default=3)))
+
+    @cached_property
+    def rag_reranker(self) -> tuple[RerankerModel | None, str | None]:
+        """Story 16: the `[rag.reranker]` model, or why its declaration is absent or invalid
+        (French)."""
+        raw = self.get("rag", "reranker")
+        if raw is None:
+            return None, (
+                "Indisponible : la section [rag.reranker] de wavestack.toml est absente (elle "
+                "nomme le modèle de reranking). Rétablissez-la, puis relancez WaveStack."
+            )
+        try:
+            return RerankerModel.model_validate(raw), None
+        except ValidationError as exc:
+            fields = ", ".join(
+                ".".join(str(p) for p in e["loc"]) or "section" for e in exc.errors()
+            )
+            return None, (
+                f"Indisponible : la section [rag.reranker] est invalide ({fields}). Corrigez "
+                "wavestack.toml ou settings.json, puis relancez WaveStack."
+            )
+
+    @property
+    def rag_rerank_candidates(self) -> int:
+        """Story 16: the candidates the embedding retains for the reranker, from `top_k` to
+        20."""
+        return max(self.rag_top_k, min(20, self._int("rag", "rerank_candidates", default=8)))
+
+    @property
+    def rag_chunk_max_chars(self) -> int:
+        """Story 15: the largest excerpt the chunking makes, in characters."""
+        return max(50, self._int("rag", "chunk_max_chars", default=700))
+
+    @property
+    def compression_min_chars(self) -> int:
+        """Story 20: a shorter tool result or RAG excerpt is not given to the compressor."""
+        return max(0, self._int("compression", "min_chars", default=300))
+
+    @property
+    def compression_cost_bytes(self) -> int:
+        """Story 20 (AD-8): what loading Headroom is expected to add (lot J: 84 MB at peak on
+        the target PC with `gpt-4`, plus 30 %; 107 MB at peak on Linux)."""
+        return max(0, self._int("compression", "cost_mb", default=110)) * 1024 * 1024
+
+    def rag_index_path(self) -> Path:
+        """Story 15: the sqlite-vec index; a relative path is from the repository root."""
+        path = Path(str(self.get("rag", "index_path", default="data/rag_index.sqlite")))
+        return path if path.is_absolute() else repo_root() / path
+
+    @property
     def near_limit_ratio(self) -> float:
         try:
             return float(self.get("context", "near_limit_ratio", default=0.8))
@@ -266,6 +475,17 @@ class Config:
         return max(0, self._int("tools", "max_retries", default=2))
 
     @property
+    def subagent_tools(self) -> list[str]:
+        """Story 19 (AD-11): the tools the sub-agent may use, when enabled in the tools brick."""
+        tools = self.get("subagent", "tools", default=["read_file", "fetch_page"])
+        return [str(t) for t in tools] if isinstance(tools, list) else []
+
+    @property
+    def subagent_max_calls(self) -> int:
+        """AD-10: the sub-agent's model calls per delegation, on a counter of its own."""
+        return max(1, self._int("subagent", "max_calls", default=4))
+
+    @property
     def fetch_page_hosts(self) -> list[str]:
         """The only hosts `fetch_page` may request, over https."""
         default = ["fr.wikipedia.org", "calendrier.api.gouv.fr"]
@@ -274,6 +494,29 @@ class Config:
     @property
     def fetch_page_max_chars(self) -> int:
         return max(1, self._int("tools", "fetch_page_max_chars", default=4000))
+
+    @property
+    def tool_result_max_tokens(self) -> int:
+        """Lot B (N3): the most tokens a network or MCP tool's result may take, cut before the
+        compression; a missing or non-integer value is the default, and 200 the floor."""
+        default = DEFAULT_TOOL_RESULT_MAX_TOKENS
+        raw = self.get("tools", "result_max_tokens", default=default)
+        if isinstance(raw, bool) or (isinstance(raw, float) and not raw.is_integer()):
+            return default
+        return max(200, self._int("tools", "result_max_tokens", default=default))
+
+    @property
+    def reasoning_budget_tokens(self) -> int:
+        """Lot C (N4), local mode: the reasoning tokens after which the harness closes the
+        reasoning itself, the rest of the reserve going to the answer. A missing or
+        non-integer value is the default; bounded so that the reasoning and the answer each
+        keep at least 128 of the 1 536 tokens of the reserve."""
+        default = DEFAULT_REASONING_BUDGET
+        raw = self.get("reasoning", "budget_tokens", default=default)
+        if isinstance(raw, bool) or (isinstance(raw, float) and not raw.is_integer()):
+            return default
+        value = self._int("reasoning", "budget_tokens", default=default)
+        return min(MAX_RESERVE - MIN_REASONING_BUDGET, max(MIN_REASONING_BUDGET, value))
 
     @property
     def mcp_urls(self) -> dict[str, str]:
@@ -297,6 +540,32 @@ class Config:
     @property
     def mcp_call_timeout_s(self) -> float:
         return self._seconds("mcp", "call_timeout_s", default=30.0)
+
+    @property
+    def model_server_connect_timeout_s(self) -> float:
+        """Story 18: connecting to an already-running local server, `[model_servers]`."""
+        return self._seconds("model_servers", "connect_timeout_s", default=2.0)
+
+    @property
+    def model_server_read_timeout_s(self) -> float:
+        """Story 18: reading a local server's answer or stream, `[model_servers]`."""
+        return self._seconds("model_servers", "read_timeout_s", default=300.0)
+
+    @property
+    def loopback_ports(self) -> dict[str, int]:
+        """AD-7: the already-running local servers to probe, `[net.loopback_ports]`."""
+        value = self.get("net", "loopback_ports", default=None)
+        if not isinstance(value, dict):
+            return {"ollama": 11434, "llama_server": 8080}
+        ports = {}
+        for name, port in value.items():
+            try:
+                number = int(port)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= number <= 65535:  # any other value would break the diagnostic's URLs
+                ports[str(name)] = number
+        return ports
 
     @property
     def selected_model(self) -> dict[str, str] | None:
@@ -445,6 +714,11 @@ def write_api_key(model_id: str, host: str, key: SecretStr) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(keys, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def memory_path() -> Path:
+    """The global memory (AD-20), read and written by the session only (AD-23)."""
+    return data_dir() / "memory.json"
 
 
 def audit_path() -> Path:

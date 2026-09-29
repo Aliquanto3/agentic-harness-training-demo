@@ -1,0 +1,77 @@
+# Brique « RAG » : corpus de démonstration et textes de la brique (story 15, AD-19, AD-22).
+# Textes fictifs rédigés pour WaveStack : « Exemplia » est une organisation imaginaire, et
+# ces documents originaux sont sous la licence du dépôt.
+notice_fr: >-
+  Textes fictifs rédigés pour WaveStack : Exemplia est une organisation imaginaire, ses
+  règles ne décrivent aucune entreprise réelle.
+
+# Placé avant les extraits, dans le message de l'utilisateur du tour.
+intro_fr: >-
+  Extraits de la documentation interne d'Exemplia retrouvés par le harnais pour cette
+  question. Ils ne sont pas forcément tous pertinents : appuie-toi sur ceux qui répondent
+  et cite le document utilisé.
+
+# Un extrait : {position} (rang, à partir de 1), {title_fr} (document), {text}.
+excerpt_format_fr: "Extrait {position} — {title_fr} :\n{text}"
+
+# Où vont les extraits (étape « Recherche RAG » de l'Orchestration).
+placement_fr: Dans le message de l'utilisateur de ce tour, avant la question
+
+# Indicateur de travail pendant la recherche.
+phase_label_fr: Recherche dans le corpus…
+
+# Nœud du schéma qui représente l'index.
+index_label_fr: Index RAG (rag_index.sqlite)
+
+# Bouton de la carte quand le modèle d'embedding manque ({size_mb} : taille en Mo).
+download_label_fr: "Télécharger le modèle d'embedding (≈ {size_mb} Mo)"
+
+# Bouton de la carte quand le modèle est là et l'index absent, périmé ou d'un autre modèle.
+build_label_fr: Construire l'index
+
+# Sous-option « Reranking » de la carte (story 16).
+rerank_label_fr: Reranking
+
+# Indicateur de travail pendant le reranking.
+rerank_phase_label_fr: Reranking des extraits…
+
+# Placement affiché par l'étape « Recherche RAG » quand le reranking suit ({candidates} :
+# candidats retenus par l'embedding, {keep} : extraits gardés).
+rerank_search_placement_fr: >-
+  Aucun directement : ces {candidates} candidats passent au reranking, qui n'en garde que
+  {keep}
+
+# Placement affiché par l'étape « Reranking ».
+rerank_placement_fr: >-
+  Les {keep} premiers après reranking, dans le message de l'utilisateur de ce tour, avant la
+  question
+
+# Bouton de la sous-option quand le modèle de reranking manque ({size_mb} : taille en Mo).
+rerank_download_label_fr: "Télécharger le modèle de reranking (≈ {size_mb} Mo)"
+
+# Les documents du corpus, chemins relatifs à content/.
+documents:
+  - id: mots_de_passe
+    title_fr: Politique des mots de passe
+    file: corpus/mots_de_passe.md
+  - id: teletravail
+    title_fr: Accord de télétravail
+    file: corpus/teletravail.md
+  - id: classification
+    title_fr: Classification de l'information
+    file: corpus/classification.md
+  - id: incidents
+    title_fr: Incidents de sécurité
+    file: corpus/incidents.md
+  - id: donnees_personnelles
+    title_fr: Conservation des données personnelles
+    file: corpus/donnees_personnelles.md
+  - id: ia_generative
+    title_fr: Usage de l'IA générative
+    file: corpus/ia_generative.md
+  - id: deplacements
+    title_fr: Déplacements et notes de frais
+    file: corpus/deplacements.md
+  - id: sauvegardes
+    title_fr: Sauvegardes
+    file: corpus/sauvegardes.md

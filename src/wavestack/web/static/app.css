@@ -78,6 +78,7 @@ body {
 /* ---------- top bar ---------- */
 
 .top-bar {
+  position: relative; /* anchors .top-status */
   flex: 0 0 var(--spacing-top-bar-height);
   height: var(--spacing-top-bar-height);
   display: flex;
@@ -388,6 +389,9 @@ body.is-resizing-y * {
 .pane-actions {
   margin-left: auto;
   display: flex;
+  flex-wrap: wrap; /* story 13: the Vue humain header holds an option and two actions */
+  justify-content: flex-end;
+  align-items: center;
   gap: var(--spacing-1);
 }
 
@@ -514,6 +518,51 @@ body.is-resizing-y * {
   background: var(--color-surface-raised);
   border-bottom-left-radius: 6px;
   border: 1px solid var(--color-line);
+}
+
+/* DESIGN.md reasoning-block: folded on cream, body-sm, ink-soft. */
+.reasoning-block {
+  margin: 0 0 var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.reasoning-block summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.reasoning-block summary:focus-visible,
+.reasoning-toggle input:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Story 13: the model keeps the brick on; said in the harness violet, not as a fault. */
+.brick-reason.brick-always {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.reasoning-text {
+  margin-top: var(--spacing-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reasoning-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  min-height: var(--spacing-hit-target-min);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink);
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .bubble-note,
@@ -726,7 +775,8 @@ body.is-resizing-y * {
 /* A step run by an MCP server (story 6): the tool is not the harness's own. A skill
    loaded (story 7) is shown the same way. */
 .step-badge.is-mcp,
-.step-badge.is-skill {
+.step-badge.is-skill,
+.step-badge.is-memory {
   margin: 0 0 var(--spacing-1);
   background: var(--color-primary);
   border-color: var(--color-primary);
@@ -1618,6 +1668,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .brick-reason,
+.brick-note,
 .brick-pending,
 .brick-explanation {
   margin: 0;
@@ -1872,6 +1923,66 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   display: none;
 }
 
+/* Story 14: the global memory's entries, one card each, in the edit drawer. */
+.memory-drawer {
+  overflow-y: auto;
+}
+
+.memory-path {
+  font-family: var(--typography-code-font-family);
+  overflow-wrap: anywhere;
+}
+
+.memory-empty {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.memory-empty[hidden] {
+  display: none;
+}
+
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-line);
+  border-left: var(--spacing-stroke-min) solid var(--color-segment-global-memory);
+  border-radius: var(--rounded-sm);
+}
+
+.memory-entry-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  font-size: var(--typography-body-sm-font-size);
+}
+
+.memory-entry-name {
+  font-weight: 600;
+}
+
+.memory-entry-source {
+  color: var(--color-ink-soft);
+}
+
+.edit-drawer .memory-entry-text {
+  flex: none;
+  min-height: 0;
+  resize: vertical;
+}
+
 /* The whole audit log (story 8), read only, over the page. */
 .audit-dialog {
   width: min(760px, 90vw);
@@ -1999,8 +2110,11 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   background: var(--color-surface-raised);
 }
 
+/* Sized to its content (model, then one column per bin): the local zone gives up its free
+   space instead of the network one being cut (e2e A2). */
 .arch-zone-network {
-  flex: 0 1 230px;
+  flex: 0 0 auto;
+  min-width: 230px;
   padding: 0 var(--spacing-2);
   background: var(--color-surface);
 }
@@ -2540,9 +2654,26 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   cursor: pointer;
 }
 
+/* Out of the bar's flow, under its right end: the message never squeezes its neighbours
+   (e2e A4), and lets clicks through to the panes it covers for a moment. */
 .top-status {
+  position: absolute;
+  top: calc(100% + var(--spacing-1));
+  right: var(--spacing-4);
+  z-index: 20;
+  max-width: 28rem;
   font-size: var(--typography-body-sm-font-size);
   color: var(--color-ink-soft);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.top-status:not(:empty) {
+  padding: var(--spacing-1) var(--spacing-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-full);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
 }
 
 /* Neutral and flat, at the far right: not to draw the click by mistake. */
@@ -2588,8 +2719,24 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .suggested-prompts[hidden],
-.scenario-guide[hidden] {
+.scenario-guide[hidden],
+.scenario-unavailable[hidden] {
   display: none;
+}
+
+/* Lot E (E5): the scenario's bricks the active model cannot offer. */
+.scenario-unavailable {
+  margin: 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-surface);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.scenario-unavailable-list {
+  margin: var(--spacing-1) 0 0;
+  padding-left: var(--spacing-3);
 }
 
 .suggested-prompt {
@@ -2641,9 +2788,333 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   border-radius: 8px;
 }
 
+/* Story 18: a model served by a local server (Ollama, llama-server), outside the harness
+   frame but on the workstation: a process of its own, local colours. */
+.arch-server-model {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 2px solid var(--color-hosting-local);
+  border-radius: 8px;
+  background: var(--color-primary-soft);
+  max-width: 180px;
+  text-align: center;
+}
+
 .ctx-banner {
   margin: 0 0 8px;
   padding: 8px 10px;
   border: 2px dashed var(--color-ink, currentColor);
   border-radius: 6px;
+}
+
+/* Story 14: « Écrire en mémoire » sits in the card itself, not in an option row: its form
+   takes its own height in the card's column (the row's `flex: 1 0 100%` is a width there). */
+.brick-card > .force-button {
+  align-self: flex-start;
+}
+
+.brick-card > .force-form {
+  flex: none;
+  margin: 0;
+}
+
+/* ---------- story 17: model picker, hot switch (DESIGN.md > model-picker) ---------- */
+
+/* A neutral drop-down list: model name and size (« 2B »). */
+.model-picker {
+  min-height: var(--spacing-hit-target-min);
+  max-width: 16rem;
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.model-picker-apply {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  background: var(--color-primary);
+  color: var(--color-surface-raised);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.model-picker-apply[hidden] {
+  display: none;
+}
+
+.model-picker-apply:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.model-picker:disabled,
+.model-picker-apply:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.model-picker:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Vue humain: the model that plays the turns below, when it changed. */
+.model-switch-line {
+  align-self: center;
+  margin: var(--spacing-2) 0;
+  padding: 0 var(--spacing-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-full);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.turn-compare-model {
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.cloud-warning {
+  width: min(560px, 90vw);
+}
+
+.cloud-warning-points {
+  margin: 0;
+  padding-left: var(--spacing-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+/* ---------- story 19: sub-agent (EXPERIENCE: Sous-agent au travail) ---------- */
+
+/* Its lines hang under « Délégation au sous-agent »: indented, with a rule on the left. */
+.turn-step.is-sub {
+  margin-left: var(--spacing-4);
+  border-left: var(--spacing-stroke-min) solid var(--color-primary-soft);
+}
+
+.subagent-saving {
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  color: var(--color-primary-deep);
+}
+
+.subagent-show,
+.ctx-view-button {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-2);
+  border: 1px solid var(--color-primary-deep);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-primary-deep);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.ctx-view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+  margin-bottom: var(--spacing-2);
+}
+
+.ctx-view-button[aria-pressed="true"] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.subagent-show:focus-visible,
+.ctx-view-button:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.force-button-card {
+  align-self: flex-start;
+  margin-top: var(--spacing-1);
+}
+
+/* The two robots side by side: the model, then the same model in a second context. */
+.arch-robots {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-1);
+}
+
+.robot-sub .robot-drawing {
+  width: 44px;
+  height: 42px;
+}
+
+.robot.is-unavailable {
+  opacity: 0.5;
+}
+
+/* ---------- story 15: RAG (download on the card, search step, retriever at work) ---------- */
+
+.brick-download-progress,
+.brick-download-why {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.brick-download-progress {
+  font-variant-numeric: tabular-nums;
+}
+
+.arch .arch-chip.is-active {
+  box-shadow: 0 0 0 4px var(--color-state-active);
+}
+
+.rag-excerpts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.rag-excerpt-head {
+  display: flex;
+  gap: var(--spacing-2);
+  align-items: baseline;
+  cursor: pointer;
+}
+
+.rag-rank {
+  font-weight: var(--typography-label-font-weight);
+  color: var(--color-primary);
+}
+
+.rag-doc {
+  flex: 1;
+  min-width: 0;
+}
+
+.rag-score {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-soft);
+}
+
+/* Story 20: the compression step and the compressed segments of Contexte LLM. */
+.compression-items {
+  margin: var(--spacing-1) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.compression-item-head {
+  display: flex;
+  width: 100%;
+  gap: var(--spacing-2);
+  align-items: baseline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.compression-source {
+  flex: 1;
+  min-width: 0;
+  font-weight: var(--typography-label-font-weight);
+}
+
+.compression-tokens {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-soft);
+}
+
+.ctx-compressed-total {
+  margin: 0 0 var(--spacing-2);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  color: var(--color-primary-deep);
+}
+
+.ctx-segment.ctx-compressed {
+  border-left-style: dashed;
+}
+
+.ctx-compressed-badge {
+  margin-left: var(--spacing-2);
+  color: var(--color-primary-deep);
+}
+
+/* Story 16: the RAG card's reranking sub-option, and the step's order before and after. */
+.brick-suboption {
+  margin-top: var(--spacing-2);
+}
+
+.rerank-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--spacing-3);
+}
+
+.rerank-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.rerank-before .rerank-item {
+  display: flex;
+  gap: var(--spacing-2);
+  align-items: baseline;
+}
+
+.rerank-item.is-dropped {
+  opacity: 0.6;
+}
+
+.rerank-move,
+.rerank-keep {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-soft);
+}
+
+.rerank-item.is-kept .rerank-keep {
+  font-weight: var(--typography-label-font-weight);
+  color: var(--color-primary);
+}
+
+.rerank-column {
+  min-width: 0;
+}
+
+.rerank-note {
+  margin: var(--spacing-2) 0 0;
+  color: var(--color-ink-soft);
+}
+
+.rerank-cut {
+  color: var(--color-ink-soft);
+  font-style: italic;
 }

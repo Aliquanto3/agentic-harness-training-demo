@@ -16,6 +16,10 @@ allowed_hosts = [
     "mcp.data.gouv.fr",
     "learn.microsoft.com",
 ]
+# Contact envoyé dans l'User-Agent à chaque service sortant : la politique robots de Wikimedia
+# l'exige (403 sans lui). Une URL ou une adresse électronique, en ASCII ; valeur par défaut si
+# absent ou invalide.
+contact = "https://github.com/Aliquanto3/agentic-harness-training-demo"
 # Adresse fixe utilisée par la sonde de connectivité du diagnostic (CAP-39).
 connectivity_probe_host = "huggingface.co"
 
@@ -24,9 +28,81 @@ connectivity_probe_host = "huggingface.co"
 ollama = 11434
 llama_server = 8080
 
+[model_servers]
+# Serveurs locaux déjà lancés par l'utilisateur (story 18) : Ollama et llama-server, jamais
+# lancés ni arrêtés par WaveStack. Délais en secondes : connexion, puis lecture de la réponse
+# (le premier appel d'Ollama charge le modèle, d'où une lecture longue).
+connect_timeout_s = 2
+read_timeout_s = 300
+
 [context]
 window = 4096
 near_limit_ratio = 0.8
+
+[memory]
+# Budget mémoire de WaveStack (AD-8), en Mo : un changement de modèle est refusé si la
+# mémoire mesurée (WaveStack et ses processus enfants), moins le coût du modèle actif, plus
+# le coût du nouveau, dépasse ce budget. Le modèle actif reste alors chargé. Le modèle
+# d'embedding du RAG (story 15) et le reranker (story 16) sont refusés de même, avec la brique
+# ou sa sous-option indisponible.
+budget_mb = 4096
+# Marge ajoutée au coût estimé de chaque modèle local (poids, cache KV à la fenêtre ; pour
+# l'embedding, sa taille quand aucune mesure n'est déclarée), en Mo.
+load_margin_mb = 256
+
+[rag]
+# RAG simple (story 15, AD-22). L'index sqlite-vec est construit hors ligne par
+# `uv run python scripts/build_rag_index.py` ; un chemin relatif part de la racine du dépôt.
+index_path = "data/rag_index.sqlite"
+# Extraits placés dans le contexte à chaque tour, les plus proches de la question, sans seuil
+# (de 1 à 20).
+top_k = 3
+# Taille maximale d'un extrait au découpage, en caractères (reconstruisez l'index après
+# l'avoir changée).
+chunk_max_chars = 700
+# Reranking (story 16, sous-option de la brique RAG) : candidats retenus par l'embedding, puis
+# réordonnés par le reranker, qui n'en garde que top_k. Un passage du reranker par candidat :
+# à baisser si l'étape « Reranking » est trop lente sur le poste (NFR-1). De top_k à 20.
+rerank_candidates = 8
+
+[rag.embedding]
+# Le seul endroit qui nomme le modèle d'embedding : valeurs du verdict de la story 12
+# (provisoire, mesure sur le PC cible à faire). `id` est écrit dans l'index : un autre
+# modèle rend la brique indisponible jusqu'à la reconstruction de l'index.
+id = "granite-embedding-107m-multilingual-q8_0"
+backend = "llama_cpp"
+label_fr = "Granite Embedding 107M multilingue (IBM, GGUF Q8_0)"
+license = "Apache-2.0"
+dims = 384        # carte HF : hidden_size 384, pooling CLS lu dans le GGUF
+max_tokens = 512  # carte HF : max_position_embeddings 514 (XLM-RoBERTa)
+query_prefix = "" # aucun préfixe sur la carte IBM
+passage_prefix = ""
+# Relatif au dossier des modèles (models/ dans le dossier de données).
+load_path = "embedding/granite-embedding-107m-multilingual-Q8_0.gguf"
+# Banc de la story 12 sur le PC cible (2026-09-27) : pic 481 Mo, base 53 Mo.
+measured_rss_mb = 430
+# sha256 et commit relevés sur le PC cible (2026-09-27), identiques à l'oid LFS de Hugging Face.
+files = [
+    { url = "https://huggingface.co/bartowski/granite-embedding-107m-multilingual-GGUF/resolve/52fed1c818636b7cb8c4e4e3ae73189efeb78081/granite-embedding-107m-multilingual-Q8_0.gguf", path = "embedding/granite-embedding-107m-multilingual-Q8_0.gguf", size = 121020096, sha256 = "15691dfe830257f569a1e3521977351d16eac18e48e414908dc98ed9b8455e07" },
+]
+
+[rag.reranker]
+# Le seul endroit qui nomme le modèle de reranking (story 16) : valeurs du verdict de la
+# story 12 (provisoire, mesure sur le PC cible à faire). Chargé par llama.cpp en pooling RANK,
+# une paire question-extrait par passage ; le score est ramené entre 0 et 1 (sigmoïde).
+id = "bge-reranker-v2-m3-q4_k_m"
+backend = "llama_cpp"
+label_fr = "BGE Reranker v2 M3 (BAAI, GGUF Q4_K_M)"
+license = "Apache-2.0"
+max_tokens = 1024  # longueur d'une paire question + extrait, en tokens (extrait tronqué au-delà)
+# Relatif au dossier des modèles (models/ dans le dossier de données).
+load_path = "reranker/bge-reranker-v2-m3-Q4_K_M.gguf"
+# Banc de la story 12 sur le PC cible (2026-09-27) : pic 789 Mo, base 53 Mo.
+measured_rss_mb = 740
+# sha256 et commit relevés sur le PC cible (2026-09-27), identiques à l'oid LFS de Hugging Face.
+files = [
+    { url = "https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF/resolve/3093af03b1a635e67b084b1d8c03c5f5e020fd05/bge-reranker-v2-m3-Q4_K_M.gguf", path = "reranker/bge-reranker-v2-m3-Q4_K_M.gguf", size = 438376864, sha256 = "e186a244ed455b4ab66ec64339ce7427a6ae13f5c0b5e544de96e50f0f8b3673" },
+]
 
 [tools]
 # Bornes de la boucle de tour (AD-10), affichées sur la carte de la brique outils.
@@ -37,6 +113,43 @@ max_retries = 2
 # [net] allowed_hosts). Le texte de la page est coupé à fetch_page_max_chars caractères.
 fetch_page_hosts = ["fr.wikipedia.org", "calendrier.api.gouv.fr"]
 fetch_page_max_chars = 4000
+# Borne d'un résultat d'outil, en tokens, pour les outils réseau et MCP (locaux compris),
+# dans le tour, le sous-agent et les actions forcées ; jamais les outils natifs locaux comme
+# read_file, ni un message d'erreur, ni le résultat du sous-agent (delegate). Le harnais coupe
+# au plus près de la borne, au dernier saut de ligne s'il tombe dans la seconde moitié du
+# texte gardé, avant la compression, et le signale au modèle et dans Orchestration.
+# Plancher 200.
+result_max_tokens = 1200
+
+[reasoning]
+# Budget de raisonnement (lot C, décision N4), en mode local seulement : quand la réflexion
+# atteint budget_tokens tokens sans s'être fermée, le harnais arrête la génération, ferme
+# lui-même la réflexion (le </think> du gabarit) et relance le modèle, qui garde le reste de la
+# réserve de sortie (1 536 tokens avec le raisonnement) pour la réponse. Les modèles cloud gèrent
+# leur propre effort de raisonnement. Borné entre 128 et 1 408 (1 536 − 128). Mesuré sur le PC
+# cible (2026-09-27, Qwen3.5-2B, ≈ 9,5 tokens/s) sur le prompt du train : 127 à 134 s avec 1 024,
+# 111 s avec 768, pour une réponse visée en moins de 120 s. Baissez-le si les réponses arrivent
+# trop tard.
+budget_tokens = 768
+
+[compression]
+# Compression du contexte (story 20, AD-22) par Headroom, dépendance optionnelle installée
+# par `uv sync --extra compression`. Un résultat d'outil ou un extrait RAG plus court que
+# min_chars caractères n'est pas compressé. cost_mb : mémoire ajoutée par Headroom, en Mo,
+# contrôlée par le budget [memory] au chargement. 84 Mo ajoutés au pic sur le PC cible
+# (2026-09-27, banc headroom, comptage gpt-4), plus 30 %, arrondi : 110 (lot J), au-dessus des
+# 107 Mo mesurés au pic sous Linux.
+min_chars = 300
+cost_mb = 110
+
+[subagent]
+# Sous-agent (story 19, AD-10, AD-11) : les outils qu'il peut utiliser, s'ils sont activés
+# dans la brique Outils (un nom inconnu est signalé au lancement), et ses appels au modèle
+# par délégation. Ses nouveaux essais après un appel refusé suivent [tools] max_retries et
+# comptent dans ces appels. Il ne raisonne pas (la brique Raisonnement ne contribue qu'au
+# contexte principal), sauf un modèle cloud qui raisonne toujours.
+tools = ["read_file", "fetch_page"]
+max_calls = 4
 
 [mcp]
 # Serveurs MCP (story 6) : un serveur n'est contacté qu'à l'activation de sa sous-option.

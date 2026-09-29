@@ -6,7 +6,6 @@ from typing import Any
 
 from wavestack.context.segments import Segment, SegmentKind, SegmentLabels
 
-OUTPUT_RESERVE = 512
 _MESSAGE_GROUP = "message"
 # AD-4: `user_message` and `template` form one gauge group, « Message et gabarit ».
 _GROUP_OF = {SegmentKind.USER_MESSAGE: _MESSAGE_GROUP, SegmentKind.TEMPLATE: _MESSAGE_GROUP}
@@ -44,9 +43,13 @@ def gauge(
         item["tokens"] += tokens
         item["kinds"].append(kind.value)
     ratio = used / usable if usable > 0 else float("inf")
-    return {
+    payload: dict[str, Any] = {
         "segments": [
-            {**s.model_dump(mode="json"), "label_fr": s.label_fr or labels.kinds[s.kind]}
+            {
+                **s.model_dump(mode="json", exclude={"compressed_from"}),
+                "label_fr": s.label_fr or labels.kinds[s.kind],
+            }
+            | ({"compressed_from": s.compressed_from.model_dump()} if s.compressed_from else {})
             for s in segments
         ],
         "window": window,
@@ -60,3 +63,12 @@ def gauge(
         "overflow": (used if raw_used is None else raw_used) > usable,
         "breakdown": list(groups.values()),
     }
+    # Story 20 (AD-22): what the same context would weigh without compression, each compressed
+    # segment counted at its tokens before (the front adds nothing up, AD-1).
+    compressed = [s for s in segments if s.compressed_from is not None]
+    if compressed:
+        payload["uncompressed_used"] = used + sum(
+            max(0, s.compressed_from.tokens_before - s.tokens)  # type: ignore[union-attr]
+            for s in compressed
+        )
+    return payload

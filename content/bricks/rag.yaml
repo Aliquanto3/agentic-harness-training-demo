@@ -1,0 +1,45 @@
+# Brique « RAG » (AD-12, AD-19, AD-22).
+label_fr: RAG
+category_fr: context engineering
+hosting_fr: Local
+explanation_fr:
+  - >-
+    Le RAG, ce n'est pas le modèle qui sait : c'est le harnais qui cherche. À chaque tour,
+    avant d'appeler le modèle, le harnais cherche dans un corpus les passages les plus
+    proches de votre question, puis les place dans votre message, juste avant la question.
+  - >-
+    La recherche est sémantique : un petit modèle d'embedding, local, transforme la question
+    en vecteur, et l'index (rag_index.sqlite) renvoie les extraits dont le vecteur est le plus
+    proche. Le score va de 0 à 1 (1 moins la distance cosinus, ramené à 0 quand les vecteurs
+    s'opposent) ; aucun seuil n'est appliqué : les extraits partent même quand ils ne
+    répondent pas.
+  - - "Gain : le modèle répond à partir de documents qu'il n'a jamais vus à l'entraînement."
+    - >-
+      Coût : les extraits occupent le contexte à chaque tour, et un modèle d'embedding est
+      chargé en mémoire à côté du modèle principal.
+    - >-
+      Données : l'index et le modèle d'embedding restent sur le poste ; avec un modèle cloud,
+      les extraits partent chez le fournisseur dans votre message.
+  - >-
+    Le corpus de démonstration décrit Exemplia, une organisation imaginaire : huit textes
+    fictifs rédigés pour WaveStack (mots de passe, télétravail, notes de frais…). Les extraits
+    ne restent pas dans l'historique : chaque tour cherche à nouveau.
+  - >-
+    Limite du RAG simple : la requête est votre message tel quel. Une question de relance
+    (« Et à Lyon ? ») cherche sans le contexte des tours précédents, et trouve souvent mal ;
+    un RAG avancé reformule d'abord la question.
+  - >-
+    Sous-option « Reranking » : l'embedding compare des vecteurs calculés séparément pour la
+    question et pour chaque extrait ; il est rapide, mais approximatif. Le reranker, un
+    second modèle local, lit la question et un extrait ensemble et note leur pertinence de 0
+    à 1. Le harnais retient d'abord plus de candidats ({candidates}, [rag]
+    rerank_candidates), les fait noter un par un, puis ne garde que les {keep} premiers
+    ([rag] top_k) : l'étape « Reranking » d'Orchestration montre l'ordre avant et après. Les
+    deux scores ne se comparent pas entre eux.
+  - - "Gain : les extraits gardés répondent plus souvent à la question."
+    - >-
+      Coût : un passage du reranker par candidat avant le premier appel au modèle (le
+      premier token arrive plus tard), et un modèle de plus en mémoire.
+  - >-
+    Première installation : « Télécharger » récupère le modèle d'embedding, puis
+    « Construire l'index » découpe le corpus et l'indexe sur le poste, sans ligne de commande.

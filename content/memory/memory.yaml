@@ -1,0 +1,39 @@
+# Mémoire globale (story 14, AD-19, AD-20). Les entrées vivent dans memory.json, dans le
+# dossier de données ; ce fichier-ci porte les textes du harnais et la mémoire de
+# démonstration, restaurée par « Réinitialiser ».
+
+# Libellé du nœud du fichier dans le schéma (bac Fichiers).
+file_label_fr: Mémoire globale
+
+# Lu par le modèle, dans le message système, avant une ligne par entrée.
+intro: >-
+  Mémoire globale : informations retenues lors de conversations précédentes avec
+  l'utilisateur. Tiens-en compte quand elles sont utiles, sans les répéter.
+
+# Méta-outil du harnais (AD-25). `description` et `text` sont lus par le modèle.
+remember:
+  label_fr: Écriture en mémoire
+  description: >-
+    Retient une information durable sur l'utilisateur (préférence, prénom, contexte de
+    travail) pour les prochaines conversations. Appelle cet outil quand l'utilisateur
+    demande de retenir quelque chose. N'y mets jamais de secret : mot de passe, clé,
+    donnée personnelle sensible ou confidentielle.
+  text: L'information à retenir, en une phrase courte et autonome.
+
+# Textes de la carte et du tiroir d'édition (EXPERIENCE.md), envoyés avec la carte.
+drawer:
+  empty_fr: >-
+    Aucune information en mémoire globale. Le modèle peut en écrire, ou vous pouvez forcer
+    une écriture.
+  empty_no_parser_fr: >-
+    Aucune information en mémoire globale. Le modèle actif ne sait pas appeler d'outil : il
+    ne peut pas en écrire, même par une écriture forcée.
+  text_help_fr: >-
+    L'information à retenir, en une phrase courte ({max_chars} caractères au plus). Jamais
+    de secret : elle est relue à chaque appel.
+
+# Mémoire de démonstration : fictive et non confidentielle (NFR-11).
+demo:
+  - L'utilisateur s'appelle Camille.
+  - Camille est consultante en cybersécurité.
+  - Camille prépare une formation sur les agents IA.

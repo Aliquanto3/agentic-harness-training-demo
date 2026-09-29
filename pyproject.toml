@@ -18,10 +18,16 @@ dependencies = [
     "httpx2>=2.13,<3",
     "anyio>=4.15,<5",
     "mcp-types>=2.2,<2.3",
+    "sqlite-vec==0.1.9",
 ]
 
 [project.scripts]
 wavestack = "wavestack.cli:main"
+
+[project.optional-dependencies]
+compression = [
+    "headroom-ai==0.38.0",
+]
 
 [dependency-groups]
 dev = [

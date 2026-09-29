@@ -1,0 +1,52 @@
+{
+  "_note": "Schémas PLAUSIBLES, écrits sans réseau (story 21) : à remplacer par l'instantané réel que `uv run python scripts/snapshot_mcp.py` écrit dans content/mcp_snapshots/mslearn.json sur le PC cible. Le test d'adéquation (AD-9) lit l'instantané en priorité.",
+  "server": "mslearn",
+  "tools": [
+    {
+      "name": "microsoft_docs_search",
+      "description": "Search official Microsoft/Azure documentation to find the most relevant and trustworthy content for a user's query. This tool returns up to 10 high-quality content chunks (each max 500 tokens), extracted from Microsoft Learn and other official Microsoft sources. Each result includes the article title, URL, and a self-contained content excerpt optimized for fast retrieval and reasoning. Always use this tool to quickly ground your answers in accurate, first-party Microsoft information. Follow-up pattern: to ensure completeness, use microsoft_docs_fetch when high-value pages are identified by search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "A query or topic about Microsoft/Azure products, services, platforms, developer tools, frameworks, or APIs."
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "microsoft_code_sample_search",
+      "description": "Search for code snippets and examples in official Microsoft Learn documentation. This tool retrieves relevant code samples from Microsoft documentation pages, providing developers with practical implementation examples and best practices for Microsoft/Azure products and services. Use it when you need practical, working code examples in a given programming language.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "A descriptive query, SDK name, method name or code snippet related to Microsoft/Azure products, services, platforms, developer tools, frameworks or APIs."
+          },
+          "language": {
+            "type": ["string", "null"],
+            "description": "Optional programming language filter, for example csharp, javascript, typescript, python, powershell, azurecli, java, go."
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "microsoft_docs_fetch",
+      "description": "Fetch and convert a Microsoft Learn documentation page to markdown format. This tool retrieves the latest complete content of Microsoft documentation pages, including Azure, .NET, Microsoft 365 and other Microsoft technologies. Use it when search results provide incomplete information, when you need the full procedure of a page, or when a user shares a documentation URL.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL of the Microsoft documentation page to read."
+          }
+        },
+        "required": ["url"]
+      }
+    }
+  ]
+}

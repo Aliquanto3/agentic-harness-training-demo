@@ -24,6 +24,10 @@ class Capabilities:
     native_context: int | None
     reasoning_tags: tuple[str, str] | None
     incompatible_reason: str | None = None
+    # AD-6: the model can reason on demand (a template variable, or a cloud declaration),
+    # and, for a cloud model, reasons at every answer whatever the brick says.
+    reasoning: bool = False
+    reasoning_always: bool = False
 
 
 def capabilities_for(meta: EngineMetadata) -> Capabilities:
@@ -45,7 +49,15 @@ def capabilities_for(meta: EngineMetadata) -> Capabilities:
             ),
         )
     reasoning_variable = "enable_thinking" if "enable_thinking" in template else None
-    if arch.startswith("qwen3") and "<|im_start|>" in template:
+    # AD-6: llama-server exposes no architecture; its template says the family then: ChatML
+    # with `<tool_call>` and Qwen3's reasoning (`enable_thinking` or `<think>`). A ChatML
+    # template with tool calls only (Qwen2.5, Hermes) is not Qwen3.
+    by_template = (
+        meta.architecture is None
+        and "<tool_call>" in template
+        and ("enable_thinking" in template or "<think>" in template)
+    )
+    if (arch.startswith("qwen3") or by_template) and "<|im_start|>" in template:
         return Capabilities(
             family="qwen3",
             chat_template=template,
@@ -54,6 +66,7 @@ def capabilities_for(meta: EngineMetadata) -> Capabilities:
             reasoning_variable=reasoning_variable,
             native_context=meta.native_context,
             reasoning_tags=_THINK_TAGS,
+            reasoning=reasoning_variable is not None,
         )
     return Capabilities(
         family=arch or "unknown",
@@ -63,6 +76,7 @@ def capabilities_for(meta: EngineMetadata) -> Capabilities:
         reasoning_variable=reasoning_variable,
         native_context=meta.native_context,
         reasoning_tags=_THINK_TAGS if _THINK_TAGS[0] in template else None,
+        reasoning=reasoning_variable is not None,
     )
 
 
@@ -74,6 +88,8 @@ class ChannelSplitter:
 
     Tags are dropped from the channels (they stay in the raw output); a
     possibly partial tag at the end of a chunk is held back until the next one.
+    `outside` is the raw output without the reasoning and its tags, tool-call tags kept:
+    where tool calls count (AD-6).
     """
 
     def __init__(
@@ -90,10 +106,25 @@ class ChannelSplitter:
         }
         self._channel = "reasoning" if in_reasoning else "text"
         self._buffer = ""
+        self._outside: list[str] = []
+
+    @property
+    def outside(self) -> str:
+        return "".join(self._outside)
+
+    def _emit(self, out: list[tuple[str, str]], text: str) -> None:
+        out.append((self._channel, text))
+        if self._channel != "reasoning":
+            self._outside.append(text)
 
     @property
     def channel(self) -> str:
         return self._channel
+
+    @property
+    def holding(self) -> bool:
+        """A possibly partial tag is held back: the channel may be about to change."""
+        return bool(self._buffer)
 
     def feed(self, text: str) -> list[tuple[str, str]]:
         self._buffer += text
@@ -116,16 +147,20 @@ class ChannelSplitter:
                 if at < 0:
                     break
             if at:
-                out.append((self._channel, self._buffer[:at]))
+                self._emit(out, self._buffer[:at])
+            if "reasoning" not in (self._channel, following):  # a tool-call tag stays
+                self._outside.append(tag)
             self._buffer = self._buffer[at + len(tag) :]
             self._channel = following
         keep = partial_suffix_len(self._buffer, markers)
         if len(self._buffer) > keep:
-            out.append((self._channel, self._buffer[: len(self._buffer) - keep]))
+            self._emit(out, self._buffer[: len(self._buffer) - keep])
             self._buffer = self._buffer[len(self._buffer) - keep :]
         return out
 
     def flush(self) -> list[tuple[str, str]]:
-        out = [(self._channel, self._buffer)] if self._buffer else []
+        out: list[tuple[str, str]] = []
+        if self._buffer:
+            self._emit(out, self._buffer)
         self._buffer = ""
         return out

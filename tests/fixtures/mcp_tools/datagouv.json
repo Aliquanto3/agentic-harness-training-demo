@@ -1,0 +1,217 @@
+{
+  "_note": "Schémas PLAUSIBLES, écrits sans réseau (story 21) : noms et paramètres d'après le serveur public data.gouv.fr, descriptions rédigées ici et étoffées pour peser à peu près ce que pesait la documentation réelle au test du PC cible de la story 10b (« MCP en documentation complète » : 3 018 tokens sur 3 584 avec data.gouv.fr). À remplacer par l'instantané réel que `uv run python scripts/snapshot_mcp.py` écrit dans content/mcp_snapshots/datagouv.json sur le PC cible ; le test d'adéquation (AD-9) lit l'instantané en priorité.",
+  "server": "datagouv",
+  "tools": [
+    {
+      "name": "search_datasets",
+      "description": "Search for datasets on data.gouv.fr, the French open data platform, by keywords. Returns a paginated list of datasets with their id, title, organization, a short description, tags, the last update date and the number of resources. Use short, specific keywords in French rather than full sentences: the search engine matches words in titles, descriptions and tags. Then call get_dataset_info or list_dataset_resources with a dataset id to go further. Notes: Examples: query='qualité de l'air' returns the datasets of the air quality monitoring networks; query='budget communes' returns the budgets of French municipalities. Results are sorted by relevance, then by popularity. Archived or deleted datasets are never returned. If no result matches, try fewer or more general keywords, synonyms, or the name of the publishing organization.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Keywords to search for, in French (for example: qualité de l'air, cybersécurité, budget communes)."
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number, starting at 1.",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Number of results per page, at most 100.",
+            "default": 20
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_dataset_info",
+      "description": "Get detailed metadata about a specific dataset of data.gouv.fr: title, full description, publishing organization, license, temporal coverage, spatial coverage, update frequency, creation and last modification dates, tags and a summary of its resources. Use a dataset id returned by search_datasets. Notes: Returns a JSON object. The description may be long and written in Markdown: summarize it for the user rather than quoting it in full. The license tells whether the data may be reused, for example Licence Ouverte / Open Licence version 2.0 or ODbL. The update frequency is declared by the publisher and may be outdated: compare it with the last modification date.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "description": "The id (or slug) of the dataset on data.gouv.fr."
+          }
+        },
+        "required": [
+          "dataset_id"
+        ]
+      }
+    },
+    {
+      "name": "list_dataset_resources",
+      "description": "List all resources (files and links) of a dataset of data.gouv.fr, with for each one its id, title, format, size, MIME type, URL and last modification date. Use it to choose which file to query or download before calling query_resource_data or download_and_parse_resource. Notes: Returns a JSON array ordered as on the dataset's page, main files first. Resources may be files hosted on data.gouv.fr or links to external sites; community resources published by other users are listed separately. Prefer CSV resources for querying, and check the size before downloading a large file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "description": "The id (or slug) of the dataset on data.gouv.fr."
+          }
+        },
+        "required": [
+          "dataset_id"
+        ]
+      }
+    },
+    {
+      "name": "get_resource_info",
+      "description": "Get detailed information about a specific resource (file) of data.gouv.fr: its format, size, MIME type, URL, checksum, the dataset it belongs to, and whether it is available through the Tabular API, which allows querying CSV and XLSX files without downloading them. Notes: Returns a JSON object. The field telling whether the Tabular API is available is the one to check before calling query_resource_data. The checksum and the last modification date help to tell whether a file changed since a previous analysis. External links cannot be queried through the Tabular API.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "resource_id": {
+            "type": "string",
+            "description": "The id of the resource on data.gouv.fr."
+          }
+        },
+        "required": [
+          "resource_id"
+        ]
+      }
+    },
+    {
+      "name": "query_resource_data",
+      "description": "Query the rows of a tabular resource (CSV or XLSX) of data.gouv.fr through the Tabular API, without downloading the whole file. Returns the column names and a page of rows. Only works for resources that the Tabular API has processed; check it with get_resource_info first. Ask a precise question and use pagination for large files rather than reading everything. Notes: Returns a JSON object with the columns, their detected types, the rows of the page and the total number of rows. Numbers and dates are returned as detected by the Tabular API: check the types before computing. To answer a question on a large file, read the first page to learn the columns, then use a smaller page size. Never invent values that are not in the rows returned.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "The question the data should answer, used to describe the query in the answer."
+          },
+          "resource_id": {
+            "type": "string",
+            "description": "The id of the tabular resource to query."
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number, starting at 1.",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Number of rows per page, at most 200.",
+            "default": 20
+          }
+        },
+        "required": [
+          "question",
+          "resource_id"
+        ]
+      }
+    },
+    {
+      "name": "download_and_parse_resource",
+      "description": "Download a resource of data.gouv.fr and parse its content: CSV, CSV.GZ, JSON and JSONL files are supported. Returns the first rows or records, within the limits given. Use it for resources that the Tabular API cannot query, and keep the limits low: large files are cut. Notes: Returns the detected format, the column names or keys, the rows or records within the limits, and whether the content was cut. Compressed files are decompressed on the fly. Files larger than max_size_mb are not downloaded and an error explains why; XLSX and other formats are not parsed and must be queried through the Tabular API instead.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "resource_id": {
+            "type": "string",
+            "description": "The id of the resource to download."
+          },
+          "max_rows": {
+            "type": "integer",
+            "description": "Maximum number of rows or records returned.",
+            "default": 20
+          },
+          "max_size_mb": {
+            "type": "integer",
+            "description": "Maximum size of the file to download, in megabytes.",
+            "default": 50
+          }
+        },
+        "required": [
+          "resource_id"
+        ]
+      }
+    },
+    {
+      "name": "search_dataservices",
+      "description": "Search for dataservices (APIs) registered on data.gouv.fr by keywords. Returns a paginated list with their id, title, organization, description, base URL and documentation URL. Dataservices are APIs published by public bodies, for example the address API or the company directory API. Notes: Examples: query='adresse' returns the national address database API; query='entreprises' returns the company directory APIs. Results are sorted by relevance. Some dataservices require an account or an access request: check get_dataservice_info before recommending one.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Keywords to search for, in French."
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number, starting at 1.",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Number of results per page, at most 100.",
+            "default": 20
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_dataservice_info",
+      "description": "Get detailed metadata about a specific dataservice (API) of data.gouv.fr: title, description, publishing organization, base URL, documentation, license, access conditions, rate limits when declared, and the datasets it serves. Notes: Returns a JSON object. The access conditions tell whether the API is open, requires a free account, or is restricted to public administrations. The rate limits, when declared, must be respected by any client. The documentation URL points to the publisher's site.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dataservice_id": {
+            "type": "string",
+            "description": "The id of the dataservice on data.gouv.fr."
+          }
+        },
+        "required": [
+          "dataservice_id"
+        ]
+      }
+    },
+    {
+      "name": "get_dataservice_openapi_spec",
+      "description": "Fetch and summarize the OpenAPI specification of a dataservice of data.gouv.fr, when it declares one: its endpoints, their parameters and their responses. Use it to explain how to call a public API, not to call it. Notes: Returns a summary of the specification: its title and version, then each endpoint with its method, path, parameters and response codes. Long specifications are cut: ask for a specific endpoint if needed. Returns an error when the dataservice declares no machine-readable specification.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dataservice_id": {
+            "type": "string",
+            "description": "The id of the dataservice on data.gouv.fr."
+          }
+        },
+        "required": [
+          "dataservice_id"
+        ]
+      }
+    },
+    {
+      "name": "get_metrics",
+      "description": "Get usage metrics of a dataset or a resource of data.gouv.fr: monthly visits and downloads over a period, most recent months first. Useful to tell whether a dataset is widely used. Notes: Returns a JSON array of months with the number of visits and downloads. Give either dataset_id or resource_id, not both. Metrics are aggregated monthly and the current month may be incomplete. Low figures do not mean that a dataset is wrong, only that it is little used.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "description": "The id of the dataset, when the metrics are about a dataset."
+          },
+          "resource_id": {
+            "type": "string",
+            "description": "The id of the resource, when the metrics are about a resource."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of months returned, at most 24.",
+            "default": 12
+          }
+        }
+      }
+    }
+  ]
+}

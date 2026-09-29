@@ -432,3 +432,438 @@
     scenario-picker). Programme : modules du palier 2 insérés, briques des modules
     précédents actives au démarrage d'un module (CAP-40). Dépend des stories 6, 8,
     10 et 13 à 20.
+
+# ---------- Suites de la recette manuelle du palier 2 (2026-09-28) ----------
+# Retours : _bmad-output/implementation-artifacts/retours-recette-palier-2-2026-09-28.md
+# Ordre et règles de la nuit : _bmad-output/implementation-artifacts/plan-nuit-2026-09-28.md
+
+- id: "22"
+  title: "Retours de recette : briques, volets et tiroirs"
+  description: >-
+    Corriger les défauts d'interface relevés à la recette du 2026-09-28 (tests C1, M1, M3,
+    M6, X1), sans changer le comportement du harnais. (1) Panneau des briques : la brique
+    Raisonnement passe en premier. (2) Une sous-option (Reranking du RAG, Lazy loading du
+    MCP, et les interrupteurs d'outils, de skills et de hooks) est grisée et désactivée
+    quand sa brique parente est éteinte, avec la raison au survol ; aujourd'hui Reranking
+    reste violet et Lazy loading actif brique éteinte. (3) La consigne du scénario dans la
+    Vue humain est limitée à trois lignes, avec « Afficher plus » / « Réduire » : elle ne
+    doit plus cacher le prompt ni la réponse. (4) Tiroir « Modifier la mémoire » : une croix
+    de fermeture en haut à droite, une barre d'actions toujours visible en bas (sans
+    défiler) ; « Tout effacer » en style destructif, « Fermer » en style secondaire,
+    distincts d'« Enregistrer » et « Supprimer » de chaque entrée. (5) Prompt système :
+    « Enregistrer » est désactivé tant que le texte est identique à celui enregistré, et
+    un enregistrement réussi le confirme (« Prompt système enregistré »). (6) Le bouton
+    « Annuler » d'un formulaire d'action forcée (dont « Déléguer au sous-agent ») ferme
+    bien le formulaire ; re-cliquer sur le bouton de forçage aussi. (7) Contexte LLM : la
+    bascule entre l'agent principal et le sous-agent devient deux onglets visibles
+    (« Agent principal », « Sous-agent sub{n} »), le principal par défaut. (8) Les
+    identifiants de tour t{n} restent uniques pour la session (journal) ; l'interface
+    affiche en plus un numéro de tour qui repart de 1 après « Vider la conversation » ou
+    « Réinitialiser ». Textes en français.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Retours détaillés : retours-recette-palier-2-2026-09-28.md (C1, M1, M3, M6, X1). Code
+    (src/wavestack, JS = web/static/app.js) : ordre des briques = liste BRICKS de
+    bricks/registry.py:33-228 (reasoning en 4e, l. 73-86 ; à placer en tête ; vérifier que
+    FR-38 et tests/test_program.py ne dépendent pas de cet ordre d'affichage) ; sous-options :
+    rerankParts JS:1008-1044, lazy loading JS:1102-1113, interrupteurs JS:1078-1085,
+    _rerank_availability app_session.py:2266-2280 (available=True RAG éteint) ; consigne :
+    JS:2265-2278, #scenario-guide index.html:108, app.css:2705-2722 ; tiroir mémoire :
+    index.html:70-81, renderMemoryDrawer JS:1649-1665, liaisons JS:5213-5223, styles
+    app.css:30-70, 1849-1980 (DESIGN.md pour les couleurs de danger) ; prompt système :
+    saveSystemPrompt JS:1501-1515, JS:5204-5206 ; bug Annuler : forceUiChanged JS:816-819
+    remet renderedForceUi à null et renderBricks JS:824-832 compare null === null, donc
+    sortie anticipée (handler Annuler JS:1343-1350, re-clic JS:1210, 1229) : utiliser une
+    sentinelle distincte ; Contexte LLM : store.ctxView JS:66-68, renderContextBody
+    JS:2416-2432, ctxViewSwitch JS:2518-2539 ; tours : self._turns app_session.py:669,
+    3266-3267, jamais remis à zéro par _reconfigure 4427-4467 : garder l'identifiant,
+    ajouter un numéro par conversation dans les événements ou côté affichage. Mettre à jour
+    EXPERIENCE.md si un comportement décrit change. Tests : pytest pour le côté Python,
+    parcours E2E Playwright (tools/e2e) pour chaque point d'interface, captures mises à jour.
+
+- id: "23"
+  title: "Données sortantes visibles, en-têtes compris"
+  description: >-
+    Rendre la transparence réseau vérifiable (tests C3 et M2 de la recette) : aujourd'hui
+    « Données sortantes » ne montre que méthode, URL et corps, et l'utilisateur ne trouve
+    pas où la lire. (1) Chaque requête sortante tracée porte ses en-têtes non secrets, dont
+    User-Agent (avec le contact de [net] contact), Accept et Content-Type ; tout en-tête
+    d'authentification ou de clé (Authorization, x-api-key, cookies…) est remplacé par
+    « [masqué] », jamais écrit dans le journal. (2) L'étape d'un outil réseau ou MCP dans
+    Orchestration affiche un bloc « Données sortantes » dépliable, repérable (libellé et
+    icône constants), avec URL, méthode, en-têtes et corps exact envoyé ; le nœud réseau du
+    schéma y mène. (3) La carte de la brique Outils indique quels outils sortent du poste
+    (public_holidays, wikipedia_summary, fetch_page, serveurs MCP publics) et où lire leurs
+    données sortantes. (4) Les requêtes vers un modèle cloud gardent leur transparence
+    actuelle, clé masquée.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Émission : net/factory.py:35-50 (_check_and_trace), payload {origin, method, url, body},
+    schéma trace/catalog.py:33-37 ; les clients posent déjà User-Agent (factory.py:29-31,
+    86, 110, 137). Ajouter headers au payload et au catalogue (AD-2 : l'interface ne
+    recalcule rien), avec une liste blanche ou un masquage par nom d'en-tête (AD-15, AD-20 :
+    aucune clé dans le journal). Front : rattachement aux étapes JS:432-439 et 655-658
+    (origin === "brick" seulement), outboundPayload JS:2865-2882 appelé par toolBody
+    JS:2802 et connectBody JS:2835, carte H5 JS:3110 et 3169, journal JS:4322 et 4427.
+    Tests : pytest (en-têtes présents, clé masquée, catalogue), E2E (bloc visible sur
+    public_holidays et Wikipédia avec le réseau coupé par le lanceur).
+
+- id: "24"
+  title: "Modèles : mémoire comptée juste, budget dynamique, sonde interruptible"
+  description: >-
+    Corriger les défauts de la gestion des modèles vus à la recette (C4, C5, C6) et appliquer
+    la décision du 2026-09-28 sur le budget. (1) Le refus « WaveStack occupe … sans le
+    modèle actif » ne donne plus jamais 0 Mo : la mémoire de base est mesurée avant le
+    chargement du modèle actif (ou après sa libération), pas déduite par soustraction d'une
+    estimation. (2) Budget mémoire dynamique plafonné : par défaut, le budget est le minimum
+    entre un plafond ([memory] budget_mb, 4 096) et une part de la RAM disponible au
+    lancement (part réglable, [memory] budget_ram_ratio, défaut 0,6) ; une valeur fixe
+    reste possible ([memory] budget_mode = "fixed"). Le diagnostic et les messages de refus
+    affichent le budget retenu et son calcul (RAM totale, disponible, part, plafond). (3)
+    « Arrêter » pendant la sonde d'un GGUF l'interrompt tout de suite (le processus enfant
+    est terminé), puis le modèle précédent revient ; plus d'attente de fin d'étape pour la
+    sonde. (4) Coût d'un modèle servi par Ollama : llama3.2:3b (blob de 2 Go) est estimé à
+    ≈ 4,0 Go et refusé alors qu'il tournait la veille ; le coût d'un modèle servi par Ollama
+    doit refléter ce qu'Ollama occupera (poids, cache à la fenêtre utilisée), et le budget
+    de WaveStack ne doit pas compter deux fois un serveur externe. Documenter la règle
+    retenue. (5) Les raisons renvoyées par la sonde (processus enfant) ne sont plus mal
+    décodées (« abÃ®mÃ© ») et les raisons déjà enregistrées ainsi dans settings.json
+    (failed_probes) sont réparées ou ignorées à la lecture.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    (1) LoadRegistry.check models/load_registry.py:154-168, _without 170-176 =
+    max(0, rss − (held.share or held.cost)) ; share = file_share 133-152 (rss_bytes de la
+    sonde ou taille du fichier), accordé dans _install app_session.py:1698-1702 ; les poids
+    sont en mmap : la RSS courante peut être inférieure à la part estimée. Mesurer
+    process_rss() avant la création du moteur (ou après _release) et le garder dans la
+    réservation. (2) config.memory_budget_bytes config.py:~369 ; psutil.virtual_memory() ;
+    exposer le calcul au diagnostic (session/diagnostic.py) et dans le texte du refus ; mettre
+    à jour wavestack.toml (commentaires), README, spine AD-8 (ligne « à valider »). (3)
+    _load app_session.py:1454-1500, probe = Diagnostic.probe_path diagnostic.py:722-738,
+    subprocess.run bloquant (_probe_candidate diagnostic.py:191-211, PROBE_TIMEOUT_S 300
+    l. 58) ; _checkpoint(cancel) seulement après, l. 1491 ; « Arrêter » arme _load_cancel
+    4484-4485. Passer à Popen avec attente par tranches qui teste le jeton et termine
+    l'enfant. Un arrêt pendant la sonde ne doit rien enregistrer dans failed_probes. (4)
+    _cost app_session.py:1349-1362 (served_bytes si résident, sinon file_cost du blob) ;
+    file_cost load_registry.py:133-145 ; le blob Ollama est aussi sondé comme fichier ;
+    servers.served_bytes servers.py:741-757. Trancher et documenter (spine AD-8). (5)
+    _probe_candidate sans encoding= : passer encoding="utf-8" et forcer l'UTF-8 côté enfant
+    (models/probe.py:368, sys.stdout.reconfigure) ou JSON en ASCII ; record_failure
+    diagnostic.py:256-259, relecture 345-347. Tests : pytest (base mesurée, budget
+    dynamique avec RAM injectée, arrêt pendant une sonde lente simulée, décodage UTF-8,
+    réparation), E2E « Arrêter » pendant le chargement lent de fake_b.
+
+- id: "25"
+  title: "Sélecteur de modèles regroupé et tableau des capacités"
+  description: >-
+    Rendre le choix du modèle lisible (demande du 2026-09-28). (1) Le sélecteur « Changer de
+    modèle… » regroupe les modèles par hébergement (Local : fichier, Ollama, llama-server ;
+    Réseau : Groq, Mistral) puis par éditeur (Qwen/Alibaba, Llama/Meta, Gemma/Google,
+    Granite/IBM, Phi/Microsoft, Mistral, LFM/Liquid AI, Nemotron/NVIDIA, gpt-oss/OpenAI,
+    MiniCPM/OpenBMB, autres), et trie chaque groupe par taille croissante (paramètres, sinon
+    taille du fichier). Une légende explique le préfixe (où tourne le modèle · qui le
+    sert). (2) Un nouvel onglet « Modèles » (à côté du diagnostic, ou dans une page dédiée)
+    liste tous les modèles disponibles avec : éditeur, taille, hébergement, fenêtre,
+    appel d'outils, et raisonnement : « jamais », « toujours » ou « activable » (les deux
+    modes), avec la raison quand c'est inconnu. Les capacités viennent du même code que les
+    cartes des briques (pas de deuxième vérité). Textes en français.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    rebuildModelPicker JS:1873-1918 (liste depuis /api/diagnostic, JS:1822, web/app.py:288) ;
+    libellés : servis JS:1885 « Local · provider · name », cloud JS:1909 « RÉSEAU · provider ·
+    model », fichiers JS:1895-1897 ; aucun tri aujourd'hui : ordre de discovery.discover()
+    models/discovery.py:215-258 et cfg.cloud_models (session/diagnostic.py:792).
+    ModelCandidate discovery.py:24-51 : architecture et size_label seulement pour les
+    fichiers sondés ; les modèles servis n'en ont pas (lire la taille et la famille depuis
+    Ollama /api/show ou /api/tags, llama-server /props, sans charger le modèle). Capacités :
+    models/capabilities.py (capabilities_for), cloud : config.CloudModel (always_reasons,
+    reasoning). Éditeur déduit de l'architecture et du nom par une table en contenu
+    (content/, YAML) plutôt qu'en code. Mettre à jour EXPERIENCE.md (model-picker). Tests :
+    pytest (regroupement, tri, table d'éditeurs, capacités), E2E (sélecteur avec faux Ollama
+    et faux fournisseurs, onglet Modèles).
+
+- id: "26"
+  title: "Fenêtre de contexte réglable (4 096, 8 192, 16 384)"
+  description: >-
+    Décision du 2026-09-28 (test M4 : avec les trois serveurs MCP en lazy loading, charger
+    une documentation fait déborder). La fenêtre reste de 4 096 tokens par défaut, pour la
+    pédagogie, mais un réglage visible (barre haute ou diagnostic) permet 8 192 ou 16 384.
+    Avant d'appliquer, l'interface affiche le coût : mémoire du cache de contexte pour le
+    modèle actif, temps de lecture estimé d'une fenêtre pleine au débit mesuré, et le
+    contrôle du budget mémoire refuse une fenêtre qui ne tient pas. Un modèle local est
+    rechargé avec la nouvelle fenêtre (même chemin que le changement à chaud, conversation
+    gardée) ; un modèle servi ou cloud est borné par sa propre fenêtre native. La jauge, la
+    réserve de sortie et les messages de débordement suivent la fenêtre choisie. Le choix
+    est mémorisé dans settings.json. Les scénarios restent conçus pour 4 096.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Fenêtre : config.context_window config.py:362-366 (wavestack.toml:39) ; local et servis :
+    _install app_session.py:1659-1684 (effective_window context/window.py:14, min avec le
+    contexte du serveur, use_window pour Ollama) ; cloud : config.cloud_window
+    config.py:579-587 appelé app_session.py:1726 ; la fenêtre sert aussi à la sonde
+    (diagnostic.py:196) et aux coûts (app_session.py:1361-1362). Recharger le moteur local
+    par le chemin de switch_model (AD-3, AD-8 : contrôle du budget avant libération). KV par
+    token : probe kv_bytes_per_token. Ajouter une intention (web/app.py) et l'événement qui
+    porte la fenêtre (catalogue AD-2). Le test fits (tests/test_program.py) reste à 4 096.
+    Mettre à jour EXPERIENCE.md, README, spine (AD-9). Tests : pytest (refus au budget,
+    rechargement, jauge), E2E (réglage, coût affiché, jauge à 8 192).
+
+- id: "27"
+  title: "Lot H : scénarios et consignes du palier 2"
+  description: >-
+    Réviser les scénarios et leurs consignes d'après les deux tests sur PC (2026-09-27 et
+    2026-09-28), sans code de harnais si possible (contenu au schéma des scénarios, AD-19).
+    (1) Sous-agent : RAG éteint dans le scénario (D5 : RAG allumé, chaque quiz relit tout le
+    contexte, 87 à 114 s, et le 2B redélègue chaque quiz à tort). (2) Où vont mes données ?
+    : la brique MCP et ses serveurs local et data.gouv.fr actifs au lancement, au lieu de
+    l'activation à la main (le lazy loading apparaissait actif, brique éteinte). (3) Skills
+    : consigne et prompt qui mènent le 2B à appeler load_skill (il ne le fait pas, même en
+    nommant le skill ; gpt-oss-120b le fait), ou action forcée proposée dans la consigne.
+    (4) mcp_lazy et iam : prompts et consignes qui mènent à un vrai appel d'outil (le 2B
+    répond de mémoire, invente le sens de MCP). (5) Souveraineté : un appel de recherche réel
+    (H5). (6) SOC : le prompt nomme exactement alertes_siem.log (le 2B a demandé
+    alerts_siem.log) ; la leçon d'escalade après le blocage de H1 (D6) passe par la consigne
+    ou une action forcée. (7) Compression brique éteinte : le modèle lit-il le journal (H4) ?
+    (8) Extraits RAG hors sujet dans mcp_lazy, skills et compression (H1) : RAG éteint là où
+    il n'apporte rien. Garder le programme cumulatif (CAP-40) et ses exceptions à jour.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Constats : plan-corrections-palier-2.md (lot H, D5, D6), deferred-work.md (quatre
+    dernières entrées), resultats-test-pc-palier-2-2026-09-27.md (lot B, soc, sous-agent),
+    retours-recette-palier-2-2026-09-28.md (M5, X1). Contenu : content/scenarios.yaml (en-tête
+    : règles et exceptions AD-9), content/subagent.yaml, content/skills*. Tests :
+    tests/test_program.py (règles du programme, LEFT_OFF, BY_HAND, fits à 4 096),
+    tests/test_scenarios.py ; E2E des scénarios touchés. Les comportements du vrai 2B ne se
+    vérifient pas ici : les lister dans « À vérifier sur PC ».
+
+- id: "28"
+  title: "Guide de test et cahier de recette corrigés"
+  description: >-
+    Rendre la prochaine recette praticable (retours du 2026-09-28). (1) llama-server : le
+    guide explique comment l'obtenir sans droits d'administrateur sous Windows (archive de
+    la release llama.cpp « bin-win-cpu-x64 » depuis GitHub, décompressée dans le profil,
+    lancée par son chemin complet), avec la commande exacte, et ce qu'il faut faire si le
+    proxy bloque GitHub. (2) Cahier de recette (cahier-recette-palier-2.html) : chaque test
+    a un geste pas à pas ; les tests jugés incompréhensibles (D1, D2m, X1, X3, Z1, Z2, M3,
+    M6, et D11 et « Réinitialiser » la mémoire dans M1) sont réécrits avec le chemin exact
+    dans l'interface ; Z2 dit comment vider les clés API (variables d'environnement et
+    fichier api_keys.json). (3) Le cahier couvre aussi les stories 22 à 30 de la nuit, à
+    partir de la section « À vérifier sur PC » de chaque story, et garde son mécanisme
+    d'enregistrement (db de l'artefact, repli dans le navigateur, compte rendu à copier).
+    (4) Le guide (guide-test-pc-palier-2.md) reprend les mêmes corrections.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Fichiers : _bmad-output/implementation-artifacts/cahier-recette-palier-2.html (tableau
+    TESTS, groupes GROUPS ; page autonome, aucune dépendance), guide-test-pc-palier-2.md,
+    README.md (section llama-server). Retours : retours-recette-palier-2-2026-09-28.md.
+    Faire cette story après les stories 22 à 27, et la compléter en fin de nuit pour 29 et 30.
+    Vérifier la page par un seul rendu Playwright (aucune erreur de script). Ne pas publier
+    d'artefact : le fichier local suffit, Anaël le republiera.
+
+- id: "29"
+  title: "Écran « LLM nu » : l'architecture d'un modèle, sans l'agentique"
+  description: >-
+    Nouvel écran, séparé de l'atelier des briques et atteint depuis la barre haute, pour
+    faire un focus sur le fonctionnement d'un LLM seul (demande du 2026-09-28). Il montre,
+    sur le modèle actif et un prompt libre : (1) la tokenisation (le texte découpé en
+    tokens, leurs identifiants) et l'idée de vectorisation (chaque token devient un vecteur
+    d'embedding ; schéma explicatif, dimensions réelles du modèle quand elles sont connues) ;
+    (2) les réglages d'échantillonnage appliqués à la génération : température, top-k,
+    top-p (et min-p si le moteur le permet), avec leur explication et les valeurs par défaut
+    du harnais ; (3) le chargement du modèle en mémoire lors d'un changement (étapes,
+    durée, mémoire occupée ; en local c'est la RAM du CPU, pas un GPU : le dire) ; (4) la
+    lecture du prompt, avec le temps jusqu'au premier token ; (5) la génération en direct
+    token par token, avec le débit, et, quand le moteur les donne, les tokens candidats
+    les plus probables et leur probabilité ; (6) un focus sur le raisonnement (réflexion
+    puis réponse, budget, coupe). Tout vient du journal d'événements (AD-1, AD-2) ; aucune
+    brique n'intervient sur cet écran. Textes pédagogiques en français.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Grande story : livrer par incréments utilisables (d'abord tokenisation, réglages et
+    génération token par token, puis chargement et raisonnement, puis probabilités) et
+    s'arrêter proprement à un incrément livré si la nuit ne suffit pas. Échantillonnage fixe
+    aujourd'hui : TEMPERATURE, TOP_P, TOP_K dans models/engine.py:19-22 ; les exposer par
+    appel (moteur intégré, llama-server, Ollama ; cloud selon le fournisseur) et les
+    tracer. Probabilités : llama-cpp-python (logprobs) pour le moteur intégré, sinon
+    indisponible avec la raison. Nouvelle route et page dans web/ (FastAPI + JS natif sans
+    compilation, AD-18), mêmes jetons de design (tokens.css, DESIGN.md). Mettre à jour
+    EXPERIENCE.md et SPEC.md (nouvel écran). Tests : pytest (paramètres transmis et
+    tracés, tokenisation), E2E avec le faux moteur et le faux fournisseur.
+
+- id: "30"
+  title: "Atelier RAG : l'architecture RAG à manipuler"
+  description: >-
+    Nouvel écran, séparé de l'atelier des briques et atteint depuis la barre haute, pour
+    faire un focus sur l'architecture RAG (demande du 2026-09-28). Il dessine la chaîne
+    (découpage, embedding, base vectorielle, recherche, reranking, construction du
+    contexte, génération) et permet de la modifier : ajouter, retirer et déplacer des
+    composants (par exemple retirer le reranker, ajouter une recherche lexicale BM25 et une
+    fusion hybride), et choisir pour chaque composant parmi plusieurs options : base
+    vectorielle sqlite-vec, FAISS ou LanceDB (décision du 2026-09-28), recherche exhaustive
+    en mémoire ; modèle d'embedding et reranker livrés, et fastembed s'il est installé ;
+    top-k, nombre de candidats, taille des extraits. Une question posée à la chaîne montre,
+    étape par étape, ce qui entre et sort (extraits, scores, rangs, durée, mémoire) ; deux
+    configurations se comparent côte à côte. FAISS et LanceDB sont dans un extra optionnel
+    (uv sync --extra rag-alt) : sans lui, leur option est indisponible avec la commande
+    d'installation. Tout fonctionne hors ligne, sans droits d'administrateur.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Grande story : livrer par incréments utilisables (chaîne dessinée et exécutée avec les
+    composants existants, puis choix d'options et comparaison, puis FAISS et LanceDB, puis
+    ajout, retrait et déplacement libres) et s'arrêter proprement à un incrément livré.
+    Existant : rag/ (index sqlite-vec, embedder, reranker), config.rag_*, LoadRegistry
+    (AD-8) pour tout modèle chargé, garde réseau (AD-15). Nouvelles dépendances seulement
+    dans l'extra rag-alt (faiss-cpu et lancedb, versions épinglées, roues win_amd64 et
+    Python 3.13 vérifiées), uv lock mis à jour ; les index alternatifs se construisent à la
+    demande dans le dossier de données, jamais dans le dépôt. Nouvelle route et page web
+    (AD-18), jetons de design communs. Mettre à jour EXPERIENCE.md, SPEC.md, README
+    (extra), spine (Stack). Tests : pytest (chaque composant, options indisponibles sans
+    l'extra, comparaison), E2E avec le faux embedder et le faux reranker.
+
+- id: "31"
+  title: "Mode sombre"
+  description: >-
+    Ajouter un mode sombre à WaveStack (demande du 2026-09-28), pour l'atelier, le
+    diagnostic et les nouveaux écrans. Un sélecteur dans la barre haute propose « Système »
+    (par défaut, suit le réglage du poste), « Clair » et « Sombre » ; le choix est mémorisé
+    et appliqué dès le chargement, sans flash du thème clair. La palette sombre est dessinée,
+    pas inversée : mêmes rôles (primaire, accent, encre, lignes, surfaces, états, hébergement
+    local et réseau, couleurs des segments de contexte, jauge), contrastes lisibles (WCAG AA
+    pour le texte), schéma d'architecture et captures de la Vue humain compris. Les deux
+    nouveaux écrans (stories 29 et 30) utilisent les mêmes jetons.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    web/static/tokens.css (jetons AD-18, miroir du frontmatter de DESIGN.md, vérifié par
+    tests/test_web_tokens.py) ; app.css n'utilise que des variables (aucune couleur en dur) :
+    ajouter la palette sombre dans DESIGN.md (frontmatter et texte), puis dans tokens.css
+    sous [data-theme="dark"] et @media (prefers-color-scheme: dark) sans attribut, et
+    étendre test_web_tokens.py aux deux palettes. Vérifier les couleurs posées en SVG ou en
+    JS (schéma, jauge, segments) dans app.js et diagnostic.html. Le choix du thème : attribut
+    data-theme sur la racine, mémorisé côté navigateur (localStorage, lecture protégée) ;
+    script en tête de page pour éviter le flash. Mettre à jour EXPERIENCE.md. Tests :
+    pytest (jetons), E2E (bascule, mémorisation, capture dans chaque thème). Faire cette
+    story avant 29 et 30.
+
+- id: "32"
+  title: "Contexte LLM lisible : texte groupé, sources en marge, lu et produit distincts"
+  description: >-
+    Rendre l'onglet Contexte LLM plus clair (demande du 2026-09-28), sans rien perdre de son
+    exactitude (ce qui est affiché est exactement ce que le modèle a lu). (1) Vue groupée
+    par défaut : le texte brut du contexte, d'un seul tenant, avec en marge gauche un trait
+    de couleur et une étiquette par section indiquant sa source (gabarit, prompt système,
+    mémoire globale, descriptions d'outils, extraits RAG, historique, message, résultat
+    d'outil…, avec la brique) ; les segments consécutifs de même source sont regroupés, le
+    nombre de tokens reste affiché par section. Une bascule « Texte exact » garde l'affichage
+    brut sans habillage. (2) Les JSON (corps envoyé à un modèle cloud, appels d'outils et
+    leurs arguments, résultats d'outils en JSON, schémas d'outils) sont indentés, colorés et
+    repliables, avec leur texte exact disponible. (3) Le texte produit par le modèle
+    (réflexion, réponse, appel d'outil) est visuellement distinct du texte lu (couleur de
+    fond, étiquette « produit par le modèle ») ; la réflexion se distingue de la réponse.
+    (4) Un tour à plusieurs appels (outils, relance après une coupe du raisonnement,
+    sous-agent) se lit comme une suite d'appels numérotés : pour chaque appel, ce qui a été
+    lu (avec « déjà lu à l'appel précédent » replié, et « nouveau » mis en avant, par
+    exemple le résultat d'outil réinjecté) puis ce qui a été produit, avec les tokens lus,
+    évalués et produits. Les couleurs viennent des jetons de design et fonctionnent dans les
+    deux thèmes (story 31). Textes en français.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Rendu actuel : renderContext / renderContextBody web/static/app.js:2405-2478 (dernier
+    contexte du tour seulement, sortie brute du dernier appel, reasoningBlock),
+    appendSegments 2485-2514 (une boîte par segment, couleur par groupe GROUP_COLORS,
+    compressed_from), ctxViewSwitch 2518 (principal / sous-agent), bannière du mode chat
+    (p.body : corps JSON). Données : événements context_rendered (segments : text, kind,
+    brick, component, label_fr, tokens) et model_call_ended (raw_output, reasoning, text,
+    tool_calls, prompt_tokens, evaluated_tokens, output_tokens) par appel, dans le store par
+    tour ; AD-1 et AD-2 : l'interface ne recalcule rien, pas de retokenisation côté
+    navigateur. Ne pas casser la vue Comparer (renderCompare) ni la bascule sous-agent (story
+    22 la transforme en onglets : faire 22 d'abord). Coloration JSON en JS natif, sans
+    bibliothèque. Mettre à jour EXPERIENCE.md (Contexte LLM). Tests : E2E (tour avec outil :
+    deux appels visibles, nouveau segment mis en avant, JSON indenté, lu et produit
+    distincts, bascule Texte exact identique au texte envoyé) et captures.
+
+- id: "33"
+  title: "Contrastes et code couleur par discipline"
+  description: >-
+    Reprendre de la maquette de refonte validée par Anaël le 2026-09-28
+    (https://claude.ai/artifact/Y8hdfGnL7ej1ica6Z8Pt4k, copie dans
+    _bmad-output/planning-artifacts/ux-designs/maquette-refonte-2026-09-28.html) ses choix de
+    contraste et de couleur, dans l'interface existante (cinq volets, redimensionnables).
+    (1) Fonds foncés (encre) pour les éléments à mettre en avant : barre haute, nœud du
+    modèle dans le schéma, message de l'utilisateur ; bandeau teinté en tête de chaque volet.
+    (2) Un code couleur unique par discipline, appliqué partout : prompt engineering,
+    context engineering, harness engineering, et « sort du poste » (réseau), avec sa
+    légende dans le panneau des briques : trait de couleur à gauche et fond teinté des
+    cartes de briques, rail des segments dans Contexte LLM, segments de la jauge, pastilles
+    de l'Orchestration, nœuds du schéma. Chaque brique déclare déjà sa discipline
+    (category) ; la couleur par type de segment reste lisible à l'intérieur. (3) Panneau des
+    briques en deux groupes : « Ce que le modèle lit » (Raisonnement en tête, prompt
+    système, mémoires, RAG) et « Ce que le harnais fait » (outils, MCP, skills, hooks,
+    sous-agent, compression) ; une ligne d'état vivante par carte (tokens apportés,
+    « 3 entrées · 38 tokens », « 3 déclarés · 1 contacté », « imposé par ce modèle » avec
+    interrupteur verrouillé quand le modèle raisonne toujours). Une brique éteinte est
+    grisée. (4) Jauge de la barre haute avec sa légende par discipline et le total en
+    tokens et en pourcentage. Couleurs dans DESIGN.md et tokens.css, contrastes WCAG AA,
+    prêtes pour le mode sombre (story 31).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Maquette : lire la copie HTML (styles .top, .phead, .brick, .seg, .ev .dot, .node,
+    .model-node, .gauge, [data-d=...]) ; c'est une maquette statique : n'en reprendre que les
+    choix visuels, pas la structure (garder les cinq volets, le journal, les volets
+    masquables et redimensionnables, story 8f). Jetons : DESIGN.md (frontmatter) puis
+    web/static/tokens.css, vérifiés par tests/test_web_tokens.py ; app.css n'emploie que
+    des variables. Disciplines : category des briques dans bricks/registry.py (prompt,
+    context, harness ; category_fr dans bricks_changed) ; ajouter la discipline réseau ;
+    segments : GROUP_COLORS web/static/app.js:102-115 ; faire la story 22 avant (ordre des
+    briques, sous-options grisées) et garder Raisonnement en tête du premier groupe. Police
+    déjà en place (Atkinson Hyperlegible, web/static/fonts, OFL) : ne pas passer par Google
+    Fonts (hors ligne). Mettre à jour DESIGN.md et EXPERIENCE.md. Tests : jetons, E2E et
+    captures de chaque volet.
+
+- id: "34"
+  title: "Vue liée au survol et lecture guidée des volets"
+  description: >-
+    Reprendre de la même maquette (story 33) ses principes d'interaction. (1) Vue liée au
+    survol : survoler ou focaliser au clavier un élément (brique, segment de contexte, étape
+    d'Orchestration, nœud du schéma, segment de la jauge) l'éclaire dans tous les volets,
+    les éléments sans lien s'estompent, les éléments liés prennent un contour ; un élément
+    peut être lié à plusieurs (le nœud du modèle à tous les segments qu'il a lus, une
+    étape « Appel au modèle » à ses segments). Le clic garde la sélection synchronisée
+    existante (FR-4), qui devient bien visible dans chaque volet, y compris Contexte LLM et
+    Orchestration ; Échap l'efface. (2) Volets numérotés dans l'ordre de lecture, avec un
+    sous-titre : 1 Vue humain « Ce que voit l'utilisateur », 2 Contexte LLM « Ce que le modèle
+    lit, dans l'ordre », 3 Orchestration « Ce que fait le harnais, pas à pas », 4 Schéma
+    « Où tourne chaque pièce ». (3) Orchestration en frise : une pastille par acteur
+    (H harnais, M modèle, R réseau), un titre d'action en français (« Décrit les outils »,
+    « Appelle le modèle », « Exécute l'outil hors du poste », « Réinjecte le résultat »,
+    « Répond »), et à droite ses chiffres (tokens lus ou écrits, durée). (4) Bilan des
+    sorties du poste sous le schéma, pour le tour affiché : « Au tour N, les données ont
+    quitté le poste K fois : vers le modèle (contexte complet) et vers Wikipédia (titre de
+    l'article) », et nœuds réseau marqués « contacté » ou « non contacté ». (5) Mode
+    projection : un bouton de la barre haute agrandit tous les textes pour une salle de
+    formation (≈ 18 px de base), mémorisé. Respecter prefers-reduced-motion.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Maquette : attributs data-k (clés multiples) et classes body.linking / .hl de la copie
+    HTML. Existant : store.selection web/static/app.js:766 (bascule), 2918, 2956, 3060,
+    marques « lié » des puces de volets masqués JS:4004 et 4058, nœuds du schéma JS:4733,
+    4851, 5013 ; EXPERIENCE.md : Sélection synchronisée (FR-4), puces de volets masqués.
+    Les liens viennent des données du journal (component, brick, step_id, call_id) : aucune
+    table écrite à la main dans le JS (AD-1). Bilan des sorties : événements
+    outbound_request (story 23 : en-têtes) et hébergement du modèle actif ; faire 23 avant
+    si possible, sinon s'appuyer sur method et url. Frise : rail actuel de l'Orchestration
+    (story 8d) à faire évoluer, sans perdre le détail dépliable des étapes. Mettre à jour
+    EXPERIENCE.md. Tests : E2E (survol et focus clavier liés dans les quatre volets, Échap,
+    bilan du tour avec le réseau coupé par le lanceur, mode projection mémorisé), captures.

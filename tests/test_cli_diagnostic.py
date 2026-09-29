@@ -76,6 +76,16 @@ def test_no_model_found_blocks_diagnostic(monkeypatch, tmp_path):
     assert model_checks[-1].payload["blocking"] is True
 
 
+def test_diagnostic_gives_the_journal_tip_for_the_page_replay(monkeypatch, tmp_path):
+    """The page treats the stream's events up to this `seq` as history (no side effects)."""
+    session, app = _build(monkeypatch, tmp_path)
+    session.check_model()
+
+    body = _client(app).get("/api/diagnostic").json()
+
+    assert body["seq"] == get_journal().last_seq() > 0
+
+
 def test_model_in_models_dir_passes_without_blocking(monkeypatch, tmp_path):
     session, _ = _build(monkeypatch, tmp_path)
     models_dir = config.models_dir()
@@ -413,7 +423,7 @@ def test_choose_before_load_saves_and_loads_exactly_that_file(monkeypatch, tmp_p
     body = _select(app, chosen)
     app.state.app_session.join()
 
-    assert body["ready"] is True and body["saved"] is True and body["next_launch"] is False
+    assert body["ready"] is True and body["saved"] is True and body["switching"] is True
     assert received == [str(chosen)]
     assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(chosen)}
     assert _client(app).get("/api/diagnostic").json()["ready"] is True  # "Ouvrir WaveStack"
@@ -482,13 +492,17 @@ def test_invalid_path_is_neither_saved_nor_loaded(monkeypatch, tmp_path):
     assert "selected_model" not in config.read_settings()
 
 
-def test_choice_after_load_is_saved_for_next_launch_only(monkeypatch, tmp_path):
+def test_choice_after_load_is_a_hot_switch(monkeypatch, tmp_path):
+    """Story 17 (CAP-34): no relaunch; the new file is probed by the application session
+    once the loaded model is released, then loaded and saved."""
     received = []
     session, app = _build(
         monkeypatch, tmp_path, models=("a.gguf",), app_session=_recording_app_session(received)
     )
     first = session.check_model()
     assert first.model_path  # handed out at startup (cli.py boots it)
+    session.hand_to(app.state.app_session, first, launch=True)
+    app.state.app_session.join()
     probed = _fake_probe_ok(monkeypatch, session)
     other = tmp_path / "other.gguf"
     other.write_bytes(b"placeholder")
@@ -496,13 +510,15 @@ def test_choice_after_load_is_saved_for_next_launch_only(monkeypatch, tmp_path):
     body = _select(app, other)
     app.state.app_session.join()
 
-    assert body["saved"] is True and body["next_launch"] is True
-    assert body["message_fr"] == "Choix enregistré : relancez WaveStack pour l'utiliser."
-    assert received == [] and probed == []  # no reload, no second model's weights in RAM
+    assert body["switching"] is True and body["message_fr"] == "Chargement de other…"
+    assert "Choix enregistré" not in body["message_fr"] and "next_launch" not in body
+    assert received == [first.model_path, str(other)] and probed == [str(other)]
     assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(other)}
-    # Story 11b: kept on the page, reload included, while the choice waits for a relaunch.
     diagnostic = _client(app).get("/api/diagnostic").json()
-    assert diagnostic["next_launch_fr"] == body["message_fr"]
+    assert "next_launch_fr" not in diagnostic
+    assert diagnostic["loaded_model"] == diagnostic["selected_model"] == str(other)
+    listed = next(c for c in diagnostic["candidates"] if c["path"] == str(other))
+    assert listed["architecture"] == "qwen35"
 
 
 def test_settings_write_failure_is_traced_and_model_still_loads(monkeypatch, tmp_path):
@@ -556,6 +572,10 @@ def test_ollama_candidate_named_from_manifest_with_cached_architecture(monkeypat
             architecture="qwen35",
             size_bytes=stat.st_size,
             mtime=stat.st_mtime,
+            rss_bytes=1,  # lot E: a complete entry of the current probe, never probed again
+            probe_version=probe.PROBE_VERSION,
+            probe_window=4096,
+            rss_eval_tokens=512,
         )
     )
 
@@ -598,18 +618,27 @@ def test_ollama_tags_sharing_one_blob_count_as_one_file(monkeypatch, tmp_path):
     assert result.ready is True and result.model_path == str(blob)
 
 
-def test_server_only_is_ready_without_a_file_to_load(monkeypatch, tmp_path):
+def test_served_models_only_block_until_one_is_chosen(monkeypatch, tmp_path):
+    """Story 18: a served model is never chosen by default (Ollama would load it)."""
     session, _ = _build(monkeypatch, tmp_path)
     server = discovery.ModelCandidate(
-        source="server", status="server", server_url="http://127.0.0.1:11434"
+        source="server",
+        status="server",
+        server_url="http://127.0.0.1:11434",
+        name="qwen3:0.6b",
+        engine="ollama",
+        ref="ollama/qwen3:0.6b",
+        provider="Ollama",
     )
     monkeypatch.setattr(discovery, "_server_candidates", lambda cfg: [server])
     before = get_journal().last_seq()
 
     result = session.check_model()
 
-    assert result.ready is True and result.model_path is None
-    assert _last_model_check(before)["blocking"] is False
+    assert result.ready is False and result.blocking_checks == ["model"]
+    assert result.model_path is None and result.server is None
+    check = _last_model_check(before)
+    assert check["blocking"] is True and "choisissez un modèle servi" in check["message_fr"]
 
 
 def test_failed_load_lets_a_new_choice_load(monkeypatch, tmp_path):
@@ -630,12 +659,12 @@ def test_failed_load_lets_a_new_choice_load(monkeypatch, tmp_path):
 
     _select(app, first)
     app_session.join()
-    assert not app_session.model_loaded and session.booted_path is None
+    assert not app_session.model_loaded and app_session.state == "idle"
 
     body = _select(app, second)
     app_session.join()
 
-    assert body["next_launch"] is False
+    assert body["switching"] is True  # story 17: loaded without relaunch
     assert received == [str(first), str(second)] and app_session.model_loaded
 
 
@@ -668,32 +697,132 @@ def test_two_models_and_no_choice_launch_on_the_diagnostic_page(monkeypatch, tmp
     assert launch_page(session.check_model()) == "/"
 
 
-def test_no_relaunch_notice_after_a_launch_fallback(monkeypatch, tmp_path):
-    """Story 11b: a saved cloud model without key falls back on the file at launch; nothing
-    was chosen after the load, so no notice."""
+def test_launch_fallback_loads_the_file(monkeypatch, tmp_path):
+    """Story 11b: a saved cloud model without key falls back on the file at launch."""
     monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path / "data"))
     config.save_setting("selected_model", {"kind": "cloud", "ref": "groq"})
-    session, app = _build(monkeypatch, tmp_path, models=("a.gguf",))
+    received = []
+    session, app = _build(
+        monkeypatch, tmp_path, models=("a.gguf",), app_session=_recording_app_session(received)
+    )
 
     result = session.check_model()
+    session.hand_to(app.state.app_session, result, launch=True)
+    app.state.app_session.join()
 
     assert result.model_path and session.selected_cloud == "groq"
-    assert session.next_launch_fr() is None
-    assert _client(app).get("/api/diagnostic").json()["next_launch_fr"] is None
+    diagnostic = _client(app).get("/api/diagnostic").json()
+    assert diagnostic["loaded_model"] == result.model_path and "next_launch_fr" not in diagnostic
 
 
-def test_no_relaunch_notice_when_the_choice_could_not_be_saved(monkeypatch, tmp_path):
-    session, app = _build(monkeypatch, tmp_path, models=("a.gguf",))
-    assert session.check_model().model_path
+def test_old_or_incomplete_probe_entries_are_probed_again(monkeypatch, tmp_path):
+    """Lot E (E2): at launch, only the saved file about to boot is measured again when its
+    entry is an older probe's (no `probe_version = 2`) or incomplete, at the window; the
+    others keep their entry until chosen (`AppSession._load` probes them after the
+    release). A remembered failure of the current probe wins over an older success."""
+    names = ("old.gguf", "incomplete.gguf", "complete.gguf")
+    session, _ = _build(monkeypatch, tmp_path, models=names)
+    complete = {"rss_bytes": 1, "probe_version": probe.PROBE_VERSION, "probe_window": 4096}
+    for name, fields in zip(
+        names,
+        (
+            {"rss_bytes": 1, "kv_bytes_per_token": 128},  # story 17: no version
+            {"probe_version": probe.PROBE_VERSION},  # no measure
+            {**complete, "rss_eval_tokens": 512},
+        ),
+        strict=True,
+    ):
+        path = config.models_dir() / name
+        stat = path.stat()
+        probe.record_success(
+            probe.ProbeResult(
+                ok=True,
+                path=str(path),
+                architecture="qwen35",
+                size_bytes=stat.st_size,
+                mtime=stat.st_mtime,
+                **fields,
+            )
+        )
+    assert [probe.measured(str(config.models_dir() / n)) for n in names] == [False, False, True]
+    windows = []
+    calls = _fake_probe_ok(monkeypatch, session)
+    real_run = diagnostic_module.subprocess.run
 
-    def _refuse(key, value):
-        raise PermissionError("settings.json en lecture seule")
+    def run(cmd, **kwargs):  # noqa: ANN001, ANN202
+        windows.append(cmd[cmd.index("--window") + 1])
+        return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(config, "save_setting", _refuse)
-    other = tmp_path / "other.gguf"
-    other.write_bytes(b"placeholder")
+    monkeypatch.setattr(diagnostic_module.subprocess, "run", run)
 
-    body = _select(app, other)
+    kept = session._discover(None)
+    assert calls == [] and all(c.architecture == "qwen35" for c in kept)  # entries read
 
-    assert body["saved"] is False and session.next_launch_fr() is None
-    assert _client(app).get("/api/diagnostic").json()["next_launch_fr"] is None
+    session.selected_model_path = str(config.models_dir() / "old.gguf")
+    assert session.check_model().model_path == session.selected_model_path
+    assert [Path(c).name for c in calls] == ["old.gguf"]  # the saved one, about to boot
+    assert windows == [str(session.cfg.context_window)]
+
+    incomplete = str(config.models_dir() / "incomplete.gguf")
+    monkeypatch.setattr(probe, "_llama_cpp_version", lambda: "0.3.35")
+    probe.record_failure(incomplete, probe.incompatible_fr())  # its reprobe failed
+    listed = session._discover(None, reprobe={incomplete})
+    assert len(calls) == 1  # no endless reprobe
+    failed = next(c for c in listed if c.path == incomplete)
+    assert (failed.status, failed.reason) == ("incompatible", probe.incompatible_fr())
+
+
+def test_transient_probe_failure_is_never_remembered(monkeypatch, tmp_path):
+    """Lot E: a probe short of memory (or time) says nothing about the file."""
+    import subprocess as sp
+
+    session, _ = _build(monkeypatch, tmp_path, models=("m.gguf",))
+    monkeypatch.setattr(
+        session, "_probe_candidate", DiagnosticSession._probe_candidate.__get__(session)
+    )
+    monkeypatch.setattr(probe, "_llama_cpp_version", lambda: "0.3.35")
+    path = str(config.models_dir() / "m.gguf")
+
+    class _Done:
+        returncode = 1
+        stdout = probe.ProbeResult(
+            ok=False, path=path, reason=probe.transient_fr(), detail="oom", transient=True
+        ).model_dump_json()
+
+    def timeout(cmd, **kwargs):  # noqa: ANN001, ANN202
+        raise sp.TimeoutExpired(cmd, kwargs["timeout"])
+
+    for run in (lambda cmd, **kw: _Done(), timeout):
+        monkeypatch.setattr(diagnostic_module.subprocess, "run", run)
+        [candidate] = session._discover(None)
+        assert (candidate.status, candidate.reason) == ("incompatible", probe.transient_fr())
+        assert probe.failed_entry(path) is None
+    assert diagnostic_module.PROBE_TIMEOUT_S == 300
+
+
+def test_incompatible_probe_keeps_the_loader_message_as_the_cause(monkeypatch, tmp_path):
+    """Lot E (E6): the reason in French, llama.cpp's own message as the technical detail."""
+    session, _ = _build(monkeypatch, tmp_path, models=("bad.gguf",))
+    monkeypatch.setattr(
+        session, "_probe_candidate", DiagnosticSession._probe_candidate.__get__(session)
+    )
+    path = str(config.models_dir() / "bad.gguf")
+    reason = probe.incompatible_fr()
+
+    class _Done:
+        returncode = 1
+        stdout = probe.ProbeResult(
+            ok=False, path=path, reason=reason, detail=f"Failed to load model from file: {path}"
+        ).model_dump_json()
+
+    monkeypatch.setattr(diagnostic_module.subprocess, "run", lambda cmd, **kw: _Done())
+    before = get_journal().last_seq()
+
+    session.check_model()
+
+    listed = next(c for c in session.last_result.candidates if c.path == path)
+    assert (listed.status, listed.reason) == ("incompatible", reason)
+    assert reason.startswith("llama-cpp-python") and "ne sait pas charger ce fichier" in reason
+    error = [e.payload for e in get_journal().events_since(before) if e.kind == "harness_error"][0]
+    assert error["message_fr"] == f"Modèle incompatible : {reason}"
+    assert error["cause"] == f"Failed to load model from file: {path}"

@@ -7,7 +7,7 @@ paradigm: 'Moteur de tour à journal d’événements (event-sourced) ; interfac
 scope: 'WaveStack V1 complet (paliers 1 et 2) : harnais, moteur d’inférence, interface à 5 volets, briques, installation et lancement'
 status: final
 created: '2026-09-23'
-updated: '2026-09-24'
+updated: '2026-09-26'
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-30, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41, FR-42, FR-43, NFR-1, NFR-2, NFR-3, NFR-4, NFR-5, NFR-6, NFR-7, NFR-8, NFR-9, NFR-10, NFR-11]
 sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
@@ -102,9 +102,10 @@ Règles de dépendance :
   - Une story ajoute ses `kind`, mais ne change jamais l’enveloppe.
   - Toute opération qui dure émet une paire `*_started` / `*_ended` sur le même `step_id`. `*_started` porte `phase_label` en français (« Lecture du contexte (1 840 tokens) ») ; `*_ended` porte `duration_ms` et le `status`.
   - Les `kind` fixés dès maintenant sont :
-    - `turn_started{replay_of}` et `turn_ended{status: completed|cancelled|limit|overflow|error}`, émis seulement dans le contexte `main` ;
+    - `turn_started{replay_of, active_model}` et `turn_ended{status: completed|cancelled|limit|overflow|error}`, émis seulement dans le contexte `main` ;
+    - `model_load_started{model: ActiveModel, phase_label}` et `model_load_ended{model, status: ok|restored|error, duration_ms, reason_fr}`, hors tour (`turn_id` et `step_id` nuls), émis par tout chargement de modèle, démarrage compris (CAP-34) ;
     - `session_reset` ;
-    - `context_rendered`, `context_preview` (AD-9), `prefix_not_reused{common_tokens}` (AD-4) et `context_reconciled{call_id, segments: [{id, tokens}], usage_source}` avec les champs de jauge d’AD-9 (AD-4, mode chat) ;
+    - `context_rendered`, `context_preview` (AD-9), `prefix_not_reused{common_tokens, cause}` (AD-4) et `context_reconciled{call_id, segments: [{id, tokens}], usage_source}` avec les champs de jauge d’AD-9 (AD-4, mode chat) ;
     - `context_overflow{used, usable}`, `output_truncated{channel, output_tokens, max_tokens}` et `limit_reached{limit: calls|retries|sub_calls}` (AD-9, AD-10), émis par la session ;
     - `model_call_started`, `model_first_token`, `model_delta{channel: reasoning|text|tool_call, text}` et `model_call_ended` ;
     - `tool_started` et `tool_ended{status: ok|error|blocked|limit|overflow}` ;
@@ -133,7 +134,7 @@ Règles de dépendance :
   - **Verrou d’opération.** La session est toujours dans l’un de ces états : `idle`, `turn`, `awaiting_human`, `model_load`, `download`, `reset` ou `diagnostic`. Elle l’émet par `session_state{state, reason_fr}`, que le front utilise pour désactiver ses commandes en affichant la raison.
     - **Diagnostic.** En diagnostic bloquant, une `Session` minimale existe dans l’état `diagnostic`. Elle accepte les quatre intentions du diagnostic (`select_model`, `download_model`, `set_api_key`, `test_cloud_model`) et refuse toutes les autres.
     - `download_model` et `test_cloud_model` tiennent le verrou pendant leur durée (`download`, ou `model_load` avec la raison « Test de {modèle} »), puis rendent l’état précédent.
-    - **Choix du modèle.** Seul `select_model` en diagnostic change le modèle actif. Ailleurs, et jusqu’au changement à chaud (CAP-34), il ne change que `selected_model`, qui prend effet au prochain lancement ; l’interface l’indique (« Choix enregistré : relancez WaveStack pour l’utiliser. », gardé par `/api/diagnostic.next_launch_fr` tant que le choix enregistré diffère du modèle chargé). La session refuse `test_cloud_model` et `select_model` d’un modèle cloud sans clé valide (AD-20), avec la raison.
+    - **Choix du modèle.** En `diagnostic`, `select_model` enregistre le choix puis le charge. Une fois un modèle remis au chargement, `select_model` est un changement à chaud (CAP-34), de classe (b) : accepté en `idle`, même quand `idle` porte une raison (chargement raté, serveur seul), refusé ailleurs. Le passage en `model_load` se fait sous le verrou, dans l’appel qui accepte l’intention. Le budget d’AD-8 est contrôlé avant toute libération : un refus, chiffré, laisse actif le modèle précédent. Puis, sur le thread de travail : libération de l’ancien modèle, sonde d’un GGUF jamais sondé (AD-7), chargement ; en cas d’échec, le modèle précédent est rechargé (`model_load_ended{status: restored}`), et s’il échoue aussi, `idle` avec la raison. Capacités, briques, schéma et aperçu sont réévalués ; la conversation est gardée (AD-17). `selected_model` n’est écrit qu’après un changement réussi. La session refuse `test_cloud_model` et `select_model` d’un modèle cloud sans clé valide (AD-20), avec la raison.
   - **Classes d’intentions** (`POST`, JSON) :
     - **(a) Acceptées à tout moment**, prises en compte au tour suivant : bascule d’une brique ou d’une sous-option, armer ou désarmer une action, enregistrer le prompt système.
     - **(b) Refusées hors `idle`** (et hors `diagnostic` pour les quatre intentions du diagnostic), avec la raison : envoyer, rejouer, changer de modèle (`select_model`), de fenêtre ou de bornes, télécharger un modèle (`download_model`), enregistrer une clé (`set_api_key`), tester un modèle cloud (`test_cloud_model`), modifier la mémoire globale, vider la conversation, lancer un scénario.
@@ -196,8 +197,9 @@ Règles de dépendance :
     - **Après l’appel**, `usage.prompt_tokens` fait foi pour le total. La session émet `context_reconciled`, avec les mêmes champs de jauge que `context_rendered` (AD-9). L’écart réel va au segment « chez le fournisseur » ; s’il est négatif, les estimations sont réduites en proportion (arrondi par plus forts restes) et l’écart vaut 0. La somme est égale au total. Les projections remplacent segments et ventilation de `context_rendered` par ceux-ci, et le front n’additionne ni ne répartit rien. Sans `usage` (annulation, erreur), aucun `context_reconciled` n’est émis.
     - Le contrôle d’ajout seul ne s’applique pas.
     - L’interface marque « ≈ » toute valeur `estimated`, et le total sauf quand `usage_source = api` : c’est un matériau pédagogique (un harnais cloud compte sans tokenizer local).
-  - **Ajout seul pendant un tour.** Le rendu du gabarit fait foi, et l’ajout seul est un contrôle, pas une hypothèse. La session compare les ids de l’appel n+1 à ceux de l’appel n suivis de sa sortie. Si le préfixe commun est plus court, elle émet `prefix_not_reused{common_tokens}`, et la relecture s’explique dans la trace. Le test de non-régression Qwen3.5 couvre un tour à deux appels.
-  - **Étape `transform_context`.** Elle est appelée par la session entre l’assemblage et le rendu, et seulement avant le premier appel d’un tour. C’est là que s’applique la compression (AD-22).
+  - **Ajout seul pendant un tour.** Le rendu du gabarit fait foi, et l’ajout seul est un contrôle, pas une hypothèse. La session compare les ids de l’appel n+1 à ceux de l’appel n suivis de sa sortie. Si le préfixe commun est plus court, elle émet `prefix_not_reused{common_tokens, cause: in_turn}`, et la relecture s’explique dans la trace. Le test de non-régression Qwen3.5 couvre un tour à deux appels.
+  - **Ajout seul d’un tour à l’autre (mode local, lot A).** Un modèle hybride (Qwen3.5) ne sait pas tronquer son cache : toute divergence avec les ids en cache coûte une relecture complète. L’historique est donc rendu **tel qu’il a été produit** : quand le gabarit retire le bloc de raisonnement des réponses passées (`reasoning_wrap`, déduit du gabarit par des rendus sonde), la session l’écrit elle-même, avec les textes du gabarit en segments `template` (littéraux du harnais, jamais neutralisés), la réflexion (vide ou non) et le texte en `history`, et `reasoning_content = ""`. Le prompt reste le rendu du vrai gabarit. Au **premier appel de chaque tour**, la session compare les nouveaux ids aux ids que le moteur a en cache pour le contexte `main` (`cached_ids()` du moteur, sinon ids envoyés suivis de la sortie). S’ils n’en sont pas le préfixe, elle émet `prefix_not_reused{common_tokens, cause}`, avec `cause` : `reset` (conversation vidée, scénario, réinitialisation), `replay`, `abandoned` (tour précédent non `completed`), `subagent` (contexte d’un sous-agent en cache), sinon selon le segment du premier octet divergent : `system` (message système, mémoire, catalogues, skills), `history` ou `template`. Les extraits RAG, les talons de documentation et la compression réécrivent l’historique par conception : la relecture se voit (`history`). `model_call_ended.evaluated_tokens` donne les tokens de prompt réellement évalués par le moteur (`null` s’il ne le sait pas).
+  - **Étape `transform_context`.** Elle est appelée par la session avant chaque appel du tour, sur les parties que cet appel est le premier à lire : avant le premier appel, les extraits RAG et les réponses des actions forcées ; avant chaque appel suivant, les réponses d’outils arrivées depuis le précédent. Chaque texte y passe une seule fois, et ce qu’un appel a déjà lu n’est jamais réécrit : l’ajout seul tient. C’est là que s’applique la compression (AD-22). *Décision provisoire, à valider (story 20, H-1) : la règle initiale limitait l’étape au seul premier appel, ce qui excluait les réponses d’outils demandées par le modèle.*
 
 ### AD-5 — Le port moteur reçoit une requête entièrement construite par le harnais, rien de plus
 
@@ -262,7 +264,7 @@ Règles de dépendance :
 - **Rule:** Tout composant lourd passe par le `LoadRegistry` : modèle, tokenizer `vocab_only`, embedding, reranker, compresseur, modèle d’un serveur externe.
   - **Un seul modèle génératif (NFR-2).** Charger un modèle génératif, en processus ou servi, libère d’abord le précédent. Les composants non génératifs (tokenizer, embedding, reranker, compresseur) coexistent avec lui dans le budget.
   - **Refus.** Le registre refuse le chargement quand `RSS mesuré (psutil) de WaveStack et de ses processus enfants + coût estimé` dépasse le budget configuré (4 Go par défaut). Le message en français est chiffré.
-  - **Estimation du coût.** Elle vaut la mesure de la sonde (AD-7) quand elle existe. Sinon : taille du fichier, plus cache KV à la fenêtre effective, plus une marge.
+  - **Estimation du coût.** Elle vaut la mesure de la sonde (AD-7, `rss_bytes`) quand elle existe, sinon la taille du fichier ; plus le cache KV à la fenêtre (`kv_bytes_per_token` lu par la sonde dans les métadonnées GGUF, 0 si inconnu) ; plus une marge (`[memory] budget_mb = 4096`, `load_margin_mb = 256`). Au changement de modèle, le contrôle vaut `RSS − coût du modèle actif + coût du nouveau > budget`, avant toute libération (AD-3).
   - **Cycle de vie.** Un composant se charge à l’activation de sa brique et se libère (`close()`) à sa désactivation.
   - **Mode serveur.** Le modèle en processus est libéré, et la mémoire du modèle servi est comptée : `/api/ps` pour Ollama, taille du fichier pour llama-server. En quittant Ollama, l’adaptateur envoie `keep_alive: 0`.
   - Le diagnostic affiche la même mesure.
@@ -327,7 +329,7 @@ Règles de dépendance :
     AD-9 s’y applique, avec son propre événement de dépassement.
   - **Résultat.** Seul le résultat entre dans le contexte principal, en `subagent_result`.
   - **Échec de la délégation.** Un dépassement, une sortie coupée ou la borne `sub_calls` émettent leur événement avec `context_id = sub{n}`, puis `tool_ended{status: limit|overflow}` de `delegate`. Une issue de fournisseur (AD-16) émet `harness_error` avec `context_id = sub{n}`, puis `tool_ended{status: error}`. Le résultat réinjecté est une erreur en français, et le tour principal continue. `turn_ended` n’est jamais émis depuis un sous-contexte.
-  - **Contexte principal.** Il est préservé par `save_state()` et `load_state()` si le test préalable le confirme pour le modèle hybride. Sinon, il est relu, et la latence s’affiche. En mode chat, il est toujours renvoyé en entier, et aucune préservation d’état n’est tentée.
+  - **Contexte principal (N2, lot A, fait).** La session copie l’état du moteur avant le sous-agent (`Engine.snapshot()`, pour llama-cpp-python l’état llama.cpp et les ids en cache, sans la copie des logits) et le restaure au retour (`Engine.restore()`) : le premier appel principal qui suit n’évalue que ses tokens nouveaux. `subagent_ended` porte la taille de la copie (`state_saved_bytes`) et la durée de restauration (`state_restore_ms`). Un moteur sans état (llama-server, Ollama), ou une copie ou une restauration en échec, laisse le tour continuer : le contexte principal est relu, et `prefix_not_reused{cause: subagent}` le dit. En mode chat, il est toujours renvoyé en entier, et aucune préservation d’état n’est tentée.
 
 ### AD-12 — Contrat de brique, disponibilité et schéma dérivés
 
@@ -459,7 +461,7 @@ Règles de dépendance :
 - **Binds:** session, FR-7, FR-10, FR-25, FR-39
 - **Prevents:** un rejeu qui annule le changement à comparer ; un rejeu qui voit deux fois la question ; des sémantiques divergentes de « configuration » et d’« état ».
 - **Rule:**
-  - **Instantané.** Au début de chaque tour, la session prend un instantané de l’**état conversationnel seul** : historique de la branche active, skills chargés, documentations MCP chargées. Tout le reste est lu dans la configuration courante au moment du tour : briques, sous-options, hooks, prompt système, réglages, modèle, actions armées. La mémoire globale est toujours dans son état courant, lu au début du tour et figé dans le `TurnState` pour tous les appels du tour (AD-4).
+  - **Instantané.** Au début de chaque tour, la session prend un instantané de l’**état conversationnel seul** : historique de la branche active, skills chargés, documentations MCP chargées. Tout le reste est lu dans la configuration courante au moment du tour : briques, sous-options, hooks, prompt système, réglages, modèle, actions armées. La mémoire globale est figée **par conversation** (N1, lot A) : son instantané (paires identifiant, texte) est pris au premier tour de la conversation où la brique est effective (avant, le fichier est lu), gardé avec l’état conversationnel (et pour le rejeu), puis lu par chaque tour et par l’aperçu, et figé dans le `TurnState` pour tous les appels du tour (AD-4). Une entrée ajoutée (modèle, écriture forcée) est aussitôt dans le fichier et le tiroir, mais n’entre dans le message système qu’à la conversation suivante (« Vider la conversation », scénario, réinitialisation) ; une entrée supprimée ou modifiée quitte l’instantané aussitôt (jamais renvoyée, même à un fournisseur cloud) : le message système reste identique d’un tour à l’autre et le cache du moteur sert.
   - **Fonction commune.** `Session.build_turn_state(origin_turn | None)` sert à l’envoi comme au rejeu.
   - **Branche active.** L’historique est une liste de tours de la branche active. Rejouer t3 crée t4, qui fait suite à t2. t3 reste consultable, et `turn_started{replay_of}` le relie.
   - **Tour non terminé.** Un tour qui n’est pas `completed` reste dans la trace, mais n’entre pas dans l’historique.
@@ -543,7 +545,7 @@ Règles de dépendance :
     4. En cas d’échec bloquant, aucune session n’est créée. La page liste les candidats d’AD-7 et un champ de chemin (intention `select_model`), puis relance la vérification.
     5. `GET /api/diagnostic` garde le dernier résultat, ainsi que la version de WaveStack.
   - **Modèles cloud au diagnostic.**
-    - Le diagnostic liste toujours les modèles cloud déclarés, à côté des candidats d’AD-7, avec un champ de clé masqué (`set_api_key`), un bouton « Tester » (`test_cloud_model`) et « Choisir » (`select_model`). Un choix fait après le chargement vaut pour le prochain lancement : le changement à chaud attend CAP-34.
+    - Le diagnostic liste toujours les modèles cloud déclarés, à côté des candidats d’AD-7, avec un champ de clé masqué (`set_api_key`), un bouton « Tester » (`test_cloud_model`) et « Choisir » (`select_model`). Un choix fait après le chargement est un changement à chaud (AD-3, CAP-34), comme depuis le sélecteur `model-picker` de la barre haute ; l’état « chargé » ou « actif » est lu dans la session applicative.
     - **Confirmation.** Choisir un modèle cloud passe `select_model{kind: cloud, ref, acknowledged: true}`, envoyé par l’avertissement `cloud-warning` (EXPERIENCE.md). Sans `acknowledged`, la session refuse, avec la raison « avertissement non confirmé ».
     - **Jamais choisi d’office.** Un modèle cloud n’entre pas dans la règle « un seul fichier utilisable » de la story 1b. Un choix explicite mémorisé est repris au lancement, sans réafficher l’avertissement.
     - **Au lancement**, un modèle cloud mémorisé est utilisable s’il est déclaré, que `key_set` est vrai et que l’hôte correspond. Aucune requête réseau n’est faite : un défaut réseau se découvre au premier appel ou au test. Sinon, un avertissement, puis la règle de démarrage.
@@ -551,7 +553,7 @@ Règles de dépendance :
   - **Processus.** Le serveur MCP local (`MCPServer`, stdio) démarre à l’activation de la brique MCP, avec `sys.executable -m …`, et s’arrête à sa désactivation. À l’arrêt, le `lifespan` ferme les moteurs et les processus enfants : attente bornée, puis `terminate`.
   - **Modèles.** Rien ne se télécharge automatiquement.
     - Le diagnostic propose le bouton « Télécharger » (intention `download_model`, classe b, état `download`). Il passe par `models/download.py` (AD-15) et affiche une progression chiffrée.
-    - Une brique RAG activée sans ses modèles d’embedding ou de reranking est indisponible, avec la raison « modèle absent » et la même action « Télécharger ».
+    - Une brique RAG activée sans son modèle d’embedding est indisponible, avec la raison « modèle absent » et la même action « Télécharger ». Sans son modèle de reranking, seule la sous-option « Reranking » est indisponible, avec la même raison et la même action : le RAG simple continue, et l’étape « Recherche RAG » dit que le reranking demandé n’est pas appliqué. *Décision provisoire, à valider (story 16, hypothèse 1) : la règle initiale rendait toute la brique RAG indisponible sans le reranker, ce qui privait le module de son RAG pour un modèle facultatif.*
     - La voie hors ligne consiste à copier un GGUF ou à choisir un modèle découvert.
 
 ### AD-22 — Compression et RAG derrière des ports
@@ -559,7 +561,7 @@ Règles de dépendance :
 - **Binds:** compression, rag, session, FR-16 à FR-18, FR-31
 - **Prevents:** une dépendance lourde qui fuit dans la session ; des segments compressés en double ; un index incohérent avec son modèle d’embedding.
 - **Rule:**
-  - **Compression.** Le `Compressor` s’applique à l’étape `transform_context` (AD-4), aux seuls types `tool_result` et `rag_excerpt`. Les réponses des méta-outils (AD-25) ne sont jamais compressées. Il renvoie des remplaçants qui gardent leur `brick` et leur `kind`, avec `compressed_from{tokens_before, text_before}`. Il est tracé avec l’avant, l’après et les tokens des deux versions. `skill_body`, `subagent_result` et `history` ne sont jamais compressés en V1.
+  - **Compression.** Le `Compressor` s’applique à l’étape `transform_context` (AD-4), aux seuls types `tool_result` et `rag_excerpt`. Les réponses des méta-outils (AD-25) ne sont jamais compressées. Il renvoie des remplaçants qui gardent leur `brick` et leur `kind`, avec `compressed_from{tokens_before, estimated, step_id, item}`. Il est tracé, comme une étape du harnais, avec l’avant, l’après et les tokens des deux versions : le texte d’avant n’y figure qu’une fois, et le segment le désigne par `step_id` et `item` (story 20). `skill_body`, `subagent_result` et `history` ne sont jamais compressés en V1.
   - **RAG.** L’index `sqlite-vec` est précalculé par `scripts/build_rag_index.py` et fourni dans le dépôt, avec l’identifiant de son modèle d’embedding. Si le modèle chargé est différent, la brique RAG est indisponible, avec la raison. L’embedding et le reranking passent par le moteur llama-cpp-python et par AD-8. Le port `Retriever.search(query) → extraits scorés` accueillera les stratégies de V2.
 
 ### AD-23 — Effets typés, appliqués par la session seule
@@ -643,7 +645,10 @@ Règles de dépendance :
 | sqlite-vec | 0.1.9 |
 | PyYAML | 6.0.3 |
 | psutil | 7.2.2 |
-| headroom-ai (optionnel, sous réserve du test préalable) | 0.38.0 |
+| headroom-ai (optionnel, retenu par la story 12 : hors ligne, sans torch, +130 Mo mesurés hors PC cible ; `kompress_model="disabled"`) | ==0.38.0 (épinglage exact) |
+| Modèle d'embedding (provisoire, story 12 : mesure sur PC cible à faire) | granite-embedding-107m-multilingual, GGUF Q8_0, 121 Mo, 384 dim. (Apache-2.0) |
+| Modèle de reranking (provisoire, story 12 : mesure sur PC cible à faire) | bge-reranker-v2-m3, GGUF Q4_K_M, 438 Mo, pooling `RANK` (Apache-2.0) |
+| Repli embedding et reranking (non adopté tant que les GGUF passent le banc) | fastembed 0.8.1 (Apache-2.0, onnxruntime, sans torch) |
 | ruff | 0.16.8 |
 | pytest | 9.1.1 |
 | Modèle candidat par défaut | Qwen3.5-2B ou 0.8B, GGUF Q4_K_M (Apache-2.0) |
@@ -769,15 +774,16 @@ wavestack/                      # racine du dépôt
 ## Deferred
 
 - **Banc de mesure sur le poste de référence** : `llama-bench`, lecture à froid de 4 096 tokens, gain du préfixe entre deux appels d’un même tour, `save_state()` et `load_state()` sur le modèle hybride. Ce banc fixe la fenêtre par défaut et le modèle par défaut (0.8B ou 2B), selon AD-9 et AD-11.
-- **Test préalable de Headroom** (première story du palier 2). Critères :
-  - fonctionne hors ligne, sans téléchargement à l’exécution, sous la garde réseau d’AD-15. litellm, que tire headroom-ai, télécharge sa table des prix à l’import : il faut `LITELLM_LOCAL_MODEL_COST_MAP=True`, et un cache tiktoken (`TIKTOKEN_CACHE_DIR`) fourni ;
-  - sans torch ;
-  - respecte la règle d’adoption d’AD-15 ;
-  - tient dans le budget d’AD-8 ;
-  - licence compatible.
-
-  En cas d’échec, le compresseur maison minimal prend le relais : minification JSON, champs vides retirés, listes raccourcies.
-- **Modèles d’embedding et de reranking** : test préalable au palier 2. Le reranking par llama-cpp-python n’est pas confirmé ; le repli est fastembed.
+- **Test préalable de Headroom** : fait par la story 12 (2026-09-26), verdict **retenu**. Les mesures viennent du conteneur de développement Linux ; le relevé sur le PC cible reste à faire avec `tools/bench/story12_bench.py headroom`.
+  - **Mesuré.** Aucune tentative réseau, Python ou native, sous la garde, et le banc fonctionne sans aucun réseau. Pas de torch. RSS ajouté de 130 Mo. 63 paquets sous licence permissive. La résolution avec le projet ne change aucune version épinglée et ajoute 40 paquets.
+  - **Conditions.** Épinglage exact. Variables posées par `cli` avant tout import : `LITELLM_LOCAL_MODEL_COST_MAP=True`, `TIKTOKEN_CACHE_DIR` vers le cache fourni par litellm, `HEADROOM_OFFLINE=1`, `HEADROOM_BEACON=off`, `HEADROOM_UPDATE_CHECK=off`, `DO_NOT_TRACK=1`. Compression ML désactivée (`kompress_model="disabled"`).
+  - **Conséquence.** Headroom réduit le JSON et les journaux (−57 % et −94 % sur le banc), mais pas la prose : un `rag_excerpt` passe tel quel.
+  - Le compresseur maison minimal (minification JSON, champs vides retirés, listes raccourcies) reste le repli si le PC cible infirme le verdict.
+- **Modèles d’embedding et de reranking** : story 12, verdict **provisoire, mesure sur PC cible à faire**. Aucun GGUF n’était téléchargeable depuis le conteneur de développement.
+  - **Candidats recommandés.** granite-embedding-107m-multilingual Q8_0 pour l’embedding ; bge-reranker-v2-m3 Q4_K_M, en pooling `RANK`, pour le reranking.
+  - **Déjà validé.** Le reranking par llama-cpp-python 0.3.35 est validé sur un GGUF synthétique : score lu par `llama_get_embeddings_seq`, car `Llama.embed()` ne convient pas à un reranker. Sa qualité reste à mesurer.
+  - **Repli.** fastembed, avec paraphrase-multilingual-MiniLM-L12-v2 pour l’embedding et mmarco-mMiniLMv2 pour le reranking, par `add_custom_model` : le catalogue ne contient aucun reranker multilingue sous licence compatible.
+  - **Banc.** `tools/bench/story12_bench.py embed --download`, avant la story 15.
 - **Schéma YAML des scénarios** : fixé par la première story de scénarios dans un modèle pydantic, dans le cadre d’AD-19.
 - **Bibliothèque JS éventuelle** (JS natif, ou petite bibliothèque recopiée) : première story d’interface, dans le cadre d’AD-18.
 - **Outils du serveur MCP local, second skill, corpus RAG** : stories de contenu.

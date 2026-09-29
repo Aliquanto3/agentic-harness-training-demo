@@ -37,6 +37,11 @@ tools:
         args: {path: notes_reunion.txt}
       - label_fr: Liste des fichiers
         args: {path: "."}
+      # Story 21, scénario métier SOC.
+      - label_fr: Alertes SIEM (SOC)
+        args: {path: alertes_siem.log}
+      - label_fr: Comptes à privilèges (SOC, confidentiel)
+        args: {path: confidentiel/comptes_privilegies.txt}
   public_holidays:
     label_fr: Jours fériés
     description: >-

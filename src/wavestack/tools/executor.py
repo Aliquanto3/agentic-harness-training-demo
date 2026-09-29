@@ -6,8 +6,8 @@ The session sets the trace scope (call, step, component) before each call.
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
-from typing import Literal
+from collections.abc import Callable, Sequence
+from typing import Any, Literal
 
 from wavestack.models.engine import CancelToken
 from wavestack.session.effects import Effect, ToolReply
@@ -34,6 +34,12 @@ _TYPES_FR = {
 
 
 Contact = tuple[Literal["available", "unavailable"], str | None]
+# Applies some of a reply's effects before `tool_ended`; returns the others and the failure
+# in French, which turns the call into an error (story 14: a memory write).
+ApplyNow = Callable[[tuple[Effect, ...]], tuple[tuple[Effect, ...], str | None]]
+# Lot B (N3): bounds a successful result before `tool_ended`; returns the text reinjected and,
+# when it cut, `{tokens, total_tokens, estimated}` (`ToolResultTruncated`), else `None`.
+Bound = Callable[[str], tuple[str, dict[str, Any] | None]]
 
 
 class ToolExecutor:
@@ -89,11 +95,18 @@ class ToolExecutor:
         return f"Erreur : {sentence} Corrige l'appel ou réponds sans outil."
 
     def run(
-        self, call: ToolCall, cancel: CancelToken, effects: list[Effect] | None = None
+        self,
+        call: ToolCall,
+        cancel: CancelToken,
+        effects: list[Effect] | None = None,
+        apply: ApplyNow | None = None,
+        bound: Bound | None = None,
     ) -> str | None:
         """Execute a checked call; returns the text reinjected, or `None` if the turn is stopped.
 
-        A `ToolReply`'s effects go to `effects`, for the session to apply (AD-23)."""
+        A `ToolReply`'s effects go to `effects`, for the session to apply (AD-23), but those
+        `apply` applies at once, before `tool_ended`: its failure is the call's error. `bound`
+        (lot B) cuts a successful result only, before `tool_ended`, which then carries it."""
         if cancel.cancelled:
             return None
         spec = self.registry.get(call.name)
@@ -114,33 +127,45 @@ class ToolExecutor:
             },
         )
         result = error_fr = None
+        status = "error"  # a failure's status: a failed delegation carries its own (AD-11)
         sent = spec.is_mcp  # an MCP call always reaches its server's connection
         unreachable = False
         try:
             if spec.preview is not None:
                 spec.preview(**call.arguments)  # a refusal raises here, before anything is sent
                 sent = True
-            result = spec.run(**call.arguments)
-            if isinstance(result, ToolReply):
+            reply = spec.run(**call.arguments)
+            if isinstance(reply, ToolReply):
+                pending = reply.effects
+                if apply is not None:
+                    pending, failure = apply(pending)
+                    if failure is not None:
+                        raise ToolError(failure)
                 if effects is not None:
-                    effects.extend(result.effects)
-                result = result.text
+                    effects.extend(pending)
+                reply = reply.text
+            result = reply
         except ToolError as exc:
             error_fr = exc.message_fr
             unreachable = isinstance(exc, Unreachable)
+            status = getattr(exc, "status", "error")
         except Exception as exc:  # noqa: BLE001 - AD-16: an execution error is reinjected
             error_fr = f"L'outil a échoué ({type(exc).__name__} : {exc})."
         if sent:
             self.contact[call.name] = (
                 ("unavailable", error_fr) if unreachable else ("available", None)
             )
-        journal.emit(
-            "tool_ended",
-            {
-                "status": "ok" if error_fr is None else "error",
-                "result": result,
-                "error_fr": error_fr,
-                "duration_ms": round((time.monotonic() - started) * 1000),
-            },
-        )
+        duration_ms = round((time.monotonic() - started) * 1000)
+        truncated = None
+        if bound is not None and error_fr is None and result is not None:
+            result, truncated = bound(result)
+        ended: dict[str, Any] = {
+            "status": "ok" if error_fr is None else status,
+            "result": result,
+            "error_fr": error_fr,
+            "duration_ms": duration_ms,
+        }
+        if truncated is not None:
+            ended["truncated"] = truncated
+        journal.emit("tool_ended", ended)
         return result if error_fr is None else f"Erreur : {error_fr}"

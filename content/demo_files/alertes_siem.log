@@ -1,0 +1,13 @@
+# DOCUMENT FICTIF DE DÉMONSTRATION : alertes d'un SIEM imaginaire, aucune donnée réelle.
+# 10 événements de la nuit du 23 au 24 septembre 2026, heures en UTC (suffixe Z).
+# Format : date et heure | gravité | règle | détail
+2026-09-24T01:30:00Z | INFO | Début de la fenêtre de maintenance | redémarrages prévus de SRV-FIC-02 et SRV-APP-01, alertes de disponibilité mises en sourdine
+2026-09-24T01:52:10Z | FAIBLE | Connexion hors horaires | compte j.martin, poste PC-0412, connexion VPN depuis Lyon
+2026-09-24T02:03:44Z | MOYENNE | Échecs d'authentification répétés | compte svc-sauvegarde, 12 échecs en 2 minutes sur SRV-FIC-02
+2026-09-24T02:14:07Z | ÉLEVÉE | Connexion depuis un pays inhabituel | compte adm.leroy (administrateur), adresse 203.0.113.45, pays jamais vu pour ce compte
+2026-09-24T02:15:31Z | CRITIQUE | Ajout à un groupe à privilèges | compte adm.leroy ajouté au groupe « Admins du domaine » par adm.leroy
+2026-09-24T02:21:58Z | ÉLEVÉE | Désactivation de l'antivirus | serveur SRV-FIC-02, service de protection arrêté par adm.leroy
+2026-09-24T02:40:12Z | MOYENNE | Volume sortant inhabituel | SRV-FIC-02 vers 198.51.100.7, 2,3 Go en 20 minutes
+2026-09-24T03:05:26Z | FAIBLE | Certificat bientôt expiré | intranet.exemplia.test, expiration dans 12 jours
+2026-09-24T05:47:39Z | INFO | Redémarrage planifié | SRV-APP-01, fin normale
+2026-09-24T06:58:03Z | INFO | Fin de la fenêtre de maintenance | alertes de disponibilité réactivées

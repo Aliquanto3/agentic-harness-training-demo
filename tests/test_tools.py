@@ -548,7 +548,9 @@ def test_fetch_page_converts_html_to_text_and_cuts_it(web):
     )
     web(lambda r: httpx.Response(200, text=html, headers={"content-type": "text/html"}))
     outputs = [call("fetch_page", url="https://fr.wikipedia.org/wiki/Paris"), "Voilà."]
-    _, session = network_session("fetch_page", outputs)
+    # Lot B: the fake engine counts a token per byte; the bound in tokens is not tested here.
+    _, session = tool_session(outputs, values={"tools": {"result_max_tokens": 8000}})
+    session.set_tool("fetch_page", True)
 
     events = _run(session, "Lis la page Paris")
 

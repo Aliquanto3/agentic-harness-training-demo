@@ -55,11 +55,42 @@ BRICKS = [
             )
         ],
     ),
+    # Story 14: the global memory, a local file the harness alone writes (AD-20, AD-23); no
+    # capability required: without a tool parser, it is injected and edited, not written by
+    # the model.
+    BrickDeclaration(
+        id="global_memory",
+        category="context",
+        components=[
+            Component(
+                id="global_memory.memory",
+                kind="memory",
+                hosting="local_file",
+                edges_to=["core.harness", "file.memory"],
+            )
+        ],
+    ),
+    # Story 13: the model's reasoning mode, available when the model can reason (AD-6).
+    BrickDeclaration(
+        id="reasoning",
+        category="prompt",
+        capabilities=["reasoning"],
+        components=[
+            Component(
+                id="reasoning.mode",
+                kind="reasoning",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            )
+        ],
+    ),
+    # Story 19: its tools also serve the sub-agent's context (AD-11), per `[subagent] tools`.
     BrickDeclaration(
         id="tools",
         category="harness",
         capabilities=["tool_call_parser"],
         network=True,
+        contributes_to=["main", "sub"],
         components=[
             Component(
                 id="tools.get_datetime",
@@ -141,6 +172,57 @@ BRICKS = [
                 edges_to=["core.harness"] + (["file.audit"] if hook == "h2" else []),
             )
             for hook in HOOKS
+        ],
+    ),
+    # Story 19: the sub-agent, the same model in a context of its own (AD-11). Its component
+    # is a chip of the harness; the schema draws its model as `core.model_sub`.
+    BrickDeclaration(
+        id="subagent",
+        category="harness",
+        capabilities=["tool_call_parser"],
+        contributes_to=["main", "sub"],
+        components=[
+            Component(
+                id="subagent.agent",
+                kind="subagent",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            )
+        ],
+    ),
+    # Story 15: the simple RAG, a local process (the embedding model) that reads the index;
+    # no capability required, no network.
+    BrickDeclaration(
+        id="rag",
+        category="context",
+        components=[
+            Component(
+                id="rag.retriever",
+                kind="retriever",
+                hosting="local_process",
+                edges_to=["core.harness", "file.rag_index"],
+            ),
+            # Story 16: the reranking model, drawn while its sub-option is enabled.
+            Component(
+                id="rag.reranker",
+                kind="reranker",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            ),
+        ],
+    ),
+    # Story 20 (AD-22): Headroom compresses tool results and RAG excerpts, in the harness's
+    # own process (a library); main context only.
+    BrickDeclaration(
+        id="compression",
+        category="context",
+        components=[
+            Component(
+                id="compression.compressor",
+                kind="compressor",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            )
         ],
     ),
 ]

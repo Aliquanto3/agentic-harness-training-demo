@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import codecs
 import ctypes
+import logging
 import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 StopReason = Literal["stop", "length", "cancelled", "error"]
 
@@ -55,6 +56,17 @@ class EngineMetadata:
     bos_token: str
     eos_token: str
     special_tokens: tuple[str, ...]
+    # A local server's own context (llama-server `n_ctx`), a bound of the window (AD-9).
+    server_context: int | None = None
+
+
+@dataclass(frozen=True)
+class EngineSnapshot:
+    """A copy of an engine's state (AD-11): opaque `data` for `restore`, and what the copy
+    weighs in memory (`size_bytes`)."""
+
+    data: Any
+    size_bytes: int
 
 
 class Engine(Protocol):
@@ -69,6 +81,25 @@ class Engine(Protocol):
     def metadata(self) -> EngineMetadata: ...
 
     def close(self) -> None: ...
+
+    # Cache and state (AD-4, AD-11). The session tolerates an engine without them.
+
+    def cached_ids(self) -> list[int] | None:
+        """The ids the engine holds in its cache now; `None` when it cannot say."""
+        ...
+
+    def snapshot(self) -> EngineSnapshot | None:
+        """A copy of the engine's state; `None` when it cannot save it."""
+        ...
+
+    def restore(self, snapshot: EngineSnapshot) -> bool:
+        """Put back a `snapshot`; `False` when it could not."""
+        ...
+
+    @property
+    def last_evaluated(self) -> int | None:
+        """The prompt tokens the last `complete` really evaluated; `None` when unknown."""
+        ...
 
 
 def partial_suffix_len(text: str, markers: Sequence[str]) -> int:
@@ -88,15 +119,38 @@ def cut_stop(pending: str, stops: Sequence[str]) -> tuple[str, str, bool]:
     return pending[: len(pending) - keep], pending[len(pending) - keep :], False
 
 
-class LlamaCppEngine:
-    """In-process adapter. `Llama.detokenize` is banned here: its 32-byte buffer truncates."""
+def _int(value: object) -> int:
+    try:
+        return int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return 0
 
-    def __init__(self, model_path: str, n_ctx: int) -> None:
+
+class VocabTokenizer:
+    """A GGUF's tokenizer, token pieces and metadata (AD-4, AD-5): the single local tokenizer
+    code, shared by `LlamaCppEngine` (its loaded model) and `ollama_raw` (the GGUF opened
+    `vocab_only`, no weights). `Llama.detokenize` is banned here: its 32-byte buffer
+    truncates without error."""
+
+    def __init__(self, model_path: str | None = None, *, model: object | None = None) -> None:
         import llama_cpp
 
         self._lib = llama_cpp
-        self._llm = llama_cpp.Llama(model_path=model_path, n_ctx=n_ctx, verbose=False)
-        self._vocab = self._llm._model.vocab
+        self._owned = model is None
+        if model is None:
+            from llama_cpp import _internals
+
+            if not model_path:
+                raise ValueError("aucun fichier GGUF pour le tokenizer")
+            # Lot J: opened alone, no `Llama(verbose=False)` has quieted llama.cpp's log, which
+            # would print the whole vocabulary load (UnicodeEncodeError on a cp1252 stderr).
+            # Errors only: the process-wide level `Llama(verbose=False)` sets for the engine.
+            logging.getLogger("llama-cpp-python").setLevel(logging.ERROR)
+            params = llama_cpp.llama_model_default_params()
+            params.vocab_only = True
+            model = _internals.LlamaModel(path_model=model_path, params=params, verbose=False)
+        self._model = model
+        self._vocab = model.vocab  # type: ignore[attr-defined]
         self._metadata = self._read_metadata()
 
     def _token_text(self, token: int) -> str:
@@ -106,7 +160,10 @@ class LlamaCppEngine:
 
     def _read_metadata(self) -> EngineMetadata:
         lib = self._lib
-        meta = self._llm.metadata or {}
+        try:
+            meta = self._model.metadata() or {}  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - as `Llama`: metadata unreadable, empty
+            meta = {}
         mask = lib.LLAMA_TOKEN_ATTR_CONTROL | lib.LLAMA_TOKEN_ATTR_USER_DEFINED
         special = []
         for token in range(lib.llama_vocab_n_tokens(self._vocab)):
@@ -114,10 +171,13 @@ class LlamaCppEngine:
                 text = self._token_text(token)
                 if len(text) >= 2 and text.strip():
                     special.append(text)
+        arch = meta.get("general.architecture")
+        # `vocab_only` loads no hyperparameters: `n_ctx_train()` is 0, the GGUF key says it.
+        native = self._model.n_ctx_train() or _int(meta.get(f"{arch}.context_length"))  # type: ignore[attr-defined]
         return EngineMetadata(
-            architecture=meta.get("general.architecture"),
+            architecture=arch,
             chat_template=meta.get("tokenizer.chat_template"),
-            native_context=self._llm._model.n_ctx_train() or None,
+            native_context=native or None,
             bos_token=self._token_text(lib.llama_vocab_bos(self._vocab)),
             eos_token=self._token_text(lib.llama_vocab_eos(self._vocab)),
             special_tokens=tuple(special),
@@ -126,8 +186,11 @@ class LlamaCppEngine:
     def metadata(self) -> EngineMetadata:
         return self._metadata
 
+    def is_eog(self, token: int) -> bool:
+        return bool(self._lib.llama_vocab_is_eog(self._vocab, token))
+
     def tokenize(self, text: str) -> list[int]:
-        return self._llm.tokenize(text.encode("utf-8"), add_bos=False, special=True)
+        return self._model.tokenize(text.encode("utf-8"), add_bos=False, special=True)  # type: ignore[attr-defined]
 
     def token_pieces(self, ids: Sequence[int]) -> list[bytes]:
         pieces = []
@@ -140,6 +203,71 @@ class LlamaCppEngine:
             pieces.append(buf.raw[:n])
         return pieces
 
+    def close(self) -> None:
+        """Frees the model only when this tokenizer opened it (`vocab_only`)."""
+        if self._owned:
+            self._model.close()  # type: ignore[attr-defined]
+
+
+class LlamaCppEngine:
+    """In-process adapter; its tokenizer is `VocabTokenizer` on the loaded model."""
+
+    def __init__(self, model_path: str, n_ctx: int) -> None:
+        import llama_cpp
+
+        self._lib = llama_cpp
+        self._llm = llama_cpp.Llama(model_path=model_path, n_ctx=n_ctx, verbose=False)
+        self._tokenizer = VocabTokenizer(model=self._llm._model)
+        self._last_evaluated: int | None = None
+
+    @property
+    def last_evaluated(self) -> int | None:
+        return self._last_evaluated
+
+    def cached_ids(self) -> list[int] | None:
+        """`generate` evaluates only the ids that extend these (the last token sampled is
+        not among them)."""
+        return [int(t) for t in self._llm.input_ids[: self._llm.n_tokens]]
+
+    def snapshot(self) -> EngineSnapshot | None:
+        """`Llama.save_state` without its copy of the logits (`scores`, up to n_batch ×
+        vocabulary floats, ≈ 500 Mo for Qwen3.5): only the llama.cpp state and the ids in
+        cache, which `generate` needs to reuse it."""
+        lib, ctx = self._lib, self._llm.ctx
+        size = int(lib.llama_state_get_size(ctx))
+        buffer = (ctypes.c_uint8 * size)()
+        written = int(lib.llama_state_get_data(ctx, buffer, size))
+        if written <= 0 or written > size:
+            raise RuntimeError(f"copie de l'état llama.cpp en échec ({written} octets)")
+        n_tokens = self._llm.n_tokens
+        ids = self._llm.input_ids[:n_tokens].copy()
+        return EngineSnapshot((buffer, written, ids, n_tokens), written + int(ids.nbytes))
+
+    def restore(self, snapshot: EngineSnapshot) -> bool:
+        """`Llama.load_state`'s steps, without the logits: the next `generate` evaluates at
+        least one token again (`_requires_eval`)."""
+        buffer, written, ids, n_tokens = snapshot.data
+        try:
+            restored = int(self._lib.llama_state_set_data(self._llm.ctx, buffer, written))
+        except Exception:  # noqa: BLE001 - the state is unknown: treated as a failure
+            restored = -1
+        if restored != written:
+            self._llm.n_tokens = 0  # a state half set is never reused: all evaluated again
+            return False
+        self._llm.input_ids[:n_tokens] = ids
+        self._llm.n_tokens = n_tokens
+        self._llm._requires_eval = True
+        return True
+
+    def metadata(self) -> EngineMetadata:
+        return self._tokenizer.metadata()
+
+    def tokenize(self, text: str) -> list[int]:
+        return self._tokenizer.tokenize(text)
+
+    def token_pieces(self, ids: Sequence[int]) -> list[bytes]:
+        return self._tokenizer.token_pieces(ids)
+
     def complete(
         self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
     ) -> Iterator[Fragment]:
@@ -147,6 +275,8 @@ class LlamaCppEngine:
         pending = ""
         count = 0
         reason: StopReason = "stop"
+        self._last_evaluated = None
+        self._lib.llama_perf_context_reset(self._llm.ctx)
         tokens = self._llm.generate(
             prompt_ids, temp=TEMPERATURE, top_p=TOP_P, top_k=TOP_K, min_p=0.0
         )
@@ -155,7 +285,7 @@ class LlamaCppEngine:
                 if cancel.cancelled:
                     reason = "cancelled"
                     break
-                if self._lib.llama_vocab_is_eog(self._vocab, token):
+                if self._tokenizer.is_eog(token):
                     break
                 count += 1
                 pending += decoder.decode(self.token_pieces([token])[0])
@@ -169,6 +299,8 @@ class LlamaCppEngine:
                     break
         finally:
             tokens.close()
+            # The prompt tokens evaluated, the ones reused from the cache excluded (AD-4).
+            self._last_evaluated = int(self._lib.llama_perf_context(self._llm.ctx).n_p_eval)
         yield Fragment(pending + decoder.decode(b"", final=True), count, reason)
 
     def close(self) -> None:

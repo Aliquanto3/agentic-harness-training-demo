@@ -25,6 +25,16 @@ class SkillLoaded(BaseModel):
     skill_id: str
 
 
+class MemoryWrite(BaseModel):
+    """One change of the global memory (AD-23): `remember`, the edit drawer or the reset.
+    `text`: the entry's text (for `delete`, the text removed, shown by the trace)."""
+
+    kind: Literal["memory_write"] = "memory_write"
+    op: Literal["add", "replace", "delete"]
+    entry_id: str
+    text: str = ""
+
+
 class AuditAppend(BaseModel):
     """H2 asks for `lines` to be appended to `audit.log` (story 8)."""
 
@@ -58,7 +68,9 @@ class ApiKeySet(BaseModel):
 
 
 # Each new harness tool or hook adds its own effect here (AD-23), discriminated by `kind`.
-Effect = ToolDocLoaded | SkillLoaded | AuditAppend | ArmConsumed | SettingWrite | ApiKeySet
+Effect = (
+    ToolDocLoaded | SkillLoaded | MemoryWrite | AuditAppend | ArmConsumed | SettingWrite | ApiKeySet
+)
 
 
 def apply_setting(effect: SettingWrite | ApiKeySet) -> None:
