@@ -2859,8 +2859,16 @@ def s_subagent(r: Run) -> None:
     r.show_forced(True)
     delegate = page.get_by_role("button", name="Déléguer au sous-agent")
     form = page.locator(".force-form")
+    page.set_viewport_size({"width": 1280, "height": 650})
     delegate.click()
     expect(form).to_be_visible(timeout=5000)
+    # Lot K (A8): the button says the form is open.
+    r.check(
+        delegate.get_attribute("aria-expanded") == "true",
+        "1280 × 650 : formulaire « Déléguer au sous-agent » ouvert, aria-expanded=true",
+        str(delegate.get_attribute("aria-expanded")),
+    )
+    page.set_viewport_size({"width": 1600, "height": 1000})
     form.get_by_role("button", name="Annuler").click()
     closed, took = r.poll(lambda: form.count() == 0, 2)
     focused = page.evaluate("() => document.activeElement?.dataset.focusKey || ''")
@@ -5353,6 +5361,32 @@ def s_context_window(r: Run) -> None:
         _window_panel(r)
         r.check(toggle.get_attribute("aria-expanded") == "true", "panneau ouvert : aria-expanded")
         panel = page.locator("#window-panel")
+        # Lot K (A8): at 1280 × 650, « Appliquer » and « Fermer » in view without scrolling
+        # the panel (pinned at its foot), the panel inside the window.
+        page.set_viewport_size({"width": 1280, "height": 650})
+        time.sleep(0.3)
+        placed = page.evaluate(
+            "() => { const p = document.getElementById('window-panel').getBoundingClientRect();"
+            " const out = {};"
+            " for (const id of ['window-apply', 'window-close']) {"
+            " const b = document.getElementById(id).getBoundingClientRect();"
+            " out[id] = b.height > 0 && b.top >= p.top && b.bottom <= p.bottom + 1"
+            " && b.bottom <= innerHeight; }"
+            " out.inside = p.bottom <= innerHeight + 1;"
+            " out.scrolled = document.querySelector('.window-scroll')?.scrollTop ?? -1;"
+            " return out; }"
+        )
+        r.check(
+            placed["window-apply"]
+            and placed["window-close"]
+            and placed["inside"]
+            and placed["scrolled"] == 0,
+            "1280 × 650 : « Appliquer » et « Fermer » visibles en pied du panneau, sans le "
+            "faire défiler",
+            str(placed),
+        )
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        time.sleep(0.3)
         r.check(panel.get_attribute("role") == "dialog", "panneau : role=dialog")
         text = panel.inner_text()
         rows = page.locator("#window-choices .window-choice").all_inner_texts()

@@ -1601,6 +1601,7 @@ function forceButton(brick, option) {
       return;
     }
     store.forceForm = isFormOpen(brick.id, option.id) ? null : newForceForm(brick, option);
+    button.setAttribute("aria-expanded", String(Boolean(store.forceForm))); // lot K (A8)
     forceUiChanged();
   });
   return button;
@@ -1620,6 +1621,8 @@ function cardForce(brick) {
   button.setAttribute("aria-expanded", String(open));
   button.addEventListener("click", () => {
     store.forceForm = isFormOpen(brick.id, option.id) ? null : newForceForm(brick, option);
+    // Lot K (A8): the button says the form's state at once, the rebuild keeps it.
+    button.setAttribute("aria-expanded", String(Boolean(store.forceForm)));
     forceUiChanged();
   });
   return open ? [button, forceForm(brick, option)] : [button];

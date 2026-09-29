@@ -25,6 +25,7 @@
     <div class="window-picker" id="window-picker">
       <button type="button" id="window-toggle" class="window-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="window-panel"><span class="window-toggle-long">Fenêtre</span> <span id="window-toggle-value">…</span> ▾</button>
       <section id="window-panel" class="window-panel" role="dialog" aria-labelledby="window-panel-title" hidden>
+        <div class="window-scroll">
         <h3 id="window-panel-title" class="window-panel-title">Fenêtre de contexte</h3>
         <p class="window-help" id="window-help"></p>
         <p class="window-help">Le choix appliqué est mémorisé dans settings.json, qui prend le pas sur [context] window de wavestack.toml au lancement suivant.</p>
@@ -35,6 +36,7 @@
         </fieldset>
         <p class="window-note" id="window-note"></p>
         <p class="window-alert" id="window-alert" role="alert" hidden></p>
+        </div>
         <div class="window-actions">
           <button type="button" id="window-apply" class="window-apply">Appliquer</button>
           <button type="button" id="window-close" class="window-close">Fermer</button>
