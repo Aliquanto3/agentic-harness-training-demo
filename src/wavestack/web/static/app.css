@@ -4866,6 +4866,15 @@ body .arch .arch-robots .robot.is-selection-linked {
     display: none;
   }
 
+  /* Lot K, suite (review): a real 1280 px window zoomed to 125 % gives about 1010 CSS px, where
+     « Réinitialiser » went 4 to 9 px out of the bar with the legend whole: the gaps and the
+     bar's padding tighten from here. */
+  .top-bar,
+  :root.projection .top-bar {
+    gap: var(--spacing-1);
+    padding: 0 var(--spacing-2);
+  }
+
   .pane-chips > .pane-chip.is-linked {
     flex-shrink: 1;
     min-width: 0;
@@ -4876,20 +4885,14 @@ body .arch .arch-robots .robot.is-selection-linked {
 /* Lot K, suite (K1): under 1000 px (a 1280 or 1366 px window zoomed to 150 %), the bar keeps
    « Réinitialiser » whole and the page never scrolls sideways: the gauge's legend goes (each
    segment's tooltip names its discipline) and its bar narrows to 180 px, its figures still
-   giving way (whole in their tooltip); the gaps and the bar's padding tighten, the names go
-   to their minimum (projection mode keeps its own, lower ones), « Mode projection » says
+   giving way (whole in their tooltip); the gaps and padding are tight already (1100 px), the
+   names go to their minimum (projection mode keeps its own, lower ones), « Mode projection » says
    « Aa » (its accessible name and tooltip unchanged); the theme picker is compact already. */
 .projection-toggle-tiny {
   display: none;
 }
 
 @media (width < 1000px) {
-  .top-bar,
-  :root.projection .top-bar {
-    gap: var(--spacing-1);
-    padding: 0 var(--spacing-2);
-  }
-
   .gauge-legend {
     display: none;
   }
