@@ -11,8 +11,11 @@ brick's index and never changes the brick's state.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
+import shutil
+import sys
 import time
 from array import array
 from collections.abc import Callable, Sequence
@@ -46,7 +49,7 @@ KINDS = (
 OPTIONS: dict[str, tuple[str, ...]] = {
     "chunking": ("paragraphs",),
     "embedding": ("declared", "fastembed"),
-    "vector_store": ("sqlite_vec", "memory"),
+    "vector_store": ("sqlite_vec", "memory", "faiss", "lancedb"),
     "vector_search": ("cosine",),
     "rerank": ("declared",),
     "context": ("excerpts",),
@@ -473,6 +476,18 @@ def read_vectors(folder: Path, chunks: Sequence[Chunk], dims: int) -> list[list[
     return [list(flat[i * dims : (i + 1) * dims]) for i in range(len(chunks))]
 
 
+TIE_DIGITS = 6  # two scores equal to this many decimals are a tie, whatever the float noise
+TIE_MARGIN = 16  # the extra neighbours an index is asked for, to settle ties the same way
+
+
+def top(found: Sequence[tuple[float, int]], k: int) -> list[tuple[int, float]]:
+    """`(score, chunk_id)` pairs to the `k` best `(chunk_id, score)`: every store ranks alike,
+    by score (a tie within the float noise of float32 arithmetic broken by chunk id), the
+    score bounded to [0, 1] with 3 decimals."""
+    ranked = sorted(found, key=lambda x: (-round(x[0], TIE_DIGITS), x[1]))[:k]
+    return [(cid, round(min(1.0, max(0.0, s)), 3)) for s, cid in ranked]
+
+
 def as_float32(vector: Sequence[float]) -> list[float]:
     """A vector as the stores keep it (float32), for every store to compare alike."""
     return list(array("f", vector))
@@ -494,11 +509,140 @@ class MemoryStore:
             (sum(a * b for a, b in zip(query, v, strict=True)), i + 1)
             for i, v in enumerate(self._vectors)
         ]
-        scored.sort(key=lambda x: (-x[0], x[1]))
-        return [(cid, round(min(1.0, max(0.0, s)), 3)) for s, cid in scored[:k]]
+        return top(scored, k)
 
     def close(self) -> None:
         pass
+
+
+# Increment 3: the vector stores of the `rag-alt` extra, their module and French name.
+LIBRARIES = {"faiss": ("faiss", "FAISS"), "lancedb": ("lancedb", "LanceDB")}
+INSTALL_FR = "uv sync --extra compression --extra rag-alt"
+
+
+def _find_spec(name: str) -> Any:
+    """`importlib.util.find_spec`, without importing the module (the end-to-end run replaces
+    it to play a workstation without the extra)."""
+    return importlib.util.find_spec(name)
+
+
+def installed(name: str) -> bool:
+    """Whether a module could be imported, read without importing it."""
+    try:
+        return _find_spec(name) is not None
+    except (ImportError, ValueError):  # a module in `sys.modules` without its spec
+        return name in sys.modules
+
+
+def not_installed_fr(option: str) -> str:
+    """Why FAISS or LanceDB cannot be chosen: the extra, and the command that installs it."""
+    label = LIBRARIES[option][1]
+    return (
+        f"Indisponible : {label} n'est pas installé. Depuis le dossier de WaveStack : "
+        f"`{INSTALL_FR}`, puis relancez WaveStack. Sans `--extra compression`, Headroom serait "
+        "retiré."
+    )
+
+
+@dataclass
+class Imported:
+    """A library of the extra, imported once for the life of WaveStack: its module, and what
+    its import added to WaveStack's memory (said by the stage)."""
+
+    module: Any
+    facts: list[tuple[str, str]]
+
+
+def _as_matrix(numpy: Any, vectors: Sequence[Sequence[float]]) -> Any:
+    return numpy.asarray(vectors, dtype=numpy.float32)
+
+
+class FaissStore:
+    """FAISS, exhaustive inner product (`IndexFlatIP`) on the normalized float32 vectors:
+    their cosine. Built once in the key's folder (`write_index`, a temporary file, then
+    `os.replace`), then read."""
+
+    def __init__(self, faiss: Any, folder: Path, vectors: Sequence[Sequence[float]]) -> None:
+        import numpy
+
+        self._numpy = numpy
+        path = folder / "faiss" / "index.faiss"
+        dims = len(vectors[0])
+        index = None
+        if path.is_file():
+            try:
+                index = faiss.read_index(str(path))
+            except Exception:  # noqa: BLE001 - rebuilt below
+                index = None
+            if index is not None and (index.ntotal != len(vectors) or index.d != dims):
+                index = None
+        self.built = index is None
+        if index is None:
+            index = faiss.IndexFlatIP(dims)
+            index.add(_as_matrix(numpy, vectors))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(path.name + ".tmp")
+            try:
+                faiss.write_index(index, str(tmp))
+                os.replace(tmp, path)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
+        self._index = index
+        self.path = path
+
+    def search(self, vector: Sequence[float], k: int) -> list[tuple[int, float]]:
+        wanted = min(self._index.ntotal, k + TIE_MARGIN)
+        scores, ids = self._index.search(_as_matrix(self._numpy, [vector]), wanted)
+        found = [(float(s), int(i) + 1) for s, i in zip(scores[0], ids[0], strict=True) if i >= 0]
+        return top(found, k)
+
+    def close(self) -> None:
+        self._index = None
+
+
+class LanceStore:
+    """LanceDB, a table `chunks` (`id`, `vector`) searched with the cosine metric. Built once
+    in a temporary folder of the key's folder, then moved into place; then read."""
+
+    TABLE = "chunks"
+
+    def __init__(self, lancedb: Any, folder: Path, vectors: Sequence[Sequence[float]]) -> None:
+        path = folder / "lancedb"
+        table = None
+        if path.is_dir():
+            try:
+                table = lancedb.connect(str(path)).open_table(self.TABLE)
+                if table.count_rows() != len(vectors):
+                    table = None
+            except Exception:  # noqa: BLE001 - rebuilt below
+                table = None
+        self.built = table is None
+        if table is None:
+            tmp = folder / "lancedb.tmp"
+            shutil.rmtree(tmp, ignore_errors=True)
+            try:
+                rows = [
+                    {"id": i + 1, "vector": [float(x) for x in v]} for i, v in enumerate(vectors)
+                ]
+                lancedb.connect(str(tmp)).create_table(self.TABLE, data=rows, mode="overwrite")
+                shutil.rmtree(path, ignore_errors=True)
+                os.replace(tmp, path)
+            except BaseException:
+                shutil.rmtree(tmp, ignore_errors=True)
+                raise
+            table = lancedb.connect(str(path)).open_table(self.TABLE)
+        self._table = table
+        self.path = path
+
+    def search(self, vector: Sequence[float], k: int) -> list[tuple[int, float]]:
+        query = self._table.search(list(vector), vector_column_name="vector")
+        rows = query.distance_type("cosine").limit(k + TIE_MARGIN).to_list()
+        found = [(1.0 - float(r["_distance"]), int(r["id"])) for r in rows]
+        return top(found, k)
+
+    def close(self) -> None:
+        self._table = None
 
 
 class _SqliteStore:
@@ -507,10 +651,10 @@ class _SqliteStore:
 
     def __init__(self, path: Path, embedder: Embedder) -> None:
         self._retriever = SqliteVecRetriever(path, embedder, 1)
-        self.question = ""
 
     def search(self, vector: Sequence[float], k: int) -> list[tuple[int, float]]:
-        return [(e.chunk_id, e.score) for e in self._retriever.search(self.question, k)]
+        found = self._retriever.nearest(list(vector), k + TIE_MARGIN)
+        return top([(1.0 - distance, chunk_id) for chunk_id, distance in found], k)
 
     def close(self) -> None:
         self._retriever.close()
@@ -623,6 +767,8 @@ class LabDeps:
     embedder: Callable[[str], Lent]  # option -> the embedding model, or `StageFailed`
     # option -> what identifies the embedding model (id, dims, size, sha256): its cache's key
     identity: Callable[[str], dict[str, Any]]
+    # option (`faiss`, `lancedb`) -> the library, imported once, or `StageFailed`
+    importer: Callable[[str], Imported]
     reranker: Callable[[str], Lent]  # option -> the reranker, or `StageSkipped`/`StageFailed`
     cancelled: Callable[[], bool]
     # kind, payload, step id and component of the event
@@ -1125,14 +1271,36 @@ class LabRun:
                 ),
                 facts=[("Fichier", str(path)), ("Vecteurs", fr_int(n)), ("Métrique", "cosinus")],
             )
+        if stage.option in LIBRARIES:
+            label = LIBRARIES[stage.option][1]
+            imported = self.deps.importer(stage.option)
+            self._check()
+            folder = self.deps.lab_dir / lane.key
+            if stage.option == "faiss":
+                store: Any = FaissStore(imported.module, folder, lane.vectors)
+                kind = "index plat à produit scalaire (IndexFlatIP)"
+            else:
+                store = LanceStore(imported.module, folder, lane.vectors)
+                kind = "table « chunks », métrique cosinus"
+            lane.store = store
+            state = (
+                f"construit ({fr_int(n)} vecteurs)"
+                if store.built
+                else f"relu ({fr_int(n)} vecteurs)"
+            )
+            return _Result(
+                input_fr=f"Les {vectors_fr} de l'étape Embedding.",
+                output_fr=(
+                    f"Index {label} {state}, {kind}, dans le dossier {lane.key} de l'atelier."
+                ),
+                facts=[("Dossier", str(store.path)), ("Vecteurs", fr_int(n)), *imported.facts],
+            )
         raise StageFailed(f"Base vectorielle inconnue : {stage.option}.")
 
     def _vector_search(self, lane: _Lane, stage: Stage) -> _Result:
         if lane.store is None or lane.query_vector is None:
             raise StageFailed("Aucune base vectorielle : l'étape précédente n'a pas abouti.")
         k = int(stage.params.get("candidates", 8))
-        if isinstance(lane.store, _SqliteStore):
-            lane.store.question = self.question
         hits = lane.store.search(lane.query_vector, k)
         items = []
         for rank, (chunk_id, score) in enumerate(hits, start=1):

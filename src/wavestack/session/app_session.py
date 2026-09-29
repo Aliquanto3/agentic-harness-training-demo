@@ -17,7 +17,6 @@ import importlib.util
 import json
 import logging
 import math
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -126,6 +125,8 @@ from wavestack.models.load_registry import (
     COMPRESSOR,
     EMBEDDING,
     RAG_LAB_EMBEDDING,
+    RAG_LAB_FAISS,
+    RAG_LAB_LANCEDB,
     RERANKER,
     LoadRegistry,
     ModelChoice,
@@ -856,6 +857,10 @@ class AppSession:
         # and its content error already traced (once per message).
         self._rag_labs = 0
         self._rag_lab_error_traced: str | None = None
+        # Increment 3: FAISS and LanceDB imported (what each import added to the RSS), and
+        # the ones whose import failed (a DLL blocked), then unavailable with the reason.
+        self._rag_lab_imported: dict[str, int | None] = {}
+        self._rag_lab_import_errors: dict[str, str] = {}
         self._load_content()
         self._registry = ToolRegistry(
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
@@ -7663,16 +7668,18 @@ class AppSession:
         if declared is not None:
             fastembed.label_fr = declared.label_fr
         fastembed.available, fastembed.reason_fr = declared is not None, reason
+        for option, (module, _) in rag_lab.LIBRARIES.items():
+            state = options[("vector_store", option)]
+            if option in self._rag_lab_import_errors:
+                state.available, state.reason_fr = False, self._rag_lab_import_errors[option]
+            elif option not in self._rag_lab_imported and not rag_lab.installed(module):
+                state.available, state.reason_fr = False, rag_lab.not_installed_fr(option)
         return rag_lab.Catalog(texts, rag_lab.default_pipeline(self.cfg), options)
 
     def _rag_lab_fastembed(self) -> tuple[config.FastembedModel | None, str | None]:
         """Story 30: the fastembed option, offered only installed, declared and on the
         workstation (it is never downloaded), else why not."""
-        try:
-            installed = importlib.util.find_spec("fastembed") is not None
-        except (ImportError, ValueError):  # a module without its spec: said installed
-            installed = "fastembed" in sys.modules
-        if not installed:
+        if not rag_lab.installed("fastembed"):
             return None, (
                 "Indisponible : fastembed n'est pas installé (ce n'est pas une dépendance de "
                 "WaveStack, seulement le repli de la story 12)."
@@ -7784,6 +7791,7 @@ class AppSession:
                 lab_dir=config.rag_lab_dir(),
                 embedder=lambda option: self._rag_lab_embedder(option, loans),
                 identity=self._rag_lab_identity,
+                importer=self._rag_lab_import,
                 reranker=lambda option: self._rag_lab_reranker(option, loans),
                 cancelled=lambda: cancel.cancelled,
                 emit=self._rag_lab_emit,
@@ -7877,6 +7885,54 @@ class AppSession:
             cost=self._load_registry.component_cost(None, sizes),
             slot=RAG_LAB_EMBEDDING,
             open_model=lambda: embedding_module.FastembedEmbedder(model.model_name, model.dims),
+        )
+
+    def _rag_lab_import(self, option: str) -> rag_lab.Imported:
+        """FAISS or LanceDB, imported once for the life of WaveStack (AD-8): the budget first
+        (`[rag_lab] faiss_cost_mb`, `lancedb_cost_mb`), then the import and its grant in its
+        own slot, never released. An import refused (a DLL blocked by AppLocker) is said in
+        French, and the option becomes unavailable."""
+        module_name, label = rag_lab.LIBRARIES[option]
+        slot = RAG_LAB_FAISS if option == "faiss" else RAG_LAB_LANCEDB
+        if option in self._rag_lab_import_errors:
+            raise rag_lab.StageFailed(self._rag_lab_import_errors[option])
+        if option in self._rag_lab_imported:
+            added = self._rag_lab_imported[option]
+            said = f"+{_mo(added)} Mo au premier import" if added is not None else "mesure absente"
+            return rag_lab.Imported(
+                importlib.import_module(module_name),
+                [("Import", f"déjà fait dans cette session ({said}), compté à vie")],
+            )
+        cost = (
+            self.cfg.rag_lab_faiss_cost_bytes
+            if option == "faiss"
+            else self.cfg.rag_lab_lancedb_cost_bytes
+        )
+        refusal = self._load_registry.check_component(label, cost, slot)
+        if refusal is not None:
+            raise rag_lab.StageFailed(refusal)
+        before = self._rss_now()
+        try:
+            module = importlib.import_module(module_name)
+        except (ImportError, OSError) as exc:
+            reason = (
+                f"Import refusé : {label} n'a pas pu être chargé ({type(exc).__name__} : {exc}). "
+                "Une stratégie de sécurité (AppLocker, WDAC) bloque peut-être ses bibliothèques "
+                "non signées ; les autres bases vectorielles restent utilisables."
+            )
+            self._rag_lab_import_errors[option] = reason
+            raise rag_lab.StageFailed(reason) from exc
+        after = self._rss_now()
+        added = after - before if before is not None and after is not None else None
+        self._load_registry.grant(label, cost, slot)
+        self._rag_lab_imported[option] = added
+        said = f"+{_mo(added)} Mo" if added is not None else "mesure absente"
+        return rag_lab.Imported(
+            module,
+            [
+                ("Import", f"premier import : {said} dans WaveStack"),
+                ("Budget", f"{_mo(cost)} Mo réservés à vie (un module ne se décharge pas)"),
+            ],
         )
 
     def _rag_lab_identity(self, option: str) -> dict[str, Any]:

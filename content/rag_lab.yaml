@@ -118,6 +118,10 @@ options:
       label_fr: "sqlite-vec"
     memory:
       label_fr: "Recherche exhaustive en mémoire"
+    faiss:
+      label_fr: "FAISS"
+    lancedb:
+      label_fr: "LanceDB"
   vector_search:
     cosine:
       label_fr: "Similarité cosinus"

@@ -6093,6 +6093,65 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     r.ev.wait("turn_ended", seq, timeout=30)
     expect(button).to_be_enabled(timeout=10_000)
     _rag_lab_compare(r)
+    _rag_lab_alt(r)
+
+
+def _rag_lab_alt(r: Run) -> None:
+    """Increment 3: the scenario follows the catalog. Without the `rag-alt` extra, FAISS and
+    LanceDB are greyed with the command that installs them; with it, A = sqlite-vec and B =
+    FAISS give the same context, B's index built then read, its import's memory said."""
+    page = r.page
+    state = r.api("GET", "/api/rag_lab").json()
+    stores = next(s for s in state["catalog"]["stages"] if s["kind"] == "vector_store")
+    faiss = next(o for o in stores["options"] if o["id"] == "faiss")
+    page.locator("#rag-reset-chain").click()
+    page.locator("#rag-compare").check()
+    select = page.locator('#rag-chain-b [data-kind="vector_store"] select.rag-option')
+    expect(select).to_be_visible(timeout=5000)
+    if not faiss["available"]:
+        print("  (branche : sans l'extra rag-alt)")
+        disabled = select.locator("option:disabled").all_inner_texts()
+        reasons = page.locator(
+            '#rag-chain-b [data-kind="vector_store"] .rag-chain-unavailable'
+        ).all_inner_texts()
+        r.check(
+            any(t.startswith("FAISS") for t in disabled)
+            and any(t.startswith("LanceDB") for t in disabled)
+            and len(reasons) == 2
+            and all("uv sync --extra compression --extra rag-alt" in t for t in reasons),
+            "sans l'extra : FAISS et LanceDB désactivés, la raison donne la commande",
+            str(reasons)[:300],
+        )
+        page.locator("#rag-reset-chain").click()
+        return
+    print("  (branche : avec l'extra rag-alt)")
+    _set_stage(r, "b", "vector_store", "faiss")
+    figures = []
+    for _ in range(2):
+        ended, seq = _rag_lab_run(r)
+        store = _stage_ended(r, seq, "vector_store", "b")
+        contexts = [_stage_ended(r, seq, "context", lane).get("items", []) for lane in "ab"]
+        figures.append((ended["payload"]["status"], store, contexts))
+    (status, first, contexts), (_, second, _) = figures
+    same = [(i["rank"], i["chunk_id"]) for i in contexts[0]] == [
+        (i["rank"], i["chunk_id"]) for i in contexts[1]
+    ]
+    facts = {f["label_fr"]: f["value_fr"] for f in first.get("facts", [])}
+    card = _result_card(r, "vector_store", "b").inner_text()
+    r.check(
+        status == "ok" and same and len(contexts[0]) == 3,
+        "avec l'extra : A = sqlite-vec et B = FAISS, mêmes extraits et mêmes rangs au Contexte",
+        str([(i["rank"], i["doc_id"]) for i in contexts[1]]),
+    )
+    r.check(
+        "construit (29 vecteurs)" in first.get("output_fr", "")
+        and "relu (29 vecteurs)" in second.get("output_fr", "")
+        and facts.get("Import", "").startswith(("premier import : +", "déjà fait"))
+        and "premier import" in card.lower(),
+        "Base vectorielle de B : « construit », puis « relu », et la mémoire ajoutée à l'import",
+        f"{first.get('output_fr', '')[:80]} · {second.get('output_fr', '')[:60]} · {facts}",
+    )
+    page.locator("#rag-reset-chain").click()
 
 
 def _git_status() -> str:
@@ -6263,6 +6322,11 @@ def main() -> int:
     parser.add_argument("--keep", action="store_true", help="garder le dossier de données")
     parser.add_argument("--headed", action="store_true")
     parser.add_argument(
+        "--no-rag-alt",
+        action="store_true",
+        help="WaveStack comme sans l'extra rag-alt (FAISS et LanceDB indisponibles)",
+    )
+    parser.add_argument(
         "--no-headroom",
         action="store_true",
         help="WaveStack comme sans l'extra compression (le scénario compression est sauté)",
@@ -6270,6 +6334,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.no_headroom:  # read by `wavestack_e2e.py` through the stack's environment
         os.environ["WAVESTACK_E2E_NO_HEADROOM"] = "1"
+    if args.no_rag_alt:  # story 30, likewise
+        os.environ["WAVESTACK_E2E_NO_RAG_ALT"] = "1"
     chosen = [s for s in SCENARIOS if not args.only or s[0] in args.only or s[0] == "diagnostic"]
 
     console: list[str] = []

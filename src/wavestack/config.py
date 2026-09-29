@@ -697,6 +697,18 @@ class Config:
                 "Corrigez-la, puis relancez WaveStack."
             )
 
+    @property
+    def rag_lab_faiss_cost_bytes(self) -> int:
+        """Story 30 (AD-8): what importing FAISS is expected to add, `[rag_lab] faiss_cost_mb`
+        (16 MB measured on Linux, 37 MB with numpy's first import)."""
+        return max(0, self._int("rag_lab", "faiss_cost_mb", default=60)) * 1024 * 1024
+
+    @property
+    def rag_lab_lancedb_cost_bytes(self) -> int:
+        """Story 30 (AD-8): what importing LanceDB (and pyarrow) is expected to add,
+        `[rag_lab] lancedb_cost_mb` (104 to 121 MB measured on Linux)."""
+        return max(0, self._int("rag_lab", "lancedb_cost_mb", default=180)) * 1024 * 1024
+
     def rag_index_path(self) -> Path:
         """Story 15: the sqlite-vec index; a relative path is from the repository root."""
         path = Path(str(self.get("rag", "index_path", default="data/rag_index.sqlite")))

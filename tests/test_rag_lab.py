@@ -624,7 +624,7 @@ def test_web_page_state_and_intention(index):
     assert too_many.status_code == 422
     changed = body["default_pipeline"] | {}
     changed["stages"] = [dict(s) for s in changed["stages"]]
-    changed["stages"][2]["option"] = "faiss"
+    changed["stages"][2]["option"] = "annoy"
     refused = client.post(
         "/api/intentions/rag_lab_run",
         json={"question": QUESTION, "pipelines": [changed]},

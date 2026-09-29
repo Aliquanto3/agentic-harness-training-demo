@@ -131,6 +131,10 @@ files = [
 # dans settings.json, par exemple :
 #   "rag_lab": {"fastembed": {"model_name": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
 #               "dims": 384, "label_fr": "MiniLM multilingue (fastembed)"}}
+# FAISS et LanceDB (extra `rag-alt`) : mémoire comptée par le budget à leur premier import, à vie
+# (un module Python ne se décharge pas), en Mo. Mesuré sous Linux : +16 à 37 Mo et +104 à 121 Mo.
+faiss_cost_mb = 60
+lancedb_cost_mb = 180
 
 [tools]
 # Bornes de la boucle de tour (AD-10), affichées sur la carte de la brique outils.

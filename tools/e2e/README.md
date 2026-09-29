@@ -15,6 +15,8 @@ uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py
 - `--keep` : garde le dossier de données temporaire (journaux `wavestack.log`,
   `fake_openai.log`, `settings.json`, `audit.log`) ; son chemin s'affiche au début.
 - `--headed` : navigateur visible.
+- `--no-rag-alt` (story 30) : WaveStack comme sur un poste sans l'extra `rag-alt` (FAISS et
+  LanceDB indisponibles) ; le scénario `rag_lab` prend alors la branche « sans l'extra ».
 - `--no-headroom` : WaveStack comme sur un poste sans l'extra `compression` ; le scénario
   `compression` vérifie alors la carte (commande d'installation) et un tour sans étape, puis
   se saute (`--only compression --no-headroom`).
@@ -466,8 +468,14 @@ Vérifications ajoutées aux scénarios existants :
   synthèse (en commun, écarts de rang), un dossier nouveau sous `rag_lab/` du dossier de données
   et `git status` inchangé (hors captures) ; capture `57-atelier-rag-comparaison.jpg` ; le second
   run dit « relus du cache » ; les chaînes survivent au rechargement ; 1 candidat pour 2 extraits :
-  la raison du 409 s'affiche et rien ne part ; « Revenir à la chaîne livrée ». Retour à `/` en
-  fin de scénario, thème « Système ».
+  la raison du 409 s'affiche et rien ne part ; « Revenir à la chaîne livrée ». (7) Incrément
+  3, le scénario suit le catalogue et dit sa branche : sans l'extra `rag-alt` (ou avec
+  `--no-rag-alt`), FAISS et LanceDB sont désactivés dans la liste de la base vectorielle, et
+  leur raison contient `uv sync --extra compression --extra rag-alt` ; avec l'extra
+  (l'environnement du parcours le garde une fois `uv sync --extra compression --extra rag-alt`
+  fait), A = sqlite-vec et B = FAISS rendent les mêmes extraits aux mêmes rangs, la Base
+  vectorielle de B dit « construit (29 vecteurs) », puis « relu », et la mémoire ajoutée au
+  premier import. Retour à `/` en fin de scénario, thème « Système ».
 
 ## Déclencheurs du faux modèle
 

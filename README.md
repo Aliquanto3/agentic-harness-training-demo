@@ -359,6 +359,37 @@ Les textes de la page sont dans `content/rag_lab.yaml`. Les événements `rag_la
 dans le contexte `rag_lab` : le journal des événements de l'atelier les liste, aucun volet ne
 les montre. Après un rechargement, la page réaffiche la dernière exécution.
 
+## Atelier RAG : FAISS et LanceDB (extra optionnel)
+
+La base vectorielle de l'Atelier RAG peut aussi être [FAISS](https://pypi.org/project/faiss-cpu/)
+(`faiss-cpu` 1.15.1, MIT) ou [LanceDB](https://pypi.org/project/lancedb/) (`lancedb` 0.39.0,
+Apache-2.0, avec `pyarrow` 25.0.1). Ce sont des dépendances optionnelles, l'extra `rag-alt`,
+non installées par `uv run wavestack` seul. Depuis le dossier de WaveStack :
+
+```bash
+uv sync --extra compression --extra rag-alt
+uv run wavestack
+```
+
+- **Headroom.** Gardez `--extra compression` dans la commande : un `uv sync` sans lui retire
+  Headroom (la brique Compression).
+- **Taille.** Environ 390 Mo sur disque sous Linux, dont pyarrow 150 Mo et lancedb 170 Mo ;
+  six paquets, des roues seulement (rien n'est compilé sur le poste).
+- **Hors ligne.** Une fois installés, FAISS et LanceDB ne se connectent à rien : leurs index
+  sont des fichiers du dossier de données.
+- **Mémoire.** Leur premier import est compté par le budget, à vie (un module Python ne se
+  décharge pas) : `[rag_lab] faiss_cost_mb = 60` et `lancedb_cost_mb = 180` ; l'étape « Base
+  vectorielle » dit la mémoire réellement ajoutée.
+- **Le dossier `rag_lab`.** Chaque index est construit à la première exécution (« construit
+  (N vecteurs) »), puis relu (« relu ») ; `rag_lab/` du dossier de données se supprime sans
+  risque, WaveStack arrêté.
+- **Poste verrouillé.** Leurs bibliothèques natives (DLL) ne sont pas signées : AppLocker ou
+  WDAC peuvent les bloquer. L'étape « Base vectorielle » dit alors « Import refusé », l'option
+  devient indisponible, et les autres bases (sqlite-vec, recherche en mémoire) restent
+  utilisables.
+- **Sans l'extra,** FAISS et LanceDB sont grisés dans l'Atelier RAG, avec la commande
+  d'installation.
+
 ## Modèle par défaut
 
 Le modèle recommandé est **Qwen3.5-2B en Q4_K_M** (GGUF amont publié par unsloth, licence
