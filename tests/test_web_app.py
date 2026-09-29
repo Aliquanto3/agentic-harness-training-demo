@@ -106,6 +106,21 @@ def test_pages_and_static_files_are_revalidated_but_api_is_not(monkeypatch, tmp_
     assert "cache-control" not in client.get("/api/health").headers
 
 
+def test_favicon_is_served_and_declared_on_every_page(monkeypatch, tmp_path):
+    """Lot K, suite (K7): `/favicon.ico` (asked by Edge) and the SVG icon answer 200, and the
+    four pages declare the icon."""
+    client = _client(_build(monkeypatch, tmp_path))
+    for path in ("/favicon.ico", "/static/favicon.svg"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.headers["content-type"].startswith("image/svg+xml"), path
+        assert response.text.lstrip().startswith("<svg"), path
+    link = '<link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />'
+    for page in ("/", "/diagnostic", "/models", "/llm"):
+        text = client.get(page).text
+        assert link in text[: text.index("</head>")], page
+
+
 def test_api_state_reflects_last_known_session_state_and_architecture(monkeypatch, tmp_path):
     app = _build(monkeypatch, tmp_path)
     booted_session(FakeEngine())

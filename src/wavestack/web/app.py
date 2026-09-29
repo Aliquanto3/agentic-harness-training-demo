@@ -270,6 +270,12 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "version": version}
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> FileResponse:
+        """Lot K, suite (K7): Edge asks for `/favicon.ico` whatever the page declares; the
+        same SVG icon as each page's `<link rel="icon">`, not a 404 in its console."""
+        return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
+
     @app.get("/")
     def index_page() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
