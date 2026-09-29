@@ -10,6 +10,7 @@ brick's index and never changes the brick's state.
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import importlib.util
 import json
@@ -19,10 +20,10 @@ import re
 import shutil
 import sys
 import time
+import unicodedata
 from array import array
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +86,7 @@ BOUNDS: dict[str, tuple[int, int]] = {
 QUESTION_MAX = 500  # the characters of a question the workshop accepts
 STATUSES = ("ok", "error", "skipped", "cancelled", "not_run")
 LANES_MAX = 2  # a chain, or two compared: A then B
+EMBED_BATCH = 8  # passages embedded at a time: « Arrêter » and the progress between batches
 PROGRESS_INTERVAL_S = 0.1  # `rag_lab_stage_progress` at most ten times a second
 
 _MIB = 1024**2
@@ -191,19 +193,23 @@ class RagLabContent(_Strict):
         return self
 
 
-@cache
-def _read_content(path: str, mtime_ns: int) -> RagLabContent:
-    return RagLabContent.model_validate(yaml.safe_load(Path(path).read_text(encoding="utf-8")))
+_CONTENT: dict[str, tuple[int, RagLabContent]] = {}  # the latest read, by path
 
 
 def load_lab_content() -> RagLabContent:
     """Read `content/rag_lab.yaml`, again once the file changed: a corrected file shows on
-    the page's reload. Raises on a missing or invalid file."""
+    the page's reload. Raises on a missing or invalid file. Only the latest read is kept."""
     path = config.content_dir() / "rag_lab.yaml"
-    return _read_content(str(path), path.stat().st_mtime_ns)
+    mtime = path.stat().st_mtime_ns
+    kept = _CONTENT.get(str(path))
+    if kept is not None and kept[0] == mtime:
+        return kept[1]
+    content = RagLabContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+    _CONTENT[str(path)] = (mtime, content)
+    return content
 
 
-load_lab_content.cache_clear = _read_content.cache_clear  # type: ignore[attr-defined]
+load_lab_content.cache_clear = _CONTENT.clear  # type: ignore[attr-defined]
 
 
 # ---------- chains ----------
@@ -436,8 +442,8 @@ def check_pipeline(pipeline: Pipeline, catalog: Catalog) -> tuple[str, str | Non
             kept = "candidat retenu" if candidates == 1 else "candidats retenus"
             return (
                 f"Étape « {names[stage.kind]} » : {fr_int(candidates)} {kept}, moins que les "
-                f"{fr_int(top_k)} extraits que le contexte doit garder. Retenez au moins "
-                f"{fr_int(top_k)} candidats, ou gardez moins d'extraits.",
+                f"{count_fr(top_k, 'extrait')} que le contexte doit garder. Retenez au moins "
+                f"{count_fr(top_k, 'candidat')}, ou gardez moins d'extraits.",
                 stage.id,
             )
     return None
@@ -467,6 +473,11 @@ def param(stage: Stage, name: str, catalog: Catalog) -> int:
 def fr_int(n: int) -> str:
     """« 1 536 »: French thousands separator (narrow no-break space)."""
     return f"{n:,}".replace(",", " ")
+
+
+def count_fr(n: int, one: str, many: str | None = None) -> str:
+    """« 1 extrait », « 29 extraits »: a count and its noun, agreed."""
+    return f"{fr_int(n)} {one if n == 1 else (many or one + 's')}"
 
 
 def fr_score(value: float | None) -> str:
@@ -499,16 +510,18 @@ VECTORS_FILE = "vectors.f32"
 INDEX_FILE = "index.sqlite"
 
 
-_DIGESTS: dict[tuple[str, int, int], str] = {}
+_DIGESTS: dict[str, tuple[int, int, str]] = {}  # by path: its size, its mtime, its sha256
 
 
 def file_digest(path: Path) -> str:
-    """A file's sha256, computed once per size and modification time in this process."""
+    """A file's sha256, computed again only when its size or modification time changed; the
+    latest one per path is kept."""
     stat = path.stat()
-    key = (str(path), stat.st_size, stat.st_mtime_ns)
-    if key not in _DIGESTS:
-        _DIGESTS[key] = rag_index.file_sha256(path)
-    return _DIGESTS[key]
+    kept = _DIGESTS.get(str(path))
+    if kept is None or kept[:2] != (stat.st_size, stat.st_mtime_ns):
+        kept = (stat.st_size, stat.st_mtime_ns, rag_index.file_sha256(path))
+        _DIGESTS[str(path)] = kept
+    return kept[2]
 
 
 def folder_identity(folder: Path) -> tuple[int, str]:
@@ -582,6 +595,7 @@ def top(found: Sequence[tuple[float, int]], k: int) -> list[tuple[int, float]]:
     """`(score, chunk_id)` pairs to the `k` best `(chunk_id, score)`: every store ranks alike,
     by score (a tie within the float noise of float32 arithmetic broken by chunk id), the
     score bounded to [0, 1] with 3 decimals."""
+    found = [(s if math.isfinite(s) else 0.0, cid) for s, cid in found]  # NaN: no likeness
     ranked = sorted(found, key=lambda x: (-round(x[0], TIE_DIGITS), x[1]))[:k]
     return [(cid, round(min(1.0, max(0.0, s)), 3)) for s, cid in ranked]
 
@@ -701,30 +715,35 @@ class FaissStore:
 
 class LanceStore:
     """LanceDB, a table `chunks` (`id`, `vector`) searched with the cosine metric. Built once
-    in a temporary folder of the key's folder, then moved into place; then read."""
+    in a temporary folder of the key's folder, then moved into place; then read. A table of
+    another size or dimension is let go (Windows keeps an open table's files) and deleted."""
 
     TABLE = "chunks"
 
     def __init__(self, lancedb: Any, folder: Path, vectors: Sequence[Sequence[float]]) -> None:
         path = folder / "lancedb"
+        dims = len(vectors[0])
         table = None
         if path.is_dir():
             try:
                 table = lancedb.connect(str(path)).open_table(self.TABLE)
-                if table.count_rows() != len(vectors):
+                first = table.head(1).to_pylist()
+                if table.count_rows() != len(vectors) or len(first[0]["vector"]) != dims:
                     table = None
             except Exception:  # noqa: BLE001 - rebuilt below
                 table = None
+            gc.collect()  # a stale table's handles let go before its files are deleted
         self.built = table is None
         if table is None:
             tmp = folder / "lancedb.tmp"
-            shutil.rmtree(tmp, ignore_errors=True)
+            _delete(tmp)
             try:
                 rows = [
                     {"id": i + 1, "vector": [float(x) for x in v]} for i, v in enumerate(vectors)
                 ]
                 lancedb.connect(str(tmp)).create_table(self.TABLE, data=rows, mode="overwrite")
-                shutil.rmtree(path, ignore_errors=True)
+                gc.collect()
+                _delete(path)
                 os.replace(tmp, path)
             except BaseException:
                 shutil.rmtree(tmp, ignore_errors=True)
@@ -741,6 +760,20 @@ class LanceStore:
 
     def close(self) -> None:
         self._table = None
+
+
+def _delete(folder: Path) -> None:
+    """A folder of the workshop removed, or a `StageFailed` saying why it cannot be."""
+    if not folder.exists():
+        return
+    try:
+        shutil.rmtree(folder)
+    except OSError as exc:
+        raise StageFailed(
+            f"Le dossier {folder} ne peut pas être supprimé ({type(exc).__name__} : {exc}) : "
+            "un autre programme le tient peut-être ouvert. Fermez-le, ou supprimez le dossier "
+            "rag_lab WaveStack arrêté."
+        ) from exc
 
 
 class _SqliteStore:
@@ -796,11 +829,14 @@ class Lent:
 class Loans:
     """The models a run loads itself (AD-8): the budget checked first (a refusal in figures,
     nothing loaded), then the load and its grant; `close()` closes each and frees its slot. A
-    model the brick holds is borrowed: neither checked, granted nor closed."""
+    model the brick holds is borrowed: neither checked, granted nor closed. A model the run
+    already loaded (lane A's, for lane B) is lent again: one load, one grant, per slot and
+    model."""
 
     def __init__(self, registry: LoadRegistry) -> None:
         self._registry = registry
         self._opened: list[tuple[Any, str]] = []
+        self._by_key: dict[tuple[str, str], Any] = {}
 
     def lend(
         self,
@@ -823,6 +859,8 @@ class Loans:
             if soft:
                 raise StageSkipped(unavailable_fr)
             raise StageFailed(unavailable_fr)
+        if (slot, label_fr) in self._by_key:
+            return Lent(self._by_key[(slot, label_fr)], False, label_fr)
         refusal = self._registry.check_component(f"{noun_fr} {label_fr}", cost, slot)
         if refusal is not None:
             raise StageFailed(refusal, soft=soft)
@@ -835,11 +873,13 @@ class Loans:
             ) from exc
         self._registry.grant(label_fr, cost, slot)
         self._opened.append((model, slot))
+        self._by_key[(slot, label_fr)] = model
         return Lent(model, False, label_fr)
 
     def close(self) -> list[str]:
         """Close what the run loaded, free its slots; the errors met, in French."""
         errors = []
+        self._by_key.clear()
         while self._opened:
             model, slot = self._opened.pop()
             try:
@@ -909,27 +949,6 @@ class _Result:
     borrowed: bool = False
 
 
-class _KnownQuery:
-    """The embedder, the question's vector already computed: a store's search does not
-    embed it a second time."""
-
-    def __init__(self, embedder: Embedder, question: str, vector: list[float]) -> None:
-        self.model_id, self.dims = embedder.model_id, embedder.dims
-        self._embedder, self._question, self._vector = embedder, question, vector
-
-    def embed_queries(self, texts: Sequence[str]) -> list[list[float]]:
-        return [
-            self._vector if t == self._question else self._embedder.embed_queries([t])[0]
-            for t in texts
-        ]
-
-    def embed_passages(self, texts: Sequence[str]) -> list[list[float]]:
-        return self._embedder.embed_passages(texts)
-
-    def close(self) -> None:  # the lender closes the real one
-        pass
-
-
 @dataclass
 class _Lane:
     """What the stages of one lane hand each other."""
@@ -970,6 +989,7 @@ class LabRun:
         self.pipelines = list(pipelines)
         self.deps = deps
         self.lanes: list[_Lane] = []
+        self.ended = False  # `rag_lab_run_ended` emitted
 
     # -- events --
 
@@ -1016,34 +1036,44 @@ class LabRun:
             self.run_id,
             "rag_lab",
         )
-        cancelled = False
-        for pipeline, lane in zip(self.pipelines, "ab", strict=False):
-            state = _Lane(lane, pipeline)
-            self.lanes.append(state)
-            try:
-                self._run_lane(state, skip_all=cancelled)
-            finally:
-                if state.store is not None:
-                    state.store.close()
-            cancelled = cancelled or state.status == "cancelled"
-        statuses = {lane.status for lane in self.lanes}
-        status = (
-            "cancelled" if "cancelled" in statuses else "error" if "error" in statuses else "ok"
-        )
-        comparison = None
-        if len(self.lanes) == LANES_MAX and status != "cancelled":
-            comparison = compare(self.lanes[0], self.lanes[1])
+        status, comparison = "error", None
+        try:
+            cancelled = False
+            for pipeline, lane in zip(self.pipelines, "ab", strict=False):
+                state = _Lane(lane, pipeline)
+                self.lanes.append(state)
+                try:
+                    self._run_lane(state, skip_all=cancelled)
+                finally:
+                    if state.store is not None:
+                        try:
+                            state.store.close()
+                        except Exception:  # noqa: BLE001 - a store closed badly is forgotten
+                            pass
+                cancelled = cancelled or state.status == "cancelled"
+            statuses = {lane.status for lane in self.lanes}
+            status = "ok"
+            if "cancelled" in statuses or "error" in statuses:
+                status = "cancelled" if "cancelled" in statuses else "error"
+            if len(self.lanes) == LANES_MAX and status != "cancelled":
+                comparison = compare(self.lanes[0], self.lanes[1])
+        except Exception:  # noqa: BLE001 - the run ends in error, `run_ended` all the same
+            status, comparison = "error", None
+        finally:
+            self.end(status, _ms(time.monotonic() - started), comparison)
+        return status
+
+    def end(self, status: str, duration_ms: int, comparison: dict[str, Any] | None = None) -> None:
+        """`rag_lab_run_ended`, once: the page never stays « en cours »."""
+        if self.ended:
+            return
+        self.ended = True
         self._emit(
             "rag_lab_run_ended",
-            {
-                "status": status,
-                "duration_ms": _ms(time.monotonic() - started),
-                "comparison": comparison,
-            },
+            {"status": status, "duration_ms": duration_ms, "comparison": comparison},
             self.run_id,
             "rag_lab",
         )
-        return status
 
     def _run_lane(self, lane: _Lane, skip_all: bool) -> None:
         stopped = skip_all  # an earlier stage failed or was stopped: the rest is skipped
@@ -1179,7 +1209,7 @@ class LabRun:
         """A reranking skipped or failed: the search's order goes on unchanged."""
         n = len(lane.ranked or [])
         return _Result(
-            input_fr=f"{n} candidats de la recherche.",
+            input_fr=f"{count_fr(n, 'candidat')} de la recherche.",
             output_fr=f"Ordre de la recherche gardé tel quel. {reason_fr}",
         )
 
@@ -1199,16 +1229,20 @@ class LabRun:
         )
 
     def _chunking(self, lane: _Lane, stage: Stage) -> _Result:
-        size = int(stage.params.get("chunk_max_chars", self.deps.shipped_chunk_max_chars))
+        size = param(stage, "chunk_max_chars", self.deps.catalog)
         lane.chunk_max_chars = size
         source = "le corpus (content/corpus), découpé pour cette exécution"
         chunks: list[Chunk] = []
         if self._uses_brick_index(lane) and self.deps.brick_index_error is None:
+            # Its ids are the index's: never the corpus's chunks under the brick's vectors.
             try:
                 chunks = rag_index.read_chunks(self.deps.brick_index)
-                source = "l'index de la brique RAG (découpé à sa construction)"
-            except Exception:  # noqa: BLE001 - read from the corpus instead
-                chunks = []
+            except Exception as exc:  # noqa: BLE001 - said in the stage
+                raise StageFailed(
+                    f"L'index de la brique RAG ne se lit pas ({type(exc).__name__} : {exc}). "
+                    "Reconstruisez-le depuis la carte RAG de l'atelier."
+                ) from exc
+            source = "l'index de la brique RAG (découpé à sa construction)"
         if not chunks:
             chunks = chunk_corpus(self.deps.content, size)
         if not chunks:
@@ -1219,11 +1253,12 @@ class LabRun:
         mean = round(sum(len(c.text) for c in chunks) / len(chunks))
         return _Result(
             input_fr=(
-                f"{docs} documents du corpus de démonstration ({len(self.deps.content.documents)} "
-                f"déclarés dans content/rag.yaml)."
+                f"{count_fr(docs, 'document')} du corpus de démonstration "
+                f"({fr_int(len(self.deps.content.documents))} déclarés dans content/rag.yaml)."
             ),
             output_fr=(
-                f"{fr_int(len(chunks))} extraits de {fr_int(size)} caractères au plus, lus dans "
+                f"{count_fr(len(chunks), 'extrait')} de {fr_int(size)} caractères au plus, lus "
+                "dans "
                 f"{source}."
             ),
             facts=[
@@ -1242,11 +1277,13 @@ class LabRun:
         lane.embedder_label = lent.label_fr
         self._check()
         n = fr_int(len(lane.chunks))
+        passages_n = count_fr(len(lane.chunks), "passage")
+        vectors_n = count_fr(len(lane.chunks), "vecteur")
         facts = [("Modèle", lent.label_fr), ("Dimensions", fr_int(embedder.dims))]
         if self._uses_brick_index(lane):
             if self.deps.brick_index_error is None:
                 passages = (
-                    f"Les {n} passages (titre du document, puis extrait) sont déjà vectorisés "
+                    f"Passages (titre du document, puis extrait) : {passages_n}, déjà vectorisés "
                     "dans l'index de la brique RAG, calculés à sa construction."
                 )
             else:
@@ -1261,27 +1298,29 @@ class LabRun:
             folder = self.deps.lab_dir / lane.key
             vectors = read_vectors(folder, lane.chunks, embedder.dims)
             if vectors is not None:
-                passages = f"Passages relus du cache ({n} vecteurs, dossier {lane.key})."
+                passages = f"Passages relus du cache ({vectors_n}, dossier {lane.key})."
                 facts.append(("Passages", f"relus du cache ({n})"))
             else:
                 vectors = []
                 total = len(lane.chunks)
                 started = time.monotonic()
-                for i, chunk in enumerate(lane.chunks, start=1):
+                for at in range(0, total, EMBED_BATCH):
                     self._check()
-                    vectors += embedder.embed_passages([rag_index.passage_text(chunk)])
-                    progress(i, total)
-                if any(len(v) != embedder.dims for v in vectors):
+                    batch = lane.chunks[at : at + EMBED_BATCH]
+                    vectors += embedder.embed_passages([rag_index.passage_text(c) for c in batch])
+                    progress(min(at + EMBED_BATCH, total), total)
+                if len(vectors) != total or any(len(v) != embedder.dims for v in vectors):
                     raise StageFailed(
-                        f"Le modèle rend des vecteurs qui n'ont pas {embedder.dims} dimensions."
+                        f"Le modèle ne rend pas un vecteur de {embedder.dims} dimensions par "
+                        "passage."
                     )
                 write_vectors(folder, lane.chunks, vectors, identity)
                 seconds = time.monotonic() - started
                 passages = (
-                    f"Passages calculés ({n} passages) en {fr_ms(_ms(seconds))}, puis mis en "
+                    f"Passages calculés ({passages_n}) en {fr_ms(_ms(seconds))}, puis mis en "
                     f"cache (dossier {lane.key})."
                 )
-                facts.append(("Passages", f"calculés ({n} passages)"))
+                facts.append(("Passages", f"calculés ({passages_n})"))
             lane.vectors = vectors
         vector = embedder.embed_queries([self.question])[0]
         if not any(vector):
@@ -1289,12 +1328,15 @@ class LabRun:
                 "La question ne donne aucun vecteur exploitable (vecteur nul) : reformulez-la "
                 "avec des mots du corpus."
             )
-        lane.embedder = _KnownQuery(embedder, self.question, vector)  # type: ignore[assignment]
+        lane.embedder = embedder
         lane.query_vector = vector
         shown = " ; ".join(fr_score(v) for v in vector[:4])
         facts.append(("Provenance", self._provenance(lent)))
         return _Result(
-            input_fr=f"La question « {self.question} », et les {n} extraits du découpage.",
+            input_fr=(
+                f"La question « {self.question} », et le découpage : "
+                f"{count_fr(len(lane.chunks), 'extrait')}."
+            ),
             output_fr=(
                 f"Question → vecteur de {fr_int(len(vector))} nombres ({shown} ; …). {passages}"
             ),
@@ -1318,7 +1360,8 @@ class LabRun:
             lane.store = _SqliteStore(path, lane.embedder)
             return _Result(
                 input_fr=(
-                    f"{fr_int(meta.chunks)} vecteurs de {fr_int(meta.dims)} dimensions, calculés "
+                    f"{count_fr(meta.chunks, 'vecteur')} de {fr_int(meta.dims)} dimensions, "
+                    "calculés "
                     f"par « {meta.embedding_model_id} » le {meta.built_at[:10]}."
                 ),
                 output_fr=(
@@ -1333,12 +1376,12 @@ class LabRun:
             )
         if lane.vectors is None:
             raise StageFailed("Aucun vecteur des passages : l'étape Embedding n'a pas abouti.")
-        vectors_fr = f"{fr_int(n)} vecteurs de {fr_int(dims)} dimensions"
+        vectors_fr = f"{count_fr(n, 'vecteur')} de {fr_int(dims)} dimensions"
         if stage.option == "memory":
             lane.store = MemoryStore(lane.chunks, lane.vectors)
             size = n * dims * 4
             return _Result(
-                input_fr=f"Les {vectors_fr} de l'étape Embedding.",
+                input_fr=f"De l'étape Embedding : {vectors_fr}.",
                 output_fr=(
                     f"Rangés en mémoire, sans index ({size_fr(size)} en float32) : chaque "
                     "recherche compare la question à tous les vecteurs."
@@ -1369,10 +1412,10 @@ class LabRun:
                     dims=dims,
                     chunk_max_chars=lane.chunk_max_chars,
                 )
-                built = f"construit ({fr_int(n)} vecteurs)"
+                built = f"construit ({count_fr(n, 'vecteur')})"
             lane.store = _SqliteStore(path, lane.embedder)
             return _Result(
-                input_fr=f"Les {vectors_fr} de l'étape Embedding.",
+                input_fr=f"De l'étape Embedding : {vectors_fr}.",
                 output_fr=(
                     f"Index sqlite-vec de l'atelier {built} (dossier {lane.key}) : l'index de la "
                     "brique n'est pas touché."
@@ -1392,12 +1435,12 @@ class LabRun:
                 kind = "table « chunks », métrique cosinus"
             lane.store = store
             state = (
-                f"construit ({fr_int(n)} vecteurs)"
+                f"construit ({count_fr(n, 'vecteur')})"
                 if store.built
-                else f"relu ({fr_int(n)} vecteurs)"
+                else f"relu ({count_fr(n, 'vecteur')})"
             )
             return _Result(
-                input_fr=f"Les {vectors_fr} de l'étape Embedding.",
+                input_fr=f"De l'étape Embedding : {vectors_fr}.",
                 output_fr=(
                     f"Index {label} {state}, {kind}, dans le dossier {lane.key} de l'atelier."
                 ),
@@ -1408,7 +1451,7 @@ class LabRun:
     def _vector_search(self, lane: _Lane, stage: Stage) -> _Result:
         if lane.store is None or lane.query_vector is None:
             raise StageFailed("Aucune base vectorielle : l'étape précédente n'a pas abouti.")
-        k = int(stage.params.get("candidates", 8))
+        k = param(stage, "candidates", self.deps.catalog)
         hits = lane.store.search(lane.query_vector, k)
         items = []
         for rank, (chunk_id, score) in enumerate(hits, start=1):
@@ -1419,10 +1462,13 @@ class LabRun:
         best = items[0].score if items else None
         worst = items[-1].score if items else None
         return _Result(
-            input_fr=f"Le vecteur de la question, comparé aux {fr_int(len(lane.chunks))} vecteurs "
-            "de la base.",
+            input_fr=(
+                "Le vecteur de la question, comparé à ceux de la base : "
+                f"{count_fr(len(lane.chunks), 'vecteur')}."
+            ),
             output_fr=(
-                f"Les {len(items)} extraits les plus proches, sans seuil : score = 1 − distance "
+                f"Les plus proches, sans seuil : {count_fr(len(items), 'extrait')} ; "
+                "score = 1 − distance "
                 f"cosinus, de {fr_score(best)} à {fr_score(worst)}."
             ),
             facts=[("Candidats demandés (k)", fr_int(k)), ("Trouvés", fr_int(len(items)))],
@@ -1448,7 +1494,8 @@ class LabRun:
             ) from exc
         if len(raw) != len(candidates):
             raise StageFailed(
-                f"{len(raw)} scores pour {len(candidates)} candidats : l'ordre de la recherche "
+                f"{count_fr(len(raw), 'score')} pour {count_fr(len(candidates), 'candidat')} : "
+                "l'ordre de la recherche "
                 "est gardé.",
                 soft=True,
             )
@@ -1497,9 +1544,14 @@ class LabRun:
             else "L'ordre de la recherche ne change pas."
         )
         return _Result(
-            input_fr=f"La question et les {len(candidates)} candidats de la recherche, lus par "
-            "paires.",
-            output_fr=f"{len(items)} candidats réordonnés par le reranker. {climb}",
+            input_fr=(
+                f"La question et {count_fr(len(candidates), 'candidat')} de la recherche, lus "
+                "par paires."
+            ),
+            output_fr=(
+                f"{count_fr(len(items), 'candidat réordonné', 'candidats réordonnés')} par le "
+                f"reranker. {climb}"
+            ),
             facts=[
                 ("Modèle", lent.label_fr),
                 ("Paires lues", fr_int(len(candidates))),
@@ -1519,7 +1571,7 @@ class LabRun:
     def _lexical_search(self, lane: _Lane, stage: Stage) -> _Result:
         if not lane.chunks:
             raise StageFailed("Aucun extrait : le découpage n'a pas abouti.")
-        k = int(stage.params.get("candidates", 8))
+        k = param(stage, "candidates", self.deps.catalog)
         scored = bm25(self.question, [rag_index.passage_text(c) for c in lane.chunks])
         found = sorted(
             ((score, i + 1) for i, score in enumerate(scored) if score > 0),
@@ -1537,10 +1589,11 @@ class LabRun:
         return _Result(
             input_fr=(
                 f"Les mots de la question ({words or 'aucun'}), cherchés dans les "
-                f"{fr_int(len(lane.chunks))} extraits, sans embedding."
+                f"{count_fr(len(lane.chunks), 'extrait')}, sans embedding."
             ),
             output_fr=(
-                f"Les {len(items)} extraits qui partagent le plus de mots avec la question, "
+                f"Ceux qui partagent le plus de mots avec la question : "
+                f"{count_fr(len(items), 'extrait')}, "
                 f"pondérés par leur rareté (BM25, k1 = 1,5, b = 0,75) ; un extrait sans aucun "
                 "mot commun n'est pas retenu."
             ),
@@ -1589,7 +1642,8 @@ class LabRun:
         return _Result(
             input_fr=f"Les deux listes des recherches ({sizes} extraits), avec leurs rangs.",
             output_fr=(
-                f"{len(items)} extraits, dont {both} trouvés par les deux recherches, classés par "
+                f"{count_fr(len(items), 'extrait')}, dont {fr_int(both)} "
+                f"{'trouvé' if both == 1 else 'trouvés'} par les deux recherches, classés par "
                 f"fusion des rangs réciproques : score = Σ 1 / ({RRF_K} + rang). Un extrait bien "
                 "classé par les deux passe devant."
             ),
@@ -1601,7 +1655,7 @@ class LabRun:
         ranked = lane.ranked
         if ranked is None:
             raise StageFailed("Aucune recherche n'a abouti : il n'y a rien à placer.")
-        top_k = int(stage.params.get("top_k", 3))
+        top_k = param(stage, "top_k", self.deps.catalog)
         kept = ranked[:top_k]
         content = self.deps.content
         items = [
@@ -1621,10 +1675,10 @@ class LabRun:
         text = "\n\n".join([content.intro_fr, *(i.text for i in items)]) if items else ""
         lane.context_text = text
         return _Result(
-            input_fr=f"Les {len(ranked)} extraits classés par l'étape précédente.",
+            input_fr=(f"Le classement de l'étape précédente : {count_fr(len(ranked), 'extrait')}."),
             output_fr=text or "Aucun extrait : le modèle ne recevrait que la question.",
             facts=[
-                ("Extraits gardés", f"{len(items)} sur {len(ranked)}"),
+                ("Extraits gardés", f"{fr_int(len(items))} sur {fr_int(len(ranked))}"),
                 ("Caractères", fr_int(len(text))),
                 ("Placement", content.placement_fr),
             ],
@@ -1635,9 +1689,8 @@ class LabRun:
         if lane.status != "ok" or not lane.context_text:
             context = "la question seule (aucun contexte construit)"
         else:
-            context = (
-                f"le contexte construit ({fr_int(len(lane.context))} extraits), puis la question"
-            )
+            kept = count_fr(len(lane.context), "extrait")
+            context = f"le contexte construit ({kept}), puis la question"
         return _Result(
             input_fr=(
                 f"Le modèle actif de l'atelier recevrait : son prompt système, {context} : "
@@ -1651,9 +1704,24 @@ def _ms(seconds: float) -> int:
     return round(seconds * 1000)
 
 
+# Short French words that say nothing of a subject, accents folded (BM25 skips them).
+STOP_WORDS = frozenset(
+    "au aux avec ce ces cette dans de des du elle elles en est et il ils la le les leur leurs "
+    "lui mais me ne nous on ou par pas pour qu que qui sa se ses si son sont sur ta te tes "
+    "ton tu un une vos votre vous".split()
+)
+
+
+def fold(text: str) -> str:
+    """Lower case, accents dropped (« Télétravail » → « teletravail »)."""
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
 def bm25_terms(text: str) -> list[str]:
-    """BM25's words: `\\w+` in lower case, three letters or more."""
-    return [w for w in _WORD.findall(text.lower()) if len(w) >= 3]
+    """BM25's words: `\\w+` in lower case, accents folded, two characters or more (« IA »,
+    « RH », « 35 » kept), a short list of French stop words left out."""
+    return [w for w in _WORD.findall(fold(text)) if len(w) >= 2 and w not in STOP_WORDS]
 
 
 def bm25(query: str, documents: Sequence[str]) -> list[float]:

@@ -6106,7 +6106,7 @@ def _chain_kinds(r: Run) -> list[str]:
 def _add_stage(r: Run, label: str) -> None:
     r.page.locator("#rag-palette-a select").select_option(label=label)
     r.page.locator("#rag-palette-a .rag-palette-add").click()
-    time.sleep(0.4)  # the session's verdict (`/api/rag_lab/validate`)
+    time.sleep(0.8)  # the session's verdict (`/api/rag_lab/validate`, after a 200 ms pause)
 
 
 def _stage_button(r: Run, kind: str, label: str):
@@ -6142,7 +6142,7 @@ def _rag_lab_hybrid(r: Run) -> None:
     after_button = _stage_button(r, "rerank", "Déplacer après")
     after_button.focus()
     page.keyboard.press("Enter")  # by the keyboard, never by drag and drop
-    time.sleep(0.4)
+    time.sleep(0.8)
     kinds = _chain_kinds(r)
     r.check(
         before[3:7] == ["vector_search", "lexical_search", "rerank", "fusion"]

@@ -5978,6 +5978,7 @@ const SESSION_STATES = {
   reset: "réinitialisation",
   diagnostic: "diagnostic",
   llm_lab: "écran LLM nu", // story 29
+  rag_lab: "atelier RAG", // story 30
 };
 
 // Story 29: how a generation of the « LLM nu » screen ended.

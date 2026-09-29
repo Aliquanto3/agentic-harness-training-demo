@@ -590,7 +590,7 @@ def test_stop_while_the_passages_are_embedded_leaves_no_file(index):
 
             def embed_passages(self, texts):  # noqa: ANN001, ANN202
                 seen.append(texts)
-                if len(seen) == 10:
+                if len(seen) == 3:  # batches of 8 passages: 3 of 10
                     session.stop()
                 return real.embed_passages(texts)
 
@@ -658,6 +658,157 @@ def test_fastembed_unavailable_without_the_package_then_available(index, monkeyp
     assert FakeTextEmbedding.opened[-1]["local_files_only"] is True
     assert ended(events, "vector_store", "b")["status"] == "ok"  # its own sqlite-vec index
     assert session._load_registry.holder("rag_lab.embedding") is None
+    # The library (fastembed, onnxruntime) is counted for life, apart from the model.
+    assert session._load_registry.holder("rag_lab.fastembed") == "fastembed"
+
+
+def test_fastembed_invalid_section_says_why(index):
+    session, _ = ready(index)
+    values = rerank_config(index)
+    values["rag_lab"] = {"fastembed": {"model_name": "fake/minilm", "dims": 0, "label_fr": "F"}}
+    session.cfg = config.Config(values=values)
+    model, reason = session.cfg.rag_lab_fastembed
+    assert model is None and "[rag_lab.fastembed] est invalide (dims)" in reason
+
+
+def test_fastembed_checks_the_declared_models_own_folder(index, monkeypatch):
+    import importlib.machinery
+    import sys
+    import types
+
+    module = types.ModuleType("fastembed")
+    module.__spec__ = importlib.machinery.ModuleSpec("fastembed", None)
+    monkeypatch.setitem(sys.modules, "fastembed", module)
+    session, _ = ready(index)
+    values = rerank_config(index)
+    values["rag_lab"] = {"fastembed": {"model_name": "fake/minilm", "dims": 64, "label_fr": "F"}}
+    session.cfg = config.Config(values=values)
+    other = config.models_dir() / "fastembed" / "models--other--model"
+    other.mkdir(parents=True)
+    (other / "model.onnx").write_bytes(b"\0")  # another model's file does not count
+    assert "models--fake--minilm" in session._rag_lab_fastembed()[1]
+
+
+# ---------- review: settings, run's end, loans, brick switched off, BM25 ----------
+
+
+def test_settings_omitted_are_the_bricks_own_rag_values(index):
+    place_model()
+    place_reranker()
+    values = rerank_config(index)
+    values["rag"]["top_k"], values["rag"]["rerank_candidates"] = 4, 10
+    session, _ = lab_session(values)
+    catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
+    bare = catalog.default.model_copy(deep=True)
+    for s in bare.stages:
+        s.params = {}  # every setting left to the catalog's values ([rag])
+    assert rag_lab.validate_pipeline(bare, catalog) is None
+    events = run(session, QUESTION, [bare])
+    assert "700 caractères" in ended(events, "chunking")["output_fr"]
+    assert len(ended(events, "vector_search")["items"]) == 10
+    assert len(ended(events, "context")["items"]) == 4
+
+
+def test_the_run_always_ends_even_when_the_comparison_fails(index, monkeypatch):
+    session, _ = ready(index)
+    _, a, b = chains(session)
+
+    def broken(*args):  # noqa: ANN002, ANN202
+        raise RuntimeError("comparaison cassée")
+
+    monkeypatch.setattr(rag_lab, "compare", broken)
+    events = run(session, QUESTION, [a, b])
+    assert run_status(events) == "error" and session.state == "idle"
+
+
+def test_the_run_always_ends_even_when_an_event_cannot_be_emitted(index):
+    session, _ = ready(index)
+    real = session._rag_lab_emit
+    failed = []
+
+    def emit(kind, payload, step_id, component):  # noqa: ANN001, ANN202
+        if kind == "rag_lab_stage_ended" and not failed:
+            failed.append(kind)
+            raise ValueError("émission impossible")
+        return real(kind, payload, step_id, component)
+
+    session._rag_lab_emit = emit  # type: ignore[method-assign]
+    events = run(session)
+    ends = [e for e in events if e.kind == "rag_lab_run_ended"]
+    assert len(ends) == 1 and ends[0].payload["status"] == "error"
+    assert session.state == "idle" and session._cancel is None
+
+
+def test_two_lanes_load_each_model_once(index):
+    session, rerankers = ready(index)
+    embedders = session._embedder_factory
+    grants = []
+    registry = session._load_registry
+    original = registry.grant
+    registry.grant = lambda *a, **k: (grants.append(a[2] if len(a) > 2 else a), original(*a, **k))  # type: ignore[method-assign]
+    _, a, b = chains(session)
+    stage(b, "vector_store").option = "memory"
+    events = run(session, QUESTION, [a, b])
+    assert run_status(events) == "ok"
+    assert len(embedders.made) == 1 and len(rerankers.made) == 1
+    assert sorted(grants) == ["embedding", "reranker"]
+    assert embedders.made[0].closed and rerankers.made[0].closed
+    assert registry.holder("embedding") is None and registry.holder("reranker") is None
+
+
+def test_a_brick_switched_off_during_a_run_waits_for_its_end(index):
+    place_model()
+    place_reranker()
+    session, rerankers = session_for(rerank_config(index))  # the brick holds both models
+    embedder = session._embedder_factory.made[0]
+    gate = threading.Event()
+    rerankers.made[0].before_each = lambda: gate.wait(timeout=5)
+    mark = get_journal().last_seq()
+    session.run_rag_lab(QUESTION)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not [
+        e
+        for e in get_journal().events_since(mark)
+        if e.kind == "rag_lab_stage_started" and e.payload["kind"] == "rerank"
+    ]:
+        time.sleep(0.01)
+    session.set_brick("rag", False)  # class (a): its release waits on the worker
+    time.sleep(0.1)
+    assert not embedder.closed and session.state == "rag_lab"
+    gate.set()
+    wait_idle(session)
+    session.join()
+    events = [e for e in get_journal().events_since(mark) if e.context_id == "rag_lab"]
+    for kind in KINDS:
+        assert ended(events, kind)["status"] == "ok", kind
+    assert ended(events, "embedding")["borrowed"] and run_status(events) == "ok"
+    assert embedder.closed  # released by the brick, after the run
+
+
+def test_the_bricks_index_unreadable_fails_the_chunking(index, monkeypatch):
+    session, _ = ready(index)
+
+    def broken(path):  # noqa: ANN001, ANN202
+        raise OSError("disque illisible")
+
+    monkeypatch.setattr(rag_lab.rag_index, "read_chunks", broken)
+    events = run(session)
+    chunking = ended(events, "chunking")
+    assert chunking["status"] == "error" and "ne se lit pas" in chunking["error_fr"]
+    assert ended(events, "embedding")["status"] == "skipped"
+
+
+def test_bm25_keeps_codes_and_numbers_folds_accents_drops_stop_words():
+    terms = rag_lab.bm25_terms("L'IA et les RH : 35 jours de Télétravail")
+    assert terms == ["ia", "rh", "35", "jours", "teletravail"]
+    scores = rag_lab.bm25("télétravail RH", ["Le teletravail", "Les RH et la paie", "Autre"])
+    assert scores[0] > 0 and scores[1] > 0 and scores[2] == 0
+
+
+def test_a_nan_score_counts_as_zero_and_counts_agree():
+    assert rag_lab.top([(float("nan"), 1), (0.5, 2)], 2) == [(2, 0.5), (1, 0.0)]
+    assert rag_lab.count_fr(1, "extrait") == "1 extrait"
+    assert rag_lab.count_fr(1536, "extrait") == "1\u202f536 extraits"
 
 
 # ---------- state, content, sandbox ----------

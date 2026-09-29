@@ -110,10 +110,24 @@ function loadChains() {
   } catch {
     saved = null;
   }
-  // Only the shape is checked here; the session says whether a chain runs (AD-1).
+  // Only the shape the session accepts is checked here (a saved chain of an older page, or
+  // edited by hand, falls back to the shipped one); the session says whether a chain runs.
+  const only = (value, keys) =>
+    value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).every((k) => keys.includes(k));
+  const stageShaped = (s) =>
+    only(s, ["id", "kind", "option", "params"]) &&
+    typeof s.id === "string" &&
+    /^[a-z0-9_]{1,16}$/.test(s.id) &&
+    typeof s.kind === "string" &&
+    typeof s.option === "string" &&
+    (s.params === undefined || (only(s.params, Object.keys(s.params)) && Object.values(s.params).every(Number.isInteger)));
   const shaped = (p) =>
-    Array.isArray(p?.stages) &&
-    p.stages.every((s) => typeof s?.id === "string" && typeof s?.kind === "string" && typeof s?.option === "string");
+    only(p, ["label_fr", "stages"]) &&
+    (p.label_fr === undefined || (typeof p.label_fr === "string" && p.label_fr.length >= 1 && p.label_fr.length <= 40)) &&
+    Array.isArray(p.stages) &&
+    p.stages.length >= 1 &&
+    p.stages.length <= 12 &&
+    p.stages.every(stageShaped);
   const pipelines = Array.isArray(saved?.pipelines) ? saved.pipelines.slice(0, 2) : [];
   if (!pipelines.length || !pipelines.every(shaped)) return [clone(store.defaultPipeline)];
   return pipelines;
@@ -149,9 +163,14 @@ function paramInput(lane, stage, param) {
   input.dataset.param = param.name;
   input.title = `De ${fmtInt(param.min)} à ${fmtInt(param.max)} ${param.unit_fr}`.trim();
   input.addEventListener("change", () => {
-    const value = Number.parseInt(input.value, 10);
+    const value = Number(input.value);
     stage.params = { ...(stage.params || {}) };
-    if (Number.isFinite(value)) stage.params[param.name] = value;
+    if (input.value.trim() !== "" && Number.isInteger(value)) {
+      stage.params[param.name] = value;
+    } else {
+      // A field cleared or not a whole number: the value the chain keeps, shown again.
+      input.value = String(stage.params[param.name] ?? param.default);
+    }
     saveChains();
     validateChains();
   });
@@ -299,17 +318,40 @@ function changed() {
 }
 
 // The session's verdict on the chains being edited, shown on the card at fault.
-async function validateChains() {
+// Asked once the edits pause (a run's fields send several at once): one request, the last.
+let validationTimer = null;
+function validateChains() {
+  clearTimeout(validationTimer);
+  validationTimer = setTimeout(askValidation, 200);
+}
+
+async function askValidation() {
   const asked = ++store.validating;
   const answer = await post("/api/rag_lab/validate", { pipelines: store.pipelines });
   if (asked !== store.validating) return;
   if (answer.ok) {
     store.refusals = answer.body.refusals ?? [];
+  } else if (answer.status === 422) {
+    // A chain the session cannot even read: back to the shipped one.
+    store.pipelines = [clone(store.defaultPipeline)];
+    forgetChains();
+    renderChains();
+    validateChains();
+    return;
   } else {
     store.refusals = [{ lane: null, stage_id: null, reason_fr: refusalText(answer) }];
   }
   renderRefusals();
   renderBusy();
+}
+
+// The reasons said once to a screen reader, when they change (never at each render).
+let announced = "";
+function announceRefusals() {
+  const said = store.refusals.map((r) => r.reason_fr).join(" ");
+  if (said === announced) return;
+  announced = said;
+  $("rag-refusal-live").textContent = said;
 }
 
 function renderRefusals() {
@@ -327,15 +369,14 @@ function renderRefusals() {
       : null;
     if (card) {
       card.classList.add("is-invalid");
-      const note = el("p", "rag-chain-refusal", refusal.reason_fr);
-      note.setAttribute("role", "alert");
-      card.querySelector(".rag-chain-head").after(note);
+      card.querySelector(".rag-chain-head").after(el("p", "rag-chain-refusal", refusal.reason_fr));
     } else {
       const general = $(`rag-chain-refusal-${lane}`);
       general.hidden = false;
       general.textContent = refusal.reason_fr;
     }
   }
+  announceRefusals();
 }
 
 function renderChains() {
@@ -394,6 +435,7 @@ function applyEnvelope(envelope) {
   switch (envelope.kind) {
     case "session_state":
       store.session = { state: p.state, reason_fr: p.reason_fr };
+      if (p.state === "idle" && closeStaleRun()) renderResults();
       renderBusy();
       return;
     case "rag_lab_run_started":
@@ -434,6 +476,18 @@ function applyEnvelope(envelope) {
   }
   renderResults();
   renderBusy();
+}
+
+// A run whose end never came (WaveStack failed between two events) while the session is
+// back in `idle`: said ended in error, never left « en cours ».
+function closeStaleRun() {
+  const run = store.run;
+  if (!run || run.ended) return false;
+  run.ended = { status: "error", duration_ms: null, comparison: null };
+  for (const lane of run.lanes) {
+    for (const stage of lane.stages) if (!stage.ended) stage.status = "skipped";
+  }
+  return true;
 }
 
 const STATUS_KEYS = {
@@ -539,7 +593,7 @@ function renderResults() {
     return;
   }
   const status = run.ended ? text(STATUS_KEYS[run.ended.status === "ok" ? "ok" : run.ended.status]) : text("status.running_fr");
-  summary.textContent = `« ${run.question} » · ${status}${run.ended ? ` · ${fmtInt(run.ended.duration_ms)} ms` : ""}`;
+  summary.textContent = `« ${run.question} » · ${status}${typeof run.ended?.duration_ms === "number" ? ` · ${fmtInt(run.ended.duration_ms)} ms` : ""}`;
   box.dataset.lanes = String(run.lanes.length);
   renderComparison(run.ended?.comparison ?? null);
   for (const lane of run.lanes) {
@@ -733,6 +787,7 @@ async function refresh() {
   store.run = null;
   for (const envelope of body.last_run) applyEnvelope(envelope);
   store.lastSeq = body.seq;
+  if (store.session.state === "idle") closeStaleRun();
   renderResults();
   renderBusy();
   return body;

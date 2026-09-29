@@ -96,8 +96,9 @@ stages:
     label_fr: "Recherche lexicale BM25"
     explain_fr: >-
       Une recherche par mots, sans embedding : les extraits qui partagent des mots avec la
-      question passent devant, un mot rare pesant plus qu'un mot courant (BM25). Elle retrouve
-      un nom propre ou un code exact qu'un embedding peut manquer.
+      question passent devant, un mot rare pesant plus qu'un mot courant (BM25) ; les accents et
+      les petits mots (le, de, et…) sont ignorés. Elle retrouve un sigle, un code ou un nombre
+      exact (« RH », « 35 ») qu'un embedding peut manquer.
   fusion:
     label_fr: "Fusion"
     explain_fr: >-

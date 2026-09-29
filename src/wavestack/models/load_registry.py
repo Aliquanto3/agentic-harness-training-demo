@@ -34,6 +34,7 @@ RAG_LAB_EMBEDDING = "rag_lab.embedding"  # story 30: the RAG workshop's fastembe
 # (a Python module does not unload).
 RAG_LAB_FAISS = "rag_lab.faiss"
 RAG_LAB_LANCEDB = "rag_lab.lancedb"
+RAG_LAB_FASTEMBED = "rag_lab.fastembed"  # fastembed and onnxruntime, imported once
 _MIB = 1024**2
 
 

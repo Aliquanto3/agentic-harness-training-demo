@@ -753,3 +753,16 @@ body.rag-page {
   overflow-wrap: break-word;
   hyphens: auto;
 }
+
+/* Read by a screen reader only: the chain's refusals, announced when they change. */
+.rag-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

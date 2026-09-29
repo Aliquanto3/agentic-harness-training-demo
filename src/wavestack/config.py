@@ -293,6 +293,18 @@ class FastembedModel(_Strict):
     model_name: str = Field(min_length=1)
     dims: int = Field(gt=0)
     label_fr: str = Field(min_length=1)
+    # The model's own folder under `models/fastembed`, as fastembed's cache names it; by
+    # default `models--{model_name, « / » as « -- »}`.
+    folder: str | None = Field(default=None, min_length=1)
+
+    @field_validator("folder")
+    @classmethod
+    def _inside_fastembed_dir(cls, value: str | None) -> str | None:
+        return None if value is None else _relative_path(value)
+
+    @property
+    def folder_name(self) -> str:
+        return self.folder or "models--" + self.model_name.replace("/", "--")
 
 
 def _merge_cloud_models(base: Any, override: Any) -> list[Any]:
@@ -702,6 +714,13 @@ class Config:
         """Story 30 (AD-8): what importing FAISS is expected to add, `[rag_lab] faiss_cost_mb`
         (16 MB measured on Linux, 37 MB with numpy's first import)."""
         return max(0, self._int("rag_lab", "faiss_cost_mb", default=60)) * 1024 * 1024
+
+    @property
+    def rag_lab_fastembed_cost_bytes(self) -> int:
+        """Story 30 (AD-8): what importing fastembed (and onnxruntime) is expected to add, for
+        the life of WaveStack, `[rag_lab] fastembed_cost_mb`; the model itself is counted
+        apart, by its files' size, and released after each run."""
+        return max(0, self._int("rag_lab", "fastembed_cost_mb", default=150)) * 1024 * 1024
 
     @property
     def rag_lab_lancedb_cost_bytes(self) -> int:

@@ -135,6 +135,9 @@ files = [
 # (un module Python ne se décharge pas), en Mo. Mesuré sous Linux : +16 à 37 Mo et +104 à 121 Mo.
 faiss_cost_mb = 60
 lancedb_cost_mb = 180
+# fastembed et onnxruntime, comptés à leur premier import comme FAISS et LanceDB (à mesurer
+# sur le PC cible) ; le modèle lui-même est compté à part, par la taille de ses fichiers.
+fastembed_cost_mb = 150
 
 [tools]
 # Bornes de la boucle de tour (AD-10), affichées sur la carte de la brique outils.

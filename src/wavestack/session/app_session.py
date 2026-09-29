@@ -126,6 +126,7 @@ from wavestack.models.load_registry import (
     EMBEDDING,
     RAG_LAB_EMBEDDING,
     RAG_LAB_FAISS,
+    RAG_LAB_FASTEMBED,
     RAG_LAB_LANCEDB,
     RERANKER,
     LoadRegistry,
@@ -264,6 +265,7 @@ _PREFIX_CAUSES_FR = {
     "llm": "L'écran « LLM nu » a occupé le cache du moteur{why}.",
 }
 _LAB_FR = "L'écran « LLM nu » génère une réponse : attendez sa fin ou arrêtez-la."
+RAG_LAB_CATALOG_TTL_S = 5.0  # story 30: the validation's catalog, read again after this
 _RAG_LAB_FR = "Atelier RAG : exécution en cours ; attendez sa fin ou arrêtez-la."
 CANDIDATES = 5  # story 29: the candidates read with each token, the one drawn added if apart
 _SUBAGENT_EVICTED_FR = {
@@ -861,6 +863,8 @@ class AppSession:
         # the ones whose import failed (a DLL blocked), then unavailable with the reason.
         self._rag_lab_imported: dict[str, int | None] = {}
         self._rag_lab_import_errors: dict[str, str] = {}
+        # The catalog the validation of an edited chain reads (`_rag_lab_recent_catalog`).
+        self._rag_lab_catalog_kept: tuple[float, Any, rag_lab.Catalog] | None = None
         self._load_content()
         self._registry = ToolRegistry(
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
@@ -7687,7 +7691,9 @@ class AppSession:
         model, error = self.cfg.rag_lab_fastembed
         if model is None:
             return None, error
-        folder = embedding_module.fastembed_dir()
+        if "fastembed" in self._rag_lab_import_errors:
+            return None, self._rag_lab_import_errors["fastembed"]
+        folder = embedding_module.fastembed_dir() / model.folder_name
         if not folder.is_dir() or not any(folder.rglob("*.onnx")):
             return None, (
                 f"Indisponible : les fichiers du modèle fastembed ne sont pas dans {folder}. "
@@ -7761,6 +7767,18 @@ class AppSession:
         )
         return run_id
 
+    def _rag_lab_recent_catalog(self, texts: rag_lab.RagLabContent) -> rag_lab.Catalog:
+        """The catalog read from the disk (index, model files, installed libraries) at most
+        `RAG_LAB_CATALOG_TTL_S` ago: a chain edited field by field is checked without reading
+        the disk again each time. A run reads it afresh."""
+        now = time.monotonic()
+        kept = self._rag_lab_catalog_kept
+        if kept is not None and kept[1] is texts and now - kept[0] < RAG_LAB_CATALOG_TTL_S:
+            return kept[2]
+        catalog = self._rag_lab_catalog(texts)
+        self._rag_lab_catalog_kept = (now, texts, catalog)
+        return catalog
+
     def validate_rag_lab(self, pipelines: list[rag_lab.Pipeline]) -> dict[str, Any]:
         """`POST /api/rag_lab/validate` (story 30, increment 4), read only: the reason each
         chain would be refused for, and the stage at fault, so that the page says it on the
@@ -7772,7 +7790,7 @@ class AppSession:
                 "valid": False,
                 "refusals": [{"lane": None, "stage_id": None, "reason_fr": reason}],
             }
-        catalog = self._rag_lab_catalog(texts)
+        catalog = self._rag_lab_recent_catalog(texts)
         refusals = []
         for lane, chain in zip("ab", pipelines, strict=False):
             refusal = rag_lab.check_pipeline(chain, catalog)
@@ -7794,6 +7812,7 @@ class AppSession:
         cannot be closed meanwhile. What the run loads is closed and freed at its end (AD-8),
         and the session goes back to `idle` with the reason it had."""
         loans = rag_lab.Loans(self._load_registry)
+        lab_run: rag_lab.LabRun | None = None
         try:
             content = self._rag_content
             model = self._rag_model
@@ -7817,7 +7836,8 @@ class AppSession:
                 emit=self._rag_lab_emit,
                 rss=self._rss_now,
             )
-            rag_lab.LabRun(run_id, question, chains, deps).run()
+            lab_run = rag_lab.LabRun(run_id, question, chains, deps)
+            lab_run.run()
         except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
             with scoped(**self._rag_lab_scope(run_id, "rag_lab", brick=None)):
                 self._error(
@@ -7825,6 +7845,11 @@ class AppSession:
                     exc,
                     "La session revient en attente ; l'atelier reste utilisable.",
                 )
+            if lab_run is not None and not lab_run.ended:
+                try:  # the page never stays « en cours »
+                    lab_run.end("error", 0)
+                except Exception:  # noqa: BLE001, S110 - the error above says it already
+                    pass
         finally:
             errors = loans.close()
             if errors:
@@ -7895,7 +7920,8 @@ class AppSession:
         model, reason = self._rag_lab_fastembed()
         if model is None:
             raise rag_lab.StageFailed(reason or "fastembed indisponible.")
-        folder = embedding_module.fastembed_dir()
+        self._rag_lab_import("fastembed")  # the library, counted for life (AD-8)
+        folder = embedding_module.fastembed_dir() / model.folder_name
         sizes = [p.stat().st_size for p in folder.rglob("*") if p.is_file()]
         return loans.lend(
             borrowed=None,
@@ -7908,12 +7934,21 @@ class AppSession:
         )
 
     def _rag_lab_import(self, option: str) -> rag_lab.Imported:
-        """FAISS or LanceDB, imported once for the life of WaveStack (AD-8): the budget first
-        (`[rag_lab] faiss_cost_mb`, `lancedb_cost_mb`), then the import and its grant in its
-        own slot, never released. An import refused (a DLL blocked by AppLocker) is said in
-        French, and the option becomes unavailable."""
-        module_name, label = rag_lab.LIBRARIES[option]
-        slot = RAG_LAB_FAISS if option == "faiss" else RAG_LAB_LANCEDB
+        """FAISS, LanceDB or fastembed, imported once for the life of WaveStack (AD-8): the
+        budget first (`[rag_lab] faiss_cost_mb`, `lancedb_cost_mb`, `fastembed_cost_mb`),
+        then the import and its grant in its own slot, never released. A failed import (a DLL
+        blocked by AppLocker, a broken install) is said in French, recorded, and the option
+        becomes unavailable."""
+        module_name, label, slot, cost = {
+            "faiss": ("faiss", "FAISS", RAG_LAB_FAISS, self.cfg.rag_lab_faiss_cost_bytes),
+            "lancedb": ("lancedb", "LanceDB", RAG_LAB_LANCEDB, self.cfg.rag_lab_lancedb_cost_bytes),
+            "fastembed": (
+                "fastembed",
+                "fastembed",
+                RAG_LAB_FASTEMBED,
+                self.cfg.rag_lab_fastembed_cost_bytes,
+            ),
+        }[option]
         if option in self._rag_lab_import_errors:
             raise rag_lab.StageFailed(self._rag_lab_import_errors[option])
         if option in self._rag_lab_imported:
@@ -7923,11 +7958,6 @@ class AppSession:
                 importlib.import_module(module_name),
                 [("Import", f"déjà fait dans cette session ({said}), compté à vie")],
             )
-        cost = (
-            self.cfg.rag_lab_faiss_cost_bytes
-            if option == "faiss"
-            else self.cfg.rag_lab_lancedb_cost_bytes
-        )
         refusal = self._load_registry.check_component(label, cost, slot)
         if refusal is not None:
             raise rag_lab.StageFailed(refusal)
@@ -7939,6 +7969,15 @@ class AppSession:
                 f"Import refusé : {label} n'a pas pu être chargé ({type(exc).__name__} : {exc}). "
                 "Une stratégie de sécurité (AppLocker, WDAC) bloque peut-être ses bibliothèques "
                 "non signées ; les autres bases vectorielles restent utilisables."
+            )
+            self._rag_lab_import_errors[option] = reason
+            raise rag_lab.StageFailed(reason) from exc
+        except Exception as exc:  # noqa: BLE001 - a broken install (numpy ABI…), said once
+            reason = (
+                f"Import en échec : {label} n'a pas pu être chargé ({type(exc).__name__} : "
+                f"{exc}). Son installation est peut-être abîmée : relancez "
+                f"`{rag_lab.INSTALL_FR}` depuis le dossier de WaveStack ; les autres options "
+                "restent utilisables."
             )
             self._rag_lab_import_errors[option] = reason
             raise rag_lab.StageFailed(reason) from exc
@@ -7961,7 +8000,9 @@ class AppSession:
         if option == "fastembed":
             model, _ = self._rag_lab_fastembed()
             assert model is not None  # the stage loaded it
-            size, sha = rag_lab.folder_identity(embedding_module.fastembed_dir())
+            size, sha = rag_lab.folder_identity(
+                embedding_module.fastembed_dir() / model.folder_name
+            )
             return {"id": model.model_name, "dims": model.dims, "size": size, "sha256": sha}
         model = self._rag_model
         assert model is not None  # the stage loaded it

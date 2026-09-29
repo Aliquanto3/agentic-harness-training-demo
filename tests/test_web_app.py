@@ -60,6 +60,9 @@ def test_models_page_and_tabs_shared_with_the_diagnostic(monkeypatch, tmp_path):
     llm = client.get("/llm").text
     assert '<a href="/llm" aria-current="page">LLM nu</a>' in llm
     assert '<a href="/models">Modèles</a>' in llm
+    for page in (models.text, diagnostic, llm):  # story 30: the « Atelier RAG » tab
+        tabs = page[page.index('<nav class="page-tabs"') : page.index("</nav>")]
+        assert '<a href="/rag">Atelier RAG</a>' in tabs
     index = client.get("/").text  # the top bar's link, before the theme picker
     assert index.index('id="llm-link"') < index.index('id="theme-picker"')
     # Story 30: « Atelier RAG » next to it, in the same group, and its page's tabs.
