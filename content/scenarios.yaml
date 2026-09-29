@@ -250,8 +250,9 @@ scenarios:
     prompts:
       - >-
         Charge d'abord le skill meeting_minutes avec l'outil load_skill, puis rédige le
-        compte rendu de cette réunion : Paul présente le budget, Julie valide le planning,
-        prochaine réunion lundi à 10 h.
+        compte rendu de cette réunion à partir des éléments ci-dessous, sans lire de
+        fichier : Paul présente le budget, Julie valide le planning, prochaine réunion lundi
+        à 10 h.
 
   caveman:
     title_fr: Caveman

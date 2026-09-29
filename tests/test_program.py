@@ -261,6 +261,12 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
     label = load_skills_content(["meeting_minutes"]).skills["meeting_minutes"].label_fr
     assert "meeting_minutes" in skills.prompts[0] and "load_skill" in skills.prompts[0]
     assert "compte rendu" in skills.prompts[0]  # the fake provider's trigger (E2E)
+    # Lot K (A7): the meeting of the prompt, never the demo file's notes.
+    assert "à partir des éléments ci-dessous, sans lire de fichier" in skills.prompts[0]
+    skill = load_skills_content(["meeting_minutes"]).skills["meeting_minutes"]
+    assert "notes_reunion.txt" not in skill.description  # the catalog invites no reading
+    assert "Seulement si le message ne donne aucune note" in skill.body
+    assert "sans lire de fichier" in skill.body
     assert (
         "Déclencher le skill" in skills.description_fr and f"« {label} »" in skills.description_fr
     )
