@@ -32,6 +32,9 @@ synchronise les dépendances depuis `uv.lock`. La commande ouvre ensuite un navi
 - Domaines à autoriser : PyPI (`pypi.org`, `files.pythonhosted.org`), `abetlen.github.io`
   (roue CPU de `llama-cpp-python`), `github.com` et ses domaines de téléchargement,
   `huggingface.co` et `*.hf.co`.
+- Pour llama-server, facultatif (voir « Obtenir llama-server sans droits d'administrateur ») :
+  `api.github.com`, et les hôtes de téléchargement des releases GitHub,
+  `objects.githubusercontent.com` et `release-assets.githubusercontent.com`.
 
 Ces réglages de proxy concernent l'installation (via `uv`), pas WaveStack lui-même : une fois
 lancée, l'application ne peut sortir que vers les hôtes de sa propre liste blanche (AD-15,
@@ -342,7 +345,9 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   vectorielle peut être l'index sqlite-vec ou une **recherche exhaustive en mémoire** (Python pur,
   sans index) ; l'embedding peut être un modèle **fastembed** (ONNX), proposé seulement s'il est
   installé, déclaré dans `settings.json` (`"rag_lab": {"fastembed": {"model_name": …, "dims": …,
-  "label_fr": …}}`) et copié à la main sous `models/fastembed` du dossier de données : l'atelier ne
+  "label_fr": …}}`, `"folder"` en option) et copié à la main sous `models/fastembed/<son
+  dossier>` du dossier de données (par défaut `models--<model_name>`, « / » devenant « -- ») :
+  l'atelier ne
   télécharge jamais rien. Une chaîne refusée dit pourquoi, en nommant l'étape.
 - **Comparer deux configurations.** « Comparer avec une autre configuration » ouvre une chaîne
   B ; les deux s'exécutent l'une après l'autre sur la même question, en deux colonnes, suivies
@@ -352,7 +357,8 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
 - **Ajouter, retirer, déplacer.** Entre la base vectorielle et le contexte, les recherches, la
   fusion et le reranking se déplacent par leurs boutons « ◀ » et « ▶ » (au clavier aussi) et se
   retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le contexte : la
-  **recherche lexicale BM25** (par mots, sans embedding, k1 = 1,5 et b = 0,75) et la **fusion**
+  **recherche lexicale BM25** (par mots, sans embedding, k1 = 1,5 et b = 0,75 ; accents et petits
+  mots ignorés, sigles et nombres gardés, comme « RH » ou « 35 ») et la **fusion**
   des rangs réciproques (k = 60), qui combine deux recherches en une recherche hybride. Les
   autres étapes sont fixes. WaveStack vérifie la chaîne à chaque modification : une chaîne
   invalide (deux recherches sans fusion après elles, une fusion sans deux recherches avant elle,
@@ -398,6 +404,14 @@ uv run wavestack
   utilisables.
 - **Sans l'extra,** FAISS et LanceDB sont grisés dans l'Atelier RAG, avec la commande
   d'installation.
+- **fastembed n'est pas livré** (décision de la story 30) : ni dépendance ni extra de WaveStack,
+  car il ajoute onnxruntime et un client de téléchargement que le parcours n'a pas vérifiés hors
+  ligne sous la garde réseau, ni sous Windows. Un formateur qui veut le montrer l'ajoute sur son
+  poste seulement, depuis le dossier de WaveStack : `uv add --optional fastembed
+  "fastembed==0.8.1"`, puis `uv sync --extra compression --extra rag-alt --extra fastembed` ;
+  `git checkout pyproject.toml uv.lock` le retire avant une mise à jour. Son import est compté
+  à vie par le budget (`[rag_lab] fastembed_cost_mb = 150`), son modèle à part, le temps d'une
+  exécution.
 
 ## Modèle par défaut
 
@@ -441,6 +455,80 @@ modèle servi apparaît avec l'étiquette « Local », son serveur, son adresse 
 (« Local · Ollama · … », « Local · llama-server · … »). Un modèle servi n'est jamais choisi
 d'office ; un choix mémorisé est repris au lancement si le serveur le sert encore. Les modèles
 « cloud » d'Ollama (`…-cloud`), qui tournent chez ollama.com, ne sont pas listés.
+
+**Obtenir llama-server sans droits d'administrateur (Windows).** WaveStack n'installe pas
+llama-server. Sur un poste sans droits d'administrateur, prenez l'archive CPU officielle de
+llama.cpp, `llama-bNNNNN-bin-win-cpu-x64.zip`, publiée sur `github.com/ggml-org/llama.cpp`,
+décompressez-la dans votre profil (`%LOCALAPPDATA%\llama.cpp\<version>`, un dossier par
+version) et lancez l'exécutable par son chemin complet : rien ne s'installe, rien ne demande
+d'élévation. Dans PowerShell (Windows PowerShell 5.1 ou PowerShell 7), ligne par ligne :
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12   # PowerShell 5.1
+$px = @{}   # erreur 407 : lancez la ligne « Proxy », puis reprenez ici à Invoke-RestMethod
+$rel = Invoke-RestMethod -UseBasicParsing @px https://api.github.com/repos/ggml-org/llama.cpp/releases/latest
+$asset = $rel.assets | Where-Object name -match '^llama-b\d+-bin-win-cpu-x64\.zip$'
+if (-not $asset) { throw "Aucune archive llama-bNNNNN-bin-win-cpu-x64.zip dans la dernière release : prenez le repli b11239." }
+$zip = "$env:TEMP\$($asset.name)"; $dest = "$env:LOCALAPPDATA\llama.cpp\$($rel.tag_name)"
+Invoke-WebRequest -UseBasicParsing @px $asset.browser_download_url -OutFile $zip
+if ($asset.digest) { if (("sha256:" + (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()) -ne $asset.digest) { throw "Empreinte SHA-256 différente de celle publiée par GitHub : archive refusée." } else { "Empreinte SHA-256 vérifiée." } }
+Expand-Archive $zip -DestinationPath $dest -Force; Get-ChildItem $dest -Recurse | Unblock-File
+$llama = "$dest\llama-server.exe"; & $llama --version
+& $llama -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --port 8080 -np 1 -c 4096
+```
+
+La première ligne ne sert qu'à Windows PowerShell 5.1 ; `$asset.name` donne le nom de
+l'archive, `& $llama --version` la version. Si le téléchargement se traîne sous PowerShell 5.1,
+tapez d'abord `$ProgressPreference = "SilentlyContinue"`. Dans un nouveau terminal, sans rien
+retélécharger, retrouvez l'exécutable, puis lancez-le par la dernière ligne du bloc :
+
+```powershell
+$llama = Get-ChildItem "$env:LOCALAPPDATA\llama.cpp" -Recurse -Filter llama-server.exe | Sort-Object LastWriteTime | Select-Object -Last 1 -ExpandProperty FullName
+```
+
+Ligne « Proxy » (erreur 407 seulement) :
+
+```powershell
+$px = @{ Proxy = [System.Net.WebRequest]::GetSystemWebProxy().GetProxy("https://api.github.com"); ProxyUseDefaultCredentials = $true }
+```
+
+- **Erreur 407** (le proxy demande vos identifiants) : lancez la ligne « Proxy » ci-dessous. Elle
+  calcule le proxy du système (`GetSystemWebProxy().GetProxy(…)`) et fait passer `-Proxy` et
+  `-ProxyUseDefaultCredentials` à `Invoke-RestMethod` et à `Invoke-WebRequest` (par `@px`, repli
+  compris) ; reprenez ensuite le bloc à `Invoke-RestMethod`.
+- **Aucune archive trouvée** : le bloc s'arrête (« Aucune archive … : prenez le repli b11239. »).
+- **Intégrité** : quand l'API donne l'empreinte de l'archive (champ `digest`, SHA-256), le bloc
+  la compare à `Get-FileHash` et refuse une archive différente. Le repli, sans l'API, ne vérifie
+  rien : comparez `(Get-FileHash $zip).Hash` à l'empreinte de la page de la release si elle
+  s'ouvre.
+- **`Unblock-File`** retire la marque « téléchargé depuis Internet » (Mark of the Web) que
+  Windows pose sur les fichiers de l'archive. Si la politique du poste l'interdit, ou si
+  SmartScreen ou AppLocker bloque l'exécutable, arrêtez-vous : « non fait (poste) », sans
+  contourner.
+- Sous macOS ou Linux, prenez l'archive de la même release qui correspond au système.
+
+Si ça bloque encore :
+- **API GitHub refusée** (403, ou 407 qui persiste) : si `github.com` reste joignable, prenez la
+  version fixe `b11239` (la dernière le 2026-09-28) par son adresse directe :
+
+  ```powershell
+  $tag = "b11239"; if (-not $px) { $px = @{} }
+  $zip = "$env:TEMP\llama-$tag-bin-win-cpu-x64.zip"; $dest = "$env:LOCALAPPDATA\llama.cpp\$tag"
+  Invoke-WebRequest -UseBasicParsing @px "https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-$tag-bin-win-cpu-x64.zip" -OutFile $zip
+  Expand-Archive $zip -DestinationPath $dest -Force; Get-ChildItem $dest -Recurse | Unblock-File
+  $llama = "$dest\llama-server.exe"; & $llama --version
+  ```
+
+- **GitHub entièrement bloqué** : récupérez la même archive sur un autre réseau ou un autre
+  poste, ou auprès de votre formateur, et copiez-la dans `%TEMP%` (partage interne, OneDrive,
+  clé USB). Lancez alors les deux premières lignes du bloc de repli, avec `$tag` égal à la
+  version de l'archive copiée, sautez `Invoke-WebRequest` et reprenez à `Expand-Archive`.
+  Aucune autre source : ni winget, ni Chocolatey, ni installeur.
+- **Exécutable bloqué** (AppLocker, SmartScreen, ou « VCRUNTIME140.dll » ou « MSVCP140.dll »
+  introuvable) : relevez le message exact et transmettez-le au support, sans contourner le
+  blocage. WaveStack reste utilisable avec son moteur intégré ou avec Ollama.
+- Gardez `llama-server.exe` avec ses DLL : ne le copiez pas seul, et ne le décompressez pas dans
+  `Program Files`.
 
 **Le harnais construit toujours le texte.** Le gabarit de conversation du modèle est appliqué
 par WaveStack, comme pour un fichier : le serveur reçoit le texte déjà rendu, jamais des
@@ -663,7 +751,7 @@ Trois champs facultatifs :
 ## Développement
 
 ```bash
-uv sync --extra compression   # l'extra couvre le test de l'adaptateur Headroom
+uv sync --extra compression --extra rag-alt   # Headroom, FAISS et LanceDB : leurs tests
 uv run ruff check .
 uv run ruff format .
 uv run pytest

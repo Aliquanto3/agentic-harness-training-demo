@@ -2,7 +2,8 @@
 title: 'Guide de test et cahier de recette corrigés'
 type: 'chore'
 created: '2026-09-28'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '69f0cf398a14b0ea964fbc59956ae72517e22043'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -14,7 +15,17 @@ context:
   - '{project-root}/README.md'
 warnings:
   - oversized
-deferred: []
+deferred:
+  - summary: >-
+      Procédures PowerShell (llama-server, D11, Z2, Z3) jamais exécutées sous Windows ; chemins de clic du cahier non rejoués sur l'interface vivante.
+    evidence: |-
+      Pas de pwsh dans le conteneur ; libellés vérifiés contre le code seulement.
+    severity: medium (unverified)
+  - summary: >-
+      Contrôle Playwright du cahier jetable, hors du dépôt, qui imprime au lieu d'affirmer.
+    evidence: |-
+      Le cahier n'a aucun test dans tests/ ni tools/.
+    severity: low (unverified)
 ---
 
 <intent-contract>
@@ -103,6 +114,36 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-29 — Review pass
+- verdicts: 26 findings — high 3, medium 7, low 12, false 0, maybe-false 4 (l'auditeur d'intention confirme la lecture « précision de l'appelant » : pas de tests détaillés 22 à 34 dans le cahier, renvoi ; il relève que le renvoi ignore le cahier de la nuit déjà publié — retenu ci-dessous)
+- findings:
+  - `[low]` `[patch]` (intention + blind) renvoi qui ignore `cahier-recette-nuit-2026-09-28.html` et le prompt intermédiaire — renvoi complet.
+  - `[maybe-false]` `[defer]` (intention) procédures PowerShell jamais exécutées sous Windows ; chemins de clic non rejoués sur l'interface vivante — première passe sur PC.
+  - `[low]` `[patch]` (vérif.) nouvelle clé et collection du cahier sans contrôle — vérification « chaque test à faire à la première ouverture » ajoutée.
+  - `[maybe-false]` `[defer]` (vérif.) contrôle Playwright jetable qui imprime au lieu d'affirmer, hors du dépôt.
+  - `[high]` `[patch]` (blind + edge ×3) Z2 : clés permanentes effacées, conservées en mémoire d'un terminal que l'étape suivante ferme ; « Défaire » qui peut supprimer les GGUF ou les clés — Z2 réécrit sans aucun déplacement ni suppression, variables d'environnement du seul processus, dossier de données temporaire.
+  - `[high]` `[patch]` (blind + edge) scripts « mettre de côté » qui détruisent leur sauvegarde s'ils sont relancés (clés, `memory.json`) — sauvegarde gardée, relance refusée.
+  - `[medium]` `[patch]` (blind + edge) contrôle des clés au niveau Machine placé après les déplacements, sans Mistral — en premier, pour les deux.
+  - `[medium]` `[patch]` (blind + edge) Z2 ne neutralise ni le cache Hugging Face, ni LM Studio, ni Ollama — dossiers vides pour le processus, lignes attendues décrites.
+  - `[high]` `[patch]` (blind + edge) Z3 qui écrase ou supprime toute la clé `cloud` de `settings.json` — sauvegarde, modification de la seule entrée, restauration.
+  - `[low]` `[patch]` (blind) D1 encore édité à la main (BOM) — mêmes commandes Python.
+  - `[medium]` `[patch]` (blind) budget mémoire dynamique non relevé ; attentes C4, C5, X4 figées sur 4,0 Go ; guide et cahier en désaccord — budget relevé en P2, attentes rapportées à lui.
+  - `[low]` `[patch]` (blind) nombre de tests périmé, sauts de l'extra non expliqués — mis à jour.
+  - `[low]` `[patch]` (blind) cahier de la nuit non cité — regroupé avec l'intention.
+  - `[medium]` `[patch]` (blind) téléchargement de llama-server ni épinglé ni vérifié ; `Unblock-File` contre la consigne « ne pas contourner » — empreinte comparée, limite dite, arrêt si la politique l'interdit.
+  - `[low]` `[patch]` (blind) résultats impossibles à consigner (Z2, code d'erreur de P3), étapes de C4 différentes entre guide et cahier — champs ajoutés, textes alignés.
+  - `[medium]` `[patch]` (edge ×2) remède au 407 inopérant sans `-Proxy`, repli b11239 idem — proxy du système passé explicitement.
+  - `[low]` `[patch]` (edge) aucun fichier ne correspond au motif de l'archive : erreurs confuses — message qui renvoie au repli.
+  - `[high]` → regroupé (relance de D11, edge).
+  - `[high]` → regroupé (relance de la mise de côté, edge).
+  - `[medium]` → regroupé (dossiers de modèles, edge).
+  - `[high]` → regroupé (« Défaire » destructeur, edge).
+  - `[high]` → regroupé (nouveau terminal sans `$gk`, edge).
+  - `[high]` → regroupé (Windows Terminal fermé, edge).
+  - `[medium]` `[patch]` (edge) garde de lancement qui imprime False sans arrêter — arrêt explicite.
+  - `[maybe-false]` `[patch]` (edge « claim ») copie de C4 sondée au lancement : la sonde interrompue n'est jamais testée — copie créée pendant que WaveStack tourne, choisie à chaud.
+  - `[maybe-false]` `[patch]` (edge « deletion ») porte « la fusion attend le lot H » retirée — état du lot H rétabli.
 
 ## Design Notes
 
@@ -208,3 +249,16 @@ Repli si l'API est bloquée : `$tag = "b11239"`, puis l'URL `https://github.com/
   - **Attendu** : « Enregistré sur claude.ai » ; le statut est retrouvé.
   - **Critère** : même statut dans les deux navigateurs.
   - **Moyen** : à la main.
+
+## Auto Run Result
+Statut : done (2026-09-29, orchestrateur de nuit ; étapes 1 à 4 menées par l'orchestrateur ; une limite d'usage a interrompu l'implémentation, reprise ensuite sans perte).
+
+**Changement :** guide `guide-test-pc-palier-2.md`, cahier `cahier-recette-palier-2.html` et README corrigés. Installation de llama-server sans droits d'administrateur (bloc PowerShell identique aux trois endroits : proxy d'entreprise, contrôle SHA-256 quand l'API fournit l'empreinte, repli sur b11239, `Unblock-File` expliqué, arrêt « non fait (poste) » si la politique bloque). Tests peu clairs réécrits (geste, attendu, critère) ; Z2, D11, Z3 et D1 sans risque de perte de données (rien déplacé ni supprimé, sauvegardes gardées, relance refusée) ; budget mémoire dynamique relevé en P2 et repris en C4, C5, X4 ; nouveau test P3 ; clé `recette-palier-2-v2`, collection `results-v2`. Renvoi vers le cahier de la nuit et `prompt-test-pc-2026-09-29.md` pour les stories 22 à 34 (le cahier détaillé de la nuit est généré sur le PC cible).
+
+**Fichiers :** README.md (section llama-server, ligne proxy), `_bmad-output/implementation-artifacts/{guide-test-pc-palier-2.md,cahier-recette-palier-2.html}`.
+
+**Revue :** 26 constats — 18 corrigés (3 high, 6 medium, 7 low, 2 maybe-false), 2 différés, 6 regroupés ; voir le triage. Revue de suivi recommandée : false (les trois high portent sur des procédures documentaires, corrigées et relues).
+
+**Vérification :** ruff check et format verts ; pytest : 1294 passés, 3 ignorés (aucun code touché) ; rendu Playwright du cahier : 0 erreur de page, 30 tests pour 30 entrées, statuts et champs restaurés après rechargement, aucun défilement horizontal à 390 px ; blocs llama-server identiques caractère pour caractère dans les trois fichiers. E2E non concerné (documentation).
+
+**Risques résiduels :** aucune commande PowerShell exécutée (pas de pwsh dans le conteneur) : première passe sur le PC cible.
