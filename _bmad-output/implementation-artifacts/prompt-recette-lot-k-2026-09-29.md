@@ -14,8 +14,8 @@ Tu vas vérifier sur ce poste les huit corrections du lot K de WaveStack. Travai
   Modèles : Qwen3.5-2B et Qwen3.5-4B (dossier des modèles de WaveStack), llama-server `b11239`
   déjà installé dans `%LOCALAPPDATA%\llama.cpp` (sinon, point 8 d'abord).
 - Dépôt : branche `claude/lot-k-recette-pc`, commits `d50c1c4` (point 1) à `1297e2b` (point 8)
-  et `05e83d8` (suite du point 2), puis le commit de documentation `8c7ef9e` et le commit de
-  revue « fix: suites de la revue du lot K ».
+  et `05e83d8` (suite du point 2), puis le commit de documentation `8c7ef9e`, le commit de
+  revue `bfe28eb` et le bilan `8b2cab4` ; teste la tête de la branche.
 - Attendus détaillés : section « À vérifier sur PC » de
   `_bmad-output/implementation-artifacts/spec-lot-k-corrections-recette-pc-2026-09-29.md`
   (geste, attendu, critère, par point). Mesures d'avant le lot : `resultats-test-pc-2026-09-29.md`.
@@ -41,7 +41,9 @@ Tu vas vérifier sur ce poste les huit corrections du lot K de WaveStack. Travai
    `uv sync --extra compression`, `uv run ruff check .`, `uv run ruff format --check .`,
    `uv run pytest -q`, puis avec `WAVESTACK_TEST_GGUF` = le 2B :
    `uv run pytest -s -rA tests/test_program.py -k fits` (tableau par prompt : note la plus petite
-   marge), puis `uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py` (0 FAIL attendu,
+   marge), puis, avec `PYTHONUTF8=1` (sans lui, une sortie redirigée en cp1252 lève
+   `UnicodeEncodeError` et fait échouer la suite en cascade),
+   `uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py` (0 FAIL attendu,
    y compris `[linked_view]` aux quatre largeurs), et `git restore tools/e2e/screenshots`.
 2. **Point 1 (A2)** : l'entrée ancienne doit être lue par WaveStack. Dans le `settings.json`
    **jetable** seulement, réécris les clés de `probed_models` (et la valeur `ref` de
@@ -64,7 +66,9 @@ Tu vas vérifier sur ce poste les huit corrections du lot K de WaveStack. Travai
    IAM » prompt 1, « Vider la conversation », prompt 2 (liens cités, pas de débordement).
    « Métier Souveraineté » : prompt 1, secours « Forcer l'appel · datagouv__search_datasets »
    (préréglage « cybersécurité ») si besoin, « Vider la conversation », prompt 2 (secours
-   Microsoft Learn si besoin, question dans `query`). Relève les `outbound_request`, les
+   Microsoft Learn si besoin, préréglage « Journalisation des connexions admin (Souveraineté) »).
+   « Sous-agent » (constat reporté de la revue) : note la jauge avant l'envoi du prompt 4, pour
+   trancher le modèle d'historique du test `fits`. Relève les `outbound_request`, les
    `tool_started` (trigger), les statuts de tour et les réponses.
 5. **Point 4 (A3)** : fenêtre 8 192 enregistrée, `llama-server -np 1 -c 4096` sur le 2B,
    WaveStack relancé : bouton « Fenêtre 4 096 ▾ », infobulle « …, 8 192 choisi. » ; `/diagnostic`
