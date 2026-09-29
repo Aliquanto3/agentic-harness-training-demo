@@ -297,6 +297,7 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
     assert "ne la contourne pas" in soc.prompts[1] and "transmettre" in soc.prompts[1]
     # Lot K, suite (K2): the one to escalate to, named (the 2B wrote « au Démonstrateur »).
     assert "analyste" in soc.prompts[1] and "habilité" in soc.prompts[1]
+    assert "3 lignes au plus" in soc.prompts[1]
     assert "confidentiel" not in soc.prompts[1]  # the fake provider's own trigger (E2E)
     assert "analyste habilité" in soc.description_fr and "concluez vous-même" in soc.description_fr
     assert "« Forcer l'appel » sur « Lecture de fichier »" in soc.description_fr
@@ -341,7 +342,7 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
         text = scenario[scenario_id].description_fr
         seen = ("Ce qu'on observe", "load_tool_doc", "répond de tête", "« j'ai cherché »")
         assert all(words in text for words in seen), scenario_id
-        assert "ni appel de l'outil ni requête sortante" in text, scenario_id
+        assert "Orchestration ne montre" in text, scenario_id
         assert (
             "Pourquoi : un petit modèle enchaîne mal deux appels et prend la documentation pour "
             "la réponse" in text
@@ -354,6 +355,11 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
             < text.index("C'est la démonstration")
             < text.index("« Forcer l'appel · ")
         ), scenario_id
+    # The local glossary runs on the loopback, never traced as an outbound request (AD-15):
+    # « requête sortante » for the public servers of Souveraineté only.
+    assert "ni requête sortante" in scenario["sovereignty"].description_fr
+    assert "aucun appel de local__define_term" in scenario["mcp_lazy"].description_fr
+    assert "requête sortante" not in scenario["mcp_lazy"].description_fr
     # Two public search results do not fit together: the conversation emptied between them.
     for scenario_id in CLEARED_BETWEEN_PROMPTS:
         assert "« Vider la conversation »" in scenario[scenario_id].description_fr, scenario_id

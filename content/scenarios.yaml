@@ -219,7 +219,7 @@ scenarios:
       prompt et suivez dans Orchestration le chargement de la documentation, puis l'appel
       de local__define_term. Ce qu'on observe avec un petit modèle : il s'arrête après
       load_tool_doc et répond de tête, parfois en écrivant « j'ai cherché » alors
-      qu'Orchestration ne montre ni appel de l'outil ni requête sortante. Pourquoi : un petit
+      qu'Orchestration ne montre aucun appel de local__define_term. Pourquoi : un petit
       modèle enchaîne mal deux appels et prend la documentation pour la réponse. C'est la
       démonstration : cliquez « Forcer l'appel · local__define_term » sous « Glossaire
       WaveStack » dans la carte MCP (après « Afficher les actions forcées »), choisissez le
@@ -403,7 +403,8 @@ scenarios:
       - >-
         Pour qualifier cet incident, vérifie le rôle et le titulaire du compte adm.leroy en
         t'aidant des fichiers disponibles. Si une lecture t'est refusée, ne la contourne
-        pas : dis-le et propose de transmettre la vérification à un analyste SOC habilité.
+        pas : dis-le et propose de transmettre la vérification à un analyste SOC habilité,
+        en 3 lignes au plus.
 
   iam:
     title_fr: "Métier IAM : Entra ID avec Microsoft Learn"

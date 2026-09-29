@@ -2377,16 +2377,19 @@ def s_linked_view(r: Run) -> None:
                 node("Calculatrice").click()
                 time.sleep(0.3)
             problems = _top_bar_problems(r, chip)
+            if "Aa" in page.inner_text("#projection-toggle"):
+                problems.append("bouton de projection réduit à « Aa »")
             r.check(
                 not problems,
                 f"{width} × {height} en {mode} : barre sur une ligne, « Réinitialiser » entier, "
                 "légende de la jauge dégagée, « · lié » entier sur la puce (10 px de marge)",
                 "; ".join(problems) or f"puce « {chip.inner_text()} »",
             )
-        # Lot K, suite (K1): 1280 and 1366 px zoomed to 150 % (853 and 911 CSS px), the chip
-        # linked but free to give way: the bar on one line, « Réinitialiser » in the window,
-        # no horizontal scroll, the « Fenêtre » panel open whole in the window.
-        for width, height in ((853, 433), (911, 512)):
+        # Lot K, suite (K1): 1280 and 1366 px zoomed to 150 % (853 and 911 CSS px; a real
+        # Edge window's frame leaves a little less, 840), the chip linked but free to give
+        # way: the bar on one line, « Réinitialiser » in the window, no horizontal scroll, the
+        # « Fenêtre » panel open whole in the window, the projection button saying « Aa ».
+        for width, height in ((840, 433), (853, 433), (911, 512)):
             page.set_viewport_size({"width": width, "height": height})
             time.sleep(0.3)
             if "· lié" not in chip.inner_text():
@@ -2397,6 +2400,8 @@ def s_linked_view(r: Run) -> None:
                 problems.append(f"puce « {chip.inner_text()} » sans « · lié »")
             if cut := _fully_visible(r, "#reset-button"):
                 problems.append(f"« Réinitialiser » {cut}")
+            if (label := page.inner_text("#projection-toggle").strip()) != "Aa":
+                problems.append(f"bouton de projection « {label} » au lieu de « Aa »")
             scroll = page.evaluate(
                 "() => { const s = document.scrollingElement;"
                 " return s.scrollWidth - s.clientWidth; }"
@@ -2429,14 +2434,20 @@ def s_linked_view(r: Run) -> None:
                 or f"puce « {chip.inner_text()} » coupée de {chip_cut} px ; chiffres de la "
                 f"jauge sur {figures} px",
             )
-    page.set_viewport_size({"width": 1024, "height": 700})
-    time.sleep(0.3)
-    problems = _top_bar_problems(r, None)
-    r.check(
-        not problems,
-        "1024 × 700 : barre sur une ligne, « Réinitialiser » entier, légende de la jauge dégagée",
-        "; ".join(problems),
-    )
+    # 1280 px zoomed to 125 % (1024 CSS px; a real Edge window's frame leaves about 1005):
+    # the legend stays shown, whole and clear of « Fenêtre ▾ ».
+    for width in (1024, 1005):
+        page.set_viewport_size({"width": width, "height": 700})
+        time.sleep(0.3)
+        problems = _top_bar_problems(r, None)
+        if cut := _fully_visible(r, "#gauge-legend"):
+            problems.append(f"légende de la jauge {cut}")
+        r.check(
+            not problems,
+            f"{width} × 700 : barre sur une ligne, « Réinitialiser » entier, légende de la jauge "
+            "visible et dégagée",
+            "; ".join(problems),
+        )
     toggle.click()
     time.sleep(0.3)
     page.keyboard.press("Escape")

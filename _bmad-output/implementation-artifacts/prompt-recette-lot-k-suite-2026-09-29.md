@@ -55,11 +55,14 @@ Tu vas vérifier sur ce poste la suite du lot K de WaveStack. Travaille en fran�
    (secours « Comptes à privilèges (SOC, confidentiel) » si besoin) : `hook_decided h1 block`,
    réponse qui propose de transmettre à un **analyste SOC habilité** (ni « Démonstrateur » ni
    personne inventée).
-7. **K3, consignes** : relis les consignes de « Lazy loading » et « Métier Souveraineté » dans
+7. **K3, « Lazy loading »** : prompt 1 sans secours : note l'appel de `load_tool_doc`, si
+   `local__define_term` est appelé ou non, et la réponse ; puis le secours « Forcer l'appel ·
+   local__define_term » (préréglage « MCP »), « Armer », « Rejouer le dernier prompt » : appel
+   `trigger user`, réponse « Model Context Protocol ».
+8. **K3, consignes** : relis les consignes de « Lazy loading » et « Métier Souveraineté » dans
    l'application : ce qu'on observe, pourquoi, et « Forcer l'appel » présenté comme la
-   démonstration ; dis si elles collent à ce que fait le 2B aux étapes 5 et à un prompt 1 de
-   « Lazy loading ».
-8. **K7, icône** : Edge, profil neuf : aucune erreur 404 sur `/favicon.ico` en console ; icône
+   démonstration ; dis si elles collent à ce que fait le 2B aux étapes 5 et 7.
+9. **K7, icône** : Edge, profil neuf : aucune erreur 404 sur `/favicon.ico` en console ; icône
    violette « W » dans l'onglet de `/`, `/diagnostic`, `/models`, `/llm`.
-9. **Synthèse** : tableau des quatre points (OK / KO / non fait), mesures clés, anomalies avec
-   correctif proposé, et ce qui reste à la main pour Anaël.
+10. **Synthèse** : tableau des quatre points (OK / KO / non fait), mesures clés, anomalies avec
+    correctif proposé, et ce qui reste à la main pour Anaël.

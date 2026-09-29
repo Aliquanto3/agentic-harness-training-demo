@@ -272,8 +272,9 @@ def create_app(
 
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon() -> FileResponse:
-        """Lot K, suite (K7): Edge asks for `/favicon.ico` whatever the page declares; the
-        same SVG icon as each page's `<link rel="icon">`, not a 404 in its console."""
+        """Lot K, suite (K7): a browser asks for `/favicon.ico` when a page declares no icon
+        (the cause of the 404 seen in Edge) or on a direct request; the same SVG icon as each
+        page's `<link rel="icon">`."""
         return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
 
     @app.get("/")
