@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
+  <script src="/static/theme.js"></script>
   <title>WaveStack</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
@@ -52,6 +53,14 @@
     <button type="button" id="model-picker-apply" class="model-picker-apply" hidden>Charger</button>
     <span class="top-status" id="top-status" role="status" aria-live="polite"></span>
     <button type="button" id="projection-toggle" class="projection-toggle" aria-pressed="false" aria-label="Mode projection" title="Mode projection : agrandit tous les textes pour la salle ; le navigateur s'en souvient"><span class="projection-toggle-long">Mode projection</span><span class="projection-toggle-short" aria-hidden="true">Projection</span></button>
+    <span class="theme-picker-box" id="theme-picker-box">
+      <span class="theme-picker-face" aria-hidden="true"><span class="theme-picker-symbol" data-theme-symbol>◐</span><span class="theme-picker-chevron">▾</span></span>
+      <select id="theme-picker" class="theme-picker" data-theme-picker aria-label="Thème de l'interface" title="Thème de l'interface">
+        <option value="system">◐ Système</option>
+        <option value="light">☀ Clair</option>
+        <option value="dark">☾ Sombre</option>
+      </select>
+    </span>
     <button type="button" id="reset-button" class="reset-button">⟲ Réinitialiser</button>
   </header>
 

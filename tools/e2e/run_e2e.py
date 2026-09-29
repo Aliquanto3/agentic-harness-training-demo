@@ -852,6 +852,31 @@ def s_malformed(r: Run) -> None:
     )
 
 
+def _on_vivid_both_themes(r: Run, locator, prop: str = "color") -> list[str]:
+    """Story 31: `prop` of `locator` against --color-on-vivid, in light then in dark (the
+    attribute set by hand, then removed): the text on red, explicit in both themes."""
+    seen = []
+    for theme in (None, "dark"):
+        if theme:
+            r.page.evaluate("() => document.documentElement.setAttribute('data-theme', 'dark')")
+        seen.append((theme or "clair", r.css(locator, prop), r.token_color("--color-on-vivid")))
+        r.page.evaluate("() => document.documentElement.removeAttribute('data-theme')")
+    return [f"{theme} : {got} ≠ {want}" for theme, got, want in seen if got != want]
+
+
+def _error_tile_on_vivid(r: Run) -> None:
+    """Story 31: a model call that ended in error: its tile red, its letter in on-vivid."""
+    step = r.page.locator(
+        "#orch-scroll .turn-step.tone-error",
+        has=r.page.locator(".turn-step-title", has_text="Appelle le modèle"),
+    ).last
+    expect(step).to_be_attached(timeout=5000)
+    wrong = _on_vivid_both_themes(r, step.locator(".turn-step-tile"))
+    r.check(
+        not wrong, "appel au modèle en erreur : lettre de la tuile en --color-on-vivid", str(wrong)
+    )
+
+
 def s_provider_errors(r: Run) -> None:
     r.launch("bare_llm")
     for trigger, needle in [
@@ -880,6 +905,8 @@ def s_provider_errors(r: Run) -> None:
         )
         if trigger == "[erreur429]":
             r.shot("07-erreur-fournisseur-429")
+        if trigger == "[erreur500]":
+            _error_tile_on_vivid(r)
     ended = r.send("Bonjour")
     r.check(ended["payload"]["status"] == "completed", "WaveStack reste utilisable ensuite")
     seq = r.ev.mark()
@@ -1159,11 +1186,11 @@ def s_disciplines(r: Run) -> None:
     r.send("Résume l'article Wikipédia sur le Mont-Saint-Michel.")
     time.sleep(0.5)
 
-    # The top bar: ink, the legend of the disciplines, the figures.
-    ink = r.token_color("--color-ink")
+    # The top bar: ink (story 31: its role token, ink-fill), the legend, the figures.
+    ink = r.token_color("--color-ink-fill")
     r.check(
         r.css(page.locator(".top-bar"), "background-color") == ink,
-        "barre haute : fond --color-ink",
+        "barre haute : fond --color-ink-fill",
     )
     r.check(
         r.css(page.locator(".top-bar-title"), "color") == r.token_color("--color-on-ink"),
@@ -1350,7 +1377,7 @@ def s_disciplines(r: Run) -> None:
     r.check(
         r.css(bubble, "background-color") == ink
         and r.css(bubble, "color") == r.token_color("--color-on-ink"),
-        "dernière bulle de l'utilisateur : fond --color-ink, texte --color-on-ink",
+        "dernière bulle de l'utilisateur : fond --color-ink-fill, texte --color-on-ink",
     )
     bands = page.eval_on_selector_all(
         ".pane-header", "hs => hs.map(h => getComputedStyle(h).backgroundColor)"
@@ -1394,7 +1421,7 @@ def s_disciplines(r: Run) -> None:
 
     r.check(
         r.css(tile("Appelle le modèle"), "background-color") == ink,
-        "Orchestration : la tuile de l'appel au modèle a le fond --color-ink",
+        "Orchestration : la tuile de l'appel au modèle a le fond --color-ink-fill",
     )
     r.check(
         tile("Résumé Wikipédia").get_attribute("data-discipline") == "network",
@@ -1412,7 +1439,7 @@ def s_disciplines(r: Run) -> None:
     )
     r.check(
         r.css(plate.first, "background-color") == ink,
-        "schéma : la plaque du modèle a le fond --color-ink",
+        "schéma : la plaque du modèle a le fond --color-ink-fill",
     )
 
     def node(name: str):
@@ -1427,6 +1454,466 @@ def s_disciplines(r: Run) -> None:
         "schéma : le nœud Calculatrice est en harness engineering",
     )
     r.shot_element("33-disciplines-schema", '.pane[data-pane="schema"]')
+
+
+# ---------- story 31: the dark theme ----------
+
+THEME_KEY = "wavestack.theme"
+_PANES = ("bricks", "human", "ctx", "orch", "schema")
+
+# For every visible element that carries text: its first opaque background up the tree, the
+# WCAG ratio, the threshold (4.5; 3 from 24 px, or from 18.66 px in bold). Skipped, as WCAG
+# exempts them or as the ratio cannot be told: an ancestor at `opacity < 1` or disabled, a
+# background image. A native `select` counts, for the option it shows.
+_CONTRAST_SWEEP_JS = """(scopes) => {
+  const parse = (c) => {
+    const m = c.match(/rgba?\\(([^)]+)\\)/);
+    if (!m) return null;
+    const [r, g, b, a = 1] = m[1].split(/[ ,\\/]+/).filter(Boolean).map(Number);
+    return [r, g, b, a];
+  };
+  const over = (top, under) => top.slice(0, 3).map((v, i) => v * top[3] + under[i] * (1 - top[3]));
+  const lum = (rgb) => {
+    const l = rgb.map((v) => {
+      v /= 255;
+      return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2];
+  };
+  const ratio = (a, b) => {
+    const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05);
+  };
+  const exempt = (el) => {
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      if (parseFloat(getComputedStyle(n).opacity) < 1) return true;
+      if (n.matches(':disabled, [aria-disabled="true"]')) return true;
+    }
+    return false;
+  };
+  const background = (el) => {
+    const layers = [];
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const s = getComputedStyle(n);
+      if (s.backgroundImage !== 'none') return null;
+      const c = parse(s.backgroundColor);
+      if (c && c[3] > 0) { layers.push(c); if (c[3] >= 1) break; }
+    }
+    let rgb = [255, 255, 255];
+    if (!layers.length || layers[layers.length - 1][3] < 1) {
+      const scheme = getComputedStyle(document.documentElement).colorScheme;
+      if (scheme.includes('dark')) rgb = [18, 18, 18];
+    }
+    for (const layer of layers.reverse()) rgb = over(layer, rgb);
+    return rgb;
+  };
+  const failures = [];
+  const seen = new Set();
+  for (const scope of scopes) {
+    for (const root of document.querySelectorAll(scope)) {
+      for (const el of [root, ...root.querySelectorAll('*')]) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        const text = el.matches('select')
+          ? (el.selectedOptions[0]?.textContent || '')
+          : [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('');
+        if (!text.trim()) continue;
+        if (!el.checkVisibility({ visibilityProperty: true })) continue;
+        const box = el.getBoundingClientRect();
+        if (box.width <= 1 || box.height <= 1) continue;
+        if (exempt(el)) continue;
+        let bg = background(el);
+        if (!bg) continue;
+        const s = getComputedStyle(el);
+        // SVG text is painted by `fill`, over the shape drawn beside it (a marker's disc).
+        const svgText = el instanceof SVGTextContentElement;
+        if (svgText) {
+          const shape = [...el.parentNode.children].find((n) => n !== el
+            && n.matches('circle, rect, ellipse, path, polygon')
+            && (parse(getComputedStyle(n).fill) || [0, 0, 0, 0])[3] > 0);
+          if (shape) bg = over(parse(getComputedStyle(shape).fill), bg);
+        }
+        const fg = parse(svgText ? s.fill : s.color);
+        if (!fg || fg[3] === 0) continue;
+        const size = parseFloat(s.fontSize);
+        const bold = parseInt(s.fontWeight, 10) >= 700;
+        const threshold = size >= 24 || (size >= 18.66 && bold) ? 3 : 4.5;
+        const r = ratio(over(fg, bg), bg);
+        if (r < threshold) {
+          const name = `${el.tagName.toLowerCase()}.${[...el.classList].join('.')}`;
+          const said = text.trim().slice(0, 30);
+          failures.push(`${name} « ${said} » ${r.toFixed(2)} < ${threshold}`);
+        }
+      }
+    }
+  }
+  return failures;
+}"""
+
+
+def _contrast_sweep(r: Run, scopes: list[str]) -> list[str]:
+    """Story 31: every text of `scopes` that misses WCAG AA against its background. The pointer
+    rests first: the linked view would dim, hence exempt, most of the page."""
+    r.rest_pointer()
+    return r.page.evaluate(_CONTRAST_SWEEP_JS, scopes)
+
+
+def _design_rgb(key: str) -> str:
+    """A colour of DESIGN.md's frontmatter (`surface-dark`…), as `getComputedStyle` writes it."""
+    import yaml
+
+    design = next((REPO / "_bmad-output" / "planning-artifacts" / "ux-designs").glob("*/DESIGN.md"))
+    text = design.read_text(encoding="utf-8")
+    colors = yaml.safe_load(text.split("---\n", 2)[1])["colors"]
+    value = colors[key].lstrip("#")
+    return "rgb({}, {}, {})".format(*(int(value[i : i + 2], 16) for i in (0, 2, 4)))
+
+
+def _bar_fits(r: Run) -> tuple[bool, str]:
+    """Every control of the top bar whole, inside the bar, on one line; « Réinitialiser » too."""
+    controls = r.page.evaluate(
+        "() => [...document.querySelectorAll('.top-bar > *')]"
+        ".filter(e => e.id && e.offsetParent && e.getBoundingClientRect().width > 0"
+        " && getComputedStyle(e).position !== 'absolute')"
+        ".map(e => '#' + e.id)"
+    )
+    cut = {c: why for c in controls if (why := _fully_visible(r, c))}
+    ok = "#reset-button" in controls and "#theme-picker-box" in controls and not cut
+    return ok, f"{controls} ; {cut}"
+
+
+def _compact_picker(r: Run) -> str:
+    """'' when the compact theme picker shows only its face (the symbol of the choice and a
+    chevron), the native list lies whole over it, transparent, and the keyboard changes the
+    theme through it; else what is wrong. Back to « Système » after."""
+    page = r.page
+    state = page.evaluate(
+        "() => { const face = document.querySelector('.theme-picker-face');"
+        " const pick = document.getElementById('theme-picker');"
+        " const f = face.getBoundingClientRect(), s = pick.getBoundingClientRect();"
+        " return { face: face.checkVisibility() ? face.textContent : null,"
+        " opacity: getComputedStyle(pick).opacity,"
+        " covers: Math.abs(f.left - s.left) <= 1 && Math.abs(f.right - s.right) <= 1"
+        " && Math.abs(f.top - s.top) <= 1 && Math.abs(f.bottom - s.bottom) <= 1 }; }"
+    )
+    problems = []
+    if state["face"] != "◐▾":
+        problems.append(f"face « {state['face']} »")
+    if state["opacity"] != "0" or not state["covers"]:
+        problems.append(f"liste native : opacité {state['opacity']}, couvre {state['covers']}")
+    picker = page.locator("#theme-picker")
+    picker.focus()
+    page.keyboard.press("ArrowDown")
+    time.sleep(0.2)
+    moved = (picker.input_value(), _theme_attr(r), page.text_content(".theme-picker-face"))
+    if moved != ("light", "light", "☀▾"):
+        problems.append(f"au clavier : {moved}")
+    picker.select_option("system")
+    picker.blur()
+    return " ; ".join(problems)
+
+
+def _theme_attr(r: Run) -> str | None:
+    return r.page.evaluate("() => document.documentElement.getAttribute('data-theme')")
+
+
+def _stored_theme(r: Run) -> str | None:
+    return r.page.evaluate(f"() => localStorage.getItem('{THEME_KEY}')")
+
+
+def _body_bg(r: Run) -> str:
+    return r.css(r.page.locator("body"), "background-color")
+
+
+def s_themes(r: Run) -> None:
+    """Story 31: « Système » by default and following the workstation, « Sombre » chosen and
+    kept (before app.js, on every page), the tokens of the dark palette, the contrasts of both
+    themes, a corrupt value, no storage. Ends on « Système » and a light workstation."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    errors: list[str] = []
+    on_error = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", on_error)
+    try:
+        _themes(r, errors)
+    finally:
+        page.remove_listener("pageerror", on_error)
+        page.unroute("**/static/app.js")
+        page.emulate_media(color_scheme="light")
+        if not page.url.startswith(r.stack.app_url) or "/static" in page.url:
+            r.goto_app()
+        picker = page.locator("#theme-picker")
+        if picker.count():
+            picker.select_option("system")
+
+
+def _themes(r: Run, errors: list[str]) -> None:
+    page = r.page
+    page.emulate_media(color_scheme="light")
+    r.launch("network_tools")
+    r.send("Résume l'article Wikipédia sur le Mont-Saint-Michel.")
+    page.evaluate(f"() => localStorage.removeItem('{THEME_KEY}')")
+    r.reload_app()
+    while page.locator("#pane-chips .pane-chip").count():
+        page.locator("#pane-chips .pane-chip").first.click()
+    time.sleep(0.5)
+
+    # « Système », no attribute; the bar still on one line with the picker.
+    picker = page.locator("#theme-picker")
+    options = picker.locator("option").evaluate_all(
+        "os => os.map(o => [o.value, o.textContent.trim()])"
+    )
+    r.check(
+        picker.input_value() == "system"
+        and options == [["system", "◐ Système"], ["light", "☀ Clair"], ["dark", "☾ Sombre"]],
+        "#theme-picker : « Système », puis Clair et Sombre",
+        f"{picker.input_value()} {options}",
+    )
+    r.check(_theme_attr(r) is None, "aucun choix mémorisé : pas d'attribut data-theme")
+    controls = page.evaluate(
+        "() => [...document.querySelectorAll('.top-bar > *')]"
+        ".filter(e => e.id && e.offsetParent && e.getBoundingClientRect().width > 0"
+        " && getComputedStyle(e).position !== 'absolute')"
+        ".map(e => '#' + e.id)"
+    )
+    cut = {c: why for c in controls if (why := _fully_visible(r, c))}
+    r.check(
+        "#theme-picker-box" in controls and not cut,
+        "1600 × 1000 : chaque commande de la barre haute entière, sur une ligne",
+        f"{controls} ; {cut}",
+    )
+    r.check(
+        not page.locator(".theme-picker-face").is_visible(),
+        "1600 × 1000 : le sélecteur de thème montre ses mots, sans la face compacte",
+    )
+    # Between 1401 and 1599 px the picker keeps its words: the bar still fits.
+    page.set_viewport_size({"width": 1440, "height": 900})
+    time.sleep(0.3)
+    fits, detail = _bar_fits(r)
+    r.check(fits, "1440 × 900 : barre haute sur une ligne, « Réinitialiser » entier", detail)
+    # Under 1400 px, the symbol and a chevron only; the native list, transparent on top of
+    # them, still works with the keyboard. In projection mode too.
+    page.set_viewport_size({"width": 1280, "height": 720})
+    time.sleep(0.3)
+    for projection in (False, True):
+        mode = "mode projection" if projection else "mode normal"
+        if projection:
+            page.locator("#projection-toggle").click()
+            time.sleep(0.3)
+        fits, detail = _bar_fits(r)
+        compact = _compact_picker(r)
+        r.check(
+            fits and not compact,
+            f"1280 × 720, {mode} : sélecteur compact (symbole et chevron), barre sur une ligne",
+            f"{detail} ; {compact}",
+        )
+        if projection:
+            page.locator("#projection-toggle").click()
+            time.sleep(0.3)
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    time.sleep(0.3)
+    light_sweep = _contrast_sweep(r, [".top-bar", *(f'.pane[data-pane="{p}"]' for p in _PANES)])
+    r.check(
+        not light_sweep,
+        "thème clair : balayage des contrastes (barre haute et cinq volets)",
+        "; ".join(light_sweep[:6]),
+        known="clair-préexistant",
+    )
+
+    # « Système » follows the workstation, without a reload (CSS only).
+    page.emulate_media(color_scheme="dark")
+    time.sleep(0.3)
+    r.check(
+        _theme_attr(r) is None and _body_bg(r) == _design_rgb("surface-dark"),
+        "poste sombre, « Système » : fond de body en surface-dark, sans rechargement",
+        _body_bg(r),
+    )
+    page.emulate_media(color_scheme="light")
+    time.sleep(0.3)
+    r.check(
+        _body_bg(r) == _design_rgb("surface"),
+        "poste clair : le fond de body revient à surface",
+        _body_bg(r),
+    )
+
+    # « Sombre » chosen on a light workstation.
+    picker.select_option("dark")
+    time.sleep(0.3)
+    r.check(
+        _theme_attr(r) == "dark" and _stored_theme(r) == "dark",
+        '« Sombre » : <html data-theme="dark">, wavestack.theme mémorisé',
+        f"{_theme_attr(r)} / {_stored_theme(r)}",
+    )
+    fill = _design_rgb("ink-fill-dark")
+    bubble = page.locator("#chat .bubble-user").last
+    call_tile = page.locator(
+        "#orch-scroll .turn-step",
+        has=page.locator(".turn-step-title", has_text="Appelle le modèle"),
+    ).last.locator(".turn-step-tile")
+    plate = page.locator(
+        "#schema .arch-cloud-model, #schema .arch-server-model, #schema .arch-robots"
+    ).first
+    fills = {
+        "barre haute": r.css(page.locator(".top-bar"), "background-color"),
+        "dernière bulle": r.css(bubble, "background-color"),
+        "tuile de l'appel au modèle": r.css(call_tile, "background-color"),
+        "plaque du modèle": r.css(plate, "background-color"),
+    }
+    wrong = {k: v for k, v in fills.items() if v != fill}
+    r.check(
+        not wrong,
+        "sombre : barre haute, bulle, tuile et plaque du modèle en ink-fill-dark",
+        str(wrong),
+    )
+    prompt = (
+        page.locator("#ctx .ctx-section")
+        .filter(
+            has=page.locator(".ctx-section-label", has_text=re.compile(r"^Prompt système · ≈? ?\d"))
+        )
+        .first
+    )
+    r.check(
+        r.css(prompt, "border-left-color") == _design_rgb("discipline-prompt-dark"),
+        "sombre : filet du prompt système en discipline-prompt-dark",
+        r.css(prompt, "border-left-color"),
+    )
+    segs = page.eval_on_selector_all(
+        ".gauge-seg",
+        "ss => ss.map(s => [s.dataset.discipline || '', getComputedStyle(s).backgroundColor])",
+    )
+    off = [(d, bg) for d, bg in segs if not d or bg != _design_rgb(f"discipline-{d}-dark")]
+    r.check(
+        bool(segs) and not off,
+        "sombre : chaque segment de la jauge sur le jeton sombre de sa discipline",
+        f"{len(segs)} segments ; écarts : {off}",
+    )
+    dark_sweep = _contrast_sweep(r, [".top-bar", *(f'.pane[data-pane="{p}"]' for p in _PANES)])
+    r.check(
+        not dark_sweep,
+        "sombre : aucun contraste sous AA dans la barre haute et les cinq volets",
+        "; ".join(dark_sweep[:8]),
+    )
+    # What opens over the panes: the « Volets ▾ » list, the « Fenêtre » panel, the drawer.
+    page.locator("#pane-menu-toggle").click()
+    expect(page.locator("#pane-menu-list")).to_be_visible(timeout=5000)
+    overlays = {"liste « Volets ▾ »": _contrast_sweep(r, ["#pane-menu-list"])}
+    page.locator("#pane-menu-toggle").click()
+    page.locator("#window-toggle").click()
+    expect(page.locator("#window-panel")).to_be_visible(timeout=5000)
+    overlays["panneau « Fenêtre »"] = _contrast_sweep(r, ["#window-panel"])
+    page.keyboard.press("Escape")
+    r.card("Prompt système").locator(".brick-edit").click()
+    expect(page.locator("#edit-drawer")).to_be_visible(timeout=5000)
+    overlays["tiroir d'édition"] = _contrast_sweep(r, ["#edit-drawer"])
+    page.locator("#drawer-close").click()
+    expect(page.locator("#edit-drawer")).to_be_hidden(timeout=5000)
+    r.check(
+        not any(overlays.values()),
+        "sombre : aucun contraste sous AA dans « Volets ▾ », « Fenêtre » et le tiroir d'édition",
+        str({k: v[:4] for k, v in overlays.items() if v}),
+    )
+    r.shot("46-theme-sombre-atelier", full_page=True)
+    r.shot_element("47-theme-sombre-vue-humain", '.pane[data-pane="human"]')
+    r.shot_element("48-theme-sombre-schema", '.pane[data-pane="schema"]')
+
+    # Kept at the reload, before app.js (aborted), then the picker once app.js is back.
+    page.route("**/static/app.js", lambda route: route.abort())
+    page.reload(wait_until="load")
+    r.check(
+        _theme_attr(r) == "dark" and _body_bg(r) == _design_rgb("surface-dark"),
+        'rechargement sans app.js : data-theme="dark" et fond surface-dark déjà posés',
+        f"{_theme_attr(r)} {_body_bg(r)}",
+    )
+    page.unroute("**/static/app.js")
+    r.reload_app()
+    r.check(
+        page.locator("#theme-picker").input_value() == "dark" and not errors,
+        "après rechargement : le sélecteur montre « Sombre », aucune pageerror",
+        "; ".join(errors[:3]),
+    )
+
+    # The same theme on the other pages (same origin), each with its picker.
+    for path, shot in (
+        ("/diagnostic", "49-theme-sombre-diagnostic"),
+        ("/models", "50-theme-sombre-modeles"),
+    ):
+        page.goto(f"{r.stack.app_url}{path}")
+        if path == "/models":
+            expect(page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
+        else:
+            expect(page.locator("#cloud-models li").first).to_be_visible(timeout=20_000)
+        time.sleep(0.5)
+        sweep = _contrast_sweep(r, ["body"])
+        r.check(
+            _theme_attr(r) == "dark"
+            and _body_bg(r) == _design_rgb("surface-dark")
+            and page.locator("#theme-picker").input_value() == "dark"
+            and not sweep,
+            f"{path} : sombre, son sélecteur sur « Sombre », aucun contraste sous AA",
+            f"{_theme_attr(r)} {_body_bg(r)} ; " + "; ".join(sweep[:6]),
+        )
+        r.shot(shot, full_page=True)
+    # « Clair » on the diagnostic wins over a dark workstation, back in the workshop.
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    page.locator("#theme-picker").select_option("light")
+    page.emulate_media(color_scheme="dark")
+    r.goto_app()
+    r.check(
+        _theme_attr(r) == "light" and _body_bg(r) == _design_rgb("surface"),
+        "« Clair » choisi au diagnostic, poste sombre : l'atelier reste clair",
+        f"{_theme_attr(r)} {_body_bg(r)}",
+    )
+    page.emulate_media(color_scheme="light")
+
+    # A corrupt value: « Système », silently.
+    page.evaluate(f"() => localStorage.setItem('{THEME_KEY}', 'violet')")
+    r.reload_app()
+    r.check(
+        _theme_attr(r) is None and page.locator("#theme-picker").input_value() == "system",
+        "wavestack.theme = « violet » : pas d'attribut, sélecteur sur « Système »",
+    )
+
+    # No storage: « Système », a choice for the page only, no error.
+    # A context of its own (the run's page has one it owns): its storage starts empty.
+    context = page.context.browser.new_context(
+        viewport={"width": 1600, "height": 1000}, locale="fr-FR"
+    )
+    blocked = context.new_page()
+    blocked_errors: list[str] = []
+    blocked.on("pageerror", lambda e: blocked_errors.append(f"pageerror: {e}"))
+    blocked.on("console", lambda m: blocked_errors.append(m.text) if m.type == "error" else None)
+    blocked.add_init_script(
+        "Storage.prototype.getItem = function () { throw new Error('stockage bloqué'); };"
+        "Storage.prototype.setItem = function () { throw new Error('stockage bloqué'); };"
+    )
+    try:
+        blocked.goto(f"{r.stack.app_url}/")
+        expect(blocked.locator("body[data-journal-replayed]")).to_be_attached(timeout=30_000)
+        start = blocked.evaluate("() => document.documentElement.getAttribute('data-theme')")
+        blocked.locator("#theme-picker").select_option("dark")
+        time.sleep(0.3)
+        chosen = blocked.evaluate("() => document.documentElement.getAttribute('data-theme')")
+        kept = blocked.locator("#theme-picker").input_value()
+        # A page of the same context, storage unblocked: nothing was written.
+        reader = context.new_page()
+        reader.goto(f"{r.stack.app_url}/static/theme.js")
+        stored = reader.evaluate(f"() => localStorage.getItem('{THEME_KEY}')")
+        r.check(
+            start is None
+            and chosen == "dark"
+            and kept == "dark"
+            and stored is None
+            and not blocked_errors,
+            "sans stockage : « Système », puis « Sombre » pour la page seule, sans erreur",
+            f"{start} → {chosen} ({kept}) ; mémorisé : {stored} ; {blocked_errors[:3]}",
+        )
+    finally:
+        context.close()
+
+    # The light theme, for comparison.
+    page.locator("#theme-picker").select_option("system")
+    time.sleep(0.3)
+    r.shot("51-theme-clair-atelier", full_page=True)
 
 
 # ---------- story 34: the linked view, the guided reading of the panes ----------
@@ -1803,13 +2290,14 @@ def s_linked_view(r: Run) -> None:
         ".map(e => e.id || e.className); }"
     )
     chip = page.locator("#pane-chips .pane-chip", has_text="Contexte LLM")
-    readable = chip.evaluate("c => c.scrollWidth <= c.clientWidth + 1")
+    missing = chip.evaluate("c => c.scrollWidth - c.clientWidth")
+    readable = missing <= 1
     r.check(
         not cut and not over and readable and "· lié" in chip.inner_text(),
         "1280 × 720 en mode projection : barre sur une ligne, « Réinitialiser » entier, "
         "« · lié » lisible sur la puce",
         f"Réinitialiser : {cut or 'visible'} ; débordent : {over} ; puce « {chip.inner_text()} », "
-        f"entière : {readable}",
+        f"entière : {readable} (manque {missing} px)",
     )
     page.keyboard.press("Escape")
     chip.click()
@@ -3080,6 +3568,8 @@ def s_global_memory(r: Run) -> None:
         "« Oui, tout effacer » : bouton danger, fond de la couleur danger",
         f"{look} · danger {danger}",
     )
+    wrong = _on_vivid_both_themes(r, confirm)
+    r.check(not wrong, "« Oui, tout effacer » : texte en --color-on-vivid sur le rouge", str(wrong))
     r.check(len(_memory_file(r)) == 5, "« Tout effacer » demande d'abord confirmation")
     seq = r.ev.mark()
     drawer.get_by_role("button", name="Oui, tout effacer").click()
@@ -3830,6 +4320,13 @@ def s_busy_and_stop(r: Run) -> None:
         "dépassement : le dernier appel « non envoyé : contexte dépassé », "
         "« Aucun appel : contexte dépassé. »",
         f"{ended['payload']['status']} · {calls[-1]['head'] if calls else '—'}",
+    )
+    # Story 31: the overflow's red pill: its text in on-vivid (formerly white, 3.7:1).
+    figures = r.page.locator("#gauge.is-overflow #gauge-figures")
+    expect(figures).to_be_visible(timeout=5000)
+    wrong = _on_vivid_both_themes(r, figures)
+    r.check(
+        not wrong, "dépassement : chiffres de la jauge en --color-on-vivid sur le rouge", str(wrong)
     )
 
 
@@ -5017,6 +5514,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("provider_errors", s_provider_errors),
     ("network_tools", s_network_tools),
     ("disciplines", s_disciplines),
+    ("themes", s_themes),
     ("linked_view", s_linked_view),
     ("h5", s_h5),
     ("mcp_full", s_mcp_full),

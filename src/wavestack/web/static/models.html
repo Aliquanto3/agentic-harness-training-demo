@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
+  <script src="/static/theme.js"></script>
   <title>WaveStack — Modèles disponibles</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
@@ -100,7 +101,7 @@
     }
     .hosting-tag-network {
       background: var(--color-hosting-network);
-      color: var(--color-ink);
+      color: var(--color-on-vivid); /* story 31: explicit on the yellow, in both themes */
       border: 1px dashed var(--color-ink);
     }
     .hosting-tag-network::before { content: "🌐 "; }
@@ -112,6 +113,11 @@
     <a href="/models" aria-current="page">Modèles</a>
     <!-- Shown once the diagnostic is ready (`ready`), as on the diagnostic page. -->
     <a href="/" id="open-link" hidden>Ouvrir WaveStack</a>
+    <select id="theme-picker" class="theme-picker" data-theme-picker aria-label="Thème de l'interface" title="Thème de l'interface">
+      <option value="system">◐ Système</option>
+      <option value="light">☀ Clair</option>
+      <option value="dark">☾ Sombre</option>
+    </select>
   </nav>
   <main>
     <h1>Modèles disponibles</h1>

@@ -38,9 +38,12 @@ def _design_frontmatter() -> dict:
 
 
 def _expected_tokens(frontmatter: dict) -> dict[str, str]:
+    """The `:root` block: every light colour (story 31: not the `-dark` twins, which the dark
+    blocks carry under the light names), then the type ramp, the radii and the spacing."""
     expected: dict[str, str] = {}
     for key, value in frontmatter["colors"].items():
-        expected[f"--color-{key}"] = str(value)
+        if not key.endswith(_DARK):
+            expected[f"--color-{key}"] = str(value)
     for key, attrs in frontmatter["typography"].items():
         for attr, value in attrs.items():
             expected[f"--typography-{key}-{_ATTR_TO_CSS[attr]}"] = str(value)
@@ -51,9 +54,47 @@ def _expected_tokens(frontmatter: dict) -> dict[str, str]:
     return expected
 
 
+# ---------- story 31: tokens.css in three blocks, the light theme, then the dark one twice ---
+
+_DARK = "-dark"
+_BLOCKS = {
+    "root": re.compile(r"^:root\s*\{(.*?)^\}", re.S | re.M),
+    "dark": re.compile(r'^:root\[data-theme="dark"\]\s*\{(.*?)^\}', re.S | re.M),
+    "media": re.compile(
+        r"^@media \(prefers-color-scheme: dark\)\s*\{\s*"
+        r":root:not\(\[data-theme\]\)\s*\{(.*?)\}\s*^\}",
+        re.S | re.M,
+    ),
+}
+
+
+def _tokens_blocks() -> dict[str, str]:
+    """The body of each block of tokens.css; nothing else is declared there (a fourth block, or
+    a declaration outside them, would redefine a token behind the test's back)."""
+    text = re.sub(r"/\*.*?\*/", "", TOKENS_CSS.read_text(encoding="utf-8"), flags=re.S)
+    blocks = {}
+    rest = text
+    for name, pattern in _BLOCKS.items():
+        found = pattern.findall(text)
+        assert len(found) == 1, f"tokens.css: {len(found)} bloc(s) {name}, un seul attendu"
+        blocks[name] = found[0]
+        rest = pattern.sub("", rest)
+    assert not rest.strip(), f"tokens.css declares outside its three blocks: {rest.strip()[:80]}"
+    return blocks
+
+
+def _declarations(block: str) -> dict[str, str]:
+    return {name: value.strip() for name, value in re.findall(r"(--[\w-]+)\s*:\s*([^;]+);", block)}
+
+
+def _color_scheme(block: str) -> str | None:
+    match = re.search(r"(?<![\w-])color-scheme\s*:\s*([^;]+);", block)
+    return match.group(1).strip() if match else None
+
+
 def _css_custom_properties() -> dict[str, str]:
-    text = TOKENS_CSS.read_text(encoding="utf-8")
-    return {name: value.strip() for name, value in re.findall(r"(--[\w-]+)\s*:\s*([^;]+);", text)}
+    """The `:root` block's custom properties (the light theme, the ramp, radii, spacing)."""
+    return _declarations(_tokens_blocks()["root"])
 
 
 def test_tokens_css_matches_design_frontmatter():
@@ -75,6 +116,59 @@ def test_tokens_css_matches_design_frontmatter():
 def test_tokens_css_declares_no_orphan_token():
     orphans = _css_custom_properties().keys() - _expected_tokens(_design_frontmatter()).keys()
     assert not orphans, f"tokens.css declares tokens absent from DESIGN.md: {sorted(orphans)}"
+
+
+def _twin_gaps(colors: dict) -> list[str]:
+    """Story 31: what breaks « every colour X has its X-dark, and every X-dark its X »."""
+    light = {k for k in colors if not k.endswith(_DARK)}
+    dark = {k.removesuffix(_DARK) for k in colors if k.endswith(_DARK)}
+    return [f"{k}-dark manque" for k in sorted(light - dark)] + [
+        f"{k}-dark sans {k}" for k in sorted(dark - light)
+    ]
+
+
+def test_every_color_has_its_dark_twin_and_back():
+    gaps = _twin_gaps(_design_frontmatter()["colors"])
+    assert not gaps, gaps
+
+
+def test_removing_one_dark_twin_is_caught():
+    """The coverage check itself: any single `X-dark` taken out is reported."""
+    colors = _design_frontmatter()["colors"]
+    for twin in [k for k in colors if k.endswith(_DARK)]:
+        mutated = {k: v for k, v in colors.items() if k != twin}
+        assert _twin_gaps(mutated) == [f"{twin.removesuffix(_DARK)}-dark manque"], twin
+
+
+def _dark_expected(colors: dict) -> dict[str, str]:
+    return {
+        f"--color-{k}": str(colors[f"{k}{_DARK}"]).upper()
+        for k in colors
+        if not k.endswith(_DARK) and f"{k}{_DARK}" in colors
+    }
+
+
+def test_dark_block_redefines_every_color_with_its_twin():
+    """`:root[data-theme="dark"]` = exactly `{--color-X: X-dark}`, for every colour; nothing
+    else (no `--color-X-dark` of its own, no other token)."""
+    colors = _design_frontmatter()["colors"]
+    dark = {n: v.upper() for n, v in _declarations(_tokens_blocks()["dark"]).items()}
+    assert dark == _dark_expected(colors)
+    light = [k for k in colors if not k.endswith(_DARK)]
+    assert len(dark) == len(light), "one declaration per colour"
+
+
+def test_media_block_is_the_dark_block():
+    """« Système » on a dark workstation: the very same declarations, without the attribute."""
+    blocks = _tokens_blocks()
+    assert _declarations(blocks["media"]) == _declarations(blocks["dark"])
+
+
+def test_color_scheme_follows_the_theme():
+    blocks = _tokens_blocks()
+    assert _color_scheme(blocks["root"]) == "light"
+    assert _color_scheme(blocks["dark"]) == "dark"
+    assert _color_scheme(blocks["media"]) == "dark"
 
 
 def test_no_static_file_loads_google_fonts():
@@ -182,28 +276,319 @@ def test_discipline_tokens_meet_wcag_aa():
     assert not failures, failures
 
 
+# ---------- story 31: the contrasts of both palettes ----------
+
+
+def _palette(colors: dict, dark: bool) -> dict[str, str]:
+    """The light colours, or their `-dark` twins under the light names."""
+    return {
+        k: str(colors[f"{k}{_DARK}"] if dark else v)
+        for k, v in colors.items()
+        if not k.endswith(_DARK)
+    }
+
+
+_TEXT_BACKGROUNDS = [
+    "surface",
+    "surface-raised",
+    "primary-soft",
+    "accent-soft",
+    "warning-soft",
+    "danger-soft",
+    *(f"discipline-{n}-soft" for n in ("prompt", "context", "harness", "network", "neutral")),
+    "produced-soft",
+    "reasoning-soft",
+]
+_VIVID = [
+    "hosting-network",
+    "warning",
+    "discipline-network",
+    "discipline-neutral",
+    "state-active",
+    "accent",
+    "danger",
+    "state-error",
+]
+
+# (foreground, background, WCAG AA threshold), checked in both palettes (DESIGN.md > Colors >
+# Thème sombre): 4.5 for text, 3 for a stroke that carries meaning. `_PAIRS` above stays.
+_THEME_PAIRS = [
+    *((fg, bg, 4.5) for fg in ("ink", "ink-soft") for bg in _TEXT_BACKGROUNDS),
+    ("primary", "surface-raised", 4.5),
+    ("primary-deep", "primary-soft", 4.5),
+    ("on-primary", "primary", 4.5),
+    ("on-ink", "ink-fill", 4.5),
+    ("on-ink-soft", "ink-fill", 4.5),
+    *(("on-discipline", f"discipline-{n}", 4.5) for n in ("prompt", "context", "harness")),
+    *(("on-vivid", bg, 4.5) for bg in _VIVID),
+    *(
+        (f"discipline-{n}", bg, 3.0)
+        for n in ("prompt", "context", "harness", "neutral")
+        for bg in ("surface", "surface-raised")
+    ),
+    *((fg, bg, 4.5) for fg in _JSON_FLOORS for bg in _JSON_BACKGROUNDS),
+    # Non-text, 3:1: a control's on-ink-soft border on the ink-fill bar; the edge of an ink-fill
+    # piece (top bar, bubble, tile, plate) on the page and on a pane.
+    ("on-ink-soft", "ink-fill", 3.0),
+    ("ink-fill-edge", "surface", 3.0),
+    ("ink-fill-edge", "surface-raised", 3.0),
+]
+
+# Dark only: the light palette already fails them, as documented (red text on white 3.7:1,
+# the pale segments on cream).
+_DARK_ONLY_PAIRS = [
+    ("danger", "surface-raised", 4.5),
+    *(
+        (f"segment-{s}", "segment-free", 3.0)
+        for s in (
+            "system-prompt",
+            "global-memory",
+            "tool-descriptions",
+            "history",
+            "rag",
+            "tool-results",
+            "message",
+        )
+    ),
+]
+
+# The dark figures of the DESIGN.md table, rounded to 0.1.
+_DARK_RATIOS = {
+    ("primary", "surface-raised"): 5.7,
+    ("primary-deep", "primary-soft"): 8.4,
+    ("on-primary", "primary"): 6.7,
+    ("on-ink", "ink-fill"): 12.5,
+    ("on-ink-soft", "ink-fill"): 8.0,
+    ("on-discipline", "discipline-prompt"): 6.7,
+    ("on-discipline", "discipline-context"): 7.8,
+    ("on-discipline", "discipline-harness"): 6.2,
+    ("danger", "surface-raised"): 6.0,
+}
+
+# The dark floors of the DESIGN.md table: the lowest ratio of each group, rounded to 0.1.
+_DARK_FLOORS = [
+    (
+        "ink et encre douce sur un fond de texte",
+        6.2,
+        [(fg, bg) for fg in ("ink", "ink-soft") for bg in _TEXT_BACKGROUNDS],
+    ),
+    ("on-vivid sur un fond vif", 5.8, [("on-vivid", bg) for bg in _VIVID]),
+    (
+        "disciplines sur surface et surface-raised",
+        4.9,
+        [
+            (f"discipline-{n}", bg)
+            for n in ("prompt", "context", "harness", "neutral")
+            for bg in ("surface", "surface-raised")
+        ],
+    ),
+    (
+        "encre sur les fonds produits",
+        7.4,
+        [(fg, bg) for fg in ("ink", "ink-soft") for bg in ("produced-soft", "reasoning-soft")],
+    ),
+    (
+        "couleurs JSON sur leurs fonds",
+        6.6,
+        [(fg, bg) for fg in _JSON_FLOORS for bg in _JSON_BACKGROUNDS],
+    ),
+    (
+        "segments sur l'espace libre",
+        4.1,
+        [(fg, bg) for fg, bg, threshold in _DARK_ONLY_PAIRS if threshold == 3.0],
+    ),
+    (
+        "bord d'ink-fill sur la page",
+        3.5,
+        [("ink-fill-edge", "surface"), ("ink-fill-edge", "surface-raised")],
+    ),
+]
+
+
+def test_both_palettes_meet_wcag_aa():
+    colors = _design_frontmatter()["colors"]
+    failures = []
+    for dark in (False, True):
+        palette = _palette(colors, dark)
+        theme = "sombre" if dark else "clair"
+        for fg, bg, threshold in _THEME_PAIRS + (_DARK_ONLY_PAIRS if dark else []):
+            ratio = _contrast(palette[fg], palette[bg])
+            expected = _DARK_RATIOS.get((fg, bg)) if dark else None
+            if ratio < threshold or (expected is not None and round(ratio, 1) != expected):
+                failures.append(f"{theme} : {fg} sur {bg} : {ratio:.2f} (seuil {threshold})")
+    dark = _palette(colors, True)
+    for what, floor, pairs in _DARK_FLOORS:
+        lowest = min(_contrast(dark[fg], dark[bg]) for fg, bg in pairs)
+        if round(lowest, 1) < floor:
+            failures.append(f"sombre : {what} à {lowest:.2f} (< {floor})")
+    # The JSON colours stay distinct from the disciplines in the dark palette too.
+    disciplines = {v for k, v in dark.items() if k.startswith("discipline-")}
+    failures += [
+        f"sombre : {fg} = une discipline" for fg in _JSON_FLOORS if dark[fg] in disciplines
+    ]
+    assert not failures, failures
+
+
+def test_role_tokens_keep_the_light_theme():
+    """The role tokens split from an existing one take, in light, the value their role had
+    before the story: the light theme does not move. `warning-soft` and `danger-soft` are new
+    values (the diagnostic page's backgrounds, formerly written in the page)."""
+    colors = _design_frontmatter()["colors"]
+    assert colors["ink-fill"] == colors["ink"]
+    assert colors["ink-fill-edge"] == colors["ink-fill"]
+    assert colors["on-discipline"] == colors["on-ink"]
+    assert colors["on-vivid"] == colors["ink"]
+
+
+# ---------- colours only through tokens.css, in every page of static/ (stories 33, 25, 31) ---
+
 _COMMENTS = {
     ".css": re.compile(r"/\*.*?\*/", re.S),
     # Block comments, then line comments not preceded by `:` (a URL keeps its `//`).
     ".js": re.compile(r"/\*.*?\*/|(?<![:\\])//[^\n]*", re.S),
-    # Story 25: a page with its style and script inline.
-    ".html": re.compile(r"<!--.*?-->|/\*.*?\*/|(?<![:\\])//[^\n]*", re.S),
+    # A page with its style and script inline (story 25); its entities (`&#9680;`) too.
+    ".html": re.compile(r"<!--.*?-->|/\*.*?\*/|(?<![:\\])//[^\n]*|&#\w+;", re.S),
 }
-_HARD_COLOR = re.compile(r"#[0-9a-fA-F]{3,8}\b(?![-\w])|\b(?:rgba?|hsla?)\(")
+_HARD_COLOR = re.compile(
+    r"#[0-9a-fA-F]{3,8}\b(?![-\w])|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\("
+)
+
+# The CSS named colours (CSS Color 4), matched only as a value: in a declaration of a
+# stylesheet, a `<style>` or a `style=""`, or assigned to a colour property in a script.
+_NAMED_COLORS = (
+    "aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue "
+    "blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk "
+    "crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki "
+    "darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen "
+    "darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue "
+    "dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite "
+    "gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki "
+    "lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan "
+    "lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen "
+    "lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen "
+    "magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen "
+    "mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream "
+    "mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid "
+    "palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum "
+    "powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown "
+    "seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen "
+    "steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow "
+    "yellowgreen"
+).split()
+_NAMED = "|".join(_NAMED_COLORS)
+_CSS_DECLARATION = re.compile(r"(?<![\w-])[\w-]+\s*:\s*([^;{}]*)")
+_CSS_STRING = re.compile(r"\"[^\"]*\"|'[^']*'")
+_CSS_NAMED = re.compile(rf"(?<![\w-])(?:{_NAMED})(?![\w-])", re.I)
+_JS_NAMED = re.compile(
+    rf"\b(?:color|background(?:Color)?|fill|stroke|border(?:Color)?|outline(?:Color)?)\b"
+    rf"[\"']?\s*[:=,]\s*[\"'`]\s*(?:{_NAMED})\b",
+    re.I,
+)
+_HTML_CSS = re.compile(r"<style\b[^>]*>(.*?)</style>|\bstyle=\"([^\"]*)\"", re.S)
+# `color-mix(` only between tokens: once its `var(--…)`, its `in <space>` and its
+# percentages taken out, nothing but punctuation remains.
+_COLOR_MIX = re.compile(r"color-mix\(((?:[^()]|\([^()]*\))*)\)", re.I)
+_MIX_ALLOWED = re.compile(r"var\(--[\w-]+\)|\bin\s+[\w-]+|\d+(?:\.\d+)?%|[\s,]|transparent")
 
 
-def test_app_css_and_js_write_no_color_outside_the_tokens():
-    """Every colour goes through `tokens.css`, so a second theme (story 31) only redefines the
-    tokens. CSS id selectors (`#gauge-bar`) are not colours: a hex colour is 3 to 8 hex digits
-    not followed by a name character. Story 25: the `/models` page too."""
+def _css_of(path: Path, text: str) -> str:
+    if path.suffix == ".css":
+        return text
+    if path.suffix == ".html":
+        return "\n".join(a or b for a, b in _HTML_CSS.findall(text))
+    return ""
+
+
+def _named_color_offenders(path: Path, text: str) -> list[str]:
     offenders = []
-    for name in ("app.css", "app.js", "models.html", "pages.css"):
-        path = STATIC_DIR / name
+    for value in _CSS_DECLARATION.findall(_css_of(path, text)):
+        value = _CSS_STRING.sub("", value)
+        offenders += [
+            f"{path.name}: {m.group(0)!r} in {value.strip()[:60]}"
+            for m in _CSS_NAMED.finditer(value)
+        ]
+        for mix in _COLOR_MIX.findall(value):
+            if _MIX_ALLOWED.sub("", mix):
+                offenders.append(f"{path.name}: color-mix with a literal colour: {mix[:60]}")
+    if path.suffix in {".js", ".html"}:
+        offenders += [f"{path.name}: {m.group(0)!r}" for m in _JS_NAMED.finditer(text)]
+    return offenders
+
+
+def _static_sources() -> list[Path]:
+    """Every page, stylesheet and script of static/ but tokens.css, the only home of colours;
+    a page added later (stories 29, 30) is covered without touching this test."""
+    return sorted(
+        path
+        for path in STATIC_DIR.rglob("*")
+        if path.suffix in _COMMENTS and path.name != "tokens.css"
+    )
+
+
+def test_static_files_write_no_color_outside_the_tokens():
+    """Every colour goes through `tokens.css`, so the dark theme (story 31) only redefines the
+    tokens. CSS id selectors (`#gauge-bar`) are not colours: a hex colour is 3 to 8 hex digits
+    not followed by a name character."""
+    sources = _static_sources()
+    names = {path.name for path in sources}
+    assert {"app.css", "app.js", "theme.js", "diagnostic.html", "models.html"} <= names
+    offenders = []
+    for path in sources:
         text = _COMMENTS[path.suffix].sub("", path.read_text(encoding="utf-8"))
         for line in text.splitlines():
             for match in _HARD_COLOR.finditer(line):
-                offenders.append(f"{name}: {match.group(0)!r} in {line.strip()[:80]}")
+                offenders.append(f"{path.name}: {match.group(0)!r} in {line.strip()[:80]}")
+            if "invert(" in line:
+                offenders.append(f"{path.name}: a filter inverts the colours: {line.strip()[:80]}")
+        offenders += _named_color_offenders(path, text)
     assert not offenders, offenders
+
+
+def test_the_color_guard_catches_named_colours_and_colour_functions():
+    """The guard itself: named colours as values, the colour functions and a `color-mix(` with
+    a literal colour are caught; `white-space`, a class name, a token mix are not."""
+    css = Path("x.css")
+    caught = [
+        ".a { color: white; }",
+        ".a { border: 1px solid Red; }",
+        ".a { background: color-mix(in srgb, var(--color-ink) 50%, black); }",
+        ".a { outline-color: color-mix(in oklab, var(--color-ink), currentColor); }",
+    ]
+    for text in caught:
+        assert _named_color_offenders(css, text), text
+    for fn in ("hwb(", "lab(", "lch(", "oklab(", "oklch(", "rgb(", "hsla("):
+        assert _HARD_COLOR.search(f"color: {fn}0 0 0)"), fn
+    assert _named_color_offenders(Path("x.js"), 'el.style.color = "white";')
+    assert _named_color_offenders(Path("x.html"), '<p style="background: navy">x</p>')
+    fine = [
+        ".a { white-space: nowrap; color: var(--color-ink); }",
+        '.white-card { content: "black"; grid-template-areas: "tile icon"; }',
+        ".a { background: color-mix(in srgb, var(--color-ink) 40%, transparent); }",
+    ]
+    for text in fine:
+        assert not _named_color_offenders(css, text), text
+    assert not _HARD_COLOR.search("const label = labelFor(x);")
+
+
+_THEME_SCRIPT = '<script src="/static/theme.js"></script>'
+
+
+def test_every_page_loads_the_tokens_and_the_theme_script_first():
+    """Story 31: each page reads its colours from tokens.css, and sets `data-theme` before its
+    first render: a classic script (neither a module nor deferred) in `<head>`, before the
+    first stylesheet."""
+    pages = sorted(STATIC_DIR.glob("*.html"))
+    assert {p.name for p in pages} >= {"index.html", "diagnostic.html", "models.html"}
+    for page in pages:
+        text = page.read_text(encoding="utf-8")
+        head = text[: text.index("</head>")]
+        assert '<link rel="stylesheet" href="/static/tokens.css"' in head, page.name
+        assert head.count(_THEME_SCRIPT) == 1, page.name
+        scripts = re.findall(r"<script\b[^>]*\bsrc=\"/static/theme\.js\"[^>]*>", text)
+        assert scripts == ['<script src="/static/theme.js">'], (page.name, scripts)
+        first_sheet = head.index('<link rel="stylesheet"')
+        assert head.index(_THEME_SCRIPT) < first_sheet, page.name
+        assert re.search(r"<select\b[^>]*\bdata-theme-picker\b", text), page.name
 
 
 # ---------- story 34: the projection mode's ramp (app.css), 9/7 of tokens.css ----------

@@ -28,42 +28,45 @@ body {
 /* ---------- story 33: one colour per discipline (DESIGN.md > Colors) ----------
    An element tagged `data-discipline` (by app.js, from what the session sent) gets its
    colour, its soft background and the text that reads on the colour. `model`: what the model
-   does, on ink. Components read `--discipline`, `--discipline-soft`, `--on-discipline`. */
+   does, on ink. Components read `--discipline`, `--discipline-soft`, `--on-discipline`.
+   Story 31: the roles that diverge in the dark theme have their own tokens: `on-discipline`
+   (text on prompt, context, harness), `on-vivid` (text on the yellow and the neutral grey),
+   `ink-fill` (an ink background). */
 
 [data-discipline="prompt"] {
   --discipline: var(--color-discipline-prompt);
   --discipline-soft: var(--color-discipline-prompt-soft);
-  --on-discipline: var(--color-on-ink);
+  --on-discipline: var(--color-on-discipline);
 }
 
 [data-discipline="context"] {
   --discipline: var(--color-discipline-context);
   --discipline-soft: var(--color-discipline-context-soft);
-  --on-discipline: var(--color-on-ink);
+  --on-discipline: var(--color-on-discipline);
 }
 
 [data-discipline="harness"] {
   --discipline: var(--color-discipline-harness);
   --discipline-soft: var(--color-discipline-harness-soft);
-  --on-discipline: var(--color-on-ink);
+  --on-discipline: var(--color-on-discipline);
 }
 
 /* The yellow is never alone: a background under ink text, or a rule beside « RÉSEAU » / 🌐. */
 [data-discipline="network"] {
   --discipline: var(--color-discipline-network);
   --discipline-soft: var(--color-discipline-network-soft);
-  --on-discipline: var(--color-ink);
+  --on-discipline: var(--color-on-vivid);
 }
 
 [data-discipline="neutral"] {
   --discipline: var(--color-discipline-neutral);
   --discipline-soft: var(--color-discipline-neutral-soft);
-  --on-discipline: var(--color-ink);
+  --on-discipline: var(--color-on-vivid);
 }
 
 [data-discipline="model"] {
-  --discipline: var(--color-ink);
-  --discipline-soft: var(--color-ink);
+  --discipline: var(--color-ink-fill-edge); /* story 31: its rule and border, 3:1 on a pane */
+  --discipline-soft: var(--color-ink-fill);
   --on-discipline: var(--color-on-ink);
 }
 
@@ -91,6 +94,7 @@ body {
   border: 1px solid var(--color-ink-soft);
   border-radius: 4px;
   background: var(--discipline);
+  color: var(--on-discipline); /* story 31: the network's 🌐 on its yellow */
   font-size: 0.75em; /* story 34: follows the projection mode */
   line-height: 1;
 }
@@ -156,6 +160,7 @@ body {
 
 .drawer-actions button.danger.is-confirm {
   background: var(--color-danger);
+  color: var(--color-on-vivid); /* story 31: explicit, an inherited text turns light in dark */
 }
 
 .drawer-actions button.danger:active:not(:disabled) {
@@ -173,11 +178,24 @@ body {
   align-items: center;
   gap: var(--spacing-3);
   padding: 0 var(--spacing-4);
-  /* Story 33: the key piece on ink; its title, figures and status in on-ink. */
-  background: var(--color-ink);
+  /* Story 33: the key piece on ink (story 31: ink-fill, a deep violet in dark); its title,
+     figures and status in on-ink. */
+  background: var(--color-ink-fill);
   color: var(--color-on-ink);
   border-radius: var(--rounded-lg);
-  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
+  /* Story 31: an edge that reaches 3:1 on the page in dark (the same ink as the fill in light). */
+  box-shadow:
+    inset 0 0 0 var(--spacing-stroke-min) var(--color-ink-fill-edge),
+    0 var(--spacing-relief-offset) 0 var(--color-relief);
+}
+
+/* Story 31: the controls of the bar keep their own background, bordered in on-ink-soft to
+   stand out of the ink-fill (in dark, their surface is close to it). */
+.top-bar > .scenario-picker,
+.top-bar > .model-picker,
+.top-bar > .reset-button,
+.top-bar .theme-picker {
+  border-color: var(--color-on-ink-soft);
 }
 
 .top-bar-title {
@@ -451,7 +469,8 @@ body.is-resizing-y * {
   width: 1.7em;
   height: 1.7em;
   border-radius: var(--rounded-full);
-  background: var(--color-ink);
+  background: var(--color-ink-fill);
+  box-shadow: inset 0 0 0 var(--spacing-stroke-min) var(--color-ink-fill-edge); /* story 31 */
   color: var(--color-on-ink);
   font: var(--typography-number-font-weight) var(--typography-number-font-size) / 1
     var(--typography-number-font-family);
@@ -681,7 +700,7 @@ body.is-resizing-y * {
   top: 0;
   bottom: 0;
   width: 2px;
-  background: var(--color-ink);
+  background: var(--color-ink); /* a 2 px line on the track, not a fill: ink, light in dark */
 }
 
 .gauge-figures {
@@ -696,7 +715,7 @@ body.is-resizing-y * {
 
 .gauge.is-overflow .gauge-figures {
   background: var(--color-danger);
-  color: var(--color-on-primary);
+  color: var(--color-on-vivid); /* story 31: DESIGN.md « rouge : texte encre », 5.3:1 */
   border-radius: var(--rounded-full);
   padding: 2px var(--spacing-2);
 }
@@ -734,7 +753,8 @@ body.is-resizing-y * {
 
 .bubble-user {
   align-self: flex-end;
-  background: var(--color-ink); /* story 33 */
+  background: var(--color-ink-fill); /* story 33, story 31 */
+  box-shadow: inset 0 0 0 var(--spacing-stroke-min) var(--color-ink-fill-edge);
   color: var(--color-on-ink);
   border-bottom-right-radius: 6px; /* the speaker's corner */
 }
@@ -905,8 +925,8 @@ body.is-resizing-y * {
 }
 
 .ctx-mode-button[aria-pressed="true"] {
-  background: var(--color-ink);
-  border-color: var(--color-ink);
+  background: var(--color-ink-fill);
+  border-color: var(--color-ink-fill);
   color: var(--color-on-ink);
 }
 
@@ -1086,7 +1106,7 @@ body.is-resizing-y * {
 .ctx-new-badge {
   padding: 0 var(--spacing-2);
   border-radius: var(--rounded-full);
-  background: var(--color-ink);
+  background: var(--color-ink-fill);
   color: var(--color-on-ink);
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
     var(--typography-label-line-height) var(--typography-label-font-family);
@@ -1145,7 +1165,7 @@ body.is-resizing-y * {
 }
 
 .ctx-json-exact-toggle[aria-pressed="true"] {
-  background: var(--color-ink);
+  background: var(--color-ink-fill);
   color: var(--color-on-ink);
 }
 
@@ -1253,7 +1273,7 @@ body.is-resizing-y * {
 .ctx-produced-tag {
   padding: 0 var(--spacing-2);
   border-radius: var(--rounded-full);
-  background: var(--color-ink);
+  background: var(--color-ink-fill);
   color: var(--color-on-ink);
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
     var(--typography-label-line-height) var(--typography-label-font-family);
@@ -1435,7 +1455,7 @@ body.is-resizing-y * {
 
 .step-code mark {
   background: var(--color-state-error);
-  color: var(--color-on-primary);
+  color: var(--color-on-vivid); /* story 31: ink on red, as DESIGN.md says */
 }
 
 /* DESIGN.md harness-event: thick side rule, red for failure, violet for information. */
@@ -1644,7 +1664,7 @@ body.is-resizing-y * {
 .turn-group-status.is-running {
   background: var(--color-state-active);
   border-color: var(--color-state-active);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
 }
 
 .turn-group-status.is-running::before {
@@ -1658,7 +1678,7 @@ body.is-resizing-y * {
 .turn-group-status.is-failed {
   background: var(--color-state-error);
   border-color: var(--color-state-error);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
 }
 
 .turn-group-status.is-failed::before {
@@ -1803,11 +1823,13 @@ body.is-resizing-y * {
 .turn-step.tone-error .turn-step-tile {
   background: var(--color-state-error);
   border-color: var(--color-state-error);
+  color: var(--color-on-vivid); /* story 31: explicit (a model's tile was on-ink on red) */
 }
 
 .turn-step.tone-pending .turn-step-tile {
   background: var(--color-primary-soft);
   border-color: var(--color-primary);
+  color: var(--color-ink); /* story 31: a model's tile (on-ink text) waiting, on violet soft */
 }
 
 .turn-step.tone-unavailable .turn-step-tile {
@@ -1907,7 +1929,7 @@ body.is-resizing-y * {
 .net-mark,
 .net-host {
   background: var(--color-hosting-network);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
   border: 1.5px dashed var(--color-ink);
   padding: 0 var(--spacing-1);
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
@@ -2431,7 +2453,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .hosting-tag-network {
   background: var(--color-hosting-network);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
   border: 1px dashed var(--color-ink);
 }
 
@@ -2906,7 +2928,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .outbound-head {
   background: var(--color-hosting-network);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
   padding: var(--spacing-1) var(--spacing-2);
   overflow-wrap: anywhere;
   cursor: pointer;
@@ -3058,7 +3080,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   border-style: dashed;
   border-color: var(--color-ink);
   background: var(--color-hosting-network);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
 }
 
 .arch-zone-row {
@@ -3419,7 +3441,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   border: 4px double var(--discipline, var(--color-ink-soft));
 }
 
-/* Skill: a thick left rule, like the spine of a sheet; white until loaded, then on its
+/* Skill: a thick left rule, like the spine of a sheet; on surface-raised until loaded, then on its
    discipline's soft background. */
 .arch .arch-node-skill {
   border-left-width: 7px;
@@ -3554,9 +3576,14 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .arch-marker text {
+  fill: var(--color-ink); /* story 31: SVG text is black by default, lost on a dark disc */
   font-family: var(--typography-label-font-family);
   font-size: var(--typography-label-font-size);
   font-weight: 600;
+}
+
+.arch-marker.is-block text {
+  fill: var(--color-on-vivid);
 }
 
 @keyframes arch-flow {
@@ -3764,7 +3791,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   padding: 6px;
   border: 2px dashed var(--color-discipline-network);
   border-radius: var(--rounded-sm);
-  background: var(--color-ink);
+  background: var(--color-ink-fill);
   color: var(--color-on-ink);
 }
 
@@ -3777,9 +3804,9 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   align-self: flex-start;
   gap: 4px;
   padding: 6px 8px;
-  border: 2px solid var(--color-ink);
+  border: 2px solid var(--color-ink-fill-edge);
   border-radius: var(--rounded-sm);
-  background: var(--color-ink); /* story 33: an ink plate */
+  background: var(--color-ink-fill); /* story 33: an ink plate */
   color: var(--color-on-ink);
   max-width: 180px;
   text-align: center;
@@ -3805,7 +3832,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 /* ---------- story 26: the context window (DESIGN.md > window-picker) ----------
    A button on the ink top bar, like « Mode projection »; its panel drops under it like the
-   « Volets ▾ » list, on white, not modal (the demo stays visible). */
+   « Volets ▾ » list, on surface-raised, not modal (the demo stays visible). */
 
 .window-picker {
   position: relative;
@@ -3826,7 +3853,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .window-toggle[aria-expanded="true"] {
   background: var(--color-on-ink);
-  color: var(--color-ink);
+  color: var(--color-ink-fill); /* story 31: the bar's colours, inverted */
 }
 
 .window-toggle:disabled {
@@ -3858,11 +3885,11 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   /* In projection mode at 1280 px, the button takes room the chip « · lié » needs: the
      names and the model picker give a little more, the button tightens. */
   :root.projection .top-bar > select.scenario-picker {
-    min-width: 4.5rem;
+    min-width: 3.5rem; /* story 31: 4.5rem before the theme picker */
   }
 
   :root.projection .top-bar > .model-picker {
-    min-width: 4rem;
+    min-width: 3rem; /* story 31: 4rem before the theme picker */
   }
 
   :root.projection .window-toggle {
@@ -4062,7 +4089,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   min-height: var(--spacing-hit-target-min);
   padding: 0 var(--spacing-3);
   background: var(--color-primary);
-  color: var(--color-surface-raised);
+  color: var(--color-on-primary);
   border: 1px solid var(--color-primary);
   border-radius: var(--rounded-md);
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
@@ -4088,6 +4115,69 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 .model-picker:focus-visible {
   outline: var(--spacing-stroke-min) solid var(--color-primary);
   outline-offset: 2px;
+}
+
+/* ---------- story 31: the theme picker (DESIGN.md > theme-picker) ----------
+   A neutral native list, as the model picker, before « Réinitialiser »; bordered in
+   on-ink-soft to stand out of the ink-fill bar; its focus ring is the bar's on-ink one. */
+.theme-picker {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+/* The box holds the native list and, for the compact state, its face: the symbol of the
+   choice (◐, ☀, ☾, set by theme.js) and a chevron. Above 1400 px the face is hidden. */
+.theme-picker-box {
+  position: relative;
+  display: inline-flex;
+}
+
+.theme-picker-face {
+  display: none;
+}
+
+/* Under 1400 px the bar tightens (see « Projection »): the face shows the symbol and the
+   chevron; the native list stays whole on top of it, transparent, so a click, the keyboard and
+   a screen reader still reach it (its words stay in the list, the name and the tooltip). */
+@media (max-width: 1400px) {
+  .theme-picker-face {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-height: var(--spacing-hit-target-min);
+    padding: 0 var(--spacing-1) 0 var(--spacing-2);
+    background: var(--color-surface-raised);
+    color: var(--color-ink);
+    border: 1px solid var(--color-on-ink-soft);
+    border-radius: var(--rounded-md);
+    font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+      var(--typography-label-line-height) var(--typography-label-font-family);
+  }
+
+  .theme-picker-chevron {
+    font-size: 0.75em;
+  }
+
+  .theme-picker-box > .theme-picker {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    min-height: 0;
+    opacity: 0;
+  }
+
+  .top-bar .theme-picker-box:has(.theme-picker:focus-visible) {
+    outline: var(--spacing-stroke-min) solid var(--color-on-ink);
+    outline-offset: 2px;
+    border-radius: var(--rounded-md);
+  }
 }
 
 /* Vue humain: the model that plays the turns below, when it changed. */
@@ -4188,10 +4278,11 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   display: flex;
   align-items: flex-end;
   gap: var(--spacing-1);
-  /* Story 33: the model's ink plate. */
+  /* Story 33: the model's ink plate (story 31: ink-fill). */
   padding: 2px var(--spacing-1);
   border-radius: var(--rounded-sm);
-  background: var(--color-ink);
+  background: var(--color-ink-fill);
+  box-shadow: inset 0 0 0 var(--spacing-stroke-min) var(--color-ink-fill-edge); /* story 31 */
 }
 
 .robot-sub .robot-drawing {
@@ -4514,18 +4605,19 @@ body .arch .arch-robots .robot.is-selection-linked {
 
 .projection-toggle[aria-pressed="true"] {
   background: var(--color-on-ink);
-  color: var(--color-ink);
+  color: var(--color-ink-fill); /* story 31: the bar's colours, inverted */
 }
 
 /* ---------- story 33: focus on the ink top bar ----------
-   Last in the file: wins over each control's own ring. Its drop-down list stays on white. */
+   Last in the file: wins over each control's own ring. Its drop-down lists (« Volets ▾ », « Fenêtre ») keep
+   theirs: they lie on surface-raised. */
 
 .top-bar :focus-visible:not(.pane-menu-list *):not(.window-panel *) {
   outline: var(--spacing-stroke-min) solid var(--color-on-ink);
   outline-offset: 2px;
 }
 
-/* Story 26: the window panel is white, its focus ring the primary one. */
+/* Story 26: the window panel lies on surface-raised, its focus ring the primary one. */
 .window-panel :focus-visible {
   outline: var(--spacing-stroke-min) solid var(--color-primary);
   outline-offset: 2px;

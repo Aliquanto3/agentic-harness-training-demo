@@ -2,7 +2,8 @@
 title: 'Mode sombre'
 type: 'feature'
 created: '2026-09-28'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '72cf3f5060a06567626b59fc7466ce1816ed7e72'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -15,7 +16,27 @@ context:
   - '{project-root}/tools/e2e/README.md'
 warnings:
   - oversized
-deferred: []
+deferred:
+  - summary: >-
+      Palette sombre écrite trois fois (DESIGN.md et deux blocs de tokens.css) ; styles du sélecteur de thème recopiés entre app.css et pages.css.
+    evidence: |-
+      test_media_block_is_the_dark_block empêche la dérive, mais chaque couleur demande trois modifications.
+    severity: low
+  - summary: >-
+      Champs de saisie, textes indicatifs et pseudo-éléments hors du balayage de contraste.
+    evidence: |-
+      Le balayage ne lit que les nœuds de texte directs.
+    severity: low (unverified)
+  - summary: >-
+      Absence de flash du thème clair non observée image par image.
+    evidence: |-
+      Vérifiée structurellement (script classique en tête) et après chargement ; à confirmer à l'œil sur le PC.
+    severity: low (unverified)
+  - summary: >-
+      Aspect du thème clair inchangé non prouvé automatiquement (pas de comparaison d'images).
+    evidence: |-
+      Les captures sont refaites à chaque parcours sans comparaison.
+    severity: low (unverified)
 ---
 
 <intent-contract>
@@ -170,6 +191,34 @@ Les stories 33 (en cours), 23, 34, 32, 24, 25, 26 et 27 modifient ces fichiers a
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 24 findings — high 0, medium 4, low 16, false 0, maybe-false 4 (écarts de l'auditeur d'intention : absence de flash et lisibilité du schéma prouvées par proxy, captures non comparées — traités par les points ci-dessous ou laissés à la vérification sur PC)
+- findings:
+  - `[low]` `[patch]` (vérif.) texte sur rouge (seul changement visible du thème clair) non vérifié — contrôles E2E sur la pastille de débordement, la tuile en erreur et la confirmation du tiroir.
+  - `[low]` `[patch]` (vérif. « Other ») sélecteur réduit au symbole annoncé par le README mais non vérifié — assertion ajoutée.
+  - `[medium]` `[patch]` (blind + edge) contrôles de la barre haute et plaques d'encre qui se fondent en sombre (1,1 à 1,5:1) — bordures visibles, paires non textuelles testées à 3:1.
+  - `[low]` `[patch]` (blind + edge) balayage de contraste faux pour le texte SVG — `fill` contre la forme sœur.
+  - `[low]` `[patch]` (blind) balayage limité à l'état de repos — tiroir, panneau « Fenêtre » et liste « Volets » balayés en sombre.
+  - `[low]` `[patch]` (blind + edge) DESIGN.md affirme le thème clair inchangé — changements acceptés listés.
+  - `[low]` `[patch]` (blind) chiffres dits verrouillés sans test — planchers ajoutés ou formulation corrigée.
+  - `[low]` `[patch]` (blind + edge) test des jetons de rôle plus étroit que sa description — corrigé.
+  - `[low]` `[patch]` (blind) garde anti-couleurs en dur incomplète — couleurs nommées et fonctions de couleur rejetées.
+  - `[low]` `[patch]` (blind) commentaires « sur blanc » périmés — reformulés.
+  - `[medium]` `[patch]` (blind + edge) sélecteur réduit fragile (« ◐ S… », flèche retirée) — symbole visible, sélecteur natif conservé, flèche gardée.
+  - `[low]` `[patch]` (blind + edge ×2) thème désynchronisé après retour arrière ou dans un autre onglet — `pageshow` et `storage`.
+  - `[low]` `[patch]` (blind) glyphes lus par les lecteurs d'écran — accepté et documenté.
+  - `[low]` `[defer]` (blind) palette sombre écrite trois fois (DESIGN.md, deux blocs de tokens.css) ; styles du sélecteur recopiés — génération ou `light-dark()` à étudier.
+  - `[medium]` `[patch]` (edge) tuile du modèle « en attente » illisible en clair (1,2:1) — couleur explicite.
+  - `[low]` `[patch]` (edge) barre haute non vérifiée entre 1 401 et 1 599 px — passage à 1 440 px.
+  - `[maybe-false]` `[defer]` (edge) champs de saisie, textes indicatifs et pseudo-éléments hors du balayage.
+  - `[maybe-false]` `[defer]` (intention) aucun test n'observe la première image (absence de flash) — vérification sur PC.
+  - `[maybe-false]` `[defer]` (intention) captures sans comparaison d'image — l'aspect clair inchangé n'est pas prouvé automatiquement.
+  - `[maybe-false]` `[defer]` (intention) exigence d'un sélecteur de thème sur toute page future, plus large que « mêmes jetons ».
+  - `[medium]` → regroupé (plaques d'encre, edge).
+  - `[low]` → regroupé (SVG, edge « claim »).
+  - `[low]` → regroupé (jetons de rôle, edge « claim »).
+  - `[low]` → regroupé (onglets, edge).
+
 ## Design Notes
 
 **Rôles qui divergent en sombre**. Leur valeur claire est celle d'aujourd'hui, ce qui ne change rien au thème clair :
@@ -275,3 +324,17 @@ Sans stockage, `read()` renvoie toujours « system ». Le sélecteur garde pourt
   - **Attendu** : sombre repris dans Chrome ; dans InPrivate, choix possible sans erreur, puis oublié à la fermeture.
   - **Critère** : thème repris au lancement suivant, aucune erreur dans la console.
   - **Moyen** : Playwright (Chromium de `%LOCALAPPDATA%\ms-playwright`) ou à la main.
+
+## Auto Run Result
+
+Statut : done (2026-09-29, orchestrateur de nuit ; étapes 1 à 4 menées par l'orchestrateur).
+
+**Changement :** sélecteur « ◐ Système » (par défaut), « ☀ Clair », « ☾ Sombre » dans la barre haute, sur `/diagnostic` et `/models` ; `theme.js` chargé en tête de chaque page pose `data-theme` avant le rendu (pas de flash), mémorise le choix (`wavestack.theme`, lecture protégée) et suit un autre onglet ou un retour arrière. Palette sombre dessinée : un jumeau `-dark` par couleur de DESIGN.md, recopié dans `tokens.css` sous `[data-theme="dark"]` et sous `prefers-color-scheme: dark` ; six jetons de rôle (`ink-fill`, `ink-fill-edge`, `on-discipline`, `on-vivid`, `warning-soft`, `danger-soft`). Contrastes WCAG AA vérifiés dans les deux palettes (texte et traits porteurs de sens), garde contre toute couleur en dur. Sélecteur compact sous 1 400 px (symbole visible, liste native conservée). Retouches acceptées du thème clair listées dans DESIGN.md (texte sur rouge, tuile en attente, bordures des contrôles, diagnostic passé aux jetons).
+
+**Fichiers :** `web/static/{theme.js (nouveau),tokens.css,app.css,index.html,diagnostic.html,models.html,pages.css}`, `tests/test_web_{tokens,app}.py`, `tools/e2e/{run_e2e.py,README.md}`, DESIGN.md, EXPERIENCE.md, ARCHITECTURE-SPINE.md (AD-18), captures 46 à 51.
+
+**Revue :** 24 constats — 16 corrigés (4 medium, 12 low), 4 différés (1 low, 3 maybe-false), 4 regroupés ; voir le triage. Revue de suivi recommandée : false.
+
+**Vérification :** ruff check et format verts ; pytest : 1194 passés, 3 ignorés ; E2E complet : 609 PASS, 0 FAIL (balayage de contraste bloquant en sombre, tiroir, panneau « Fenêtre » et liste « Volets » ouverts).
+
+**Risques résiduels :** absence de flash et suivi du mode Windows à confirmer à l'œil ; lisibilité en projection ; les deux décisions par défaut « pas de synchronisation entre onglets » et « barre haute inchangée en clair » ont été dépassées à la correction (synchronisation ajoutée, bordures des contrôles).

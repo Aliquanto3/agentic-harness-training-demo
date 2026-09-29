@@ -7,7 +7,7 @@ sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/addendum.md
 name: WaveStack
-description: Démonstrateur pédagogique local de harnais agentique, à la charte Wavestone, dans une direction « atelier de construction » pensée pour la projection. Thème clair en V1, jetons prêts pour un second thème (story 31).
+description: Démonstrateur pédagogique local de harnais agentique, à la charte Wavestone, dans une direction « atelier de construction » pensée pour la projection. Deux thèmes, clair et sombre, « Système » par défaut (story 31).
 colors:
   # Charte Wavestone
   primary: '#451DC7'
@@ -67,6 +67,71 @@ colors:
   json-key: '#1E3A8A'
   json-string: '#7A3410'
   json-literal: '#0B5E73'
+  # Rôles (story 31) : ceux qui divergent en sombre ; en clair, la valeur d'avant la story
+  ink-fill: '#0A0A14'
+  ink-fill-edge: '#0A0A14'
+  on-discipline: '#FFFFFF'
+  on-vivid: '#0A0A14'
+  warning-soft: '#FFF4D6'
+  danger-soft: '#FDE8EB'
+  # Thème sombre (story 31) : un jumeau `{clé}-dark` par couleur, mêmes rôles, dessiné jeton
+  # par jeton (voir Colors > Thème sombre). tokens.css le pose sous `[data-theme="dark"]` et
+  # sous `prefers-color-scheme: dark` sans attribut, sous le nom de la clé claire.
+  primary-dark: '#9C86FF'
+  primary-deep-dark: '#C9BDFF'
+  primary-soft-dark: '#2A2350'
+  accent-dark: '#04F06A'
+  accent-soft-dark: '#0F3A24'
+  ink-dark: '#ECEBF5'
+  ink-soft-dark: '#B4B3C7'
+  muted-dark: '#8A8A9E'
+  line-dark: '#3A394F'
+  surface-dark: '#12121C'
+  surface-raised-dark: '#1E1D2C'
+  warning-dark: '#FFCA4A'
+  danger-dark: '#FF6B7F'
+  on-primary-dark: '#0E0B1E'
+  relief-dark: '#2A2156'
+  relief-active-dark: '#3A2E78'
+  dot-dark: '#262538'
+  hosting-network-dark: '#FFCA4A'
+  hosting-boundary-dark: '#ECEBF5'
+  state-active-dark: '#04F06A'
+  state-ok-dark: '#04F06A'
+  state-blocked-dark: '#FF6B7F'
+  state-error-dark: '#FF6B7F'
+  state-unavailable-dark: '#8A8A9E'
+  segment-system-prompt-dark: '#8C74FF'
+  segment-global-memory-dark: '#3CC878'
+  segment-tool-descriptions-dark: '#4F95EA'
+  segment-history-dark: '#A48EF0'
+  segment-rag-dark: '#1FB3A2'
+  segment-tool-results-dark: '#F08A42'
+  segment-message-dark: '#C07FDA'
+  segment-free-dark: '#2A2938'
+  discipline-prompt-dark: '#9C86FF'
+  discipline-prompt-soft-dark: '#262047'
+  discipline-context-dark: '#2FB8A3'
+  discipline-context-soft-dark: '#12302B'
+  discipline-harness-dark: '#E8639F'
+  discipline-harness-soft-dark: '#3A1A2B'
+  discipline-network-dark: '#E8B516'
+  discipline-network-soft-dark: '#3A3010'
+  discipline-neutral-dark: '#8A8A9E'
+  discipline-neutral-soft-dark: '#26252F'
+  on-ink-dark: '#FFFFFF'
+  on-ink-soft-dark: '#CFCDE4'
+  produced-soft-dark: '#1A2335'
+  reasoning-soft-dark: '#2A2618'
+  json-key-dark: '#9DBBFF'
+  json-string-dark: '#F2A77E'
+  json-literal-dark: '#6FD3E3'
+  ink-fill-dark: '#33257A'
+  ink-fill-edge-dark: '#7C6AD6'
+  on-discipline-dark: '#0E0B1E'
+  on-vivid-dark: '#0A0A14'
+  warning-soft-dark: '#3A3010'
+  danger-soft-dark: '#3A1820'
 typography:
   # Base ; le mode projection (story 34, NFR-9) multiplie toute la rampe par 9/7, dans app.css.
   pane-title:
@@ -159,8 +224,10 @@ components:
     network-soft: '{colors.discipline-network-soft}'
     neutral: '{colors.discipline-neutral}'
     neutral-soft: '{colors.discipline-neutral-soft}'
-    model: '{colors.ink}'
+    model: '{colors.ink-fill}'
     on-model: '{colors.on-ink}'
+    on-color: '{colors.on-discipline}' # texte sur prompt, context et harness
+    on-color-vivid: '{colors.on-vivid}' # texte sur network et neutral
   discipline-legend:
     swatch-border: '{colors.ink-soft}'
     swatch-border-on-ink: '{colors.on-ink-soft}'
@@ -168,7 +235,7 @@ components:
     foreground-on-ink: '{colors.on-ink-soft}'
     typography: '{typography.label}'
   top-bar:
-    background: '{colors.ink}'
+    background: '{colors.ink-fill}'
     foreground: '{colors.on-ink}'
     title-color: '{colors.on-ink}'
     focus-ring: '{colors.on-ink}'
@@ -187,7 +254,7 @@ components:
     subtitle-color: '{colors.ink-soft}'
   # Story 34: the reading order, a numbered disc before the title of the four demo panes.
   pane-step:
-    background: '{colors.ink}'
+    background: '{colors.ink-fill}'
     foreground: '{colors.on-ink}'
     typography: '{typography.number}'
     size: 1.7em
@@ -221,7 +288,7 @@ components:
     radius: '{rounded.md}'
     min-height: '{spacing.hit-target-min}'
     confirmed-background: '{colors.danger}'
-    confirmed-foreground: '{colors.ink}'
+    confirmed-foreground: '{colors.on-vivid}'
   scenario-picker:
     background: '{colors.primary-soft}'
     foreground: '{colors.primary-deep}'
@@ -231,13 +298,24 @@ components:
     foreground: '{colors.ink}'
     border: '{colors.line}'
     radius: '{rounded.md}'
+  # Story 31: « ◐ Système », « ☀ Clair », « ☾ Sombre », a native select like model-picker, on
+  # the ink-fill top bar (and at the right of the page-tabs of /diagnostic and /models).
+  theme-picker:
+    background: '{colors.surface-raised}'
+    foreground: '{colors.ink}'
+    border: '{colors.line}'
+    focus-ring: '{colors.on-ink}'
+    page-focus-ring: '{colors.primary}'
+    radius: '{rounded.md}'
+    typography: '{typography.label}'
+    min-height: '{spacing.hit-target-min}'
   # Story 34: replaces the « Aa » text-size-control, never built; on the ink top bar.
   projection-toggle:
     background: transparent
     foreground: '{colors.on-ink}'
     border: '{colors.on-ink-soft}'
     pressed-background: '{colors.on-ink}'
-    pressed-foreground: '{colors.ink}'
+    pressed-foreground: '{colors.ink-fill}'
     typography: '{typography.label}'
     radius: '{rounded.md}'
     min-height: '{spacing.hit-target-min}'
@@ -283,7 +361,7 @@ components:
     toggle-foreground: '{colors.on-ink}'
     toggle-border: '{colors.on-ink-soft}'
     toggle-expanded-background: '{colors.on-ink}'
-    toggle-expanded-foreground: '{colors.ink}'
+    toggle-expanded-foreground: '{colors.ink-fill}'
     panel-background: '{colors.surface-raised}'
     panel-foreground: '{colors.ink}'
     panel-border: '{colors.line}'
@@ -309,6 +387,7 @@ components:
     legend-color: '{colors.on-ink-soft}'
     near-limit-marker: '{colors.ink}'
     overflow-color: '{colors.danger}'
+    overflow-foreground: '{colors.on-vivid}'
   context-gauge-detail:
     background: '{colors.surface-raised}'
     cell-free: '{colors.segment-free}'
@@ -334,7 +413,7 @@ components:
     rule: '{colors.line}'
     between-typography: '{typography.body-sm}'
     between-color: '{colors.ink-soft}'
-    mode-pressed-background: '{colors.ink}'
+    mode-pressed-background: '{colors.ink-fill}'
     mode-pressed-foreground: '{colors.on-ink}'
     mode-border: '{colors.line}'
   # Story 32: consecutive segments of one source, the margin (source) beside the text.
@@ -347,7 +426,7 @@ components:
     label-typography: '{typography.label}'
     body-typography: '{typography.code}'
     template-color: '{colors.ink-soft}'
-    new-badge-background: '{colors.ink}'
+    new-badge-background: '{colors.ink-fill}'
     new-badge-foreground: '{colors.on-ink}'
     seen-background: '{colors.surface}'
     seen-foreground: '{colors.ink-soft}'
@@ -358,7 +437,7 @@ components:
     background: '{colors.produced-soft}'
     reasoning-background: '{colors.reasoning-soft}'
     rule: '{colors.ink}'
-    tag-background: '{colors.ink}'
+    tag-background: '{colors.ink-fill}'
     tag-foreground: '{colors.on-ink}'
     foreground: '{colors.ink}'
     label-typography: '{typography.label}'
@@ -409,7 +488,7 @@ components:
     radius: '{rounded.full}'
   hosting-tag-network:
     background: '{colors.hosting-network}'
-    foreground: '{colors.ink}'
+    foreground: '{colors.on-vivid}'
     border: '{colors.ink}'
     border-style: dashed
     radius: '{rounded.full}'
@@ -419,7 +498,7 @@ components:
     shadow: '{colors.relief}'
     radius: '{rounded.lg}'
   chat-message-user:
-    background: '{colors.ink}'
+    background: '{colors.ink-fill}'
     foreground: '{colors.on-ink}'
     radius: '{rounded.lg}'
     typography: '{typography.chat}'
@@ -458,7 +537,7 @@ components:
     radius: '{rounded.sm}'
     tile: '{components.discipline-code}'
     tile-letter-typography: '{typography.label}'
-    model-tile: '{colors.ink}'
+    model-tile: '{colors.ink-fill}'
     model-icon: '{colors.on-ink}'
     current-marker: '{colors.state-active}'
     selected-background: '{colors.primary-soft}'
@@ -506,7 +585,7 @@ components:
     border: '{colors.hosting-boundary}'
     border-style: dashed
     header-background: '{colors.hosting-network}'
-    header-foreground: '{colors.ink}'
+    header-foreground: '{colors.on-vivid}'
     body-typography: '{typography.code}'
     section-typography: '{typography.label}'
     section-color: '{colors.ink-soft}'
@@ -524,7 +603,8 @@ components:
     radius: '{rounded.lg}'
   arch-zone-network:
     background: '{colors.surface}'
-    label-color: '{colors.ink}'
+    label-background: '{colors.hosting-network}'
+    label-color: '{colors.on-vivid}'
     radius: '{rounded.lg}'
   arch-harness:
     background: '{colors.surface-raised}'
@@ -538,7 +618,7 @@ components:
     brick-foreground: '{colors.primary-deep}'
     radius: '{rounded.lg}'
   arch-model:
-    plate: '{colors.ink}'
+    plate: '{colors.ink-fill}'
     label-color: '{colors.on-ink}'
     name-color: '{colors.on-ink-soft}'
     body: '{colors.primary}'
@@ -579,11 +659,18 @@ components:
     stroke: '{colors.ink-soft}'
     stroke-width: '{spacing.stroke-min}'
     active-stroke: '{colors.state-active}'
+  # Story 31: the page on tokens.css; a row's background says its state, a result its rule.
   diagnostic-row:
     background: '{colors.surface-raised}'
+    ok-background: '{colors.accent-soft}'
+    warning-background: '{colors.warning-soft}'
+    error-background: '{colors.danger-soft}'
+    cloud-background: '{colors.discipline-network-soft}'
+    cloud-border: '{colors.hosting-boundary}'
     ok-badge: '{colors.state-ok}'
     error-badge: '{colors.state-error}'
-    badge-foreground: '{colors.ink}'
+    badge-foreground: '{colors.on-vivid}'
+    result-rule-width: 4px
     radius: '{rounded.sm}'
 ---
 
@@ -599,7 +686,7 @@ L'identité reste celle de la charte Wavestone : violet ancre, vert en unique ac
 
 Les composants vitrine de la charte (curseur personnalisé, révélations au scroll, compteurs animés) ne s'appliquent pas : une application qui s'anime pour elle-même vole l'attention que la démonstration doit capter.
 
-Thème clair en V1 `[ASSUMPTION]` : plus robuste en projection dans une salle éclairée. Jetons prêts pour un second thème (story 31) : chaque couleur passe par une variable de `tokens.css`, jamais écrite en dur dans `app.css` ni `app.js` (`tests/test_web_tokens.py`) ; un thème sombre n'aura qu'à redéfinir les jetons.
+Deux thèmes, clair et sombre (story 31), au choix du formateur par un sélecteur « ◐ Système », « ☀ Clair », « ☾ Sombre » (`theme-picker`) ; « Système » par défaut suit le réglage du poste. Le clair reste le plus robuste en projection dans une salle éclairée ; le sombre sert le poste réglé en sombre, la visio du soir ou la salle sans lumière. Chaque couleur passe par une variable de `tokens.css`, jamais écrite en dur dans une page, une feuille ou un script de `static/` (`tests/test_web_tokens.py`) ; la palette sombre redéfinit les mêmes variables, dessinée jeton par jeton (voir Colors > Thème sombre), jamais calculée ni inversée.
 
 ## Colors
 
@@ -609,7 +696,7 @@ Thème clair en V1 `[ASSUMPTION]` : plus robuste en projection dans une salle é
 - **Violet doux (`#EDE7FE`)** : fond d'étape sélectionnée, de puce de volet et de sélecteur de scénario. La brique active et le message de l'utilisateur ont quitté ce fond (story 33).
 - **Vert (`#04F06A`)** : seul accent secondaire. Réservé à « composant en cours d'action » (halo, flux animé, étape courante) et à « diagnostic OK ». Contraste 1,5:1 sur blanc : jamais en texte ni en trait fin isolé, toujours en fond ou halo avec texte encre (12,8:1).
 - **Vert clair (`#CAFEE0`)** : réserve de la charte, sans usage assigné en V1.
-- **Encre (`#0A0A14`)**, **encre douce (`#4A4A5E`)** : texte principal et secondaire. L'encre sert aussi de fond aux éléments clés (story 33) : barre haute, bulle de l'utilisateur, tuile d'une étape du modèle, plaque du modèle dans le schéma. L'encre de la charte reste en place, pas celle de la maquette (`#1A1733`).
+- **Encre (`#0A0A14`)**, **encre douce (`#4A4A5E`)** : texte principal et secondaire. Le fond des éléments clés (story 33) passe par le jeton de rôle `ink-fill` (story 31), de même valeur en clair : barre haute, bulle de l'utilisateur, tuile d'une étape du modèle, plaque du modèle dans le schéma, numéro de volet, étiquettes « Nouveau » et « Produit par le modèle », pilule pressée. L'encre de la charte reste en place, pas celle de la maquette (`#1A1733`).
 - **Sur encre** (`on-ink` `#FFFFFF`, `on-ink-soft` `#CFCDE4`) : texte et traits posés sur l'encre, 19,7:1 et 12,7:1. **Gris (`#8A8A9E`)** : 3,4:1, donc réservé à l'état indisponible et aux éléments non textuels ; jamais pour un texte à lire.
 - **Ligne (`#E6E6EC`)**, **crème (`#F6F5FA`)**, **blanc (`#FFFFFF`)** : séparateurs, fond de page, fond des volets. Le blanc n'est pas listé dans la charte relevée au memlog `[ASSUMPTION]`.
 - **Relief (`#D9D0F6`)**, **relief actif (`#C9BCF5`)**, **pois (`#D6CCF5`)** : trois teintes du violet de charte, ajoutées pour la direction « atelier de construction ». Elles ne servent qu'à l'ombre pleine (`{colors.relief}` sous volets et cartes, `{colors.relief-active}` sous pièces actives et bouton secondaire) et aux pois du fond de page (`{colors.dot}`). Jamais en texte, en fond de contenu ni en trait porteur de sens.
@@ -632,7 +719,7 @@ La maquette de référence teinte aussi les neutres en lilas (encre `#1C1535`, e
 | Harness engineering | `discipline-harness` `#B8327A` | `discipline-harness-soft` `#FBE7F1` | outils, MCP, hooks, sous-agent, étapes du harnais |
 | Sort du poste de travail | `discipline-network` `#D9A400` | `discipline-network-soft` `#FFF5D1` | nœuds réseau, étapes avec données sortantes, puce « RÉSEAU » |
 | Neutre | `discipline-neutral` `#8A8A9E` | `discipline-neutral-soft` `#EFEFF4` | message et gabarit, fichiers du harnais, brique éteinte |
-| Modèle | `ink` | `ink` | tuiles des appels, demandes d'outil et réponses finales ; plaque du modèle |
+| Modèle | `ink-fill` | `ink-fill` | tuiles des appels, demandes d'outil et réponses finales ; plaque du modèle |
 
 Contrastes, verrouillés par `tests/test_web_tokens.py` (calcul WCAG en Python) :
 
@@ -662,11 +749,11 @@ Contrastes, verrouillés par `tests/test_web_tokens.py` (calcul WCAG en Python) 
 | `json-string` | `#7A3410` | chaînes | ≥ 7,6 |
 | `json-literal` | `#0B5E73` | nombres, booléens, `null` | ≥ 6,2 |
 
-Les trois couleurs JSON sont mesurées sur les deux fonds produits, sur `surface-raised` et sur chaque fond doux de discipline (une section lue). Ce sont des couleurs de texte seulement. Les jetons n'ont pas encore de jumeau sombre : la story 31 couvrira tous ceux de `tokens.css`.
+Les trois couleurs JSON sont mesurées sur les deux fonds produits, sur `surface-raised` et sur chaque fond doux de discipline (une section lue), dans les deux thèmes. Ce sont des couleurs de texte seulement. Leurs jumeaux sombres sont éclaircis (voir Thème sombre).
 
 **Couleurs d'état** `[ASSUMPTION]`.
 - `{colors.state-active}` (vert) : composant en cours d'action, étape courante, diagnostic OK.
-- `{colors.state-blocked}` / `{colors.state-error}` (rouge) : blocage par un hook, échec de parsing, dépassement du contexte, diagnostic en échec. Rouge sur blanc = 3,7:1 : utilisé en fond de pastille avec texte encre (5,3:1), en filet latéral épais ou en icône, jamais en petit texte.
+- `{colors.state-blocked}` / `{colors.state-error}` (rouge) : blocage par un hook, échec de parsing, dépassement du contexte, diagnostic en échec. Rouge sur blanc = 3,7:1 : utilisé en fond de pastille avec texte `{colors.on-vivid}` (5,3:1), en filet latéral épais ou en icône, jamais en petit texte.
 - `{colors.state-unavailable}` (gris) : brique, outil ou serveur indisponible, toujours accompagné de la raison en `{colors.ink-soft}`.
 - Toujours avec icône et libellé. Jamais la couleur seule.
 
@@ -688,6 +775,70 @@ Validation (`validate_palette.js`, mode clair) : les paires de segments **voisin
 Depuis la story 33, la couleur de segment ne sert plus qu'à la pastille du type (Contexte LLM, détail de la jauge) : le filet et le fond du segment, comme les segments de la jauge, prennent la couleur de sa discipline. Le type reste lisible par la pastille, l'étiquette et l'infobulle.
 
 À éviter : dégradés, fonds colorés derrière du texte courant autres que les fonds doux de discipline, les deux fonds du produit (story 32) et l'encre, toute couleur hors de cette liste, et toute réutilisation d'une couleur de segment pour autre chose que son type.
+
+### Thème sombre (story 31)
+
+Une palette dessinée, jeton par jeton : chaque clé de `colors` a son jumeau `{clé}-dark` dans le frontmatter (le test l'exige, dans les deux sens). `tokens.css` pose ces valeurs sous les noms clairs, sous `:root[data-theme="dark"]` (choix « Sombre ») et sous `@media (prefers-color-scheme: dark) { :root:not([data-theme]) }` (« Système » sur un poste sombre) ; `color-scheme` suit (`light`, puis `dark`), pour que les contrôles natifs (listes, barres de défilement, `dialog`) prennent le thème. Aucun `filter: invert`, aucune couleur calculée en JS.
+
+**Jetons de rôle.** Certains jetons jouaient deux rôles qui divergent en sombre : l'encre, texte et fond ; `on-ink`, texte sur l'encre et sur les couleurs de discipline ; `ink`, texte sur les fonds vifs. Chaque rôle a son jeton : `ink-fill`, son bord `ink-fill-edge`, `on-discipline` et `on-vivid` reprennent en clair la valeur d'avant (`tests/test_web_tokens.py` le vérifie). `warning-soft` et `danger-soft` sont des valeurs nouvelles : elles remplacent les fonds écrits en dur dans la page de diagnostic.
+
+| Jeton | Rôle | Clair | Sombre |
+|---|---|---|---|
+| `ink-fill` | fond des éléments clés (barre haute, bulle de l'utilisateur, étapes et plaque du modèle, numéro de volet, étiquettes « Nouveau » et « Produit », pilule pressée) | `#0A0A14` | `#33257A` (violet profond) |
+| `ink-fill-edge` | bord de ces éléments (liseré de la barre, de la bulle, du numéro et de la plaque ; bordure des tuiles du modèle) : en sombre, `ink-fill` ne fait que 1,3 à 1,5:1 sur la page | `#0A0A14` | `#7C6AD6` |
+| `on-discipline` | texte sur prompt, context ou harness | `#FFFFFF` | `#0E0B1E` |
+| `on-vivid` | texte sur jaune, vert, rouge ou gris neutre | `#0A0A14` | `#0A0A14` |
+| `warning-soft` | fond d'avertissement du diagnostic | `#FFF4D6` | `#3A3010` |
+| `danger-soft` | fond d'échec du diagnostic | `#FDE8EB` | `#3A1820` |
+
+**Palette** (clair → sombre). Les fonds deviennent des bleu-nuit teintés de violet, les textes des gris lilas clairs ; les couleurs vives gardent leur rôle, éclaircies là où elles portent un texte ou un trait sur fond sombre.
+
+| Groupe | Jeton | Clair | Sombre |
+|---|---|---|---|
+| Charte | `primary`, `primary-deep`, `primary-soft` | `#451DC7`, `#250F6B`, `#EDE7FE` | `#9C86FF`, `#C9BDFF`, `#2A2350` |
+| Charte | `accent`, `accent-soft` | `#04F06A`, `#CAFEE0` | `#04F06A`, `#0F3A24` |
+| Charte | `ink`, `ink-soft`, `muted`, `line` | `#0A0A14`, `#4A4A5E`, `#8A8A9E`, `#E6E6EC` | `#ECEBF5`, `#B4B3C7`, `#8A8A9E`, `#3A394F` |
+| Charte | `surface`, `surface-raised` | `#F6F5FA`, `#FFFFFF` | `#12121C`, `#1E1D2C` |
+| Charte | `warning`, `danger`, `on-primary` | `#FFCA4A`, `#FF2A49`, `#FFFFFF` | `#FFCA4A`, `#FF6B7F`, `#0E0B1E` |
+| Relief | `relief`, `relief-active`, `dot` | `#D9D0F6`, `#C9BCF5`, `#D6CCF5` | `#2A2156`, `#3A2E78`, `#262538` |
+| Hébergement | `hosting-network`, `hosting-boundary` | `#FFCA4A`, `#0A0A14` | `#FFCA4A`, `#ECEBF5` |
+| États | `state-active`, `state-ok` | `#04F06A` | `#04F06A` |
+| États | `state-blocked`, `state-error`, `state-unavailable` | `#FF2A49`, `#FF2A49`, `#8A8A9E` | `#FF6B7F`, `#FF6B7F`, `#8A8A9E` |
+| Segments | `system-prompt`, `global-memory`, `tool-descriptions`, `history` | `#6B4EE6`, `#27B060`, `#2A78D6`, `#B39CF7` | `#8C74FF`, `#3CC878`, `#4F95EA`, `#A48EF0` |
+| Segments | `rag`, `tool-results`, `message`, `free` | `#0E8C7E`, `#E0762B`, `#9C5BB5`, `#F6F5FA` | `#1FB3A2`, `#F08A42`, `#C07FDA`, `#2A2938` |
+| Disciplines | prompt, context, harness | `#451DC7`, `#0F7B6C`, `#B8327A` | `#9C86FF`, `#2FB8A3`, `#E8639F` |
+| Disciplines | network, neutral | `#D9A400`, `#8A8A9E` | `#E8B516`, `#8A8A9E` |
+| Fonds doux | prompt, context, harness | `#EEE9FC`, `#E2F3EF`, `#FBE7F1` | `#262047`, `#12302B`, `#3A1A2B` |
+| Fonds doux | network, neutral | `#FFF5D1`, `#EFEFF4` | `#3A3010`, `#26252F` |
+| Sur encre | `on-ink`, `on-ink-soft` | `#FFFFFF`, `#CFCDE4` | `#FFFFFF`, `#CFCDE4` |
+| Contexte LLM | `produced-soft`, `reasoning-soft` | `#E8EEF7`, `#F3EFE3` | `#1A2335`, `#2A2618` |
+| Contexte LLM | `json-key`, `json-string`, `json-literal` | `#1E3A8A`, `#7A3410`, `#0B5E73` | `#9DBBFF`, `#F2A77E`, `#6FD3E3` |
+
+**Contrastes** (calcul WCAG), valables dans les deux palettes ; valeurs en sombre. `tests/test_web_tokens.py` vérifie chaque paire au seuil dans les deux palettes (`_THEME_PAIRS`), les valeurs exactes en sombre (`_DARK_RATIOS`) et chaque plancher « ≥ » en sombre (`_DARK_FLOORS`) :
+
+| Paire | Sombre | Seuil |
+|---|---|---|
+| `ink` et `ink-soft` sur `surface`, `surface-raised`, `primary-soft`, `accent-soft`, `warning-soft`, `danger-soft` et chaque fond doux de discipline | ≥ 6,2 | 4,5 |
+| `primary` sur `surface-raised` | 5,7 | 4,5 |
+| `primary-deep` sur `primary-soft` | 8,4 | 4,5 |
+| `on-primary` sur `primary` | 6,7 | 4,5 |
+| `on-ink` et `on-ink-soft` sur `ink-fill` | 12,5 et 8,0 | 4,5 |
+| `on-discipline` sur prompt, context et harness | 6,7, 7,8 et 6,2 | 4,5 |
+| `on-vivid` sur `hosting-network`, `warning`, `discipline-network`, `discipline-neutral`, `state-active`, `accent`, `danger` et `state-error` | ≥ 5,8 | 4,5 |
+| prompt, context, harness et neutral sur `surface` et `surface-raised` | ≥ 4,9 | 3 |
+| `ink` et `ink-soft` sur `produced-soft` et `reasoning-soft` | ≥ 7,4 | 4,5 |
+| `json-key`, `json-string`, `json-literal` sur les fonds de la story 32 | ≥ 6,6 | 4,5 |
+| `on-ink-soft` (bordure des commandes de la barre) sur `ink-fill` | 8,0 | 3 |
+| `ink-fill-edge` sur `surface` et `surface-raised` | ≥ 3,9 | 3 |
+
+En sombre seulement, car le clair échoue déjà et c'est documenté plus haut : `danger` en texte sur `surface-raised` (6,0), et chaque segment sur `segment-free` (au moins 4,1, seuil 3).
+
+- **Texte sur rouge.** `on-vivid` dans les deux thèmes, comme le prescrit la règle « rouge : texte encre » : la pastille de débordement de la jauge et une tuile d'étape du modèle en échec passent du blanc, 3,7:1, à l'encre, 5,3:1.
+- **Retouches acceptées du thème clair.** L'atelier ne change pas, sauf : le texte sur rouge (ci-dessus) ; une tuile du modèle en attente (H5), dont la lettre passe du blanc à l'encre sur violet doux ; les bordures des commandes de la barre, `on-ink-soft` au lieu de `line` ou `primary-soft` (quasi identiques sur l'encre) ; le sélecteur de thème, nouveau, et, sous 1400 px, sa forme compacte ; en mode projection sous 1400 px, les largeurs minimales des sélecteurs de scénario (4,5 → 3,5 rem) et de modèle (4 → 3 rem), pour lui faire place. La page de diagnostic passe aux jetons : fond `surface`, fonds de ligne `accent-soft`, `warning-soft` et `danger-soft` (au lieu de verts, oranges et roses écrits en dur), modèle cloud sur `discipline-network-soft`, étiquettes « RÉSEAU » et « Local » comme dans l'atelier (jaune de charte ; neutre au lieu du violet), résultats en encre derrière un filet d'état.
+- **Fonds vifs.** Un jaune, un vert, un rouge ou le gris neutre sous un texte porte un `color` explicite (`on-vivid`) : un texte hérité deviendrait clair en sombre.
+- **Robot.** Sur sa plaque `ink-fill` (violet profond), la visière `surface-raised` et le visage `ink` s'inversent d'eux-mêmes : écran sombre, yeux clairs. Aucun jeton propre au robot.
+- **Relief.** Les reliefs sombres sont des violets profonds, plus clairs que le fond ; l'ombre pleine du bouton primaire (`primary-deep`) devient un relief clair, comme le reste.
+- **Jaune.** Il garde sa valeur (le jaune de discipline s'éclaircit à `#E8B516`) et reste toujours doublé de « RÉSEAU » ou du globe.
 
 ## Typography
 
@@ -766,7 +917,7 @@ Les nœuds réseau gardent le même rayon que les nœuds locaux : seule la bordu
 Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 
 - **Fond de page (`page`)** : crème à pois, voir Layout & Spacing.
-- **Barre haute (`top-bar`)** : carte flottante sur l'encre (story 33), haute de `{spacing.top-bar-height}` (56 px, pour loger la légende sous la jauge), rayon `{rounded.lg}`, relief `{colors.relief}`. Titre, chiffres de la jauge et statut en `{colors.on-ink}` ; anneau de focus `{colors.on-ink}` de 2 px (la liste « Volets ▾ » et le panneau « Fenêtre », sur blanc, gardent le leur). Les commandes gardent leur fond propre et ne passent jamais sur deux lignes. La jauge a une largeur fixe (barre et légende sur 300 px, la légende sur deux lignes au plus), pour que rien ne la fasse bouger ; sur une fenêtre étroite (1280 px), le nom du scénario et celui du modèle cèdent la place, entiers dans la liste et l'infobulle. De gauche à droite : sélecteur de scénario, jauge de contexte (élément le plus large), bouton « Fenêtre ▾ » (`window-picker`, story 26), puces des volets masqués et menu « Volets ▾ », sélecteur de modèle, bouton « Mode projection » (`projection-toggle`), bouton Réinitialiser.
+- **Barre haute (`top-bar`)** : carte flottante sur l'encre (story 33 ; `{colors.ink-fill}`, violet profond en sombre, story 31), haute de `{spacing.top-bar-height}` (56 px, pour loger la légende sous la jauge), rayon `{rounded.lg}`, relief `{colors.relief}`. Titre, chiffres de la jauge et statut en `{colors.on-ink}` ; anneau de focus `{colors.on-ink}` de 2 px (la liste « Volets ▾ » et le panneau « Fenêtre », sur `{colors.surface-raised}`, gardent le leur). Story 31 : un liseré intérieur `{colors.ink-fill-edge}` de `{spacing.stroke-min}` borde la barre (invisible en clair, 3,9:1 sur la page en sombre), et les commandes à fond propre (sélecteurs de scénario, de modèle et de thème, « Réinitialiser ») sont bordées `{colors.on-ink-soft}` (8,0:1 sur `ink-fill` en sombre). Les commandes gardent leur fond propre et ne passent jamais sur deux lignes. La jauge a une largeur fixe (barre et légende sur 300 px, la légende sur deux lignes au plus), pour que rien ne la fasse bouger ; sur une fenêtre étroite (1280 px), le nom du scénario et celui du modèle cèdent la place, entiers dans la liste et l'infobulle. De gauche à droite : sélecteur de scénario, jauge de contexte (élément le plus large), bouton « Fenêtre ▾ » (`window-picker`, story 26), puces des volets masqués et menu « Volets ▾ », sélecteur de modèle, bouton « Mode projection » (`projection-toggle`), sélecteur de thème (`theme-picker`, story 31), bouton Réinitialiser.
 - **Volet (`pane`)** : carte blanche sans bordure, rayon `{rounded.lg}`, relief `{colors.relief}`. L'en-tête est un bandeau `{colors.surface}` séparé du contenu par un filet `{colors.line}` (story 33). En haut à gauche, le numéro de lecture (`pane-step`, story 34), puis le titre `pane-title` en encre et, dessous, le sous-titre pédagogique `pane-subtitle` en encre douce, qui dit en quelques mots ce que le volet montre :
 
   | Volet | Numéro | Sous-titre |
@@ -788,6 +939,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Boutons (`button-primary`, `button-secondary`, `reset-button`, `button-danger`)** : primaire violet plein sur relief violet foncé, qui s'enfonce au clic (relief de 4 px à 1 px) ; secondaire contour violet sur relief actif ; Réinitialiser neutre et sans relief, pour ne pas attirer le clic par erreur. Danger (« Tout effacer » de la mémoire globale) : fond blanc, bordure `{colors.danger}` de `{spacing.stroke-min}`, texte encre, sans relief ; sa confirmation (« Oui, tout effacer ») est pleine, fond `{colors.danger}` et texte encre (≈ 5,4:1 ; le blanc sur ce rouge ne tient pas 4,5:1). Libellés en `label` Fredoka. Hauteur minimale `{spacing.hit-target-min}`.
 - **Sélecteur de scénario (`scenario-picker`)** : pastille violet doux avec le nom du module et du scénario en cours.
 - **Sélecteur de modèle (`model-picker`)** : liste déroulante neutre (`select` natif), nom du modèle et taille (ex. « 2B »). Story 25 : groupes « Sur ce poste · {éditeur} » et « Réseau · {éditeur} » (libellés natifs des `optgroup`), options « {préfixe} · {nom} · {taille} » ; la légende est la deuxième option, désactivée, donc dans le gris natif des options désactivées ; aucune couleur propre, le « RÉSEAU » du préfixe suffit dans une liste native.
+- **Sélecteur de thème (`theme-picker`)** (story 31) : `select` natif, fait comme `model-picker` (fond `{colors.surface-raised}`, texte encre, bordure `{colors.line}`, `{rounded.md}`, `label`, hauteur `{spacing.hit-target-min}`), nommé « Thème de l'interface » (`aria-label` et infobulle) ; trois options « ◐ Système », « ☀ Clair », « ☾ Sombre ». Sur la barre d'`ink-fill`, juste avant « Réinitialiser », bordure `{colors.on-ink-soft}` et anneau de focus `{colors.on-ink}` ; sur `/diagnostic` et `/models`, à droite des onglets de page, anneau `{colors.primary}`. `color-scheme` fait suivre la liste native. Sous 1400 px, forme compacte : une face qui montre le symbole du choix et un chevron ▾ (même fond et même bordure), sous la liste native, entière et transparente, qui reste seule à recevoir le clic, le clavier et le lecteur d'écran ; l'anneau de focus entoure la face. Accessibilité, accepté : les lecteurs d'écran lisent le symbole des options (« ◐ Système »…) avec leur mot ; la face, décorative, leur est cachée.
 - **Tableau des modèles (`model-table`)** (story 25, page `/models`) : page sur `{colors.surface}`, texte encre, sans pois (un tableau à lire) ; titre « Modèles disponibles » en `heading` agrandi, légende et note en `body` `{colors.ink-soft}`. Table blanche (`{colors.surface-raised}`), bordure `{colors.line}`, `{rounded.sm}` ; `caption` en `label` majuscule `{colors.ink-soft}` ; en-têtes de colonnes en `label` `{colors.ink-soft}` ; un `tbody` par groupe, son en-tête (`th scope="rowgroup"`) sur `{colors.surface}` en `heading` à la taille du corps ; filets de lignes `{colors.line}`. Colonne Modèle : `hosting-tag-local` (neutre) ou `hosting-tag-network` (jaune, tirets encre, 🌐), puis le nom en gras. Taille et fenêtre en `number`. Raison sous chaque mot (outils, raisonnement, fenêtre, état) en `body-sm` `{colors.ink-soft}` ; ligne d'un modèle inutilisable en `{colors.ink-soft}` ; « actif » en gras. Erreur du fichier des éditeurs : bandeau blanc bordé `{colors.danger}` de `{spacing.stroke-min}`, texte encre. Aucun nouveau jeton.
 - **Onglets de page (`page-tabs`)** (story 25, en tête de `/diagnostic` et `/models`) : liens en `label`, sur un filet `{colors.line}` de `{spacing.stroke-min}` ; l'onglet courant en encre, souligné de 3 px `{colors.primary}` (comme les onglets de Contexte LLM), les autres en encre douce ; focus : contour `{colors.primary}` de 2 px. Faits des jetons existants, dans une seule feuille partagée par les deux pages (`static/pages.css`).
 - **Mode projection (`projection-toggle`)** (story 34, remplace le `text-size-control` « Aa 100 % », jamais construit) : bouton texte « Mode projection » sur la barre d'encre, fond transparent, texte `{colors.on-ink}`, bordure `{colors.on-ink-soft}`, `{rounded.md}` ; pressé (`aria-pressed="true"`), fond `{colors.on-ink}` et texte encre. Il agrandit toute la rampe (voir Typography).
@@ -801,7 +953,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Panneau des briques** (story 33) : en tête, la légende des quatre disciplines (`discipline-legend` : « Prompt engineering », « Context engineering », « Harness engineering », « Sort du poste de travail » avec 🌐 dans sa pastille), puis deux groupes titrés en `label` majuscule encre douce, « Ce que le modèle lit » et « Ce que le harnais fait », selon le groupe que la session déclare pour chaque brique.
 - **Carte de brique (`brick-card`)** : nom, interrupteur (`brick-toggle`), puce de catégorie (`category-chip` : « prompt engineering », « context engineering », « harness engineering », bordée et teintée de sa discipline), étiquette de lieu d'hébergement (`hosting-tag-local`, neutre), puce « 🌐 RÉSEAU » (`hosting-tag-network`) quand une option activée sort du poste, ligne d'état (`brick-status`, `body-sm`), explication dépliable. Relief `{colors.relief}`. Active : fond doux de sa discipline, trait gauche de 5 px de sa couleur, interrupteur coché de sa couleur, texte encre, relief `{colors.relief-active}`. Éteinte : grisée, fond `{colors.discipline-neutral-soft}`, trait `{colors.discipline-neutral}`, texte `{colors.ink-soft}`. Raisonnement imposé par le modèle : interrupteur coché et désactivé, 🔒 à côté. Indisponible : posée à plat (sans relief), bordure en tirets, texte encre douce, interrupteur désactivé, raison toujours visible en `{colors.ink-soft}`. Sous-option d'une brique éteinte ou indisponible : interrupteur désactivé, coché en `{colors.muted}` au lieu du violet (`brick-toggle.parent-off`), libellé et résumé en `{colors.ink-soft}`.
 - **Tiroir d'édition (`edit-drawer`)** : panneau qui glisse par-dessus le panneau des briques pour éditer le prompt système ou la mémoire globale ; champ en `{typography.code}`. Confirmation d'enregistrement en `body-sm` encre, précédée de « ✓ ». Mémoire globale : en-tête (titre, croix « × » en bouton icône `{rounded.sm}` bordé `{colors.line}`), liste défilante, pied fixe séparé par un filet `{colors.line}` avec « Tout effacer » (`button-danger`) et « Fermer » (`button-secondary`) ; « Enregistrer » et « Supprimer » d'une entrée en actions compactes à plat, fond crème, bordure `{colors.line}`, `{rounded.sm}`.
-- **Messages (`chat-message-user`, `chat-message-model`)** : bulles `{rounded.lg}` à coin de 6 px côté locuteur ; utilisateur sur l'encre, texte `{colors.on-ink}` (story 33), modèle sur blanc bordé. Typographie `chat`. Bloc de raisonnement (`reasoning-block`) replié sur crème, en `body-sm`.
+- **Messages (`chat-message-user`, `chat-message-model`)** : bulles `{rounded.lg}` à coin de 6 px côté locuteur ; utilisateur sur l'encre, texte `{colors.on-ink}` (story 33), modèle sur `{colors.surface-raised}` bordé. Typographie `chat`. Bloc de raisonnement (`reasoning-block`) replié sur crème, en `body-sm`.
 - **Champ de saisie (`composer`)** : pilule en `chat`, bordure `{colors.line}`, `{colors.primary}` au focus ; bouton d'envoi primaire rond à droite.
 - **Prompt suggéré (`suggested-prompt-chip`)** : puce contour violet au-dessus du champ de saisie.
 - **Consigne du scénario (`scenario-guide`)** : `body-sm` encre douce, titre en violet foncé, coupée à 3 lignes ; « Afficher plus » / « Réduire » en lien souligné violet, `label`.
@@ -833,7 +985,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
   L'antenne verte suit la règle du vert : elle ne s'allume que quand le modèle travaille. La pose est aussi dite par un libellé accessible (le robot est une image avec texte alternatif), jamais par l'antenne seule.
 - **Pastilles des nœuds réseau** (story 34) : « contacté », « en échec » ou « non contacté » pour le dernier tour affiché, dans la pastille existante (`arch-node-pill`) ; « indisponible » l'emporte toujours ; l'infobulle dit « Au tour N : contacté. ».
 - **Bilan des sorties (`schema-outbound`)** (story 34) : sous le schéma, dans son volet, une phrase en `body-sm` encre, séparée du schéma par un filet `{colors.line}` : « Au tour N, les données ont quitté le poste K fois : vers le modèle chez … et vers … ». Sans couleur ni icône : c'est un texte à lire à voix haute devant la salle.
-- **Ligne de diagnostic (`diagnostic-row`)** : pastille d'état (vert « OK », rouge « Échec ») avec texte encre, libellé de la vérification, action corrective en dessous.
+- **Ligne de diagnostic (`diagnostic-row`)** : pastille d'état (vert « OK », rouge « Échec ») avec texte `{colors.on-vivid}`, libellé de la vérification, action corrective en dessous. Story 31 : la page `/diagnostic` charge `tokens.css`, fond `{colors.surface}` et texte encre ; le fond d'une ligne dit son état (`{colors.accent-soft}` pour OK, trouvé ou serveur ; `{colors.warning-soft}` pour un avertissement ; `{colors.danger-soft}` pour un échec ou un modèle incompatible) ; un modèle cloud est sur `{colors.discipline-network-soft}`, bordé de tirets `{colors.hosting-boundary}` ; détails et actions en encre douce ; un avertissement de serveur et le résultat d'un test cloud en encre, derrière un filet gauche de 4 px `{colors.state-ok}`, `{colors.warning}` ou `{colors.state-error}` ; étiquettes `hosting-tag-*` comme dans l'atelier ; `dialog` sur `{colors.surface-raised}`, bordé d'encre.
 
 ## Do's and Don'ts
 
@@ -853,4 +1005,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 | Distinguer les catégories du schéma (outil, serveur, skill, fichier) par le bac, la forme et l'icône ; la couleur dit la discipline de la brique | Donner une couleur à chaque catégorie de composant |
 | Le robot représente le modèle, et seulement lui | Robot comme décoration, sur un autre composant ou dans un état sans rapport avec le modèle |
 | Animations réservées au signal « en action » (pouls, flux, antenne) et au fondu de 150 ms de la vue liée, coupées sous `prefers-reduced-motion` | Curseur personnalisé, révélations au scroll, compteurs animés de la charte vitrine, robot animé au repos |
-| Chaque couleur par un jeton de `tokens.css`, prêt pour un second thème (story 31) | Couleur écrite en dur (`#hex`, `rgb(`, `hsl(`) dans `app.css` ou `app.js` |
+| Chaque couleur par un jeton de `tokens.css`, avec son jumeau `-dark` (story 31), dans toutes les pages de `static/` | Couleur écrite en dur (`#hex`, `rgb(`, `hsl(`) dans une page, une feuille ou un script de `static/` hors `tokens.css` |
+| Fond d'encre = `{colors.ink-fill}` (violet profond en sombre) | `{colors.ink}` en fond : en sombre, c'est un texte clair |
+| Texte sur fond vif (jaune, vert, rouge, gris neutre) = `{colors.on-vivid}`, explicite | Laisser un texte hériter sa couleur sur un fond vif : il deviendrait clair en sombre |
+| Palette sombre dessinée jeton par jeton, dans DESIGN.md puis `tokens.css` | `filter: invert`, ou une palette calculée en JS |

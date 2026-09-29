@@ -1,6 +1,11 @@
 /* Design tokens (AD-18): mirrors DESIGN.md frontmatter's colors/typography/rounded/spacing,
-   same names, same values. tests/test_web_tokens.py checks this file never drifts. */
+   same names, same values. tests/test_web_tokens.py checks this file never drifts.
+   Story 31: the light theme in :root; the dark one (each `{key}-dark` of DESIGN.md, under the
+   light key's name) under [data-theme="dark"], and, the same, under prefers-color-scheme: dark
+   when no theme is chosen (« Système »). static/theme.js sets `data-theme`. */
 :root {
+  color-scheme: light;
+
   /* colors */
   --color-primary: #451DC7;
   --color-primary-deep: #250F6B;
@@ -51,6 +56,13 @@
   --color-json-key: #1E3A8A;
   --color-json-string: #7A3410;
   --color-json-literal: #0B5E73;
+  /* roles (story 31): what diverges in the dark theme; light values as before */
+  --color-ink-fill: #0A0A14;
+  --color-ink-fill-edge: #0A0A14;
+  --color-on-discipline: #FFFFFF;
+  --color-on-vivid: #0A0A14;
+  --color-warning-soft: #FFF4D6;
+  --color-danger-soft: #FDE8EB;
 
   /* typography */
   --typography-pane-title-font-family: Fredoka, system-ui, sans-serif;
@@ -118,4 +130,126 @@
   --spacing-relief-offset-pressed: 1px;
   --spacing-relief-offset-overlay: 6px;
   --spacing-dot-grid: 18px;
+}
+
+/* Story 31: the dark theme, chosen (« Sombre »). */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-primary: #9C86FF;
+  --color-primary-deep: #C9BDFF;
+  --color-primary-soft: #2A2350;
+  --color-accent: #04F06A;
+  --color-accent-soft: #0F3A24;
+  --color-ink: #ECEBF5;
+  --color-ink-soft: #B4B3C7;
+  --color-muted: #8A8A9E;
+  --color-line: #3A394F;
+  --color-surface: #12121C;
+  --color-surface-raised: #1E1D2C;
+  --color-warning: #FFCA4A;
+  --color-danger: #FF6B7F;
+  --color-on-primary: #0E0B1E;
+  --color-relief: #2A2156;
+  --color-relief-active: #3A2E78;
+  --color-dot: #262538;
+  --color-hosting-network: #FFCA4A;
+  --color-hosting-boundary: #ECEBF5;
+  --color-state-active: #04F06A;
+  --color-state-ok: #04F06A;
+  --color-state-blocked: #FF6B7F;
+  --color-state-error: #FF6B7F;
+  --color-state-unavailable: #8A8A9E;
+  --color-segment-system-prompt: #8C74FF;
+  --color-segment-global-memory: #3CC878;
+  --color-segment-tool-descriptions: #4F95EA;
+  --color-segment-history: #A48EF0;
+  --color-segment-rag: #1FB3A2;
+  --color-segment-tool-results: #F08A42;
+  --color-segment-message: #C07FDA;
+  --color-segment-free: #2A2938;
+  --color-discipline-prompt: #9C86FF;
+  --color-discipline-prompt-soft: #262047;
+  --color-discipline-context: #2FB8A3;
+  --color-discipline-context-soft: #12302B;
+  --color-discipline-harness: #E8639F;
+  --color-discipline-harness-soft: #3A1A2B;
+  --color-discipline-network: #E8B516;
+  --color-discipline-network-soft: #3A3010;
+  --color-discipline-neutral: #8A8A9E;
+  --color-discipline-neutral-soft: #26252F;
+  --color-on-ink: #FFFFFF;
+  --color-on-ink-soft: #CFCDE4;
+  --color-produced-soft: #1A2335;
+  --color-reasoning-soft: #2A2618;
+  --color-json-key: #9DBBFF;
+  --color-json-string: #F2A77E;
+  --color-json-literal: #6FD3E3;
+  --color-ink-fill: #33257A;
+  --color-ink-fill-edge: #7C6AD6;
+  --color-on-discipline: #0E0B1E;
+  --color-on-vivid: #0A0A14;
+  --color-warning-soft: #3A3010;
+  --color-danger-soft: #3A1820;
+}
+
+/* Story 31: « Système » on a dark workstation: the same declarations, without the attribute. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --color-primary: #9C86FF;
+    --color-primary-deep: #C9BDFF;
+    --color-primary-soft: #2A2350;
+    --color-accent: #04F06A;
+    --color-accent-soft: #0F3A24;
+    --color-ink: #ECEBF5;
+    --color-ink-soft: #B4B3C7;
+    --color-muted: #8A8A9E;
+    --color-line: #3A394F;
+    --color-surface: #12121C;
+    --color-surface-raised: #1E1D2C;
+    --color-warning: #FFCA4A;
+    --color-danger: #FF6B7F;
+    --color-on-primary: #0E0B1E;
+    --color-relief: #2A2156;
+    --color-relief-active: #3A2E78;
+    --color-dot: #262538;
+    --color-hosting-network: #FFCA4A;
+    --color-hosting-boundary: #ECEBF5;
+    --color-state-active: #04F06A;
+    --color-state-ok: #04F06A;
+    --color-state-blocked: #FF6B7F;
+    --color-state-error: #FF6B7F;
+    --color-state-unavailable: #8A8A9E;
+    --color-segment-system-prompt: #8C74FF;
+    --color-segment-global-memory: #3CC878;
+    --color-segment-tool-descriptions: #4F95EA;
+    --color-segment-history: #A48EF0;
+    --color-segment-rag: #1FB3A2;
+    --color-segment-tool-results: #F08A42;
+    --color-segment-message: #C07FDA;
+    --color-segment-free: #2A2938;
+    --color-discipline-prompt: #9C86FF;
+    --color-discipline-prompt-soft: #262047;
+    --color-discipline-context: #2FB8A3;
+    --color-discipline-context-soft: #12302B;
+    --color-discipline-harness: #E8639F;
+    --color-discipline-harness-soft: #3A1A2B;
+    --color-discipline-network: #E8B516;
+    --color-discipline-network-soft: #3A3010;
+    --color-discipline-neutral: #8A8A9E;
+    --color-discipline-neutral-soft: #26252F;
+    --color-on-ink: #FFFFFF;
+    --color-on-ink-soft: #CFCDE4;
+    --color-produced-soft: #1A2335;
+    --color-reasoning-soft: #2A2618;
+    --color-json-key: #9DBBFF;
+    --color-json-string: #F2A77E;
+    --color-json-literal: #6FD3E3;
+    --color-ink-fill: #33257A;
+    --color-ink-fill-edge: #7C6AD6;
+    --color-on-discipline: #0E0B1E;
+    --color-on-vivid: #0A0A14;
+    --color-warning-soft: #3A3010;
+    --color-danger-soft: #3A1820;
+  }
 }

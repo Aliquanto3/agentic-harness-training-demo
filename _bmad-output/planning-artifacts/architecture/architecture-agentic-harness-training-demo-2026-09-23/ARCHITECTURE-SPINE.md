@@ -492,10 +492,10 @@ Règles de dépendance :
     - intentions en `application/json` seulement ; une erreur de validation d’intention renvoie un message français avec `loc` et `type`, jamais `input` ni `ctx` (gestionnaire de `RequestValidationError`) ;
     - aucun en-tête CORS.
   - **Front.** HTML, CSS et JS en modules natifs, sans compilation. Toute bibliothèque est recopiée dans `static/vendor/`, et les polices dans `static/vendor/fonts/` avec leur licence.
-    - `static/tokens.css` reprend les jetons de DESIGN.md sous les mêmes noms ; un test pytest compare les deux.
+    - `static/tokens.css` reprend les jetons de DESIGN.md sous les mêmes noms ; un test pytest compare les deux. Palette sombre (story 31) : chaque couleur a son jumeau `{clé}-dark` dans DESIGN.md, posé sous le même nom sous `:root[data-theme="dark"]` et sous `prefers-color-scheme: dark` sans attribut ; aucune couleur écrite en dur ailleurs dans `static/`. `static/theme.js`, script classique chargé en tête de chaque page, pose `data-theme` avant le premier rendu.
     - Aptos n’est jamais embarquée : elle est appelée par `local()`.
     - La taille de texte (story 34, NFR-9) : le mode projection redéfinit la rampe `--typography-*-font-size` (× 9/7) sous `:root.projection`, dans `app.css`, `tokens.css` restant le miroir de DESIGN.md ; les petites tailles sont en `em`.
-  - **État du navigateur.** Il se limite à l’interface : sélection (et ses clés de liaison, story 34), survol lié, volets masqués, mode focus, mode projection (mémorisé), direct ou figé.
+  - **État du navigateur.** Il se limite à l’interface : sélection (et ses clés de liaison, story 34), survol lié, volets masqués, mode focus, mode projection (mémorisé), thème (story 31, `wavestack.theme` : `system`, `light` ou `dark`, mémorisé ; ni événement ni requête), direct ou figé.
 
 ### AD-19 — Contenus en données, en français
 

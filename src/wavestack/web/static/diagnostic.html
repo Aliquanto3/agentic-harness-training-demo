@@ -2,45 +2,65 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
+  <script src="/static/theme.js"></script>
   <title>WaveStack — Diagnostic de démarrage</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
   <link rel="stylesheet" href="/static/tokens.css" />
   <link rel="stylesheet" href="/static/pages.css" />
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    /* Story 31: colours by the tokens of tokens.css only, in both themes (DESIGN.md >
+       diagnostic-row): a row's background says its state, a result its left rule. */
+    body {
+      font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem;
+      background: var(--color-surface); color: var(--color-ink);
+    }
     h1 { font-size: 1.4rem; }
     ul { list-style: none; padding: 0; }
     li { padding: 0.6rem; border-radius: 6px; margin-bottom: 0.5rem; }
-    li.ok { background: #e6f4ea; }
-    li.warn { background: #fff4e0; }
-    li.fail, li.incompatible { background: #fce8e6; }
-    li.found, li.server { background: #e6f4ea; }
-    li.server.warn { background: #fff4e0; }
-    .served { font-size: 0.9rem; color: #444; }
-    .served-warning { color: #8a5a00; }
-    .action { font-size: 0.9rem; color: #444; }
+    li.ok { background: var(--color-accent-soft); }
+    li.warn { background: var(--color-warning-soft); }
+    li.fail, li.incompatible { background: var(--color-danger-soft); }
+    li.found, li.server { background: var(--color-accent-soft); }
+    li.server.warn { background: var(--color-warning-soft); }
+    .served { font-size: 0.9rem; color: var(--color-ink-soft); }
+    .served-warning, .cloud-result.ok, .cloud-result.warn, .cloud-result.fail {
+      color: var(--color-ink); border-left: 4px solid transparent; padding-left: 0.4rem;
+    }
+    .served-warning, .cloud-result.warn { border-left-color: var(--color-warning); }
+    .cloud-result.ok { border-left-color: var(--color-state-ok); }
+    .cloud-result.fail { border-left-color: var(--color-state-error); }
+    .action { font-size: 0.9rem; color: var(--color-ink-soft); }
     #select-model { margin-top: 1.5rem; }
     .saved-mark { font-size: 0.85rem; font-weight: bold; margin-left: 0.5rem; }
     input[type="text"] { width: 100%; padding: 0.4rem; box-sizing: border-box; }
     button { margin-top: 0.5rem; padding: 0.4rem 1rem; }
     #select-model-status { font-size: 0.9rem; }
     h2 { font-size: 1.1rem; margin-top: 1.5rem; }
-    li.cloud { background: #fff8e1; border: 2px dashed #0A0A14; }
+    li.cloud {
+      background: var(--color-discipline-network-soft);
+      border: 2px dashed var(--color-hosting-boundary);
+    }
     .hosting-tag-network, .hosting-tag-local {
       display: inline-block; font-size: 0.75rem; font-weight: bold; padding: 0 0.4rem;
       border-radius: 4px; margin-right: 0.4rem;
     }
-    .hosting-tag-network { background: #ffe082; border: 1px dashed #0A0A14; }
+    .hosting-tag-network {
+      background: var(--color-hosting-network); color: var(--color-on-vivid);
+      border: 1px dashed var(--color-ink);
+    }
     .hosting-tag-network::before { content: "🌐 "; }
-    .hosting-tag-local { background: #ede7f6; border: 1px solid #5e35b1; }
+    .hosting-tag-local {
+      background: var(--color-surface-raised); color: var(--color-ink);
+      border: 1px solid var(--color-ink-soft);
+    }
     .cloud-key { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.4rem; }
     .cloud-key input { flex: 1; padding: 0.4rem; }
     .cloud-result { font-size: 0.9rem; margin-top: 0.3rem; }
-    .cloud-result.ok { color: #1b5e20; }
-    .cloud-result.warn { color: #8a5a00; }
-    .cloud-result.fail { color: #b71c1c; }
-    dialog#cloud-warning { max-width: 560px; border: 2px solid #0A0A14; border-radius: 8px; }
+    dialog#cloud-warning {
+      max-width: 560px; border: 2px solid var(--color-ink); border-radius: 8px;
+      background: var(--color-surface-raised); color: var(--color-ink);
+    }
   </style>
 </head>
 <body>
@@ -49,6 +69,11 @@
     <a href="/models">Modèles</a>
     <!-- Shown once the diagnostic is ready (`body.ready`), as the former link. -->
     <a href="/" id="open-link" hidden>Ouvrir WaveStack</a>
+    <select id="theme-picker" class="theme-picker" data-theme-picker aria-label="Thème de l'interface" title="Thème de l'interface">
+      <option value="system">◐ Système</option>
+      <option value="light">☀ Clair</option>
+      <option value="dark">☾ Sombre</option>
+    </select>
   </nav>
   <h1>Diagnostic de démarrage WaveStack</h1>
   <ul id="checks"></ul>

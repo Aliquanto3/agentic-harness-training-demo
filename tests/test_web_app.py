@@ -78,8 +78,10 @@ def test_api_diagnostic_contains_a_model_table_failure(monkeypatch, tmp_path):
 
 def test_pages_and_static_files_are_revalidated_but_api_is_not(monkeypatch, tmp_path):
     client = _client(_build(monkeypatch, tmp_path))
-    for path in ("/", "/diagnostic", "/models", "/static/app.js"):
-        assert client.get(path).headers["cache-control"] == "no-cache", path
+    for path in ("/", "/diagnostic", "/models", "/static/app.js", "/static/theme.js"):
+        response = client.get(path)
+        assert response.status_code == 200, path  # story 31: theme.js, without a new route
+        assert response.headers["cache-control"] == "no-cache", path
     assert "cache-control" not in client.get("/api/health").headers
 
 

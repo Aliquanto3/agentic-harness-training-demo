@@ -222,6 +222,49 @@ Vérifications ajoutées aux scénarios existants :
   retour à l'entrée A, qui ne raisonne pas : plus de verrou. Capture
   `34-raisonnement-impose.jpg`.
 
+## Mode sombre (story 31)
+
+- `themes`, joué après `disciplines`, à 1600 × 1000, poste émulé en clair : scénario « Outils
+  réseau » et un tour « Résume l'article Wikipédia… », aucun choix mémorisé. `#theme-picker` sur
+  « Système » (« ◐ Système », « ☀ Clair », « ☾ Sombre »), pas d'attribut `data-theme`, chaque
+  commande de la barre haute entière (`_fully_visible`), sans face compacte ; de même à
+  1440 × 900 (mots entiers). À 1280 × 720, en mode normal puis en mode projection : barre sur
+  une ligne, « Réinitialiser » entier, sélecteur compact (face « ◐▾ », liste native d'opacité 0
+  posée exactement dessus) ; `ArrowDown` sur la liste passe à « Clair » (`data-theme`, face
+  « ☀▾ »), puis retour à « Système ». Poste émulé en sombre
+  (`emulate_media`) : fond de `body` en `surface-dark` (lu dans DESIGN.md) sans rechargement ;
+  de nouveau en clair : `surface`. « Sombre » choisi : `data-theme="dark"`,
+  `localStorage["wavestack.theme"] == "dark"`, barre haute, dernière bulle, tuile de l'appel au
+  modèle et plaque du modèle en `ink-fill-dark`, filet du prompt système en
+  `discipline-prompt-dark`, chaque `.gauge-seg` sur le jeton sombre de sa discipline, puis le
+  balayage des contrastes de la liste « Volets ▾ », du panneau « Fenêtre » et du tiroir
+  d'édition ouverts (bloquant). Rechargé
+  avec `**/static/app.js` interrompu (`route.abort`) : `data-theme="dark"` et le fond sombre sont
+  déjà là (`theme.js`, en tête de page) ; `app.js` rendu, le sélecteur montre « Sombre », sans
+  `pageerror` (seul le chargement interrompu s'écrit en console). `/diagnostic` et `/models` :
+  sombres, sélecteur sur « Sombre ». « Clair » choisi au diagnostic, poste émulé en sombre :
+  l'atelier reste clair. `wavestack.theme = "violet"` : « Système ». Un contexte neuf dont
+  `Storage.prototype.getItem` et `setItem` lèvent : « Système », puis « Sombre » appliqué à la
+  page seule (rien d'écrit), sans erreur. Le scénario finit toujours sur « Système », poste
+  clair, `unroute` : les autres scénarios restent en thème clair.
+- `_contrast_sweep` : pour chaque élément visible qui porte du texte (et la valeur affichée d'un
+  `select`), premier fond opaque en remontant (pour un texte SVG : son `fill`, sur le `fill` de
+  la forme posée à côté, le disque d'un marqueur), ratio WCAG, seuil 4,5 (3 à partir de 24 px, ou de
+  18,66 px en gras). Ignorés : un ancêtre en `opacity < 1` ou désactivé (exemption WCAG), un fond
+  en image. Le pointeur est d'abord écarté (la vue liée estomperait la page). Bloquant en
+  sombre, sur la barre haute, les cinq volets, `/diagnostic` et `/models` ; en clair, signalé en
+  `KNOWN [clair-préexistant]` (aucun échec à ce jour).
+- Captures `46-theme-sombre-atelier.jpg` (page entière), `47-theme-sombre-vue-humain.jpg`,
+  `48-theme-sombre-schema.jpg` (`Run.shot_element`), `49-theme-sombre-diagnostic.jpg`,
+  `50-theme-sombre-modeles.jpg` et `51-theme-clair-atelier.jpg`, pour comparer.
+- `disciplines` : les fonds d'encre se lisent sur `--color-ink-fill` (même valeur que
+  `--color-ink` en clair). `linked_view` : le détail d'échec de la puce « · lié » donne les
+  pixels manquants.
+- Texte sur rouge en `--color-on-vivid`, en clair puis en sombre (attribut posé à la main) :
+  lettre de la tuile d'un appel au modèle en erreur (`provider_errors`, `[erreur500]`),
+  chiffres de la jauge en dépassement (`busy_and_stop`), « Oui, tout effacer »
+  (`global_memory`).
+
 ## Données sortantes, en-têtes compris (story 23)
 
 - `network_tools` : la carte Outils, options repliées, dit « Peuvent sortir du poste » et nomme (Jours
