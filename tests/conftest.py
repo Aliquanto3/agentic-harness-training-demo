@@ -112,7 +112,7 @@ def _windows_file_rules_opt_in(request):
 @pytest.fixture(autouse=True)
 def _no_cloud_key_variables(monkeypatch):
     """Story 11b: a key the machine's environment provides never reaches a test."""
-    for name in ("GROQ_API_KEY", "MISTRAL_API_KEY"):
+    for name in ("GROQ_API_KEY", "MISTRAL_API_KEY", "GEMINI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
 
 

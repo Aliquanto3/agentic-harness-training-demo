@@ -1044,13 +1044,14 @@ class DiagnosticSession:
                     assistant: dict[str, Any] = {"role": "assistant"}
                     if out.text:
                         assistant["content"] = [Part(SegmentKind.ASSISTANT_TURN, out.text)]
-                    assistant["tool_calls"] = [
-                        {
-                            "id": call["id"],
-                            "type": "function",
-                            "function": {"name": call["name"], "arguments": call["arguments"]},
-                        }
-                    ]
+                    replayed: dict[str, Any] = {
+                        "id": call["id"],
+                        "type": "function",
+                        "function": {"name": call["name"], "arguments": call["arguments"]},
+                    }
+                    if call.get("extra_content"):  # Gemini 3.x: its thought signature
+                        replayed["extra_content"] = call["extra_content"]
+                    assistant["tool_calls"] = [replayed]
                     reply = [Part(SegmentKind.TOOL_RESULT, test.tool_reply)]
                     messages += [
                         assistant,

@@ -450,6 +450,10 @@ class _TokenTap:
             yield item
 
 
+# The tags a `think_tags` reasoning goes back in when the entry declares none (AD-4).
+THINK_TAGS = ("<think>", "</think>")
+
+
 @dataclass
 class _ModelOutput:
     status: str  # completed | cancelled | limit
@@ -465,6 +469,10 @@ class _ModelOutput:
     # `arguments` as the provider emitted them.
     ids: list[str] = field(default_factory=list)
     arguments: list[str] = field(default_factory=list)
+    # Chat mode: each call's `extra_content` as the provider sent it (`None`: none), and the
+    # `id` of the entry that sent them; only that entry ever gets them back (Gemini 3.x).
+    extras: list[dict[str, Any] | None] = field(default_factory=list)
+    extra_for: str | None = None
     # Chat mode: the call's `context_reconciled` payload once `usage` came back (AD-4); a
     # provider's refusal: its French message (for a failed delegation, AD-11).
     reconciled: dict[str, Any] | None = None
@@ -3363,6 +3371,11 @@ class AppSession:
         reasoning = self._cloud.reasoning if self._cloud is not None else None
         return reasoning.format if reasoning is not None and reasoning.resend else None
 
+    def _resend_tags(self) -> tuple[str, str]:
+        """The tags a `think_tags` reasoning goes back in: the active entry's."""
+        reasoning = self._cloud.reasoning if self._cloud is not None else None
+        return tuple(reasoning.tags) if reasoning is not None else THINK_TAGS
+
     def _effective(self) -> frozenset[str]:
         with self._lock:
             wanted = set(self._wanted)
@@ -3458,6 +3471,8 @@ class AppSession:
         chat: bool = False,
         resend: str | None = None,
         wrap: tuple[str, str] | None = None,
+        cloud_id: str | None = None,
+        tags: tuple[str, str] = THINK_TAGS,
     ) -> list[dict[str, Any]]:
         """Intermediate messages of a turn: `assistant_turn`/`tool_result` in the turn itself
         (or the step's own `kind`), `history` afterwards, where a step's `stub` replaces its
@@ -3466,7 +3481,9 @@ class AppSession:
         only with `resend` (its `format`), an empty `content` omitted, `arguments` as the
         string emitted, a reply without `name`, and a malformed call's error sent as a `user`
         message. `wrap` (lot A, local mode): a past step rendered as it was produced
-        (`_as_produced`)."""
+        (`_as_produced`). A call's `extra` fields (Gemini's thought signature, under
+        `extra_content`) go back in chat mode only to the entry they are for: `extra_for`
+        equal to `cloud_id`; they never replace `id`, `type` nor `function`."""
         memory = (SegmentKind.HISTORY, "short_memory", "short_memory.history")
         messages: list[dict[str, Any]] = []
         for i, step in enumerate(steps):
@@ -3513,6 +3530,7 @@ class AppSession:
                     chat=chat,
                     resend=resend,
                     omit_empty=chat,
+                    tags=tags,
                 )
             if step["tool_calls"]:
                 answer["tool_calls"] = []
@@ -3529,15 +3547,22 @@ class AppSession:
                         }
                     name = Part(kind, call["name"], *in_call)
                     function = {"name": name, "arguments": arguments}
-                    answer["tool_calls"].append(
-                        {"id": call.get("id"), "type": "function", "function": function}
-                    )
+                    sent = {"id": call.get("id"), "type": "function", "function": function}
+                    if chat and call.get("extra") and call.get("extra_for") == cloud_id:
+                        sent |= {k: v for k, v in call["extra"].items() if k not in sent}
+                    answer["tool_calls"].append(sent)
             messages.append(answer)
         return messages
 
     @staticmethod
     def _assistant_message(
-        content: Part, reasoning: str, *, chat: bool, resend: str | None, omit_empty: bool
+        content: Part,
+        reasoning: str,
+        *,
+        chat: bool,
+        resend: str | None,
+        omit_empty: bool,
+        tags: tuple[str, str] = THINK_TAGS,
     ) -> dict[str, Any]:
         """An assistant message with its reasoning, attributed like its text (AD-4): locally
         the `reasoning_content` variable, the template deciding whether it keeps it; in chat
@@ -3553,7 +3578,7 @@ class AppSession:
             ]
         elif thought is not None and chat and resend == "think_tags":
             # As received: the closing tag right before the text, no separator added.
-            tagged = thought._replace(text=f"<think>{reasoning}</think>")
+            tagged = thought._replace(text=f"{tags[0]}{reasoning}{tags[1]}")
             answer["content"] = [Joined((tagged, *(p for p in text if p.text)), sep="")]
         elif text:
             answer["content"] = text
@@ -3641,6 +3666,8 @@ class AppSession:
         """
         messages: list[dict[str, Any]] = []
         resend = self._resend() if chat else None
+        cloud_id = self._cloud.id if chat and self._cloud is not None else None
+        tags = self._resend_tags()
         wrap = None
         if not chat and self._caps is not None and self._caps.chat_template:
             wrap = reasoning_wrap(self._caps.chat_template)  # lot A: None for most templates
@@ -3654,7 +3681,14 @@ class AppSession:
                     user.insert(0, Part(SegmentKind.HISTORY, ex.injection, *memory))
                 messages.append({"role": "user", "content": user})
                 messages += self._step_messages(
-                    ex.steps, history=True, group=ex.turn_id, chat=chat, resend=resend, wrap=wrap
+                    ex.steps,
+                    history=True,
+                    group=ex.turn_id,
+                    chat=chat,
+                    resend=resend,
+                    wrap=wrap,
+                    cloud_id=cloud_id,
+                    tags=tags,
                 )
                 text = Part(SegmentKind.HISTORY, ex.text, *memory)
                 messages.append(
@@ -3666,6 +3700,7 @@ class AppSession:
                         chat=chat,
                         resend=resend,
                         omit_empty=False,  # a past answer keeps its `content`, even empty
+                        tags=tags,
                     )
                 )
         # Story 15 (AD-4): the RAG's intro and excerpts, each its own part, before the message.
@@ -3680,7 +3715,13 @@ class AppSession:
             user.insert(0, Part(SegmentKind.HOOK_INJECTION, state.injection, "hooks", "hooks.h3"))
         messages.append({"role": "user", "content": user})
         messages += self._step_messages(
-            steps or [], history=False, group="turn", chat=chat, resend=resend
+            steps or [],
+            history=False,
+            group="turn",
+            chat=chat,
+            resend=resend,
+            cloud_id=cloud_id,
+            tags=tags,
         )
         return messages
 
@@ -3743,6 +3784,8 @@ class AppSession:
                 group="sub",
                 chat=chat,
                 resend=self._resend() if chat else None,
+                cloud_id=self._cloud.id if chat and self._cloud is not None else None,
+                tags=self._resend_tags(),
             ),
         ]
 
@@ -4556,24 +4599,28 @@ class AppSession:
     @staticmethod
     def _assistant_step(out: _ModelOutput) -> dict[str, Any]:
         """The assistant step of an output with tool calls: each call with its session id,
-        its arguments and their JSON, as emitted in chat mode, else serialized once (AD-4)."""
-        return {
-            "role": "assistant",
-            "content": out.text,
-            "tool_calls": [
-                {
-                    "id": call_ref,
-                    "name": c.name,
-                    "arguments": c.arguments,
-                    "arguments_json": (
-                        out.arguments[j]
-                        if out.arguments
-                        else json.dumps(c.arguments, ensure_ascii=False)
-                    ),
-                }
-                for j, (c, call_ref) in enumerate(zip(out.calls, out.ids, strict=True))
-            ],
-        } | ({"reasoning": out.reasoning} if out.reasoning else {})
+        its arguments and their JSON, as emitted in chat mode, else serialized once (AD-4);
+        in chat mode, a call's `extra_content` (`extra`) and the entry it goes back to
+        (`extra_for`)."""
+        calls = []
+        for j, (c, call_ref) in enumerate(zip(out.calls, out.ids, strict=True)):
+            call: dict[str, Any] = {
+                "id": call_ref,
+                "name": c.name,
+                "arguments": c.arguments,
+                "arguments_json": (
+                    out.arguments[j]
+                    if out.arguments
+                    else json.dumps(c.arguments, ensure_ascii=False)
+                ),
+            }
+            extra = out.extras[j] if j < len(out.extras) else None
+            if extra:
+                call |= {"extra": {"extra_content": extra}, "extra_for": out.extra_for}
+            calls.append(call)
+        return {"role": "assistant", "content": out.text, "tool_calls": calls} | (
+            {"reasoning": out.reasoning} if out.reasoning else {}
+        )
 
     @staticmethod
     def _reply_step(
@@ -6242,18 +6289,20 @@ class AppSession:
             if ran is None:
                 return True, step
             result, blocker = ran
+            made: dict[str, Any] = {
+                "id": call_ref,
+                "name": call.name,
+                "arguments": call.arguments,
+                "arguments_json": json.dumps(call.arguments, ensure_ascii=False),
+            }
+            cloud = self._cloud
+            if cloud is not None and cloud.tool_call_extra:  # chat mode (Gemini 3.x)
+                made |= {"extra": dict(cloud.tool_call_extra), "extra_for": cloud.id}
             steps.append(
                 {
                     "role": "assistant",
                     "content": "",
-                    "tool_calls": [
-                        {
-                            "id": call_ref,
-                            "name": call.name,
-                            "arguments": call.arguments,
-                            "arguments_json": json.dumps(call.arguments, ensure_ascii=False),
-                        }
-                    ],
+                    "tool_calls": [made],
                     "brick": action.brick,
                     "component": component,
                 }
@@ -7019,6 +7068,8 @@ class AppSession:
             ]
             out.ids = [c["id"] for c in call.calls]
             out.arguments = [c["arguments"] for c in call.calls]
+            out.extras = [c.get("extra_content") for c in call.calls]
+            out.extra_for = entry.id
         if call.stop_reason == "length":
             journal.emit(
                 "output_truncated",
@@ -7030,7 +7081,7 @@ class AppSession:
             )
             if call.channel != "tool_call":  # the reconciled figures stay (AD-4)
                 return _ModelOutput("limit", reconciled=out.reconciled)
-            out.calls, out.ids, out.arguments = [], [], []
+            out.calls, out.ids, out.arguments, out.extras = [], [], [], []
             out.malformed = Malformed(
                 out.raw,
                 f"la sortie a été coupée à {_fr(reserve)} tokens au milieu de l'appel",

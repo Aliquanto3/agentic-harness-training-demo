@@ -314,3 +314,145 @@ def test_story_27_prompts_keep_their_triggers():
         ]
         offline = fake.plan_reply(_body(_user(air), tools=("get_datetime", "read_file")))
         assert not offline.tool_calls and "data.gouv.fr" in offline.text
+
+
+# ---------- Gemini mode (`model` starting with `gemini`) ----------
+
+
+def _gemini(*messages: dict, tools: tuple[str, ...] = (), thoughts: bool = False) -> dict:
+    body = _body(*messages, tools=tools) | {"model": "gemini-e2e-flash-lite"}
+    if thoughts:
+        config = {"thinking_level": "low", "include_thoughts": True}
+        body["extra_body"] = {"google": {"thinking_config": config}}
+    else:
+        body["reasoning_effort"] = "minimal"
+    return body
+
+
+def _signed(name: str, signature: str | None) -> dict:
+    call = {"id": "c1", "type": "function", "function": {"name": name, "arguments": "{}"}}
+    if signature is not None:
+        call["extra_content"] = {"google": {"thought_signature": signature}}
+    return call
+
+
+def test_gemini_mode_signs_each_call_and_thinks_only_when_asked():
+    ask = _user("Quelle heure est-il ? [raisonne]")
+    reply = fake.plan_reply(_gemini(ask, tools=("get_datetime",)))
+    assert reply.gemini and reply.thought == "" and reply.reasoning == ""
+    chunks = fake.sse_chunks(reply, {}, "chatcmpl-e2e000007")
+    deltas = [c["choices"][0]["delta"] for c in chunks if c.get("choices")]
+    first = next(d["tool_calls"][0] for d in deltas if d.get("tool_calls"))
+    assert first["extra_content"]["google"]["thought_signature"] == "signature-fausse-000007-0"
+    assert not any("reasoning" in d for d in deltas)
+
+    thinking = fake.plan_reply(_gemini(ask, tools=("get_datetime",), thoughts=True))
+    assert thinking.thought == fake.GEMINI_THOUGHT
+    text = "".join(
+        c["choices"][0]["delta"].get("content") or ""
+        for c in fake.sse_chunks(fake.plan_reply(_gemini(_user("Bonjour"), thoughts=True)), {}, "c")
+    )
+    assert text.startswith(f"<thought>{fake.GEMINI_THOUGHT}</thought>")
+
+
+def test_gemini_mode_refuses_a_call_of_the_turn_sent_back_unsigned():
+    ask = _user("Quelle heure est-il ?")
+    reply = {"role": "tool", "tool_call_id": "c1", "content": "samedi 10 h"}
+    unsigned = {"role": "assistant", "tool_calls": [_signed("get_datetime", None)]}
+    refused = fake.plan_reply(_gemini(ask, unsigned, reply, tools=("get_datetime",)))
+    assert refused.status == 400 and "thought_signature" in refused.error["message"]
+    signed = {"role": "assistant", "tool_calls": [_signed("get_datetime", "sig")]}
+    answered = fake.plan_reply(_gemini(ask, signed, reply, tools=("get_datetime",)))
+    assert answered.status == 200 and "samedi 10 h" in answered.text
+    # A call of an earlier turn (another provider's, say) is not checked, as at Gemini.
+    earlier = (_user("Avant"), unsigned, reply, {"role": "assistant", "content": "Oui"})
+    assert fake.plan_reply(_gemini(*earlier, ask, tools=("get_datetime",))).status == 200
+    # Outside Gemini mode, nothing changes.
+    assert fake.plan_reply(_body(ask, unsigned, reply, tools=("get_datetime",))).status == 200
+
+
+def test_wavestack_adapter_reads_the_fake_gemini_stream_with_the_preset():
+    """The preset's `<thought>` tags and the signature, read by `openai_chat` (AD-5)."""
+    from wavestack import config
+
+    entry = config.load_config().cloud_model("gemini")
+    entry = entry.model_copy(update={"base_url": "http://127.0.0.1:9/v1"})
+    body = _gemini(_user("Quelle heure est-il ?"), tools=("get_datetime",), thoughts=True)
+    chunks = fake.sse_chunks(fake.plan_reply(body), body, "chatcmpl-test000002")
+    sse = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=sse, headers={"content-type": "text/event-stream"})
+
+    engine = OpenAIChatEngine(
+        entry, SecretStr(fake.EXPECTED_KEY), transport=httpx.MockTransport(handler)
+    )
+    items = list(engine.complete(ChatBody(b"{}"), CancelToken()))
+    end = items[-1]
+    reasoning = "".join(t for c, t in items[:-1] if c == "reasoning")
+    assert reasoning == fake.GEMINI_THOUGHT
+    assert not any(c == "text" and "<thought>" in t for c, t in items[:-1])
+    signature = end.tool_calls[0]["extra_content"]["google"]["thought_signature"]
+    assert signature == "signature-fausse-000002-0"
+
+
+def test_gemini_mode_streams_the_shapes_of_the_real_api():
+    """The probe of 2026-09-29: one tool-call chunk without `index`, `finish_reason: "stop"`,
+    `usage` on every chunk, thoughts marked and tagged, a closing signature, a 400 array."""
+    usage = {"stream_options": {"include_usage": True}}
+    body = _gemini(_user("Quelle heure est-il ?"), tools=("get_datetime",)) | usage
+    chunks = fake.sse_chunks(fake.plan_reply(body), body, "chatcmpl-e2e000008")
+    assert all("usage" in c for c in chunks)
+    deltas = [c["choices"][0]["delta"] for c in chunks]
+    [with_calls] = [d for d in deltas if d.get("tool_calls")]
+    assert "index" not in with_calls["tool_calls"][0]
+    assert with_calls["tool_calls"][0]["function"] == {"arguments": "{}", "name": "get_datetime"}
+    assert deltas[-1] == {"role": "assistant"}
+    assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
+
+    body = _gemini(_user("Bonjour"), thoughts=True) | usage
+    chunks = fake.sse_chunks(fake.plan_reply(body), body, "chatcmpl-e2e000009")
+    deltas = [c["choices"][0]["delta"] for c in chunks]
+    marked = [d for d in deltas if d.get("extra_content") == {"google": {"thought": True}}]
+    assert marked[0]["content"].startswith("<thought>")
+    assert all("</thought>" not in d["content"] for d in marked)
+    closing = deltas[len(marked)]
+    assert closing["content"].startswith("</thought>") and "extra_content" not in closing
+    assert "content" not in deltas[-1]
+    assert deltas[-1]["extra_content"]["google"]["thought_signature"]
+    last = chunks[-1]["usage"]
+    assert last["total_tokens"] - last["prompt_tokens"] > last["completion_tokens"]
+
+    client = TestClient(fake.create_app())
+    headers = {"Authorization": f"Bearer {fake.EXPECTED_KEY}"}
+    unsigned = {"role": "assistant", "tool_calls": [_signed("get_datetime", None)]}
+    reply = {"role": "tool", "tool_call_id": "c1", "content": "10 h"}
+    body = _gemini(_user("Quelle heure est-il ?"), unsigned, reply, tools=("get_datetime",))
+    refused = client.post("/v1/chat/completions", json=body, headers=headers)
+    assert refused.status_code == 400
+    [error] = refused.json()
+    assert "`default_api:get_datetime` , position 1" in error["error"]["message"]
+    assert error["error"]["status"] == "INVALID_ARGUMENT"
+
+
+def test_gemini_mode_signs_only_the_first_call_of_a_parallel_set():
+    """As the real API (2026-09-29): 3 parallel calls, a signature on the first only; the
+    replay is checked on each assistant message's first call."""
+    reply = fake.Reply(
+        tool_calls=[{"name": n, "arguments": "{}"} for n in ("a", "b", "c")], gemini=True
+    )
+    [calls] = [
+        c["choices"][0]["delta"]["tool_calls"]
+        for c in fake.sse_chunks(reply, {}, "chatcmpl-e2e000010")
+        if c["choices"][0]["delta"].get("tool_calls")
+    ]
+    assert [("extra_content" in c) for c in calls] == [True, False, False]
+
+    ask = _user("Quelle heure est-il ?")
+    result = {"role": "tool", "tool_call_id": "c1", "content": "10 h"}
+    first_signed = [_signed("get_datetime", "sig"), _signed("calculator", None)]
+    unsigned = [_signed("get_datetime", None), _signed("calculator", None)]
+    for calls, status in ((first_signed, 200), (unsigned, 400)):
+        sent = {"role": "assistant", "tool_calls": calls}
+        body = _gemini(ask, sent, result, tools=("get_datetime", "calculator"))
+        assert fake.plan_reply(body).status == status

@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 # ponytail: pydantic is imported before the network guard (cli imports config first); it
@@ -101,13 +101,18 @@ class AuthHeader(_Strict):
 
 class CloudReasoning(_Strict):
     """What the reasoning brick adds to the body (AD-6). `resend`: the reasoning received goes
-    back to the provider in the form of `format` (AD-4)."""
+    back to the provider in the form of `format` (AD-4). `tags`: the opening and closing tags
+    `think_tags` reads in `content` (Gemini writes `<thought>`)."""
 
     format: Literal["field", "content_blocks", "think_tags"]
     on: dict[str, Any] = {}
     off: dict[str, Any] = {}
     always: bool = False
     resend: bool = False
+    tags: tuple[Annotated[str, Field(min_length=1)], Annotated[str, Field(min_length=1)]] = (
+        "<think>",
+        "</think>",
+    )
 
 
 def _is_loopback(host: str) -> bool:
@@ -165,6 +170,10 @@ class CloudModel(_Strict):
     # Story 29: the sampling settings the « LLM nu » screen may send; none by default (the
     # provider's own). Top-k and min-p are never sent to a provider.
     sampling: list[Literal["temperature", "top_p"]] = []
+    # What a call the harness makes itself (a forced action) carries besides `id`, `type` and
+    # `function`, in chat mode: Gemini 3.x refuses a replayed call without its thought
+    # signature, and a made-up call has none. Empty by default: nothing added.
+    tool_call_extra: dict[str, Any] = {}
 
     @field_validator("base_url")
     @classmethod
@@ -195,11 +204,14 @@ class CloudModel(_Strict):
         return self.reserve_for(False)
 
     def reasoning_params(self, reasoning: bool) -> dict[str, Any]:
-        """AD-6: `on` while the model reasons (brick on, or `always`), else `off`."""
+        """AD-6: `on` while the model reasons (brick on, or `always`), else `off`. A field set
+        to `null` is left out: `settings.json` merges into `wavestack.toml` field by field, and
+        `null` is how it removes a field the preset declares."""
         if self.reasoning is None:
             return {}
         on = reasoning or self.reasoning.always
-        return dict(self.reasoning.on if on else self.reasoning.off)
+        params = self.reasoning.on if on else self.reasoning.off
+        return {key: value for key, value in params.items() if value is not None}
 
 
 class ModelFile(_Strict):

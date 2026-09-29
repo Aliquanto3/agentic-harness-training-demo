@@ -53,11 +53,26 @@ vrais services.
   `/_e2e/model.gguf` est le fichier du faux modèle d'embedding : 503 tant que
   `POST /_e2e/model_ready` n'a pas été appelé (un téléchargement qui échoue, puis réussit).
   `/_e2e/reranker.gguf` est celui du faux reranker (story 16), toujours servi.
+  Mode Gemini quand le `model` du corps commence par `gemini`, calqué sur les formes relevées
+  sur le vrai `gemini-3.5-flash-lite` le 2026-09-29 : appels d'outil en un seul fragment, sans
+  `index`, le premier seul avec `extra_content.google.thought_signature` (`signature-fausse-…`),
+  puis
+  `{"role": "assistant"}` et `finish_reason: "stop"` (jamais `tool_calls`) ; réponse texte close
+  par un fragment qui porte une signature et aucun contenu ; `usage` sur chaque fragment,
+  cumulé, `completion_tokens` sans les tokens de réflexion que `total_tokens` compte ; réflexion
+  dans `content`, seulement si `extra_body.google.thinking_config.include_thoughts` la demande :
+  `<thought>` et la pensée dans des fragments marqués `extra_content.google.thought`, puis un
+  fragment non marqué `</thought>` + le début de la réponse (jamais de champ `reasoning`) ; un
+  message d'assistant du tour renvoyé sans signature sur son premier appel reçoit un 400 dont
+  le corps est un tableau JSON
+  (`[{"error": …}]`, « missing a thought_signature … `default_api:nom` , position n »).
 - `stack.py` : réseau sortant de WaveStack coupé (proxy fermé, voir plus haut), dossier de
-  données temporaire, `settings.json` qui déclare trois modèles sur le faux serveur (tous avec `sampling = ["temperature", "top_p"]` depuis la story 29), `fake`
+  données temporaire, `settings.json` qui déclare quatre modèles sur le faux serveur (tous avec `sampling = ["temperature", "top_p"]` depuis la story 29), `fake`
   (`wavestack-fake`), `fake_b` (`faux-modele-b`, pour le changement de modèle de la
-  story 17) et `fake_r` (`faux-modele-raisonne`, `reasoning: {format: "field", always: true}`,
-  pour la carte Raisonnement verrouillée de la story 33), clé par
+  story 17), `fake_r` (`faux-modele-raisonne`, `reasoning: {format: "field", always: true}`,
+  pour la carte Raisonnement verrouillée de la story 33) et `fake_g` (`gemini-e2e-flash-lite`,
+  « Faux Gemini (e2e) », avec le `reasoning` et le `tool_call_extra` du préréglage `gemini` lus
+  dans `wavestack.toml`), clé par
   `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux serveurs sur
   `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
   `settings.json` pointe `[rag]` vers un index dans ce dossier, absent au départ comme sur
@@ -224,6 +239,19 @@ Vérifications ajoutées aux scénarios existants :
   retour à l'entrée A, qui ne raisonne pas : plus de verrou. Capture
   `34-raisonnement-impose.jpg`.
 
+## Gemini (Google AI Studio)
+
+- `gemini_shape`, joué après `reasoning_locked` (seul, il part du faux cloud A et y revient,
+  même après un échec) : scénario « Outils natifs », `fake_g` choisi dans le sélecteur, carte
+  Raisonnement réglable, sans verrou. Raisonnement éteint, « Quelle heure est-il ? » : deux
+  corps relus par `/_e2e/requests`, le premier avec `reasoning_effort: "minimal"`, sans
+  `extra_body`, `max_tokens` 512 ; la signature de `model_call_ended.tool_calls[0].extra_content`
+  rejouée telle quelle dans le second ; aucun `harness_error`. Raisonnement allumé, « Combien font
+  12 multiplié par 37 ? » : `extra_body.google.thinking_config` `{thinking_level: "low",
+  include_thoughts: true}`, sans `reasoning_effort`, `max_tokens` 1 536 ; `<thought>…</thought>`
+  lu comme réflexion (deltas du canal `reasoning`), absent du texte et de la bulle, gardé dans
+  `raw_output` ; signature rejouée. Capture `59-gemini-raisonnement.jpg`.
+
 ## Mode sombre (story 31)
 
 - `themes`, joué après `disciplines`, à 1600 × 1000, poste émulé en clair : scénario « Outils
@@ -336,9 +364,10 @@ Vérifications ajoutées aux scénarios existants :
   légende, désactivée (« où tourne le modèle », « qui le sert »), reprise dans l'infobulle ;
   groupes « Sur ce poste · Qwen (Alibaba) » (le faux Ollama par sa famille `qwen3`, le faux
   llama-server par la famille que `capabilities_for` lit dans son gabarit, jamais Llama pour
-  « llama-server »), puis « Réseau · Mistral (Mistral AI) » et « Réseau · gpt-oss (OpenAI) »
-  (préréglages de `wavestack.toml`, sans clé) et « Réseau · Autres éditeurs » (les trois faux
-  modèles cloud) ; dans le groupe Qwen, le faux Ollama (0.6B) avant le faux llama-server
+  « llama-server »), puis « Réseau · Gemini (Google) » (préréglage Gemini et `fake_g`),
+  « Réseau · Mistral (Mistral AI) » et « Réseau · gpt-oss (OpenAI) » (préréglages de
+  `wavestack.toml`, sans clé) et « Réseau · Autres éditeurs » (les trois autres faux modèles
+  cloud) ; ligne du préréglage Gemini : éditeur « Gemini (Google) », raisonnement « activable » ; dans le groupe Qwen, le faux Ollama (0.6B) avant le faux llama-server
   (taille inconnue) ; chaque modèle commence par « Local · » ou « RÉSEAU · » ; « Tableau des
   modèles et de leurs capacités… » puis « Autre fichier ou clé API… » en dernier. « Ouvrir le
   tableau » mène à `/models` : onglet « Modèles » courant, « Diagnostic » vers `/diagnostic`

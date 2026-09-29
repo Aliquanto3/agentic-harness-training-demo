@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -39,6 +40,11 @@ SECOND_MODEL = "faux-modele-b"
 # Story 33: a third fake model that always reasons, for the locked reasoning card.
 REASONING_ENTRY_ID = "fake_r"
 REASONING_MODEL = "faux-modele-raisonne"
+# A fourth fake model shaped as Gemini 3.x (`fake_openai.py`'s Gemini mode, by its name):
+# the reasoning and `tool_call_extra` of the real `gemini` preset, read in wavestack.toml.
+GEMINI_ENTRY_ID = "fake_g"
+GEMINI_MODEL = "gemini-e2e-flash-lite"
+GEMINI_PROVIDER = "Faux Gemini (e2e)"
 
 
 # The launcher's own requests only reach the loopback: never through the workstation's proxy.
@@ -80,6 +86,22 @@ def _entry(
     return entry
 
 
+def gemini_preset() -> dict:
+    """The `gemini` entry of wavestack.toml, as declared (never modified)."""
+    with (REPO / "wavestack.toml").open("rb") as f:
+        models = tomllib.load(f)["cloud"]["models"]
+    return next(m for m in models if m["id"] == "gemini")
+
+
+def _gemini_entry(fake_port: int) -> dict:
+    preset = gemini_preset()
+    entry = _entry(
+        fake_port, GEMINI_ENTRY_ID, GEMINI_PROVIDER, GEMINI_MODEL, reasoning=preset["reasoning"]
+    )
+    entry["tool_call_extra"] = preset["tool_call_extra"]
+    return entry
+
+
 def rag_settings(fake_port: int, data_dir: Path) -> dict:
     """Story 15: the index in the data dir (absent at first, built from the RAG card, as on a
     fresh install), the fake embedding model (its file served by the fake server, over the
@@ -116,8 +138,8 @@ def rag_settings(fake_port: int, data_dir: Path) -> dict:
 
 
 def settings(fake_port: int, data_dir: Path, llama_port: int = 0, ollama_port: int = 0) -> dict:
-    """The `settings.json` override: three cloud models, all on the fake server (the third
-    always reasons, story 33); the RAG's
+    """The `settings.json` override: four cloud models, all on the fake server (the third
+    always reasons, story 33; the fourth is shaped as Gemini); the RAG's
     index and fake embedding model (story 15); the ports of the fake local servers (story
     18)."""
     values: dict = {
@@ -133,6 +155,7 @@ def settings(fake_port: int, data_dir: Path, llama_port: int = 0, ollama_port: i
                     REASONING_MODEL,
                     reasoning={"format": "field", "always": True},
                 ),
+                _gemini_entry(fake_port),
             ]
         },
     }

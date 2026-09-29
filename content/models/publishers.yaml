@@ -44,6 +44,10 @@ publishers:
     label_fr: Gemma (Google)
     architectures: [gemma]
     names: ['gemma']
+  - id: gemini
+    label_fr: Gemini (Google)
+    architectures: []
+    names: ['gemini']
   - id: granite
     label_fr: Granite (IBM)
     architectures: [granite]

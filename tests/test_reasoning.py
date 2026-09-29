@@ -303,14 +303,25 @@ def _assistant(body: dict) -> list[dict]:
 
 
 @pytest.mark.parametrize(
-    ("preset", "form"),
-    [("mistral", "content_blocks"), ("groq", "field"), ("mistral", "think_tags")],
+    ("preset", "form", "tags"),
+    [
+        ("mistral", "content_blocks", None),
+        ("groq", "field", None),
+        ("mistral", "think_tags", None),
+        ("gemini", "think_tags", ("<thought>", "</thought>")),  # the entry's own tags
+    ],
 )
-def test_resend_sends_the_reasoning_back_in_the_declared_form(preset, form):
+def test_resend_sends_the_reasoning_back_in_the_declared_form(preset, form, tags):
     entry = _preset(preset)
-    reasoning = entry.reasoning.model_copy(update={"resend": True, "format": form})
+    update = {"resend": True, "format": form} | ({"tags": tags} if tags else {})
+    reasoning = entry.reasoning.model_copy(update=update)
     entry = entry.model_copy(update={"reasoning": reasoning})
-    provider = Provider(*STREAMS[form])
+    opening, closing = tags or ("<think>", "</think>")
+    streams = [
+        stream.replace(b"<think>", opening.encode()).replace(b"</think>", closing.encode())
+        for stream in STREAMS[form]
+    ]
+    provider = Provider(*streams)
     session = _cloud(entry, provider, "tools", "short_memory", "reasoning")
 
     first = _run(session, "Quelle heure est-il ?")
@@ -324,7 +335,7 @@ def test_resend_sends_the_reasoning_back_in_the_declared_form(preset, form):
     elif form == "field":
         assert in_turn["reasoning"] == "Il faut l'heure." and "content" not in in_turn
     else:
-        assert in_turn["content"] == "<think>Il faut l'heure.</think>"
+        assert in_turn["content"] == f"{opening}Il faut l'heure.{closing}"
     turn = [s for s in first["context_rendered"][1]["segments"] if s["kind"] == "assistant_turn"]
     assert any("Il faut l'heure." in s["text"] for s in turn)
     # The next turn: the past answer's reasoning goes back too, counted as history.
@@ -344,7 +355,7 @@ def test_resend_sends_the_reasoning_back_in_the_declared_form(preset, form):
     elif form == "field":
         assert past["reasoning"] == "Lire l'outil." and past["content"] == "Il est 9 h."
     else:
-        assert past["content"] == "<think>Lire l'outil.</think>Il est 9 h."
+        assert past["content"] == f"{opening}Lire l'outil.{closing}Il est 9 h."
     session.close()
 
 

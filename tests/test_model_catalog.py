@@ -335,9 +335,25 @@ def test_groups_local_first_publishers_in_order_others_last(tmp_path):
         "Sur ce poste · Qwen (Alibaba)",
         "Sur ce poste · Gemma (Google)",
         "Sur ce poste · Autres éditeurs",
+        "Réseau · Gemini (Google)",
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
     ]
+
+
+def test_the_gemini_preset_is_its_own_network_group_and_toggles_its_reasoning():
+    """The Gemini preset: « RÉSEAU · Google AI Studio · gemini-3.5-flash-lite » under
+    « Réseau · Gemini (Google) », reasoning « activable », unavailable without a key."""
+    cfg = config.load_config()
+    rows = [{"id": "gemini", "disabled_fr": "Aucune clé API : saisissez-la au diagnostic."}]
+    entries = catalog.cloud_entries(cfg, rows)
+    [gemini] = [e for e in entries if e.ref == "gemini"]
+    assert gemini.label_fr == "RÉSEAU · Google AI Studio · gemini-3.5-flash-lite"
+    assert gemini.publisher_fr == "Gemini (Google)" and gemini.reasoning == "toggle"
+    assert gemini.params_label is None and gemini.tools is True
+    assert not gemini.usable and gemini.disabled_fr == rows[0]["disabled_fr"]
+    groups = {g.label_fr: g for g in catalog.group_models(entries)}
+    assert [m.ref for m in groups["Réseau · Gemini (Google)"].models] == ["gemini"]
 
 
 def test_files_deduplicated_by_path(tmp_path):
@@ -498,6 +514,7 @@ def test_shipped_publishers_file_is_valid():
         "Qwen (Alibaba)",
         "Llama (Meta)",
         "Gemma (Google)",
+        "Gemini (Google)",
         "Granite (IBM)",
         "Phi (Microsoft)",
         "Mistral (Mistral AI)",
@@ -611,10 +628,11 @@ def test_api_diagnostic_carries_the_models(monkeypatch, tmp_path):
     assert "où tourne le modèle" in models["legend_fr"]
     assert models["publishers_error_fr"] is None
     assert [g["label_fr"] for g in models["groups"]] == [
+        "Réseau · Gemini (Google)",
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
     ]
-    groq = models["groups"][1]["models"][0]
+    groq = models["groups"][2]["models"][0]
     assert (groq["value"], groq["reasoning"], groq["params_label"]) == (
         "cloud:groq",
         "always",
