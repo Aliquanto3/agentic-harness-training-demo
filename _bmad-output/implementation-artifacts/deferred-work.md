@@ -533,3 +533,19 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-lot-k-corrections-recette-pc-2026-09-29.md`
   summary: Le test `fits` ne simule que l'échange précédent ; avec l'historique cumulé au pire (réponses à la réserve), `subagent` p4 déborde de 9 tokens (1 326 + 2 267 > 3 584, 2B exact). Sévérité medium, non vérifiée.
   evidence: La mémoire courte garde tous les échanges ; la recette N27-1 (29/09) passait avec des réponses courtes. À trancher : modèle de réponse réaliste dans le test, ou quiz à réponse courte, après mesure de la jauge au prompt 4 du scénario « Sous-agent » sur le PC.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-i18n-1-socle-et-defauts-du-llm.md`
+  summary: Langues (2/5), l'interface principale en anglais et en allemand : `index.html` et `app.js` (environ 540 textes), avec un utilitaire `t()` et un catalogue `content/i18n/{lang}/ui.yaml` ; les textes des charges `*_fr` que montre l'interface principale, et les formats de nombres et de dates (`Intl`) selon la langue.
+  evidence: Demande de l'utilisateur du 2026-09-29 (interface en trois langues). Découpage en cinq stories après mesure : environ 2 000 textes par langue, trop pour une story. La story 1 pose le socle et traduit les défauts du LLM.
+- source_spec: `_bmad-output/implementation-artifacts/spec-i18n-1-socle-et-defauts-du-llm.md`
+  summary: Langues (3/5), les contenus pédagogiques en anglais et en allemand : `bricks/*.yaml`, `scenarios.yaml` (consignes et prompts suggérés), `cloud.yaml`, `compression.yaml`, `labels/segment_kinds.yaml`, `models/publishers.yaml`, `demo_files/`.
+  evidence: Même demande et même découpage ; les contenus d'interface pédagogique viennent après l'interface principale.
+- source_spec: `_bmad-output/implementation-artifacts/spec-i18n-1-socle-et-defauts-du-llm.md`
+  summary: Langues (4/5), les ateliers et les pages annexes : « LLM nu » (`llm_lab.yaml`, `llm.html`, `llm.js`), l'atelier RAG (`rag_lab.yaml`, `rag.html`, `rag.js`), le diagnostic et la page des modèles ; le corpus RAG par langue, avec un index par langue (`data/rag_index.{lang}.sqlite`).
+  evidence: Même demande et même découpage. Le corpus peut attendre : l'embedding et le reranker sont multilingues.
+- source_spec: `_bmad-output/implementation-artifacts/spec-i18n-1-socle-et-defauts-du-llm.md`
+  summary: Langues (5/5), les messages produits par le backend (environ 950 lignes de Python) : erreurs `harness_error`, raisons de disponibilité, diagnostic, catalogue des modèles, et les messages qui partent au LLM (erreurs d'outils de `tools/executor.py`, `native.py`, `network.py`, marque de troncature, refus de H1 et H5, erreurs de mémoire), avec un catalogue `messages.yaml` par langue et `msg(key, **kw)` ; les tests paramétrés par langue.
+  evidence: Même demande et même découpage ; le plus gros lot, et celui qui touche le plus de tests existants (40 fichiers de tests sur 54 vérifient du texte français).
+- source_spec: `_bmad-output/implementation-artifacts/spec-endpoint-gemini-ai-studio.md`
+  summary: Gemini, raisonnement allumé : la réserve de 1 536 tokens peut être mangée par la réflexion cachée (`completion_tokens` sans elle), et la coupure « à 1 536 tokens » ne dit pas que la réflexion l'a consommée. Moyenne, non vérifiée.
+  evidence: Sonde réelle du 2026-09-29 : 986 tokens de réflexion à `thinking_level: "low"` sur une question de calcul. À trancher en recette réelle sur les scénarios, raisonnement allumé (`stop_reason` `length` ?) ; pistes : réserve propre à l'entrée, ou message de coupure qui nomme la réflexion.
