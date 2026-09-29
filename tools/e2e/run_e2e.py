@@ -1596,6 +1596,23 @@ def _bar_fits(r: Run) -> tuple[bool, str]:
     return ok, f"{controls} ; {cut}"
 
 
+def _window_panel_outside(page: Page) -> str | None:
+    """Open the « Fenêtre » panel, say how it leaves the window (if it does), close it."""
+    page.locator("#window-toggle").click()
+    expect(page.locator("#window-panel")).to_be_visible(timeout=5000)
+    panel = page.evaluate(
+        "() => { const p = document.getElementById('window-panel')"
+        ".getBoundingClientRect(); return [p.left, p.right, p.bottom,"
+        " innerWidth, innerHeight].map(Math.round); }"
+    )
+    page.keyboard.press("Escape")
+    expect(page.locator("#window-panel")).to_be_hidden(timeout=5000)
+    left, right, bottom, inner_w, inner_h = panel
+    if left < 0 or right > inner_w or bottom > inner_h:
+        return f"panneau « Fenêtre » hors de la fenêtre ({panel})"
+    return None
+
+
 def _top_bar_problems(r: Run, chip) -> list[str]:
     """Lot K (A1): what is wrong in the top bar: a control out of the bar or cut (the chips
     aside), « Réinitialiser » missing, the gauge's legend under the « Fenêtre » button; with
@@ -2408,18 +2425,8 @@ def s_linked_view(r: Run) -> None:
             )
             if scroll > 1:
                 problems.append(f"la page défile de {scroll} px en largeur")
-            page.locator("#window-toggle").click()
-            expect(page.locator("#window-panel")).to_be_visible(timeout=5000)
-            panel = page.evaluate(
-                "() => { const p = document.getElementById('window-panel')"
-                ".getBoundingClientRect(); return [p.left, p.right, p.bottom,"
-                " innerWidth, innerHeight].map(Math.round); }"
-            )
-            left, right, bottom, inner_w, inner_h = panel
-            if left < 0 or right > inner_w or bottom > inner_h:
-                problems.append(f"panneau « Fenêtre » hors de la fenêtre ({panel})")
-            page.keyboard.press("Escape")
-            expect(page.locator("#window-panel")).to_be_hidden(timeout=5000)
+            if outside := _window_panel_outside(page):
+                problems.append(outside)
             chip_cut, figures = page.evaluate(
                 "(c) => [c.scrollWidth - c.clientWidth, Math.round(document"
                 ".getElementById('gauge-figures').getBoundingClientRect().width)]",
@@ -2452,6 +2459,25 @@ def s_linked_view(r: Run) -> None:
     time.sleep(0.3)
     page.keyboard.press("Escape")
     chip.click()
+    # Lot K, suite (K8): the same widths with no pane hidden, so no chip pushes « Fenêtre ▾ »
+    # to the left: its panel, anchored under it, stays whole in the window.
+    for projection_on in (True, False):
+        if not projection_on:
+            toggle.click()
+        mode = "mode projection" if projection_on else "mode normal"
+        for width, height in ((840, 433), (853, 433), (911, 512)):
+            page.set_viewport_size({"width": width, "height": height})
+            time.sleep(0.3)
+            chips = page.locator("#pane-chips .pane-chip").count()
+            outside = _window_panel_outside(page)
+            r.check(
+                not chips and not outside,
+                f"{width} × {height} (zoom 150 %) en {mode}, aucun volet masqué : panneau "
+                "« Fenêtre » entier dans la fenêtre",
+                outside or f"{chips} puce(s) de volet masqué",
+            )
+    toggle.click()
+    time.sleep(0.3)
     page.set_viewport_size({"width": 1600, "height": 1000})
     time.sleep(0.3)
     r.reload_app()

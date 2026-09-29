@@ -230,6 +230,18 @@ la route ni les liens : échec (404).
   échec, 5 `harness_error` voulus. Console : 5 erreurs réseau du parcours hors ligne, aucune sur
   `favicon.ico`. Captures restaurées.
 
+### K8 de la recette (tête `14d31bd`)
+
+Recette sur PC : `resultats-lot-k-suite-2026-09-29.md` (ce K8 n'est pas celui de la
+contre-vérification, une erreur de console). Le panneau « Fenêtre » s'ancrait sous son bouton
+sans se caler dans la fenêtre. À 853 × 433 en mode normal, sans volet masqué, son bord droit
+arrivait à 882 px, soit 29 px coupés. L'E2E ne le voyait pas : il masque Contexte LLM avant, et
+la puce décale « Fenêtre ▾ » vers la gauche. Correction : `placeWindowPanel()` décale le panneau
+vers la gauche du dépassement, sans passer le bord gauche, à l'ouverture et au redimensionnement.
+E2E : le contrôle du panneau devient `_window_panel_outside()`, joué aussi sans volet masqué
+(840, 853, 911 px, projection puis normal). « Échoue avant » : 2 échecs à 840 et 853 px en mode
+normal ; avec la correction, `linked_view` passe 53 vérifications sur 53.
+
 ## Spec Change Log
 
 ## Review Triage Log

@@ -2357,6 +2357,21 @@ function bindWindowPicker() {
     store.windowError = null;
     renderWindowPicker();
   });
+  window.addEventListener("resize", () => {
+    if (!windowPanel().hidden) placeWindowPanel();
+  });
+}
+
+// Lot K (K8): the panel drops under its button, left-aligned; when that would take it past
+// the window's right edge (853 px at a 150 % zoom, no pane hidden), it moves left by the
+// overflow, never past the window's left edge. Its width already fits the window (CSS).
+function placeWindowPanel() {
+  const panel = windowPanel();
+  panel.style.left = "";
+  const margin = 16; // --spacing-4, the gutter the CSS width keeps on each side
+  const rect = panel.getBoundingClientRect();
+  const overflow = rect.right - (document.documentElement.clientWidth - margin);
+  if (overflow > 0) panel.style.left = `${-Math.min(overflow, Math.max(0, rect.left - margin))}px`;
 }
 
 function openWindowPanel() {
@@ -2364,6 +2379,7 @@ function openWindowPanel() {
   store.windowError = null;
   windowPanel().hidden = false;
   document.getElementById("window-toggle").setAttribute("aria-expanded", "true");
+  placeWindowPanel();
   renderWindowPicker();
   const checked = windowPanel().querySelector('input[name="window-choice"]:checked');
   (checked ?? windowPanel().querySelector('input[name="window-choice"]'))?.focus();
