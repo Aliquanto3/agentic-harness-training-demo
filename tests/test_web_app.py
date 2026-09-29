@@ -108,7 +108,7 @@ def test_pages_and_static_files_are_revalidated_but_api_is_not(monkeypatch, tmp_
 
 def test_favicon_is_served_and_declared_on_every_page(monkeypatch, tmp_path):
     """Lot K, suite (K7): `/favicon.ico` (asked by Edge) and the SVG icon answer 200, and the
-    four pages declare the icon."""
+    five pages declare the icon."""
     client = _client(_build(monkeypatch, tmp_path))
     for path in ("/favicon.ico", "/static/favicon.svg"):
         response = client.get(path)
@@ -116,7 +116,7 @@ def test_favicon_is_served_and_declared_on_every_page(monkeypatch, tmp_path):
         assert response.headers["content-type"].startswith("image/svg+xml"), path
         assert response.text.lstrip().startswith("<svg"), path
     link = '<link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />'
-    for page in ("/", "/diagnostic", "/models", "/llm"):
+    for page in ("/", "/diagnostic", "/models", "/llm", "/rag"):
         text = client.get(page).text
         assert link in text[: text.index("</head>")], page
 
