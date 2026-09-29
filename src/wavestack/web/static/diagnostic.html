@@ -349,6 +349,8 @@
           if (on) li.appendChild(node("span", "saved-mark", text));
         }
         li.appendChild(node("div", "action", `Hébergement : ${d.hosting_fr} · Entraînement : ${m.training_fr}${d.trial ? " · offre d'essai" : ""}`));
+        // FinOps: the declared prices, as the session wrote them (none without `pricing`).
+        if (m.price_fr) li.appendChild(node("div", "action", m.price_fr));
         const keyRow = node("div", "cloud-key");
         const input = node("input");
         input.type = "password";

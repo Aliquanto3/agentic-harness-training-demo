@@ -747,7 +747,7 @@ entrée nouvelle doit être complète :
 Une entrée de même `id` qu'un préréglage le modifie champ par champ (par exemple
 `{"id": "groq", "tpm": 6000}`), et `"enabled": false` le masque.
 
-Trois champs facultatifs :
+Quatre champs facultatifs :
 - `key_env` : nom de la variable d'environnement qui fournit la clé (lettres majuscules,
   chiffres et `_`), jamais la clé elle-même.
 - `min_interval_s` : délai minimal, en secondes (au plus 60), entre deux envois au même modèle,
@@ -763,6 +763,45 @@ Trois champs facultatifs :
   le fournisseur garde les siens. Les préréglages Groq et Mistral déclarent les deux. Seul l'écran
   « LLM nu » les envoie ; les tours de l'atelier n'envoient aucun réglage, et top-k et min-p ne
   partent jamais chez un fournisseur.
+- `pricing` (FinOps, voir ci-dessous) : les prix du modèle, par exemple
+  `"pricing": {"input_usd_per_mtok": 0.15, "output_usd_per_mtok": 0.6, "checked": "2026-09-29"}`.
+
+## FinOps : coût estimé des appels cloud
+
+Chaque entrée `[[cloud.models]]` peut déclarer ses prix dans `pricing` : prix d'entrée et prix de
+sortie, en dollars par million de tokens, et la date du relevé (`checked`, au format
+AAAA-MM-JJ). Relevés le 2026-09-29 sur les pages officielles : Groq `openai/gpt-oss-120b` et
+Mistral Small 4 à 0,15 $ / 0,60 $, Gemini `gemini-3.5-flash-lite` à 0,30 $ / 2,50 $. Sur le
+plan gratuit de Mistral, le coût réel est nul : le prix affiché est le prix catalogue.
+
+**Estimation.** Pour chaque appel cloud, WaveStack calcule le coût d'entrée (tokens du prompt ×
+prix d'entrée / 10⁶) et le coût de sortie (tokens produits × prix de sortie / 10⁶, les tokens de
+raisonnement compris, même ceux que Gemini ne compte pas dans `completion_tokens`). Les tokens
+viennent de `usage` quand le fournisseur le renvoie ; sinon ils sont estimés, et le coût aussi
+(« ≈ »). Ce sont toujours des estimations : ni les en-têtes de facturation ni la console du
+fournisseur ne sont lus. Un appel arrêté (« Arrêter ») compte son entrée telle qu'envoyée, et la
+sortie reçue avant l'arrêt ; un appel refusé avant toute réponse ne compte rien. L'estimation
+suit le prix catalogue : les remises sur l'entrée en cache, les prix par palier ou pour les longs
+contextes, les prix du traitement par lots (batch) et les offres gratuites ne sont pas pris en
+compte.
+
+**Affichage.** « Coût estimé : entrée … $ · sortie … $ » dans le détail de chaque appel
+(Orchestration), le total du tour dans son en-tête (« coût estimé … $ »), et « Dépense
+estimée » dans la barre haute dès le premier appel payant : le total de la séance, entrée + sortie
+(arrondies au centième de cent), la phrase entière (4 chiffres significatifs, conversion en
+euros) dans l'infobulle. Ce total compte tous les appels payants : les tours, le sous-agent,
+« Tester » au diagnostic et l'écran « LLM nu ». Ni « Vider la conversation » ni « Réinitialiser »
+ne le remettent à zéro ; seul un relancement de WaveStack le fait (il n'est jamais écrit sur le
+disque). Les prix déclarés sont aussi dans la colonne « Prix » de la page `/models` et sur la
+ligne « Prix » du diagnostic. Un modèle local n'a pas de coût, et une entrée sans `pricing` non
+plus.
+
+**Mettre les prix à jour.** Relevez les prix sur la page du fournisseur, puis surchargez l'entrée
+dans `settings.json`, par exemple `{"id": "gemini", "pricing": {"input_usd_per_mtok": 0.3,
+"output_usd_per_mtok": 2.5, "checked": "2027-01-02"}}`, et relancez WaveStack. Le taux de
+conversion se règle dans `[finops] eur_per_usd` (euros pour un dollar, 0,86 par défaut, borné de
+0,5 à 2 ; une valeur illisible, `nan` ou `inf`, vaut 0,86). Ce taux par défaut a été relevé le
+2026-09-30 : mettez-le à jour. Un prix négatif rend l'entrée invalide : elle est écartée au lancement, avec la raison.
 
 ## Développement
 

@@ -549,3 +549,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-endpoint-gemini-ai-studio.md`
   summary: Gemini, raisonnement allumé : la réserve de 1 536 tokens peut être mangée par la réflexion cachée (`completion_tokens` sans elle), et la coupure « à 1 536 tokens » ne dit pas que la réflexion l'a consommée. Moyenne, non vérifiée.
   evidence: Sonde réelle du 2026-09-29 : 986 tokens de réflexion à `thinking_level: "low"` sur une question de calcul. À trancher en recette réelle sur les scénarios, raisonnement allumé (`stop_reason` `length` ?) ; pistes : réserve propre à l'entrée, ou message de coupure qui nomme la réflexion.
+- source_spec: `_bmad-output/implementation-artifacts/spec-estimateur-finops-api.md`
+  summary: Le « ≈ » d'un coût estimé (fournisseur sans `usage`, Mistral) n'est vérifié nulle part dans l'interface (ligne de l'appel, en-tête du tour, barre haute). Moyenne, non vérifiée.
+  evidence: L'E2E n'a aucun faux fournisseur tarifé sans `usage` ; seuls les champs `cost_source` et `approx` sont testés en Python. À régler par une entrée E2E tarifée sans `stream_usage`, puis un contrôle du texte rendu.

@@ -169,6 +169,11 @@ class TurnStartedPayload(BaseModel):
 class TurnEndedPayload(BaseModel):
     status: TurnStatus
     duration_ms: int | None = None
+    # FinOps: the sum of the costs of the turn's cloud calls (sub-agent included), in dollars,
+    # when the turn cost something; `cost_source` is `estimate` when one of them was.
+    cost_in_usd: float | None = None
+    cost_out_usd: float | None = None
+    cost_source: Literal["api", "estimate"] | None = None
 
 
 class CompressedFromPayload(BaseModel):
@@ -380,6 +385,25 @@ class ModelCallEndedPayload(BaseModel):
     # Lot A (AD-4): the prompt tokens the engine really evaluated, the ones reused from its
     # cache excluded; `None` when the engine cannot say.
     evaluated_tokens: int | None = None
+    # FinOps: a cloud call's estimated cost, in dollars, when its entry declares `pricing`;
+    # `cost_source` follows `usage_source` (`estimate`: « ≈ »). Never for a local model.
+    cost_in_usd: float | None = None
+    cost_out_usd: float | None = None
+    cost_source: Literal["api", "estimate"] | None = None
+
+
+class ConsumptionUpdatedPayload(BaseModel):
+    """FinOps: the session's API spend after a paid call (turns, sub-agent, « Tester », « LLM
+    nu »), in dollars; reset by a relaunch only. `approx`: one of its calls was estimated.
+    `total_eur`: the total at `eur_per_usd` (`[finops]`), computed by the session."""
+
+    total_in_usd: float
+    total_out_usd: float
+    total_usd: float
+    calls: int
+    approx: bool
+    eur_per_usd: float
+    total_eur: float
 
 
 class SpecialTokenNeutralizedPayload(BaseModel):
@@ -1208,6 +1232,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "model_first_token": ModelFirstTokenPayload,
     "model_delta": ModelDeltaPayload,
     "model_call_ended": ModelCallEndedPayload,
+    "consumption_updated": ConsumptionUpdatedPayload,
     "special_token_neutralized": SpecialTokenNeutralizedPayload,
     "bricks_changed": BricksChangedPayload,
     "conversation_cleared": ConversationClearedPayload,

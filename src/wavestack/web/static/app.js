@@ -69,6 +69,9 @@ const store = {
   // (AD-1); the drawer's unsaved texts, by entry id (UI state only).
   memory: null,
   memoryDrafts: new Map(),
+  // FinOps: the session's API spend, the last `consumption_updated` (or `/api/state`), as the
+  // session computed it (AD-1); `null` before the first paid call.
+  consumption: null,
   downloadError: null, // story 15: the last refusal of « Télécharger » (UI state only)
   ragNotice: null, // story 15: the last failure of the RAG's download or build (`harness_error`)
   rerankNotice: null, // story 16: the last failure of the reranker's download or load
@@ -167,6 +170,10 @@ function disciplineLegend(className, items) {
 const numberFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
 const fmt = (n) => numberFormat.format(n);
 const seconds = (ms) => `${numberFormat.format(Math.max(ms, 0) / 1000)} s`;
+// FinOps: amounts in dollars (or euros), 4 significant digits, French comma; formatting only.
+const moneyFormat = new Intl.NumberFormat("fr-FR", { maximumSignificantDigits: 4 });
+const usd = (n) => `${moneyFormat.format(n)} $`;
+const eur = (n) => `${moneyFormat.format(n)} €`;
 
 // ---------- SSE: manual parsing, because the server names each event after
 // its `kind` and EventSource cannot listen for an unknown kind generically. ----------
@@ -249,6 +256,8 @@ const isLive = (envelope) => envelope.seq > store.liveFrom;
 
 function applyEnvelope(envelope) {
   store.journal.push(envelope);
+  // FinOps: every paid call counts, the « LLM nu » screen's and the diagnostic's included.
+  if (envelope.kind === "consumption_updated" && isLive(envelope)) store.consumption = envelope.payload;
   // Story 29: the « LLM nu » screen's events (context `llm`, no turn) go to the event log
   // only; no pane of the workshop shows them.
   if (envelope.context_id === "llm" && envelope.kind !== "session_state") {
@@ -605,6 +614,8 @@ function applyEnvelope(envelope) {
     case "turn_ended":
       if (turn) {
         turn.status = p.status;
+        // FinOps: the turn's cost as the session summed it, when it cost something.
+        turn.cost = p.cost_in_usd != null ? p : null;
         announce(turn);
       }
       break;
@@ -1008,6 +1019,7 @@ function render() {
   renderMenu();
   renderPaneVisibility();
   renderGauge();
+  renderConsumption();
   renderWindowPicker();
   renderModelIndicator();
   renderChat();
@@ -2231,6 +2243,39 @@ function renderGaugeLegend(breakdown) {
 const approx = (estimated) => (estimated ? "≈ " : "");
 const approxTotal = (p) =>
   approx(p.usage_source !== "api" && (p.segments ?? []).some((s) => s.estimated));
+
+// FinOps: « Coût estimé : entrée … $ · sortie … $ » (a call), « coût estimé entrée … $ ·
+// sortie … $ » (a turn's head), from the cost fields; always said to be an estimate.
+function costText(cost, label = "Coût estimé : ") {
+  const guess = approx(cost.cost_source === "estimate");
+  return `${label}entrée ${guess}${usd(cost.cost_in_usd)} · sortie ${guess}${usd(cost.cost_out_usd)}`;
+}
+
+// FinOps, the top bar's compact amounts: 4 decimals at most (a hundredth of a cent), « < 0,0001 $ »
+// under it; the 4 significant digits stay in the tooltip. Formatting only.
+const shortMoneyFormat = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+const shortUsd = (n) => (n > 0 && n < 0.00005 ? "< 0,0001 $" : `${shortMoneyFormat.format(n)} $`);
+
+// FinOps: the session's API spend in the top bar, from the first paid call: « Dépense estimée »
+// over « entrée $ + sortie $ », the whole sentence (4 significant digits, the euros) in the
+// tooltip and the accessible name (every figure from the session, AD-1).
+function renderConsumption() {
+  const node = document.getElementById("consumption");
+  const c = store.consumption;
+  node.hidden = !c;
+  if (!c) return;
+  const guess = approx(c.approx);
+  setText(document.getElementById("consumption-amounts"), `${guess}${shortUsd(c.total_in_usd)} + ${shortUsd(c.total_out_usd)}`);
+  const sentence =
+    `Dépense API estimée de la séance : entrée ${guess}${usd(c.total_in_usd)}, sortie ${guess}${usd(c.total_out_usd)}, ` +
+    `soit ${guess}${eur(c.total_eur)} au taux de ${moneyFormat.format(c.eur_per_usd)} € pour 1 $ ` +
+    `(${plural(c.calls, "appel")} payant${c.calls > 1 ? "s" : ""}, estimation à partir des prix déclarés). ` +
+    "Seul un relancement de WaveStack remet ce total à zéro.";
+  if (node.title !== sentence) {
+    node.title = sentence;
+    node.setAttribute("aria-label", sentence);
+  }
+}
 
 // The model indicator (EXPERIENCE.md model-indicator): tag, name; tooltip = the cloud warning.
 function renderModelIndicator() {
@@ -4205,6 +4250,8 @@ function callBody(turn, step) {
     counter.textContent = `Entrée : ${context ? approxTotal(context) : ""}${fmt(context?.used ?? 0)} tokens`;
   }
   const nodes = [el("p", "label", `Appel ${step.id ?? turn.id}`), counter];
+  // FinOps: a cloud call with declared prices; never for a local model.
+  if (ended?.cost_in_usd != null) nodes.push(el("div", "token-counter number", costText(ended)));
   if (ended && ended.stop_reason !== "stop") {
     const reasons = { length: "sortie coupée", cancelled: "arrêté", error: "erreur" };
     nodes.push(el("span", "step-badge", reasons[ended.stop_reason]));
@@ -5567,7 +5614,11 @@ function renderSteps() {
     const [statusClass, statusLabel] = TURN_STATUS[turn.status] || ["is-running", "en cours"];
     const calls = turn.steps.filter((s) => s.type === "call" && s.startedAt).length;
     const duration = turnDuration(turn);
-    const figures = [duration === null ? null : seconds(duration), `${plural(calls, "appel")} au modèle`];
+    const figures = [
+      duration === null ? null : seconds(duration),
+      `${plural(calls, "appel")} au modèle`,
+      turn.cost ? costText(turn.cost, "coût estimé ") : null,
+    ];
     headParts(node, [
       ["turn-group-title", `Tour ${i + 1}`],
       [`turn-group-status ${statusClass}`, statusLabel],
@@ -6064,9 +6115,15 @@ function eventSummary(group) {
     case "turn_started":
       return `« ${p.message} »`;
     case "turn_ended":
-      return [TURN_STATUS[p.status]?.[1] ?? p.status, p.duration_ms == null ? null : seconds(p.duration_ms)]
+      return [
+        TURN_STATUS[p.status]?.[1] ?? p.status,
+        p.duration_ms == null ? null : seconds(p.duration_ms),
+        p.cost_in_usd != null ? costText(p, "") : null,
+      ]
         .filter(Boolean)
         .join(" · ");
+    case "consumption_updated":
+      return `entrée ${approx(p.approx)}${usd(p.total_in_usd)} · sortie ${approx(p.approx)}${usd(p.total_out_usd)} · ${plural(p.calls, "appel")}`;
     case "model_call_started":
       return p.sampling ? `${p.phase_label} · ${samplingSummary(p.sampling)}` : p.phase_label;
     case "mcp_connect_started":
@@ -7173,6 +7230,7 @@ async function boot() {
     store.scenarios = body.scenario_changed;
     store.memory = body.memory_changed ?? null;
     store.windowState = body.context_window_state ?? null;
+    store.consumption = body.consumption_updated ?? null; // FinOps: kept across a reload
     const preview = body.context_preview;
     const rendered = body.context_rendered;
     const reconciled = body.context_reconciled;

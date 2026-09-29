@@ -25,7 +25,7 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
-from wavestack.config import CloudModel, estimate_tokens
+from wavestack.config import DEFAULT_EUR_PER_USD, CloudModel, CloudPricing, estimate_tokens
 from wavestack.models.capabilities import ChannelSplitter
 from wavestack.models.engine import CancelToken, EngineSnapshot
 from wavestack.net.factory import create_client
@@ -90,6 +90,8 @@ class ProviderError(Exception):
         self.http_status = http_status
         self.retry_after_s = retry_after_s
         self.quota_scope = quota_scope
+        # FinOps: what the call cost when an output had come before the error (`run_call`).
+        self.cost: CallCost | None = None
 
     def payload(self, effect_fr: str) -> dict[str, Any]:
         """The `harness_error` payload."""
@@ -211,6 +213,81 @@ def pace(entry: CloudModel, cancel: CancelToken) -> bool:
         if _last_start.get(entry.id) == start:
             _last_start[entry.id] = time.monotonic()
     return True
+
+
+# ---------- FinOps: the cost of a call and the session's spend ----------
+
+
+@dataclass(frozen=True)
+class CallCost:
+    """What one cloud call cost, in dollars (an estimate from the declared prices);
+    `source` is `estimate` when its tokens were estimated, not read from `usage`."""
+
+    input_usd: float
+    output_usd: float
+    source: str  # api | estimate
+
+
+def call_cost(
+    pricing: CloudPricing, prompt_tokens: int, output_tokens: int, source: str
+) -> CallCost:
+    """Input: `prompt_tokens` × the input price / 10⁶; output: `output_tokens` (the reasoning
+    tokens included, even those Gemini leaves out of `completion_tokens`) × the output
+    price / 10⁶."""
+    return CallCost(
+        prompt_tokens * pricing.input_usd_per_mtok / 1_000_000,
+        output_tokens * pricing.output_usd_per_mtok / 1_000_000,
+        source,
+    )
+
+
+# The session's spend, every paid call counted (turns, sub-agent, « Tester », « LLM nu »):
+# neither « Vider la conversation » nor « Réinitialiser » resets it, only a relaunch. Never
+# written to disk.
+_spend_lock = threading.Lock()
+_spend: dict[str, Any] = {"in": 0.0, "out": 0.0, "calls": 0, "approx": False}
+
+
+def _spend_payload(eur_per_usd: float) -> dict[str, Any]:
+    total = _spend["in"] + _spend["out"]
+    return {
+        "total_in_usd": _spend["in"],
+        "total_out_usd": _spend["out"],
+        "total_usd": total,
+        "calls": _spend["calls"],
+        "approx": _spend["approx"],
+        "eur_per_usd": eur_per_usd,
+        "total_eur": total * eur_per_usd,
+    }
+
+
+def record_spend(
+    cost: CallCost, eur_per_usd: float, emit: Callable[[dict[str, Any]], Any] | None = None
+) -> dict[str, Any]:
+    """Adds one call's cost to the session's spend; returns the `consumption_updated`
+    payload, read under the same lock. `emit` runs under that lock too: two concurrent paid
+    calls emit their totals in the order they were added."""
+    with _spend_lock:
+        _spend["in"] += cost.input_usd
+        _spend["out"] += cost.output_usd
+        _spend["calls"] += 1
+        _spend["approx"] = _spend["approx"] or cost.source == "estimate"
+        payload = _spend_payload(eur_per_usd)
+        if emit is not None:
+            emit(payload)
+        return payload
+
+
+def session_spend(eur_per_usd: float) -> dict[str, Any] | None:
+    """The session's spend as `consumption_updated` carries it; `None` before a paid call."""
+    with _spend_lock:
+        return _spend_payload(eur_per_usd) if _spend["calls"] else None
+
+
+def reset_spend() -> None:
+    """Tests only: a relaunch is the one reset of the session's spend."""
+    with _spend_lock:
+        _spend.update({"in": 0.0, "out": 0.0, "calls": 0, "approx": False})
 
 
 class OpenAIChatEngine:
@@ -595,6 +672,7 @@ class ChatCall:
     usage: dict[str, Any] | None = None
     output_tokens: int = 0
     output_tps: int | None = None
+    cost: CallCost | None = None  # FinOps: set when the entry declares its prices
 
 
 def _reinjected(text: str, calls: list[dict[str, Any]]) -> str:
@@ -647,11 +725,14 @@ def run_call(
     chars_per_token: float,
     call_id: Callable[[int], str],
     sampling_trace: dict[str, Any] | None = None,
+    eur_per_usd: float = DEFAULT_EUR_PER_USD,
 ) -> ChatCall:
     """One streamed call under the caller's scope: `model_call_started`, `model_first_token`,
     `model_delta` (grouped), `model_call_ended`. Raises `ProviderError` after ending the call
     with `stop_reason: error`. `call_id(index)` gives a valid call's session id (AD-4).
-    `sampling_trace` (story 29): `model_call_started.sampling`."""
+    `sampling_trace` (story 29): `model_call_started.sampling`. FinOps: an entry with
+    `pricing` gets the call's cost in `model_call_ended`, added to the session's spend, then
+    `consumption_updated` (the total converted at `eur_per_usd`)."""
     entry = getattr(engine, "entry", None)
     # AD-16: the spacing wait, before the call starts, so neither `prompt_ms` nor
     # `duration_ms` counts it; cancelled while waiting, nothing is sent.
@@ -698,24 +779,36 @@ def run_call(
         out.output_tokens = output_tokens(usage) or estimate_tokens(text_all, chars_per_token)
         gen_ms = round((last - first) * 1000)
         out.output_tps = output_tps(out.output_tokens, gen_ms)
-        journal.emit(
-            "model_call_ended",
-            {
-                "raw_output": raw_output,
-                "reasoning": out.reasoning,
-                "text": out.text,
-                "tool_calls": [traced(c) for c in out.calls],
-                "prompt_tokens": int(usage.get("prompt_tokens") or estimated_prompt),
-                "output_tokens": out.output_tokens,
-                "prompt_ms": round((first - started) * 1000),
-                "gen_ms": gen_ms,
-                "stop_reason": stop_reason,
-                "duration_ms": round((now - started) * 1000),
-                "output_tps": out.output_tps,
-                "usage_source": "api" if out.usage else "estimate",
-            },
-            actor="model",
-        )
+        prompt_tokens = int(usage.get("prompt_tokens") or estimated_prompt)
+        source = "api" if out.usage else "estimate"
+        payload: dict[str, Any] = {
+            "raw_output": raw_output,
+            "reasoning": out.reasoning,
+            "text": out.text,
+            "tool_calls": [traced(c) for c in out.calls],
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": out.output_tokens,
+            "prompt_ms": round((first - started) * 1000),
+            "gen_ms": gen_ms,
+            "stop_reason": stop_reason,
+            "duration_ms": round((now - started) * 1000),
+            "output_tps": out.output_tps,
+            "usage_source": source,
+        }
+        pricing = entry.pricing if isinstance(entry, CloudModel) else None
+        # FinOps: a call refused before any output (an HTTP error, the network) is not billed.
+        if pricing is not None and (stop_reason != "error" or first_at is not None):
+            out.cost = call_cost(pricing, prompt_tokens, out.output_tokens, source)
+            payload |= {
+                "cost_in_usd": out.cost.input_usd,
+                "cost_out_usd": out.cost.output_usd,
+                "cost_source": source,
+            }
+        journal.emit("model_call_ended", payload, actor="model")
+        if out.cost is not None:
+            record_spend(
+                out.cost, eur_per_usd, lambda spend: journal.emit("consumption_updated", spend)
+            )
 
     try:
         for item in engine.complete(body, cancel):
@@ -734,10 +827,12 @@ def run_call(
             if now - last_flush >= DELTA_INTERVAL_S:
                 flush()
         flush()
-    except Exception:  # a provider's refusal or anything else: the call still ends
+    except Exception as exc:  # a provider's refusal or anything else: the call still ends
         flush()
         out.text, out.reasoning = "".join(channels["text"]), "".join(channels["reasoning"])
         ended("error", "")
+        if isinstance(exc, ProviderError):
+            exc.cost = out.cost
         raise
     assert end is not None
     out.text, out.reasoning = "".join(channels["text"]), "".join(channels["reasoning"])

@@ -5244,7 +5244,17 @@ def _models_row(r: Run, value: str) -> dict[str, str]:
     row = r.page.locator(f'#models-table tr[data-value="{value}"]')
     expect(row).to_have_count(1, timeout=10_000)
     cells = row.locator("td").all_inner_texts()
-    keys = ("model", "publisher", "size", "hosting", "window", "tools", "reasoning", "state")
+    keys = (
+        "model",
+        "publisher",
+        "size",
+        "hosting",
+        "window",
+        "tools",
+        "reasoning",
+        "price",
+        "state",
+    )
     row_texts: dict[str, str] = {}
     for key, cell in zip(keys, cells, strict=False):
         word, _, why = cell.replace("\u202f", " ").replace("\xa0", " ").partition("\n")
@@ -5350,8 +5360,10 @@ def s_model_catalog(r: Run) -> None:
         llama.get("publisher") == "Qwen (Alibaba)"
         and llama.get("tools", "").startswith("oui")
         and llama.get("reasoning") == "activable"
-        and llama.get("window") == "4 096 tokens",
-        "tableau : faux llama-server Qwen, outils oui, raisonnement activable, 4 096 tokens",
+        and llama.get("window") == "4 096 tokens"
+        and llama.get("price") == "—",
+        "tableau : faux llama-server Qwen, outils oui, raisonnement activable, 4 096 tokens, "
+        "prix « — »",
         str(llama),
     )
     reasoning_r = _models_row(r, f"cloud:{REASONING_ENTRY_ID}")
@@ -5363,9 +5375,11 @@ def s_model_catalog(r: Run) -> None:
         and gemini.get("publisher") == "Gemini (Google)"
         and gemini.get("reasoning") == "activable"
         and gemini.get("state") == "indisponible"
-        and "clé API" in gemini.get("state_why", ""),
+        and "clé API" in gemini.get("state_why", "")
+        and gemini.get("price") == "0,30 $ / 2,50 $"
+        and "par million de tokens" in gemini.get("price_why", ""),
         "tableau : préréglage Gemini, éditeur « Gemini (Google) », raisonnement « activable », "
-        "indisponible sans clé, avec la raison",
+        "indisponible sans clé, avec la raison, prix « 0,30 $ / 2,50 $ » par million de tokens",
         str(gemini),
     )
     fake_a = _models_row(r, f"cloud:{MODEL_ENTRY_ID}")
@@ -5823,6 +5837,66 @@ def _signature_replayed(r: Run, bodies: list[dict], calls: list[dict], what: str
     )
 
 
+def _gemini_costs(r: Run, calls: list[dict]) -> None:
+    """FinOps: each call's cost (the fake gives `usage`), its line in the call's body, the
+    turn's total in its head, the session's in the top bar, the same after a reload."""
+    page = r.page
+    r.check(
+        len(calls) == 2
+        and all(c.get("cost_in_usd") and c.get("cost_out_usd") for c in calls)
+        and all(c.get("cost_source") == "api" for c in calls),
+        "FinOps : coût d'entrée et de sortie sur chaque appel, tiré de usage",
+        str([(c.get("cost_in_usd"), c.get("cost_out_usd"), c.get("cost_source")) for c in calls]),
+    )
+    _unfold_step(r, "Appelle le modèle")
+    counters = (
+        _step(r, "Appelle le modèle").locator(".turn-step-body .token-counter").all_inner_texts()
+    )
+    cost = next((t for t in counters if t.startswith("Coût estimé : ")), "")
+    r.check(
+        cost.startswith("Coût estimé : entrée ") and " $ · sortie " in cost and "≈" not in cost,
+        "FinOps : « Coût estimé : entrée … $ · sortie … $ » dans le corps de l'appel",
+        cost or str(counters),
+    )
+    head = page.locator("#orch-scroll .turn-group .turn-group-figures").last.inner_text()
+    r.check(
+        "coût estimé entrée " in head and " $ · sortie " in head,
+        "FinOps : le total du tour dans son en-tête",
+        head,
+    )
+    spend = r.state().get("consumption_updated") or {}
+    top = page.locator("#consumption")
+    expect(top).to_be_visible(timeout=5000)
+    text = top.inner_text()
+    label, _, amounts = text.partition("\n")
+    title = top.get_attribute("title") or ""
+    r.check(
+        label == "Dépense estimée"
+        and amounts.count(" $") == 2
+        and " + " in amounts
+        and spend.get("calls", 0) >= 2
+        and title.startswith("Dépense API estimée de la séance : entrée ")
+        and ", sortie " in title
+        and " € au taux de " in title
+        and top.get_attribute("aria-label") == title,
+        "FinOps : « Dépense estimée » dans la barre haute, entrée + sortie, la phrase entière "
+        "(euros compris) en infobulle et en nom accessible",
+        f"{text!r} · {title} · {spend}",
+    )
+    ok, detail = _bar_fits(r)
+    r.check(
+        ok, "FinOps : barre haute entière, sur une ligne, avec la dépense (1600 × 1000)", detail
+    )
+    r.reload_app()
+    again = page.locator("#consumption")
+    expect(again).to_be_visible(timeout=5000)
+    r.check(
+        again.inner_text() == text,
+        "FinOps : après un rechargement, le même total dans la barre haute",
+        again.inner_text(),
+    )
+
+
 def s_gemini_shape(r: Run) -> None:
     """The fake Gemini (`fake_g`, the reasoning and `tool_call_extra` of the real preset): a
     tool turn with the reasoning off (`reasoning_effort: minimal`, 512), then on
@@ -5856,6 +5930,7 @@ def s_gemini_shape(r: Run) -> None:
         r.check(
             all(not c.get("reasoning") for c in calls), "raisonnement éteint : aucune réflexion"
         )
+        _gemini_costs(r, calls)
 
         r.set_brick("Raisonnement", True)
         r.check(toggle.is_checked(), "carte Raisonnement allumée sur le faux Gemini")
