@@ -7,6 +7,7 @@ The index is built with the real code of `rag/` and `FakeEmbedder`; the reranker
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from pathlib import Path
@@ -349,12 +350,162 @@ def test_bounds_and_refusals_name_the_stage(index, kind, change, said):
     assert not [e for e in get_journal().events_since(mark) if e.kind.startswith("rag_lab")]
 
 
-def test_the_chain_keeps_its_stages_in_this_increment(index):
+def add(pipeline: rag_lab.Pipeline, kind: str, option: str, **params: int) -> rag_lab.Stage:
+    """A stage of the retrieval, inserted before the context (as the page does)."""
+    new = rag_lab.Stage(id=f"x{len(pipeline.stages)}", kind=kind, option=option, params=params)
+    at = next(i for i, s in enumerate(pipeline.stages) if s.kind == "context")
+    pipeline.stages.insert(at, new)
+    return new
+
+
+def remove(pipeline: rag_lab.Pipeline, kind: str) -> None:
+    pipeline.stages = [s for s in pipeline.stages if s.kind != kind]
+
+
+def move(pipeline: rag_lab.Pipeline, kind: str, before: str) -> None:
+    moved = stage(pipeline, kind)
+    pipeline.stages.remove(moved)
+    at = next(i for i, s in enumerate(pipeline.stages) if s.kind == before)
+    pipeline.stages.insert(at, moved)
+
+
+def refusal(session: AppSession, pipeline: rag_lab.Pipeline) -> tuple[str, str | None]:
+    catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
+    found = rag_lab.check_pipeline(pipeline, catalog)
+    assert found is not None
+    return found
+
+
+def test_rules_of_the_chain_each_refusal_names_the_stage(index):
     session, _ = ready(index)
-    catalog, _, b = chains(session)
-    b.stages.pop(4)  # no reranking
-    assert "garder ses étapes" in rag_lab.validate_pipeline(b, catalog)
-    assert rag_lab.validate_pipeline(catalog.default, catalog) is None
+    _, _, b = chains(session)
+
+    fixed = b.model_copy(deep=True)
+    remove(fixed, "embedding")
+    reason, stage_id = refusal(session, fixed)
+    assert "« Embedding »" in reason and "fixe" in reason
+
+    fixed = b.model_copy(deep=True)
+    move(fixed, "context", "rerank")  # the context among the retrieval
+    reason, stage_id = refusal(session, fixed)
+    assert "« Construction du contexte »" in reason and stage_id == stage(fixed, "context").id
+
+    none = b.model_copy(deep=True)
+    remove(none, "vector_search")
+    remove(none, "rerank")
+    reason, stage_id = refusal(session, none)
+    assert "aucune recherche" in reason and stage_id == stage(none, "context").id
+
+    two = b.model_copy(deep=True)
+    remove(two, "rerank")
+    bm25 = add(two, "lexical_search", "bm25", candidates=8)
+    reason, stage_id = refusal(session, two)
+    assert reason.startswith("Deux recherches demandent une fusion après elles")
+    assert "« Recherche lexicale BM25 »" in reason and stage_id == bm25.id
+
+    fused = two.model_copy(deep=True)
+    fusion = add(fused, "fusion", "rrf")
+    assert (
+        rag_lab.check_pipeline(fused, session._rag_lab_catalog(rag_lab.load_lab_content())) is None
+    )
+    move(fused, "fusion", "lexical_search")  # before the second search
+    reason, stage_id = refusal(session, fused)
+    assert "« Fusion »" in reason and "après les deux recherches" in reason
+    assert stage_id == fusion.id
+
+    alone = b.model_copy(deep=True)
+    add(alone, "fusion", "rrf")
+    reason, stage_id = refusal(session, alone)
+    assert "« Fusion »" in reason and "deux recherches avant elle" in reason
+
+    early = b.model_copy(deep=True)
+    move(early, "rerank", "vector_search")
+    reason, stage_id = refusal(session, early)
+    assert "« Reranking »" in reason and stage_id == stage(early, "rerank").id
+
+    twice = b.model_copy(deep=True)
+    twice.stages.insert(4, rag_lab.Stage(id="dup", kind="vector_search", option="cosine"))
+    reason, stage_id = refusal(session, twice)
+    assert "« Recherche »" in reason and "qu'une fois" in reason and stage_id == "dup"
+
+    few = two.model_copy(deep=True)
+    add(few, "fusion", "rrf")
+    stage(few, "lexical_search").params["candidates"] = 2
+    reason, stage_id = refusal(session, few)
+    assert "« Recherche lexicale BM25 »" in reason and "moins que les 3 extraits" in reason
+
+    mark = get_journal().last_seq()
+    with pytest.raises(SendRefused) as refused:
+        session.run_rag_lab(QUESTION, [fused])
+    assert "« Fusion »" in refused.value.reason_fr
+    assert not [e for e in get_journal().events_since(mark) if e.kind.startswith("rag_lab")]
+
+
+def test_bm25_ranks_a_hand_written_corpus():
+    docs = ["Le chat mange.", "Le chien aboie fort.", "Chat, chat noir !", "Un chat noir dort."]
+    scores = rag_lab.bm25("le chat noir", docs)
+    assert rag_lab.bm25_terms("Le chat NOIR, un œil") == ["chat", "noir", "œil"]  # 3 letters+
+    assert scores[1] == 0  # no word shared (« le » is too short)
+    ranked = sorted(range(4), key=lambda i: -scores[i])
+    assert ranked[:3] == [2, 3, 0]  # « chat » twice and « noir », then the shorter one
+    n, mean = 4, (2 + 3 + 3 + 3) / 4  # words of 3 letters or more: « un » is not one
+    idf_chat = math.log(1 + (n - 3 + 0.5) / (3 + 0.5))
+    tf_norm = 1 + 1.5 * (1 - 0.75 + 0.75 * 2 / mean)
+    assert scores[0] == pytest.approx(idf_chat * 2.5 / tf_norm)
+
+
+def test_rrf_fuses_reciprocal_ranks():
+    fused = rag_lab.rrf([[1, 2, 3], [3, 1, 4]])
+    assert [i for i, _ in fused] == [1, 3, 2, 4]
+    assert fused[0][1] == pytest.approx(1 / 61 + 1 / 62)
+    assert fused[1][1] == pytest.approx(1 / 63 + 1 / 61)
+    assert fused[3][1] == pytest.approx(1 / 63)
+
+
+def test_a_hybrid_chain_runs_bm25_the_fusion_then_the_reranking(index):
+    session, _ = ready(index)
+    _, a, b = chains(session)
+    hybrid = a.model_copy(deep=True)
+    remove(hybrid, "rerank")
+    add(hybrid, "lexical_search", "bm25", candidates=8)
+    add(hybrid, "fusion", "rrf")
+    add(hybrid, "rerank", "declared")  # the reranking after the fusion
+    events = run(session, QUESTION, [hybrid])
+    assert run_status(events) == "ok"
+    vector = ended(events, "vector_search")["items"]
+    lexical = ended(events, "lexical_search")
+    assert lexical["status"] == "ok" and 0 < len(lexical["items"]) <= 8
+    assert all(i["score"] > 0 for i in lexical["items"])
+    fusion = ended(events, "fusion")
+    ids = {i["chunk_id"] for i in vector} | {i["chunk_id"] for i in lexical["items"]}
+    assert {i["chunk_id"] for i in fusion["items"]} == ids
+    ranks = {
+        kind: {i["chunk_id"]: i["rank"] for i in items}
+        for kind, items in (("vector_search", vector), ("lexical_search", lexical["items"]))
+    }
+    for item in fusion["items"]:
+        sources = {src["kind"]: src["rank"] for src in item["sources"]}
+        assert sources == {kind: ranks[kind].get(item["chunk_id"]) for kind in ranks}
+        expected = sum(1 / (60 + r) for r in sources.values() if r is not None)
+        assert item["score"] == pytest.approx(expected, abs=1e-4)
+    rerank = ended(events, "rerank")
+    assert sorted(i["before"] for i in rerank["items"]) == list(range(1, len(fusion["items"]) + 1))
+    assert rerank["items"][0]["sources"][0]["kind"] == "vector_search"  # the fusion's sources
+    context = ended(events, "context")
+    assert [i["chunk_id"] for i in context["items"]] == [i["chunk_id"] for i in rerank["items"][:3]]
+
+
+def test_bm25_alone_is_a_chain(index):
+    session, _ = ready(index)
+    _, a, _ = chains(session)
+    lexical = a.model_copy(deep=True)
+    remove(lexical, "vector_search")
+    remove(lexical, "rerank")
+    add(lexical, "lexical_search", "bm25", candidates=5)
+    events = run(session, "Combien de jours de télétravail ?", [lexical])
+    assert run_status(events) == "ok"
+    items = ended(events, "context")["items"]
+    assert len(items) == 3 and items[0]["doc_id"] == "teletravail"
 
 
 def test_the_memory_search_ranks_as_sqlite_vec(index):
@@ -517,7 +668,10 @@ def test_state_catalog_default_chain_and_last_run(index):
     state = session.rag_lab_state()
     assert state["content"]["title_fr"] and state["content_error_fr"] is None
     stages = state["catalog"]["stages"]
-    assert [s["kind"] for s in stages] == [*KINDS, "generation"]
+    assert [s["kind"] for s in stages] == list(rag_lab.KINDS)
+    assert state["catalog"]["insert_before"] == "context"
+    movable = {s["kind"] for s in stages if s["movable"]}
+    assert movable == {"vector_search", "lexical_search", "fusion", "rerank"}
     options = {s["kind"]: s["options"][0] for s in stages}
     assert options["embedding"]["label_fr"] == "Faux embedding"
     assert options["rerank"]["label_fr"] == "Faux reranker"
@@ -648,3 +802,30 @@ def test_an_embedder_for_the_workshop_is_the_brick_factorys(index):
     run(session)
     assert embedders.made[0].queries == [QUESTION]
     assert COVERED  # the brick's own question stays untouched
+
+
+def test_web_validate_is_read_only_and_names_the_stage(index):
+    session, _ = ready(index)
+    client = _client(session)
+    body = client.get("/api/rag_lab").json()
+    shipped = body["default_pipeline"]
+    ok = client.post("/api/rag_lab/validate", json={"pipelines": [shipped]}, headers=HEADERS)
+    assert ok.status_code == 200 and ok.json() == {"valid": True, "refusals": []}
+    chain = {"label_fr": "B", "stages": [dict(s) for s in shipped["stages"]]}
+    chain["stages"][4] = {"id": "s9", "kind": "fusion", "option": "rrf", "params": {}}
+    mark = get_journal().last_seq()
+    answer = client.post(
+        "/api/rag_lab/validate", json={"pipelines": [shipped, chain]}, headers=HEADERS
+    ).json()
+    assert not answer["valid"]
+    assert answer["refusals"] == [
+        {"lane": "b", "stage_id": "s9", "reason_fr": answer["refusals"][0]["reason_fr"]}
+    ]
+    assert "« Fusion »" in answer["refusals"][0]["reason_fr"]
+    assert get_journal().last_seq() == mark  # nothing emitted
+    refused = client.post(
+        "/api/intentions/rag_lab_run",
+        json={"question": QUESTION, "pipelines": [shipped, chain]},
+        headers=HEADERS,
+    )
+    assert refused.status_code == 409 and refused.json()["detail"].startswith("Chaîne B : ")

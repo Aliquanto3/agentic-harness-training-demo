@@ -475,7 +475,15 @@ Vérifications ajoutées aux scénarios existants :
   (l'environnement du parcours le garde une fois `uv sync --extra compression --extra rag-alt`
   fait), A = sqlite-vec et B = FAISS rendent les mêmes extraits aux mêmes rangs, la Base
   vectorielle de B dit « construit (29 vecteurs) », puis « relu », et la mémoire ajoutée au
-  premier import. Retour à `/` en fin de scénario, thème « Système ».
+  premier import. (8) Incrément 4 : le Reranking retiré, « Recherche lexicale BM25 » ajoutée
+  sans fusion : la carte BM25 dit « Deux recherches demandent une fusion après elles » et
+  « Lancer » est désactivé ; le Reranking rajouté puis la Fusion, puis le Reranking déplacé
+  après la Fusion par « Déplacer après » au clavier : chaîne valide ; le run montre, pour la
+  Fusion, le rang de chaque extrait dans les deux recherches et son score RRF ; capture
+  `58-atelier-rag-hybride.jpg` ; la Fusion déplacée avant BM25 : la raison nomme la Fusion, et
+  le 409 est renvoyé si l'on poste quand même. Depuis l'incrément 4, 1 candidat pour 2 extraits
+  est refusé sur la carte dès la saisie (« Lancer » grisé), et le 409 donne la même raison.
+  Retour à `/` en fin de scénario, thème « Système ».
 
 ## Déclencheurs du faux modèle
 

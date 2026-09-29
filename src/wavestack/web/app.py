@@ -190,6 +190,12 @@ class RagLabRunIntention(BaseModel):
         return value
 
 
+class RagLabValidateRequest(BaseModel):
+    """Story 30, increment 4: the chains the page is editing, checked without running them."""
+
+    pipelines: list[Pipeline] = Field(min_length=1, max_length=LANES_MAX)
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -326,6 +332,12 @@ def create_app(
         """Story 30 (AD-1): the catalog, the shipped chain, the texts, the last run read in the
         journal, the session's state and the journal's tip; the page then streams from `seq`."""
         return app_session.rag_lab_state()
+
+    @app.post("/api/rag_lab/validate")
+    def rag_lab_validate(request: RagLabValidateRequest) -> dict[str, object]:
+        """Story 30, increment 4, read only: why each chain would be refused, and the stage at
+        fault; nothing runs, nothing is emitted."""
+        return app_session.validate_rag_lab(request.pipelines)
 
     @app.post("/api/intentions/rag_lab_run")
     def rag_lab_run(intention: RagLabRunIntention) -> dict[str, str]:

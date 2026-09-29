@@ -349,6 +349,15 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   d'une synthèse : extraits communs, propres à A ou à B, écarts de rang (par document quand les
   deux chaînes découpent le corpus autrement). Les chaînes en cours d'édition sont gardées par le
   navigateur ; « Revenir à la chaîne livrée » les oublie.
+- **Ajouter, retirer, déplacer.** Entre la base vectorielle et le contexte, les recherches, la
+  fusion et le reranking se déplacent par leurs boutons « ◀ » et « ▶ » (au clavier aussi) et se
+  retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le contexte : la
+  **recherche lexicale BM25** (par mots, sans embedding, k1 = 1,5 et b = 0,75) et la **fusion**
+  des rangs réciproques (k = 60), qui combine deux recherches en une recherche hybride. Les
+  autres étapes sont fixes. WaveStack vérifie la chaîne à chaque modification : une chaîne
+  invalide (deux recherches sans fusion après elles, une fusion sans deux recherches avant elle,
+  un reranking avant toute recherche…) affiche sa raison sur la carte fautive, et « Lancer » est
+  désactivé.
 - **Le dossier `rag_lab`.** Hors de la chaîne livrée, les vecteurs du corpus sont calculés une
   fois par modèle et par taille d'extrait, puis relus (« relus du cache »), et les index sqlite-vec
   de l'atelier sont construits à côté, dans `rag_lab/` du dossier de données (moins de 1 Mo par

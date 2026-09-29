@@ -13,7 +13,9 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import math
 import os
+import re
 import shutil
 import sys
 import time
@@ -41,16 +43,29 @@ KINDS = (
     "embedding",
     "vector_store",
     "vector_search",
+    "lexical_search",
+    "fusion",
     "rerank",
     "context",
     "generation",
 )
+# Increment 4: the retrieval segment, between the vector store and the context, in any order
+# (the chain's other stages are fixed); a stage of it is added before the context.
+RETRIEVAL = ("vector_search", "lexical_search", "fusion", "rerank")
+SEARCHES = ("vector_search", "lexical_search")
+FIXED_HEAD = ("chunking", "embedding", "vector_store")
+FIXED_TAIL = ("context", "generation")
+BM25_K1, BM25_B = 1.5, 0.75
+RRF_K = 60
+_WORD = re.compile(r"\w+")
 # Each kind's options, the shipped one first.
 OPTIONS: dict[str, tuple[str, ...]] = {
     "chunking": ("paragraphs",),
     "embedding": ("declared", "fastembed"),
     "vector_store": ("sqlite_vec", "memory", "faiss", "lancedb"),
     "vector_search": ("cosine",),
+    "lexical_search": ("bm25",),
+    "fusion": ("rrf",),
     "rerank": ("declared",),
     "context": ("excerpts",),
     "generation": ("not_run",),
@@ -59,6 +74,7 @@ OPTIONS: dict[str, tuple[str, ...]] = {
 PARAMS: dict[tuple[str, str], tuple[str, ...]] = {
     ("chunking", "paragraphs"): ("chunk_max_chars",),
     ("vector_search", "cosine"): ("candidates",),
+    ("lexical_search", "bm25"): ("candidates",),
     ("context", "excerpts"): ("top_k",),
 }
 BOUNDS: dict[str, tuple[int, int]] = {
@@ -140,6 +156,11 @@ class RagLabContent(_Strict):
     memory_fr: str = Field(min_length=1)
     last_run_fr: str = Field(min_length=1)
     compare_fr: str = Field(min_length=1)
+    add_fr: str = Field(min_length=1)
+    add_button_fr: str = Field(min_length=1)
+    move_before_fr: str = Field(min_length=1)
+    move_after_fr: str = Field(min_length=1)
+    remove_fr: str = Field(min_length=1)
     reset_chain_fr: str = Field(min_length=1)
     chain_a_fr: str = Field(min_length=1)
     chain_b_fr: str = Field(min_length=1)
@@ -267,7 +288,6 @@ class Catalog:
                 params = []
                 for name in PARAMS.get((kind, option), ()):
                     low, high = self.bounds(name)
-                    shipped = self.default.find(kind)
                     params.append(
                         {
                             "name": name,
@@ -275,7 +295,7 @@ class Catalog:
                             "unit_fr": self.content.params[name].unit_fr,
                             "min": low,
                             "max": high,
-                            "default": shipped.params.get(name) if shipped else low,
+                            "default": param(Stage(id="x", kind=kind, option=option), name, self),
                         }
                     )
                 options.append(
@@ -293,10 +313,11 @@ class Catalog:
                     "kind": kind,
                     "label_fr": text.label_fr,
                     "explain_fr": text.explain_fr,
+                    "movable": kind in RETRIEVAL,
                     "options": options,
                 }
             )
-        return {"stages": stages}
+        return {"stages": stages, "insert_before": FIXED_TAIL[0]}
 
     def option_label(self, kind: str, option: str) -> str:
         state = self.options.get((kind, option))
@@ -308,56 +329,133 @@ def _bounds_fr(name: str, low: int, high: int, catalog: Catalog) -> str:
     return f"{text.label_fr.lower()} entre {fr_int(low)} et {fr_int(high)} {text.unit_fr}".strip()
 
 
-def validate_pipeline(pipeline: Pipeline, catalog: Catalog) -> str | None:
-    """Why the workshop refuses this chain (French, naming the stage at fault), or `None`.
-    The shipped chain's stages, in its order; each with an option the catalog offers and can
-    run now, its settings within their bounds, never fewer candidates than excerpts kept."""
-    shipped = catalog.default
-    kinds = [s.kind for s in pipeline.stages]
-    if kinds != [s.kind for s in shipped.stages]:
-        names = ", ".join(catalog.content.stages[s.kind].label_fr.lower() for s in shipped.stages)
-        return f"La chaîne doit garder ses étapes, dans cet ordre : {names}."
-    ids = [s.id for s in pipeline.stages]
+def check_pipeline(pipeline: Pipeline, catalog: Catalog) -> tuple[str, str | None] | None:
+    """Why the workshop refuses this chain, in French, and the id of the stage at fault
+    (`None` when no stage is), or `None` when it runs. The chunking, the embedding and the
+    vector store open it, the context and the generation close it, in that order; between
+    them, the searches, the fusion and the reranking in any order, each once, at least one
+    search; two searches need a fusion after them, a fusion two searches before it, a
+    reranking a search before it. Then each stage's option and settings."""
+    names = {k: catalog.content.stages[k].label_fr for k in catalog.content.stages}
+    stages = pipeline.stages
+    ids = [s.id for s in stages]
     if len(set(ids)) != len(ids):
-        return "Deux étapes de la chaîne portent le même identifiant."
-    for stage in pipeline.stages:
-        label = catalog.content.stages[stage.kind].label_fr
+        return "Deux étapes de la chaîne portent le même identifiant.", None
+    for stage in stages:
+        if stage.kind not in OPTIONS:
+            return f"Étape inconnue : « {stage.kind} ».", stage.id
+    seen: set[str] = set()
+    for stage in stages:
+        if stage.kind in seen:
+            return f"Étape « {names[stage.kind]} » : elle n'apparaît qu'une fois.", stage.id
+        seen.add(stage.kind)
+    kinds = [s.kind for s in stages]
+    head, tail = list(FIXED_HEAD), list(FIXED_TAIL)
+    order = " → ".join(names[k].lower() for k in (*FIXED_HEAD, "…", *FIXED_TAIL) if k in names)
+    order = order.replace(" → … → ", " → (recherches, fusion, reranking) → ")
+    for kind in (*head, *tail):
+        if kind not in kinds:
+            return (
+                f"Étape « {names[kind]} » : elle est fixe et ne se retire pas ({order}).",
+                None,
+            )
+    if kinds[: len(head)] != head or kinds[-len(tail) :] != tail:
+        wrong = next(
+            s
+            for i, s in enumerate(stages)
+            if (s.kind in head and i != head.index(s.kind))
+            or (s.kind in tail and i != len(stages) - len(tail) + tail.index(s.kind))
+        )
+        return (
+            f"Étape « {names[wrong.kind]} » : elle est fixe, à sa place dans la chaîne ({order}).",
+            wrong.id,
+        )
+    segment = stages[len(head) : -len(tail)]
+    searches = [s for s in segment if s.kind in SEARCHES]
+    if not searches:
+        context = stages[-len(tail)]
+        return (
+            f"Étape « {names['context']} » : aucune recherche ne lui apporte d'extraits. "
+            "Ajoutez une recherche vectorielle ou lexicale.",
+            context.id,
+        )
+    position = {s.id: i for i, s in enumerate(segment)}
+    fusion = next((s for s in segment if s.kind == "fusion"), None)
+    if len(searches) == 2:
+        second = searches[1]
+        if fusion is None:
+            return (
+                f"Deux recherches demandent une fusion après elles (étape « "
+                f"{names[second.kind]} ») : ajoutez la fusion, ou retirez une recherche.",
+                second.id,
+            )
+        if position[fusion.id] < position[second.id]:
+            return (
+                f"Étape « {names['fusion']} » : elle doit venir après les deux recherches, "
+                "qu'elle fusionne. Déplacez-la après elles.",
+                fusion.id,
+            )
+    elif fusion is not None:
+        return (
+            f"Étape « {names['fusion']} » : la fusion demande deux recherches avant elle. "
+            "Ajoutez une seconde recherche, ou retirez la fusion.",
+            fusion.id,
+        )
+    rerank = next((s for s in segment if s.kind == "rerank"), None)
+    if rerank is not None and position[rerank.id] < position[searches[0].id]:
+        return (
+            f"Étape « {names['rerank']} » : le reranking réordonne les candidats d'une "
+            "recherche, il doit venir après une recherche.",
+            rerank.id,
+        )
+    for stage in stages:
+        label = names[stage.kind]
         state = catalog.options.get((stage.kind, stage.option))
         if state is None:
-            return f"Étape « {label} » : l'option « {stage.option} » n'existe pas."
+            return f"Étape « {label} » : l'option « {stage.option} » n'existe pas.", stage.id
         if not state.available:
-            return f"Étape « {label} » : {state.label_fr} n'est pas utilisable. {state.reason_fr}"
+            return (
+                f"Étape « {label} » : {state.label_fr} n'est pas utilisable. {state.reason_fr}",
+                stage.id,
+            )
         allowed = PARAMS.get((stage.kind, stage.option), ())
         unknown = set(stage.params) - set(allowed)
         if unknown:
-            return f"Étape « {label} » : réglage inconnu ({', '.join(sorted(unknown))})."
+            return f"Étape « {label} » : réglage inconnu ({', '.join(sorted(unknown))}).", stage.id
         for name in allowed:
             if name not in stage.params:
                 continue
             low, high = catalog.bounds(name)
             if not low <= stage.params[name] <= high:
-                return f"Étape « {label} » : {_bounds_fr(name, low, high, catalog)}."
+                return f"Étape « {label} » : {_bounds_fr(name, low, high, catalog)}.", stage.id
     context = pipeline.find("context")
     top_k = param(context, "top_k", catalog) if context else 0
-    for stage in pipeline.stages:
-        if "candidates" in PARAMS.get((stage.kind, stage.option), ()):
-            candidates = param(stage, "candidates", catalog)
-            if candidates < top_k:
-                label = catalog.content.stages[stage.kind].label_fr
-                kept = "candidat retenu" if candidates == 1 else "candidats retenus"
-                return (
-                    f"Étape « {label} » : {fr_int(candidates)} {kept}, moins que les "
-                    f"{fr_int(top_k)} extraits que le contexte doit garder. Retenez au moins "
-                    f"{fr_int(top_k)} candidats, ou gardez moins d'extraits."
-                )
+    for stage in searches:
+        candidates = param(stage, "candidates", catalog)
+        if candidates < top_k:
+            kept = "candidat retenu" if candidates == 1 else "candidats retenus"
+            return (
+                f"Étape « {names[stage.kind]} » : {fr_int(candidates)} {kept}, moins que les "
+                f"{fr_int(top_k)} extraits que le contexte doit garder. Retenez au moins "
+                f"{fr_int(top_k)} candidats, ou gardez moins d'extraits.",
+                stage.id,
+            )
     return None
+
+
+def validate_pipeline(pipeline: Pipeline, catalog: Catalog) -> str | None:
+    """Why the workshop refuses this chain (French, naming the stage at fault), or `None`."""
+    refusal = check_pipeline(pipeline, catalog)
+    return refusal[0] if refusal else None
 
 
 def param(stage: Stage, name: str, catalog: Catalog) -> int:
     """A setting of a stage: its value, else the shipped chain's."""
     if name in stage.params:
         return int(stage.params[name])
-    shipped = catalog.default.find(stage.kind)
+    shipped = catalog.default.find(stage.kind) or catalog.default.find(
+        "vector_search" if name == "candidates" else stage.kind
+    )
     if shipped is not None and name in shipped.params:
         return int(shipped.params[name])
     return BOUNDS[name][0]
@@ -846,10 +944,16 @@ class _Lane:
     vectors: list[list[float]] | None = None  # the passages', when the store needs them
     key: str = ""  # the cache's folder of this corpus and model
     store: Any = None  # `MemoryStore`, `_SqliteStore`…
-    ranked: list[Item] | None = None  # the current ranked list
+    lists: list[list[Item]] = field(default_factory=list)  # each search's, until fused
+    list_kinds: list[str] = field(default_factory=list)  # the stage that made each list
     context: list[Item] = field(default_factory=list)
     context_text: str = ""
     status: str = "ok"
+
+    @property
+    def ranked(self) -> list[Item] | None:
+        """The list the next stage works on: the last one made."""
+        return self.lists[-1] if self.lists else None
 
 
 class LabRun:
@@ -1061,6 +1165,10 @@ class LabRun:
             return self._vector_store(lane, stage)
         if stage.kind == "vector_search":
             return self._vector_search(lane, stage)
+        if stage.kind == "lexical_search":
+            return self._lexical_search(lane, stage)
+        if stage.kind == "fusion":
+            return self._fusion(lane, stage)
         if stage.kind == "rerank":
             return self._rerank(lane, stage, progress)
         if stage.kind == "context":
@@ -1306,7 +1414,8 @@ class LabRun:
         for rank, (chunk_id, score) in enumerate(hits, start=1):
             chunk = lane.chunks[chunk_id - 1]
             items.append(Item(chunk_id, chunk.doc_id, chunk.title_fr, chunk.text, score, rank=rank))
-        lane.ranked = items
+        lane.lists.append(items)
+        lane.list_kinds.append("vector_search")
         best = items[0].score if items else None
         worst = items[-1].score if items else None
         return _Result(
@@ -1368,17 +1477,18 @@ class LabRun:
                     scores[i],
                     rank=rank,
                     before=c.rank,
-                    sources=[
+                    sources=c.sources
+                    or [
                         {
-                            "kind": "vector_search",
-                            "label_fr": "Recherche",
+                            "kind": self._made_by(lane),
+                            "label_fr": self.deps.texts.stages[self._made_by(lane)].label_fr,
                             "rank": c.rank,
                             "score": c.score,
                         }
                     ],
                 )
             )
-        lane.ranked = items
+        lane.lists[-1] = items
         moved = max(items, key=lambda x: (x.before or 0) - x.rank)
         climb = (
             f"« {moved.title_fr} » monte du {fr_rank(moved.before or 0)} au "
@@ -1400,6 +1510,91 @@ class LabRun:
             ],
             items=items,
             borrowed=lent.borrowed,
+        )
+
+    def _made_by(self, lane: _Lane) -> str:
+        """The kind of the stage that made the lane's current list (a search or the fusion)."""
+        return lane.list_kinds[-1] if lane.list_kinds else "vector_search"
+
+    def _lexical_search(self, lane: _Lane, stage: Stage) -> _Result:
+        if not lane.chunks:
+            raise StageFailed("Aucun extrait : le découpage n'a pas abouti.")
+        k = int(stage.params.get("candidates", 8))
+        scored = bm25(self.question, [rag_index.passage_text(c) for c in lane.chunks])
+        found = sorted(
+            ((score, i + 1) for i, score in enumerate(scored) if score > 0),
+            key=lambda x: (-round(x[0], TIE_DIGITS), x[1]),
+        )[:k]
+        items = []
+        for rank, (score, chunk_id) in enumerate(found, start=1):
+            chunk = lane.chunks[chunk_id - 1]
+            items.append(
+                Item(chunk_id, chunk.doc_id, chunk.title_fr, chunk.text, round(score, 3), rank=rank)
+            )
+        lane.lists.append(items)
+        lane.list_kinds.append("lexical_search")
+        words = ", ".join(f"« {w} »" for w in dict.fromkeys(bm25_terms(self.question)))
+        return _Result(
+            input_fr=(
+                f"Les mots de la question ({words or 'aucun'}), cherchés dans les "
+                f"{fr_int(len(lane.chunks))} extraits, sans embedding."
+            ),
+            output_fr=(
+                f"Les {len(items)} extraits qui partagent le plus de mots avec la question, "
+                f"pondérés par leur rareté (BM25, k1 = 1,5, b = 0,75) ; un extrait sans aucun "
+                "mot commun n'est pas retenu."
+            ),
+            facts=[("Candidats demandés (k)", fr_int(k)), ("Trouvés", fr_int(len(items)))],
+            items=items,
+        )
+
+    def _fusion(self, lane: _Lane, stage: Stage) -> _Result:
+        if len(lane.lists) < 2:
+            raise StageFailed("La fusion demande deux listes de recherche.")
+        kinds = lane.list_kinds[-len(lane.lists) :]
+        found: dict[int, Item] = {}
+        ranks: dict[str, dict[int, tuple[int, float | None]]] = {}
+        for kind, ranked in zip(kinds, lane.lists, strict=True):
+            ranks[kind] = {i.chunk_id: (i.rank, i.score) for i in ranked}
+            for item in ranked:
+                found.setdefault(item.chunk_id, item)
+        fused = rrf([[i.chunk_id for i in ranked] for ranked in lane.lists])
+        items = []
+        for rank, (chunk_id, score) in enumerate(fused, start=1):
+            item = found[chunk_id]
+            sources = [
+                {
+                    "kind": kind,
+                    "label_fr": self.deps.texts.stages[kind].label_fr,
+                    "rank": ranks[kind].get(chunk_id, (None, None))[0],
+                    "score": ranks[kind].get(chunk_id, (None, None))[1],
+                }
+                for kind in kinds
+            ]
+            items.append(
+                Item(
+                    chunk_id,
+                    item.doc_id,
+                    item.title_fr,
+                    item.text,
+                    round(score, 4),
+                    rank=rank,
+                    sources=sources,
+                )
+            )
+        both = sum(1 for chunk_id, _ in fused if all(chunk_id in ranks[k] for k in kinds))
+        sizes = " et ".join(f"{len(r)}" for r in lane.lists)
+        lane.lists = [items]
+        lane.list_kinds = ["fusion"]
+        return _Result(
+            input_fr=f"Les deux listes des recherches ({sizes} extraits), avec leurs rangs.",
+            output_fr=(
+                f"{len(items)} extraits, dont {both} trouvés par les deux recherches, classés par "
+                f"fusion des rangs réciproques : score = Σ 1 / ({RRF_K} + rang). Un extrait bien "
+                "classé par les deux passe devant."
+            ),
+            facts=[("Constante k", str(RRF_K)), ("Extraits fusionnés", fr_int(len(items)))],
+            items=items,
         )
 
     def _context(self, lane: _Lane, stage: Stage) -> _Result:
@@ -1454,6 +1649,53 @@ class LabRun:
 
 def _ms(seconds: float) -> int:
     return round(seconds * 1000)
+
+
+def bm25_terms(text: str) -> list[str]:
+    """BM25's words: `\\w+` in lower case, three letters or more."""
+    return [w for w in _WORD.findall(text.lower()) if len(w) >= 3]
+
+
+def bm25(query: str, documents: Sequence[str]) -> list[float]:
+    """Okapi BM25 of each document for the query, in pure Python: k1 = 1.5, b = 0.75, the
+    idf `ln(1 + (N − df + 0.5) / (df + 0.5))` (never negative)."""
+    docs = [bm25_terms(d) for d in documents]
+    n = len(docs)
+    if not n:
+        return []
+    mean = sum(len(d) for d in docs) / n or 1.0
+    df: dict[str, int] = {}
+    for words in docs:
+        for word in set(words):
+            df[word] = df.get(word, 0) + 1
+    terms = list(dict.fromkeys(bm25_terms(query)))
+    scores = []
+    for words in docs:
+        counts: dict[str, int] = {}
+        for word in words:
+            counts[word] = counts.get(word, 0) + 1
+        score = 0.0
+        for term in terms:
+            tf = counts.get(term, 0)
+            if not tf:
+                continue
+            idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
+            norm = tf + BM25_K1 * (1 - BM25_B + BM25_B * len(words) / mean)
+            score += idf * tf * (BM25_K1 + 1) / norm
+        scores.append(score)
+    return scores
+
+
+def rrf(lists: Sequence[Sequence[int]], k: int = RRF_K) -> list[tuple[int, float]]:
+    """Reciprocal rank fusion of ranked lists of ids: `(id, Σ 1 / (k + rank))`, best first
+    (ties by best rank, then id)."""
+    scores: dict[int, float] = {}
+    best: dict[int, int] = {}
+    for ranked in lists:
+        for rank, item in enumerate(ranked, start=1):
+            scores[item] = scores.get(item, 0.0) + 1.0 / (k + rank)
+            best[item] = min(best.get(item, rank), rank)
+    return sorted(scores.items(), key=lambda x: (-round(x[1], TIE_DIGITS), best[x[0]], x[0]))
 
 
 def _compared(key: str, item: Item) -> dict[str, Any]:

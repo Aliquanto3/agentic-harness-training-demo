@@ -16,6 +16,8 @@ const store = {
   pending: false, // a POST sent, not answered yet
   run: null, // the projection of the last run: its lanes and their stages
   pipelines: [], // the chains being edited: A, and B when compared
+  refusals: [], // why the session would refuse them (`POST /api/rag_lab/validate`)
+  validating: 0, // the last validation asked, so that a late answer is dropped
 };
 
 // ---------- small helpers ----------
@@ -37,7 +39,10 @@ function text(path, values = {}) {
 
 // « 1 536 » (narrow no-break space) and « 0,812 »: formatting only.
 const fmtInt = (n) => (typeof n === "number" ? n.toLocaleString("fr-FR").replace(/\s/g, " ") : "—");
-const fmtScore = (x) => (typeof x === "number" ? x.toFixed(3).replace(".", ",") : "—");
+// A fusion's score (1 / (60 + rank)) needs a fourth decimal to tell two apart.
+const fmtScore = (x) =>
+  typeof x === "number" ? x.toFixed(x > 0 && x < 0.1 ? 4 : 3).replace(".", ",") : "—";
+const fmtRank = (n) => (typeof n === "number" ? `${n}${n === 1 ? "er" : "ᵉ"}` : "absent");
 
 const QUESTION_KEY = "wavestack.ragLab.question";
 const CHAINS_KEY = "wavestack.ragLab"; // the chains being edited (a browser setting only)
@@ -105,10 +110,12 @@ function loadChains() {
   } catch {
     saved = null;
   }
-  const kinds = (p) => (Array.isArray(p?.stages) ? p.stages.map((s) => s?.kind).join(",") : null);
-  const shipped = kinds(store.defaultPipeline);
+  // Only the shape is checked here; the session says whether a chain runs (AD-1).
+  const shaped = (p) =>
+    Array.isArray(p?.stages) &&
+    p.stages.every((s) => typeof s?.id === "string" && typeof s?.kind === "string" && typeof s?.option === "string");
   const pipelines = Array.isArray(saved?.pipelines) ? saved.pipelines.slice(0, 2) : [];
-  if (!pipelines.length || pipelines.some((p) => kinds(p) !== shipped)) return [clone(store.defaultPipeline)];
+  if (!pipelines.length || !pipelines.every(shaped)) return [clone(store.defaultPipeline)];
   return pipelines;
 }
 
@@ -146,6 +153,7 @@ function paramInput(lane, stage, param) {
     stage.params = { ...(stage.params || {}) };
     if (Number.isFinite(value)) stage.params[param.name] = value;
     saveChains();
+    validateChains();
   });
   label.append(input, el("span", "rag-param-unit", param.unit_fr));
   return label;
@@ -169,8 +177,7 @@ function optionSelect(lane, stage, info) {
     stage.option = select.value;
     // The option's own settings, at their shipped values.
     stage.params = Object.fromEntries((option?.params ?? []).map((p) => [p.name, p.default]));
-    saveChains();
-    renderChains();
+    changed();
     document.querySelector(`select.rag-option[data-lane="${lane}"][data-stage-id="${stage.id}"]`)?.focus();
   });
   return select;
@@ -196,7 +203,139 @@ function chainCard(lane, stage, index) {
     }
   }
   card.append(el("p", "rag-chain-explain", info?.explain_fr ?? ""));
+  if (info?.movable) card.append(moveButtons(lane, index));
   return card;
+}
+
+// Increment 4: a stage of the retrieval segment moves by buttons (keyboard included), never
+// by drag and drop, and can be removed; the session says whether the chain still runs.
+function pipelineOf(lane) {
+  return store.pipelines[lane === "a" ? 0 : 1];
+}
+
+function isMovable(stage) {
+  return Boolean(stage && stageInfo(stage.kind)?.movable);
+}
+
+function moveButtons(lane, index) {
+  const stages = pipelineOf(lane).stages;
+  const box = el("div", "rag-chain-moves");
+  const button = (label, symbol, disabled, action) => {
+    const b = el("button", "rag-move-button", symbol);
+    b.type = "button";
+    b.setAttribute("aria-label", label);
+    b.title = label;
+    b.disabled = disabled;
+    b.dataset.lane = lane;
+    b.dataset.stageId = stages[index].id;
+    b.dataset.action = symbol === "◀" ? "before" : symbol === "▶" ? "after" : "remove";
+    b.addEventListener("click", action);
+    return b;
+  };
+  const move = (delta) => () => {
+    const [stage] = stages.splice(index, 1);
+    stages.splice(index + delta, 0, stage);
+    changed();
+    const action = delta < 0 ? "before" : "after";
+    const again = document.querySelector(`.rag-move-button[data-lane="${lane}"][data-stage-id="${stage.id}"][data-action="${action}"]`);
+    (again && !again.disabled ? again : document.querySelector(`.rag-chain[data-lane="${lane}"] [data-stage-id="${stage.id}"] .rag-move-button:not(:disabled)`))?.focus();
+  };
+  box.append(
+    button(text("move_before_fr") || "Déplacer avant", "◀", !isMovable(stages[index - 1]), move(-1)),
+    button(text("move_after_fr") || "Déplacer après", "▶", !isMovable(stages[index + 1]), move(1)),
+    button(text("remove_fr") || "Retirer", text("remove_fr") || "Retirer", false, () => {
+      stages.splice(index, 1);
+      changed();
+      document.querySelector(`#rag-palette-${lane} select`)?.focus();
+    }),
+  );
+  return box;
+}
+
+function renderPalette(lane) {
+  const box = $(`rag-palette-${lane}`);
+  box.replaceChildren();
+  const pipeline = pipelineOf(lane);
+  if (!pipeline || !store.catalog) return;
+  const present = new Set(pipeline.stages.map((s) => s.kind));
+  const absent = store.catalog.stages.filter((s) => s.movable && !present.has(s.kind));
+  if (!absent.length) return;
+  const label = el("label", "rag-palette-label");
+  label.append(el("span", null, text("add_fr") || "Ajouter un composant"));
+  const select = el("select", "rag-palette-select");
+  for (const info of absent) {
+    const option = el("option", null, info.label_fr);
+    option.value = info.kind;
+    select.append(option);
+  }
+  label.append(select);
+  const add = el("button", "rag-button-secondary rag-palette-add", text("add_button_fr") || "Ajouter");
+  add.type = "button";
+  add.addEventListener("click", () => {
+    const info = store.catalog.stages.find((s) => s.kind === select.value);
+    const choice = info?.options.find((o) => o.available) ?? info?.options[0];
+    if (!info || !choice) return;
+    const used = new Set(pipeline.stages.map((s) => s.id));
+    let n = pipeline.stages.length + 1;
+    while (used.has(`s${n}`)) n += 1;
+    const stage = {
+      id: `s${n}`,
+      kind: info.kind,
+      option: choice.id,
+      params: Object.fromEntries(choice.params.map((p) => [p.name, p.default])),
+    };
+    const before = pipeline.stages.findIndex((s) => s.kind === store.catalog.insert_before);
+    pipeline.stages.splice(before < 0 ? pipeline.stages.length : before, 0, stage);
+    changed();
+    document.querySelector(`#rag-palette-${lane} select`)?.focus();
+  });
+  box.append(label, add);
+}
+
+function changed() {
+  saveChains();
+  renderChains();
+  validateChains();
+}
+
+// The session's verdict on the chains being edited, shown on the card at fault.
+async function validateChains() {
+  const asked = ++store.validating;
+  const answer = await post("/api/rag_lab/validate", { pipelines: store.pipelines });
+  if (asked !== store.validating) return;
+  if (answer.ok) {
+    store.refusals = answer.body.refusals ?? [];
+  } else {
+    store.refusals = [{ lane: null, stage_id: null, reason_fr: refusalText(answer) }];
+  }
+  renderRefusals();
+  renderBusy();
+}
+
+function renderRefusals() {
+  for (const node of document.querySelectorAll(".rag-chain-refusal")) node.remove();
+  for (const card of document.querySelectorAll(".rag-chain-card.is-invalid")) card.classList.remove("is-invalid");
+  for (const lane of ["a", "b"]) {
+    const general = $(`rag-chain-refusal-${lane}`);
+    general.hidden = true;
+    general.textContent = "";
+  }
+  for (const refusal of store.refusals) {
+    const lane = refusal.lane ?? "a";
+    const card = refusal.stage_id
+      ? document.querySelector(`.rag-chain[data-lane="${lane}"] .rag-chain-card[data-stage-id="${refusal.stage_id}"]`)
+      : null;
+    if (card) {
+      card.classList.add("is-invalid");
+      const note = el("p", "rag-chain-refusal", refusal.reason_fr);
+      note.setAttribute("role", "alert");
+      card.querySelector(".rag-chain-head").after(note);
+    } else {
+      const general = $(`rag-chain-refusal-${lane}`);
+      general.hidden = false;
+      general.textContent = refusal.reason_fr;
+    }
+  }
 }
 
 function renderChains() {
@@ -212,8 +351,13 @@ function renderChains() {
     const lane = i === 0 ? "a" : "b";
     const list = $(i === 0 ? "rag-chain" : "rag-chain-b");
     list.replaceChildren(...pipeline.stages.map((stage, index) => chainCard(lane, stage, index)));
+    renderPalette(lane);
   });
-  if (!compared) $("rag-chain-b").replaceChildren();
+  if (!compared) {
+    $("rag-chain-b").replaceChildren();
+    $("rag-palette-b").replaceChildren();
+  }
+  renderRefusals();
 }
 
 function setCompare(on) {
@@ -225,14 +369,14 @@ function setCompare(on) {
   } else {
     store.pipelines = [a];
   }
-  saveChains();
-  renderChains();
+  changed();
 }
 
 function resetChains() {
   store.pipelines = [clone(store.defaultPipeline)];
   forgetChains();
   renderChains();
+  validateChains();
 }
 
 // ---------- the run, projected from its events ----------
@@ -333,6 +477,11 @@ function itemsTable(items) {
     row.append(beforeCell);
     const doc = el("td", "rag-doc");
     doc.append(el("span", "rag-doc-title", item.title_fr));
+    if (item.sources?.length) {
+      // Where the excerpt stood in each list before (the fusion: both searches).
+      const said = item.sources.map((src) => `${src.label_fr} : ${fmtRank(src.rank)}${typeof src.score === "number" ? ` (${fmtScore(src.score)})` : ""}`);
+      doc.append(el("span", "rag-doc-sources", said.join(" · ")));
+    }
     doc.append(el("span", "rag-doc-text", item.text));
     row.append(doc);
     row.append(el("td", "rag-num", fmtScore(item.score)));
@@ -439,14 +588,20 @@ function busyReason() {
   return null;
 }
 
+// Why « Lancer » waits: the session busy, else a chain it would refuse.
+function runBlocked() {
+  return busyReason() || store.refusals[0]?.reason_fr || null;
+}
+
 function renderBusy() {
   const reason = busyReason();
   const busy = $("rag-busy");
   busy.hidden = !reason;
   busy.textContent = reason || "";
   const run = $("rag-run");
-  run.disabled = Boolean(reason) || store.pending || !store.content;
-  run.title = reason || "";
+  const blocked = runBlocked();
+  run.disabled = Boolean(blocked) || store.pending || !store.content;
+  run.title = blocked || "";
   $("rag-stop").disabled = store.session.state !== "rag_lab";
 }
 
@@ -573,6 +728,7 @@ async function refresh() {
   renderContent();
   if (!store.pipelines.length && store.defaultPipeline) store.pipelines = loadChains();
   renderChains();
+  validateChains();
   // The last run, rebuilt from its envelopes (AD-1): the same projection as the stream's.
   store.run = null;
   for (const envelope of body.last_run) applyEnvelope(envelope);

@@ -7745,7 +7745,8 @@ class AppSession:
         for chain in chains:
             reason = rag_lab.validate_pipeline(chain, catalog)
             if reason is not None:
-                raise SendRefused(reason)
+                lane = f"Chaîne {chain.label_fr} : " if len(chains) > 1 else ""
+                raise SendRefused(lane + reason)
         with self._lock:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
@@ -7759,6 +7760,25 @@ class AppSession:
             self._run_rag_lab, run_id, question, chains, texts, catalog, cancel, previous
         )
         return run_id
+
+    def validate_rag_lab(self, pipelines: list[rag_lab.Pipeline]) -> dict[str, Any]:
+        """`POST /api/rag_lab/validate` (story 30, increment 4), read only: the reason each
+        chain would be refused for, and the stage at fault, so that the page says it on the
+        stage's card before « Lancer » (AD-1: the rules are the session's)."""
+        texts, error_fr = self._rag_lab_content()
+        if texts is None:
+            reason = error_fr or "Textes de l'atelier RAG illisibles."
+            return {
+                "valid": False,
+                "refusals": [{"lane": None, "stage_id": None, "reason_fr": reason}],
+            }
+        catalog = self._rag_lab_catalog(texts)
+        refusals = []
+        for lane, chain in zip("ab", pipelines, strict=False):
+            refusal = rag_lab.check_pipeline(chain, catalog)
+            if refusal is not None:
+                refusals.append({"lane": lane, "stage_id": refusal[1], "reason_fr": refusal[0]})
+        return {"valid": not refusals, "refusals": refusals}
 
     def _run_rag_lab(
         self,

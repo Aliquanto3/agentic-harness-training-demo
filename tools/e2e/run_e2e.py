@@ -6094,6 +6094,104 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     expect(button).to_be_enabled(timeout=10_000)
     _rag_lab_compare(r)
     _rag_lab_alt(r)
+    _rag_lab_hybrid(r)
+
+
+def _chain_kinds(r: Run) -> list[str]:
+    return r.page.eval_on_selector_all(
+        "#rag-chain .rag-chain-card", "cards => cards.map(c => c.dataset.kind)"
+    )
+
+
+def _add_stage(r: Run, label: str) -> None:
+    r.page.locator("#rag-palette-a select").select_option(label=label)
+    r.page.locator("#rag-palette-a .rag-palette-add").click()
+    time.sleep(0.4)  # the session's verdict (`/api/rag_lab/validate`)
+
+
+def _stage_button(r: Run, kind: str, label: str):
+    card = r.page.locator(f'#rag-chain .rag-chain-card[data-kind="{kind}"]')
+    return card.get_by_role("button", name=label)
+
+
+def _rag_lab_hybrid(r: Run) -> None:
+    """Increment 4: the Reranking removed, « Recherche lexicale BM25 » added without a fusion
+    (refused on its card, « Lancer » greyed), the Fusion added, the Reranking added back and
+    moved after the Fusion by its buttons; a run: the Fusion gives each excerpt's rank in both
+    searches and its RRF score. A Fusion moved before a search: refused, 409 if posted."""
+    page = r.page
+    page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
+    _stage_button(r, "rerank", "Retirer").click()
+    _add_stage(r, "Recherche lexicale BM25")
+    bm25 = page.locator('#rag-chain .rag-chain-card[data-kind="lexical_search"]')
+    expect(bm25.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
+    run = page.locator("#rag-run")
+    r.check(
+        "Deux recherches demandent une fusion après elles"
+        in bm25.locator(".rag-chain-refusal").inner_text()
+        and run.is_disabled()
+        and "fusion" in (run.get_attribute("title") or ""),
+        "BM25 sans fusion : la carte BM25 dit « Deux recherches demandent une fusion après "
+        "elles », « Lancer » désactivé",
+        bm25.locator(".rag-chain-refusal").inner_text(),
+    )
+    _add_stage(r, "Reranking")
+    _add_stage(r, "Fusion")
+    before = _chain_kinds(r)
+    after_button = _stage_button(r, "rerank", "Déplacer après")
+    after_button.focus()
+    page.keyboard.press("Enter")  # by the keyboard, never by drag and drop
+    time.sleep(0.4)
+    kinds = _chain_kinds(r)
+    r.check(
+        before[3:7] == ["vector_search", "lexical_search", "rerank", "fusion"]
+        and kinds[3:7] == ["vector_search", "lexical_search", "fusion", "rerank"]
+        and _stage_button(r, "rerank", "Déplacer après").is_disabled()
+        and not page.locator("#rag-chain .rag-chain-refusal").count(),
+        "Reranking déplacé après la Fusion au clavier (« Déplacer après ») : chaîne valide",
+        f"{before} → {kinds}",
+    )
+    expect(run).to_be_enabled(timeout=5000)
+    ended, seq = _rag_lab_run(r)
+    fusion = _stage_ended(r, seq, "fusion")
+    items = fusion.get("items", [])
+    ranks_ok = all(
+        {s["kind"] for s in i["sources"]} == {"vector_search", "lexical_search"}
+        and any(s["rank"] for s in i["sources"])
+        for i in items
+    )
+    rows = _result_card(r, "fusion").locator("tbody tr")
+    first_row = rows.first.inner_text() if rows.count() else ""
+    r.check(
+        ended["payload"]["status"] == "ok"
+        and items
+        and ranks_ok
+        and "Recherche :" in first_row
+        and "Recherche lexicale BM25 :" in first_row
+        and re.search(r"0,0\d{3}", first_row) is not None,
+        "Fusion : le rang de chaque extrait dans les deux recherches et son score RRF",
+        first_row.replace("\n", " | ")[:240],
+    )
+    r.shot("58-atelier-rag-hybride", full_page=True)
+    # The Fusion moved before a search: its card says why, and a POST anyway is refused.
+    _stage_button(r, "fusion", "Déplacer avant").click()
+    time.sleep(0.4)
+    fusion_card = page.locator('#rag-chain .rag-chain-card[data-kind="fusion"]')
+    expect(fusion_card.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
+    chain = page.evaluate("() => JSON.parse(localStorage.getItem('wavestack.ragLab')).pipelines")
+    refused = r.api(
+        "POST", "/api/intentions/rag_lab_run", {"question": RAG_LAB_QUESTION, "pipelines": chain}
+    )
+    r.check(
+        "Fusion" in fusion_card.locator(".rag-chain-refusal").inner_text()
+        and run.is_disabled()
+        and refused.status_code == 409
+        and "« Fusion »" in refused.json().get("detail", ""),
+        "Fusion déplacée avant une recherche : la raison nomme la Fusion, 409 si l'on poste",
+        f"{refused.status_code} {refused.text[:160]}",
+    )
+    page.locator("#rag-reset-chain").click()
 
 
 def _rag_lab_alt(r: Run) -> None:
@@ -6240,19 +6338,27 @@ def _rag_lab_compare(r: Run) -> None:
         page.locator("#rag-compare").is_checked() and kept.input_value() == "300",
         "après rechargement, les chaînes A et B sont gardées (localStorage)",
     )
-    # Fewer candidates than excerpts kept: the 409's reason, nothing run.
+    # Fewer candidates than excerpts kept: the session's reason on the card (increment 4
+    # validates each change), « Lancer » greyed; posted anyway, the 409's reason.
     _set_stage(r, "b", "vector_search", candidates=1)
     seq = r.ev.mark()
-    page.click("#rag-run")
-    status = page.locator("#rag-status")
-    expect(status).to_have_class(re.compile("is-error"), timeout=5000)
-    time.sleep(0.5)
+    card = page.locator('#rag-chain-b .rag-chain-card[data-kind="vector_search"]')
+    expect(card.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
+    said = card.locator(".rag-chain-refusal").inner_text()
+    chain = page.evaluate("() => JSON.parse(localStorage.getItem('wavestack.ragLab')).pipelines")
+    refused = r.api(
+        "POST", "/api/intentions/rag_lab_run", {"question": RAG_LAB_QUESTION, "pipelines": chain}
+    )
+    time.sleep(0.3)
     r.check(
-        "Recherche" in status.inner_text()
-        and "candidats" in status.inner_text()
+        "Recherche" in said
+        and "candidat" in said
+        and page.locator("#rag-run").is_disabled()
+        and refused.status_code == 409
+        and said in refused.json().get("detail", "")
         and not r.ev.since(seq, "rag_lab_run_started"),
-        "candidats < top_k : la page affiche la raison du 409, rien ne s'exécute",
-        status.inner_text(),
+        "candidats < top_k : la page affiche la raison du 409, « Lancer » grisé, rien ne s'exécute",
+        f"{said} · {refused.status_code}",
     )
     page.locator("#rag-reset-chain").click()
     r.check(

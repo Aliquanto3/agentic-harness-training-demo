@@ -14,8 +14,9 @@ busy_fr: "Indisponible pour l'instant : {raison}"
 
 chain_title_fr: "La chaîne"
 chain_help_fr: >-
-  Sept étapes, de gauche à droite. La génération est dessinée pour montrer ce que le modèle
-  recevrait, mais elle ne s'exécute pas ici.
+  Les étapes, de gauche à droite. Entre la base vectorielle et le contexte, les recherches, la
+  fusion et le reranking se retirent, s'ajoutent et se déplacent. La génération est dessinée
+  pour montrer ce que le modèle recevrait, mais elle ne s'exécute pas ici.
 
 question_label_fr: "Question"
 question_placeholder_fr: "Posez une question sur la documentation d'Exemplia"
@@ -42,6 +43,11 @@ reset_chain_fr: "Revenir à la chaîne livrée"
 chain_a_fr: "Chaîne A"
 chain_b_fr: "Chaîne B"
 unavailable_fr: "indisponible"
+add_fr: "Ajouter un composant"
+add_button_fr: "Ajouter"
+move_before_fr: "Déplacer avant"
+move_after_fr: "Déplacer après"
+remove_fr: "Retirer"
 comparison_title_fr: "Comparaison des deux contextes"
 common_fr: "En commun"
 only_a_fr: "Seulement dans A"
@@ -86,6 +92,18 @@ stages:
     explain_fr: >-
       La base rend les extraits dont le vecteur est le plus proche de celui de la question
       (similarité cosinus), sans seuil : les k plus proches, pertinents ou non.
+  lexical_search:
+    label_fr: "Recherche lexicale BM25"
+    explain_fr: >-
+      Une recherche par mots, sans embedding : les extraits qui partagent des mots avec la
+      question passent devant, un mot rare pesant plus qu'un mot courant (BM25). Elle retrouve
+      un nom propre ou un code exact qu'un embedding peut manquer.
+  fusion:
+    label_fr: "Fusion"
+    explain_fr: >-
+      Deux recherches donnent deux classements ; la fusion des rangs réciproques les combine :
+      chaque extrait gagne 1 / (60 + son rang) dans chaque liste. Un extrait bien classé par les
+      deux passe devant : c'est la recherche hybride.
   rerank:
     label_fr: "Reranking"
     explain_fr: >-
@@ -125,6 +143,12 @@ options:
   vector_search:
     cosine:
       label_fr: "Similarité cosinus"
+  lexical_search:
+    bm25:
+      label_fr: "BM25 (k1 = 1,5, b = 0,75)"
+  fusion:
+    rrf:
+      label_fr: "Fusion des rangs réciproques (k = 60)"
   rerank:
     declared:
       label_fr: "Modèle de reranking de la brique RAG"
