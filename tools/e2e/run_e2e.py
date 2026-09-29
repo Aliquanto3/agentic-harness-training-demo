@@ -2543,6 +2543,16 @@ def s_mcp_full(r: Run) -> None:
     )
     r.shot("10-mcp-documentation-complete")
     r.results.append((r.current, f"jauge avant envoi : {gauge}", True, ""))
+    # Lot K: in full documentation too, each tool of the local server has its forced call.
+    r.show_forced(True)
+    r.open_options("MCP")
+    button = r.page.get_by_role("button", name="Forcer l'appel : local__define_term")
+    r.check(
+        button.count() == 1 and "Forcer l'appel · local__define_term" in button.inner_text(),
+        "documentation complète : bouton « Forcer l'appel · local__define_term »",
+        button.inner_text() if button.count() else "absent",
+    )
+    r.show_forced(False)
 
 
 def s_mcp_lazy(r: Run) -> None:
@@ -2611,6 +2621,15 @@ def s_mcp_lazy(r: Run) -> None:
         "l'appel MCP forcé part au tour suivant, déclenché par l'utilisateur",
         str([(e["payload"]["tool"], e.get("trigger")) for e in started])[:200],
     )
+    # A tool without parameter: armed in one click, its own name as the target.
+    armed = r.arm("Forcer l'appel : local__list_terms")
+    action = armed["payload"]["actions"][0]
+    r.check(
+        (action["kind"], action["target"], action["args"]) == ("tool", "local__list_terms", {}),
+        "« Forcer l'appel » d'un outil MCP sans paramètre armé en un clic",
+        str(action),
+    )
+    r.page.locator("#armed-chips button").first.click()  # disarm
     r.show_forced(False)
 
 

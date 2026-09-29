@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -490,6 +491,29 @@ def test_forced_public_mcp_call_sends_and_traces_like_a_model_call(loop, mcp_web
     assert (outbound.trigger, outbound.brick) == ("user", "mcp")
     (ended,) = of(events, "tool_ended")
     assert ended.payload["status"] == "ok" and ended.payload["truncated"]
+    session.close()
+
+
+def test_an_optional_mcp_argument_left_empty_is_not_armed(loop, mcp_web):  # noqa: F811
+    """The Souveraineté fallback: the preset « cybersécurité » fills `query`; the form sends
+    the optional `page` and `page_size` empty, which are left out, never sent as ""."""
+    fixture = Path(__file__).parent / "fixtures" / "mcp_tools" / "datagouv.json"
+    mcp_web(McpWeb(json.loads(fixture.read_text(encoding="utf-8"))["tools"]))
+    session = mcp_session(loop, ["Voilà."])
+    session.set_mcp_server("local", False)
+    enable(session, "datagouv")
+    client = _client(session)
+
+    body = {
+        "kind": "tool",
+        "target": "datagouv__search_datasets",
+        "args": {"query": "cybersécurité", "page": "", "page_size": ""},
+    }
+    response = client.post("/api/intentions/arm", json=body, headers=HEADERS)
+
+    assert response.status_code == 200, response.text
+    (action,) = armed()
+    assert action["args"] == {"query": "cybersécurité"}
     session.close()
 
 

@@ -33,3 +33,13 @@ call_presets:
     - label_fr: cybersécurité
       args:
         query: cybersécurité
+  mslearn__microsoft_docs_search:
+    - label_fr: MFA des administrateurs (IAM)
+      args:
+        query: exiger l'authentification multifacteur pour tous les administrateurs Entra ID
+    - label_fr: PIM juste-à-temps (IAM)
+      args:
+        query: Privileged Identity Management activation juste-à-temps d'un rôle Entra ID
+    - label_fr: Journalisation des connexions admin (Souveraineté)
+      args:
+        query: journaux de connexion des comptes administrateurs Entra ID

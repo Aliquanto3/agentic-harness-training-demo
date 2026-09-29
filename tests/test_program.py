@@ -75,10 +75,13 @@ LOCAL_FIRST_CALL = ("local__define_term", {"term": "MCP"})
 LOCAL_ANSWER_MAX = 200  # the measure above, with margin: a longer answer revisits the room
 # Lot K (A5): every prompt, not the first only, after the previous exchange of the scenario
 # (its prompt, its tool result, at most the bound, and an answer that fills the output
-# reserve), as the
-# short memory keeps it. The scenarios whose instructions empty the conversation between
-# their prompts are counted without history (« Vider la conversation » : two public search
-# results, 1 200 tokens each at most, never fit together).
+# reserve), as the short memory keeps it. Only the previous exchange is simulated, not the
+# whole history: at the worst case of every exchange, a scenario of more than two prompts
+# overflows (`subagent` p4: 1 326 + 2 267 > 3 584) although its real answers are short; a
+# cumulative count needs measured answers, deferred (spec of lot K). The scenarios whose
+# instructions empty the conversation between their prompts are counted without history
+# (« Vider la conversation » : two public search results, 1 200 tokens each at most, never
+# fit together).
 CLEARED_BETWEEN_PROMPTS = {"iam", "sovereignty"}
 EXCHANGE_TEMPLATE = 40  # the tags of an exchange's four messages (user, call, result, answer)
 _PUBLIC_SUBJECTS = ("data.gouv.fr", "Microsoft Learn")  # results that fill the bound
@@ -298,16 +301,61 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
     assert presets["local__define_term"] == {"MCP": {"term": "MCP"}}
     assert presets["datagouv__search_datasets"] == {"cybersécurité": {"query": "cybersécurité"}}
     for scenario_id, tool, preset in (
+        ("mcp_full", "local__define_term", "MCP"),
         ("mcp_lazy", "local__define_term", "MCP"),
+        ("iam", "mslearn__microsoft_docs_search", "MFA des administrateurs (IAM)"),
+        ("iam", "mslearn__microsoft_docs_search", "PIM juste-à-temps (IAM)"),
         ("sovereignty", "datagouv__search_datasets", "cybersécurité"),
+        (
+            "sovereignty",
+            "mslearn__microsoft_docs_search",
+            "Journalisation des connexions admin (Souveraineté)",
+        ),
     ):
         text = scenario[scenario_id].description_fr
-        assert f"« Forcer l'appel · {tool} »" in text and f"préréglage « {preset} »" in text
+        assert f"« Forcer l'appel · {tool} »" in text, (scenario_id, tool)
+        assert f"préréglage « {preset} »" in text and preset in presets[tool], (scenario_id, preset)
         assert "« Rejouer le dernier prompt »" in text, scenario_id
+    # Sovereignty: the first prompt's fallback, then the clearing, then the second's.
+    text = scenario["sovereignty"].description_fr
+    assert (
+        text.index("« Forcer l'appel · datagouv__search_datasets »")
+        < text.index("« Vider la conversation »")
+        < text.index("« Forcer l'appel · mslearn__microsoft_docs_search »")
+    )
     assert all("ne se force pas" not in s.description_fr for s in scenario.values())
     # Two public search results do not fit together: the conversation emptied between them.
     for scenario_id in CLEARED_BETWEEN_PROMPTS:
         assert "« Vider la conversation »" in scenario[scenario_id].description_fr, scenario_id
+
+
+def test_call_presets_name_real_tools_and_their_arguments(loop):  # noqa: F811
+    """Lot K: every tool of `call_presets` (content/mcp.yaml) is a tool of its server (the
+    local server's own list, a public server's snapshot or fixture), and every argument of
+    its presets a property of that tool's schema: a renamed argument would silently empty
+    the preset (the session keeps only the declared parameters)."""
+    from test_mcp import enable
+
+    from wavestack.mcp.servers import load_mcp_content
+
+    session = mcp_session(loop)
+    enable(session)
+    schemas = {
+        name: (session._registry.get(name).schema or {}).get("properties", {})
+        for name in session._mcp_tools("local")
+    }
+    session.close()
+    for server_id in ("datagouv", "mslearn"):
+        for tool in _public_tools(server_id)[0]:
+            properties = tool.get("inputSchema", {}).get("properties", {})
+            schemas[f"{server_id}__{tool['name']}"] = properties
+    presets = load_mcp_content().call_presets
+    assert presets
+    for tool, listed in presets.items():
+        assert tool in schemas, f"call_presets : outil inconnu {tool}"
+        for preset in listed:
+            unknown = sorted(set(preset.args) - set(schemas[tool]))
+            assert preset.args and not unknown, (tool, preset.label_fr, unknown)
 
 
 def test_meta_tools_say_which_is_which():
@@ -505,7 +553,7 @@ def _result_room(
     return 0
 
 
-def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loop, web):  # noqa: F811
+def test_every_scenario_fits_the_default_window_with_every_prompt(index, loop, web):  # noqa: F811
     """With `WAVESTACK_TEST_GGUF`, that GGUF booted in local mode: the exact local gauge
     (lot J). Else as the cloud estimate does at 2 characters per token, with a safety factor.
     Both with the reasoning reserve, the RAG excerpts at their declared maximum, the
@@ -516,7 +564,9 @@ def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loo
     Lot K (A5): every prompt of the scenario, in order, after the previous exchange when the
     short memory keeps it (its prompt, its result, an answer at the reserve, the template's
     tags), except where the instructions empty the conversation between the prompts
-    (`CLEARED_BETWEEN_PROMPTS`)."""
+    (`CLEARED_BETWEEN_PROMPTS`). Only the previous exchange is simulated, never the whole
+    history: a scenario of more than two prompts is undercounted (its worst case overflows,
+    see `CLEARED_BETWEEN_PROMPTS`'s comment); a cumulative count is deferred."""
     public = PublicServers()
     web(public)
     place_model()

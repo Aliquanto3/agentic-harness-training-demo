@@ -2,7 +2,7 @@
 title: 'Lot K : corrections issues de la recette sur PC cible du 2026-09-29 (stories 22 à 27, 31 à 34)'
 type: 'bugfix'
 created: '2026-09-29'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '23701e33e69fe94ce24d1ee771be54dcda048b67'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -210,6 +210,11 @@ les exceptions notées plus bas (points 3a et 6).
   glossaire local = réponse mesurée, serveur public = la borne, outil réseau = 400 tokens
   (premier prompt : la borne, comme avant), fichier lu = son contenu entier, fichier confidentiel
   ou déjà lu au prompt précédent = 0. IAM et Souveraineté sont comptés sans historique.
+  **Reporté** : seul l'échange précédent est simulé, pas l'historique cumulé. Au pire cas de
+  chaque échange, un scénario de plus de deux prompts déborde (`subagent` p4 : 1 326 + 2 267 >
+  3 584) alors que ses vraies réponses sont courtes ; un décompte cumulé demande des réponses
+  mesurées sur le PC (le test s'appelle désormais
+  `test_every_scenario_fits_the_default_window_with_every_prompt`).
 - **Point 4.** Conseil au diagnostic quand le contexte d'un emplacement est strictement sous la
   fenêtre choisie : « … relancez-le avec `-np 1 -c {fenêtre}` », toujours avec `-np 1`. Le bouton
   montre la fenêtre effective (comme N26-6) ; infobulle « Fenêtre de contexte : 4 096 tokens,
@@ -265,7 +270,9 @@ touche que la CSS et l'E2E ; `test_web_tokens` et `test_web_app` relancés aprè
 652 vérifications réussies, 0 en échec ; 5 `harness_error` voulus (429, 500, flux cassé, 401,
 téléchargement d'embedding) et 3 erreurs de console attendues (réseau coupé du parcours), comme
 dans le rapport de recette. Le test `fits` n'a tourné qu'en estimation (2 caractères par token) :
-le décompte exact avec `WAVESTACK_TEST_GGUF` reste à faire sur le PC (pas de GGUF ici).
+relancé ensuite en décompte exact avec `WAVESTACK_TEST_GGUF` = le 2B du poste (lecture seule du
+GGUF, dossier de données temporaire) : réussi, plus petite marge `mcp_full` p1 380 ; en-têtes
+réels lus par `gguf_kv_bytes_per_token` : 2B 12 288, 4B 32 768 octets par token.
 « Échoue avant » vérifié point par point : point 1 (4 tests), 2 (E2E, 7 px à 1 280 projection),
 3a (non relancé sur l'ancien code : les nouveaux tests arment un outil MCP, que l'ancien
 `arm` refusait en 404, échec certain par construction), 3b (`fits` étendu débordait sur
@@ -278,6 +285,38 @@ Prompt de recette pour le Claude Code du PC :
 ## Spec Change Log
 
 ## Review Triage Log
+
+Revue du 2026-09-29, passe 1 (Blind Hunter, Edge Case Hunter, Verification Gap).
+
+| # | Source | Constat | Verdict | Preuve | Suite |
+|---|---|---|---|---|---|
+| 1 | VG | Aucun test n'arme un outil MCP avec un argument facultatif vide (préréglage « cybersécurité » : `page`, `page_size` = "") | medium | écart de vérification déposé ; sans le filtre de `arm`, `check` refuse l'entier vide (422) et rien n'échoue | patch |
+| 2 | VG | Chemin « un clic » d'un outil MCP sans paramètre (`option.target ?? option.id`) et boutons en documentation complète jamais exercés | medium | écart déposé ; `list_terms` absent de l'E2E | patch |
+| 3 | VG | Le contrôle E2E d'`aria-expanded` passait déjà avant le lot (reconstruction du panneau) | medium | notes du point 6 ; cause dans Edge non confirmée | defer |
+| 4 | VG, ECH | Appel MCP forcé : définition ajoutée à `_loaded_docs` avant l'exécution, gardée si le tour est arrêté | low | vrai à l'arrêt (`ran is None`) ; bloqué par un hook, conforme à la spine (l'action forcée ajoute la définition) ; arrêt pendant l'appel rare, effet : une définition de plus au tour suivant | rejeté |
+| 5 | BH | U+FEFF doublés : lignes de tableaux coupées dans `resultats-test-pc-2026-09-29.md` | low | 15 lignes vérifiées ; correction directe | patch |
+| 6 | BH | Le prompt de recette ne peut pas éprouver le recalcul d'une ancienne sonde (clés `probed_models` sur les chemins réels, modèles en liens physiques) | medium | la séance du 29/09 a dû réécrire ces chemins ; sans cela le 2B est resondé à 12 288 | patch |
+| 7 | BH | Test `fits` : définitions chargées (documentation, appel forcé) non comptées aux prompts suivants | low | quelques dizaines à ~100 tokens ; marge `mcp_lazy` p2 ≈ 600 ; correction non directe | rejeté |
+| 8 | BH | Test `fits` : seul l'échange précédent est simulé ; nom « first_prompt » ; commentaire mal coupé | medium | historique cumulé au pire (réponses à la réserve) : `subagent` p4 1 326 + 2 267 > 3 584 (2B, décompte exact) ; N27-1 réel passait | patch (nom, commentaire, docstring) ; defer (modèle d'historique) |
+| 9 | BH | Secours mslearn sans préréglage ; `iam` absent du commentaire d'en-tête ; consigne IAM non testée | low | vérifié dans `mcp.yaml` et le test ; ajout de contenu direct | patch |
+| 10 | BH | Consigne `mcp_full` renvoie au scénario suivant alors que l'appel se force aussi en documentation complète | low | contredit la règle d'en-tête du fichier | patch |
+| 11 | BH | Consigne Souveraineté : « Vider la conversation » avant le secours du prompt 1 | low | ordre du texte vérifié | patch |
+| 12 | BH | Rien ne vérifie les `call_presets` face aux schémas des serveurs | medium | `_mcp_call_option` retire en silence un argument non déclaré | patch |
+| 13 | BH | Nom accessible « Forcer l'appel : X » contre texte visible « Forcer l'appel · X » | low | seule la ponctuation diffère (ignorée par les aides vocales) ; même motif que les boutons existants | rejeté |
+| 14 | BH | Point 3a sans vérification PC en documentation complète ni mise en page de la carte MCP | low | E2E ajouté au patch 2 ; mise en page : peu probable de gêner | rejeté |
+| 15 | BH | Correction Ollama / llama-server annoncée sans test | false | `served_kv` passe par `gguf_kv_bytes_per_token` → `kv_bytes_per_token`, testée | rejeté |
+| 16 | BH, ECH | Infobulle « N choisi » aussi pour les bornes `tpm`, `native` ou modèle cloud verrouillé | low | la valeur citée est bien la fenêtre configurée ; correction = nouvelle branche | rejeté |
+| 17 | BH | E2E A8 : pas de `false` après « Annuler » ; pied du panneau testé à 100 % seulement | false / low | `run_e2e.py` vérifie `false` après fermeture (l. 2891, 2901) ; zooms : vérification PC | rejeté |
+| 18 | BH | Règles CSS du sélecteur compact dupliquées pour la projection jusqu'à 1 600 px | low | une requête média ne peut viser `:root.projection` sans répéter les sélecteurs ; dérive possible mais rare | rejeté |
+| 19 | BH, ECH | Écarts du point 2 : seule la puce liée protégée, ordre de repli, puce coupable sous 1 100 px, chiffres coupés en projection | low | écarts consignés dans les notes ; sous 1 100 px, garder la puce pousserait « Réinitialiser » hors de la barre (critère E2E) | rejeté |
+| 20 | ECH | Même tour : appel forcé de X puis documentation forcée de X → documentation en double | low | combinaison improbable ; correction touche `loaded_in_turn` | rejeté |
+| 21 | ECH | Modèle sans analyseur d'appels : abandon avec la raison « serveur non connecté » | low | la brique MCP n'est alors pas disponible, l'abandon dit « brique non active » d'abord | rejeté |
+| 22 | ECH | Conseil `-c` au-delà du contexte natif | low | choix limités à 16 384, contextes natifs bien plus grands | rejeté |
+| 23 | ECH | Bloc d'installation : aucune archive dans les dix releases | low | builds quotidiennes ; bloc « Repli » juste en dessous | rejeté |
+| 24 | ECH | Deux puces liées (H5 + lien) entre 1 101 et 1 279 px | low | cas rare, non mesuré | rejeté |
+| 25 | ECH | `#window-alert` sous la ligne de flottaison de `.window-scroll` à 1 280 × 650 | medium | l'alerte suit les choix dans la zone qui défile ; un refus après « Appliquer » peut rester caché | patch |
+| 26 | ECH | Historique SOC / Compression : résultat de `read_file` borné à tort dans le test | false | SOC 601 < borne ; Compression : Headroom allumé au prompt 2 (consigne) | rejeté |
+| 27 | ECH | Nom de fichier absent : `ToolError` fait échouer `fits` | false | échec bruyant sur un contenu fautif : comportement voulu | rejeté |
 
 ## Design Notes
 

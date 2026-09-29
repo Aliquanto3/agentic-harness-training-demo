@@ -19,8 +19,9 @@
 # lecture de fichier, appel d'un outil MCP ou chargement de sa documentation en lazy
 # loading), la consigne la donne en secours, avec les libellés exacts de ses boutons et
 # préréglages. Lot K (2026-09-29) : l'appel d'un outil MCP se force (« Forcer l'appel » sur
-# l'outil, dans la carte MCP) ; c'est le secours de `mcp_lazy` et de `sovereignty`, où le
-# petit modèle tient le chargement de la documentation pour l'étape faite.
+# l'outil, dans la carte MCP, dans les deux modes de documentation) ; c'est le secours de
+# `mcp_full`, `mcp_lazy`, `iam` et `sovereignty` (en lazy loading, le petit modèle tient le
+# chargement de la documentation pour l'étape faite).
 # Deux résultats de recherche d'un serveur public (1 200 tokens chacun au plus) ne tiennent
 # pas ensemble dans la fenêtre de 4 096 : la consigne d'un scénario qui en enchaîne deux fait
 # « Vider la conversation » entre ses prompts (`iam`, `sovereignty`).
@@ -194,8 +195,10 @@ scenarios:
       le contexte. Regardez la jauge avant d'envoyer le prompt : elle est déjà presque
       pleine. Le prompt nomme l'outil du glossaire, local__define_term : un petit modèle
       local ne fait pas toujours le lien entre la question et l'outil, un modèle plus gros
-      (cloud) si. Si le modèle répond de tête, montrez la documentation dans Contexte LLM :
-      le scénario suivant montre comment forcer l'appel.
+      (cloud) si. Si le modèle répond de tête, cliquez « Forcer l'appel · local__define_term »
+      sous « Glossaire WaveStack » dans la carte MCP (après « Afficher les actions
+      forcées »), choisissez le préréglage « MCP », « Armer », puis « Rejouer le dernier
+      prompt » : l'appel part d'office et le modèle répond avec la définition.
       Passez ensuite au scénario « Lazy loading » pour voir le même besoin tenir dans un
       contexte bien plus léger. Sans réseau, data.gouv.fr reste dessiné comme
       indisponible : poursuivez avec le serveur local.
@@ -415,8 +418,10 @@ scenarios:
       Vue humain) avant d'envoyer le second prompt ; si la jauge annonce un dépassement,
       c'est le coût réel d'un MCP public. Si le modèle répond sans chercher, cliquez
       « Forcer l'appel · mslearn__microsoft_docs_search » sous « Microsoft Learn » dans la
-      carte MCP (après « Afficher les actions forcées »), écrivez la question dans le champ
-      query, « Armer », puis « Rejouer le dernier prompt ». Sans réseau (ou
+      carte MCP (après « Afficher les actions forcées »), choisissez le préréglage « MFA des
+      administrateurs (IAM) » au premier prompt, le préréglage « PIM juste-à-temps (IAM) » au
+      second,
+      « Armer », puis « Rejouer le dernier prompt ». Sans réseau (ou
       derrière un proxy qui bloque learn.microsoft.com), Microsoft Learn est dessiné
       indisponible avec sa raison : décochez puis recochez le serveur dans la carte MCP
       pour réessayer. À retenir : une réponse sourcée, avec les liens de Microsoft Learn,
@@ -439,20 +444,21 @@ scenarios:
     description_fr: >-
       Pour la practice souveraineté, environ 15 minutes. Deux serveurs MCP publics sont
       connectés, en lazy loading : data.gouv.fr, opéré par l'administration française, et
-      Microsoft Learn, opéré par un éditeur américain. Envoyez les deux prompts, puis ouvrez
+      Microsoft Learn, opéré par un éditeur américain. Envoyez les deux prompts et ouvrez
       dans Orchestration les données sortantes de chaque appel : la requête révèle à elle
       seule le sujet de la mission, et elle part chez deux opérateurs soumis à deux droits
       différents ; un éditeur américain relève du Cloud Act, même quand ses serveurs sont en
-      Europe. Deux résultats de recherche ne tiennent pas ensemble dans la fenêtre :
-      ouvrez les données sortantes du premier appel, puis cliquez « Vider la conversation »
-      (volet Vue humain) avant d'envoyer le second prompt. Chaque prompt nomme l'outil de
-      recherche : un petit modèle local charge sa documentation puis s'arrête souvent sans
-      chercher. Cliquez alors « Forcer l'appel · datagouv__search_datasets » sous
-      « data.gouv.fr » dans la carte MCP (après « Afficher les actions forcées »), choisissez
-      le préréglage « cybersécurité », « Armer », puis « Rejouer le dernier prompt » : le
-      rejeu repart d'avant le tour, la recherche part d'office et le modèle répond avec son
-      résultat. Pour le second prompt, « Forcer l'appel · mslearn__microsoft_docs_search »
-      sous « Microsoft Learn », la question écrite dans le champ query. Le schéma ne montre que ce qui quitte le poste :
+      Europe. Chaque prompt nomme l'outil de recherche : un petit modèle local charge sa
+      documentation puis s'arrête souvent sans chercher. Au premier prompt, cliquez alors
+      « Forcer l'appel · datagouv__search_datasets » sous « data.gouv.fr » dans la carte MCP
+      (après « Afficher les actions forcées »), choisissez le préréglage « cybersécurité »,
+      « Armer », puis « Rejouer le dernier prompt » : le rejeu repart d'avant le tour, la
+      recherche part d'office et le modèle répond avec son résultat. Ouvrez les données
+      sortantes de ce premier appel. Deux résultats de recherche ne tiennent pas ensemble
+      dans la fenêtre : cliquez « Vider la conversation » (volet Vue humain) avant d'envoyer
+      le second prompt. Son secours : « Forcer l'appel · mslearn__microsoft_docs_search »
+      sous « Microsoft Learn », préréglage « Journalisation des connexions admin
+      (Souveraineté) », « Armer », puis « Rejouer le dernier prompt ». Le schéma ne montre que ce qui quitte le poste :
       où tourne chaque serveur MCP, chez quel hébergeur, avec quelle qualification
       (SecNumCloud par exemple), reste à vérifier flux par flux, et un service public n'est
       pas souverain par nature. Le modèle, lui, reste sur le poste ; avec un modèle cloud,

@@ -13,8 +13,9 @@ Tu vas vérifier sur ce poste les huit corrections du lot K de WaveStack. Travai
 - Poste : Windows 11, PowerShell 5.1, **sans droits d'administrateur**, CPU seul, 16 Go.
   Modèles : Qwen3.5-2B et Qwen3.5-4B (dossier des modèles de WaveStack), llama-server `b11239`
   déjà installé dans `%LOCALAPPDATA%\llama.cpp` (sinon, point 8 d'abord).
-- Dépôt : branche `claude/lot-k-recette-pc`, commits `d50c1c4` (point 1) à `1297e2b` (point 8) et `05e83d8` (suite du point 2),
-  plus le commit de documentation qui suit.
+- Dépôt : branche `claude/lot-k-recette-pc`, commits `d50c1c4` (point 1) à `1297e2b` (point 8)
+  et `05e83d8` (suite du point 2), puis le commit de documentation `8c7ef9e` et le commit de
+  revue « fix: suites de la revue du lot K ».
 - Attendus détaillés : section « À vérifier sur PC » de
   `_bmad-output/implementation-artifacts/spec-lot-k-corrections-recette-pc-2026-09-29.md`
   (geste, attendu, critère, par point). Mesures d'avant le lot : `resultats-test-pc-2026-09-29.md`.
@@ -25,8 +26,9 @@ Tu vas vérifier sur ce poste les huit corrections du lot K de WaveStack. Travai
    lancement de WaveStack passe par `WAVESTACK_DATA_DIR` vers une copie jetable du dossier de
    données (`settings.json` compris : le point 1 doit lire les anciennes sondes). Pour les
    modèles, un dossier de **liens physiques** (`mklink /H`), pas de jonction.
-2. Ne réécris jamais `settings.json` pour corriger d'anciennes sondes, et ne relance pas de
-   sonde de tous les modèles.
+2. Ne réécris jamais `settings.json` pour corriger d'anciennes sondes (le changement de
+   chemins du jetable, au point 1, n'en est pas une : aucune valeur ne change), et ne relance
+   pas de sonde de tous les modèles.
 3. Avant une mesure de mémoire ou de temps : Outlook et Teams fermés, état d'Edge noté.
 4. llama-server toujours avec `-np 1 -c N`.
 5. Consigne au fil de l'eau dans `_bmad-output/implementation-artifacts/resultats-lot-k-2026-09-29.md`
@@ -41,7 +43,13 @@ Tu vas vérifier sur ce poste les huit corrections du lot K de WaveStack. Travai
    `uv run pytest -s -rA tests/test_program.py -k fits` (tableau par prompt : note la plus petite
    marge), puis `uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py` (0 FAIL attendu,
    y compris `[linked_view]` aux quatre largeurs), et `git restore tools/e2e/screenshots`.
-2. **Point 1 (A2)** : empreinte du `settings.json` jetable ; lancement ; panneau « Fenêtre ▾ »
+2. **Point 1 (A2)** : l'entrée ancienne doit être lue par WaveStack. Dans le `settings.json`
+   **jetable** seulement, réécris les clés de `probed_models` (et la valeur `ref` de
+   `selected_model`) du vrai dossier des modèles vers le dossier de liens physiques : un lien
+   physique garde la taille et la date du fichier, donc les valeurs des entrées restent telles
+   quelles (ne touche à aucune valeur). Vérifie ensuite, avant tout lancement, que l'entrée du
+   2B stocke toujours `kv_bytes_per_token` = 49 152 (sonde d'avant le lot). Puis : empreinte du
+   `settings.json` jetable ; lancement ; panneau « Fenêtre ▾ »
    du 2B : 48 / 96 / 192 Mo ; `context_window` 8 192 et mesure de RSS et mémoire privée avant et
    après un tour (≈ + 48 Mio). Budget fixe 6 144 Mo (`config.save_setting` sur le jetable), 4B,
    16 384 : accepté, hausse ≈ 384 Mio (± 30 %). Empreinte du `settings.json` jetable inchangée
