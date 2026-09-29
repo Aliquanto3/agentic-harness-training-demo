@@ -399,7 +399,7 @@ scenarios:
       - >-
         Pour qualifier cet incident, vérifie le rôle et le titulaire du compte adm.leroy en
         t'aidant des fichiers disponibles. Si une lecture t'est refusée, ne la contourne
-        pas : dis-le et indique à qui transmettre la vérification.
+        pas : dis-le et propose de transmettre la vérification à un analyste SOC habilité.
 
   iam:
     title_fr: "Métier IAM : Entra ID avec Microsoft Learn"
@@ -432,12 +432,14 @@ scenarios:
     prompts:
       - >-
         Dans Microsoft Entra ID, comment exiger l'authentification multifacteur pour tous
-        les administrateurs ? Cherche avec l'outil mslearn__microsoft_docs_search et cite
-        deux liens Microsoft Learn.
+        les administrateurs ? Cherche avec l'outil mslearn__microsoft_docs_search, puis
+        réponds en 5 lignes au plus : d'abord deux liens Microsoft Learn tirés du résultat,
+        puis l'explication.
       - >-
         Qu'est-ce que Privileged Identity Management dans Entra ID, et à quoi sert
         l'activation juste-à-temps d'un rôle ? Cherche avec l'outil
-        mslearn__microsoft_docs_search et cite deux liens Microsoft Learn.
+        mslearn__microsoft_docs_search, puis réponds en 5 lignes au plus : d'abord deux
+        liens Microsoft Learn tirés du résultat, puis l'explication.
 
   sovereignty:
     title_fr: "Métier Souveraineté : où partent les requêtes ?"
@@ -473,7 +475,8 @@ scenarios:
     prompts:
       - >-
         Cherche sur data.gouv.fr des jeux de données publics sur la cybersécurité en France,
-        avec l'outil datagouv__search_datasets, sans répondre de tête.
+        avec l'outil datagouv__search_datasets, sans répondre de tête. Réponds en 5 lignes
+        au plus : trois jeux au plus, chacun avec son lien data.gouv.fr en premier.
       - >-
         Cherche dans Microsoft Learn comment Entra ID journalise les connexions des comptes
         administrateurs, avec l'outil mslearn__microsoft_docs_search, sans répondre de tête.

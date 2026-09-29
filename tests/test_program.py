@@ -259,6 +259,14 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
     assert not any("Charge la documentation" in p for p in scenario["sovereignty"].prompts)
     assert not any("Charge la documentation" in p for p in scenario["mcp_lazy"].prompts)
     assert all("deux liens Microsoft Learn" in p for p in scenario["iam"].prompts)
+    # Lot K, suite (K2): within the 512 tokens of the output reserve, the links first.
+    for prompt in scenario["iam"].prompts:
+        assert "5 lignes au plus" in prompt, prompt
+        assert prompt.index("deux liens") < prompt.index("l'explication"), prompt
+    first_sovereignty = scenario["sovereignty"].prompts[0]
+    assert "5 lignes au plus" in first_sovereignty
+    assert "trois jeux au plus" in first_sovereignty
+    assert "chacun avec son lien data.gouv.fr en premier" in first_sovereignty
     # Skills: the skill and the meta-tool named, « Déclencher le skill » on its label.
     skills = scenario["skills"]
     label = load_skills_content(["meeting_minutes"]).skills["meeting_minutes"].label_fr
@@ -287,6 +295,9 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
     soc = scenario["soc"]
     assert "alertes_siem.log" in soc.prompts[0] and "nom exact" in soc.prompts[0]
     assert "ne la contourne pas" in soc.prompts[1] and "transmettre" in soc.prompts[1]
+    # Lot K, suite (K2): the one to escalate to, named (the 2B wrote « au Démonstrateur »).
+    assert "analyste" in soc.prompts[1] and "habilité" in soc.prompts[1]
+    assert "confidentiel" not in soc.prompts[1]  # the fake provider's own trigger (E2E)
     assert "analyste habilité" in soc.description_fr and "concluez vous-même" in soc.description_fr
     assert "« Forcer l'appel » sur « Lecture de fichier »" in soc.description_fr
     assert "en 8 lignes au plus" in soc.prompts[0]  # lot K: within the output reserve
