@@ -15,9 +15,11 @@ import yaml
 from pydantic import BaseModel, ConfigDict
 
 from wavestack import config
+from wavestack.models.candidates import piece_text
 from wavestack.models.gguf_meta import dimensions_from_header, positive_size
 
-__all__ = ["dimensions_from_header"]  # story 29: shared with the server adapters
+# Shared with the models layer: the servers' sizes, the candidates' texts.
+__all__ = ["dimensions_from_header", "piece_text"]
 
 TOKEN_LIMIT = 512  # the chips shown at most: the page stays fluid on a projector
 TEXT_LIMIT = 2000  # the characters of a prompt the screen accepts
@@ -162,6 +164,17 @@ class ReasoningText(_Strict):
     reserve_fr: str
 
 
+class CandidatesText(_Strict):
+    toggle_fr: str
+    help_fr: str
+    title_fr: str
+    probability_fr: str
+    chance_fr: str
+    dropped_fr: str
+    chosen_fr: str
+    legend_fr: str
+
+
 class LabContent(_Strict):
     title_fr: str
     intro_fr: str
@@ -178,6 +191,7 @@ class LabContent(_Strict):
     generation: GenerationText
     loading: LoadingText  # story 29, increment 3
     reasoning: ReasoningText
+    candidates: CandidatesText  # story 29, increment 4
 
 
 @cache
@@ -203,15 +217,6 @@ def fr_count(n: int) -> str:
 
 
 # ---------- tokens ----------
-
-
-def piece_text(piece: bytes) -> str:
-    """A token's text: its UTF-8 bytes decoded, or, when they are only part of a character
-    (a byte-level token, one of an emoji's four bytes), the bytes themselves: « ⟨F0 9F⟩ »."""
-    try:
-        return piece.decode("utf-8")
-    except UnicodeDecodeError:
-        return "⟨" + " ".join(f"{b:02X}" for b in piece) + "⟩"
 
 
 def token_rows(

@@ -258,6 +258,7 @@ _PREFIX_CAUSES_FR = {
     "llm": "L'écran « LLM nu » a occupé le cache du moteur{why}.",
 }
 _LAB_FR = "L'écran « LLM nu » génère une réponse : attendez sa fin ou arrêtez-la."
+CANDIDATES = 5  # story 29: the candidates read with each token, the one drawn added if apart
 _SUBAGENT_EVICTED_FR = {
     "stateless": " : ce moteur ne sait pas sauvegarder l'état du contexte principal",
     "failed": " : la sauvegarde ou la restauration de l'état du contexte principal a échoué",
@@ -6603,6 +6604,7 @@ class AppSession:
         reasons: bool = False,
         sampling: Sampling | None = None,
         on_token: Callable[[Fragment, str], None] | None = None,
+        candidates: int = 0,
     ) -> _ModelOutput:
         """One streamed call of at most `reserve` output tokens (AD-9); with tools on, its
         `<tool_call>` blocks are parsed, outside the reasoning (AD-6). `reasons`: the model
@@ -6624,6 +6626,8 @@ class AppSession:
             },
         )
         extra: dict[str, Any] = {"sampling": sampling} if sampling is not None else {}
+        if candidates:  # story 29, increment 4: the in-process engine only
+            extra["candidates"] = candidates
         tags = self._caps.reasoning_tags
         splitter = ChannelSplitter(
             tags,
@@ -7011,6 +7015,7 @@ class AppSession:
             "sampling": self._lab_sampling(),
             "last_load": self._last_load(tip),
             "reasoning": self._lab_reasoning(),
+            "candidates": self._lab_candidates(),
             "seq": tip,
         }
 
@@ -7237,7 +7242,13 @@ class AppSession:
             "reserve": MAX_RESERVE,
         }
 
-    def llm_generate(self, prompt: str, sampling: Sampling, reasoning: bool = False) -> str:
+    def llm_generate(
+        self,
+        prompt: str,
+        sampling: Sampling,
+        reasoning: bool = False,
+        candidates: bool = False,
+    ) -> str:
         """Intention `llm_generate` (story 29, class b): accepted in `idle` only, switched to
         `llm_lab` under the lock in this call, then run on the worker; « Arrêter » stops it
         (class c). `reasoning`: refused when the model cannot reason (mode `never` or
@@ -7248,6 +7259,8 @@ class AppSession:
                 "Raisonnement indisponible : "
                 + (lab["reason_fr"] or "le modèle actif ne sait pas raisonner.")
             )
+        if candidates and not (offer := self._lab_candidates())["available"]:
+            raise SendRefused(offer["reason_fr"])
         with self._memory_lock, self._lock:
             if self.state != "idle" or self._engine is None:
                 raise SendRefused(self._refusal_reason())
@@ -7256,8 +7269,31 @@ class AppSession:
             cancel = self._cancel = CancelToken()
             self.state, self.reason_fr = "llm_lab", _LAB_FR
         self._emit_state()
-        self._executor.submit(self._run_lab, request_id, prompt, sampling, reasoning, cancel)
+        self._executor.submit(
+            self._run_lab, request_id, prompt, sampling, reasoning, cancel, candidates
+        )
         return request_id
+
+    def _lab_candidates(self) -> dict[str, Any]:
+        """`lab_state().candidates` (story 29, increment 4): the candidates' probabilities are
+        read in the in-process engine only (a file), with why elsewhere."""
+        with self._lock:
+            active, cloud, engine = self._active, self._cloud, self._engine
+        reason: str | None = None
+        if engine is None or active is None:
+            reason = "Aucun modèle actif."
+        elif cloud is not None:
+            reason = (
+                f"Probabilités indisponibles : le modèle tourne chez {cloud.provider}, qui ne "
+                "les envoie pas à WaveStack sous une forme qu'il sait vérifier."
+            )
+        elif active.kind == "server":
+            reason = (
+                f"Probabilités indisponibles avec {active.provider} : WaveStack ne les lit que "
+                "dans le moteur qui tourne dans son propre processus (un fichier GGUF chargé par "
+                "WaveStack)."
+            )
+        return {"available": reason is None, "reason_fr": reason, "n": CANDIDATES}
 
     def _run_lab(
         self,
@@ -7266,6 +7302,7 @@ class AppSession:
         sampling: Sampling,
         reasoning: bool,
         cancel: CancelToken,
+        candidates: bool = False,
     ) -> None:
         """One user message rendered by the model's template (AD-4), no brick, no history;
         the local call through `_call_model` (one `llm_token` per token), the cloud call
@@ -7280,7 +7317,7 @@ class AppSession:
         touched, saved = False, None
         index = 0
 
-        def token(text: str, token_id: int | None, channel: str) -> None:
+        def token(text: str, token_id: int | None, channel: str, read: Any = None) -> None:
             nonlocal index
             counts[channel] = counts.get(channel, 0) + 1
             payload = LlmTokenPayload(
@@ -7290,13 +7327,14 @@ class AppSession:
                 text=text,
                 channel=channel,  # type: ignore[arg-type]
                 elapsed_ms=_ms(time.monotonic() - started),
+                candidates=list(read) if read else None,
             )
             journal.emit("llm_token", payload.model_dump(mode="json"), actor="model")
             index += 1
 
         def local_token(fragment: Fragment, channel: str) -> None:
             text = llm_lab.piece_text(fragment.piece) if fragment.piece else fragment.text
-            token(text, fragment.token_id, channel)
+            token(text, fragment.token_id, channel, fragment.candidates)
 
         with scoped(**self._lab_scope(request_id, call=True), origin="model", trigger="user"):
             try:
@@ -7373,6 +7411,7 @@ class AppSession:
                         reasons=reasons,
                         sampling=sampling,
                         on_token=local_token,
+                        candidates=CANDIDATES if candidates else 0,
                     )
                     ended["status"] = out.status if out.status != "completed" else "completed"
                 else:

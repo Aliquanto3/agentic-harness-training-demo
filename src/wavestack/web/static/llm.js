@@ -17,6 +17,8 @@ const store = {
   values: null, // the sliders' values, sent with « Générer »
   gen: { callTs: null, timer: null, first: false, cloud: false },
   reasoning: null, // `lab_state().reasoning`: mode, reason, budget, reserve
+  candidates: null, // `lab_state().candidates`: available, reason, n
+  pinned: null, // the chip whose candidates a click keeps open
   lastLoad: [], // the envelopes of the last model load
   load: { timer: null },
   // The requests already answered by an event: the answer may come before the POST's own.
@@ -465,6 +467,8 @@ function renderGenerationStarted(p) {
   $("reading-first-token").textContent = "";
   $("reading-rate").textContent = "";
   $("generation-tokens").replaceChildren();
+  store.pinned = null;
+  hideCandidates();
   $("generation-count").textContent = "";
   $("generation-rate").textContent = "";
   $("generation-empty").hidden = true;
@@ -483,6 +487,7 @@ function renderToken(p) {
   if (store.gen.cloud) chip.classList.add("is-fragment");
   chip.append(el("span", "token-chip-text", visibleBlanks(p.text)));
   chip.append(el("span", "token-chip-id", p.token_id === null ? "" : String(p.token_id)));
+  if (p.candidates?.length) bindCandidates(chip, p);
   $("generation-tokens").append(chip);
   $("generation-count").textContent = text(store.gen.cloud ? "generation.fragments_fr" : "generation.count_fr", {
     tokens: numberFr.format(p.index + 1),
@@ -527,6 +532,7 @@ async function generate() {
     prompt: $("llm-prompt").value,
     sampling: samplingToSend(),
     reasoning: store.reasoning?.mode === "toggle" && $("reasoning-toggle").checked,
+    candidates: Boolean(store.candidates?.available) && $("candidates-toggle").checked,
   });
   if (!answer.ok) {
     status.classList.add("is-error");
@@ -652,6 +658,73 @@ function clearLanes() {
 function laneToken(p) {
   const lane = p.channel === "reasoning" ? $("lane-thinking") : $("lane-answer");
   lane.textContent += p.text;
+}
+
+// ---------- increment 4: the candidates of each token ----------
+
+const percent = new Intl.NumberFormat("fr-FR", { style: "percent", maximumFractionDigits: 1 });
+
+function renderCandidatesOffer() {
+  const offer = store.candidates;
+  if (!offer) return;
+  const toggle = $("candidates-toggle");
+  toggle.disabled = !offer.available;
+  if (!offer.available) toggle.checked = false;
+  $("candidates-toggle-box").classList.toggle("is-disabled", !offer.available);
+  toggle.title = offer.reason_fr || "";
+  $("candidates-reason").textContent = offer.available ? text("candidates.help_fr") : offer.reason_fr;
+}
+
+function bindCandidates(chip, p) {
+  chip.classList.add("has-candidates");
+  chip.tabIndex = 0;
+  chip.setAttribute("aria-haspopup", "dialog");
+  const show = () => showCandidates(chip, p);
+  chip.addEventListener("mouseenter", show);
+  chip.addEventListener("focus", show);
+  chip.addEventListener("mouseleave", () => store.pinned !== chip && hideCandidates());
+  chip.addEventListener("blur", () => store.pinned !== chip && hideCandidates());
+  chip.addEventListener("click", () => {
+    store.pinned = store.pinned === chip ? null : chip;
+    if (store.pinned) show();
+    else hideCandidates();
+  });
+}
+
+function showCandidates(chip, p) {
+  const box = $("candidates-popover");
+  $("candidates-title").textContent = text("candidates.title_fr", { index: p.index + 1 });
+  const list = $("candidates-list");
+  list.replaceChildren();
+  for (const c of p.candidates) {
+    const row = el("li", "candidate");
+    if (c.chosen) row.classList.add("is-chosen");
+    if (!c.kept) row.classList.add("is-dropped");
+    row.append(el("span", "candidate-text", `« ${visibleBlanks(c.text)} »`));
+    const bar = el("span", "candidate-bar");
+    const fill = el("span");
+    fill.style.width = `${Math.max(0, Math.min(1, c.p)) * 100}%`;
+    bar.append(fill);
+    bar.setAttribute("aria-hidden", "true");
+    row.append(bar, el("span", "candidate-p", percent.format(c.p)));
+    const notes = [
+      text("candidates.chance_fr", { chance: percent.format(c.p_sampled) }),
+      c.kept ? null : text("candidates.dropped_fr"),
+      c.chosen ? text("candidates.chosen_fr") : null,
+    ].filter(Boolean);
+    row.append(el("span", "candidate-note", notes.join(" · ")));
+    list.append(row);
+  }
+  box.hidden = false;
+  const rect = chip.getBoundingClientRect();
+  const width = box.offsetWidth;
+  const left = Math.min(rect.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - width - 16);
+  box.style.left = `${Math.max(left, 16)}px`;
+  box.style.top = `${rect.bottom + window.scrollY + 6}px`;
+}
+
+function hideCandidates() {
+  $("candidates-popover").hidden = true;
 }
 
 // ---------- the journal ----------
@@ -795,6 +868,7 @@ async function refresh() {
   store.tokenizer = body.tokenizer;
   store.sampling = body.sampling;
   store.reasoning = body.reasoning;
+  store.candidates = body.candidates;
   store.lastLoad = body.last_load;
   const alert = $("llm-content-error");
   alert.hidden = !body.content_error_fr;
@@ -804,6 +878,7 @@ async function refresh() {
   renderTokenizerInfo();
   renderSampling();
   renderReasoning();
+  renderCandidatesOffer();
   if (!store.load.timer) renderLastLoad();
   renderBusy();
   return body;
@@ -818,6 +893,12 @@ async function main() {
   $("generate-button").addEventListener("click", generate);
   $("stop-button").addEventListener("click", stopGeneration);
   $("sampling-reset").addEventListener("click", resetSampling);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      store.pinned = null;
+      hideCandidates();
+    }
+  });
   if (body) store.lastSeq = body.seq;
   document.body.dataset.labReady = "true";
   streamEvents();

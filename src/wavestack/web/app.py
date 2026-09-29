@@ -165,6 +165,7 @@ class LlmGenerateIntention(BaseModel):
     prompt: str = Field(min_length=1, max_length=2000)
     sampling: SamplingIntention
     reasoning: bool = False  # refused (409) by a model that cannot reason
+    candidates: bool = False  # the in-process engine only, else 409
 
 
 class SystemPromptIntention(BaseModel):
@@ -282,7 +283,10 @@ def create_app(
         sampling = Sampling(**intention.sampling.model_dump())
         try:
             request_id = app_session.llm_generate(
-                intention.prompt, sampling, reasoning=intention.reasoning
+                intention.prompt,
+                sampling,
+                reasoning=intention.reasoning,
+                candidates=intention.candidates,
             )
             return {"request_id": request_id}
         except SendRefused as refused:

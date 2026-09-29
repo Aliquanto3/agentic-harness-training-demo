@@ -103,6 +103,11 @@
         <button type="button" id="stop-button" class="llm-button-secondary" data-text="generation.stop_fr" disabled>Arrêter</button>
         <span class="llm-status" id="generate-status" role="status" aria-live="polite"></span>
       </div>
+      <label class="reasoning-toggle" id="candidates-toggle-box">
+        <input type="checkbox" id="candidates-toggle" />
+        <span data-text="candidates.toggle_fr">Montrer les tokens candidats</span>
+      </label>
+      <p class="llm-note" id="candidates-reason"></p>
       <p class="llm-note" id="generation-cloud" data-text="generation.cloud_fr" hidden></p>
       <p class="llm-counts" id="generation-count"></p>
       <ol class="token-chips token-stream" id="generation-tokens" aria-label="Tokens produits"></ol>
@@ -132,6 +137,12 @@
       </div>
     </section>
   </main>
+
+  <div class="candidates-popover" id="candidates-popover" role="dialog" aria-labelledby="candidates-title" hidden>
+    <p class="candidates-title" id="candidates-title"></p>
+    <ol class="candidates-list" id="candidates-list"></ol>
+    <p class="candidates-legend" data-text="candidates.legend_fr"></p>
+  </div>
 
   <script type="module" src="/static/llm.js"></script>
 </body>

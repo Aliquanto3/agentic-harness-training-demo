@@ -68,6 +68,9 @@ class Fragment:
     # and bytes; a server: the chunk it streamed, as bytes), for the « LLM nu » screen.
     token_id: int | None = None
     piece: bytes | None = None
+    # Story 29, increment 4: the token's candidates (`models.candidates`), in-process only,
+    # when asked: `{token_id, text, p, kept, p_sampled, chosen}` each.
+    candidates: tuple[dict[str, Any], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -329,7 +332,11 @@ class LlamaCppEngine:
         cancel: CancelToken,
         *,
         sampling: Sampling | None = None,
+        candidates: int = 0,
     ) -> Iterator[Fragment]:
+        """`candidates` (story 29): the number of most probable tokens to read with each
+        token, from the logits of the position it was drawn from (the last one: never
+        `logits_all`, which would hold n_ctx × vocabulary floats)."""
         s = sampling or DEFAULT_SAMPLING
         decoder = codecs.getincrementaldecoder("utf-8")("replace")
         pending = ""
@@ -349,12 +356,13 @@ class LlamaCppEngine:
                     break
                 count += 1
                 piece = self.token_pieces([token])[0]
+                read = self._candidates(int(token), s, candidates) if candidates else None
                 pending += decoder.decode(piece)
                 emit, pending, stopped = cut_stop(pending, stop)
                 if stopped:
-                    yield Fragment(emit, count, "stop", int(token), piece)
+                    yield Fragment(emit, count, "stop", int(token), piece, read)
                     return
-                yield Fragment(emit, count, token_id=int(token), piece=piece)
+                yield Fragment(emit, count, token_id=int(token), piece=piece, candidates=read)
                 if count >= max_tokens:
                     reason = "length"
                     break
@@ -363,6 +371,23 @@ class LlamaCppEngine:
             # The prompt tokens evaluated, the ones reused from the cache excluded (AD-4).
             self._last_evaluated = int(self._lib.llama_perf_context(self._llm.ctx).n_p_eval)
         yield Fragment(pending + decoder.decode(b"", final=True), count, reason)
+
+    def _candidates(self, token: int, sampling: Sampling, n: int) -> tuple[dict[str, Any], ...]:
+        """Story 29: when `generate` yields a token, the context still holds the logits it
+        was drawn from: `n_vocab()` floats of the last position, read in place."""
+        import numpy as np  # installed with llama-cpp-python
+
+        from wavestack.models.candidates import candidates_from_logits, piece_text
+
+        pointer = self._lib.llama_get_logits_ith(self._llm.ctx, -1)
+        logits = np.ctypeslib.as_array(pointer, shape=(self._llm.n_vocab(),))
+        rows = candidates_from_logits(logits, sampling, token, n)
+        pieces = self.token_pieces([r["token_id"] for r in rows])
+        return tuple(
+            {"token_id": r["token_id"], "text": piece_text(p)}
+            | {k: r[k] for k in ("p", "kept", "p_sampled", "chosen")}
+            for r, p in zip(rows, pieces, strict=True)
+        )
 
     def close(self) -> None:
         self._llm.close()

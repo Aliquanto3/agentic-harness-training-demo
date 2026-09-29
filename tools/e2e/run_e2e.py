@@ -5662,6 +5662,7 @@ def _llm_screen(r: Run) -> None:
         and page.locator("#generation-tokens .token-chip").count() >= 1,
         "cloud A : fragments reçus du fournisseur, dits comme tels",
     )
+    _candidates_unavailable(r, "Faux fournisseur (e2e)", "cloud A")
 
     # (4) The fake llama-server, chosen in the workshop's picker.
     r.goto_app()
@@ -5753,6 +5754,8 @@ def _llm_screen(r: Run) -> None:
     r.check(not dark and not light, "/llm : contrastes AA dans les deux thèmes", str(dark + light))
     r.shot("53-llm-nu-generation", full_page=True)
 
+    _candidates_unavailable(r, "llama-server", "llama-server")
+
     # Increment 3: the reasoning, on the fake llama-server (Qwen3.5's template).
     toggle = page.locator("#reasoning-toggle")
     r.check(toggle.is_enabled(), "raisonnement : interrupteur activable (gabarit Qwen3.5)")
@@ -5796,6 +5799,23 @@ def _llm_screen(r: Run) -> None:
 
 
 _LAB_SAMPLING = {"temperature": 0.2, "top_k": 5, "top_p": 0.9, "min_p": 0.05}
+
+
+def _candidates_unavailable(r: Run, name: str, where: str) -> None:
+    """Increment 4: « Montrer les tokens candidats » greyed, its reason naming `name`; a
+    direct call asking for them answers 409."""
+    box = r.page.locator("#candidates-toggle")
+    reason = r.page.inner_text("#candidates-reason")
+    refused = r.api(
+        "POST",
+        "/api/intentions/llm_generate",
+        {"prompt": "Bonjour", "sampling": _LAB_SAMPLING, "candidates": True},
+    )
+    r.check(
+        box.is_disabled() and name in reason and refused.status_code == 409,
+        f"{where} : « Montrer les tokens candidats » grisé avec sa raison, appel direct 409",
+        f"{reason} · {refused.status_code}",
+    )
 
 
 def _set_lab_sampling(r: Run) -> None:

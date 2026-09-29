@@ -159,3 +159,18 @@ reasoning:
   empty_fr: "Rien pour l'instant."
   count_fr: "{tokens} tokens"
   reserve_fr: "Réserve de sortie : {reserve} tokens quand le modèle raisonne."
+
+candidates:
+  toggle_fr: "Montrer les tokens candidats"
+  help_fr: >-
+    Pour chaque token produit, les cinq tokens que le modèle jugeait les plus probables à cet
+    endroit. Survolez une puce, donnez-lui le focus ou cliquez dessus.
+  title_fr: "Candidats du token {index}"
+  probability_fr: "probabilité du modèle"
+  chance_fr: "chance d'être tiré : {chance}"
+  dropped_fr: "écarté par top-k, top-p ou min-p"
+  chosen_fr: "tiré"
+  legend_fr: >-
+    La probabilité du modèle vient de ses logits (température 1). Top-k, top-p et min-p
+    écartent des candidats, puis la température redistribue la chance d'être tiré entre ceux
+    qui restent.

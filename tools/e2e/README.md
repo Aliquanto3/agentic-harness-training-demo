@@ -437,7 +437,10 @@ Vérifications ajoutées aux scénarios existants :
   durée, « dans son propre processus » et « En local : RAM du CPU, pas de GPU » ; le raisonnement
   coché sur le faux llama-server (gabarit Qwen3.5) : réserve de 1 536, le couloir « Réflexion »
   contient « Je réfléchis. » et le couloir « Réponse » la réponse. Capture
-  `54-llm-nu-chargement-raisonnement.jpg`. (7) Retour au faux cloud A, puis `/llm` dit « aucune
+  `54-llm-nu-chargement-raisonnement.jpg`. Incrément 4 : sur le faux cloud A puis sur le faux llama-server,
+  « Montrer les tokens candidats » est grisé, sa raison nomme le fournisseur ou « llama-server »,
+  et un appel direct qui les demande reçoit 409 (l'affichage des candidats passe par pytest :
+  aucun moteur en processus dans le parcours). (7) Retour au faux cloud A, puis `/llm` dit « aucune
   mémoire sur ce poste ».
 
 ## Déclencheurs du faux modèle

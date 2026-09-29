@@ -393,6 +393,15 @@ Les stories 33, 23, 34, 32, 24, 25, 26, 27 et 31 modifient plusieurs de ces fich
 
 ## Spec Change Log
 
+- 2026-09-29, implémentation (les quatre incréments livrés, un commit chacun) :
+  - **Lien « LLM nu » à 1280 px.** Sous 1400 px, le lien devient « LLM » (nom accessible « LLM nu ») et, pour lui faire place, les noms du scénario et du modèle cèdent un peu plus (`min-width` 4rem, et 3rem / 2,5rem en mode projection) : sans cela, les vérifications existantes à 1280 × 720 (chiffres de la jauge, « · lié » de la puce en mode projection) échouaient. Rien d'autre ne change dans la barre haute ; à 1600 × 1000 tout est entier.
+  - **Flux SSE.** La page lit `/api/stream` par `fetch` et un analyseur SSE à la main, comme `app.js`, plutôt que par `EventSource` : le serveur nomme chaque événement d'après son `kind`, et la reprise se fait par `Last-Event-ID` à partir du `seq` de `/api/llm_lab`.
+  - **`dimensions_from_header`** vit dans `models/gguf_meta.py` (les adaptateurs de serveurs s'en servent et `models` n'importe pas `session`) ; `session/llm_lab.py` le réexporte. De même `piece_text`, dans `models/candidates.py`.
+  - **Champs ajoutés aux payloads**, pour que la page ne compte ni ne mette en forme de chiffre : `char_count`, `chars_per_token` et `figures_fr` dans `llm_tokenized` ; `figures_fr` dans `llm_generation_started` et `llm_generation_ended` ; `duration_ms` dans `model_load_step` ; `lab_state()` porte aussi `session_state` et `sampling.defaults_fr`.
+  - **Pièce d'un fragment de serveur.** llama-server et Ollama rendent des morceaux de flux : la page les montre comme des puces (sans identifiant) ; le faux llama-server envoie 4 caractères par morceau.
+  - **Canal d'un token** : celui où il commence (le séparateur avant le token), si bien que `</think>` est dans le couloir « Réflexion ».
+  - **Test existant adapté** : `tests/test_model_switch.py::test_launch_load_emits_model_load_events_out_of_any_turn` filtrait tous les `model_load*` ; il écarte maintenant `model_load_step`, additif (aucun test supprimé).
+
 ## Review Triage Log
 
 ## Design Notes

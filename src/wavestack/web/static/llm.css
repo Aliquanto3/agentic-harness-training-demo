@@ -645,3 +645,108 @@ body.llm-page {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- candidates-popover (increment 4): five bars in %, the token drawn marked ---------- */
+
+.token-chip.has-candidates {
+  cursor: pointer;
+}
+
+.token-chip.has-candidates .token-chip-text {
+  text-decoration: underline dotted;
+}
+
+.candidates-popover {
+  position: absolute;
+  z-index: 10;
+  width: 24rem;
+  max-width: calc(100vw - 2 * var(--spacing-4));
+  padding: var(--spacing-3);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--spacing-stroke-min) solid var(--color-primary);
+  border-radius: var(--rounded-md);
+  box-shadow: 0 var(--spacing-relief-offset-overlay) 0 var(--color-relief);
+}
+
+.candidates-popover[hidden] {
+  display: none;
+}
+
+.candidates-title {
+  margin: 0 0 var(--spacing-2);
+  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.candidates-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.candidate {
+  display: grid;
+  grid-template-columns: 7rem 1fr 3.5rem;
+  align-items: center;
+  gap: var(--spacing-1) var(--spacing-2);
+  padding: 2px var(--spacing-1);
+  border-radius: var(--rounded-sm);
+}
+
+.candidate.is-chosen {
+  background: var(--color-primary-soft);
+  outline: var(--spacing-stroke-min) solid var(--color-ink);
+}
+
+.candidate-text {
+  font: var(--typography-code-font-weight) var(--typography-code-font-size) /
+    var(--typography-code-line-height) var(--typography-code-font-family);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.candidate-bar {
+  height: 0.8em;
+  background: var(--color-line);
+  border-radius: var(--rounded-full);
+  overflow: hidden;
+}
+
+.candidate-bar span {
+  display: block;
+  height: 100%;
+  background: var(--color-primary);
+}
+
+.candidate.is-dropped .candidate-bar span {
+  background: var(--color-muted);
+}
+
+.candidate-p {
+  text-align: right;
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+.candidate-note {
+  grid-column: 1 / -1;
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.candidate.is-chosen .candidate-note {
+  color: var(--color-ink);
+}
+
+.candidates-legend {
+  margin: var(--spacing-2) 0 0;
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}

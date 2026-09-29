@@ -1000,6 +1000,19 @@ class LlmGenerationStartedPayload(BaseModel):
     figures_fr: dict[str, str] = {}
 
 
+class LlmCandidate(BaseModel):
+    """Story 29, increment 4: a candidate of a token (in-process engine only): the model's
+    probability `p`, whether top-k, top-p and min-p `kept` it, its real chance to be drawn
+    `p_sampled` (temperature applied among the kept), and whether it was the one drawn."""
+
+    token_id: int
+    text: str
+    p: float
+    kept: bool
+    p_sampled: float
+    chosen: bool = False
+
+
 class LlmTokenPayload(BaseModel):
     """One token as it comes (a cloud model: one fragment the provider sent), its channel,
     and the ms since the generation started."""
@@ -1010,6 +1023,7 @@ class LlmTokenPayload(BaseModel):
     text: str
     channel: Channel
     elapsed_ms: int
+    candidates: list[LlmCandidate] | None = None
 
 
 class LlmGenerationEndedPayload(BaseModel):

@@ -19,6 +19,7 @@ from test_model_servers import GIB, LLAMA_URL, FakeServer, _booted
 from wavestack import config
 from wavestack.cloud import chat_fields
 from wavestack.models import gguf_meta, servers
+from wavestack.models.candidates import candidates_from_logits
 from wavestack.models.engine import EngineMetadata, Sampling
 from wavestack.session import llm_lab
 from wavestack.session.app_session import SendRefused
@@ -649,3 +650,120 @@ def test_reasoning_refused_without_it_and_forced_when_always():
     assert started["reasoning"] is True and started["reserve"] == 1536
     body = json.loads(provider.requests[-1].content)
     assert body["reasoning_effort"] == "low"
+
+
+# ---------- increment 4: the candidates' probabilities ----------
+
+
+def _softmax(values: list[float]) -> list[float]:
+    import math
+
+    top = max(values)
+    weights = [math.exp(v - top) for v in values]
+    return [w / sum(weights) for w in weights]
+
+
+LOGITS = [4.0, 3.0, 2.0, 1.0, 0.5, 0.0, -1.0, -2.0]
+
+
+def _by_id(rows: list[dict]) -> dict[int, dict]:
+    return {r["token_id"]: r for r in rows}
+
+
+def test_candidates_at_temperature_one_keep_all():
+    rows = candidates_from_logits(LOGITS, Sampling(1.0, 100, 1.0, 0.0), chosen_id=1)
+    p = _softmax(LOGITS)
+    assert [r["token_id"] for r in rows] == [0, 1, 2, 3, 4]
+    assert [round(r["p"], 6) for r in rows] == [round(x, 6) for x in p[:5]]
+    assert all(r["kept"] for r in rows)
+    assert [round(r["p_sampled"], 6) for r in rows] == [round(x, 6) for x in p[:5]]
+    assert [r["chosen"] for r in rows] == [False, True, False, False, False]
+    assert sum(r["p"] for r in rows) <= 1
+
+
+def test_candidates_temperature_changes_the_chance_not_the_probability():
+    rows = candidates_from_logits(LOGITS, Sampling(0.5, 100, 1.0, 0.0), chosen_id=0)
+    sharp = _softmax([v / 0.5 for v in LOGITS])
+    assert round(rows[0]["p"], 6) == round(_softmax(LOGITS)[0], 6)
+    assert round(rows[0]["p_sampled"], 6) == round(sharp[0], 6)
+
+
+def test_candidates_greedy_top_k_top_p_min_p():
+    greedy = _by_id(candidates_from_logits(LOGITS, Sampling(0.0, 100, 1.0, 0.0), chosen_id=0))
+    assert greedy[0]["p_sampled"] == 1.0 and greedy[1]["p_sampled"] == 0.0
+
+    top_k = _by_id(candidates_from_logits(LOGITS, Sampling(1.0, 2, 1.0, 0.0), chosen_id=0))
+    assert [top_k[t]["kept"] for t in range(5)] == [True, True, False, False, False]
+    assert round(top_k[0]["p_sampled"] + top_k[1]["p_sampled"], 6) == 1.0
+
+    # top-p 0.8: the renormalized cumulated sum reaches it at the second token (0.62 + 0.23).
+    top_p = _by_id(candidates_from_logits(LOGITS, Sampling(1.0, 100, 0.8, 0.0), chosen_id=0))
+    assert [top_p[t]["kept"] for t in range(4)] == [True, True, False, False]
+
+    # min-p 0.3: kept when p >= 0.3 × p_max, i.e. logit >= 4 + ln 0.3 ≈ 2.8.
+    min_p = _by_id(candidates_from_logits(LOGITS, Sampling(1.0, 100, 1.0, 0.3), chosen_id=0))
+    assert [min_p[t]["kept"] for t in range(3)] == [True, True, False]
+
+
+def test_the_token_drawn_outside_the_five_is_added_and_marked():
+    rows = candidates_from_logits(LOGITS, Sampling(1.0, 100, 1.0, 0.0), chosen_id=6)
+    assert len(rows) == 6 and rows[-1]["token_id"] == 6 and rows[-1]["chosen"]
+    assert rows[-1]["kept"] and rows[-1]["p_sampled"] > 0
+
+
+def test_candidates_reach_llm_token_with_their_text():
+    script = [
+        [{"token_id": 83, "p": 0.6, "kept": True, "p_sampled": 0.8, "chosen": True}],
+        [{"token_id": 97, "p": 0.3, "kept": True, "p_sampled": 0.2, "chosen": True}],
+    ]
+    engine = FakeEngine(output="Sa", candidates_script=script)
+    session = booted_session(engine)
+    assert session.lab_state()["candidates"] == {"available": True, "reason_fr": None, "n": 5}
+    events = _generate(session, candidates=True)
+    tokens = [e.payload for e in events if e.kind == "llm_token"]
+    assert tokens[0]["candidates"] == [
+        {"token_id": 83, "text": "S", "p": 0.6, "kept": True, "p_sampled": 0.8, "chosen": True}
+    ]
+    assert engine.candidates == [5]
+    plain = _generate(session)  # unchecked: nothing asked, nothing carried
+    assert all(e.payload.get("candidates") is None for e in plain if e.kind == "llm_token")
+    assert engine.candidates == [5]
+
+
+def test_candidates_unavailable_on_servers_and_the_cloud(monkeypatch):
+    server = FakeServer()
+    monkeypatch.setattr(servers, "default_transport", httpx.MockTransport(server))
+    session = _booted("llama_server")
+    lab = session.lab_state()["candidates"]
+    assert lab["available"] is False and "llama-server" in lab["reason_fr"]
+    with pytest.raises(SendRefused):
+        session.llm_generate("Bonjour", SCREEN, candidates=True)
+    assert session.state == "idle"
+    ollama = _booted("ollama").lab_state()["candidates"]
+    assert ollama["available"] is False and "Ollama" in ollama["reason_fr"]
+    provider = Provider(sse(delta(content="ok"), delta("stop")))
+    cloud = _cloud_session("groq", provider).lab_state()["candidates"]
+    assert cloud["available"] is False and "Groq" in cloud["reason_fr"]
+
+
+@pytest.mark.model
+def test_real_engine_candidates(tmp_path):
+    import os
+
+    path = os.environ.get("WAVESTACK_TEST_GGUF")
+    if not path:
+        pytest.skip("WAVESTACK_TEST_GGUF not set to a real GGUF file")
+    from wavestack.models.engine import CancelToken, LlamaCppEngine
+
+    engine = LlamaCppEngine(path, n_ctx=512)
+    try:
+        ids = engine.tokenize("La capitale de la France est")
+        fragments = list(engine.complete(ids, (), 4, CancelToken(), sampling=SCREEN, candidates=5))
+        rows = [f.candidates for f in fragments if f.candidates]
+        assert rows
+        for candidates in rows:
+            assert sum(c["p"] for c in candidates[:5]) <= 1.0 + 1e-6
+            chosen = [c for c in candidates if c["chosen"]]
+            assert len(chosen) == 1 and chosen[0]["kept"]
+    finally:
+        engine.close()

@@ -303,6 +303,13 @@ dans l'atelier » ramène au sélecteur de la barre haute.
   (grisé avec la raison sinon, verrouillé pour un modèle qui raisonne toujours) ; la réflexion
   et la réponse s'affichent dans deux couloirs, avec la réserve de 1 536 tokens et, en local,
   la coupe du harnais au budget de réflexion.
+- **Tokens candidats.** Avec un fichier GGUF chargé par WaveStack (moteur en processus),
+  « Montrer les tokens candidats » garde, pour chaque token produit, les cinq tokens que le
+  modèle jugeait les plus probables : survolez, donnez le focus ou cliquez une puce pour voir
+  leur probabilité, ceux que top-k, top-p ou min-p écartent et leur chance réelle d'être tirés
+  (la température appliquée), le token tiré marqué. La lecture coûte peu (le vocabulaire d'une
+  seule position par token). Avec llama-server, Ollama ou un modèle cloud, la case est grisée :
+  WaveStack ne lit pas leurs probabilités.
 
 Les textes de la page sont dans `content/llm_lab.yaml`. Les événements de l'écran sont tracés
 dans le contexte `llm` : le journal des événements de l'atelier les liste, aucun volet ne les

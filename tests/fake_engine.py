@@ -32,6 +32,7 @@ class FakeEngine:
         stateful: bool = True,
         fail_restore: bool = False,
         cache_lags: bool = False,
+        candidates_script: list[list[dict]] | None = None,
     ) -> None:
         self.output = output
         self.outputs = outputs  # one per call, the last one repeated
@@ -53,6 +54,10 @@ class FakeEngine:
         self.evaluated: list[int] = []
         # Story 29: the sampling of each call that gave one (the « LLM nu » screen only).
         self.samplings: list = []
+        # Story 29, increment 4: the candidates of each token (their text from the id's
+        # byte), given when the screen asks; `candidates` records how many were asked.
+        self.candidates_script = candidates_script
+        self.candidates: list[int] = []
         self.snapshots = 0
         self.restores = 0
 
@@ -100,9 +105,12 @@ class FakeEngine:
         cancel: CancelToken,
         *,
         sampling=None,  # noqa: ANN001 - story 29: given by the « LLM nu » screen only
+        candidates: int = 0,
     ) -> Iterator[Fragment]:
         if sampling is not None:
             self.samplings.append(sampling)
+        if candidates:
+            self.candidates.append(candidates)
         self.calls.append(list(prompt_ids))
         prefix = self.cache and list(prompt_ids[: len(self.cache)]) == self.cache
         self.evaluated.append(len(prompt_ids) - (len(self.cache) if prefix else 0))
@@ -127,7 +135,13 @@ class FakeEngine:
             else:
                 self.cache += list(char.encode("utf-8"))
             # Story 29: one character = one token, its bytes the piece.
-            yield Fragment(char, count, piece=char.encode("utf-8"))
+            read = None
+            if candidates and self.candidates_script and count <= len(self.candidates_script):
+                read = tuple(
+                    {"text": bytes([c["token_id"]]).decode("utf-8", "replace")} | c
+                    for c in self.candidates_script[count - 1]
+                )
+            yield Fragment(char, count, piece=char.encode("utf-8"), candidates=read)
             if count >= max_tokens:
                 yield Fragment("", count, "length")
                 return
