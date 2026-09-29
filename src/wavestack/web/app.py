@@ -164,6 +164,7 @@ class LlmGenerateIntention(BaseModel):
 
     prompt: str = Field(min_length=1, max_length=2000)
     sampling: SamplingIntention
+    reasoning: bool = False  # refused (409) by a model that cannot reason
 
 
 class SystemPromptIntention(BaseModel):
@@ -280,7 +281,10 @@ def create_app(
         generation ends; « Arrêter » (`stop`) stops it."""
         sampling = Sampling(**intention.sampling.model_dump())
         try:
-            return {"request_id": app_session.llm_generate(intention.prompt, sampling)}
+            request_id = app_session.llm_generate(
+                intention.prompt, sampling, reasoning=intention.reasoning
+            )
+            return {"request_id": request_id}
         except SendRefused as refused:
             raise HTTPException(
                 status_code=409, detail=f"Refusé pour l'instant : {refused.reason_fr}"

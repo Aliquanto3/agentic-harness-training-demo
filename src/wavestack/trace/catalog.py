@@ -767,6 +767,31 @@ class ModelLoadEndedPayload(BaseModel):
     status: Literal["ok", "restored", "cancelled", "error"]
     duration_ms: int
     reason_fr: str | None = None
+    # Story 29: the memory the load took, on `ok` (the « LLM nu » screen shows it).
+    memory: LoadMemory | None = None
+
+
+class LoadMemory(BaseModel):
+    """Story 29: WaveStack's RSS before the load and after it, the cost the budget counts
+    (AD-8), and where the model lies, in French (formatted by the session)."""
+
+    rss_before: int | None = None
+    rss_after: int | None = None
+    cost_bytes: int = 0
+    where_fr: str
+
+
+class ModelLoadStepPayload(BaseModel):
+    """Story 29: a step of a load passed, out of any turn: the previous model released, the
+    probe, the budget's check, the engine created, ready. `elapsed_ms` since the load
+    started, `duration_ms` the step's own, `rss_bytes` WaveStack's RSS then."""
+
+    model: ActiveModel
+    step: Literal["release", "probe", "check", "engine", "ready"]
+    label_fr: str
+    elapsed_ms: int
+    duration_ms: int = 0
+    rss_bytes: int | None = None
 
 
 # ---------- story 19: delegation to a sub-agent (AD-11, AD-25) ----------
@@ -1053,6 +1078,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "compression_started": CompressionStartedPayload,
     "compression_ended": CompressionEndedPayload,
     "llm_tokenized": LlmTokenizedPayload,
+    "model_load_step": ModelLoadStepPayload,
     "llm_generation_started": LlmGenerationStartedPayload,
     "llm_token": LlmTokenPayload,
     "llm_generation_ended": LlmGenerationEndedPayload,

@@ -70,6 +70,17 @@
       </div>
     </section>
 
+    <section class="llm-section" id="sec-loading" aria-labelledby="sec-loading-title">
+      <h2 class="llm-section-title" id="sec-loading-title"><span class="llm-step" aria-hidden="true">3</span> <span data-text="sections.loading.title_fr">Chargement du modèle</span></h2>
+      <p class="llm-section-intro" data-text="sections.loading.intro_fr"></p>
+      <p class="llm-counts" id="loading-total" role="status"></p>
+      <ol class="load-steps" id="loading-steps"></ol>
+      <p class="llm-note" id="loading-empty" data-text="loading.empty_fr" hidden></p>
+      <p class="load-memory" id="loading-memory" hidden></p>
+      <p class="llm-note" id="loading-local" data-text="loading.local_fr" hidden></p>
+      <p><a href="/" class="llm-link" data-text="change_model_fr">Changer de modèle dans l'atelier</a></p>
+    </section>
+
     <section class="llm-section" id="sec-reading" aria-labelledby="sec-reading-title">
       <h2 class="llm-section-title" id="sec-reading-title"><span class="llm-step" aria-hidden="true">4</span> <span data-text="sections.reading.title_fr">Lecture du prompt</span></h2>
       <p class="llm-section-intro" data-text="sections.reading.intro_fr"></p>
@@ -97,6 +108,28 @@
       <ol class="token-chips token-stream" id="generation-tokens" aria-label="Tokens produits"></ol>
       <p class="llm-note" id="generation-empty" data-text="generation.empty_fr"></p>
       <p class="llm-figure" id="generation-rate"></p>
+    </section>
+
+    <section class="llm-section" id="sec-reasoning" aria-labelledby="sec-reasoning-title">
+      <h2 class="llm-section-title" id="sec-reasoning-title"><span class="llm-step" aria-hidden="true">6</span> <span data-text="sections.reasoning.title_fr">Raisonnement</span></h2>
+      <p class="llm-section-intro" data-text="sections.reasoning.intro_fr"></p>
+      <label class="reasoning-toggle" id="reasoning-toggle-box">
+        <input type="checkbox" id="reasoning-toggle" />
+        <span data-text="reasoning.toggle_fr">Raisonner avant de répondre</span>
+      </label>
+      <p class="llm-note" id="reasoning-reason"></p>
+      <p class="llm-note" id="reasoning-budget"></p>
+      <div class="reasoning-lanes">
+        <section class="reasoning-lane is-thinking" aria-labelledby="lane-thinking-title">
+          <h3 class="reasoning-lane-title" id="lane-thinking-title"><span data-text="reasoning.thinking_fr">Réflexion</span> <span class="reasoning-lane-count" id="lane-thinking-count"></span></h3>
+          <p class="reasoning-lane-text" id="lane-thinking"></p>
+          <p class="reasoning-cut" id="lane-cut" role="status" hidden></p>
+        </section>
+        <section class="reasoning-lane is-answer" aria-labelledby="lane-answer-title">
+          <h3 class="reasoning-lane-title" id="lane-answer-title"><span data-text="reasoning.answer_fr">Réponse</span> <span class="reasoning-lane-count" id="lane-answer-count"></span></h3>
+          <p class="reasoning-lane-text" id="lane-answer"></p>
+        </section>
+      </div>
     </section>
   </main>
 

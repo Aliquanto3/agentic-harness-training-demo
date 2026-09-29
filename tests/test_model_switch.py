@@ -413,7 +413,14 @@ def test_launch_load_emits_model_load_events_out_of_any_turn(tmp_path):
     _booted(tmp_path, {"A": FakeEngine()})
 
     events = [e for e in get_journal().events_since(mark) if e.kind.startswith("model_load")]
-    assert [e.kind for e in events] == ["model_load_started", "model_load_ended"]
+    # Story 29: the steps between them are additive (`model_load_step`, same scope).
+    assert [e.kind for e in events if e.kind != "model_load_step"] == [
+        "model_load_started",
+        "model_load_ended",
+    ]
+    events = [e for e in events if e.kind != "model_load_step"] + [
+        e for e in events if e.kind == "model_load_step"
+    ]
     assert all(e.turn_id is None and e.step_id is None for e in events)
     assert events[0].payload["phase_label"] == "Chargement du modèle A.gguf…"
     assert events[1].payload["status"] == "ok" and events[1].payload["duration_ms"] >= 0

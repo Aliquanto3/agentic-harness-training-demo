@@ -105,6 +105,7 @@ from wavestack.models.capabilities import (
     ChannelSplitter,
     capabilities_for,
     cloud_capabilities,
+    reasoning_mode,
     reasoning_window_fr,
 )
 from wavestack.models.embedding import Embedder
@@ -1663,10 +1664,32 @@ class AppSession:
         status, reason_fr, idle_fr = "error", None, _LOAD_FAILED_FR
         with self._lock:
             cancel = self._load_cancel
+        # Story 29: each step passed, with WaveStack's RSS, for the « LLM nu » screen.
+        rss_before = self._rss_now()
+        last_step = started
+
+        def step(name: str, label_fr: str) -> None:
+            nonlocal last_step
+            now = time.monotonic()
+            with scoped(**off_turn):
+                journal.emit(
+                    "model_load_step",
+                    {
+                        "model": model,
+                        "step": name,
+                        "label_fr": label_fr,
+                        "elapsed_ms": _ms(now - started),
+                        "duration_ms": _ms(now - last_step),
+                        "rss_bytes": self._rss_now(),
+                    },
+                )
+            last_step = now
+
         try:
             try:
                 self._release()
                 self._emit_architecture()  # the schema no longer shows the released model
+                step("release", self._release_fr(previous))
                 _checkpoint(cancel)
                 if (
                     choice.kind == "file"
@@ -1675,6 +1698,11 @@ class AppSession:
                 ):
                     why = probe(choice.ref, cancel)  # story 24: « Arrêter » kills it
                     _checkpoint(cancel)
+                    step(
+                        "probe",
+                        "Sonde du fichier dans un processus à part : "
+                        + ("il se charge." if why is None else "incompatible."),
+                    )
                     if why is not None:
                         raise _LoadFailed(f"Le fichier {choice.file_name} est incompatible.", why)
                     # AD-8: the probe's measure replaces the file size of the first check.
@@ -1682,8 +1710,11 @@ class AppSession:
                     if refusal is not None:
                         over_fr = "Le modèle dépasse le budget mémoire une fois mesuré."
                         raise _LoadFailed(over_fr, refusal)
+                step("check", self._check_fr(choice, window))
                 self._install(choice, window)
+                step("engine", self._engine_fr(choice))
                 self._last_checkpoint(cancel)
+                step("ready", f"Prêt : {choice.label} est actif.")
                 status, idle_fr = "ok", None
             except _LoadCancelled:
                 self._last_checkpoint(None)
@@ -1715,6 +1746,7 @@ class AppSession:
                         exc,
                         "Le chargement se termine ; la carte de chaque brique reste juste.",
                     )
+            memory = self._loaded_memory(choice, rss_before, window) if status == "ok" else None
             with scoped(**off_turn):
                 journal.emit(
                     "model_load_ended",
@@ -1723,7 +1755,8 @@ class AppSession:
                         "status": status,
                         "duration_ms": _ms(time.monotonic() - started),
                         "reason_fr": reason_fr,
-                    },
+                    }
+                    | ({"memory": memory} if memory is not None else {}),
                 )
             self._set_state("idle", idle_fr)
             # AD-6, AD-9, AD-12: capabilities, window and model changed with the load.
@@ -1744,6 +1777,78 @@ class AppSession:
             if retry:
                 self._request_compression_sync()
         return status
+
+    # ---------- story 29: the steps and memory of a load, for the « LLM nu » screen ----------
+
+    def _rss_now(self) -> int | None:
+        """WaveStack's RSS (the registry's measure); `None` when it cannot be read."""
+        try:
+            return int(self._load_registry.baseline())
+        except Exception:  # noqa: BLE001 - a figure shown, never a failure
+            return None
+
+    def _release_fr(self, previous: ModelChoice | None) -> str:
+        rss = self._rss_now()
+        after = f" : WaveStack occupe {config.size_fr(rss)}" if rss else ""
+        if previous is None:
+            return f"Aucun modèle à libérer{after}."
+        return f"Modèle précédent libéré ({previous.label}){after}."
+
+    def _check_fr(self, choice: ModelChoice, window: int | None) -> str:
+        if choice.kind == "cloud":
+            return "Budget mémoire : rien à charger sur ce poste (modèle cloud)."
+        cost = self._cost(choice, window)
+        budget = config.size_fr(self._load_registry.budget_bytes)
+        if choice.kind == "server" and not self._checked(choice):
+            return (
+                f"Budget mémoire : {config.size_fr(cost)} déjà en mémoire chez "
+                f"{choice.provider}, comptés sans refus (budget de {budget})."
+            )
+        return (
+            f"Budget mémoire contrôlé : environ {config.size_fr(cost)} demandés, budget de "
+            f"{budget}."
+        )
+
+    @staticmethod
+    def _engine_fr(choice: ModelChoice) -> str:
+        if choice.kind == "cloud":
+            return "Préparation, sans chargement (modèle cloud)"
+        if choice.kind == "server":
+            return f"Connexion à {choice.provider}"
+        return "Lecture du fichier et copie des poids en mémoire vive"
+
+    def _loaded_memory(
+        self, choice: ModelChoice, rss_before: int | None, window: int | None
+    ) -> dict[str, Any] | None:
+        """`model_load_ended.memory` (story 29): the RSS before and after, the cost the budget
+        counts, and where the model lies."""
+        try:
+            cost = self._cost(choice, window)
+        except Exception:  # noqa: BLE001 - a figure shown, never a failure
+            cost = 0
+        rss_after = self._rss_now()
+        if choice.kind == "cloud":
+            provider = choice.entry.provider if choice.entry is not None else "le fournisseur"
+            where_fr = f"Aucune mémoire sur ce poste : le modèle tourne chez {provider}."
+        elif choice.kind == "server":
+            where_fr = (
+                f"Chargé par {choice.provider}, dans son propre processus, en RAM de ce poste : "
+                f"environ {config.size_fr(cost)} comptés par le budget."
+            )
+        else:
+            before = config.size_fr(rss_before) if rss_before else "?"
+            after = config.size_fr(rss_after) if rss_after else "?"
+            where_fr = (
+                "Mémoire vive (RAM) du processeur, pas de carte graphique : WaveStack est passé "
+                f"de {before} à {after} ; le budget compte environ {config.size_fr(cost)}. Les "
+                "poids, lus en mmap, montent en RAM au premier appel."
+            )
+        return {
+            "rss_before": rss_before,
+            "rss_after": rss_after,
+            "cost_bytes": cost,
+            "where_fr": where_fr,
+        }
 
     def _load_failed(
         self,
@@ -6904,6 +7009,8 @@ class AppSession:
             "session_state": {"state": state, "reason_fr": reason_fr},
             "tokenizer": self._tokenizer_state(),
             "sampling": self._lab_sampling(),
+            "last_load": self._last_load(tip),
+            "reasoning": self._lab_reasoning(),
             "seq": tip,
         }
 
@@ -7101,10 +7208,46 @@ class AppSession:
             "source_fr": source_fr,
         }
 
+    @staticmethod
+    def _last_load(tip: int) -> list[dict[str, Any]]:
+        """Story 29: the envelopes of the last model load up to `tip` (started, its steps,
+        ended), read in the journal."""
+        events = [e for e in get_journal().all_events() if e.seq <= tip]
+        start = next(
+            (i for i in range(len(events) - 1, -1, -1) if events[i].kind == "model_load_started"),
+            None,
+        )
+        if start is None:
+            return []
+        kinds = ("model_load_started", "model_load_step", "model_load_ended")
+        return [e.model_dump(mode="json") for e in events[start:] if e.kind in kinds]
+
+    def _lab_reasoning(self) -> dict[str, Any]:
+        """Story 29: how the active model reasons (`reasoning_mode`, the reasoning card's own
+        rules), the budget (local mode) and the reserve."""
+        with self._lock:
+            caps, cloud, window = self._caps, self._cloud, self._window
+        mode, reason_fr = reasoning_mode(caps, window if caps is not None else None)
+        local = cloud is None and caps is not None and caps.reasoning_tags is not None
+        return {
+            "mode": mode,
+            "reason_fr": reason_fr,
+            "budget": self.cfg.reasoning_budget_tokens if local else None,
+            "budget_fr": self._reasoning_budget_fr(),
+            "reserve": MAX_RESERVE,
+        }
+
     def llm_generate(self, prompt: str, sampling: Sampling, reasoning: bool = False) -> str:
         """Intention `llm_generate` (story 29, class b): accepted in `idle` only, switched to
         `llm_lab` under the lock in this call, then run on the worker; « Arrêter » stops it
-        (class c). Returns the request's id."""
+        (class c). `reasoning`: refused when the model cannot reason (mode `never` or
+        `unknown`), forced when it always does. Returns the request's id."""
+        lab = self._lab_reasoning()
+        if reasoning and lab["mode"] in ("never", "unknown"):
+            raise SendRefused(
+                "Raisonnement indisponible : "
+                + (lab["reason_fr"] or "le modèle actif ne sait pas raisonner.")
+            )
         with self._memory_lock, self._lock:
             if self.state != "idle" or self._engine is None:
                 raise SendRefused(self._refusal_reason())

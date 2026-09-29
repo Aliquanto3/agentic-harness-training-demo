@@ -432,7 +432,13 @@ Vérifications ajoutées aux scénarios existants :
   portent ; le nombre de puces croît d'un relevé à l'autre ; « Premier token après … » et
   « Débit de sortie » s'affichent ; le prompt rendu commence par `<|im_start|>user` ; la
   session est revenue en `idle`. Capture `53-llm-nu-generation.jpg`. (6) La Vue humain de
-  l'atelier a le même nombre de bulles. (7) Retour au faux cloud A.
+  l'atelier a le même nombre de bulles. Incrément 3 : après le passage au faux llama-server,
+  la section « Chargement du modèle » montre les étapes, dont « Connexion à llama-server », leur
+  durée, « dans son propre processus » et « En local : RAM du CPU, pas de GPU » ; le raisonnement
+  coché sur le faux llama-server (gabarit Qwen3.5) : réserve de 1 536, le couloir « Réflexion »
+  contient « Je réfléchis. » et le couloir « Réponse » la réponse. Capture
+  `54-llm-nu-chargement-raisonnement.jpg`. (7) Retour au faux cloud A, puis `/llm` dit « aucune
+  mémoire sur ce poste ».
 
 ## Déclencheurs du faux modèle
 

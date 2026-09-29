@@ -5956,6 +5956,7 @@ const KIND_LABELS = {
   compression_started: "Compression commencée",
   compression_ended: "Compression terminée",
   llm_tokenized: "LLM nu : texte découpé en tokens",
+  model_load_step: "Étape du chargement du modèle",
   llm_generation_started: "LLM nu : génération commencée",
   llm_token: "LLM nu : token produit",
   llm_generation_ended: "LLM nu : génération terminée",
@@ -6018,6 +6019,8 @@ function eventSummary(group) {
       return p.phase_label;
     case "llm_token":
       return `${p.index + 1} · « ${p.text} »`;
+    case "model_load_step":
+      return `${p.label_fr} · ${seconds(p.duration_ms)}`;
     case "llm_generation_ended":
       return [p.status, seconds(p.duration_ms), p.message_fr].filter(Boolean).join(" · ");
     case "model_load_ended":

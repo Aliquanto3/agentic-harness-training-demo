@@ -538,3 +538,114 @@ def test_cloud_without_declaration_sends_no_sampling(monkeypatch):
     call = next(e.payload for e in events if e.kind == "model_call_started")
     assert call["sampling"]["source"] == "provider"
 
+
+# ---------- increment 3: the model's load and the reasoning ----------
+
+
+def _load_events(mark: int) -> list:
+    return [e for e in get_journal().events_since(mark) if e.kind.startswith("model_load")]
+
+
+def test_a_file_load_emits_its_steps_and_its_memory(tmp_path):
+    from test_model_switch import Tracker, _files, _session
+
+    tracker = Tracker({"A": FakeEngine()})
+    paths = _files(tmp_path, "A")
+    rss = iter([100 * 2**20] + [300 * 2**20] * 50)
+    session = _session(tracker, rss=lambda: next(rss))
+    mark = get_journal().last_seq()
+    assert session.boot(paths["A"]).result() == "ok"
+    events = _load_events(mark)
+    steps = [e.payload for e in events if e.kind == "model_load_step"]
+    assert [s["step"] for s in steps] == ["release", "check", "engine", "ready"]
+    assert "copie des poids en mémoire vive" in steps[2]["label_fr"]
+    assert all(e.turn_id is None and e.step_id is None for e in events)
+    assert [s["elapsed_ms"] for s in steps] == sorted(s["elapsed_ms"] for s in steps)
+    ended = events[-1].payload
+    assert ended["status"] == "ok"
+    memory = ended["memory"]
+    assert memory["rss_before"] == 100 * 2**20 and memory["rss_after"] == 300 * 2**20
+    assert memory["where_fr"].startswith("Mémoire vive (RAM) du processeur, pas de carte graphique")
+    lab = session.lab_state()
+    assert [e["kind"] for e in lab["last_load"]][0] == "model_load_started"
+    assert lab["last_load"][-1]["kind"] == "model_load_ended"
+
+
+def test_a_served_model_and_a_cloud_model_load_steps(monkeypatch):
+    server = FakeServer()
+    monkeypatch.setattr(servers, "default_transport", httpx.MockTransport(server))
+    mark = get_journal().last_seq()
+    _booted("llama_server")
+    steps = [e.payload for e in _load_events(mark) if e.kind == "model_load_step"]
+    assert [s["step"] for s in steps] == ["release", "check", "engine", "ready"]
+    assert steps[2]["label_fr"] == "Connexion à llama-server"
+    ended = _load_events(mark)[-1].payload
+    assert "dans son propre processus, en RAM de ce poste" in ended["memory"]["where_fr"]
+
+    mark = get_journal().last_seq()
+    provider = Provider(sse(delta(content="ok"), delta("stop")))
+    _cloud_session("groq", provider)
+    events = _load_events(mark)
+    steps = [e.payload for e in events if e.kind == "model_load_step"]
+    assert steps[2]["label_fr"] == "Préparation, sans chargement (modèle cloud)"
+    memory = events[-1].payload["memory"]
+    assert memory["cost_bytes"] == 0
+    assert memory["where_fr"].startswith("Aucune mémoire sur ce poste : le modèle tourne chez Groq")
+
+
+QWEN_TEMPLATE = (
+    "{% for message in messages %}<|im_start|>{{ message.role }}\n{{ message.content }}"
+    "<|im_end|>\n{% endfor %}{% if add_generation_prompt %}<|im_start|>assistant\n"
+    "{% if enable_thinking is defined and enable_thinking is false %}<think>\n\n</think>\n\n"
+    "{% else %}<think>\n{% endif %}{% endif %}"
+)
+
+
+def _reasoning_session(output: str, **values) -> tuple[FakeEngine, object]:
+    engine = FakeEngine(output=output, template=QWEN_TEMPLATE, architecture="qwen35")
+    return engine, booted_session(engine, window=8192, values=values or None)
+
+
+def test_reasoning_sets_the_template_variable_and_counts_both_channels():
+    engine, session = _reasoning_session("Je réfléchis.\n</think>\n\nRéponse.")
+    lab = session.lab_state()["reasoning"]
+    assert lab["mode"] == "toggle" and lab["reserve"] == 1536
+    events = _generate(session, "Combien ?", reasoning=True)
+    started = next(e.payload for e in events if e.kind == "llm_generation_started")
+    assert started["rendered"].endswith("<|im_start|>assistant\n<think>\n")
+    assert started["reserve"] == 1536 and started["reasoning"] is True
+    tokens = [e.payload for e in events if e.kind == "llm_token"]
+    thinking = "".join(t["text"] for t in tokens if t["channel"] == "reasoning")
+    assert thinking.startswith("Je réfléchis.")
+    ended = next(e.payload for e in events if e.kind == "llm_generation_ended")
+    assert ended["reasoning_tokens"] > 0 and ended["answer_tokens"] > 0
+    assert ended["reasoning_tokens"] + ended["answer_tokens"] == len(tokens)
+
+    off = _generate(session, "Combien ?")
+    started = next(e.payload for e in off if e.kind == "llm_generation_started")
+    assert started["rendered"].endswith("<think>\n\n</think>\n\n") and started["reserve"] == 512
+
+
+def test_a_long_reasoning_is_cut_in_the_screen_context():
+    engine, session = _reasoning_session("x" * 900, reasoning={"budget_tokens": 200})
+    events = _generate(session, "Combien ?", reasoning=True)
+    cuts = [e for e in events if e.kind == "reasoning_cut"]
+    assert len(cuts) == 1 and cuts[0].context_id == "llm"
+
+
+def test_reasoning_refused_without_it_and_forced_when_always():
+    session = booted_session(FakeEngine())  # CHATML: no reasoning variable
+    assert session.lab_state()["reasoning"]["mode"] == "never"
+    with pytest.raises(SendRefused) as refused:
+        session.llm_generate("Bonjour", SCREEN, reasoning=True)
+    assert "raisonn" in refused.value.reason_fr
+    assert session.state == "idle"
+
+    provider = Provider(sse(delta(reasoning="Hmm."), delta(content="Oui."), delta("stop")))
+    cloud = _cloud_session("groq", provider)  # gpt-oss always reasons
+    assert cloud.lab_state()["reasoning"]["mode"] == "always"
+    events = _generate(cloud, "Bonjour")
+    started = next(e.payload for e in events if e.kind == "llm_generation_started")
+    assert started["reasoning"] is True and started["reserve"] == 1536
+    body = json.loads(provider.requests[-1].content)
+    assert body["reasoning_effort"] == "low"

@@ -16,6 +16,9 @@ const store = {
   sampling: null, // `lab_state().sampling`: defaults, bounds, what can be set
   values: null, // the sliders' values, sent with « Générer »
   gen: { callTs: null, timer: null, first: false, cloud: false },
+  reasoning: null, // `lab_state().reasoning`: mode, reason, budget, reserve
+  lastLoad: [], // the envelopes of the last model load
+  load: { timer: null },
   // The requests already answered by an event: the answer may come before the POST's own.
   answered: new Set(),
 };
@@ -466,6 +469,7 @@ function renderGenerationStarted(p) {
   $("generation-rate").textContent = "";
   $("generation-empty").hidden = true;
   $("generation-cloud").hidden = p.exact;
+  clearLanes();
   const status = $("generate-status");
   status.classList.remove("is-error");
   status.textContent = text("generation.running_fr");
@@ -505,6 +509,12 @@ function renderGenerationEnded(p) {
       ? ""
       : text("reading.read_rate_unknown_fr");
   if (!$("generation-tokens").children.length) $("generation-empty").hidden = false;
+  const figures = p.figures_fr || {};
+  $("lane-thinking-count").textContent = text("reasoning.count_fr", { tokens: figures.reasoning_tokens ?? "0" });
+  $("lane-answer-count").textContent = text("reasoning.count_fr", { tokens: figures.answer_tokens ?? "0" });
+  for (const id of ["lane-thinking", "lane-answer"]) {
+    if (!$(id).textContent) $(id).textContent = text("reasoning.empty_fr");
+  }
 }
 
 async function generate() {
@@ -516,6 +526,7 @@ async function generate() {
   const answer = await post("/api/intentions/llm_generate", {
     prompt: $("llm-prompt").value,
     sampling: samplingToSend(),
+    reasoning: store.reasoning?.mode === "toggle" && $("reasoning-toggle").checked,
   });
   if (!answer.ok) {
     status.classList.add("is-error");
@@ -533,6 +544,116 @@ async function stopGeneration() {
   await post("/api/intentions/stop", {});
 }
 
+// ---------- section 3: the model's load ----------
+
+const STEP_NAMES = {
+  release: "Libération",
+  probe: "Sonde",
+  check: "Contrôle du budget",
+  engine: "Moteur",
+  ready: "Prêt",
+};
+
+function stopLoadTimer() {
+  if (store.load.timer) clearInterval(store.load.timer);
+  store.load.timer = null;
+}
+
+function appendLoadStep(p) {
+  const item = el("li", "load-step");
+  item.dataset.step = p.step;
+  item.append(el("span", "load-step-name", STEP_NAMES[p.step] || p.step));
+  item.append(el("span", "", p.label_fr));
+  item.append(el("span", "load-step-time", `${duration(p.duration_ms)} · à ${duration(p.elapsed_ms)}`));
+  $("loading-steps").append(item);
+}
+
+function renderLoadEnded(p) {
+  stopLoadTimer();
+  const status = text(`loading.status.${p.status}`) || p.status;
+  $("loading-total").textContent = [
+    text("loading.total_fr", { modele: p.model.label, statut: status, duree: duration(p.duration_ms) }),
+    p.reason_fr,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const memory = $("loading-memory");
+  memory.hidden = !p.memory;
+  memory.textContent = p.memory?.where_fr || "";
+  $("loading-local").hidden = !(p.status === "ok" && p.model.hosting === "local");
+}
+
+function renderLoadStarted(envelope) {
+  stopLoadTimer();
+  $("loading-steps").replaceChildren();
+  $("loading-empty").hidden = true;
+  $("loading-memory").hidden = true;
+  $("loading-local").hidden = true;
+  const since = Date.parse(envelope.ts);
+  const tick = () => {
+    const elapsed = Math.max(Date.now() - since, 0);
+    $("loading-total").textContent = `${envelope.payload.phase_label} ${text("loading.running_fr", {
+      duree: duration(elapsed),
+    })}`;
+  };
+  tick();
+  store.load.timer = setInterval(tick, 200);
+}
+
+function renderLastLoad() {
+  const events = store.lastLoad || [];
+  $("loading-steps").replaceChildren();
+  $("loading-empty").hidden = events.length > 0;
+  if (!events.length) {
+    $("loading-total").textContent = "";
+    return;
+  }
+  for (const envelope of events) {
+    if (envelope.kind === "model_load_started") renderLoadStarted(envelope);
+    else if (envelope.kind === "model_load_step") appendLoadStep(envelope.payload);
+    else if (envelope.kind === "model_load_ended") renderLoadEnded(envelope.payload);
+  }
+}
+
+// ---------- section 6: reasoning ----------
+
+function renderReasoning() {
+  const r = store.reasoning;
+  const box = $("reasoning-toggle-box");
+  const toggle = $("reasoning-toggle");
+  if (!r) return;
+  const always = r.mode === "always";
+  const can = r.mode === "toggle";
+  toggle.disabled = !can;
+  if (always) toggle.checked = true;
+  if (!can && !always) toggle.checked = false;
+  box.classList.toggle("is-disabled", !can);
+  $("reasoning-reason").textContent = always
+    ? text("reasoning.always_fr")
+    : can
+      ? ""
+      : r.reason_fr || "";
+  toggle.title = can ? "" : r.reason_fr || "";
+  $("reasoning-budget").textContent = [
+    r.budget_fr,
+    text("reasoning.reserve_fr", { reserve: numberFr.format(r.reserve) }),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function clearLanes() {
+  for (const id of ["lane-thinking", "lane-answer", "lane-thinking-count", "lane-answer-count"]) {
+    $(id).textContent = "";
+  }
+  $("lane-cut").hidden = true;
+}
+
+function laneToken(p) {
+  const lane = p.channel === "reasoning" ? $("lane-thinking") : $("lane-answer");
+  lane.textContent += p.text;
+}
+
 // ---------- the journal ----------
 
 function applyEnvelope(envelope) {
@@ -545,8 +666,17 @@ function applyEnvelope(envelope) {
     renderBusy();
     return;
   }
+  if (envelope.kind === "model_load_started") {
+    renderLoadStarted(envelope);
+    return;
+  }
+  if (envelope.kind === "model_load_step") {
+    appendLoadStep(p);
+    return;
+  }
   if (envelope.kind === "model_load_ended") {
-    refresh(); // the active model and its tokenizer changed: read them again
+    renderLoadEnded(p);
+    refresh(); // the active model, its tokenizer and its last load: read them again
     return;
   }
   if (envelope.context_id !== "llm") return;
@@ -565,7 +695,14 @@ function applyEnvelope(envelope) {
       break;
     case "llm_token":
       renderToken(p);
+      laneToken(p);
       break;
+    case "reasoning_cut": {
+      const cut = $("lane-cut");
+      cut.hidden = false;
+      cut.textContent = p.message_fr;
+      break;
+    }
     case "model_call_ended":
       renderCallEnded(p);
       break;
@@ -657,6 +794,8 @@ async function refresh() {
   store.session = body.session_state;
   store.tokenizer = body.tokenizer;
   store.sampling = body.sampling;
+  store.reasoning = body.reasoning;
+  store.lastLoad = body.last_load;
   const alert = $("llm-content-error");
   alert.hidden = !body.content_error_fr;
   alert.textContent = body.content_error_fr || "";
@@ -664,6 +803,8 @@ async function refresh() {
   renderModel();
   renderTokenizerInfo();
   renderSampling();
+  renderReasoning();
+  if (!store.load.timer) renderLastLoad();
   renderBusy();
   return body;
 }

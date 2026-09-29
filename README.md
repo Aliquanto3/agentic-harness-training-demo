@@ -294,6 +294,15 @@ dans l'atelier » ramène au sélecteur de la barre haute.
   sortie. « Arrêter » interrompt. Pendant la génération, l'atelier attend (état « écran LLM
   nu ») ; sa conversation n'en reçoit rien, et l'état du moteur est restauré pour le tour
   suivant.
+- **Chargement du modèle.** L'écran montre le dernier chargement fait dans l'atelier, étape
+  par étape (libération du modèle précédent, sonde, contrôle du budget, création du moteur,
+  prêt), avec les durées et la mémoire : RAM du processeur pour un fichier (pas de carte
+  graphique), processus du serveur pour un modèle d'Ollama ou de llama-server, aucune mémoire
+  sur le poste pour un modèle cloud. Un chargement en cours se suit en direct.
+- **Raisonnement.** « Raisonner avant de répondre » s'active quand le modèle sait raisonner
+  (grisé avec la raison sinon, verrouillé pour un modèle qui raisonne toujours) ; la réflexion
+  et la réponse s'affichent dans deux couloirs, avec la réserve de 1 536 tokens et, en local,
+  la coupe du harnais au budget de réflexion.
 
 Les textes de la page sont dans `content/llm_lab.yaml`. Les événements de l'écran sont tracés
 dans le contexte `llm` : le journal des événements de l'atelier les liste, aucun volet ne les

@@ -137,6 +137,31 @@ class GenerationText(_Strict):
     status: GenerationStatus
 
 
+class LoadingStatus(_Strict):
+    ok: str
+    restored: str
+    cancelled: str
+    error: str
+
+
+class LoadingText(_Strict):
+    empty_fr: str
+    running_fr: str
+    total_fr: str
+    local_fr: str
+    status: LoadingStatus
+
+
+class ReasoningText(_Strict):
+    toggle_fr: str
+    always_fr: str
+    thinking_fr: str
+    answer_fr: str
+    empty_fr: str
+    count_fr: str
+    reserve_fr: str
+
+
 class LabContent(_Strict):
     title_fr: str
     intro_fr: str
@@ -151,6 +176,8 @@ class LabContent(_Strict):
     sampling: SamplingText  # story 29, increment 2
     reading: ReadingText
     generation: GenerationText
+    loading: LoadingText  # story 29, increment 3
+    reasoning: ReasoningText
 
 
 @cache

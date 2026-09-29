@@ -5669,6 +5669,17 @@ def _llm_screen(r: Run) -> None:
     bubbles = page.locator("#chat .bubble").count()
     _goto_lab(r)
     expect(page.locator("#llm-model")).to_contain_text("Local · llama-server", timeout=5000)
+    # Increment 3: the last load, its steps and its memory.
+    steps = page.locator("#loading-steps .load-step").all_inner_texts()
+    memory = page.inner_text("#loading-memory")
+    r.check(
+        any("Connexion à llama-server" in t for t in steps)
+        and "dans son propre processus" in memory
+        and page.locator("#loading-local").is_visible()
+        and page.inner_text("#loading-total").startswith("faux-llama-server : chargé en"),
+        "chargement : les étapes (« Connexion ») et leur durée, la mémoire du modèle servi",
+        f"{[t.replace(chr(10), ' ') for t in steps]} · {memory}",
+    )
     event = _lab_tokenize(r, LLM_TEXT)
     payload = event["payload"]
     chips = page.locator("#token-chips .token-chip")
@@ -5742,6 +5753,27 @@ def _llm_screen(r: Run) -> None:
     r.check(not dark and not light, "/llm : contrastes AA dans les deux thèmes", str(dark + light))
     r.shot("53-llm-nu-generation", full_page=True)
 
+    # Increment 3: the reasoning, on the fake llama-server (Qwen3.5's template).
+    toggle = page.locator("#reasoning-toggle")
+    r.check(toggle.is_enabled(), "raisonnement : interrupteur activable (gabarit Qwen3.5)")
+    toggle.check()
+    seq = r.ev.mark()
+    ended = _lab_generate(r, "Bonjour")
+    started = r.ev.since(seq, "llm_generation_started")
+    thinking = page.inner_text("#lane-thinking")
+    answer = page.inner_text("#lane-answer")
+    r.check(
+        ended["payload"]["status"] == "completed"
+        and started
+        and started[-1]["payload"]["reserve"] == 1536
+        and "Je réfléchis." in thinking
+        and "Réponse du faux llama-server" in answer,
+        "raisonnement : le couloir « Réflexion » contient « Je réfléchis. », la réponse suit",
+        f"{thinking[:60]!r} · {answer[:60]!r}",
+    )
+    r.shot("54-llm-nu-chargement-raisonnement", full_page=True)
+    toggle.uncheck()
+
     # (6) The workshop got nothing from the screen.
     r.goto_app()
     r.check(
@@ -5750,8 +5782,17 @@ def _llm_screen(r: Run) -> None:
         f"{bubbles} → {page.locator('#chat .bubble').count()}",
     )
 
-    # (7) Back to the fake cloud A.
+    # (7) Back to the fake cloud A: no memory on this workstation.
     _pick_model(r, A_LABEL)
+    _goto_lab(r)
+    memory = page.inner_text("#loading-memory")
+    r.check(
+        "aucune mémoire sur ce poste" in memory.lower()
+        and not page.locator("#loading-local").is_visible(),
+        "chargement du cloud A : « aucune mémoire sur ce poste »",
+        memory,
+    )
+    r.goto_app()
 
 
 _LAB_SAMPLING = {"temperature": 0.2, "top_k": 5, "top_p": 0.9, "min_p": 0.05}

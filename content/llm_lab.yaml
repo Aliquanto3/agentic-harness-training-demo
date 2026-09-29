@@ -139,3 +139,23 @@ generation:
     cancelled: "Génération arrêtée."
     limit: "Réserve de sortie atteinte : la réponse est coupée."
     error: "La génération a échoué."
+
+loading:
+  empty_fr: "Aucun chargement depuis le lancement de WaveStack."
+  running_fr: "Chargement en cours… {duree}"
+  total_fr: "{modele} : {statut} en {duree}"
+  local_fr: "En local : RAM du CPU, pas de GPU. Le modèle tourne sur le processeur de ce poste."
+  status:
+    ok: "chargé"
+    restored: "échec, modèle précédent rechargé"
+    cancelled: "chargement arrêté"
+    error: "échec"
+
+reasoning:
+  toggle_fr: "Raisonner avant de répondre"
+  always_fr: "Toujours : ce modèle raisonne à chaque réponse."
+  thinking_fr: "Réflexion"
+  answer_fr: "Réponse"
+  empty_fr: "Rien pour l'instant."
+  count_fr: "{tokens} tokens"
+  reserve_fr: "Réserve de sortie : {reserve} tokens quand le modèle raisonne."
