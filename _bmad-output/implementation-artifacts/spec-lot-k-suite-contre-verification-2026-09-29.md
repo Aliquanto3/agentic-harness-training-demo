@@ -2,7 +2,7 @@
 title: 'Lot K, suite : corrections après la contre-vérification sur PC du 2026-09-29 (K1 à K3, favicon)'
 type: 'bugfix'
 created: '2026-09-29'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '1eae76c0f1868bf9a19bff3cfbc23ac6341f5b88'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -210,9 +210,56 @@ coupé à 853 px), puis 0 avec le palier ; point 2, `test_small_model_…` sur l
 anciennes consignes : échec ; point 4, `test_favicon_is_served_and_declared_on_every_page` sans
 la route ni les liens : échec (404).
 
+### Suites de la revue et vérification finale (tête `dc4b911`)
+
+- `a5b22c4` : les huit correctifs de la revue (voir le Review Triage Log). E2E : légende visible
+  exigée à 1 024 et 1 005 px, 840 × 433 ajouté, « Aa » exigé sous 1 000 px et absent de 1 280 à
+  1 600 px ; min-width de la jauge en état « contexte dépassé » sous 1 000 px ; consigne Lazy :
+  « aucun appel de local__define_term » (plus de « requête sortante », serveur local) ; SOC p2
+  « en 3 lignes au plus » ; docstring du favicon ; étape Lazy loading ajoutée au prompt de
+  recette.
+- `dc4b911` : le contrôle à 1 005 px échouait. Dans la bande de 1 000 à 1 008 px (le vrai zoom
+  125 % d'une fenêtre de 1 280 px), « Réinitialiser » dépassait de 4 à 9 px. Correction : gaps
+  `spacing-1` et padding `spacing-2` dès le palier de 1 100 px, au lieu de 1 000 px ; la légende
+  reste visible. `linked_view` : 47 vérifications sur 47.
+- Vérification finale : ruff et format propres. `uv run pytest -q` complet : 1 253 réussis,
+  3 sautés, 1 échec, `test_program.py`. Cet échec vient d'une course : les consignes et le test
+  ont changé pendant la suite. Relancés seuls sur la tête, `test_program.py`, `test_web_app.py`
+  et `test_e2e_fake_openai.py` donnent 52 réussis. Les tests MCP qui dépassaient leur délai à la
+  première passe réussissent. E2E complet (`PYTHONUTF8=1`) : 661 vérifications réussies, 0 en
+  échec, 5 `harness_error` voulus. Console : 5 erreurs réseau du parcours hors ligne, aucune sur
+  `favicon.ico`. Captures restaurées.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+Revue du 2026-09-29, passe 1 (Blind Hunter, Edge Case Hunter, Verification Gap).
+
+| # | Source | Constat | Verdict | Preuve | Suite |
+|---|---|---|---|---|---|
+| 1 | VG, BH | À 1 024 × 700, une légende masquée passe le contrôle (`#gauge-legend` imbriqué, hors de `_top_bar_problems` ; `display: none` donne un recouvrement négatif) | medium | écart déposé ; la matrice veut la légende visible à 1 024 | patch |
+| 2 | VG, BH | Rien ne vérifie le texte visible du bouton de projection (« Aa » sous 1 000 px, absent au-dessus) | medium | écart déposé ; un bouton vide garde sa largeur (padding) | patch |
+| 3 | BH | Consigne Lazy : « ni requête sortante » n'a pas de sens pour le serveur local (bouclage jamais tracé en `outbound_request`, AD-15) | medium | recette t4 : appel forcé « aucune requête sortante (serveur local) » | patch |
+| 4 | ECH | État « contexte dépassé » sous 1 000 px : le padding des chiffres (2 × `spacing-2`) dépasse le minimum de la jauge, ≈ 16 px sur « Fenêtre ▾ » | medium | `box-sizing` : largeur utilisée ≥ padding même avec `min-width: 0` ; la jauge est à son minimum sous 1 000 px | patch |
+| 5 | BH | Vrai zoom : une fenêtre de 1 280 px à 150 % donne un peu moins de 853 px CSS (cadre), à 125 % ≈ 1 010 px (bande 1 000-1 023 non testée) | medium | largeur intérieure < largeur de la fenêtre | patch (840 et 1 005 px ajoutés à l'E2E) |
+| 6 | BH, ECH | SOC p2 seul prompt repris sans borne de longueur | low | correction directe, cohérente avec SOC p1 | patch |
+| 7 | BH | Prompt de recette, étape 7 : juge un prompt 1 de Lazy loading qu'aucune étape ne lance | low | texte de l'étape 7 | patch |
+| 8 | BH | Docstring de `/favicon.ico` : « Edge la demande quoi que déclare la page » non établi | low | Chromium ne la demande qu'à défaut d'icône déclarée | patch |
+| 9 | BH | K3 laisse SOC de côté | false | l'intention ne nomme que Lazy loading et Souveraineté ; la consigne SOC décrit déjà le secours | rejeté |
+| 10 | BH | Vérification « pytest vert » contredite par les 3 échecs notés | low | correction = éditer la spec ; suite complète relancée à la fin | rejeté (notes finales) |
+| 11 | BH | Chiffres « avant » incohérents (967 contre 1 001 px) | low | mesures sans puce (plan) contre avec puce (E2E) ; correction = éditer la spec | rejeté |
+| 12 | BH | Design Notes périmées | low | correction = éditer la spec | rejeté |
+| 13 | BH | Légende masquée : perdue pour les lecteurs d'écran | false | chaque segment porte un `aria-label` avec sa discipline et reçoit le focus (`app.js` l. 2183-2191) | rejeté |
+| 14 | BH | `@media (width < 1000px)` diffère des `max-width` du fichier | low | la syntaxe d'intervalle évite le trou des largeurs fractionnaires (zoom) ; choix voulu | rejeté |
+| 15 | BH, ECH | Couleur du favicon codée en dur, barre presque noire en thème clair | low | cosmétique, choix noté dans les notes du point 4 | rejeté |
+| 16 | BH | Autres constats de la contre-vérification (K4 à K8) non classés | low | K4 traité par le point 2, K7 par le point 4 ; K5, K6, K8 hors intention | rejeté |
+| 17 | BH | Menus de la barre (Volets, thème, modèle) non vérifiés à 853 px | low | listes natives ou ancrées à gauche, peu probable ; ajout de complexité | rejeté |
+| 18 | ECH | À 853 / 911 px, la puce liée peut être à 0 px sans que l'E2E échoue | false | la matrice décrit l'état (« puce liée affichée ou non »), pas sa largeur ; sous 1 100 px la puce cède (lot K) ; largeur rapportée dans le détail | rejeté |
+| 19 | ECH | `chip_cut` et `figures` calculés sans seuil | false | valeurs d'information, voulues (même raison que 18) | rejeté |
+| 20 | ECH | IAM et Souveraineté p1 : liens inventés si le résultat n'en a pas deux | low | risque préexistant (« cite deux liens ») ; hors intention | rejeté |
+| 21 | ECH | Souveraineté p2 sans borne | low | réponse mesurée : 320 tokens, `completed` ; l'intention ne nomme que p1 | rejeté |
+| 22 | ECH | Minimums de la projection à 2,5 rem, pas 3 rem | low | écart noté dans les notes du point 1 : les remonter élargirait le scénario | rejeté |
 
 ## Design Notes
 

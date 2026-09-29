@@ -291,6 +291,46 @@ réussis, 3 sautés. `fits` exact (`WAVESTACK_TEST_GGUF` = le 2B du poste) : ré
 échec. Deux constats reportés dans `deferred-work.md` (contrôle d'`aria-expanded`, historique
 cumulé du test `fits`) ; ajouter sur le PC la jauge du prompt 4 du scénario « Sous-agent ».
 
+### Suite après la contre-vérification sur PC (2026-09-29, soir)
+
+La contre-vérification (`resultats-lot-k-2026-09-29.md`, dernière section) a trouvé une
+régression du point 2 et trois reliquats du point 3. Ils sont corrigés par
+`spec-lot-k-suite-contre-verification-2026-09-29.md` (même branche, commits `e4da3d3` à
+`dc4b911`) :
+
+- **Point 2, régression K1.** Au zoom 150 % (853 px CSS), « Réinitialiser » sortait de la barre
+  de 114 px et la page défilait en largeur. Correction : un palier sous 1 000 px CSS masque la
+  légende de la jauge (chaque segment garde son `aria-label` et son infobulle), réduit la barre
+  de la jauge à 180 px et les noms à leur minimum, et affiche « Aa » sur le bouton de
+  projection. Dès 1 100 px, les espacements de la barre se resserrent : au vrai zoom 125 %
+  (≈ 1 010 px), « Réinitialiser » dépassait de 4 à 9 px. La puce « · lié » reste entière aux
+  quatre largeurs du point 2 ; sous 1 100 px, elle cède comme avant. E2E : 840, 853 et 911 px
+  en normal et en projection, 1 005 et 1 024 px avec la légende visible.
+- **Point 3b, reliquats K2.** IAM p1 et p2 : « en 5 lignes au plus : d'abord deux liens
+  Microsoft Learn tirés du résultat, puis l'explication ». Souveraineté p1 : trois jeux au
+  plus, chacun avec son lien. SOC p2 : transmettre à « un analyste SOC habilité, en 3 lignes
+  au plus ».
+- **Point 3a, décision d'Anaël (K3).** Avec le 2B, les secours restent la règle, et c'est la
+  leçon. Les consignes de Lazy loading et de Souveraineté disent désormais ce qu'on observe (le
+  modèle s'arrête après `load_tool_doc`, voire écrit « j'ai cherché » sans appel), pourquoi
+  (petit modèle) et le geste « Forcer l'appel » comme démonstration du harnais. Le harnais et
+  AD-17 sont inchangés ; la question AD-17 plus haut reste ouverte.
+- **Mineur K7.** Une icône est servie (`/static/favicon.svg`, déclarée sur les quatre pages)
+  et `/favicon.ico` répond 200.
+
+Lignes « À vérifier sur PC » remplacées ou ajoutées (détail dans la spec de la suite) :
+
+| Point | Geste | Attendu | Critère |
+|---|---|---|---|
+| 2 | Edge, 1 280 × 650 au vrai zoom 150 % puis 125 % ; aussi 853 × 433 et 911 × 512 émulés, normal et projection | barre sur une ligne, « Réinitialiser » entier, aucun défilement horizontal ; « Aa » sur le bouton de projection sous 1 000 px ; légende visible à 125 % | `scrollWidth − clientWidth` ≤ 1 ; aucune commande coupée |
+| 3b | « Métier IAM », p1, « Vider la conversation », p2, sans secours | deux liens learn.microsoft.com en tête, réponse courte | tour `completed` (pas `limit`) ; deux liens par réponse |
+| 3b | « Métier Souveraineté », p1 sans secours, puis avec | trois jeux au plus, chacun avec son lien | tour `completed` ; liens présents |
+| 3b | « Métier SOC », p2 | `h1 block`, escalade vers un analyste SOC habilité | « analyste » dans la réponse, pas de « Démonstrateur » |
+| 3a | Consignes de Lazy loading et de Souveraineté face au 2B sans secours | elles décrivent ce qu'on voit | avis d'Anaël |
+| K7 | Edge, profil neuf | icône dans l'onglet, aucun 404 | console sans `favicon.ico` |
+
+Prompt de recette : `prompt-recette-lot-k-suite-2026-09-29.md`.
+
 ## Spec Change Log
 
 ## Review Triage Log
