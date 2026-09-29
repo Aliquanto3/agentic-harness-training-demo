@@ -1241,9 +1241,23 @@ def s_disciplines(r: Run) -> None:
             ".map(([n, b]) => `${n} (${Math.round(b.right)} > ${Math.round(bar.right)})`); }"
         )
         r.check(not over, f"{width} × {height} : la barre haute tient dans sa largeur", str(over))
-        for selector in ("#gauge-legend", "#gauge-figures"):
-            cut = _fully_visible(r, selector)
-            r.check(not cut, f"{width} × {height} : {selector} entièrement visible", cut)
+        cut = _fully_visible(r, "#gauge-legend")
+        r.check(not cut, f"{width} × {height} : #gauge-legend entièrement visible", cut)
+        cut = _fully_visible(r, "#gauge-figures")
+        if width == 1280:  # lot K (A1): with three chips the figures give way, whole in their
+            # tooltip (they cede before the chips; a chip « · lié » never cedes)
+            whole = page.evaluate(
+                "() => { const f = document.getElementById('gauge-figures');"
+                " return f.title === f.textContent && f.getBoundingClientRect().width > 0; }"
+            )
+            r.check(
+                not cut or whole,
+                "1280 × 720, trois puces : chiffres de la jauge entiers, ou coupés avec leur "
+                "texte entier en infobulle",
+                cut,
+            )
+        else:
+            r.check(not cut, f"{width} × {height} : #gauge-figures entièrement visible", cut)
         if width == 1280:
             status = page.evaluate(
                 "() => { const s = document.getElementById('top-status').getBoundingClientRect();"

@@ -4737,30 +4737,38 @@ body .arch .arch-robots .robot.is-selection-linked {
 }
 
 /* ---------- lot K (A1): who gives way in the top bar ----------
-   The chips of hidden panes never shrink: « · lié » is the linked view's cue when its pane is
-   hidden. The model's indicator and picker give way first (their whole text stays in the
-   list and the tooltip), then the gauge's figures (whole in their tooltip), then the
-   scenario's name; the same order in projection mode. The gauge never goes under its bar and
-   legend, so the « Fenêtre » button never covers the legend. */
+   The chip that says « · lié » (or that an H5 validation waits: `.is-linked`) never shrinks:
+   it is the linked view's cue when its pane is hidden. The chips become items of the bar
+   themselves (`display: contents`), each with its own factor. The model's indicator and
+   picker and the scenario's name give way first (their whole text stays in the list and the
+   tooltip), then the other chips (whole in their tooltip), then the gauge's figures (whole
+   in their tooltip); the same order in projection mode. The gauge never goes under its bar
+   and legend, so the « Fenêtre » button never covers the legend. */
 .top-bar > .model-indicator,
-.top-bar > .model-picker {
-  flex-shrink: 1000000;
+.top-bar > .model-picker,
+.top-bar > .scenario-picker {
+  flex-shrink: 1000000000; /* factors ≥ 1, far apart: each group gives way almost alone */
 }
 
 .top-bar > .gauge,
 :root.projection .top-bar > .gauge {
-  flex-shrink: 1000;
+  flex-shrink: 1;
   min-width: calc(300px + var(--spacing-3));
 }
 
-.top-bar > .scenario-picker {
-  flex-shrink: 1;
+.top-bar > .pane-chips {
+  display: contents;
 }
 
-.top-bar > .pane-chips,
-:root.projection .top-bar > .pane-chips,
 .pane-chips > .pane-chip {
+  flex-shrink: 1000000;
+  text-overflow: ellipsis;
+}
+
+.pane-chips > .pane-chip.is-linked {
   flex-shrink: 0;
+  min-width: max-content;
+  text-overflow: clip;
 }
 
 /* Up to 1600 px the names give way further (at 1440 px, the words of « Fenêtre », « LLM nu »
@@ -4851,17 +4859,16 @@ body .arch .arch-robots .robot.is-selection-linked {
 }
 
 /* Under 1100 px (a 1280 px window zoomed to 125 %), the bar cannot hold everything: the title
-   goes (the page's title keeps it), and the chips give way again, last, rather than push
+   goes (the page's title keeps it), and the linked chip gives way too, last, rather than push
    « Réinitialiser » out of the bar. */
 @media (max-width: 1100px) {
   .top-bar-title {
     display: none;
   }
 
-  .top-bar > .pane-chips,
-  :root.projection .top-bar > .pane-chips,
-  .pane-chips > .pane-chip {
+  .pane-chips > .pane-chip.is-linked {
     flex-shrink: 1;
+    min-width: 0;
     text-overflow: ellipsis;
   }
 }
