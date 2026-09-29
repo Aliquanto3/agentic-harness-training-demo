@@ -80,6 +80,11 @@ def kv_bytes_per_token(meta: dict[str, Any]) -> int | None:
     Qwen3.5, whose linear-attention layers have 0 KV head); a value that is neither (e.g.
     an array llama-cpp-python only shows as text) gives `None`, never the attention heads
     instead. Sliding-window attention is not taken into account: an overestimate.
+
+    Lot K (A2): a hybrid model may give one integer and `{arch}.full_attention_interval` = n
+    instead (Qwen3.5 GGUF: one layer in n has full attention, hence a KV cache; the others
+    are linear-attention layers without one): only `block_count // n` layers count. A
+    per-layer list stays the reference when present (the interval is then ignored).
     """
     arch = meta.get("general.architecture")
     if not arch:
@@ -102,6 +107,9 @@ def kv_bytes_per_token(meta: dict[str, Any]) -> int | None:
             kv_heads_total = None
     else:
         per_layer = _int_meta(meta, kv_key)
+        interval = _int_meta(meta, f"{arch}.full_attention_interval")
+        if layers and interval and interval > 1:
+            layers = layers // interval
         kv_heads_total = layers * per_layer if layers and per_layer else None
     if not (kv_heads_total and key_length and value_length):
         return None
@@ -339,9 +347,19 @@ def measured(path: str) -> bool:
 
 
 def probed_entry(path: str) -> dict[str, Any] | None:
-    """The probe cache entry for `path` (architecture...), if still valid (same size/mtime)."""
+    """The probe cache entry for `path` (architecture...), if still valid (same size/mtime).
+
+    Lot K (A2): its `kv_bytes_per_token` is recomputed from the GGUF header at every read
+    (pure Python, cached per file version), so an entry an older formula wrote (a hybrid
+    model counted 4 times too high) is corrected without probing again and without
+    rewriting settings.json; the stored value stays when the header is unreadable."""
     entry = config.read_settings().get("probed_models", {}).get(path)
-    return entry if entry and _same_file(entry, path) else None
+    if not entry or not _same_file(entry, path):
+        return None
+    header = _header_kv(str(path), entry["size_bytes"], entry["mtime"])
+    if header is not None and "kv_bytes_per_token" in entry:
+        entry = {**entry, "kv_bytes_per_token": header}
+    return entry
 
 
 def gguf_kv_bytes_per_token(path: str | None) -> int | None:

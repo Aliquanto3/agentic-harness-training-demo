@@ -367,3 +367,81 @@ def test_failed_entry_repairs_the_reason_without_rewriting_settings(monkeypatch,
 
     assert probe.failed_entry(str(model))["reason"] == REASON
     assert config.settings_path().read_bytes() == before  # a read writes nothing
+
+
+# ---------- lot K (A2): hybrid models' KV cache, one layer in `full_attention_interval` ----------
+
+# The metadata Qwen3.5's GGUF really give (read on the target PC, 2026-09-29): one integer
+# `head_count_kv` and `full_attention_interval` 4 (one layer in four has a KV cache).
+QWEN35_2B = {
+    "general.architecture": "qwen35",
+    "qwen35.block_count": 24,
+    "qwen35.embedding_length": 2048,
+    "qwen35.attention.head_count": 8,
+    "qwen35.attention.head_count_kv": 2,
+    "qwen35.attention.key_length": 256,
+    "qwen35.attention.value_length": 256,
+    "qwen35.full_attention_interval": 4,
+}
+QWEN35_4B = {
+    **QWEN35_2B,
+    "qwen35.block_count": 32,
+    "qwen35.embedding_length": 2560,
+    "qwen35.attention.head_count": 16,
+    "qwen35.attention.head_count_kv": 4,
+}
+
+
+def test_hybrid_kv_counts_only_the_full_attention_layers():
+    # 2B: 24 // 4 = 6 layers × 2 heads × (256 + 256) × 2 bytes; 4B: 8 × 4 × 512 × 2.
+    assert probe.kv_bytes_per_token(QWEN35_2B) == 12_288
+    assert probe.kv_bytes_per_token(QWEN35_4B) == 32_768
+    # A per-layer list stays the reference: its sum, the interval ignored.
+    per_layer = {**QWEN35_2B, "qwen35.attention.head_count_kv": [0, 0, 0, 2] * 6}
+    assert probe.kv_bytes_per_token(per_layer) == 2 * 12 * 512
+    # No interval, 0 or 1: every layer (unchanged).
+    for interval in (None, 0, 1):
+        meta = {**QWEN35_2B, "qwen35.full_attention_interval": interval}
+        if interval is None:
+            del meta["qwen35.full_attention_interval"]
+        assert probe.kv_bytes_per_token(meta) == 2 * 24 * 2 * 512
+
+
+def _old_entry(path: Path, kv: int) -> None:
+    stat = path.stat()
+    probe.record_success(
+        probe.ProbeResult(
+            ok=True,
+            path=str(path),
+            size_bytes=stat.st_size,
+            mtime=stat.st_mtime,
+            rss_bytes=2 * 1024**3,
+            kv_bytes_per_token=kv,
+            probe_version=probe.PROBE_VERSION,
+            probe_window=4096,
+            rss_eval_tokens=512,
+        )
+    )
+
+
+def test_an_older_probe_entry_is_recomputed_from_the_header_without_rewriting(
+    monkeypatch, tmp_path
+):
+    """A2: the 2B probed before lot K (49 152 bytes a token): read back as 12 288 from its
+    header, settings.json untouched; an unreadable header keeps the stored value."""
+    monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path / "data"))
+    from wavestack import config
+
+    path = write_gguf(tmp_path / "Qwen3.5-2B-Q4_K_M.gguf", QWEN35_2B)
+    _old_entry(path, 49_152)
+    settings = config.settings_path().read_bytes()
+
+    entry = probe.probed_entry(str(path))
+
+    assert entry["kv_bytes_per_token"] == 12_288 and probe.measured(str(path))
+    assert config.settings_path().read_bytes() == settings  # never rewritten by a read
+
+    broken = tmp_path / "abime.gguf"
+    broken.write_bytes(b"pas un en-tete GGUF")
+    _old_entry(broken, 49_152)
+    assert probe.probed_entry(str(broken))["kv_bytes_per_token"] == 49_152

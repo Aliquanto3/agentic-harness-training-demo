@@ -745,3 +745,76 @@ def test_route_applies_refuses_and_validates(monkeypatch, tmp_path):
     busy = post({"window": 16384})
     assert busy.status_code == 409 and "Un tour est en cours." in busy.json()["detail"]
     assert app_session.configured_window == 8192
+
+
+# ---------- lot K (A2): a hybrid model's KV cache, read from its header ----------
+
+# Qwen3.5's real headers (target PC, 2026-09-29): one layer in four has a KV cache.
+QWEN35_2B_HEADER = {
+    "general.architecture": "qwen35",
+    "qwen35.block_count": 24,
+    "qwen35.attention.head_count": 8,
+    "qwen35.attention.head_count_kv": 2,
+    "qwen35.attention.key_length": 256,
+    "qwen35.attention.value_length": 256,
+    "qwen35.full_attention_interval": 4,
+}
+QWEN35_4B_HEADER = {
+    **QWEN35_2B_HEADER,
+    "qwen35.block_count": 32,
+    "qwen35.attention.head_count": 16,
+    "qwen35.attention.head_count_kv": 4,
+}
+
+
+def _probed_before_lot_k(tmp_path: Path, name: str, header: dict, rss: int, kv: int) -> str:
+    """A GGUF probed by an older WaveStack: its entry holds the KV of the older formula."""
+    path = write_gguf(tmp_path / f"{name}.gguf", header)
+    stat = path.stat()
+    probe.record_success(
+        probe.ProbeResult(
+            ok=True,
+            path=str(path),
+            size_bytes=stat.st_size,
+            mtime=stat.st_mtime,
+            rss_bytes=rss,
+            kv_bytes_per_token=kv,
+            probe_version=probe.PROBE_VERSION,
+            probe_window=4096,
+            rss_eval_tokens=512,
+        )
+    )
+    return str(path)
+
+
+def test_hybrid_2b_probed_before_lot_k_costs_its_real_cache(tmp_path):
+    """A2: the 2B probed before the lot (49 152 bytes a token stored): 8 192 costs 48 Mio
+    more than 4 096 (not 192), and the panel shows 48 and 96 Mo."""
+    path = _probed_before_lot_k(tmp_path, "Qwen3.5-2B-Q4_K_M", QWEN35_2B_HEADER, GIB, 49_152)
+    registry = LoadRegistry(4 * GIB, 0)
+    assert registry.file_cost(path, 8192) - registry.file_cost(path, 4096) == 48 * MIB
+
+    session = _session(Factory())
+    assert session.boot(path).result() == "ok"
+    state = _state(session)
+    assert _choice(state, 4096)["kv_bytes"] == 48 * MIB
+    assert _choice(state, 8192)["kv_bytes"] == 96 * MIB
+    assert _choice(state, 4096)["kv_fr"] == "Cache de contexte : 48 Mo"
+    assert _choice(state, 8192)["kv_fr"] == "Cache de contexte : 96 Mo"
+
+
+def test_hybrid_4b_at_16384_fits_a_fixed_budget_of_6144(tmp_path):
+    """A2, N26-4: the 4B (probed before the lot) at 16 384 under a fixed 6 144 Mo budget was
+    refused (5,9 Go asked); its real cache (32 768 bytes a token) fits."""
+    path = _probed_before_lot_k(
+        tmp_path, "Qwen3.5-4B-Q4_K_M", QWEN35_4B_HEADER, 4250 * MIB, 131_072
+    )
+    cfg = config.load_config()
+    cfg.values["memory"] = {"budget_mode": "fixed", "budget_mb": 6144, "load_margin_mb": 256}
+    session = AppSession(cfg, engine_factory=Factory(), rss_fn=lambda: 128 * MIB)
+    assert session.boot(path).result() == "ok"
+
+    choice = _choice(_state(session), 16384)
+
+    assert choice["fits"] and choice["refusal_fr"] is None
+    assert choice["kv_bytes"] == 32_768 * 16384
