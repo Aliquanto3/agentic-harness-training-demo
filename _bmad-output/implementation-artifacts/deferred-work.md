@@ -526,3 +526,10 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/27-lot-h-scenarios-et-consignes-du-palier-2.md`
   summary: Avec le 2B, le raisonnement va jusqu'au budget (768 tokens, coupé par le harnais) même sur un message trivial comme « Bonjour ». Criticité faible (un tour long quand on rallume le raisonnement à la main ; hors du module 1, il reste éteint).
   evidence: Test du 2026-09-27 au soir sur le PC cible (Qwen3.5-2B Q4_K_M, CPU), relevé dans l'entrée « Comportement du 2B dans les scénarios (lot H) » ; hors du périmètre de la story 27 (contenu seulement). Pistes : budget adapté à la longueur du message, ou consigne du scénario Raisonnement qui l'annonce. Spec à écrire.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-lot-k-corrections-recette-pc-2026-09-29.md`
+  summary: Le contrôle E2E d'`aria-expanded` des actions forcées (A8) ne protège pas le correctif du lot K, déjà juste sous Chromium avant lui.
+  evidence: Selon les notes du point 6, la reconstruction du panneau reposait déjà `true` ; la cause du `false` vu dans Edge n'est pas confirmée. À régler par la vérification PC du point 6 (Edge, arbre d'accessibilité), puis un contrôle lu juste après le clic, avant la reconstruction.
+- source_spec: `_bmad-output/implementation-artifacts/spec-lot-k-corrections-recette-pc-2026-09-29.md`
+  summary: Le test `fits` ne simule que l'échange précédent ; avec l'historique cumulé au pire (réponses à la réserve), `subagent` p4 déborde de 9 tokens (1 326 + 2 267 > 3 584, 2B exact). Sévérité medium, non vérifiée.
+  evidence: La mémoire courte garde tous les échanges ; la recette N27-1 (29/09) passait avec des réponses courtes. À trancher : modèle de réponse réaliste dans le test, ou quiz à réponse courte, après mesure de la jauge au prompt 4 du scénario « Sous-agent » sur le PC.

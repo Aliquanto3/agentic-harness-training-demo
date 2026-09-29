@@ -2,7 +2,7 @@
 title: 'Lot K : corrections issues de la recette sur PC cible du 2026-09-29 (stories 22 à 27, 31 à 34)'
 type: 'bugfix'
 created: '2026-09-29'
-status: 'in-review'
+status: 'done'
 baseline_commit: '23701e33e69fe94ce24d1ee771be54dcda048b67'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -281,6 +281,15 @@ Souveraineté p2 avec l'ancien contenu ; ancien test des consignes en échec), 4
 
 Prompt de recette pour le Claude Code du PC :
 `_bmad-output/implementation-artifacts/prompt-recette-lot-k-2026-09-29.md`.
+
+### Vérification finale (après la revue, tête `bfe28eb`)
+
+`uv run ruff check .` et `uv run ruff format --check .` : propres. `uv run pytest -q` : 1 253
+réussis, 3 sautés. `fits` exact (`WAVESTACK_TEST_GGUF` = le 2B du poste) : réussi. E2E complet
+(`PYTHONUTF8=1`, sortie redirigée vers un fichier ; sans cette variable, la console cp1252 lève
+`UnicodeEncodeError` et fait échouer la suite en cascade) : 653 vérifications réussies, 0 en
+échec. Deux constats reportés dans `deferred-work.md` (contrôle d'`aria-expanded`, historique
+cumulé du test `fits`) ; ajouter sur le PC la jauge du prompt 4 du scénario « Sous-agent ».
 
 ## Spec Change Log
 
