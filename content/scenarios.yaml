@@ -217,13 +217,17 @@ scenarios:
       Comparez la jauge au scénario précédent : la place gagnée pourrait accueillir le RAG,
       laissé éteint parce que ses extraits sur Exemplia n'aident pas ici. Envoyez le premier
       prompt et suivez dans Orchestration le chargement de la documentation, puis l'appel
-      de local__define_term. Un petit modèle s'arrête souvent après le chargement et répond
-      de tête : cliquez alors « Forcer l'appel · local__define_term » sous « Glossaire
+      de local__define_term. Ce qu'on observe avec un petit modèle : il s'arrête après
+      load_tool_doc et répond de tête, parfois en écrivant « j'ai cherché » alors
+      qu'Orchestration ne montre ni appel de l'outil ni requête sortante. Pourquoi : un petit
+      modèle enchaîne mal deux appels et prend la documentation pour la réponse. C'est la
+      démonstration : cliquez « Forcer l'appel · local__define_term » sous « Glossaire
       WaveStack » dans la carte MCP (après « Afficher les actions forcées »), choisissez le
       préréglage « MCP », « Armer », puis « Rejouer le dernier prompt » : le rejeu repart
       d'avant le tour, l'appel part d'office, sa définition rejoint les outils du modèle et
-      le modèle répond avec le résultat. « Charger la documentation » (même carte) ne
-      charge que la documentation, sans appeler l'outil. Le second prompt interroge
+      le modèle répond avec le résultat ; le harnais garantit l'appel que le modèle ne fait
+      pas. « Charger la documentation » (même carte) ne charge que la documentation, sans
+      appeler l'outil. Le second prompt interroge
       data.gouv.fr. Sans réseau, data.gouv.fr reste dessiné comme indisponible : poursuivez
       avec le serveur local.
     bricks: [short_memory, system_prompt, global_memory, tools, mcp]
@@ -450,12 +454,17 @@ scenarios:
       dans Orchestration les données sortantes de chaque appel : la requête révèle à elle
       seule le sujet de la mission, et elle part chez deux opérateurs soumis à deux droits
       différents ; un éditeur américain relève du Cloud Act, même quand ses serveurs sont en
-      Europe. Chaque prompt nomme l'outil de recherche : un petit modèle local charge sa
-      documentation puis s'arrête souvent sans chercher. Au premier prompt, cliquez alors
+      Europe. Chaque prompt nomme l'outil de recherche. Ce qu'on observe avec un petit
+      modèle : il s'arrête après load_tool_doc (ou appelle l'outil sans sa documentation,
+      que le harnais refuse) et répond de tête, parfois en écrivant « j'ai cherché » avec
+      des jeux de données inventés, alors qu'Orchestration ne montre ni appel de l'outil ni
+      requête sortante. Pourquoi : un petit modèle enchaîne mal deux appels et prend la
+      documentation pour la réponse. C'est la démonstration : au premier prompt, cliquez
       « Forcer l'appel · datagouv__search_datasets » sous « data.gouv.fr » dans la carte MCP
       (après « Afficher les actions forcées »), choisissez le préréglage « cybersécurité »,
       « Armer », puis « Rejouer le dernier prompt » : le rejeu repart d'avant le tour, la
-      recherche part d'office et le modèle répond avec son résultat. Ouvrez les données
+      recherche part d'office et le modèle répond avec son résultat ; le harnais garantit
+      l'appel que le modèle ne fait pas. Ouvrez les données
       sortantes de ce premier appel. Deux résultats de recherche ne tiennent pas ensemble
       dans la fenêtre : cliquez « Vider la conversation » (volet Vue humain) avant d'envoyer
       le second prompt. Son secours : « Forcer l'appel · mslearn__microsoft_docs_search »

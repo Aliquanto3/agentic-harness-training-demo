@@ -335,6 +335,25 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
         < text.index("« Forcer l'appel · mslearn__microsoft_docs_search »")
     )
     assert all("ne se force pas" not in s.description_fr for s in scenario.values())
+    # Lot K, suite (K3, decision of 2026-09-29): with the 2B, the fallback is the lesson. Both
+    # instructions tell what one sees, why, and « Forcer l'appel » as the harness's proof.
+    for scenario_id in ("mcp_lazy", "sovereignty"):
+        text = scenario[scenario_id].description_fr
+        seen = ("Ce qu'on observe", "load_tool_doc", "répond de tête", "« j'ai cherché »")
+        assert all(words in text for words in seen), scenario_id
+        assert "ni appel de l'outil ni requête sortante" in text, scenario_id
+        assert (
+            "Pourquoi : un petit modèle enchaîne mal deux appels et prend la documentation pour "
+            "la réponse" in text
+        ), scenario_id
+        assert "C'est la démonstration" in text, scenario_id
+        assert "le harnais garantit l'appel que le modèle ne fait pas" in text, scenario_id
+        assert (
+            text.index("Ce qu'on observe")
+            < text.index("Pourquoi")
+            < text.index("C'est la démonstration")
+            < text.index("« Forcer l'appel · ")
+        ), scenario_id
     # Two public search results do not fit together: the conversation emptied between them.
     for scenario_id in CLEARED_BETWEEN_PROMPTS:
         assert "« Vider la conversation »" in scenario[scenario_id].description_fr, scenario_id
