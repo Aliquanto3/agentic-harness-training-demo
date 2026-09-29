@@ -3,7 +3,10 @@
    first render (a module would be deferred, and the page would flash). « Système » removes
    the attribute: tokens.css then follows `prefers-color-scheme`. Every storage access is
    guarded: without storage the page shows « Système », and a choice holds for the open page.
-   A page restored by « Back » (bfcache) or a choice made in another tab is read again.
+   A page shown again (« Back », from the bfcache or not) or a choice made in another tab is
+   read again. Lot K (A4): the browser restores a form's values on a « Back » outside the
+   bfcache, after this script: the pickers say `autocomplete="off"`, and every `pageshow`
+   (which follows that restoration) reads the stored choice again.
    Nothing goes to the server; no global variable. */
 (() => {
   const KEY = "wavestack.theme";
@@ -66,9 +69,7 @@
     }
   });
 
-  window.addEventListener("pageshow", (event) => {
-    if (event.persisted) reread();
-  });
+  window.addEventListener("pageshow", reread);
 
   window.addEventListener("storage", (event) => {
     if (event.key === KEY || event.key === null) reread();

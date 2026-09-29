@@ -1914,6 +1914,26 @@ def _themes(r: Run, errors: list[str]) -> None:
     )
     page.emulate_media(color_scheme="light")
 
+    # Lot K (A4): « Sombre » in the workshop, « Clair » at the diagnostic, then « Back »: the
+    # workshop's picker says « Clair » (the browser's form restoration no longer wins).
+    page.locator("#theme-picker").select_option("dark")
+    time.sleep(0.2)
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    expect(page.locator("#theme-picker")).to_have_value("dark", timeout=10_000)
+    page.locator("#theme-picker").select_option("light")
+    time.sleep(0.2)
+    page.go_back()
+    r.wait_replayed()
+    time.sleep(0.3)
+    picked = page.locator("#theme-picker").input_value()
+    face = page.text_content(".theme-picker-face")
+    r.check(
+        picked == "light" and _theme_attr(r) == "light" and face == "☀▾",
+        "« Sombre », /diagnostic, « Clair », « Précédent » : atelier clair, sélecteur sur "
+        "« Clair »",
+        f"sélecteur {picked}, data-theme {_theme_attr(r)}, face « {face} »",
+    )
+
     # A corrupt value: « Système », silently.
     page.evaluate(f"() => localStorage.setItem('{THEME_KEY}', 'violet')")
     r.reload_app()
