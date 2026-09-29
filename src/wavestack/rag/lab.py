@@ -10,7 +10,11 @@ brick's index and never changes the brick's state.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import time
+from array import array
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import cache
@@ -41,8 +45,8 @@ KINDS = (
 # Each kind's options, the shipped one first.
 OPTIONS: dict[str, tuple[str, ...]] = {
     "chunking": ("paragraphs",),
-    "embedding": ("declared",),
-    "vector_store": ("sqlite_vec",),
+    "embedding": ("declared", "fastembed"),
+    "vector_store": ("sqlite_vec", "memory"),
     "vector_search": ("cosine",),
     "rerank": ("declared",),
     "context": ("excerpts",),
@@ -61,6 +65,7 @@ BOUNDS: dict[str, tuple[int, int]] = {
 }
 QUESTION_MAX = 500  # the characters of a question the workshop accepts
 STATUSES = ("ok", "error", "skipped", "cancelled", "not_run")
+LANES_MAX = 2  # a chain, or two compared: A then B
 PROGRESS_INTERVAL_S = 0.1  # `rag_lab_stage_progress` at most ten times a second
 
 _MIB = 1024**2
@@ -131,6 +136,16 @@ class RagLabContent(_Strict):
     duration_fr: str = Field(min_length=1)
     memory_fr: str = Field(min_length=1)
     last_run_fr: str = Field(min_length=1)
+    compare_fr: str = Field(min_length=1)
+    reset_chain_fr: str = Field(min_length=1)
+    chain_a_fr: str = Field(min_length=1)
+    chain_b_fr: str = Field(min_length=1)
+    unavailable_fr: str = Field(min_length=1)
+    comparison_title_fr: str = Field(min_length=1)
+    common_fr: str = Field(min_length=1)
+    only_a_fr: str = Field(min_length=1)
+    only_b_fr: str = Field(min_length=1)
+    rank_changes_fr: str = Field(min_length=1)
     status: StatusTexts
     columns: ColumnTexts
     stages: dict[str, StageText]
@@ -285,21 +300,64 @@ class Catalog:
         return state.label_fr if state else option
 
 
+def _bounds_fr(name: str, low: int, high: int, catalog: Catalog) -> str:
+    text = catalog.content.params[name]
+    return f"{text.label_fr.lower()} entre {fr_int(low)} et {fr_int(high)} {text.unit_fr}".strip()
+
+
 def validate_pipeline(pipeline: Pipeline, catalog: Catalog) -> str | None:
     """Why the workshop refuses this chain (French, naming the stage at fault), or `None`.
-    Increment 1: only the shipped chain runs."""
+    The shipped chain's stages, in its order; each with an option the catalog offers and can
+    run now, its settings within their bounds, never fewer candidates than excerpts kept."""
     shipped = catalog.default
     kinds = [s.kind for s in pipeline.stages]
     if kinds != [s.kind for s in shipped.stages]:
-        return (
-            "Seule la chaîne livrée s'exécute ici : découpage, embedding, base vectorielle, "
-            "recherche, reranking, construction du contexte et génération, dans cet ordre."
-        )
-    for stage, ref in zip(pipeline.stages, shipped.stages, strict=True):
+        names = ", ".join(catalog.content.stages[s.kind].label_fr.lower() for s in shipped.stages)
+        return f"La chaîne doit garder ses étapes, dans cet ordre : {names}."
+    ids = [s.id for s in pipeline.stages]
+    if len(set(ids)) != len(ids):
+        return "Deux étapes de la chaîne portent le même identifiant."
+    for stage in pipeline.stages:
         label = catalog.content.stages[stage.kind].label_fr
-        if stage.option != ref.option or stage.params != ref.params:
-            return f"Étape « {label} » : seule l'option livrée, avec ses réglages, s'exécute ici."
+        state = catalog.options.get((stage.kind, stage.option))
+        if state is None:
+            return f"Étape « {label} » : l'option « {stage.option} » n'existe pas."
+        if not state.available:
+            return f"Étape « {label} » : {state.label_fr} n'est pas utilisable. {state.reason_fr}"
+        allowed = PARAMS.get((stage.kind, stage.option), ())
+        unknown = set(stage.params) - set(allowed)
+        if unknown:
+            return f"Étape « {label} » : réglage inconnu ({', '.join(sorted(unknown))})."
+        for name in allowed:
+            if name not in stage.params:
+                continue
+            low, high = catalog.bounds(name)
+            if not low <= stage.params[name] <= high:
+                return f"Étape « {label} » : {_bounds_fr(name, low, high, catalog)}."
+    context = pipeline.find("context")
+    top_k = param(context, "top_k", catalog) if context else 0
+    for stage in pipeline.stages:
+        if "candidates" in PARAMS.get((stage.kind, stage.option), ()):
+            candidates = param(stage, "candidates", catalog)
+            if candidates < top_k:
+                label = catalog.content.stages[stage.kind].label_fr
+                kept = "candidat retenu" if candidates == 1 else "candidats retenus"
+                return (
+                    f"Étape « {label} » : {fr_int(candidates)} {kept}, moins que les "
+                    f"{fr_int(top_k)} extraits que le contexte doit garder. Retenez au moins "
+                    f"{fr_int(top_k)} candidats, ou gardez moins d'extraits."
+                )
     return None
+
+
+def param(stage: Stage, name: str, catalog: Catalog) -> int:
+    """A setting of a stage: its value, else the shipped chain's."""
+    if name in stage.params:
+        return int(stage.params[name])
+    shipped = catalog.default.find(stage.kind)
+    if shipped is not None and name in shipped.params:
+        return int(shipped.params[name])
+    return BOUNDS[name][0]
 
 
 # ---------- figures in French ----------
@@ -324,6 +382,138 @@ def fr_ms(ms: int) -> str:
 
 def _mo(n: int) -> str:
     return config.mo_fr(n)
+
+
+def size_fr(n: int) -> str:
+    """« 19 Ko », « 1,5 Mo »: a size small or large."""
+    if n < _MIB:
+        return f"{fr_int(max(1, round(n / 1024)))} Ko"
+    return f"{n / _MIB:.1f} Mo".replace(".", ",")
+
+
+# ---------- the corpus's vectors, cached under `rag_lab_dir()` (AD-20) ----------
+
+CHUNKS_FILE = "chunks.json"  # written last: its presence says the folder is whole
+VECTORS_FILE = "vectors.f32"
+INDEX_FILE = "index.sqlite"
+
+
+_DIGESTS: dict[tuple[str, int, int], str] = {}
+
+
+def file_digest(path: Path) -> str:
+    """A file's sha256, computed once per size and modification time in this process."""
+    stat = path.stat()
+    key = (str(path), stat.st_size, stat.st_mtime_ns)
+    if key not in _DIGESTS:
+        _DIGESTS[key] = rag_index.file_sha256(path)
+    return _DIGESTS[key]
+
+
+def folder_identity(folder: Path) -> tuple[int, str]:
+    """A folder's files (a fastembed model): their total size, and one sha256 over each
+    file's path and sha256."""
+    digest = hashlib.sha256()
+    size = 0
+    for path in sorted(p for p in folder.rglob("*") if p.is_file()):
+        size += path.stat().st_size
+        digest.update(f"{path.relative_to(folder).as_posix()}\x1f{file_digest(path)}\x1e".encode())
+    return size, digest.hexdigest()
+
+
+def cache_key(identity: dict[str, Any], chunk_max_chars: int, digest: str) -> str:
+    """The folder of a corpus embedded by a model: the model's identity (id, dimensions, file
+    size and sha256), the chunk size and the chunks' digest."""
+    parts = {"embedder": identity, "chunk_max_chars": chunk_max_chars, "corpus": digest}
+    return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:20]
+
+
+def _replace(path: Path, data: bytes) -> None:
+    """A file written whole or not at all: a temporary file, then `os.replace`."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def write_vectors(
+    folder: Path, chunks: Sequence[Chunk], vectors: Sequence[Sequence[float]], identity: dict
+) -> None:
+    """The vectors (float32, `array('f')`), then the chunks and what identifies them."""
+    folder.mkdir(parents=True, exist_ok=True)
+    flat = array("f", (x for v in vectors for x in v))
+    _replace(folder / VECTORS_FILE, flat.tobytes())
+    meta = {
+        "embedder": identity,
+        "dims": len(vectors[0]) if vectors else 0,
+        "count": len(vectors),
+        "chunks": [list(c) for c in chunks],
+    }
+    _replace(folder / CHUNKS_FILE, json.dumps(meta, ensure_ascii=False).encode("utf-8"))
+
+
+def read_vectors(folder: Path, chunks: Sequence[Chunk], dims: int) -> list[list[float]] | None:
+    """The cached vectors of exactly these chunks, or `None` (absent, partial, another corpus)."""
+    try:
+        meta = json.loads((folder / CHUNKS_FILE).read_text(encoding="utf-8"))
+        data = (folder / VECTORS_FILE).read_bytes()
+    except (OSError, ValueError):
+        return None
+    if meta.get("dims") != dims or meta.get("count") != len(chunks):
+        return None
+    if [tuple(c) for c in meta.get("chunks", [])] != [tuple(c) for c in chunks]:
+        return None
+    if len(data) != 4 * dims * len(chunks):
+        return None
+    flat = array("f")
+    flat.frombytes(data)
+    return [list(flat[i * dims : (i + 1) * dims]) for i in range(len(chunks))]
+
+
+def as_float32(vector: Sequence[float]) -> list[float]:
+    """A vector as the stores keep it (float32), for every store to compare alike."""
+    return list(array("f", vector))
+
+
+class MemoryStore:
+    """Exhaustive search in pure Python: the dot product of the normalized question with each
+    normalized vector (its cosine), every vector read, no index."""
+
+    def __init__(self, chunks: Sequence[Chunk], vectors: Sequence[Sequence[float]]) -> None:
+        self._chunks = list(chunks)
+        self._vectors = [as_float32(v) for v in vectors]
+
+    def search(self, vector: Sequence[float], k: int) -> list[tuple[int, float]]:
+        """`(chunk_id, score)` of the `k` nearest, the score bounded to [0, 1] with 3
+        decimals; ties by chunk id, as sqlite-vec's query orders them."""
+        query = as_float32(vector)
+        scored = [
+            (sum(a * b for a, b in zip(query, v, strict=True)), i + 1)
+            for i, v in enumerate(self._vectors)
+        ]
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        return [(cid, round(min(1.0, max(0.0, s)), 3)) for s, cid in scored[:k]]
+
+    def close(self) -> None:
+        pass
+
+
+class _SqliteStore:
+    """A sqlite-vec index (the brick's, read only, or the workshop's), searched through the
+    `Retriever` port."""
+
+    def __init__(self, path: Path, embedder: Embedder) -> None:
+        self._retriever = SqliteVecRetriever(path, embedder, 1)
+        self.question = ""
+
+    def search(self, vector: Sequence[float], k: int) -> list[tuple[int, float]]:
+        return [(e.chunk_id, e.score) for e in self._retriever.search(self.question, k)]
+
+    def close(self) -> None:
+        self._retriever.close()
 
 
 # ---------- a run ----------
@@ -429,7 +619,10 @@ class LabDeps:
     brick_index: Path
     # Why the brick's index cannot serve (absent, stale, of another model), or `None`.
     brick_index_error: str | None
+    lab_dir: Path  # `config.rag_lab_dir()`: the workshop's vectors and indexes
     embedder: Callable[[str], Lent]  # option -> the embedding model, or `StageFailed`
+    # option -> what identifies the embedding model (id, dims, size, sha256): its cache's key
+    identity: Callable[[str], dict[str, Any]]
     reranker: Callable[[str], Lent]  # option -> the reranker, or `StageSkipped`/`StageFailed`
     cancelled: Callable[[], bool]
     # kind, payload, step id and component of the event
@@ -504,7 +697,9 @@ class _Lane:
     embedder: Embedder | None = None
     embedder_label: str = ""
     query_vector: list[float] | None = None
-    retriever: SqliteVecRetriever | None = None
+    vectors: list[list[float]] | None = None  # the passages', when the store needs them
+    key: str = ""  # the cache's folder of this corpus and model
+    store: Any = None  # `MemoryStore`, `_SqliteStore`…
     ranked: list[Item] | None = None  # the current ranked list
     context: list[Item] = field(default_factory=list)
     context_text: str = ""
@@ -578,19 +773,22 @@ class LabRun:
             try:
                 self._run_lane(state, skip_all=cancelled)
             finally:
-                if state.retriever is not None:
-                    state.retriever.close()
+                if state.store is not None:
+                    state.store.close()
             cancelled = cancelled or state.status == "cancelled"
         statuses = {lane.status for lane in self.lanes}
         status = (
             "cancelled" if "cancelled" in statuses else "error" if "error" in statuses else "ok"
         )
+        comparison = None
+        if len(self.lanes) == LANES_MAX and status != "cancelled":
+            comparison = compare(self.lanes[0], self.lanes[1])
         self._emit(
             "rag_lab_run_ended",
             {
                 "status": status,
                 "duration_ms": _ms(time.monotonic() - started),
-                "comparison": None,
+                "comparison": comparison,
             },
             self.run_id,
             "rag_lab",
@@ -712,7 +910,7 @@ class LabRun:
         if stage.kind == "chunking":
             return self._chunking(lane, stage)
         if stage.kind == "embedding":
-            return self._embedding(lane, stage)
+            return self._embedding(lane, stage, progress)
         if stage.kind == "vector_store":
             return self._vector_store(lane, stage)
         if stage.kind == "vector_search":
@@ -782,11 +980,55 @@ class LabRun:
             ],
         )
 
-    def _embedding(self, lane: _Lane, stage: Stage) -> _Result:
+    def _embedding(
+        self, lane: _Lane, stage: Stage, progress: Callable[[int, int], None]
+    ) -> _Result:
         lent = self.deps.embedder(stage.option)
         embedder: Embedder = lent.model
         lane.embedder_label = lent.label_fr
         self._check()
+        n = fr_int(len(lane.chunks))
+        facts = [("Modèle", lent.label_fr), ("Dimensions", fr_int(embedder.dims))]
+        if self._uses_brick_index(lane):
+            if self.deps.brick_index_error is None:
+                passages = (
+                    f"Les {n} passages (titre du document, puis extrait) sont déjà vectorisés "
+                    "dans l'index de la brique RAG, calculés à sa construction."
+                )
+            else:
+                passages = (
+                    "Les passages ne sont pas vectorisés ici : l'index de la brique RAG ne peut "
+                    "pas servir (voir Base vectorielle)."
+                )
+        else:
+            identity = self.deps.identity(stage.option)
+            digest = rag_index.corpus_digest(lane.chunks)
+            lane.key = cache_key(identity, lane.chunk_max_chars, digest)
+            folder = self.deps.lab_dir / lane.key
+            vectors = read_vectors(folder, lane.chunks, embedder.dims)
+            if vectors is not None:
+                passages = f"Passages relus du cache ({n} vecteurs, dossier {lane.key})."
+                facts.append(("Passages", f"relus du cache ({n})"))
+            else:
+                vectors = []
+                total = len(lane.chunks)
+                started = time.monotonic()
+                for i, chunk in enumerate(lane.chunks, start=1):
+                    self._check()
+                    vectors += embedder.embed_passages([rag_index.passage_text(chunk)])
+                    progress(i, total)
+                if any(len(v) != embedder.dims for v in vectors):
+                    raise StageFailed(
+                        f"Le modèle rend des vecteurs qui n'ont pas {embedder.dims} dimensions."
+                    )
+                write_vectors(folder, lane.chunks, vectors, identity)
+                seconds = time.monotonic() - started
+                passages = (
+                    f"Passages calculés ({n} passages) en {fr_ms(_ms(seconds))}, puis mis en "
+                    f"cache (dossier {lane.key})."
+                )
+                facts.append(("Passages", f"calculés ({n} passages)"))
+            lane.vectors = vectors
         vector = embedder.embed_queries([self.question])[0]
         if not any(vector):
             raise StageFailed(
@@ -796,68 +1038,106 @@ class LabRun:
         lane.embedder = _KnownQuery(embedder, self.question, vector)  # type: ignore[assignment]
         lane.query_vector = vector
         shown = " ; ".join(fr_score(v) for v in vector[:4])
-        if self._uses_brick_index(lane) and self.deps.brick_index_error is None:
-            passages = (
-                f"Les {fr_int(len(lane.chunks))} passages (titre du document, puis extrait) sont "
-                "déjà vectorisés dans l'index de la brique RAG, calculés à sa construction."
-            )
-        else:
-            passages = (
-                "Les passages ne sont pas vectorisés ici : l'index de la brique RAG ne peut pas "
-                "servir (voir Base vectorielle)."
-            )
+        facts.append(("Provenance", self._provenance(lent)))
         return _Result(
-            input_fr=f"La question « {self.question} », et les {fr_int(len(lane.chunks))} "
-            "extraits du découpage.",
+            input_fr=f"La question « {self.question} », et les {n} extraits du découpage.",
             output_fr=(
                 f"Question → vecteur de {fr_int(len(vector))} nombres ({shown} ; …). {passages}"
             ),
-            facts=[
-                ("Modèle", lent.label_fr),
-                ("Dimensions", fr_int(embedder.dims)),
-                (
-                    "Provenance",
-                    self.deps.texts.borrowed_fr if lent.borrowed else self.deps.texts.loaded_fr,
-                ),
-            ],
+            facts=facts,
             borrowed=lent.borrowed,
         )
+
+    def _provenance(self, lent: Lent) -> str:
+        return self.deps.texts.borrowed_fr if lent.borrowed else self.deps.texts.loaded_fr
 
     def _vector_store(self, lane: _Lane, stage: Stage) -> _Result:
         if lane.embedder is None:
             raise StageFailed("Aucun modèle d'embedding : l'étape Embedding n'a pas abouti.")
-        if not self._uses_brick_index(lane):
-            raise StageFailed("Cette base vectorielle n'est pas proposée ici.")
-        if self.deps.brick_index_error is not None:
-            raise StageFailed(self.deps.brick_index_error)
-        path = self.deps.brick_index
-        meta = rag_index.read_meta(path)
-        lane.retriever = SqliteVecRetriever(path, lane.embedder, 1)
-        return _Result(
-            input_fr=(
-                f"{fr_int(meta.chunks)} vecteurs de {fr_int(meta.dims)} dimensions, calculés par "
-                f"« {meta.embedding_model_id} » le {meta.built_at[:10]}."
-            ),
-            output_fr=(
-                f"Index sqlite-vec de la brique RAG, lu seulement ({path.name}) : l'atelier "
-                "n'y écrit jamais."
-            ),
-            facts=[
-                ("Fichier", str(path)),
-                ("Vecteurs", fr_int(meta.chunks)),
-                ("Métrique", "cosinus"),
-            ],
-        )
+        n = len(lane.chunks)
+        dims = lane.embedder.dims
+        if self._uses_brick_index(lane):
+            if self.deps.brick_index_error is not None:
+                raise StageFailed(self.deps.brick_index_error)
+            path = self.deps.brick_index
+            meta = rag_index.read_meta(path)
+            lane.store = _SqliteStore(path, lane.embedder)
+            return _Result(
+                input_fr=(
+                    f"{fr_int(meta.chunks)} vecteurs de {fr_int(meta.dims)} dimensions, calculés "
+                    f"par « {meta.embedding_model_id} » le {meta.built_at[:10]}."
+                ),
+                output_fr=(
+                    f"Index sqlite-vec de la brique RAG, lu seulement ({path.name}) : l'atelier "
+                    "n'y écrit jamais."
+                ),
+                facts=[
+                    ("Fichier", str(path)),
+                    ("Vecteurs", fr_int(meta.chunks)),
+                    ("Métrique", "cosinus"),
+                ],
+            )
+        if lane.vectors is None:
+            raise StageFailed("Aucun vecteur des passages : l'étape Embedding n'a pas abouti.")
+        vectors_fr = f"{fr_int(n)} vecteurs de {fr_int(dims)} dimensions"
+        if stage.option == "memory":
+            lane.store = MemoryStore(lane.chunks, lane.vectors)
+            size = n * dims * 4
+            return _Result(
+                input_fr=f"Les {vectors_fr} de l'étape Embedding.",
+                output_fr=(
+                    f"Rangés en mémoire, sans index ({size_fr(size)} en float32) : chaque "
+                    "recherche compare la question à tous les vecteurs."
+                ),
+                facts=[("Vecteurs", fr_int(n)), ("Métrique", "cosinus (produit scalaire)")],
+            )
+        if stage.option == "sqlite_vec":
+            path = self.deps.lab_dir / lane.key / INDEX_FILE
+            built = "relu"
+            try:
+                meta = rag_index.read_meta(path) if path.is_file() else None
+            except Exception:  # noqa: BLE001 - rebuilt below
+                meta = None
+            fits = (
+                meta is not None
+                and meta.chunks == n
+                and meta.dims == dims
+                and meta.chunk_max_chars == lane.chunk_max_chars
+                and meta.corpus_sha256 == rag_index.corpus_digest(lane.chunks)
+            )
+            if not fits:
+                self._check()
+                rag_index.write_index(
+                    path,
+                    lane.chunks,
+                    lane.vectors,
+                    model_id=lane.embedder.model_id,
+                    dims=dims,
+                    chunk_max_chars=lane.chunk_max_chars,
+                )
+                built = f"construit ({fr_int(n)} vecteurs)"
+            lane.store = _SqliteStore(path, lane.embedder)
+            return _Result(
+                input_fr=f"Les {vectors_fr} de l'étape Embedding.",
+                output_fr=(
+                    f"Index sqlite-vec de l'atelier {built} (dossier {lane.key}) : l'index de la "
+                    "brique n'est pas touché."
+                ),
+                facts=[("Fichier", str(path)), ("Vecteurs", fr_int(n)), ("Métrique", "cosinus")],
+            )
+        raise StageFailed(f"Base vectorielle inconnue : {stage.option}.")
 
     def _vector_search(self, lane: _Lane, stage: Stage) -> _Result:
-        if lane.retriever is None:
+        if lane.store is None or lane.query_vector is None:
             raise StageFailed("Aucune base vectorielle : l'étape précédente n'a pas abouti.")
         k = int(stage.params.get("candidates", 8))
-        excerpts = lane.retriever.search(self.question, k)
-        items = [
-            Item(e.chunk_id, e.doc_id, e.title_fr, e.text, e.score, rank=e.position)
-            for e in excerpts
-        ]
+        if isinstance(lane.store, _SqliteStore):
+            lane.store.question = self.question
+        hits = lane.store.search(lane.query_vector, k)
+        items = []
+        for rank, (chunk_id, score) in enumerate(hits, start=1):
+            chunk = lane.chunks[chunk_id - 1]
+            items.append(Item(chunk_id, chunk.doc_id, chunk.title_fr, chunk.text, score, rank=rank))
         lane.ranked = items
         best = items[0].score if items else None
         worst = items[-1].score if items else None
@@ -1006,6 +1286,68 @@ class LabRun:
 
 def _ms(seconds: float) -> int:
     return round(seconds * 1000)
+
+
+def _compared(key: str, item: Item) -> dict[str, Any]:
+    return {"key": key, "doc_id": item.doc_id, "title_fr": item.title_fr}
+
+
+def compare(a: _Lane, b: _Lane) -> dict[str, Any]:
+    """The two contexts, compared in Python (AD-1): excerpt by excerpt when both chains cut
+    the corpus alike, else document by document (a document's best rank)."""
+    same_cut = a.chunk_max_chars == b.chunk_max_chars and a.chunks == b.chunks
+    basis = "excerpt" if same_cut else "document"
+
+    def ranks(lane: _Lane) -> dict[str, tuple[int, Item]]:
+        found: dict[str, tuple[int, Item]] = {}
+        for item in lane.context:
+            chunk = lane.chunks[item.chunk_id - 1] if lane.chunks else None
+            key = f"{item.doc_id}#{chunk.position}" if same_cut and chunk else item.doc_id
+            if key not in found:
+                found[key] = (item.rank, item)
+        return found
+
+    in_a, in_b = ranks(a), ranks(b)
+    common, only_a, only_b, changes = [], [], [], []
+    for key, (rank, item) in in_a.items():
+        if key in in_b:
+            entry = _compared(key, item) | {"rank_a": rank, "rank_b": in_b[key][0]}
+            common.append(entry)
+            if rank != in_b[key][0]:
+                changes.append(entry)
+        else:
+            only_a.append(_compared(key, item) | {"rank_a": rank, "rank_b": None})
+    for key, (rank, item) in in_b.items():
+        if key not in in_a:
+            only_b.append(_compared(key, item) | {"rank_a": None, "rank_b": rank})
+    unit = "extrait" if same_cut else "document"
+    parts = []
+    if not a.context or not b.context:
+        parts.append("Une des deux chaînes n'a construit aucun contexte.")
+    names = ", ".join(f"« {e['title_fr']} »" for e in common)
+    parts.append(
+        f"En commun : {len(common)} {unit}{'s' if len(common) > 1 else ''}"
+        + (f" ({names})" if names else "")
+        + f" ; seulement dans A : {len(only_a)} ; seulement dans B : {len(only_b)}."
+    )
+    if changes:
+        moves = ", ".join(
+            f"« {e['title_fr']} » {fr_rank(e['rank_a'])} en A, {fr_rank(e['rank_b'])} en B"
+            for e in changes
+        )
+        parts.append(f"Écarts de rang : {moves}.")
+    elif common:
+        parts.append("Aucun écart de rang entre les extraits communs.")
+    if not same_cut:
+        parts.append("Les deux chaînes découpent le corpus autrement : comparaison par document.")
+    return {
+        "basis": basis,
+        "common": common,
+        "only_a": only_a,
+        "only_b": only_b,
+        "rank_changes": changes,
+        "summary_fr": " ".join(parts),
+    }
 
 
 def last_run(envelopes: Sequence[Any]) -> list[dict[str, Any]]:

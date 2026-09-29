@@ -336,6 +336,24 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   sans reranker, le reranking est sauté et le contexte garde l'ordre de la recherche.
   « Arrêter » interrompt entre deux étapes. Pendant l'exécution, l'atelier attend (état
   « Atelier RAG : exécution en cours »).
+- **Options et réglages.** Chaque carte propose ses options (les indisponibles sont grisées, la
+  raison sous la carte) et ses réglages : taille des extraits (200 à 1 500 caractères), candidats
+  retenus et extraits du contexte (1 à 20, jamais moins de candidats que d'extraits). La base
+  vectorielle peut être l'index sqlite-vec ou une **recherche exhaustive en mémoire** (Python pur,
+  sans index) ; l'embedding peut être un modèle **fastembed** (ONNX), proposé seulement s'il est
+  installé, déclaré dans `settings.json` (`"rag_lab": {"fastembed": {"model_name": …, "dims": …,
+  "label_fr": …}}`) et copié à la main sous `models/fastembed` du dossier de données : l'atelier ne
+  télécharge jamais rien. Une chaîne refusée dit pourquoi, en nommant l'étape.
+- **Comparer deux configurations.** « Comparer avec une autre configuration » ouvre une chaîne
+  B ; les deux s'exécutent l'une après l'autre sur la même question, en deux colonnes, suivies
+  d'une synthèse : extraits communs, propres à A ou à B, écarts de rang (par document quand les
+  deux chaînes découpent le corpus autrement). Les chaînes en cours d'édition sont gardées par le
+  navigateur ; « Revenir à la chaîne livrée » les oublie.
+- **Le dossier `rag_lab`.** Hors de la chaîne livrée, les vecteurs du corpus sont calculés une
+  fois par modèle et par taille d'extrait, puis relus (« relus du cache »), et les index sqlite-vec
+  de l'atelier sont construits à côté, dans `rag_lab/` du dossier de données (moins de 1 Mo par
+  configuration pour le corpus livré). Rien n'est écrit dans le dépôt ni dans l'index de la
+  brique. Ce dossier se supprime sans risque, WaveStack arrêté.
 
 Les textes de la page sont dans `content/rag_lab.yaml`. Les événements `rag_lab_*` sont tracés
 dans le contexte `rag_lab` : le journal des événements de l'atelier les liste, aucun volet ne

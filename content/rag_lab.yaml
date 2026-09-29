@@ -37,6 +37,16 @@ facts_fr: "Chiffres"
 duration_fr: "Durée"
 memory_fr: "Mémoire de WaveStack"
 last_run_fr: "Dernière exécution"
+compare_fr: "Comparer avec une autre configuration"
+reset_chain_fr: "Revenir à la chaîne livrée"
+chain_a_fr: "Chaîne A"
+chain_b_fr: "Chaîne B"
+unavailable_fr: "indisponible"
+comparison_title_fr: "Comparaison des deux contextes"
+common_fr: "En commun"
+only_a_fr: "Seulement dans A"
+only_b_fr: "Seulement dans B"
+rank_changes_fr: "Écarts de rang"
 
 status:
   waiting_fr: "en attente"
@@ -101,9 +111,13 @@ options:
   embedding:
     declared:
       label_fr: "Modèle d'embedding de la brique RAG"
+    fastembed:
+      label_fr: "fastembed (ONNX, hors ligne)"
   vector_store:
     sqlite_vec:
       label_fr: "sqlite-vec"
+    memory:
+      label_fr: "Recherche exhaustive en mémoire"
   vector_search:
     cosine:
       label_fr: "Similarité cosinus"

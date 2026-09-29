@@ -6092,6 +6092,115 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     r.api("POST", "/api/intentions/stop")
     r.ev.wait("turn_ended", seq, timeout=30)
     expect(button).to_be_enabled(timeout=10_000)
+    _rag_lab_compare(r)
+
+
+def _git_status() -> str:
+    import subprocess
+
+    return subprocess.run(
+        ["git", "status", "--porcelain", "--", ".", ":!tools/e2e/screenshots"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout
+
+
+def _set_stage(r: Run, lane: str, kind: str, option: str | None = None, **params: int) -> None:
+    card = r.page.locator(f'.rag-chain[data-lane="{lane}"] .rag-chain-card[data-kind="{kind}"]')
+    if option is not None:
+        card.locator("select.rag-option").select_option(option)
+        card = r.page.locator(f'.rag-chain[data-lane="{lane}"] .rag-chain-card[data-kind="{kind}"]')
+    for name, value in params.items():
+        field = card.locator(f'input[data-param="{name}"]')
+        field.fill(str(value))
+        field.dispatch_event("change")
+
+
+def _rag_lab_compare(r: Run) -> None:
+    """Increment 2: A = the shipped chain (sqlite-vec, 700 characters), B = the exhaustive
+    search in memory, 300 characters, `top_k` 2; two runs (computed, then read from the
+    cache); a chain with fewer candidates than excerpts is refused with its reason."""
+    page = r.page
+    status_before = _git_status()
+    lab_dir = r.stack.data_dir / "rag_lab"
+    folders_before = set(lab_dir.iterdir()) if lab_dir.is_dir() else set()
+    page.locator("#rag-reset-chain").click()
+    page.locator("#rag-compare").check()
+    expect(page.locator("#rag-chain-b .rag-chain-card")).to_have_count(7, timeout=5000)
+    store = page.locator('#rag-chain-b [data-kind="vector_store"] select.rag-option')
+    labels = store.locator("option").all_inner_texts()
+    r.check(
+        "Recherche exhaustive en mémoire" in labels and "sqlite-vec" in labels,
+        "chaîne B : la base vectorielle propose sqlite-vec et la recherche en mémoire",
+        str(labels),
+    )
+    _set_stage(r, "b", "vector_store", "memory")
+    _set_stage(r, "b", "chunking", chunk_max_chars=300)
+    _set_stage(r, "b", "context", top_k=2)
+    ended, seq = _rag_lab_run(r)
+    lanes = page.locator(".rag-lane")
+    embedding_b = _result_card(r, "embedding", "b").inner_text()
+    context_b = _stage_ended(r, seq, "context", "b")
+    r.check(
+        ended["payload"]["status"] == "ok"
+        and lanes.count() == 2
+        and "calculés (77 passages)" in embedding_b
+        and len(context_b.get("items", [])) == 2
+        and _result_card(r, "context", "b").locator("tbody tr").count() == 2,
+        "comparaison : deux colonnes, B calcule ses 77 passages et garde 2 extraits",
+        embedding_b[:240],
+    )
+    summary = page.inner_text("#rag-comparison")
+    comparison = ended["payload"]["comparison"] or {}
+    r.check(
+        "En commun" in summary
+        and ("Écarts de rang" in summary or "Aucun écart de rang" in summary)
+        and comparison.get("summary_fr", "")[:40] in summary,
+        "la synthèse nomme les extraits communs et les écarts de rang",
+        summary[:300],
+    )
+    folders = set(lab_dir.iterdir()) if lab_dir.is_dir() else set()
+    r.check(
+        len(folders - folders_before) == 1 and _git_status() == status_before,
+        "un dossier nouveau sous rag_lab_dir(), aucun fichier créé dans le dépôt",
+        f"{sorted(p.name for p in folders)} · git « {_git_status()[:120]} »",
+    )
+    r.shot("57-atelier-rag-comparaison", full_page=True)
+    ended, seq = _rag_lab_run(r)
+    r.check(
+        "relus du cache" in _result_card(r, "embedding", "b").inner_text(),
+        "second run : l'Embedding de B dit « relus du cache »",
+    )
+    # The chains are remembered by the browser, the comparison too.
+    page.reload()
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    kept = page.locator('#rag-chain-b [data-kind="chunking"] input[data-param="chunk_max_chars"]')
+    r.check(
+        page.locator("#rag-compare").is_checked() and kept.input_value() == "300",
+        "après rechargement, les chaînes A et B sont gardées (localStorage)",
+    )
+    # Fewer candidates than excerpts kept: the 409's reason, nothing run.
+    _set_stage(r, "b", "vector_search", candidates=1)
+    seq = r.ev.mark()
+    page.click("#rag-run")
+    status = page.locator("#rag-status")
+    expect(status).to_have_class(re.compile("is-error"), timeout=5000)
+    time.sleep(0.5)
+    r.check(
+        "Recherche" in status.inner_text()
+        and "candidats" in status.inner_text()
+        and not r.ev.since(seq, "rag_lab_run_started"),
+        "candidats < top_k : la page affiche la raison du 409, rien ne s'exécute",
+        status.inner_text(),
+    )
+    page.locator("#rag-reset-chain").click()
+    r.check(
+        not page.locator("#rag-compare").is_checked()
+        and page.locator("#rag-chain-b .rag-chain-card").count() == 0,
+        "« Revenir à la chaîne livrée » : une seule chaîne, la livrée",
+    )
 
 
 RAG_LAB_STAGES_KINDS = [

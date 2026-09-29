@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator, model_validat
 from wavestack import config
 from wavestack.models import catalog
 from wavestack.models.engine import SAMPLING_BOUNDS, Sampling
-from wavestack.rag.lab import QUESTION_MAX, Pipeline
+from wavestack.rag.lab import LANES_MAX, QUESTION_MAX, Pipeline
 from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession, Refused
 from wavestack.trace.envelope import Envelope
@@ -180,7 +180,7 @@ class RagLabRunIntention(BaseModel):
     the chain (the shipped one when absent)."""
 
     question: str = Field(min_length=1, max_length=QUESTION_MAX)
-    pipelines: list[Pipeline] | None = Field(default=None, min_length=1, max_length=1)
+    pipelines: list[Pipeline] | None = Field(default=None, min_length=1, max_length=LANES_MAX)
 
     @field_validator("question")
     @classmethod

@@ -35,7 +35,14 @@
     <section class="rag-section" id="sec-chain" aria-labelledby="sec-chain-title">
       <h2 class="rag-section-title" id="sec-chain-title"><span class="rag-step" aria-hidden="true">1</span> <span data-text="chain_title_fr">La chaîne</span></h2>
       <p class="rag-note" data-text="chain_help_fr"></p>
-      <ol class="rag-chain" id="rag-chain" aria-label="Étapes de la chaîne RAG"></ol>
+      <h3 class="rag-chain-title" id="rag-chain-title-a" hidden>Chaîne A</h3>
+      <ol class="rag-chain" id="rag-chain" aria-label="Étapes de la chaîne RAG" data-lane="a"></ol>
+      <h3 class="rag-chain-title" id="rag-chain-title-b" hidden>Chaîne B</h3>
+      <ol class="rag-chain" id="rag-chain-b" aria-label="Étapes de la chaîne B" data-lane="b" hidden></ol>
+      <div class="rag-actions">
+        <label class="rag-compare"><input type="checkbox" id="rag-compare" /> <span data-text="compare_fr">Comparer avec une autre configuration</span></label>
+        <button type="button" id="rag-reset-chain" class="rag-button-secondary" data-text="reset_chain_fr">Revenir à la chaîne livrée</button>
+      </div>
     </section>
 
     <section class="rag-section" id="sec-question" aria-labelledby="sec-question-title">
@@ -54,6 +61,11 @@
       <p class="rag-note" id="rag-results-empty" data-text="results_empty_fr"></p>
       <p class="rag-run-summary" id="rag-run-summary" role="status" hidden></p>
       <div class="rag-results" id="rag-results"></div>
+      <section class="rag-comparison" id="rag-comparison" aria-labelledby="rag-comparison-title" hidden>
+        <h3 class="rag-comparison-title" id="rag-comparison-title" data-text="comparison_title_fr">Comparaison des deux contextes</h3>
+        <p class="rag-comparison-summary" id="rag-comparison-summary"></p>
+        <dl class="rag-comparison-lists" id="rag-comparison-lists"></dl>
+      </section>
     </section>
   </main>
 

@@ -29,6 +29,7 @@ GENERATIVE = "generative"
 EMBEDDING = "embedding"  # story 15: the RAG brick's embedding model
 RERANKER = "reranker"  # story 16: the RAG brick's reranking model (its sub-option)
 COMPRESSOR = "compressor"  # story 20: Headroom, the compression brick's library
+RAG_LAB_EMBEDDING = "rag_lab.embedding"  # story 30: the RAG workshop's fastembed model
 _MIB = 1024**2
 
 

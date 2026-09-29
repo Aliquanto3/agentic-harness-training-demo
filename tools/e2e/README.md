@@ -460,8 +460,14 @@ Vérifications ajoutées aux scénarios existants :
   de chacun, le Contexte les 3 extraits au format de la brique, la Génération « non exécutée
   dans l'atelier RAG » ; aucune `pageerror` ; capture `56-atelier-rag-resultats.jpg` ; (4) après
   rechargement, le même run (`last_run`) ; (5) pendant un tour lent de l'atelier, `rag_lab_run`
-  répond 409 avec la raison et « Lancer » est grisé. Retour à `/` en fin de scénario, thème
-  « Système ».
+  répond 409 avec la raison et « Lancer » est grisé. (6) Incrément 2 : « Comparer avec une
+  autre configuration » ; B = « Recherche exhaustive en mémoire », 300 caractères, 2 extraits :
+  deux colonnes, l'Embedding de B « calculés (77 passages) », son Contexte à 2 extraits, la
+  synthèse (en commun, écarts de rang), un dossier nouveau sous `rag_lab/` du dossier de données
+  et `git status` inchangé (hors captures) ; capture `57-atelier-rag-comparaison.jpg` ; le second
+  run dit « relus du cache » ; les chaînes survivent au rechargement ; 1 candidat pour 2 extraits :
+  la raison du 409 s'affiche et rien ne part ; « Revenir à la chaîne livrée ». Retour à `/` en
+  fin de scénario, thème « Système ».
 
 ## Déclencheurs du faux modèle
 

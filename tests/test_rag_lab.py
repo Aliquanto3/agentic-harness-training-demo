@@ -307,18 +307,206 @@ def test_stop_between_two_stages(index):
     assert run_status(events) == "cancelled"
 
 
-def test_only_the_shipped_chain_runs_in_this_increment(index):
-    session, _ = ready(index)
+def chains(session: AppSession) -> tuple[rag_lab.Catalog, rag_lab.Pipeline, rag_lab.Pipeline]:
+    """The catalog, the shipped chain A, and a copy B to change."""
     catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
-    changed = catalog.default.model_copy(deep=True)
-    changed.stages[0].params["chunk_max_chars"] = 300
-    reason = rag_lab.validate_pipeline(changed, catalog)
-    assert reason is not None and "Découpage" in reason
+    b = catalog.default.model_copy(deep=True)
+    b.label_fr = "B"
+    return catalog, catalog.default, b
+
+
+def stage(pipeline: rag_lab.Pipeline, kind: str) -> rag_lab.Stage:
+    found = pipeline.find(kind)
+    assert found is not None
+    return found
+
+
+@pytest.mark.parametrize(
+    ("kind", "change", "said"),
+    [
+        ("chunking", {"params": {"chunk_max_chars": 150}}, "entre 200 et 1 500 caractères"),
+        ("chunking", {"params": {"chunk_max_chars": 1600}}, "entre 200 et 1 500"),
+        ("vector_search", {"params": {"candidates": 0}}, "entre 1 et 20"),
+        ("context", {"params": {"top_k": 21}}, "entre 1 et 20"),
+        ("vector_search", {"params": {"candidates": 2}}, "moins que les 3 extraits"),
+        ("vector_store", {"option": "annoy"}, "« annoy » n'existe pas"),
+        ("embedding", {"option": "fastembed"}, "fastembed n'est pas installé"),
+        ("chunking", {"params": {"top_k": 3}}, "réglage inconnu"),
+    ],
+)
+def test_bounds_and_refusals_name_the_stage(index, kind, change, said):
+    session, _ = ready(index)
+    catalog, _, b = chains(session)
+    target = stage(b, kind)
+    for key, value in change.items():
+        setattr(target, key, value)
+    reason = (rag_lab.validate_pipeline(b, catalog) or "").replace("\u202f", " ")
+    label = catalog.content.stages[kind].label_fr
+    assert f"« {label} »" in reason and said in reason, reason
     mark = get_journal().last_seq()
     with pytest.raises(SendRefused):
-        session.run_rag_lab(QUESTION, [changed])
+        session.run_rag_lab(QUESTION, [catalog.default, b])
     assert not [e for e in get_journal().events_since(mark) if e.kind.startswith("rag_lab")]
+
+
+def test_the_chain_keeps_its_stages_in_this_increment(index):
+    session, _ = ready(index)
+    catalog, _, b = chains(session)
+    b.stages.pop(4)  # no reranking
+    assert "garder ses étapes" in rag_lab.validate_pipeline(b, catalog)
     assert rag_lab.validate_pipeline(catalog.default, catalog) is None
+
+
+def test_the_memory_search_ranks_as_sqlite_vec(index):
+    session, _ = ready(index)
+    catalog, a, b = chains(session)
+    stage(b, "vector_store").option = "memory"
+    for question in (QUESTION, COVERED, "Quel plafond pour une nuit d'hôtel à Paris ?"):
+        events = run(session, question, [a, b])
+        searched = [ended(events, "vector_search", lane)["items"] for lane in "ab"]
+        assert [(i["chunk_id"], i["score"]) for i in searched[0]] == [
+            (i["chunk_id"], i["score"]) for i in searched[1]
+        ], question
+        comparison = next(e for e in events if e.kind == "rag_lab_run_ended").payload["comparison"]
+        assert comparison["basis"] == "excerpt"
+        assert len(comparison["common"]) == 3 and not comparison["rank_changes"]
+        assert not comparison["only_a"] and not comparison["only_b"]
+
+
+def test_the_vectors_cache_is_read_again_and_rebuilt_when_the_size_changes(index):
+    session, _ = ready(index)
+    catalog, a, b = chains(session)
+    stage(b, "chunking").params["chunk_max_chars"] = 300
+    stage(b, "vector_store").option = "memory"
+    stage(b, "context").params["top_k"] = 2
+    first = run(session, QUESTION, [a, b])
+    embedding = ended(first, "embedding", "b")
+    assert "calculés (77 passages)" in embedding["output_fr"]
+    progress = [
+        e for e in first if e.kind == "rag_lab_stage_progress" and e.payload["kind"] == "embedding"
+    ]
+    assert progress and progress[-1].payload["done"] == progress[-1].payload["total"] == 77
+    assert len(ended(first, "context", "b")["items"]) == 2
+    folders = list(config.rag_lab_dir().iterdir())
+    assert len(folders) == 1
+    assert {p.name for p in folders[0].iterdir()} == {"chunks.json", "vectors.f32"}
+    second = run(session, QUESTION, [a, b])
+    assert "relus du cache" in ended(second, "embedding", "b")["output_fr"]
+    assert (
+        ended(second, "vector_search", "b")["items"] == ended(first, "vector_search", "b")["items"]
+    )
+    stage(b, "chunking").params["chunk_max_chars"] = 1200
+    third = run(session, QUESTION, [a, b])
+    assert "calculés (16 passages)" in ended(third, "embedding", "b")["output_fr"]
+    assert len(list(config.rag_lab_dir().iterdir())) == 2
+    comparison = next(e for e in third if e.kind == "rag_lab_run_ended").payload["comparison"]
+    assert comparison["basis"] == "document" and "par document" in comparison["summary_fr"]
+
+
+def test_sqlite_vec_of_another_size_is_built_in_the_workshops_folder(index):
+    session, _ = ready(index)
+    before = index.stat().st_mtime_ns
+    catalog, a, _ = chains(session)
+    stage(a, "chunking").params["chunk_max_chars"] = 300
+    first = run(session, QUESTION, [a])
+    store = ended(first, "vector_store")
+    assert store["status"] == "ok" and "construit (77 vecteurs)" in store["output_fr"]
+    second = run(session, QUESTION, [a])
+    assert "relu" in ended(second, "vector_store")["output_fr"]
+    assert index.stat().st_mtime_ns == before  # the brick's index is never written
+    built = list(config.rag_lab_dir().glob("*/index.sqlite"))
+    assert len(built) == 1
+    assert not list(config.rag_lab_dir().rglob("*.tmp"))
+
+
+def test_stop_while_the_passages_are_embedded_leaves_no_file(index):
+    session, _ = ready(index)
+    catalog, a, _ = chains(session)
+    stage(a, "chunking").params["chunk_max_chars"] = 300
+    stage(a, "vector_store").option = "memory"
+    original = session._rag_lab_embedder
+
+    def embedder(option, loans):  # noqa: ANN001, ANN202
+        lent = original(option, loans)
+        real = lent.model
+        seen = []
+
+        class Stopping:
+            model_id, dims = real.model_id, real.dims
+
+            def embed_queries(self, texts):  # noqa: ANN001, ANN202
+                return real.embed_queries(texts)
+
+            def embed_passages(self, texts):  # noqa: ANN001, ANN202
+                seen.append(texts)
+                if len(seen) == 10:
+                    session.stop()
+                return real.embed_passages(texts)
+
+        lent.model = Stopping()
+        return lent
+
+    session._rag_lab_embedder = embedder  # type: ignore[method-assign]
+    events = run(session, QUESTION, [a])
+    assert ended(events, "embedding")["status"] == "cancelled"
+    assert run_status(events) == "cancelled"
+    assert not config.rag_lab_dir().exists() or not list(config.rag_lab_dir().rglob("*"))
+
+
+class FakeTextEmbedding:
+    """fastembed's `TextEmbedding`, faked: the fake bag of words, what it was opened with."""
+
+    opened: list[dict] = []
+
+    def __init__(self, **kwargs) -> None:  # noqa: ANN003
+        FakeTextEmbedding.opened.append(kwargs)
+
+    def query_embed(self, texts):  # noqa: ANN001, ANN201
+        from fake_embedder import vector
+
+        return iter([vector(t) for t in texts])
+
+    passage_embed = query_embed
+
+
+def test_fastembed_unavailable_without_the_package_then_available(index, monkeypatch):
+    import importlib.machinery
+    import sys
+    import types
+
+    session, _ = ready(index)
+    options = {
+        (s["kind"], o["id"]): o
+        for s in session.rag_lab_state()["catalog"]["stages"]
+        for o in s["options"]
+    }
+    fastembed = options[("embedding", "fastembed")]
+    assert not fastembed["available"] and "pas installé" in fastembed["reason_fr"]
+
+    module = types.ModuleType("fastembed")
+    module.__spec__ = importlib.machinery.ModuleSpec("fastembed", None)
+    module.TextEmbedding = FakeTextEmbedding  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "fastembed", module)
+    reason = session._rag_lab_fastembed()[1]
+    assert "[rag_lab.fastembed]" in reason  # installed, not declared
+    values = rerank_config(index)
+    values["rag_lab"] = {"fastembed": {"model_name": "fake/minilm", "dims": 64, "label_fr": "Fast"}}
+    session.cfg = config.Config(values=values)
+    assert "ne sont pas dans" in session._rag_lab_fastembed()[1]  # no file
+    folder = config.models_dir() / "fastembed" / "models--fake--minilm"
+    folder.mkdir(parents=True)
+    (folder / "model.onnx").write_bytes(b"\0" * 100)
+    assert session._rag_lab_fastembed() == (session.cfg.rag_lab_fastembed[0], None)
+
+    catalog, a, b = chains(session)
+    assert catalog.options[("embedding", "fastembed")].label_fr == "Fast"
+    stage(b, "embedding").option = "fastembed"
+    events = run(session, QUESTION, [a, b])
+    embedding = ended(events, "embedding", "b")
+    assert embedding["status"] == "ok" and "calculés (29 passages)" in embedding["output_fr"]
+    assert FakeTextEmbedding.opened[-1]["local_files_only"] is True
+    assert ended(events, "vector_store", "b")["status"] == "ok"  # its own sqlite-vec index
+    assert session._load_registry.holder("rag_lab.embedding") is None
 
 
 # ---------- state, content, sandbox ----------
@@ -427,10 +615,10 @@ def test_web_page_state_and_intention(index):
         assert refused.status_code == 422, question
         assert refused.json()["detail"].startswith("Intention invalide")
         assert "input" not in str(refused.json()["errors"])
-    two = [body["default_pipeline"], body["default_pipeline"]]
+    three = [body["default_pipeline"]] * 3
     too_many = client.post(
         "/api/intentions/rag_lab_run",
-        json={"question": QUESTION, "pipelines": two},
+        json={"question": QUESTION, "pipelines": three},
         headers=HEADERS,
     )
     assert too_many.status_code == 422

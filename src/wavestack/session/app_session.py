@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import bisect
+import importlib.util
 import json
 import logging
 import math
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -123,6 +125,7 @@ from wavestack.models.engine import (
 from wavestack.models.load_registry import (
     COMPRESSOR,
     EMBEDDING,
+    RAG_LAB_EMBEDDING,
     RERANKER,
     LoadRegistry,
     ModelChoice,
@@ -7655,7 +7658,35 @@ class AppSession:
         if self._rerank_model is not None:
             rerank.label_fr = self._rerank_model.label_fr
         rerank.note_fr = self._rerank_static_reason()
+        fastembed = options[("embedding", "fastembed")]
+        declared, reason = self._rag_lab_fastembed()
+        if declared is not None:
+            fastembed.label_fr = declared.label_fr
+        fastembed.available, fastembed.reason_fr = declared is not None, reason
         return rag_lab.Catalog(texts, rag_lab.default_pipeline(self.cfg), options)
+
+    def _rag_lab_fastembed(self) -> tuple[config.FastembedModel | None, str | None]:
+        """Story 30: the fastembed option, offered only installed, declared and on the
+        workstation (it is never downloaded), else why not."""
+        try:
+            installed = importlib.util.find_spec("fastembed") is not None
+        except (ImportError, ValueError):  # a module without its spec: said installed
+            installed = "fastembed" in sys.modules
+        if not installed:
+            return None, (
+                "Indisponible : fastembed n'est pas installé (ce n'est pas une dépendance de "
+                "WaveStack, seulement le repli de la story 12)."
+            )
+        model, error = self.cfg.rag_lab_fastembed
+        if model is None:
+            return None, error
+        folder = embedding_module.fastembed_dir()
+        if not folder.is_dir() or not any(folder.rglob("*.onnx")):
+            return None, (
+                f"Indisponible : les fichiers du modèle fastembed ne sont pas dans {folder}. "
+                "Copiez-les à la main : l'atelier RAG ne télécharge rien."
+            )
+        return model, None
 
     def rag_lab_state(self) -> dict[str, Any]:
         """`GET /api/rag_lab` (story 30, AD-1): what the page needs before the stream, from
@@ -7702,6 +7733,8 @@ class AppSession:
             raise SendRefused(unavailable)
         catalog = self._rag_lab_catalog(texts)
         chains = list(pipelines) if pipelines else [catalog.default]
+        if len(chains) > rag_lab.LANES_MAX:
+            raise SendRefused("Deux chaînes au plus : A, puis B pour la comparaison.")
         for chain in chains:
             reason = rag_lab.validate_pipeline(chain, catalog)
             if reason is not None:
@@ -7748,7 +7781,9 @@ class AppSession:
                 shipped_chunk_max_chars=self.cfg.rag_chunk_max_chars,
                 brick_index=self.cfg.rag_index_path(),
                 brick_index_error=index_error,
+                lab_dir=config.rag_lab_dir(),
                 embedder=lambda option: self._rag_lab_embedder(option, loans),
+                identity=self._rag_lab_identity,
                 reranker=lambda option: self._rag_lab_reranker(option, loans),
                 cancelled=lambda: cancel.cancelled,
                 emit=self._rag_lab_emit,
@@ -7786,6 +7821,8 @@ class AppSession:
         """The brick's embedding model, borrowed when it holds it, else loaded as
         `_load_embedder` loads it (budget, declared sha256, factory) and closed at the run's
         end; its errors are said in the stage, never as `harness_error`."""
+        if option == "fastembed":
+            return self._rag_lab_fastembed_lent(loans)
         model = self._rag_model
         if option != "declared" or model is None:
             raise rag_lab.StageFailed(
@@ -7823,6 +7860,38 @@ class AppSession:
             slot=EMBEDDING,
             open_model=open_model,
         )
+
+    def _rag_lab_fastembed_lent(self, loans: rag_lab.Loans) -> rag_lab.Lent:
+        """The fastembed model, loaded for the run in its own slot (the brick's embedding
+        slot may be held), within the budget, then closed."""
+        model, reason = self._rag_lab_fastembed()
+        if model is None:
+            raise rag_lab.StageFailed(reason or "fastembed indisponible.")
+        folder = embedding_module.fastembed_dir()
+        sizes = [p.stat().st_size for p in folder.rglob("*") if p.is_file()]
+        return loans.lend(
+            borrowed=None,
+            label_fr=model.label_fr,
+            noun_fr="modèle d'embedding",
+            unavailable_fr=None,
+            cost=self._load_registry.component_cost(None, sizes),
+            slot=RAG_LAB_EMBEDDING,
+            open_model=lambda: embedding_module.FastembedEmbedder(model.model_name, model.dims),
+        )
+
+    def _rag_lab_identity(self, option: str) -> dict[str, Any]:
+        """What identifies an embedding model, the key of the workshop's vector cache: its id,
+        its dimensions, its file's size and sha256 (declared, else computed once)."""
+        if option == "fastembed":
+            model, _ = self._rag_lab_fastembed()
+            assert model is not None  # the stage loaded it
+            size, sha = rag_lab.folder_identity(embedding_module.fastembed_dir())
+            return {"id": model.model_name, "dims": model.dims, "size": size, "sha256": sha}
+        model = self._rag_model
+        assert model is not None  # the stage loaded it
+        declared = model.load_file
+        sha = declared.sha256 or rag_lab.file_digest(embedding_module.model_path(model))
+        return {"id": model.id, "dims": model.dims, "size": declared.size, "sha256": sha.lower()}
 
     def _rag_lab_reranker(self, option: str, loans: rag_lab.Loans) -> rag_lab.Lent:
         """The brick's reranker, borrowed or loaded as `_load_reranker` loads it; without its

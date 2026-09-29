@@ -122,6 +122,16 @@ files = [
     { url = "https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF/resolve/3093af03b1a635e67b084b1d8c03c5f5e020fd05/bge-reranker-v2-m3-Q4_K_M.gguf", path = "reranker/bge-reranker-v2-m3-Q4_K_M.gguf", size = 438376864, sha256 = "e186a244ed455b4ab66ec64339ce7427a6ae13f5c0b5e544de96e50f0f8b3673" },
 ]
 
+
+[rag_lab]
+# Atelier RAG (story 30) : un bac à sable, à côté de la brique RAG. Ses vecteurs et ses index
+# se construisent à la demande dans le dossier de données (rag_lab/), jamais dans le dépôt.
+# Un modèle fastembed (ONNX) peut s'y ajouter comme option d'embedding, s'il est installé et
+# présent hors ligne sous models/fastembed : WaveStack ne le télécharge jamais. Déclarez-le
+# dans settings.json, par exemple :
+#   "rag_lab": {"fastembed": {"model_name": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+#               "dims": 384, "label_fr": "MiniLM multilingue (fastembed)"}}
+
 [tools]
 # Bornes de la boucle de tour (AD-10), affichées sur la carte de la brique outils.
 # Appels au modèle par tour, dont les nouveaux essais après un appel mal formé.

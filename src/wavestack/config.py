@@ -285,6 +285,16 @@ class RerankerModel(LocalModelSpec):
     max_tokens: int = Field(gt=8)
 
 
+class FastembedModel(_Strict):
+    """`[rag_lab.fastembed]` (story 30): an optional embedding model of the RAG workshop, run
+    by fastembed (ONNX), never downloaded by WaveStack: its files lie under
+    `models_dir()/fastembed`, opened with `local_files_only`."""
+
+    model_name: str = Field(min_length=1)
+    dims: int = Field(gt=0)
+    label_fr: str = Field(min_length=1)
+
+
 def _merge_cloud_models(base: Any, override: Any) -> list[Any]:
     """AD-20: `[[cloud.models]]` entries merge by `id`, field by field, on the raw dicts."""
     merged: dict[Any, Any] = {}
@@ -666,6 +676,27 @@ class Config:
         the target PC with `gpt-4`, plus 30 %; 107 MB at peak on Linux)."""
         return max(0, self._int("compression", "cost_mb", default=110)) * 1024 * 1024
 
+    @cached_property
+    def rag_lab_fastembed(self) -> tuple[FastembedModel | None, str | None]:
+        """Story 30: the workshop's fastembed model, or why there is none (French)."""
+        raw = self.get("rag_lab", "fastembed")
+        if raw is None:
+            return None, (
+                "Indisponible : aucun modèle fastembed n'est déclaré. Ajoutez une section "
+                "[rag_lab.fastembed] (model_name, dims, label_fr) à settings.json, WaveStack "
+                "arrêté."
+            )
+        try:
+            return FastembedModel.model_validate(raw), None
+        except ValidationError as exc:
+            fields = ", ".join(
+                ".".join(str(p) for p in e["loc"]) or "section" for e in exc.errors()
+            )
+            return None, (
+                f"Indisponible : la section [rag_lab.fastembed] est invalide ({fields}). "
+                "Corrigez-la, puis relancez WaveStack."
+            )
+
     def rag_index_path(self) -> Path:
         """Story 15: the sqlite-vec index; a relative path is from the repository root."""
         path = Path(str(self.get("rag", "index_path", default="data/rag_index.sqlite")))
@@ -934,6 +965,12 @@ def write_api_key(model_id: str, host: str, key: SecretStr) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(keys, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def rag_lab_dir() -> Path:
+    """Story 30 (AD-20): the RAG workshop's vectors and indexes, built on demand, never in
+    the repository; the folder can be deleted, WaveStack stopped."""
+    return data_dir() / "rag_lab"
 
 
 def memory_path() -> Path:
