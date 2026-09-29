@@ -1,0 +1,25 @@
+﻿﻿# Résultats de la recette de la suite du lot K sur PC cible (2026-09-29, soir)
+
+Tête locale `14d31bd` (branche `claude/lot-k-recette-pc`, 8 commits non poussés), dossier de
+données jetable, 2B intégré, fenêtre 4 096. Outlook et Teams fermés ; Edge ouvert (onglet de
+l'extension). Rien de commité ni de modifié dans le dépôt.
+
+| Point | Geste | Attendu | Obtenu | Statut | Moyen |
+|---|---|---|---|---|---|
+| Tests | ruff, format, `pytest -q`, E2E (`PYTHONUTF8=1`) | vert, 0 FAIL | « All checks passed! », « 148 files already formatted » ; **1254 passed, 3 skipped, 7 deselected** (19 min, CPU partagé avec le 2B) ; E2E **661 réussies, 0 échec** (dont 853 × 433 et 911 × 512, normal et projection) ; captures restaurées | OK | pytest, E2E |
+| K1 (émulé) | tour « Combien font 12*37 ? » ; Playwright 853 × 433 et 911 × 512 (zoom 150 %), 1 005 × 520 (125 %), 1 024 × 700, 1 280 × 720 ; normal et projection | barre sur une ligne, « Réinitialiser » dans la fenêtre, défilement horizontal ≤ 1, « Aa », légende visible et non recouverte à 1 024, puce « · lié » entière à 1 280, panneau Fenêtre entier | barre sur une ligne et 0 débordement partout ; « Réinitialiser » à 837 / 895 / 989 / 1 008 / 1 256 px (dans la fenêtre) ; défilement horizontal **0** partout ; « Aa » sous 1 000 px, « Projection » au-dessus ; légende visible et non recouverte à 1 005 et 1 024 ; puce « · lié » entière à 1 280 (coupée de 80 px à 1 005 et 61 à 1 024 : permis sous 1 100 px). **Panneau « Fenêtre » à 853 × 433 en mode normal, sans volet masqué : bord droit à 881,7 px pour 853, soit 29 px coupés** (texte « coûte » tronqué, capture `run8\pw\k1b-panel-853-0.png`) ; en projection : entier. L'E2E passe parce qu'il masque d'abord Contexte LLM : la puce décale « Fenêtre ▾ » vers la gauche | **KO mineur (K8)** | Playwright |
+| K1 (vrai zoom) | Ctrl + molette dans Edge | — | non fait (Claude in Chrome ne sait pas zoomer) | non fait | — |
+| K2 IAM | « Métier IAM », prompt 1, « Vider la conversation », prompt 2, sans secours | deux liens en tête, ≈ 5 lignes, `completed`, pas de débordement | p1 : `mslearn__microsoft_docs_search`, `completed`, 190 tokens, 5 lignes, 2 liens learn.microsoft.com **en fin de réponse, pas en tête** ; p2 : `completed`, 81 tokens, 3 lignes, 2 liens **en tête** ; aucun `context_overflow` | OK (p1 : liens en fin) | script |
+| K2 Souveraineté p1 | sans secours, puis « Forcer l'appel » (`datagouv__search_datasets`, « cybersécurité ») et rejeu | ≤ 3 jeux, chacun avec son lien, `completed` | sans secours : `load_tool_doc` seul, aucune requête sortante, 3 liens **inventés** (`data.gouv.fr/dataset/cybergouv/150015`…), comme l'annonce la consigne ; avec secours : `trigger user`, POST `mcp.data.gouv.fr`, 3 vrais jeux (`www.data.gouv.fr/datasets/recensement-de-loffre-en-cybersecurite`…), 3 lignes, `completed` | OK | script |
+| K2 SOC p2 | prompt 1 puis 2 sans secours ; puis lecture forcée de `confidentiel/comptes_privilegies.txt` et prompt 2 | `h1 block`, analyste SOC habilité | p1 : `alertes_siem.log`, `completed`, mais 13 lignes (8 demandées) et un adversaire inventé ; p2 sans secours : 4 lectures de `comptes_privilegies.txt` **sans le dossier** (« Fichier absent », h1 allow), **pas de block**, réponse « transmettre cette vérification à un analyste SOC habilité » ; avec le secours : **h1 block**, « Veuillez demander à un analyste SOC habilité … » (le 2B recopie « en 3 lignes au plus ») | OK avec secours | script |
+| K3 Lazy | prompt 1 sans secours, puis « Forcer l'appel » (`local__define_term`, « MCP ») et rejeu | sans secours noté ; avec : `trigger user`, « Model Context Protocol » | sans secours : `load_tool_doc`, puis « MCP est l'abréviation de **Machine Learning Platform for Cloud** » ; avec : `trigger user`, « **MCP** signifie **Model Context Protocol** … » | OK | script |
+| K3 consignes | textes de Lazy loading, Souveraineté, SOC | ce qu'on observe, pourquoi, « Forcer l'appel » comme démonstration | Lazy et Souveraineté décrivent exactement ce que fait le 2B (arrêt après `load_tool_doc`, « j'ai cherché », jeux inventés) et le geste ; SOC prévoit le secours et la conclusion par le formateur | OK | lecture |
+| K7 icône | `fetch` des 4 pages et de `/favicon.ico` dans Edge ; console | `<link rel="icon">`, pas de 404 | `/`, `/diagnostic`, `/models`, `/llm` : `<link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />` ; `/favicon.ico` 200 `image/svg+xml` ; aucune erreur en console. Icône dans l'onglet : à l'œil | OK | Claude in Chrome (Edge) |
+
+**Anomalie K8** (mineure) : le panneau « Fenêtre » s'ancre sous son bouton sans se caler dans
+la fenêtre ; à 853 px CSS (1 280 zoomé à 150 %), sans volet masqué, il dépasse de 29 px à
+droite. Correctif proposé : borner sa position (`right: max(…)`, ou alignement à droite du
+bouton quand il déborderait) et ajouter à l'E2E le cas sans volet masqué.
+
+Reste à la main : vrai zoom d'Edge à 125 et 150 % (K1, K8), icône visible dans l'onglet, vrai
+bouton « Précédent », Narrateur sur « Déléguer au sous-agent », avis sur les réponses du 2B.

@@ -168,6 +168,9 @@ def main(argv: list[str] | None = None) -> int:
     # local training demo. Upgrade to a passed-fd server if it ever bites.
     reserved.close()
 
+    # Story 24 (AD-8): the memory budget, computed now, once, from the RAM available at
+    # launch: before the diagnostic and any model load, shared by both sessions.
+    _cfg.memory_budget  # noqa: B018 - evaluated for its cached value
     session = DiagnosticSession(_cfg, args.port)
     app_session = AppSession(_cfg)
     app = create_app(session, port=args.port, version=VERSION, app_session=app_session)

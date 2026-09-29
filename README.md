@@ -32,6 +32,9 @@ synchronise les dépendances depuis `uv.lock`. La commande ouvre ensuite un navi
 - Domaines à autoriser : PyPI (`pypi.org`, `files.pythonhosted.org`), `abetlen.github.io`
   (roue CPU de `llama-cpp-python`), `github.com` et ses domaines de téléchargement,
   `huggingface.co` et `*.hf.co`.
+- Pour llama-server, facultatif (voir « Obtenir llama-server sans droits d'administrateur ») :
+  `api.github.com`, et les hôtes de téléchargement des releases GitHub,
+  `objects.githubusercontent.com` et `release-assets.githubusercontent.com`.
 
 Ces réglages de proxy concernent l'installation (via `uv`), pas WaveStack lui-même : une fois
 lancée, l'application ne peut sortir que vers les hôtes de sa propre liste blanche (AD-15,
@@ -84,16 +87,31 @@ Le sélecteur de scénario de la barre haute liste six modules, dans l'ordre des
 
 Lancer le premier scénario d'un module active les briques des modules précédents et restaure la
 mémoire globale de démonstration : on peut reprendre la formation à n'importe quel module, dans
-un état reproductible. Deux exceptions, pour tenir dans la fenêtre de contexte : le raisonnement
-reste éteint après le module 1, et le RAG est éteint pendant « MCP en documentation complète ».
+un état reproductible. Deux exceptions, que la consigne rappelle : le raisonnement reste éteint
+après le module 1 (sa réserve de sortie prend de la place et allonge chaque tour), et le RAG
+après le module 3 (ses extraits sur Exemplia sont hors sujet dans les démonstrations suivantes,
+trompent un petit modèle et font relire tout le contexte à chaque tour). Rallumez-les à la main
+pour les montrer.
 
-Le groupe « Transverses et métier » suit les modules : « Où vont mes données ? », puis trois
+Pour un petit modèle local, les prompts suggérés nomment l'outil ou le skill attendu (par
+exemple `load_skill` et `meeting_minutes`, ou `mslearn__microsoft_docs_search`) : un modèle
+plus gros fait seul le lien entre la demande et l'outil, ce qui se montre avec un modèle cloud.
+Quand une action forcée existe, la consigne la donne en secours : « Déclencher le skill »
+(Skills), « Forcer l'appel » sur « Lecture de fichier » avec un préréglage (Compression, SOC),
+« Charger la documentation » en lazy loading (Lazy loading, Souveraineté), puis « Rejouer le
+dernier prompt ». Un appel d'outil MCP ne se force pas : dans « MCP en documentation
+complète », IAM, et pour la recherche elle-même en lazy loading, l'appel reste au modèle, et
+la consigne dit quoi montrer s'il ne vient pas.
+
+Le groupe « Transverses et métier » suit les modules : « Où vont mes données ? » (outils locaux,
+serveur MCP local et data.gouv.fr actifs dès le lancement, en lazy loading ; décochez puis
+recochez data.gouv.fr pour voir le flux sortant disparaître puis revenir), puis trois
 scénarios métier, fictifs, pour que chaque practice imagine ses usages. Leur consigne, projetée,
 se termine par le message à retenir ; la réponse attendue, ci-dessous, est pour le formateur.
 
 | Scénario | Durée | Réponse attendue |
 |---|---|---|
-| SOC : journal d'audit et garde-fou | 20 min | Un seul incident, le compte adm.leroy : connexion depuis un pays inhabituel à 02:14 UTC (accès initial, comptes valides), auto-ajout aux « Admins du domaine » à 02:15 (élévation de privilèges, manipulation de compte), antivirus arrêté à 02:21 (contournement des défenses), 2,3 Go sortants à 02:40 (exfiltration), pendant une fenêtre de maintenance où des alertes étaient en sourdine. Les échecs de svc-sauvegarde sont à investiguer à part. Au second prompt, H1 bloque l'inventaire des comptes à privilèges : l'agent doit escalader vers un analyste habilité. |
+| SOC : journal d'audit et garde-fou | 20 min | Un seul incident, le compte adm.leroy : connexion depuis un pays inhabituel à 02:14 UTC (accès initial, comptes valides), auto-ajout aux « Admins du domaine » à 02:15 (élévation de privilèges, manipulation de compte), antivirus arrêté à 02:21 (contournement des défenses), 2,3 Go sortants à 02:40 (exfiltration), pendant une fenêtre de maintenance où des alertes étaient en sourdine. Les échecs de svc-sauvegarde sont à investiguer à part. Au second prompt, H1 bloque l'inventaire des comptes à privilèges : l'agent doit escalader vers un analyste habilité, comme le prompt le lui demande ; s'il ne le fait pas (fréquent avec un petit modèle), le formateur conclut : l'agent n'a pas ce privilège, la décision revient à un analyste habilité. |
 | IAM : Entra ID avec Microsoft Learn | 15 min | MFA des administrateurs : une stratégie d'accès conditionnel qui cible les rôles d'administrateur et exige l'authentification multifacteur (modèle « Exiger l'authentification multifacteur pour les administrateurs »), ou les paramètres de sécurité par défaut pour un petit locataire. PIM : rôles attribués « éligibles », activés à la demande pour une durée limitée, avec justification, MFA et, au besoin, approbation. La réponse cite ses liens Microsoft Learn. |
 | Souveraineté : où partent les requêtes ? | 15 min | Deux flux sortent du poste : la recherche vers data.gouv.fr (opérateur public français) et celle vers Microsoft Learn (éditeur américain, soumis au Cloud Act même en Europe). Chaque requête révèle le sujet de la mission. Hébergement et qualification (SecNumCloud) de chaque serveur restent à vérifier ; le modèle local ne sort pas du poste, un modèle cloud y ajouterait un troisième flux. |
 
@@ -114,11 +132,35 @@ outils dans `content/mcp_snapshots/`.
 Le modèle se change sans relancer WaveStack, entre deux tours (pas pendant un tour ni une
 validation) :
 - **Barre haute** : le sélecteur « Changer de modèle… », à droite de l'indicateur de modèle,
-  liste les fichiers GGUF du poste (« Sur ce poste », avec leur taille, par exemple « 2B », une
-  fois le fichier sondé), les modèles d'un serveur local déjà lancé et les modèles cloud déclarés
-  (« Réseau », grisés sans clé). Un modèle
-  cloud affiche d'abord son avertissement. « Autre fichier ou clé API… » ouvre le diagnostic.
+  liste les fichiers GGUF du poste, les modèles d'un serveur local déjà lancé et les modèles
+  cloud déclarés (grisés sans clé). Un modèle cloud affiche d'abord son avertissement. « Autre
+  fichier ou clé API… » ouvre le diagnostic.
 - **Diagnostic** : « Choisir » en face d'un fichier ou d'un modèle cloud, ou un chemin saisi.
+
+**Lire le sélecteur.** Sa deuxième ligne est une légende : chaque option commence par où tourne
+le modèle, puis qui le sert :
+- « Local · fichier » : un fichier GGUF chargé par WaveStack lui-même (blob Ollama compris) ;
+- « Local · Ollama », « Local · llama-server » : un serveur déjà lancé sur ce poste, processus
+  distinct de WaveStack ;
+- « RÉSEAU · {fournisseur} » : un modèle cloud, hors du poste.
+
+Les modèles sont regroupés par hébergement puis par éditeur (« Sur ce poste · Qwen (Alibaba) »,
+« Sur ce poste · Llama (Meta) », …, « Réseau · Autres éditeurs »), du plus petit au plus grand ;
+la taille affichée est celle en paramètres (« 2B »), lue dans l'en-tête du fichier, dans les
+détails d'Ollama ou dans le nom. L'éditeur est reconnu par `content/models/publishers.yaml`
+(architecture, puis nom) ; un modèle inconnu va dans « Autres éditeurs ».
+
+**Tableau des modèles.** L'avant-dernière entrée du sélecteur, « Tableau des modèles et de leurs
+capacités… » (bouton « Ouvrir le tableau »), ouvre la page `/models`, aussi atteinte par
+l'onglet « Modèles » du diagnostic. Pour chaque modèle : éditeur, taille (paramètres et octets),
+hébergement, fenêtre de contexte que WaveStack utiliserait, appel d'outils (oui, non, inconnu) et
+raisonnement (jamais, toujours, activable ou inconnu), avec la raison. Ces capacités sont lues
+comme au chargement, par les mêmes règles que les cartes des briques, sans charger ni sonder le
+modèle : l'en-tête du fichier GGUF (lu une fois, puis mémorisé), le gabarit de llama-server, la
+déclaration d'un modèle cloud. « Inconnu » veut dire que rien ne permet de le dire avant le
+chargement : un modèle Ollama dont le fichier est introuvable, un gabarit sans variable de
+raisonnement qui contient `<think>` (le modèle raisonne peut-être de lui-même, WaveStack ne sait
+ni l'allumer ni l'éteindre).
 
 Pendant le chargement, la barre haute et la Vue humain affichent « Chargement du modèle… » avec
 un chronomètre ; l'envoi est désactivé. La conversation est conservée : l'historique est
@@ -148,19 +190,228 @@ par fichier ; un fichier sondé par une version précédente de WaveStack est me
 lancement s'il est le modèle enregistré, sinon quand on le choisit. Une sonde à court de
 mémoire ou de temps n'est pas retenue contre le fichier. Avec le budget de 4 Go, Qwen3.5-4B
 devrait être refusé : 4,27 Go mesurés après 3 000 tokens lors du test du 2026-09-27 (à vérifier
-sur PC avec la nouvelle sonde) ; relevez `budget_mb` pour l'utiliser. Le refus dit aussi ce
-qu'occupe WaveStack sans le modèle actif.
+sur PC avec la nouvelle sonde). Pour l'utiliser malgré tout : fermez des applications,
+relevez `budget_mb` (le plafond) et au besoin `budget_ram_ratio`, ou passez en
+`budget_mode = "fixed"` avec un `budget_mb` suffisant, puis relancez WaveStack (le budget est
+calculé au lancement).
 
-« Arrêter » (à droite du champ de message) interrompt un chargement en cours : il prend effet
-à la fin de l'étape en cours (libération, sonde ou chargement, que llama.cpp ne sait pas
-interrompre), puis WaveStack recharge le modèle précédent. Le budget se règle dans
-`wavestack.toml` (ou `settings.json`) :
+Le refus dit aussi ce qu'occupe WaveStack sans le modèle actif : la mémoire mesurée juste avant
+la création de son moteur (après la libération du précédent), ou davantage si d'autres
+composants se sont chargés depuis (embedding, reranker). Les poids d'un modèle sont projetés en
+mémoire depuis le fichier et peuvent être bien moins présents que ce que la sonde a mesuré :
+retrancher la mesure de la sonde pouvait donner « 0 Mo », ce que la mesure d'avant le moteur
+évite.
+
+**Budget calculé au lancement.** Par défaut (`budget_mode = "dynamic"`), le budget vaut le plus
+petit de deux nombres : le plafond `budget_mb` (4 096 Mo, NFR-2) et 60 % de la RAM disponible
+au lancement (`budget_ram_ratio`). Il est calculé une seule fois, au lancement, puis ne bouge
+plus pendant la séance. La ligne « memory » du diagnostic donne la RAM du poste, la RAM
+disponible, la part retenue, le plafond et le budget ; chaque refus donne le même budget et son
+calcul en bref, par exemple « budget de 4,0 Go (= plafond [memory] budget_mb) » ou « budget de
+2,9 Go (= 60 % des 4,9 Go de RAM disponibles au lancement) » ; le diagnostic donne le calcul
+complet (« plafond [memory] budget_mb de 4 096 Mo, plus petit que 60 % des 9 600 Mo de RAM
+disponibles au lancement (5 760 Mo), sur 16 071 Mo »). Le budget ne descend jamais sous
+512 Mo. Quand la RAM
+disponible fait descendre le budget sous le plafond, le diagnostic l'avertit (sans bloquer) :
+fermez des applications (navigateur, messagerie, visioconférence) puis relancez WaveStack. Si
+la RAM ne peut pas être lue, le budget est le plafond. `budget_mode = "fixed"` garde un budget
+fixe de `budget_mb`, quelle que soit la RAM (« valeur fixe » dans le calcul) ; le diagnostic
+avertit s'il dépasse la RAM disponible.
+
+« Arrêter » (à droite du champ de message) interrompt un chargement en cours. Pendant la sonde
+d'un fichier jamais chargé, il arrête le processus de la sonde aussitôt : rien n'est retenu
+contre le fichier, et le modèle précédent revient. Pendant un chargement dans WaveStack, il
+prend effet à la fin de l'étape (libération ou chargement, que llama.cpp ne sait pas
+interrompre), puis WaveStack recharge le modèle précédent. La sonde du diagnostic de lancement,
+elle, n'a pas de bouton « Arrêter ». Le budget se règle dans `wavestack.toml` (ou
+`settings.json`) :
 
 ```toml
 [memory]
-budget_mb = 4096      # mémoire de WaveStack et de ses processus enfants, modèle compris
-load_margin_mb = 256  # marge ajoutée au coût estimé de chaque modèle local
+budget_mode = "dynamic"  # ou "fixed"
+budget_mb = 4096         # plafond (dynamic) ou valeur (fixed), en Mo, modèle compris
+budget_ram_ratio = 0.6   # part de la RAM disponible au lancement (de 0,1 à 0,9)
+load_margin_mb = 256     # marge ajoutée au coût estimé de chaque modèle local
 ```
+
+## Fenêtre de contexte
+
+La fenêtre de contexte vaut **4 096 tokens par défaut** : les scénarios sont conçus pour elle.
+Elle se règle dans la barre haute, par le bouton « Fenêtre 4 096 ▾ » juste après la jauge, à
+**4 096, 8 192 ou 16 384 tokens** (par exemple quand les trois serveurs MCP en lazy loading font
+déborder 4 096 tokens après le chargement d'une documentation). Le panneau donne, pour chaque
+choix et pour le modèle actif, ce que la fenêtre coûte :
+- **le cache de contexte** en mémoire (la taille d'un token du cache, lue par la sonde ou dans
+  l'en-tête du fichier, multipliée par la fenêtre, en f16 : une borne haute) ; « réservé par
+  llama-server (-c N), inchangé » pour un modèle de llama-server, « chez le fournisseur, aucune
+  mémoire sur ce poste » pour un modèle cloud ;
+- **le temps de lecture** d'une fenêtre pleine, au débit mesuré sur le dernier appel local qui a
+  lu au moins 64 tokens : une borne basse (le débit baisse quand le contexte s'allonge), signalée
+  au-delà des 30 s visées au premier token ; « pas encore mesuré » avant le premier message ;
+- **la borne**, quand le modèle ne peut pas prendre toute la fenêtre : son contexte natif, le
+  `-c` de llama-server, le quota par minute d'un fournisseur (`tpm`), ou la fenêtre qu'une
+  déclaration cloud fixe (`window` : le réglage est alors désactivé) ;
+- **le verdict du budget mémoire** : « Tient dans le budget », ou le refus chiffré (ce que
+  demanderait le modèle avec cette fenêtre, ce qu'occupe WaveStack sans lui, le budget et son
+  calcul).
+
+« Appliquer », entre deux tours seulement : un modèle local (fichier ou Ollama) est rechargé avec
+la nouvelle fenêtre après le contrôle du budget, qui refuse avant de rien libérer ; un modèle de
+llama-server est rechargé sans contrôle (sa mémoire est fixée par son `-c`) ; un modèle cloud
+prend la fenêtre au tour suivant, sans rechargement. La conversation est gardée ; un échec du
+rechargement ou « Arrêter » rend l'ancienne fenêtre. Un choix qui ne change pas la fenêtre
+effective (llama-server lancé avec `-c 8192`, à 8 192 puis 16 384) est enregistré sans
+rechargement ; une fenêtre plus petite n'est jamais refusée par le budget. Ollama est recompté comme s'il chargeait le
+modèle (fichier plus cache à la nouvelle fenêtre, plus la marge), même s'il le tient déjà en
+mémoire : il le recharge à son nouveau `num_ctx`. Le choix est mémorisé dans `settings.json`
+(`"context": {"window": 8192}`) et repris au lancement suivant ; « Réinitialiser » ne le touche
+pas. Sans modèle actif, il est enregistré pour le prochain chargement. Une autre valeur saisie à
+la main dans `[context] window` reste lue, mais n'est pas proposée par le panneau.
+
+## Écran « LLM nu »
+
+Le lien **« LLM nu »** de la barre haute ouvre la page `/llm` : ce qui se passe *dans* le modèle
+actif, sans aucune brique (ni prompt système, ni historique, ni outil, ni mémoire) et sans
+toucher à la conversation de l'atelier. Le modèle ne s'y change pas : le lien « Changer de modèle
+dans l'atelier » ramène au sélecteur de la barre haute.
+
+- **Tokenisation et vectorisation.** « Découper en tokens » découpe le texte saisi (2 000
+  caractères au plus), sans gabarit, par le tokenizer du modèle actif : une puce par token avec
+  son identifiant (512 au plus), les blancs rendus visibles (`␣`, `↵`), un marqueur du gabarit
+  comme `<|im_end|>` en un seul token marqué « spécial ». Un schéma suit le chemin d'un token :
+  texte → tokens → identifiants → ligne de la table d'embedding (vocabulaire × dimension) →
+  vecteur → couches, avec les dimensions réelles du modèle (lues par llama.cpp, dans l'en-tête
+  GGUF, ou données par llama-server), ou « inconnue » et pourquoi. Un modèle cloud n'a pas de
+  tokenizer sur le poste : la page le dit et montre l'estimation du harnais.
+- **Réglages d'échantillonnage.** L'échantillonnage est un paramètre de chaque appel au
+  modèle : l'atelier envoie toujours les valeurs du harnais (température 0,7, top-k 20, top-p
+  0,8, min-p 0), l'écran envoie les siennes, réglables par curseur (température 0 à 2, top-k 0 à
+  100, 0 le désactivant, top-p 0,05 à 1, min-p 0 à 0,5), au moteur en processus, à llama-server et à Ollama. Un
+  modèle cloud ne prend que ce que son entrée déclare (`sampling`, voir « Modèle cloud »), les
+  autres réglages sont grisés avec leur raison. Chaque appel trace son échantillonnage dans
+  `model_call_started` (journal des événements).
+- **Lecture du prompt et génération.** « Générer » envoie le texte comme un seul message de
+  l'utilisateur, rendu par le gabarit du modèle, sans prompt système ni historique. La page
+  montre le prompt rendu, son nombre de tokens, le temps jusqu'au premier token et le débit de
+  lecture, puis les tokens un par un (des fragments pour un modèle cloud) et le débit de
+  sortie. « Arrêter » interrompt. Pendant la génération, l'atelier attend (état « écran LLM
+  nu ») ; sa conversation n'en reçoit rien, et l'état du moteur est restauré pour le tour
+  suivant.
+- **Chargement du modèle.** L'écran montre le dernier chargement fait dans l'atelier, étape
+  par étape (libération du modèle précédent, sonde, contrôle du budget, création du moteur,
+  prêt), avec les durées et la mémoire : RAM du processeur pour un fichier (pas de carte
+  graphique), processus du serveur pour un modèle d'Ollama ou de llama-server, aucune mémoire
+  sur le poste pour un modèle cloud. Un chargement en cours se suit en direct.
+- **Raisonnement.** « Raisonner avant de répondre » s'active quand le modèle sait raisonner
+  (grisé avec la raison sinon, verrouillé pour un modèle qui raisonne toujours) ; la réflexion
+  et la réponse s'affichent dans deux couloirs, avec la réserve de 1 536 tokens et, en local,
+  la coupe du harnais au budget de réflexion.
+- **Tokens candidats.** Avec un fichier GGUF chargé par WaveStack (moteur en processus),
+  « Montrer les tokens candidats » garde, pour chaque token produit, les cinq tokens que le
+  modèle jugeait les plus probables : survolez, donnez le focus ou cliquez une puce pour voir
+  leur probabilité, ceux que top-k, top-p ou min-p écartent et leur chance réelle d'être tirés
+  (la température appliquée), le token tiré marqué. La lecture coûte peu (le vocabulaire d'une
+  seule position par token). Avec llama-server, Ollama ou un modèle cloud, la case est grisée :
+  WaveStack ne lit pas leurs probabilités.
+
+Les textes de la page sont dans `content/llm_lab.yaml`. Les événements de l'écran sont tracés
+dans le contexte `llm` : le journal des événements de l'atelier les liste, aucun volet ne les
+montre.
+
+## Atelier RAG
+
+Le lien **« Atelier RAG »** de la barre haute ouvre la page `/rag` : l'architecture d'une chaîne
+RAG, dessinée pièce par pièce, puis exécutée sur une question, étape par étape. C'est un bac à
+sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne change pas.
+
+- **La chaîne.** Sept cartes : découpage du corpus, embedding, base vectorielle, recherche,
+  reranking, construction du contexte, génération. Chaque carte nomme son option (le modèle
+  déclaré dans `[rag.embedding]` et `[rag.reranker]`, sqlite-vec…), ses réglages, et explique
+  ce qu'elle fait ; une note dit ce qu'une exécution rencontrerait (modèle absent, index de la
+  brique à construire). La génération est dessinée mais ne s'exécute pas ici : générer, c'est un
+  tour de l'atelier ; la carte montre ce que le modèle recevrait.
+- **L'exécution.** « Lancer la chaîne » exécute chaque étape sur la question (500 caractères au
+  plus) et montre ce qu'elle reçoit, ce qu'elle produit, ses chiffres, ses extraits (rang, rang
+  d'avant, document, score), sa durée et la mémoire de WaveStack. La chaîne livrée lit l'index
+  de la brique (sans jamais y écrire) ; l'embedder et le reranker sont empruntés à la brique RAG
+  quand elle les a chargés, sinon chargés pour l'exécution (dans le budget mémoire) puis fermés.
+  Sans modèle d'embedding, l'étape le dit : téléchargez-le depuis la carte RAG de l'atelier ;
+  sans reranker, le reranking est sauté et le contexte garde l'ordre de la recherche.
+  « Arrêter » interrompt entre deux étapes. Pendant l'exécution, l'atelier attend (état
+  « Atelier RAG : exécution en cours »).
+- **Options et réglages.** Chaque carte propose ses options (les indisponibles sont grisées, la
+  raison sous la carte) et ses réglages : taille des extraits (200 à 1 500 caractères), candidats
+  retenus et extraits du contexte (1 à 20, jamais moins de candidats que d'extraits). La base
+  vectorielle peut être l'index sqlite-vec ou une **recherche exhaustive en mémoire** (Python pur,
+  sans index) ; l'embedding peut être un modèle **fastembed** (ONNX), proposé seulement s'il est
+  installé, déclaré dans `settings.json` (`"rag_lab": {"fastembed": {"model_name": …, "dims": …,
+  "label_fr": …}}`, `"folder"` en option) et copié à la main sous `models/fastembed/<son
+  dossier>` du dossier de données (par défaut `models--<model_name>`, « / » devenant « -- ») :
+  l'atelier ne
+  télécharge jamais rien. Une chaîne refusée dit pourquoi, en nommant l'étape.
+- **Comparer deux configurations.** « Comparer avec une autre configuration » ouvre une chaîne
+  B ; les deux s'exécutent l'une après l'autre sur la même question, en deux colonnes, suivies
+  d'une synthèse : extraits communs, propres à A ou à B, écarts de rang (par document quand les
+  deux chaînes découpent le corpus autrement). Les chaînes en cours d'édition sont gardées par le
+  navigateur ; « Revenir à la chaîne livrée » les oublie.
+- **Ajouter, retirer, déplacer.** Entre la base vectorielle et le contexte, les recherches, la
+  fusion et le reranking se déplacent par leurs boutons « ◀ » et « ▶ » (au clavier aussi) et se
+  retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le contexte : la
+  **recherche lexicale BM25** (par mots, sans embedding, k1 = 1,5 et b = 0,75 ; accents et petits
+  mots ignorés, sigles et nombres gardés, comme « RH » ou « 35 ») et la **fusion**
+  des rangs réciproques (k = 60), qui combine deux recherches en une recherche hybride. Les
+  autres étapes sont fixes. WaveStack vérifie la chaîne à chaque modification : une chaîne
+  invalide (deux recherches sans fusion après elles, une fusion sans deux recherches avant elle,
+  un reranking avant toute recherche…) affiche sa raison sur la carte fautive, et « Lancer » est
+  désactivé.
+- **Le dossier `rag_lab`.** Hors de la chaîne livrée, les vecteurs du corpus sont calculés une
+  fois par modèle et par taille d'extrait, puis relus (« relus du cache »), et les index sqlite-vec
+  de l'atelier sont construits à côté, dans `rag_lab/` du dossier de données (moins de 1 Mo par
+  configuration pour le corpus livré). Rien n'est écrit dans le dépôt ni dans l'index de la
+  brique. Ce dossier se supprime sans risque, WaveStack arrêté.
+
+Les textes de la page sont dans `content/rag_lab.yaml`. Les événements `rag_lab_*` sont tracés
+dans le contexte `rag_lab` : le journal des événements de l'atelier les liste, aucun volet ne
+les montre. Après un rechargement, la page réaffiche la dernière exécution.
+
+## Atelier RAG : FAISS et LanceDB (extra optionnel)
+
+La base vectorielle de l'Atelier RAG peut aussi être [FAISS](https://pypi.org/project/faiss-cpu/)
+(`faiss-cpu` 1.15.1, MIT) ou [LanceDB](https://pypi.org/project/lancedb/) (`lancedb` 0.39.0,
+Apache-2.0, avec `pyarrow` 25.0.1). Ce sont des dépendances optionnelles, l'extra `rag-alt`,
+non installées par `uv run wavestack` seul. Depuis le dossier de WaveStack :
+
+```bash
+uv sync --extra compression --extra rag-alt
+uv run wavestack
+```
+
+- **Headroom.** Gardez `--extra compression` dans la commande : un `uv sync` sans lui retire
+  Headroom (la brique Compression).
+- **Taille.** Environ 390 Mo sur disque sous Linux, dont pyarrow 150 Mo et lancedb 170 Mo ;
+  six paquets, des roues seulement (rien n'est compilé sur le poste).
+- **Hors ligne.** Une fois installés, FAISS et LanceDB ne se connectent à rien : leurs index
+  sont des fichiers du dossier de données.
+- **Mémoire.** Leur premier import est compté par le budget, à vie (un module Python ne se
+  décharge pas) : `[rag_lab] faiss_cost_mb = 60` et `lancedb_cost_mb = 180` ; l'étape « Base
+  vectorielle » dit la mémoire réellement ajoutée.
+- **Le dossier `rag_lab`.** Chaque index est construit à la première exécution (« construit
+  (N vecteurs) »), puis relu (« relu ») ; `rag_lab/` du dossier de données se supprime sans
+  risque, WaveStack arrêté.
+- **Poste verrouillé.** Leurs bibliothèques natives (DLL) ne sont pas signées : AppLocker ou
+  WDAC peuvent les bloquer. L'étape « Base vectorielle » dit alors « Import refusé », l'option
+  devient indisponible, et les autres bases (sqlite-vec, recherche en mémoire) restent
+  utilisables.
+- **Sans l'extra,** FAISS et LanceDB sont grisés dans l'Atelier RAG, avec la commande
+  d'installation.
+- **fastembed n'est pas livré** (décision de la story 30) : ni dépendance ni extra de WaveStack,
+  car il ajoute onnxruntime et un client de téléchargement que le parcours n'a pas vérifiés hors
+  ligne sous la garde réseau, ni sous Windows. Un formateur qui veut le montrer l'ajoute sur son
+  poste seulement, depuis le dossier de WaveStack : `uv add --optional fastembed
+  "fastembed==0.8.1"`, puis `uv sync --extra compression --extra rag-alt --extra fastembed` ;
+  `git checkout pyproject.toml uv.lock` le retire avant une mise à jour. Son import est compté
+  à vie par le budget (`[rag_lab] fastembed_cost_mb = 150`), son modèle à part, le temps d'une
+  exécution.
 
 ## Modèle par défaut
 
@@ -191,7 +442,9 @@ read_timeout_s = 300    # lecture de la réponse (le premier appel d'Ollama char
 
 Lancez le serveur avant WaveStack, par exemple `ollama serve`, ou
 `llama-server -m C:\modeles\Qwen3.5-2B-Q4_K_M.gguf --port 8080 -np 1 -c 4096`. **Donnez
-toujours `-c 4096` à llama-server** (la fenêtre de WaveStack, `[context] window`) : sans `-c`,
+toujours à llama-server un `-c` égal à la fenêtre choisie** (4 096 par défaut ; 8 192 ou
+16 384 si vous l'avez choisie dans « Fenêtre ▾ », section précédente) : WaveStack ne relance
+jamais llama-server, et une fenêtre plus grande que son `-c` est bornée à celui-ci. Sans `-c`,
 il prend tout le contexte natif du modèle (262 144 tokens pour Qwen3.5) et réserve dès son
 lancement la mémoire de ce contexte entier, quelle que soit la longueur des conversations
 (5 137 Mo mesurés pour le 2B lors du test du 2026-09-27, pour un fichier de 1,28 Go). Avec
@@ -202,6 +455,81 @@ modèle servi apparaît avec l'étiquette « Local », son serveur, son adresse 
 (« Local · Ollama · … », « Local · llama-server · … »). Un modèle servi n'est jamais choisi
 d'office ; un choix mémorisé est repris au lancement si le serveur le sert encore. Les modèles
 « cloud » d'Ollama (`…-cloud`), qui tournent chez ollama.com, ne sont pas listés.
+
+**Obtenir llama-server sans droits d'administrateur (Windows).** WaveStack n'installe pas
+llama-server. Sur un poste sans droits d'administrateur, prenez l'archive CPU officielle de
+llama.cpp, `llama-bNNNNN-bin-win-cpu-x64.zip`, publiée sur `github.com/ggml-org/llama.cpp`,
+décompressez-la dans votre profil (`%LOCALAPPDATA%\llama.cpp\<version>`, un dossier par
+version) et lancez l'exécutable par son chemin complet : rien ne s'installe, rien ne demande
+d'élévation. Dans PowerShell (Windows PowerShell 5.1 ou PowerShell 7), ligne par ligne :
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12   # PowerShell 5.1
+$px = @{}   # erreur 407 : lancez la ligne « Proxy », puis reprenez ici à Invoke-RestMethod
+$rels = Invoke-RestMethod -UseBasicParsing @px "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
+$rel = $rels | Where-Object { $_.assets.name -match '^llama-b\d+-bin-win-cpu-x64\.zip$' } | Select-Object -First 1
+$asset = $rel.assets | Where-Object name -match '^llama-b\d+-bin-win-cpu-x64\.zip$'
+if (-not $asset) { throw "Aucune archive llama-bNNNNN-bin-win-cpu-x64.zip dans les dix dernières releases : prenez le repli b11239." }
+$zip = "$env:TEMP\$($asset.name)"; $dest = "$env:LOCALAPPDATA\llama.cpp\$($rel.tag_name)"
+Invoke-WebRequest -UseBasicParsing @px $asset.browser_download_url -OutFile $zip
+if ($asset.digest) { if (("sha256:" + (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()) -ne $asset.digest) { throw "Empreinte SHA-256 différente de celle publiée par GitHub : archive refusée." } else { "Empreinte SHA-256 vérifiée." } }
+Expand-Archive $zip -DestinationPath $dest -Force; Get-ChildItem $dest -Recurse | Unblock-File
+$llama = "$dest\llama-server.exe"; & $llama --version
+& $llama -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --port 8080 -np 1 -c 4096
+```
+
+La première ligne ne sert qu'à Windows PowerShell 5.1 ; `$asset.name` donne le nom de
+l'archive, `& $llama --version` la version. Si le téléchargement se traîne sous PowerShell 5.1,
+tapez d'abord `$ProgressPreference = "SilentlyContinue"`. Dans un nouveau terminal, sans rien
+retélécharger, retrouvez l'exécutable, puis lancez-le par la dernière ligne du bloc :
+
+```powershell
+$llama = Get-ChildItem "$env:LOCALAPPDATA\llama.cpp" -Recurse -Filter llama-server.exe | Sort-Object LastWriteTime | Select-Object -Last 1 -ExpandProperty FullName
+```
+
+Ligne « Proxy » (erreur 407 seulement) :
+
+```powershell
+$px = @{ Proxy = [System.Net.WebRequest]::GetSystemWebProxy().GetProxy("https://api.github.com"); ProxyUseDefaultCredentials = $true }
+```
+
+- **Erreur 407** (le proxy demande vos identifiants) : lancez la ligne « Proxy » ci-dessous. Elle
+  calcule le proxy du système (`GetSystemWebProxy().GetProxy(…)`) et fait passer `-Proxy` et
+  `-ProxyUseDefaultCredentials` à `Invoke-RestMethod` et à `Invoke-WebRequest` (par `@px`, repli
+  compris) ; reprenez ensuite le bloc à `Invoke-RestMethod`.
+- **Aucune archive trouvée** : le bloc s'arrête (« Aucune archive … : prenez le repli b11239. »).
+- **Intégrité** : quand l'API donne l'empreinte de l'archive (champ `digest`, SHA-256), le bloc
+  la compare à `Get-FileHash` et refuse une archive différente. Le repli, sans l'API, ne vérifie
+  rien : comparez `(Get-FileHash $zip).Hash` à l'empreinte de la page de la release si elle
+  s'ouvre.
+- **`Unblock-File`** retire la marque « téléchargé depuis Internet » (Mark of the Web) que
+  Windows pose sur les fichiers de l'archive. Si la politique du poste l'interdit, ou si
+  SmartScreen ou AppLocker bloque l'exécutable, arrêtez-vous : « non fait (poste) », sans
+  contourner.
+- Sous macOS ou Linux, prenez l'archive de la même release qui correspond au système.
+
+Si ça bloque encore :
+- **API GitHub refusée** (403, ou 407 qui persiste) : si `github.com` reste joignable, prenez la
+  version fixe `b11239` (la dernière le 2026-09-28) par son adresse directe :
+
+  ```powershell
+  $tag = "b11239"; if (-not $px) { $px = @{} }
+  $zip = "$env:TEMP\llama-$tag-bin-win-cpu-x64.zip"; $dest = "$env:LOCALAPPDATA\llama.cpp\$tag"
+  Invoke-WebRequest -UseBasicParsing @px "https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-$tag-bin-win-cpu-x64.zip" -OutFile $zip
+  Expand-Archive $zip -DestinationPath $dest -Force; Get-ChildItem $dest -Recurse | Unblock-File
+  $llama = "$dest\llama-server.exe"; & $llama --version
+  ```
+
+- **GitHub entièrement bloqué** : récupérez la même archive sur un autre réseau ou un autre
+  poste, ou auprès de votre formateur, et copiez-la dans `%TEMP%` (partage interne, OneDrive,
+  clé USB). Lancez alors les deux premières lignes du bloc de repli, avec `$tag` égal à la
+  version de l'archive copiée, sautez `Invoke-WebRequest` et reprenez à `Expand-Archive`.
+  Aucune autre source : ni winget, ni Chocolatey, ni installeur.
+- **Exécutable bloqué** (AppLocker, SmartScreen, ou « VCRUNTIME140.dll » ou « MSVCP140.dll »
+  introuvable) : relevez le message exact et transmettez-le au support, sans contourner le
+  blocage. WaveStack reste utilisable avec son moteur intégré ou avec Ollama.
+- Gardez `llama-server.exe` avec ses DLL : ne le copiez pas seul, et ne le décompressez pas dans
+  `Program Files`.
 
 **Le harnais construit toujours le texte.** Le gabarit de conversation du modèle est appliqué
 par WaveStack, comme pour un fichier : le serveur reçoit le texte déjà rendu, jamais des
@@ -233,9 +561,14 @@ d'un modèle Ollama y est ouvert, sans les poids). Le budget `[memory]` compte l
   `/props`), la taille d'un token du cache étant lue dans l'en-tête du fichier GGUF (sans les
   poids, sans llama.cpp) ; si WaveStack ne peut pas lire ce fichier, le chiffre affiché le dit
   et ne compte que la taille du fichier. Pour Ollama, la mémoire qu'il annonce (`/api/ps`) ;
-- pas encore chargé par Ollama : compté comme un fichier (taille, cache de contexte à la
-  fenêtre, marge `load_margin_mb`, qui couvre aussi le tokenizer), et refusé, chiffres à
-  l'appui, s'il dépasse le budget.
+- pas encore chargé par Ollama : compté pour la taille de son fichier plus son cache de
+  contexte (f16) à la fenêtre, lu dans l'en-tête du fichier (la ligne du diagnostic), plus la
+  marge `load_margin_mb` au moment du choix (elle couvre aussi le tokenizer), et refusé,
+  chiffres à l'appui, s'il dépasse le budget. Jamais la mémoire mesurée par la sonde de son
+  fichier : elle mesure llama-cpp-python dans un processus de WaveStack (tampons de calcul
+  compris), pas Ollama. Par exemple `llama3.2:3b` (2,0 Go) : ≈ 2,3 Go au diagnostic, ≈ 2,6 Go
+  avec la marge, sous un budget de 4 096 Mo. Un cache quantifié ou `OLLAMA_NUM_PARALLEL` > 1
+  dans Ollama changent sa mémoire réelle (à vérifier sur PC).
 
 En quittant un modèle Ollama (changement de modèle ou fermeture de WaveStack), WaveStack demande
 à Ollama de le décharger (`keep_alive: 0`), seulement s'il l'a fait charger : un modèle
@@ -282,8 +615,9 @@ entrent dans le message. L'étape « Reranking » d'Orchestration montre l'ordre
 - **Modèle.** Il est nommé dans la seule section `[rag.reranker]` de `wavestack.toml` : BGE
   Reranker v2 M3, GGUF Q4_K_M, 438 Mo, Apache-2.0. C'est le verdict **provisoire** de la
   story 12 : sa latence et sa mémoire restent à mesurer sur le PC cible.
-- **Mémoire.** Il est compté dans le budget (`[memory] budget_mb`) pour la taille de son fichier
-  plus `[memory] load_margin_mb` (environ 690 Mo), ou pour `measured_rss_mb` une fois mesuré.
+- **Mémoire.** Il est compté dans le budget mémoire (`[memory]`, calculé au lancement) pour la
+  taille de son fichier plus `[memory] load_margin_mb` (environ 690 Mo), ou pour
+  `measured_rss_mb` une fois mesuré.
   Refusé, seule la case est indisponible, avec la raison chiffrée.
 - **Lenteur.** Un passage du reranker par candidat, avant le premier appel au modèle : si
   l'étape « Reranking » est trop lente sur le poste, baissez `[rag] rerank_candidates` dans
@@ -398,7 +732,7 @@ entrée nouvelle doit être complète :
 Une entrée de même `id` qu'un préréglage le modifie champ par champ (par exemple
 `{"id": "groq", "tpm": 6000}`), et `"enabled": false` le masque.
 
-Deux champs facultatifs :
+Trois champs facultatifs :
 - `key_env` : nom de la variable d'environnement qui fournit la clé (lettres majuscules,
   chiffres et `_`), jamais la clé elle-même.
 - `min_interval_s` : délai minimal, en secondes (au plus 60), entre deux envois au même modèle,
@@ -409,11 +743,16 @@ Deux champs facultatifs :
   de la séance, ne vient pas de l'espacement : le quota du compte est épuisé, et
   `min_interval_s` n'y peut rien. Lisez d'abord le message du fournisseur dans le journal
   (capacité saturée ou quota), puis vérifiez le quota dans la console Mistral.
+- `sampling` (écran « LLM nu ») : les réglages d'échantillonnage que le modèle accepte, parmi
+  `"temperature"` et `"top_p"` (les deux champs de l'API compatible OpenAI) ; vide par défaut :
+  le fournisseur garde les siens. Les préréglages Groq et Mistral déclarent les deux. Seul l'écran
+  « LLM nu » les envoie ; les tours de l'atelier n'envoient aucun réglage, et top-k et min-p ne
+  partent jamais chez un fournisseur.
 
 ## Développement
 
 ```bash
-uv sync --extra compression   # l'extra couvre le test de l'adaptateur Headroom
+uv sync --extra compression --extra rag-alt   # Headroom, FAISS et LanceDB : leurs tests
 uv run ruff check .
 uv run ruff format .
 uv run pytest

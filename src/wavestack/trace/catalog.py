@@ -13,6 +13,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 Actor = Literal["model", "harness", "user"]
+# Story 33: a context segment's discipline, its brick's category (AD-9).
+Discipline = Literal["prompt", "context", "harness", "neutral"]
 Trigger = Literal["model", "user", "harness", "hook"]
 
 
@@ -30,10 +32,21 @@ class DiagnosticCheckPayload(BaseModel):
     output_tps: int | None = None
 
 
+class OutboundHeader(BaseModel):
+    """Story 23: one header as sent, in order and case. Outside the public allow-list its
+    value is « [masqué] » and `masked` is true: the real value never reaches the journal."""
+
+    name: str
+    value: str
+    masked: bool = False
+
+
 class OutboundRequestPayload(BaseModel):
     origin: Literal["brick", "diagnostic", "download", "model"]
     method: str
     url: str
+    # Story 23: the headers sent (AD-15); empty for events traced before them.
+    headers: list[OutboundHeader] = []
     body: str = ""
 
 
@@ -49,7 +62,16 @@ class HarnessErrorPayload(BaseModel):
 
 
 SessionState = Literal[
-    "idle", "turn", "awaiting_human", "model_load", "download", "index_build", "reset", "diagnostic"
+    "idle",
+    "turn",
+    "awaiting_human",
+    "model_load",
+    "download",
+    "index_build",
+    "reset",
+    "diagnostic",
+    "llm_lab",  # story 29: the « LLM nu » screen generates
+    "rag_lab",  # story 30: the RAG workshop runs its chains
 ]
 
 
@@ -104,6 +126,9 @@ class ArchitectureNode(BaseModel):
     # (a skill's or a hook's description, the audit log's path).
     loaded: bool | None = None
     detail_fr: str | None = None
+    # Story 34, network nodes (tools, public MCP servers): what the harness sends there, in
+    # French, from `content/` (AD-19); the outbound summary under the schema quotes it.
+    sends_fr: str | None = None
 
 
 class ArchitectureEdge(BaseModel):
@@ -166,6 +191,8 @@ class SegmentPayload(BaseModel):
     estimated: bool = False  # chat mode: an estimate, shown with « ≈ » (AD-4)
     # Story 20 (AD-22): a compressed tool result or RAG excerpt, with what it was before.
     compressed_from: CompressedFromPayload | None = None
+    # Story 33: its brick's category, `neutral` without a brick (template, user message).
+    discipline: Discipline = "neutral"
 
 
 class BreakdownItem(BaseModel):
@@ -173,6 +200,37 @@ class BreakdownItem(BaseModel):
     label_fr: str
     tokens: int
     kinds: list[str]
+    discipline: Discipline = "neutral"  # story 33: its first segment's
+
+
+class BrickTokens(BaseModel):
+    """Story 33: the tokens of one brick's segments, summed by the session (AD-1, AD-9)."""
+
+    brick: str
+    tokens: int
+    estimated: bool = False  # chat mode: at least one of its segments is an estimate
+
+
+class ContextSection(BaseModel):
+    """Story 32: consecutive segments of one source (`kind`, `brick`), the template pieces
+    between them absorbed (`template_tokens`); `start` and `end` index `segments`, `end`
+    excluded. `seen`: read already by the previous call of the same context in the turn.
+    Computed by the session (AD-1, AD-9): the interface adds nothing up."""
+
+    start: int
+    end: int
+    kind: str
+    label_fr: str
+    brick: str | None = None
+    discipline: Discipline = "neutral"
+    tokens: int
+    template_tokens: int = 0
+    estimated: bool = False
+    seen: bool = False
+
+
+# AD-9: where the effective window comes from.
+WindowSource = Literal["configured", "native", "server", "tpm", "override"]
 
 
 class ContextWindowPayload(BaseModel):
@@ -181,7 +239,7 @@ class ContextWindowPayload(BaseModel):
 
     segments: list[SegmentPayload]
     window: int
-    window_source: Literal["configured", "native", "server", "tpm", "override"] = "configured"
+    window_source: WindowSource = "configured"
     reserve: int
     usable: int
     used: int
@@ -197,12 +255,62 @@ class ContextWindowPayload(BaseModel):
     uncertain_fr: str | None = None
     # Story 20: the total if the compressed segments were not, computed by the session.
     uncompressed_used: int | None = None
+    # Story 33: tokens per brick, in order of first appearance, segments without a brick left
+    # out; the brick cards read them (AD-1).
+    by_brick: list[BrickTokens] = []
+    # Story 32: the reading sections, and the prefix of segments the previous call of the same
+    # context read already in this turn (0 at a turn's first call), with their tokens.
+    sections: list[ContextSection] = []
+    seen_segments: int = 0
+    seen_tokens: int = 0
 
 
 class ContextReconciledPayload(ContextWindowPayload):
     """AD-4, chat mode: after the call, `usage.prompt_tokens` is the total."""
 
     call_id: str
+
+
+class WindowChoicePayload(BaseModel):
+    """Story 26 (AD-9): one window the panel offers, with what it would cost the active
+    model, every figure and text computed by the session (AD-1). `effective`: the window the
+    model would get (bounded by `source`, `bound_fr` says so); `kv_bytes`: its KV cache at
+    `effective` (f16, an upper bound), `null` when unknown or not on this workstation;
+    `read_s`: a full window's read at the measured rate (a lower bound), `null` when not
+    measured; `fits`: within the memory budget (AD-8), else `refusal_fr`; `current`: the
+    window configured now."""
+
+    window: int
+    effective: int
+    source: WindowSource
+    bound_fr: str | None = None
+    kv_bytes: int | None = None
+    kv_fr: str
+    read_s: float | None = None
+    read_fr: str
+    fits: bool
+    refusal_fr: str | None = None
+    current: bool
+
+
+class ContextWindowStatePayload(BaseModel):
+    """Story 26 (AD-2, AD-9): the context window as the session holds it and the choices the
+    interface offers. `configured`: the window chosen (or read at launch); `window` and
+    `window_source`: the active model's effective one; `hosting`: the active model's kind;
+    `read_tps`: its measured read rate (local or served); `locked_fr`: why no window can be
+    applied (a cloud model's declared `window`)."""
+
+    configured: int
+    default: int
+    window: int
+    window_source: WindowSource
+    bound_fr: str | None = None
+    model_label: str | None = None
+    hosting: Literal["file", "server", "cloud"] | None = None
+    read_tps: float | None = None
+    read_note_fr: str
+    locked_fr: str | None = None
+    choices: list[WindowChoicePayload]
 
 
 class ContextOverflowPayload(BaseModel):
@@ -229,8 +337,22 @@ class ReasoningCutPayload(BaseModel):
     message_fr: str
 
 
+class SamplingTrace(BaseModel):
+    """Story 29: the sampling a call sends, each value `None` when it is not sent; `source`:
+    the harness's defaults (`harness`), the « LLM nu » screen's (`screen`), or the
+    provider's own, nothing sent (`provider`); `note_fr` what could not be set."""
+
+    temperature: float | None = None
+    top_k: int | None = None
+    top_p: float | None = None
+    min_p: float | None = None
+    source: Literal["harness", "screen", "provider"]
+    note_fr: str | None = None
+
+
 class ModelCallStartedPayload(BaseModel):
     phase_label: str
+    sampling: SamplingTrace | None = None  # story 29
 
 
 class ModelFirstTokenPayload(BaseModel):
@@ -276,6 +398,15 @@ class ToolPresetState(BaseModel):
     args: dict[str, object]
 
 
+class McpCallOption(BaseModel):
+    """Lot K: the forced call of one MCP tool of a connected server: its parameters (name ->
+    French description, from the server's schema) and the presets of `content/mcp.yaml`."""
+
+    tool: str
+    parameters: dict[str, str]
+    presets: list[ToolPresetState] = []
+
+
 class BrickOption(BaseModel):
     """A sub-option of a brick card (story 5: one native tool)."""
 
@@ -290,6 +421,8 @@ class BrickOption(BaseModel):
     presets: list[ToolPresetState] = []
     # Story 9, MCP servers: the tools whose documentation can be loaded by force.
     tools: list[str] = []
+    # Lot K, MCP servers: the form of each tool's forced call (« Forcer l'appel »).
+    calls: list[McpCallOption] = []
 
 
 class BrickForce(BaseModel):
@@ -334,6 +467,8 @@ class BrickState(BaseModel):
     id: str
     label_fr: str
     category: Literal["prompt", "context", "harness"]
+    # Story 33: « Ce que le modèle lit » (`reads`) or « Ce que le harnais fait » (`acts`).
+    group: Literal["reads", "acts"] | None = None
     category_fr: str
     hosting_fr: str
     explanation_fr: list[str | list[str]]
@@ -361,6 +496,8 @@ class BrickState(BaseModel):
     build_index: IndexBuildOffer | None = None
     # Story 16, `rag` brick: the reranking sub-option (None: no RAG content).
     rerank: RerankOption | None = None
+    # Story 23, `tools` and `mcp` bricks: what leaves the workstation and where to read it.
+    outbound_fr: str | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -423,7 +560,15 @@ class LimitReachedPayload(BaseModel):
 # of the first byte that differs: `system` (system message, memory, catalogs, skills),
 # `history`, or `template`.
 PrefixCause = Literal[
-    "in_turn", "system", "history", "template", "reset", "replay", "abandoned", "subagent"
+    "in_turn",
+    "system",
+    "history",
+    "template",
+    "reset",
+    "replay",
+    "abandoned",
+    "subagent",
+    "llm",  # story 29: the « LLM nu » screen took the engine's cache
 ]
 
 
@@ -620,6 +765,9 @@ class ModelLoadStartedPayload(BaseModel):
 
     model: ActiveModel  # the model being loaded
     phase_label: str
+    # Story 26: the window of a reload of the active model with another window, which the
+    # top bar then names by `phase_label` (« Rechargement de … avec une fenêtre de … »).
+    window: int | None = None
 
 
 class ModelLoadEndedPayload(BaseModel):
@@ -631,6 +779,31 @@ class ModelLoadEndedPayload(BaseModel):
     status: Literal["ok", "restored", "cancelled", "error"]
     duration_ms: int
     reason_fr: str | None = None
+    # Story 29: the memory the load took, on `ok` (the « LLM nu » screen shows it).
+    memory: LoadMemory | None = None
+
+
+class LoadMemory(BaseModel):
+    """Story 29: WaveStack's RSS before the load and after it, the cost the budget counts
+    (AD-8), and where the model lies, in French (formatted by the session)."""
+
+    rss_before: int | None = None
+    rss_after: int | None = None
+    cost_bytes: int = 0
+    where_fr: str
+
+
+class ModelLoadStepPayload(BaseModel):
+    """Story 29: a step of a load passed, out of any turn: the previous model released, the
+    probe, the budget's check, the engine created, ready. `elapsed_ms` since the load
+    started, `duration_ms` the step's own, `rss_bytes` WaveStack's RSS then."""
+
+    model: ActiveModel
+    step: Literal["release", "probe", "check", "engine", "ready"]
+    label_fr: str
+    elapsed_ms: int
+    duration_ms: int = 0
+    rss_bytes: int | None = None
 
 
 # ---------- story 19: delegation to a sub-agent (AD-11, AD-25) ----------
@@ -772,6 +945,248 @@ class CompressionEndedPayload(BaseModel):
     duration_ms: int
 
 
+# ---------- story 29: the « LLM nu » screen (context `llm`, no turn) ----------
+
+
+class LlmToken(BaseModel):
+    """One chip: the token's id, its text (its bytes « ⟨F0 9F⟩ » when they are only part of a
+    character), and whether it is a special token of the vocabulary (a template marker)."""
+
+    id: int
+    text: str
+    special: bool = False
+
+
+class LlmDimensions(BaseModel):
+    """The model's sizes (`None`: unknown), the embedding table's (vocabulary × dimension),
+    their French figures and where they were read."""
+
+    vocab_size: int | None = None
+    embedding_length: int | None = None
+    layer_count: int | None = None
+    head_count: int | None = None
+    context_length: int | None = None
+    embedding_params: int | None = None
+    figures_fr: dict[str, str | None] = {}
+    source_fr: str
+
+
+class LlmTokenizedPayload(BaseModel):
+    """The text cut into tokens by the active model's tokenizer, without template (`exact`);
+    a cloud model's tokenizer is at its provider: no token, the harness's estimate and why.
+    `tokens`: the first 512, `more` the rest; `token_count` all of them."""
+
+    request_id: str
+    text: str
+    char_count: int
+    model_label: str
+    hosting: Literal["local", "network"]
+    exact: bool
+    tokenizer_fr: str
+    tokens: list[LlmToken]
+    token_count: int | None = None
+    more: int = 0
+    estimate: int | None = None
+    chars_per_token: float | None = None  # the estimate's ratio (AD-4, chat mode)
+    unavailable_fr: str | None = None
+    dimensions: LlmDimensions | None = None
+    dimensions_fr: str
+    # The counts in French (« 1 004 »), written by the session: the page places them.
+    figures_fr: dict[str, str] = {}
+
+
+class LlmGenerationStartedPayload(BaseModel):
+    """The screen's prompt, rendered as one user message by the model's template (`rendered`:
+    the text, or a cloud model's JSON body), its tokens (`exact`: counted by the model's
+    tokenizer, else estimated), the sampling sent, the output reserve (AD-9)."""
+
+    request_id: str
+    prompt: str
+    rendered: str
+    prompt_tokens: int
+    exact: bool
+    sampling: SamplingTrace
+    reserve: int
+    reasoning: bool = False
+    phase_label: str
+    # What one `llm_token` is: a token of the in-process engine, or a fragment of a server's
+    # or a provider's stream (usually one token, not always).
+    unit: Literal["token", "fragment"] = "token"
+    figures_fr: dict[str, str] = {}
+
+
+class LlmTokenPart(BaseModel):
+    """A token's decoded text in one channel, tags dropped (the reasoning's lanes)."""
+
+    channel: Channel
+    text: str
+
+
+class LlmCandidate(BaseModel):
+    """Story 29, increment 4: a candidate of a token (in-process engine only): the model's
+    probability `p`, whether top-k, top-p and min-p `kept` it, its real chance to be drawn
+    `p_sampled` (temperature applied among the kept), and whether it was the one drawn."""
+
+    token_id: int
+    text: str
+    p: float
+    kept: bool
+    p_sampled: float
+    chosen: bool = False
+
+
+class LlmTokenPayload(BaseModel):
+    """One token as it comes (a cloud model: one fragment the provider sent), its channel,
+    and the ms since the generation started."""
+
+    request_id: str
+    index: int
+    token_id: int | None = None
+    text: str
+    channel: Channel
+    elapsed_ms: int
+    candidates: list[LlmCandidate] | None = None
+    parts: list[LlmTokenPart] = []
+
+
+class LlmGenerationEndedPayload(BaseModel):
+    """How the screen's generation ended; `read_tps` the prompt's read rate (`evaluated_tokens
+    / prompt_ms`, `None` when the engine does not say), the tokens of each channel."""
+
+    request_id: str
+    status: Literal["completed", "cancelled", "limit", "error"]
+    duration_ms: int
+    read_tps: float | None = None
+    reasoning_tokens: int = 0
+    answer_tokens: int = 0
+    message_fr: str | None = None
+    figures_fr: dict[str, str] = {}
+
+
+# ---------- story 30: the RAG workshop (AD-2, AD-22), context `rag_lab`, no turn ----------
+
+RagLabLaneId = Literal["a", "b"]
+RagLabStageStatus = Literal["ok", "error", "skipped", "cancelled", "not_run"]
+
+
+class RagLabStageRef(BaseModel):
+    """A stage of a lane as the run draws it: its kind, its option and their French names,
+    its settings."""
+
+    stage_id: str
+    kind: str
+    option: str
+    label_fr: str
+    option_label_fr: str
+    params: dict[str, int] = {}
+
+
+class RagLabLane(BaseModel):
+    lane: RagLabLaneId
+    label_fr: str
+    stages: list[RagLabStageRef]
+
+
+class RagLabRunStartedPayload(BaseModel):
+    run_id: str
+    question: str
+    lanes: list[RagLabLane]
+    phase_label: str
+
+
+class RagLabStageStartedPayload(BaseModel):
+    run_id: str
+    lane: RagLabLaneId
+    stage_id: str
+    kind: str
+    option: str
+    phase_label: str
+
+
+class RagLabStageProgressPayload(BaseModel):
+    run_id: str
+    lane: RagLabLaneId
+    stage_id: str
+    kind: str
+    option: str
+    done: int
+    total: int
+
+
+class RagLabFact(BaseModel):
+    label_fr: str
+    value_fr: str
+
+
+class RagLabSource(BaseModel):
+    """Where an excerpt stood in a list an earlier stage made (a search, before a fusion or a
+    reranking), and its score there."""
+
+    kind: str
+    label_fr: str
+    rank: int | None = None
+    score: float | None = None
+
+
+class RagLabItem(BaseModel):
+    rank: int  # from 1, in the list this stage makes
+    before: int | None = None  # its rank in the list the stage received
+    chunk_id: int
+    doc_id: str
+    title_fr: str
+    text: str
+    score: float | None = None  # this stage's, 3 decimals
+    sources: list[RagLabSource] = []
+
+
+class RagLabStageEndedPayload(BaseModel):
+    """What a stage received and made, its figures and its excerpts, its duration and
+    WaveStack's memory at its end (`None` for a stage that did not run)."""
+
+    run_id: str
+    lane: RagLabLaneId
+    stage_id: str
+    kind: str
+    option: str
+    status: RagLabStageStatus
+    input_fr: str = ""
+    output_fr: str = ""
+    facts: list[RagLabFact] = []
+    items: list[RagLabItem] = []
+    borrowed: bool = False  # the model was the RAG brick's, lent and not closed
+    error_fr: str | None = None
+    duration_ms: int
+    rss_bytes: int | None = None
+    memory_fr: str | None = None
+
+
+class RagLabCompared(BaseModel):
+    key: str  # an excerpt (`doc_id#position`) or a document (`doc_id`)
+    doc_id: str
+    title_fr: str
+    rank_a: int | None = None
+    rank_b: int | None = None
+
+
+class RagLabComparison(BaseModel):
+    """The two contexts compared, in Python (AD-1): excerpt by excerpt when both chains cut
+    the corpus alike, else document by document."""
+
+    basis: Literal["excerpt", "document"]
+    common: list[RagLabCompared]
+    only_a: list[RagLabCompared]
+    only_b: list[RagLabCompared]
+    rank_changes: list[RagLabCompared]
+    summary_fr: str
+
+
+class RagLabRunEndedPayload(BaseModel):
+    run_id: str
+    status: Literal["ok", "error", "cancelled"]
+    duration_ms: int
+    comparison: RagLabComparison | None = None
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -786,6 +1201,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "context_preview": ContextWindowPayload,
     "context_reconciled": ContextReconciledPayload,
     "context_overflow": ContextOverflowPayload,
+    "context_window_state": ContextWindowStatePayload,
     "output_truncated": OutputTruncatedPayload,
     "reasoning_cut": ReasoningCutPayload,
     "model_call_started": ModelCallStartedPayload,
@@ -822,4 +1238,14 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "rag_rerank_ended": RagRerankEndedPayload,
     "compression_started": CompressionStartedPayload,
     "compression_ended": CompressionEndedPayload,
+    "llm_tokenized": LlmTokenizedPayload,
+    "model_load_step": ModelLoadStepPayload,
+    "llm_generation_started": LlmGenerationStartedPayload,
+    "llm_token": LlmTokenPayload,
+    "llm_generation_ended": LlmGenerationEndedPayload,
+    "rag_lab_run_started": RagLabRunStartedPayload,
+    "rag_lab_stage_started": RagLabStageStartedPayload,
+    "rag_lab_stage_progress": RagLabStageProgressPayload,
+    "rag_lab_stage_ended": RagLabStageEndedPayload,
+    "rag_lab_run_ended": RagLabRunEndedPayload,
 }

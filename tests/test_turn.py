@@ -56,8 +56,10 @@ def test_bare_turn_only_message_and_template_and_sum_equals_total():
             "label_fr": "Message et gabarit",
             "tokens": ctx["used"],
             "kinds": ["user_message", "template"],
+            "discipline": "neutral",
         }
     ]
+    assert ctx["by_brick"] == []  # LLM nu: no brick, no card to fill
     assert ctx["usable"] == 4096 - 512 and not ctx["overflow"]
 
     ended = events["model_call_ended"][0]
@@ -243,6 +245,123 @@ def test_gauge_near_limit_against_ratio():
     assert below["near_limit"] is False
     assert above["near_limit_ratio"] == below["near_limit_ratio"] == 0.8
     assert above["percent"] == 85.0
+
+
+# ---------- story 33: disciplines and tokens per brick, computed by the session (AD-9) ----------
+
+_CATEGORIES = {"system_prompt": "prompt", "tools": "harness", "global_memory": "context"}
+
+
+def _brick_segment(
+    n: int, kind: SegmentKind, brick: str | None, tokens: int, estimated: bool = False
+) -> Segment:
+    return Segment(
+        id=f"t1.main.c1.{n}",
+        kind=kind,
+        brick=brick,
+        text="x",
+        tokens=tokens,
+        estimated=estimated,
+    )
+
+
+def _story33_gauge(segments: list[Segment]) -> dict:
+    return gauge(
+        segments,
+        window=4096,
+        reserve=512,
+        near_limit_ratio=0.8,
+        labels=load_labels(),
+        categories=_CATEGORIES,
+    )
+
+
+def test_gauge_gives_each_segment_and_group_its_brick_discipline():
+    payload = _story33_gauge(
+        [
+            _brick_segment(1, SegmentKind.TEMPLATE, None, 3),
+            _brick_segment(2, SegmentKind.SYSTEM_PROMPT, "system_prompt", 10),
+            _brick_segment(3, SegmentKind.GLOBAL_MEMORY, "global_memory", 7),
+            _brick_segment(4, SegmentKind.TOOL_CATALOG, "tools", 40),
+            _brick_segment(5, SegmentKind.USER_MESSAGE, None, 4),
+        ]
+    )
+
+    assert [s["discipline"] for s in payload["segments"]] == [
+        "neutral",
+        "prompt",
+        "context",
+        "harness",
+        "neutral",
+    ]
+    assert {item["group"]: item["discipline"] for item in payload["breakdown"]} == {
+        "system_prompt": "prompt",
+        "global_memory": "context",
+        "tool_catalog": "harness",
+        "message": "neutral",
+    }
+
+
+def test_gauge_mixed_group_takes_the_discipline_with_the_most_tokens():
+    heavier = _story33_gauge(
+        [
+            _brick_segment(1, SegmentKind.TOOL_CATALOG, "global_memory", 10),
+            _brick_segment(2, SegmentKind.TOOL_CATALOG, "tools", 40),
+            _brick_segment(3, SegmentKind.TOOL_CATALOG, "global_memory", 5),
+        ]
+    )
+    tie = _story33_gauge(
+        [
+            _brick_segment(1, SegmentKind.TOOL_CATALOG, "global_memory", 20),
+            _brick_segment(2, SegmentKind.TOOL_CATALOG, "tools", 20),
+        ]
+    )
+    assert heavier["breakdown"][0]["discipline"] == "harness"
+    assert tie["breakdown"][0]["discipline"] == "context"  # tie: the first in context order
+
+
+def test_gauge_unknown_brick_is_neutral_without_error():
+    payload = _story33_gauge([_brick_segment(1, SegmentKind.HOOK_INJECTION, "unknown", 5)])
+
+    assert payload["segments"][0]["discipline"] == "neutral"
+    assert payload["breakdown"][0]["discipline"] == "neutral"
+    assert (
+        gauge(
+            [_brick_segment(1, SegmentKind.SYSTEM_PROMPT, "system_prompt", 5)],
+            window=100,
+            reserve=10,
+            near_limit_ratio=0.8,
+            labels=load_labels(),
+        )["segments"][0]["discipline"]
+        == "neutral"
+    )  # no table: neutral
+
+
+def test_gauge_sums_tokens_per_brick_in_order_of_appearance():
+    payload = _story33_gauge(
+        [
+            _brick_segment(1, SegmentKind.SYSTEM_PROMPT, "system_prompt", 10),
+            _brick_segment(2, SegmentKind.TOOL_CATALOG, "tools", 40),
+            _brick_segment(3, SegmentKind.TEMPLATE, None, 3),
+            _brick_segment(4, SegmentKind.SYSTEM_PROMPT, "system_prompt", 5),
+        ]
+    )
+
+    assert payload["by_brick"] == [
+        {"brick": "system_prompt", "tokens": 15, "estimated": False},
+        {"brick": "tools", "tokens": 40, "estimated": False},
+    ]
+
+
+def test_gauge_marks_estimated_bricks_in_chat_mode():
+    payload = _story33_gauge(
+        [
+            _brick_segment(1, SegmentKind.SYSTEM_PROMPT, "system_prompt", 12, estimated=True),
+            _brick_segment(2, SegmentKind.TEMPLATE, None, 30, estimated=True),
+        ]
+    )
+
+    assert payload["by_brick"] == [{"brick": "system_prompt", "tokens": 12, "estimated": True}]
 
 
 def test_capabilities_for_qwen3_family():

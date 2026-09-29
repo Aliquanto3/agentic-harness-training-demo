@@ -21,8 +21,82 @@ body {
   flex-direction: column;
   gap: var(--spacing-gutter);
   padding: var(--spacing-gutter);
-  /* Fredoka has no `tnum`: its live counters get a fixed width instead (.gauge-figures). */
+  /* Fredoka has no `tnum`: the gauge's bar keeps a fixed width instead (.gauge-stack). */
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- story 33: one colour per discipline (DESIGN.md > Colors) ----------
+   An element tagged `data-discipline` (by app.js, from what the session sent) gets its
+   colour, its soft background and the text that reads on the colour. `model`: what the model
+   does, on ink. Components read `--discipline`, `--discipline-soft`, `--on-discipline`.
+   Story 31: the roles that diverge in the dark theme have their own tokens: `on-discipline`
+   (text on prompt, context, harness), `on-vivid` (text on the yellow and the neutral grey),
+   `ink-fill` (an ink background). */
+
+[data-discipline="prompt"] {
+  --discipline: var(--color-discipline-prompt);
+  --discipline-soft: var(--color-discipline-prompt-soft);
+  --on-discipline: var(--color-on-discipline);
+}
+
+[data-discipline="context"] {
+  --discipline: var(--color-discipline-context);
+  --discipline-soft: var(--color-discipline-context-soft);
+  --on-discipline: var(--color-on-discipline);
+}
+
+[data-discipline="harness"] {
+  --discipline: var(--color-discipline-harness);
+  --discipline-soft: var(--color-discipline-harness-soft);
+  --on-discipline: var(--color-on-discipline);
+}
+
+/* The yellow is never alone: a background under ink text, or a rule beside « RÉSEAU » / 🌐. */
+[data-discipline="network"] {
+  --discipline: var(--color-discipline-network);
+  --discipline-soft: var(--color-discipline-network-soft);
+  --on-discipline: var(--color-on-vivid);
+}
+
+[data-discipline="neutral"] {
+  --discipline: var(--color-discipline-neutral);
+  --discipline-soft: var(--color-discipline-neutral-soft);
+  --on-discipline: var(--color-on-vivid);
+}
+
+[data-discipline="model"] {
+  --discipline: var(--color-ink-fill-edge); /* story 31: its rule and border, 3:1 on a pane */
+  --discipline-soft: var(--color-ink-fill);
+  --on-discipline: var(--color-on-ink);
+}
+
+/* A legend: a bordered swatch, then the name. */
+.discipline-legend,
+.gauge-legend {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.discipline-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  white-space: nowrap;
+}
+
+.discipline-swatch {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--color-ink-soft);
+  border-radius: 4px;
+  background: var(--discipline);
+  color: var(--on-discipline); /* story 31: the network's 🌐 on its yellow */
+  font-size: 0.75em; /* story 34: follows the projection mode */
+  line-height: 1;
 }
 
 /* ---------- toy relief (DESIGN.md > Elevation & Depth): solid offset shadow, never blurred ---------- */
@@ -75,6 +149,25 @@ body {
   border: 1px solid var(--color-line);
 }
 
+/* Story 22 (DESIGN.md > button-danger): an erasing button, flat, danger border and ink text
+   (white on the danger red would not reach 4.5:1); confirmed, it fills with the danger red. */
+.drawer-actions button.danger {
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--spacing-stroke-min) solid var(--color-danger);
+  box-shadow: none;
+}
+
+.drawer-actions button.danger.is-confirm {
+  background: var(--color-danger);
+  color: var(--color-on-vivid); /* story 31: explicit, an inherited text turns light in dark */
+}
+
+.drawer-actions button.danger:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
 /* ---------- top bar ---------- */
 
 .top-bar {
@@ -83,17 +176,32 @@ body {
   height: var(--spacing-top-bar-height);
   display: flex;
   align-items: center;
-  gap: var(--spacing-4);
+  gap: var(--spacing-3);
   padding: 0 var(--spacing-4);
-  background: var(--color-surface-raised);
+  /* Story 33: the key piece on ink (story 31: ink-fill, a deep violet in dark); its title,
+     figures and status in on-ink. */
+  background: var(--color-ink-fill);
+  color: var(--color-on-ink);
   border-radius: var(--rounded-lg);
-  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
+  /* Story 31: an edge that reaches 3:1 on the page in dark (the same ink as the fill in light). */
+  box-shadow:
+    inset 0 0 0 var(--spacing-stroke-min) var(--color-ink-fill-edge),
+    0 var(--spacing-relief-offset) 0 var(--color-relief);
+}
+
+/* Story 31: the controls of the bar keep their own background, bordered in on-ink-soft to
+   stand out of the ink-fill (in dark, their surface is close to it). */
+.top-bar > .scenario-picker,
+.top-bar > .model-picker,
+.top-bar > .reset-button,
+.top-bar .theme-picker {
+  border-color: var(--color-on-ink-soft);
 }
 
 .top-bar-title {
   font-family: var(--typography-heading-font-family);
   font-weight: var(--typography-heading-font-weight);
-  color: var(--color-primary-deep);
+  color: var(--color-on-ink);
 }
 
 .pane-chips {
@@ -114,8 +222,9 @@ body {
   cursor: pointer;
 }
 
-.pane-chip.is-linked::before {
-  content: "● ";
+/* The ink dot of a linked chip (a span: a generated `::before` put an ellipsis on the chip at
+   its own natural width). */
+.pane-chip-dot {
   color: var(--color-ink);
 }
 
@@ -351,9 +460,20 @@ body.is-resizing-y * {
   display: none;
 }
 
-.pane.is-selected {
-  outline: 2px solid var(--color-primary);
-  outline-offset: -2px;
+/* Story 34: the reading order, a numbered ink disc before the title (hidden from screen
+   readers: the pane's name does not change). */
+.pane-step {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 1.7em;
+  height: 1.7em;
+  border-radius: var(--rounded-full);
+  background: var(--color-ink-fill);
+  box-shadow: inset 0 0 0 var(--spacing-stroke-min) var(--color-ink-fill-edge); /* story 31 */
+  color: var(--color-on-ink);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) / 1
+    var(--typography-number-font-family);
 }
 
 .pane-header {
@@ -363,6 +483,7 @@ body.is-resizing-y * {
   gap: var(--spacing-2);
   padding: var(--spacing-2) var(--spacing-pane-padding);
   border-bottom: 1px solid var(--color-line);
+  background: var(--color-surface); /* story 33: the pane's band */
 }
 
 .pane-heading {
@@ -423,35 +544,155 @@ body.is-resizing-y * {
 
 /* ---------- context gauge (DESIGN.md > context-gauge) ---------- */
 
+/* Story 33: the pieces of the bar keep their width and never wrap (a squeezed
+   « Réinitialiser » went onto two lines); the gauge has a fixed width, so that nothing else
+   (a scenario's name, a message) moves its bar; only its figures give way. */
 .gauge {
+  /* Gives way last, once the names and the chips reach their minimum. Story 34: the factors
+     stay ≥ 1 (a million for the names, a thousand for the chips, 1 here): a lone item whose factor sums
+     under 1 only takes that share of the missing room, and the bar overflowed. */
+  flex: 0 1 auto;
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
   min-width: 0;
 }
 
+.top-bar > :not(.gauge) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* On a narrow window (1280 px), the scenario's name and the model's give way (their whole
+   text stays in the list and in the tooltip). */
+.top-bar > .scenario-picker {
+  flex: 0 1000000 auto; /* story 34: well before the chips (their « · lié ») */
+  min-width: 8rem;
+}
+
+.top-bar > .model-indicator {
+  flex: 0 1000000 auto;
+  min-width: 6rem;
+  overflow: hidden;
+}
+
+.top-bar > .model-indicator > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Story 34: the model picker gives way with the names (its list keeps the whole labels), and
+   under 1400 px the bar tightens its gaps and the projection button says « Projection » (its
+   accessible name stays « Mode projection »): room for that button at 1280 px. */
+.top-bar > .model-picker {
+  flex: 0 1000000 auto;
+  min-width: 5rem;
+}
+
+.projection-toggle-short {
+  display: none;
+}
+
+@media (max-width: 1400px) {
+  .top-bar {
+    gap: var(--spacing-2);
+  }
+
+  .projection-toggle-long {
+    display: none;
+  }
+
+  .projection-toggle-short {
+    display: inline;
+  }
+}
+
+/* The chips of hidden panes and the gauge's figures give way too (whole text in their
+   tooltip). */
+.top-bar > .pane-chips {
+  flex: 0 1000 auto; /* story 34: after the names, so that « · lié » stays readable */
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.pane-chips > .pane-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Story 34: the ellipsis only where the bar squeezes the chips: at its natural width, Chromium
+   rounds a chip a fraction of a pixel under its text and cut « · lié » into « · l… ». */
+@media (max-width: 1400px) {
+  .pane-chips > .pane-chip {
+    text-overflow: ellipsis;
+  }
+}
+
+/* The bar, then the legend of the disciplines under it; the legend wraps rather than be cut. */
+.gauge-stack {
+  flex: 0 0 auto;
+  width: 300px; /* two legend names per line: two lines at most in the 56 px bar */
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* A light track in the dark bar: the violet on ink would only reach 2.1:1. */
 .gauge-bar {
   position: relative;
   display: flex;
-  width: 220px;
+  min-width: 160px;
   height: 12px;
   border-radius: var(--rounded-full);
   overflow: hidden;
-  border: 1px solid var(--color-line);
-  background: var(--color-segment-free);
+  border: 1px solid var(--color-on-ink-soft);
+  background: var(--color-surface-raised);
 }
 
 .gauge-seg {
   flex-basis: 0;
   min-width: 0;
+  background: var(--discipline);
+}
+
+/* A 1 px rule between two groups: the type stays told apart (named in the tooltip). */
+.gauge-seg + .gauge-seg {
+  box-shadow: inset 1px 0 0 var(--color-surface-raised);
 }
 
 .gauge-free {
+  flex-basis: 0;
+  min-width: 0;
   background: repeating-linear-gradient(
     45deg,
-    var(--color-segment-free) 0 4px,
+    var(--color-surface-raised) 0 4px,
     var(--color-line) 4px 5px
-  ) !important;
+  );
+}
+
+.gauge-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--spacing-3);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-on-ink-soft);
+}
+
+.gauge-legend:empty {
+  display: none;
+}
+
+.gauge-legend .discipline-swatch {
+  width: 10px;
+  height: 10px;
+  border-color: var(--color-on-ink-soft);
+  border-radius: 3px;
 }
 
 .gauge-threshold {
@@ -459,19 +700,22 @@ body.is-resizing-y * {
   top: 0;
   bottom: 0;
   width: 2px;
-  background: var(--color-ink);
+  background: var(--color-ink); /* a 2 px line on the track, not a fill: ink, light in dark */
 }
 
 .gauge-figures {
   font: var(--typography-number-font-weight) var(--typography-number-font-size) /
     var(--typography-number-line-height) var(--typography-number-font-family);
   white-space: nowrap;
-  min-width: 46ch; /* Fredoka digits are proportional: a fixed width keeps the bar still */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .gauge.is-overflow .gauge-figures {
   background: var(--color-danger);
-  color: var(--color-on-primary);
+  color: var(--color-on-vivid); /* story 31: DESIGN.md « rouge : texte encre », 5.3:1 */
   border-radius: var(--rounded-full);
   padding: 2px var(--spacing-2);
 }
@@ -509,7 +753,9 @@ body.is-resizing-y * {
 
 .bubble-user {
   align-self: flex-end;
-  background: var(--color-primary-soft);
+  background: var(--color-ink-fill); /* story 33, story 31 */
+  box-shadow: inset 0 0 0 var(--spacing-stroke-min) var(--color-ink-fill-edge);
+  color: var(--color-on-ink);
   border-bottom-right-radius: 6px; /* the speaker's corner */
 }
 
@@ -615,10 +861,11 @@ body.is-resizing-y * {
     var(--typography-number-line-height) var(--typography-number-font-family);
 }
 
+/* Story 33: the rule and the background say the discipline; the swatch, the segment type. */
 .ctx-segment {
-  border-left: 4px solid var(--segment-color);
+  border-left: 4px solid var(--discipline, var(--segment-color));
   border-radius: var(--rounded-md);
-  background: var(--color-surface);
+  background: var(--discipline-soft, var(--color-surface));
   padding: var(--spacing-2);
   margin-bottom: var(--spacing-2);
 }
@@ -652,6 +899,421 @@ body.is-resizing-y * {
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
     var(--typography-label-line-height) var(--typography-label-font-family);
   color: var(--color-ink-soft);
+}
+
+/* ---------- story 32: the calls of the turn (DESIGN.md > context-call, context-section,
+   produced-block, json-tree). Each call: what it read (sections, the source in the margin),
+   then what it produced, on its own background. Colours through tokens only. ---------- */
+
+.ctx-view-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+  margin-bottom: var(--spacing-2);
+}
+
+.ctx-mode-button {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-full);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.ctx-mode-button[aria-pressed="true"] {
+  background: var(--color-ink-fill);
+  border-color: var(--color-ink-fill);
+  color: var(--color-on-ink);
+}
+
+.ctx-mode-button:focus-visible,
+.ctx-json-exact-toggle:focus-visible,
+.ctx-seen > summary:focus-visible,
+.ctx-exact-fold > summary:focus-visible,
+.json-summary:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Below 28rem of pane, a section's label goes above its text. */
+.ctx-calls {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.ctx-call {
+  padding-top: var(--spacing-2);
+  border-top: var(--spacing-stroke-min) solid var(--color-line);
+}
+
+.ctx-call-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-1) var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+}
+
+.ctx-call-title {
+  margin: 0;
+  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+  color: var(--color-ink);
+}
+
+.ctx-call-figures {
+  margin: 0;
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  color: var(--color-ink-soft);
+}
+
+.ctx-part-title {
+  margin: var(--spacing-2) 0 var(--spacing-1);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* « Déjà lu » : folded, on cream; « Nouveau » : what this call reads first. */
+.ctx-seen {
+  margin-bottom: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--rounded-md);
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+}
+
+.ctx-seen > summary,
+.ctx-exact-fold > summary {
+  min-height: var(--spacing-hit-target-min);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.ctx-seen[open] > summary {
+  margin-bottom: var(--spacing-1);
+}
+
+/* A flex summary loses its marker: the chevron says it folds, like the rail's steps. */
+.ctx-seen > summary,
+.ctx-exact-fold > summary {
+  list-style: none;
+}
+
+.ctx-seen > summary::-webkit-details-marker,
+.ctx-exact-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ctx-seen > summary::before,
+.ctx-exact-fold > summary::before {
+  content: "▸";
+  margin-right: var(--spacing-1);
+}
+
+.ctx-seen[open] > summary::before,
+.ctx-exact-fold[open] > summary::before {
+  content: "▾";
+}
+
+.ctx-section {
+  display: grid;
+  grid-template-columns: minmax(10em, 15em) minmax(0, 1fr);
+  gap: var(--spacing-1) var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+  padding: var(--spacing-2);
+  border-left: 4px solid var(--discipline, var(--segment-color));
+  border-radius: var(--rounded-md);
+  background: var(--discipline-soft, var(--color-surface));
+  color: var(--color-ink);
+}
+
+.ctx-section.is-new {
+  border-left-width: 8px;
+}
+
+.ctx-section.ctx-compressed {
+  border-left-style: dashed;
+}
+
+/* The margin is the row's one control: a button, flat, reading as the labels it holds. */
+.ctx-section-select {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-1);
+  width: 100%;
+  min-height: var(--spacing-hit-target-min);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ctx-section-select:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.ctx-section-components {
+  font-family: var(--typography-code-font-family);
+  font-size: var(--typography-label-font-size);
+  color: var(--color-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.ctx-section-margin {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.ctx-section-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-1);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.ctx-section-label .swatch {
+  flex: none;
+  width: 0.8em;
+  height: 0.8em;
+}
+
+.ctx-new-badge {
+  padding: 0 var(--spacing-2);
+  border-radius: var(--rounded-full);
+  background: var(--color-ink-fill);
+  color: var(--color-on-ink);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.ctx-section-main {
+  min-width: 0;
+}
+
+.ctx-section-text,
+.ctx-produced-text,
+.ctx-exact {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--typography-code-font-family);
+  font-size: var(--typography-code-font-size);
+  line-height: var(--typography-code-line-height);
+  color: var(--color-ink);
+}
+
+/* The template (and, in chat mode, the JSON syntax) reads softer than the texts it wraps. */
+.ctx-seg.is-template {
+  color: var(--color-ink-soft);
+}
+
+.ctx-section-main > details {
+  margin-top: var(--spacing-1);
+}
+
+@container (max-width: 28rem) {
+  .ctx-section {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A JSON of the context: its tree, and « Texte exact » a click away. */
+.ctx-json {
+  display: block;
+  margin: var(--spacing-1) 0;
+  white-space: normal;
+}
+
+.ctx-json-exact-toggle {
+  float: right;
+  min-height: var(--spacing-hit-target-min);
+  margin-left: var(--spacing-2);
+  padding: 0 var(--spacing-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.ctx-json-exact-toggle[aria-pressed="true"] {
+  background: var(--color-ink-fill);
+  color: var(--color-on-ink);
+}
+
+.ctx-json-exact {
+  display: block;
+  clear: both;
+  margin-top: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ctx-json-exact[hidden] {
+  display: none;
+}
+
+/* DESIGN.md json-tree: indented, foldable, keys, strings and literals in text colours only. */
+.json-tree {
+  display: block;
+  font-family: var(--typography-code-font-family);
+  font-size: var(--typography-code-font-size);
+  line-height: var(--typography-code-line-height);
+  color: var(--color-ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.json-node,
+.json-leaf,
+.json-close,
+.json-children {
+  display: block;
+}
+
+.json-children {
+  padding-left: var(--spacing-4);
+  border-left: 1px solid var(--color-line);
+  margin-left: 0.25em;
+}
+
+.json-summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.json-node[open] > .json-summary .json-folded {
+  display: none;
+}
+
+.json-folded,
+.json-punct {
+  color: var(--color-ink-soft);
+}
+
+.json-key {
+  color: var(--color-json-key);
+  font-weight: 600;
+}
+
+.json-string {
+  color: var(--color-json-string);
+}
+
+.json-literal {
+  color: var(--color-json-literal);
+}
+
+/* DESIGN.md produced-block: what the call produced, its own background, an ink rule and tag. */
+.ctx-produced-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-2);
+}
+
+.ctx-produced {
+  padding: var(--spacing-2);
+  border-left: 4px solid var(--color-ink);
+  border-radius: var(--rounded-md);
+  background: var(--color-produced-soft);
+  color: var(--color-ink);
+}
+
+.ctx-produced.is-reasoning {
+  background: var(--color-reasoning-soft);
+}
+
+.ctx-produced .reasoning-block {
+  margin: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.ctx-produced-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-1);
+}
+
+.ctx-produced-tag {
+  padding: 0 var(--spacing-2);
+  border-radius: var(--rounded-full);
+  background: var(--color-ink-fill);
+  color: var(--color-on-ink);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.ctx-produced-kind {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink);
+}
+
+.ctx-produced-none,
+.ctx-harness-note {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.ctx-harness-note {
+  padding-left: var(--spacing-2);
+  border-left: var(--spacing-stroke-min) solid var(--color-line);
+}
+
+/* Between two calls: what the harness did, and the sub-agent's tab after a delegation. */
+.ctx-between {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.ctx-between p {
+  margin: 0;
+}
+
+.ctx-exact-fold {
+  margin-bottom: var(--spacing-2);
 }
 
 /* ---------- orchestration: step bodies, harness events, overflow card ---------- */
@@ -793,7 +1455,7 @@ body.is-resizing-y * {
 
 .step-code mark {
   background: var(--color-state-error);
-  color: var(--color-on-primary);
+  color: var(--color-on-vivid); /* story 31: ink on red, as DESIGN.md says */
 }
 
 /* DESIGN.md harness-event: thick side rule, red for failure, violet for information. */
@@ -1002,7 +1664,7 @@ body.is-resizing-y * {
 .turn-group-status.is-running {
   background: var(--color-state-active);
   border-color: var(--color-state-active);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
 }
 
 .turn-group-status.is-running::before {
@@ -1016,7 +1678,7 @@ body.is-resizing-y * {
 .turn-group-status.is-failed {
   background: var(--color-state-error);
   border-color: var(--color-state-error);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
 }
 
 .turn-group-status.is-failed::before {
@@ -1066,13 +1728,19 @@ body.is-resizing-y * {
   padding-bottom: 0;
 }
 
-/* A grid, so that the title's column (1fr) only gets what the others leave: the title
-   truncates first, then the host (minmax(0, auto)); the RÉSEAU mark, the actor and the key
-   figure keep their width. Empty columns (no host, no mark) take no room. */
+/* Story 34, two rows (the maquette's frieze): the tile, who acts, on both; on top the type's
+   icon and the title, under them who decides and where it goes; the key figure and the
+   chevron on the right. A grid, so that the title's column (1fr) only gets what the others
+   leave: the title truncates first, then the host; the RÉSEAU mark, the actor and the key
+   figure keep their width (story 8d). */
 .turn-step-line {
   display: grid;
-  grid-template-columns: 26px minmax(2.5em, 1fr) auto auto auto minmax(0, auto) auto 12px;
-  grid-template-areas: "tile title trigger actor mark host figure chevron";
+  grid-template-columns: 26px auto minmax(2.5em, 1fr) auto 12px;
+  grid-template-areas:
+    "tile icon title figure chevron"
+    "tile meta meta figure chevron";
+  column-gap: 0;
+  row-gap: 1px;
   align-items: center;
   width: 100%;
   min-height: var(--spacing-hit-target-min);
@@ -1119,7 +1787,19 @@ body.is-resizing-y * {
   background: var(--color-surface-raised);
   border: var(--spacing-stroke-min) solid var(--color-line);
   border-radius: var(--rounded-sm);
-  font-size: 13px;
+  font: var(--typography-label-font-weight) var(--typography-body-sm-font-size) / 1
+    var(--typography-label-font-family);
+}
+
+/* Story 33: the tile in its discipline; the model's steps on ink. Before the tones below,
+   which win over it (an error stays red). */
+.turn-step-tile[data-discipline] {
+  background: var(--discipline-soft);
+  border-color: var(--discipline);
+}
+
+.turn-step-tile[data-discipline="model"] {
+  color: var(--color-on-ink);
 }
 
 /* The current step: a green dot on its tile. */
@@ -1143,11 +1823,13 @@ body.is-resizing-y * {
 .turn-step.tone-error .turn-step-tile {
   background: var(--color-state-error);
   border-color: var(--color-state-error);
+  color: var(--color-on-vivid); /* story 31: explicit (a model's tile was on-ink on red) */
 }
 
 .turn-step.tone-pending .turn-step-tile {
   background: var(--color-primary-soft);
   border-color: var(--color-primary);
+  color: var(--color-ink); /* story 31: a model's tile (on-ink text) waiting, on violet soft */
 }
 
 .turn-step.tone-unavailable .turn-step-tile {
@@ -1155,12 +1837,49 @@ body.is-resizing-y * {
   border-color: var(--color-state-unavailable);
 }
 
+/* Story 34: the type's icon, before the title (the tile now says who acts). */
+.turn-step-icon {
+  grid-area: icon;
+  margin-left: var(--spacing-2);
+  line-height: 1;
+}
+
+/* Who decides, then « via le réseau » and « 🌐 RÉSEAU → host »: short of room, the pieces
+   wrap, whole; only the host shrinks. */
+.turn-step-meta {
+  grid-area: meta;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 1px;
+  min-width: 0;
+  margin-left: var(--spacing-2);
+  white-space: nowrap;
+}
+
+.turn-step-meta > * {
+  flex: 0 0 auto;
+}
+
+.turn-step-meta > .turn-step-net {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.turn-step-via {
+  margin-right: var(--spacing-1);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+}
+
 /* Truncation order (A10): the title first, then the host; never the RÉSEAU mark, the
    actor or the key figure. */
 .turn-step-title {
   grid-area: title;
   min-width: 0;
-  margin: 0 var(--spacing-2);
+  margin: 0 var(--spacing-2) 0 var(--spacing-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1178,13 +1897,11 @@ body.is-resizing-y * {
 
 /* Story 9: who caused the step (trigger badge), never truncated, like the actor. */
 .turn-step-line .turn-step-trigger {
-  grid-area: trigger;
   margin: 0 var(--spacing-1) 0 0;
   white-space: nowrap;
 }
 
 .turn-step-actor {
-  grid-area: actor;
   margin-right: var(--spacing-1);
   border: 1px solid transparent;
   border-radius: var(--rounded-full);
@@ -1212,7 +1929,7 @@ body.is-resizing-y * {
 .net-mark,
 .net-host {
   background: var(--color-hosting-network);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
   border: 1.5px dashed var(--color-ink);
   padding: 0 var(--spacing-1);
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
@@ -1221,14 +1938,16 @@ body.is-resizing-y * {
 }
 
 .net-mark {
-  grid-area: mark;
   border-right: 0;
   border-radius: var(--rounded-full) 0 0 var(--rounded-full);
   padding-left: var(--spacing-2);
 }
 
+.turn-step-net > .net-host {
+  flex: 0 1 auto;
+}
+
 .net-host {
-  grid-area: host;
   min-width: 0;
   border-left: 0;
   border-radius: 0 var(--rounded-full) var(--rounded-full) 0;
@@ -1246,16 +1965,17 @@ body.is-resizing-y * {
   white-space: nowrap;
 }
 
-/* A narrow rail cannot hold the whole line: the key figure goes under the title, still whole. */
+/* A narrow rail cannot hold the whole line: the key figure goes under the rest, still whole. */
 @container (max-width: 460px) {
   .turn-step-line {
-    grid-template-columns: 26px minmax(2.5em, 1fr) auto auto minmax(0, auto) 12px;
+    grid-template-columns: 26px auto minmax(2.5em, 1fr) 12px;
     grid-template-areas:
-      "tile title actor mark host chevron"
-      "tile trigger figure figure figure chevron";
+      "tile icon title chevron"
+      "tile meta meta chevron"
+      "tile figure figure chevron";
   }
 
-  .turn-step-line .turn-step-trigger {
+  .turn-step-figure {
     justify-self: start;
     margin-left: var(--spacing-2);
   }
@@ -1557,19 +2277,63 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   padding-left: var(--spacing-3);
 }
 
+/* Story 33: a card on is tinted with its discipline, a 5 px rule on its left; off, greyed:
+   neutral background and rule, soft ink text. */
+.brick-card {
+  border-left: 5px solid var(--color-discipline-neutral);
+  background: var(--color-discipline-neutral-soft);
+  color: var(--color-ink-soft);
+}
+
 .brick-card.is-active {
-  background: var(--color-primary-soft);
-  border-color: var(--color-primary);
+  background: var(--discipline-soft);
+  border-left-color: var(--discipline);
+  color: var(--color-ink);
   box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief-active);
 }
 
 .brick-card.is-unavailable {
   border-style: dashed;
+  border-left-style: solid;
   box-shadow: none; /* posed flat */
 }
 
 .brick-card.is-unavailable .brick-name {
-  color: var(--color-muted);
+  color: var(--color-ink-soft);
+}
+
+.brick-status {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.brick-card.is-active .brick-status {
+  color: var(--color-ink);
+}
+
+.brick-lock {
+  flex: 0 0 auto;
+  font-size: var(--typography-body-font-size);
+  line-height: 1;
+}
+
+.brick-group-title {
+  margin: var(--spacing-2) 0 0;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.brick-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
 }
 
 .brick-head {
@@ -1609,8 +2373,9 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   transition: left 0.15s;
 }
 
+/* Story 33: a card's switches in its discipline's colour. */
 .brick-toggle:checked {
-  background: var(--color-primary);
+  background: var(--discipline, var(--color-primary));
 }
 
 .brick-toggle:checked::after {
@@ -1625,6 +2390,26 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 .brick-toggle:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Story 22: a sub-option whose brick is off keeps its state, greyed: never the violet of an
+   active switch. The reason is on the row (`title`) and on the switch (`aria-description`). */
+.is-parent-off .brick-toggle:checked {
+  background: var(--color-muted);
+}
+
+/* Full opacity: the muted colour says « off »; checked and unchecked stay told apart. */
+.is-parent-off .brick-toggle:disabled {
+  opacity: 1;
+}
+
+.brick-option.is-parent-off {
+  cursor: not-allowed;
+  color: var(--color-ink-soft);
+}
+
+.brick-options.is-parent-off > summary {
+  color: var(--color-ink-soft);
 }
 
 .brick-tags {
@@ -1643,23 +2428,32 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .category-chip {
-  background: var(--color-primary-soft);
-  color: var(--color-primary-deep);
+  background: var(--discipline-soft, var(--color-primary-soft));
+  color: var(--color-ink);
+  border: 1px solid var(--discipline, var(--color-primary));
 }
 
 .brick-card.is-active .category-chip {
   background: var(--color-surface-raised);
 }
 
+/* Story 33: an off card is greyed, its category chip too. */
+.brick-card:not(.is-active) .category-chip {
+  background: var(--color-surface-raised);
+  border-color: var(--color-discipline-neutral);
+  color: var(--color-ink-soft);
+}
+
+/* Story 33: the local hosting is no longer violet (the violet says prompt engineering). */
 .hosting-tag-local {
-  background: var(--color-hosting-local);
-  color: var(--color-on-primary);
-  border: 1px solid var(--color-hosting-local);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
 }
 
 .hosting-tag-network {
   background: var(--color-hosting-network);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
   border: 1px dashed var(--color-ink);
 }
 
@@ -1684,6 +2478,15 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   margin: 0;
   font-size: var(--typography-body-sm-font-size);
   color: var(--color-ink-soft);
+}
+
+/* Story 23: what leaves the workstation and where to read it, the network's rule beside it. */
+.brick-outbound {
+  margin: 0;
+  padding-left: var(--spacing-2);
+  border-left: var(--spacing-stroke-min) solid var(--color-discipline-network);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink);
 }
 
 .brick-options summary {
@@ -1860,7 +2663,8 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .brick-edit:disabled,
-.pane-actions .pane-text-action:disabled {
+.pane-actions .pane-text-action:disabled,
+.drawer-actions button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -1919,14 +2723,74 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   gap: var(--spacing-2);
 }
 
+/* Story 22 (M1): the confirmation of a save, beside the buttons, not an alert. */
+.drawer-status {
+  margin: 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink);
+}
+
+.drawer-status:not(:empty)::before {
+  content: "✓ ";
+}
+
+/* Silent: an empty live region, kept in the accessibility tree; its flex gap cancelled. */
+.drawer-status:empty {
+  margin-top: calc(-1 * var(--spacing-2));
+}
+
+/* Story 22 (C1): the memory drawer's head (title and cross) and foot stay in view; only the
+   middle scrolls. */
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.drawer-x {
+  flex: none;
+  min-width: var(--spacing-hit-target-min);
+  min-height: var(--spacing-hit-target-min);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font-size: var(--typography-heading-font-size);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.drawer-x:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.drawer-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.drawer-foot {
+  flex: none;
+  max-height: 50%; /* at 150 % or in a short pane, its buttons stay reachable */
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-line);
+}
+
 .drawer-actions[hidden] {
   display: none;
 }
 
 /* Story 14: the global memory's entries, one card each, in the edit drawer. */
-.memory-drawer {
-  overflow-y: auto;
-}
 
 .memory-path {
   font-family: var(--typography-code-font-family);
@@ -1983,6 +2847,39 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   resize: vertical;
 }
 
+/* Story 22: an entry's actions, compact and flat, unlike the footer's buttons. */
+.memory-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+}
+
+.memory-entry-actions button {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.memory-entry-actions .memory-entry-delete {
+  color: var(--color-ink-soft);
+}
+
+.memory-entry-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.memory-entry-actions button:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 /* The whole audit log (story 8), read only, over the page. */
 .audit-dialog {
   width: min(760px, 90vw);
@@ -2031,27 +2928,63 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .outbound-head {
   background: var(--color-hosting-network);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
   padding: var(--spacing-1) var(--spacing-2);
   overflow-wrap: anywhere;
   cursor: pointer;
 }
 
-.outbound-tag {
+.outbound-tag,
+.outbound-label {
   font-weight: 700;
 }
 
+/* Story 23: Requête, En-têtes, Corps, each under its label. */
+.outbound-body {
+  padding: var(--spacing-1) var(--spacing-2) var(--spacing-2);
+}
+
+.outbound-section {
+  margin: var(--spacing-2) 0 0;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+}
+
+.outbound-section:first-child {
+  margin-top: 0;
+}
+
 .outbound-payload .step-code {
-  margin: 0;
-  padding: var(--spacing-2);
+  margin: var(--spacing-1) 0 0;
+  padding: 0;
   font-family: var(--typography-code-font-family);
+  /* A long User-Agent wraps rather than scrolling sideways. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A value the harness masked before the journal: never written, only named. */
+.outbound-masked {
+  font-style: italic;
+  color: var(--color-ink-soft);
+  background: var(--color-surface);
+  border-radius: var(--rounded-sm);
+  padding: 0 var(--spacing-1);
+}
+
+.outbound-note {
+  margin: var(--spacing-1) 0 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
 }
 
 
 /* ---------- architecture schema (DESIGN.md > arch-zone-*, arch-boundary, arch-group, arch-node-*,
    arch-hook-strip, arch-trunk, arch-harness, arch-model; story 8e) ----------
    HTML pieces laid out by flexbox, then an SVG layer drawn over them for the trunk, the rails,
-   the path and the markers. Category: bin, shape and icon; colour: hosting and state only. */
+   the path and the markers. Category: bin, shape and icon; hosting: zone, boundary, globe and
+   « RÉSEAU »; colour: the discipline of the node's brick (story 33) and the state. */
 
 .pane-body-schema {
   padding: var(--spacing-1) var(--spacing-2);
@@ -2084,6 +3017,14 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 .arch .is-selected {
   outline: var(--spacing-stroke-min) solid var(--color-ink);
   outline-offset: 2px;
+}
+
+/* Story 33: a model on its ink plate: its focus ring and its selection in on-ink, inside the
+   plate (ink on ink, or the violet at 2.1:1, would not show). */
+.arch .arch-robots .robot:focus-visible,
+.arch .arch-robots .robot.is-selected {
+  outline: var(--spacing-stroke-min) solid var(--color-on-ink);
+  outline-offset: -2px;
 }
 
 .arch-wires {
@@ -2139,7 +3080,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   border-style: dashed;
   border-color: var(--color-ink);
   background: var(--color-hosting-network);
-  color: var(--color-ink);
+  color: var(--color-on-vivid);
 }
 
 .arch-zone-row {
@@ -2218,12 +3159,13 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   gap: var(--spacing-1);
 }
 
+/* Story 33: a chip in its brick's discipline. */
 .arch .arch-chip {
-  padding: 3px 10px;
-  border: 0;
+  padding: 1px 10px;
+  border: var(--spacing-stroke-min) solid var(--discipline, var(--color-primary));
   border-radius: var(--rounded-full);
-  background: var(--color-primary-soft);
-  color: var(--color-primary-deep);
+  background: var(--discipline-soft, var(--color-primary-soft));
+  color: var(--color-ink);
   white-space: nowrap;
 }
 
@@ -2250,8 +3192,10 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   background: none;
 }
 
+/* Story 33: the robot lies on an ink plate (.arch-robots), its label in on-ink. */
 .robot-label {
   font-weight: 600;
+  color: var(--color-on-ink);
 }
 
 .robot-model {
@@ -2260,7 +3204,16 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--typography-body-sm-font-family);
-  color: var(--color-ink-soft);
+  color: var(--color-on-ink-soft);
+}
+
+/* On ink, the violet body, ears and antenna stick get an on-ink outline (alone: 2.1:1 and
+   1.3:1). */
+.robot-body,
+.robot-ear,
+.robot-stick {
+  stroke: var(--color-on-ink);
+  stroke-width: 1.5px;
 }
 
 .robot-body {
@@ -2301,7 +3254,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .robot-badge-icon {
-  font-size: 10px;
+  font-size: 0.7em;
 }
 
 @keyframes antenna-blink {
@@ -2342,9 +3295,10 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   flex-direction: column;
   align-items: flex-start;
   padding: 1px var(--spacing-2);
-  border: var(--spacing-stroke-min) solid var(--color-primary);
+  /* Story 33: in the hooks brick's discipline. */
+  border: var(--spacing-stroke-min) solid var(--discipline, var(--color-primary));
   border-radius: var(--rounded-sm);
-  background: var(--color-primary-soft);
+  background: var(--discipline-soft, var(--color-primary-soft));
   text-align: left;
   line-height: 1.1;
 }
@@ -2441,9 +3395,12 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   min-width: 0;
   min-height: 26px;
   padding: 1px 6px;
-  border: var(--spacing-stroke-min) solid var(--color-hosting-local);
+  /* Story 33: the colour says the discipline of the node's brick; the hosting is said by the
+     zone, the boundary, the globe and « RÉSEAU ». */
+  border: var(--spacing-stroke-min) solid var(--discipline, var(--color-ink-soft));
   border-radius: var(--rounded-sm);
-  background: var(--color-surface-raised);
+  background: var(--discipline-soft, var(--color-surface-raised));
+  color: var(--color-ink);
   text-align: left;
   white-space: nowrap;
 }
@@ -2462,8 +3419,8 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   margin-left: auto;
   padding: 0 6px;
   border-radius: var(--rounded-full);
-  background: var(--color-primary-soft);
-  color: var(--color-primary-deep);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -2475,33 +3432,32 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   width: 18px;
   height: 18px;
   border-radius: var(--rounded-full);
-  background: var(--color-primary-soft);
-  font-size: 11px;
+  background: var(--color-surface-raised);
+  font-size: 0.85em;
 }
 
 /* MCP server: a double line, a process of its own that exposes tools. */
 .arch .arch-node-mcp {
-  border: 4px double var(--color-hosting-local);
+  border: 4px double var(--discipline, var(--color-ink-soft));
 }
 
-/* Skill: a thick left rule, like the spine of a sheet; loaded, on soft violet. */
+/* Skill: a thick left rule, like the spine of a sheet; on surface-raised until loaded, then on its
+   discipline's soft background. */
 .arch .arch-node-skill {
   border-left-width: 7px;
+  background: var(--color-surface-raised);
 }
 
 .arch .arch-node-skill.is-loaded {
-  background: var(--color-primary-soft);
+  background: var(--discipline-soft);
 }
 
-/* File: cream, with its document icon. */
-.arch .arch-node-file {
-  background: var(--color-surface);
-}
-
-/* Network: yellow, dashed ink; the globe prefixes its name, « RÉSEAU » is on the zone label. */
+/* Network: dashed ink, a thick yellow rule; the globe prefixes its name, « RÉSEAU » is on the
+   zone label (the yellow is never alone). */
 .arch .arch-node.is-network {
   border: var(--spacing-stroke-min) dashed var(--color-ink);
-  background: var(--color-hosting-network);
+  border-left: 6px solid var(--discipline);
+  background: var(--discipline-soft);
   color: var(--color-ink);
 }
 
@@ -2620,9 +3576,14 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .arch-marker text {
+  fill: var(--color-ink); /* story 31: SVG text is black by default, lost on a dark disc */
   font-family: var(--typography-label-font-family);
   font-size: var(--typography-label-font-size);
   font-weight: 600;
+}
+
+.arch-marker.is-block text {
+  fill: var(--color-on-vivid);
 }
 
 @keyframes arch-flow {
@@ -2643,7 +3604,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .scenario-picker {
   min-height: var(--spacing-hit-target-min);
-  max-width: 22rem;
+  max-width: 12rem; /* story 33: room for the gauge's legend */
   padding: 0 var(--spacing-3);
   background: var(--color-primary-soft);
   color: var(--color-primary-deep);
@@ -2661,7 +3622,9 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   top: calc(100% + var(--spacing-1));
   right: var(--spacing-4);
   z-index: 20;
-  max-width: 28rem;
+  max-width: min(28rem, calc(100% - 2 * var(--spacing-4)));
+  overflow: hidden;
+  text-overflow: ellipsis; /* story 33: whole text in its tooltip */
   font-size: var(--typography-body-sm-font-size);
   color: var(--color-ink-soft);
   white-space: nowrap;
@@ -2706,6 +3669,47 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   margin: 0;
   font-size: var(--typography-body-sm-font-size);
   color: var(--color-ink-soft);
+}
+
+/* Story 22 (C1): three lines, then « Afficher plus »; unfolded, the whole text. */
+.scenario-guide-text {
+  margin: 0;
+  line-height: var(--typography-body-sm-line-height);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* Unfolded, it still leaves the conversation its room: past 12 lines, it scrolls. */
+.scenario-guide.is-expanded .scenario-guide-text {
+  display: block;
+  -webkit-line-clamp: none;
+  line-clamp: none;
+  max-height: calc(12 * var(--typography-body-sm-line-height) * 1em);
+  overflow-y: auto;
+}
+
+.scenario-guide-more {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.scenario-guide-more[hidden] {
+  display: none;
+}
+
+.scenario-guide-more:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .scenario-guide strong {
@@ -2778,14 +3782,17 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   font-weight: 600;
 }
 
+/* Story 33: the cloud model's box is an ink plate, a dashed yellow border and 🌐 in its name. */
 .arch-cloud-model {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   padding: 6px;
-  border: 2px dashed var(--color-ink, currentColor);
-  border-radius: 8px;
+  border: 2px dashed var(--color-discipline-network);
+  border-radius: var(--rounded-sm);
+  background: var(--color-ink-fill);
+  color: var(--color-on-ink);
 }
 
 /* Story 18: a model served by a local server (Ollama, llama-server), outside the harness
@@ -2797,9 +3804,10 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   align-self: flex-start;
   gap: 4px;
   padding: 6px 8px;
-  border: 2px solid var(--color-hosting-local);
-  border-radius: 8px;
-  background: var(--color-primary-soft);
+  border: 2px solid var(--color-ink-fill-edge);
+  border-radius: var(--rounded-sm);
+  background: var(--color-ink-fill); /* story 33: an ink plate */
+  color: var(--color-on-ink);
   max-width: 180px;
   text-align: center;
 }
@@ -2822,12 +3830,264 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   margin: 0;
 }
 
+/* ---------- story 26: the context window (DESIGN.md > window-picker) ----------
+   A button on the ink top bar, like « Mode projection »; its panel drops under it like the
+   « Volets ▾ » list, on surface-raised, not modal (the demo stays visible). */
+
+.window-picker {
+  position: relative;
+}
+
+.window-toggle {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  background: transparent;
+  color: var(--color-on-ink);
+  border: 1px solid var(--color-on-ink-soft);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.window-toggle[aria-expanded="true"] {
+  background: var(--color-on-ink);
+  color: var(--color-ink-fill); /* story 31: the bar's colours, inverted */
+}
+
+.window-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Under 1400 px the bar tightens (see « Projection »): the figure and ▾ stay, the word goes
+   (the button's accessible name keeps « Fenêtre »), and the scenario's and the model's names
+   may give way a little further (as in projection mode), so that at 1280 px the chips of
+   hidden panes keep some room. */
+@media (max-width: 1400px) {
+  .window-toggle-long {
+    display: none;
+  }
+
+  .window-toggle {
+    padding: 0 var(--spacing-2);
+  }
+
+  .top-bar > .scenario-picker {
+    min-width: 6rem;
+  }
+
+  .top-bar > .model-indicator {
+    min-width: 5rem;
+  }
+
+  /* In projection mode at 1280 px, the button takes room the chip « · lié » needs: the
+     names and the model picker give a little more, the button tightens. */
+  :root.projection .top-bar > select.scenario-picker {
+    min-width: 3.5rem; /* story 31: 4.5rem before the theme picker */
+  }
+
+  :root.projection .top-bar > .model-picker {
+    min-width: 3rem; /* story 31: 4rem before the theme picker */
+  }
+
+  :root.projection .window-toggle {
+    padding: 0 var(--spacing-1);
+  }
+}
+
+.window-panel {
+  position: absolute;
+  left: 0;
+  top: calc(100% + var(--spacing-2));
+  z-index: 30; /* over the top bar's message */
+  width: min(30rem, calc(100vw - 2 * var(--spacing-4)));
+  max-height: calc(100vh - var(--spacing-top-bar-height) - 4 * var(--spacing-gutter));
+  /* Lot K (A8): a column, its texts scroll, « Appliquer » and « Fermer » pinned at its foot
+     (as the memory drawer's), always in view even at 1280 × 650. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--spacing-3) var(--spacing-4);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  box-shadow: 0 var(--spacing-relief-offset-overlay) 0 var(--color-relief);
+  white-space: normal; /* the top bar's pieces never wrap; the panel's texts do */
+  font-size: var(--typography-body-sm-font-size);
+  line-height: var(--typography-body-sm-line-height);
+}
+
+.window-panel[hidden] {
+  display: none;
+}
+
+.window-panel-title {
+  margin: 0 0 var(--spacing-1);
+  font-family: var(--typography-heading-font-family);
+  font-size: var(--typography-heading-font-size);
+  font-weight: var(--typography-heading-font-weight);
+  line-height: var(--typography-heading-line-height);
+}
+
+.window-help,
+.window-note {
+  margin: 0 0 var(--spacing-2);
+  color: var(--color-ink-soft);
+}
+
+.window-choices {
+  margin: 0 0 var(--spacing-2);
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.window-choices-legend {
+  padding: 0;
+  margin-bottom: var(--spacing-1);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+}
+
+#window-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.window-choice {
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+}
+
+.window-choice.is-picked {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.window-choice-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  cursor: pointer;
+  font-family: var(--typography-number-font-family);
+  font-size: var(--typography-number-font-size);
+}
+
+.window-choice-label input {
+  accent-color: var(--color-primary);
+  width: 1.1em;
+  height: 1.1em;
+  margin: 0;
+}
+
+.window-choice-current {
+  color: var(--color-ink-soft);
+  font-weight: normal;
+}
+
+.window-choice-figures {
+  display: flex;
+  flex-direction: column;
+}
+
+.window-choice-details {
+  display: flex;
+  flex-direction: column;
+  margin-left: calc(1.1em + var(--spacing-2));
+  color: var(--color-ink-soft);
+}
+
+/* A refused choice is only disabled (AD-9): dashed, its radio not clickable. */
+.window-choice.is-refused {
+  border-style: dashed;
+}
+
+.window-choice.is-refused .window-choice-label {
+  cursor: not-allowed;
+}
+
+.window-current {
+  margin: 0 0 var(--spacing-2);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+/* A refusal in the danger style of DESIGN.md > button-danger: ink text beside a danger rule
+   (the danger red as text would not reach 4.5:1 on white). */
+.window-choice-verdict.is-refused {
+  color: var(--color-ink);
+  border-left: var(--spacing-stroke-min) solid var(--color-danger);
+  padding-left: var(--spacing-2);
+  margin-top: var(--spacing-1);
+}
+
+.window-choice-verdict.is-fits {
+  color: var(--color-ink);
+}
+
+.window-alert {
+  margin: 0 0 var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  color: var(--color-ink);
+  border: var(--spacing-stroke-min) solid var(--color-danger);
+  border-radius: var(--rounded-sm);
+}
+
+.window-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.window-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: var(--spacing-2);
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-line);
+}
+
+.window-apply,
+.window-close {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.window-apply {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.window-close {
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.window-apply:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* ---------- story 17: model picker, hot switch (DESIGN.md > model-picker) ---------- */
 
 /* A neutral drop-down list: model name and size (« 2B »). */
 .model-picker {
   min-height: var(--spacing-hit-target-min);
-  max-width: 16rem;
+  max-width: 10rem; /* story 33: room for the gauge's legend */
   padding: 0 var(--spacing-2);
   background: var(--color-surface-raised);
   color: var(--color-ink);
@@ -2842,7 +4102,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   min-height: var(--spacing-hit-target-min);
   padding: 0 var(--spacing-3);
   background: var(--color-primary);
-  color: var(--color-surface-raised);
+  color: var(--color-on-primary);
   border: 1px solid var(--color-primary);
   border-radius: var(--rounded-md);
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
@@ -2868,6 +4128,69 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 .model-picker:focus-visible {
   outline: var(--spacing-stroke-min) solid var(--color-primary);
   outline-offset: 2px;
+}
+
+/* ---------- story 31: the theme picker (DESIGN.md > theme-picker) ----------
+   A neutral native list, as the model picker, before « Réinitialiser »; bordered in
+   on-ink-soft to stand out of the ink-fill bar; its focus ring is the bar's on-ink one. */
+.theme-picker {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+/* The box holds the native list and, for the compact state, its face: the symbol of the
+   choice (◐, ☀, ☾, set by theme.js) and a chevron. Above 1400 px the face is hidden. */
+.theme-picker-box {
+  position: relative;
+  display: inline-flex;
+}
+
+.theme-picker-face {
+  display: none;
+}
+
+/* Under 1400 px the bar tightens (see « Projection »): the face shows the symbol and the
+   chevron; the native list stays whole on top of it, transparent, so a click, the keyboard and
+   a screen reader still reach it (its words stay in the list, the name and the tooltip). */
+@media (max-width: 1400px) {
+  .theme-picker-face {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-height: var(--spacing-hit-target-min);
+    padding: 0 var(--spacing-1) 0 var(--spacing-2);
+    background: var(--color-surface-raised);
+    color: var(--color-ink);
+    border: 1px solid var(--color-on-ink-soft);
+    border-radius: var(--rounded-md);
+    font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+      var(--typography-label-line-height) var(--typography-label-font-family);
+  }
+
+  .theme-picker-chevron {
+    font-size: 0.75em;
+  }
+
+  .theme-picker-box > .theme-picker {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    min-height: 0;
+    opacity: 0;
+  }
+
+  .top-bar .theme-picker-box:has(.theme-picker:focus-visible) {
+    outline: var(--spacing-stroke-min) solid var(--color-on-ink);
+    outline-offset: 2px;
+    border-radius: var(--rounded-md);
+  }
 }
 
 /* Vue humain: the model that plays the turns below, when it changed. */
@@ -2912,8 +4235,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   color: var(--color-primary-deep);
 }
 
-.subagent-show,
-.ctx-view-button {
+.subagent-show {
   min-height: var(--spacing-hit-target-min);
   padding: 0 var(--spacing-2);
   border: 1px solid var(--color-primary-deep);
@@ -2925,17 +4247,32 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   cursor: pointer;
 }
 
+/* Story 22 (M6): tabs, the selected one underlined in violet, over a line. */
 .ctx-view-switch {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-1);
+  gap: var(--spacing-3);
   margin-bottom: var(--spacing-2);
+  border-bottom: var(--spacing-stroke-min) solid var(--color-line);
 }
 
-.ctx-view-button[aria-pressed="true"] {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: var(--color-on-primary);
+.ctx-view-button {
+  min-height: var(--spacing-hit-target-min);
+  margin-bottom: calc(-1 * var(--spacing-stroke-min));
+  padding: 0 var(--spacing-2);
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.ctx-view-button[aria-selected="true"] {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-ink);
 }
 
 .subagent-show:focus-visible,
@@ -2954,6 +4291,11 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   display: flex;
   align-items: flex-end;
   gap: var(--spacing-1);
+  /* Story 33: the model's ink plate (story 31: ink-fill). */
+  padding: 2px var(--spacing-1);
+  border-radius: var(--rounded-sm);
+  background: var(--color-ink-fill);
+  box-shadow: inset 0 0 0 var(--spacing-stroke-min) var(--color-ink-fill-edge); /* story 31 */
 }
 
 .robot-sub .robot-drawing {
@@ -3117,4 +4459,501 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 .rerank-cut {
   color: var(--color-ink-soft);
   font-style: italic;
+}
+
+/* ---------- story 34: the linked view (DESIGN.md > link-state) ----------
+   An element carries its link keys in `data-links` (app.js). Hover or keyboard focus: what
+   shares a key is ringed (an outline: the element's own shadow, relief or « en action » halo,
+   stays) in its discipline's colour (ink for the network's yellow and the neutral grey, under
+   3:1), the rest dimmed; a container holding a lit element is not dimmed
+   itself, nor is an element inside a dimmed container dimmed twice. Selection: an ink outline,
+   nothing dimmed. Never the colour alone: the selection's outline is ink. */
+
+[data-links] {
+  --link-ring: var(--discipline, var(--color-ink));
+  transition: opacity 150ms ease, outline-color 150ms ease;
+}
+
+[data-links][data-discipline="network"],
+[data-links][data-discipline="neutral"] {
+  --link-ring: var(--color-ink);
+}
+
+body.linking [data-links]:not(.is-linked):not(:has(.is-linked)) {
+  opacity: 0.35;
+}
+
+body.linking [data-links]:not(.is-linked):not(:has(.is-linked)) [data-links] {
+  opacity: 1;
+}
+
+body.linking [data-links].is-linked {
+  outline: var(--spacing-stroke-min) solid var(--link-ring);
+  outline-offset: 2px;
+}
+
+/* Inside a clipping bar, or on the model's ink plate: the ring goes inside. */
+body.linking .gauge-seg.is-linked {
+  outline-color: var(--color-ink);
+  outline-offset: -2px;
+}
+
+body.linking .arch .arch-robots .robot.is-linked {
+  outline-color: var(--color-on-ink);
+  outline-offset: -2px;
+}
+
+/* The selection's ink outline wins over a hover ring on the same element. */
+body [data-links][data-links].is-selection-linked {
+  outline: var(--spacing-stroke-min) solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+body .gauge-seg[data-links].is-selection-linked {
+  outline-offset: -2px;
+}
+
+body .arch .arch-robots .robot.is-selection-linked {
+  outline-color: var(--color-on-ink);
+  outline-offset: -2px;
+}
+
+.ctx-segment:focus-visible,
+.gauge-seg:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.gauge-seg {
+  cursor: pointer;
+}
+
+.ctx-segment {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body [data-links] {
+    transition: none;
+  }
+}
+
+/* The bricks panel says how to read the panes together. */
+.brick-link-hint {
+  margin: 0;
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-line);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+/* ---------- story 34: what left the workstation, under the schema ---------- */
+
+.pane-body-schema {
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-body-schema > .arch {
+  flex: 1 0 auto;
+  min-height: 0;
+}
+
+.schema-outbound {
+  flex: 0 0 auto;
+  margin: var(--spacing-1) 0 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-top: 1px solid var(--color-line);
+  font-size: var(--typography-body-sm-font-size);
+  line-height: var(--typography-body-sm-line-height);
+  color: var(--color-ink);
+}
+
+/* ---------- story 34: projection mode (DESIGN.md > projection-toggle, NFR-9) ----------
+   The type ramp × 9/7, rounded (body 14 → 18 px); tokens.css stays DESIGN.md's mirror, so the
+   ramp is redefined here. The top bar grows so its controls stay on one line. */
+
+:root.projection {
+  --typography-pane-title-font-size: 24px;
+  --typography-pane-subtitle-font-size: 17px;
+  --typography-heading-font-size: 23px;
+  --typography-chat-font-size: 21px;
+  --typography-body-font-size: 18px;
+  --typography-body-sm-font-size: 17px;
+  --typography-label-font-size: 15px;
+  --typography-number-font-size: 18px;
+  --typography-number-lg-font-size: 26px;
+  --typography-code-font-size: 17px;
+  --spacing-top-bar-height: 72px;
+  --spacing-architecture-band-height: 320px; /* the schema and its summary, in proportion */
+}
+
+/* In projection mode the chips outrank the gauge's figures: at 1280 px, « · lié » stays whole
+   and the figures (whole in their tooltip) give way first, down to the bar and its legend. */
+:root.projection .top-bar > .gauge {
+  flex-shrink: 1000000;
+  min-width: calc(300px + var(--spacing-3));
+}
+
+:root.projection .top-bar > .pane-chips {
+  flex-shrink: 1;
+}
+
+:root.projection .top-bar > .scenario-picker,
+:root.projection .top-bar > .model-indicator {
+  min-width: 5rem;
+}
+
+.projection-toggle {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  background: transparent;
+  color: var(--color-on-ink);
+  border: 1px solid var(--color-on-ink-soft);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.projection-toggle[aria-pressed="true"] {
+  background: var(--color-on-ink);
+  color: var(--color-ink-fill); /* story 31: the bar's colours, inverted */
+}
+
+/* ---------- story 33: focus on the ink top bar ----------
+   Last in the file: wins over each control's own ring. Its drop-down lists (« Volets ▾ », « Fenêtre ») keep
+   theirs: they lie on surface-raised. */
+
+.top-bar :focus-visible:not(.pane-menu-list *):not(.window-panel *) {
+  outline: var(--spacing-stroke-min) solid var(--color-on-ink);
+  outline-offset: 2px;
+}
+
+/* Story 26: the window panel lies on surface-raised, its focus ring the primary one. */
+.window-panel :focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- story 29: the link to the « LLM nu » screen, on the ink top bar ---------- */
+
+.top-bar > .screen-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  color: var(--color-on-ink);
+  border: 1px solid var(--color-on-ink-soft);
+  border-radius: var(--rounded-md);
+  text-decoration: none;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.top-bar > .screen-link:hover {
+  background: var(--color-on-ink);
+  color: var(--color-ink-fill);
+}
+
+.screen-link-short {
+  display: none;
+}
+
+/* Under 1400 px the link says « LLM » (its accessible name keeps « LLM nu »), and, for its
+   room, the scenario's and the model's names give way a little further: at 1280 px the gauge
+   stays whole and the chips of hidden panes keep « · lié » readable, projection mode too. */
+@media (max-width: 1400px) {
+  .top-bar > .screen-link {
+    padding: 0 var(--spacing-1);
+  }
+
+  .screen-link-long {
+    display: none;
+  }
+
+  .screen-link-short {
+    display: inline;
+  }
+
+  .top-bar > .scenario-picker {
+    min-width: 4rem;
+  }
+
+  .top-bar > .model-indicator {
+    min-width: 4rem;
+  }
+
+  :root.projection .top-bar > select.scenario-picker {
+    min-width: 3rem;
+  }
+
+  :root.projection .top-bar > .model-indicator {
+    min-width: 3rem;
+  }
+
+  :root.projection .top-bar > .model-picker {
+    min-width: 2.5rem;
+  }
+}
+
+/* ---------- story 30: a second screen link, « Atelier RAG », after « LLM nu » ----------
+   Room for it on the one-line bar, the gauge's figures kept whole from 1280 to 1600 px: the
+   bar's gaps tighten, the links' padding too, and up to 1600 px the projection button says
+   « Projection » (its accessible name stays « Mode projection »). */
+
+.top-bar {
+  gap: var(--spacing-2);
+}
+
+.top-bar > .screen-link {
+  padding: 0 var(--spacing-2);
+}
+
+@media (max-width: 1600px) {
+  .projection-toggle-long {
+    display: none;
+  }
+
+  .projection-toggle-short {
+    display: inline;
+  }
+}
+
+@media (max-width: 1400px) {
+  .top-bar > .screen-link {
+    padding: 0 var(--spacing-1);
+  }
+
+  .top-bar > .scenario-picker,
+  .top-bar > .model-indicator {
+    min-width: 3rem;
+  }
+
+  /* In projection mode, the larger texts: the gaps tighten further, for « · lié ». */
+  :root.projection .top-bar {
+    gap: var(--spacing-1);
+  }
+}
+
+/* ---------- lot K (A1): who gives way in the top bar ----------
+   The chip that says « · lié » (or that an H5 validation waits: `.is-linked`) never shrinks:
+   it is the linked view's cue when its pane is hidden. The chips become items of the bar
+   themselves (`display: contents`), each with its own factor. The model's indicator and
+   picker and the scenario's name give way first (their whole text stays in the list and the
+   tooltip), then the other chips (whole in their tooltip), then the gauge's figures (whole
+   in their tooltip); the same order in projection mode. The gauge never goes under its bar
+   and legend, so the « Fenêtre » button never covers the legend. */
+.top-bar > .model-indicator,
+.top-bar > .model-picker,
+.top-bar > .scenario-picker {
+  flex-shrink: 1000000000; /* factors ≥ 1, far apart: each group gives way almost alone */
+}
+
+.top-bar > .gauge,
+:root.projection .top-bar > .gauge {
+  flex-shrink: 1;
+  min-width: calc(300px + var(--spacing-3));
+}
+
+.top-bar > .pane-chips {
+  display: contents;
+}
+
+.pane-chips > .pane-chip {
+  flex-shrink: 1000000;
+  text-overflow: ellipsis;
+}
+
+.pane-chips > .pane-chip.is-linked {
+  flex-shrink: 0;
+  min-width: max-content;
+  text-overflow: clip;
+}
+
+/* Up to 1600 px the names give way further (at 1440 px, the words of « Fenêtre » and the theme
+   picker come back and take the room of « · lié »). In projection mode, the bar of under
+   1400 px applies up to 1600 px: short labels, and the theme picker compact. */
+@media (max-width: 1600px) {
+  .top-bar > .scenario-picker,
+  .top-bar > .model-indicator {
+    min-width: 4rem;
+  }
+
+  .top-bar > .model-picker {
+    min-width: 3rem;
+  }
+
+  :root.projection .top-bar {
+    gap: var(--spacing-2);
+  }
+
+  :root.projection .projection-toggle-long,
+  :root.projection .window-toggle-long,
+  :root.projection .screen-link-long {
+    display: none;
+  }
+
+  :root.projection .projection-toggle-short,
+  :root.projection .screen-link-short {
+    display: inline;
+  }
+
+  :root.projection .window-toggle,
+  :root.projection .top-bar > .screen-link {
+    padding: 0 var(--spacing-1);
+  }
+
+  :root.projection .top-bar > select.scenario-picker,
+  :root.projection .top-bar > .model-indicator {
+    min-width: 3rem;
+  }
+
+  :root.projection .top-bar > .model-picker {
+    min-width: 2.5rem;
+  }
+
+  :root.projection .theme-picker-face {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-height: var(--spacing-hit-target-min);
+    padding: 0 var(--spacing-1) 0 var(--spacing-2);
+    background: var(--color-surface-raised);
+    color: var(--color-ink);
+    border: 1px solid var(--color-on-ink-soft);
+    border-radius: var(--rounded-md);
+    font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+      var(--typography-label-line-height) var(--typography-label-font-family);
+  }
+
+  :root.projection .theme-picker-chevron {
+    font-size: 0.75em;
+  }
+
+  :root.projection .theme-picker-box > .theme-picker {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    min-height: 0;
+    opacity: 0;
+  }
+
+  :root.projection .top-bar .theme-picker-box:has(.theme-picker:focus-visible) {
+    outline: var(--spacing-stroke-min) solid var(--color-on-ink);
+    outline-offset: 2px;
+    border-radius: var(--rounded-md);
+  }
+}
+
+/* Up to 1500 px, the screen links say « LLM » and « RAG » (their accessible names unchanged):
+   since story 30 added the second, their words at 1440 px took the room of « · lié ». At
+   1600 px they keep their words. */
+@media (max-width: 1500px) {
+  .screen-link-long {
+    display: none;
+  }
+
+  .screen-link-short {
+    display: inline;
+  }
+}
+
+/* In projection mode under 1400 px, the names give their last pixels and the gaps tighten (as
+   story 30 had them): at 1280 px, « · lié » keeps 10 px to spare for the wider fonts of Windows. */
+@media (max-width: 1400px) {
+  :root.projection .top-bar {
+    gap: var(--spacing-1);
+  }
+
+  :root.projection .top-bar > select.scenario-picker {
+    min-width: 2.5rem;
+  }
+
+  :root.projection .top-bar > .model-indicator {
+    min-width: 2rem;
+  }
+}
+
+/* Under 1100 px (a 1280 px window zoomed to 125 %), the bar cannot hold everything: the title
+   goes (the page's title keeps it), and the linked chip gives way too, last, rather than push
+   « Réinitialiser » out of the bar. */
+@media (max-width: 1100px) {
+  .top-bar-title {
+    display: none;
+  }
+
+  /* Lot K, suite (review): a real 1280 px window zoomed to 125 % gives about 1010 CSS px, where
+     « Réinitialiser » went 4 to 9 px out of the bar with the legend whole: the gaps and the
+     bar's padding tighten from here. */
+  .top-bar,
+  :root.projection .top-bar {
+    gap: var(--spacing-1);
+    padding: 0 var(--spacing-2);
+  }
+
+  .pane-chips > .pane-chip.is-linked {
+    flex-shrink: 1;
+    min-width: 0;
+    text-overflow: ellipsis;
+  }
+}
+
+/* Lot K, suite (K1): under 1000 px (a 1280 or 1366 px window zoomed to 150 %), the bar keeps
+   « Réinitialiser » whole and the page never scrolls sideways: the gauge's legend goes (each
+   segment's tooltip names its discipline) and its bar narrows to 180 px, its figures still
+   giving way (whole in their tooltip); the gaps and padding are tight already (1100 px), the
+   names go to their minimum (projection mode keeps its own, lower ones), « Mode projection » says
+   « Aa » (its accessible name and tooltip unchanged); the theme picker is compact already. */
+.projection-toggle-tiny {
+  display: none;
+}
+
+@media (width < 1000px) {
+  .gauge-legend {
+    display: none;
+  }
+
+  .gauge-stack {
+    width: 180px;
+  }
+
+  .top-bar > .gauge,
+  :root.projection .top-bar > .gauge {
+    min-width: calc(180px + var(--spacing-3));
+  }
+
+  /* An overflowing gauge's figures keep their red pill's padding: room for it, so that they
+     never spill over « Fenêtre ▾ ». */
+  .top-bar > .gauge.is-overflow,
+  :root.projection .top-bar > .gauge.is-overflow {
+    min-width: calc(180px + var(--spacing-3) + 2 * var(--spacing-2));
+  }
+
+  .top-bar > .scenario-picker {
+    min-width: 3rem;
+  }
+
+  .top-bar > .model-indicator {
+    min-width: 2rem;
+  }
+
+  .top-bar > .model-picker {
+    min-width: 2.5rem;
+  }
+
+  .projection-toggle-long,
+  .projection-toggle-short,
+  :root.projection .projection-toggle-long,
+  :root.projection .projection-toggle-short {
+    display: none;
+  }
+
+  .projection-toggle-tiny {
+    display: inline;
+  }
+
+  .projection-toggle {
+    padding: 0 var(--spacing-2);
+  }
 }

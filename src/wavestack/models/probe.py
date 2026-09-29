@@ -80,6 +80,11 @@ def kv_bytes_per_token(meta: dict[str, Any]) -> int | None:
     Qwen3.5, whose linear-attention layers have 0 KV head); a value that is neither (e.g.
     an array llama-cpp-python only shows as text) gives `None`, never the attention heads
     instead. Sliding-window attention is not taken into account: an overestimate.
+
+    Lot K (A2): a hybrid model may give one integer and `{arch}.full_attention_interval` = n
+    instead (Qwen3.5 GGUF: one layer in n has full attention, hence a KV cache; the others
+    are linear-attention layers without one): only `block_count // n` layers count. A
+    per-layer list stays the reference when present (the interval is then ignored).
     """
     arch = meta.get("general.architecture")
     if not arch:
@@ -102,6 +107,9 @@ def kv_bytes_per_token(meta: dict[str, Any]) -> int | None:
             kv_heads_total = None
     else:
         per_layer = _int_meta(meta, kv_key)
+        interval = _int_meta(meta, f"{arch}.full_attention_interval")
+        if layers and interval and interval > 1:
+            layers = layers // interval
         kv_heads_total = layers * per_layer if layers and per_layer else None
     if not (kv_heads_total and key_length and value_length):
         return None
@@ -294,7 +302,30 @@ def failed_entry(path: str) -> dict[str, Any] | None:
         return None
     if entry.get("probe_version") != PROBE_VERSION:
         return None
-    return entry if _same_file(entry, path) else None
+    if not _same_file(entry, path):
+        return None
+    # Story 24: a reason an older WaveStack read in cp1252 is repaired at every read;
+    # settings.json is never rewritten by a read (a remembered failure is not probed again,
+    # so the stored text stays garbled until the file or llama-cpp-python changes).
+    if isinstance(entry.get("reason"), str):
+        entry = {**entry, "reason": repair_mojibake(entry["reason"])}
+    return entry
+
+
+# Story 24: what UTF-8 text read as cp1252 shows (« Ã® » for « î », « â€™ » for « ’ »).
+_MOJIBAKE_MARKS = ("Ã", "Â", "â€")
+
+
+def repair_mojibake(text: str) -> str:
+    """Story 24: `text` as it was before UTF-8 bytes were decoded as cp1252 (« abÃ®mÃ© » →
+    « abîmé »), when it shows the marks of it; unchanged otherwise, or when the repair is
+    impossible (never an exception)."""
+    if not any(mark in text for mark in _MOJIBAKE_MARKS):
+        return text
+    try:
+        return text.encode("cp1252").decode("utf-8")
+    except UnicodeError:
+        return text
 
 
 def measured(path: str) -> bool:
@@ -316,9 +347,19 @@ def measured(path: str) -> bool:
 
 
 def probed_entry(path: str) -> dict[str, Any] | None:
-    """The probe cache entry for `path` (architecture...), if still valid (same size/mtime)."""
+    """The probe cache entry for `path` (architecture...), if still valid (same size/mtime).
+
+    Lot K (A2): its `kv_bytes_per_token` is recomputed from the GGUF header at every read
+    (pure Python, cached per file version), so an entry an older formula wrote (a hybrid
+    model counted 4 times too high) is corrected without probing again and without
+    rewriting settings.json; the stored value stays when the header is unreadable."""
     entry = config.read_settings().get("probed_models", {}).get(path)
-    return entry if entry and _same_file(entry, path) else None
+    if not entry or not _same_file(entry, path):
+        return None
+    header = _header_kv(str(path), entry["size_bytes"], entry["mtime"])
+    if header is not None and "kv_bytes_per_token" in entry:
+        entry = {**entry, "kv_bytes_per_token": header}
+    return entry
 
 
 def gguf_kv_bytes_per_token(path: str | None) -> int | None:
@@ -365,7 +406,13 @@ def main() -> int:
         return 2
 
     result = probe_file(*args)
-    print(result.model_dump_json())
+    # Story 24: ASCII JSON (accents as `\u` escapes), whatever the console's code page, and
+    # UTF-8 besides: the parent reads it as UTF-8 on every OS (cp1252 garbled it on Windows).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass  # not a text stream that can be reconfigured: the JSON is ASCII anyway
+    print(json.dumps(result.model_dump(mode="json")))
     return 0 if result.ok else 1
 
 

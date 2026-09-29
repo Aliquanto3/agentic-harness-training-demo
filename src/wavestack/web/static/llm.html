@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <script src="/static/theme.js"></script>
+  <title>WaveStack — LLM nu</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/fonts.css" />
+  <link rel="stylesheet" href="/static/tokens.css" />
+  <link rel="stylesheet" href="/static/pages.css" />
+  <link rel="stylesheet" href="/static/llm.css" />
+</head>
+<body class="llm-page">
+  <nav class="page-tabs" aria-label="Pages de WaveStack">
+    <a href="/" id="back-link" class="llm-back">← Atelier</a>
+    <a href="/diagnostic">Diagnostic</a>
+    <a href="/models">Modèles</a>
+    <a href="/llm" aria-current="page">LLM nu</a>
+    <a href="/rag">Atelier RAG</a>
+    <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" title="Thème de l'interface">
+      <option value="system">◐ Système</option>
+      <option value="light">☀ Clair</option>
+      <option value="dark">☾ Sombre</option>
+    </select>
+  </nav>
+
+  <main class="llm-main">
+    <header class="llm-header">
+      <h1 id="llm-title">LLM nu : l'intérieur du modèle</h1>
+      <p class="llm-model" id="llm-model">
+        <span class="llm-model-label" id="llm-model-label">Modèle actif</span>
+        <span id="llm-model-tag"></span>
+        <strong id="llm-model-name">…</strong>
+        <a href="/" id="llm-change-model" class="llm-link">Changer de modèle dans l'atelier</a>
+      </p>
+      <p class="llm-intro" id="llm-intro"></p>
+      <p class="llm-error" id="llm-content-error" role="alert" hidden></p>
+      <p class="llm-busy" id="llm-busy" role="status" hidden></p>
+    </header>
+
+    <section class="llm-section" id="sec-tokenization" aria-labelledby="sec-tokenization-title">
+      <h2 class="llm-section-title" id="sec-tokenization-title"><span class="llm-step" aria-hidden="true">1</span> <span data-text="sections.tokenization.title_fr">Tokenisation et vectorisation</span></h2>
+      <p class="llm-section-intro" data-text="sections.tokenization.intro_fr"></p>
+      <label class="llm-label" for="llm-prompt" data-text="tokenization.prompt_label_fr">Texte à découper</label>
+      <textarea id="llm-prompt" class="llm-prompt" maxlength="2000" rows="3"></textarea>
+      <div class="llm-actions">
+        <button type="button" id="tokenize-button" class="llm-button-primary" data-text="tokenization.button_fr">Découper en tokens</button>
+        <span class="llm-status" id="tokenize-status" role="status" aria-live="polite"></span>
+      </div>
+      <p class="llm-note" id="token-info"></p>
+      <p class="llm-counts" id="token-counts" hidden></p>
+      <ol class="token-chips" id="token-chips" aria-label="Tokens du texte"></ol>
+      <p class="llm-note" id="token-more" hidden></p>
+      <p class="llm-note" id="token-blanks" data-text="tokenization.blanks_fr" hidden></p>
+      <figure class="embedding-diagram" id="embedding-diagram" hidden>
+        <figcaption class="embedding-title" data-text="vectorization.title_fr">Du texte au vecteur</figcaption>
+        <ol class="embedding-steps" id="embedding-steps"></ol>
+        <p class="llm-note" id="embedding-sentence"></p>
+        <p class="llm-note embedding-source" id="embedding-source"></p>
+      </figure>
+    </section>
+
+    <section class="llm-section" id="sec-sampling" aria-labelledby="sec-sampling-title">
+      <h2 class="llm-section-title" id="sec-sampling-title"><span class="llm-step" aria-hidden="true">2</span> <span data-text="sections.sampling.title_fr">Réglages d'échantillonnage</span></h2>
+      <p class="llm-section-intro" data-text="sections.sampling.intro_fr"></p>
+      <div class="sampling-controls" id="sampling-controls"></div>
+      <p class="llm-note" id="sampling-source"></p>
+      <div class="llm-actions">
+        <span class="llm-note" id="sampling-defaults"></span>
+        <button type="button" id="sampling-reset" class="llm-button-secondary" data-text="sampling.reset_fr">Revenir aux valeurs du harnais</button>
+      </div>
+    </section>
+
+    <section class="llm-section" id="sec-loading" aria-labelledby="sec-loading-title">
+      <h2 class="llm-section-title" id="sec-loading-title"><span class="llm-step" aria-hidden="true">3</span> <span data-text="sections.loading.title_fr">Chargement du modèle</span></h2>
+      <p class="llm-section-intro" data-text="sections.loading.intro_fr"></p>
+      <p class="llm-counts" id="loading-total" role="status"></p>
+      <ol class="load-steps" id="loading-steps"></ol>
+      <p class="llm-note" id="loading-empty" data-text="loading.empty_fr" hidden></p>
+      <p class="load-memory" id="loading-memory" hidden></p>
+      <p class="llm-note" id="loading-local" data-text="loading.local_fr" hidden></p>
+      <p><a href="/" class="llm-link" data-text="change_model_fr">Changer de modèle dans l'atelier</a></p>
+    </section>
+
+    <section class="llm-section" id="sec-reading" aria-labelledby="sec-reading-title">
+      <h2 class="llm-section-title" id="sec-reading-title"><span class="llm-step" aria-hidden="true">4</span> <span data-text="sections.reading.title_fr">Lecture du prompt</span></h2>
+      <p class="llm-section-intro" data-text="sections.reading.intro_fr"></p>
+      <p class="llm-note" id="reading-empty" data-text="reading.empty_fr"></p>
+      <div id="reading-body" hidden>
+        <p class="llm-label" id="reading-label"></p>
+        <pre class="rendered-prompt" id="reading-rendered"></pre>
+        <p class="llm-counts" id="reading-tokens"></p>
+        <p class="llm-note" id="reading-sampling"></p>
+        <p class="llm-figure" id="reading-first-token" role="status"></p>
+        <p class="llm-figure" id="reading-rate"></p>
+      </div>
+    </section>
+
+    <section class="llm-section" id="sec-generation" aria-labelledby="sec-generation-title">
+      <h2 class="llm-section-title" id="sec-generation-title"><span class="llm-step" aria-hidden="true">5</span> <span data-text="sections.generation.title_fr">Génération</span></h2>
+      <p class="llm-section-intro" data-text="sections.generation.intro_fr"></p>
+      <label class="reasoning-toggle" id="reasoning-toggle-box">
+        <input type="checkbox" id="reasoning-toggle" />
+        <span data-text="reasoning.toggle_fr">Raisonner avant de répondre</span>
+      </label>
+      <p class="llm-note" id="reasoning-reason"></p>
+      <div class="llm-actions">
+        <button type="button" id="generate-button" class="llm-button-primary" data-text="generation.button_fr">Générer</button>
+        <button type="button" id="stop-button" class="llm-button-secondary" data-text="generation.stop_fr" disabled>Arrêter</button>
+        <span class="llm-status" id="generate-status" role="status" aria-live="polite"></span>
+      </div>
+      <label class="reasoning-toggle" id="candidates-toggle-box">
+        <input type="checkbox" id="candidates-toggle" />
+        <span data-text="candidates.toggle_fr">Montrer les tokens candidats</span>
+      </label>
+      <p class="llm-note" id="candidates-reason"></p>
+      <p class="llm-note" id="generation-cloud" data-text="generation.cloud_fr" hidden></p>
+      <p class="llm-counts" id="generation-count"></p>
+      <ol class="token-chips token-stream" id="generation-tokens" aria-label="Tokens produits"></ol>
+      <p class="llm-note" id="generation-empty" data-text="generation.empty_fr"></p>
+      <p class="llm-note" id="generation-more"></p>
+      <p class="llm-figure" id="generation-rate"></p>
+    </section>
+
+    <section class="llm-section" id="sec-reasoning" aria-labelledby="sec-reasoning-title">
+      <h2 class="llm-section-title" id="sec-reasoning-title"><span class="llm-step" aria-hidden="true">6</span> <span data-text="sections.reasoning.title_fr">Raisonnement</span></h2>
+      <p class="llm-section-intro" data-text="sections.reasoning.intro_fr"></p>
+      <p class="llm-note" id="reasoning-budget"></p>
+      <div class="reasoning-lanes">
+        <section class="reasoning-lane is-thinking" aria-labelledby="lane-thinking-title">
+          <h3 class="reasoning-lane-title" id="lane-thinking-title"><span data-text="reasoning.thinking_fr">Réflexion</span> <span class="reasoning-lane-count" id="lane-thinking-count"></span></h3>
+          <p class="reasoning-lane-text" id="lane-thinking"></p>
+          <p class="reasoning-cut" id="lane-cut" role="status" hidden></p>
+        </section>
+        <section class="reasoning-lane is-answer" aria-labelledby="lane-answer-title">
+          <h3 class="reasoning-lane-title" id="lane-answer-title"><span data-text="reasoning.answer_fr">Réponse</span> <span class="reasoning-lane-count" id="lane-answer-count"></span></h3>
+          <p class="reasoning-lane-text" id="lane-answer"></p>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div class="candidates-popover" id="candidates-popover" role="dialog" aria-labelledby="candidates-title" hidden>
+    <p class="candidates-title" id="candidates-title"></p>
+    <ol class="candidates-list" id="candidates-list"></ol>
+    <p class="candidates-legend" data-text="candidates.legend_fr"></p>
+  </div>
+
+  <script type="module" src="/static/llm.js"></script>
+</body>
+</html>

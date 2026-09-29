@@ -13,7 +13,8 @@ builds the whole text, template included; nothing goes through the servers' chat
   (`VocabTokenizer`). More prompt tokens read by Ollama than the harness counted, or a
   `thinking` field, is reported as « transparence réduite »; fewer is Ollama's cache.
 
-Sampling: the in-process engine's values (`engine.py`), and the penalties llama-cpp-python's
+Sampling: the call's (`engine.Sampling`, story 29; the harness's defaults unless the « LLM
+nu » screen gives its own), and the penalties llama-cpp-python's
 `generate` leaves neutral, sent explicitly (Ollama's own default `repeat_penalty` is 1.1). No
 seed is sent: the in-process engine draws a random one too.
 """
@@ -34,15 +35,14 @@ from typing import Any, Protocol
 import httpx
 
 from wavestack import config
-from wavestack.models import probe
+from wavestack.models import gguf_meta, probe
 from wavestack.models.engine import (
-    TEMPERATURE,
-    TOP_K,
-    TOP_P,
+    DEFAULT_SAMPLING,
     CancelToken,
     EngineMetadata,
     EngineSnapshot,
     Fragment,
+    Sampling,
     StopReason,
     VocabTokenizer,
     cut_stop,
@@ -204,6 +204,15 @@ def _lines(
         ) from exc
 
 
+def _header_dimensions(path: str | None) -> dict[str, int | None]:
+    """Story 29: a GGUF header's sizes (`gguf_meta.dimensions_from_header`), when `path` is
+    a readable file of this disk; nothing otherwise."""
+    local = path if path and Path(path).is_absolute() else None
+    meta = gguf_meta.try_read_metadata(local)
+    sizes = gguf_meta.dimensions_from_header(meta) if meta else {}
+    return {name: value for name, value in sizes.items() if value is not None}
+
+
 def _positive(value: Any) -> int | None:
     try:
         n = int(value)
@@ -212,13 +221,15 @@ def _positive(value: Any) -> int | None:
     return n if n > 0 else None
 
 
-def _sampling() -> dict[str, float | int]:
-    """The in-process engine's sampling (`engine.py`, llama-cpp-python's `generate`)."""
+def _sampling(sampling: Sampling | None = None) -> dict[str, float | int]:
+    """The call's sampling (story 29; `None`: the harness's defaults, `DEFAULT_SAMPLING`), and
+    the penalties llama-cpp-python's `generate` leaves neutral."""
+    s = sampling or DEFAULT_SAMPLING
     return {
-        "temperature": TEMPERATURE,
-        "top_p": TOP_P,
-        "top_k": TOP_K,
-        "min_p": 0.0,
+        "temperature": s.temperature,
+        "top_p": s.top_p,
+        "top_k": s.top_k,
+        "min_p": s.min_p,
         "repeat_penalty": 1.0,
         "presence_penalty": 0.0,
         "frequency_penalty": 0.0,
@@ -265,6 +276,9 @@ class LlamaServerEngine:
         self._client = _client(connect_timeout_s, read_timeout_s, transport)
         self._pieces: dict[int, bytes] = {}  # id -> bytes, filled by `tokenize`
         self._last_evaluated: int | None = None
+        # Story 29: what `/v1/models` and `/props` say of the model's sizes and file.
+        self._sizes: dict[str, Any] = {}
+        self._model_path: str | None = None
         try:
             self._metadata = self._read_metadata(markers)
         except BaseException:
@@ -280,8 +294,13 @@ class LlamaServerEngine:
         data = models.get("data")
         first = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else {}
         meta = first.get("meta") if isinstance(first.get("meta"), dict) else {}
-        settings = props.get("default_generation_settings")
-        settings = settings if isinstance(settings, dict) else {}
+        # Story 29: the real llama-server gives its vocabulary and embedding size there.
+        self._sizes = {
+            "vocab_size": _positive(meta.get("n_vocab")),
+            "embedding_length": _positive(meta.get("n_embd")),
+            "context_length": _positive(meta.get("n_ctx_train")),
+        }
+        self._model_path = str(props.get("model_path") or "") or None
         template = str(props.get("chat_template") or "") or None
         bos, eos = str(props.get("bos_token") or ""), str(props.get("eos_token") or "")
         special = [t for t in (bos, eos) if t]
@@ -303,6 +322,33 @@ class LlamaServerEngine:
 
     def metadata(self) -> EngineMetadata:
         return self._metadata
+
+    def dimensions(self) -> dict[str, Any] | None:
+        """Story 29: vocabulary and embedding size from `/v1/models` (the server's own
+        tokenizer and model), layers and heads from the GGUF header of the file it loaded,
+        when that file is on this disk."""
+        names = {
+            "vocab_size": "vocabulaire",
+            "embedding_length": "dimension",
+            "layer_count": "couches",
+            "head_count": "têtes",
+            "context_length": "contexte natif",
+        }
+        served = {k: v for k, v in self._sizes.items() if v is not None}
+        header = {k: v for k, v in _header_dimensions(self._model_path).items() if k not in served}
+        said = []
+        if served:
+            listed = ", ".join(names[k] for k in names if k in served)
+            said.append(f"{listed.capitalize()} donnés par llama-server (/v1/models)")
+        if header:
+            listed = ", ".join(names[k] for k in names if k in header)
+            said.append(f"{listed} lus dans l'en-tête GGUF de son fichier")
+        else:
+            said.append(
+                "le fichier du modèle, ouvert par llama-server, n'est pas lisible depuis WaveStack"
+            )
+        source_fr = " ; ".join(said)
+        return served | header | {"source_fr": source_fr[0].upper() + source_fr[1:] + "."}
 
     # AD-4, AD-11: no access to the server's cache nor to its state.
 
@@ -352,7 +398,13 @@ class LlamaServerEngine:
         return [self._pieces[t] for t in ids]
 
     def complete(
-        self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
+        self,
+        prompt_ids: Sequence[int],
+        stop: Sequence[str],
+        max_tokens: int,
+        cancel: CancelToken,
+        *,
+        sampling: Sampling | None = None,
     ) -> Iterator[Fragment]:
         body = {
             "prompt": list(prompt_ids),
@@ -360,7 +412,7 @@ class LlamaServerEngine:
             "stop": list(stop),
             "stream": True,
             "cache_prompt": True,
-            **_sampling(),
+            **_sampling(sampling),
         }
         pending = ""
         count = 0
@@ -379,10 +431,10 @@ class LlamaServerEngine:
                 pending += text
                 emit, pending, stopped = cut_stop(pending, stop)
                 if stopped:
-                    yield Fragment(emit, count, "stop")
+                    yield Fragment(emit, count, "stop", piece=text.encode("utf-8"))
                     return
                 if text:
-                    yield Fragment(emit, count)
+                    yield Fragment(emit, count, piece=text.encode("utf-8"))
                 if data.get("stop"):
                     reason = "length" if data.get("stop_type") == "limit" else "stop"
                     timings = data.get("timings")  # its last chunk: `prompt_n` evaluated
@@ -419,6 +471,7 @@ class OllamaRawEngine:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.url, self.name = url.rstrip("/"), name
+        self._gguf_path = gguf_path  # story 29: its header gives the model's sizes
         self._tokenizer = tokenizer if tokenizer is not None else _open_tokenizer(gguf_path)
         self.num_ctx = n_ctx  # until the session gives its effective window
         self._unload = unload
@@ -433,6 +486,19 @@ class OllamaRawEngine:
 
     def metadata(self) -> EngineMetadata:
         return self._tokenizer.metadata()
+
+    def dimensions(self) -> dict[str, Any] | None:
+        """Story 29: the vocabulary from the GGUF's tokenizer (`vocab_only`), the other
+        sizes from its header, read in pure Python."""
+        vocab_size = getattr(self._tokenizer, "vocab_size", None)
+        dims: dict[str, Any] = dict(_header_dimensions(self._gguf_path))
+        dims["vocab_size"] = vocab_size() if callable(vocab_size) else None
+        return dims | {
+            "source_fr": (
+                "Vocabulaire lu par le tokenizer du fichier GGUF d'Ollama ; dimensions lues "
+                "dans son en-tête."
+            )
+        }
 
     # AD-4, AD-11: no access to the server's cache nor to its state.
 
@@ -457,7 +523,13 @@ class OllamaRawEngine:
         return self._tokenizer.token_pieces(ids)
 
     def complete(
-        self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
+        self,
+        prompt_ids: Sequence[int],
+        stop: Sequence[str],
+        max_tokens: int,
+        cancel: CancelToken,
+        *,
+        sampling: Sampling | None = None,
     ) -> Iterator[Fragment]:
         prompt = b"".join(self.token_pieces(prompt_ids)).decode("utf-8")
         body = {
@@ -469,7 +541,7 @@ class OllamaRawEngine:
                 "num_ctx": self.num_ctx,
                 "num_predict": max_tokens,
                 "stop": list(stop),
-                **_sampling(),
+                **_sampling(sampling),
             },
         }
         pending = ""
@@ -498,7 +570,7 @@ class OllamaRawEngine:
                 if text and not stopped:
                     pending += text
                     emit, pending, stopped = cut_stop(pending, stop)
-                    yield Fragment(emit, count)
+                    yield Fragment(emit, count, piece=text.encode("utf-8"))
                 if data.get("done"):
                     count = _positive(data.get("eval_count")) or count
                     reason = (
@@ -637,6 +709,13 @@ class ServedModel:
     # launch, and one slot's (`-np N` shares the whole between N slots).
     n_ctx: int | None = None
     slot_ctx: int | None = None
+    # Story 25, read from the answers already fetched, never by another request: Ollama's
+    # `details` in `/api/tags` (`family`, `parameter_size`); llama-server's template
+    # (`/props`) and training context (`/v1/models`), the model table's capabilities.
+    family: str | None = None
+    parameter_size: str | None = None
+    chat_template: str | None = None
+    n_ctx_train: int | None = None
 
     @property
     def provider(self) -> str:
@@ -666,6 +745,8 @@ def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]
             name = str(model.get("name") or model.get("model") or "")
             if not name or _ollama_cloud(model):
                 continue
+            details = model.get("details")
+            details = details if isinstance(details, dict) else {}
             served.append(
                 ServedModel(
                     engine,
@@ -675,6 +756,8 @@ def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]
                     size=_positive(model.get("size")),
                     resident=name in loaded,
                     resident_size=loaded.get(name),
+                    family=_text(details.get("family")),
+                    parameter_size=_text(details.get("parameter_size")),
                 )
             )
         return served
@@ -689,7 +772,8 @@ def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]
     first = (models.get("data") or [{}])[0] or {}
     model_path = str(props.get("model_path") or "") or None
     name = _file_name(model_path) if model_path else str(first.get("id") or "modèle")
-    size = _positive((first.get("meta") or {}).get("size"))
+    meta = first.get("meta") if isinstance(first.get("meta"), dict) else {}
+    size = _positive(meta.get("size"))
     return [
         ServedModel(
             engine,
@@ -701,8 +785,15 @@ def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]
             True,
             n_ctx=_server_n_ctx(props, whole=True),
             slot_ctx=_server_n_ctx(props),
+            chat_template=str(props.get("chat_template") or "") or None,
+            n_ctx_train=_positive(meta.get("n_ctx_train")),
         )
     ]
+
+
+def _text(value: Any) -> str | None:
+    """A non-empty string from a server's answer, else `None`."""
+    return (value.strip() or None) if isinstance(value, str) else None
 
 
 def _server_n_ctx(props: dict[str, Any], *, whole: bool = False) -> int | None:
@@ -738,12 +829,13 @@ def list_served(
     return served
 
 
-def served_bytes(model: ServedModel, path: str | None) -> int | None:
+def served_bytes(model: ServedModel, path: str | None, window: int | None = None) -> int | None:
     """AD-8: the served model's memory. Resident: what Ollama reports in `/api/ps`; else
     (llama-server) its file's size plus its KV cache for its whole context `n_ctx` (lot E,
     E1: llama-server reserves it at launch), the KV read in the file's metadata, without the
     weights (the file's size alone when unreadable); not loaded yet (Ollama): its blob's
-    size. `None` when nothing says it."""
+    size, plus (story 24) its KV cache at `window` when given and readable
+    (`ollama_load_bytes`). `None` when nothing says it."""
     if model.resident and model.resident_size:
         return model.resident_size
     size = model.size
@@ -753,8 +845,27 @@ def served_bytes(model: ServedModel, path: str | None) -> int | None:
             size = Path(local).stat().st_size
         except OSError:
             pass
+    if model.engine == "ollama" and not model.resident and window and local:
+        return ollama_load_bytes(local, window) or size
     kv = served_kv(model, path)
     return size + kv * (model.n_ctx or 0) if size is not None and kv else size
+
+
+def ollama_load_bytes(path: str | None, window: int) -> int | None:
+    """Story 24 (AD-8): what Ollama will take to load a model it does not hold yet: its
+    blob's size plus its KV cache (f16) at `window`, read in the blob's header in pure
+    Python; the size alone when the KV is unreadable; `None` without a readable file.
+    Never the probe's RSS of the blob: that measured llama-cpp-python in WaveStack's own
+    child (compute buffers, KV at `probe_window`), not Ollama's engine."""
+    local = _local(path)
+    if not local:
+        return None
+    try:
+        size = Path(local).stat().st_size
+    except OSError:
+        return None
+    kv = probe.gguf_kv_bytes_per_token(local) or 0
+    return size + kv * max(window, 0)
 
 
 def served_kv(model: ServedModel, path: str | None) -> int | None:
@@ -778,8 +889,18 @@ def context_warning_fr(n_ctx: int | None, window: int, slot_ctx: int | None = No
     """Lot E (E1): the French warning when a slot of llama-server has a context much larger
     than WaveStack's window (`-c` omitted: the model's whole native context), whose memory
     it reserved for nothing; `None` otherwise. With several slots (`-np N`), `-c {window}`
-    alone would shrink each slot below the window: the advice is `-np 1 -c {window}`."""
+    alone would shrink each slot below the window: the advice is `-np 1 -c {window}`.
+
+    Lot K (A3): a slot smaller than the window chosen bounds the effective window to it; the
+    advice is then `-np 1 -c {window}` too (one slot, the whole context for it)."""
     slot = slot_ctx or n_ctx
+    if slot and slot < window:
+        return (
+            f"llama-server a été lancé avec un contexte de {_fr_int(slot)} tokens par "
+            f"emplacement, sous la fenêtre choisie de {_fr_int(window)} : la fenêtre effective "
+            f"reste de {_fr_int(slot)} tokens. Arrêtez-le et relancez-le avec "
+            f"`-np 1 -c {window}`."
+        )
     if not slot or slot <= window * CONTEXT_WARN_FACTOR:
         return None
     whole = max(n_ctx or 0, slot)

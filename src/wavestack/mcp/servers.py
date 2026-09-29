@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -42,6 +43,8 @@ def mcp_servers(cfg: config.Config) -> dict[str, McpServer]:
 
 class ServerText(BaseModel):
     label_fr: str = Field(min_length=1)
+    # Story 34, public servers: what leaves the workstation on each call.
+    sends_fr: str | None = None
 
 
 class LoadToolDocText(BaseModel):
@@ -52,12 +55,22 @@ class LoadToolDocText(BaseModel):
     tool: str = Field(min_length=1)  # the `tool` parameter's description
 
 
+class CallPreset(BaseModel):
+    """Lot K: arguments that prefill the form of an MCP tool's forced call, shown by
+    `label_fr` (the tool's parameters come from its server, at connection)."""
+
+    label_fr: str = Field(min_length=1)
+    args: dict[str, Any]
+
+
 class McpContent(BaseModel):
     """`content/mcp.yaml`."""
 
     servers: dict[str, ServerText]
     lazy_label_fr: str = Field(min_length=1)
     load_tool_doc: LoadToolDocText
+    # Lot K: the presets of « Forcer l'appel », by full tool name (`{server}__{tool}`).
+    call_presets: dict[str, list[CallPreset]] = {}
 
 
 def load_mcp_content() -> McpContent:

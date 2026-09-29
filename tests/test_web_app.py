@@ -46,11 +46,79 @@ def test_diagnostic_route_still_works(monkeypatch, tmp_path):
     assert response.status_code == 200
 
 
+def test_models_page_and_tabs_shared_with_the_diagnostic(monkeypatch, tmp_path):
+    """Story 25: `/models` answers, and both pages carry the same tabs, each marking itself."""
+    client = _client(_build(monkeypatch, tmp_path))
+    models = client.get("/models")
+    assert models.status_code == 200 and "text/html" in models.headers["content-type"]
+    assert '<a href="/models" aria-current="page">Modèles</a>' in models.text
+    diagnostic = client.get("/diagnostic").text
+    assert '<a href="/diagnostic" aria-current="page">Diagnostic</a>' in diagnostic
+    assert '<a href="/models">Modèles</a>' in diagnostic
+    for page in (models.text, diagnostic):  # story 29: the « LLM nu » tab
+        assert '<a href="/llm">LLM nu</a>' in page
+    llm = client.get("/llm").text
+    assert '<a href="/llm" aria-current="page">LLM nu</a>' in llm
+    assert '<a href="/models">Modèles</a>' in llm
+    for page in (models.text, diagnostic, llm):  # story 30: the « Atelier RAG » tab
+        tabs = page[page.index('<nav class="page-tabs"') : page.index("</nav>")]
+        assert '<a href="/rag">Atelier RAG</a>' in tabs
+    index = client.get("/").text  # the top bar's link, before the theme picker
+    assert index.index('id="llm-link"') < index.index('id="theme-picker"')
+    # Story 30: « Atelier RAG » next to it, in the same group, and its page's tabs.
+    assert index.index('id="llm-link"') < index.index('id="rag-link"')
+    assert index.index('id="rag-link"') < index.index('id="theme-picker"')
+    assert 'href="/rag"' in index
+    rag = client.get("/rag").text
+    assert '<a href="/rag" aria-current="page">Atelier RAG</a>' in rag
+    tabs = ['href="/"', 'href="/llm"', 'href="/rag"', 'href="/diagnostic"', 'href="/models"']
+    nav = rag[rag.index("<nav") : rag.index("</nav>")]
+    assert [nav.index(t) for t in tabs] == sorted(nav.index(t) for t in tabs)
+    for page in (models.text, diagnostic):  # one stylesheet; « Ouvrir » gated by `ready`
+        assert '<link rel="stylesheet" href="/static/pages.css" />' in page
+        assert '<a href="/" id="open-link" hidden>Ouvrir WaveStack</a>' in page
+
+
+def test_api_diagnostic_contains_a_model_table_failure(monkeypatch, tmp_path):
+    """Story 25 (AD-16): the table failing leaves `/api/diagnostic` whole, without `models`
+    (the picker then lists the candidates as before)."""
+    from wavestack.models import catalog
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("table cassée")
+
+    monkeypatch.setattr(catalog, "models_payload", broken)
+    response = _client(_build(monkeypatch, tmp_path)).get("/api/diagnostic")
+    assert response.status_code == 200
+    body = response.json()
+    assert "models" not in body
+    assert body["candidates"] == [] and body["cloud"]["models"]
+
+
 def test_pages_and_static_files_are_revalidated_but_api_is_not(monkeypatch, tmp_path):
     client = _client(_build(monkeypatch, tmp_path))
-    for path in ("/", "/diagnostic", "/static/app.js"):
-        assert client.get(path).headers["cache-control"] == "no-cache", path
+    pages = ("/", "/diagnostic", "/models", "/llm", "/static/app.js", "/static/theme.js")
+    story_pages = ("/static/llm.js", "/static/llm.css", "/rag", "/static/rag.js")
+    for path in (*pages, *story_pages, "/static/rag.css"):  # stories 29 and 30
+        response = client.get(path)
+        assert response.status_code == 200, path  # story 31: theme.js, without a new route
+        assert response.headers["cache-control"] == "no-cache", path
     assert "cache-control" not in client.get("/api/health").headers
+
+
+def test_favicon_is_served_and_declared_on_every_page(monkeypatch, tmp_path):
+    """Lot K, suite (K7): `/favicon.ico` (asked by Edge) and the SVG icon answer 200, and the
+    five pages declare the icon."""
+    client = _client(_build(monkeypatch, tmp_path))
+    for path in ("/favicon.ico", "/static/favicon.svg"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.headers["content-type"].startswith("image/svg+xml"), path
+        assert response.text.lstrip().startswith("<svg"), path
+    link = '<link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />'
+    for page in ("/", "/diagnostic", "/models", "/llm", "/rag"):
+        text = client.get(page).text
+        assert link in text[: text.index("</head>")], page
 
 
 def test_api_state_reflects_last_known_session_state_and_architecture(monkeypatch, tmp_path):

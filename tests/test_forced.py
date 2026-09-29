@@ -3,8 +3,10 @@ first model call, through the single executor with `trigger = user` (AD-3, AD-14
 
 from __future__ import annotations
 
+import json
 import threading
 import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -12,8 +14,9 @@ from fake_engine import FakeEngine
 from pydantic import ValidationError
 from test_bricks import HEADERS, _client
 from test_hooks import HOLIDAYS, SECRET, h5_session, hooks_session, wait_asked
-from test_mcp import card, loop  # noqa: F401 - fixture
-from test_mcp_lazy import DEFINE, LOCAL, exact, lazy_session
+from test_mcp import MSLEARN_TOOLS, McpWeb, card, enable, loop, mcp_session  # noqa: F401
+from test_mcp import web as mcp_web  # noqa: F401 - fixture
+from test_mcp_lazy import DEFINE, LOCAL, definition_names, exact, lazy_session
 from test_skills import CAVEMAN, skills_session
 from test_tools import QWEN, _segments, call, tool_session, web  # noqa: F401 - fixture
 
@@ -370,18 +373,164 @@ def test_a_documentation_no_longer_loadable_is_dropped(loop, case):  # noqa: F81
     session.close()
 
 
-def test_kind_tool_refuses_an_mcp_tool_and_a_meta_tool(loop):  # noqa: F811
+def test_kind_tool_refuses_a_meta_tool_only(loop):  # noqa: F811
+    """Lot K (2026-09-29): an MCP tool's call can be forced; a meta-tool keeps its own
+    action (« Déclencher le skill », « Charger la documentation »)."""
     session = lazy_session(loop)
     session.set_brick("skills", True)
     session.join()
     client = _client(session)
     mark = get_journal().last_seq()
 
-    for target in (DEFINE, "load_skill", "load_tool_doc"):
+    for target in ("load_skill", "load_tool_doc"):
         body = {"kind": "tool", "target": target}
         response = client.post("/api/intentions/arm", json=body, headers=HEADERS)
         assert response.status_code == 404, target
     assert of(get_journal().events_since(mark), "armed_actions_changed") == []
+
+    missing = {"kind": "tool", "target": DEFINE, "args": {}}
+    response = client.post("/api/intentions/arm", json=missing, headers=HEADERS)
+    assert response.status_code == 422 and "argument « term » manquant" in response.text
+    body = {"kind": "tool", "target": DEFINE, "args": {"term": "MCP"}}
+    assert client.post("/api/intentions/arm", json=body, headers=HEADERS).status_code == 200
+    (action,) = armed()
+    assert (action["kind"], action["brick"], action["args"]) == ("tool", "mcp", {"term": "MCP"})
+    session.close()
+
+
+# ---------- lot K: an MCP tool's call, forced (decision of 2026-09-29) ----------
+
+
+def test_forced_mcp_call_in_lazy_loading_adds_its_definition_to_tools(loop):  # noqa: F811
+    """The call runs before c1 (`trigger = user`, brick `mcp`), and its definition joins
+    `tools` at once and for the conversation, out of `load_tool_doc`'s catalog."""
+    engine = None
+    session = lazy_session(loop, ["MCP signifie Model Context Protocol."])
+    engine = session._engine
+    session.arm("tool", DEFINE, {"term": "MCP"})
+
+    events = run(session, "Que veut dire MCP ?")
+
+    (started,) = of(events, "tool_started")
+    assert (started.payload["tool"], started.trigger, started.brick) == (DEFINE, "user", "mcp")
+    assert before_first_call(events, started)
+    assert [e.payload["status"] for e in of(events, "tool_ended")] == ["ok"]
+    ctx = of(events, "context_rendered")[0].payload
+    assert definition_names(ctx) == [DEFINE, "load_tool_doc"]
+    lines = [s["text"] for s in _segments(ctx, "tool_catalog") if s["text"].startswith("- ")]
+    assert not any(DEFINE in line for line in lines)  # no longer offered to load
+    result = [s for s in _segments(ctx, "tool_result") if s["brick"] == "mcp"]
+    assert result and "Model Context Protocol" in "".join(s["text"] for s in result)
+    exact(ctx)
+    assert len(engine.calls) == 1  # the forced call costs no model call
+    assert DEFINE in session._loaded_docs
+    state = session.build_turn_state()
+    assert DEFINE in state.tools and DEFINE not in state.loadable
+    session.close()
+
+
+def test_forced_mcp_call_in_full_documentation(loop):  # noqa: F811
+    session = lazy_session(loop, ["Voilà."])
+    session.set_mcp_mode(False)
+    session.join()
+    session.arm("tool", DEFINE, {"term": "MCP"})
+
+    events = run(session, "Que veut dire MCP ?")
+
+    (started,) = of(events, "tool_started")
+    assert (started.payload["tool"], started.trigger) == (DEFINE, "user")
+    assert [e.payload["status"] for e in of(events, "tool_ended")] == ["ok"]
+    ctx = of(events, "context_rendered")[0].payload
+    assert definition_names(ctx) == list(LOCAL)
+    exact(ctx)
+    session.close()
+
+
+@pytest.mark.parametrize(
+    ("switch_off", "reason"),
+    [
+        (lambda s: s.set_mcp_server("local", False), "n'est pas connecté ou est désactivé"),
+        (lambda s: s.set_brick("mcp", False), "« MCP » n'est pas active"),
+    ],
+)
+def test_a_forced_mcp_call_whose_server_is_gone_is_dropped(loop, switch_off, reason):  # noqa: F811
+    session = lazy_session(loop, ["Voilà."])
+    armed_id = session.arm("tool", DEFINE, {"term": "MCP"})
+    switch_off(session)
+    session.join()
+
+    events = run(session, "Bonjour")
+
+    assert_dropped(events, armed_id, reason)
+    assert of(events, "tool_started") == []
+    assert DEFINE not in session._loaded_docs
+    session.close()
+
+
+def test_forced_public_mcp_call_sends_and_traces_like_a_model_call(loop, mcp_web):  # noqa: F811
+    """The data leaving the workstation is traced as for a model's call (AD-15), with
+    `trigger = user`; a long result is bounded the same way (`[tools] result_max_tokens`)."""
+
+    def answer(params):
+        return {"content": [{"type": "text", "text": "Résultat. " * 3000}]}
+
+    mcp_web(McpWeb(MSLEARN_TOOLS, answer))
+    session = mcp_session(loop, ["Voilà."])
+    session.set_mcp_server("local", False)
+    enable(session, "mslearn")
+    session.arm("tool", "mslearn__microsoft_docs_search", {"query": "accès conditionnel"})
+
+    events = run(session, "Cherche")
+
+    (outbound,) = of(events, "outbound_request")
+    body = json.loads(outbound.payload["body"])
+    assert (body["method"], body["params"]["arguments"]) == (
+        "tools/call",
+        {"query": "accès conditionnel"},
+    )
+    assert (outbound.trigger, outbound.brick) == ("user", "mcp")
+    (ended,) = of(events, "tool_ended")
+    assert ended.payload["status"] == "ok" and ended.payload["truncated"]
+    session.close()
+
+
+def test_an_optional_mcp_argument_left_empty_is_not_armed(loop, mcp_web):  # noqa: F811
+    """The Souveraineté fallback: the preset « cybersécurité » fills `query`; the form sends
+    the optional `page` and `page_size` empty, which are left out, never sent as ""."""
+    fixture = Path(__file__).parent / "fixtures" / "mcp_tools" / "datagouv.json"
+    mcp_web(McpWeb(json.loads(fixture.read_text(encoding="utf-8"))["tools"]))
+    session = mcp_session(loop, ["Voilà."])
+    session.set_mcp_server("local", False)
+    enable(session, "datagouv")
+    client = _client(session)
+
+    body = {
+        "kind": "tool",
+        "target": "datagouv__search_datasets",
+        "args": {"query": "cybersécurité", "page": "", "page_size": ""},
+    }
+    response = client.post("/api/intentions/arm", json=body, headers=HEADERS)
+
+    assert response.status_code == 200, response.text
+    (action,) = armed()
+    assert action["args"] == {"query": "cybersécurité"}
+    session.close()
+
+
+def test_mcp_option_gives_each_tool_its_forced_call_form_and_presets(loop):  # noqa: F811
+    session = lazy_session(loop)
+
+    (local,) = [o for o in card("mcp")["options"] if o["id"] == "local"]
+
+    calls = {c["tool"]: c for c in local["calls"]}
+    assert list(calls) == list(LOCAL)
+    assert list(calls[DEFINE]["parameters"]) == ["term"]
+    assert calls[DEFINE]["presets"] == [{"label_fr": "MCP", "args": {"term": "MCP"}}]
+    assert calls["local__list_terms"] == {
+        "tool": "local__list_terms",
+        "parameters": {},
+        "presets": [],
+    }
     session.close()
 
 

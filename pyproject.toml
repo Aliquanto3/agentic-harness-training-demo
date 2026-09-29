@@ -28,6 +28,11 @@ wavestack = "wavestack.cli:main"
 compression = [
     "headroom-ai==0.38.0",
 ]
+# Story 30: the RAG workshop's other vector stores, FAISS and LanceDB (wheels only).
+rag-alt = [
+    "faiss-cpu==1.15.1",
+    "lancedb==0.39.0",
+]
 
 [dependency-groups]
 dev = [
@@ -37,7 +42,7 @@ dev = [
 ]
 
 [tool.uv]
-no-build-package = ["llama-cpp-python"]
+no-build-package = ["llama-cpp-python", "faiss-cpu", "lancedb", "pyarrow"]
 
 [[tool.uv.index]]
 name = "abetlen-cpu"

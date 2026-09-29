@@ -20,6 +20,7 @@ from test_turn import _run
 
 from wavestack import config
 from wavestack.mcp import connection
+from wavestack.mcp.servers import load_mcp_content, mcp_servers
 from wavestack.net.factory import create_async_client
 from wavestack.session.app_session import AppSession
 from wavestack.tools.parser import parse_tool_calls
@@ -228,6 +229,7 @@ def test_local_server_lifecycle_call_and_shutdown(loop):
         True,
     )
     assert local["tools"] == ended["tools"]
+    assert local.get("sends_fr") is None  # story 34: nothing leaves the workstation
     assert node(session, "mcp.datagouv") is None  # drawn only once its sub-option is on
     preview = since(mark, "context_preview")[-1].payload
     catalog = _segments(preview, "tool_catalog")
@@ -433,6 +435,8 @@ def test_datagouv_overflows_the_default_window_and_names_the_descriptions(loop, 
     session = mcp_session(loop)
     session.set_mcp_server("local", False)
     enable(session, "datagouv")
+    # Story 34: a public server's node says what leaves the workstation (AD-19).
+    assert node(session, "mcp.datagouv")["sends_fr"] == "la recherche et ses arguments"
 
     events = _run(session, "Bonjour")
 
@@ -647,3 +651,15 @@ def test_disabling_a_server_during_a_call_ends_the_call_at_once(loop, web):
     assert ended["status"] == "error" and ended["duration_ms"] < 3000
     assert events["turn_ended"][0]["status"] == "completed"
     session.close()
+
+
+# ---------- story 34: what each public server receives, in content (AD-19) ----------
+
+
+@pytest.mark.parametrize("server", list(mcp_servers(config.Config()).values()), ids=lambda s: s.id)
+def test_public_servers_say_what_they_receive_and_local_ones_do_not(server):
+    text = load_mcp_content().servers[server.id]
+    if server.network:
+        assert text.sends_fr and text.sends_fr.strip()
+    else:
+        assert text.sends_fr is None

@@ -1,0 +1,1785 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Recette de la nuit</title>
+<style>
+:root {
+  --ground: #f3f5f7;
+  --paper: #ffffff;
+  --ink: #17212b;
+  --ink-2: #4a5663;
+  --ink-3: #74808c;
+  --line: #d9dfe5;
+  --line-2: #e8ecf0;
+  --accent: #2c5d8f;
+  --accent-soft: #e3ecf5;
+  --code-bg: #eef1f4;
+  --ok: #1f7a4d;
+  --ok-soft: #e1f2e8;
+  --ko: #b3261e;
+  --ko-soft: #fbe5e3;
+  --na: #6b7580;
+  --na-soft: #eceef0;
+  --bl: #7a4b00;
+  --bl-soft: #f6e7cc;
+  --note: #8a5a00;
+  --note-soft: #fdf1d8;
+  --measure: #6a3d9a;
+  --measure-soft: #efe7f8;
+  --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --cond: "Segoe UI Semibold", "Segoe UI", "Arial Narrow", system-ui, sans-serif;
+  --mono: Consolas, "Cascadia Mono", "Courier New", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #12171d;
+    --paper: #1a2129;
+    --ink: #e4e9ee;
+    --ink-2: #aeb8c2;
+    --ink-3: #85919c;
+    --line: #2f3a45;
+    --line-2: #252e37;
+    --accent: #7fb0e3;
+    --accent-soft: #1f3247;
+    --code-bg: #232c35;
+    --ok: #5cc48f;
+    --ok-soft: #173326;
+    --ko: #f08a80;
+    --ko-soft: #3b1f1d;
+    --na: #9aa5b0;
+    --na-soft: #262e36;
+    --bl: #e9b96a;
+    --bl-soft: #3a2c14;
+    --note: #e6b85c;
+    --note-soft: #3a2f17;
+    --measure: #c7a6ee;
+    --measure-soft: #2c2240;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #12171d;
+  --paper: #1a2129;
+  --ink: #e4e9ee;
+  --ink-2: #aeb8c2;
+  --ink-3: #85919c;
+  --line: #2f3a45;
+  --line-2: #252e37;
+  --accent: #7fb0e3;
+  --accent-soft: #1f3247;
+  --code-bg: #232c35;
+  --ok: #5cc48f;
+  --ok-soft: #173326;
+  --ko: #f08a80;
+  --ko-soft: #3b1f1d;
+  --na: #9aa5b0;
+  --na-soft: #262e36;
+  --bl: #e9b96a;
+  --bl-soft: #3a2c14;
+  --note: #e6b85c;
+  --note-soft: #3a2f17;
+  --measure: #c7a6ee;
+  --measure-soft: #2c2240;
+}
+* { box-sizing: border-box; }
+html { background: var(--ground); }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 15px/1.55 var(--sans);
+  padding-inline: 16px;
+  padding-block: 0 48px;
+}
+.shell { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 32px; }
+@media (max-width: 880px) { .shell { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+
+/* Sidebar */
+aside { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; padding-block: 24px; display: grid; gap: 18px; max-height: 100vh; overflow-y: auto; }
+@media (max-width: 880px) { aside { position: static; padding-block: 16px 0; max-height: none; overflow: visible; } }
+.brand { display: grid; gap: 2px; }
+.brand .kicker { font: 500 11px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.brand h1 { font: 600 24px/1.15 var(--cond); margin: 0; text-wrap: balance; }
+.brand p { margin: 4px 0 0; color: var(--ink-2); font-size: 13px; }
+.progress { display: grid; gap: 8px; }
+.bar { height: 8px; border-radius: 4px; background: var(--line-2); display: flex; overflow: hidden; }
+.bar span { display: block; height: 100%; }
+.bar .b-ok { background: var(--ok); }
+.bar .b-ko { background: var(--ko); }
+.bar .b-na { background: var(--na); }
+.bar .b-bl { background: var(--bl); }
+.tally { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; font-variant-numeric: tabular-nums; }
+.tally div { display: grid; gap: 0; }
+.tally b { font: 600 18px/1.1 var(--cond); }
+.tally small { font-size: 11px; color: var(--ink-3); }
+.t-ok b { color: var(--ok); } .t-ko b { color: var(--ko); } .t-na b { color: var(--na); } .t-bl b { color: var(--bl); }
+.remain { font-size: 13px; color: var(--ink-2); }
+nav.toc { display: grid; gap: 2px; }
+nav.toc a { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 6px; color: var(--ink-2); text-decoration: none; font-size: 13.5px; }
+nav.toc a:hover, nav.toc a:focus-visible { background: var(--accent-soft); color: var(--ink); outline: none; }
+nav.toc a span { font: 12px var(--mono); color: var(--ink-3); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+@media (max-width: 880px) { nav.toc { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } }
+.actions { display: grid; gap: 8px; }
+button { font: inherit; cursor: pointer; }
+.btn { border: 1px solid var(--line); background: var(--paper); color: var(--ink); padding: 8px 12px; border-radius: 8px; font-weight: 500; font-size: 13.5px; text-align: left; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible, .seg button:focus-visible, textarea:focus-visible, .chip:focus-visible, .checks input:focus-visible, .cmd button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.field input:focus-visible, .field select:focus-visible { outline: none; }
+.field .inp:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sync { font: 12px var(--mono); color: var(--ink-3); display: flex; align-items: center; gap: 6px; }
+.sync i { width: 8px; height: 8px; border-radius: 50%; background: var(--na); display: inline-block; }
+.sync.cloud i { background: var(--ok); }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--paper); color: var(--ink-2); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; }
+.chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+
+/* Main */
+main { padding-block: 24px; display: grid; gap: 36px; min-width: 0; }
+.intro { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 10px; }
+.intro h2 { margin: 0; font: 600 18px/1.3 var(--cond); }
+.intro h3 { margin: 6px 0 0; font: 600 15px/1.3 var(--sans); }
+.intro ul { margin: 0; padding-left: 18px; color: var(--ink-2); display: grid; gap: 3px; }
+.intro p { margin: 0; color: var(--ink-2); }
+.intro .scope { background: var(--note-soft); border-radius: 8px; padding: 8px 12px; color: var(--ink); font-size: 14px; }
+.intro .measure-rule { background: var(--measure-soft); border-radius: 8px; padding: 8px 12px; color: var(--ink); font-size: 14px; }
+section.group { display: grid; gap: 14px; scroll-margin-top: 16px; }
+.group-head { display: grid; gap: 4px; border-bottom: 2px solid var(--ink); padding-bottom: 6px; }
+.group-head .row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.group-head h2 { margin: 0; font: 600 21px/1.2 var(--cond); }
+.group-head p { margin: 0; color: var(--ink-3); font-size: 13px; }
+.group-head .gnote { color: var(--ink-2); font-size: 13.5px; }
+.case { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; scroll-margin-top: 16px; min-width: 0; }
+.case[data-status="ok"] { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.case[data-status="ko"] { border-color: color-mix(in srgb, var(--ko) 55%, var(--line)); }
+.case[data-status="bl"] { border-color: color-mix(in srgb, var(--bl) 55%, var(--line)); }
+.case[hidden] { display: none; }
+.case-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 14px 16px 12px; flex-wrap: wrap; border-bottom: 1px solid var(--line-2); }
+.case-title { display: grid; gap: 4px; min-width: 0; flex: 1 1 300px; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font: 12px var(--mono); color: var(--ink-3); }
+.meta .id { color: var(--ink); font-weight: 600; }
+.tag { border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; }
+.tag.story { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.tag.mesure { color: var(--measure); border-color: color-mix(in srgb, var(--measure) 50%, var(--line)); background: var(--measure-soft); font-weight: 600; }
+.tag.opt { color: var(--note); border-color: color-mix(in srgb, var(--note) 45%, var(--line)); }
+.case-title h3 { margin: 0; font: 600 17px/1.3 var(--sans); text-wrap: balance; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: 0 0 auto; }
+.seg button { border: 0; background: var(--paper); color: var(--ink-2); padding: 6px 10px; font-size: 13px; font-weight: 500; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"][data-v="ok"] { background: var(--ok-soft); color: var(--ok); }
+.seg button[aria-pressed="true"][data-v="ko"] { background: var(--ko-soft); color: var(--ko); }
+.seg button[aria-pressed="true"][data-v="na"] { background: var(--na-soft); color: var(--ink); }
+.seg button[aria-pressed="true"][data-v="bl"] { background: var(--bl-soft); color: var(--bl); }
+.case-body { padding: 14px 16px 16px; display: grid; gap: 14px; }
+.cols { display: grid; grid-template-columns: 1.15fr 1fr; gap: 18px; }
+@media (max-width: 720px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+.block { display: grid; gap: 6px; min-width: 0; align-content: start; }
+.block li, .crit, .report-what, .known, .prereq, .intro li, .case-title h3 { overflow-wrap: anywhere; }
+#groups { display: grid; gap: 40px; }
+.label { font: 600 11px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+ol.steps, ul.expect { margin: 0; padding-left: 22px; display: grid; gap: 5px; }
+ol.steps li::marker { font: 600 12px var(--mono); color: var(--ink-3); }
+.prereq { border-left: 3px solid var(--accent); padding: 2px 0 2px 10px; font-size: 14px; color: var(--ink-2); }
+.measure-banner { background: var(--measure-soft); border-radius: 8px; padding: 8px 12px; font-size: 13.5px; color: var(--ink); }
+.measure-banner b { color: var(--measure); }
+.crit { background: var(--accent-soft); border-radius: 8px; padding: 8px 12px; font-size: 14px; }
+.report-what { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; font-size: 14px; color: var(--ink-2); }
+.known { background: var(--note-soft); border-radius: 8px; padding: 8px 12px; font-size: 13.5px; color: var(--ink); }
+.known .label { color: var(--note); }
+.cmd { display: grid; grid-template-columns: minmax(0, 1fr) auto; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; }
+.cmd pre { margin: 0; padding: 8px 10px; background: var(--code-bg); font: 12.5px/1.5 var(--mono); overflow-x: auto; white-space: pre; }
+.cmd button { border: 0; border-left: 1px solid var(--line-2); background: var(--paper); color: var(--accent); font-size: 12px; font-weight: 600; padding: 0 12px; }
+.cmd-label { font-size: 12.5px; color: var(--ink-2); margin-top: 4px; }
+.checks { display: grid; gap: 4px; }
+.checks label { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; }
+.checks input { margin-top: 4px; accent-color: var(--accent); }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 14px; }
+.field { display: grid; gap: 4px; align-content: start; }
+.field label { font-size: 12.5px; color: var(--ink-2); }
+.field .inp { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); }
+.field input, .field select { border: 0; background: transparent; color: var(--ink); font: 14px var(--sans); padding: 6px 8px; width: 100%; min-width: 0; font-variant-numeric: tabular-nums; }
+.field .unit { font: 12px var(--mono); color: var(--ink-3); padding-right: 8px; }
+textarea { width: 100%; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); font: 14px/1.45 var(--sans); padding: 8px 10px; resize: vertical; min-height: 56px; }
+.report-box { display: grid; gap: 8px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.report-box textarea { font: 12.5px/1.5 var(--mono); min-height: 260px; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 8px 14px; border-radius: 8px; font-size: 13.5px; }
+code { font: 0.9em var(--mono); background: var(--code-bg); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside>
+    <div class="brand">
+      <span class="kicker">WaveStack · nuit du 28 au 29/09</span>
+      <h1>Recette sur le PC cible</h1>
+      <p>Stories 22 à 27 et 31 à 34, livrées sur la branche claude/lucid-cori-1rkbjf.</p>
+    </div>
+    <div class="progress" aria-live="polite">
+      <div class="bar" id="bar" aria-hidden="true"></div>
+      <div class="tally">
+        <div class="t-ok"><b id="n-ok">0</b><small>OK</small></div>
+        <div class="t-ko"><b id="n-ko">0</b><small>KO</small></div>
+        <div class="t-na"><b id="n-na">0</b><small>non fait</small></div>
+        <div class="t-bl"><b id="n-bl">0</b><small>bloqué</small></div>
+        <div><b id="n-todo">0</b><small>à faire</small></div>
+      </div>
+      <div class="remain" id="remain"></div>
+    </div>
+    <div class="filters" role="group" aria-label="Filtrer les tests">
+      <button class="chip" type="button" aria-pressed="true" data-f="all">Tout</button>
+      <button class="chip" type="button" aria-pressed="false" data-f="todo">À faire</button>
+      <button class="chip" type="button" aria-pressed="false" data-f="ko">KO</button>
+      <button class="chip" type="button" aria-pressed="false" data-f="bl">Bloqué</button>
+      <button class="chip" type="button" aria-pressed="false" data-f="mesure">Mesures</button>
+    </div>
+    <nav class="toc" id="toc" aria-label="Sections"></nav>
+    <div class="actions">
+      <button class="btn primary" id="copy-report" type="button">Copier le compte rendu</button>
+      <button class="btn" id="show-report" type="button">Afficher le compte rendu</button>
+      <div class="sync" id="sync"><i></i><span>Enregistré dans ce navigateur</span></div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div class="intro">
+      <h2>Avant de commencer</h2>
+      <ul>
+        <li>Chaque test : prérequis, geste numéroté, ce que vous devez voir, critère, ce qu'il faut rapporter. Donnez-lui un statut (OK, KO, non fait, bloqué) et notez ce que vous voyez. Tout s'enregistre seul ; à la fin, « Copier le compte rendu » et collez-le dans la conversation.</li>
+        <li>Faites d'abord la section « Préparation ». Les groupes suivent l'ordre des stories livrées : 22, 33, 23, 34, 32, 24, 25, 26, 27, puis 31. Les libellés entre guillemets sont ceux de l'interface, relevés dans le code du commit.</li>
+        <li>« Journal » renvoie à la commande du test P4 : elle copie tous les événements de la session dans un fichier et les lit depuis PowerShell. Elle remplace le « script AppSession » des specs pour la plupart des vérifications.</li>
+        <li>Adresse de WaveStack : <code>http://127.0.0.1:8420/</code> ; diagnostic : <code>/diagnostic</code> ; tableau des modèles : <code>/models</code>.</li>
+      </ul>
+      <div class="measure-rule"><b>Tests étiquetés « Mesure » (temps, mémoire, CPU)</b> : fermez Edge, Outlook et Teams avant la mesure (Edge aussi depuis sa zone de notification, clic droit, « Fermer Microsoft Edge »). Ouvrez ce cahier et WaveStack dans Chrome pendant ces mesures. Personne n'utilise le PC pendant le chronométrage.</div>
+      <div class="scope"><b>Hors de ce cahier</b> : la story 28 (guide de test et cahier corrigés), la story 29 (écran « LLM nu ») et la story 30 (atelier RAG) sont encore en cours. La story 31 (mode sombre) est terminée : son groupe suit le code livré.</div>
+    </div>
+    <div id="groups"></div>
+    <section class="group" id="report" hidden>
+      <div class="group-head"><div class="row"><h2>Compte rendu</h2><p>À coller dans la conversation</p></div></div>
+      <div class="report-box">
+        <textarea id="report-text" readonly aria-label="Compte rendu"></textarea>
+        <div><button class="btn" id="copy-report-2" type="button">Copier</button></div>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<!-- PowerShell commands, kept raw (no JS escaping): each test cites them by id. -->
+<script type="text/plain" id="cmd-git">git status
+git branch --show-current
+git fetch origin claude/lucid-cori-1rkbjf
+git checkout --detach 175eb5afcd6d410870e27d30948757e528c4be62
+git log -1 --oneline</script>
+<script type="text/plain" id="cmd-backup">$d = "$env:LOCALAPPDATA\WaveStack"; $b = "$d\sauvegarde-nuit"
+New-Item -ItemType Directory -Force $b | Out-Null
+Copy-Item "$d\settings.json", "$d\api_keys.json", "$d\memory.json", "$d\audit.log" $b -ErrorAction SilentlyContinue
+Get-ChildItem $b | Select-Object Name, Length, LastWriteTime
+Get-FileHash "$d\settings.json" | Select-Object Hash
+(Select-String -Path "$d\settings.json" -Pattern "Ã|Â" -Encoding UTF8).Count</script>
+<script type="text/plain" id="cmd-launch">$env:UV_SYSTEM_CERTS = "1"
+uv sync --extra compression
+uv run wavestack</script>
+<script type="text/plain" id="cmd-journal">curl.exe -s -N --noproxy "*" --max-time 5 http://127.0.0.1:8420/api/stream -o "$env:TEMP\ws-journal.txt"
+$ev = Get-Content "$env:TEMP\ws-journal.txt" -Encoding UTF8 | Where-Object { $_ -like 'data: {"seq"*' } | ForEach-Object { $_.Substring(6) | ConvertFrom-Json }
+"{0} événements lus" -f $ev.Count</script>
+<script type="text/plain" id="cmd-calls">$ev | Where-Object kind -eq model_call_ended | Select-Object turn_id, call_id,
+  @{n = "prompt_ms"; e = { $_.payload.prompt_ms } }, @{n = "lus"; e = { $_.payload.prompt_tokens } },
+  @{n = "evalues"; e = { $_.payload.evaluated_tokens } }, @{n = "produits"; e = { $_.payload.output_tokens } } | Format-Table</script>
+<script type="text/plain" id="cmd-peak">Get-Process python*, wavestack*, llama-server*, ollama* -ErrorAction SilentlyContinue |
+  Select-Object Name, Id, @{n = "Mo"; e = { [math]::Round($_.WorkingSet64 / 1MB) } },
+    @{n = "Pic Mo"; e = { [math]::Round($_.PeakWorkingSet64 / 1MB) } }</script>
+<script type="text/plain" id="cmd-llama-install">[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12   # PowerShell 5.1
+$rels = Invoke-RestMethod -UseBasicParsing "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
+$rel = $rels | Where-Object { $_.assets.name -match '^llama-b\d+-bin-win-cpu-x64\.zip$' } | Select-Object -First 1
+$asset = $rel.assets | Where-Object name -match '^llama-b\d+-bin-win-cpu-x64\.zip$'
+$zip = "$env:TEMP\$($asset.name)"; $dest = "$env:LOCALAPPDATA\llama.cpp\$($rel.tag_name)"
+Invoke-WebRequest -UseBasicParsing $asset.browser_download_url -OutFile $zip
+Expand-Archive $zip -DestinationPath $dest -Force; Get-ChildItem $dest -Recurse | Unblock-File
+$llama = "$dest\llama-server.exe"; $asset.name; & $llama --version; $LASTEXITCODE</script>
+<script type="text/plain" id="cmd-llama-fallback">$tag = "b11239"
+$zip = "$env:TEMP\llama-$tag-bin-win-cpu-x64.zip"; $dest = "$env:LOCALAPPDATA\llama.cpp\$tag"
+Invoke-WebRequest -UseBasicParsing "https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-$tag-bin-win-cpu-x64.zip" -OutFile $zip
+Expand-Archive $zip -DestinationPath $dest -Force; Get-ChildItem $dest -Recurse | Unblock-File
+$llama = "$dest\llama-server.exe"; & $llama --version; $LASTEXITCODE
+# Erreur 407 : ajoutez -ProxyUseDefaultCredentials aux appels Invoke-RestMethod et Invoke-WebRequest.</script>
+<script type="text/plain" id="cmd-llama-find">$llama = Get-ChildItem "$env:LOCALAPPDATA\llama.cpp" -Recurse -Filter llama-server.exe | Sort-Object LastWriteTime | Select-Object -Last 1 -ExpandProperty FullName
+$llama</script>
+<script type="text/plain" id="cmd-llama-run">& $llama -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --port 8080 -np 1 -c 4096</script>
+<script type="text/plain" id="cmd-budget-fixed">uv run python -c "from wavestack import config; config.save_setting('memory', {'budget_mode': 'fixed', 'budget_mb': 6144}); print(config.read_settings()['memory'])"</script>
+<script type="text/plain" id="cmd-budget-default">uv run python -c "import json; from wavestack import config; s = config.read_settings(); s.pop('memory', None); config.settings_path().write_text(json.dumps(s, ensure_ascii=False, indent=2), encoding='utf-8'); print('memory' in config.read_settings())"</script>
+<script type="text/plain" id="cmd-restore">$d = "$env:LOCALAPPDATA\WaveStack"; $b = "$d\sauvegarde-nuit"
+Copy-Item "$b\*" $d -Force
+Remove-Item "$d\models\Qwen3.5-2B-copie-test.gguf" -ErrorAction SilentlyContinue
+git switch <branche notée en P1>
+uv sync --extra compression
+git status</script>
+<script type="text/plain" id="cmd-turns">$ev | Where-Object kind -eq turn_started | Select-Object seq, turn_id, @{n = "message"; e = { $_.payload.message } } | Format-Table</script>
+<script type="text/plain" id="cmd-memory8">uv run python -c "from wavestack import config, memory as m; m.write_memory(config.memory_path(), [m.MemoryEntry(id=f'test{i}', text=f'Entree de test {i} : une ligne assez longue pour remplir le tiroir de la memoire globale et verifier que son pied reste visible.', created_at='2026-09-29T08:00:00+00:00', source='user') for i in range(1, 9)]); print(len(m.read_memory(config.memory_path())), 'entrees')"</script>
+<script type="text/plain" id="cmd-model-headers">$ev | Where-Object { $_.kind -eq "outbound_request" -and $_.payload.origin -eq "model" } | Select-Object -Last 1 |
+  ForEach-Object { $_.payload.headers } | Format-Table name, value, masked</script>
+<script type="text/plain" id="cmd-key-search">$k = Read-Host "8 caractères pris au milieu de la clé (pas le début gsk_)"
+(Select-String -Path "$env:TEMP\ws-journal.txt", "$env:LOCALAPPDATA\WaveStack\audit.log" -SimpleMatch $k -Encoding UTF8 -ErrorAction SilentlyContinue).Count</script>
+<script type="text/plain" id="cmd-brick-headers">$ev | Where-Object { $_.kind -eq "outbound_request" -and $_.payload.origin -eq "brick" } | ForEach-Object {
+  $u = $_.payload.url; $_.payload.headers | Select-Object @{n = "url"; e = { $u } }, name, value, masked } | Format-Table -AutoSize</script>
+<script type="text/plain" id="cmd-turn-outbound">$t = ($ev | Where-Object kind -eq turn_started | Select-Object -Last 1).turn_id
+$ev | Where-Object { $_.kind -eq "outbound_request" -and $_.turn_id -eq $t } |
+  Select-Object turn_id, @{n = "origine"; e = { $_.payload.origin } }, @{n = "url"; e = { $_.payload.url } } | Format-Table -AutoSize</script>
+<script type="text/plain" id="cmd-sections">$r = $ev | Where-Object { $_.kind -eq "context_rendered" -and -not ("$($_.context_id)" -like "sub*") } | Select-Object -Last 1
+$sum = ($r.payload.sections | Measure-Object -Property tokens -Sum).Sum
+$lus = ($ev | Where-Object { $_.kind -eq "model_call_ended" -and $_.call_id -eq $r.call_id }).payload.prompt_tokens
+"Somme des sections : {0} · lus (model_call_ended) : {1} · appel {2}" -f $sum, $lus, $r.call_id</script>
+<script type="text/plain" id="cmd-ram">uv run python -c "import psutil; v = psutil.virtual_memory(); print('total', v.total // 2**20, 'Mo ; disponible', v.available // 2**20, 'Mo ; 60 % :', int(0.6 * v.available / 2**20), 'Mo')"</script>
+<script type="text/plain" id="cmd-copy-model">$m = "$env:LOCALAPPDATA\WaveStack\models"
+Copy-Item "$m\Qwen3.5-2B-Q4_K_M.gguf" "$m\Qwen3.5-2B-copie-test.gguf"</script>
+<script type="text/plain" id="cmd-touch-copy">(Get-Item "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-copie-test.gguf").LastWriteTime = Get-Date</script>
+<script type="text/plain" id="cmd-probe-watch">1..40 | ForEach-Object {
+  $p = Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object CommandLine -match "wavestack.models.probe"
+  "{0:HH:mm:ss.f}  sonde en cours : {1}" -f (Get-Date), [bool]$p
+  Start-Sleep -Milliseconds 500 }</script>
+<script type="text/plain" id="cmd-failed-probes">uv run python -c "from wavestack import config; f = config.read_settings().get('failed_probes', {}); print(len(f), 'entree(s)'); [print(k, '->', v.get('reason')) for k, v in f.items()]"</script>
+<script type="text/plain" id="cmd-ollama">ollama ps
+[Environment]::GetEnvironmentVariable("OLLAMA_NUM_PARALLEL", "User"); $env:OLLAMA_NUM_PARALLEL
+[Environment]::GetEnvironmentVariable("OLLAMA_KV_CACHE_TYPE", "User"); $env:OLLAMA_KV_CACHE_TYPE</script>
+<script type="text/plain" id="cmd-mojibake">(Select-String -Path "$env:LOCALAPPDATA\WaveStack\settings.json" -Pattern "Ã|Â" -Encoding UTF8).Count
+Get-FileHash "$env:LOCALAPPDATA\WaveStack\settings.json" | Select-Object Hash</script>
+<script type="text/plain" id="cmd-diag-time">Measure-Command { Invoke-RestMethod -UseBasicParsing http://127.0.0.1:8420/api/diagnostic | Out-Null } | Select-Object TotalMilliseconds
+Measure-Command { Invoke-RestMethod -UseBasicParsing http://127.0.0.1:8420/api/diagnostic | Out-Null } | Select-Object TotalMilliseconds</script>
+<script type="text/plain" id="cmd-kv">uv run python -c "from wavestack import config; e = config.read_settings().get('probed_models', {}); [print(k.split(chr(92))[-1], '->', *[str(w) + ' : ' + str(round(v['kv_bytes_per_token'] * w / 2**20)) + ' Mio ;' for w in (4096, 8192, 16384)]) for k, v in e.items() if v.get('kv_bytes_per_token')]"</script>
+<script type="text/plain" id="cmd-rate">$c = $ev | Where-Object { $_.kind -eq "model_call_ended" -and $_.payload.evaluated_tokens -ge 64 } | Select-Object -Last 1
+$tps = $c.payload.evaluated_tokens / ($c.payload.prompt_ms / 1000)
+"Débit de lecture : {0:N0} tokens/s (appel {1})" -f $tps, $c.call_id
+foreach ($w in 4096, 8192, 16384) { "{0} tokens : {1:N0} s" -f $w, ($w / $tps) }</script>
+<script type="text/plain" id="cmd-window-setting">uv run python -c "from wavestack import config; print(config.read_settings().get('context'))"</script>
+<script type="text/plain" id="cmd-subagent">$ev | Where-Object kind -eq subagent_started | Select-Object turn_id, context_id | Format-Table
+$ev | Where-Object kind -eq prefix_not_reused | Select-Object turn_id, call_id, @{n = "cause"; e = { $_.payload.cause } } | Format-Table</script>
+<script type="text/plain" id="cmd-tools">$ev | Where-Object { $_.kind -in "tool_started", "tool_ended", "hook_decided" } | Select-Object turn_id, kind, trigger,
+  @{n = "detail"; e = { if ($_.payload.tool) { $_.payload.tool } elseif ($_.payload.hook) { "$($_.payload.hook) $($_.payload.decision)" } else { "$($_.payload.status) $($_.payload.truncated.tokens)" } } } | Format-Table -AutoSize</script>
+<script type="text/plain" id="cmd-fits">$env:WAVESTACK_TEST_GGUF = "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf"
+uv run pytest -s -rA tests/test_program.py -k fits
+Remove-Item Env:WAVESTACK_TEST_GGUF</script>
+
+<script>
+const GROUPS = [
+  { id: "prep", title: "Préparation", sub: "Une fois, avant tout test", note: "P1 à P4 sont obligatoires. P5 sert aux tests llama-server (N25-6, N26-6, N26-7), P6 aux tests qui demandent le 4B. P7 se fait en fin de séance." },
+  { id: "s22", title: "Story 22 · Briques, volets et tiroirs", sub: "Retours de la recette du 28/09 : C1, M1, M3, M6, X1" },
+  { id: "s33", title: "Story 33 · Contrastes et code couleur", sub: "Barre haute foncée, disciplines, deux groupes de briques" },
+  { id: "s23", title: "Story 23 · Données sortantes, en-têtes compris", sub: "Retests C3 et M2" },
+  { id: "s34", title: "Story 34 · Vue liée et lecture guidée", sub: "Survol, sélection, volets numérotés, frise, bilan, Mode projection" },
+  { id: "s32", title: "Story 32 · Contexte LLM lisible", sub: "Appels du tour, texte groupé, lu et produit distincts" },
+  { id: "s24", title: "Story 24 · Mémoire comptée juste, budget dynamique, sonde interruptible", sub: "Retests C4, C5, C6", note: "Budget par défaut pour tout ce groupe : si vous avez fait P6, retirez le budget fixe d'abord (commande « Budget par défaut » de P6)." },
+  { id: "s25", title: "Story 25 · Sélecteur regroupé et tableau des capacités", sub: "« Changer de modèle… » et page /models" },
+  { id: "s26", title: "Story 26 · Fenêtre de contexte réglable", sub: "4 096, 8 192 ou 16 384 tokens", note: "À la fin du groupe, revenez à 4 096 (N26-7, dernier geste) : les scénarios du groupe 27 sont conçus pour 4 096." },
+  { id: "s27", title: "Story 27 · Scénarios et consignes du palier 2 (lot H)", sub: "Comportement réel du 2B sur les scénarios revus", note: "Qwen3.5-2B, fenêtre 4 096. Chaque test lance son scénario depuis le sélecteur de la barre haute ; un prompt suggéré se clique (il remplit le champ), puis « Envoyer »." },
+  { id: "s31", title: "Story 31 · Mode sombre", sub: "Sélecteur Système, Clair, Sombre sur l'atelier, le diagnostic et /models", note: "Sélecteur « Thème de l'interface » de la barre haute, avant « ⟲ Réinitialiser » : « ◐ Système », « ☀ Clair », « ☾ Sombre » ; sous 1400 px de large, forme compacte « ◐▾ », « ☀▾ » ou « ☾▾ ». Choix mémorisé par le navigateur (clé wavestack.theme), suivi par les autres onglets et par une page rouverte avec « Précédent »." },
+];
+
+const TESTS = [
+  // ---------------------------------------------------------------- Préparation
+  { id: "P1", g: "prep", title: "Récupérer la branche de la nuit", min: 3,
+    pre: "Clone WaveStack habituel, PowerShell ouvert à sa racine, WaveStack arrêté (Ctrl+C dans son terminal).",
+    steps: [
+      "Lancez « git status » (première ligne du bloc) : aucun fichier modifié ne doit apparaître. Sinon, notez-les et mettez-les de côté par « git stash ».",
+      "Notez la branche actuelle, affichée par « git branch --show-current » : vous y reviendrez en P7.",
+      "Le commit à tester est 175eb5a (fin de la story 31). Lancez les deux commandes suivantes.",
+      "« git log -1 --oneline » affiche le commit attendu.",
+    ],
+    cmds: [{ label: "Branche de la nuit", ref: "git" }],
+    expect: ["« HEAD is now at … » avec le commit de la PR.", "git log -1 affiche ce commit."],
+    crit: "Le commit affiché est celui de la PR.",
+    report: "Le commit affiché et la branche d'origine.",
+    fields: [{ k: "commit", label: "Commit affiché", type: "text" }, { k: "branche", label: "Branche d'origine", type: "text" }] },
+
+  { id: "P2", g: "prep", title: "Sauvegarder vos réglages et vos données", min: 2,
+    pre: "WaveStack arrêté. À faire avant le premier lancement de la nouvelle version (N24-8 s'appuie sur ce relevé).",
+    steps: [
+      "Copiez puis lancez le bloc « Sauvegarde » : il copie settings.json, api_keys.json, memory.json et audit.log dans %LOCALAPPDATA%\\WaveStack\\sauvegarde-nuit.",
+      "Relevez l'empreinte (Hash) de settings.json et le nombre de « Ã » ou « Â » trouvés (dernière ligne) : une raison de sonde abîmée du 28/09 (C6) en contient.",
+    ],
+    cmds: [{ label: "Sauvegarde", ref: "backup" }],
+    expect: ["Les 3 ou 4 fichiers listés dans sauvegarde-nuit.", "Un nombre (0 si aucune raison abîmée n'est enregistrée)."],
+    crit: "La sauvegarde existe avant tout lancement.",
+    report: "Le nombre de « Ã/Â » dans settings.json (utile à N24-8).",
+    fields: [{ k: "mojibake", label: "« Ã/Â » dans settings.json", type: "num" }, { k: "hash", label: "4 premiers caractères du Hash", type: "text" }] },
+
+  { id: "P3", g: "prep", title: "Installer les dépendances et lancer WaveStack", min: 6,
+    pre: "P1 fait. Ollama lancé si vous comptez faire les tests Ollama (N24-6, N25, N26-5, N34-3).",
+    steps: [
+      "Derrière le proxy, gardez UV_SYSTEM_CERTS=1 (première ligne).",
+      "Lancez « uv sync --extra compression » (garde Headroom, la brique Compression).",
+      "Lancez « uv run wavestack » : le navigateur par défaut s'ouvre sur le diagnostic ou sur la page principale. Ouvrez http://127.0.0.1:8420/ dans Chrome si besoin.",
+      "Lisez la barre haute, de gauche à droite.",
+    ],
+    cmds: [{ label: "Lancement habituel", ref: "launch" }],
+    expect: [
+      "Barre haute foncée : « WaveStack », sélecteur « Choisir un scénario », jauge et sa légende, bouton « Fenêtre 4 096 ▾ », « Volets ▾ », indicateur du modèle, « Changer de modèle… », « Mode projection », sélecteur de thème « ◐ Système » (sous 1400 px de large : « ◐▾ »), « ⟲ Réinitialiser ».",
+      "Qwen3.5-2B-Q4_K_M actif (indicateur du modèle).",
+    ],
+    crit: "La page s'ouvre, le 2B est actif, les boutons ci-dessus sont là.",
+    report: "Le modèle actif et tout bouton absent.",
+    fields: [{ k: "modele", label: "Modèle actif", type: "text" }, { k: "theme", label: "Sélecteur de thème présent ?", type: "yn" }] },
+
+  { id: "P4", g: "prep", title: "Repères : fichiers, mémoire des processus, journal", min: 3,
+    pre: "WaveStack lancé. Un second terminal PowerShell ouvert à la racine du clone : gardez-le pour toute la séance.",
+    steps: [
+      "Dossier de données (Explorateur, %LOCALAPPDATA%\\WaveStack) : settings.json (réglages, modèle choisi, sondes, fenêtre), api_keys.json (clés cloud saisies au diagnostic), memory.json (mémoire globale), audit.log (journal d'audit du hook H2), models\\ (fichiers GGUF). Le thème et le Mode projection sont gardés par le navigateur, pas dans ces fichiers.",
+      "Dans le second terminal, lancez « Journal » : il copie en 5 s tous les événements de la session dans %TEMP%\\ws-journal.txt et les charge dans $ev. Relancez-le après chaque tour à examiner.",
+      "Lancez « Appels au modèle » : un tableau des appels (vide avant le premier tour).",
+      "Lancez « Mémoire des processus » : RSS et pic de chaque processus WaveStack, Ollama, llama-server.",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Appels au modèle (après Journal)", ref: "calls" }, { label: "Mémoire des processus", ref: "peak" }],
+    expect: ["« N événements lus » avec N > 0.", "Un processus python (WaveStack) dans la mémoire des processus."],
+    crit: "Les trois commandes répondent sans erreur.",
+    report: "Toute erreur de ces commandes (curl.exe absent, ConvertFrom-Json…).",
+    fields: [{ k: "events", label: "Événements lus", type: "num" }] },
+
+  { id: "P5", g: "prep", title: "Installer llama-server sans droits d'administrateur", min: 10, opt: true,
+    pre: "Pour N25-6, N26-6 et N26-7 seulement. Un nouveau terminal PowerShell (le troisième). Rien à installer en administrateur : tout va dans %LOCALAPPDATA%\\llama.cpp\\<version>.",
+    steps: [
+      "Collez le bloc « Installation » ligne par ligne. Il lit les dix dernières releases sur l'API GitHub, prend la première qui porte l'archive llama-bNNNNN-bin-win-cpu-x64.zip (« releases/latest » peut désigner une release sans archive, comme v0.5.0 le 29/09), la télécharge, la décompresse dans le profil, débloque les fichiers et affiche la version.",
+      "Si Invoke-RestMethod échoue : notez le code (403 ou 407), réessayez avec -ProxyUseDefaultCredentials, puis utilisez le bloc « Repli » (version fixe b11239).",
+      "Ne copiez jamais llama-server.exe seul, et ne le décompressez pas dans Program Files : il doit rester avec ses DLL.",
+      "Dans un nouveau terminal, retrouvez l'exécutable avec « Retrouver llama-server ». Le lancement (« Lancer llama-server ») se fait dans les tests qui en ont besoin.",
+    ],
+    cmds: [{ label: "Installation", ref: "llama-install" }, { label: "Repli si l'API ou le proxy bloque", ref: "llama-fallback" }, { label: "Retrouver llama-server (nouveau terminal)", ref: "llama-find" }, { label: "Lancer llama-server (toujours avec -c)", ref: "llama-run" }],
+    expect: ["$asset.name vaut llama-bNNNNN-bin-win-cpu-x64.zip.", "La version s'affiche ; $LASTEXITCODE vaut 0.", "Aucune demande d'élévation, pas de blocage AppLocker ou SmartScreen, pas de « VCRUNTIME140.dll introuvable »."],
+    crit: "La version s'affiche sans élévation. Sinon, relevez le message exact : N25-6, N26-6 et N26-7 passent en « bloqué (poste) ».",
+    known: "Ne lancez jamais llama-server sans -c : il réserve alors tout le contexte natif (262 144 tokens pour Qwen3.5, ≈ 5 Go). Toutes les commandes de ce cahier passent -c.",
+    report: "La version (bNNNNN) et le chemin qui a marché (API, API avec identifiants, repli).",
+    fields: [{ k: "version", label: "Version (bNNNNN)", type: "text" }, { k: "chemin", label: "Chemin qui a marché", type: "text" }] },
+
+  { id: "P6", g: "prep", title: "Autoriser le 4B (facultatif) : budget fixe 6 144 Mo", min: 3, opt: true,
+    pre: "Le budget par défaut (plafond 4 096 Mo) refuse Qwen3.5-4B (≈ 4,4 Go). Plusieurs specs citent le 4B ; le 2B convient partout ailleurs (même format d'appel d'outils). WaveStack arrêté avant chaque commande.",
+    steps: [
+      "WaveStack arrêté (Ctrl+C), lancez « Budget fixe » : il écrit {'budget_mode': 'fixed', 'budget_mb': 6144} sous « memory » dans settings.json.",
+      "Relancez « uv run wavestack » : le diagnostic dit « valeur fixe ».",
+      "Avant le groupe 24, et en fin de séance : WaveStack arrêté, lancez « Budget par défaut » (il doit afficher False), puis relancez.",
+    ],
+    cmds: [{ label: "Budget fixe", ref: "budget-fixed" }, { label: "Budget par défaut", ref: "budget-default" }],
+    expect: ["« {'budget_mode': 'fixed', 'budget_mb': 6144} » puis, au retour, « False »."],
+    crit: "Le 4B se charge après « Budget fixe ».",
+    report: "Si vous avez utilisé le 4B, et pour quels tests.",
+    fields: [{ k: "utilise", label: "4B utilisé ?", type: "yn" }] },
+
+  { id: "P7", g: "prep", title: "Fin de séance : revenir à l'état initial", min: 5,
+    pre: "À faire en dernier. WaveStack et llama-server arrêtés (Ctrl+C dans leurs terminaux).",
+    steps: [
+      "Dans WaveStack, avant de l'arrêter : thème « ◐ Système », « Mode projection » relâché, zoom du navigateur à 100 % (Ctrl+0).",
+      "Arrêtez WaveStack puis llama-server.",
+      "Remplacez <branche notée en P1>, puis lancez « Retour » : il remet settings.json, api_keys.json, memory.json et audit.log de la sauvegarde, supprime la copie de modèle de N24-5, revient à votre branche et resynchronise les dépendances.",
+      "Windows : mode de couleur, effets d'animation, thème de contraste et Narrateur comme avant la séance.",
+      "Facultatif : le dossier %LOCALAPPDATA%\\llama.cpp peut rester (aucun effet sur WaveStack) ou être supprimé.",
+    ],
+    cmds: [{ label: "Retour", ref: "restore" }],
+    expect: ["git status propre, sur votre branche.", "Au lancement suivant, le modèle et la fenêtre d'avant la séance."],
+    crit: "Relancé, WaveStack retrouve l'état d'avant la séance.",
+    report: "Tout écart après le retour.",
+    fields: [] },
+
+  // ---------------------------------------------------------------- Story 22
+  { id: "N22-1", g: "s22", title: "Raisonnement en tête, sous-options grisées brique éteinte", min: 8,
+    pre: "WaveStack lancé, Qwen3.5-2B actif. Edge puis Chrome.",
+    steps: [
+      "Dans Edge, ouvrez http://127.0.0.1:8420/ et cliquez « ⟲ Réinitialiser » (barre haute) : retour au LLM nu.",
+      "Panneau des briques : lisez le nom de la première carte, sous « Ce que le modèle lit ».",
+      "Sélecteur de scénario (barre haute) → module 3 → « RAG avec reranking ». La carte RAG s'allume, « Reranking » coché dans ses options.",
+      "Éteignez la brique RAG par l'interrupteur à gauche de son nom.",
+      "Posez le pointeur sur la ligne « Reranking » de la carte RAG, sans cliquer, et comptez jusqu'à deux.",
+      "Cliquez « ⟲ Réinitialiser » (MCP est alors éteint). Dépliez les options de la carte MCP, puis posez le pointeur sur la ligne « Lazy loading ».",
+      "Refaites les gestes 1 à 6 dans Chrome.",
+    ],
+    expect: [
+      "Première carte : « Raisonnement ».",
+      "« Reranking » reste coché mais gris, sans réaction au clic ; infobulle « Activez la brique RAG pour régler cette option. »",
+      "Résumé des options MCP terminé par « · brique éteinte » ; « Lazy loading » gris, infobulle « Activez la brique MCP pour régler cette option. »",
+      "RAG rallumé : « Reranking » redevient actif, toujours coché.",
+    ],
+    crit: "Infobulle visible en moins de 2 s de survol, dans Edge et dans Chrome.",
+    report: "Pour chaque navigateur : infobulle vue ou non ; capture si un interrupteur reste violet brique éteinte.",
+    fields: [{ k: "edge", label: "Edge conforme ?", type: "yn" }, { k: "chrome", label: "Chrome conforme ?", type: "yn" }] },
+
+  { id: "N22-2", g: "s22", title: "Consigne longue repliée à trois lignes (Métier SOC)", min: 6,
+    pre: "Chrome. Le contrôle « Aa » de la spec n'existe pas : le zoom du navigateur (Ctrl et +) le remplace.",
+    steps: [
+      "Sélecteur de scénario → « Transverses et métier » → « Métier SOC : journal d'audit et garde-fou ».",
+      "Vue humain : la consigne tient sur trois lignes, suivie de « Afficher plus ».",
+      "Tapez « Bonjour » dans le champ puis « Envoyer » ; attendez la réponse. Recommencez une fois (deux tours).",
+      "Zoom à 125 % (Ctrl et + jusqu'à 125 %), regardez la Vue humain, puis 150 %.",
+      "À 150 %, cliquez « Afficher plus » puis « Réduire ».",
+      "Ctrl+0 pour revenir à 100 %.",
+    ],
+    expect: ["Consigne sur 3 lignes avec « Afficher plus » ; dépliée, « Réduire ».", "Les bulles restent lisibles sous la consigne repliée."],
+    crit: "À 125 % et à 150 %, au moins 2 bulles visibles au-dessus du champ, sans faire défiler la page.",
+    report: "Nombre de bulles visibles à 125 % et à 150 % ; capture à 150 %.",
+    fields: [{ k: "z125", label: "Bulles visibles à 125 %", type: "num" }, { k: "z150", label: "Bulles visibles à 150 %", type: "num" }] },
+
+  { id: "N22-3", g: "s22", title: "Tiroir de la mémoire : croix et pied visibles avec 8 entrées", min: 8,
+    pre: "P2 fait (memory.json sauvegardé). Écrire 8 entrées par « Écrire en mémoire » demande 8 tours : la commande ci-dessous les écrit directement.",
+    steps: [
+      "Arrêtez WaveStack (Ctrl+C), lancez « 8 entrées de test » (réponse : « 8 entrees »), puis relancez « uv run wavestack ».",
+      "Ne lancez pas le scénario « Mémoire globale » : il restaure la mémoire de démonstration. Allumez la brique « Mémoire globale » par son interrupteur dans le Panneau des briques.",
+      "Sur sa carte, cliquez « Modifier la mémoire ». Sans rien faire défiler, regardez le haut et le bas du tiroir.",
+      "Zoom à 150 % (Ctrl et +) : même lecture. Puis Ctrl+0.",
+      "Cliquez la croix « × » en haut à droite : le tiroir se ferme. Rouvrez-le.",
+      "Cliquez « Tout effacer » : « Oui, tout effacer » et « Annuler » apparaissent ; cliquez « Annuler ».",
+      "Fermez par « Fermer », puis cliquez « ⟲ Réinitialiser » : la mémoire de démonstration revient.",
+    ],
+    expect: ["Croix en haut à droite.", "Pied fixe : « Tout effacer » bordé de rouge, « Fermer » à côté ; la liste seule défile.", "« Enregistrer » et « Supprimer » d'une entrée : actions compactes, sans relief, distinctes de « Tout effacer »."],
+    crit: "« Tout effacer » et « Fermer » visibles sans défiler à 100 % et à 150 % ; la distinction vous paraît évidente.",
+    report: "Visibilité aux deux zooms ; votre avis sur la distinction ; capture à 150 %.",
+    fields: [{ k: "z100", label: "Pied visible à 100 % ?", type: "yn" }, { k: "z150", label: "Pied visible à 150 % ?", type: "yn" }, { k: "distinct", label: "Distinction évidente ?", type: "yn" }] },
+
+  { id: "N22-4", g: "s22", title: "Prompt système : « Enregistrer » grisé puis confirmation lue", min: 5,
+    pre: "Chrome ou Edge. Narrateur : Ctrl + touche Windows + Entrée pour l'activer et l'arrêter.",
+    steps: [
+      "Sélecteur de scénario → module 1 → « Prompt système ».",
+      "Carte « Prompt système » → « Modifier le prompt ». Sans rien changer, regardez « Enregistrer ».",
+      "Activez le Narrateur.",
+      "Ajoutez à la fin du texte : « Réponds comme un pirate. », puis cliquez « Enregistrer » et écoutez.",
+      "Cliquez « Rétablir le prompt par défaut » et écoutez.",
+      "Arrêtez le Narrateur, puis « Fermer ».",
+    ],
+    expect: ["Texte inchangé : « Enregistrer » grisé.", "Après l'enregistrement : « Prompt système enregistré. » sous le texte, bouton de nouveau grisé, curseur resté dans le texte.", "Après « Rétablir » : « Prompt par défaut rétabli. »"],
+    crit: "Le Narrateur lit « Prompt système enregistré. »",
+    report: "Ce que le Narrateur a lu.",
+    fields: [{ k: "lu", label: "Confirmation lue ?", type: "yn" }] },
+
+  { id: "N22-5", g: "s22", title: "« Annuler » d'une action forcée, puis onglets du sous-agent", min: 12,
+    pre: "Qwen3.5-2B (ou 4B si P6). La spec cite le 4B pour son appel d'outils ; le 2B utilise le même format.",
+    steps: [
+      "Sélecteur de scénario → module 6 → « Sous-agent ».",
+      "En haut du Panneau des briques, activez l'interrupteur « Afficher les actions forcées ».",
+      "Carte « Sous-agent » : cliquez « Déléguer au sous-agent » ; le formulaire s'ouvre. Cliquez « Annuler ».",
+      "Rouvrez-le, puis recliquez « Déléguer au sous-agent » : il doit se fermer aussi.",
+      "Rouvrez-le, choisissez le préréglage « Résumer le guide du harnais », cliquez « Armer ».",
+      "Cliquez le premier prompt suggéré (il remplit le champ), puis « Envoyer ». Attendez la fin du tour.",
+      "Volet Contexte LLM : regardez les onglets, cliquez « Sous-agent sub1 », puis envoyez « Merci » et regardez de nouveau.",
+      "Désactivez « Afficher les actions forcées ».",
+    ],
+    expect: ["Formulaire fermé au clic sur « Annuler » et au re-clic.", "Après le tour : onglets « Agent principal » (sélectionné) et « Sous-agent sub1 » ; ce dernier montre le contexte du sous-agent.", "Au tour suivant, « Agent principal » est de nouveau sélectionné."],
+    crit: "Fermeture en moins de 0,5 s ; onglet principal sélectionné par défaut.",
+    report: "Durée du tour de délégation ; capture des onglets.",
+    fields: [{ k: "annuler", label: "Fermeture immédiate ?", type: "yn" }, { k: "onglets", label: "Onglets conformes ?", type: "yn" }, { k: "duree", label: "Durée du tour", unit: "s", type: "num" }] },
+
+  { id: "N22-6", g: "s22", title: "« Tour 1 » après Réinitialiser et après Vider la conversation", min: 7,
+    pre: "Chrome. Le terminal du Journal (P4).",
+    steps: [
+      "Cliquez « ⟲ Réinitialiser ».",
+      "Envoyez trois messages courts : « Bonjour », « Merci », « Au revoir ».",
+      "Cliquez « ⟲ Réinitialiser », puis envoyez « Bonjour ».",
+      "Orchestration : lisez le titre du groupe de ce tour et survolez-le ; son infobulle donne l'identifiant.",
+      "Dans la Vue humain, cliquez « Vider la conversation », puis envoyez « Bonjour ». Même lecture.",
+      "Lancez « Journal » puis « Tours ».",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Tours", ref: "turns" }],
+    expect: ["Orchestration : « Tour 1 » les deux fois.", "Infobulles « Identifiant du tour dans le journal : t4 », puis « … t5 » (si aucun tour avant le geste 2).", "Journal : t1 à t5, jamais deux fois le même."],
+    crit: "Numéro affiché = 1 après chaque remise à zéro ; turn_id unique.",
+    report: "Les deux infobulles.",
+    fields: [{ k: "tip1", label: "Infobulle après Réinitialiser", type: "text" }, { k: "tip2", label: "Infobulle après Vider", type: "text" }] },
+
+  // ---------------------------------------------------------------- Story 33
+  { id: "N33-0", g: "s33", title: "Tour d'horizon : le code couleur par discipline", min: 6,
+    pre: "Chrome, 2B, Internet. Ce tour sert aussi aux tests N33-1, N33-2, N23-1, N23-4 et N34-0 : gardez-le à l'écran.",
+    steps: [
+      "Sélecteur de scénario → module 2 → « Outils réseau ».",
+      "Cliquez le prompt suggéré « Résume l'article Wikipédia sur le Mont-Saint-Michel. », puis « Envoyer ». Attendez la réponse.",
+      "Barre haute : jauge colorée par morceaux, légende dessous, total à droite.",
+      "Panneau des briques : légende des quatre disciplines en tête, puis deux groupes « Ce que le modèle lit » et « Ce que le harnais fait ».",
+      "Comparez une carte allumée (Outils) et une carte éteinte (RAG). Lisez les lignes d'état.",
+      "Vue humain, Contexte LLM, Orchestration, schéma : repérez les mêmes couleurs.",
+    ],
+    expect: [
+      "Légende du panneau : « Prompt engineering », « Context engineering », « Harness engineering », « Sort du poste de travail ».",
+      "Carte allumée : trait gauche et fond de sa discipline ; carte éteinte : grisée, « Éteinte ».",
+      "Carte Outils : puce « 🌐 RÉSEAU », ligne d'état du type « N déclarés · 1 contacté ».",
+      "Bulle de l'utilisateur foncée ; tuile « Appelle le modèle » foncée ; jaune réservé à ce qui sort du poste.",
+    ],
+    crit: "Tout ce qui précède se voit sans chercher.",
+    report: "Ce qui vous a surpris ou gêné ; capture de l'écran entier.",
+    fields: [{ k: "ok", label: "Code couleur compris ?", type: "yn" }] },
+
+  { id: "N33-1", g: "s33", title: "Barre haute lisible à 3 m, à 100 % et 150 %", min: 5,
+    pre: "Le tour de N33-0 à l'écran. Vidéoprojecteur si possible, sinon l'écran du poste.",
+    steps: ["Reculez à 3 m de l'écran (ou projetez).", "Lisez la légende de la jauge et le total (« … / … tokens · … % »).", "Zoom à 150 % (Ctrl et +), relisez. Puis Ctrl+0."],
+    expect: ["Barre haute foncée, légende et total lisibles.", "Aucun texte coupé dans la barre."],
+    crit: "Légende et total lus à 3 m à 100 % et à 150 %, sans texte coupé.",
+    report: "Ce qui était illisible ; capture à 150 %.",
+    fields: [{ k: "z100", label: "Lisible à 100 % ?", type: "yn" }, { k: "z150", label: "Lisible à 150 % ?", type: "yn" }] },
+
+  { id: "N33-2", g: "s33", title: "Une couleur par discipline, partout", min: 5,
+    pre: "Le tour de N33-0. Idéalement, une autre personne choisit les éléments.",
+    steps: [
+      "Cachez la légende (main ou papier).",
+      "Pour 4 éléments pris au hasard, dites leur discipline. Sans aide : la carte « Mémoire globale », un morceau de la jauge, la tuile « Exécute l'outil hors du poste » d'Orchestration, le nœud « Calculatrice » du schéma.",
+      "Vérifiez avec la légende.",
+    ],
+    expect: ["Même couleur pour une discipline sur la carte, le segment, la tuile et le nœud.", "Jaune uniquement pour ce qui sort du poste, toujours avec « RÉSEAU » ou 🌐."],
+    crit: "4 bonnes réponses sur 4, sans la légende.",
+    report: "Le score et l'élément mal associé.",
+    fields: [{ k: "score", label: "Bonnes réponses", unit: "/ 4", type: "num" }] },
+
+  { id: "N33-3", g: "s33", title: "Raisonnement imposé par le modèle (Groq)", min: 5, opt: true,
+    pre: "Clé Groq enregistrée (diagnostic, « Modèles cloud ») ou variable GROQ_API_KEY.",
+    steps: [
+      "« Changer de modèle… » → groupe « Réseau · gpt-oss (OpenAI) » → l'option « RÉSEAU · Groq … openai/gpt-oss-120b ». Cliquez « Choisir… », puis « Utiliser ce modèle » dans l'avertissement.",
+      "Regardez la carte Raisonnement, puis cliquez son interrupteur.",
+      "Revenez au 2B : « Changer de modèle… » → « Local · fichier · Qwen3.5-2B-Q4_K_M.gguf … » → « Charger ».",
+    ],
+    expect: ["Interrupteur coché et verrouillé, 🔒 à côté.", "Ligne d'état « Imposé par ce modèle ».", "Revenu au 2B : plus de 🔒."],
+    crit: "L'interrupteur ne bouge pas au clic.",
+    report: "Capture de la carte.",
+    fields: [{ k: "verrou", label: "Verrouillé ?", type: "yn" }] },
+
+  { id: "N33-4", g: "s33", title: "Lignes d'état = tokens du Contexte LLM", min: 10,
+    pre: "Qwen3.5-2B (la spec cite le 4B : utilisez-le si P6 est fait). Modèle local : pas de « ≈ ».",
+    steps: [
+      "Sélecteur de scénario → module 1 → « Mémoire globale ». Envoyez les deux prompts suggérés, l'un après l'autre.",
+      "Carte « Prompt système » : relevez « N tokens dans le contexte ». Carte « Mémoire globale » : relevez « n entrées · N tokens ».",
+      "Contexte LLM, « Lecture groupée », dernier appel : relevez les tokens en marge des sections « Prompt système » et « Mémoire globale ».",
+      "Éteignez « Prompt système » : sa ligne dit « Éteinte ». Rallumez-le : des tokens reviennent.",
+    ],
+    expect: ["Tokens sans « ≈ » sur les cartes.", "« Éteinte » puis de nouveau des tokens."],
+    crit: "Pour chaque carte, les tokens affichés égalent ceux de sa section dans Contexte LLM.",
+    report: "Les quatre valeurs.",
+    fields: [{ k: "sp_card", label: "Prompt système · carte", type: "num" }, { k: "sp_ctx", label: "Prompt système · Contexte LLM", type: "num" }, { k: "gm_card", label: "Mémoire globale · carte", type: "num" }, { k: "gm_ctx", label: "Mémoire globale · Contexte LLM", type: "num" }] },
+
+  { id: "N33-5", g: "s33", title: "Contrastes réels (Lighthouse, Edge, thème clair)", min: 6,
+    pre: "Edge, thème « ☀ Clair » (ou « ◐ Système » sur un Windows clair). Un tour « Outils réseau » dans la session (celui de N33-0 suffit : la page le rejoue au chargement).",
+    steps: [
+      "Dans Edge, ouvrez http://127.0.0.1:8420/.",
+      "F12 → onglet « Lighthouse » (au besoin via »), cochez seulement « Accessibilité », mode « Navigation », appareil « Ordinateur ».",
+      "Cliquez « Analyser le chargement de la page ».",
+      "Dans le rapport, cherchez la ligne « Contrast » (« Les couleurs d'arrière-plan et de premier plan n'ont pas un rapport de contraste suffisant »).",
+    ],
+    expect: ["Aucun défaut de contraste."],
+    crit: "0 élément signalé pour le contraste.",
+    report: "Le score Accessibilité et, s'il y en a, les éléments signalés (capture).",
+    fields: [{ k: "n", label: "Éléments signalés", type: "num" }, { k: "score", label: "Score Accessibilité", type: "num" }] },
+
+  { id: "N33-6", g: "s33", title: "Thème de contraste de Windows « Désert »", min: 5,
+    pre: "Hors du périmètre de la story 31 (forced-colors) : ce test vérifie seulement que rien ne devient illisible.",
+    steps: [
+      "Paramètres → Accessibilité → Thèmes de contraste → « Désert » → « Appliquer ».",
+      "Rechargez WaveStack (F5).",
+      "Parcourez la barre haute et les interrupteurs des briques à la touche Tab.",
+      "Remettez « Aucun » dans Thèmes de contraste.",
+    ],
+    expect: ["Barre haute, bulles et tuiles lisibles.", "Focus clavier visible."],
+    crit: "Tous les textes lisibles ; focus visible sur les interrupteurs et la barre haute.",
+    report: "Capture de ce qui disparaît.",
+    fields: [{ k: "lisible", label: "Tout lisible ?", type: "yn" }] },
+
+  // ---------------------------------------------------------------- Story 23
+  { id: "N23-1", g: "s23", title: "Données sortantes vers Wikipédia, User-Agent lisible", min: 8,
+    pre: "Le tour Wikipédia de N33-0 (sinon refaites-le). Chrome puis Edge. Pour 1366 × 768 : F12, Ctrl+Maj+M (barre d'appareil), « Dimensions : Responsive », 1366 × 768.",
+    steps: [
+      "Schéma d'architecture, zone Réseau : cliquez le nœud 🌐 « Résumé Wikipédia ».",
+      "Orchestration s'affiche sur l'étape « Exécute l'outil hors du poste » dépliée, bloc « 🌐 RÉSEAU · Données sortantes » ouvert.",
+      "Lisez les sections « Requête », « En-têtes » et « Corps ».",
+      "Passez à 1366 × 768 (barre d'appareil) et relisez la ligne User-Agent.",
+      "Refaites dans Edge.",
+    ],
+    expect: [
+      "« GET https://fr.wikipedia.org/api/rest_v1/page/summary/… ».",
+      "« User-Agent: WaveStack/0.1 (demonstrateur pedagogique; https://github.com/Aliquanto3/agentic-harness-training-demo) », « Accept: */* ».",
+      "« Aucun corps : seule l'adresse sort du poste. »",
+      "L'outil réussit : le résumé de l'article arrive, pas de 403.",
+    ],
+    crit: "User-Agent lisible en entier sans défilement horizontal à 1366 × 768 ; résultat non vide.",
+    report: "Pour chaque navigateur : conforme ou non ; capture du bloc.",
+    fields: [{ k: "chrome", label: "Chrome conforme ?", type: "yn" }, { k: "edge", label: "Edge conforme ?", type: "yn" }, { k: "resultat", label: "Résultat non vide ?", type: "yn" }] },
+
+  { id: "N23-2", g: "s23", title: "Clé Groq masquée : jamais dans le journal", min: 7, opt: true,
+    pre: "Clé Groq. Terminal du Journal (P4).",
+    steps: [
+      "Passez sur Groq comme en N33-3 (« Choisir… », « Utiliser ce modèle »).",
+      "Envoyez « Quelle heure est-il ? ».",
+      "Lancez « Journal », puis « En-têtes de l'appel au modèle ».",
+      "Lancez « Chercher la clé » et tapez 8 caractères pris au milieu de votre clé.",
+      "Revenez au 2B (« Charger »).",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "En-têtes de l'appel au modèle", ref: "model-headers" }, { label: "Chercher la clé (journal et audit.log)", ref: "key-search" }],
+    expect: ["Authorization : « [masqué] », masked True ; Content-Type en clair.", "0 occurrence de la clé."],
+    crit: "Zéro occurrence de la clé ou d'un fragment dans le journal et audit.log.",
+    report: "Le nombre d'occurrences et la valeur affichée pour Authorization.",
+    fields: [{ k: "masque", label: "Authorization « [masqué] » ?", type: "yn" }, { k: "occ", label: "Occurrences de la clé", type: "num" }] },
+
+  { id: "N23-3", g: "s23", title: "Derrière le proxy : data.gouv.fr, secrets masqués", min: 8,
+    pre: "Poste derrière le proxy d'entreprise, Internet. Terminal du Journal.",
+    steps: [
+      "Sélecteur de scénario → « Transverses et métier » → « Où vont mes données ? » (MCP en lazy loading avec data.gouv.fr, rien à cocher).",
+      "Orchestration → groupe « Préparation du harnais » → dépliez la connexion data.gouv.fr → bloc « 🌐 RÉSEAU · Données sortantes ».",
+      "Cliquez le prompt suggéré, puis « Envoyer ». Attendez la fin du tour.",
+      "Lancez « Journal », puis « En-têtes des requêtes des briques ».",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "En-têtes des requêtes des briques", ref: "brick-headers" }],
+    expect: ["Chaque requête montre ses en-têtes.", "Mcp-Session-Id à « [masqué] » (masked True) ; tout en-tête non public aussi."],
+    crit: "Aucun identifiant de proxy ni identifiant de session en clair.",
+    known: "Limite consignée (Review Triage) : les en-têtes ajoutés par le transport (Proxy-Authorization, HTTP/2) ne sont pas tracés. Leur absence n'est donc pas un KO.",
+    report: "Les noms d'en-têtes masqués ; capture du bloc de la connexion.",
+    fields: [{ k: "session", label: "Mcp-Session-Id masqué ?", type: "yn" }, { k: "clair", label: "Secret vu en clair (lequel)", type: "text" }] },
+
+  { id: "N23-4", g: "s23", title: "Un novice trouve ce qui part vers Wikipédia (retest M2)", min: 5,
+    pre: "Une personne qui ne connaît pas WaveStack. Le tour de N33-0 à l'écran, Orchestration repliée, pointeur sur le Panneau des briques.",
+    steps: ["Donnez la consigne : « Trouve ce que WaveStack envoie à Wikipédia. »", "Chronométrez sans aider.", "Notez le chemin suivi (carte Outils, nœud du schéma, étape)."],
+    expect: ["Il lit la carte Outils (« Peuvent sortir du poste : … »), puis clique le nœud 🌐 ou l'étape."],
+    crit: "Bloc « Données sortantes » trouvé en moins de 30 s, sans aide.",
+    report: "Le temps et le chemin.",
+    fields: [{ k: "temps", label: "Temps", unit: "s", type: "num" }, { k: "chemin", label: "Chemin suivi", type: "text" }] },
+
+  // ---------------------------------------------------------------- Story 34
+  { id: "N34-0", g: "s34", title: "Tour d'horizon : la vue liée", min: 7,
+    pre: "Le tour Wikipédia de N33-0 à l'écran, Chrome.",
+    steps: [
+      "En-têtes des volets : pastilles 1 à 4 et sous-titres.",
+      "Posez le pointeur sur la carte Outils : le reste s'estompe, les éléments liés s'éclairent.",
+      "Cliquez le nœud « Calculatrice » du schéma : les éléments liés gardent un contour.",
+      "Masquez Contexte LLM par son bouton « — » (Masquer le volet) : regardez sa puce dans la barre haute.",
+      "Appuyez sur Échap. Puis réaffichez Contexte LLM par sa puce.",
+      "Orchestration : lisez les titres des étapes du tour et leurs pastilles.",
+      "Sous le schéma, lisez la phrase de bilan.",
+      "Cliquez « Mode projection », puis recliquez-le.",
+    ],
+    expect: [
+      "1 Vue humain « Ce que voit l'utilisateur », 2 Contexte LLM « Ce que le modèle lit, dans l'ordre », 3 Orchestration « Ce que fait le harnais, pas à pas », 4 Schéma d'architecture « Où tourne chaque pièce ».",
+      "Sous la légende du panneau : « Survolez une brique : elle s'éclaire dans le contexte, l'orchestration et le schéma. »",
+      "Puce « + Contexte LLM · lié » ; Échap efface la sélection et le « lié ».",
+      "Titres « Décrit les outils », « Appelle le modèle », « Demande un outil », « Exécute l'outil hors du poste », « Réinjecte le résultat », « Répond » ; pastilles H, M, M, R, H, M.",
+      "Bilan : « Au tour N, les données ont quitté le poste … » ; nœud Résumé Wikipédia « contacté », Jours fériés « non contacté ».",
+      "Mode projection : tous les textes plus grands.",
+    ],
+    crit: "Chaque point se voit ; vous comprenez l'ordre de lecture 1 → 4.",
+    report: "Le bilan exact ; capture du survol.",
+    fields: [{ k: "bilan", label: "Phrase de bilan", type: "text" }] },
+
+  { id: "N34-1", g: "s34", title: "Vue liée pendant la génération : fluidité et CPU", min: 10, mesure: true,
+    pre: "Chrome, Qwen3.5-2B (4B si P6 : génération plus longue, plus de temps pour survoler). Gestionnaire des tâches (Ctrl+Maj+Échap) → Performances → Processeur.",
+    steps: [
+      "Sélecteur de scénario → module 2 → « Outils natifs ».",
+      "Tapez « Combien font 12*37 ? », « Envoyer », sans toucher la souris : relevez le % CPU moyen pendant la génération.",
+      "Cliquez « Rejouer le dernier prompt » et, pendant toute la génération, survolez en alternance la carte Outils puis le nœud « Calculatrice ». Relevez le % CPU.",
+    ],
+    expect: ["Éclairage immédiat, sans clignotement, pendant que le texte arrive."],
+    crit: "Éclairage qui suit le pointeur (moins de 100 ms à l'œil) ; CPU avec survol au plus 5 points au-dessus du tour sans survol.",
+    report: "Les deux % CPU ; tout clignotement.",
+    fields: [{ k: "cpu0", label: "CPU sans survol", unit: "%", type: "num" }, { k: "cpu1", label: "CPU avec survol", unit: "%", type: "num" }, { k: "fluide", label: "Sans clignotement ?", type: "yn" }] },
+
+  { id: "N34-2", g: "s34", title: "Bilan réel avec Groq et Wikipédia", min: 6, opt: true,
+    pre: "Clé Groq, Internet. Terminal du Journal.",
+    steps: [
+      "Passez sur Groq (N33-3).",
+      "Sélecteur de scénario → « Outils réseau » ; envoyez « Résume l'article Wikipédia sur le Mont-Saint-Michel. ».",
+      "Lisez la phrase sous le schéma.",
+      "Lancez « Journal », puis « Requêtes sortantes du dernier tour ».",
+      "Revenez au 2B.",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Requêtes sortantes du dernier tour", ref: "turn-outbound" }],
+    expect: ["« … vers le modèle chez Groq (contexte complet, n appels) et vers Résumé Wikipédia (le titre de l'article, 1 requête). »"],
+    crit: "K de la phrase = nombre de lignes de la commande ; aucun « en échec ».",
+    report: "La phrase exacte et le nombre de lignes.",
+    fields: [{ k: "k", label: "K de la phrase", type: "num" }, { k: "journal", label: "Lignes du journal", type: "num" }] },
+
+  { id: "N34-3", g: "s34", title: "Bilan avec un modèle servi par Ollama", min: 5,
+    pre: "Ollama lancé avec qwen3.5:2b (ou un autre modèle). Terminal du Journal.",
+    steps: [
+      "« Changer de modèle… » → « Local · Ollama · qwen3.5:2b » → « Charger ».",
+      "Cliquez « ⟲ Réinitialiser » (LLM nu, aucune brique réseau), puis envoyez « Bonjour ».",
+      "Lisez la phrase sous le schéma. Lancez « Journal » puis « Requêtes sortantes du dernier tour ».",
+      "Revenez au 2B intégré (« Local · fichier · Qwen3.5-2B… » → « Charger »).",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Requêtes sortantes du dernier tour", ref: "turn-outbound" }],
+    expect: ["« Au tour 1, aucune donnée n'a quitté le poste : le modèle est servi sur ce poste (Ollama) et aucun service réseau n'a été contacté. »"],
+    crit: "La phrase exacte ; la commande ne liste aucune requête.",
+    report: "La phrase.",
+    fields: [{ k: "phrase", label: "Phrase lue", type: "text" }] },
+
+  { id: "N34-4", g: "s34", title: "Mode projection en salle et en partage Teams", min: 10,
+    pre: "Vidéoprojecteur ou écran réglé à 1280 × 720 (Paramètres → Système → Écran → Résolution), puis Teams (réunion test, partage d'écran). Pas une mesure : Teams peut rester ouvert.",
+    steps: [
+      "Cliquez « Mode projection » (barre haute).",
+      "Parcourez les volets 1 à 4 ; lisez sous-titres et frise d'Orchestration depuis 3 m.",
+      "Partagez l'écran dans Teams et refaites la lecture sur l'écran distant.",
+      "Relâchez « Mode projection » ; remettez la résolution.",
+    ],
+    expect: ["Textes agrandis, barre haute sur une ligne, rien ne se chevauche."],
+    crit: "Sous-titres et frise lus à 3 m ; aucun texte coupé dans la barre haute.",
+    report: "Capture de la barre haute en mode projection.",
+    fields: [{ k: "salle", label: "Lisible en salle ?", type: "yn" }, { k: "teams", label: "Lisible dans Teams ?", type: "yn" }] },
+
+  { id: "N34-5", g: "s34", title: "Mouvement réduit de Windows", min: 4,
+    pre: "Aucun.",
+    steps: ["Paramètres → Accessibilité → Effets visuels → désactivez « Effets d'animation ».", "Rechargez WaveStack (F5), survolez une carte de brique.", "Réactivez « Effets d'animation »."],
+    expect: ["Estompage instantané, sans fondu ; même éclairage."],
+    crit: "Aucune transition visible.",
+    report: "Toute animation restante.",
+    fields: [{ k: "instant", label: "Estompage instantané ?", type: "yn" }] },
+
+  { id: "N34-6", g: "s34", title: "Clavier et Narrateur", min: 7,
+    pre: "Un tour affiché (N33-0). Narrateur : Ctrl + touche Windows + Entrée.",
+    steps: [
+      "Activez le Narrateur. Cliquez dans la barre haute sur « WaveStack » pour y placer le point de départ.",
+      "Tab jusqu'à une section de Contexte LLM (l'étiquette de marge d'une section est l'arrêt de tabulation), puis Entrée.",
+      "« Volets ▾ » → masquez Contexte LLM ; écoutez la puce « + Contexte LLM · lié ».",
+      "Appuyez sur Échap.",
+      "Réaffichez Contexte LLM, arrêtez le Narrateur.",
+    ],
+    expect: ["Éléments liés éclairés au focus.", "La puce annonce « lié ».", "Échap efface la sélection."],
+    crit: "Le Narrateur lit « lié » sur la puce ; focus visible à chaque étape.",
+    report: "Ce que le Narrateur a lu ; étape où le focus a disparu.",
+    fields: [{ k: "lie", label: "« lié » lu ?", type: "yn" }, { k: "focus", label: "Focus toujours visible ?", type: "yn" }] },
+
+  // ---------------------------------------------------------------- Story 32
+  { id: "N32-0", g: "s32", title: "Tour d'horizon : les appels du tour dans Contexte LLM", min: 6,
+    pre: "Chrome, 2B.",
+    steps: [
+      "Sélecteur de scénario → module 2 → « Outils natifs ». Cliquez le prompt « Quelle heure est-il ? », puis « Envoyer ».",
+      "Contexte LLM : faites défiler les appels.",
+      "Dans l'appel 2, dépliez « Déjà lu à l'appel précédent … ».",
+      "En haut du volet, passez de « Lecture groupée » à « Texte exact », puis revenez.",
+    ],
+    expect: [
+      "« Appel 1 sur 2 », « Appel 2 sur 2 », chacun avec « Lu : N tokens · évalués : … · produits : … ».",
+      "Appel 2 : déjà-lu replié, résultat d'outil marqué « Nouveau ».",
+      "Blocs « Produit par le modèle » (réflexion, appel d'outil, réponse) sur un fond propre ; entre les appels, une ligne dit ce que le harnais a fait.",
+      "« Texte exact » : le prompt brut, gabarit Qwen compris.",
+    ],
+    crit: "Vous suivez le tour appel par appel.",
+    report: "Capture de l'appel 2.",
+    fields: [{ k: "ok", label: "Lecture claire ?", type: "yn" }] },
+
+  { id: "N32-1", g: "s32", title: "Ce qui est nouveau à l'appel 2 (moins de 10 s)", min: 5,
+    pre: "La spec cite Qwen3.5-4B : utilisez-le si P6 est fait, sinon le 2B. Scénario « Outils natifs ».",
+    steps: ["Envoyez « Quelle heure est-il ? » (ou reprenez le tour de N32-0).", "Chronomètre en main, regardez l'appel 2 et dites à voix haute ce qui est nouveau.", "Comparez avec votre souvenir de l'ancienne vue (une boîte par segment)."],
+    expect: ["Le résultat de l'outil (heure et date), marqué « Nouveau »."],
+    crit: "Réponse juste en moins de 10 s ; vue jugée plus claire que l'ancienne.",
+    report: "Le temps et votre avis.",
+    fields: [{ k: "temps", label: "Temps", unit: "s", type: "num" }, { k: "clair", label: "Plus clair qu'avant ?", type: "yn" }] },
+
+  { id: "N32-2", g: "s32", title: "Exactitude avec un vrai gabarit (tokens des sections)", min: 10,
+    pre: "Terminal du Journal. 2B, puis Ollama qwen3.5:2b (et 4B si P6).",
+    steps: [
+      "Avec le 2B, scénario « Outils natifs », envoyez « Quelle heure est-il ? ».",
+      "Lancez « Journal », puis « Sections et tokens lus » : somme des tokens des sections du dernier appel et « lus » de cet appel.",
+      "Dans Contexte LLM, « Texte exact » du dernier appel : vérifiez qu'il commence par le gabarit Qwen (<|im_start|>system) et se termine par le début de la réponse de l'assistant.",
+      "Refaites avec Ollama (« Local · Ollama · qwen3.5:2b » → « Charger »), puis revenez au 2B.",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Sections et tokens lus", ref: "sections" }],
+    expect: ["Somme des sections = lus, pour chaque modèle."],
+    crit: "Écart de tokens nul.",
+    known: "La comparaison octet pour octet du « Texte exact » avec le prompt envoyé au moteur demande le script AppSession (Claude Code du PC) : non praticable à la main.",
+    report: "Les deux nombres pour chaque modèle.",
+    fields: [{ k: "q2b", label: "2B : sections / lus", type: "text" }, { k: "ollama", label: "Ollama : sections / lus", type: "text" }, { k: "q4b", label: "4B : sections / lus", type: "text" }] },
+
+  { id: "N32-3", g: "s32", title: "JSON des outils en arbres repliables", min: 5,
+    pre: "Le tour « Outils natifs » de N32-0.",
+    steps: [
+      "Contexte LLM, « Lecture groupée », appel 1 : repérez la section des descriptions d'outils.",
+      "Comptez les arbres JSON (un par outil), dépliez-en un et repliez-en un.",
+      "Comptez les outils activés dans les options de la carte Outils.",
+    ],
+    expect: ["Chaque schéma d'outil en arbre indenté, coloré, repliable.", "La marge nomme le gabarit et les descriptions d'outils."],
+    crit: "Autant d'arbres que d'outils activés.",
+    report: "Les deux nombres.",
+    fields: [{ k: "arbres", label: "Arbres JSON", type: "num" }, { k: "outils", label: "Outils activés", type: "num" }] },
+
+  { id: "N32-4", g: "s32", title: "Modèle cloud réel : « Corps JSON » et « Texte exact »", min: 6, opt: true,
+    pre: "Clé Groq.",
+    steps: [
+      "Passez sur Groq (N33-3). Scénario « Outils natifs », envoyez « Quelle heure est-il ? ».",
+      "Contexte LLM : ouvrez « Corps JSON », dépliez messages, tools et les arguments d'un appel d'outil.",
+      "Ouvrez « Texte exact » : le corps envoyé, tel quel.",
+      "Ctrl+F dans la page : 8 caractères pris au milieu de votre clé.",
+      "Revenez au 2B.",
+    ],
+    expect: ["Arbre lisible (messages, tools, arguments décodés).", "Recherche de la clé : 0 résultat."],
+    crit: "Arbre lisible ; aucune clé dans la page.",
+    known: "L'égalité stricte json.loads(texte exact) = body demande le script AppSession : non vérifiée à la main.",
+    report: "Capture de « Corps JSON ».",
+    fields: [{ k: "lisible", label: "Arbre lisible ?", type: "yn" }, { k: "cle", label: "Clé trouvée dans la page ?", type: "yn" }] },
+
+  { id: "N32-5", g: "s32", title: "Fluidité du volet pendant le flux (DevTools Performance)", min: 12, mesure: true,
+    pre: "Chrome, Qwen3.5-2B (4B si P6). Scénario « RAG » (module 3) : contexte d'environ 3 500 tokens, plusieurs appels.",
+    steps: [
+      "Sélecteur de scénario → module 3 → « RAG ». Cliquez le premier prompt suggéré (ne l'envoyez pas encore).",
+      "F12 → onglet « Performance » → bouton rond « Enregistrer ».",
+      "Cliquez « Envoyer ». Pendant la génération, dépliez un bloc du Contexte LLM et faites défiler le volet.",
+      "Après 30 s ou à la fin du tour, « Arrêter » l'enregistrement.",
+      "Piste « Principal » (Main) : les tâches longues ont un coin rouge ; survolez la plus longue et notez sa durée.",
+    ],
+    expect: ["Le volet suit sans à-coups ; bloc déplié et position de défilement conservés."],
+    crit: "Aucune tâche longue de plus de 200 ms due au rendu du Contexte LLM.",
+    report: "Durée de la plus longue tâche ; capture de la piste.",
+    fields: [{ k: "max", label: "Tâche la plus longue", unit: "ms", type: "num" }, { k: "garde", label: "Déplié et défilement gardés ?", type: "yn" }] },
+
+  { id: "N32-6", g: "s32", title: "Coupe du raisonnement et Mode projection à 1366 × 768", min: 8,
+    pre: "Chrome, 2B. Le budget de raisonnement (768 tokens, lot C) coupe la réflexion sur le prompt du scénario.",
+    steps: [
+      "Sélecteur de scénario → module 1 → « Raisonnement ». Cliquez le prompt suggéré, puis « Envoyer ». Attendez la réponse (≈ 2 min).",
+      "Contexte LLM : lisez l'appel.",
+      "Cliquez « Mode projection » ; F12, Ctrl+Maj+M, 1366 × 768.",
+      "Relisez les étiquettes de marge ; relâchez « Mode projection ».",
+    ],
+    expect: ["Un seul appel : réflexion, note « Raisonnement coupé par le harnais … », puis réponse."],
+    crit: "Note placée entre la réflexion et la réponse ; aucun texte coupé, pas de défilement horizontal.",
+    report: "Capture en mode projection.",
+    fields: [{ k: "note", label: "Note entre les blocs ?", type: "yn" }, { k: "coupe", label: "Texte coupé ?", type: "yn" }] },
+
+  // ---------------------------------------------------------------- Story 24
+  { id: "N24-1", g: "s24", title: "Budget calculé au lancement", min: 6, mesure: true,
+    pre: "Budget par défaut (pas de P6 en place).",
+    steps: [
+      "WaveStack arrêté. Fermez Edge, Outlook et Teams.",
+      "Relancez « uv run wavestack ». Ouvrez le diagnostic (clic sur l'indicateur du modèle, ou « Volets ▾ » → « Diagnostic »).",
+      "Lisez la ligne « RAM du poste : … Mo, dont … Mo disponibles au lancement. Budget mémoire de WaveStack : … Mo (…) ».",
+      "Tout de suite après, lancez « RAM du poste ».",
+    ],
+    cmds: [{ label: "RAM du poste", ref: "ram" }],
+    expect: ["Le calcul : « plafond [memory] budget_mb de 4 096 Mo, plus petit que 60 % des … Mo … » ou « 60 % des … Mo disponibles … »."],
+    crit: "Budget = min(4 096, 0,6 × disponible) à 5 % près de la mesure PowerShell.",
+    report: "Les valeurs du diagnostic et de PowerShell.",
+    fields: [{ k: "total", label: "RAM totale (diagnostic)", unit: "Mo", type: "num" }, { k: "dispo", label: "Disponible (diagnostic)", unit: "Mo", type: "num" }, { k: "budget", label: "Budget", unit: "Mo", type: "num" }, { k: "ps", label: "Disponible (PowerShell)", unit: "Mo", type: "num" }] },
+
+  { id: "N24-2", g: "s24", title: "Budget quand la RAM se remplit (Edge et Teams ouverts)", min: 6,
+    pre: "Exception à la règle des mesures : ici Edge et Teams doivent être ouverts.",
+    steps: [
+      "WaveStack arrêté. Ouvrez Edge (plusieurs onglets) et Teams.",
+      "Relancez WaveStack, relisez la ligne du diagnostic ; lancez « RAM du poste ».",
+    ],
+    cmds: [{ label: "RAM du poste", ref: "ram" }],
+    expect: ["Disponible sous ≈ 6 827 Mo : budget sous 4 096 Mo, ligne en avertissement « La RAM disponible limite le budget sous son plafond : fermez des applications puis relancez WaveStack. »", "Disponible au-dessus : budget 4 096 Mo, sans avertissement."],
+    crit: "Chiffres cohérents avec PowerShell (à 5 % près).",
+    report: "Disponible, budget et texte de la ligne.",
+    fields: [{ k: "dispo", label: "Disponible", unit: "Mo", type: "num" }, { k: "budget", label: "Budget", unit: "Mo", type: "num" }, { k: "warn", label: "Avertissement affiché ?", type: "yn" }] },
+
+  { id: "N24-3", g: "s24", title: "Budget fixe 6 144 Mo", min: 4,
+    pre: "La spec modifie [memory] de wavestack.toml ; settings.json (qui le surcharge) évite de toucher au dépôt.",
+    steps: [
+      "WaveStack arrêté, lancez « Budget fixe », relancez WaveStack.",
+      "Diagnostic : lisez la ligne du budget.",
+      "WaveStack arrêté, lancez « Budget par défaut » (réponse False), relancez.",
+    ],
+    cmds: [{ label: "Budget fixe", ref: "budget-fixed" }, { label: "Budget par défaut", ref: "budget-default" }],
+    expect: ["« Budget mémoire de WaveStack : 6 144 Mo (valeur fixe 6 144 Mo (budget_mode = « fixed »)). »", "Si 6 144 Mo dépassent la RAM disponible : avertissement « Le budget fixe dépasse … »."],
+    crit: "Texte « valeur fixe » et 6 144 Mo.",
+    report: "Le texte exact.",
+    fields: [{ k: "texte", label: "Texte du budget", type: "text" }] },
+
+  { id: "N24-4", g: "s24", title: "Refus chiffré du 4B, jamais « 0 Mo »", min: 4,
+    pre: "Budget par défaut, 2B actif.",
+    steps: ["« Changer de modèle… » → « Local · fichier · Qwen3.5-4B-Q4_K_M.gguf … » → « Charger ».", "Lisez le message (barre haute et Vue humain)."],
+    expect: ["« Changement refusé : Qwen3.5-4B-Q4_K_M demande environ … ; WaveStack occupe N Mo sans le modèle actif, pour un budget de … », puis le calcul court.", "Le 2B reste actif."],
+    crit: "80 ≤ N ≤ 400, jamais 0.",
+    known: "La comparaison de N à la RSS mesurée « après libération » (± 100 Mo) demande le script AppSession : non praticable à la main.",
+    report: "Le message exact et N.",
+    fields: [{ k: "n", label: "N (« WaveStack occupe »)", unit: "Mo", type: "num" }, { k: "msg", label: "Message", type: "text" }] },
+
+  { id: "N24-5", g: "s24", title: "« Arrêter » pendant la sonde d'un fichier jamais sondé", min: 10, mesure: true,
+    pre: "Budget par défaut, 2B actif. 1,3 Go libres dans le profil pour la copie.",
+    steps: [
+      "WaveStack arrêté, lancez « Copier le 2B », puis relancez WaveStack : le diagnostic de lancement sonde la copie une fois (≈ 30 à 50 s).",
+      "WaveStack lancé, 2B actif : lancez « Rendre la sonde périmée » (la sonde de la copie ne vaut plus : le prochain choix la relance).",
+      "Dans un terminal, lancez « Surveiller la sonde » (20 s).",
+      "Aussitôt : « Changer de modèle… » → « Local · fichier · Qwen3.5-2B-copie-test.gguf … » → « Charger ». Dans les 5 s, cliquez « Arrêter » (Vue humain, sous le champ). Notez l'heure du clic (secondes).",
+      "Lisez le message ; lancez « Sondes en échec ».",
+      "WaveStack arrêté, supprimez la copie (P7 la supprime aussi).",
+    ],
+    cmds: [{ label: "Copier le 2B (WaveStack arrêté)", ref: "copy-model" }, { label: "Rendre la sonde périmée", ref: "touch-copy" }, { label: "Surveiller la sonde", ref: "probe-watch" }, { label: "Sondes en échec", ref: "failed-probes" }],
+    expect: ["« Arrêt demandé · » dans la barre haute, puis « Chargement arrêté : Qwen3.5-2B-Q4_K_M est de nouveau actif. »", "« sonde en cours : True » puis False moins de 1 s après le clic.", "Aucune entrée pour la copie dans les sondes en échec."],
+    crit: "Sonde terminée ≤ 1 s après le clic ; fin de l'arrêt ≤ 3 s plus le rechargement du 2B ; rien d'enregistré.",
+    report: "Délai clic → False, durée totale, message.",
+    fields: [{ k: "kill", label: "Clic → sonde terminée", unit: "s", type: "num" }, { k: "total", label: "Clic → 2B de nouveau actif", unit: "s", type: "num" }, { k: "failed", label: "Entrée pour la copie ?", type: "yn" }] },
+
+  { id: "N24-6", g: "s24", title: "llama3.2:3b servi par Ollama : accepté", min: 7,
+    pre: "Ollama lancé, llama3.2:3b installé mais non chargé (« ollama ps » vide ; sinon « ollama stop llama3.2:3b »).",
+    steps: [
+      "Diagnostic → « Modèles détectés » : ligne de llama3.2:3b (« Mémoire du modèle servi : … »).",
+      "« Changer de modèle… » → « Local · Ollama · llama3.2:3b » → « Charger ».",
+      "Envoyez « Bonjour », puis lancez « Ollama ».",
+      "Revenez au 2B.",
+    ],
+    cmds: [{ label: "Ollama", ref: "ollama" }],
+    expect: ["Diagnostic ≈ 2,3 Go ; aucun refus.", "« ollama ps » : SIZE proche de l'estimation."],
+    crit: "Pas de refus ; SIZE à ± 30 % de l'estimation du diagnostic.",
+    report: "Estimation, SIZE, OLLAMA_NUM_PARALLEL et OLLAMA_KV_CACHE_TYPE (vides = défaut).",
+    fields: [{ k: "estim", label: "Estimation diagnostic", unit: "Go", type: "num" }, { k: "size", label: "SIZE d'ollama ps", unit: "Go", type: "num" }, { k: "env", label: "NUM_PARALLEL / KV_CACHE_TYPE", type: "text" }] },
+
+  { id: "N24-7", g: "s24", title: "Raison d'un fichier incompatible bien accentuée", min: 6,
+    pre: "Le fichier refusé en C6 le 28/09 (par exemple le blob Ollama nemotron_h, sans gabarit). Sa raison est mémorisée : pour une sonde neuve, copiez-le sous un autre nom dans %TEMP% si la place le permet.",
+    steps: [
+      "« Changer de modèle… » → « Autre fichier ou clé API… » → « Ouvrir le diagnostic ».",
+      "« Ou indiquez le chemin d'un fichier GGUF : » → collez le chemin (la copie dans %TEMP%, sinon le blob), « Choisir ce fichier ».",
+      "Lisez la raison (diagnostic et Journal des événements, bas d'Orchestration).",
+      "Lancez « Accents abîmés » : compte des « Ã/Â » dans settings.json.",
+      "Supprimez la copie de %TEMP%.",
+    ],
+    cmds: [{ label: "Accents abîmés", ref: "mojibake" }],
+    expect: ["« llama-cpp-python … ne sait pas charger ce fichier (…) … », accents justes.", "Le modèle précédent reste actif."],
+    crit: "Aucun « Ã » ni « Â » dans la page ; le compte de settings.json n'augmente pas (nouvelle entrée propre).",
+    report: "La raison exacte et le compte.",
+    fields: [{ k: "raison", label: "Raison affichée", type: "text" }, { k: "count", label: "« Ã/Â » dans settings.json", type: "num" }] },
+
+  { id: "N24-8", g: "s24", title: "Raison abîmée du 28/09 réparée à la lecture", min: 4,
+    pre: "P2 a trouvé au moins un « Ã/Â » dans settings.json ; sinon, marquez « bloqué ».",
+    steps: ["Diagnostic → « Modèles détectés », ou page /models → colonne « État » : lisez la raison du fichier de C6.", "Lancez « Accents abîmés »."],
+    cmds: [{ label: "Accents abîmés", ref: "mojibake" }],
+    expect: ["La page affiche « abîmé », « modèle » corrects.", "settings.json garde l'entrée d'origine (même compte qu'en P2 tant qu'aucune sonde ne la réécrit)."],
+    crit: "Accents justes dans la page, sans nouvelle sonde ; settings.json non réécrit pour cette entrée.",
+    report: "La raison affichée et le compte.",
+    fields: [{ k: "raison", label: "Raison affichée", type: "text" }, { k: "count", label: "« Ã/Â » dans settings.json", type: "num" }] },
+
+  // ---------------------------------------------------------------- Story 25
+  { id: "N25-1", g: "s25", title: "« Changer de modèle… » regroupé et trié", min: 6,
+    pre: "Qwen3.5-2B et 4B dans models\\, Ollama lancé avec llama3.2:3b et qwen3.5:2b. WaveStack relancé après le démarrage d'Ollama. Chrome puis Edge.",
+    steps: ["Ouvrez la liste « Changer de modèle… » (barre haute).", "Lisez la première ligne (grisée), les titres de groupe et l'ordre.", "Refaites dans Edge."],
+    expect: [
+      "Première ligne grisée : la légende du préfixe (« Local · Ollama », « RÉSEAU · Groq »…).",
+      "« Sur ce poste · Qwen (Alibaba) » : 2B avant 4B, préfixes « Local · fichier » et « Local · Ollama » ; puis « Sur ce poste · Llama (Meta) ».",
+      "Groupes « Réseau · … » (Mistral, gpt-oss) ; en fin de liste « Tableau des modèles et de leurs capacités… » puis « Autre fichier ou clé API… ».",
+    ],
+    crit: "Aucun Qwen, Llama ni Gemma dans « Autres éditeurs » ; légende entière, non tronquée, dans les deux navigateurs.",
+    report: "Capture de la liste ouverte dans chaque navigateur.",
+    fields: [{ k: "chrome", label: "Chrome conforme ?", type: "yn" }, { k: "edge", label: "Edge conforme ?", type: "yn" }] },
+
+  { id: "N25-2", g: "s25", title: "Tableau des capacités = cartes après chargement", min: 15,
+    pre: "Clés Groq et Mistral si possible. Ollama lancé.",
+    steps: [
+      "« Changer de modèle… » → « Tableau des modèles et de leurs capacités… » → « Ouvrir le tableau » (page /models).",
+      "Relevez « Appel d'outils » et « Raisonnement » pour Qwen3.5-2B, 4B, llama3.2:3b, Groq gpt-oss-120b, Mistral.",
+      "« Ouvrir WaveStack » ; chargez tour à tour le 2B, llama3.2:3b, Groq et Mistral ; regardez les cartes Raisonnement et Outils.",
+      "Revenez au 2B.",
+    ],
+    expect: ["2B et 4B : outils « oui », raisonnement « activable ».", "llama3.2:3b : outils « non » avec la raison, raisonnement « jamais ».", "Groq : « toujours », 120B ; Mistral : « activable »."],
+    crit: "Chaque valeur correspond à l'état des cartes (4 modèles au moins).",
+    known: "Le 4B ne se charge pas au budget par défaut : sa ligne se vérifie seulement avec P6.",
+    report: "Les écarts tableau / cartes.",
+    fields: [{ k: "n", label: "Modèles comparés", type: "num" }, { k: "ecarts", label: "Écarts", type: "text" }] },
+
+  { id: "N25-3", g: "s25", title: "Colonne « Fenêtre » = fenêtre au chargement", min: 3,
+    pre: "Fenêtre réglée à 4 096.",
+    steps: ["Page /models : lisez « Fenêtre » du 2B.", "Chargez le 2B ; lisez le bouton « Fenêtre … ▾ » et l'infobulle de la jauge."],
+    expect: ["4 096 des deux côtés."],
+    crit: "Égalité exacte.",
+    report: "Les deux valeurs.",
+    fields: [{ k: "table", label: "Tableau", type: "num" }, { k: "app", label: "Après chargement", type: "num" }] },
+
+  { id: "N25-4", g: "s25", title: "Temps de /api/diagnostic", min: 4, mesure: true,
+    pre: "Idéalement 10 GGUF ou plus trouvés (cache Hugging Face, LM Studio) ; sinon, notez combien.",
+    steps: ["WaveStack lancé, lancez « Temps du diagnostic » (deux mesures).", "Comptez les fichiers de « Modèles détectés » au diagnostic."],
+    cmds: [{ label: "Temps du diagnostic", ref: "diag-time" }],
+    expect: ["Premier appel plus lent (lecture des en-têtes), second rapide (mémorisé)."],
+    crit: "Moins de 2 s au premier appel, moins de 200 ms au second.",
+    known: "La page ouverte au lancement a peut-être déjà fait le premier appel : le premier chiffre peut être déjà « mémorisé ».",
+    report: "Les deux temps et le nombre de GGUF.",
+    fields: [{ k: "t1", label: "1er appel", unit: "ms", type: "num" }, { k: "t2", label: "2e appel", unit: "ms", type: "num" }, { k: "n", label: "GGUF détectés", type: "num" }] },
+
+  { id: "N25-5", g: "s25", title: "Modèle sans gabarit ou de famille inconnue", min: 4,
+    pre: "Un modèle Ollama dont le blob n'a pas de gabarit GGUF, ou d'une famille inconnue.",
+    steps: ["Page /models : trouvez sa ligne.", "Regardez le terminal de WaveStack."],
+    expect: ["« inconnu » avec une raison compréhensible, ou la ligne grisée « (incompatible) » et sa raison."],
+    crit: "Aucune ligne vide ; aucune exception (Traceback) dans le terminal.",
+    report: "Le modèle et la raison.",
+    fields: [{ k: "modele", label: "Modèle", type: "text" }, { k: "raison", label: "Raison", type: "text" }] },
+
+  { id: "N25-6", g: "s25", title: "llama-server (-c 4096) dans le tableau", min: 8,
+    pre: "P5 fait. llama-server lancé avec -c 4096 : le 2B peut rester chargé dans WaveStack pendant ce temps (deux fois ≈ 2 Go, sans risque).",
+    steps: [
+      "Dans le terminal de P5 (ou « Retrouver llama-server »), lancez « Lancer llama-server » et attendez « server is listening ».",
+      "Arrêtez puis relancez WaveStack (la découverte des serveurs se fait au lancement).",
+      "Page /models : ligne « Local · llama-server · … ». Laissez llama-server lancé pour N26-6.",
+    ],
+    cmds: [{ label: "Retrouver llama-server", ref: "llama-find" }, { label: "Lancer llama-server", ref: "llama-run" }],
+    expect: ["Éditeur Qwen (Alibaba), taille 2B si model_path est lisible, fenêtre 4 096."],
+    crit: "Valeurs exactes.",
+    report: "Éditeur, taille, fenêtre.",
+    fields: [{ k: "valeurs", label: "Éditeur / taille / fenêtre", type: "text" }] },
+
+  { id: "N25-7", g: "s25", title: "Page /models lisible à 125 %", min: 3,
+    pre: "Chrome, fenêtre 1600 × 1000 environ (ou plein écran).",
+    steps: ["Page /models, zoom 125 % (Ctrl et +).", "Lisez depuis le fond de la salle.", "Ctrl+0."],
+    expect: ["Table lisible, onglets « Diagnostic » et « Modèles » visibles, « 🌐 RÉSEAU » sur les lignes cloud."],
+    crit: "Aucune colonne coupée ; contraste jugé suffisant.",
+    report: "Capture.",
+    fields: [{ k: "ok", label: "Lisible ?", type: "yn" }] },
+
+  // ---------------------------------------------------------------- Story 26
+  { id: "N26-1", g: "s26", title: "Coût des trois fenêtres pour le 2B", min: 8, mesure: true,
+    pre: "2B actif, fenêtre 4 096. Terminal du Journal.",
+    steps: [
+      "Envoyez « Bonjour ». Puis sélecteur de scénario → « Outils natifs », premier prompt suggéré, « Envoyer » (il lit plus de 64 tokens : le débit se mesure).",
+      "Cliquez « Fenêtre 4 096 ▾ » (après la jauge) et lisez les trois choix.",
+      "Lancez « Cache par fenêtre (sonde) », puis « Journal » et « Débit et temps attendus ».",
+      "« Fermer » le panneau.",
+    ],
+    cmds: [{ label: "Cache par fenêtre (sonde)", ref: "kv" }, { label: "Journal", ref: "journal" }, { label: "Débit et temps attendus", ref: "rate" }],
+    expect: ["Pour 4 096, 8 192 et 16 384 : « Cache de contexte : … », « Temps de lecture : … », et « ✓ Tient dans le budget » ou un refus chiffré."],
+    crit: "Cache affiché = kv_bytes_per_token × fenêtre ; temps affichés à ± 20 % de ceux de la commande.",
+    report: "Cache et temps affichés pour chaque fenêtre ; valeurs de la commande.",
+    fields: [{ k: "c4", label: "4 096 : cache / temps", type: "text" }, { k: "c8", label: "8 192 : cache / temps", type: "text" }, { k: "c16", label: "16 384 : cache / temps", type: "text" }, { k: "tps", label: "Débit mesuré", unit: "tok/s", type: "num" }] },
+
+  { id: "N26-2", g: "s26", title: "Appliquer 8 192 : rechargement, conversation gardée", min: 6, mesure: true,
+    pre: "Suite de N26-1.",
+    steps: [
+      "Lancez « Mémoire des processus » (RSS avant).",
+      "« Fenêtre 4 096 ▾ » → 8 192 → « Appliquer » ; chronométrez jusqu'à ce que le bouton affiche « Fenêtre 8 192 ▾ ».",
+      "Vue humain : la conversation est toujours là. Relancez « Mémoire des processus » et « Fenêtre enregistrée ».",
+    ],
+    cmds: [{ label: "Mémoire des processus", ref: "peak" }, { label: "Fenêtre enregistrée", ref: "window-setting" }],
+    expect: ["Rechargement, conversation gardée, jauge sur 8 192.", "settings.json : {'window': 8192}."],
+    crit: "Rechargement en 30 s au plus ; hausse de RSS à ± 30 % de l'écart de cache annoncé (8 192 moins 4 096).",
+    report: "Durée, RSS avant et après.",
+    fields: [{ k: "duree", label: "Durée du rechargement", unit: "s", type: "num" }, { k: "rss0", label: "RSS avant", unit: "Mo", type: "num" }, { k: "rss1", label: "RSS après", unit: "Mo", type: "num" }] },
+
+  { id: "N26-3", g: "s26", title: "16 384 : MCP complet sans débordement (retest M4)", min: 12, mesure: true,
+    pre: "2B. Terminal du Journal.",
+    steps: [
+      "« Fenêtre ▾ » → 16 384 → « Appliquer ». Relevez le « Temps de lecture » annoncé pour 16 384.",
+      "Sélecteur de scénario → module 4 → « MCP en documentation complète ». Dans les options de la carte MCP, cochez aussi « Microsoft Learn » (trois serveurs).",
+      "Cliquez le prompt suggéré, « Envoyer ». Attendez la fin du tour.",
+      "Lancez « Journal » puis « Appels au modèle » : prompt_ms du premier appel.",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Appels au modèle", ref: "calls" }],
+    expect: ["Pas de « Contexte dépassé » là où 4 096 débordait."],
+    crit: "Aucun débordement ; noter si le premier token dépasse 30 s (NFR-1).",
+    report: "prompt_ms du premier appel, temps annoncé, jauge.",
+    fields: [{ k: "pms", label: "prompt_ms 1er appel", unit: "ms", type: "num" }, { k: "annonce", label: "Temps annoncé", unit: "s", type: "num" }, { k: "over", label: "Débordement ?", type: "yn" }] },
+
+  { id: "N26-4", g: "s26", title: "4B à 16 384 : verdict du budget", min: 6, opt: true,
+    pre: "P6 fait (budget fixe 6 144 Mo), 4B chargé. Sans P6, marquez « bloqué ».",
+    steps: ["« Fenêtre ▾ » → 16 384 : lisez le verdict.", "S'il tient, « Appliquer » et notez le résultat ; sinon lisez le refus.", "Revenez à 4 096, au 2B, puis « Budget par défaut » (P6)."],
+    expect: ["Refus : « Fenêtre de 16 384 tokens refusée : … », avec le budget et son calcul ; le 4B reste à la fenêtre précédente.", "Ou « ✓ Tient dans le budget »."],
+    crit: "Refus chiffré si le budget ne suffit pas ; sinon rechargement réussi.",
+    report: "Le verdict exact.",
+    fields: [{ k: "verdict", label: "Verdict", type: "text" }] },
+
+  { id: "N26-5", g: "s26", title: "Ollama llama3.2:3b à 8 192", min: 7,
+    pre: "Ollama lancé.",
+    steps: [
+      "Chargez « Local · Ollama · llama3.2:3b ». Envoyez « Bonjour », puis « ollama ps » (taille à 4 096).",
+      "« Fenêtre ▾ » : relevez le cache annoncé pour 8 192, puis « Appliquer ».",
+      "Envoyez « Bonjour », relancez « ollama ps ».",
+      "Revenez à 4 096 puis au 2B.",
+    ],
+    cmds: [{ label: "Ollama", ref: "ollama" }],
+    expect: ["Ollama recharge le modèle avec num_ctx 8192 : SIZE augmente."],
+    crit: "Hausse de SIZE ≈ hausse de cache annoncée (± 30 %).",
+    report: "SIZE avant et après ; cache annoncé.",
+    fields: [{ k: "s0", label: "SIZE à 4 096", type: "text" }, { k: "s1", label: "SIZE à 8 192", type: "text" }, { k: "kv", label: "Cache annoncé 8 192", type: "text" }] },
+
+  { id: "N26-6", g: "s26", title: "llama-server lancé à -c 4096 : fenêtre bornée", min: 5,
+    pre: "llama-server lancé avec -c 4096 (N25-6), WaveStack relancé depuis.",
+    steps: [
+      "Chargez « Local · llama-server · … ».",
+      "« Fenêtre ▾ » → 8 192 : lisez la ligne du choix ; « Appliquer ».",
+      "Lisez le bouton « Fenêtre … ▾ », son infobulle et la jauge.",
+    ],
+    expect: ["« bornée à 4 096 par llama-server (-c) ».", "Choix enregistré sans rechargement ; bouton et jauge sur la fenêtre effective, 4 096 ; infobulle « …, 8 192 choisi. »."],
+    crit: "La jauge reste à 4 096 ; l'infobulle du bouton dit « 8 192 choisi ».",
+    report: "Texte de la borne.",
+    fields: [{ k: "borne", label: "Texte de la borne", type: "text" }] },
+
+  { id: "N26-7", g: "s26", title: "Choix repris au lancement suivant, puis retour à 4 096", min: 6,
+    pre: "Suite de N26-6 (8 192 enregistré), llama-server toujours lancé à -c 4096.",
+    steps: [
+      "Arrêtez et relancez WaveStack.",
+      "Lisez le bouton de la barre haute au premier affichage, puis la ligne llama-server du diagnostic.",
+      "Arrêtez llama-server (Ctrl+C dans son terminal). Chargez le 2B intégré.",
+      "« Fenêtre ▾ » → 4 096 → « Appliquer » (indispensable pour le groupe 27).",
+    ],
+    expect: ["« Fenêtre 4 096 ▾ » au premier affichage (la fenêtre effective, comme en N26-6), infobulle « …, 8 192 choisi. ».", "Le diagnostic conseille de relancer llama-server avec -np 1 -c 8192."],
+    crit: "8 192 repris (infobulle) ; conseil -np 1 -c 8192 affiché ; retour à 4 096 fait.",
+    report: "Texte du conseil.",
+    fields: [{ k: "repris", label: "8 192 repris ?", type: "yn" }, { k: "conseil", label: "Conseil du diagnostic", type: "text" }, { k: "retour", label: "Revenu à 4 096 ?", type: "yn" }] },
+
+  { id: "N26-8", g: "s26", title: "Panneau « Fenêtre » à 125 % et 150 %, barre sur une ligne", min: 5,
+    pre: "Chrome puis Edge. F12, Ctrl+Maj+M, 1280 × 650.",
+    steps: ["Ouvrez « Fenêtre ▾ ».", "Zoom 125 % puis 150 % (Ctrl et +).", "Ctrl+0, fermez les outils de développement."],
+    expect: ["Barre haute sur une ligne ; panneau lisible, non coupé."],
+    crit: "Aucune commande de la barre haute sur deux lignes à 1280 × 650.",
+    report: "Capture à 150 %.",
+    fields: [{ k: "chrome", label: "Chrome conforme ?", type: "yn" }, { k: "edge", label: "Edge conforme ?", type: "yn" }] },
+
+  // ---------------------------------------------------------------- Story 27
+  { id: "N27-1", g: "s27", title: "Sous-agent : délégation, puis quiz rapides", min: 15, mesure: true,
+    pre: "2B, fenêtre 4 096. Terminal du Journal.",
+    steps: [
+      "Sélecteur de scénario → module 6 → « Sous-agent ». Vérifiez que RAG et Raisonnement sont éteints.",
+      "Envoyez les quatre prompts suggérés, dans l'ordre, chacun après la fin du précédent.",
+      "Lancez « Journal », « Appels au modèle » et « Sous-agent et préfixe ».",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Appels au modèle", ref: "calls" }, { label: "Sous-agent et préfixe", ref: "subagent" }],
+    expect: ["Délégation au premier prompt ; quiz répondus sans redélégation.", "Une seule ligne subagent_started."],
+    crit: "prompt_ms du premier appel de chaque quiz < 15 000 ; aucun « Préfixe non réutilisé » de cause history.",
+    known: "Le 27/09 : quiz 86,7 / 91,5 / 114,0 s RAG allumé, 4,1 / 3,4 / 3,6 s RAG éteint.",
+    report: "Les trois prompt_ms et les causes de préfixe.",
+    fields: [{ k: "q", label: "prompt_ms des 3 quiz", unit: "ms", type: "text" }, { k: "redeleg", label: "Redélégation ?", type: "yn" }, { k: "history", label: "Cause history vue ?", type: "yn" }] },
+
+  { id: "N27-2", g: "s27", title: "« Où vont mes données ? » actif dès le lancement", min: 7,
+    pre: "Edge (la spec le demande), Internet. Terminal du Journal.",
+    steps: [
+      "Sélecteur de scénario → « Transverses et métier » → « Où vont mes données ? ». Ne cochez rien.",
+      "Regardez la carte MCP et le schéma. Décochez puis recochez data.gouv.fr (options de la carte MCP) et regardez le flux.",
+      "Cliquez le prompt suggéré, « Envoyer ».",
+      "Lancez « Journal » puis « Outils et hooks ».",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Outils et hooks", ref: "tools" }],
+    expect: ["MCP actif, serveur local et data.gouv.fr cochés, lazy loading.", "load_tool_doc puis datagouv__search_datasets ; un flux data.gouv.fr franchit la frontière dans le schéma."],
+    crit: "tool_ended ok pour datagouv__search_datasets ; résultat ≤ 1 200 tokens.",
+    report: "Outils appelés et tokens gardés.",
+    fields: [{ k: "outils", label: "Outils appelés", type: "text" }, { k: "tok", label: "Tokens gardés", type: "num" }] },
+
+  { id: "N27-3", g: "s27", title: "Skills : load_skill, jamais load_tool_doc", min: 8, mesure: true,
+    pre: "2B. Terminal du Journal.",
+    steps: [
+      "Sélecteur de scénario → module 5 → « Skills ». Envoyez le prompt suggéré ; chronométrez le tour.",
+      "Lancez « Journal » puis « Outils et hooks ».",
+      "Si load_skill n'est pas appelé : « Afficher les actions forcées », carte Skills → « Déclencher le skill » sur « Compte rendu de réunion », puis « Rejouer le dernier prompt ».",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Outils et hooks", ref: "tools" }],
+    expect: ["load_skill (meeting_minutes) au premier tour, trigger model."],
+    crit: "tool_started load_skill au premier tour ; aucun load_tool_doc pour un skill.",
+    report: "Outil appelé, durée du tour, secours utilisé ou non.",
+    fields: [{ k: "outil", label: "Outil appelé", type: "text" }, { k: "duree", label: "Durée du tour", unit: "s", type: "num" }, { k: "secours", label: "Secours utilisé ?", type: "yn" }] },
+
+  { id: "N27-4", g: "s27", title: "MCP complet et Lazy loading : définition du glossaire", min: 8,
+    pre: "2B, fenêtre 4 096. Terminal du Journal.",
+    steps: [
+      "Scénario « MCP en documentation complète » (module 4), prompt suggéré, « Envoyer ».",
+      "Scénario « Lazy loading » (module 4), premier prompt suggéré, « Envoyer ».",
+      "Lancez « Journal » puis « Outils et hooks ».",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Outils et hooks", ref: "tools" }],
+    expect: ["local__define_term appelé (en lazy : après load_tool_doc) ; définition du glossaire."],
+    crit: "La réponse contient « Model Context Protocol » dans les deux scénarios.",
+    report: "Outils appelés et extrait de réponse.",
+    fields: [{ k: "full", label: "MCP complet conforme ?", type: "yn" }, { k: "lazy", label: "Lazy loading conforme ?", type: "yn" }] },
+
+  { id: "N27-5", g: "s27", title: "Métier IAM : recherche Microsoft Learn", min: 8,
+    pre: "Internet. Terminal du Journal.",
+    steps: ["Scénario « Métier IAM : Entra ID avec Microsoft Learn ». Envoyez les deux prompts suggérés.", "Lancez « Journal » puis « Outils et hooks »."],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Outils et hooks", ref: "tools" }],
+    expect: ["mslearn__microsoft_docs_search appelé ; liens Microsoft Learn cités."],
+    crit: "Au moins un appel par prompt ; résultat ≤ 1 200 tokens ; aucun « Contexte dépassé ».",
+    report: "Nombre d'appels par prompt.",
+    fields: [{ k: "p1", label: "Appels au prompt 1", type: "num" }, { k: "p2", label: "Appels au prompt 2", type: "num" }] },
+
+  { id: "N27-6", g: "s27", title: "Métier Souveraineté : vraie recherche data.gouv.fr", min: 8,
+    pre: "Internet. Terminal du Journal.",
+    steps: [
+      "Scénario « Métier Souveraineté : où partent les requêtes ? ». Envoyez le prompt 1.",
+      "Orchestration : dépliez l'étape de l'appel, bloc « 🌐 RÉSEAU · Données sortantes ».",
+      "Lancez « Journal » puis « Outils et hooks ». Sans appel : secours de la consigne (« Charger la documentation » sur data.gouv.fr dans la carte MCP, puis « Rejouer le dernier prompt »).",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Outils et hooks", ref: "tools" }],
+    expect: ["datagouv__search_datasets ok après chargement de la documentation ; URL, corps et en-têtes visibles."],
+    crit: "datagouv__search_datasets ok au prompt 1.",
+    report: "Outils appelés ; secours utilisé ou non.",
+    fields: [{ k: "ok", label: "Recherche ok ?", type: "yn" }, { k: "secours", label: "Secours utilisé ?", type: "yn" }] },
+
+  { id: "N27-7", g: "s27", title: "Métier SOC : bon fichier, blocage H1, escalade", min: 10,
+    pre: "2B. Terminal du Journal.",
+    steps: ["Scénario « Métier SOC : journal d'audit et garde-fou ». Envoyez les deux prompts suggérés.", "Lancez « Journal » puis « Outils et hooks ».", "Lisez la seconde réponse."],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Outils et hooks", ref: "tools" }],
+    expect: ["Prompt 1 : lecture d'alertes_siem.log (ou nom corrigé après refus du harnais).", "Prompt 2 : h1 block ; la réponse signale le refus et renvoie vers un humain."],
+    crit: "hook_decided h1 block ; la réponse contient « analyste » ou « habilité ». Sinon KO : la consigne porte seule la leçon.",
+    report: "Fichier lu au prompt 1 ; extrait de la seconde réponse.",
+    fields: [{ k: "fichier", label: "Fichier lu au prompt 1", type: "text" }, { k: "escalade", label: "Escalade dans la réponse ?", type: "yn" }] },
+
+  { id: "N27-8", g: "s27", title: "Compression éteinte : le modèle lit le journal", min: 8,
+    pre: "2B. Terminal du Journal.",
+    steps: [
+      "Scénario « Compression du contexte » (module 6). Éteignez la brique « Compression ».",
+      "Envoyez le prompt 1. Lancez « Journal » puis « Outils et hooks ».",
+      "Si rien n'est lu : « Afficher les actions forcées », carte Outils → « Forcer l'appel » sur « Lecture de fichier » → préréglage « Journal de sauvegarde (compression) » → « Armer », puis « Rejouer le dernier prompt ».",
+    ],
+    cmds: [{ label: "Journal", ref: "journal" }, { label: "Outils et hooks", ref: "tools" }],
+    expect: ["read_file(journal_serveur.log) appelé par le modèle, sans débordement."],
+    crit: "tool_started read_file avec trigger model au premier essai ; jauge sous 3 584.",
+    report: "Trigger, jauge ; secours utilisé ou non.",
+    fields: [{ k: "trigger", label: "Trigger de read_file", type: "text" }, { k: "jauge", label: "Jauge après le tour", type: "num" }] },
+
+  { id: "N27-9", g: "s27", title: "Test « fits » avec le vrai tokenizer du 2B", min: 5,
+    pre: "PowerShell à la racine du clone. WaveStack peut rester lancé.",
+    steps: ["Lancez le bloc « Test fits ».", "Lisez le tableau imprimé (marge par scénario)."],
+    cmds: [{ label: "Test fits", ref: "fits" }],
+    expect: ["Test réussi, jauge locale exacte."],
+    crit: "mcp_full tient avec son nouveau prompt ; chaque scénario garde une marge positive.",
+    report: "Marge de mcp_full et la plus petite marge.",
+    fields: [{ k: "mcp", label: "Marge mcp_full", unit: "tokens", type: "num" }, { k: "min", label: "Plus petite marge", type: "text" }] },
+
+  { id: "N27-10", g: "s27", title: "Consignes suivies par un formateur novice", min: 10,
+    pre: "Une personne qui ne connaît pas WaveStack.",
+    steps: ["Faites-lui lancer « Où vont mes données ? », « Skills » puis « Métier SOC ».", "Pour chacun : « Afficher plus », lecture, puis elle suit la consigne sans aide.", "Chronométrez chaque consigne."],
+    expect: ["Elle sait quoi cliquer et quoi dire."],
+    crit: "Chaque consigne suivie jusqu'au bout en moins de 2 min.",
+    report: "Temps par consigne ; points de blocage.",
+    fields: [{ k: "t", label: "Temps (3 consignes)", type: "text" }] },
+
+  // ---------------------------------------------------------------- Story 31
+  { id: "N31-0", g: "s31", title: "Tour d'horizon : le sélecteur de thème et la palette sombre", min: 6,
+    pre: "Chrome, Windows en mode clair, fenêtre plein écran (plus de 1400 px de large). Le tour Wikipédia de N33-0 dans la session.",
+    steps: [
+      "Barre haute, juste avant « ⟲ Réinitialiser » : le sélecteur « Thème de l'interface » montre « ◐ Système ». Choisissez « ☾ Sombre ».",
+      "Parcourez les cinq volets et la barre haute.",
+      "Regardez les bords : barre haute, bulle de l'utilisateur, pastilles 1 à 4 des volets, plaque du modèle (robot) dans le schéma.",
+      "Regardez les commandes de la barre haute (sélecteurs de scénario et de modèle, « Fenêtre ▾ », « Volets ▾ », « Mode projection », thème).",
+      "Revenez à « ◐ Système ».",
+    ],
+    expect: [
+      "Palette sombre dessinée (pas une inversion) : fonds sombres, barre haute et bulle de l'utilisateur en violet profond.",
+      "Un bord violet visible autour de la barre haute, de la bulle de l'utilisateur, des pastilles des volets et de la plaque du robot (visière sombre, yeux clairs).",
+      "Les commandes de la barre haute bordées d'un filet clair (lilas) qui les détache du fond.",
+      "Jaune « RÉSEAU » toujours accompagné du libellé ou du globe.",
+    ],
+    crit: "Tous les éléments ci-dessus se distinguent du fond de la page en sombre.",
+    report: "Capture de l'atelier en sombre ; élément qui se fond dans le fond.",
+    fields: [{ k: "bords", label: "Bords visibles ?", type: "yn" }, { k: "ok", label: "Palette lisible ?", type: "yn" }] },
+
+  { id: "N31-1", g: "s31", title: "Sélecteur compact sous 1400 px, au clavier compris", min: 6,
+    pre: "Chrome puis Edge. Fenêtre réduite sous 1400 px de large : F12, Ctrl+Maj+M (barre d'appareil), « Dimensions : Responsive », 1366 × 768, ou fenêtre non maximisée.",
+    steps: [
+      "Regardez le sélecteur de thème dans la barre haute.",
+      "Cliquez-le : la liste native s'ouvre ; choisissez « ☾ Sombre », puis « ☀ Clair ».",
+      "Au clavier : cliquez sur le titre « WaveStack », puis Tab jusqu'au sélecteur de thème. Flèche bas / flèche haut (ou Alt+flèche bas pour ouvrir la liste) pour changer le choix.",
+      "Revenez à « ◐ Système », fermez les outils de développement.",
+    ],
+    expect: [
+      "Forme compacte : « ◐▾ », « ☀▾ » ou « ☾▾ » selon le choix, sans le mot.",
+      "Le symbole suit le choix aussitôt ; la barre haute reste sur une ligne.",
+      "Au clavier : anneau de focus visible autour du sélecteur compact ; les flèches changent le thème.",
+    ],
+    crit: "Symbole juste pour les trois choix ; utilisable à la souris et au clavier, focus visible, dans les deux navigateurs.",
+    report: "Capture de la barre à 1366 px ; navigateur où le clavier ne marche pas.",
+    fields: [{ k: "chrome", label: "Chrome conforme ?", type: "yn" }, { k: "edge", label: "Edge conforme ?", type: "yn" }, { k: "clavier", label: "Clavier et focus conformes ?", type: "yn" }] },
+
+  { id: "N31-2", g: "s31", title: "Suivi du mode de Windows sans rechargement", min: 5,
+    pre: "Sélecteur sur « ◐ Système ».",
+    steps: ["Paramètres → Personnalisation → Couleurs → « Choisir votre mode » : Sombre.", "Regardez WaveStack dans Chrome, puis dans Edge, sans recharger.", "Repassez Windows en Clair."],
+    expect: ["L'atelier passe en sombre puis revient en clair de lui-même."],
+    crit: "Bascule en moins de 2 s, sans rechargement, dans les deux navigateurs.",
+    report: "Délai observé par navigateur.",
+    fields: [{ k: "chrome", label: "Chrome conforme ?", type: "yn" }, { k: "edge", label: "Edge conforme ?", type: "yn" }] },
+
+  { id: "N31-3", g: "s31", title: "Autre onglet et page rouverte par « Précédent » suivent le choix", min: 5,
+    pre: "Chrome, « ◐ Système », Windows en clair.",
+    steps: [
+      "Ouvrez WaveStack dans deux onglets (A et B) côte à côte, ou passez de l'un à l'autre.",
+      "Dans A, choisissez « ☾ Sombre ». Regardez B sans le recharger.",
+      "Dans B, ouvrez /diagnostic (indicateur du modèle ou « Volets ▾ » → « Diagnostic ») ; choisissez « ☀ Clair » sur cette page.",
+      "Bouton « Précédent » du navigateur : l'atelier revient. Regardez son thème et son sélecteur.",
+      "Revenez à « ◐ Système ».",
+    ],
+    expect: ["B passe en sombre sans rechargement, son sélecteur sur « ☾ Sombre ».", "Après « Précédent » : atelier en clair, sélecteur sur « ☀ Clair » (pas l'ancien choix)."],
+    crit: "Onglet voisin et page restaurée par « Précédent » affichent le dernier choix.",
+    report: "Ce qui reste sur l'ancien thème.",
+    fields: [{ k: "onglet", label: "Autre onglet suit ?", type: "yn" }, { k: "back", label: "« Précédent » suit ?", type: "yn" }] },
+
+  { id: "N31-4", g: "s31", title: "Pas d'éclair blanc au rechargement", min: 5,
+    pre: "Edge, « ☾ Sombre » choisi.",
+    steps: ["Lancez un changement de modèle qui prend quelques secondes (Qwen3.5-4B si P6, sinon qwen3.5:2b d'Ollama).", "Pendant le chargement, F5 ; recommencez 5 fois.", "Au besoin, DevTools → Performance, cochez « Captures d'écran » : la première image est déjà sombre."],
+    expect: ["Aucun éclair blanc."],
+    crit: "Aucune image claire visible sur 5 rechargements.",
+    report: "Nombre d'éclairs vus.",
+    fields: [{ k: "flash", label: "Éclairs sur 5", type: "num" }] },
+
+  { id: "N31-5", g: "s31", title: "Diagnostic et /models : nouvel aspect clair et sombre", min: 6,
+    pre: "Chrome. La page de diagnostic passe aux jetons de l'atelier : son aspect clair change (retouche acceptée, DESIGN.md).",
+    steps: [
+      "Thème « ☀ Clair » : ouvrez /diagnostic.",
+      "Regardez les lignes de vérification, la ligne du modèle cloud et les étiquettes « RÉSEAU » et « Local ».",
+      "Onglet « Modèles » (/models), même lecture.",
+      "Passez les deux pages en « ☾ Sombre » par leur propre sélecteur.",
+      "Revenez à « ◐ Système ».",
+    ],
+    expect: [
+      "Clair : fond de l'atelier ; lignes sur fonds doux (vert d'accent, jaune d'avertissement, rose d'erreur) au lieu des anciens vert, orange et rose en dur ; résultat en encre derrière un filet d'état coloré.",
+      "Modèle cloud sur fond jaune doux ; « RÉSEAU » en jaune de charte, « Local » en neutre (plus de violet).",
+      "Sombre : les deux pages sombres, lisibles, leur sélecteur sur « ☾ Sombre ».",
+    ],
+    crit: "Chaque ligne se lit dans les deux thèmes ; l'état (ok, avertissement, erreur) reste reconnaissable sans la couleur seule.",
+    report: "Captures du diagnostic en clair et en sombre.",
+    fields: [{ k: "clair", label: "Clair conforme ?", type: "yn" }, { k: "sombre", label: "Sombre conforme ?", type: "yn" }] },
+
+  { id: "N31-6", g: "s31", title: "Sombre en projection et en visio : clair ou sombre pour la salle ?", min: 8,
+    pre: "Vidéoprojecteur, puis Teams (partage d'écran à 125 %).",
+    steps: ["« ☾ Sombre », scénario « Outils réseau », envoyez « Résume l'article Wikipédia sur le Mont-Saint-Michel. ».", "Projetez : lisez jauge, lignes d'état, nœuds du schéma à 3 m.", "Partagez dans Teams à 125 %, relisez à distance.", "Comparez avec « ☀ Clair »."],
+    expect: ["Barre haute, légendes, segments, jaune « RÉSEAU » et schéma lisibles."],
+    crit: "Tout se lit à 3 m et dans la visio ; vous tranchez clair ou sombre pour la salle.",
+    report: "Votre choix pour la salle.",
+    fields: [{ k: "choix", label: "Choix pour la salle", type: "text" }] },
+
+  { id: "N31-7", g: "s31", title: "Contrastes en sombre (Lighthouse) sur trois pages", min: 10,
+    pre: "Edge, « ☾ Sombre », le tour de N31-6.",
+    steps: ["F12 → « Lighthouse » → « Accessibilité » seule → « Analyser le chargement de la page » sur l'atelier.", "Même chose sur /diagnostic puis /models."],
+    expect: ["Aucun défaut « Contrast »."],
+    crit: "0 élément signalé sur les trois pages.",
+    report: "Éléments signalés par page.",
+    fields: [{ k: "app", label: "Atelier", type: "num" }, { k: "diag", label: "/diagnostic", type: "num" }, { k: "models", label: "/models", type: "num" }] },
+
+  { id: "N31-8", g: "s31", title: "Choix mémorisé, et fenêtre InPrivate sans erreur", min: 6,
+    pre: "Chrome et Edge.",
+    steps: [
+      "Chrome : « ☾ Sombre », fermez Chrome, arrêtez et relancez WaveStack ; rouvrez http://127.0.0.1:8420/.",
+      "Edge : nouvelle fenêtre InPrivate (Ctrl+Maj+N), ouvrez WaveStack, F12 → Console, choisissez « ☾ Sombre ».",
+      "Fermez InPrivate, rouvrez-en une.",
+      "Remettez « ◐ Système » dans Chrome.",
+    ],
+    expect: ["Chrome : sombre repris au lancement suivant.", "InPrivate : choix appliqué sans erreur, oublié à la fermeture."],
+    crit: "Thème repris ; aucune erreur dans la console.",
+    report: "Erreurs de console, s'il y en a.",
+    fields: [{ k: "repris", label: "Repris dans Chrome ?", type: "yn" }, { k: "console", label: "Erreur de console ?", type: "yn" }] },
+];
+
+const STATUS_LABEL = { ok: "OK", ko: "KO", na: "Non fait", bl: "Bloqué", "": "à faire" };
+const STATUSES = ["ok", "ko", "na", "bl"];
+const KEY = "recette-nuit-2026-09-28";
+const COLLECTION = "results-nuit";
+const MEASURE_FR = "Mesure : fermez Edge, Outlook et Teams avant la mesure (Edge aussi depuis sa zone de notification). Utilisez Chrome pour ce cahier et pour WaveStack.";
+const state = {};
+let filter = "all";
+let db = null;
+const timers = {};
+const writing = {};
+
+function blank() { return { status: "", fields: {}, checks: {}, note: "", updatedAt: 0 }; }
+function rec(id) {
+  const r = state[id] || (state[id] = blank());
+  r.fields = r.fields || {};
+  r.checks = r.checks || {};
+  return r;
+}
+function cmdText(ref) {
+  const node = document.getElementById("cmd-" + ref);
+  return node ? node.textContent.replace(/^\n+|\s+$/g, "") : "";
+}
+
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) Object.assign(state, JSON.parse(raw));
+  } catch (e) { /* storage unavailable */ }
+}
+function saveLocal() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ }
+}
+
+function el(tag, attrs, children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "html") n.innerHTML = v;
+    else if (k === "text") n.textContent = v;
+    else n.setAttribute(k, v);
+  }
+  for (const c of children || []) if (c) n.append(c);
+  return n;
+}
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { t.hidden = true; }, 1800);
+}
+
+async function copyText(text, fallbackArea) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Copié");
+  } catch (e) {
+    if (fallbackArea) {
+      fallbackArea.focus();
+      fallbackArea.select();
+      toast("Sélectionné : Ctrl+C pour copier");
+    } else {
+      toast("Copie refusée : sélectionnez le texte à la main");
+    }
+  }
+}
+
+function persist(id) {
+  const r = rec(id);
+  r.updatedAt = Date.now();
+  saveLocal();
+  updateSummary();
+  if (!db) return;
+  clearTimeout(timers[id]);
+  timers[id] = setTimeout(() => flush(id), 700);
+}
+async function flush(id) {
+  if (!db) return;
+  if (writing[id]) { timers[id] = setTimeout(() => flush(id), 400); return; }
+  writing[id] = true;
+  try {
+    await db.doc(COLLECTION + "/" + id).set(JSON.parse(JSON.stringify(rec(id))));
+  } catch (e) {
+    if (e && (e.code === "not_granted" || e.code === "revoked" || e.code === "invalid_argument")) setSync(false);
+  } finally {
+    writing[id] = false;
+    delete timers[id];
+  }
+}
+
+function setSync(cloud) {
+  const s = document.getElementById("sync");
+  s.classList.toggle("cloud", cloud);
+  s.querySelector("span").textContent = cloud ? "Enregistré sur claude.ai" : "Enregistré dans ce navigateur";
+}
+
+function fieldControl(t, f) {
+  const id = `f-${t.id}-${f.k}`;
+  const r = rec(t.id);
+  const wrap = el("div", { class: "field" });
+  wrap.append(el("label", { for: id, text: f.label }));
+  const box = el("div", { class: "inp" });
+  let input;
+  if (f.type === "yn") {
+    input = el("select", { id });
+    for (const [v, l] of [["", "—"], ["oui", "oui"], ["non", "non"]]) input.append(el("option", { value: v, text: l }));
+  } else {
+    input = el("input", { id, type: "text", inputmode: f.type === "num" ? "decimal" : "text", autocomplete: "off" });
+  }
+  input.value = r.fields[f.k] || "";
+  const on = () => { rec(t.id).fields[f.k] = input.value.trim(); persist(t.id); };
+  input.addEventListener(f.type === "yn" ? "change" : "input", on);
+  box.append(input);
+  if (f.unit) box.append(el("span", { class: "unit", text: f.unit }));
+  wrap.append(box);
+  return wrap;
+}
+
+function storyOf(t) { return t.g === "prep" ? "Préparation" : "Story " + t.g.slice(1); }
+
+function renderCase(t) {
+  const r = rec(t.id);
+  const card = el("article", { class: "case", id: "case-" + t.id, "data-status": r.status || "todo" });
+  const meta = el("div", { class: "meta" }, [
+    el("span", { class: "id", text: t.id }),
+    el("span", { class: "tag story", text: storyOf(t) }),
+    el("span", { class: "tag", text: "≈ " + t.min + " min" }),
+    t.mesure ? el("span", { class: "tag mesure", text: "Mesure" }) : null,
+    t.opt ? el("span", { class: "tag opt", text: "Facultatif" }) : null,
+  ]);
+  const title = el("div", { class: "case-title" }, [meta, el("h3", { text: t.title })]);
+  const seg = el("div", { class: "seg", role: "group", "aria-label": "Statut de " + t.id });
+  for (const v of STATUSES) {
+    const b = el("button", { type: "button", "data-v": v, "aria-pressed": String(r.status === v), id: `s-${t.id}-${v}`, text: STATUS_LABEL[v] });
+    b.addEventListener("click", () => {
+      const cur = rec(t.id);
+      cur.status = cur.status === v ? "" : v;
+      seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === cur.status)));
+      card.dataset.status = cur.status || "todo";
+      persist(t.id);
+      applyFilter();
+    });
+    seg.append(b);
+  }
+  card.append(el("div", { class: "case-head" }, [title, seg]));
+
+  const body = el("div", { class: "case-body" });
+  if (t.mesure) body.append(el("div", { class: "measure-banner", html: "<b>Mesure</b> · " + MEASURE_FR.replace(/^Mesure : /, "") }));
+  const left = el("div", { class: "block" });
+  const right = el("div", { class: "block" });
+  if (t.pre) left.append(el("span", { class: "label", text: "Prérequis" }), el("div", { class: "prereq", text: t.pre }));
+  if (t.steps) {
+    left.append(el("span", { class: "label", text: "Geste" }));
+    const ol = el("ol", { class: "steps" });
+    t.steps.forEach((s) => ol.append(el("li", { text: s })));
+    left.append(ol);
+  }
+  if (t.checks) {
+    left.append(el("span", { class: "label", text: "À cocher" }));
+    const box = el("div", { class: "checks" });
+    t.checks.forEach((c, i) => {
+      const cid = `c-${t.id}-${i}`;
+      const cb = el("input", { type: "checkbox", id: cid });
+      cb.checked = !!r.checks[i];
+      cb.addEventListener("change", () => { rec(t.id).checks[i] = cb.checked; persist(t.id); });
+      box.append(el("label", { for: cid }, [cb, el("span", { text: c })]));
+    });
+    left.append(box);
+  }
+  (t.cmds || []).forEach((c) => {
+    const code = cmdText(c.ref);
+    const pre = el("pre", { text: code });
+    const btn = el("button", { type: "button", text: "Copier", "aria-label": "Copier : " + c.label });
+    btn.addEventListener("click", () => copyText(code));
+    left.append(el("span", { class: "cmd-label", text: c.label }), el("div", { class: "cmd", "data-cmd": c.ref }, [pre, btn]));
+  });
+  if (t.expect) {
+    right.append(el("span", { class: "label", text: "Ce que vous devez voir" }));
+    const ul = el("ul", { class: "expect" });
+    t.expect.forEach((s) => ul.append(el("li", { text: s })));
+    right.append(ul);
+  }
+  if (t.crit) right.append(el("div", { class: "crit" }, [el("span", { class: "label", text: "Critère OK / KO" }), el("div", { text: t.crit })]));
+  if (t.report) right.append(el("div", { class: "report-what" }, [el("span", { class: "label", text: "À rapporter" }), el("div", { text: t.report })]));
+  if (t.known) right.append(el("div", { class: "known" }, [el("span", { class: "label", text: "À savoir" }), el("div", { text: t.known })]));
+  body.append(el("div", { class: "cols" }, [left, right]));
+
+  if (t.fields && t.fields.length) {
+    const fields = el("div", { class: "fields" });
+    t.fields.forEach((f) => fields.append(fieldControl(t, f)));
+    body.append(el("div", { class: "block" }, [el("span", { class: "label", text: "Valeurs relevées" }), fields]));
+  }
+  const nid = `n-${t.id}`;
+  const note = el("textarea", { id: nid, rows: "2", placeholder: "Ce que vous avez vu, message affiché, nom de la capture…" });
+  note.value = r.note || "";
+  note.addEventListener("input", () => { rec(t.id).note = note.value; persist(t.id); });
+  body.append(el("div", { class: "block" }, [el("label", { class: "label", for: nid, text: "Note libre" }), note]));
+  card.append(body);
+  return card;
+}
+
+function render() {
+  const host = document.getElementById("groups");
+  host.textContent = "";
+  const toc = document.getElementById("toc");
+  toc.textContent = "";
+  for (const g of GROUPS) {
+    const items = TESTS.filter((t) => t.g === g.id);
+    const mins = items.reduce((a, t) => a + t.min, 0);
+    const head = el("div", { class: "group-head" }, [
+      el("div", { class: "row" }, [el("h2", { text: g.title }), el("p", { text: `${items.length} tests · ≈ ${fmtMin(mins)}` })]),
+      el("p", { text: g.sub }),
+      g.note ? el("p", { class: "gnote", text: g.note }) : null,
+    ]);
+    const sec = el("section", { class: "group", id: "g-" + g.id }, [head]);
+    items.forEach((t) => sec.append(renderCase(t)));
+    host.append(sec);
+    const short = g.id === "prep" ? "Préparation" : g.title.split(" · ")[0] + " · " + g.title.split(" · ")[1].split(",")[0];
+    toc.append(el("a", { href: "#g-" + g.id, "data-g": g.id }, [document.createTextNode(short), el("span", { id: "toc-" + g.id })]));
+  }
+  updateSummary();
+  applyFilter();
+}
+
+function fmtMin(m) { return m >= 60 ? Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") : m + " min"; }
+
+function updateSummary() {
+  const n = { ok: 0, ko: 0, na: 0, bl: 0, todo: 0 };
+  let remain = 0;
+  for (const t of TESTS) {
+    const s = rec(t.id).status;
+    if (s) n[s]++; else { n.todo++; remain += t.min; }
+  }
+  for (const k of Object.keys(n)) document.getElementById("n-" + k).textContent = n[k];
+  const total = TESTS.length;
+  const bar = document.getElementById("bar");
+  bar.textContent = "";
+  for (const k of STATUSES) if (n[k]) bar.append(el("span", { class: "b-" + k, style: `width:${(n[k] / total) * 100}%` }));
+  document.getElementById("remain").textContent = n.todo
+    ? `${total} tests · reste ≈ ${fmtMin(remain)} sur ${fmtMin(TESTS.reduce((a, t) => a + t.min, 0))}`
+    : "Tous les tests ont un statut.";
+  for (const g of GROUPS) {
+    const items = TESTS.filter((t) => t.g === g.id);
+    const done = items.filter((t) => rec(t.id).status).length;
+    const s = document.getElementById("toc-" + g.id);
+    if (s) s.textContent = done + "/" + items.length;
+  }
+}
+
+function applyFilter() {
+  for (const t of TESTS) {
+    const s = rec(t.id).status;
+    const show = filter === "all" || (filter === "todo" && !s) || (filter === "ko" && s === "ko") || (filter === "bl" && s === "bl") || (filter === "mesure" && t.mesure);
+    document.getElementById("case-" + t.id).hidden = !show;
+  }
+}
+
+function report() {
+  const lines = ["# Recette de la nuit du 28/09 (stories 22 à 27, 31 à 34) — compte rendu", ""];
+  const n = { ok: 0, ko: 0, na: 0, bl: 0, "": 0 };
+  TESTS.forEach((t) => n[rec(t.id).status || ""]++);
+  lines.push(`OK ${n.ok} · KO ${n.ko} · non fait ${n.na} · bloqué ${n.bl} · à faire ${n[""]}`, "");
+  for (const g of GROUPS) {
+    lines.push("## " + g.title);
+    for (const t of TESTS.filter((x) => x.g === g.id)) {
+      const r = rec(t.id);
+      lines.push(`- ${t.id} ${t.title}${t.mesure ? " [mesure]" : ""} : ${STATUS_LABEL[r.status || ""]}`);
+      for (const f of t.fields || []) {
+        const v = r.fields[f.k];
+        if (v) lines.push(`  - ${f.label} : ${v}${f.unit ? " " + f.unit : ""}`);
+      }
+      if (t.checks) {
+        const missed = t.checks.filter((_, i) => !r.checks[i]);
+        if (r.status && missed.length) lines.push(`  - non cochés : ${missed.join(" ; ")}`);
+      }
+      if (r.note && r.note.trim()) lines.push(`  - note : ${r.note.trim().replace(/\n+/g, " / ")}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function showReport() {
+  const sec = document.getElementById("report");
+  const area = document.getElementById("report-text");
+  area.value = report();
+  sec.hidden = false;
+  sec.scrollIntoView();
+  return area;
+}
+
+document.getElementById("copy-report").addEventListener("click", () => {
+  const area = document.getElementById("report-text");
+  area.value = report();
+  document.getElementById("report").hidden = false;
+  copyText(area.value, area);
+});
+document.getElementById("copy-report-2").addEventListener("click", () => {
+  const area = document.getElementById("report-text");
+  copyText(area.value, area);
+});
+document.getElementById("show-report").addEventListener("click", showReport);
+document.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => {
+  filter = c.dataset.f;
+  document.querySelectorAll(".chip").forEach((x) => x.setAttribute("aria-pressed", String(x === c)));
+  applyFilter();
+}));
+
+loadLocal();
+render();
+
+(async () => {
+  if (!window.claude || typeof window.claude.use !== "function") return;
+  let handle = null;
+  try { handle = await window.claude.use("db"); } catch (e) { handle = null; }
+  if (!handle) return;
+  db = handle;
+  setSync(true);
+  let first = true;
+  db.collection(COLLECTION).onSnapshot((snap) => {
+    let changed = false;
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (!data) continue;
+      const mine = rec(d.id);
+      if ((data.updatedAt || 0) > (mine.updatedAt || 0) && !timers[d.id]) {
+        state[d.id] = JSON.parse(JSON.stringify(data));
+        changed = true;
+      }
+    }
+    if (first) {
+      first = false;
+      // Local entries newer than the store (typed before it answered): send them once.
+      for (const t of TESTS) {
+        const remote = snap.docs.find((d) => d.id === t.id);
+        const ru = remote && remote.data() ? remote.data().updatedAt || 0 : 0;
+        if ((rec(t.id).updatedAt || 0) > ru) flush(t.id);
+      }
+    }
+    if (changed) {
+      const active = document.activeElement && document.activeElement.id;
+      saveLocal();
+      render();
+      if (active && document.getElementById(active)) document.getElementById(active).focus();
+    }
+  }, () => setSync(false));
+})();
+</script>
+</body>
+</html>

@@ -220,8 +220,13 @@ def _plan(
         ]
     if "entra id" in low and (hit := _mcp_search("mslearn", "Entra ID", offered, lazy)):
         return hit  # story 21: IAM and sovereignty, Microsoft Learn's search
-    if "data.gouv" in low and (hit := _mcp_search("datagouv", "cybersécurité", offered, lazy)):
-        return hit  # story 21: sovereignty, data.gouv.fr's search
+    # Story 21: sovereignty, data.gouv.fr's search; story 27: the air quality prompts of
+    # `mcp_lazy` and `data_flows` name data.gouv.fr too, and search their own subject.
+    air = "qualité de l'air" in low
+    if (air or "data.gouv" in low) and (
+        hit := _mcp_search("datagouv", "air" if air else "cybersécurité", offered, lazy)
+    ):
+        return hit
     if "recette_crepes" in low or "crêpes" in low:
         return [("read_file", {"path": "recette_crepes.txt"})]
     if "notes_reunion" in low:
@@ -242,8 +247,6 @@ def _plan(
             ("load_tool_doc", {"tool": "local__define_term"}),
             ("local__define_term", {"term": "MCP"}),
         ]
-    if "qualité de l'air" in low and (hit := _mcp_search("datagouv", "air", offered, lazy)):
-        return hit
     if "compte rendu" in low:
         return [("load_skill", {"skill": "meeting_minutes"})]
     remember = re.search(r"retiens que (.+)", user, re.IGNORECASE)

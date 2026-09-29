@@ -165,6 +165,9 @@ class RenderedContext:
     prompt: str
     ids: list[int]
     segments: list[Segment]
+    # Story 32: the leading segments the previous call of the same context read already in
+    # the turn (`seen_prefix`), set by the session; the gauge's `seen_segments`.
+    seen: int = 0
 
 
 def _neutralize(part: Part, special: re.Pattern[str] | None) -> Part:
@@ -416,6 +419,9 @@ class RenderedChat:
     body: str
     segments: list[Segment]
     estimates: list[int]
+    # Story 32: as `RenderedContext.seen`; kept here so that `context_reconciled` carries the
+    # `seen_segments` of its `context_rendered`.
+    seen: int = 0
 
     @property
     def raw_total(self) -> int:

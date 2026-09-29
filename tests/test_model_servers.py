@@ -199,7 +199,9 @@ class FakeServer:
 
     def _ollama(self, path: str, body: dict) -> httpx.Response:
         if path == "/api/tags":
-            return httpx.Response(200, json={"models": [{"name": OLLAMA_NAME, "size": GIB}]})
+            details = {"family": "qwen35", "parameter_size": "2B"}  # story 25
+            model = {"name": OLLAMA_NAME, "size": GIB, "details": details}
+            return httpx.Response(200, json={"models": [model]})
         if path == "/api/ps":
             models = [{"name": OLLAMA_NAME, "size": self.ps_size}] if self.ps_size else []
             models += [{"name": "autre:latest", "size": GIB}]  # another client's model
@@ -633,7 +635,7 @@ def _diagnostic(monkeypatch, tmp_path, models: tuple[str, ...] = ()) -> Diagnost
     for name in models:
         (config.models_dir() / name).write_bytes(b"placeholder")
     session = DiagnosticSession(config.load_config(), port=8420)
-    monkeypatch.setattr(session, "_probe_candidate", lambda candidate: None)
+    monkeypatch.setattr(session, "_probe_candidate", lambda candidate, cancel=None: None)
     return session
 
 
@@ -776,6 +778,32 @@ def test_server_candidates_one_per_served_model(monkeypatch, tmp_path, fake):
     )
     fake.down = True
     assert discovery._server_candidates(cfg) == []  # a silent server: nothing listed
+
+
+def test_served_models_keep_ollama_details_and_llama_server_template(monkeypatch, fake):
+    """Story 25: what the model table needs, read from the answers discovery already
+    fetched (`/api/tags`, `/props`, `/v1/models`), never by another request."""
+    paths: list[str] = []
+
+    def recording(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return fake(request)
+
+    monkeypatch.setattr(servers, "default_transport", httpx.MockTransport(recording))
+    by_engine = {m.engine: m for m in servers.list_served(config.load_config())}
+    assert sorted(paths) == ["/api/ps", "/api/tags", "/health", "/props", "/v1/models"]
+    ollama, llama = by_engine["ollama"], by_engine["llama_server"]
+    assert (ollama.family, ollama.parameter_size) == ("qwen35", "2B")
+    assert (llama.chat_template, llama.n_ctx_train, llama.size) == (QWEN, 32768, 2 * GIB)
+    # …handed to the candidates, the template never sent in `/api/diagnostic`.
+    by_engine = {c.engine: c for c in discovery._server_candidates(config.load_config())}
+    assert (by_engine["ollama"].publisher_hint, by_engine["ollama"].params_label) == (
+        "qwen35",
+        "2B",
+    )
+    candidate = by_engine["llama_server"]
+    assert (candidate.server_template, candidate.native_context) == (QWEN, 32768)
+    assert "server_template" not in candidate.model_dump()
 
 
 def test_loopback_client_refuses_any_other_host():
@@ -1320,6 +1348,25 @@ def test_llama_server_memory_counts_its_whole_context(fake, n_ctx, warned):
         assert candidate.warning_fr is None
 
 
+@pytest.mark.parametrize(("n_ctx", "window"), [(4096, 8192), (32_768, 4096), (8192, 8192)])
+def test_llama_server_under_the_window_chosen_is_advised_to_relaunch(fake, n_ctx, window):
+    """Lot K (A3): `-c 4096` under the window chosen (8 192): relaunch it with
+    `-np 1 -c 8192`; a larger context keeps its own advice, an equal one none."""
+    config.save_setting("context", {"window": window})
+    fake.n_ctx, fake.model_path = n_ctx, TINY
+
+    warning = _llama_candidate(fake).warning_fr
+
+    if n_ctx < window:
+        assert "contexte de 4 096 tokens par emplacement" in warning
+        assert "sous la fenêtre choisie de 8 192" in warning
+        assert warning.endswith("relancez-le avec `-np 1 -c 8192`.")
+    elif n_ctx > window:
+        assert warning.endswith("relancez-le avec `-c 4096`.")
+    else:
+        assert warning is None
+
+
 def test_llama_server_kv_unreadable_counts_the_file_and_keeps_the_warning(fake):
     fake.n_ctx = 262_144  # `model_path` is not on this disk: no KV readable
 
@@ -1398,6 +1445,29 @@ def test_diagnostic_advises_c_4096_for_the_served_model(monkeypatch, tmp_path, f
     assert result.server.warning_fr and result.server.served_bytes > 128 * 262_144
 
 
+def test_diagnostic_advises_np_1_c_8192_when_the_server_is_under_the_window(
+    monkeypatch, tmp_path, fake
+):
+    """Lot K (A3, N26-7): 8 192 chosen, llama-server relaunched at `-c 4096`: the model's
+    line at the diagnostic advises `-np 1 -c 8192`."""
+    fake.ollama, fake.n_ctx, fake.model_path = False, 4096, TINY
+    ref = "llama_server/tiny-llama.gguf"
+    config.save_setting("selected_model", {"kind": "server", "ref": ref})
+    config.save_setting("context", {"window": 8192})
+    session = _diagnostic(monkeypatch, tmp_path)
+    mark = get_journal().last_seq()
+
+    result = session.check_model()
+
+    check = [
+        e.payload
+        for e in get_journal().events_since(mark)
+        if e.kind == "diagnostic_check" and e.payload["check"] == "model"
+    ][-1]
+    assert result.server is not None and check["status"] == "warn"
+    assert "relancez-le avec `-np 1 -c 8192`" in check["message_fr"]
+
+
 def test_refusal_with_a_served_model_active_counts_wavestack_whole(fake, tmp_path):
     """E3: llama-server's model is in another process: WaveStack's RSS is not reduced by it
     (the refusal said « 0,0 Go »)."""
@@ -1412,3 +1482,118 @@ def test_refusal_with_a_served_model_active_counts_wavestack_whole(fake, tmp_pat
 
     assert "WaveStack occupe 210 Mo sans le modèle actif" in refused.value.reason_fr
     assert "Qwen3.5-2B-Q4_K_M reste actif" in refused.value.reason_fr
+
+
+# ---------- story 24: an Ollama model not resident costs its file, its KV and the margin ----------
+
+MIB = 1024**2
+# llama3.2:3b's KV cache: 28 layers × 8 KV heads × (128 + 128) × 2 bytes = 112 Kio a token.
+LLAMA32_HEADER = {
+    "general.architecture": "llama",
+    "llama.block_count": 28,
+    "llama.attention.head_count": 24,
+    "llama.attention.head_count_kv": 8,
+    "llama.attention.key_length": 128,
+    "llama.attention.value_length": 128,
+}
+LLAMA32_KV = 112 * 1024
+
+
+def _ollama_blob(monkeypatch, tmp_path, header: dict | None, size: int) -> Path:
+    """The Ollama folder with `OLLAMA_NAME`'s manifest and its blob: a GGUF header (none:
+    no KV to read), sparse up to `size` bytes."""
+    from gguf_writer import write_gguf
+
+    root = tmp_path / "ollama"
+    monkeypatch.setenv("OLLAMA_MODELS", str(root))
+    manifest = root / "manifests" / "registry.ollama.ai" / "library" / "qwen3.5" / "2b"
+    manifest.parent.mkdir(parents=True)
+    blob = root / "blobs" / "sha256-abc"
+    blob.parent.mkdir(parents=True)
+    if header is None:
+        blob.write_bytes(b"GGUF" + b"\0" * 60)
+    else:
+        write_gguf(blob, header)
+    with open(blob, "r+b") as f:
+        f.truncate(size)
+    layer = {"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:abc"}
+    manifest.write_text(json.dumps({"layers": [layer]}), encoding="utf-8")
+    return blob
+
+
+@pytest.mark.parametrize(("header", "kv"), [(LLAMA32_HEADER, LLAMA32_KV), (None, 0)])
+def test_ollama_not_resident_costs_file_kv_at_the_window_and_margin(
+    monkeypatch, tmp_path, fake, header, kv
+):
+    """C5: never the probe's RSS of the blob (llama-cpp-python in WaveStack's child, 3,6 Go
+    here), but the file, its KV (f16) at the window and the margin: llama3.2:3b (2,0 Go)
+    passes under 4 096 Mo with ≈ 150 Mo of base. KV unreadable: the file and the margin."""
+    from wavestack.models import probe
+
+    size = 2_000_000_000
+    blob = _ollama_blob(monkeypatch, tmp_path, header, size)
+    stat = blob.stat()
+    probe.record_success(  # the entry a probe of the blob left (lot E)
+        probe.ProbeResult(
+            ok=True,
+            path=str(blob),
+            rss_bytes=round(3.6 * GIB),
+            size_bytes=stat.st_size,
+            mtime=stat.st_mtime,
+            kv_bytes_per_token=kv or None,
+            probe_version=probe.PROBE_VERSION,
+            probe_window=4096,
+            rss_eval_tokens=512,
+        )
+    )
+    cfg = config.load_config()
+    cfg.values["memory"] = {"budget_mb": 4096, "load_margin_mb": 256}
+
+    [candidate] = [
+        c
+        for c in discovery._server_candidates(cfg, transport=httpx.MockTransport(fake))
+        if c.engine == "ollama"
+    ]
+    session = AppSession(
+        cfg,
+        engine_factory=lambda path, n_ctx: FakeEngine(),
+        server_factory=_factory(),
+        rss_fn=lambda: 150 * MIB,
+    )
+    assert session.boot("A.gguf").result() == "ok"
+    choice = ModelChoice.served(candidate)
+
+    assert not candidate.resident and candidate.gguf_path == str(blob)
+    assert candidate.served_bytes == size + kv * 4096  # the diagnostic's line
+    assert session._cost(choice) == size + kv * 4096 + 256 * MIB  # the margin at the check
+    if kv:
+        assert f"{candidate.served_bytes / GIB:.1f}" == "2.3"  # « ≈ 2,3 Go »
+        assert f"{session._cost(choice) / GIB:.1f}" == "2.6"
+    _, future = session.switch_model(choice)  # never refused: 150 Mo + 2,6 Go ≤ 4 096 Mo
+    assert future.result() == "ok"
+    assert session.active_model()["label"] == OLLAMA_NAME
+
+
+def test_ollama_not_resident_blob_unreadable_costs_the_diagnostic_figure(fake):
+    """The blob is not readable from here (relative path): the cost is the diagnostic's
+    figure (the size Ollama reports) plus the margin, never the margin alone."""
+    cfg = config.load_config()
+    cfg.values["memory"] = {"budget_mb": 4096, "load_margin_mb": 256}
+    session = AppSession(
+        cfg,
+        engine_factory=lambda path, n_ctx: FakeEngine(),
+        server_factory=_factory(),
+        rss_fn=lambda: 150 * MIB,
+    )
+    candidate = _candidate("ollama", "blobs/sha256-abc")
+    served = servers.ServedModel(
+        engine="ollama",
+        server_url=OLLAMA_URL,
+        name=OLLAMA_NAME,
+        ref=f"ollama/{OLLAMA_NAME}",
+        size=2 * GIB,
+    )
+    candidate.served_bytes = servers.served_bytes(served, candidate.gguf_path, 4096)
+
+    assert candidate.served_bytes == 2 * GIB  # the diagnostic's fallback: Ollama's size
+    assert session._cost(ModelChoice.served(candidate)) == 2 * GIB + 256 * MIB

@@ -23,19 +23,32 @@ const store = {
   // under Windows), and whether its list failed to load.
   pickerPending: "",
   modelListError: false,
+  // Story 26: the last `context_window_state` (the window and its choices, as the session
+  // computed them, AD-1); the panel's choice waiting for « Appliquer » and its last refusal
+  // (UI state only).
+  windowState: null,
+  windowPick: null,
+  windowError: null,
   // The journal's tip when `/api/state` answered: an older `model_load_ended`, replayed by
   // the stream after a reload, does not come back in the top bar.
   liveFrom: 0,
   architecture: { nodes: [], edges: [] },
   journal: [],
+  // FR-4: the id of the source the user clicked (a schema node's `node.id`, `brick:{id}`,
+  // `step:{key}`…), and the link keys it carried (story 34); `null` when nothing is selected.
   selection: null,
+  selectionKeys: null,
+  // Story 34, UI state only: the link keys of the element under the pointer or the keyboard
+  // focus (`data-links`); every pane lights what shares one of them.
+  linkHover: null,
   hiddenPanes: new Set(),
   focusedPane: null,
   // Sizes the user dragged (story 8f), absent until then: `bricks` width and `schema` height
   // in px, `human` / `ctx` / `orch` as flex-grow weights. Saved with `hiddenPanes`.
   paneSizes: {},
-  // Gauge source: the most recent of `context_preview` / `context_rendered` (AD-9).
-  gauge: null, // { payload, preview }
+  // Gauge source: the most recent of `context_preview` / `context_rendered` (AD-9), and the
+  // call it measures (the envelope's `call_id`, `null` for a preview; story 34).
+  gauge: null, // { payload, preview, callId }
   turns: [], // one projection per turn, filled only from its events
   // `conversation_cleared`: index of the first turn still shown (Vue humain, Contexte LLM,
   // Orchestration), and the seq of the clearing, to hide the MCP connections seen before it.
@@ -70,6 +83,13 @@ const store = {
   // default), and the reasoning blocks the user unfolded (`chat:` or `ctx:` + turn id).
   showReasoning: true,
   openReasoning: new Set(),
+  // Story 32, UI state only: Contexte LLM's view (« Lecture groupée », « Texte exact »,
+  // « Corps JSON »; remembered by the browser), the « déjà lu » blocks unfolded (by call), the
+  // JSON nodes folded (open by default) and the exact texts shown, by key.
+  ctxMode: "grouped",
+  openSeen: new Set(),
+  jsonClosed: new Set(),
+  openExact: new Set(),
   // Story 9: the armed actions as the session last sent them (AD-3), and every label seen, so
   // an `action_dropped` still names its action once the list moved on.
   armed: [],
@@ -113,6 +133,36 @@ const GROUP_COLORS = {
   hook_injection: "--color-primary",
   message: "--color-segment-message",
 };
+
+// Story 33: the disciplines, in the order of the legends. A segment, a gauge group and a brick
+// card carry theirs from the session (`discipline`, `category`, AD-1); the colours are the
+// `--color-discipline-*` tokens, read by `[data-discipline]` in app.css.
+const DISCIPLINES = [
+  ["prompt", "Prompt engineering"],
+  ["context", "Context engineering"],
+  ["harness", "Harness engineering"],
+];
+const DISCIPLINE_NAMES = Object.fromEntries(DISCIPLINES);
+// Neutral: no brick (message, template), an assistant turn, or a brick the table lacks; one
+// label in the legend and in the tooltips.
+const NEUTRAL_FR = "Hors brique";
+const NETWORK_FR = "Sort du poste de travail";
+const disciplineName = (d) => DISCIPLINE_NAMES[d] || NEUTRAL_FR;
+
+// A legend: one bordered swatch and a name per discipline. `network`: the yellow never alone,
+// its swatch carries the globe (DESIGN.md > Colors).
+function disciplineLegend(className, items) {
+  const list = el("ul", className);
+  for (const [discipline, label] of items) {
+    const item = el("li", "discipline-legend-item");
+    item.dataset.discipline = discipline;
+    const swatch = el("span", "discipline-swatch", discipline === "network" ? "🌐" : "");
+    swatch.setAttribute("aria-hidden", "true");
+    item.append(swatch, el("span", "", label));
+    list.appendChild(item);
+  }
+  return list;
+}
 
 const numberFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
 const fmt = (n) => numberFormat.format(n);
@@ -199,6 +249,12 @@ const isLive = (envelope) => envelope.seq > store.liveFrom;
 
 function applyEnvelope(envelope) {
   store.journal.push(envelope);
+  // Story 29: the « LLM nu » screen's events (context `llm`, no turn) go to the event log
+  // only; no pane of the workshop shows them.
+  if (envelope.context_id === "llm" && envelope.kind !== "session_state") {
+    scheduleRender();
+    return;
+  }
   const p = envelope.payload;
   const turn = envelope.turn_id ? store.turns.find((t) => t.id === envelope.turn_id) : null;
   // Story 19 (AD-11): a sub-agent's events fill its own projection, never the turn's gauge,
@@ -222,10 +278,16 @@ function applyEnvelope(envelope) {
       if (isLive(envelope)) store.architecture = p;
       break;
     case "context_preview":
-      if (isLive(envelope)) store.gauge = { payload: p, preview: true };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: true, callId: null };
+      break;
+    case "context_window_state":
+      if (isLive(envelope)) store.windowState = p; // story 26: the « Fenêtre » panel
       break;
     case "bricks_changed":
-      if (isLive(envelope)) store.bricks = p;
+      if (isLive(envelope)) {
+        store.bricks = p;
+        syncDrawerSave(); // story 22: the prompt the session holds may have changed
+      }
       break;
     case "memory_changed":
       if (!isLive(envelope)) break;
@@ -243,6 +305,8 @@ function applyEnvelope(envelope) {
       break;
     case "conversation_cleared":
       // Past turns leave the Vue humain, Contexte LLM and Orchestration; the event list keeps them.
+      dropSelection(); // story 34: its keys named what is gone
+      clearCtxFolds(); // story 32: the folds of calls that are gone
       store.chatFrom = store.turns.length;
       store.clearedSeq = envelope.seq;
       store.compare = null;
@@ -256,6 +320,8 @@ function applyEnvelope(envelope) {
     case "harness_reset":
       // Like `conversation_cleared`, but the panes go back to « Aucun tour », the MCP
       // connections seen so far stay in the harness preparation, and the event log restarts.
+      dropSelection();
+      clearCtxFolds();
       store.chatFrom = store.turns.length;
       store.resetSeq = envelope.seq;
       store.compare = null;
@@ -274,7 +340,12 @@ function applyEnvelope(envelope) {
       }, RESET_STATUS_MS);
       break;
     case "model_load_started":
-      store.modelLoad = { model: p.model, startedAt: Date.parse(envelope.ts) };
+      // Story 26: a reload with another window is named by its phase label.
+      store.modelLoad = {
+        model: p.model,
+        startedAt: Date.parse(envelope.ts),
+        phaseLabel: p.window ? p.phase_label : null,
+      };
       store.topStatus = null;
       break;
     case "model_load_ended":
@@ -286,6 +357,7 @@ function applyEnvelope(envelope) {
     case "turn_started":
       store.topStatus = null;
       store.compare = null; // the new turn's live context shows in Contexte LLM
+      store.ctxView = null; // story 22: each new turn opens on « Agent principal »
       store.turns.push({
         id: envelope.turn_id,
         message: p.message,
@@ -315,7 +387,7 @@ function applyEnvelope(envelope) {
       });
       break;
     case "context_rendered":
-      if (isLive(envelope)) store.gauge = { payload: p, preview: false };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: false, callId: envelope.call_id };
       if (turn) {
         turn.context = p;
         turn.steps.push({ type: "call", id: envelope.call_id, context: p, startedAt: null, ended: null });
@@ -323,7 +395,7 @@ function applyEnvelope(envelope) {
       break;
     case "context_reconciled":
       // AD-4, chat mode: `usage` came back; its figures replace the estimate of that call.
-      if (isLive(envelope)) store.gauge = { payload: p, preview: false };
+      if (isLive(envelope)) store.gauge = { payload: p, preview: false, callId: envelope.call_id };
       if (turn) {
         const call = turn.steps.find((s) => s.type === "call" && s.id === envelope.call_id);
         if (call) call.context = p;
@@ -435,12 +507,16 @@ function applyEnvelope(envelope) {
       const step = turn
         ? turn.steps.filter((s) => s.type === "tool").at(-1)
         : store.offTurn.filter((s) => `mcp.${s.started.server}` === envelope.component).at(-1);
-      if (step && p.origin === "brick") (step.outbound ||= []).push({ ...p, seq: envelope.seq });
+      if (step && p.origin === "brick") {
+        (step.outbound ||= []).push({ ...p, seq: envelope.seq, component: envelope.component });
+      }
       break;
     }
     case "mcp_connect_started":
       store.offTurn.push({
         started: p,
+        brick: envelope.brick, // story 34: its link keys (AD-1)
+        component: envelope.component,
         startedAt: Date.parse(envelope.ts),
         ended: null,
         afterTurn: store.turns.length,
@@ -493,9 +569,14 @@ function applyEnvelope(envelope) {
       if (turn) turn.phaseLabel = null;
       break;
     }
+    case "reasoning_cut": // lot C: the harness closed a reasoning at its budget
+      if (turn) {
+        turn.steps.push({ type: envelope.kind, payload: p });
+        lastCall(turn).cut = p; // story 32: a note between the call's reasoning and its answer
+      }
+      break;
     case "tool_call_malformed":
     case "prefix_not_reused":
-    case "reasoning_cut": // lot C: the harness closed a reasoning at its budget
       if (turn) turn.steps.push({ type: envelope.kind, payload: p });
       break;
     case "limit_reached":
@@ -567,6 +648,7 @@ function subProjection(turn, envelope) {
     sub = {
       id: `${turn.id}:${envelope.context_id}`, // unique rail keys for its lines
       contextId: envelope.context_id,
+      model: turn.model, // story 34: « via le réseau » on its calls too
       parentStep: envelope.parent_step,
       started: null,
       ended: null,
@@ -654,7 +736,9 @@ function applySubEnvelope(turn, sub, envelope) {
     }
     case "outbound_request": {
       const tool = last("tool");
-      if (tool && p.origin === "brick") (tool.outbound ||= []).push({ ...p, seq: envelope.seq });
+      if (tool && p.origin === "brick") {
+        (tool.outbound ||= []).push({ ...p, seq: envelope.seq, component: envelope.component });
+      }
       break;
     }
     case "hook_decided":
@@ -680,9 +764,12 @@ function applySubEnvelope(turn, sub, envelope) {
       turn.phaseLabel = null;
       break;
     }
+    case "reasoning_cut":
+      sub.steps.push({ type: envelope.kind, payload: p });
+      lastCall(sub).cut = p; // story 32
+      break;
     case "tool_call_malformed":
     case "prefix_not_reused":
-    case "reasoning_cut":
       sub.steps.push({ type: envelope.kind, payload: p });
       break;
     case "limit_reached":
@@ -753,28 +840,175 @@ function toggleFocus(paneId) {
   render();
 }
 
-function paneOfComponent(componentId) {
-  const el = document.querySelector(`[data-component="${cssEscape(componentId)}"]`);
-  return el ? el.closest("[data-pane]")?.dataset.pane ?? null : null;
-}
-
 function cssEscape(value) {
   return window.CSS && CSS.escape ? CSS.escape(value) : value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }
 
-function select(componentId) {
-  store.selection = store.selection === componentId ? null : componentId;
+// ---------- story 34: the linked view (FR-4) ----------
+// Every linkable element carries its link keys in `data-links`, each a field received (AD-1):
+// a brick id, a component id (`node.id`, `segment.component`, the envelope's `component`) or
+// `call:{call_id}`. Two elements are linked when they share a key. Hovering or focusing one
+// lights, in every pane, those that share a key (`.is-linked`, the rest dimmed); a click
+// selects it, and the same elements keep an ink outline (`.is-selection-linked`).
+
+// Writes the keys, space-separated, without duplicates nor empty ones; none: not linkable.
+function setLinks(node, keys) {
+  const value = [...new Set((keys || []).filter(Boolean))].join(" ");
+  if (!value) node.removeAttribute("data-links");
+  else if (node.dataset.links !== value) node.dataset.links = value;
+  return node;
+}
+
+const readLinks = (node) => (node?.dataset.links ? node.dataset.links.split(" ") : []);
+
+// A schema component is linked by its own id (brick cards and segments carry it too).
+const linkKeysOfComponent = (id) => [id];
+
+// Toggles the selection: a second click on the same source clears it.
+function select(id, keys = linkKeysOfComponent(id)) {
+  if (store.selection === id) clearSelection();
+  else setSelection(id, keys);
+}
+
+// Sets the selection without toggling (RAG excerpts, reranking, compression items).
+function setSelection(id, keys = linkKeysOfComponent(id)) {
+  store.selection = id;
+  store.selectionKeys = [...keys];
+  if (!id.startsWith("step:")) store.orch.selected = null; // no old step stays highlighted
   render();
+}
+
+// Without rendering: the envelope's own render follows.
+function dropSelection() {
+  Object.assign(store, { selection: null, selectionKeys: null });
+  store.orch.selected = null;
+}
+
+function clearSelection() {
+  store.selection = null;
+  store.selectionKeys = null;
+  store.orch.selected = null;
+  render();
+}
+
+// The hover (pointer or keyboard focus): the closest `[data-links]`, else nothing lit.
+const linkSource = (target) => (target instanceof Element ? target.closest("[data-links]") : null);
+
+function setLinkHover(source) {
+  const keys = source ? readLinks(source) : [];
+  const next = keys.length ? keys : null;
+  if ((next || []).join(" ") === (store.linkHover || []).join(" ")) return;
+  store.linkHover = next;
+  applyLinks();
+}
+
+// A focus given back by a render (the node was rebuilt) is no user's gesture: its `focusin`
+// must not take the hover from the pointer.
+let quietFocusing = false;
+function quietFocus(node) {
+  if (!node) return;
+  quietFocusing = true;
+  try {
+    node.focus();
+  } finally {
+    quietFocusing = false;
+  }
+}
+
+// Lights what shares a key with the hover and outlines what shares one with the selection,
+// in every pane (hidden ones included); runs after each render, which rebuilds some nodes.
+function applyLinks() {
+  // The hovered or focused node went away (a render, a reset) without the pointer moving:
+  // nothing is under it any more, the page must not stay dimmed.
+  if (store.linkHover && !document.querySelector("[data-links]:hover, [data-links]:focus-within")) {
+    store.linkHover = null;
+  }
+  const chosen = new Set(store.selectionKeys || []);
+  // Hovering the source of the selection (the pointer stays where it clicked): no dimming,
+  // the ink outline of the selection reads alone.
+  const onSelection =
+    store.linkHover !== null && store.selectionKeys !== null && store.linkHover.join(" ") === store.selectionKeys.join(" ");
+  const hover = new Set(onSelection ? [] : store.linkHover || []);
+  document.body.classList.toggle("linking", hover.size > 0);
+  for (const node of document.querySelectorAll("[data-links]")) {
+    const keys = readLinks(node);
+    node.classList.toggle("is-linked", hover.size > 0 && keys.some((k) => hover.has(k)));
+    node.classList.toggle("is-selection-linked", chosen.size > 0 && keys.some((k) => chosen.has(k)));
+  }
+  // A focusable source that is no button says whether it is the selection.
+  for (const node of document.querySelectorAll("[data-select-id]")) {
+    node.setAttribute("aria-pressed", String(store.selection === node.dataset.selectId));
+  }
+  renderChips(); // a hidden pane holding a linked element says so on its chip
+}
+
+function bindLinkedView() {
+  document.addEventListener("pointerover", (event) => setLinkHover(linkSource(event.target)));
+  document.addEventListener("pointerout", (event) => {
+    if (!event.relatedTarget) setLinkHover(null); // the pointer left the page
+  });
+  // A tap is no hover: it ends with the finger lifted.
+  document.addEventListener("pointerup", (event) => {
+    if (event.pointerType !== "mouse") setLinkHover(null);
+  });
+  document.addEventListener("focusin", (event) => {
+    if (!quietFocusing) setLinkHover(linkSource(event.target));
+  });
+  document.addEventListener("focusout", (event) => {
+    if (!quietFocusing && !linkSource(event.relatedTarget)) setLinkHover(null);
+  });
+}
+
+// A segment (context, gauge): a button for assistive technologies, named short; selected on
+// the mouse's press (these nodes are rebuilt while a turn streams: a click, press and release
+// on two different nodes, would never fire), by a tap, or by Enter or Space.
+function selectOnActivate(node, id, name) {
+  node.tabIndex = 0;
+  node.setAttribute("role", "button");
+  node.setAttribute("aria-label", name);
+  node.dataset.selectId = id;
+  node.setAttribute("aria-pressed", String(store.selection === id));
+  // Its own controls (a fold), the node itself excepted when it is a button (story 32: a
+  // section's margin), whose keys are those of the row that holds it.
+  const own = (event) => {
+    const control = event.target.closest("summary, button, a");
+    return Boolean(control) && control !== node;
+  };
+  const keys = () => readLinks(node.closest("[data-links]"));
+  node.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "mouse" || event.button !== 0 || own(event)) return;
+    select(id, keys());
+  });
+  node.addEventListener("click", (event) => {
+    if (event.pointerType === "mouse" || own(event)) return;
+    select(id, keys());
+  });
+  node.addEventListener("keydown", (event) => {
+    // A native button clicks on Enter and Space by itself: the `click` above selects it.
+    if (node.tagName === "BUTTON" || event.target !== node || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault(); // Space would scroll the pane
+    select(id, keys());
+  });
+}
+
+// Story 34: Escape clears a selection still shown somewhere (an element, or a chip saying
+// « lié »); an invisible one is dropped silently and Escape does its next job.
+function selectionShown() {
+  return [...document.querySelectorAll(".is-selection-linked")].some(
+    (node) => node.getClientRects().length > 0 || node.closest(".pane.is-hidden")
+  );
 }
 
 // ---------- rendering ----------
 
 function render() {
   renderBricks();
+  updateBrickStatuses();
   renderChips();
   renderMenu();
   renderPaneVisibility();
   renderGauge();
+  renderWindowPicker();
   renderModelIndicator();
   renderChat();
   renderComposer();
@@ -782,6 +1016,9 @@ function render() {
   renderSteps();
   renderJournal();
   renderSchema();
+  renderOutboundSummary();
+  updateBrickLinks();
+  applyLinks();
 }
 
 function el(tag, className, text) {
@@ -813,8 +1050,11 @@ let renderedMemory = null;
 let renderedSessionKey = null; // story 15: the download's state and progress, on the RAG card
 
 // Story 9: the forced actions' UI changed (toggle, form): the panel is rebuilt at next render.
+// Story 22: a sentinel no `store.forceForm` can equal; `null` let a closed form (back to
+// `null`) pass the guard of `renderBricks`, so « Annuler » left the form open.
+const STALE = Symbol("stale");
 function forceUiChanged() {
-  renderedForceUi = null;
+  renderedForceUi = STALE;
   scheduleRender();
 }
 
@@ -853,6 +1093,12 @@ function renderBricks() {
     pane.appendChild(emptyNote("En attente du harnais…"));
     return;
   }
+  // Story 33: the four disciplines first, then the cards in their two groups.
+  pane.appendChild(
+    disciplineLegend("discipline-legend brick-legend", [...DISCIPLINES, ["network", NETWORK_FR]])
+  );
+  // Story 34: how to read the panes together.
+  pane.appendChild(el("p", "brick-link-hint", LINK_HINT_FR));
   pane.appendChild(forcedToggle());
   if (store.armError) {
     const error = el("p", "force-error", store.armError);
@@ -860,11 +1106,39 @@ function renderBricks() {
     pane.appendChild(error);
   }
   const reopenPopovers = []; // help popovers that were open before this rebuild
+  let group = null;
   for (const brick of store.bricks.bricks) {
+    // Story 33: the group comes with the card (AD-1); the list's order is the display order.
+    const brickGroup = brick.group === "reads" ? "reads" : "acts";
+    if (brickGroup !== group) {
+      group = brickGroup;
+      pane.appendChild(el("h3", "brick-group-title", BRICK_GROUPS[group]));
+    }
     const card = el("article", "brick-card");
+    card.dataset.discipline = brick.category;
+    card.dataset.brick = brick.id;
+    // Story 34: its keys (`updateBrickLinks`); a click out of its controls selects it (the
+    // name is in the switch's label: a click on it still toggles the brick).
+    setLinks(card, brickLinkKeys(brick));
+    card.addEventListener("click", (event) => {
+      if (event.target.closest(BRICK_CONTROLS)) return;
+      select(`brick:${brick.id}`, readLinks(card));
+    });
+    // From the keyboard: the card itself takes the focus, Enter or Space selects it.
+    card.tabIndex = 0;
+    card.dataset.focusKey = `brickcard:${brick.id}`;
+    card.setAttribute("aria-label", `Brique ${brick.label_fr}`);
+    card.addEventListener("keydown", (event) => {
+      if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      select(`brick:${brick.id}`, readLinks(card));
+    });
     // Story 13: a model that always reasons keeps the reasoning brick on, whatever `wanted`.
     const always = Boolean(brick.always_fr);
-    card.classList.toggle("is-active", always || (brick.wanted && brick.available));
+    // Story 22: the brick is off (or unavailable): its sub-options apply nothing, and say so.
+    const parentOff = !(always || (brick.wanted && brick.available));
+    const offReason = parentOff ? parentOffReason(brick) : null;
+    card.classList.toggle("is-active", !parentOff);
     card.classList.toggle("is-unavailable", !brick.available);
 
     const head = el("label", "brick-head");
@@ -876,16 +1150,30 @@ function renderBricks() {
     toggle.disabled = always || (!brick.available && !brick.wanted);
     toggle.dataset.focusKey = `toggle:${brick.id}`;
     toggle.addEventListener("change", () => setBrick(brick.id, toggle.checked));
-    head.append(toggle, el("span", "brick-name", brick.label_fr));
+    head.append(toggle);
+    if (always) {
+      // Story 33: the switch the model locks, said by the padlock beside it.
+      const lock = el("span", "brick-lock", "🔒");
+      lock.title = "Verrouillé : imposé par ce modèle";
+      lock.setAttribute("aria-hidden", "true");
+      head.appendChild(lock);
+    }
+    head.appendChild(el("span", "brick-name", brick.label_fr));
 
     const tags = el("div", "brick-tags");
     tags.appendChild(el("span", "category-chip", brick.category_fr));
-    // ponytail: every brick so far is local; the network tag comes with the first network brick.
     if (brick.hosting_fr) tags.appendChild(el("span", "hosting-tag-local", brick.hosting_fr));
-    card.append(head, tags);
+    // Story 33: an enabled option leaves the workstation: « 🌐 RÉSEAU » on the card itself.
+    if (!parentOff && (brick.options || []).some((o) => o.enabled && o.network)) {
+      tags.appendChild(el("span", "hosting-tag-network brick-network", "RÉSEAU"));
+    }
+    // Story 33: what the brick weighs or does now, refreshed in place (`updateBrickStatuses`).
+    const status = el("p", "brick-status", brickStatus(brick));
+    status.dataset.brick = brick.id;
+    card.append(head, tags, status);
 
     if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
-    if (brick.id === "rag") card.append(...downloadParts(brick), ...rerankParts(brick));
+    if (brick.id === "rag") card.append(...downloadParts(brick), ...rerankParts(brick, offReason));
     if (always) {
       const why = el("p", "brick-reason brick-always", brick.always_fr);
       why.id = `always-${brick.id}`;
@@ -893,12 +1181,14 @@ function renderBricks() {
       card.appendChild(why);
     }
     if (brick.note_fr) card.appendChild(el("p", "brick-note", brick.note_fr));
+    // Story 23: what leaves the workstation and where to read it, outside the folded options.
+    if (brick.outbound_fr) card.appendChild(el("p", "brick-outbound", brick.outbound_fr));
     if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
     if (armed.length) card.appendChild(armedChips(armed, `card:${brick.id}`));
 
-    if (brick.options?.length) card.appendChild(brickOptions(brick));
+    if (brick.options?.length) card.appendChild(brickOptions(brick, offReason));
     if (brick.limits_fr) card.appendChild(el("p", "brick-limits", brick.limits_fr));
     // Story 19: a brick without sub-option forces its action from the card itself.
     if (brick.force && store.showForced) card.append(...cardForce(brick));
@@ -952,8 +1242,85 @@ function renderBricks() {
       const brickId = focusKey.split(":")[1];
       target = find(nextChipKey) || find(`toggle:${brickId}`);
     }
-    target?.focus();
+    quietFocus(target);
   }
+}
+
+const BRICK_GROUPS = { reads: "Ce que le modèle lit", acts: "Ce que le harnais fait" };
+const LINK_HINT_FR = "Survolez une brique : elle s'éclaire dans le contexte, l'orchestration et le schéma.";
+// What a click on a card leaves to its controls (switch and its label, options, forms, help).
+const BRICK_CONTROLS = "input, button, a, select, textarea, label, summary, details, [popover], .force-form";
+
+// Story 34: a card's link keys: its id and the ids of its nodes (`{id}.*`) in the schema.
+function brickLinkKeys(brick) {
+  const nodes = (store.architecture.nodes || []).filter((n) => n.id.startsWith(`${brick.id}.`));
+  return [brick.id, ...nodes.map((n) => n.id)];
+}
+
+// The schema changes without the cards being rebuilt: their keys follow it in place.
+function updateBrickLinks() {
+  for (const brick of store.bricks?.bricks || []) {
+    const card = document.querySelector(`#bricks article.brick-card[data-brick="${cssEscape(brick.id)}"]`);
+    if (card) setLinks(card, brickLinkKeys(brick));
+  }
+}
+
+// Story 33: the card's status line, from received values only (AD-1): the gauge's `by_brick`,
+// `reserve` and `uncompressed_used`, the memory's entries, the schema's network nodes.
+// Counting a received list and the gap between two received values stay formatting.
+function brickStatus(brick) {
+  const always = Boolean(brick.always_fr);
+  if (always) return "Imposé par ce modèle";
+  if (!brick.available) return "Indisponible"; // wanted or not: it cannot be switched on
+  if (!brick.wanted) return "Éteinte";
+  const p = store.gauge?.payload;
+  if (!p) return "En attente du modèle";
+  if (brick.id === "reasoning") return `Réserve de sortie : ${plural(p.reserve, "token")}`;
+  const row = (p.by_brick || []).find((b) => b.brick === brick.id);
+  // Only « n tokens dans le contexte » says « ≈ » (EXPERIENCE.md > brick-card); the others count.
+  const count = plural(row?.tokens ?? 0, "token");
+  if (brick.id === "global_memory") return `${plural(store.memory?.entries?.length ?? 0, "entrée")} · ${count}`;
+  if (brick.id === "tools" || brick.id === "mcp") {
+    const on = (brick.options || []).filter((o) => o.enabled);
+    const declared = `${fmt(on.length)} déclaré${on.length > 1 ? "s" : ""}`;
+    if (!on.some((o) => o.network)) return `${declared} · ${count}`;
+    const contacted = (store.architecture.nodes || []).filter(
+      (n) =>
+        n.id.startsWith(`${brick.id}.`) && n.hosting === "network" && n.contact && n.contact !== "not_contacted"
+    ).length;
+    return `${declared} · ${fmt(contacted)} contacté${contacted > 1 ? "s" : ""}`;
+  }
+  if (brick.id === "compression") {
+    const gain = p.uncompressed_used == null ? 0 : p.uncompressed_used - p.used;
+    return gain > 0 ? `Gain : ${plural(gain, "token")}` : "Aucun gain pour l'instant";
+  }
+  return `${approx(Boolean(row?.estimated))}${count} dans le contexte`;
+}
+
+// Story 33: the status lines follow the gauge, the memory and the schema without rebuilding
+// the cards, so an open explanation and the keyboard focus stay put.
+function updateBrickStatuses() {
+  for (const brick of store.bricks?.bricks || []) {
+    const line = document.querySelector(`#bricks p.brick-status[data-brick="${cssEscape(brick.id)}"]`);
+    if (line) setText(line, brickStatus(brick));
+  }
+}
+
+// Story 22: why a sub-option cannot be set while its brick is off: the brick's own reason when
+// it is unavailable, else how to turn it on. Said on hover (`title`) and to screen readers.
+function parentOffReason(brick) {
+  if (!brick.available) return brick.reason_fr || `La brique ${brick.label_fr} est indisponible.`;
+  return `Activez la brique ${brick.label_fr} pour régler cette option.`;
+}
+
+// Story 22: a sub-option's row whose brick is off: its switch keeps its state but is greyed
+// and disabled; the session would still accept it (the API is unchanged), the UI does not.
+function markParentOff(row, toggle, offReason) {
+  if (!offReason) return;
+  toggle.disabled = true;
+  toggle.setAttribute("aria-description", offReason);
+  row.classList.add("is-parent-off");
+  row.title = offReason;
 }
 
 function sessionKey() {
@@ -1005,7 +1372,7 @@ function downloadParts(brick) {
 
 // Story 16: the « Reranking » sub-option of the RAG card: its switch and hosting tag, its
 // reason when unavailable, and « Télécharger » while its model is missing (AD-21).
-function rerankParts(brick) {
+function rerankParts(brick, offReason = null) {
   const option = brick.rerank;
   if (!option) return [];
   const box = el("div", "brick-suboption");
@@ -1018,6 +1385,7 @@ function rerankParts(brick) {
   toggle.disabled = !option.available && !option.enabled;
   toggle.dataset.focusKey = "option:rag:rerank";
   toggle.addEventListener("change", () => setOption("rag_rerank", null, toggle.checked));
+  markParentOff(row, toggle, offReason);
   row.append(toggle, el("span", "brick-option-name", option.label_fr), el("span", "hosting-tag-local", option.hosting_fr));
   box.appendChild(row);
   if (!option.available && option.reason_fr) {
@@ -1058,7 +1426,7 @@ async function ragAction(path, body) {
   scheduleRender();
 }
 
-function brickOptions(brick) {
+function brickOptions(brick, offReason = null) {
   // Sub-options (EXPERIENCE: brick-card): one switch per tool, with its hosting tag.
   const key = `options:${brick.id}`;
   const details = el("details", "brick-options");
@@ -1069,8 +1437,10 @@ function brickOptions(brick) {
   });
   const on = brick.options.filter((o) => o.enabled).length;
   const noun = { mcp: "Serveurs", skills: "Skills", hooks: "Hooks" }[brick.id] || "Outils";
-  // The closed card still shows the MCP documentation mode.
-  const mode = brick.mode === "lazy" ? ` · ${brick.lazy_label_fr}` : "";
+  // The closed card still shows the MCP documentation mode; the brick off, that it is off
+  // (story 22: a lazy loading shown while MCP is off seemed to act).
+  const mode = offReason ? " · brique éteinte" : brick.mode === "lazy" ? ` · ${brick.lazy_label_fr}` : "";
+  details.classList.toggle("is-parent-off", Boolean(offReason));
   details.appendChild(
     el("summary", "", `${noun} : ${on} activé${on > 1 ? "s" : ""} sur ${brick.options.length}${mode}`)
   );
@@ -1083,6 +1453,7 @@ function brickOptions(brick) {
     toggle.checked = option.enabled;
     toggle.dataset.focusKey = `option:${brick.id}:${option.id}`;
     toggle.addEventListener("change", () => setOption(brick.id, option.id, toggle.checked));
+    markParentOff(row, toggle, offReason);
     row.append(
       toggle,
       el("span", "brick-option-name", option.label_fr),
@@ -1096,6 +1467,12 @@ function brickOptions(brick) {
       const open = store.forceForm?.brick === brick.id && store.forceForm?.id === option.id;
       if (open) li.appendChild(forceForm(brick, option));
     }
+    // Lot K: « Forcer l'appel » of each tool of a connected MCP server, both modes.
+    for (const call of store.showForced && brick.id === "mcp" ? option.calls || [] : []) {
+      const callOption = mcpCallOption(call);
+      li.appendChild(forceButton(brick, callOption));
+      if (isFormOpen(brick.id, callOption.id)) li.appendChild(forceForm(brick, callOption));
+    }
     list.appendChild(li);
   }
   details.appendChild(list);
@@ -1108,6 +1485,7 @@ function brickOptions(brick) {
     toggle.checked = brick.mode === "lazy";
     toggle.dataset.focusKey = "option:mcp:lazy";
     toggle.addEventListener("change", () => setOption("mcp_mode", null, toggle.checked));
+    markParentOff(row, toggle, offReason);
     row.append(toggle, el("span", "brick-option-name", brick.lazy_label_fr));
     details.appendChild(row);
   }
@@ -1186,28 +1564,44 @@ function isFormOpen(brickId, optionId) {
   return store.forceForm?.brick === brickId && store.forceForm?.id === optionId;
 }
 
+// Lot K: the forced call of one MCP tool, as an option of its server's row (`call`: from
+// `bricks_changed`, its parameters described by the server and its presets).
+function mcpCallOption(call) {
+  return {
+    id: `call:${call.tool}`,
+    label_fr: call.tool,
+    target: call.tool,
+    call: true,
+    parameters: call.parameters,
+    presets: call.presets,
+  };
+}
+
 function forceButton(brick, option) {
-  // Tools, skills, and in lazy loading only, the documentation of an MCP server's tool.
-  const label = FORCE_LABELS[brick.id];
+  // Tools, skills, and in lazy loading only, the documentation of an MCP server's tool; lot K:
+  // the call of an MCP tool (`option.call`), in both modes.
+  const label = option.call ? FORCE_LABELS.tools : FORCE_LABELS[brick.id];
   if (!label) return null;
-  if (brick.id === "mcp" && (brick.mode !== "lazy" || !option.tools?.length)) return null;
+  if (brick.id === "mcp" && !option.call && (brick.mode !== "lazy" || !option.tools?.length)) return null;
   const button = el("button", "force-button");
   button.type = "button";
-  button.append(handIcon(), label);
+  button.append(handIcon(), option.call ? `${label} · ${option.label_fr}` : label);
   button.setAttribute("aria-label", `${label} : ${option.label_fr}`);
   button.dataset.focusKey = `force:${brick.id}:${option.id}`;
   // A tool without parameter and a skill are armed at once; the others open their form.
+  const hasParameters = Object.keys(option.parameters || {}).length > 0;
   const needsForm =
-    brick.id === "mcp" ||
+    (brick.id === "mcp" && (!option.call || hasParameters)) ||
     brick.id === "global_memory" ||
-    (brick.id === "tools" && Object.keys(option.parameters || {}).length > 0);
+    (brick.id === "tools" && hasParameters);
   if (needsForm) button.setAttribute("aria-expanded", String(isFormOpen(brick.id, option.id)));
   button.addEventListener("click", () => {
     if (!needsForm) {
-      armAction(brick.id === "skills" ? "skill" : "tool", option.id, {});
+      armAction(brick.id === "skills" ? "skill" : "tool", option.target ?? option.id, {});
       return;
     }
     store.forceForm = isFormOpen(brick.id, option.id) ? null : newForceForm(brick, option);
+    button.setAttribute("aria-expanded", String(Boolean(store.forceForm))); // lot K (A8)
     forceUiChanged();
   });
   return button;
@@ -1227,6 +1621,8 @@ function cardForce(brick) {
   button.setAttribute("aria-expanded", String(open));
   button.addEventListener("click", () => {
     store.forceForm = isFormOpen(brick.id, option.id) ? null : newForceForm(brick, option);
+    // Lot K (A8): the button says the form's state at once, the rebuild keeps it.
+    button.setAttribute("aria-expanded", String(Boolean(store.forceForm)));
     forceUiChanged();
   });
   return open ? [button, forceForm(brick, option)] : [button];
@@ -1244,7 +1640,9 @@ function presetValues(option, index) {
 }
 
 function newForceForm(brick, option) {
-  if (brick.id === "mcp") return { brick: brick.id, id: option.id, values: { tool: option.tools[0] }, error: null };
+  if (brick.id === "mcp" && !option.call) {
+    return { brick: brick.id, id: option.id, values: { tool: option.tools[0] }, error: null };
+  }
   const preset = option.presets?.length ? 0 : -1; // prefilled by the first preset
   return { brick: brick.id, id: option.id, preset, values: presetValues(option, preset), error: null };
 }
@@ -1263,14 +1661,16 @@ function forceForm(brick, option) {
   const box = el("div", "force-form");
   box.setAttribute("role", "group");
   const arm = () =>
-    brick.id === "mcp"
+    option.call
+      ? armAction("tool", option.target, { ...form.values }, form)
+      : brick.id === "mcp"
       ? armAction("tool_doc", form.values.tool, {}, form)
       : brick.id === "global_memory"
         ? armAction("memory", option.id, { text: form.values.text ?? "" }, form)
       : brick.force
         ? armAction(brick.force.kind, brick.force.target, { ...form.values }, form)
         : armAction("tool", option.id, { ...form.values }, form);
-  if (brick.id === "mcp") {
+  if (brick.id === "mcp" && !option.call) {
     box.setAttribute("aria-label", `Charger la documentation d'un outil de ${option.label_fr}`);
     const select = el("select");
     select.dataset.focusKey = `${base}:tool`;
@@ -1479,9 +1879,26 @@ function drawerAlert(text, dirtyChoice = false) {
   document.getElementById("drawer-dirty").hidden = !dirtyChoice;
 }
 
+// Story 22 (M1): « Enregistrer » only when the text differs from the one the session holds;
+// checked on opening, typing, saving and at each `bricks_changed`.
+function syncDrawerSave() {
+  const save = document.getElementById("drawer-save");
+  save.disabled = drawerText().value === (store.bricks?.system_prompt.text ?? "");
+  // A disabled button drops the keyboard focus to the page: it goes to the text instead.
+  if (save.disabled && document.activeElement === save) drawerText().focus();
+}
+
+// Story 22 (M1): the confirmation of a save, read by screen readers (`role=status`, a live
+// region always in the page, empty when silent); cleared by the next keystroke or the closing.
+function drawerStatus(text) {
+  document.getElementById("drawer-status").textContent = text || "";
+}
+
 function openDrawer() {
   drawerText().value = store.bricks?.system_prompt.text ?? "";
   drawerAlert(null);
+  drawerStatus(null);
+  syncDrawerSave();
   drawer().hidden = false;
   document.getElementById("bricks").inert = true; // cards under the drawer leave the Tab order
   drawerText().focus();
@@ -1493,6 +1910,7 @@ function closeDrawer(force = false) {
     return;
   }
   drawerAlert(null);
+  drawerStatus(null);
   drawer().hidden = true;
   document.getElementById("bricks").inert = false;
   document.getElementById("edit-system-prompt")?.focus();
@@ -1507,8 +1925,11 @@ async function saveSystemPrompt(text) {
     if (store.bricks) store.bricks.system_prompt = saved;
     drawerText().value = saved.text;
     drawerAlert(null);
+    drawerStatus(text === null ? "Prompt par défaut rétabli." : "Prompt système enregistré.");
+    syncDrawerSave();
     return true;
   } catch {
+    drawerStatus(null);
     drawerAlert("Enregistrement refusé : WaveStack ne répond pas. Réessayez.");
     return false;
   }
@@ -1557,6 +1978,8 @@ function memoryAlert(text, choice = null) {
   alert.textContent = text || "";
   document.getElementById("memory-dirty").hidden = choice !== "dirty";
   document.getElementById("memory-confirm").hidden = choice !== "clear";
+  // Story 22: while « Oui, tout effacer » waits, « Tout effacer » is not offered twice.
+  document.getElementById("memory-clear").disabled = choice === "clear" || !store.memory?.entries.length;
   if (choice) document.getElementById(choice === "dirty" ? "memory-dirty-save" : "memory-confirm-clear").focus();
 }
 
@@ -1632,7 +2055,8 @@ function renderMemoryDrawer() {
   const empty = document.getElementById("memory-empty");
   empty.textContent = memoryCard()?.empty_fr ?? "";
   empty.hidden = entries.length > 0;
-  document.getElementById("memory-clear").disabled = entries.length === 0;
+  document.getElementById("memory-clear").disabled =
+    entries.length === 0 || !document.getElementById("memory-confirm").hidden;
   list.innerHTML = "";
   entries.forEach((entry, i) => {
     const item = el("li", "memory-entry");
@@ -1661,7 +2085,8 @@ function renderMemoryDrawer() {
     remove.setAttribute("aria-label", `Supprimer l'entrée ${i + 1}`);
     remove.dataset.focusKey = `memory:${entry.id}:delete`;
     remove.addEventListener("click", () => editMemory({ op: "delete", entry_id: entry.id }));
-    const actions = el("div", "drawer-actions memory-entry-actions");
+    // Story 22: compact and flat, told apart from the footer's « Tout effacer » and « Fermer ».
+    const actions = el("div", "memory-entry-actions");
     actions.append(save, remove);
     item.append(head, text, actions);
     list.appendChild(item);
@@ -1734,25 +2159,41 @@ function renderGauge() {
   const figures = document.getElementById("gauge-figures");
   const threshold = document.getElementById("gauge-threshold");
   const root = document.getElementById("gauge");
-  bar.querySelectorAll(".gauge-seg").forEach((node) => node.remove());
+  // Story 34: a segment has the keyboard focus: given back to the rebuilt one.
+  const focusedGroup = bar.contains(document.activeElement) ? document.activeElement.dataset.group : null;
+  bar.querySelectorAll(".gauge-seg, .gauge-free").forEach((node) => node.remove());
   const gauge = store.gauge;
   root.classList.toggle("is-overflow", Boolean(gauge?.payload.overflow));
   root.classList.toggle("is-near-limit", Boolean(gauge?.payload.near_limit));
   if (!gauge) {
     threshold.hidden = true;
+    renderGaugeLegend([]);
     figures.textContent = "Contexte : en attente du modèle";
+    figures.title = figures.textContent;
     return;
   }
   const p = gauge.payload;
-  // flex-grow = received token counts: the bar is laid out, never recomputed (AD-1).
+  // flex-grow = received token counts: the bar is laid out, never recomputed (AD-1). Story 33:
+  // each group in its discipline's colour (from the session), its type named in the tooltip.
   for (const item of p.breakdown) {
     const seg = el("span", "gauge-seg");
     seg.style.flexGrow = String(item.tokens);
-    seg.style.background = `var(${GROUP_COLORS[item.group] || "--color-muted"})`;
-    seg.title = `${item.label_fr} : ${fmt(item.tokens)} tokens`;
+    seg.dataset.discipline = item.discipline || "neutral";
+    seg.dataset.group = item.group;
+    seg.title = `${item.label_fr} : ${fmt(item.tokens)} tokens · ${disciplineName(seg.dataset.discipline)}`;
+    seg.setAttribute("aria-label", seg.title);
+    // Story 34: the bricks and components of its segments (by `kinds`), and the call measured.
+    const segments = (p.segments || []).filter((s) => item.kinds.includes(s.kind));
+    setLinks(seg, [
+      ...segments.flatMap((s) => [s.brick, s.component]),
+      gauge.callId ? `call:${gauge.callId}` : null,
+    ]);
+    selectOnActivate(seg, `gauge:${item.group}`, seg.title);
     bar.appendChild(seg);
+    if (item.group === focusedGroup) quietFocus(seg);
   }
-  const free = el("span", "gauge-seg gauge-free");
+  renderGaugeLegend(p.breakdown);
+  const free = el("span", "gauge-free");
   free.style.flexGrow = String(Math.max(p.usable - p.used, 0));
   free.title = `Espace libre : ${fmt(Math.max(p.usable - p.used, 0))} tokens`;
   bar.appendChild(free);
@@ -1766,9 +2207,24 @@ function renderGauge() {
   if (p.uncertain_fr) text += ` · ${p.uncertain_fr}`;
   if (gauge.preview) text += " · prochain tour";
   figures.textContent = text;
+  figures.title = text; // story 33: cut on a narrow window, whole in the tooltip
   root.title =
     `Fenêtre de ${fmt(p.window)} tokens, dont ${fmt(p.reserve)} réservés à la réponse : ` +
     `${fmt(p.usable)} utilisables.`;
+}
+
+// Story 33: the disciplines present in the gauge, prompt, context, harness, then the neutral
+// one; names only, no tokens per discipline (the total stays in the figures).
+let renderedGaugeLegend = null;
+function renderGaugeLegend(breakdown) {
+  const present = new Set(breakdown.map((item) => item.discipline || "neutral"));
+  const items = DISCIPLINES.filter(([d]) => present.has(d));
+  if (present.has("neutral")) items.push(["neutral", NEUTRAL_FR]);
+  const key = items.map(([d]) => d).join(",");
+  if (key === renderedGaugeLegend) return;
+  renderedGaugeLegend = key;
+  const legend = document.getElementById("gauge-legend");
+  legend.replaceChildren(...disciplineLegend("", items).children);
 }
 
 // AD-4: « ≈ » on an estimate; the total loses it once it comes from the API.
@@ -1805,6 +2261,9 @@ function renderModelIndicator() {
 // ---------- story 17: model picker (EXPERIENCE.md model-picker), hot switch ----------
 
 const PICK_OTHER = "other";
+// Story 25: the table of the models and their capabilities (`/models`), just before PICK_OTHER.
+const PICK_MODELS = "models";
+const PICK_LEGEND = "legend"; // a disabled option, never chosen
 const modelKey = (model) => (model ? `${model.kind ?? ""}:${model.ref ?? model.id}` : "");
 
 let modelListTimer = null;
@@ -1846,11 +2305,12 @@ function renderModelPicker() {
   const state = store.sessionState;
   const idle = state?.state === "idle"; // class (b): between two turns only
   picker.disabled = !idle || !store.modelList;
+  const legend = store.modelList?.models?.legend_fr;
   picker.title = !idle
     ? state?.reason_fr || "Disponible hors d'un tour."
     : !store.modelList
       ? "Liste des modèles indisponible : nouvel essai dans quelques secondes."
-      : "Changer de modèle : la conversation est conservée.";
+      : `Changer de modèle : la conversation est conservée.${legend ? ` ${legend}` : ""}`;
   if (!idle) store.pickerPending = "";
   const active = store.activeModel;
   const key = JSON.stringify([store.modelList, modelKey(active)]);
@@ -1866,11 +2326,235 @@ function renderModelPicker() {
   apply.disabled = !idle;
   setText(
     apply,
-    pending === PICK_OTHER ? "Ouvrir le diagnostic" : pending.startsWith("cloud:") ? "Choisir…" : "Charger"
+    pending === PICK_OTHER
+      ? "Ouvrir le diagnostic"
+      : pending === PICK_MODELS
+        ? "Ouvrir le tableau"
+        : pending.startsWith("cloud:")
+          ? "Choisir…"
+          : "Charger"
   );
 }
 
+// ---------- story 26: the context window (DESIGN.md > window-picker, AD-9) ----------
+
+// Every figure and text of the panel comes from `context_window_state` (AD-1): the browser
+// only lays them out, marks the choice noted and says why « Appliquer » is disabled.
+const windowPanel = () => document.getElementById("window-panel");
+let renderedWindowKey = null;
+let windowApplying = false; // a POST in flight: a second click sends nothing
+
+function bindWindowPicker() {
+  document.getElementById("window-toggle").addEventListener("click", () => {
+    if (windowPanel().hidden) openWindowPanel();
+    else closeWindowPanel(true);
+  });
+  document.getElementById("window-close").addEventListener("click", () => closeWindowPanel(true));
+  document.getElementById("window-apply").addEventListener("click", applyWindow);
+  document.getElementById("window-choices").addEventListener("change", (event) => {
+    if (event.target.name !== "window-choice") return;
+    store.windowPick = Number(event.target.value);
+    store.windowError = null;
+    renderWindowPicker();
+  });
+  window.addEventListener("resize", () => {
+    if (!windowPanel().hidden) placeWindowPanel();
+  });
+}
+
+// Lot K (K8): the panel drops under its button, left-aligned; when that would take it past
+// the window's right edge (853 px at a 150 % zoom, no pane hidden), it moves left by the
+// overflow, never past the window's left edge. Its width already fits the window (CSS).
+function placeWindowPanel() {
+  const panel = windowPanel();
+  panel.style.left = "";
+  const margin = 16; // --spacing-4, the gutter the CSS width keeps on each side
+  const rect = panel.getBoundingClientRect();
+  const overflow = rect.right - (document.documentElement.clientWidth - margin);
+  if (overflow > 0) panel.style.left = `${-Math.min(overflow, Math.max(0, rect.left - margin))}px`;
+}
+
+function openWindowPanel() {
+  store.windowPick = store.windowState?.configured ?? null;
+  store.windowError = null;
+  windowPanel().hidden = false;
+  document.getElementById("window-toggle").setAttribute("aria-expanded", "true");
+  placeWindowPanel();
+  renderWindowPicker();
+  const checked = windowPanel().querySelector('input[name="window-choice"]:checked');
+  (checked ?? windowPanel().querySelector('input[name="window-choice"]'))?.focus();
+}
+
+function closeWindowPanel(returnFocus = false) {
+  if (windowPanel().hidden) return;
+  windowPanel().hidden = true;
+  store.windowError = null;
+  const toggle = document.getElementById("window-toggle");
+  toggle.setAttribute("aria-expanded", "false");
+  if (returnFocus) toggle.focus();
+}
+
+// Why « Appliquer » cannot act on the choice noted, else `null`.
+function windowApplyReason(ws, pick) {
+  const state = store.sessionState;
+  if (state?.state !== "idle") return state?.reason_fr || "Disponible entre deux tours seulement.";
+  if (ws.locked_fr) return ws.locked_fr;
+  if (pick === ws.configured) return `La fenêtre est déjà de ${fmt(pick)} tokens.`;
+  const choice = ws.choices.find((c) => c.window === pick);
+  if (!choice) return "Choisissez une fenêtre.";
+  return choice.fits ? null : choice.refusal_fr;
+}
+
+function renderWindowPicker() {
+  const ws = store.windowState;
+  const toggle = document.getElementById("window-toggle");
+  setText(document.getElementById("window-toggle-value"), ws ? fmt(ws.window) : "…");
+  toggle.disabled = !ws;
+  // Lot K (A3): the button shows the effective window; the one chosen, when it differs
+  // (llama-server's `-c`, the native context…), is in its tooltip.
+  const chosen = ws && ws.configured !== ws.window ? `, ${fmt(ws.configured)} choisi` : "";
+  const title = !ws
+    ? "Fenêtre de contexte : en attente de la session."
+    : `Fenêtre de contexte : ${fmt(ws.window)} tokens` + (ws.bound_fr ? `, ${ws.bound_fr}` : "") + `${chosen}.`;
+  if (toggle.title !== title) toggle.title = title;
+  toggle.setAttribute("aria-label", ws ? `Fenêtre ${fmt(ws.window)} : régler la fenêtre de contexte` : "Fenêtre de contexte");
+  if (!ws || windowPanel().hidden) return;
+  const pick = store.windowPick ?? ws.configured;
+  const list = document.getElementById("window-choices");
+  setText(
+    document.getElementById("window-help"),
+    `Les scénarios sont conçus pour ${fmt(ws.default)} tokens. Une fenêtre plus grande coûte ` +
+      "de la mémoire et du temps de lecture."
+  );
+  // A value set by hand outside the choices: said, no choice marked « (actuelle) ».
+  const offList = !ws.choices.some((c) => c.current);
+  const currentLine = document.getElementById("window-current");
+  currentLine.hidden = !offList;
+  setText(currentLine, offList ? `Fenêtre actuelle : ${fmt(ws.configured)} (valeur de configuration)` : "");
+  // Rebuilt only when the session's figures change: an arrow key moving the choice keeps
+  // its focus (the choice noted is set in place below); a rebuild gives it back.
+  const key = JSON.stringify(ws);
+  if (key !== renderedWindowKey) {
+    renderedWindowKey = key;
+    const focused = list.contains(document.activeElement) ? document.activeElement.value : null;
+    list.replaceChildren(...ws.choices.map(windowChoiceNode));
+    if (focused !== null) list.querySelector(`input[name="window-choice"][value="${focused}"]`)?.focus();
+  }
+  for (const input of list.querySelectorAll('input[name="window-choice"]')) {
+    const checked = Number(input.value) === pick;
+    if (input.checked !== checked) input.checked = checked;
+    input.closest(".window-choice").classList.toggle("is-picked", checked);
+  }
+  setText(document.getElementById("window-note"), ws.read_note_fr);
+  const apply = document.getElementById("window-apply");
+  const reason = windowApplying ? "Demande en cours…" : windowApplyReason(ws, pick);
+  apply.disabled = Boolean(reason);
+  const applyTitle = reason ?? `Appliquer une fenêtre de ${fmt(pick)} tokens.`;
+  if (apply.title !== applyTitle) apply.title = applyTitle;
+  const alert = document.getElementById("window-alert");
+  alert.hidden = !store.windowError;
+  setText(alert, store.windowError ?? "");
+}
+
+function windowChoiceNode(choice) {
+  const row = el("div", "window-choice");
+  row.dataset.window = String(choice.window);
+  row.classList.toggle("is-refused", !choice.fits);
+  const label = el("label", "window-choice-label");
+  const input = el("input");
+  input.type = "radio";
+  input.name = "window-choice";
+  input.value = String(choice.window);
+  input.disabled = !choice.fits; // AD-9: a refused choice is only disabled, its reason shown
+  const details = el("div", "window-choice-details");
+  const figures = el("span", "window-choice-figures");
+  figures.id = `window-choice-${choice.window}`;
+  label.append(input, el("strong", "", `${fmt(choice.window)} tokens`));
+  if (choice.current) label.append(el("span", "window-choice-current", " (actuelle)"));
+  figures.append(el("span", "window-choice-line", choice.kv_fr), el("span", "window-choice-line", choice.read_fr));
+  if (choice.bound_fr) figures.append(el("span", "window-choice-line window-choice-bound", choice.bound_fr));
+  const verdict = choice.fits
+    ? el("span", "window-choice-verdict is-fits", "✓ Tient dans le budget")
+    : el("span", "window-choice-verdict is-refused", `⚠ ${choice.refusal_fr}`);
+  verdict.id = `window-choice-${choice.window}-verdict`;
+  details.append(figures, verdict);
+  // The figures and the verdict (a refused choice's reason) describe the radio.
+  input.setAttribute("aria-describedby", `${figures.id} ${verdict.id}`);
+  row.append(label, details);
+  return row;
+}
+
+async function applyWindow() {
+  const ws = store.windowState;
+  if (!ws || windowApplying) return;
+  const pick = store.windowPick ?? ws.configured;
+  store.windowError = null;
+  windowApplying = true;
+  renderWindowPicker(); // « Appliquer » disabled during the request
+  try {
+    const response = await postIntention("/api/intentions/context_window", { window: pick });
+    const answer = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = typeof answer.detail === "string" ? answer.detail : "Fenêtre refusée.";
+      store.windowError = detail; // in the panel and in the top bar
+      store.topStatus = detail;
+    } else {
+      closeWindowPanel(true);
+      // A reload is followed as a model load (`model_load_*`); otherwise the answer says it.
+      store.topStatus = answer.switching ? null : answer.message_fr ?? null;
+    }
+  } catch (error) {
+    store.windowError = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
+  } finally {
+    windowApplying = false;
+  }
+  render();
+}
+
+// Story 25: the groups the session built (`/api/diagnostic.models`: hosting, then publisher,
+// sorted by size, AD-1); the browser only marks the active model. Before the story's API,
+// or when the table could not be built, the former lists.
 function rebuildModelPicker(picker, active) {
+  const models = store.modelList?.models;
+  if (!Array.isArray(models?.groups)) {
+    rebuildModelPickerByKind(picker, active);
+    return;
+  }
+  const activeKey = modelKey(active);
+  const groups = models.groups.map((group) => {
+    const optgroup = el("optgroup");
+    optgroup.label = group.label_fr;
+    for (const m of group.models) {
+      const isActive = activeKey === `${m.kind}:${m.ref}`;
+      const unusable = !m.usable;
+      const suffix = isActive
+        ? " (actif)"
+        : unusable
+          ? m.hosting === "network"
+            ? " (indisponible)"
+            : " (incompatible)"
+          : "";
+      optgroup.append(
+        pickerOption(m.value, `${m.label_fr}${suffix}`, {
+          disabled: isActive || unusable,
+          title: unusable ? m.disabled_fr ?? "" : m.title_fr,
+        })
+      );
+    }
+    return optgroup;
+  });
+  const head = pickerOption("", "Changer de modèle…");
+  const legend = pickerOption(PICK_LEGEND, models.legend_fr, { disabled: true, title: models.legend_fr });
+  picker.replaceChildren(
+    head,
+    legend,
+    ...groups.filter((g) => g.children.length),
+    pickerOption(PICK_MODELS, "Tableau des modèles et de leurs capacités…"),
+    pickerOption(PICK_OTHER, "Autre fichier ou clé API…")
+  );
+}
+
+function rebuildModelPickerByKind(picker, active) {
   const list = store.modelList ?? { candidates: [], cloud: { models: [] } };
   const local = el("optgroup");
   local.label = "Sur ce poste";
@@ -1931,6 +2615,10 @@ async function applyPick() {
   if (!value) return;
   if (value === PICK_OTHER) {
     window.location.href = "/diagnostic"; // the key and a free path stay there
+    return;
+  }
+  if (value === PICK_MODELS) {
+    window.location.href = "/models"; // same tab, as the diagnostic; a reload restores (AD-1)
     return;
   }
   const at = value.indexOf(":");
@@ -2000,9 +2688,18 @@ function bindCloudWarning() {
 function modelLoadText() {
   const load = store.modelLoad;
   if (!load) return null;
-  // Lot E (E4): llama.cpp cannot interrupt a load; the stop acts at the end of the step.
-  const stopping = load.stopRequested ? "Arrêt demandé, effectif à la fin de l'étape en cours · " : "";
-  return `${stopping}Chargement du modèle ${load.model.label}… ${seconds(Date.now() - load.startedAt)}`;
+  // Lot E (E4), story 24: the probe stops at once, an in-process load at the end of its step;
+  // the front cannot tell which, so it only says the stop was asked.
+  const stopping = load.stopRequested ? "Arrêt demandé · " : "";
+  const what = load.phaseLabel ?? `Chargement du modèle ${load.model.label}…`;
+  return `${stopping}${what} ${seconds(Date.now() - load.startedAt)}`;
+}
+
+// Story 24: why « Arrêt demandé » may last, in the top bar's tooltip; `undefined` otherwise.
+const STOP_EXPLAINED_FR =
+  "Un chargement du moteur en cours se termine avant l'arrêt ; une sonde est interrompue tout de suite.";
+function modelLoadTitle() {
+  return store.modelLoad?.stopRequested ? STOP_EXPLAINED_FR : undefined;
 }
 
 // ---------- human view: bubbles, working indicator, composer ----------
@@ -2033,10 +2730,20 @@ function reasoningBlock(text, key, title) {
   details.open = store.openReasoning.has(key);
   const summary = el("summary", "", title);
   summary.dataset.focusKey = `reasoning:${key}`;
+  // Story 34: linked to the Raisonnement card and to the other reasoning blocks; unfolding it
+  // by hand selects it too (nothing is left to the hover alone), folding it clears that.
+  setLinks(details, ["reasoning"]);
+  let byUser = false; // a rebuilt block opened by the code must not select
+  summary.addEventListener("click", () => (byUser = true));
   details.append(summary, el("div", "reasoning-text", text));
   details.addEventListener("toggle", () => {
     if (details.open) store.openReasoning.add(key);
     else store.openReasoning.delete(key);
+    if (!byUser) return;
+    byUser = false;
+    const id = `reasoning:${key}`;
+    if (details.open) setSelection(id, ["reasoning"]);
+    else if (store.selection === id) clearSelection();
   });
   return details;
 }
@@ -2155,7 +2862,7 @@ function renderChat() {
       const cardKey = focusKey.slice(0, focusKey.lastIndexOf(":"));
       target = chat.querySelector(`[data-focus-key="${cssEscape(cardKey)}"]`);
     }
-    target?.focus();
+    quietFocus(target);
   }
   if (followTail) chat.scrollTop = chat.scrollHeight;
 }
@@ -2228,6 +2935,38 @@ function findScenario(id) {
 let renderedProgram = null;
 let renderedGuide = null;
 
+// Story 22 (C1): the scenario's instructions fold to 3 lines so they never hide the
+// conversation; « Afficher plus » only when the text overflows them, measured after each
+// rendering and whenever the text's box changes size (pane resized, text size). UI state
+// only, not remembered.
+let guideExpanded = false;
+const GUIDE_LINES = 3;
+
+function setGuideExpanded(expanded) {
+  guideExpanded = expanded;
+  const more = document.getElementById("scenario-guide-more");
+  document.getElementById("scenario-guide").classList.toggle("is-expanded", expanded);
+  more.setAttribute("aria-expanded", String(expanded));
+  more.textContent = expanded ? "Réduire" : "Afficher plus";
+  measureGuide();
+}
+
+function measureGuide() {
+  const guide = document.getElementById("scenario-guide");
+  const text = document.getElementById("scenario-guide-text");
+  const more = document.getElementById("scenario-guide-more");
+  if (guide.hidden || !text.clientHeight) {
+    more.hidden = true;
+    return;
+  }
+  const line = parseFloat(getComputedStyle(text).lineHeight) || 0;
+  // Folded: the clamp cuts the text; unfolded: it is taller than the three lines.
+  const overflows = guideExpanded
+    ? text.scrollHeight > GUIDE_LINES * line + 1
+    : text.scrollHeight > text.clientHeight + 1;
+  more.hidden = !overflows;
+}
+
 function renderScenarioControls(state) {
   const idle = state?.state === "idle"; // class (b)
   const reason = idle ? "" : state?.reason_fr || "Disponible hors d'un tour.";
@@ -2260,22 +2999,30 @@ function renderScenarioControls(state) {
   const reset = document.getElementById("reset-button");
   reset.disabled = !idle;
   reset.title = reason || "Retour au LLM nu, conversation vide.";
-  setText(document.getElementById("top-status"), modelLoadText() ?? store.topStatus ?? "");
+  const topText = modelLoadText() ?? store.topStatus ?? "";
+  setTopStatus(topText, modelLoadTitle() ?? topText);
 
   // Vue humain: the active scenario's instructions, then one chip per suggested prompt.
   const scenario = findScenario(store.scenarios?.active);
   renderScenarioUnavailable(scenario ? store.scenarios?.unavailable ?? [] : []);
   if (renderedGuide === scenario) return;
+  // A refresh of the same scenario keeps the guide as the user left it (unfolded or not).
+  const sameScenario = Boolean(scenario) && renderedGuide?.id === scenario.id;
   renderedGuide = scenario;
   const guide = document.getElementById("scenario-guide");
+  const guideText = document.getElementById("scenario-guide-text");
   const chips = document.getElementById("suggested-prompts");
   guide.hidden = chips.hidden = !scenario;
   if (!scenario) {
-    guide.replaceChildren();
+    guideText.replaceChildren();
     chips.replaceChildren();
+    setGuideExpanded(false);
     return;
   }
-  guide.replaceChildren(el("strong", "", scenario.title_fr), ` · ${scenario.description_fr}`);
+  guideText.replaceChildren(el("strong", "", scenario.title_fr), ` · ${scenario.description_fr}`);
+  // Story 22: folded again at each new scenario, then measured.
+  if (sameScenario) measureGuide();
+  else setGuideExpanded(false);
   chips.replaceChildren(
     ...scenario.prompts.map((prompt) => {
       const chip = el("button", "suggested-prompt", prompt);
@@ -2400,80 +3147,811 @@ async function stopTurn() {
   }
 }
 
-// ---------- LLM context pane: labelled segments and raw output ----------
+// ---------- LLM context pane: each call of the turn, what it read then what it produced (story 32) ----------
+// The session cuts each context into sections (consecutive segments of one source) and says
+// which prefix the previous call of the same context read already (AD-1, AD-9): the pane only
+// lays them out. Three views: the grouped reading (default), the exact text sent (the join of
+// the segments, or the chat body, byte for byte), and, in chat mode, the JSON body as a tree.
+
+const CTX_MODE_STORAGE_KEY = "wavestack.ctxMode";
+const CTX_MODES = [
+  ["grouped", "Lecture groupée"],
+  ["exact", "Texte exact"],
+  ["body", "Corps JSON"], // chat mode only
+];
+
+function loadCtxMode() {
+  try {
+    const saved = localStorage.getItem(CTX_MODE_STORAGE_KEY);
+    if (CTX_MODES.some(([id]) => id === saved)) store.ctxMode = saved;
+  } catch {
+    // No storage: the grouped reading, until the user picks another view.
+  }
+}
+
+function setCtxMode(mode) {
+  store.ctxMode = mode;
+  try {
+    localStorage.setItem(CTX_MODE_STORAGE_KEY, mode);
+  } catch {
+    // No storage: the choice lasts until the page is reloaded.
+  }
+  renderContext();
+}
+
+const isChat = (p) => p?.body !== undefined && p?.body !== null;
+// « Corps JSON » falls back on the grouped reading outside chat mode.
+const ctxMode = (chat) => (store.ctxMode === "body" && !chat ? "grouped" : store.ctxMode);
+
+// A stable number per object, for the pane's rebuild key (a reconciled context, a call ended).
+const objectIds = new WeakMap();
+let nextObjectId = 1;
+function objectId(o) {
+  if (!o || typeof o !== "object") return 0;
+  if (!objectIds.has(o)) objectIds.set(o, nextObjectId++);
+  return objectIds.get(o);
+}
+
+// The turn and the context shown: the tab chosen (story 22), else the last turn with a context.
+function ctxShown() {
+  const turns = shownTurns();
+  const chosen = store.ctxView && turns.find((t) => t.id === store.ctxView.turn);
+  const turn = chosen?.subs.get(store.ctxView.sub)?.context ? chosen : turns.findLast((t) => t.context);
+  if (!turn) return null;
+  const subs = [...turn.subs.values()].filter((s) => s.context);
+  const view = store.ctxView?.turn === turn.id ? turn.subs.get(store.ctxView.sub) : null;
+  const owner = view?.context ? view : turn;
+  return { turn, subs, owner, chat: isChat(owner.context) };
+}
+
+const ctxCalls = (owner) => owner.steps.filter((s) => s.type === "call");
+
+// The steps between a call and the next call of the same context (tools, hooks, errors).
+function stepsAfter(owner, call) {
+  const from = owner.steps.indexOf(call) + 1;
+  const next = owner.steps.findIndex((s, i) => i >= from && s.type === "call");
+  return owner.steps.slice(from, next < 0 ? undefined : next);
+}
+
+// « Vider la conversation » and « Réinitialiser »: the folds of calls that are gone.
+function clearCtxFolds() {
+  for (const set of [store.openSeen, store.jsonClosed, store.openExact]) set.clear();
+}
+
+// A call step clicked in Orchestration (story 34 selection): its call in Contexte LLM is
+// brought into view, as its sections may sit far above (not on hover).
+function revealCall(keys) {
+  const id = keys.find((k) => k.startsWith("call:"))?.slice(5);
+  if (!id) return;
+  document.querySelector(`#ctx .ctx-call[data-call-id="${cssEscape(id)}"]`)?.scrollIntoView({ block: "nearest" });
+}
+
+// What the pane shows, as a key: it is rebuilt only when this changes (story 32), so an
+// unfolded block, the keyboard focus and the scroll stay; the running call's text is patched.
+function ctxKey(shown) {
+  if (!shown) return JSON.stringify(["none", cleared()]);
+  const { turn, owner, subs, chat } = shown;
+  const calls = ctxCalls(owner);
+  const last = calls.at(-1);
+  return JSON.stringify([
+    ctxMode(chat),
+    turn.id,
+    turnNumber(turn),
+    owner === turn ? "main" : owner.contextId,
+    subs.map((s) => s.contextId),
+    objectId(store.bricks),
+    store.activeModel?.banner_fr ?? null,
+    calls.map((c) => [c.id, c.startedAt ?? null, objectId(c.context), objectId(c.ended), objectId(c.cut)]),
+    owner.steps.length,
+    last && !last.ended ? [Boolean(owner.reasoning), Boolean(owner.text)] : null,
+    turn.status,
+    turn.errors.length,
+    owner.errors?.length ?? 0,
+    owner.notices?.length ?? 0,
+    Boolean(owner.overflow),
+    objectId(owner.ended),
+  ]);
+}
+
+let renderedCtxKey = null;
+// The running call's nodes, patched in place at each delta: `{ owner, answer, reasoning, raw }`.
+let ctxLive = null;
 
 function renderContext() {
   const pane = document.getElementById("ctx");
   if (store.compare) {
+    renderedCtxKey = null;
+    ctxLive = null;
     renderCompare(pane);
     return;
   }
-  // The rebuild would drop keyboard focus (e.g. on the context switch): restore it.
-  const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
-  renderContextBody(pane);
-  if (focusKey) pane.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`)?.focus();
+  const shown = ctxShown();
+  const key = ctxKey(shown);
+  // Streaming (EXPERIENCE.md): the scroll follows the end of the text, unless the user went up.
+  const atEnd = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40;
+  if (key !== renderedCtxKey) {
+    renderedCtxKey = key;
+    // The rebuild would drop keyboard focus (e.g. on the view switch) and the scroll: restore them.
+    const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+    const scroll = pane.scrollTop;
+    ctxLive = null;
+    renderContextBody(pane, shown);
+    pane.scrollTop = scroll;
+    if (focusKey) quietFocus(pane.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`));
+  }
+  if (ctxLive) {
+    const { owner } = ctxLive;
+    if (ctxLive.answer) setText(ctxLive.answer, owner.text);
+    if (ctxLive.reasoning) setText(ctxLive.reasoning, owner.reasoning);
+    if (ctxLive.raw) setText(ctxLive.raw, owner.reasoning + owner.text || "…");
+    if (atEnd) pane.scrollTop = pane.scrollHeight;
+  }
 }
 
-function renderContextBody(pane) {
+function renderContextBody(pane, shown) {
   pane.innerHTML = "";
-  const chosen = store.ctxView && shownTurns().find((t) => t.id === store.ctxView.turn);
-  const turn = chosen?.subs.get(store.ctxView.sub)?.context
-    ? chosen
-    : shownTurns().reverse().find((t) => t.context);
-  if (!turn) {
+  if (!shown) {
     pane.appendChild(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
     return;
   }
-  // Story 19: « Contexte principal » / « Contexte du sous-agent », one button per sub-agent.
-  const subs = [...turn.subs.values()].filter((s) => s.context);
-  const view = store.ctxView?.turn === turn.id ? turn.subs.get(store.ctxView.sub) : null;
-  if (subs.length) pane.appendChild(ctxViewSwitch(turn, subs, view?.context ? view : null));
-  if (view?.context) {
-    renderSubContext(pane, view);
-    return;
+  const { turn, subs, owner, chat } = shown;
+  // Story 19: « Agent principal » / « Sous-agent sub1 », one tab per sub-agent (story 22);
+  // what follows is the selected tab's panel.
+  if (subs.length) {
+    const tabs = ctxViewSwitch(turn, subs, owner === turn ? null : owner);
+    const panel = el("div", "ctx-view-panel");
+    panel.id = "ctx-view-panel";
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", tabs.querySelector("[aria-selected='true']").id);
+    pane.append(tabs, panel);
+    pane = panel;
   }
-  const p = turn.context;
-  if (p.body !== undefined && p.body !== null) {
-    // Chat mode: the context is the JSON body sent to the provider (FR-43).
-    const banner = store.activeModel?.banner_fr ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
-    pane.appendChild(el("p", "ctx-banner", banner));
-  }
-  // AD-4: the provider's total replaces the sum of the segments, it is not added to it.
-  const source = p.usage_source === "api" ? "total renvoyé par le fournisseur" : "somme des segments";
-  pane.appendChild(
-    el(
-      "p",
-      "ctx-total",
-      `${turnName(turn)} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (${source}) · ` +
-        `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
-    )
-  );
-  if (p.uncertain_fr) pane.appendChild(el("p", "bubble-note", p.uncertain_fr));
-  if (p.uncompressed_used != null) {
-    // Story 20: the session's total without compression, next to the one sent (FR-31).
+  pane.appendChild(ctxModeSwitch(chat));
+  const p = owner.context;
+  if (owner === turn) {
+    if (chat) {
+      // Chat mode: the context is the JSON body sent to the provider (FR-43).
+      const banner = store.activeModel?.banner_fr ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
+      pane.appendChild(el("p", "ctx-banner", banner));
+    }
+    // AD-4: the provider's total replaces the sum of the segments, it is not added to it.
+    const source = p.usage_source === "api" ? "total renvoyé par le fournisseur" : "somme des segments";
     pane.appendChild(
       el(
         "p",
-        "ctx-compressed-total",
-        `🗜️ Sans compression : ≈ ${fmt(p.uncompressed_used)} tokens ; envoyés : ${approxTotal(p)}${fmt(p.used)}.`
+        "ctx-total",
+        `${turnName(turn)} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (${source}) · ` +
+          `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
       )
     );
+    if (p.uncertain_fr) pane.appendChild(el("p", "bubble-note", p.uncertain_fr));
+    if (p.uncompressed_used != null) {
+      // Story 20: the session's total without compression, next to the one sent (FR-31).
+      pane.appendChild(
+        el(
+          "p",
+          "ctx-compressed-total",
+          `🗜️ Sans compression : ≈ ${fmt(p.uncompressed_used)} tokens ; envoyés : ${approxTotal(p)}${fmt(p.used)}.`
+        )
+      );
+    }
+  } else {
+    pane.appendChild(
+      el(
+        "p",
+        "ctx-total",
+        `Sous-agent ${owner.contextId} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments) · ` +
+          `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
+      )
+    );
+    if (owner.ended) {
+      pane.appendChild(el("p", "subagent-saving", `Ce contexte reste dans le sous-agent. ${subSaving(owner.ended)}`));
+    }
   }
-  appendSegments(pane, p, turn);
-  for (const error of turn.errors) pane.appendChild(el("p", "bubble-note is-error", error));
-  // FR-9: the reasoning of the last call, always here, whatever the Vue humain option says:
-  // its `model_call_ended` once there, the live deltas while it streams.
-  const ended = lastCall(turn).ended;
-  const reasoning = ended ? ended.reasoning : turn.reasoning;
-  if (reasoning) {
-    pane.appendChild(el("h3", "ctx-heading", "Raisonnement du modèle"));
-    pane.appendChild(reasoningBlock(reasoning, `ctx:${turn.id}`, "Afficher le raisonnement de cet appel"));
+  pane.appendChild(renderCalls(owner, turn, chat));
+  for (const notice of owner === turn ? [] : owner.notices) pane.appendChild(el("p", "bubble-note", notice));
+  for (const error of owner.errors) pane.appendChild(el("p", "bubble-note is-error", error));
+}
+
+// « Lecture groupée », « Texte exact », and « Corps JSON » in chat mode: remembered by the
+// browser, a reading comfort, not a state of the harness.
+function ctxModeSwitch(chat) {
+  const group = el("div", "ctx-view-mode");
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", "Affichage du contexte");
+  const current = ctxMode(chat);
+  for (const [id, label] of CTX_MODES) {
+    if (id === "body" && !chat) continue;
+    const button = el("button", "ctx-mode-button", label);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(current === id));
+    button.dataset.focusKey = `ctxmode:${id}`;
+    button.addEventListener("click", () => setCtxMode(id));
+    group.appendChild(button);
   }
-  pane.appendChild(el("h3", "ctx-heading", "Sortie brute du modèle"));
-  const raw = turn.callEnded ? turn.callEnded.raw_output : turn.reasoning + turn.text;
-  pane.appendChild(
-    el("pre", "ctx-raw", raw || (turn.overflow ? "Aucun appel : contexte dépassé." : "…"))
+  return group;
+}
+
+// The calls of the context shown, numbered, each what it read then what it produced; between
+// two calls, what the harness did (EXPERIENCE.md > context-call).
+function renderCalls(owner, turn, chat) {
+  const list = el("div", "ctx-calls");
+  const calls = ctxCalls(owner);
+  const mode = ctxMode(chat);
+  calls.forEach((call, i) => {
+    const last = i === calls.length - 1;
+    const section = el("section", "ctx-call");
+    section.dataset.callId = call.id;
+    section.setAttribute("aria-label", `Appel ${i + 1} sur ${calls.length}`);
+    section.appendChild(callHead(call, i, calls.length, owner, turn, last));
+    if (mode === "exact") {
+      section.append(...exactParts(call, owner, last, turn));
+    } else {
+      section.appendChild(mode === "body" ? bodyPart(call) : readPart(call, turn, chat));
+      section.appendChild(producedPart(call, owner, turn, last));
+    }
+    list.appendChild(section);
+    if (!last) list.appendChild(betweenLine(owner, turn, call, calls[i + 1], i + 2));
+  });
+  return list;
+}
+
+// « Appel i sur n », then the call's figures, from its `model_call_ended` (AD-1): read,
+// evaluated by the engine (« non communiqué » when it cannot say), produced.
+function callHead(call, i, n, owner, turn, last) {
+  const head = el("header", "ctx-call-head");
+  head.appendChild(el("h3", "ctx-call-title", `Appel ${i + 1} sur ${n}`));
+  const ended = call.ended;
+  const p = call.context;
+  let figures;
+  if (ended) {
+    const guess = approx(ended.usage_source === "estimate");
+    const evaluated = ended.evaluated_tokens == null ? "non communiqué" : fmt(ended.evaluated_tokens);
+    figures =
+      `Lu : ${guess}${fmt(ended.prompt_tokens)} tokens · évalués : ${evaluated} · ` +
+      `produits : ${guess}${fmt(ended.output_tokens)}`;
+  } else {
+    const running = last && turn.status === null && !owner.ended && !owner.overflow;
+    const state = last && owner.overflow ? "non envoyé : contexte dépassé" : running ? "en cours" : "sans réponse";
+    figures = `Lu : ${approxTotal(p)}${fmt(p.used)} tokens · ${state}`;
+  }
+  head.appendChild(el("p", "ctx-call-figures", figures));
+  return head;
+}
+
+// ---- « Lu » : the grouped reading ----
+
+// Sections from an older journal (no `sections`): one per segment, nothing summed (AD-1).
+function fallbackSections(p) {
+  return p.segments.map((s, i) => ({
+    start: i,
+    end: i + 1,
+    kind: s.kind,
+    label_fr: s.label_fr,
+    brick: s.kind === "template" ? null : s.brick,
+    discipline: s.discipline || "neutral",
+    tokens: s.tokens,
+    template_tokens: 0,
+    estimated: s.estimated,
+    seen: false,
+  }));
+}
+
+// The JSON of the exact text, for the display only: balanced, aware of strings, accepted by
+// `JSON.parse` and worth a tree (`treeWorthy`); the first one wins, never nested. A JSON cut
+// or invalid stays text. `[start, end, value]`, in characters of `text`. Linear in practice:
+// a bracket that cannot close is skipped, and a bracket closed during an earlier scan reuses
+// its closing position (the scan from it is the suffix of that scan).
+function jsonSpans(text) {
+  const spans = [];
+  const closeAt = new Map(); // opening position -> position after its closing bracket
+  const failed = new Set(); // opening positions that can never close
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if ((c !== "{" && c !== "[") || failed.has(i)) {
+      i += 1;
+      continue;
+    }
+    if (!closeAt.has(i)) {
+      const stack = []; // [position, closing bracket]
+      let inString = false;
+      let j = i;
+      for (; j < text.length; j++) {
+        const d = text[j];
+        if (inString) {
+          if (d === "\\") j += 1;
+          else if (d === '"') inString = false;
+        } else if (d === '"') {
+          inString = true;
+        } else if (d === "{" || d === "[") {
+          stack.push([j, d === "{" ? "}" : "]"]);
+        } else if (d === "}" || d === "]") {
+          const top = stack.at(-1);
+          if (!top || top[1] !== d) break; // a mismatch: nothing still open here can close
+          stack.pop();
+          closeAt.set(top[0], j + 1);
+          if (!stack.length) break;
+        }
+      }
+      for (const [position] of stack) failed.add(position);
+    }
+    const end = closeAt.get(i);
+    const value = end ? parseJson(text.slice(i, end)) : undefined;
+    if (value !== undefined && treeWorthy(value, end - i)) {
+      spans.push([i, end, value]);
+      i = end;
+    } else {
+      i += 1;
+    }
+  }
+  return spans;
+}
+
+// Worth a tree: an object of at least 2 keys or 40 characters, or an array holding at least
+// one object, of 40 characters or more; a `[1, 2]` in prose stays text.
+function treeWorthy(value, length) {
+  if (Array.isArray(value)) {
+    return length >= 40 && value.some((v) => v !== null && typeof v === "object" && !Array.isArray(v));
+  }
+  return Object.keys(value).length >= 2 || length >= 40;
+}
+
+// A non-empty object or array, else `undefined`.
+function parseJson(text) {
+  try {
+    const value = JSON.parse(text);
+    if (value !== null && typeof value === "object" && Object.keys(value).length) return value;
+  } catch {
+    // Not JSON: shown as text.
+  }
+  return undefined;
+}
+
+// Chat mode: a fragment of the body is inside a JSON string (sentinels, AD-4); decoded for the
+// display, raw text when it is not a whole string (a fragment spanning JSON syntax).
+function decodeFragment(text) {
+  try {
+    const value = JSON.parse(`"${text}"`);
+    return typeof value === "string" ? value : text;
+  } catch {
+    return text;
+  }
+}
+
+// The rows of a context's grouped reading, computed once per payload: one per section, except
+// sections touched by one JSON of the exact text (locally), merged into one row whose margin
+// stacks their labels (Qwen3.5's `<tools>`: the JSON syntax falls in the template). Never a
+// merge across the « déjà lu » boundary, where the JSON stays text.
+const readingCache = new WeakMap();
+function readingRows(p, chat) {
+  const cached = readingCache.get(p);
+  if (cached) return cached;
+  const offsets = [0];
+  for (const segment of p.segments) offsets.push(offsets.at(-1) + segment.text.length);
+  const sections = (p.sections ?? []).length ? p.sections : fallbackSections(p);
+  const text = p.segments.map((s) => s.text).join("");
+  const seenAt = offsets[p.seen_segments ?? 0];
+  const spans = chat ? [] : jsonSpans(text).filter(([a, b]) => !(a < seenAt && seenAt < b));
+  const from = (s) => offsets[s.start];
+  const to = (s) => offsets[s.end];
+  const joined = new Array(sections.length).fill(false); // section k shares a row with k + 1
+  for (const [a, b] of spans) {
+    let k = sections.findIndex((s) => to(s) > a);
+    if (k < 0) continue;
+    while (k + 1 < sections.length && from(sections[k + 1]) < b) joined[k++] = true;
+  }
+  const rows = [];
+  let group = [];
+  sections.forEach((section, k) => {
+    group.push(section);
+    if (joined[k]) return;
+    const start = group[0].start;
+    const end = group.at(-1).end;
+    const [a, b] = [offsets[start], offsets[end]];
+    rows.push({ sections: group, start, end, from: a, to: b, seen: group[0].seen, json: spans.filter(([x, y]) => x >= a && y <= b) });
+    group = [];
+  });
+  const reading = { rows, offsets, text };
+  readingCache.set(p, reading);
+  return reading;
+}
+
+function readPart(call, turn, chat) {
+  const p = call.context;
+  const part = el("div", "ctx-read");
+  part.appendChild(el("h4", "ctx-part-title", "Lu par le modèle"));
+  const reading = readingRows(p, chat);
+  const seen = p.seen_segments ?? 0;
+  if (seen > 0) {
+    // What the previous call of this context read already, folded (its key remembered).
+    const key = `seen:${call.id}`;
+    const details = el("details", "ctx-seen");
+    details.open = store.openSeen.has(key);
+    const seenRows = reading.rows.filter((r) => r.seen);
+    const k = seenRows.length; // the rows shown inside the fold, JSON merges included
+    const summary = el(
+      "summary",
+      "",
+      `Déjà lu à l'appel précédent · ${fmt(k)} ${k > 1 ? "sections" : "section"} · ${fmt(p.seen_tokens)} tokens`
+    );
+    summary.dataset.focusKey = key;
+    details.appendChild(summary);
+    details.addEventListener("toggle", () => {
+      if (details.open) store.openSeen.add(key);
+      else store.openSeen.delete(key);
+    });
+    for (const row of seenRows) details.appendChild(sectionRow(p, reading, row, call, turn, chat, false));
+    part.appendChild(details);
+  }
+  for (const row of reading.rows.filter((r) => !r.seen)) {
+    part.appendChild(sectionRow(p, reading, row, call, turn, chat, seen > 0));
+  }
+  return part;
+}
+
+// The DESIGN.md colour token of a segment type (its gauge group), for the swatch.
+function kindColor(p, kind) {
+  const group = p.breakdown.find((item) => item.kinds.includes(kind))?.group ?? kind;
+  return GROUP_COLORS[group] || "--color-muted";
+}
+
+const tokensFr = (n, estimated) => `${approx(estimated)}${fmt(n)} ${n > 1 ? "tokens" : "token"}`;
+
+function sectionLabel(s) {
+  const count = s.end - s.start;
+  const brick = s.brick ? brickName(s.brick) : "hors brique";
+  // « Prompt système · Prompt système », « Extraits RAG · RAG »: the brick said once.
+  const source = s.brick && s.label_fr.toLowerCase().includes(brick.toLowerCase()) ? "" : ` · ${brick}`;
+  return (
+    `${s.label_fr}${source} · ${tokensFr(s.tokens, s.estimated)}` +
+    (s.template_tokens ? ` dont ${fmt(s.template_tokens)} de gabarit` : "") +
+    (count > 1 ? ` · ${count} segments` : "")
   );
+}
+
+// One row: the margin (discipline rule, type swatch, label and tokens of each section), then
+// the continuous text, one span per segment (its label and tokens in the tooltip). The margin
+// is the row's one control (a button, `aria-pressed`, named short): the text stays plain
+// readable content, and the row's own controls (JSON, compression) are never nested in it.
+function sectionRow(p, reading, row, call, turn, chat, marked) {
+  const node = el("div", "ctx-section");
+  const segments = p.segments.slice(row.start, row.end);
+  node.dataset.discipline = row.sections.find((s) => s.discipline && s.discipline !== "neutral")?.discipline ?? "neutral";
+  node.style.setProperty("--segment-color", `var(${kindColor(p, row.sections[0].kind)})`);
+  // Story 34: its segments' bricks and components, and its own call; its margin selects it.
+  setLinks(node, [...segments.flatMap((s) => [s.brick, s.component]), `call:${call.id}`]);
+  const id = `section:${call.id}:${row.start}`;
+  const margin = el("div", "ctx-section-margin");
+  if (marked) {
+    node.classList.add("is-new");
+    margin.appendChild(el("span", "ctx-new-badge", "Nouveau"));
+  }
+  const control = el("button", "ctx-section-select");
+  control.type = "button";
+  control.dataset.focusKey = id;
+  for (const section of row.sections) {
+    const label = el("span", "ctx-section-label");
+    label.style.setProperty("--segment-color", `var(${kindColor(p, section.kind)})`);
+    const swatch = el("span", "swatch");
+    swatch.setAttribute("aria-hidden", "true");
+    label.append(swatch, el("span", "", sectionLabel(section)));
+    control.appendChild(label);
+    // A section over several components (the tools of one brick) names them.
+    const components = [
+      ...new Set(p.segments.slice(section.start, section.end).map((s) => s.component).filter(Boolean)),
+    ];
+    if (components.length > 1) control.appendChild(el("span", "ctx-section-components", components.join(", ")));
+  }
+  const first = row.sections[0];
+  selectOnActivate(control, id, `${first.label_fr} · ${tokensFr(first.tokens, first.estimated)}${row.sections.length > 1 ? ` et ${row.sections.length - 1} de plus` : ""}`);
+  margin.appendChild(control);
+  const main = el("div", "ctx-section-main");
+  const pre = el("pre", "ctx-section-text");
+  if (chat) appendChatText(pre, p, reading, row, call);
+  else appendLocalText(pre, p, reading, row, call);
+  main.appendChild(pre);
+  for (const segment of segments) {
+    if (!segment.compressed_from) continue;
+    // Story 20: a compressed segment, and what it was before (AD-22).
+    const was = segment.compressed_from;
+    const tokens = `${approx(was.estimated)}${fmt(was.tokens_before)} tokens`;
+    node.classList.add("ctx-compressed");
+    margin.appendChild(el("span", "ctx-compressed-badge", `🗜️ compressé, ${tokens} avant`));
+    const text = textBefore(turn, was);
+    if (text !== null) {
+      const key = `before:${call.id}:${segment.id}`; // its unfolding kept like the other folds
+      const before = el("details");
+      before.open = store.openExact.has(key);
+      before.addEventListener("toggle", () => {
+        if (before.open) store.openExact.add(key);
+        else store.openExact.delete(key);
+      });
+      const summary = el("summary", "", `Texte avant compression (${tokens})`);
+      summary.dataset.focusKey = key;
+      before.append(summary, el("pre", "", text));
+      main.appendChild(before);
+    }
+  }
+  node.append(margin, main);
+  return node;
+}
+
+function segmentSpan(segment, text) {
+  const span = el("span", segment.kind === "template" ? "ctx-seg is-template" : "ctx-seg", text);
+  span.dataset.segmentId = segment.id;
+  span.title = `${segment.label_fr} · ${tokensFr(segment.tokens, segment.estimated)}`;
+  return span;
+}
+
+// Locally: the exact text of the row, each JSON found replaced by its tree (its exact text a
+// click away), the rest one span per segment piece.
+function appendLocalText(pre, p, reading, row, call) {
+  const { offsets, text } = reading;
+  const plain = (a, b) => {
+    for (let k = row.start; k < row.end; k++) {
+      const x = Math.max(a, offsets[k]);
+      const y = Math.min(b, offsets[k + 1]);
+      if (x < y) pre.appendChild(segmentSpan(p.segments[k], text.slice(x, y)));
+    }
+  };
+  let at = row.from;
+  for (const [a, b, value] of row.json) {
+    plain(at, a);
+    pre.appendChild(jsonBlock(value, text.slice(a, b), `${call.id}:${a}`));
+    at = b;
+  }
+  plain(at, row.to);
+}
+
+// Chat mode: the JSON syntax (template) in ink-soft, each fragment decoded (a template piece
+// inside a string too, the `\n\n` between two parts; JSON syntax stays as sent), and a tree
+// when the fragment is itself JSON (a tool result, arguments).
+function appendChatText(pre, p, reading, row, call) {
+  for (let k = row.start; k < row.end; k++) {
+    const segment = p.segments[k];
+    if (segment.kind === "template") {
+      if (segment.text) pre.appendChild(segmentSpan(segment, decodeFragment(segment.text)));
+      continue;
+    }
+    const decoded = decodeFragment(segment.text);
+    const trimmed = decoded.trim();
+    const value = /^[[{]/.test(trimmed) ? parseJson(trimmed) : undefined;
+    if (value !== undefined && treeWorthy(value, trimmed.length)) {
+      const block = jsonBlock(value, segment.text, `${call.id}:${reading.offsets[k]}`);
+      block.dataset.segmentId = segment.id;
+      pre.appendChild(block);
+    } else {
+      pre.appendChild(segmentSpan(segment, decoded));
+    }
+  }
+}
+
+// A JSON of the context: its tree, and « Texte exact », the substring sent.
+function jsonBlock(value, exact, key) {
+  const block = el("span", "ctx-json");
+  const exactKey = `jsonexact:${key}`;
+  const shown = store.openExact.has(exactKey);
+  const toggle = el("button", "ctx-json-exact-toggle", "Texte exact");
+  toggle.type = "button";
+  toggle.dataset.focusKey = exactKey;
+  toggle.setAttribute("aria-pressed", String(shown));
+  const raw = el("span", "ctx-json-exact", exact);
+  raw.hidden = !shown;
+  toggle.addEventListener("click", () => {
+    const on = !store.openExact.has(exactKey);
+    if (on) store.openExact.add(exactKey);
+    else store.openExact.delete(exactKey);
+    toggle.setAttribute("aria-pressed", String(on));
+    raw.hidden = !on;
+  });
+  block.append(toggle, jsonTree(value, key), raw);
+  return block;
+}
+
+// A JSON tree in native JS (no library, AD-18): a `details` per object or array, open by
+// default, its folding kept by key; keys, strings and literals in their classes.
+function jsonTree(value, key) {
+  const tree = el("span", "json-tree");
+  tree.appendChild(jsonNode(value, undefined, `json:${key}`, true));
+  return tree;
+}
+
+function jsonNode(value, name, path, last) {
+  const head = [];
+  if (typeof name === "string") head.push(el("span", "json-key", JSON.stringify(name)), el("span", "json-punct", ": "));
+  const comma = () => (last ? [] : [el("span", "json-punct", ",")]);
+  if (value !== null && typeof value === "object") {
+    const isArray = Array.isArray(value);
+    const entries = isArray ? value.map((v, i) => [i, v]) : Object.entries(value);
+    const [open, close] = isArray ? ["[", "]"] : ["{", "}"];
+    if (!entries.length) {
+      const leaf = el("span", "json-leaf");
+      leaf.append(...head, el("span", "json-punct", `${open}${close}`), ...comma());
+      return leaf;
+    }
+    const node = el("details", "json-node");
+    node.open = !store.jsonClosed.has(path);
+    node.addEventListener("toggle", () => {
+      if (node.open) store.jsonClosed.delete(path);
+      else store.jsonClosed.add(path);
+    });
+    const summary = el("summary", "json-summary");
+    summary.dataset.focusKey = path;
+    const count = entries.length;
+    const noun = isArray ? (count > 1 ? "éléments" : "élément") : count > 1 ? "clés" : "clé";
+    summary.append(...head, el("span", "json-punct", open), el("span", "json-folded", ` … ${close} ${fmt(count)} ${noun}`));
+    const children = el("span", "json-children");
+    entries.forEach(([k, v], i) => {
+      children.appendChild(jsonNode(v, isArray ? undefined : k, `${path}/${encodeURIComponent(k)}`, i === count - 1));
+    });
+    const end = el("span", "json-close");
+    end.append(el("span", "json-punct", close), ...comma());
+    node.append(summary, children, end);
+    return node;
+  }
+  const leaf = el("span", "json-leaf");
+  const literal = typeof value === "string" ? el("span", "json-string", JSON.stringify(value)) : el("span", "json-literal", JSON.stringify(value));
+  leaf.append(...head, literal, ...comma());
+  return leaf;
+}
+
+// « Corps JSON » (chat mode): the body sent, as a tree.
+function bodyPart(call) {
+  const part = el("div", "ctx-read ctx-body");
+  part.appendChild(el("h4", "ctx-part-title", "Corps JSON envoyé"));
+  const value = parseJson(call.context.body ?? "");
+  part.appendChild(value === undefined ? el("pre", "ctx-exact", call.context.body ?? "") : jsonTree(value, `body:${call.id}`));
+  return part;
+}
+
+// « Texte exact »: the join of the segments (the prompt sent, AD-4; the body in chat mode),
+// then the raw output, without colour nor margin. An earlier call's text is folded.
+function exactParts(call, owner, last, turn) {
+  const p = call.context;
+  const exact = el("pre", "ctx-exact", isChat(p) ? p.body : p.segments.map((s) => s.text).join(""));
+  const nodes = [];
+  if (last) {
+    nodes.push(el("h4", "ctx-part-title", "Texte lu, exact"), exact);
+  } else {
+    const key = `exact:${call.id}`;
+    const details = el("details", "ctx-exact-fold");
+    details.open = store.openExact.has(key);
+    const summary = el("summary", "", `Texte lu à cet appel, exact · ${approxTotal(p)}${fmt(p.used)} tokens`);
+    summary.dataset.focusKey = key;
+    details.addEventListener("toggle", () => {
+      if (details.open) store.openExact.add(key);
+      else store.openExact.delete(key);
+    });
+    details.append(summary, exact);
+    nodes.push(details);
+  }
+  nodes.push(el("h4", "ctx-part-title", "Sortie brute du modèle"));
+  let raw;
+  if (call.ended) raw = el("pre", "ctx-raw", call.ended.raw_output);
+  else if (last && owner.overflow) raw = el("pre", "ctx-raw", "Aucun appel : contexte dépassé.");
+  else if (last && call.startedAt != null) {
+    // Only once its `model_call_started` came: before, the deltas are the previous call's.
+    raw = el("pre", "ctx-raw", owner.reasoning + owner.text || "…");
+    ctxLive = { ...(ctxLive ?? { owner }), raw };
+  } else raw = el("pre", "ctx-raw", ctxRunning(owner, turn) ? "…" : "");
+  nodes.push(raw);
+  return nodes;
+}
+
+// ---- « Produit » : what the call itself produced, on its own background ----
+
+function producedBlock(className, kind, links) {
+  const block = el("div", `ctx-produced ${className}`);
+  block.dataset.discipline = "model";
+  setLinks(block, links);
+  const head = el("div", "ctx-produced-head");
+  head.append(el("span", "ctx-produced-tag", "Produit par le modèle"), el("span", "ctx-produced-kind", kind));
+  block.appendChild(head);
+  return block;
+}
+
+// Chat mode's `arguments` is the JSON string the provider emitted: decoded for the tree.
+function decodeArguments(args) {
+  if (typeof args !== "string") return args;
+  try {
+    return JSON.parse(args);
+  } catch {
+    return args;
+  }
+}
+
+// The turn (or the sub-agent) still running, its last call not answered yet.
+const ctxRunning = (owner, turn) => turn.status === null && !owner.ended && !owner.overflow;
+
+function producedPart(call, owner, turn, last) {
+  const part = el("div", "ctx-produced-list");
+  const ended = call.ended;
+  if (!ended && last && owner.overflow) {
+    part.appendChild(el("p", "ctx-produced-none", "Aucun appel : contexte dépassé."));
+    return part;
+  }
+  // The running call: the live deltas, patched in place by `renderContext`; only once its
+  // `model_call_started` came (a chat call may wait for its provider's pacing, and the
+  // deltas held until then are the previous call's).
+  const live = !ended && last && call.startedAt != null;
+  if (!ended && !live) {
+    // Not sent yet: a note while it waits, nothing once the turn stopped.
+    if (last && ctxRunning(owner, turn)) {
+      part.appendChild(el("p", "ctx-produced-none", "En attente de l'envoi au modèle…"));
+    }
+    return part;
+  }
+  if (live) ctxLive = { ...(ctxLive ?? {}), owner };
+  const reasoning = ended ? ended.reasoning : owner.reasoning;
+  const text = ended ? ended.text : owner.text;
+  const links = [`call:${call.id}`];
+  if (reasoning) {
+    // FR-9: always here, whatever the Vue humain option says; folded by default.
+    const block = producedBlock("is-reasoning", "Réflexion", [...links, "reasoning"]);
+    const details = reasoningBlock(reasoning, `ctx:${call.id}`, "Afficher le raisonnement de cet appel");
+    block.appendChild(details);
+    part.appendChild(block);
+    if (live) ctxLive.reasoning = details.querySelector(".reasoning-text");
+  }
+  // Lot C: the harness closed the reasoning at its budget and relaunched the same call.
+  if (call.cut) part.appendChild(el("p", "ctx-harness-note", `⚙ Le harnais : ${call.cut.message_fr}`));
+  if (text) {
+    const block = producedBlock("is-answer", "Réponse", links);
+    const pre = el("pre", "ctx-produced-text", text);
+    block.appendChild(pre);
+    part.appendChild(block);
+    if (live) ctxLive.answer = pre;
+  }
+  (ended?.tool_calls ?? []).forEach((toolCall, i) => {
+    const block = producedBlock("is-tool-call", "Appel d'outil", links);
+    block.appendChild(jsonTree({ name: toolCall.name, arguments: decodeArguments(toolCall.arguments) }, `tool:${call.id}:${i}`));
+    part.appendChild(block);
+  });
+  // A malformed tool call reaches no `tool_calls`: its raw output is what the model produced.
+  const malformed = stepsAfter(owner, call).some((s) => s.type === "tool_call_malformed");
+  if (ended?.raw_output && (malformed || !part.childElementCount)) {
+    const block = producedBlock("is-answer is-raw", malformed ? "Sortie brute (appel d'outil mal formé)" : "Sortie brute", links);
+    block.appendChild(el("pre", "ctx-produced-text", ended.raw_output));
+    part.appendChild(block);
+  }
+  if (!part.childElementCount) {
+    part.appendChild(el("p", "ctx-produced-none", live && ctxRunning(owner, turn) ? "En attente de la sortie du modèle…" : "Aucune sortie reçue."));
+  }
+  return part;
+}
+
+// Between two calls: what the harness ran (only the tools that started), what it refused
+// (a malformed call, a call blocked by a hook), and that the next call reads it; for a
+// delegation, the sub-agent's tab.
+function betweenLine(owner, turn, call, next, nextNumber) {
+  const steps = stepsAfter(owner, call);
+  const tools = steps.filter((s) => s.type === "tool");
+  const names = [
+    ...new Set(tools.map((s) => (s.started.tool === "delegate" ? "la délégation au sous-agent" : toolLabel(s.started.tool)))),
+  ];
+  const blocked = steps.filter((s) => s.type === "hook" && s.payload.decision === "block");
+  const malformed = steps.some((s) => s.type === "tool_call_malformed");
+  const parts = [];
+  if (names.length) parts.push(`exécute ${joinFr(names)}`);
+  if (blocked.length) parts.push(`refuse ${blocked.length > 1 ? `${blocked.length} appels d'outil` : "l'appel d'outil"} (${joinFr(blocked.map((s) => s.payload.hook_fr))})`);
+  if (malformed) parts.push("refuse l'appel d'outil mal formé et réinjecte l'erreur");
+  let text;
+  if (!parts.length) text = `Le harnais relance le modèle : appel ${nextNumber}.`;
+  else if (names.length && parts.length === 1) text = `Le harnais ${parts[0]} ; le résultat est lu à l'appel ${nextNumber}.`;
+  else text = `Le harnais ${joinFr(parts)} ; ${names.length ? "résultats et refus sont lus" : "le refus est lu"} à l'appel ${nextNumber}.`;
+  const line = el("div", "ctx-between");
+  line.appendChild(el("p", "", `⚙ ${text}`));
+  if (owner === turn) {
+    for (const step of tools.filter((s) => s.sub?.context)) {
+      const show = el("button", "subagent-show", `Voir le contexte du sous-agent ${step.sub.contextId}`);
+      show.type = "button";
+      show.dataset.focusKey = `ctxsub:${step.sub.contextId}`;
+      show.addEventListener("click", () => showSubContext(turn.id, step.sub.contextId));
+      line.appendChild(show);
+    }
+  }
+  return line;
 }
 
 // Story 20: the text a compressed segment had before, kept once by its compression step.
@@ -2482,47 +3960,19 @@ function textBefore(turn, was) {
   return step?.ended?.items[was.item]?.text_before ?? null;
 }
 
-function appendSegments(pane, p, turn = null) {
-  for (const segment of p.segments) {
-    const group = p.breakdown.find((item) => item.kinds.includes(segment.kind));
-    const box = el("div", "ctx-segment");
-    box.style.setProperty(
-      "--segment-color",
-      `var(${GROUP_COLORS[group?.group] || "--color-muted"})`
-    );
-    const label = el("div", "ctx-segment-label");
-    label.append(
-      el("span", "swatch"),
-      `${segment.label_fr}${segment.brick ? ` (${segment.brick})` : ""} · ` +
-        `${approx(segment.estimated)}${fmt(segment.tokens)} ${segment.tokens > 1 ? "tokens" : "token"}`
-    );
-    box.append(label, el("pre", "", segment.text));
-    if (segment.compressed_from) {
-      // Story 20: a compressed segment, and what it was before (AD-22).
-      const was = segment.compressed_from;
-      const tokens = `${approx(was.estimated)}${fmt(was.tokens_before)} tokens`;
-      box.classList.add("ctx-compressed");
-      label.append(el("span", "ctx-compressed-badge", `🗜️ compressé, ${tokens} avant`));
-      const text = textBefore(turn, was);
-      if (text !== null) {
-        const before = el("details");
-        before.append(el("summary", "", `Texte avant compression (${tokens})`), el("pre", "", text));
-        box.appendChild(before);
-      }
-    }
-    pane.appendChild(box);
-  }
-}
-
-// Story 19 (EXPERIENCE: Sous-agent au travail): toggle buttons, `aria-pressed` on the one shown.
+// Story 19 (EXPERIENCE: Sous-agent au travail), story 22 (M6): tabs, `aria-selected` on the
+// one shown. No arrow-key navigation: every tab stays in the Tab order.
 function ctxViewSwitch(turn, subs, view) {
   const bar = el("div", "ctx-view-switch");
-  bar.setAttribute("role", "group");
+  bar.setAttribute("role", "tablist");
   bar.setAttribute("aria-label", "Contexte affiché");
   const button = (label, target, pressed) => {
     const b = el("button", "ctx-view-button", label);
     b.type = "button";
-    b.setAttribute("aria-pressed", String(pressed));
+    b.id = `ctx-tab-${target ?? "main"}`;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(pressed));
+    b.setAttribute("aria-controls", "ctx-view-panel");
     b.dataset.focusKey = `ctxview:${target ?? "main"}`;
     b.addEventListener("click", () => {
       store.ctxView = target ? { turn: turn.id, sub: target } : null;
@@ -2530,45 +3980,21 @@ function ctxViewSwitch(turn, subs, view) {
     });
     return b;
   };
-  bar.appendChild(button("Contexte principal", null, !view));
-  subs.forEach((sub, i) => {
-    const label = subs.length > 1 ? `Contexte du sous-agent ${i + 1}` : "Contexte du sous-agent";
-    bar.appendChild(button(label, sub.contextId, view === sub));
-  });
+  bar.appendChild(button("Agent principal", null, !view));
+  for (const sub of subs) bar.appendChild(button(`Sous-agent ${sub.contextId}`, sub.contextId, view === sub));
   return bar;
-}
-
-function renderSubContext(pane, sub) {
-  const p = sub.context;
-  pane.appendChild(
-    el(
-      "p",
-      "ctx-total",
-      `Sous-agent ${sub.contextId} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments) · ` +
-        `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
-    )
-  );
-  if (sub.ended) {
-    pane.appendChild(
-      el(
-        "p",
-        "subagent-saving",
-        `Ce contexte reste dans le sous-agent. ${subSaving(sub.ended)}`
-      )
-    );
-  }
-  appendSegments(pane, p);
-  for (const notice of sub.notices) pane.appendChild(el("p", "bubble-note", notice));
-  for (const error of sub.errors) pane.appendChild(el("p", "bubble-note is-error", error));
-  pane.appendChild(el("h3", "ctx-heading", "Sortie brute du sous-agent"));
-  const raw = sub.callEnded ? sub.callEnded.raw_output : sub.reasoning + sub.text;
-  pane.appendChild(el("pre", "ctx-raw", raw || (sub.overflow ? "Aucun appel : contexte du sous-agent dépassé." : "…")));
 }
 
 // ---------- turn comparison (story 9b, EXPERIENCE.md turn-compare) ----------
 
-// The rail's name of a turn: its rank since the launch.
-const turnName = (turn) => `Tour ${store.turns.indexOf(turn) + 1}`;
+// Story 22: the rail's name of a turn, its rank in the conversation shown (back to 1 after
+// « Vider la conversation » or « Réinitialiser »); its id `t{n}` stays unique in the journal.
+const turnNumber = (turn) => {
+  const i = shownTurns().indexOf(turn);
+  return i < 0 ? null : i + 1;
+};
+const turnName = (turn) => (turnNumber(turn) ? `Tour ${turnNumber(turn)}` : turn.id);
+const turnIdTitle = (turn) => `Identifiant du tour dans le journal : ${turn.id}`;
 
 function openCompare(left, right) {
   const turns = shownTurns();
@@ -2628,6 +4054,7 @@ function compareCell(turn, group, other) {
   const first = group.segments[0];
   const colorGroup = turn.context.breakdown.find((item) => item.kinds.includes(first.kind))?.group;
   cell.style.setProperty("--segment-color", `var(${GROUP_COLORS[colorGroup] || "--color-muted"})`);
+  cell.dataset.discipline = first.discipline || "neutral"; // story 33
   cell.classList.add("ctx-segment");
   const label = el("div", "ctx-segment-label");
   const delta = other === undefined ? "" : ` (${signed(group.tokens - (other?.tokens ?? 0), fmt)} tokens)`;
@@ -2862,6 +4289,12 @@ function overflowCard(overflow) {
   return card;
 }
 
+const OUTBOUND_MASKED_FR = "Valeur masquée par le harnais : jamais écrite dans le journal";
+const OUTBOUND_MASKED_NOTE_FR =
+  "[masqué] : valeur secrète ou propre à la session (clé, cookie, identifiant de session…), remplacée par le harnais avant le journal. Le nom de l'en-tête reste visible.";
+const OUTBOUND_HEADERS_AT_SEND_FR =
+  "Posés par le client HTTP à l'envoi (User-Agent, Accept…) : si l'appel est accepté, ils seront visibles dans les données sortantes de l'étape de l'outil.";
+
 function outboundPayload(request, openSet = null) {
   // DESIGN.md outbound-payload: exactly what leaves the workstation, open by default in the
   // trace; given `openSet` (the ids unfolded by the user), folded by default.
@@ -2874,10 +4307,48 @@ function outboundPayload(request, openSet = null) {
     } else if (details.open) store.closedPayloads.delete(request.seq);
     else store.closedPayloads.add(request.seq);
   });
+  // Story 23: « Données sortantes », the name the user looks for and the event log's.
   const head = el("summary", "outbound-head");
-  head.append(el("span", "outbound-tag", "🌐 RÉSEAU"), ` ${request.method} ${request.url}`);
-  const body = request.body || "Aucun corps : seule l'adresse sort du poste.";
-  details.append(head, el("pre", "step-code", body));
+  head.append(
+    el("span", "outbound-tag", "🌐 RÉSEAU"),
+    " · ",
+    el("span", "outbound-label", "Données sortantes"),
+    " ",
+    el("span", "outbound-address", `${request.method} ${request.url}`)
+  );
+  const body = el("div", "outbound-body");
+  body.append(
+    el("p", "outbound-section", "Requête"),
+    el("pre", "step-code", `${request.method} ${request.url}`),
+    el("p", "outbound-section", "En-têtes")
+  );
+  if (Array.isArray(request.headers)) {
+    // As the session traced them (AD-2): a value outside its allow-list arrives masked.
+    const lines = el("pre", "step-code outbound-headers");
+    request.headers.forEach((header, index) => {
+      if (index) lines.append("\n");
+      lines.append(`${header.name}: `);
+      if (header.masked) {
+        const masked = el("span", "outbound-masked", header.value);
+        masked.title = OUTBOUND_MASKED_FR;
+        lines.append(masked);
+      } else {
+        lines.append(header.value);
+      }
+    });
+    // An event traced before story 23 carries none: nothing says what was sent.
+    if (!request.headers.length) lines.textContent = "En-têtes non tracés pour cet événement.";
+    body.append(lines);
+    if (request.headers.some((header) => header.masked)) body.append(el("p", "outbound-note", OUTBOUND_MASKED_NOTE_FR));
+  } else {
+    // The H5 preview: headers are set by the HTTP client when sending, after the decision.
+    body.append(el("p", "outbound-note", OUTBOUND_HEADERS_AT_SEND_FR));
+  }
+  body.append(
+    el("p", "outbound-section", "Corps"),
+    el("pre", "step-code", request.body || "Aucun corps : seule l'adresse sort du poste.")
+  );
+  details.append(head, body);
   return details;
 }
 
@@ -2914,10 +4385,7 @@ function ragBody(step) {
       el("span", "rag-score number", scoreFormat.format(excerpt.score))
     );
     head.title = "Sélectionne le composant RAG dans le schéma ; déplie le texte de l'extrait";
-    head.addEventListener("click", () => {
-      store.selection = step.component || "rag.retriever";
-      scheduleRender();
-    });
+    head.addEventListener("click", () => setSelection(step.component || "rag.retriever"));
     details.append(head, el("pre", "step-code", excerpt.text));
     item.appendChild(details);
     list.appendChild(item);
@@ -2952,10 +4420,7 @@ function rerankBody(step) {
     return nodes;
   }
   const texts = new Map((step.search?.ended?.excerpts ?? []).map((e) => [e.chunk_id, e.text]));
-  const select = () => {
-    store.selection = step.component || "rag.reranker";
-    scheduleRender();
-  };
+  const select = () => setSelection(step.component || "rag.reranker");
   const kept = (excerpt) => excerpt.position <= ended.keep;
   const keepTag = (excerpt) => el("span", "rerank-keep", kept(excerpt) ? "gardé" : "écarté");
   const before = [...ended.excerpts].sort((a, b) => a.before - b.before);
@@ -3056,10 +4521,7 @@ function compressionBody(step) {
           : `${mark}${fmt(item.tokens_before)} tokens · inchangé`
       )
     );
-    head.addEventListener("click", () => {
-      store.selection = step.component || "compression.compressor";
-      scheduleRender();
-    });
+    head.addEventListener("click", () => setSelection(step.component || "compression.compressor"));
     entry.appendChild(head);
     if (item.error_fr) entry.appendChild(el("p", "bubble-note is-error", item.error_fr));
     else if (!item.changed) entry.appendChild(el("p", "label", ended.unchanged_fr));
@@ -3280,6 +4742,57 @@ function turnRows(turn) {
   const rows = [];
   const calls = turn.steps.filter((s) => s.type === "call");
   turn.steps.forEach((step, i) => {
+    const from = rows.length;
+    stepRows(turn, step, i, calls, rows);
+    // Story 33: each new row's tile in its discipline (a sub-agent's rows already have theirs).
+    // Story 34: its link keys, its step's brick and component, else the harness.
+    for (const row of rows.slice(from)) {
+      row.discipline ??= rowDiscipline(row, step);
+      row.links ??= stepLinks(step);
+    }
+  });
+  if (turn.overflow) {
+    rows.push({
+      key: `${turn.id}:overflow`,
+      icon: "✖",
+      title: turn.contextId ? "Contexte du sous-agent dépassé" : "Contexte dépassé",
+      actor: "harness",
+      discipline: "harness",
+      links: ["core.harness"],
+      figure: `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`,
+      tone: "error",
+      sticky: true,
+      sig: 1,
+      body: () => [overflowCard(turn.overflow)],
+    });
+  }
+  return rows;
+}
+
+// Story 33: `model` for what the model does (calls, tool requests, final answers), `network`
+// for what leaves the workstation, else the category of the step's brick, `harness` by default.
+function rowDiscipline(row, step) {
+  if (row.net) return "network";
+  return brickCategory(step.brick ?? step.component?.split(".")[0]) ?? "harness";
+}
+
+// Story 34: a step's link keys, from its envelope (AD-1): its brick and its component; a step
+// with neither is the harness's own.
+function stepLinks(step) {
+  const keys = [step.brick, step.component].filter(Boolean);
+  return keys.length ? keys : ["core.harness"];
+}
+
+// Story 34: the bricks and components of the segments of one kind in a call's context.
+const segmentLinks = (context, kind) =>
+  (context?.segments || []).filter((s) => s.kind === kind).flatMap((s) => [s.brick, s.component]);
+
+// Story 33: a brick's category, as its card received it (AD-1).
+const brickCategory = (id) => store.bricks?.bricks?.find((b) => b.id === id)?.category ?? null;
+
+// The rows of one step, pushed onto `rows`.
+function stepRows(turn, step, i, calls, rows) {
+  {
     const key = `${turn.id}:${i}`;
     if (step.type === "call") {
       if (turn.overflow && step === calls.at(-1)) return; // the overflow row replaces it
@@ -3291,8 +4804,9 @@ function turnRows(turn) {
         rows.push({
           key: `${key}:catalog`,
           icon: "🧰",
-          title: "Description des outils",
+          title: "Décrit les outils",
           actor: "harness",
+          links: segmentLinks(context, "tool_catalog"),
           figure: `${fmt(catalog)} tokens`,
           sig: catalog,
           body: () => catalogBody(context, catalog),
@@ -3302,8 +4816,9 @@ function turnRows(turn) {
         rows.push({
           key: `${key}:reinject`,
           icon: "↩",
-          title: "Réinjection",
+          title: "Réinjecte le résultat",
           actor: "harness",
+          links: segmentLinks(context, "tool_result"),
           figure: `+${fmt(results)} tokens`,
           sig: results,
           body: () => [el("p", "", `Résultats d'outils ajoutés au contexte de cet appel : ${fmt(results)} tokens.`)],
@@ -3326,8 +4841,12 @@ function turnRows(turn) {
       rows.push({
         key: `${key}:call`,
         icon: isFinal ? "💬" : "🤖",
-        title: isFinal ? "Réponse finale" : "Appel au modèle",
+        title: isFinal ? "Répond" : "Appelle le modèle",
         actor: "model",
+        // Story 34: a model out of the workstation: the call crosses the boundary.
+        via: turn.model?.hosting === "network",
+        discipline: "model",
+        links: [`call:${step.id}`],
         figure,
         tone: ended && ended.stop_reason === "error" ? "error" : null,
         sticky: Boolean(ended && ended.stop_reason === "error"),
@@ -3339,8 +4858,10 @@ function turnRows(turn) {
         rows.push({
           key: `${key}:ask`,
           icon: "🗨",
-          title: "Demande d'outil",
+          title: "Demande un outil",
           actor: "model",
+          discipline: "model",
+          links: [`call:${step.id}`],
           figure: asked.length > 1 ? plural(asked.length, "outil") : asked[0].name,
           sig: asked.length,
           body: () => asked.map((call) => el("pre", "step-code", formatCall(call))),
@@ -3356,14 +4877,18 @@ function turnRows(turn) {
       let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
       if (ended) figure = `${ended.status === "ok" ? (ended.truncated ? "OK · tronqué" : "OK") : "erreur"} · ${seconds(ended.duration_ms)}`;
       const forced = step.trigger === "user";
+      const net = step.outbound?.length ? hostOf(step.outbound[0].url) : null;
       rows.push({
         key,
         icon: harness ? { skills: "📘", global_memory: "💾" }[step.brick] || "📖" : "🔧",
-        title: harness ? step.started.phase_label : `Exécution · ${toolLabel(step.started.tool)}`,
+        // Story 34: a verb; the tool's label follows, as a note.
+        title: harness ? step.started.phase_label : net ? "Exécute l'outil hors du poste" : "Exécute l'outil",
+        note: harness ? "" : toolLabel(step.started.tool),
         actor: forced ? "user" : harness ? "model" : "harness",
         trigger: step.trigger,
         figure,
-        net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
+        net,
+        outbound: step.outbound || [], // story 23: what `revealOutbound` looks for
         tone: ended && ended.status !== "ok" ? "error" : null,
         sticky: Boolean(ended && ended.status !== "ok"),
         sig: [Boolean(ended), ended?.status, step.outbound?.length ?? 0],
@@ -3515,21 +5040,7 @@ function turnRows(turn) {
         body: () => [harnessEvent("Raisonnement coupé", "info", [el("p", "", step.payload.message_fr)])],
       });
     }
-  });
-  if (turn.overflow) {
-    rows.push({
-      key: `${turn.id}:overflow`,
-      icon: "✖",
-      title: turn.contextId ? "Contexte du sous-agent dépassé" : "Contexte dépassé",
-      actor: "harness",
-      figure: `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`,
-      tone: "error",
-      sticky: true,
-      sig: 1,
-      body: () => [overflowCard(turn.overflow)],
-    });
   }
-  return rows;
 }
 
 // Story 19 (EXPERIENCE: Sous-agent au travail): the delegation, its trigger, and the tokens
@@ -3653,12 +5164,21 @@ function showSubContext(turnId, contextId) {
   if (store.hiddenPanes.delete("ctx")) savePaneLayout();
   if (store.focusedPane !== null && store.focusedPane !== "ctx") store.focusedPane = null;
   render();
-  document.querySelector("#ctx .ctx-view-switch [aria-pressed='true']")?.focus();
+  document.querySelector("#ctx .ctx-view-switch [aria-selected='true']")?.focus();
 }
 
 function mcpServerLabel(server) {
   const option = store.bricks?.bricks.find((b) => b.id === "mcp")?.options?.find((o) => o.id === server);
   return option?.label_fr ?? server;
+}
+
+// The MCP connections Orchestration shows (`renderSteps`): after the last clearing, from the
+// conversation shown on, and after a reset those of the preparation too.
+function shownConnections() {
+  const visible = (s) => store.clearedSeq === null || s.seq > store.clearedSeq;
+  return store.offTurn.filter(
+    (s) => visible(s) && (store.resetSeq !== null || s.afterTurn >= store.chatFrom)
+  );
 }
 
 function connectRow(step) {
@@ -3675,6 +5195,10 @@ function connectRow(step) {
     actor: "harness",
     figure,
     net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
+    links: stepLinks(step),
+    outbound: step.outbound || [], // story 23: what `revealOutbound` looks for
+    // Story 33: a public server's connection leaves the workstation; a local one is MCP's.
+    discipline: step.outbound?.length ? "network" : "harness",
     tone: failed ? "unavailable" : null,
     sig: [ended, step.outbound?.length ?? 0],
     body: () => connectBody(step),
@@ -3689,25 +5213,42 @@ const turnDurations = new WeakMap(); // turn -> `turn_ended.payload.duration_ms`
 let seenTurns = 0;
 let wasRunning = false; // the last turn ran at the previous render
 
+// Story 34: the tile's letter, who acts: « R » the network (a tool or a connection that sent
+// data out), else the model, the harness or the user.
+const ACTOR_LETTERS = { model: "M", harness: "H", user: "U" };
+const rowLetter = (row) => (row.net && row.outbound?.length ? "R" : ACTOR_LETTERS[row.actor] || "H");
+
 function stepNode(row, open, flags) {
   let node = railNodes.get(row.key);
   if (!node) {
     const root = el("div", "turn-step");
     const line = el("button", "turn-step-line");
     line.type = "button";
+    // Story 34, two rows: the tile (who acts) on both; the type's icon and the title on top,
+    // who decides and where it goes under them; the key figure and the chevron on the right.
     const parts = {
       tile: el("span", "turn-step-tile"),
+      icon: el("span", "turn-step-icon"),
       title: el("span", "turn-step-title"),
-      trigger: el("span", "turn-step-trigger"),
-      actor: el("span", "turn-step-actor"),
-      netMark: el("span", "net-mark", "🌐 RÉSEAU →"),
-      netHost: el("span", "net-host"),
+      meta: el("span", "turn-step-meta"),
       figure: el("span", "turn-step-figure"),
       chevron: el("span", "turn-step-chevron"),
     };
     parts.tile.setAttribute("aria-hidden", "true");
+    parts.icon.setAttribute("aria-hidden", "true");
     parts.chevron.setAttribute("aria-hidden", "true");
     line.append(...Object.values(parts));
+    Object.assign(parts, {
+      trigger: el("span", "turn-step-trigger"),
+      actor: el("span", "turn-step-actor"),
+      via: el("span", "turn-step-via", " · via le réseau"),
+      netMark: el("span", "net-mark", "🌐 RÉSEAU →"),
+      netHost: el("span", "net-host"),
+    });
+    // « 🌐 RÉSEAU → host » wraps as one piece; only its host shrinks (story 8d).
+    const net = el("span", "turn-step-net");
+    net.append(parts.netMark, parts.netHost);
+    parts.meta.append(parts.trigger, parts.actor, parts.via, net);
     // Story 9: « Forcé par l'utilisateur » / « Déclenché par le modèle », icon then label.
     parts.triggerIcon = el("span");
     parts.triggerIcon.setAttribute("aria-hidden", "true");
@@ -3718,14 +5259,23 @@ function stepNode(row, open, flags) {
     parts.note = el("span", "turn-step-note");
     parts.title.append(parts.name, parts.note);
     const key = row.key;
-    line.addEventListener("click", () => toggleStep(key));
+    // Unfolds the step (story 8d) and selects it (story 34): its keys light the other panes.
+    line.addEventListener("click", () => {
+      toggleStep(key);
+      select(`step:${key}`, readLinks(root));
+      if (store.selection === `step:${key}`) revealCall(readLinks(root)); // story 32
+    });
     root.appendChild(line);
     node = { root, line, ...parts, body: null, bodySig: null };
     railNodes.set(key, node);
   }
   node.seen = true;
   node.sticky = Boolean(row.sticky);
-  setText(node.tile, row.icon);
+  setText(node.tile, rowLetter(row));
+  setText(node.icon, row.icon);
+  if (node.tile.dataset.discipline !== row.discipline) node.tile.dataset.discipline = row.discipline;
+  if (node.root.dataset.discipline !== row.discipline) node.root.dataset.discipline = row.discipline;
+  setLinks(node.root, row.links);
   setText(node.name, row.title);
   setText(node.note, row.note ? ` · ${row.note}` : "");
   node.note.hidden = !row.note;
@@ -3738,13 +5288,14 @@ function stepNode(row, open, flags) {
   const [actorClass, actorLabel] = ACTORS[row.actor];
   node.actor.className = `turn-step-actor ${actorClass}`;
   setText(node.actor, actorLabel);
+  node.via.hidden = !row.via;
   node.netMark.hidden = !row.net;
   node.netHost.hidden = !row.net;
   setText(node.netHost, row.net || "");
   setText(node.figure, row.figure);
   setText(node.chevron, open ? "▾" : "▸");
   // The whole title in the tooltip: the line truncates it first (A10).
-  const tooltip = [row.title, row.note, trigger?.[2], row.net ? `RÉSEAU → ${row.net}` : "", row.figure]
+  const tooltip = [row.title, row.note, trigger?.[2], actorLabel, row.via ? "via le réseau" : "", row.net ? `RÉSEAU → ${row.net}` : "", row.figure]
     .filter(Boolean)
     .join(" · ");
   if (node.line.title !== tooltip) node.line.title = tooltip;
@@ -3853,6 +5404,68 @@ function toggleStep(key) {
   renderSteps();
 }
 
+// Story 23: the components some shown step or connection sent outbound data to, i.e. the
+// network nodes a click leads from (`revealOutbound` finds something for them).
+function outboundComponents() {
+  const found = new Set();
+  const add = (step) => {
+    for (const request of step.outbound || []) found.add(request.component);
+  };
+  for (const turn of shownTurns()) {
+    for (const step of turn.steps) {
+      add(step);
+      for (const sub of step.sub?.steps || []) add(sub);
+    }
+  }
+  for (const step of shownConnections()) add(step);
+  return found;
+}
+
+// Story 23: a click on a network node of the schema leads to what was sent to it. The last
+// step of the turns shown (sub-agent included) whose outbound data went to that component,
+// else the last connection shown: Orchestration shown again, turn and step unfolded, the view
+// frozen as by a click on the step, its block open and brought on screen. Nothing sent to it
+// in view: nothing to do, the node stays merely selected.
+function revealOutbound(componentId) {
+  const o = store.orch;
+  const sentTo = (row) => row.outbound?.some((request) => request.component === componentId);
+  let target = null;
+  for (const turn of shownTurns()) {
+    for (const row of turnRows(turn)) if (sentTo(row)) target = { row, turn };
+  }
+  if (!target) {
+    const row = shownConnections().map(connectRow).findLast(sentTo);
+    if (row) target = { row, turn: null };
+  }
+  if (!target) return;
+  const { row, turn } = target;
+  if (store.hiddenPanes.has("orch")) showPane("orch");
+  if (store.focusedPane !== null && store.focusedPane !== "orch") {
+    store.focusedPane = null;
+    render();
+  }
+  if (turn) {
+    // A turn step: unfolded and the view frozen, as by a click on it (`toggleStep`).
+    o.turnOpen.set(turn.id, true);
+    if (o.live) {
+      o.live = false;
+      o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+    }
+    o.userOpen.add(row.key);
+    o.selected = row.key;
+  } else {
+    // A connection line: unfolded in place, no live view to freeze (`toggleStep`).
+    o.prepGroupOpen = true;
+    o.prepOpen.add(row.key);
+  }
+  for (const request of row.outbound) store.closedPayloads.delete(request.seq);
+  renderSteps();
+  // A body kept from the last render keeps a block the user folded: open it in place.
+  const blocks = [...(railNodes.get(row.key)?.root.querySelectorAll(".outbound-payload") ?? [])];
+  for (const block of blocks) block.open = true;
+  blocks[0]?.scrollIntoView({ block: "nearest" });
+}
+
 function toggleTurn(id, open) {
   store.orch.turnOpen.set(id, !open);
   renderSteps();
@@ -3956,13 +5569,14 @@ function renderSteps() {
     const duration = turnDuration(turn);
     const figures = [duration === null ? null : seconds(duration), `${plural(calls, "appel")} au modèle`];
     headParts(node, [
-      ["turn-group-title", `Tour ${index + 1}`],
+      ["turn-group-title", `Tour ${i + 1}`],
       [`turn-group-status ${statusClass}`, statusLabel],
       ["turn-group-replay", turn.replayOf ? "Rejeu" : null],
       ["turn-group-figures", figures.filter(Boolean).join(" · ")],
       ["turn-group-message", `« ${turn.message} »`],
     ]);
     node.head.title = turn.message;
+    node.parts[0].title = turnIdTitle(turn); // story 22: links « Tour N » to the journal
     const rowNodes = open
       ? (isLast ? lastRows : turnRows(turn)).map((row) => {
           const isCurrent = isLast && row.key === o.current;
@@ -3992,21 +5606,48 @@ function renderSteps() {
   renderOrchWorking();
 }
 
+// Story 33: the top bar's message may be cut on a narrow window: its whole text in the tooltip.
+function setTopStatus(text, title = text) {
+  const status = document.getElementById("top-status");
+  setText(status, text);
+  if (status.title !== title) status.title = title;
+}
+
+let renderedChipsKey = null;
+
 function renderChips() {
   const container = document.getElementById("pane-chips");
+  // The Vue humain waits for the user's answer to an H5 validation; story 34: a hidden pane
+  // holds an element linked to the selection (FR-4), said in words on its chip.
+  const chips = [...store.hiddenPanes].map((paneId) => ({
+    paneId,
+    awaiting: paneId === "human" && store.sessionState?.state === "awaiting_human",
+    linked: Boolean(document.querySelector(`.pane[data-pane="${paneId}"] .is-selection-linked`)),
+  }));
+  // Rebuilt only when it changes: `applyLinks` runs on each hover, under the pointer.
+  const key = JSON.stringify(chips);
+  if (key === renderedChipsKey) return;
+  renderedChipsKey = key;
   container.innerHTML = "";
-  for (const paneId of store.hiddenPanes) {
+  for (const { paneId, awaiting, linked } of chips) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "pane-chip";
-    // The Vue humain waits for the user's answer to an H5 validation.
-    const awaiting = paneId === "human" && store.sessionState?.state === "awaiting_human";
-    const linked = awaiting || (store.selection && paneOfComponent(store.selection) === paneId);
-    if (linked) chip.classList.add("is-linked");
-    chip.textContent = `+ ${PANE_LABELS[paneId]}`;
+    const name = PANE_LABELS[paneId];
+    chip.textContent = `+ ${name}${linked ? " · lié" : ""}`;
+    if (awaiting || linked) {
+      chip.classList.add("is-linked");
+      const dot = el("span", "pane-chip-dot", "● ");
+      dot.setAttribute("aria-hidden", "true");
+      chip.prepend(dot);
+    }
     chip.title = awaiting
       ? "Une validation humaine attend votre réponse : réafficher le volet Vue humain"
-      : `Réafficher le volet ${PANE_LABELS[paneId]}`;
+      : linked
+        ? `Réafficher le volet ${name} : il contient un élément lié à la sélection`
+        : `Réafficher le volet ${name}`;
+    // WCAG 2.5.3: the accessible name starts with the visible text.
+    chip.setAttribute("aria-label", `${chip.textContent.replace(/^● /, "")} : ${chip.title}`);
     chip.addEventListener("click", () => showPane(paneId));
     container.appendChild(chip);
   }
@@ -4053,10 +5694,6 @@ function renderPaneVisibility() {
     const hidden = store.hiddenPanes.has(paneId);
     section.classList.toggle("is-hidden", hidden);
     section.classList.toggle("is-focused", store.focusedPane === paneId);
-    section.classList.toggle(
-      "is-selected",
-      store.selection !== null && paneOfComponent(store.selection) === paneId
-    );
     const hideButton = section.querySelector('[data-action="hide"]');
     const disable = !hidden && lastVisible;
     hideButton.disabled = disable;
@@ -4365,6 +6002,11 @@ const KIND_LABELS = {
   rag_rerank_ended: "Reranking terminé",
   compression_started: "Compression commencée",
   compression_ended: "Compression terminée",
+  llm_tokenized: "LLM nu : texte découpé en tokens",
+  model_load_step: "Étape du chargement du modèle",
+  llm_generation_started: "LLM nu : génération commencée",
+  llm_token: "LLM nu : token produit",
+  llm_generation_ended: "LLM nu : génération terminée",
 };
 const MODEL_LOAD_STATUS = {
   ok: "chargé",
@@ -4382,7 +6024,24 @@ const SESSION_STATES = {
   index_build: "construction de l'index RAG",
   reset: "réinitialisation",
   diagnostic: "diagnostic",
+  llm_lab: "écran LLM nu", // story 29
+  rag_lab: "atelier RAG", // story 30
 };
+
+// Story 29: how a generation of the « LLM nu » screen ended.
+const LAB_STATUS = {
+  completed: "terminée",
+  cancelled: "arrêtée",
+  limit: "réserve de sortie atteinte",
+  error: "en échec",
+};
+
+// Story 29: « T 0,7 · top-k 20 · top-p 0,8 · min-p 0 », a value not sent as « — ».
+function samplingSummary(s) {
+  if (s.source === "provider") return s.note_fr || "réglé par le fournisseur";
+  const part = (label, value) => `${label} ${value === null || value === undefined ? "—" : fmt(value)}`;
+  return [part("T", s.temperature), part("top-k", s.top_k), part("top-p", s.top_p), part("min-p", s.min_p)].join(" · ");
+}
 
 function eventSummary(group) {
   // One line per event, formatting only (AD-1).
@@ -4409,9 +6068,23 @@ function eventSummary(group) {
         .filter(Boolean)
         .join(" · ");
     case "model_call_started":
+      return p.sampling ? `${p.phase_label} · ${samplingSummary(p.sampling)}` : p.phase_label;
     case "mcp_connect_started":
     case "model_load_started":
+    case "llm_generation_started":
       return p.phase_label;
+    case "llm_token":
+      return group.events
+        .filter((x) => x.kind === "llm_token")
+        .map((x) => x.payload.text)
+        .join("")
+        .slice(0, 200);
+    case "model_load_step":
+      return `${p.label_fr} · ${seconds(p.duration_ms)}`;
+    case "llm_generation_ended":
+      return [LAB_STATUS[p.status] ?? p.status, seconds(p.duration_ms), p.message_fr]
+        .filter(Boolean)
+        .join(" · ");
     case "model_load_ended":
       return [`${p.model.label} : ${MODEL_LOAD_STATUS[p.status] ?? p.status}`, seconds(p.duration_ms), p.reason_fr]
         .filter(Boolean)
@@ -4481,6 +6154,10 @@ function eventSummary(group) {
       return `coupé à ${fmt(p.reasoning_tokens)} tokens (budget ${fmt(p.budget)}) · ${fmt(p.answer_reserve)} pour la réponse`;
     case "diagnostic_check":
       return `${p.check} : ${p.status} · ${p.message_fr}`;
+    case "llm_tokenized":
+      return p.exact
+        ? `${p.figures_fr?.token_count ?? p.token_count} tokens · ${p.model_label}`
+        : `≈ ${p.figures_fr?.estimate ?? p.estimate} tokens (estimation) · ${p.model_label}`;
     case "conversation_cleared":
       return "les tours précédents restent dans ce journal";
     case "harness_reset":
@@ -4494,7 +6171,7 @@ function eventSummary(group) {
 
 // Rows are built only once the log is unfolded, then kept: consecutive `model_delta` of one
 // call share a row (« Morceaux de réponse × N »), every other event has its own.
-const eventLog = { groups: [], processed: 0, rows: [], list: null };
+const eventLog = { groups: [], processed: 0, rows: [], list: null, labStreams: new Map() };
 
 function syncLogGroups() {
   for (; eventLog.processed < store.journal.length; eventLog.processed++) {
@@ -4502,6 +6179,17 @@ function syncLogGroups() {
     if (e.kind === "scenario_changed" && e.payload?.refresh) continue; // lot E: not a launch
     const last = eventLog.groups.at(-1);
     const first = last?.events[0];
+    // Story 29: one line per generation of the « LLM nu » screen, its tokens and deltas.
+    if (e.context_id === "llm" && (e.kind === "llm_token" || e.kind === "model_delta")) {
+      const stream = eventLog.labStreams.get(e.step_id);
+      if (stream) stream.events.push(e);
+      else {
+        const group = { key: e.seq, kind: "llm_token", events: [e] };
+        eventLog.labStreams.set(e.step_id, group);
+        eventLog.groups.push(group);
+      }
+      continue;
+    }
     if (e.kind === "model_delta" && first?.kind === "model_delta" && first.call_id === e.call_id && first.turn_id === e.turn_id) {
       last.events.push(e);
     } else {
@@ -4539,7 +6227,15 @@ function logRow(i) {
   const open = store.orch.logRowsOpen.has(group.key);
   if (row.count !== count) {
     const merged = group.kind === "model_delta" && count > 1;
-    setText(row.name, merged ? `Morceaux de réponse × ${fmt(count)}` : KIND_LABELS[group.kind] || group.kind);
+    const tokens = group.kind === "llm_token" ? group.events.filter((x) => x.kind === "llm_token").length : 0;
+    setText(
+      row.name,
+      merged
+        ? `Morceaux de réponse × ${fmt(count)}`
+        : tokens
+          ? `LLM nu : tokens produits × ${fmt(tokens)}`
+          : KIND_LABELS[group.kind] || group.kind
+    );
     const summary = eventSummary(group);
     setText(row.summary, summary);
     row.line.title = summary;
@@ -4730,9 +6426,10 @@ function schemaButton(className, componentId, text) {
   button.type = "button";
   button.dataset.component = componentId;
   button.dataset.focusKey = componentId;
+  setLinks(button, linkKeysOfComponent(componentId)); // story 34 (the model's are patched)
   button.classList.toggle("is-selected", store.selection === componentId);
   button.setAttribute("aria-pressed", String(store.selection === componentId));
-  button.addEventListener("click", () => select(componentId));
+  button.addEventListener("click", () => select(componentId, readLinks(button)));
   return button;
 }
 
@@ -4786,6 +6483,44 @@ let renderedRobotKey = null;
 let renderedActivityKey = null;
 let schemaActive = null; // the last `schemaActivity()`, read by `drawSchemaWires`
 
+let outboundShown = null; // story 23: `outboundComponents()` at the last `renderSchema`
+// Story 34: the last turn shown, its number and the components it sent data to (the network
+// nodes' « contacté » / « non contacté »), at the last `renderSchema`; `null` without a turn.
+let schemaTurn = null;
+
+// Story 34: a step whose outcome is known and is no success: its requests did not get through.
+const stepFailed = (step) => Boolean(step.ended && step.ended.status !== "ok");
+
+// Story 34: the requests a turn sent out (sub-agent included), each with the step that sent
+// it, in the order they left (AD-1: the `outbound_request` events of its tool steps).
+function turnRequests(turn) {
+  return allSteps(turn)
+    .filter((step) => step.type === "tool")
+    .flatMap((step) => (step.outbound || []).map((request) => ({ request, step })));
+}
+
+// Story 34: the model plate's keys: the model, then every call of its context in the turns
+// shown (the sub-agent's plate: its calls).
+function modelLinkKeys(sub) {
+  const calls = shownTurns().flatMap((turn) =>
+    (sub ? [...turn.subs.values()] : [turn]).flatMap((context) =>
+      context.steps.filter((step) => step.type === "call" && step.id).map((step) => `call:${step.id}`)
+    )
+  );
+  return [sub ? "core.model_sub" : "core.model", ...calls];
+}
+
+// Patched at each render, the schema not rebuilt: the calls come during a turn.
+function patchModelLinks(root) {
+  const main = modelLinkKeys(false);
+  const plates = root.querySelectorAll(
+    '.robot[data-component="core.model"], .arch-cloud-model, .arch-server-model'
+  );
+  for (const plate of plates) setLinks(plate, main);
+  const sub = root.querySelector('.robot[data-component="core.model_sub"]');
+  if (sub) setLinks(sub, modelLinkKeys(true));
+}
+
 function renderSchema() {
   // Layout only: nodes, edges and availability come from `architecture_changed` (AD-12), the
   // hooks of the strip from `bricks_changed`. `render()` runs on every `model_delta`: the DOM is
@@ -4804,7 +6539,19 @@ function renderSchema() {
   const pose = robotPose();
   const subPose = subModel ? robotPose(true) : null;
   const robots = () => [robot(pose, model), ...(subModel ? [robot(subPose, subModel, true)] : [])];
-  const key = JSON.stringify([store.architecture, wanted.length, hooks, blocked, store.selection]);
+  outboundShown = outboundComponents(); // story 23: the network nodes a click leads from
+  // « contacté »: a request of a step that succeeded; « en échec »: only failed attempts.
+  const requests = last ? turnRequests(last) : [];
+  const reachedIds = new Set(requests.filter((r) => r.step.ended?.status === "ok").map((r) => r.request.component));
+  schemaTurn = last
+    ? {
+        number: turnNumber(last),
+        contacted: reachedIds,
+        failed: new Set(requests.filter((r) => stepFailed(r.step) && !reachedIds.has(r.request.component)).map((r) => r.request.component)),
+      }
+    : null;
+  const turnKey = schemaTurn ? [schemaTurn.number, [...schemaTurn.contacted].sort(), [...schemaTurn.failed].sort()] : null;
+  const key = JSON.stringify([store.architecture, wanted.length, hooks, blocked, store.selection, [...outboundShown].sort(), turnKey]);
   const robotKey = JSON.stringify([pose, subPose, model?.model]);
   if (key !== renderedSchemaKey) {
     renderedSchemaKey = key;
@@ -4820,7 +6567,7 @@ function renderSchema() {
       const old = root.querySelector(`.robot[data-component="${next.dataset.component}"]`);
       const focused = old === document.activeElement;
       old?.replaceWith(next);
-      if (focused) next.focus();
+      if (focused) quietFocus(next);
     }
   }
   const activity = schemaActivity(nodes);
@@ -4837,6 +6584,70 @@ function renderSchema() {
     }
     scheduleWires();
   }
+  patchModelLinks(root);
+}
+
+// ---------- story 34: what left the workstation during the last turn shown ----------
+
+const NO_TURN_OUTBOUND_FR = "Aucun tour affiché : rien n'a quitté le poste pendant un tour.";
+
+// « a », « a et b », « a, b et c ».
+function joinFr(items) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} et ${items.at(-1)}`;
+}
+
+// The sentence under the schema (AD-1: counted from the turn's events only). The model's
+// calls when it runs out of the workstation (the E2E fake cloud, on the loopback, is not
+// traced: its calls are counted from `model_call_started`), then the requests of its tool
+// steps, by destination in the order of first contact, with what the node says it sends.
+function outboundSummary(turn) {
+  if (!turn) return NO_TURN_OUTBOUND_FR;
+  const at = `Au tour ${turnNumber(turn)}${turn.status === null ? " (en cours)" : ""}`;
+  const model = turn.model;
+  const cloud = model?.hosting === "network";
+  const provider = model?.provider ?? (cloud ? "le fournisseur" : null);
+  const calls = cloud ? allSteps(turn).filter((s) => s.type === "call" && s.startedAt).length : 0;
+  const nodes = new Map((store.architecture.nodes || []).map((n) => [n.id, n]));
+  // Destination -> { label, sends, count (requests that left), failed (failed steps) }: a
+  // failed step's requests did not reach it (network cut, refused), a single failed attempt
+  // whatever its redirect hops.
+  const groups = new Map();
+  const failedSteps = new Set();
+  for (const { request, step } of turnRequests(turn)) {
+    const node = request.component ? nodes.get(request.component) : null;
+    const key = node ? node.id : hostOf(request.url); // story 23 absent: the URL's host
+    const group = groups.get(key) ?? { label: node?.label_fr ?? key, sends: node?.sends_fr, count: 0, failed: 0 };
+    if (!stepFailed(step)) group.count += 1;
+    else if (!failedSteps.has(`${key} ${step.stepId}`)) {
+      failedSteps.add(`${key} ${step.stepId}`);
+      group.failed += 1;
+    }
+    groups.set(key, group);
+  }
+  const what = (g) => (g.sends ? ` (${g.sends})` : "");
+  const left = [...groups.values()].filter((g) => g.count);
+  const failed = [...groups.values()]
+    .filter((g) => g.failed)
+    .map((g) => `${g.failed > 1 ? `${fmt(g.failed)} tentatives` : "1 tentative"} en échec vers ${g.label}${what(g)}`);
+  const times = calls + left.reduce((sum, g) => sum + g.count, 0);
+  if (!times) {
+    const where =
+      model?.kind === "server"
+        ? `le modèle est servi sur ce poste${provider ? ` (${provider})` : ""}`
+        : cloud
+          ? `aucun appel au modèle n'est parti vers ${provider}`
+          : "le modèle tourne sur ce poste";
+    if (failed.length) return `${at}, aucune donnée n'a quitté le poste : ${where}, et ${joinFr(failed)}.`;
+    return `${at}, aucune donnée n'a quitté le poste : ${where} et aucun service réseau n'a été contacté.`;
+  }
+  const parts = [];
+  if (calls) parts.push(`vers le modèle chez ${provider} (contexte complet, ${plural(calls, "appel")})`);
+  for (const g of left) parts.push(`vers ${g.label} (${g.sends ? `${g.sends}, ` : ""}${plural(g.count, "requête")})`);
+  return `${at}, les données ont quitté le poste ${fmt(times)} fois : ${joinFr([...parts, ...failed])}.`;
+}
+
+function renderOutboundSummary() {
+  setText(document.getElementById("schema-outbound"), outboundSummary(shownTurns().at(-1)));
 }
 
 function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
@@ -4848,6 +6659,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   // The harness frame: the robot and the chips of the bricks with no outside component, stacked.
   const frame = el("div", "arch-harness");
   frame.dataset.component = "core.harness";
+  setLinks(frame, ["core.harness"]); // story 34
   frame.classList.toggle("is-selected", store.selection === "core.harness");
   frame.title = byId["core.harness"]?.label_fr || "Harnais";
   frame.addEventListener("click", (event) => {
@@ -4861,6 +6673,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   for (const node of nodes.filter((n) => n.kind === "brick")) {
     const icon = COMPONENT_ICONS[node.id] || BRICK_ICONS[node.id.split(".")[0]] || "🧩";
     const chip = schemaButton("arch-chip", node.id, `${icon} ${node.label_fr}`);
+    chip.dataset.discipline = nodeDiscipline(node); // story 33
     chip.classList.toggle("is-unavailable", !node.available);
     chip.title = [node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`, node.detail_fr]
       .filter(Boolean)
@@ -4915,7 +6728,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   const wires = svgEl("svg", { class: "arch-wires" });
   wires.setAttribute("aria-hidden", "true");
   root.append(local, boundary, network, wires);
-  if (focusKey) root.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`)?.focus();
+  if (focusKey) quietFocus(root.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`));
 }
 
 // The « Points d'accroche » strip: every hook of the brick, one per line, name and point; a hook
@@ -4932,6 +6745,7 @@ function hookStrip(options, byId, blocked) {
     const point = HOOK_POINTS[option.id] || "";
     const state = isBlocked ? " · ✖ a bloqué" : off ? " · désactivé" : "";
     const hook = schemaButton("arch-hook", id);
+    hook.dataset.discipline = brickCategory("hooks") ?? "harness"; // story 33
     hook.classList.toggle("is-off", off);
     hook.classList.toggle("is-blocked", isBlocked);
     hook.append(
@@ -4974,8 +6788,17 @@ function schemaGroup(group, members) {
   return bin;
 }
 
-// A node: its category reads by its shape and icon, its hosting by its colours (DESIGN.md >
-// arch-group). Returns the node, then the list of its tools for a selected MCP server.
+// Story 33: a node's discipline: `network` when it leaves the workstation, `neutral` for a file
+// of the harness (`file.*`), else the category of its brick (`{brick}.*`).
+function nodeDiscipline(node) {
+  if (node.hosting === "network") return "network";
+  const prefix = node.id.split(".")[0];
+  return prefix === "file" ? "neutral" : brickCategory(prefix) ?? "neutral";
+}
+
+// A node: its category reads by its shape and icon, its hosting by its zone and its globe, its
+// colour is its discipline's (story 33; DESIGN.md > arch-group). Returns the node, then the
+// list of its tools for a selected MCP server.
 function schemaNode(node, shape) {
   const network = node.hosting === "network";
   const unavailable = !node.available;
@@ -4983,12 +6806,20 @@ function schemaNode(node, shape) {
   const loaded = shape === "skill" && Boolean(node.loaded);
   const tools = node.tools || [];
   const button = schemaButton(`arch-node arch-node-${shape} ${network ? "is-network" : "is-local"}`, node.id);
+  button.dataset.discipline = nodeDiscipline(node); // story 33
   button.classList.toggle("is-unavailable", unavailable);
   button.classList.toggle("is-loaded", loaded);
   let icon = { tool: TOOL_ICONS[node.id.slice(6)] || "🔧", mcp: "🔌", file: "📄" }[shape] || null;
   if (unavailable) icon = "⊘"; // the crossed-out icon of DESIGN.md > arch-node-unavailable
+  // Story 34: a network tool or server says whether the last turn shown reached it, as the
+  // outbound summary under the schema does; without a turn shown, the session's state.
+  const perTurn = network && (shape === "tool" || shape === "mcp") && schemaTurn !== null;
+  const reached = perTurn && schemaTurn.contacted.has(node.id);
+  const attempted = perTurn && schemaTurn.failed.has(node.id);
+  const turnState = reached ? "contacté" : attempted ? "en échec" : "non contacté";
   let pill = null;
   if (unavailable) pill = "indisponible";
+  else if (perTurn) pill = turnState;
   else if (shape === "mcp") pill = notContacted ? "non contacté" : plural(tools.length, "outil");
   else if (notContacted) pill = "non contacté";
   else if (loaded) pill = "✓"; // a skill's bin is narrow: « Chargé » is in its accessible name and tooltip
@@ -5000,13 +6831,29 @@ function schemaNode(node, shape) {
   const tooltip = [`${node.label_fr} · ${SHAPE_LABELS[shape]} · ${network ? "RÉSEAU" : "sur le poste"}`];
   if (unavailable) tooltip.push(`Indisponible : ${node.reason_fr}`);
   else if (notContacted) tooltip.push("Non contacté : aucune requête envoyée pour l'instant.");
+  if (perTurn) {
+    const state = attempted && !reached ? "tentative en échec, rien n'a atteint le service" : turnState;
+    tooltip.push(`Au tour ${schemaTurn.number} : ${state}.`);
+  }
   if (shape === "skill") tooltip.push(loaded ? "Chargé dans la conversation." : "Non chargé.");
   if (tools.length) tooltip.push(`Outils : ${tools.join(", ")}`);
   if (node.detail_fr) tooltip.push(node.detail_fr);
+  // Story 23: a network tool or server leads to its outbound data, while a step shown has some
+  // (a clearing or a reset leaves the node contacted, with nothing left to show).
+  const leadsOut =
+    network && (shape === "tool" || shape === "mcp") && Boolean(outboundShown?.has(node.id));
+  if (leadsOut) tooltip.push("Clic : ses données sortantes dans Orchestration");
   button.title = tooltip.join("\n");
   button.setAttribute("aria-label", tooltip.join(". "));
   if (node.id === "file.audit") button.addEventListener("click", openAudit); // the whole log
   if (node.id === "file.memory") button.addEventListener("click", openMemoryDrawer); // story 14
+  if (leadsOut) {
+    // After `select`, which toggles: the node stays selected and always leads to its data.
+    button.addEventListener("click", () => {
+      if (store.selection !== node.id) select(node.id);
+      revealOutbound(node.id);
+    });
+  }
 
   if (shape !== "mcp" || !tools.length) return [button];
   // A selected MCP server unfolds its tools under it, in its bin (FR-3).
@@ -5142,6 +6989,39 @@ async function openAudit() {
   }
 }
 
+// ---------- story 34: projection mode (NFR-9) ----------
+// Every text a notch larger (the ramp × 9/7, in app.css), remembered by the browser; the
+// reset leaves it, like the panes' layout. Without storage, it works until the next reload.
+
+const PROJECTION_STORAGE_KEY = "wavestack.projection";
+
+function setProjection(on) {
+  document.documentElement.classList.toggle("projection", on);
+  document.getElementById("projection-toggle").setAttribute("aria-pressed", String(on));
+  scheduleWires(); // the schema's pieces moved
+}
+
+function loadProjection() {
+  let on = false;
+  try {
+    on = localStorage.getItem(PROJECTION_STORAGE_KEY) === "1";
+  } catch {
+    // No storage: the default size.
+  }
+  setProjection(on);
+}
+
+function toggleProjection() {
+  const on = !document.documentElement.classList.contains("projection");
+  setProjection(on);
+  try {
+    localStorage.setItem(PROJECTION_STORAGE_KEY, on ? "1" : "0");
+  } catch {
+    // No storage: the mode lasts until the page is reloaded.
+  }
+  measureGuide(); // the scenario's guide may now need « Afficher plus »
+}
+
 // ---------- boot ----------
 
 function closePaneMenu() {
@@ -5154,8 +7034,11 @@ function closePaneMenu() {
 async function boot() {
   // Remembered pane layout first, so the page does not open on the defaults then jump.
   loadPaneLayout();
+  loadProjection();
+  bindLinkedView();
   loadShowForced();
   loadShowReasoning();
+  loadCtxMode(); // story 32: Contexte LLM's view, remembered by the browser
   document.getElementById("show-reasoning").addEventListener("change", toggleShowReasoning);
   createResizeHandles();
   applyPaneSizes();
@@ -5174,7 +7057,9 @@ async function boot() {
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".pane-menu")) closePaneMenu();
+    if (!event.target.closest(".window-picker")) closeWindowPanel();
   });
+  bindWindowPicker();
 
   for (const paneId of PANES) {
     const section = document.querySelector(`.pane[data-pane="${paneId}"]`);
@@ -5191,6 +7076,8 @@ async function boot() {
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
   document.getElementById("replay-last").addEventListener("click", replayLast);
   document.getElementById("scenario-picker").addEventListener("change", launchScenario);
+  document.getElementById("scenario-guide-more").addEventListener("click", () => setGuideExpanded(!guideExpanded));
+  new ResizeObserver(measureGuide).observe(document.getElementById("scenario-guide-text"));
   const modelPicker = document.getElementById("model-picker");
   modelPicker.addEventListener("change", notePick);
   modelPicker.addEventListener("focus", loadModelList);
@@ -5198,6 +7085,7 @@ async function boot() {
   document.getElementById("model-picker-apply").addEventListener("click", applyPick);
   bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
+  document.getElementById("projection-toggle").addEventListener("click", toggleProjection);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
   document.getElementById("event-log-head").addEventListener("click", toggleJournal);
@@ -5205,12 +7093,18 @@ async function boot() {
     saveSystemPrompt(drawerText().value)
   );
   document.getElementById("drawer-reset").addEventListener("click", () => saveSystemPrompt(null));
+  drawerText().addEventListener("input", () => {
+    drawerStatus(null);
+    syncDrawerSave();
+  });
   document.getElementById("drawer-close").addEventListener("click", () => closeDrawer());
   document.getElementById("drawer-dirty-save").addEventListener("click", async () => {
     if (await saveSystemPrompt(drawerText().value)) closeDrawer(true);
   });
   document.getElementById("drawer-dirty-discard").addEventListener("click", () => closeDrawer(true));
   document.getElementById("memory-close").addEventListener("click", () => closeMemoryDrawer());
+  // Story 22: the cross of the drawer's head, the same path as « Fermer ».
+  document.getElementById("memory-x").addEventListener("click", () => closeMemoryDrawer());
   document.getElementById("memory-clear").addEventListener("click", askClearMemory);
   document.getElementById("memory-confirm-clear").addEventListener("click", confirmClearMemory);
   document.getElementById("memory-confirm-cancel").addEventListener("click", () => {
@@ -5232,10 +7126,12 @@ async function boot() {
     if (activeTurn()) {
       renderChat();
       renderSteps();
+      applyLinks(); // story 34: the rebuilt nodes get their light back
     }
     if (store.modelLoad) {
       renderChat();
-      setText(document.getElementById("top-status"), modelLoadText());
+      const loadText = modelLoadText();
+      setTopStatus(loadText, modelLoadTitle() ?? loadText);
     }
   }, 250);
 
@@ -5249,8 +7145,17 @@ async function boot() {
       closeMemoryDrawer();
     } else if (!document.getElementById("pane-menu-list").hidden) {
       closePaneMenu();
-    } else if (store.focusedPane !== null) {
-      store.focusedPane = null;
+    } else if (!windowPanel().hidden) {
+      closeWindowPanel(true); // story 26: the focus back on « Fenêtre ▾ »
+    } else if (store.selection !== null && selectionShown()) {
+      clearSelection(); // story 34: before leaving focus mode
+    } else {
+      // Story 34: a selection no element shows any more is dropped silently, then Escape
+      // does its next job.
+      const stale = store.selection !== null;
+      if (stale) Object.assign(store, { selection: null, selectionKeys: null });
+      if (store.focusedPane !== null) store.focusedPane = null;
+      else if (!stale) return;
       render();
     }
   });
@@ -5267,11 +7172,12 @@ async function boot() {
     store.armed = body.armed_actions_changed?.actions ?? [];
     store.scenarios = body.scenario_changed;
     store.memory = body.memory_changed ?? null;
+    store.windowState = body.context_window_state ?? null;
     const preview = body.context_preview;
     const rendered = body.context_rendered;
     const reconciled = body.context_reconciled;
     const latest = [preview, rendered, reconciled].filter(Boolean).sort((a, b) => b.seq - a.seq)[0];
-    if (latest) store.gauge = { payload: latest.payload, preview: latest === preview };
+    if (latest) store.gauge = { payload: latest.payload, preview: latest === preview, callId: latest.call_id ?? null };
   } catch {
     // AD-16: a failed boot fetch still lets the live stream take over.
   }

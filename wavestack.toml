@@ -36,16 +36,34 @@ connect_timeout_s = 2
 read_timeout_s = 300
 
 [context]
+# Fenêtre de contexte, en tokens (AD-9) : 4 096 par défaut, la taille pour laquelle les
+# scénarios sont conçus. Elle se règle aussi dans l'interface (« Fenêtre ▾ » de la barre haute :
+# 4 096, 8 192 ou 16 384), et ce choix, écrit dans settings.json ("context": {"window": …}),
+# prend le pas sur cette valeur aux lancements suivants. Une autre valeur mise ici reste lue,
+# mais le panneau ne la propose pas. Donnez à llama-server un `-c` égal à la fenêtre choisie
+# (réglage de l'interface, sinon cette valeur).
 window = 4096
 near_limit_ratio = 0.8
 
 [memory]
-# Budget mémoire de WaveStack (AD-8), en Mo : un changement de modèle est refusé si la
-# mémoire mesurée (WaveStack et ses processus enfants), moins le coût du modèle actif, plus
-# le coût du nouveau, dépasse ce budget. Le modèle actif reste alors chargé. Le modèle
-# d'embedding du RAG (story 15) et le reranker (story 16) sont refusés de même, avec la brique
-# ou sa sous-option indisponible.
+# Budget mémoire de WaveStack (AD-8, NFR-2) : un changement de modèle est refusé si ce
+# qu'occupe WaveStack sans le modèle actif, plus le coût du nouveau, dépasse ce budget. Sans le
+# modèle actif : la mémoire mesurée (WaveStack et ses processus enfants) moins la part du
+# modèle, jamais sous la mémoire mesurée juste avant la création de son moteur. Le modèle actif reste alors chargé. Le modèle d'embedding du RAG
+# (story 15) et le reranker (story 16) sont refusés de même, avec la brique ou sa sous-option
+# indisponible. Story 24 : le budget est calculé une seule fois, au lancement ; le diagnostic
+# (ligne « memory ») et chaque refus donnent le budget retenu et son calcul.
+# Mode du budget : "dynamic" (défaut, et pour toute valeur inconnue) ou "fixed".
+#   dynamic : min(budget_mb, budget_ram_ratio × RAM disponible au lancement), jamais sous
+#             512 Mo ; si la RAM est illisible, budget_mb. Fermer des applications puis relancer WaveStack l'agrandit,
+#             jusqu'au plafond.
+#   fixed   : budget_mb, quelle que soit la RAM du poste.
+budget_mode = "dynamic"
+# En Mo : le plafond du budget en mode "dynamic", la valeur du budget en mode "fixed".
 budget_mb = 4096
+# Part de la RAM disponible au lancement retenue en mode "dynamic" (0,6 ; bornée de 0,1 à 0,9 ;
+# une valeur illisible vaut 0,6).
+budget_ram_ratio = 0.6
 # Marge ajoutée au coût estimé de chaque modèle local (poids, cache KV à la fenêtre ; pour
 # l'embedding, sa taille quand aucune mesure n'est déclarée), en Mo.
 load_margin_mb = 256
@@ -103,6 +121,23 @@ measured_rss_mb = 740
 files = [
     { url = "https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF/resolve/3093af03b1a635e67b084b1d8c03c5f5e020fd05/bge-reranker-v2-m3-Q4_K_M.gguf", path = "reranker/bge-reranker-v2-m3-Q4_K_M.gguf", size = 438376864, sha256 = "e186a244ed455b4ab66ec64339ce7427a6ae13f5c0b5e544de96e50f0f8b3673" },
 ]
+
+
+[rag_lab]
+# Atelier RAG (story 30) : un bac à sable, à côté de la brique RAG. Ses vecteurs et ses index
+# se construisent à la demande dans le dossier de données (rag_lab/), jamais dans le dépôt.
+# Un modèle fastembed (ONNX) peut s'y ajouter comme option d'embedding, s'il est installé et
+# présent hors ligne sous models/fastembed : WaveStack ne le télécharge jamais. Déclarez-le
+# dans settings.json, par exemple :
+#   "rag_lab": {"fastembed": {"model_name": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+#               "dims": 384, "label_fr": "MiniLM multilingue (fastembed)"}}
+# FAISS et LanceDB (extra `rag-alt`) : mémoire comptée par le budget à leur premier import, à vie
+# (un module Python ne se décharge pas), en Mo. Mesuré sous Linux : +16 à 37 Mo et +104 à 121 Mo.
+faiss_cost_mb = 60
+lancedb_cost_mb = 180
+# fastembed et onnxruntime, comptés à leur premier import comme FAISS et LanceDB (à mesurer
+# sur le PC cible) ; le modèle lui-même est compté à part, par la taille de ses fichiers.
+fastembed_cost_mb = 150
 
 [tools]
 # Bornes de la boucle de tour (AD-10), affichées sur la carte de la brique outils.
@@ -198,6 +233,10 @@ training = "no"
 notes_fr = "Aucune rétention des entrées et sorties par défaut, 30 jours au plus pour le débogage ou la lutte contre les abus. Quotas à lire dans la console Groq."
 reasoning = { format = "field", always = true, on = { reasoning_effort = "low" }, resend = false }
 key_env = "GROQ_API_KEY"
+# Écran « LLM nu » (story 29) : les réglages d'échantillonnage que l'API compatible OpenAI
+# accepte ; top-k et min-p ne sont jamais envoyés à un fournisseur. Les tours de l'atelier
+# n'en envoient aucun (réglés par le fournisseur).
+sampling = ["temperature", "top_p"]
 
 # Préréglage Mistral : fournisseur français, plan gratuit toujours actif (décision du
 # 2026-09-25 : mistral-small-latest).
@@ -214,6 +253,8 @@ training = "opt_out"
 notes_fr = "Sur le plan gratuit, les prompts servent à l'entraînement par défaut : décochez l'option dans Admin Console > Privacy. Quotas à lire dans la console Mistral."
 reasoning = { format = "content_blocks", on = { reasoning_effort = "high" }, off = { reasoning_effort = "none" } }
 key_env = "MISTRAL_API_KEY"
+# Écran « LLM nu » (story 29) : température et top-p réglables, comme chez Groq.
+sampling = ["temperature", "top_p"]
 # Le plan gratuit refuse (429) deux requêtes à moins d'une seconde : au moins 1 s entre deux
 # envois à ce modèle (tour ou « Tester »). Augmentez la valeur si des 429 persistent.
 min_interval_s = 1
@@ -221,8 +262,10 @@ min_interval_s = 1
 # Exemples à recopier dans settings.json (entrée complète, enabled = true), avec leur
 # avertissement. Leur hôte rejoint alors la liste d'adresses autorisées.
 # Champs facultatifs de toute entrée : key_env (nom d'une variable d'environnement qui
-# fournit la clé, par exemple "GOOGLE_API_KEY") et min_interval_s (secondes au moins entre
-# deux envois au même modèle, de 0 exclu à 60).
+# fournit la clé, par exemple "GOOGLE_API_KEY"), min_interval_s (secondes au moins entre
+# deux envois au même modèle, de 0 exclu à 60) et sampling (story 29 : les réglages que
+# l'écran « LLM nu » peut envoyer, parmi "temperature" et "top_p" ; vide par défaut, réglés
+# par le fournisseur).
 #
 # Google AI Studio : clause EEE. « You may use only Paid Services when making API Clients
 # available to users in the European Economic Area, Switzerland, or the United Kingdom. »

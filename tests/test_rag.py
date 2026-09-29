@@ -305,7 +305,8 @@ def test_budget_exceeded_refuses_in_figures_and_loads_nothing(index):
     assert rag["reason_fr"] == (
         "Indisponible : Mémoire insuffisante pour charger le modèle d'embedding Faux "
         "embedding : WaveStack occupe 200 Mo, il en faut environ 1 de plus, au-delà du budget "
-        "de 100 Mo. Désactivez une brique ou relevez [memory] budget_mb dans settings.json."
+        "de 100 Mo (= plafond [memory] budget_mb). Désactivez une brique ou relevez "
+        "[memory] budget_mb dans settings.json."
     )
     assert embedders.made == [] and session._load_registry.holder(EMBEDDING) is None
     events = turn_events(COVERED, session)

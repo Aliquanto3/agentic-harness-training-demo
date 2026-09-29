@@ -2,7 +2,9 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
+  <script src="/static/theme.js"></script>
   <title>WaveStack</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
   <link rel="stylesheet" href="/static/tokens.css" />
@@ -13,10 +15,34 @@
     <span class="top-bar-title">WaveStack</span>
     <select id="scenario-picker" class="scenario-picker" aria-label="Scénario"></select>
     <div class="gauge" id="gauge">
-      <div class="gauge-bar" id="gauge-bar" role="img" aria-label="Jauge de contexte">
-        <span class="gauge-threshold" id="gauge-threshold" hidden></span>
+      <div class="gauge-stack">
+        <div class="gauge-bar" id="gauge-bar" role="group" aria-label="Jauge de contexte">
+          <span class="gauge-threshold" id="gauge-threshold" hidden></span>
+        </div>
+        <ul class="gauge-legend" id="gauge-legend" aria-label="Disciplines présentes dans le contexte"></ul>
       </div>
       <span class="gauge-figures" id="gauge-figures">Contexte : en attente du modèle</span>
+    </div>
+    <div class="window-picker" id="window-picker">
+      <button type="button" id="window-toggle" class="window-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="window-panel"><span class="window-toggle-long">Fenêtre</span> <span id="window-toggle-value">…</span> ▾</button>
+      <section id="window-panel" class="window-panel" role="dialog" aria-labelledby="window-panel-title" hidden>
+        <div class="window-scroll">
+        <h3 id="window-panel-title" class="window-panel-title">Fenêtre de contexte</h3>
+        <p class="window-help" id="window-help"></p>
+        <p class="window-help">Le choix appliqué est mémorisé dans settings.json, qui prend le pas sur [context] window de wavestack.toml au lancement suivant.</p>
+        <p class="window-current" id="window-current" hidden></p>
+        <fieldset class="window-choices">
+          <legend class="window-choices-legend">Taille de la fenêtre</legend>
+          <div id="window-choices"></div>
+        </fieldset>
+        <p class="window-note" id="window-note"></p>
+        </div>
+        <p class="window-alert" id="window-alert" role="alert" hidden></p>
+        <div class="window-actions">
+          <button type="button" id="window-apply" class="window-apply">Appliquer</button>
+          <button type="button" id="window-close" class="window-close">Fermer</button>
+        </div>
+      </section>
     </div>
     <div class="pane-chips" id="pane-chips"></div>
     <div class="pane-menu">
@@ -29,6 +55,17 @@
     <select id="model-picker" class="model-picker" aria-label="Changer de modèle"></select>
     <button type="button" id="model-picker-apply" class="model-picker-apply" hidden>Charger</button>
     <span class="top-status" id="top-status" role="status" aria-live="polite"></span>
+    <button type="button" id="projection-toggle" class="projection-toggle" aria-pressed="false" aria-label="Mode projection" title="Mode projection : agrandit tous les textes pour la salle ; le navigateur s'en souvient"><span class="projection-toggle-long">Mode projection</span><span class="projection-toggle-short" aria-hidden="true">Projection</span><span class="projection-toggle-tiny" aria-hidden="true">Aa</span></button>
+    <a id="llm-link" class="screen-link" href="/llm" aria-label="LLM nu" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)"><span class="screen-link-long">LLM nu</span><span class="screen-link-short" aria-hidden="true">LLM</span></a>
+    <a id="rag-link" class="screen-link" href="/rag" aria-label="Atelier RAG" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)"><span class="screen-link-long">Atelier RAG</span><span class="screen-link-short" aria-hidden="true">RAG</span></a>
+    <span class="theme-picker-box" id="theme-picker-box">
+      <span class="theme-picker-face" aria-hidden="true"><span class="theme-picker-symbol" data-theme-symbol>◐</span><span class="theme-picker-chevron">▾</span></span>
+      <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" title="Thème de l'interface">
+        <option value="system">◐ Système</option>
+        <option value="light">☀ Clair</option>
+        <option value="dark">☾ Sombre</option>
+      </select>
+    </span>
     <button type="button" id="reset-button" class="reset-button">⟲ Réinitialiser</button>
   </header>
 
@@ -50,6 +87,7 @@
         <p class="drawer-help">Placé avant la conversation, relu par le modèle à chaque appel. Prend effet au prochain tour.</p>
         <textarea id="drawer-text" aria-label="Texte du prompt système" spellcheck="false"></textarea>
         <p class="drawer-alert" id="drawer-alert" role="alert" hidden></p>
+        <p class="drawer-status" id="drawer-status" role="status"></p>
         <div class="drawer-actions">
           <button type="button" id="drawer-save" class="primary">Enregistrer</button>
           <button type="button" id="drawer-reset">Rétablir le prompt par défaut</button>
@@ -61,24 +99,31 @@
         </div>
       </aside>
       <aside class="edit-drawer memory-drawer" id="memory-drawer" hidden role="dialog" aria-modal="true" aria-labelledby="memory-drawer-title">
-        <h3 id="memory-drawer-title">Mémoire globale</h3>
-        <p class="drawer-help" id="memory-help">Placée dans le message système au début de chaque conversation. Une entrée écrite ou ajoutée n'y entre qu'à la prochaine conversation (après « Vider la conversation » ou un changement de scénario) ; une suppression ou une modification s'applique aussitôt.</p>
-        <p class="drawer-help memory-path" id="memory-path"></p>
-        <p class="memory-empty" id="memory-empty" hidden></p>
-        <ul class="memory-list" id="memory-list" aria-label="Entrées de la mémoire globale"></ul>
-        <p class="drawer-alert" id="memory-alert" role="alert" hidden></p>
-        <div class="drawer-actions">
-          <button type="button" id="memory-clear">Tout effacer</button>
-          <button type="button" id="memory-close">Fermer</button>
+        <header class="drawer-head">
+          <h3 id="memory-drawer-title">Mémoire globale</h3>
+          <button type="button" id="memory-x" class="drawer-x" aria-label="Fermer la mémoire globale" title="Fermer la mémoire globale">×</button>
+        </header>
+        <div class="drawer-scroll" id="memory-scroll">
+          <p class="drawer-help" id="memory-help">Placée dans le message système au début de chaque conversation. Une entrée écrite ou ajoutée n'y entre qu'à la prochaine conversation (après « Vider la conversation » ou un changement de scénario) ; une suppression ou une modification s'applique aussitôt.</p>
+          <p class="drawer-help memory-path" id="memory-path"></p>
+          <p class="memory-empty" id="memory-empty" hidden></p>
+          <ul class="memory-list" id="memory-list" aria-label="Entrées de la mémoire globale"></ul>
         </div>
-        <div class="drawer-actions" id="memory-dirty" hidden>
-          <button type="button" id="memory-dirty-save" class="primary">Enregistrer</button>
-          <button type="button" id="memory-dirty-discard">Abandonner</button>
-        </div>
-        <div class="drawer-actions" id="memory-confirm" hidden>
-          <button type="button" id="memory-confirm-clear" class="primary">Oui, tout effacer</button>
-          <button type="button" id="memory-confirm-cancel">Annuler</button>
-        </div>
+        <footer class="drawer-foot" id="memory-foot">
+          <p class="drawer-alert" id="memory-alert" role="alert" hidden></p>
+          <div class="drawer-actions" id="memory-dirty" hidden>
+            <button type="button" id="memory-dirty-save" class="primary">Enregistrer</button>
+            <button type="button" id="memory-dirty-discard">Abandonner</button>
+          </div>
+          <div class="drawer-actions" id="memory-confirm" hidden>
+            <button type="button" id="memory-confirm-clear" class="danger is-confirm">Oui, tout effacer</button>
+            <button type="button" id="memory-confirm-cancel">Annuler</button>
+          </div>
+          <div class="drawer-actions">
+            <button type="button" id="memory-clear" class="danger">Tout effacer</button>
+            <button type="button" id="memory-close">Fermer</button>
+          </div>
+        </footer>
       </aside>
     </section>
 
@@ -86,9 +131,10 @@
       <div class="top-row">
         <section class="pane" data-pane="human">
           <header class="pane-header">
+            <span class="pane-step" aria-hidden="true">1</span>
             <div class="pane-heading">
               <h2 class="pane-title">Vue humain</h2>
-              <p class="pane-subtitle">Ce que vous voyez</p>
+              <p class="pane-subtitle">Ce que voit l'utilisateur</p>
             </div>
             <div class="pane-actions">
               <label class="reasoning-toggle" title="Montre ou masque le raisonnement du modèle dans cette vue ; Contexte LLM le montre toujours.">
@@ -105,7 +151,10 @@
             <div class="chat" id="chat"></div>
             <div class="sr-only" id="chat-live" aria-live="polite"></div>
             <p class="composer-reason" id="composer-reason" hidden></p>
-            <p class="scenario-guide" id="scenario-guide" hidden></p>
+            <div class="scenario-guide" id="scenario-guide" hidden>
+              <p class="scenario-guide-text" id="scenario-guide-text"></p>
+              <button type="button" class="scenario-guide-more" id="scenario-guide-more" aria-expanded="false" aria-controls="scenario-guide-text" hidden>Afficher plus</button>
+            </div>
             <div class="scenario-unavailable" id="scenario-unavailable" role="status" hidden></div>
             <div class="suggested-prompts" id="suggested-prompts" role="group" aria-label="Prompts suggérés" hidden></div>
             <div class="armed-chips-row" id="armed-chips" role="group" aria-label="Actions armées pour le prochain tour" hidden></div>
@@ -120,9 +169,10 @@
 
         <section class="pane" data-pane="ctx">
           <header class="pane-header">
+            <span class="pane-step" aria-hidden="true">2</span>
             <div class="pane-heading">
               <h2 class="pane-title">Contexte LLM</h2>
-              <p class="pane-subtitle">Ce que le modèle lit</p>
+              <p class="pane-subtitle">Ce que le modèle lit, dans l'ordre</p>
             </div>
             <div class="pane-actions">
               <button type="button" id="compare-turns" class="pane-text-action">Comparer</button>
@@ -135,9 +185,10 @@
 
         <section class="pane" data-pane="orch">
           <header class="pane-header">
+            <span class="pane-step" aria-hidden="true">3</span>
             <div class="pane-heading">
               <h2 class="pane-title">Orchestration</h2>
-              <p class="pane-subtitle">Ce que fait le harnais</p>
+              <p class="pane-subtitle">Ce que fait le harnais, pas à pas</p>
             </div>
             <div class="pane-actions">
               <span class="working-indicator orch-working" id="orch-working" hidden>
@@ -164,9 +215,10 @@
 
       <section class="pane" data-pane="schema">
         <header class="pane-header">
+          <span class="pane-step" aria-hidden="true">4</span>
           <div class="pane-heading">
             <h2 class="pane-title">Schéma d'architecture</h2>
-            <p class="pane-subtitle">Où chaque pièce tourne</p>
+            <p class="pane-subtitle">Où tourne chaque pièce</p>
           </div>
           <div class="pane-actions">
             <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
@@ -175,6 +227,7 @@
         </header>
         <div class="pane-body pane-body-schema">
           <div class="arch" id="schema" role="group" aria-label="Schéma d'architecture : poste de travail et réseau"></div>
+          <p class="schema-outbound" id="schema-outbound"></p>
         </div>
       </section>
     </div>

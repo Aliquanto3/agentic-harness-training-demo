@@ -1,0 +1,768 @@
+/* Story 30: the RAG workshop (EXPERIENCE.md rag-chain and rag-stage-card, DESIGN.md). Colours
+   by the tokens of tokens.css only (story 31): readable in both themes, no colour of its own.
+   The chain's stages are context engineering (`discipline-context`); the generation, the
+   model's, lies on the ink (`ink-fill`), as every model element. */
+
+body.rag-page {
+  margin: 0;
+  padding: var(--spacing-5) var(--spacing-5) var(--spacing-6);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: var(--typography-body-font-weight) var(--typography-body-font-size) /
+    var(--typography-body-line-height) var(--typography-body-font-family);
+}
+
+.rag-page .page-tabs,
+.rag-main {
+  max-width: 1560px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.rag-page .page-tabs a.rag-back {
+  color: var(--color-primary);
+  margin-right: var(--spacing-4);
+}
+
+.rag-header h1 {
+  margin: var(--spacing-4) 0 var(--spacing-2);
+  font: var(--typography-heading-font-weight) calc(var(--typography-heading-font-size) * 1.3) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.rag-intro,
+.rag-note {
+  color: var(--color-ink-soft);
+  margin: var(--spacing-2) 0;
+  max-width: 80rem;
+}
+
+.rag-error,
+.rag-busy {
+  margin: var(--spacing-3) 0;
+  padding: var(--spacing-2) var(--spacing-3);
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink);
+}
+
+.rag-error {
+  background: var(--color-danger-soft);
+  border: var(--spacing-stroke-min) solid var(--color-danger);
+}
+
+.rag-busy {
+  background: var(--color-warning-soft);
+  border: 1px solid var(--color-warning);
+}
+
+.rag-error[hidden],
+.rag-busy[hidden],
+.rag-run-summary[hidden],
+.rag-note[hidden] {
+  display: none;
+}
+
+.rag-page a:focus-visible,
+.rag-page button:focus-visible,
+.rag-page input:focus-visible,
+.rag-page select:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- sections (as the « LLM nu » screen's) ---------- */
+
+.rag-section {
+  margin: var(--spacing-5) 0;
+  padding: var(--spacing-4) var(--spacing-5);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-lg);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
+}
+
+.rag-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin: 0 0 var(--spacing-2);
+  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
+    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
+}
+
+.rag-step,
+.rag-chain-number {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.7em;
+  height: 1.7em;
+  border-radius: var(--rounded-full);
+  background: var(--color-ink-fill);
+  color: var(--color-on-ink);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+/* ---------- rag-chain (DESIGN.md): the stages as cards joined by arrows, one row ---------- */
+
+.rag-chain {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--spacing-5);
+  margin: var(--spacing-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rag-chain-card {
+  position: relative;
+  min-width: 0;
+  padding: var(--spacing-3);
+  background: var(--color-discipline-context-soft);
+  border: 1px solid var(--color-line);
+  border-left: 4px solid var(--color-discipline-context);
+  border-radius: var(--rounded-md);
+  color: var(--color-ink);
+}
+
+/* The arrow between two cards, in the gap: the chain reads left to right. */
+.rag-chain-card + .rag-chain-card::before {
+  content: "→";
+  position: absolute;
+  top: 1.2em;
+  left: calc(-1 * var(--spacing-5) - 4px);
+  width: var(--spacing-5);
+  text-align: center;
+  color: var(--color-ink);
+  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) / 1
+    var(--typography-heading-font-family);
+}
+
+.rag-chain-card.is-model {
+  background: var(--color-ink-fill);
+  border-color: var(--color-ink-fill-edge);
+  border-left-color: var(--color-ink-fill-edge);
+  color: var(--color-on-ink);
+}
+
+.rag-chain-card.is-model .rag-chain-number {
+  background: var(--color-on-ink);
+  color: var(--color-ink-fill);
+}
+
+.rag-chain-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin: 0 0 var(--spacing-2);
+}
+
+.rag-chain-name {
+  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-option {
+  margin: 0 0 var(--spacing-1);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-params,
+.rag-chain-explain,
+.rag-chain-note {
+  margin: var(--spacing-1) 0;
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.rag-chain-note {
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--color-warning-soft);
+  border-left: 3px solid var(--color-warning);
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-note::before {
+  content: "⚠ ";
+}
+
+/* ---------- the question ---------- */
+
+.rag-label {
+  display: block;
+  margin: var(--spacing-2) 0 var(--spacing-1);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+  text-transform: uppercase;
+}
+
+.rag-question {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--spacing-hit-target-min);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-chat-font-weight) var(--typography-chat-font-size) /
+    var(--typography-chat-line-height) var(--typography-chat-font-family);
+}
+
+.rag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-3);
+  margin: var(--spacing-3) 0 0;
+}
+
+.rag-status {
+  color: var(--color-ink-soft);
+}
+
+.rag-status.is-error {
+  color: var(--color-ink);
+  font-weight: 700;
+}
+
+.rag-status.is-error::before {
+  content: "✖ ";
+  color: var(--color-danger);
+}
+
+/* DESIGN.md > button-primary, button-secondary: the toy relief, flat when unavailable. */
+.rag-button-primary,
+.rag-button-secondary {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-4);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) calc(var(--typography-label-font-size) * 1.15) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.rag-button-primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-primary-deep);
+}
+
+.rag-button-secondary {
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief-active);
+}
+
+.rag-button-primary:active:not(:disabled),
+.rag-button-secondary:active:not(:disabled) {
+  transform: translateY(calc(var(--spacing-relief-offset) - var(--spacing-relief-offset-pressed)));
+  box-shadow: 0 var(--spacing-relief-offset-pressed) 0 var(--color-primary-deep);
+}
+
+.rag-button-primary:disabled,
+.rag-button-secondary:disabled {
+  cursor: not-allowed;
+  box-shadow: none;
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+  border-color: var(--color-line);
+}
+
+/* ---------- the results: one column per lane, one rag-stage-card per stage ---------- */
+
+.rag-run-summary {
+  margin: var(--spacing-2) 0;
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+.rag-results {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-4);
+}
+
+.rag-results[data-lanes="2"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rag-lane {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(26rem, 1fr));
+  align-content: start;
+  gap: var(--spacing-3);
+  min-width: 0;
+}
+
+.rag-results[data-lanes="2"] .rag-lane {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.rag-lane-title {
+  grid-column: 1 / -1;
+  margin: 0;
+  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
+    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
+}
+
+.rag-stage-card {
+  min-width: 0;
+  padding: var(--spacing-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-left: 4px solid var(--color-discipline-context);
+  border-radius: var(--rounded-md);
+  color: var(--color-ink);
+}
+
+.rag-stage-card[data-status="running"] {
+  border-left-color: var(--color-state-active);
+}
+
+.rag-stage-card[data-status="ok"] {
+  border-left-color: var(--color-state-ok);
+}
+
+.rag-stage-card[data-status="error"] {
+  border-left-color: var(--color-state-error);
+}
+
+.rag-stage-card[data-status="skipped"],
+.rag-stage-card[data-status="waiting"] {
+  background: var(--color-discipline-neutral-soft);
+  border-left-color: var(--color-muted);
+}
+
+.rag-stage-card[data-status="cancelled"] {
+  border-left-color: var(--color-warning);
+}
+
+.rag-stage-card.is-model {
+  border-left-color: var(--color-ink-fill);
+}
+
+.rag-stage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.rag-stage-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin: 0;
+  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.rag-stage-status {
+  padding: 2px var(--spacing-2);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-full);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font: var(--typography-number-font-weight) var(--typography-label-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  white-space: nowrap;
+}
+
+.rag-stage-option {
+  margin: var(--spacing-1) 0;
+  font-weight: 700;
+}
+
+.rag-stage-error,
+.rag-stage-borrowed {
+  margin: var(--spacing-2) 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.rag-stage-error {
+  background: var(--color-danger-soft);
+  border-left: 3px solid var(--color-danger);
+}
+
+.rag-stage-card[data-status="skipped"] .rag-stage-error,
+.rag-stage-card[data-status="cancelled"] .rag-stage-error {
+  background: var(--color-warning-soft);
+  border-left-color: var(--color-warning);
+}
+
+.rag-stage-borrowed {
+  background: var(--color-accent-soft);
+  border-left: 3px solid var(--color-accent);
+}
+
+.rag-stage-borrowed::before {
+  content: "⇄ ";
+}
+
+.rag-stage-io,
+.rag-stage-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--spacing-1) var(--spacing-3);
+  margin: var(--spacing-2) 0;
+}
+
+.rag-stage-io dt,
+.rag-stage-facts dt {
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  text-transform: uppercase;
+}
+
+.rag-stage-io dd,
+.rag-stage-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rag-stage-output {
+  white-space: pre-wrap;
+  max-height: 18em;
+  overflow-y: auto;
+}
+
+.rag-stage-facts dd {
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+.rag-items {
+  width: 100%;
+  margin: var(--spacing-2) 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.rag-items th {
+  padding: var(--spacing-1);
+  border-bottom: 1px solid var(--color-ink-soft);
+  color: var(--color-ink-soft);
+  text-align: left;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.rag-items th:nth-child(1),
+.rag-items th:nth-child(2) {
+  width: 4.2em;
+}
+
+.rag-items th:nth-child(4) {
+  width: 5.5em;
+}
+
+.rag-items td {
+  padding: var(--spacing-1);
+  border-bottom: 1px solid var(--color-line);
+  vertical-align: top;
+}
+
+.rag-num {
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  white-space: nowrap;
+}
+
+.rag-num.is-up::after {
+  content: " ↑";
+}
+
+.rag-num.is-down::after {
+  content: " ↓";
+}
+
+.rag-doc-title {
+  display: block;
+  font-weight: 700;
+}
+
+.rag-doc-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+  white-space: pre-line;
+}
+
+.rag-stage-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1) var(--spacing-4);
+  margin: var(--spacing-2) 0 0;
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-line);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rag-button-primary,
+  .rag-button-secondary {
+    transition: none;
+  }
+}
+
+/* ---------- increment 2: options, settings, a second chain, the comparison ---------- */
+
+.rag-chain-title {
+  margin: var(--spacing-3) 0 0;
+  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.rag-chain-title[hidden],
+.rag-chain[hidden],
+.rag-comparison[hidden] {
+  display: none;
+}
+
+.rag-option {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--spacing-hit-target-min);
+  margin: var(--spacing-1) 0;
+  padding: 0 var(--spacing-1);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.rag-param {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1);
+  margin: var(--spacing-1) 0;
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.rag-param-name {
+  flex: 1 1 100%;
+}
+
+.rag-param-input {
+  box-sizing: border-box;
+  width: 5.5em;
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-1);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+.rag-chain-unavailable {
+  margin: var(--spacing-1) 0;
+  padding-left: var(--spacing-2);
+  border-left: 3px solid var(--color-muted);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-unavailable::before {
+  content: "⊘ ";
+}
+
+.rag-compare {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-height: var(--spacing-hit-target-min);
+  cursor: pointer;
+}
+
+.rag-compare input {
+  width: 1.2em;
+  height: 1.2em;
+  accent-color: var(--color-primary);
+}
+
+.rag-comparison {
+  margin: var(--spacing-4) 0 0;
+  padding: var(--spacing-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-left: 4px solid var(--color-discipline-context);
+  border-radius: var(--rounded-md);
+}
+
+.rag-comparison-title {
+  margin: 0 0 var(--spacing-2);
+  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.rag-comparison-summary {
+  margin: 0 0 var(--spacing-2);
+}
+
+.rag-comparison-lists {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--spacing-1) var(--spacing-4);
+  margin: 0;
+}
+
+.rag-comparison-lists dt {
+  grid-row: 1;
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  text-transform: uppercase;
+}
+
+.rag-comparison-lists dd {
+  grid-row: 2;
+  margin: 0;
+}
+
+.rag-comparison-lists ul {
+  margin: 0;
+  padding-left: var(--spacing-4);
+}
+
+/* ---------- increment 4: moving, removing and adding a stage of the retrieval ---------- */
+
+.rag-chain-moves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+  margin-top: var(--spacing-2);
+}
+
+.rag-move-button {
+  min-width: var(--spacing-hit-target-min);
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.rag-move-button:disabled {
+  cursor: not-allowed;
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+  border-color: var(--color-line);
+}
+
+.rag-chain-card.is-invalid {
+  border-color: var(--color-danger);
+  border-left-color: var(--color-danger);
+}
+
+.rag-chain-refusal,
+.rag-chain-refusal-general {
+  margin: var(--spacing-1) 0 var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--color-danger-soft);
+  border-left: 3px solid var(--color-danger);
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-refusal::before,
+.rag-chain-refusal-general::before {
+  content: "✖ ";
+}
+
+.rag-chain-refusal-general[hidden] {
+  display: none;
+}
+
+.rag-palette {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin: var(--spacing-2) 0 0;
+}
+
+.rag-palette:empty {
+  display: none;
+}
+
+.rag-palette-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.rag-palette-select {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+  font: inherit;
+}
+
+.rag-doc-sources {
+  display: block;
+  color: var(--color-ink);
+  font: var(--typography-number-font-weight) var(--typography-label-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+/* Nine cards on a line: the number and the name wrap as whole words (never « Découpag e »). */
+.rag-chain-head {
+  flex-wrap: wrap;
+}
+
+.rag-chain-name {
+  min-width: 0;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Read by a screen reader only: the chain's refusals, announced when they change. */
+.rag-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

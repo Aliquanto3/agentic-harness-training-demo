@@ -1,12 +1,16 @@
 # Serveurs MCP de la brique « MCP » (story 6, AD-19).
 # `label_fr` s'affiche dans la carte de la brique et sur le nœud du schéma.
+# `sends_fr` (serveurs publics, story 34) : ce qui quitte le poste à chaque appel, repris par
+# le bilan des sorties sous le schéma.
 servers:
   local:
     label_fr: Glossaire WaveStack
   datagouv:
     label_fr: data.gouv.fr
+    sends_fr: la recherche et ses arguments
   mslearn:
     label_fr: Microsoft Learn
+    sends_fr: la question posée
 # Interrupteur de la carte MCP (story 6b, FR-21).
 lazy_label_fr: Lazy loading
 # Méta-outil du harnais en lazy loading (AD-25). `intro` et `tool` sont lus par le modèle ;
@@ -14,6 +18,28 @@ lazy_label_fr: Lazy loading
 load_tool_doc:
   label_fr: Chargement de la documentation
   intro: >-
-    Charge la documentation complète d'un outil MCP, qui devient alors appelable.
-    Appelle cet outil avant tout outil de la liste suivante :
+    Charge la documentation d'un outil MCP, qui devient appelable ; ne charge pas de
+    skill. À appeler avant tout outil de cette liste :
   tool: Nom exact de l'outil, tel qu'il figure dans la liste.
+# Préréglages de « Forcer l'appel » d'un outil MCP (lot K), par nom complet d'outil
+# (`{serveur}__{outil}`). Les paramètres viennent du serveur, à la connexion : un argument
+# qu'il ne déclare pas est ignoré.
+call_presets:
+  local__define_term:
+    - label_fr: MCP
+      args:
+        term: MCP
+  datagouv__search_datasets:
+    - label_fr: cybersécurité
+      args:
+        query: cybersécurité
+  mslearn__microsoft_docs_search:
+    - label_fr: MFA des administrateurs (IAM)
+      args:
+        query: exiger l'authentification multifacteur pour tous les administrateurs Entra ID
+    - label_fr: PIM juste-à-temps (IAM)
+      args:
+        query: Privileged Identity Management activation juste-à-temps d'un rôle Entra ID
+    - label_fr: Journalisation des connexions admin (Souveraineté)
+      args:
+        query: journaux de connexion des comptes administrateurs Entra ID

@@ -12,6 +12,7 @@ import math
 import os
 import sys
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -64,9 +65,38 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# Story 23: the only request headers `net` traces in clear, lower-cased (AD-15). A closed
+# allow-list, not a deny-list: any other header's value is masked before the journal.
+PUBLIC_HEADERS = frozenset(
+    {
+        "host",
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "cache-control",
+        "connection",
+        "content-length",
+        "content-type",
+        "mcp-protocol-version",
+        "user-agent",
+    }
+)
+
+
 class AuthHeader(_Strict):
     name: str = "Authorization"
     scheme: str = "Bearer"
+
+    @field_validator("name")
+    @classmethod
+    def _not_a_public_header(cls, value: str) -> str:
+        """Story 23: a key sent under a header traced in clear would reach the journal."""
+        if value.strip().lower() in PUBLIC_HEADERS:
+            raise ValueError(
+                f"L'en-tête « {value} » est tracé en clair dans le journal : "
+                "la clé ne peut pas y être envoyée."
+            )
+        return value
 
 
 class CloudReasoning(_Strict):
@@ -91,6 +121,11 @@ def _is_loopback(host: str) -> bool:
 
 OUTPUT_RESERVE = 512  # AD-9: the output reserve of a model that does not reason
 MAX_RESERVE = 1536  # AD-9: the largest output reserve; `tpm // 2` must exceed it
+# Story 26 (AD-9): the windows the interface offers, the one list read by the intention and
+# the panel; `[context] window` defaults to `DEFAULT_WINDOW` (a value set by hand outside the
+# list is still read, never offered).
+WINDOW_CHOICES = (4096, 8192, 16384)
+DEFAULT_WINDOW = 4096
 DEFAULT_TOOL_RESULT_MAX_TOKENS = 1200  # lot B (N3): `[tools] result_max_tokens`
 DEFAULT_REASONING_BUDGET = 768  # lot C (N4), lot J: `[reasoning] budget_tokens`
 MIN_REASONING_BUDGET = 128  # lot C: the floor, and what is always left to the answer
@@ -127,6 +162,9 @@ class CloudModel(_Strict):
     enabled: bool = True
     key_env: str | None = Field(default=None, pattern=r"^[A-Z_][A-Z0-9_]*$")
     min_interval_s: float | None = Field(default=None, gt=0, le=60)
+    # Story 29: the sampling settings the « LLM nu » screen may send; none by default (the
+    # provider's own). Top-k and min-p are never sent to a provider.
+    sampling: list[Literal["temperature", "top_p"]] = []
 
     @field_validator("base_url")
     @classmethod
@@ -247,6 +285,28 @@ class RerankerModel(LocalModelSpec):
     max_tokens: int = Field(gt=8)
 
 
+class FastembedModel(_Strict):
+    """`[rag_lab.fastembed]` (story 30): an optional embedding model of the RAG workshop, run
+    by fastembed (ONNX), never downloaded by WaveStack: its files lie under
+    `models_dir()/fastembed`, opened with `local_files_only`."""
+
+    model_name: str = Field(min_length=1)
+    dims: int = Field(gt=0)
+    label_fr: str = Field(min_length=1)
+    # The model's own folder under `models/fastembed`, as fastembed's cache names it; by
+    # default `models--{model_name, « / » as « -- »}`.
+    folder: str | None = Field(default=None, min_length=1)
+
+    @field_validator("folder")
+    @classmethod
+    def _inside_fastembed_dir(cls, value: str | None) -> str | None:
+        return None if value is None else _relative_path(value)
+
+    @property
+    def folder_name(self) -> str:
+        return self.folder or "models--" + self.model_name.replace("/", "--")
+
+
 def _merge_cloud_models(base: Any, override: Any) -> list[Any]:
     """AD-20: `[[cloud.models]]` entries merge by `id`, field by field, on the raw dicts."""
     merged: dict[Any, Any] = {}
@@ -260,6 +320,141 @@ def _merge_cloud_models(base: Any, override: Any) -> list[Any]:
         both = isinstance(previous, dict) and isinstance(entry, dict)
         merged[key] = _deep_merge(previous, entry) if both else entry
     return list(merged.values())
+
+
+_MIB = 1024 * 1024
+_GIB = 1024 * _MIB
+DEFAULT_BUDGET_MB = 4096  # AD-8, NFR-2: `[memory] budget_mb`, the cap in `dynamic` mode
+DEFAULT_BUDGET_RAM_RATIO = 0.6  # story 24: `[memory] budget_ram_ratio`
+BUDGET_RAM_RATIO_BOUNDS = (0.1, 0.9)
+BUDGET_FLOOR_MB = 512  # story 24: the dynamic budget never goes below it (nor above the cap)
+
+
+def system_memory() -> tuple[int, int]:
+    """Story 24: the machine's RAM, total and available, in bytes (`psutil`). Raises when
+    the OS does not say it; tests replace this function."""
+    import psutil  # opens no connection; imported here to keep `config` light at import
+
+    memory = psutil.virtual_memory()
+    return int(memory.total), int(memory.available)
+
+
+def mo_fr(n: int) -> str:
+    """Bytes in Mo, rounded, French thousands separator: « 4 096 » (the unit apart)."""
+    return f"{round(n / _MIB):,}".replace(",", "\u202f")
+
+
+def go_fr(n: int) -> str:
+    """Bytes in Go, one decimal, French decimal comma: « 3,1 Go »."""
+    return f"{n / _GIB:.1f}".replace(".", ",") + " Go"
+
+
+def size_fr(n: int) -> str:
+    """Lot E (E3): « 210 Mo » under 1 Go, « 3,1 Go » from there on."""
+    return f"{mo_fr(n)} Mo" if n < _GIB else go_fr(n)
+
+
+def _with_mo(n: int) -> str:
+    return f"{mo_fr(n)} Mo"
+
+
+def _percent_fr(ratio: float) -> str:
+    """« 60 % », « 62,5 % »."""
+    return f"{ratio * 100:.1f}".rstrip("0").rstrip(".").replace(".", ",") + "\u00a0%"
+
+
+@dataclass(frozen=True)
+class MemoryBudget:
+    """Story 24 (AD-8, NFR-2): WaveStack's memory budget, computed once at launch.
+
+    `dynamic` (default): `min(cap, max(floor, ratio × RAM available at launch))`; `fixed`:
+    the cap itself (`[memory] budget_mb`). `ram_limited`: the RAM, not the cap, set it;
+    `floored`: the RAM share was below `BUDGET_FLOOR_MB`. `measured`: the RAM could be read
+    (else the budget is the cap)."""
+
+    bytes: int
+    mode: Literal["dynamic", "fixed"]
+    cap_bytes: int
+    ratio: float
+    total_bytes: int | None = None
+    available_bytes: int | None = None
+    ram_limited: bool = False
+    measured: bool = False
+    floored: bool = False
+
+    def calc_fr(self) -> str:
+        """How the budget was reached, in French and in Mo (the diagnostic)."""
+        cap = f"[memory] budget_mb de {_with_mo(self.cap_bytes)}"
+        if self.mode == "fixed":
+            return f"valeur fixe {cap} (budget_mode = « fixed »)"
+        if not self.measured or self.available_bytes is None:
+            return f"plafond {cap}, RAM du poste non mesurée"
+        share = f"{_percent_fr(self.ratio)} des {_with_mo(self.available_bytes)} de RAM"
+        total = f", sur {_with_mo(self.total_bytes)}" if self.total_bytes else ""
+        part = f"({_with_mo(int(self.ratio * self.available_bytes))})"
+        if self.floored:
+            return (
+                f"{share} disponibles au lancement {part}{total}, relevé au plancher de "
+                f"{BUDGET_FLOOR_MB} Mo"
+            )
+        if self.ram_limited:
+            return f"{share} disponibles au lancement {part}{total}, sous le plafond {cap}"
+        return f"plafond {cap}, plus petit que {share} disponibles au lancement {part}{total}"
+
+    def short_fr(self, fmt: Callable[[int], str] = size_fr) -> str:
+        """The calculation in short, for a refusal (one unit: `fmt`): « = plafond
+        [memory] budget_mb », « = 60 % des 7,2 Go de RAM disponibles au lancement »."""
+        if self.mode == "fixed":
+            return "= valeur fixe [memory] budget_mb"
+        if not self.measured or self.available_bytes is None:
+            return "= plafond [memory] budget_mb, RAM du poste non mesurée"
+        if self.floored:
+            return "= plancher, RAM disponible au lancement faible"
+        if self.ram_limited:
+            return (
+                f"= {_percent_fr(self.ratio)} des {fmt(self.available_bytes)} de RAM "
+                "disponibles au lancement"
+            )
+        return "= plafond [memory] budget_mb"
+
+
+def compute_memory_budget(mode: str, cap_mb: int, ratio: float) -> MemoryBudget:
+    """Story 24: the budget from the `[memory]` settings (already bounded) and the RAM read
+    now. The RAM unreadable (or said to be 0): the cap, said in the calculation."""
+    cap = max(1, cap_mb) * _MIB
+    fixed = mode == "fixed"
+    try:
+        total, available = system_memory()
+    except Exception:  # noqa: BLE001 - any failure of the OS reading: the cap, never a crash
+        total = available = 0
+    if available <= 0:
+        return MemoryBudget(
+            bytes=cap, mode="fixed" if fixed else "dynamic", cap_bytes=cap, ratio=ratio
+        )
+    total = total if total > 0 else None
+    if fixed:  # the RAM is read for the diagnostic only
+        return MemoryBudget(
+            bytes=cap,
+            mode="fixed",
+            cap_bytes=cap,
+            ratio=ratio,
+            total_bytes=total,
+            available_bytes=available,
+            measured=True,
+        )
+    part = int(ratio * available)
+    floor = BUDGET_FLOOR_MB * _MIB
+    return MemoryBudget(
+        bytes=min(cap, max(floor, part)),
+        mode="dynamic",
+        cap_bytes=cap,
+        ratio=ratio,
+        total_bytes=total,
+        available_bytes=available,
+        ram_limited=part < cap,
+        measured=True,
+        floored=part < floor < cap,
+    )
 
 
 @dataclass(frozen=True)
@@ -315,8 +510,14 @@ class Config:
                 fields = ", ".join(
                     ".".join(str(p) for p in e["loc"]) or "entrée" for e in exc.errors()
                 )
+                # Story 23: the key header's reason, in French (the other reasons are not).
+                reasons = "".join(
+                    f" {e['msg'].removeprefix('Value error, ')}"
+                    for e in exc.errors()
+                    if e["loc"][:1] == ("auth_header",) and e["type"] == "value_error"
+                )
                 errors.append(
-                    f"Modèle cloud « {name} » écarté : déclaration invalide ({fields}). "
+                    f"Modèle cloud « {name} » écarté : déclaration invalide ({fields}).{reasons} "
                     "Corrigez wavestack.toml ou settings.json, puis relancez WaveStack."
                 )
                 continue
@@ -360,15 +561,56 @@ class Config:
 
     @property
     def context_window(self) -> int:
+        """`[context] window` (AD-9), `DEFAULT_WINDOW` by default. Story 26: a window chosen
+        in the interface comes from `settings.json` (`context.window`), merged over
+        `wavestack.toml` by `load_config`; during the session, `AppSession.configured_window`
+        is the one that holds. A boolean, a non-number, or a value not above `OUTPUT_RESERVE`
+        gives `DEFAULT_WINDOW`."""
+        value = self.get("context", "window", default=DEFAULT_WINDOW)
+        if isinstance(value, bool):  # `true` is no window
+            return DEFAULT_WINDOW
         try:
-            return int(self.get("context", "window", default=4096))
-        except (TypeError, ValueError):
-            return 4096
+            window = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return DEFAULT_WINDOW
+        # A window no larger than the output reserve leaves no context (`usable` ≤ 0): the
+        # default. Above it, a window up to `MAX_RESERVE` stays valid: the reasoning brick is
+        # then unavailable (`reasoning_window_fr`), so `usable` stays positive.
+        return window if window > OUTPUT_RESERVE else DEFAULT_WINDOW
+
+    @cached_property
+    def memory_budget(self) -> MemoryBudget:
+        """AD-8, story 24: the memory budget, computed once per `Config` (the launch computes
+        it right after loading the configuration, `cli.main`), shared by the diagnostic and
+        the session: `[memory] budget_mode`
+        (`dynamic` by default, an unknown mode too, or `fixed`), `budget_mb` (the cap, or
+        the fixed value) and `budget_ram_ratio` (0,6, bounded to [0,1 ; 0,9])."""
+        raw_mode = self.get("memory", "budget_mode", default="dynamic")
+        mode = "fixed" if str(raw_mode).strip().lower() == "fixed" else "dynamic"
+        low, high = BUDGET_RAM_RATIO_BOUNDS
+        raw_ratio = self.get("memory", "budget_ram_ratio", default=DEFAULT_BUDGET_RAM_RATIO)
+        ratio = (
+            DEFAULT_BUDGET_RAM_RATIO
+            if isinstance(raw_ratio, bool)
+            else self._float(
+                "memory", "budget_ram_ratio", default=DEFAULT_BUDGET_RAM_RATIO, low=low, high=high
+            )
+        )
+        if not math.isfinite(ratio):
+            ratio = DEFAULT_BUDGET_RAM_RATIO
+        raw_cap = self.get("memory", "budget_mb", default=DEFAULT_BUDGET_MB)
+        try:  # `inf`, `true`, a text, 0 or less: the default, never a crash nor a 1 Mo budget
+            cap_mb = DEFAULT_BUDGET_MB if isinstance(raw_cap, bool) else int(raw_cap)
+        except (TypeError, ValueError, OverflowError):
+            cap_mb = DEFAULT_BUDGET_MB
+        if cap_mb < 1:
+            cap_mb = DEFAULT_BUDGET_MB
+        return compute_memory_budget(mode, cap_mb, ratio)
 
     @property
     def memory_budget_bytes(self) -> int:
-        """AD-8: WaveStack's memory budget, `[memory] budget_mb`."""
-        return max(1, self._int("memory", "budget_mb", default=4096)) * 1024 * 1024
+        """AD-8: WaveStack's memory budget in bytes (`memory_budget`)."""
+        return self.memory_budget.bytes
 
     @property
     def load_margin_bytes(self) -> int:
@@ -445,6 +687,46 @@ class Config:
         """Story 20 (AD-8): what loading Headroom is expected to add (lot J: 84 MB at peak on
         the target PC with `gpt-4`, plus 30 %; 107 MB at peak on Linux)."""
         return max(0, self._int("compression", "cost_mb", default=110)) * 1024 * 1024
+
+    @cached_property
+    def rag_lab_fastembed(self) -> tuple[FastembedModel | None, str | None]:
+        """Story 30: the workshop's fastembed model, or why there is none (French)."""
+        raw = self.get("rag_lab", "fastembed")
+        if raw is None:
+            return None, (
+                "Indisponible : aucun modèle fastembed n'est déclaré. Ajoutez une section "
+                "[rag_lab.fastembed] (model_name, dims, label_fr) à settings.json, WaveStack "
+                "arrêté."
+            )
+        try:
+            return FastembedModel.model_validate(raw), None
+        except ValidationError as exc:
+            fields = ", ".join(
+                ".".join(str(p) for p in e["loc"]) or "section" for e in exc.errors()
+            )
+            return None, (
+                f"Indisponible : la section [rag_lab.fastembed] est invalide ({fields}). "
+                "Corrigez-la, puis relancez WaveStack."
+            )
+
+    @property
+    def rag_lab_faiss_cost_bytes(self) -> int:
+        """Story 30 (AD-8): what importing FAISS is expected to add, `[rag_lab] faiss_cost_mb`
+        (16 MB measured on Linux, 37 MB with numpy's first import)."""
+        return max(0, self._int("rag_lab", "faiss_cost_mb", default=60)) * 1024 * 1024
+
+    @property
+    def rag_lab_fastembed_cost_bytes(self) -> int:
+        """Story 30 (AD-8): what importing fastembed (and onnxruntime) is expected to add, for
+        the life of WaveStack, `[rag_lab] fastembed_cost_mb`; the model itself is counted
+        apart, by its files' size, and released after each run."""
+        return max(0, self._int("rag_lab", "fastembed_cost_mb", default=150)) * 1024 * 1024
+
+    @property
+    def rag_lab_lancedb_cost_bytes(self) -> int:
+        """Story 30 (AD-8): what importing LanceDB (and pyarrow) is expected to add,
+        `[rag_lab] lancedb_cost_mb` (104 to 121 MB measured on Linux)."""
+        return max(0, self._int("rag_lab", "lancedb_cost_mb", default=180)) * 1024 * 1024
 
     def rag_index_path(self) -> Path:
         """Story 15: the sqlite-vec index; a relative path is from the repository root."""
@@ -714,6 +996,12 @@ def write_api_key(model_id: str, host: str, key: SecretStr) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(keys, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def rag_lab_dir() -> Path:
+    """Story 30 (AD-20): the RAG workshop's vectors and indexes, built on demand, never in
+    the repository; the folder can be deleted, WaveStack stopped."""
+    return data_dir() / "rag_lab"
 
 
 def memory_path() -> Path:

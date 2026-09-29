@@ -1,18 +1,30 @@
 # Programme de formation et scénarios par brique (stories 10 et 21, AD-19, FR-38, FR-40).
 # Chaque scénario déclare sa configuration complète, pas un écart au précédent :
 # lancer le premier scénario d'un module active déjà les briques des modules précédents
-# (CAP-40), avec deux exceptions tenues par la fenêtre de contexte (AD-9), que la consigne
-# du scénario rappelle :
+# (CAP-40), avec deux exceptions (AD-9), que la consigne du premier scénario de chaque
+# module suivant rappelle :
 # - le raisonnement, montré au module 1, n'est reconduit dans aucun module suivant : sa
 #   réserve de sortie de 1 536 tokens ôte 1 024 tokens utiles à chaque appel et allonge
 #   chaque tour (NFR-1) ; rallumez-le à la main pour le montrer à l'œuvre ;
-# - « MCP en documentation complète » laisse le RAG éteint : ses extraits s'ajouteraient
-#   à une documentation déjà près de la limite ; « Lazy loading », qui le suit, le rallume.
+# - le RAG, montré au module 3, n'est reconduit dans aucun module suivant : ses extraits sur
+#   Exemplia sont hors sujet dans les démonstrations suivantes, trompent le petit modèle et
+#   forcent la relecture du contexte à chaque tour (D5) ; rallumez-le à la main au besoin.
 # Le premier scénario d'un module restaure aussi la mémoire globale de démonstration
 # (`restore_memory`) : un module démarré directement part toujours de la même mémoire, et une
 # mémoire remplie au module précédent ne déborde pas la fenêtre.
 # Les scénarios suivants d'un module, les transverses et les scénarios métier fixent
 # librement leur configuration, au plus près de la brique qu'ils montrent.
+# Pour un petit modèle local, les prompts nomment l'outil ou le skill attendu (un modèle plus
+# gros fait seul le lien entre la demande et l'outil). Quand une action forcée existe (skill,
+# lecture de fichier, appel d'un outil MCP ou chargement de sa documentation en lazy
+# loading), la consigne la donne en secours, avec les libellés exacts de ses boutons et
+# préréglages. Lot K (2026-09-29) : l'appel d'un outil MCP se force (« Forcer l'appel » sur
+# l'outil, dans la carte MCP, dans les deux modes de documentation) ; c'est le secours de
+# `mcp_full`, `mcp_lazy`, `iam` et `sovereignty` (en lazy loading, le petit modèle tient le
+# chargement de la documentation pour l'étape faite).
+# Deux résultats de recherche d'un serveur public (1 200 tokens chacun au plus) ne tiennent
+# pas ensemble dans la fenêtre de 4 096 : la consigne d'un scénario qui en enchaîne deux fait
+# « Vider la conversation » entre ses prompts (`iam`, `sovereignty`).
 # `bricks` : briques voulues ; `tools`, `mcp_servers`, `skills`, `hooks` : sous-options
 # activées (absentes = valeurs de lancement) ; `mcp_lazy` : lazy loading (faux par défaut) ;
 # `rag_rerank` : reranking des extraits RAG (faux par défaut) ; `restore_memory` : restaure la
@@ -178,47 +190,76 @@ scenarios:
     title_fr: MCP en documentation complète
     description_fr: >-
       Les briques des modules précédents restent actives, sauf le raisonnement et le RAG,
-      éteint pour laisser la place : le serveur MCP local et data.gouv.fr sont connectés, et
-      la documentation complète de chaque outil entre dans le contexte. Regardez la jauge
-      avant d'envoyer le prompt : elle est déjà presque pleine. Passez ensuite au scénario
-      « Lazy loading » pour voir le même besoin tenir dans un contexte bien plus léger, au
-      point de pouvoir rallumer le RAG. Sans réseau, data.gouv.fr reste dessiné comme
+      dont les extraits sur Exemplia seraient hors sujet ici : le serveur MCP local et
+      data.gouv.fr sont connectés, et la documentation complète de chaque outil entre dans
+      le contexte. Regardez la jauge avant d'envoyer le prompt : elle est déjà presque
+      pleine. Le prompt nomme l'outil du glossaire, local__define_term : un petit modèle
+      local ne fait pas toujours le lien entre la question et l'outil, un modèle plus gros
+      (cloud) si. Si le modèle répond de tête, cliquez « Forcer l'appel · local__define_term »
+      sous « Glossaire WaveStack » dans la carte MCP (après « Afficher les actions
+      forcées »), choisissez le préréglage « MCP », « Armer », puis « Rejouer le dernier
+      prompt » : l'appel part d'office et le modèle répond avec la définition.
+      Passez ensuite au scénario « Lazy loading » pour voir le même besoin tenir dans un
+      contexte bien plus léger. Sans réseau, data.gouv.fr reste dessiné comme
       indisponible : poursuivez avec le serveur local.
     bricks: [short_memory, system_prompt, global_memory, tools, mcp]
     mcp_servers: [local, datagouv]
     restore_memory: true
     prompts:
-      - Que veut dire MCP ?
+      - >-
+        Que veut dire MCP ? Cherche la définition avec l'outil local__define_term, sans
+        répondre de tête.
 
   mcp_lazy:
     title_fr: Lazy loading
     description_fr: >-
-      Mêmes serveurs, en lazy loading : seule une ligne par outil entre dans le contexte, et
-      le RAG est rallumé. Comparez la jauge au scénario précédent, bien plus légère malgré
-      les extraits RAG, envoyez le prompt et suivez le chargement de la documentation dans
-      Orchestration. Sans réseau, data.gouv.fr reste dessiné comme indisponible : poursuivez
+      Mêmes serveurs, en lazy loading : seule une ligne par outil entre dans le contexte.
+      Comparez la jauge au scénario précédent : la place gagnée pourrait accueillir le RAG,
+      laissé éteint parce que ses extraits sur Exemplia n'aident pas ici. Envoyez le premier
+      prompt et suivez dans Orchestration le chargement de la documentation, puis l'appel
+      de local__define_term. Ce qu'on observe avec un petit modèle : il s'arrête après
+      load_tool_doc et répond de tête, parfois en écrivant « j'ai cherché » alors
+      qu'Orchestration ne montre aucun appel de local__define_term. Pourquoi : un petit
+      modèle enchaîne mal deux appels et prend la documentation pour la réponse. C'est la
+      démonstration : cliquez « Forcer l'appel · local__define_term » sous « Glossaire
+      WaveStack » dans la carte MCP (après « Afficher les actions forcées »), choisissez le
+      préréglage « MCP », « Armer », puis « Rejouer le dernier prompt » : le rejeu repart
+      d'avant le tour, l'appel part d'office, sa définition rejoint les outils du modèle et
+      le modèle répond avec le résultat ; le harnais garantit l'appel que le modèle ne fait
+      pas. « Charger la documentation » (même carte) ne charge que la documentation, sans
+      appeler l'outil. Le second prompt interroge
+      data.gouv.fr. Sans réseau, data.gouv.fr reste dessiné comme indisponible : poursuivez
       avec le serveur local.
-    bricks: [short_memory, system_prompt, global_memory, tools, rag, mcp]
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp]
     mcp_servers: [local, datagouv]
     mcp_lazy: true
     prompts:
-      - Que veut dire MCP ?
-      - Quels jeux de données publics existent sur la qualité de l'air ?
+      - >-
+        Que veut dire MCP ? Cherche la définition avec l'outil local__define_term, sans
+        répondre de tête.
+      - Cherche sur data.gouv.fr les jeux de données publics sur la qualité de l'air.
 
   skills:
     title_fr: Skills
     description_fr: >-
-      Les briques des modules précédents restent actives (MCP en lazy loading, sans le
-      raisonnement), et les skills s'y ajoutent : seuls le nom et la description de chaque
-      skill sont dans le contexte. Envoyez le prompt : quand le modèle charge un skill, son
-      contenu complet rejoint le contexte et la jauge grandit.
-    bricks: [short_memory, system_prompt, global_memory, tools, rag, mcp, skills]
+      Les briques des modules précédents restent actives (MCP en lazy loading), sans le
+      raisonnement ni le RAG, et les skills s'y ajoutent : seuls le nom et la description
+      de chaque skill sont dans le contexte. Envoyez le prompt : le modèle appelle
+      load_skill, le contenu complet du skill rejoint le contexte et la jauge grandit. Le
+      prompt nomme le skill et l'outil, parce qu'un petit modèle local ne fait pas toujours
+      le lien entre la demande et le skill ; un modèle plus gros le charge sur la seule
+      demande (essayez avec un modèle cloud). Si le modèle ne charge pas le skill, armez
+      « Déclencher le skill » sur « Compte rendu de réunion » dans la carte Skills (après
+      « Afficher les actions forcées »), puis rejouez le prompt.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp, skills]
     mcp_lazy: true
     restore_memory: true
     prompts:
       - >-
-        Rédige le compte rendu de cette réunion : Paul présente le budget, Julie
-        valide le planning, prochaine réunion lundi à 10 h.
+        Charge d'abord le skill meeting_minutes avec l'outil load_skill, puis rédige le
+        compte rendu de cette réunion à partir des éléments ci-dessous, sans lire de
+        fichier : Paul présente le budget, Julie valide le planning, prochaine réunion lundi
+        à 10 h.
 
   caveman:
     title_fr: Caveman
@@ -246,20 +287,21 @@ scenarios:
   subagent:
     title_fr: Sous-agent
     description_fr: >-
-      Les briques des modules précédents restent actives (MCP en lazy loading, sans le
-      raisonnement pour laisser de la place au sous-agent) et la brique Sous-agent s'y
-      ajoute. Le document long est un fichier local, guide_harnais.md, pour une démonstration
-      hors ligne. Envoyez le premier prompt : le modèle confie la lecture à un sous-agent, et
-      seul son résumé revient. Dépliez « Délégation au sous-agent » dans Orchestration : les
-      résultats d'outils restés chez le sous-agent face au résumé réinjecté, c'est
-      l'économie. Basculez Contexte LLM entre le contexte principal (le résumé seul, en
-      « Résultat du sous-agent ») et celui du sous-agent (le guide entier). Si le modèle lit
-      le fichier lui-même, le guide entre dans le contexte principal : comparez la jauge,
-      puis armez « Déléguer au sous-agent » sur la carte (après « Afficher les actions
-      forcées ») avec le préréglage « Résumer le guide du harnais » et rejouez. Les trois
-      questions suivantes testent le résumé : ce qu'il a laissé de côté est perdu pour
-      l'agent principal, qui doit redéléguer ou avouer qu'il ne sait pas.
-    bricks: [short_memory, system_prompt, global_memory, tools, rag, mcp, skills, hooks, subagent]
+      Les briques des modules précédents restent actives (MCP en lazy loading), sans le
+      raisonnement ni le RAG, pour laisser de la place au sous-agent et garder des quiz
+      rapides, et la brique Sous-agent s'y ajoute. Le document long est un fichier local,
+      guide_harnais.md, pour une démonstration hors ligne. Envoyez le premier prompt : le
+      modèle confie la lecture à un sous-agent, et seul son résumé revient. Dépliez
+      « Délégation au sous-agent » dans Orchestration : les résultats d'outils restés chez
+      le sous-agent face au résumé réinjecté, c'est l'économie. Basculez Contexte LLM entre
+      le contexte principal (le résumé seul, en « Résultat du sous-agent ») et celui du
+      sous-agent (le guide entier). Si le modèle lit le fichier lui-même, le guide entre
+      dans le contexte principal : comparez la jauge, puis armez « Déléguer au sous-agent »
+      sur la carte (après « Afficher les actions forcées ») avec le préréglage « Résumer le
+      guide du harnais » et rejouez. Les trois questions suivantes testent le résumé : ce
+      qu'il a laissé de côté est perdu pour l'agent principal, qui doit redéléguer ou
+      avouer qu'il ne sait pas.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp, skills, hooks, subagent]
     tools: [read_file]
     mcp_lazy: true
     restore_memory: true
@@ -275,40 +317,53 @@ scenarios:
   compression:
     title_fr: Compression du contexte
     description_fr: >-
-      Les briques du scénario Sous-agent restent actives, sans le sous-agent, et la brique
-      Compression s'y ajoute : Headroom raccourcit les gros résultats d'outils et les
-      extraits RAG avant l'appel au modèle. Éteignez d'abord la compression et envoyez le
-      premier prompt : le journal de sauvegarde entre en entier dans le contexte.
-      Rallumez-la, rejouez le prompt et ouvrez « Comparer ». Dépliez l'étape « Compression
-      (Headroom) » dans Orchestration : tokens avant et après, texte d'origine et version
-      courte, où l'erreur est restée. Dans Contexte LLM, le résultat d'outil est marqué
-      « compressé » et l'en-tête donne le total sans compression. Les extraits RAG, de la
-      prose, passent tels quels : c'est la limite de l'outil. Posez enfin le second prompt :
-      ce que Headroom a coupé est perdu pour le modèle. La compression réduit ce qui entre,
-      Caveman ce qui sort. Si la carte indique que Headroom n'est pas installé, lancez
-      `uv sync --extra compression` puis relancez WaveStack.
-    bricks: [short_memory, system_prompt, global_memory, tools, rag, mcp, skills, hooks, compression]
+      Les briques du scénario Sous-agent restent actives, sans le sous-agent (ni le
+      raisonnement ni le RAG), et la brique Compression s'y ajoute : Headroom raccourcit les
+      gros résultats d'outils avant l'appel au modèle. Éteignez d'abord la compression et
+      envoyez le premier prompt : le modèle appelle read_file et le journal de sauvegarde
+      entre en entier dans le contexte. S'il ne lit pas le journal, cliquez « Forcer
+      l'appel » sur « Lecture de fichier » dans la carte Outils (après « Afficher les
+      actions forcées »), choisissez le préréglage « Journal de sauvegarde (compression) »,
+      « Armer », puis « Rejouer le dernier prompt », compression toujours éteinte. Rallumez-la, rejouez le
+      prompt et ouvrez « Comparer ». Dépliez l'étape « Compression (Headroom) » dans
+      Orchestration : tokens avant et après, texte d'origine et version courte, où l'erreur
+      est restée. Dans Contexte LLM, le résultat d'outil est marqué « compressé » et
+      l'en-tête donne le total sans compression. Headroom ne réduit que la redondance : un
+      texte sans redondance, comme de la prose, passe tel quel, c'est la limite de l'outil.
+      Pour le montrer, forcez de la même façon le préréglage « Guide du harnais (prose,
+      compression) », rejouez, et dépliez l'étape : le guide passe inchangé.
+      Posez enfin le second prompt : ce que Headroom a coupé est perdu pour le modèle. La
+      compression réduit ce qui entre, Caveman ce qui sort. Si la carte indique que
+      Headroom n'est pas installé, lancez `uv sync --extra compression` puis relancez
+      WaveStack.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp, skills, hooks, compression]
     tools: [read_file]
     mcp_lazy: true
     hooks: [h1, h2]
     prompts:
       - >-
-        Lis le fichier journal_serveur.log et dis-moi quelle erreur grave la sauvegarde de
-        cette nuit a rencontrée.
+        Appelle l'outil read_file sur journal_serveur.log, puis dis-moi quelle erreur grave
+        la sauvegarde de cette nuit a rencontrée.
       - Dans le journal_serveur.log, à quelle heure le lot 12 a-t-il été copié ?
 
   data_flows:
     title_fr: Où vont mes données ?
     description_fr: >-
-      Seuls les outils locaux sont actifs. Activez la brique MCP (serveur local), puis
-      le serveur public data.gouv.fr, et regardez le schéma : seul le flux vers le
-      serveur public franchit la frontière du poste. La carte MCP est déjà en lazy
-      loading : la documentation complète de data.gouv.fr ne laisserait pas la place à
-      son résultat de recherche.
-    bricks: [short_memory, system_prompt, tools]
+      Tout est actif au lancement : les outils locaux et la brique MCP, en lazy loading,
+      avec le serveur local (Glossaire WaveStack) et le serveur public data.gouv.fr.
+      Lisez d'abord le schéma : les outils et le serveur MCP local restent dans la zone
+      Poste de travail, data.gouv.fr est dessiné dans la zone Réseau. Décochez puis
+      recochez data.gouv.fr dans la carte MCP : le flux qui franchit la frontière du poste
+      disparaît, puis revient ; c'est le seul. Envoyez ensuite le prompt et cliquez le nœud
+      data.gouv.fr : Orchestration montre les données exactes envoyées. Le lazy loading
+      laisse la place au résultat de recherche, que la documentation complète de
+      data.gouv.fr ne laisserait pas. Sans réseau, data.gouv.fr est dessiné indisponible
+      avec sa raison : le message sur ce qui sort du poste tient sans l'appel réel.
+    bricks: [short_memory, system_prompt, tools, mcp]
+    mcp_servers: [local, datagouv]
     mcp_lazy: true
     prompts:
-      - Quels jeux de données publics existent sur la qualité de l'air ?
+      - Cherche sur data.gouv.fr les jeux de données publics sur la qualité de l'air.
 
   # ---------- scénarios métier (story 21, FR-40) : fictifs, sans donnée client ----------
 
@@ -319,29 +374,37 @@ scenarios:
       (garde-fou) et H2 (journal d'audit) sont actifs. Envoyez le premier prompt : le modèle
       lit les alertes d'un SIEM fictif (heures en UTC) et doit relier en un seul incident les
       quatre alertes du compte adm.leroy, survenues pendant une fenêtre de maintenance où des
-      alertes étaient en sourdine ; H2 consigne chaque appel, horodaté. Envoyez le second :
-      le modèle cherche lui-même dans les fichiers, trouve l'inventaire des comptes à
-      privilèges dans le dossier confidentiel, et H1 bloque sa lecture. L'agent n'a pas ce
-      privilège : c'est le harnais qui en décide, pas le modèle, et l'agent doit escalader
-      vers un analyste habilité. Cliquez enfin « Journal d'audit » dans le schéma : les
-      lectures permises et la lecture bloquée y sont. Si le modèle n'appelle pas l'outil,
-      forcez read_file (après « Afficher les actions forcées ») avec le préréglage « Alertes
-      SIEM (SOC) » au premier prompt, « Comptes à privilèges (SOC, confidentiel) » au second,
-      et rejouez. À retenir : le journal du harnais trace chaque action de l'agent, la
-      traçabilité qu'attendent NIS2 et DORA d'un outil qui agit sur le système
-      d'information ; le garde-fou applique le moindre privilège, et la décision sensible
-      reste à un humain.
+      alertes étaient en sourdine ; H2 consigne chaque appel, horodaté. Le prompt donne le
+      nom exact du fichier : si le modèle l'écrit mal, le harnais refuse la lecture et liste
+      les fichiers disponibles, et le modèle peut se corriger ; sinon, forcez la lecture
+      avec le préréglage « Alertes SIEM (SOC) » (voir plus bas). Envoyez le second : le modèle
+      cherche lui-même dans les fichiers, trouve l'inventaire des comptes à privilèges dans
+      le dossier confidentiel, et H1 bloque sa lecture. L'agent n'a pas ce privilège : c'est
+      le harnais qui en décide, pas le modèle, et l'agent doit escalader vers un analyste
+      habilité, comme le prompt le lui demande. Si le modèle continue de chercher ou conclut
+      sans escalader (fréquent avec un petit modèle), concluez vous-même : l'agent n'a pas
+      ce privilège, la décision revient à un analyste habilité. Cliquez enfin « Journal
+      d'audit » dans le schéma : les lectures permises et la lecture bloquée y sont. Si le
+      modèle n'appelle pas l'outil, cliquez « Forcer l'appel » sur « Lecture de fichier »
+      dans la carte Outils (après « Afficher les actions forcées »), choisissez le
+      préréglage « Alertes SIEM (SOC) » au premier prompt, « Comptes à privilèges (SOC,
+      confidentiel) » au second, « Armer », puis « Rejouer le dernier prompt ». À retenir : le journal du
+      harnais trace chaque action de l'agent, la traçabilité qu'attendent NIS2 et DORA d'un
+      outil qui agit sur le système d'information ; le garde-fou applique le moindre
+      privilège, et la décision sensible reste à un humain.
     bricks: [short_memory, system_prompt, tools, hooks]
     tools: [read_file]
     hooks: [h1, h2]
     prompts:
       - >-
-        Lis le fichier alertes_siem.log, regroupe les alertes qui relèvent d'un même
-        incident et reconstitue sa chronologie, avec pour chaque étape la tactique MITRE
-        ATT&CK probable.
+        Lis le fichier alertes_siem.log (nom exact, à recopier tel quel), regroupe les
+        alertes qui relèvent d'un même incident et reconstitue sa chronologie en 8 lignes au
+        plus, avec pour chaque étape la tactique MITRE ATT&CK probable.
       - >-
         Pour qualifier cet incident, vérifie le rôle et le titulaire du compte adm.leroy en
-        t'aidant des fichiers disponibles.
+        t'aidant des fichiers disponibles. Si une lecture t'est refusée, ne la contourne
+        pas : dis-le et propose de transmettre la vérification à un analyste SOC habilité,
+        en 3 lignes au plus.
 
   iam:
     title_fr: "Métier IAM : Entra ID avec Microsoft Learn"
@@ -351,47 +414,79 @@ scenarios:
       un petit modèle ne connaît pas les écrans récents d'Entra ID, la documentation
       officielle, si. Envoyez le premier prompt : le modèle cherche dans Microsoft Learn, et
       Orchestration montre la destination et les données exactement envoyées, avant le
-      résultat. Le schéma dessine le serveur dans la zone Réseau : la question part chez
-      Microsoft, le modèle reste sur le poste. Les résultats de recherche sont volumineux :
-      si la jauge annonce un dépassement, c'est le coût réel d'un MCP public ; posez une
-      question plus précise. Sans réseau (ou derrière un proxy qui bloque
-      learn.microsoft.com), Microsoft Learn est dessiné indisponible avec sa raison :
-      décochez puis recochez le serveur dans la carte MCP pour réessayer. À retenir : une
-      réponse sourcée, avec les liens de Microsoft Learn, plutôt qu'un écran
-      d'administration inventé ; en échange, la question part chez l'éditeur.
+      résultat. Les prompts nomment l'outil de recherche, mslearn__microsoft_docs_search :
+      un petit modèle local ne fait pas toujours le lien entre la question et l'outil, un
+      modèle plus gros (cloud) cherche sur la seule question. Le schéma dessine le serveur
+      dans la zone Réseau : la question part chez Microsoft, le modèle reste sur le poste.
+      Les résultats de recherche sont volumineux (jusqu'à 1 200 tokens gardés) : deux ne
+      tiennent pas ensemble dans la fenêtre, cliquez donc « Vider la conversation » (volet
+      Vue humain) avant d'envoyer le second prompt ; si la jauge annonce un dépassement,
+      c'est le coût réel d'un MCP public. Si le modèle répond sans chercher, cliquez
+      « Forcer l'appel · mslearn__microsoft_docs_search » sous « Microsoft Learn » dans la
+      carte MCP (après « Afficher les actions forcées »), choisissez le préréglage « MFA des
+      administrateurs (IAM) » au premier prompt, le préréglage « PIM juste-à-temps (IAM) » au
+      second,
+      « Armer », puis « Rejouer le dernier prompt ». Sans réseau (ou
+      derrière un proxy qui bloque learn.microsoft.com), Microsoft Learn est dessiné
+      indisponible avec sa raison : décochez puis recochez le serveur dans la carte MCP
+      pour réessayer. À retenir : une réponse sourcée, avec les liens de Microsoft Learn,
+      plutôt qu'un écran d'administration inventé ; en échange, la question part chez
+      l'éditeur.
     bricks: [short_memory, system_prompt, mcp]
     mcp_servers: [mslearn]
     prompts:
       - >-
         Dans Microsoft Entra ID, comment exiger l'authentification multifacteur pour tous
-        les administrateurs ? Appuie-toi sur la documentation Microsoft Learn.
+        les administrateurs ? Cherche avec l'outil mslearn__microsoft_docs_search, puis
+        réponds en 5 lignes au plus : d'abord deux liens Microsoft Learn tirés du résultat,
+        puis l'explication.
       - >-
         Qu'est-ce que Privileged Identity Management dans Entra ID, et à quoi sert
-        l'activation juste-à-temps d'un rôle ?
+        l'activation juste-à-temps d'un rôle ? Cherche avec l'outil
+        mslearn__microsoft_docs_search, puis réponds en 5 lignes au plus : d'abord deux
+        liens Microsoft Learn tirés du résultat, puis l'explication.
 
   sovereignty:
     title_fr: "Métier Souveraineté : où partent les requêtes ?"
     description_fr: >-
       Pour la practice souveraineté, environ 15 minutes. Deux serveurs MCP publics sont
       connectés, en lazy loading : data.gouv.fr, opéré par l'administration française, et
-      Microsoft Learn, opéré par un éditeur américain. Envoyez les deux prompts, puis ouvrez
+      Microsoft Learn, opéré par un éditeur américain. Envoyez les deux prompts et ouvrez
       dans Orchestration les données sortantes de chaque appel : la requête révèle à elle
       seule le sujet de la mission, et elle part chez deux opérateurs soumis à deux droits
       différents ; un éditeur américain relève du Cloud Act, même quand ses serveurs sont en
-      Europe. Le schéma ne montre que ce qui quitte le poste : où tourne chaque serveur MCP,
-      chez quel hébergeur, avec quelle qualification (SecNumCloud par exemple), reste à
-      vérifier flux par flux, et un service public n'est pas souverain par nature. Le
-      modèle, lui, reste sur le poste ; avec un modèle cloud, toute la conversation
-      partirait aussi chez son fournisseur. Sans réseau (ou derrière un proxy qui bloque ces
-      adresses), les deux serveurs sont dessinés indisponibles avec leur raison : décochez
-      puis recochez un serveur dans la carte MCP pour réessayer. À retenir : la souveraineté
-      se vérifie flux par flux, pour le harnais, les données, le modèle et chaque serveur
-      MCP.
+      Europe. Chaque prompt nomme l'outil de recherche. Ce qu'on observe avec un petit
+      modèle : il s'arrête après load_tool_doc (ou appelle l'outil sans sa documentation,
+      que le harnais refuse) et répond de tête, parfois en écrivant « j'ai cherché » avec
+      des jeux de données inventés, alors qu'Orchestration ne montre ni appel de l'outil ni
+      requête sortante. Pourquoi : un petit modèle enchaîne mal deux appels et prend la
+      documentation pour la réponse. C'est la démonstration : au premier prompt, cliquez
+      « Forcer l'appel · datagouv__search_datasets » sous « data.gouv.fr » dans la carte MCP
+      (après « Afficher les actions forcées »), choisissez le préréglage « cybersécurité »,
+      « Armer », puis « Rejouer le dernier prompt » : le rejeu repart d'avant le tour, la
+      recherche part d'office et le modèle répond avec son résultat ; le harnais garantit
+      l'appel que le modèle ne fait pas. Ouvrez les données
+      sortantes de ce premier appel. Deux résultats de recherche ne tiennent pas ensemble
+      dans la fenêtre : cliquez « Vider la conversation » (volet Vue humain) avant d'envoyer
+      le second prompt. Son secours : « Forcer l'appel · mslearn__microsoft_docs_search »
+      sous « Microsoft Learn », préréglage « Journalisation des connexions admin
+      (Souveraineté) », « Armer », puis « Rejouer le dernier prompt ». Le schéma ne montre que ce qui quitte le poste :
+      où tourne chaque serveur MCP, chez quel hébergeur, avec quelle qualification
+      (SecNumCloud par exemple), reste à vérifier flux par flux, et un service public n'est
+      pas souverain par nature. Le modèle, lui, reste sur le poste ; avec un modèle cloud,
+      toute la conversation partirait aussi chez son fournisseur. Sans réseau (ou derrière
+      un proxy qui bloque ces adresses), les deux serveurs sont dessinés indisponibles avec
+      leur raison : décochez puis recochez un serveur dans la carte MCP pour réessayer. À
+      retenir : la souveraineté se vérifie flux par flux, pour le harnais, les données, le
+      modèle et chaque serveur MCP.
     bricks: [short_memory, system_prompt, mcp]
     mcp_servers: [datagouv, mslearn]
     mcp_lazy: true
     prompts:
-      - Cherche sur data.gouv.fr des jeux de données publics sur la cybersécurité en France.
       - >-
-        Cherche maintenant dans la documentation Microsoft Learn comment Entra ID journalise
-        les connexions des comptes administrateurs.
+        Cherche sur data.gouv.fr des jeux de données publics sur la cybersécurité en France,
+        avec l'outil datagouv__search_datasets, sans répondre de tête. Réponds en 5 lignes
+        au plus : trois jeux au plus, chacun avec son lien data.gouv.fr en premier.
+      - >-
+        Cherche dans Microsoft Learn comment Entra ID journalise les connexions des comptes
+        administrateurs, avec l'outil mslearn__microsoft_docs_search, sans répondre de tête.

@@ -15,6 +15,8 @@ uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py
 - `--keep` : garde le dossier de données temporaire (journaux `wavestack.log`,
   `fake_openai.log`, `settings.json`, `audit.log`) ; son chemin s'affiche au début.
 - `--headed` : navigateur visible.
+- `--no-rag-alt` (story 30) : WaveStack comme sur un poste sans l'extra `rag-alt` (FAISS et
+  LanceDB indisponibles) ; le scénario `rag_lab` prend alors la branche « sans l'extra ».
 - `--no-headroom` : WaveStack comme sur un poste sans l'extra `compression` ; le scénario
   `compression` vérifie alors la carte (commande d'installation) et un tour sans étape, puis
   se saute (`--only compression --no-headroom`).
@@ -52,17 +54,20 @@ vrais services.
   `POST /_e2e/model_ready` n'a pas été appelé (un téléchargement qui échoue, puis réussit).
   `/_e2e/reranker.gguf` est celui du faux reranker (story 16), toujours servi.
 - `stack.py` : réseau sortant de WaveStack coupé (proxy fermé, voir plus haut), dossier de
-  données temporaire, `settings.json` qui déclare deux modèles sur le faux serveur, `fake`
-  (`wavestack-fake`) et `fake_b` (`faux-modele-b`, pour le changement de modèle de la
-  story 17), clé par `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux serveurs sur
+  données temporaire, `settings.json` qui déclare trois modèles sur le faux serveur (tous avec `sampling = ["temperature", "top_p"]` depuis la story 29), `fake`
+  (`wavestack-fake`), `fake_b` (`faux-modele-b`, pour le changement de modèle de la
+  story 17) et `fake_r` (`faux-modele-raisonne`, `reasoning: {format: "field", always: true}`,
+  pour la carte Raisonnement verrouillée de la story 33), clé par
+  `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux serveurs sur
   `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
   `settings.json` pointe `[rag]` vers un index dans ce dossier, absent au départ comme sur
   une installation neuve (le scénario `rag` le construit depuis la carte), et déclare un faux
   fichier de modèle servi par le faux serveur ; de même pour `[rag.reranker]` (story 16).
 - `fake_local_server.py` (story 18) : un faux llama-server (`/health`, `/props` avec le gabarit
-  Qwen3.5, `/v1/models`, `/tokenize` avec les pièces, `/detokenize`, `/completion` en SSE ;
+  Qwen3.5, `/v1/models` (avec `n_vocab: 1004` et `n_embd: 2048` depuis la story 29), `/tokenize` avec les pièces, `/detokenize`, `/completion` en SSE ;
   tokenizer octet par octet, marqueurs du gabarit en un token) et un faux Ollama (`/api/tags`,
-  `/api/ps`, `/api/generate` pour `keep_alive: 0`) qui sert un modèle sans GGUF sur le disque.
+  avec `details` `{family: qwen3, parameter_size: 0.6B}` depuis la story 25, `/api/ps`,
+  `/api/generate` pour `keep_alive: 0`) qui sert un modèle sans GGUF sur le disque.
   `stack.py` les lance sur deux ports libres, que `settings.json` déclare en
   `[net.loopback_ports]` ; `/_e2e/requests` relit les corps reçus.
 - `wavestack_e2e.py` : le lanceur de WaveStack pendant le parcours. Il lance `wavestack.cli`
@@ -135,10 +140,27 @@ Le scénario `programme` attend que les groupes du sélecteur de scénario soien
 `content/scenarios.yaml` (modules « Module N · titre · durée », puis « Transverses et métier ») :
 la liste attendue et les prompts des scénarios métier sont lus dans ce fichier, pas recopiés.
 Il lance ensuite le premier scénario du module 5 directement (briques des modules 1 à 4, sans
-le raisonnement, consigne qui le dit) et « MCP en documentation complète » (RAG éteint).
+le raisonnement ni le RAG, consigne qui le dit) et « MCP en documentation complète » (RAG
+éteint, « sauf le raisonnement et le RAG »).
 
-- `soc` : `read_file` lit `alertes_siem.log`, H2 journalise ; au second prompt, qui ne nomme
-  aucun fichier, le modèle liste le dossier puis tente `confidentiel/comptes_privilegies.txt`,
+Story 27 : les prompts des scénarios `mcp_full`, `mcp_lazy`, `skills`, `subagent` (suivi de
+« [lent] »), `compression`, `soc`, `iam` et `sovereignty` sont lus dans `content/scenarios.yaml` (`_prompts`), pas recopiés ; ils
+nomment l'outil ou le skill attendu. Le RAG n'est voulu dans aucun module après le 3 :
+`mcp_lazy` (consigne « le RAG, laissé éteint »), `skills` (consigne qui cite « Déclencher le
+skill » sur « Compte rendu de réunion »), `subagent` (« sans le raisonnement ni le RAG ») et
+`compression` (préréglage « Journal de sauvegarde (compression) » cité, `read_file` sur
+`journal_serveur.log` au premier tour, aucun extrait RAG dans le corps envoyé ni parmi les
+candidats de la compression ; à la fin, le préréglage « Guide du harnais (prose,
+compression) » forcé puis rejoué : la prose passe inchangée, la limite de Headroom).
+`data_flows` est actif au lancement, sans geste : brique MCP voulue, serveurs `datagouv` et
+`local` en lazy loading, échec expliqué de data.gouv.fr attendu après le lancement, flux qui
+franchit la frontière, serveur local sur le poste, puis les vérifications de la story 23 ; enfin
+le geste de la consigne : data.gouv.fr décoché, plus aucun flux ne franchit la frontière (hors
+modèle cloud du parcours), recoché, son flux revient.
+
+- `soc` : consigne qui cite l'analyste habilité ; `read_file` lit `alertes_siem.log`, H2
+  journalise ; au second prompt, qui ne nomme aucun fichier et demande de ne pas contourner un
+  refus, le modèle liste le dossier puis tente `confidentiel/comptes_privilegies.txt`,
   que H1 bloque ; la réponse escalade vers un analyste habilité et le contenu du fichier
   n'atteint pas le modèle ; `/api/audit` porte les lectures ; un clic sur « Journal d'audit »
   dans le schéma ouvre le fichier (attendu jusqu'au blocage de H1, puis défilé en bas).
@@ -155,6 +177,314 @@ Les appels réels restent à tester à la main, avec le réseau (PC cible, hors 
 Microsoft Learn et data.gouv.fr. Le parcours, qui coupe le réseau, n'en vérifie que l'échec
 expliqué.
 
+## Retours de recette (story 22)
+
+Vérifications ajoutées aux scénarios existants :
+
+- `bare_llm` : « Raisonnement » en tête du panneau ; MCP (passé en lazy loading par l'API,
+  brique éteinte), Outils, Skills et Hooks éteints : sous-options désactivées, raison au
+  survol, « · brique éteinte » dans le résumé ; « Afficher plus » seulement si la consigne
+  dépasse 3 lignes.
+- `system_prompt` : « Enregistrer » désactivé tant que le texte est inchangé, puis
+  « Prompt système enregistré. » (`role=status`), effacé à la saisie suivante.
+- `subagent` : onglets « Agent principal » / « Sous-agent subN » (`role=tablist`), retour à
+  « Agent principal » au tour suivant ; « Annuler » et un second clic sur « Déléguer au
+  sous-agent » ferment le formulaire.
+- `soc` : consigne de 1 276 caractères sur 3 lignes, « Afficher plus » / « Réduire », champ
+  et dernière bulle visibles ; laissée dépliée, repliée au lancement d'un autre scénario.
+- `global_memory` : 6 entrées ; croix, « Tout effacer » (danger) et « Fermer » visibles sans
+  défiler ; la croix ferme le tiroir.
+- `rag_rerank` : « Reranking » coché, brique RAG éteinte : grisé, désactivé, raison au
+  survol ; rallumée : de nouveau réglable. Capture : `27-reranking-brique-rag-eteinte.jpg`.
+- `reload_and_reset` : après « Réinitialiser » puis « Vider la conversation », Orchestration
+  repart à « Tour 1 », l'infobulle et le journal gardant l'identifiant `t{n}` suivant.
+
+## Code couleur par discipline (story 33)
+
+- `disciplines`, joué après `network_tools` : scénario « Outils réseau » et un tour « Résume
+  l'article Wikipédia… ». Barre haute sur `--color-ink`, légende `#gauge-legend` (prompt,
+  context et harness engineering), chaque `.gauge-seg` avec sa discipline et le fond de son
+  jeton, total en tokens et en pourcentage, légende et chiffres entiers à 1600 × 1000. Panneau
+  des briques : légende des quatre disciplines, « Ce que le modèle lit » puis « Ce que le
+  harnais fait », premier groupe Raisonnement, Prompt système, Mémoire courte, Mémoire globale,
+  RAG ; trait de la carte Prompt système et fond de la carte RAG éteinte ; lignes d'état
+  (« n tokens dans le contexte », « n entrées · n tokens », « n déclarés · c contacté(s) », avec
+  la puce « RÉSEAU ») ; Prompt système éteint par l'API, « Éteinte », explication toujours
+  ouverte. Bulle de l'utilisateur sur l'encre, en-têtes des cinq volets sur `--color-surface`,
+  sections de Contexte LLM (filet du prompt système, pastille de son type), tuiles
+  d'Orchestration (appel au modèle sur l'encre, `wikipedia_summary` en réseau, « Description
+  des outils » en harness), plaque du modèle et nœuds du schéma. `c` compte les outils réseau
+  déjà contactés dans la session : 1 (Wikipédia) quand le scénario est joué seul, 2 après
+  `network_tools` (les jours fériés aussi). Captures `28-disciplines-barre-haute.jpg`,
+  `29-disciplines-briques.jpg`, `30-disciplines-vue-humain.jpg`, `31-disciplines-contexte.jpg`,
+  `32-disciplines-orchestration.jpg`, `33-disciplines-schema.jpg` (`Run.shot_element` : la
+  pièce seule).
+- `reasoning_locked`, joué après `model_switch` : bascule sur `fake_r` depuis le sélecteur de
+  la barre haute ; carte Raisonnement cochée et désactivée, 🔒, « Imposé par ce modèle » ; puis
+  retour à l'entrée A, qui ne raisonne pas : plus de verrou. Capture
+  `34-raisonnement-impose.jpg`.
+
+## Mode sombre (story 31)
+
+- `themes`, joué après `disciplines`, à 1600 × 1000, poste émulé en clair : scénario « Outils
+  réseau » et un tour « Résume l'article Wikipédia… », aucun choix mémorisé. `#theme-picker` sur
+  « Système » (« ◐ Système », « ☀ Clair », « ☾ Sombre »), pas d'attribut `data-theme`, chaque
+  commande de la barre haute entière (`_fully_visible`), sans face compacte ; de même à
+  1440 × 900 (mots entiers). À 1280 × 720, en mode normal puis en mode projection : barre sur
+  une ligne, « Réinitialiser » entier, sélecteur compact (face « ◐▾ », liste native d'opacité 0
+  posée exactement dessus) ; `ArrowDown` sur la liste passe à « Clair » (`data-theme`, face
+  « ☀▾ »), puis retour à « Système ». Poste émulé en sombre
+  (`emulate_media`) : fond de `body` en `surface-dark` (lu dans DESIGN.md) sans rechargement ;
+  de nouveau en clair : `surface`. « Sombre » choisi : `data-theme="dark"`,
+  `localStorage["wavestack.theme"] == "dark"`, barre haute, dernière bulle, tuile de l'appel au
+  modèle et plaque du modèle en `ink-fill-dark`, filet du prompt système en
+  `discipline-prompt-dark`, chaque `.gauge-seg` sur le jeton sombre de sa discipline, puis le
+  balayage des contrastes de la liste « Volets ▾ », du panneau « Fenêtre » et du tiroir
+  d'édition ouverts (bloquant). Rechargé
+  avec `**/static/app.js` interrompu (`route.abort`) : `data-theme="dark"` et le fond sombre sont
+  déjà là (`theme.js`, en tête de page) ; `app.js` rendu, le sélecteur montre « Sombre », sans
+  `pageerror` (seul le chargement interrompu s'écrit en console). `/diagnostic` et `/models` :
+  sombres, sélecteur sur « Sombre ». « Clair » choisi au diagnostic, poste émulé en sombre :
+  l'atelier reste clair. `wavestack.theme = "violet"` : « Système ». Un contexte neuf dont
+  `Storage.prototype.getItem` et `setItem` lèvent : « Système », puis « Sombre » appliqué à la
+  page seule (rien d'écrit), sans erreur. Le scénario finit toujours sur « Système », poste
+  clair, `unroute` : les autres scénarios restent en thème clair.
+- `_contrast_sweep` : pour chaque élément visible qui porte du texte (et la valeur affichée d'un
+  `select`), premier fond opaque en remontant (pour un texte SVG : son `fill`, sur le `fill` de
+  la forme posée à côté, le disque d'un marqueur), ratio WCAG, seuil 4,5 (3 à partir de 24 px, ou de
+  18,66 px en gras). Ignorés : un ancêtre en `opacity < 1` ou désactivé (exemption WCAG), un fond
+  en image. Le pointeur est d'abord écarté (la vue liée estomperait la page). Bloquant en
+  sombre, sur la barre haute, les cinq volets, `/diagnostic` et `/models` ; en clair, signalé en
+  `KNOWN [clair-préexistant]` (aucun échec à ce jour).
+- Captures `46-theme-sombre-atelier.jpg` (page entière), `47-theme-sombre-vue-humain.jpg`,
+  `48-theme-sombre-schema.jpg` (`Run.shot_element`), `49-theme-sombre-diagnostic.jpg`,
+  `50-theme-sombre-modeles.jpg` et `51-theme-clair-atelier.jpg`, pour comparer.
+- `disciplines` : les fonds d'encre se lisent sur `--color-ink-fill` (même valeur que
+  `--color-ink` en clair). `linked_view` : le détail d'échec de la puce « · lié » donne les
+  pixels manquants.
+- Texte sur rouge en `--color-on-vivid`, en clair puis en sombre (attribut posé à la main) :
+  lettre de la tuile d'un appel au modèle en erreur (`provider_errors`, `[erreur500]`),
+  chiffres de la jauge en dépassement (`busy_and_stop`), « Oui, tout effacer »
+  (`global_memory`).
+
+## Données sortantes, en-têtes compris (story 23)
+
+- `network_tools` : la carte Outils, options repliées, dit « Peuvent sortir du poste » et nomme (Jours
+  fériés, Résumé Wikipédia, Lecture de page web, data.gouv.fr, Microsoft Learn) et « Données
+  sortantes ». Après le tour des jours fériés, l'étape « Exécute l'outil hors du poste · Jours fériés » (story 34) dépliée
+  montre « Données sortantes », l'adresse calendrier.api.gouv.fr, « En-têtes », le User-Agent
+  avec contact et « Aucun corps : seule l'adresse sort du poste. » ; l'événement
+  `outbound_request` porte ses en-têtes, aucun masqué. Après le tour Wikipédia : bloc replié à
+  la main, Orchestration défilée en haut puis masquée ; un clic sur le nœud « Lecture de page
+  web », jamais contacté, ne fait que le sélectionner (infobulle « Non contacté ») ; un clic
+  sur le nœud « Wikipédia » (infobulle « Clic : ses données sortantes dans Orchestration »)
+  réaffiche Orchestration, déplie l'étape, rouvre le bloc et l'amène dans `#orch-scroll`
+  (« GET https://fr.wikipedia.org/api/rest_v1/page/summary/… », « User-Agent: WaveStack/0.1
+  (demonstrateur pedagogique; … », « Accept: */* ») ; la vue est figée. Capture
+  `08b-donnees-sortantes-en-tetes.jpg`. Un second clic sur le nœud, déjà sélectionné, le
+  garde sélectionné et ramène le bloc. De retour en direct, le tour des jours fériés est
+  replié : un clic sur le nœud « Jours fériés » le déplie, avec l'étape et son bloc à l'écran.
+  « Lecture de page web » doit n'avoir jamais été contactée dans la session (vérifié).
+- `data_flows` : préparation repliée et Orchestration masquée, un clic sur le nœud
+  data.gouv.fr réaffiche le volet, déplie la préparation et la connexion, ouvre son bloc et
+  l'amène à l'écran, sans figer la vue. La connexion montre son bloc « Données sortantes »
+  avec ses en-têtes et le User-Agent (rendu de la story 5b, jusque-là non testé).
+- `h5` : l'aperçu garde méthode, adresse et corps, avec une note sur les en-têtes posés à
+  l'envoi si l'appel est accepté.
+
+## Vue liée et lecture guidée des volets (story 34)
+
+- `linked_view`, joué après `disciplines`, à 1600 × 1000 : scénario « Outils réseau » et un tour
+  « Résume l'article Wikipédia… ». Survol de la carte Outils : `body.linking`, nœuds Wikipédia
+  et Calculatrice, segments et étape « Exécute l'outil hors du poste » éclairés, carte Mémoire
+  globale estompée (opacité < 0,5) ; pointeur sur le titre de la barre haute : plus rien.
+  Survol du segment harness de la jauge (carte Outils), de la plaque du modèle (chaque section
+  de Contexte LLM), de « Répond » et de « Appelle le modèle » (plaque et sections de leur appel,
+  pas celles de l'autre : story 32). Au clavier, une section focalisée
+  puis une ligne d'étape atteinte par Tab éclairent comme au survol ; focus perdu : plus rien.
+  Clic sur le nœud Calculatrice, Contexte LLM masqué : carte Outils cerclée d'encre, puce
+  « + Contexte LLM · lié » ; Échap efface tout. Mouvement réduit : `transition-duration` 0s.
+  Volets numérotés 1 à 4 avec leur sous-titre, briques sans numéro, aide sous la légende.
+  Frise : « Décrit les outils », « Appelle le modèle », « Demande un outil », « Exécute l'outil
+  hors du poste », « Réinjecte le résultat », « Répond », pastilles H, M, M, R, H, M, ligne
+  réseau « 🌐 RÉSEAU → fr.wikipedia.org », figure de « Répond », dépliage au clic. Après le
+  clic sur Calculatrice, une section et une étape visibles sont cerclées d'encre, sans estompage
+  sous le pointeur resté sur la source. Bilan sous le schéma : K = `model_call_started` +
+  `outbound_request{origin: brick}` des étapes d'outil qui n'ont pas échoué ; la requête vers
+  Wikipédia, que le réseau coupé fait échouer, est citée à part, « 1 tentative en échec vers
+  Résumé Wikipédia (le titre de l'article) ». Infobulles « Au tour 1 : tentative en échec… »
+  (Wikipédia, pastille « en échec » ou « indisponible ») et « Au tour 1 : non contacté. »
+  (Jours fériés) ; pastille « non contacté » sur « Lecture de page web ». Mode projection :
+  `html.projection`, corps à 18 px, `aria-pressed`, « Réinitialiser » entier dans la barre ; à
+  1280 × 720, barre sur une ligne et « · lié » lisible sur une puce ; gardé après rechargement
+  puis Réinitialiser, bilan « Aucun tour affiché… » ; second clic, 14 px. Captures
+  `35-vue-liee-survol.jpg`, `36-selection-liee.jpg`, `37-frise-orchestration.jpg`,
+  `38-bilan-des-sorties.jpg`, `39-mode-projection.jpg`.
+- `local_server` : après le tour avec le faux llama-server, le bilan dit « aucune donnée n'a
+  quitté le poste ».
+- `forced_native` : l'étape de la calculatrice forcée porte la pastille « U ».
+- Les captures (`Run.shot`, `Run.shot_element`) écartent d'abord le pointeur de tout élément
+  liable (`Run.rest_pointer`), pour qu'un clic précédent n'estompe pas la page ; la capture 35
+  garde le survol. Les étapes d'outil se repèrent par `.turn-step-title` (le verbe, puis le
+  libellé de l'outil).
+
+## Sélecteur regroupé et tableau des capacités (story 25)
+
+- `local_server` : le faux Ollama est « Local · Ollama · faux-ollama:latest · 0.6B
+  (incompatible) » (sa taille vient de `details`) ; le faux llama-server garde son libellé.
+- `model_catalog`, joué après `local_server` : la deuxième option de `#model-picker` est la
+  légende, désactivée (« où tourne le modèle », « qui le sert »), reprise dans l'infobulle ;
+  groupes « Sur ce poste · Qwen (Alibaba) » (le faux Ollama par sa famille `qwen3`, le faux
+  llama-server par la famille que `capabilities_for` lit dans son gabarit, jamais Llama pour
+  « llama-server »), puis « Réseau · Mistral (Mistral AI) » et « Réseau · gpt-oss (OpenAI) »
+  (préréglages de `wavestack.toml`, sans clé) et « Réseau · Autres éditeurs » (les trois faux
+  modèles cloud) ; dans le groupe Qwen, le faux Ollama (0.6B) avant le faux llama-server
+  (taille inconnue) ; chaque modèle commence par « Local · » ou « RÉSEAU · » ; « Tableau des
+  modèles et de leurs capacités… » puis « Autre fichier ou clé API… » en dernier. « Ouvrir le
+  tableau » mène à `/models` : onglet « Modèles » courant, « Diagnostic » vers `/diagnostic`
+  (mêmes onglets) ; lignes du faux llama-server (Qwen, outils « oui », « activable »,
+  « 4 096 tokens »), de R (« toujours »), de `wavestack-fake` (« jamais », « actif »), du faux
+  Ollama (« inconnu », raison « introuvable » visible), « RÉSEAU » sur chaque ligne cloud,
+  étiquette sur le jeton jaune, un en-tête par groupe du sélecteur. Puis R activé depuis le
+  sélecteur : carte Raisonnement verrouillée et ligne « toujours », « actif » ; retour à A :
+  ligne « jamais », carte indisponible « ne déclare pas de raisonnement ». Captures
+  `43-modeles-selecteur.jpg` (la liste affichée en boîte de liste : une liste native ne se
+  capture pas ouverte) et `44-modeles-tableau.jpg` (page entière).
+
+## Fenêtre de contexte réglable (story 26)
+
+- `context_window`, joué entre `model_catalog` et `relaunch` (seul, il part du faux cloud A) :
+  (a) sur le faux cloud A, après un message, le bouton « Fenêtre 4 096 ▾ » (`aria-haspopup`
+  `dialog`, `aria-expanded`) ouvre le panneau (`role="dialog"`) : titre, aide « conçus pour
+  4 096 tokens », trois choix 4 096, 8 192 et 16 384 tokens, « (actuelle) » sur 4 096 seulement,
+  cache « chez le fournisseur » et « Tient dans le budget » pour chacun, « Appliquer » désactivé
+  sur la fenêtre actuelle (raison en infobulle) ; `Échap` le ferme. (b) 8 192 appliqué : aucun
+  `model_load_started` (modèle cloud), panneau fermé, bouton « Fenêtre 8 192 », infobulle de
+  `#gauge` « Fenêtre de 8 192 tokens », chiffres « / 7 680 tokens », message toujours dans la
+  Vue humain, `settings.json` `context.window == 8192`. (c) Le faux llama-server (`N_CTX = 8192`)
+  chargé depuis le sélecteur et un message : 16 384 noté montre « bornée à 8 192 par
+  llama-server (-c) », le temps de lecture et le cache « réservé par llama-server », avant
+  d'appliquer. Deux messages d'abord : le premier appel après un chargement n'est jamais mesuré, le second
+  donne « au moins ≈ N s » (le faux llama-server attend 20 ms avant le premier fragment et
+  renvoie `timings.prompt_n`, comme le vrai). Capture `45-fenetre-contexte-reglage.jpg`. Puis
+  4 096 appliqué au faux llama-server (fenêtre effective 8 192 → 4 096) : rechargement
+  « Rechargement de faux-llama-server avec une fenêtre de 4 096 tokens… » (`window` dans
+  `model_load_started`), puis « Fenêtre de contexte : 4 096 tokens (conversation gardée). » dans
+  la barre haute. (d) Retour au faux cloud A et à 4 096, même après un échec (`finally`, dont
+  l'échec est une vérification à part) : `relaunch` reste inchangé. Les nombres portent l'espace fine
+  insécable (U+202F).
+
+## Contexte LLM lisible : lu et produit (story 32)
+
+- `native_tools`, après « Quelle heure est-il ? » (faux cloud) : deux `.ctx-call` « Appel 1 sur 2 »
+  et « Appel 2 sur 2 », chacun « Lu : n tokens · évalués : … · produits : n » ; l'appel 2 replie
+  « Déjà lu à l'appel précédent · k sections · n tokens » et marque « Nouveau » la section
+  « Résultats d'outils » ; aucun badge à l'appel 1. Produit : l'appel d'outil de l'appel 1 en arbre
+  (`"name"`, `"get_datetime"`), la réponse de l'appel 2 ; fond `--color-produced-soft`, distinct de
+  toute section lue ; « Produit par le modèle » visible. « Texte exact » : chaque `pre.ctx-exact`
+  est le `body` du `context_rendered` de son appel, et son `json.loads` le corps reçu par le faux
+  fournisseur, sans habillage. « Corps JSON » : l'arbre montre `"messages"`, un clic sur le
+  summary replie, un second déplie. Retour à « Lecture groupée » (mémorisée par le navigateur).
+  Captures `40-contexte-appels-numerotes.jpg`, `41-contexte-texte-exact.jpg`,
+  `42-contexte-corps-json.jpg` (Contexte LLM en mode focus).
+- `bare_llm`, « Bonjour [raisonne] » : la réflexion (`--color-reasoning-soft`) précède la réponse,
+  sur un autre fond ; `.ctx-total` commence toujours par « Tour N · ». Puis `Lis ceci : {"a": et
+  {x}` : le volet s'affiche, le texte reste tel quel, sans arbre JSON (de même en mode local, dans
+  `local_server`).
+- `busy_and_stop` : pendant « Explique le harnais [lent] [long] », la réponse de l'appel en cours
+  grandit dans Contexte LLM avant `model_call_ended` ; à la fin, un message de 20 000 caractères
+  déborde : le dernier appel dit « non envoyé : contexte dépassé » et « Aucun appel : contexte
+  dépassé. ».
+- `local_server` (faux llama-server, gabarit Qwen3.5) : deux appels numérotés ; à l'appel 1, la
+  ligne des descriptions d'outils montre un arbre JSON (`"parameters"`) et sa marge empile les
+  sections que les JSON touchent (gabarit, descriptions d'outils) ; Σ `sections.tokens` =
+  `prompt_tokens` pour chaque appel ; « Texte exact » = jointure des segments (le prompt). Avec
+  la brique Raisonnement, « Bonjour [réfléchis longtemps] » : le faux llama-server raisonne
+  au-delà du budget sans fermer, le harnais coupe et relance ; un seul appel, la note du harnais
+  entre la réflexion et la réponse.
+- `subagent` : l'onglet du sous-agent numérote ses appels et replie le déjà-lu à partir du 2e ;
+  sur « Agent principal », la ligne entre les appels nomme la délégation et son bouton « Voir le
+  contexte du sous-agent subN » ouvre l'onglet.
+- `rag` : l'introduction et les trois extraits forment une section « Extraits RAG » de 4
+  segments ; `compression` : un segment compressé, son badge et « Texte avant compression » dans
+  sa section ; `disciplines`, `linked_view` : les vérifications portent sur `.ctx-section` (au
+  clavier, sa marge `.ctx-section-select`, seul contrôle de la ligne).
+
+## Écran « LLM nu » (story 29)
+
+- `llm_screen`, joué entre `context_window` et `relaunch` (seul, il part du faux cloud A et y
+  revient, même après un échec) : (1) à 1600 × 1000, le lien « LLM nu » de la barre haute est
+  entier (`_fully_visible`) et toutes les commandes de la barre restent entières, sur une ligne
+  (`_bar_fits`) ; (2) « ☾ Sombre » choisi dans l'atelier, le clic sur le lien ouvre `/llm` en
+  sombre (`data-theme`, fond `surface-dark`), avec son sélecteur de thème, son titre et l'onglet
+  « LLM nu » courant ; (3) sur le faux cloud A, « Découper en tokens » : `llm_tokenized` non
+  exact, « chez Faux fournisseur (e2e) », l'estimation « ≈ » et aucune puce ; (4) le faux
+  llama-server choisi dans le sélecteur de l'atelier, « Bonjour <|im_end|> 🙂 » : une puce par
+  token avec son identifiant, autant que `token_count`, `<|im_end|>` une seule puce « spécial »
+  (id 1002), « N tokens pour M caractères », et le schéma de vectorisation montre « 2 048 » et
+  « 1 004 » (le faux llama-server donne `n_vocab` et `n_embd` dans `/v1/models`, comme le vrai) ;
+  contrastes AA de la page dans les deux thèmes (`_contrast_sweep`). Capture
+  `52-llm-nu-tokenisation.jpg` (page entière). Incrément 2 : (3b) pendant un tour lent de
+  l'atelier (« [lent] [long] », envoyé par l'API), « Générer » est désactivé avec la raison et un
+  appel direct à `llm_generate` reçoit 409 ; le tour est arrêté. (3c) Sur le faux cloud A, top-k
+  est désactivé avec sa raison, et la génération envoie `temperature: 0.2` et `top_p: 0.9`
+  seulement (dernier corps de `/_e2e/requests`), un seul message ; les puces sont dites
+  « fragments ». (5) Sur le faux llama-server, T 0,2, top-k 5, top-p 0,9 et min-p 0,05 saisis :
+  le dernier corps `/completion` et `model_call_started` du contexte `llm` (source `screen`) les
+  portent ; le nombre de puces croît d'un relevé à l'autre ; « Premier token après … » et
+  « Débit de sortie » s'affichent ; le prompt rendu commence par `<|im_start|>user` ; la
+  session est revenue en `idle`. Capture `53-llm-nu-generation.jpg`. (6) La Vue humain de
+  l'atelier a le même nombre de bulles. Incrément 3 : après le passage au faux llama-server,
+  la section « Chargement du modèle » montre les étapes, dont « Connexion à llama-server », leur
+  durée, « dans son propre processus » et « En local : RAM du CPU, pas de GPU » ; le raisonnement
+  coché sur le faux llama-server (gabarit Qwen3.5) : réserve de 1 536, le couloir « Réflexion »
+  contient « Je réfléchis. » et le couloir « Réponse » la réponse. Capture
+  `54-llm-nu-chargement-raisonnement.jpg`. Incrément 4 : sur le faux cloud A puis sur le faux llama-server,
+  « Montrer les tokens candidats » est grisé, sa raison nomme le fournisseur ou « llama-server »,
+  et un appel direct qui les demande reçoit 409 (l'affichage des candidats passe par pytest :
+  aucun moteur en processus dans le parcours). (7) Retour au faux cloud A, puis `/llm` dit « aucune
+  mémoire sur ce poste ».
+
+## Atelier RAG (story 30)
+
+- `rag_lab`, joué juste après `rag_rerank` (index construit, faux modèles d'embedding et de
+  reranking présents), à 1600 × 1000 : (1) le lien « Atelier RAG » de la barre haute est entier
+  (`_fully_visible`), vers `/rag`, et toute la barre tient sur une ligne (`_bar_fits`) ; (2) sur
+  `/rag`, sept cartes dans l'ordre (Découpage, Embedding, Base vectorielle, Recherche,
+  Reranking, Construction du contexte, Génération), les options « Faux embedding (e2e) »,
+  « sqlite-vec » et « Faux reranker (e2e) », chaque carte expliquée, la génération sur
+  `--color-ink-fill`, l'onglet « Atelier RAG » courant, contrastes AA en clair et en sombre
+  (`_contrast_sweep`) ; capture `55-atelier-rag-chaine.jpg` ; (3) « Combien de jours de
+  télétravail par semaine ? » puis « Lancer la chaîne » : une paire `started`/`ended` par étape
+  exécutée, les statuts vus au fil de l'eau (`MutationObserver`) passent par « en cours » puis
+  « terminée · N ms », chaque carte donne sa durée en ms et la mémoire en Mo ; la Recherche liste
+  8 extraits (`rag_rerank_candidates`) avec rang et score, le Reranking le rang avant et après
+  de chacun, le Contexte les 3 extraits au format de la brique, la Génération « non exécutée
+  dans l'atelier RAG » ; aucune `pageerror` ; capture `56-atelier-rag-resultats.jpg` ; (4) après
+  rechargement, le même run (`last_run`) ; (5) pendant un tour lent de l'atelier, `rag_lab_run`
+  répond 409 avec la raison et « Lancer » est grisé. (6) Incrément 2 : « Comparer avec une
+  autre configuration » ; B = « Recherche exhaustive en mémoire », 300 caractères, 2 extraits :
+  deux colonnes, l'Embedding de B « calculés (77 passages) », son Contexte à 2 extraits, la
+  synthèse (en commun, écarts de rang), un dossier nouveau sous `rag_lab/` du dossier de données
+  et `git status` inchangé (hors captures) ; capture `57-atelier-rag-comparaison.jpg` ; le second
+  run dit « relus du cache » ; les chaînes survivent au rechargement ; 1 candidat pour 2 extraits :
+  la raison du 409 s'affiche et rien ne part ; « Revenir à la chaîne livrée ». (7) Incrément
+  3, le scénario suit le catalogue et dit sa branche : sans l'extra `rag-alt` (ou avec
+  `--no-rag-alt`), FAISS et LanceDB sont désactivés dans la liste de la base vectorielle, et
+  leur raison contient `uv sync --extra compression --extra rag-alt` ; avec l'extra
+  (l'environnement du parcours le garde une fois `uv sync --extra compression --extra rag-alt`
+  fait), A = sqlite-vec et B = FAISS rendent les mêmes extraits aux mêmes rangs, la Base
+  vectorielle de B dit « construit (29 vecteurs) », puis « relu », et la mémoire ajoutée au
+  premier import. (8) Incrément 4 : le Reranking retiré, « Recherche lexicale BM25 » ajoutée
+  sans fusion : la carte BM25 dit « Deux recherches demandent une fusion après elles » et
+  « Lancer » est désactivé ; le Reranking rajouté puis la Fusion, puis le Reranking déplacé
+  après la Fusion par « Déplacer après » au clavier : chaîne valide ; le run montre, pour la
+  Fusion, le rang de chaque extrait dans les deux recherches et son score RRF ; capture
+  `58-atelier-rag-hybride.jpg` ; la Fusion déplacée avant BM25 : la raison nomme la Fusion, et
+  le 409 est renvoyé si l'on poste quand même. Depuis l'incrément 4, 1 candidat pour 2 extraits
+  est refusé sur la carte dès la saisie (« Lancer » grisé), et le 409 donne la même raison.
+  Retour à `/` en fin de scénario, thème « Système ».
+
 ## Déclencheurs du faux modèle
 
 La réponse dépend du dernier message de l'utilisateur (sans le texte ajouté par H3 ni les
@@ -167,7 +497,7 @@ d'autres (story 21) :
 | « heure », « Combien font », « recette_crepes », « confidentiel », « férié », « Wikipédia », « compte rendu », « MCP … veut dire » | appel de l'outil correspondant s'il est proposé (`get_datetime`, `calculator`, `read_file`, `public_holidays`, `wikipedia_summary`, `load_skill`, `load_tool_doc` puis `local__define_term`), puis « D'après le résultat de l'outil : … » |
 | « alertes_siem », « confidentiel/chemin » (story 21) | `read_file` sur `alertes_siem.log`, ou sur le fichier confidentiel nommé dans le message, sous-dossiers compris (`confidentiel/budget_projet.txt` s'il n'en nomme aucun) |
 | « fichiers disponibles » (story 21, SOC) | `read_file` sur `.`, puis sur le fichier confidentiel de la liste qui parle de comptes ou de privilèges ; bloqué par H1 : « … je transmets la vérification à un analyste habilité. » |
-| « Entra ID », « data.gouv » (story 21) | recherche de Microsoft Learn ou de data.gouv.fr si elle est proposée ; en lazy loading, `load_tool_doc` d'abord (outil lu dans la description du méta-outil) ; serveur absent : les déclencheurs suivants s'appliquent, puis « Sans la documentation Microsoft Learn… » / « Sans accès à data.gouv.fr… » |
+| « Entra ID », « data.gouv », « qualité de l'air » (stories 21 et 27) | recherche de Microsoft Learn ou de data.gouv.fr si elle est proposée (requête « air » quand le message parle de la qualité de l'air, « cybersécurité » sinon) ; en lazy loading, `load_tool_doc` d'abord (outil lu dans la description du méta-outil) ; serveur absent : les déclencheurs suivants s'appliquent, puis « Sans la documentation Microsoft Learn… » / « Sans accès à data.gouv.fr… » |
 | « Délègue … sous-agent » (story 19) | appel de `delegate`, tâche « Lis le fichier guide_harnais.md et résume-le… » (` [lent]` recopié ; avec « page web » : tâche de lecture de page, le sous-agent appelle `fetch_page`) ; le sous-agent (tâche avec « guide_harnais ») appelle `read_file`, puis répond « D'après le résultat de l'outil : … » |
 | « Je m'appelle X » / « Comment je m'appelle » | retient X s'il est dans l'historique |
 | « lot N » avec un résultat d'outil (story 20) | « D'après le journal : » suivi de la ligne du lot N, ou « Le résultat de l'outil ne mentionne pas le lot N. » si la compression l'a coupée |

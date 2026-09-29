@@ -17,10 +17,28 @@ from typing import Any, Literal, Protocol
 
 StopReason = Literal["stop", "length", "cancelled", "error"]
 
-# Default sampling, fixed until a story exposes it (Qwen non-thinking recommendations).
-TEMPERATURE = 0.7
-TOP_P = 0.8
-TOP_K = 20
+
+@dataclass(frozen=True)
+class Sampling:
+    """Story 29: how the next token is drawn, a parameter of every call (AD-5). llama.cpp's
+    chain applies top-k, top-p and min-p to the raw logits, then the temperature."""
+
+    temperature: float
+    top_k: int
+    top_p: float
+    min_p: float
+
+
+# The harness's own values (Qwen non-thinking recommendations): every workshop call, and the
+# « LLM nu » screen until it changes them.
+DEFAULT_SAMPLING = Sampling(temperature=0.7, top_k=20, top_p=0.8, min_p=0.0)
+# The screen's bounds, inclusive (its intention validates them).
+SAMPLING_BOUNDS: dict[str, tuple[float, float]] = {
+    "temperature": (0.0, 2.0),
+    "top_k": (0, 100),  # 0: top-k off (llama.cpp keeps the whole vocabulary)
+    "top_p": (0.05, 1.0),
+    "min_p": (0.0, 0.5),
+}
 
 
 class CancelToken:
@@ -46,6 +64,13 @@ class Fragment:
     text: str
     output_tokens: int
     stop_reason: StopReason | None = None
+    # Story 29: the token this fragment carries, when the engine knows it (in-process: its id
+    # and bytes; a server: the chunk it streamed, as bytes), for the « LLM nu » screen.
+    token_id: int | None = None
+    piece: bytes | None = None
+    # Story 29, increment 4: the token's candidates (`models.candidates`), in-process only,
+    # when asked: `{token_id, text, p, kept, p_sampled, chosen}` each.
+    candidates: tuple[dict[str, Any], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -72,7 +97,13 @@ class EngineSnapshot:
 class Engine(Protocol):
     def complete(
         self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
-    ) -> Iterator[Fragment]: ...
+    ) -> Iterator[Fragment]:
+        """Story 29: the adapters also take `*, sampling: Sampling | None = None` (`None`:
+        `DEFAULT_SAMPLING`), and the in-process one `candidates: int = 0` (read that many
+        candidates with each token, into `Fragment.candidates`); the session passes them only
+        when the « LLM nu » screen asks (`candidates` only to a file's engine), so an engine
+        with the four arguments alone stays valid."""
+        ...
 
     def tokenize(self, text: str) -> list[int]: ...
 
@@ -99,6 +130,13 @@ class Engine(Protocol):
     @property
     def last_evaluated(self) -> int | None:
         """The prompt tokens the last `complete` really evaluated; `None` when unknown."""
+        ...
+
+    # Story 29 (« LLM nu »): optional too, the session tolerates an engine without it.
+
+    def dimensions(self) -> dict[str, Any] | None:
+        """The model's sizes: `vocab_size`, `embedding_length`, `layer_count`, `head_count`,
+        `context_length` (`None` when unknown) and `source_fr`, where they were read."""
         ...
 
 
@@ -186,6 +224,10 @@ class VocabTokenizer:
     def metadata(self) -> EngineMetadata:
         return self._metadata
 
+    def vocab_size(self) -> int | None:
+        """Story 29: the tokens of the vocabulary, as the tokenizer holds them."""
+        return int(self._lib.llama_vocab_n_tokens(self._vocab)) or None
+
     def is_eog(self, token: int) -> bool:
         return bool(self._lib.llama_vocab_is_eog(self._vocab, token))
 
@@ -262,6 +304,22 @@ class LlamaCppEngine:
     def metadata(self) -> EngineMetadata:
         return self._tokenizer.metadata()
 
+    def dimensions(self) -> dict[str, Any] | None:
+        """Story 29: the loaded model's sizes, from llama.cpp itself."""
+        lib, model = self._lib, self._llm._model
+
+        def size(value: object) -> int | None:
+            return _int(value) or None
+
+        return {
+            "vocab_size": self._tokenizer.vocab_size(),
+            "embedding_length": size(lib.llama_model_n_embd(model.model)),
+            "layer_count": size(lib.llama_model_n_layer(model.model)),
+            "head_count": size(lib.llama_model_n_head(model.model)),
+            "context_length": size(model.n_ctx_train()),
+            "source_fr": "Lues dans le modèle que llama.cpp a chargé, dans ce processus.",
+        }
+
     def tokenize(self, text: str) -> list[int]:
         return self._tokenizer.tokenize(text)
 
@@ -269,8 +327,19 @@ class LlamaCppEngine:
         return self._tokenizer.token_pieces(ids)
 
     def complete(
-        self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
+        self,
+        prompt_ids: Sequence[int],
+        stop: Sequence[str],
+        max_tokens: int,
+        cancel: CancelToken,
+        *,
+        sampling: Sampling | None = None,
+        candidates: int = 0,
     ) -> Iterator[Fragment]:
+        """`candidates` (story 29): the number of most probable tokens to read with each
+        token, from the logits of the position it was drawn from (the last one: never
+        `logits_all`, which would hold n_ctx × vocabulary floats)."""
+        s = sampling or DEFAULT_SAMPLING
         decoder = codecs.getincrementaldecoder("utf-8")("replace")
         pending = ""
         count = 0
@@ -278,7 +347,7 @@ class LlamaCppEngine:
         self._last_evaluated = None
         self._lib.llama_perf_context_reset(self._llm.ctx)
         tokens = self._llm.generate(
-            prompt_ids, temp=TEMPERATURE, top_p=TOP_P, top_k=TOP_K, min_p=0.0
+            prompt_ids, temp=s.temperature, top_p=s.top_p, top_k=s.top_k, min_p=s.min_p
         )
         try:
             for token in tokens:
@@ -288,12 +357,14 @@ class LlamaCppEngine:
                 if self._tokenizer.is_eog(token):
                     break
                 count += 1
-                pending += decoder.decode(self.token_pieces([token])[0])
+                piece = self.token_pieces([token])[0]
+                read = self._candidates(int(token), s, candidates) if candidates else None
+                pending += decoder.decode(piece)
                 emit, pending, stopped = cut_stop(pending, stop)
                 if stopped:
-                    yield Fragment(emit, count, "stop")
+                    yield Fragment(emit, count, "stop", int(token), piece, read)
                     return
-                yield Fragment(emit, count)
+                yield Fragment(emit, count, token_id=int(token), piece=piece, candidates=read)
                 if count >= max_tokens:
                     reason = "length"
                     break
@@ -302,6 +373,23 @@ class LlamaCppEngine:
             # The prompt tokens evaluated, the ones reused from the cache excluded (AD-4).
             self._last_evaluated = int(self._lib.llama_perf_context(self._llm.ctx).n_p_eval)
         yield Fragment(pending + decoder.decode(b"", final=True), count, reason)
+
+    def _candidates(self, token: int, sampling: Sampling, n: int) -> tuple[dict[str, Any], ...]:
+        """Story 29: when `generate` yields a token, the context still holds the logits it
+        was drawn from: `n_vocab()` floats of the last position, read in place."""
+        import numpy as np  # installed with llama-cpp-python
+
+        from wavestack.models.candidates import candidates_from_logits, piece_text
+
+        pointer = self._lib.llama_get_logits_ith(self._llm.ctx, -1)
+        logits = np.ctypeslib.as_array(pointer, shape=(self._llm.n_vocab(),))
+        rows = candidates_from_logits(logits, sampling, token, n)
+        pieces = self.token_pieces([r["token_id"] for r in rows])
+        return tuple(
+            {"token_id": r["token_id"], "text": piece_text(p)}
+            | {k: r[k] for k in ("p", "kept", "p_sampled", "chosen")}
+            for r, p in zip(rows, pieces, strict=True)
+        )
 
     def close(self) -> None:
         self._llm.close()

@@ -31,13 +31,19 @@ SKILLS = (
 HOOKS = ("h1", "h2", "h3", "h5")
 
 BRICKS = [
+    # Story 33: the order of this list is the display order only: first the bricks the
+    # model reads (`reads`), then what the harness does (`acts`); Reasoning stays first.
+    # Story 13: the model's reasoning mode, available when the model can reason (AD-6).
+    # Story 22: first in the bricks panel.
     BrickDeclaration(
-        id="short_memory",
-        category="context",
+        id="reasoning",
+        category="prompt",
+        group="reads",
+        capabilities=["reasoning"],
         components=[
             Component(
-                id="short_memory.history",
-                kind="memory",
+                id="reasoning.mode",
+                kind="reasoning",
                 hosting="local_process",
                 edges_to=["core.harness"],
             )
@@ -46,10 +52,24 @@ BRICKS = [
     BrickDeclaration(
         id="system_prompt",
         category="prompt",
+        group="reads",
         components=[
             Component(
                 id="system_prompt.prompt",
                 kind="prompt",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            )
+        ],
+    ),
+    BrickDeclaration(
+        id="short_memory",
+        category="context",
+        group="reads",
+        components=[
+            Component(
+                id="short_memory.history",
+                kind="memory",
                 hosting="local_process",
                 edges_to=["core.harness"],
             )
@@ -61,6 +81,7 @@ BRICKS = [
     BrickDeclaration(
         id="global_memory",
         category="context",
+        group="reads",
         components=[
             Component(
                 id="global_memory.memory",
@@ -70,24 +91,33 @@ BRICKS = [
             )
         ],
     ),
-    # Story 13: the model's reasoning mode, available when the model can reason (AD-6).
+    # Story 15: the simple RAG, a local process (the embedding model) that reads the index;
+    # no capability required, no network.
     BrickDeclaration(
-        id="reasoning",
-        category="prompt",
-        capabilities=["reasoning"],
+        id="rag",
+        category="context",
+        group="reads",
         components=[
             Component(
-                id="reasoning.mode",
-                kind="reasoning",
+                id="rag.retriever",
+                kind="retriever",
+                hosting="local_process",
+                edges_to=["core.harness", "file.rag_index"],
+            ),
+            # Story 16: the reranking model, drawn while its sub-option is enabled.
+            Component(
+                id="rag.reranker",
+                kind="reranker",
                 hosting="local_process",
                 edges_to=["core.harness"],
-            )
+            ),
         ],
     ),
     # Story 19: its tools also serve the sub-agent's context (AD-11), per `[subagent] tools`.
     BrickDeclaration(
         id="tools",
         category="harness",
+        group="acts",
         capabilities=["tool_call_parser"],
         network=True,
         contributes_to=["main", "sub"],
@@ -125,6 +155,7 @@ BRICKS = [
     BrickDeclaration(
         id="mcp",
         category="harness",
+        group="acts",
         capabilities=["tool_call_parser"],
         network=True,
         components=[
@@ -149,6 +180,7 @@ BRICKS = [
     BrickDeclaration(
         id="skills",
         category="context",
+        group="acts",
         capabilities=["tool_call_parser"],
         components=[
             Component(
@@ -164,6 +196,7 @@ BRICKS = [
     BrickDeclaration(
         id="hooks",
         category="harness",
+        group="acts",
         components=[
             Component(
                 id=f"hooks.{hook}",
@@ -179,6 +212,7 @@ BRICKS = [
     BrickDeclaration(
         id="subagent",
         category="harness",
+        group="acts",
         capabilities=["tool_call_parser"],
         contributes_to=["main", "sub"],
         components=[
@@ -190,32 +224,12 @@ BRICKS = [
             )
         ],
     ),
-    # Story 15: the simple RAG, a local process (the embedding model) that reads the index;
-    # no capability required, no network.
-    BrickDeclaration(
-        id="rag",
-        category="context",
-        components=[
-            Component(
-                id="rag.retriever",
-                kind="retriever",
-                hosting="local_process",
-                edges_to=["core.harness", "file.rag_index"],
-            ),
-            # Story 16: the reranking model, drawn while its sub-option is enabled.
-            Component(
-                id="rag.reranker",
-                kind="reranker",
-                hosting="local_process",
-                edges_to=["core.harness"],
-            ),
-        ],
-    ),
     # Story 20 (AD-22): Headroom compresses tool results and RAG excerpts, in the harness's
     # own process (a library); main context only.
     BrickDeclaration(
         id="compression",
         category="context",
+        group="acts",
         components=[
             Component(
                 id="compression.compressor",
@@ -237,3 +251,12 @@ def check_unique_ids(bricks: list[BrickDeclaration]) -> dict[str, BrickDeclarati
                 raise ValueError(f"duplicate brick or component id: {node_id!r}")
             seen.add(node_id)
     return {brick.id: brick for brick in bricks}
+
+
+def check_panel_groups(bricks: list[BrickDeclaration]) -> None:
+    """Story 33: the panel shows one heading per group, in declaration order: every `reads`
+    brick comes before every `acts` one. Raises `ValueError` otherwise."""
+    groups = [brick.group for brick in bricks]
+    if groups != sorted(groups, key=["reads", "acts"].index):
+        order = ", ".join(f"{b.id} ({b.group})" for b in bricks)
+        raise ValueError(f"bricks must declare every `reads` brick before `acts`: {order}")

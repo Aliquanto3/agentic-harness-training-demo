@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from wavestack import config
 from wavestack.config import EmbeddingModel
@@ -98,3 +98,42 @@ class LlamaCppEmbedder:
 def open_embedder(model: EmbeddingModel) -> Embedder:
     """The adapter of the declared `backend` (only `llama_cpp` is accepted by the config)."""
     return LlamaCppEmbedder(model)
+
+
+def fastembed_dir() -> Path:
+    """Story 30: where the RAG workshop's fastembed model lies, copied by hand (never
+    downloaded by WaveStack)."""
+    return config.models_dir() / "fastembed"
+
+
+class FastembedEmbedder:
+    """Story 30, the RAG workshop's optional embedding model: fastembed (ONNX, no torch),
+    imported lazily, opened from `fastembed_dir()` with `local_files_only` (AD-15: it never
+    reaches the network). Vectors are normalized, as the llama.cpp adapter's."""
+
+    def __init__(self, model_name: str, dims: int) -> None:
+        from fastembed import TextEmbedding
+
+        self.model_id = model_name
+        self.dims = dims
+        self._model = TextEmbedding(
+            model_name=model_name, cache_dir=str(fastembed_dir()), local_files_only=True
+        )
+
+    def _vectors(self, rows: Any) -> list[list[float]]:
+        vectors = [normalize([float(x) for x in row]) for row in rows]
+        if any(len(v) != self.dims for v in vectors):
+            raise ValueError(
+                f"le modèle fastembed rend des vecteurs qui n'ont pas {self.dims} dimensions "
+                "([rag_lab.fastembed] dims)"
+            )
+        return vectors
+
+    def embed_queries(self, texts: Sequence[str]) -> list[list[float]]:
+        return self._vectors(self._model.query_embed(list(texts)))
+
+    def embed_passages(self, texts: Sequence[str]) -> list[list[float]]:
+        return self._vectors(self._model.passage_embed(list(texts)))
+
+    def close(self) -> None:
+        self._model = None

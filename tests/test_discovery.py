@@ -38,6 +38,19 @@ def test_models_dir_candidate_is_found(monkeypatch, tmp_path):
     assert matches[0].status == "found"
 
 
+def test_file_candidates_carry_their_size(monkeypatch, tmp_path):
+    """Story 25: the model table sorts by the file's bytes when no size label says it."""
+    monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path))
+    config.models_dir().mkdir(parents=True)
+    (config.models_dir() / "local.gguf").write_bytes(b"12345")
+
+    [candidate] = [c for c in discovery.discover() if c.source == "models_dir"]
+
+    assert candidate.size_bytes == 5
+    dumped = candidate.model_dump()
+    assert dumped["size_bytes"] == 5 and "server_template" not in dumped
+
+
 def test_no_candidates_when_nothing_present(monkeypatch, tmp_path):
     monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hf-empty"))

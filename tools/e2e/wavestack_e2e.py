@@ -36,5 +36,12 @@ if os.environ.get("WAVESTACK_E2E_NO_HEADROOM") == "1":
     _find_spec = headroom_adapter._find_spec
     headroom_adapter._find_spec = lambda name: None if name == "headroom" else _find_spec(name)
 
+if os.environ.get("WAVESTACK_E2E_NO_RAG_ALT") == "1":
+    # Story 30 (`run_e2e.py --no-rag-alt`): as a machine without the `rag-alt` extra.
+    from wavestack.rag import lab  # noqa: E402
+
+    _lab_find_spec = lab._find_spec
+    lab._find_spec = lambda name: None if name in ("faiss", "lancedb") else _lab_find_spec(name)
+
 if __name__ == "__main__":
     raise SystemExit(cli.main())

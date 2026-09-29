@@ -78,6 +78,19 @@ class SqliteVecRetriever:
             for i, (rowid, distance, doc_id, title_fr, text) in enumerate(rows, start=1)
         ]
 
+    def nearest(self, vector: list[float], k: int) -> list[tuple[int, float]]:
+        """Story 30 (the RAG workshop): the `k` nearest chunks to a vector already computed,
+        `(chunk id, raw cosine distance)`, nearest first."""
+        with self._lock:
+            if self._conn is None:
+                raise RuntimeError("l'index est fermé")
+            rows = self._conn.execute(
+                f"SELECT v.rowid, v.distance FROM {VEC_TABLE} AS v "
+                "WHERE v.embedding MATCH ? AND v.k = ? ORDER BY v.distance",
+                (serialize_vector(vector), k),
+            ).fetchall()
+        return [(int(rowid), float(distance)) for rowid, distance in rows]
+
     def close(self) -> None:
         with self._lock:
             conn, self._conn = self._conn, None

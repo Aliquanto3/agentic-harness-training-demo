@@ -18,7 +18,7 @@ from wavestack.session.app_session import AppSession
 from wavestack.tools import network
 from wavestack.tools.native import calculator, read_file
 from wavestack.tools.parser import ToolCall, parse_tool_calls
-from wavestack.tools.registry import ToolError
+from wavestack.tools.registry import ToolError, load_tools_content
 from wavestack.trace.journal import get_journal
 
 QWEN = (Path(__file__).parent / "fixtures" / "qwen3_5_chat_template.jinja").read_bytes()
@@ -509,6 +509,10 @@ def test_public_holidays_traces_the_exact_request_then_the_node_is_available(web
     preview = session._registry.get("public_holidays").preview(year=2026)
     assert preview == {"method": "GET", "url": HOLIDAYS_URL, "body": ""}
     assert {k: outbound[k] for k in ("method", "url", "body")} == preview  # traced = previewed
+    # Story 23: the headers sent, public ones in clear, the contact in the User-Agent.
+    traced = {h["name"]: h["value"] for h in outbound["headers"]}
+    assert config.DEFAULT_NET_CONTACT in traced["User-Agent"] and traced["Accept"] == "*/*"
+    assert not any(h["masked"] for h in outbound["headers"])
     assert (sent[0].method, str(sent[0].url), sent[0].content) == ("GET", HOLIDAYS_URL, b"")
     kinds = [e.kind for e in get_journal().events_since(mark)]
     started = kinds.index("tool_started")
@@ -539,6 +543,9 @@ def test_wikipedia_summary_and_absent_page(web):
     assert absent["status"] == "error" and "Page absente" in absent["error_fr"]
     node = _node(session, "tools.wikipedia_summary")
     assert node["contact"] == "available" and node["available"]  # the service did answer
+    # Story 34: a network node says what leaves the workstation (AD-19); a local one does not.
+    assert node["sends_fr"] == "le titre de l'article"
+    assert _node(session, "tools.calculator").get("sends_fr") is None
 
 
 def test_fetch_page_converts_html_to_text_and_cuts_it(web):
@@ -704,3 +711,53 @@ def test_configured_fetch_page_hosts_and_cut_apply(web):
 
 def test_fetch_page_max_chars_below_the_minimum_is_clamped():
     assert config.Config(values={"tools": {"fetch_page_max_chars": 0}}).fetch_page_max_chars == 1
+
+
+# ---------- story 34: what each network tool sends, in content (AD-19) ----------
+
+
+@pytest.mark.parametrize("name", [spec.name for spec in network.network_tools(config.Config())])
+def test_every_network_tool_says_what_it_sends(name):
+    text = load_tools_content().tools[name]
+    assert text.sends_fr and text.sends_fr.strip()
+
+
+def test_no_local_tool_declares_what_it_sends():
+    remote = {spec.name for spec in network.network_tools(config.Config())}
+    local = {n: t for n, t in load_tools_content().tools.items() if n not in remote}
+    assert local and all(t.sends_fr is None for t in local.values())
+
+
+# ---------- story 32: sections and « déjà lu », computed by the session ----------
+
+
+def test_a_tool_turn_marks_what_the_second_call_read_already():
+    engine, session = tool_session([call("calculator", expression="12*37"), "Cela fait 444."])
+
+    events = _run(session, "Combien font 12 × 37 ?")
+
+    first, second = events["context_rendered"]
+    assert (first["seen_segments"], first["seen_tokens"]) == (0, 0)
+    assert not any(s["seen"] for s in first["sections"])
+    assert second["seen_segments"] > 0
+    seen = second["seen_segments"]
+    assert second["seen_tokens"] == sum(s["tokens"] for s in second["segments"][:seen])
+    assert [s["text"] for s in second["segments"][:seen]] == [
+        s["text"] for s in first["segments"][:seen]
+    ]
+    results = [s for s in second["sections"] if s["kind"] == "tool_result"]
+    assert results and not any(s["seen"] for s in results)
+    for ctx in (first, second):
+        sections = ctx["sections"]
+        assert sum(s["tokens"] for s in sections) == ctx["used"]  # AD-1: the session sums
+        assert [(s["start"], s["end"]) for s in sections] == list(
+            zip([0, *[s["end"] for s in sections[:-1]]], [s["end"] for s in sections], strict=True)
+        )  # contiguous, in order, covering every segment
+        assert sections[-1]["end"] == len(ctx["segments"])
+        for s in sections:
+            assert s["end"] <= ctx["seen_segments"] or s["start"] >= ctx["seen_segments"]
+    # The tool catalogue is one section, not one line per tool (templates absorbed).
+    catalog = [s for s in first["sections"] if s["kind"] == "tool_catalog"]
+    assert len(catalog) == 1 and catalog[0]["end"] - catalog[0]["start"] > 1
+    assert [list(_prompt(c).encode()) for c in (first, second)] == engine.calls
+    session.close()

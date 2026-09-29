@@ -8,10 +8,18 @@ unknown family falls back to what the GGUF says. A GGUF without
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
 
+from wavestack.config import MAX_RESERVE
 from wavestack.models.engine import EngineMetadata, partial_suffix_len
 
+if TYPE_CHECKING:
+    from wavestack.config import CloudModel
+
 _THINK_TAGS = ("<think>", "</think>")
+CLOUD_FAMILY = "openai_chat"  # a cloud model: capabilities declared, no template (AD-6)
+# AD-6: why a local model offers no tool call; the brick cards and the model table (story 25).
+NO_TOOL_PARSER_FR = "aucun format d'appel connu pour cette famille de modèle"
 
 
 @dataclass(frozen=True)
@@ -78,6 +86,96 @@ def capabilities_for(meta: EngineMetadata) -> Capabilities:
         reasoning_tags=_THINK_TAGS if _THINK_TAGS[0] in template else None,
         reasoning=reasoning_variable is not None,
     )
+
+
+def cloud_capabilities(entry: CloudModel) -> Capabilities:
+    """AD-6: a cloud model's declared capabilities; the API's structured format parses the
+    tool calls. A capability not declared is absent. Shared by the session's load and the
+    model table (story 25)."""
+    return Capabilities(
+        family=CLOUD_FAMILY,
+        chat_template=None,
+        tool_call_parser="openai_chat" if entry.tools else None,
+        stop_sequences=(),
+        reasoning_variable=None,
+        native_context=entry.context,
+        reasoning_tags=None,
+        reasoning=entry.reasoning is not None,
+        reasoning_always=entry.always_reasons,
+    )
+
+
+ReasoningMode = Literal["never", "always", "toggle", "unknown"]
+REASONING_FR: dict[str, str] = {
+    "never": "jamais",
+    "always": "toujours",
+    "toggle": "activable",
+    "unknown": "inconnu",
+}
+
+
+def reasoning_window_fr(window: int) -> str | None:
+    """AD-9: why the reasoning brick is unavailable in `window` (no room left once the
+    reasoning's output reserve is kept), else `None`. The card (`AppSession`) and the model
+    table (story 25) share it."""
+    if window > MAX_RESERVE:
+        return None
+    return (
+        f"Indisponible : la fenêtre de contexte ({_fr_int(window)} tokens) ne laisse "
+        f"aucune place au contexte une fois réservés les {_fr_int(MAX_RESERVE)} tokens de "
+        "sortie du raisonnement. Agrandissez la fenêtre dans la configuration."
+    )
+
+
+def _fr_int(n: int) -> str:
+    return f"{n:,}".replace(",", "\u202f")  # narrow no-break space, French style
+
+
+def reasoning_mode(
+    caps: Capabilities | None, window: int | None = None
+) -> tuple[ReasoningMode, str | None]:
+    """Story 25: how the model reasons, by the reasoning card's own rules (AD-6, AD-9), and
+    why in French: `toggle` exactly when the card can be switched on (a reasoning the model
+    offers, in a `window` larger than the reasoning reserve), `always` when the model
+    reasons whatever the brick says, `unknown` when nothing says it (no capabilities read,
+    an incompatible model, or `<think>` tags without a variable), `never` otherwise."""
+    if caps is None:
+        return "unknown", "capacités non lues"
+    if caps.incompatible_reason:
+        return "unknown", caps.incompatible_reason
+    cloud = caps.family == CLOUD_FAMILY
+    if caps.reasoning_always:
+        return "always", "raisonne à chaque réponse ; ce modèle ne permet pas de l'éteindre"
+    if caps.reasoning and window is not None and (too_small := reasoning_window_fr(window)):
+        return "never", too_small
+    if caps.reasoning:
+        return "toggle", (
+            "déclaré dans la configuration (reasoning)"
+            if cloud
+            else f"variable {caps.reasoning_variable} du gabarit"
+        )
+    if caps.reasoning_tags:
+        return "unknown", (
+            "raisonne peut-être de lui-même, WaveStack ne sait ni l'allumer ni l'éteindre"
+        )
+    if cloud:
+        return "never", "non déclaré dans la configuration (reasoning)"
+    return "never", "le gabarit n'a pas de variable de raisonnement"
+
+
+def tools_summary(caps: Capabilities | None) -> tuple[bool | None, str, str | None]:
+    """Story 25: whether the model calls tools, as the tool cards decide it (a known parser,
+    AD-6): `(tools, word in French, reason)`; `None` when nothing says it."""
+    if caps is None:
+        return None, "inconnu", "capacités non lues"
+    if caps.incompatible_reason:
+        return None, "inconnu", caps.incompatible_reason
+    cloud = caps.family == CLOUD_FAMILY
+    if caps.tool_call_parser:
+        return True, "oui (déclaré)" if cloud else f"oui ({caps.tool_call_parser})", None
+    if cloud:
+        return False, "non", "non déclaré dans la configuration (tools)"
+    return False, "non", NO_TOOL_PARSER_FR
 
 
 TOOL_CALL_TAGS = ("<tool_call>", "</tool_call>")  # shared by `qwen3_coder` and `hermes`

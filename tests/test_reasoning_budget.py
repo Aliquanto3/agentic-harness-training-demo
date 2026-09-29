@@ -424,3 +424,24 @@ def test_the_largest_budget_still_leaves_the_answer_its_floor():
     assert config.Config(values={"reasoning": {"budget_tokens": 1409}}).reasoning_budget_tokens == (
         1408
     )
+
+
+def test_a_relaunch_after_a_cut_stays_one_call_and_the_next_call_reads_it_again():
+    """Story 32: the relaunch is the same call (one `context_rendered`, one
+    `model_call_ended`); the next call's « déjà lu » is its prefix of the first call."""
+    engine, session = _session([LONG_REASONING, call("get_datetime"), ANSWER], "reasoning", "tools")
+
+    events = _run(session, "Quelle heure est-il ?")
+
+    assert len(events["reasoning_cut"]) == 1 and len(engine.calls) == 3  # call, relaunch, call
+    first, second = events["context_rendered"]  # no context of its own for the relaunch
+    assert len(events["model_call_ended"]) == 2
+    assert first["seen_segments"] == 0
+    seen = second["seen_segments"]
+    assert 0 < seen < len(second["segments"])
+    assert [s["text"] for s in second["segments"][:seen]] == [
+        s["text"] for s in first["segments"][:seen]
+    ]
+    assert any(s["kind"] == "tool_result" and not s["seen"] for s in second["sections"])
+    assert events["turn_ended"][0]["status"] == "completed"
+    session.close()

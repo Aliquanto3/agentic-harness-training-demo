@@ -11,7 +11,7 @@ from test_turn import _run
 
 from wavestack import config
 from wavestack.bricks.contract import BrickContent, BrickDeclaration, Component
-from wavestack.bricks.registry import BRICKS, check_unique_ids
+from wavestack.bricks.registry import BRICKS, check_panel_groups, check_unique_ids
 from wavestack.session import app_session as app_session_module
 from wavestack.session.app_session import AppSession, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession
@@ -241,7 +241,11 @@ def _harness_errors(mark: int) -> list:
 def _fake(brick_id: str, requires: list[str] | None = None) -> BrickDeclaration:
     component = Component(id=f"{brick_id}.part", kind="fake", hosting="local_process")
     return BrickDeclaration(
-        id=brick_id, category="harness", requires=requires or [], components=[component]
+        id=brick_id,
+        category="harness",
+        group="acts",
+        requires=requires or [],
+        components=[component],
     )
 
 
@@ -270,6 +274,7 @@ def test_duplicate_or_reserved_ids_are_refused():
     clash = BrickDeclaration(
         id="core",
         category="harness",
+        group="acts",
         components=[Component(id="core.harness", kind="fake", hosting="local_process")],
     )
     with pytest.raises(ValueError, match="duplicate"):
@@ -278,6 +283,7 @@ def test_duplicate_or_reserved_ids_are_refused():
         BrickDeclaration(
             id="a",
             category="harness",
+            group="acts",
             components=[Component(id="b.x", kind="f", hosting="local_file")],
         )
 
@@ -395,7 +401,7 @@ def test_edge_to_an_undrawn_node_is_dropped(monkeypatch):
         hosting="local_process",
         edges_to=["core.harness", "file.rag_index"],
     )
-    brick = BrickDeclaration(id="audit", category="harness", components=[component])
+    brick = BrickDeclaration(id="audit", category="harness", group="acts", components=[component])
     session = AppSession(config.Config(values={}), bricks=[brick])
     mark = get_journal().last_seq()
 
@@ -439,3 +445,187 @@ def test_overflow_cause_is_the_heaviest_segment():
     assert "prompt système" in _overflow(session, "Bonjour")
     session.save_system_prompt(None)
     assert "le message à lui seul" in _overflow(session, "m" * 300)
+
+
+# ---------- story 22: display order, turn ids across clearing and reset ----------
+
+
+def test_reasoning_card_comes_first_and_the_ids_are_unchanged():
+    mark = get_journal().last_seq()
+    booted_session(FakeEngine())
+
+    cards = _latest("bricks_changed", mark)["bricks"]
+
+    assert cards[0]["id"] == "reasoning"
+    assert {b["id"] for b in cards} == {
+        "short_memory",
+        "system_prompt",
+        "global_memory",
+        "reasoning",
+        "tools",
+        "mcp",
+        "skills",
+        "hooks",
+        "subagent",
+        "rag",
+        "compression",
+    }
+    assert [b.id for b in BRICKS] == [b["id"] for b in cards]
+
+
+# ---------- story 33: panel groups, disciplines and tokens per brick ----------
+
+
+def test_cards_come_in_two_groups_in_the_story_order():
+    mark = get_journal().last_seq()
+    booted_session(FakeEngine())
+
+    cards = _latest("bricks_changed", mark)["bricks"]
+
+    assert [(b["id"], b["group"]) for b in cards] == [
+        ("reasoning", "reads"),
+        ("system_prompt", "reads"),
+        ("short_memory", "reads"),
+        ("global_memory", "reads"),
+        ("rag", "reads"),
+        ("tools", "acts"),
+        ("mcp", "acts"),
+        ("skills", "acts"),
+        ("hooks", "acts"),
+        ("subagent", "acts"),
+        ("compression", "acts"),
+    ]
+    # The categories do not change: skills and compression are context engineering.
+    assert {b["id"]: b["category"] for b in cards} == {
+        "reasoning": "prompt",
+        "system_prompt": "prompt",
+        "short_memory": "context",
+        "global_memory": "context",
+        "rag": "context",
+        "tools": "harness",
+        "mcp": "harness",
+        "skills": "context",
+        "hooks": "harness",
+        "subagent": "harness",
+        "compression": "context",
+    }
+
+
+def test_tools_and_mcp_cards_say_what_leaves_the_workstation_and_where_to_read_it():
+    mark = get_journal().last_seq()
+    booted_session(FakeEngine())
+
+    cards = {b["id"]: b for b in _latest("bricks_changed", mark)["bricks"]}
+
+    tools = cards["tools"]["outbound_fr"]
+    for label in (
+        "Jours fériés",
+        "Résumé Wikipédia",
+        "Lecture de page web",
+        "data.gouv.fr",
+        "Microsoft Learn",
+        "Données sortantes",
+    ):
+        assert label in tools, label
+    assert "Heure et date" not in tools and "Calculatrice" not in tools  # local tools
+    assert tools.index("Jours fériés") < tools.index("Résumé Wikipédia")  # registry order
+    mcp = cards["mcp"]["outbound_fr"]
+    assert "data.gouv.fr" in mcp and "Microsoft Learn" in mcp and "Données sortantes" in mcp
+    assert "Glossaire WaveStack" not in mcp  # the local server stays on the workstation
+    assert "{" not in tools + mcp
+    assert cards["skills"]["outbound_fr"] is None
+    assert tools.startswith("Peuvent sortir du poste : ")  # disabled ones included
+
+
+@pytest.mark.parametrize(
+    ("items", "text"),
+    [([], ""), (["a"], "a"), (["a", "b"], "a et b"), (["a", "b", "c"], "a, b et c")],
+)
+def test_join_fr(items, text):
+    assert app_session_module._join_fr(items) == text
+
+
+def _outbound(session: AppSession, brick_id: str) -> str | None:
+    return session._outbound_fr(brick_id, session._content.get(brick_id))
+
+
+def test_outbound_line_without_network_tool_or_public_server():
+    session = booted_session(FakeEngine())
+    local_tools = [o for o in session._tool_options() if not o["network"]]
+    publics = {k: v for k, v in session._mcp_servers.items() if v.network}
+
+    session._tool_options = lambda: local_tools  # no network tool declared
+    tools = _outbound(session, "tools")
+    assert tools.startswith("Peuvent sortir du poste : aucun outil réseau, ")
+    assert "data.gouv.fr et Microsoft Learn" in tools
+
+    for server_id in publics:  # no public server either
+        del session._mcp_servers[server_id]
+    assert _outbound(session, "tools") is None
+    assert _outbound(session, "mcp") is None
+
+
+@pytest.mark.parametrize("template", ["{x}", "{tools.x}", "{0}", "{", "{servers!z}", "{tools:d}"])
+def test_a_bad_outbound_template_drops_the_line_not_the_cards(template, caplog):
+    session = booted_session(FakeEngine())
+    session._content["tools"] = session._content["tools"].model_copy(
+        update={"outbound_fr": template}
+    )
+
+    assert _outbound(session, "tools") is None
+    assert "outbound_fr of tools ignored" in caplog.text
+    mark = get_journal().last_seq()
+    session._emit_bricks()  # the cards still go out
+    cards = {b["id"]: b for b in _latest("bricks_changed", mark)["bricks"]}
+    assert cards["tools"]["outbound_fr"] is None and cards["mcp"]["outbound_fr"]
+
+
+def test_panel_groups_must_be_contiguous_reads_first():
+    def brick(brick_id: str, group: str) -> BrickDeclaration:
+        component = Component(id=f"{brick_id}.part", kind="fake", hosting="local_process")
+        return BrickDeclaration(
+            id=brick_id, category="context", group=group, components=[component]
+        )
+
+    check_panel_groups(BRICKS)
+    check_panel_groups([brick("a", "reads"), brick("b", "reads"), brick("c", "acts")])
+    with pytest.raises(ValueError, match="before `acts`"):
+        check_panel_groups([brick("a", "reads"), brick("b", "acts"), brick("c", "reads")])
+    with pytest.raises(ValueError, match="before `acts`"):
+        AppSession(config.Config(values={}), bricks=[brick("x", "acts"), brick("y", "reads")])
+
+
+def test_rendered_context_carries_disciplines_and_tokens_per_brick():
+    session = booted_session(FakeEngine(output="Bonjour !"))
+    session.set_brick("system_prompt", True)
+
+    events = _run(session, "Bonjour")
+
+    payload = events["context_rendered"][-1]
+    for segment in payload["segments"]:
+        expected = "prompt" if segment["brick"] == "system_prompt" else "neutral"
+        assert segment["discipline"] == expected, segment
+    by_group = {item["group"]: item["discipline"] for item in payload["breakdown"]}
+    assert by_group["system_prompt"] == "prompt"
+    assert by_group["message"] == "neutral"
+    prompt_tokens = sum(s["tokens"] for s in payload["segments"] if s["brick"] == "system_prompt")
+    assert payload["by_brick"] == [
+        {"brick": "system_prompt", "tokens": prompt_tokens, "estimated": False}
+    ]
+
+
+def test_turn_ids_keep_growing_after_clearing_and_reset():
+    session = booted_session(FakeEngine(output="Bonjour !"))
+    mark = get_journal().last_seq()
+
+    _run(session, "Un")
+    _run(session, "Deux")
+    session.clear_conversation()
+    session.join()
+    _run(session, "Trois")
+    session.reset()
+    session.join()
+    _run(session, "Quatre")
+
+    started = [e.turn_id for e in get_journal().events_since(mark) if e.kind == "turn_started"]
+    assert started == ["t1", "t2", "t3", "t4"]

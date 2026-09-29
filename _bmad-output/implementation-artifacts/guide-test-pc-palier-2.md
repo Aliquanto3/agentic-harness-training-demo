@@ -1,14 +1,29 @@
-# Guide de test sur le PC cible : palier 2 (stories 12 à 21, lots A à G)
+# Guide de test sur le PC cible : palier 2, recette suivante (commit de la nuit du 2026-09-28)
 
 Pour récupérer la branche du palier 2 et la tester fonctionnellement sur le PC professionnel
 (Windows 11, sans droits administrateur, CPU seul). Les commandes sont en PowerShell et se
 lancent depuis la racine du clone. Sources : `README.md`, `weekend-report-2026-09-26.md`
 (sections 3 et 4), stories 12 à 21, `plan-corrections-palier-2.md` (test du 2026-09-27, lots A
-à I), `spec-lot-*.md`, `tools/bench/README.md`, `tools/e2e/README.md`.
+à I), `retours-recette-palier-2-2026-09-28.md` (recette du 2026-09-28), `spec-lot-*.md`,
+`tools/bench/README.md`, `tools/e2e/README.md`.
 
-Cette version prépare la séance qui suit le test du 2026-09-27 : elle vérifie d'abord, point
-par point, les corrections des lots A à G (section 5), puis reprend le parcours complet. Ce que
-le plan range dans « Ce qui marche déjà » n'est pas re-testé en détail : parcourez-le.
+Cette version prépare la recette qui suit celle du 2026-09-28. Elle vise le commit de la nuit du
+2026-09-28 (branche `claude/lucid-cori-1rkbjf`, stories 22 à 34) et reprend les tests du cahier
+`cahier-recette-palier-2.html` : les corrections des lots A à G (section 5), puis le parcours
+complet (section 6) et les décisions (section 7). Chaque test du cahier a désormais un geste pas
+à pas ; les tests restés « non faits » le 2026-09-28 faute de consigne claire (D11 et
+« Réinitialiser » du module 1, M3, M6, X1, X3, D1, D2m, Z1, Z2) sont réécrits ici avec le même
+geste que dans le cahier. llama-server s'installe sans droits d'administrateur (section 2.1).
+
+**Hors de ce guide** : les nouveautés des stories 22 à 34 (volets, briques, données sortantes,
+sélecteur de modèles, fenêtre de contexte, scénarios, mode sombre, écrans « LLM nu » et « Atelier
+RAG »…) ne sont pas détaillées ici ni dans le cahier. Les stories 22 à 27 et 31 à 34 ont déjà
+leur cahier, `cahier-recette-nuit-2026-09-28.html` (publié :
+https://claude.ai/artifact/7Er6qrF3fcLtTsMoY6meLf). Le prompt
+`_bmad-output/implementation-artifacts/prompt-test-pc-2026-09-29.md` couvre toute la nuit (il
+remplace `prompt-test-pc-intermediaire-2026-09-29.md`) : le Claude Code du PC vérifie ce qu'il
+peut, puis génère le cahier de ce qui reste. Ce guide ne corrige que les attentes des tests
+existants que ces stories ont changées.
 
 ## 0. En bref
 
@@ -22,14 +37,16 @@ le plan range dans « Ce qui marche déjà » n'est pas re-testé en détail : p
   - le proxy ouvert vers `pypi.org`, `files.pythonhosted.org`, `abetlen.github.io`,
     `github.com`, `huggingface.co`, `*.hf.co`, `learn.microsoft.com` et `mcp.data.gouv.fr` ;
     en option, `api.groq.com`, `api.mistral.ai`, `fr.wikipedia.org` et
-    `calendrier.api.gouv.fr` ;
+    `calendrier.api.gouv.fr` ; pour llama-server, facultatif (section 2.1) : `api.github.com`,
+    `objects.githubusercontent.com` et `release-assets.githubusercontent.com` ;
   - les GGUF Qwen3.5-2B Q4_K_M amont (unsloth) et Qwen3.5-4B, dans
     `%LOCALAPPDATA%\WaveStack\models` ;
   - environ 4 Go libres : 2,1 Go pour le banc, 285 Mo pour l'extra `compression`, plus
     Chromium pour l'E2E ; les modèles d'embedding et de reranker sont déjà en place depuis le
     2026-09-27 ;
   - en option : des clés Groq et Mistral, Ollama (`qwen3.5:2b`, `llama3.2:3b`), et
-    `llama-server.exe` (llama.cpp) ;
+    `llama-server.exe` (llama.cpp). Le 2026-09-28, llama-server n'était pas installé (C9 et C10
+    KO) : il s'obtient sans droits d'administrateur, section 2.1 ;
   - **Edge, Outlook et Teams fermés pendant les mesures** : ils saturaient la RAM à la story 9,
     et Edge ouvert a faussé la mesure de Skills le 2026-09-27 (compression mémoire de Windows
     ≈ 1 Go). Edge se relance seul en arrière-plan après sa fermeture (`--no-startup-window`,
@@ -37,7 +54,22 @@ le plan range dans « Ce qui marche déjà » n'est pas re-testé en détail : p
     notification et vérifiez avec `Get-Process msedge`.
 - **Ordre** : 1 → 2 → 3 → 4 → 5, avec les bancs avant de lancer WaveStack. Ensuite 6, dans
   l'ordre des modules, puis le métier et les modèles, et 7. La séance s'arrête à « Où
-  consigner » (section 8) : la fusion attend le lot H.
+  consigner » (section 8). Les résultats du 2026-09-28 sont rappelés dans le cahier, test par
+  test (« Déjà mesuré » : « Le 28/09 : … ») ; le filtre « À faire » du cahier suffit pour s'y
+  retrouver.
+- **Fusion** : elle attendait le lot H. Le lot H est livré (story 27 : scénarios et consignes
+  revus) ; reste à vérifier sur PC son effet réel sur le 2B (tests N27 du cahier de la nuit, et
+  H1 à H6 en section 7), puis les critères A à G de la section 5. La fusion ne se fait qu'après
+  (section 8).
+- **Repères de l'interface** (commit de la nuit) : la barre haute porte, de gauche à droite, le
+  sélecteur de scénario (« Choisir un scénario », groupes « Module N · titre · durée » puis
+  « Transverses et métier »), la jauge, « Fenêtre 4 096 ▾ », « Volets ▾ », l'indicateur du
+  modèle, « Changer de modèle… » (suivi de « Charger » une fois un modèle choisi), « Mode
+  projection », « LLM nu », « Atelier RAG », le sélecteur de thème et « ⟲ Réinitialiser ». Le
+  Panneau des briques est à gauche (interrupteur « Afficher les actions forcées » en haut) ;
+  à droite, les volets numérotés 1 Vue humain (« Rejouer le dernier prompt », « Vider la
+  conversation »), 2 Contexte LLM (« Comparer »), 3 Orchestration (avec, en bas, « Journal des
+  événements (N) ») et 4 Schéma d'architecture.
 - **Revenir en arrière** : `git switch main`, puis `uv run wavestack`, resynchronisent sur le
   `uv.lock` de `main`. Le dossier de données contient déjà les données du palier 2
   (`probed_models`, `selected_model`, `memory.json`) : pour revenir au palier 1, restaurez la
@@ -62,24 +94,27 @@ git status                                   # rien sous tools/e2e/screenshots, 
 git restore tools/e2e/screenshots            # captures réécrites par le parcours précédent
 git status                                   # l'arbre doit être propre
 git fetch origin
-git switch claude/dreamy-cerf-gdjtee
-git pull                                     # la branche locale existe depuis le 2026-09-27
+git switch claude/lucid-cori-1rkbjf          # branche de la nuit du 2026-09-28
+git pull
 git log --oneline -12
 ```
 
-- [ ] HEAD : `docs: rapport des corrections du palier 2 (lots A à G et I)` ou plus récent.
-  En dessous, du plus récent au plus ancien : `cb3a20e` (correctif de deux textes du code,
-  suite des lots A et E), `e2b399c … (lot I)`, puis `2abad49 … (lot G)`, `515c858 … (lot F)`, `12faad6 … (lot E)`, `8afb1d5 … (lot D)`,
-  `dc193ca … (lot C)`, `0f54120 … (lot B)`, `7b22faf … (lot A)` et `373d30a … (lot 0)`. La
-  référence est le dernier commit de la PR #1.
+- [ ] HEAD : le dernier commit de la nuit du 2026-09-28 (rapport de la nuit, ou la story 28
+  « guide de test et cahier de recette corrigés »), ou plus récent. En dessous, les commits
+  des stories 22 à 34, dont `69f0cf3` (Atelier RAG, story 30), `e42ce11` (écran « LLM nu »,
+  story 29) et `175eb5a` (mode sombre, story 31). La branche du 2026-09-27
+  (`claude/dreamy-cerf-gdjtee`) n'est plus celle à tester.
+- Les stories 22 à 34 se vérifient avec le prompt `prompt-test-pc-2026-09-29.md` (section
+  « Hors de ce guide » plus haut) ; ce guide et le cahier reprennent les tests du 2026-09-28.
 - Zip, sans Git : sur GitHub, choisissez la branche, puis « Code » → « Download ZIP ». Avec
   le navigateur connecté, l'adresse directe est
-  `https://github.com/Aliquanto3/agentic-harness-training-demo/archive/refs/heads/claude/dreamy-cerf-gdjtee.zip`.
+  `https://github.com/Aliquanto3/agentic-harness-training-demo/archive/refs/heads/claude/lucid-cori-1rkbjf.zip`.
 
 ## 2. Installer
 
 Validé le 2026-09-27 : `uv lock` inchangé, `uv sync --extra compression`, aucun blocage
-AppLocker ni WDAC. Les lots A à I n'ont touché ni `pyproject.toml` ni `uv.lock`.
+AppLocker ni WDAC. Depuis, la story 30 a ajouté l'extra facultatif `rag-alt` (FAISS et LanceDB,
+pour l'écran « Atelier RAG ») : il relève du prompt des stories 22 à 34, pas de ce guide.
 
 ```powershell
 $env:UV_SYSTEM_CERTS = "1"     # derrière le proxy : certificats du système (README), valable pour ce terminal
@@ -107,12 +142,108 @@ uv run wavestack          # Ctrl+C pour l'arrêter une fois les points ci-dessou
 Attention : un `uv sync` sans `--extra compression` retire Headroom, alors que `uv run …` le
 garde. Relancez `uv sync --extra compression` après chaque mise à jour.
 
+### 2.1 Installer llama-server (sans droits d'administrateur)
+
+Pour C9, C10 et, en section 6, « llama-server » (cahier : test `P3`). Le 2026-09-28,
+`llama-server` n'était pas installé : « n'est pas reconnu comme nom d'applet de commande ».
+WaveStack ne l'installe pas. On prend l'archive CPU officielle de llama.cpp,
+`llama-bNNNNN-bin-win-cpu-x64.zip`, publiée sur `github.com/ggml-org/llama.cpp`, décompressée
+dans le profil (`%LOCALAPPDATA%\llama.cpp\<version>`, un dossier par version), et l'exécutable
+se lance par son chemin complet, `$llama` : rien ne s'installe, rien ne demande d'élévation.
+Même procédure que le README (« Obtenir llama-server sans droits d'administrateur »).
+
+Dans un nouveau terminal PowerShell (Windows PowerShell 5.1 ou PowerShell 7), ligne par ligne :
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12   # PowerShell 5.1
+$px = @{}   # erreur 407 : lancez la ligne « Proxy », puis reprenez ici à Invoke-RestMethod
+$rels = Invoke-RestMethod -UseBasicParsing @px "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
+$rel = $rels | Where-Object { $_.assets.name -match '^llama-b\d+-bin-win-cpu-x64\.zip$' } | Select-Object -First 1
+$asset = $rel.assets | Where-Object name -match '^llama-b\d+-bin-win-cpu-x64\.zip$'
+if (-not $asset) { throw "Aucune archive llama-bNNNNN-bin-win-cpu-x64.zip dans les dix dernières releases : prenez le repli b11239." }
+$zip = "$env:TEMP\$($asset.name)"; $dest = "$env:LOCALAPPDATA\llama.cpp\$($rel.tag_name)"
+Invoke-WebRequest -UseBasicParsing @px $asset.browser_download_url -OutFile $zip
+if ($asset.digest) { if (("sha256:" + (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()) -ne $asset.digest) { throw "Empreinte SHA-256 différente de celle publiée par GitHub : archive refusée." } else { "Empreinte SHA-256 vérifiée." } }
+Expand-Archive $zip -DestinationPath $dest -Force; Get-ChildItem $dest -Recurse | Unblock-File
+$llama = "$dest\llama-server.exe"; & $llama --version
+& $llama -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --port 8080 -np 1 -c 4096
+```
+
+- Ne lancez pas la dernière ligne ici : c'est le lancement, fait en C10 et en section 6. Ne
+  lancez jamais llama-server sans `-c` quand le 2B est chargé dans WaveStack (C9 le fait
+  exprès, WaveStack sur un petit modèle).
+- [ ] `$asset.name` vaut `llama-bNNNNN-bin-win-cpu-x64.zip` ; « Empreinte SHA-256 vérifiée. »
+  s'affiche si l'API donne l'empreinte ; l'archive est décompressée dans
+  `%LOCALAPPDATA%\llama.cpp\bNNNNN` ; `& $llama --version` affiche la version, puis
+  `$LASTEXITCODE` vaut 0, sans demande d'élévation. Relevez la version (bNNNNN).
+- Si le téléchargement se traîne sous PowerShell 5.1 : `$ProgressPreference =
+  "SilentlyContinue"`, puis relancez `Invoke-WebRequest`.
+- Dans un nouveau terminal, sans rien retélécharger, retrouvez l'exécutable :
+
+```powershell
+$llama = Get-ChildItem "$env:LOCALAPPDATA\llama.cpp" -Recurse -Filter llama-server.exe | Sort-Object LastWriteTime | Select-Object -Last 1 -ExpandProperty FullName
+```
+
+Ligne « Proxy » (erreur 407 seulement) :
+
+```powershell
+$px = @{ Proxy = [System.Net.WebRequest]::GetSystemWebProxy().GetProxy("https://api.github.com"); ProxyUseDefaultCredentials = $true }
+```
+
+- **Erreur 407** (le proxy demande vos identifiants) : lancez la ligne « Proxy » ci-dessous. Elle
+  calcule le proxy du système (`GetSystemWebProxy().GetProxy(…)`) et fait passer `-Proxy` et
+  `-ProxyUseDefaultCredentials` à `Invoke-RestMethod` et à `Invoke-WebRequest` (par `@px`, repli
+  compris) ; reprenez ensuite le bloc à `Invoke-RestMethod`.
+- **Aucune archive trouvée** : le bloc s'arrête (« Aucune archive … : prenez le repli b11239. »).
+- **Intégrité** : quand l'API donne l'empreinte de l'archive (champ `digest`, SHA-256), le bloc
+  la compare à `Get-FileHash` et refuse une archive différente. Le repli, sans l'API, ne vérifie
+  rien : comparez `(Get-FileHash $zip).Hash` à l'empreinte de la page de la release si elle
+  s'ouvre.
+- **`Unblock-File`** retire la marque « téléchargé depuis Internet » (Mark of the Web) que
+  Windows pose sur les fichiers de l'archive. Si la politique du poste l'interdit, ou si
+  SmartScreen ou AppLocker bloque l'exécutable, arrêtez-vous : « non fait (poste) », sans
+  contourner.
+- Sous macOS ou Linux, prenez l'archive de la même release qui correspond au système.
+
+**Si ça bloque encore** (notez dans le cahier, test `P3`, le code d'erreur et le chemin qui a
+marché) :
+- **API GitHub refusée** (403, ou 407 qui persiste) : si `github.com` reste joignable, prenez la
+  version fixe `b11239` (la dernière le 2026-09-28) par son adresse directe :
+
+```powershell
+$tag = "b11239"; if (-not $px) { $px = @{} }
+$zip = "$env:TEMP\llama-$tag-bin-win-cpu-x64.zip"; $dest = "$env:LOCALAPPDATA\llama.cpp\$tag"
+Invoke-WebRequest -UseBasicParsing @px "https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-$tag-bin-win-cpu-x64.zip" -OutFile $zip
+Expand-Archive $zip -DestinationPath $dest -Force; Get-ChildItem $dest -Recurse | Unblock-File
+$llama = "$dest\llama-server.exe"; & $llama --version
+```
+
+- **GitHub entièrement bloqué** : récupérez la même archive sur un autre réseau ou un autre
+  poste, ou auprès du formateur, et copiez-la dans `%TEMP%` (partage interne, OneDrive, clé
+  USB). Lancez les deux premières lignes du bloc de repli, avec `$tag` égal à la version de
+  l'archive copiée, sautez `Invoke-WebRequest` et reprenez à `Expand-Archive`. Aucune autre
+  source : ni winget, ni Chocolatey, ni installeur, ni élévation. Sans archive, C9 et C10 sont
+  « non fait (poste) » et le mode serveur se vérifie avec Ollama (section 6, « Ollama »).
+- **Exécutable bloqué** (AppLocker, SmartScreen, ou « VCRUNTIME140.dll » ou « MSVCP140.dll »
+  introuvable) : relevez le message exact et transmettez-le au support, sans contourner le
+  blocage ; C9 et C10 passent à « non fait (poste) ».
+- Gardez `llama-server.exe` avec ses DLL (dont les variantes `ggml-cpu-*`) : ne le copiez pas
+  seul, et ne le décompressez pas dans `Program Files`.
+
 ## 3. Vérifications automatiques rapides
 
 ```powershell
 uv run pytest -q
 ```
 
+- **Compte actuel** (commit de la nuit, sous Linux, extras `compression` et `rag-alt`) : de
+  l'ordre de **1 294 réussis, 3 sautés, 7 désélectionnés**. Sous Windows, les 3 sauts sont
+  ceux expliqués ci-dessous. Avec seulement `--extra compression` (sans `rag-alt`), comptez
+  **2 sautés de plus** : les deux variantes FAISS et LanceDB de `tests/test_rag_lab_alt.py`
+  (`pytest.importorskip("faiss")`, `pytest.importorskip("lancedb")`), qui demandent l'extra
+  `rag-alt` de la story 30. Le critère : aucun échec, et seuls ces sauts.
+- Les comptes détaillés ci-dessous datent du 2026-09-27 (avant la nuit) ; ils gardent
+  l'explication des sauts.
 - [ ] Attendu sous Windows, avec l'extra `compression` : **935 réussis, 3 sautés,
   6 désélectionnés** (938 tests collectés hors `model` ; 934 avant le test du journal de
   llama.cpp ajouté au lot J, mesurés le 2026-09-27 au soir). Les 3 sauts attendus :
@@ -287,8 +418,9 @@ Où lire les mesures :
   - Vérifié le 2026-09-27 au soir (script) : pas de relecture au second tour, 22 tokens
     évalués ; les blancs autour de `</think>` prolongent bien le cache.
 - [ ] **Sous-agent** (décision N2) : scénario « Sous-agent », délégation puis trois quiz,
-  deux fois : d'abord tel que livré (RAG allumé), puis relancé avec la brique RAG éteinte
-  avant le premier prompt.
+  deux fois : d'abord tel que livré (RAG éteint : depuis la story 27, le scénario n'allume plus
+  le RAG), puis relancé depuis le sélecteur de scénario avec la brique RAG allumée à la main,
+  par son interrupteur dans le Panneau des briques, avant le premier prompt.
   - Attendu : la ligne « Délégation au sous-agent » affiche « état sauvegardé : N Mo, restauré
     en N s » ; RAG éteint, au premier appel principal après le retour, pas de « Préfixe non
     réutilisé ».
@@ -310,9 +442,9 @@ Où lire les mesures :
 ### 5.2 Lot B : résultats d'outils bornés et cause des débordements
 
 - [ ] **Scénarios qui débordaient** : « Lazy loading » (`mcp_lazy`, les deux prompts), « Où
-  vont mes données ? » (`data_flows`, MCP activé à la main avec le serveur local puis
-  data.gouv.fr, comme le dit sa consigne), « Métier IAM » (`iam`) et « Métier Souveraineté »
-  (`sovereignty`, les deux prompts).
+  vont mes données ? » (`data_flows` : depuis la story 27, la brique MCP est allumée au
+  lancement, en lazy loading, avec le serveur local et data.gouv.fr ; rien à cocher), « Métier
+  IAM » (`iam`) et « Métier Souveraineté » (`sovereignty`, les deux prompts).
   - Attendu : un résultat long de data.gouv.fr ou de Microsoft Learn est coupé ; Orchestration
     affiche « Résultat tronqué par le harnais : N tokens sur M (borne [tools]
     result_max_tokens) », N ≤ 1 200 ; le modèle lit la mention de coupe à la fin du résultat.
@@ -351,9 +483,16 @@ Où lire les mesures :
 
 ### 5.4 Lot D : User-Agent et parcours E2E
 
-- [ ] **Wikipédia** : scénario « Outils réseau », second prompt (Mont-Saint-Michel).
+- [ ] **Wikipédia** (C3) : scénario « Outils réseau », cliquez le second prompt suggéré
+  (« Résume l'article Wikipédia sur le Mont-Saint-Michel. »), puis « Envoyer ». À la fin du
+  tour, dans Orchestration, dépliez l'étape « Exécute l'outil hors du poste », puis son bloc
+  « 🌐 RÉSEAU · Données sortantes » (ou cliquez le nœud de l'outil dans la zone « 🌐 RÉSEAU ·
+  hors du poste » du schéma : il ouvre la même étape).
   - Attendu : `wikipedia_summary` ou `fetch_page` renvoie le contenu de l'article, plus de 403
-    « Please respect our robot policy ». L'User-Agent porte le contact de `[net] contact`.
+    « Please respect our robot policy ». Depuis la story 23, le bloc montre les sections
+    « Requête », « En-têtes » et « Corps » : l'en-tête `User-Agent: WaveStack/0.1
+    (demonstrateur pedagogique; https://github.com/Aliquanto3/agentic-harness-training-demo)`
+    se lit dans « En-têtes » (le 2026-09-28, aucun en-tête n'était affiché : KO).
 - [ ] **E2E sur ce poste connecté** : 0 échec (section 3).
 
 ### 5.5 Lot E : modèles, mémoire, refus, arrêt
@@ -365,7 +504,8 @@ Où lire les mesures :
   llama-server, puis WaveStack :
 
 ```powershell
-llama-server -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --port 8080 -np 1
+# $llama : section 2.1 (dans un nouveau terminal, la commande « retrouvez l'exécutable »)
+& $llama -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --port 8080 -np 1
 ```
 
   - Attendu au diagnostic : une mémoire d'environ 5 Go, proche des 5 137 Mo mesurés alors (et
@@ -384,32 +524,65 @@ llama-server -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --po
   refusé.
   - Attendu : « Changement refusé : … demande environ … ; WaveStack occupe … sans le modèle
     actif, pour un budget de … » avec la vraie mémoire de WaveStack (en Mo sous 1 Go, jamais
-    « 0,0 Go ») ; le 2B reste ou redevient actif.
-  - Critère : le 4B est refusé par le budget de 4 096 Mo, qui ne change pas (N5) : 4,27 Go
+    « 0 Mo » ni « 0,0 Go » : N entre 80 et 400 Mo) ; le 2B reste ou redevient actif. Depuis la
+    story 24, le budget est dynamique : il vaut le budget B relevé au diagnostic au lancement
+    (ligne « Budget mémoire de WaveStack : B Mo (…) », cahier P2), au plus 4 096 Mo, suivi de son
+    calcul, par exemple « budget de 4,0 Go (= plafond [memory] budget_mb) », ou moins si la RAM
+    disponible au lancement est faible (fermez Edge, Outlook et Teams).
+  - Critère : le 4B est refusé par le budget B (au plus 4 096 Mo, N5) : 4,27 Go
     mesurés après 3 000 tokens le 2026-09-27, et la sonde compte désormais les poids, le cache
     de toute la fenêtre et les tampons de calcul (3,4 Go estimés avant le lot E). Relevez
     l'estimation affichée, et si le 4B a été resondé, la durée de la sonde.
   - Mesuré le 2026-09-27 au soir : sonde du 4B ≈ 53 s (libération du 2B comprise), RSS
     4 262 Mo, refus « demande environ 4,4 Go ; WaveStack occupe 118 Mo sans le modèle actif,
     pour un budget de 4,0 Go ». Une sonde prend 30 à 60 s selon le modèle.
-- [ ] **« Arrêter » pendant un chargement** (E4), sur le chargement d'un GGUF, assez long pour
-  cliquer : la sonde d'un fichier jamais sondé, ou le 4B avec un budget relevé (section 6,
-  « Changement à chaud »). Pendant le chronomètre de chargement, cliquez « Arrêter ». Un
-  modèle Ollama ne charge côté WaveStack que son tokenizer, trop vite pour cliquer :
+- [ ] **« Arrêter » pendant un chargement** (E4, C4), sur le chargement d'un GGUF, assez long
+  pour cliquer : la sonde d'un fichier jamais sondé, ou le 4B avec un budget relevé (section 6,
+  « Changement à chaud »). « Changer de modèle… », le fichier, « Charger » ; pendant le
+  chronomètre de chargement, dans les 5 s, cliquez « Arrêter » (à droite du champ de message,
+  dans la Vue humain). Si le 4B est refusé tout de suite (sonde déjà faite, refus immédiat),
+  prenez une copie du 2B jamais sondée, créée **WaveStack lancé** (le diagnostic de lancement
+  sonde tout GGUF jamais sondé : ne relancez pas) et choisie à chaud :
+  1. WaveStack lancé, 2B actif : premier bloc ci-dessous (copie du 2B).
+  2. Dans un second onglet, http://127.0.0.1:8420/diagnostic : collez le chemin de la copie
+     sous « Ou indiquez le chemin d'un fichier GGUF : », cliquez « Choisir ce fichier »
+     (changement à chaud), revenez aussitôt à l'onglet de l'atelier et cliquez « Arrêter »
+     dans les 5 s.
+  3. WaveStack arrêté, supprimez la copie (second bloc). Si sa sonde a abouti, son entrée reste
+     dans `probed_models` de `settings.json` : sans effet, elle peut rester.
+
+  Un modèle Ollama ne charge côté WaveStack que son tokenizer, trop vite pour cliquer :
   facultatif.
-  - Attendu : « Arrêt demandé, effectif à la fin de l'étape en cours » dans la barre haute,
-    puis l'issue « Chargement arrêté : {modèle précédent} est de nouveau actif. » L'arrêt
-    n'agit qu'à la fin de l'étape en cours (libération, sonde ou chargement).
-- [ ] **Briques indisponibles** (E5) : `llama3.2:3b` via Ollama, scénario « Outils natifs ».
-  - Attendu : sous la consigne, « Brique du scénario indisponible avec ce modèle : Outils : Le
-    modèle chargé n'offre pas l'appel d'outils (aucun format d'appel connu pour cette famille
-    de modèle) : choisissez un autre modèle. »
+
+```powershell
+# Copier le 2B (WaveStack lancé)
+$m = "$env:LOCALAPPDATA\WaveStack\models"
+Copy-Item "$m\Qwen3.5-2B-Q4_K_M.gguf" "$m\Qwen3.5-2B-copie-C4.gguf"; "$m\Qwen3.5-2B-copie-C4.gguf"
+# Supprimer la copie (WaveStack arrêté)
+Remove-Item "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-copie-C4.gguf"
+```
+
+  - Attendu : « Arrêt demandé · Chargement du modèle … » dans la barre haute (son infobulle :
+    « Un chargement du moteur en cours se termine avant l'arrêt ; une sonde est interrompue
+    tout de suite. »), puis l'issue « Chargement arrêté : {modèle précédent} est de nouveau
+    actif. » Depuis la story 24, une sonde s'arrête aussitôt ; un chargement dans WaveStack, à
+    la fin de son étape (libération ou chargement). Le 2026-09-28 : arrêt effectif après
+    ≈ 25 s, à la fin de la sonde (KO).
+- [ ] **Briques indisponibles** (E5, C5) : `llama3.2:3b` via Ollama (« Changer de modèle… »,
+  « Local · Ollama · llama3.2:3b … », « Charger »), puis le scénario « Outils natifs ».
+  - Attendu : `llama3.2:3b` est accepté si le budget B dépasse ≈ 2,6 Go (≈ 2,3 Go au
+    diagnostic, plus la marge, depuis la story 24 ; refusé à tort le 2026-09-28 : « demande
+    environ 4,0 Go ») ; sinon, refus chiffré qui cite B. Sous la
+    consigne, « Brique du scénario indisponible avec ce modèle : Outils : Le modèle chargé
+    n'offre pas l'appel d'outils (aucun format d'appel connu pour cette famille de modèle) :
+    choisissez un autre modèle. »
 - [ ] **Fichier incompatible** (E6) : choisissez le blob Ollama refusé le 2026-09-27 comme un
   fichier.
   - Attendu : « llama-cpp-python 0.3.35 ne sait pas charger ce fichier (architecture non prise
     en charge, fichier incomplet ou abîmé). Choisissez un autre modèle, ou servez-le avec Ollama
     ou llama-server. » Le message brut de llama.cpp n'est plus qu'un détail technique ; le
-    modèle précédent reste actif.
+    modèle précédent reste actif. Depuis la story 24, les accents sont justes (« abîmé »,
+    « modèle ») : le 2026-09-28, la raison s'affichait « abÃ®mÃ© », « modÃ¨le ».
 - [ ] Refus chiffré d'un modèle Ollama trop gros (`olmo-3:7b` le 2026-09-27), si vous l'avez :
   WaveStack occupe ≈ 200 Mo sans le modèle actif (et non « 0,0 Go »).
 
@@ -427,7 +600,8 @@ llama-server -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --po
 
 ### 5.7 Lot G : tests sous Windows et tests `model`
 
-- [ ] `uv run pytest -q` : 935 réussis, 3 sautés, les deux tests G1 compris (section 3).
+- [ ] `uv run pytest -q` : ≈ 1 294 réussis et 3 sautés (5 sans l'extra `rag-alt`), les deux
+  tests G1 compris (section 3).
 - [ ] Tests `model` du RAG avec `WAVESTACK_TEST_MODELS_DIR` : réussis (section 3).
 - [ ] **Script pendant une session** : WaveStack lancé, un tour du scénario RAG (l'index est
   ouvert), puis, dans un second terminal :
@@ -471,104 +645,238 @@ Get-Process python*, wavestack*, llama-server*, ollama* -ErrorAction SilentlyCon
   puis « Transverses et métier ». Lancer directement Skills (module 5) active les briques
   des modules 1 à 4, sans le raisonnement, et restaure la mémoire de démonstration.
 
-**Module 1 : Du LLM nu au harnais**
-- [ ] **LLM nu** : « Quelle heure est-il ? » → heure inventée ou aveu. Premier token en
-  moins de 10 s.
-- [ ] **Raisonnement** (story 13, lot C), sur le prompt du train (réponse juste : 17 h 50) :
-  - raisonnement replié dans la Vue humain, bloc « Raisonnement du modèle » dans Contexte LLM,
-    réserve de 1 536 tokens dans la jauge, 2 560 utilisables ;
-  - « Afficher le raisonnement » décoché : la bulle ne garde que le texte ;
-  - brique éteinte, « Rejouer le dernier prompt », puis « Comparer » : moins de sortie ;
+Chemin d'un scénario : sélecteur de scénario (barre haute) → groupe « Module N · titre ·
+durée » (ou « Transverses et métier ») → le scénario. Un prompt suggéré se clique (il remplit le
+champ), puis « Envoyer ». Les actions forcées apparaissent quand l'interrupteur « Afficher les
+actions forcées », en haut du Panneau des briques, est activé ; désactivez-le après usage.
+
+**Module 1 : Du LLM nu au harnais** (cahier : M1)
+- [ ] **LLM nu** : « Module 1 · Du LLM nu au harnais · 60 min » → « LLM nu », prompt suggéré
+  « Quelle heure est-il ? », « Envoyer » → heure inventée ou aveu. En bas d'Orchestration,
+  ouvrez « Journal des événements (N) », dépliez « Appel au modèle terminé » : premier token
+  (`prompt_ms`) en moins de 10 s.
+- [ ] **Raisonnement** (story 13, lot C), scénario « Raisonnement », prompt du train (réponse
+  juste : 17 h 50) :
+  - raisonnement replié dans la Vue humain ; dans Contexte LLM, bloc « Réflexion » (« Afficher
+    le raisonnement de cet appel ») ; au survol de la jauge, « Fenêtre de 4 096 tokens, dont
+    1 536 réservés à la réponse : 2 560 utilisables. » ;
+  - « Afficher le raisonnement » (en-tête de la Vue humain) décoché : la bulle ne garde que le
+    texte ;
+  - brique éteinte (interrupteur de sa carte), « Rejouer le dernier prompt », puis « Comparer »
+    (en-tête de Contexte LLM) : moins de sortie ;
   - une réponse en moins de 120 s, coupe éventuelle visible (section 5.3).
-- [ ] **Mémoire courte** : le prénom revient ; brique éteinte, le rejeu l'oublie.
-- [ ] **Prompt système** : « … comme un pirate. », puis rejeu : la réponse change.
-- [ ] **Mémoire globale** (story 14, lot A) :
+- [ ] **Mémoire courte** : les deux prompts suggérés ; le prénom revient ; brique « Mémoire
+  courte » éteinte, « Rejouer le dernier prompt » l'oublie.
+- [ ] **Prompt système** : prompt suggéré, puis carte « Prompt système » → « Modifier le
+  prompt », ajoutez « Réponds toujours en une phrase, comme un pirate. », « Enregistrer »
+  (« Prompt système enregistré. » s'affiche, story 22), « Fermer », puis « Rejouer le dernier
+  prompt » : la réponse change.
+- [ ] **Mémoire globale** (story 14, lot A ; le détail N1 est en section 5.1, cahier C1) :
   - premier prompt : appel de `remember` et écriture de `memory.json` (sinon « Afficher les
-    actions forcées », puis « Écrire en mémoire ») ;
+    actions forcées », puis « Écrire en mémoire » sur la carte) ;
   - « Vider la conversation », puis second prompt : la préférence revient par le message
     système (pas avant : décision N1) ;
-  - « Modifier la mémoire » (modifier, effacer), clic sur le fichier dans le schéma, puis
-    « Réinitialiser » : la démonstration revient ;
-  - D11 : jauge avec une mémoire pleine.
+  - carte « Mémoire globale » → « Modifier la mémoire » (modifier, supprimer) ; fermez par
+    « × » ; le nœud « Mémoire globale » du Schéma d'architecture ouvre le même tiroir.
+- [ ] **« Réinitialiser »** : cliquez « ⟲ Réinitialiser », tout à droite de la barre haute. On
+  revient au LLM nu, sans scénario (le sélecteur affiche « Choisir un scénario »), et la mémoire
+  de démonstration est restaurée. Pour le vérifier : carte « Mémoire globale » (éteinte) →
+  « Modifier la mémoire » : les trois entrées de démonstration (« L'utilisateur s'appelle
+  Camille. »…, marquées « démonstration ») sont revenues ; envoyez « Bonjour » : Orchestration
+  titre ce tour « Tour 1 » (story 22 ; l'identifiant `t{n}` du journal, lui, continue).
+- [ ] **D11, mémoire globale pleine** (20 entrées de 300 caractères) :
+  1. WaveStack arrêté (Ctrl+C), lancez le premier bloc ci-dessous, **une seule fois** : il
+     sauvegarde `memory.json` en `memory.json.avant-d11` (ou note qu'il n'existait pas), refuse
+     de continuer si une sauvegarde D11 existe déjà (ne le relancez pas : restaurez d'abord),
+     écrit 20 entrées au format de `memory.json` (liste de `{id, text, created_at, source}`, un
+     texte sur une ligne) et répond « 20 entrees ».
+  2. Relancez `uv run wavestack`. Ne lancez ni le scénario « Mémoire globale » ni
+     « ⟲ Réinitialiser » : ils restaurent la démonstration. Allumez la brique « Mémoire
+     globale » à la main, par son interrupteur dans le Panneau des briques, puis la brique
+     « Raisonnement » (le pire cas : 2 560 utilisables).
+  3. Lisez la ligne d'état de la carte (« 20 entrées · N tokens »), le total de la jauge de la
+     barre haute (« … / 2 560 tokens · … % ») et, au survol, son segment « Mémoire globale ».
+     « Modifier la mémoire » : 20 entrées. Fermez par « × ».
+  4. WaveStack arrêté, restaurez la sauvegarde (second bloc : il ne touche à rien sans
+     sauvegarde D11), puis relancez.
+  - Attendu : la mémoire compte ≈ 1 550 tokens (estimation du dépôt, à relever) ; la jauge
+    reste sous la fenêtre utilisable, sans « contexte dépassé ».
 
-**Module 2 : Outils**
-- [ ] **Outils natifs** : Orchestration montre la demande, l'exécution et la réinjection.
-- [ ] **Outils réseau** : nœud en zone Réseau ; « Données sortantes » = texte exact envoyé ;
-  Wikipédia répond (lot D).
+```powershell
+# Mémoire pleine (D11), WaveStack arrêté : une seule fois
+$d = "$env:LOCALAPPDATA\WaveStack"
+if ((Test-Path "$d\memory.json.avant-d11") -or (Test-Path "$d\memory.json.d11-sans-fichier")) { throw "Sauvegarde D11 déjà présente : restaurez d'abord (bloc « Restaurer la mémoire »), ne relancez pas ce bloc." }
+if (Test-Path "$d\memory.json") { Copy-Item "$d\memory.json" "$d\memory.json.avant-d11" } else { New-Item "$d\memory.json.d11-sans-fichier" | Out-Null }
+$base = "preference de test pour la jauge, memoire globale pleine : reponses courtes, sources citees, vocabulaire simple, exemples tires de la cybersecurite, pas de jargon inutile, et un resume final en trois points. "
+$e = foreach ($i in 1..20) {
+  $t = ("D11 entree {0:D2} : " -f $i) + $base + $base
+  $t = $t.Substring(0, 300)
+  if ($t.EndsWith(" ")) { $t = $t.Substring(0, 299) + "." }
+  [ordered]@{ id = "d11-$i"; text = $t; created_at = "2026-09-29T09:00:00+02:00"; source = "user" }
+}
+[IO.File]::WriteAllText("$d\memory.json", (ConvertTo-Json @($e) -Depth 3), (New-Object Text.UTF8Encoding $false))
+"$((Get-Content "$d\memory.json" -Raw | ConvertFrom-Json).Count) entrees"
 
-**Module 3 : RAG**
-- [ ] **RAG** (story 15) : la carte ne dit pas « sqlite-vec ne se charge pas ».
-  - Brique éteinte, premier prompt : Exemplia est inconnue.
-  - Brique rallumée, rejeu, « Comparer » : la réponse donne 14 caractères.
-  - « Recherche RAG » : requête, extraits, scores et durée. Survolez l'index dans le schéma.
-- [ ] **RAG avec reranking** (story 16), sur l'hôtel à Paris :
+# Restaurer la mémoire (D11), WaveStack arrêté
+$d = "$env:LOCALAPPDATA\WaveStack"
+if (Test-Path "$d\memory.json.avant-d11") { Move-Item "$d\memory.json.avant-d11" "$d\memory.json" -Force; "memory.json restauré" }
+elseif (Test-Path "$d\memory.json.d11-sans-fichier") { Remove-Item "$d\memory.json", "$d\memory.json.d11-sans-fichier"; "memory.json de test retiré (il n'existait pas avant D11)" }
+else { "Aucune sauvegarde D11 : rien n'est touché." }
+```
+
+Le fichier est écrit en UTF-8 sans BOM (`Set-Content -Encoding utf8` de PowerShell 5.1 en
+ajoute un, que WaveStack refuse). Sans `memory.json`, WaveStack repart de la démonstration.
+
+**Module 2 : Outils** (cahier : M2)
+- [ ] **Outils natifs** : « Module 2 · Outils · 45 min » → « Outils natifs », prompt de
+  l'heure : Orchestration montre « Demande un outil », « Exécute l'outil » et « Réinjecte le
+  résultat ».
+- [ ] **Outils réseau** : second prompt (Mont-Saint-Michel) ; nœud « Résumé Wikipédia » en zone
+  « 🌐 RÉSEAU · hors du poste » ; cliquez-le : Orchestration ouvre « Exécute l'outil hors du
+  poste », dont le bloc « 🌐 RÉSEAU · Données sortantes » est le texte exact envoyé
+  (requête, en-têtes, corps) ; Wikipédia répond (lot D, section 5.4).
+
+**Module 3 : RAG** (cahier : M3). Où est quoi : l'interrupteur « Reranking » est sur la carte
+RAG (Panneau des briques) ; les étapes « Recherche RAG » et « Reranking » sont dans
+Orchestration ; l'index est le nœud « Index RAG (rag_index.sqlite) » du Schéma d'architecture.
+- [ ] **RAG** (story 15) : « Module 3 · RAG · 45 min » → « RAG » ; la carte ne dit pas
+  « sqlite-vec ne se charge pas ».
+  - Brique éteinte (interrupteur de la carte RAG), premier prompt : Exemplia est inconnue.
+  - Brique rallumée, « Rejouer le dernier prompt », « Comparer » : la réponse donne 14
+    caractères.
+  - Étape « Recherche RAG » dépliée : requête, extraits, scores et durée. Survolez le nœud
+    « Index RAG (rag_index.sqlite) » du schéma.
+- [ ] **RAG avec reranking** (story 16), scénario « RAG avec reranking » (« Reranking » coché
+  sur la carte RAG), premier prompt (hôtel à Paris) :
   - l'étape « Reranking » affiche « 3 gardés sur 8 », l'ordre avant et après, et deux scores ;
   - au moins un extrait change de rang (constaté le 2026-09-27) ;
-  - relevez la durée des 8 passes et le RSS ajouté (au plus 800 Mo) ;
-  - case décochée : « Prend effet au prochain tour », et plus d'étape au rejeu.
+  - relevez la durée des 8 passes et le RSS ajouté (commande de mesure avant et après ce tour,
+    au plus 800 Mo) ;
+  - « Reranking » décoché : la carte RAG dit « Prend effet au prochain tour », et plus d'étape
+    « Reranking » au rejeu.
+  - Brique RAG éteinte, l'interrupteur « Reranking » est grisé, avec l'infobulle « Activez la
+    brique RAG pour régler cette option. » (violet le 2026-09-28, story 22).
 
-**Module 4 : MCP**
-- [ ] **MCP en documentation complète**, point critique : la jauge avant envoi (3 204 / 3 584
-  le 2026-09-27, RAG éteint). Relevez la durée du tour. En cas de débordement, le noter pour
-  décider : `expects_overflow`, ou mémoire globale éteinte.
-- [ ] **Lazy loading** : jauge bien plus légère, RAG rallumé ; deux prompts sans débordement
-  (lot B) ; chargement de la documentation dans Orchestration.
+**Module 4 : MCP** (cahier : M4)
+- [ ] **MCP en documentation complète**, point critique : « Module 4 · MCP · 45 min » → « MCP
+  en documentation complète » ; la jauge avant envoi (3 204 / 3 584 le 2026-09-27, RAG éteint).
+  Relevez la durée du tour. En cas de débordement, le noter pour décider : `expects_overflow`,
+  ou mémoire globale éteinte.
+- [ ] **Lazy loading** : jauge bien plus légère ; premier prompt : chargement de la
+  documentation dans Orchestration. Si rien n'est chargé : « Afficher les actions forcées »,
+  carte MCP, dépliez « Serveurs : … », « Charger la documentation » sur « Glossaire
+  WaveStack », outil `local__define_term`, « Armer », puis « Rejouer le dernier prompt ».
+  Second prompt (data.gouv.fr) : si le modèle appelle la recherche, « Résultat tronqué par le
+  harnais : N tokens sur M (borne [tools] result_max_tokens) », N ≤ 1 200. Un appel d'outil MCP
+  ne se force pas (story 27).
 
-**Module 5 : Skills et hooks**
-- [ ] **Skills** : la jauge grandit au chargement du skill ; notez l'outil appelé
-  (`load_skill` ou `load_tool_doc`, lot H) et la durée du tour (248 s le 2026-09-27, sous
-  pression mémoire).
-- [ ] **Caveman** : « Déclencher le skill » sur Caveman, puis rejeu et « Comparer » : moins de
-  sortie.
-- [ ] **Hooks** : H1 bloque `confidentiel/budget_projet.txt` (bande « Points d'accroche »),
-  au besoin avec le forçage « Fichier sensible ».
+**Module 5 : Skills et hooks** (cahier : M5)
+- [ ] **Skills** : « Module 5 · Skills et hooks · 60 min » → « Skills » ; la jauge grandit au
+  chargement du skill ; notez l'outil appelé (`load_skill` ou `load_tool_doc`) et la durée du
+  tour (248 s le 2026-09-27, sous pression mémoire). Si rien n'est chargé : carte Skills,
+  dépliez « Skills : … », « Déclencher le skill » sur « Compte rendu de réunion », puis
+  « Rejouer le dernier prompt ».
+- [ ] **Caveman** : scénario « Caveman », prompt suggéré ; « Déclencher le skill » sur
+  « Caveman », « Rejouer le dernier prompt » et « Comparer » : moins de sortie.
+- [ ] **Hooks** : scénario « Hooks » ; H1 bloque `confidentiel/budget_projet.txt` (bande
+  « Points d'accroche » du schéma), au besoin avec « Forcer l'appel » sur « Lecture de
+  fichier » (carte Outils), préréglage « Fichier sensible », « Armer », puis « Rejouer le
+  dernier prompt ».
 
-**Module 6 : Sous-agent et compression**
-- [ ] **Sous-agent** (story 19, lot A) :
-  - le modèle délègue-t-il, ou lit-il le guide lui-même ? Sinon, forcez « Déléguer au
-    sous-agent » avec « Résumer le guide du harnais » ;
-  - dépliez « Délégation au sous-agent » (économie de tokens, état sauvegardé) ;
-  - Contexte LLM bascule entre le contexte principal et `sub1` ; un second robot apparaît ;
-  - notez la taille de `sub{n}` (au plus 4 096 − 512) et tout « Préfixe non réutilisé » ;
+**Module 6 : Sous-agent et compression** (cahier : M6)
+- [ ] **Sous-agent** (story 19, lot A), « Module 6 · Sous-agent et compression · 60 min » →
+  « Sous-agent » :
+  - « Afficher les actions forcées » activé, carte « Sous-agent » : « Déléguer au sous-agent »
+    ouvre le formulaire, « Annuler » le ferme (ne faisait rien le 2026-09-28, story 22) ;
+  - premier prompt : le modèle délègue-t-il, ou lit-il le guide lui-même (pas d'étape
+    « Délégation au sous-agent ») ? Dans ce cas, « Déléguer au sous-agent », préréglage
+    « Résumer le guide du harnais », « Armer », puis « Rejouer le dernier prompt » ;
+  - dépliez « Délégation au sous-agent » (économie de tokens, « état sauvegardé : N Mo,
+    restauré en N s ») ;
+  - Contexte LLM : onglets « Agent principal » (sélectionné par défaut : le résumé seul, en
+    « Résultat du sous-agent ») et « Sous-agent sub1 » (le guide entier) ; cliquez l'un puis
+    l'autre. Un second robot, « Sous-agent », apparaît dans le schéma ;
+  - notez la taille de `sub1` (au plus 4 096 − 512) et tout « Préfixe non réutilisé » ;
   - finissez par les trois quiz (premier token, section 5.1).
-- [ ] **Compression** (story 20) :
-  - brique éteinte, le journal entre en entier ; rallumée, rejeu et « Comparer » ;
+- [ ] **Compression** (story 20), scénario « Compression du contexte » :
+  - brique Compression éteinte, premier prompt : le journal entre en entier ; rallumée,
+    « Rejouer le dernier prompt » et « Comparer » ;
   - « Compression (Headroom) » : tokens avant et après, erreur gardée ; dans Contexte LLM,
     « compressé » et le total « Sans compression » ;
   - le second prompt (lot 12) montre la perte ;
   - aucun appel « Retrieve more », et le scénario tient-il sans compression ?
 
-**Transverses et métier**
-- [ ] **Où vont mes données ?** : seul le flux vers data.gouv.fr franchit la frontière ;
-  lazy loading actif au lancement.
-- [ ] **SOC** (D6) :
+**Transverses et métier** (cahier : X1 à X4)
+- [ ] **Où vont mes données ?** (X1) : « Transverses et métier » → « Où vont mes données ? ».
+  Depuis les stories 22 et 27, le scénario allume la brique MCP lui-même, en lazy loading, avec
+  « Glossaire WaveStack » et « data.gouv.fr » : rien à allumer ni à cocher. Carte MCP : résumé
+  « Serveurs : 2 activés sur 3 · Lazy loading » (brique éteinte, il dirait « · brique
+  éteinte »). Schéma : outils et « Glossaire WaveStack » dans « 🖥 Poste de travail »,
+  « data.gouv.fr » dans « 🌐 RÉSEAU · hors du poste » ; décochez puis recochez « data.gouv.fr »
+  dans la carte MCP : le seul flux qui franchit la frontière disparaît, puis revient. Envoyez
+  le prompt, cliquez le nœud « data.gouv.fr » : Orchestration montre ses « Données
+  sortantes ».
+- [ ] **SOC** (D6, X2), « Métier SOC : journal d'audit et garde-fou » (consigne repliée,
+  « Afficher plus ») :
   - premier prompt : un seul incident, `adm.leroy`, avec l'accès initial à 02:14,
     l'élévation à 02:15, l'antivirus arrêté à 02:21 et 2,3 Go exfiltrés à 02:40 ; H2
-    journalise ;
+    journalise. Si `read_file` n'est pas appelé : « Forcer l'appel » sur « Lecture de
+    fichier », préréglage « Alertes SIEM (SOC) », « Armer », « Rejouer le dernier prompt » ;
   - second prompt : H1 bloque l'inventaire des comptes à privilèges ; l'agent escalade-t-il ?
   - clic sur « Journal d'audit » dans le schéma.
-- [ ] **IAM** : accès conditionnel avec MFA pour les administrateurs, PIM juste-à-temps, liens
-  Microsoft Learn ; résultats bornés (lot B).
-- [ ] **Souveraineté** : les « Données sortantes » de chaque appel montrent deux flux ; le
-  modèle reste local. Le modèle appelle-t-il la recherche (lot H) ?
-- [ ] **NFR-2 global** : pic toutes briques actives (3 314 Mo le 2026-09-27 : 2B, embedding
-  et reranker), sous le plafond de 4 096 Mo.
+- [ ] **IAM** (X3) : « Métier IAM : Entra ID avec Microsoft Learn », les deux prompts : accès
+  conditionnel avec MFA pour les administrateurs, PIM juste-à-temps, liens Microsoft Learn ;
+  résultats bornés (lot B). Si le modèle cherche, l'étape « Exécute l'outil hors du poste »
+  montre ses « Données sortantes » vers `learn.microsoft.com`.
+- [ ] **Souveraineté** (X3) : « Métier Souveraineté : où partent les requêtes ? », les deux
+  prompts. Pour chaque appel, dans Orchestration, étape « Exécute l'outil hors du poste »,
+  dépliez « 🌐 RÉSEAU · Données sortantes » et lisez l'hôte : `mcp.data.gouv.fr` au premier
+  prompt, `learn.microsoft.com` au second (les connexions aux deux serveurs sont aussi dans le
+  groupe « Préparation du harnais »). Le modèle reste local (indicateur « Local »). Si rien
+  n'est chargé : « Charger la documentation » sur « data.gouv.fr » (ou « Microsoft Learn »),
+  l'outil nommé par le prompt, « Armer », « Rejouer le dernier prompt ». Le modèle appelle-t-il
+  la recherche (H5) ?
+- [ ] **NFR-2 global** (X4) : pic toutes briques actives (3 314 Mo le 2026-09-27, 3 270 Mo le
+  2026-09-28 : 2B, embedding et reranker), sous le budget B relevé au diagnostic (au plus
+  4 096 Mo).
 
-**Modèles**
-- [ ] **Changement à chaud** (story 17, lot E) :
+**Modèles** (cahier : C4, C9, C10, D1 à D4m)
+- [ ] **Changement à chaud** (story 17, lot E ; cahier D1) :
   - après un tour avec le 2B : « Changer de modèle… » → 4B → « Charger » : refus chiffré
     (section 5.5), le 2B reste ou redevient actif. Pour utiliser le 4B, il faut relever le
-    budget : WaveStack arrêté, `{"memory": {"budget_mb": 5120}}` dans `settings.json` (JSON).
-    C'est un écart à N5 (le budget par défaut reste 4 096 Mo) : les mesures suivantes ne valent
-    plus pour le budget par défaut ; retirez la clé ensuite ;
-  - avec un modèle qui tient dans le budget (le 2B après un modèle Ollama, par exemple) :
-    chronomètre, envoi désactivé, conversation gardée, ligne « Modèle : … », rejeu par le
-    nouveau modèle, « Comparer » par modèle ;
-  - un fichier incompatible ramène au modèle précédent, avec une explication en français.
-- [ ] **llama-server** (story 18, lot E), lancé **avant** WaveStack, toujours avec `-c 4096` :
+    budget (`budget_mode` = `fixed`, `budget_mb` = 6144, sous `memory`) : WaveStack arrêté,
+    sauvegardez `settings.json` (une seule fois), modifiez seulement ces deux valeurs par
+    WaveStack lui-même (pas à la main : le Bloc-notes ou `Set-Content` de PowerShell 5.1
+    peuvent ajouter un BOM), puis restaurez la sauvegarde à la fin (blocs ci-dessous). C'est un
+    écart à N5 : les mesures faites avec ce budget ne valent pas pour le budget par défaut ;
 
 ```powershell
-llama-server -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --port 8080 -np 1 -c 4096
+# Sauvegarder settings.json (WaveStack arrêté, une seule fois)
+$d = "$env:LOCALAPPDATA\WaveStack"
+if (Test-Path "$d\settings.json.avant-4b") { throw "Sauvegarde settings.json.avant-4b déjà présente : restaurez d'abord, ne relancez pas ce bloc." }
+Copy-Item "$d\settings.json" "$d\settings.json.avant-4b"
+# Budget fixe de 6 144 Mo, sans toucher au reste de la section memory
+uv run python -c "from wavestack import config; m = config.read_settings().get('memory', {}); m.update({'budget_mode': 'fixed', 'budget_mb': 6144}); config.save_setting('memory', m); print(config.read_settings()['memory'])"
+# À la fin, WaveStack arrêté : restaurer settings.json
+$d = "$env:LOCALAPPDATA\WaveStack"
+if (Test-Path "$d\settings.json.avant-4b") { Move-Item "$d\settings.json.avant-4b" "$d\settings.json" -Force; "settings.json restauré" } else { "Aucune sauvegarde : rien n'est touché." }
+```
+
+  - avec un modèle qui tient dans le budget, Ollama lancé : après un tour avec le 2B
+    (« Outils natifs », prompt de l'heure), « Changer de modèle… » → groupe « Sur ce poste ·
+    Qwen (Alibaba) » → « Local · Ollama · qwen3.5:2b … » → « Charger ». Attendu : chronomètre
+    de chargement dans la barre haute et la Vue humain, « Envoyer » désactivé ; puis
+    « Rejouer le dernier prompt » : conversation gardée, ligne « Modèle : … » au-dessus du
+    premier tour d'Ollama, rejeu par le nouveau modèle ; « Comparer » (tour du 2B à gauche,
+    celui d'Ollama à droite) affiche « Modèle : … » pour chaque tour. Retour : « Local ·
+    fichier · Qwen3.5-2B-Q4_K_M.gguf … » → « Charger » ;
+  - un fichier incompatible ramène au modèle précédent, avec une explication en français
+    (section 5.5).
+- [ ] **llama-server** (story 18, lot E ; cahier C10), lancé **avant** WaveStack, toujours
+  avec `-c 4096`, par `$llama` (section 2.1) :
+
+```powershell
+& $llama -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --port 8080 -np 1 -c 4096
 ```
 
   - Le diagnostic affiche « Local », l'adresse, la mémoire et « Choisir », sans avertissement
@@ -578,21 +886,27 @@ llama-server -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --po
     la mémoire affichée au diagnostic (fichier de 1,28 Go plus le cache de 4 096 tokens), et
     bien en dessous des 5 137 Mo mesurés sans `-c`. Relevez les deux chiffres.
   - Pour N6 : second tour de `native_tools` (`prompt_ms`) et quiz du sous-agent avec ce
-    serveur.
-- [ ] **Ollama**, avec `ollama serve` lancé avant WaveStack :
-  - `qwen3.5:2b` est accepté et un tour aboutit (comme le 2026-09-27, avec l'Ollama du
-    poste). Avec un Ollama trop ancien pour servir `qwen35`, le modèle est accepté aussi, puis
-    le premier tour échoue sur une erreur brute « HTTP 500 » d'Ollama, sans raison en français
-    ni retour au modèle précédent (écart noté dans `deferred-work.md`). Seul un tokenizer que
-    llama-cpp-python ne sait pas lire est refusé au chargement, avec la raison et le modèle
-    précédent gardé ;
-  - un tour : notez toute alerte « transparence réduite » et ses deux comptes ;
-  - « Arrêter » pendant le chargement (section 5.5) ;
-  - `ollama ps` est vide après un changement de modèle et après la fermeture de WaveStack,
-    sauf pour un modèle chargé par un autre programme.
-- [ ] **Groq et Mistral avec le raisonnement** (story 13) : saisissez la clé au diagnostic
-  (« Enregistrer la clé », « Tester »), ou faites `setx GROQ_API_KEY …` puis ouvrez un
-  nouveau terminal. Scénario Raisonnement :
+    serveur : tel que livré (RAG éteint depuis la story 27), puis RAG allumé à la main.
+- [ ] **Ollama** (cahier D2m) :
+  1. Dans un terminal : `ollama serve` (laissez-le ouvert ; un message d'adresse déjà
+     utilisée veut dire qu'Ollama tourne déjà : c'est bon). Dans un second terminal :
+     `ollama ps` (en général vide).
+  2. « Changer de modèle… » → « Local · Ollama · qwen3.5:2b … » → « Charger » ; « Outils
+     natifs », prompt de l'heure : un tour aboutit (comme le 2026-09-27). Avec un Ollama trop
+     ancien pour servir `qwen35`, le modèle est accepté aussi, puis le premier tour échoue sur
+     une erreur brute « HTTP 500 » d'Ollama (écart noté dans `deferred-work.md`).
+  3. En bas d'Orchestration, « Journal des événements (N) » : une ligne « Erreur du harnais »
+     qui commence par « Transparence réduite : Ollama a lu … tokens de prompt, le harnais en a
+     compté … » donne les deux comptes à noter. Une ligne « Cache du serveur local » n'est
+     qu'une information.
+  4. `ollama ps` : `qwen3.5:2b` chargé ; retour au 2B intégré : `ollama ps` vide ; rechoisissez
+     `qwen3.5:2b`, un tour, Ctrl+C sur WaveStack : `ollama ps` vide (sauf un modèle chargé par
+     un autre programme).
+- [ ] **Groq et Mistral avec le raisonnement** (story 13 ; cahier D3m) : saisissez la clé au
+  diagnostic (section « Modèles cloud » : « Enregistrer la clé », « Tester »), ou faites
+  `setx GROQ_API_KEY …` puis ouvrez un nouveau terminal. « Changer de modèle… » → « RÉSEAU ·
+  Groq · openai/gpt-oss-120b … » → « Choisir… » → « Utiliser ce modèle ». Scénario
+  Raisonnement :
   - Groq : « Toujours active pour ce modèle », 2 464 tokens utilisables ;
   - Mistral : `reasoning_effort` vaut `high` brique allumée, `none` brique éteinte, dans les
     « Données sortantes » ;
@@ -600,10 +914,9 @@ llama-server -m "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf" --po
     un quota épuisé, pas un espacement trop court. Lisez d'abord le message du fournisseur dans
     le Journal des événements (capacité saturée ou quota), puis vérifiez le quota dans la
     console Mistral ;
-  - D9, avec un quota disponible : WaveStack arrêté, mettez
-    `{"cloud": {"models": [{"id": "mistral", "reasoning": {"resend": true}}]}}` dans
-    `settings.json`, puis jouez un tour avec outil et un second tour. Un 400 veut dire refus.
-- [ ] **Relance** : Ctrl+C, puis `uv run wavestack` ; le dernier modèle chargé revient.
+  - D9 (cahier Z3), avec un quota disponible : section 7.
+- [ ] **Relance** (cahier D4m) : Ctrl+C, puis `uv run wavestack` ; le dernier modèle chargé
+  revient.
 
 ## 7. Décisions à trancher pendant le test
 
@@ -614,41 +927,100 @@ Le détail est dans `plan-corrections-palier-2.md` et `weekend-report-2026-09-26
 |---|---|---|
 | N6 | Moteur intégré (llama-cpp-python) par défaut ; llama-server conseillé si le lot A ne suffit pas (il réutilisait son cache : 0,8 à 1,3 s au lieu de 23 s) | Critères du lot A (section 5.1) avec le moteur intégré, puis avec llama-server `-c 4096` |
 | D2 | Sans reranker, seule la sous-option est indisponible | Sans le fichier du reranker (procédure ci-dessous), le RAG simple reste utilisable |
-| D3 | Serveurs seuls : « Choisissez un modèle servi » | Lancement sans GGUF ni clé, avec seulement Ollama ou llama-server (procédure ci-dessous) |
+| D3 | Serveurs seuls : « … choisissez un modèle servi. » | Lancement sans GGUF ni clé, avec seulement llama-server (procédure ci-dessous) |
 | D9 | Mistral : raisonnement non renvoyé (`resend = false`) | Avec un quota disponible, `resend: true` accepté ou refusé (400) |
 | F2 | Tranchée au lot J : `[compression] cost_mb` = 110 | — |
 
 D5 et D6 passent au lot H ; D7 à D18 se confirment en passant (par exemple D11 : jauge avec
 une mémoire globale pleine, section 6).
 
-**D2**, WaveStack arrêté, puis relancé ; défaire à la fin :
+**D2, sans le fichier du reranker** (cahier : Z1) :
+1. WaveStack arrêté (Ctrl+C), mettez le reranker de côté (premier bloc ci-dessous).
+2. Relancez `uv run wavestack`, puis « Module 3 · RAG · 45 min » → « RAG avec reranking ».
+3. Carte RAG (Panneau des briques) : lisez la raison sous l'interrupteur « Reranking ». Ne
+   cliquez pas « Télécharger le modèle de reranking (≈ … Mo) » : il retéléchargerait le
+   fichier.
+4. Premier prompt suggéré, « Envoyer » ; dépliez l'étape « Recherche RAG » d'Orchestration.
+5. WaveStack arrêté, remettez le fichier (second bloc), puis relancez : la raison disparaît.
+- Attendu : sous « Reranking », « Indisponible : modèle absent. Le modèle de reranking … n'est
+  pas sur le poste. … Le RAG fonctionne sans reranking. » ; le tour aboutit, « Recherche RAG »
+  dit pourquoi le reranking n'a pas eu lieu, sans étape « Reranking » ; la brique RAG reste
+  disponible (RAG simple).
 
 ```powershell
+# Mettre le reranker de côté, WaveStack arrêté
 $m = "$env:LOCALAPPDATA\WaveStack\models\reranker"
 Rename-Item "$m\bge-reranker-v2-m3-Q4_K_M.gguf" "bge-reranker-v2-m3-Q4_K_M.gguf.bak"
-# … lancement, scénario « RAG avec reranking » : sous-option indisponible, RAG simple utilisable …
+# Le remettre, WaveStack arrêté
+$m = "$env:LOCALAPPDATA\WaveStack\models\reranker"
 Rename-Item "$m\bge-reranker-v2-m3-Q4_K_M.gguf.bak" "bge-reranker-v2-m3-Q4_K_M.gguf"
 ```
 
-**D3**, WaveStack arrêté, Ollama ou llama-server lancé ; défaire à la fin, WaveStack arrêté,
-depuis `sauvegarde-palier-2` (section 0) :
+**D3, serveurs seuls, sans GGUF ni clé** (cahier : Z2). Rien n'est déplacé ni supprimé, aucune
+variable utilisateur ni machine n'est touchée : tout se passe dans un seul terminal, sur un
+dossier de données temporaire et vide (`WAVESTACK_DATA_DIR`). Il faut llama-server
+(section 2.1) : WaveStack compte les fichiers d'Ollama comme des GGUF, et les rend illisibles
+dès qu'on lui cache leur dossier ; sans llama-server, D3 est « non fait (poste) ».
+1. **D'abord**, dans un terminal : les clés posées pour tout le poste (premier bloc). Une valeur
+   affichée : notez-le ; la suite la retire seulement du terminal de WaveStack.
+2. Dans un autre terminal, lancez llama-server (section 2.1, « retrouvez l'exécutable », puis
+   la dernière ligne du bloc d'installation) : le 2B reste à sa place.
+3. Quittez Ollama (icône de la zone de notification, « Quit Ollama »). S'il reste lancé, ses
+   modèles apparaissent au diagnostic comme incompatibles (« Fichier GGUF du modèle introuvable
+   dans le dossier d'Ollama (…) ») : c'est attendu.
+4. WaveStack arrêté, nouveau terminal à la racine du clone : second bloc. Il retire les clés de
+   ce terminal (`Remove-Item Env:GROQ_API_KEY`, idem Mistral), pointe `WAVESTACK_DATA_DIR`
+   vers un dossier temporaire vide (ni `api_keys.json`, ni `settings.json`, ni modèles),
+   `OLLAMA_MODELS` et `HF_HOME` vers des dossiers vides, pour ce terminal seulement, liste les
+   GGUF de LM Studio, puis refuse de lancer (`throw`) si une clé est encore visible. Si des
+   fichiers de LM Studio sont listés, WaveStack les proposera au lieu de demander un modèle
+   servi : notez-le (« non fait (poste) »), ou lisez seulement les lignes des clés.
+5. Lisez le diagnostic : « Modèles détectés », puis « Modèles cloud » (lignes Groq et Mistral).
+   - Attendu : « Aucun fichier GGUF, mais un serveur local sert 1 modèle : choisissez un modèle
+     servi. », avec le modèle de llama-server et « Choisir » ; pour Groq et Mistral, ni « Clé
+     fournie par la variable … » ni « Clé enregistrée », mais « Ou définissez la variable
+     GROQ_API_KEY, puis ouvrez un nouveau terminal. » (idem `MISTRAL_API_KEY`). Relevez le
+     libellé exact.
+6. **Défaire** : Ctrl+C, puis fermez ce terminal ; arrêtez llama-server. Rien à restaurer ; le
+   dossier temporaire (`%TEMP%\wavestack-z2-…`) peut rester. Contrôle : dans un nouveau
+   terminal, `uv run wavestack` comme d'habitude retrouve vos clés et le 2B (cahier : « Clés et
+   modèles intacts après le test »).
 
 ```powershell
-$d = "$env:LOCALAPPDATA\WaveStack"
-New-Item -ItemType Directory -Force "$d\models-de-cote" | Out-Null
-Move-Item "$d\models\*.gguf" "$d\models-de-cote\"
-Move-Item "$d\api_keys.json" "$d\models-de-cote\" -ErrorAction SilentlyContinue
-$s = Get-Content "$d\settings.json" -Raw | ConvertFrom-Json
-$s.PSObject.Properties.Remove("selected_model")
-$s | ConvertTo-Json -Depth 20 | Set-Content -Encoding utf8 "$d\settings.json"
-# … lancement : le diagnostic bloque avec « Choisissez un modèle servi » …
-Move-Item "$d\models-de-cote\*.gguf" "$d\models\"
-Copy-Item "$d\sauvegarde-palier-2\settings.json", "$d\sauvegarde-palier-2\api_keys.json" "$d\" -Force -ErrorAction SilentlyContinue
+# 1. Clés posées pour tout le poste ? (d'abord)
+[Environment]::GetEnvironmentVariable("GROQ_API_KEY", "Machine"); [Environment]::GetEnvironmentVariable("MISTRAL_API_KEY", "Machine")
 ```
 
-Les variables `GROQ_API_KEY` et `MISTRAL_API_KEY` fournissent aussi une clé : pour D3, lancez
-WaveStack depuis un terminal où elles sont vides (`$env:GROQ_API_KEY = ""`, de même pour
-Mistral).
+```powershell
+# 4. Nouveau terminal : WaveStack sans clé ni données
+Remove-Item Env:GROQ_API_KEY, Env:MISTRAL_API_KEY -ErrorAction SilentlyContinue
+$z = Join-Path $env:TEMP ("wavestack-z2-" + (Get-Date -Format yyyyMMdd-HHmmss))
+New-Item -ItemType Directory -Force "$z\data", "$z\ollama", "$z\hf" | Out-Null
+$env:WAVESTACK_DATA_DIR = "$z\data"; $env:OLLAMA_MODELS = "$z\ollama"; $env:HF_HOME = "$z\hf"
+Remove-Item Env:HF_HUB_CACHE -ErrorAction SilentlyContinue
+Get-ChildItem "$HOME\.lmstudio\models", "$HOME\.cache\lm-studio\models" -Recurse -Filter *.gguf -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+if ($env:GROQ_API_KEY -or $env:MISTRAL_API_KEY) { throw "Une clé est encore visible dans ce terminal : Z2 arrêté, rien n'est lancé." }
+$env:UV_SYSTEM_CERTS = "1"
+uv run wavestack
+```
+
+**D9, Mistral `resend`** (cahier : Z3), avec un quota disponible : WaveStack arrêté,
+sauvegardez `settings.json` (une seule fois), ajoutez seulement `reasoning.resend = true` à
+l'entrée `mistral` de `cloud.models` (créée au besoin, sans toucher au reste), relancez, passez
+sur Mistral, jouez un tour avec outil (« Outils natifs », prompt de l'heure) puis un second
+tour. Un 400 veut dire refus. WaveStack arrêté, restaurez `settings.json`.
+
+```powershell
+# Sauvegarder settings.json (WaveStack arrêté, une seule fois)
+$d = "$env:LOCALAPPDATA\WaveStack"
+if (Test-Path "$d\settings.json.avant-z3") { throw "Sauvegarde settings.json.avant-z3 déjà présente : restaurez d'abord, ne relancez pas ce bloc." }
+Copy-Item "$d\settings.json" "$d\settings.json.avant-z3"
+# Ajouter resend
+uv run python -c "from wavestack import config; s = config.read_settings(); c = s.get('cloud', {}); ms = c.setdefault('models', []); e = next((m for m in ms if m.get('id') == 'mistral'), None) or ms.append({'id': 'mistral'}) or ms[-1]; e.setdefault('reasoning', {})['resend'] = True; config.save_setting('cloud', c); print(config.read_settings()['cloud'])"
+# À la fin, WaveStack arrêté : restaurer settings.json
+$d = "$env:LOCALAPPDATA\WaveStack"
+if (Test-Path "$d\settings.json.avant-z3") { Move-Item "$d\settings.json.avant-z3" "$d\settings.json" -Force; "settings.json restauré" } else { "Aucune sauvegarde : rien n'est touché." }
+```
 
 **Ce que le lot H attend de ce test** (scénarios et consignes, revus après ce test) :
 - H1 et D5 : extraits RAG hors sujet dans `mcp_lazy`, `skills`, `subagent` et `compression`

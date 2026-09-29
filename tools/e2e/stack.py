@@ -36,6 +36,9 @@ MODEL_ENTRY_ID = "fake"
 # Story 17: a second fake model, for the hot switch; `launch_app.py` slows its loading.
 SECOND_ENTRY_ID = "fake_b"
 SECOND_MODEL = "faux-modele-b"
+# Story 33: a third fake model that always reasons, for the locked reasoning card.
+REASONING_ENTRY_ID = "fake_r"
+REASONING_MODEL = "faux-modele-raisonne"
 
 
 # The launcher's own requests only reach the loopback: never through the workstation's proxy.
@@ -54,8 +57,10 @@ RERANKER_FILE = "reranker/fake-e2e.gguf"
 RERANKER_SIZE = 2048  # `fake_openai.RERANKER_FILE_SIZE`
 
 
-def _entry(fake_port: int, entry_id: str, provider: str, model: str) -> dict:
-    return {
+def _entry(
+    fake_port: int, entry_id: str, provider: str, model: str, reasoning: dict | None = None
+) -> dict:
+    entry = {
         "id": entry_id,
         "provider": provider,
         "base_url": f"http://127.0.0.1:{fake_port}/v1",
@@ -67,7 +72,12 @@ def _entry(fake_port: int, entry_id: str, provider: str, model: str) -> dict:
         "training": "no",
         "notes_fr": "Faux modèle scripté pour les tests de bout en bout.",
         "key_env": KEY_ENV,
+        # Story 29: as the Groq and Mistral presets, for the « LLM nu » screen.
+        "sampling": ["temperature", "top_p"],
     }
+    if reasoning is not None:
+        entry["reasoning"] = reasoning
+    return entry
 
 
 def rag_settings(fake_port: int, data_dir: Path) -> dict:
@@ -106,7 +116,8 @@ def rag_settings(fake_port: int, data_dir: Path) -> dict:
 
 
 def settings(fake_port: int, data_dir: Path, llama_port: int = 0, ollama_port: int = 0) -> dict:
-    """The `settings.json` override: two cloud models, both on the fake server; the RAG's
+    """The `settings.json` override: three cloud models, all on the fake server (the third
+    always reasons, story 33); the RAG's
     index and fake embedding model (story 15); the ports of the fake local servers (story
     18)."""
     values: dict = {
@@ -115,6 +126,13 @@ def settings(fake_port: int, data_dir: Path, llama_port: int = 0, ollama_port: i
             "models": [
                 _entry(fake_port, MODEL_ENTRY_ID, "Faux fournisseur (e2e)", "wavestack-fake"),
                 _entry(fake_port, SECOND_ENTRY_ID, "Faux fournisseur B (e2e)", SECOND_MODEL),
+                _entry(
+                    fake_port,
+                    REASONING_ENTRY_ID,
+                    "Faux fournisseur R (e2e)",
+                    REASONING_MODEL,
+                    reasoning={"format": "field", "always": True},
+                ),
             ]
         },
     }

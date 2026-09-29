@@ -22,6 +22,7 @@ from wavestack.models import discovery
 from wavestack.models.openai_chat import OpenAIChatEngine, _quota_scope
 from wavestack.session.app_session import AppSession
 from wavestack.session.diagnostic import DiagnosticSession
+from wavestack.trace.catalog import ContextReconciledPayload
 from wavestack.trace.journal import get_journal
 from wavestack.web.app import create_app
 
@@ -135,6 +136,15 @@ def test_groq_turn_with_tool_two_calls_reconciled_body_is_the_one_sent(caplog):
         assert "".join(s["text"] for s in ctx.payload["segments"]) == ctx.payload["body"]
         assert all(s["estimated"] for s in ctx.payload["segments"])
         assert set(request.headers) >= {"authorization", "content-type"}
+        # Story 23: the headers are traced, the key's value masked before the journal.
+        traced = {h["name"]: (h["value"], h["masked"]) for h in out.payload["headers"]}
+        assert traced["Authorization"] == ("[masqué]", True)
+        assert traced["Content-Type"] == ("application/json", False)
+        assert [h["name"] for h in out.payload["headers"]] == [
+            n.decode("latin-1") for n, _ in request.headers.raw
+        ]
+        for piece in (SENTINEL[:4], SENTINEL[-4:]):
+            assert piece not in out.model_dump_json()
     body = json.loads(rendered[0].payload["body"])
     assert body["model"] == "openai/gpt-oss-120b" and body["stream"] is True
     assert body["reasoning_effort"] == "low" and body["stream_options"] == {"include_usage": True}
@@ -373,6 +383,20 @@ def test_cloud_models_merge_by_id_and_invalid_entries_are_left_out():
     assert config.cloud_window(valid[0], 4096) == (3000, "tpm")
 
 
+@pytest.mark.parametrize("name", ["User-Agent", "content-type", " Accept "])
+def test_a_key_header_traced_in_clear_is_refused_at_load(name):
+    """Story 23: a key under a public header would reach the journal in clear."""
+    settings = {"cloud": {"models": [{"id": "groq", "auth_header": {"name": name}}]}}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+
+    valid, errors = config.load_config().cloud_models
+
+    assert "groq" not in [m.id for m in valid]
+    (error,) = [e for e in errors if "groq" in e]
+    assert "auth_header.name" in error and "tracé en clair dans le journal" in error
+
+
 def test_cloud_window_sources_and_unavailable_quota():
     groq = config.load_config().cloud_model("groq")
     assert config.cloud_window(groq, 4096) == (4000, "tpm")
@@ -598,7 +622,7 @@ def test_a_choice_after_a_model_is_loaded_is_a_hot_switch(monkeypatch, tmp_path)
     provider = Provider(GROQ_TEXT)
     session, app_session, _, client = _app(monkeypatch, provider)
     app_session._engine_factory = lambda path, n_ctx: FakeEngine()
-    monkeypatch.setattr(session, "_probe_candidate", lambda candidate: None)
+    monkeypatch.setattr(session, "_probe_candidate", lambda candidate, cancel=None: None)
     gguf = tmp_path / "local.gguf"
     gguf.write_bytes(b"placeholder")
     app_session.boot(str(gguf)).result()  # a GGUF is loaded
@@ -901,3 +925,34 @@ def test_a_cancel_during_the_wait_sends_nothing():
     assert provider.requests == [] and get_journal().events_since(mark) == []
     assert openai_chat._last_start[entry.id] == seeded  # the slot is given back
     engine.close()
+
+
+# ---------- story 32: sections and « déjà lu » in chat mode ----------
+
+
+def test_chat_second_call_reads_the_first_one_again_and_reconciled_keeps_it():
+    provider = Provider(GROQ_TOOL, GROQ_TEXT)
+    session = _cloud_session("groq", provider, bricks=("tools",))
+
+    events = _turn(session, "Quelle heure est-il ?")
+
+    first, second = (e.payload for e in _of(events, "context_rendered"))
+    assert first["seen_segments"] == 0 and not any(s["seen"] for s in first["sections"])
+    assert second["seen_segments"] > 0
+    assert any(s["kind"] == "tool_result" and not s["seen"] for s in second["sections"])
+    for rendered, reconciled in zip(
+        _of(events, "context_rendered"), _of(events, "context_reconciled"), strict=True
+    ):
+        r, c = rendered.payload, reconciled.payload
+        assert c["seen_segments"] == r["seen_segments"]
+        cuts = [(s["start"], s["end"], s["kind"], s["seen"]) for s in r["sections"]]
+        assert [(s["start"], s["end"], s["kind"], s["seen"]) for s in c["sections"]] == cuts
+        assert sum(s["tokens"] for s in c["sections"]) == c["used"]  # recalibrated tokens
+        assert c["seen_tokens"] == sum(s["tokens"] for s in c["segments"][: c["seen_segments"]])
+        assert "".join(s["text"] for s in r["segments"]) == r["body"]
+    for reconciled in _of(events, "context_reconciled"):  # the catalogue's shape (AD-2)
+        checked = ContextReconciledPayload.model_validate(reconciled.payload)
+        assert checked.sections and checked.seen_segments == reconciled.payload["seen_segments"]
+    provider_section = second["sections"][-1]
+    assert provider_section["end"] - provider_section["start"] == 1
+    assert provider_section["label_fr"] == second["segments"][-1]["label_fr"]

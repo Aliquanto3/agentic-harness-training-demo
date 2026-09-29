@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,15 +19,19 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 from wavestack import config
+from wavestack.models import catalog
+from wavestack.models.engine import SAMPLING_BOUNDS, Sampling
+from wavestack.rag.lab import LANES_MAX, QUESTION_MAX, Pipeline
 from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession, Refused
 from wavestack.trace.envelope import Envelope
 from wavestack.trace.journal import get_journal
 
 STATIC_DIR = Path(__file__).parent / "static"
+log = logging.getLogger(__name__)
 
 
 class SelectModelIntention(BaseModel):
@@ -134,6 +139,63 @@ class MemoryIntention(BaseModel):
         return self
 
 
+class ContextWindowIntention(BaseModel):
+    """Story 26 (AD-9): one of the windows the interface offers (`config.WINDOW_CHOICES`)."""
+
+    window: Literal[config.WINDOW_CHOICES]  # type: ignore[valid-type]
+
+
+class LlmTokenizeIntention(BaseModel):
+    """Story 29: the text the « LLM nu » screen cuts into tokens (2 000 characters at most)."""
+
+    text: str = Field(min_length=1, max_length=2000)
+
+
+def _bounded(name: str) -> Any:
+    low, high = SAMPLING_BOUNDS[name]
+    return Field(ge=low, le=high)
+
+
+class SamplingIntention(BaseModel):
+    """Story 29: the screen's four sampling settings, within `engine.SAMPLING_BOUNDS` (the
+    single source of the bounds)."""
+
+    temperature: float = _bounded("temperature")
+    top_k: int = _bounded("top_k")
+    top_p: float = _bounded("top_p")
+    min_p: float = _bounded("min_p")
+
+
+class LlmGenerateIntention(BaseModel):
+    """Story 29: the screen's prompt (2 000 characters at most) and its sampling."""
+
+    prompt: str = Field(min_length=1, max_length=2000)
+    sampling: SamplingIntention
+    reasoning: bool = False  # refused (409) by a model that cannot reason
+    candidates: bool = False  # the in-process engine only, else 409
+
+
+class RagLabRunIntention(BaseModel):
+    """Story 30: the question the RAG workshop's chains run on (500 characters at most), and
+    the chain (the shipped one when absent)."""
+
+    question: str = Field(min_length=1, max_length=QUESTION_MAX)
+    pipelines: list[Pipeline] | None = Field(default=None, min_length=1, max_length=LANES_MAX)
+
+    @field_validator("question")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("question vide")
+        return value
+
+
+class RagLabValidateRequest(BaseModel):
+    """Story 30, increment 4: the chains the page is editing, checked without running them."""
+
+    pipelines: list[Pipeline] = Field(min_length=1, max_length=LANES_MAX)
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -208,6 +270,13 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "version": version}
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> FileResponse:
+        """Lot K, suite (K7): a browser asks for `/favicon.ico` when a page declares no icon
+        (the cause of the 404 seen in Edge) or on a direct request; the same SVG icon as each
+        page's `<link rel="icon">`."""
+        return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
+
     @app.get("/")
     def index_page() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
@@ -215,6 +284,76 @@ def create_app(
     @app.get("/diagnostic")
     def diagnostic_page() -> FileResponse:
         return FileResponse(STATIC_DIR / "diagnostic.html")
+
+    @app.get("/models")
+    def models_page() -> FileResponse:
+        """Story 25: the table of the available models and their capabilities."""
+        return FileResponse(STATIC_DIR / "models.html")
+
+    @app.get("/llm")
+    def llm_page() -> FileResponse:
+        """Story 29: the « LLM nu » screen, the inside of the active model."""
+        return FileResponse(STATIC_DIR / "llm.html")
+
+    @app.get("/api/llm_lab")
+    def api_llm_lab() -> dict[str, object]:
+        """Story 29 (AD-1): the screen's texts, the active model, the session's state and the
+        journal's tip; the page then streams from `seq`."""
+        return app_session.lab_state()
+
+    @app.post("/api/intentions/llm_tokenize")
+    def llm_tokenize(intention: LlmTokenizeIntention) -> dict[str, str]:
+        """Story 29, class (b): accepted in `idle` only (AD-3); `llm_tokenized` answers."""
+        try:
+            return {"request_id": app_session.llm_tokenize(intention.text)}
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=f"Refusé pour l'instant : {refused.reason_fr}"
+            ) from None
+
+    @app.post("/api/intentions/llm_generate")
+    def llm_generate(intention: LlmGenerateIntention) -> dict[str, str]:
+        """Story 29, class (b): accepted in `idle` only, the session in `llm_lab` until the
+        generation ends; « Arrêter » (`stop`) stops it."""
+        sampling = Sampling(**intention.sampling.model_dump())
+        try:
+            request_id = app_session.llm_generate(
+                intention.prompt,
+                sampling,
+                reasoning=intention.reasoning,
+                candidates=intention.candidates,
+            )
+            return {"request_id": request_id}
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=f"Refusé pour l'instant : {refused.reason_fr}"
+            ) from None
+
+    @app.get("/rag")
+    def rag_page() -> FileResponse:
+        """Story 30: the RAG workshop, a RAG chain drawn and run apart from the brick."""
+        return FileResponse(STATIC_DIR / "rag.html")
+
+    @app.get("/api/rag_lab")
+    def api_rag_lab() -> dict[str, object]:
+        """Story 30 (AD-1): the catalog, the shipped chain, the texts, the last run read in the
+        journal, the session's state and the journal's tip; the page then streams from `seq`."""
+        return app_session.rag_lab_state()
+
+    @app.post("/api/rag_lab/validate")
+    def rag_lab_validate(request: RagLabValidateRequest) -> dict[str, object]:
+        """Story 30, increment 4, read only: why each chain would be refused, and the stage at
+        fault; nothing runs, nothing is emitted."""
+        return app_session.validate_rag_lab(request.pipelines)
+
+    @app.post("/api/intentions/rag_lab_run")
+    def rag_lab_run(intention: RagLabRunIntention) -> dict[str, str]:
+        """Story 30, class (b): accepted in `idle` only, the session in `rag_lab` until the run
+        ends; « Arrêter » (`stop`) stops it. A chain refused: 409 with the reason."""
+        try:
+            return {"run_id": app_session.run_rag_lab(intention.question, intention.pipelines)}
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
 
     @app.get("/api/state")
     def api_state() -> dict[str, object]:
@@ -231,8 +370,13 @@ def create_app(
         architecture = _latest(events, "architecture_changed")
         # Whole envelopes: the front shows whichever of the two is the most recent (`seq`).
         preview = _latest(events, "context_preview")
-        # The gauge stays on the main context: a sub-agent's is never its source (story 19).
-        main = [e for e in events if not (e.context_id or "").startswith("sub")]
+        # The gauge stays on the main context: a sub-agent's is never its source (story 19),
+        # nor the « LLM nu » screen's (story 29, which emits no context event anyway).
+        main = [
+            e
+            for e in events
+            if not (e.context_id or "").startswith("sub") and e.context_id != "llm"
+        ]
         rendered = _latest(main, "context_rendered")
         reconciled = _latest(main, "context_reconciled")  # chat mode (AD-4)
         bricks = _latest(events, "bricks_changed")
@@ -243,6 +387,7 @@ def create_app(
         armed = _latest(events, "armed_actions_changed")  # story 9: the chips after a reload
         scenario = _latest(events, "scenario_changed")  # story 10: programme and active one
         memory = _latest(events, "memory_changed")  # story 14: the drawer and the card
+        window = _latest(events, "context_window_state")  # story 26: the window panel
         return {
             # A1: the front compares it with the stream's `server_instance` event.
             "instance_id": journal.instance_id,
@@ -258,6 +403,7 @@ def create_app(
             "armed_actions_changed": armed.payload if armed else None,
             "scenario_changed": scenario.payload if scenario else None,
             "memory_changed": memory.payload if memory else None,
+            "context_window_state": window.payload if window else None,
             "seq": seq,
         }
 
@@ -281,11 +427,13 @@ def create_app(
             ),
             None,
         )
+        cloud = session.cloud_rows(active.ref if active and active.kind == "cloud" else None)
+        candidates = result.candidates if result else []
         return {
             "version": version,
             "ready": result.ready if result else False,
             "blocking_checks": result.blocking_checks if result else [],
-            "candidates": [c.model_dump() for c in result.candidates] if result else [],
+            "candidates": [c.model_dump() for c in candidates],
             "selected_model": session.selected_model_path,
             "loaded_model": active.ref if active and active.kind == "file" else None,
             # Story 18: the saved choice and the loaded model, whatever their kind.
@@ -294,9 +442,26 @@ def create_app(
                 {"kind": active.kind, "ref": active.ref, "label": active.label} if active else None
             ),
             # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
-            "cloud": session.cloud_rows(active.ref if active and active.kind == "cloud" else None),
+            "cloud": cloud,
+            # Story 25: the picker's groups and the `/models` table, built in Python (AD-1).
+            **_models(candidates, cloud),
+            # Story 24: the budget the session refuses with (the diagnostic's memory line).
+            "memory_budget_bytes": app_session.memory_budget_bytes,
             "seq": tip,
         }
+
+    def _models(candidates: list, cloud: dict[str, Any]) -> dict[str, object]:
+        """`models`, or nothing when it could not be built: the picker then lists the
+        candidates as before (AD-16: a failure is contained)."""
+        try:
+            return {
+                "models": catalog.models_payload(
+                    candidates, session.cfg, cloud["models"], app_session.configured_window
+                )
+            }
+        except Exception:  # noqa: BLE001 - the diagnostic's answer never fails for the table
+            log.exception("Tableau des modèles impossible à construire")
+            return {}
 
     @app.post("/api/intentions/select_model")
     def select_model(intention: SelectModelIntention) -> dict[str, object]:
@@ -347,6 +512,18 @@ def create_app(
             "ref": ref_loading if switching else None,
             "message_fr": message_fr,
         }
+
+    @app.post("/api/intentions/context_window")
+    def context_window(intention: ContextWindowIntention) -> dict[str, object]:
+        """Story 26, class (b): the window, applied in `idle` only (AD-3). A local or served
+        model reloads with it (after the budget's check, AD-8), a cloud model takes it at the
+        next turn; without a model, it is saved for the next load (AD-9)."""
+        _diagnostic_class_b()
+        try:
+            message_fr, future = app_session.set_context_window(intention.window)
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"switching": future is not None, "message_fr": message_fr}
 
     @app.post("/api/intentions/set_api_key")
     def set_api_key(intention: SetApiKeyIntention) -> dict[str, object]:
