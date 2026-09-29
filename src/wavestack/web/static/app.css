@@ -4622,3 +4622,64 @@ body .arch .arch-robots .robot.is-selection-linked {
   outline: var(--spacing-stroke-min) solid var(--color-primary);
   outline-offset: 2px;
 }
+
+/* ---------- story 29: the link to the « LLM nu » screen, on the ink top bar ---------- */
+
+.top-bar > .screen-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  color: var(--color-on-ink);
+  border: 1px solid var(--color-on-ink-soft);
+  border-radius: var(--rounded-md);
+  text-decoration: none;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.top-bar > .screen-link:hover {
+  background: var(--color-on-ink);
+  color: var(--color-ink-fill);
+}
+
+.screen-link-short {
+  display: none;
+}
+
+/* Under 1400 px the link says « LLM » (its accessible name keeps « LLM nu »), and, for its
+   room, the scenario's and the model's names give way a little further: at 1280 px the gauge
+   stays whole and the chips of hidden panes keep « · lié » readable, projection mode too. */
+@media (max-width: 1400px) {
+  .top-bar > .screen-link {
+    padding: 0 var(--spacing-1);
+  }
+
+  .screen-link-long {
+    display: none;
+  }
+
+  .screen-link-short {
+    display: inline;
+  }
+
+  .top-bar > .scenario-picker {
+    min-width: 4rem;
+  }
+
+  .top-bar > .model-indicator {
+    min-width: 4rem;
+  }
+
+  :root.projection .top-bar > select.scenario-picker {
+    min-width: 3rem;
+  }
+
+  :root.projection .top-bar > .model-indicator {
+    min-width: 3rem;
+  }
+
+  :root.projection .top-bar > .model-picker {
+    min-width: 2.5rem;
+  }
+}

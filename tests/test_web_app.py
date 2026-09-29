@@ -55,6 +55,13 @@ def test_models_page_and_tabs_shared_with_the_diagnostic(monkeypatch, tmp_path):
     diagnostic = client.get("/diagnostic").text
     assert '<a href="/diagnostic" aria-current="page">Diagnostic</a>' in diagnostic
     assert '<a href="/models">Modèles</a>' in diagnostic
+    for page in (models.text, diagnostic):  # story 29: the « LLM nu » tab
+        assert '<a href="/llm">LLM nu</a>' in page
+    llm = client.get("/llm").text
+    assert '<a href="/llm" aria-current="page">LLM nu</a>' in llm
+    assert '<a href="/models">Modèles</a>' in llm
+    index = client.get("/").text  # the top bar's link, before the theme picker
+    assert index.index('id="llm-link"') < index.index('id="theme-picker"')
     for page in (models.text, diagnostic):  # one stylesheet; « Ouvrir » gated by `ready`
         assert '<link rel="stylesheet" href="/static/pages.css" />' in page
         assert '<a href="/" id="open-link" hidden>Ouvrir WaveStack</a>' in page
@@ -78,7 +85,8 @@ def test_api_diagnostic_contains_a_model_table_failure(monkeypatch, tmp_path):
 
 def test_pages_and_static_files_are_revalidated_but_api_is_not(monkeypatch, tmp_path):
     client = _client(_build(monkeypatch, tmp_path))
-    for path in ("/", "/diagnostic", "/models", "/static/app.js", "/static/theme.js"):
+    pages = ("/", "/diagnostic", "/models", "/llm", "/static/app.js", "/static/theme.js")
+    for path in (*pages, "/static/llm.js", "/static/llm.css"):  # story 29
         response = client.get(path)
         assert response.status_code == 200, path  # story 31: theme.js, without a new route
         assert response.headers["cache-control"] == "no-cache", path

@@ -143,6 +143,12 @@ class ContextWindowIntention(BaseModel):
     window: Literal[config.WINDOW_CHOICES]  # type: ignore[valid-type]
 
 
+class LlmTokenizeIntention(BaseModel):
+    """Story 29: the text the « LLM nu » screen cuts into tokens (2 000 characters at most)."""
+
+    text: str = Field(min_length=1, max_length=2000)
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -230,6 +236,27 @@ def create_app(
         """Story 25: the table of the available models and their capabilities."""
         return FileResponse(STATIC_DIR / "models.html")
 
+    @app.get("/llm")
+    def llm_page() -> FileResponse:
+        """Story 29: the « LLM nu » screen, the inside of the active model."""
+        return FileResponse(STATIC_DIR / "llm.html")
+
+    @app.get("/api/llm_lab")
+    def api_llm_lab() -> dict[str, object]:
+        """Story 29 (AD-1): the screen's texts, the active model, the session's state and the
+        journal's tip; the page then streams from `seq`."""
+        return app_session.lab_state()
+
+    @app.post("/api/intentions/llm_tokenize")
+    def llm_tokenize(intention: LlmTokenizeIntention) -> dict[str, str]:
+        """Story 29, class (b): accepted in `idle` only (AD-3); `llm_tokenized` answers."""
+        try:
+            return {"request_id": app_session.llm_tokenize(intention.text)}
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=f"Refusé pour l'instant : {refused.reason_fr}"
+            ) from None
+
     @app.get("/api/state")
     def api_state() -> dict[str, object]:
         """AD-1: what the front's store needs to boot without waiting on SSE.
@@ -245,8 +272,13 @@ def create_app(
         architecture = _latest(events, "architecture_changed")
         # Whole envelopes: the front shows whichever of the two is the most recent (`seq`).
         preview = _latest(events, "context_preview")
-        # The gauge stays on the main context: a sub-agent's is never its source (story 19).
-        main = [e for e in events if not (e.context_id or "").startswith("sub")]
+        # The gauge stays on the main context: a sub-agent's is never its source (story 19),
+        # nor the « LLM nu » screen's (story 29, which emits no context event anyway).
+        main = [
+            e
+            for e in events
+            if not (e.context_id or "").startswith("sub") and e.context_id != "llm"
+        ]
         rendered = _latest(main, "context_rendered")
         reconciled = _latest(main, "context_reconciled")  # chat mode (AD-4)
         bricks = _latest(events, "bricks_changed")

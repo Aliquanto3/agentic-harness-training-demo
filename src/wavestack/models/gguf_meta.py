@@ -109,3 +109,36 @@ def try_read_metadata(path: str | Path | None) -> dict[str, Any] | None:
         return read_metadata(path)
     except (OSError, GGUFError, UnicodeDecodeError, struct.error):
         return None
+
+
+# ---------- story 29: a model's sizes, for the « LLM nu » screen ----------
+
+
+def positive_size(value: Any) -> int | None:
+    """A positive integer, the largest of a list (a per-layer value); else `None`."""
+    if isinstance(value, list):
+        numbers = [v for v in (positive_size(v) for v in value) if v is not None]
+        return max(numbers) if numbers else None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return int(value) if value > 0 else None
+
+
+def dimensions_from_header(meta: dict[str, Any] | None) -> dict[str, int | None]:
+    """A GGUF header's dimensions (`gguf_meta`): `{arch}.embedding_length`, `block_count`,
+    `attention.head_count` (the largest when it is an array, one value per layer) and
+    `context_length`; `None` for a key absent. The vocabulary is never read here: the
+    header reader skips long arrays, the tokenizer says it."""
+    meta = meta or {}
+    arch = meta.get("general.architecture")
+    arch = arch if isinstance(arch, str) and arch else None
+
+    def key(name: str) -> int | None:
+        return positive_size(meta.get(f"{arch}.{name}")) if arch else None
+
+    return {
+        "embedding_length": key("embedding_length"),
+        "layer_count": key("block_count"),
+        "head_count": key("attention.head_count"),
+        "context_length": key("context_length"),
+    }

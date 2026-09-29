@@ -265,6 +265,26 @@ mémoire : il le recharge à son nouveau `num_ctx`. Le choix est mémorisé dans
 pas. Sans modèle actif, il est enregistré pour le prochain chargement. Une autre valeur saisie à
 la main dans `[context] window` reste lue, mais n'est pas proposée par le panneau.
 
+## Écran « LLM nu »
+
+Le lien **« LLM nu »** de la barre haute ouvre la page `/llm` : ce qui se passe *dans* le modèle
+actif, sans aucune brique (ni prompt système, ni historique, ni outil, ni mémoire) et sans
+toucher à la conversation de l'atelier. Le modèle ne s'y change pas : le lien « Changer de modèle
+dans l'atelier » ramène au sélecteur de la barre haute.
+
+- **Tokenisation et vectorisation.** « Découper en tokens » découpe le texte saisi (2 000
+  caractères au plus), sans gabarit, par le tokenizer du modèle actif : une puce par token avec
+  son identifiant (512 au plus), les blancs rendus visibles (`␣`, `↵`), un marqueur du gabarit
+  comme `<|im_end|>` en un seul token marqué « spécial ». Un schéma suit le chemin d'un token :
+  texte → tokens → identifiants → ligne de la table d'embedding (vocabulaire × dimension) →
+  vecteur → couches, avec les dimensions réelles du modèle (lues par llama.cpp, dans l'en-tête
+  GGUF, ou données par llama-server), ou « inconnue » et pourquoi. Un modèle cloud n'a pas de
+  tokenizer sur le poste : la page le dit et montre l'estimation du harnais.
+
+Les textes de la page sont dans `content/llm_lab.yaml`. Les événements de l'écran sont tracés
+dans le contexte `llm` : le journal des événements de l'atelier les liste, aucun volet ne les
+montre.
+
 ## Modèle par défaut
 
 Le modèle recommandé est **Qwen3.5-2B en Q4_K_M** (GGUF amont publié par unsloth, licence

@@ -672,6 +672,31 @@ components:
     badge-foreground: '{colors.on-vivid}'
     result-rule-width: 4px
     radius: '{rounded.sm}'
+  # Story 29: the « LLM nu » screen (/llm). A token: two alternating existing grounds, its id
+  # beneath; a special token dashed in the harness colour and named « spécial ».
+  token-chip:
+    background: '{colors.primary-soft}'
+    background-alt: '{colors.accent-soft}'
+    foreground: '{colors.ink}'
+    id-foreground: '{colors.ink-soft}'
+    border: '{colors.line}'
+    special-background: '{colors.surface-raised}'
+    special-border: '{colors.discipline-harness}'
+    special-border-style: dashed
+    text-typography: '{typography.code}'
+    id-typography: '{typography.number}'
+    radius: '{rounded.sm}'
+  # Story 29: text → tokens → ids → the embedding table's row → the vector → the layers.
+  embedding-diagram:
+    background: '{colors.surface}'
+    step-background: '{colors.surface-raised}'
+    step-border: '{colors.ink-soft}'
+    step-name-typography: '{typography.label}'
+    step-value-typography: '{typography.number-lg}'
+    picked-cell: '{colors.primary}'
+    cell: '{colors.line}'
+    unknown-foreground: '{colors.ink-soft}'
+    radius: '{rounded.sm}'
 ---
 
 # WaveStack — Design Spine
@@ -986,6 +1011,10 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Pastilles des nœuds réseau** (story 34) : « contacté », « en échec » ou « non contacté » pour le dernier tour affiché, dans la pastille existante (`arch-node-pill`) ; « indisponible » l'emporte toujours ; l'infobulle dit « Au tour N : contacté. ».
 - **Bilan des sorties (`schema-outbound`)** (story 34) : sous le schéma, dans son volet, une phrase en `body-sm` encre, séparée du schéma par un filet `{colors.line}` : « Au tour N, les données ont quitté le poste K fois : vers le modèle chez … et vers … ». Sans couleur ni icône : c'est un texte à lire à voix haute devant la salle.
 - **Ligne de diagnostic (`diagnostic-row`)** : pastille d'état (vert « OK », rouge « Échec ») avec texte `{colors.on-vivid}`, libellé de la vérification, action corrective en dessous. Story 31 : la page `/diagnostic` charge `tokens.css`, fond `{colors.surface}` et texte encre ; le fond d'une ligne dit son état (`{colors.accent-soft}` pour OK, trouvé ou serveur ; `{colors.warning-soft}` pour un avertissement ; `{colors.danger-soft}` pour un échec ou un modèle incompatible) ; un modèle cloud est sur `{colors.discipline-network-soft}`, bordé de tirets `{colors.hosting-boundary}` ; détails et actions en encre douce ; un avertissement de serveur et le résultat d'un test cloud en encre, derrière un filet gauche de 4 px `{colors.state-ok}`, `{colors.warning}` ou `{colors.state-error}` ; étiquettes `hosting-tag-*` comme dans l'atelier ; `dialog` sur `{colors.surface-raised}`, bordé d'encre.
+
+- **Écran « LLM nu » (`llm-screen`)** (story 29, page `/llm`) : page sur `{colors.surface}`, sans pois, comme `/models` : onglets de page (`page-tabs`, avec « ← Atelier » en violet et l'onglet « LLM nu »), sélecteur de thème à droite ; titre en `heading` agrandi, modèle actif précédé de `hosting-tag-local` ou `hosting-tag-network` (« 🌐 RÉSEAU · {fournisseur} »). Chaque section est une carte `{colors.surface-raised}` bordée `{colors.line}`, `{rounded.lg}`, relief `{colors.relief}`, titrée en `pane-title` après un disque numéroté `{colors.ink-fill}` / `{colors.on-ink}` (comme `pane-step`). Boutons `button-primary` et `button-secondary`, à plat quand ils sont indisponibles, la raison dans un bandeau `{colors.warning-soft}` bordé `{colors.warning}`. Aucune ligature dans la page : `<|im_end|>` se lit tel qu'il est tapé (JetBrains Mono transformerait `<|` en flèche).
+- **Puce de token (`token-chip`)** (story 29) : une pastille `{rounded.sm}` par token, bordure `{colors.line}` ; le texte du token en `code` (blancs rendus visibles : `␣` pour une espace, `↵` pour un retour à la ligne), l'identifiant dessous en `number` petit, encre douce. Deux fonds existants en alternance, `{colors.primary-soft}` et `{colors.accent-soft}` (aucun nouveau jeton, lisibles en encre dans les deux thèmes). Un token spécial (marqueur du gabarit) : fond `{colors.surface-raised}`, bordure en tirets `{spacing.stroke-min}` `{colors.discipline-harness}` et le mot « spécial » en `label` : jamais la couleur seule. Les octets d'un token qui n'est qu'une partie d'un caractère s'écrivent `⟨F0 9F⟩`.
+- **Schéma de vectorisation (`embedding-diagram`)** (story 29) : une bande `{colors.surface}` bordée `{colors.line}`, `{rounded.md}`, où six cases `{colors.surface-raised}` bordées `{colors.ink-soft}` se suivent, reliées par « → » : Texte, Tokens, Identifiants, Table d'embedding (« vocabulaire × dimension », une rangée de cellules `{colors.line}` dont une `{colors.primary}` : la ligne choisie), Vecteur, Couches. Nom de la case en `label` majuscule encre douce, valeur en `number-lg`, légende en `body-sm`. Une dimension inconnue s'écrit « inconnue » en italique encre douce, et sa raison est sous le schéma, avec la source des chiffres.
 
 ## Do's and Don'ts
 

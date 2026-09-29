@@ -101,6 +101,13 @@ class Engine(Protocol):
         """The prompt tokens the last `complete` really evaluated; `None` when unknown."""
         ...
 
+    # Story 29 (« LLM nu »): optional too, the session tolerates an engine without it.
+
+    def dimensions(self) -> dict[str, Any] | None:
+        """The model's sizes: `vocab_size`, `embedding_length`, `layer_count`, `head_count`,
+        `context_length` (`None` when unknown) and `source_fr`, where they were read."""
+        ...
+
 
 def partial_suffix_len(text: str, markers: Sequence[str]) -> int:
     """Length of the longest end of `text` that could be the start of one of `markers`."""
@@ -186,6 +193,10 @@ class VocabTokenizer:
     def metadata(self) -> EngineMetadata:
         return self._metadata
 
+    def vocab_size(self) -> int | None:
+        """Story 29: the tokens of the vocabulary, as the tokenizer holds them."""
+        return int(self._lib.llama_vocab_n_tokens(self._vocab)) or None
+
     def is_eog(self, token: int) -> bool:
         return bool(self._lib.llama_vocab_is_eog(self._vocab, token))
 
@@ -261,6 +272,22 @@ class LlamaCppEngine:
 
     def metadata(self) -> EngineMetadata:
         return self._tokenizer.metadata()
+
+    def dimensions(self) -> dict[str, Any] | None:
+        """Story 29: the loaded model's sizes, from llama.cpp itself."""
+        lib, model = self._lib, self._llm._model
+
+        def size(value: object) -> int | None:
+            return _int(value) or None
+
+        return {
+            "vocab_size": self._tokenizer.vocab_size(),
+            "embedding_length": size(lib.llama_model_n_embd(model.model)),
+            "layer_count": size(lib.llama_model_n_layer(model.model)),
+            "head_count": size(lib.llama_model_n_head(model.model)),
+            "context_length": size(model.n_ctx_train()),
+            "source_fr": "Lues dans le modèle que llama.cpp a chargé, dans ce processus.",
+        }
 
     def tokenize(self, text: str) -> list[int]:
         return self._tokenizer.tokenize(text)

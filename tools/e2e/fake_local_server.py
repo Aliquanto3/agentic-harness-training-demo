@@ -108,7 +108,8 @@ def create_app(flavor: str) -> Starlette:
         )
 
     async def models(_: Request) -> JSONResponse:
-        meta = {"n_ctx_train": 32768, "size": 1_500_000_000}
+        # Story 29: as the real llama-server, its vocabulary and embedding size.
+        meta = {"n_ctx_train": 32768, "size": 1_500_000_000, "n_vocab": 1004, "n_embd": 2048}
         return JSONResponse({"data": [{"id": MODEL_FILE, "meta": meta}]})
 
     async def tokenize_route(request: Request) -> JSONResponse:

@@ -249,6 +249,12 @@ const isLive = (envelope) => envelope.seq > store.liveFrom;
 
 function applyEnvelope(envelope) {
   store.journal.push(envelope);
+  // Story 29: the « LLM nu » screen's events (context `llm`, no turn) go to the event log
+  // only; no pane of the workshop shows them.
+  if (envelope.context_id === "llm") {
+    scheduleRender();
+    return;
+  }
   const p = envelope.payload;
   const turn = envelope.turn_id ? store.turns.find((t) => t.id === envelope.turn_id) : null;
   // Story 19 (AD-11): a sub-agent's events fill its own projection, never the turn's gauge,
@@ -5949,6 +5955,7 @@ const KIND_LABELS = {
   rag_rerank_ended: "Reranking terminé",
   compression_started: "Compression commencée",
   compression_ended: "Compression terminée",
+  llm_tokenized: "LLM nu : texte découpé en tokens",
 };
 const MODEL_LOAD_STATUS = {
   ok: "chargé",
@@ -6065,6 +6072,10 @@ function eventSummary(group) {
       return `coupé à ${fmt(p.reasoning_tokens)} tokens (budget ${fmt(p.budget)}) · ${fmt(p.answer_reserve)} pour la réponse`;
     case "diagnostic_check":
       return `${p.check} : ${p.status} · ${p.message_fr}`;
+    case "llm_tokenized":
+      return p.exact
+        ? `${p.figures_fr?.token_count ?? p.token_count} tokens · ${p.model_label}`
+        : `≈ ${p.figures_fr?.estimate ?? p.estimate} tokens (estimation) · ${p.model_label}`;
     case "conversation_cleared":
       return "les tours précédents restent dans ce journal";
     case "harness_reset":

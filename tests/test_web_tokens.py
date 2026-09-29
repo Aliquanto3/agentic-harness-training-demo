@@ -532,6 +532,7 @@ def test_static_files_write_no_color_outside_the_tokens():
     sources = _static_sources()
     names = {path.name for path in sources}
     assert {"app.css", "app.js", "theme.js", "diagnostic.html", "models.html"} <= names
+    assert {"llm.html", "llm.css", "llm.js"} <= names  # story 29: the « LLM nu » screen
     offenders = []
     for path in sources:
         text = _COMMENTS[path.suffix].sub("", path.read_text(encoding="utf-8"))
@@ -578,7 +579,7 @@ def test_every_page_loads_the_tokens_and_the_theme_script_first():
     first render: a classic script (neither a module nor deferred) in `<head>`, before the
     first stylesheet."""
     pages = sorted(STATIC_DIR.glob("*.html"))
-    assert {p.name for p in pages} >= {"index.html", "diagnostic.html", "models.html"}
+    assert {p.name for p in pages} >= {"index.html", "diagnostic.html", "models.html", "llm.html"}
     for page in pages:
         text = page.read_text(encoding="utf-8")
         head = text[: text.index("</head>")]

@@ -878,6 +878,56 @@ class CompressionEndedPayload(BaseModel):
     duration_ms: int
 
 
+# ---------- story 29: the « LLM nu » screen (context `llm`, no turn) ----------
+
+
+class LlmToken(BaseModel):
+    """One chip: the token's id, its text (its bytes « ⟨F0 9F⟩ » when they are only part of a
+    character), and whether it is a special token of the vocabulary (a template marker)."""
+
+    id: int
+    text: str
+    special: bool = False
+
+
+class LlmDimensions(BaseModel):
+    """The model's sizes (`None`: unknown), the embedding table's (vocabulary × dimension),
+    their French figures and where they were read."""
+
+    vocab_size: int | None = None
+    embedding_length: int | None = None
+    layer_count: int | None = None
+    head_count: int | None = None
+    context_length: int | None = None
+    embedding_params: int | None = None
+    figures_fr: dict[str, str | None] = {}
+    source_fr: str
+
+
+class LlmTokenizedPayload(BaseModel):
+    """The text cut into tokens by the active model's tokenizer, without template (`exact`);
+    a cloud model's tokenizer is at its provider: no token, the harness's estimate and why.
+    `tokens`: the first 512, `more` the rest; `token_count` all of them."""
+
+    request_id: str
+    text: str
+    char_count: int
+    model_label: str
+    hosting: Literal["local", "network"]
+    exact: bool
+    tokenizer_fr: str
+    tokens: list[LlmToken]
+    token_count: int | None = None
+    more: int = 0
+    estimate: int | None = None
+    chars_per_token: float | None = None  # the estimate's ratio (AD-4, chat mode)
+    unavailable_fr: str | None = None
+    dimensions: LlmDimensions | None = None
+    dimensions_fr: str
+    # The counts in French (« 1 004 »), written by the session: the page places them.
+    figures_fr: dict[str, str] = {}
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -929,4 +979,5 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "rag_rerank_ended": RagRerankEndedPayload,
     "compression_started": CompressionStartedPayload,
     "compression_ended": CompressionEndedPayload,
+    "llm_tokenized": LlmTokenizedPayload,
 }

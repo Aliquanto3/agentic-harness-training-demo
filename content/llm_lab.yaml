@@ -1,0 +1,87 @@
+# Écran « LLM nu » (story 29, AD-19) : les textes de la page /llm, validés par pydantic
+# (wavestack.session.llm_lab.LabContent). Un fichier invalide : la page reste servie et dit
+# pourquoi. `{…}` : un nombre ou un nom que la session met en forme et que la page place.
+
+title_fr: "LLM nu : l'intérieur du modèle"
+intro_fr: >-
+  Ici, aucune brique : ni prompt système, ni historique, ni outil, ni mémoire. On regarde ce
+  que fait le modèle lui-même : découper le texte en tokens, les transformer en vecteurs,
+  puis produire une réponse, token par token. Cet écran travaille sur le modèle actif de
+  l'atelier, sans toucher à sa conversation.
+back_fr: "← Atelier"
+change_model_fr: "Changer de modèle dans l'atelier"
+active_model_fr: "Modèle actif"
+no_model_fr: "Aucun modèle actif : choisissez-en un dans l'atelier."
+busy_fr: "Indisponible pour l'instant : {raison}"
+
+sections:
+  tokenization:
+    title_fr: "Tokenisation et vectorisation"
+    intro_fr: >-
+      Le modèle ne lit pas des lettres : son tokenizer découpe le texte en tokens, des
+      morceaux de mots pris dans un vocabulaire fixe. Chaque token a un identifiant, un
+      simple numéro de ligne dans la table d'embedding, qui le transforme en vecteur de
+      nombres.
+  sampling:
+    title_fr: "Réglages d'échantillonnage"
+    intro_fr: >-
+      À chaque pas, le modèle donne une probabilité à chaque token du vocabulaire. Ces
+      réglages décident comment le token suivant est tiré parmi eux.
+  loading:
+    title_fr: "Chargement du modèle"
+    intro_fr: >-
+      Avant de répondre, le modèle doit être en mémoire. Voici les étapes du dernier
+      chargement, leur durée et la mémoire qu'il occupe.
+  reading:
+    title_fr: "Lecture du prompt"
+    intro_fr: >-
+      Le prompt est rendu avec le gabarit du modèle, puis lu d'un bloc : c'est le temps
+      d'attente avant le premier token.
+  generation:
+    title_fr: "Génération"
+    intro_fr: >-
+      Le modèle produit sa réponse un token à la fois : chaque token tiré est relu pour
+      tirer le suivant.
+  reasoning:
+    title_fr: "Raisonnement"
+    intro_fr: >-
+      Un modèle qui raisonne écrit d'abord une réflexion, puis sa réponse. Les deux sont des
+      tokens produits de la même façon.
+
+tokenization:
+  prompt_label_fr: "Texte à découper"
+  placeholder_fr: "Écrivez un texte, par exemple : Bonjour, comment allez-vous ?"
+  default_text_fr: "Bonjour, comment allez-vous ?"
+  button_fr: "Découper en tokens"
+  running_fr: "Découpage en cours…"
+  counts_fr: "{tokens} tokens pour {caracteres} caractères"
+  more_fr: "… et {reste} tokens de plus, non affichés (512 puces au plus)."
+  special_fr: "spécial"
+  special_help_fr: >-
+    Token spécial : un marqueur du gabarit (début ou fin de message), lu comme un seul
+    token.
+  blanks_fr: "␣ marque une espace, ↵ un retour à la ligne : ils sont des tokens comme les autres."
+  exact_fr: "Découpage exact, par le tokenizer du modèle actif."
+  estimate_fr: >-
+    Estimation du harnais : ≈ {estimation} tokens ({caracteres} caractères, à raison de
+    {ratio} caractères par token).
+  empty_fr: "Découpez un texte : ses tokens apparaîtront ici."
+
+vectorization:
+  title_fr: "Du texte au vecteur"
+  help_fr: >-
+    Chaque identifiant choisit une ligne de la table d'embedding. Cette ligne est un vecteur
+    de nombres, que les couches du modèle transforment l'une après l'autre.
+  unknown_fr: "inconnue"
+  steps:
+    text_fr: "Texte"
+    tokens_fr: "Tokens"
+    ids_fr: "Identifiants"
+    table_fr: "Table d'embedding"
+    table_caption_fr: "{vocabulaire} lignes (vocabulaire) × {dimension} colonnes (dimension)"
+    params_fr: "nombres appris : {parametres}"
+    vector_fr: "Vecteur"
+    vector_caption_fr: "{dimension} nombres par token"
+    layers_fr: "Couches"
+    layers_caption_fr: "{couches} couches, {tetes} têtes d'attention"
+    layers_only_caption_fr: "{couches} couches"

@@ -62,7 +62,7 @@ vrais services.
   une installation neuve (le scénario `rag` le construit depuis la carte), et déclare un faux
   fichier de modèle servi par le faux serveur ; de même pour `[rag.reranker]` (story 16).
 - `fake_local_server.py` (story 18) : un faux llama-server (`/health`, `/props` avec le gabarit
-  Qwen3.5, `/v1/models`, `/tokenize` avec les pièces, `/detokenize`, `/completion` en SSE ;
+  Qwen3.5, `/v1/models` (avec `n_vocab: 1004` et `n_embd: 2048` depuis la story 29), `/tokenize` avec les pièces, `/detokenize`, `/completion` en SSE ;
   tokenizer octet par octet, marqueurs du gabarit en un token) et un faux Ollama (`/api/tags`,
   avec `details` `{family: qwen3, parameter_size: 0.6B}` depuis la story 25, `/api/ps`,
   `/api/generate` pour `keep_alive: 0`) qui sert un modèle sans GGUF sur le disque.
@@ -407,6 +407,22 @@ Vérifications ajoutées aux scénarios existants :
   segments ; `compression` : un segment compressé, son badge et « Texte avant compression » dans
   sa section ; `disciplines`, `linked_view` : les vérifications portent sur `.ctx-section` (au
   clavier, sa marge `.ctx-section-select`, seul contrôle de la ligne).
+
+## Écran « LLM nu » (story 29)
+
+- `llm_screen`, joué entre `context_window` et `relaunch` (seul, il part du faux cloud A et y
+  revient, même après un échec) : (1) à 1600 × 1000, le lien « LLM nu » de la barre haute est
+  entier (`_fully_visible`) et toutes les commandes de la barre restent entières, sur une ligne
+  (`_bar_fits`) ; (2) « ☾ Sombre » choisi dans l'atelier, le clic sur le lien ouvre `/llm` en
+  sombre (`data-theme`, fond `surface-dark`), avec son sélecteur de thème, son titre et l'onglet
+  « LLM nu » courant ; (3) sur le faux cloud A, « Découper en tokens » : `llm_tokenized` non
+  exact, « chez Faux fournisseur (e2e) », l'estimation « ≈ » et aucune puce ; (4) le faux
+  llama-server choisi dans le sélecteur de l'atelier, « Bonjour <|im_end|> 🙂 » : une puce par
+  token avec son identifiant, autant que `token_count`, `<|im_end|>` une seule puce « spécial »
+  (id 1002), « N tokens pour M caractères », et le schéma de vectorisation montre « 2 048 » et
+  « 1 004 » (le faux llama-server donne `n_vocab` et `n_embd` dans `/v1/models`, comme le vrai) ;
+  contrastes AA de la page dans les deux thèmes (`_contrast_sweep`). Capture
+  `52-llm-nu-tokenisation.jpg` (page entière). (5) Retour au faux cloud A.
 
 ## Déclencheurs du faux modèle
 

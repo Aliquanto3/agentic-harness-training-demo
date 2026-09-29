@@ -95,6 +95,7 @@ from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
 from wavestack.models import download as download_module
 from wavestack.models import embedding as embedding_module
+from wavestack.models import gguf_meta
 from wavestack.models import probe as probe_module
 from wavestack.models import reranker as reranker_module
 from wavestack.models.capabilities import (
@@ -140,6 +141,7 @@ from wavestack.rag import index as rag_index
 from wavestack.rag.corpus import Chunk, RagContent, chunk_corpus, load_rag_content
 from wavestack.rag.retriever import Excerpt, SqliteVecRetriever
 from wavestack.scenarios import EMPTY_PROGRAM, ScenariosContent, load_scenarios
+from wavestack.session import llm_lab
 from wavestack.session.effects import (
     ArmConsumed,
     AuditAppend,
@@ -171,6 +173,7 @@ from wavestack.tools.registry import (
     ToolSpec,
     load_tools_content,
 )
+from wavestack.trace.catalog import LlmTokenizedPayload
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import current, scoped
 
@@ -809,6 +812,10 @@ class AppSession:
         self._compression_loading = False
         self._compression_load_error: str | None = None
         self._compressor_imported = False  # AD-8: its memory stays counted by the RSS once in
+        # Story 29 (« LLM nu »): the screen's requests, numbered over the session's life
+        # (`llm{n}`), and the content error already traced (once per message).
+        self._labs = 0
+        self._lab_error_traced: str | None = None
         self._load_content()
         self._registry = ToolRegistry(
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
@@ -6780,3 +6787,181 @@ class AppSession:
                 f"la sortie a été coupée à {_fr(reserve)} tokens au milieu de l'appel",
             )
         return out
+
+    # ---------- story 29: the « LLM nu » screen (context `llm`, no turn) ----------
+
+    @staticmethod
+    def _lab_scope(request_id: str, call: bool = False) -> dict[str, Any]:
+        """The screen's trace scope: context `llm`, no turn, `step_id` (and, for a model call,
+        `call_id`) `llm{n}`; the workshop's projections ignore it (story 29)."""
+        return {
+            "turn_id": None,
+            "context_id": "llm",
+            "step_id": request_id,
+            "call_id": request_id if call else None,
+            "parent_step": None,
+            "brick": None,
+            "component": None,
+            "edge": None,
+        }
+
+    def _lab_content(self) -> tuple[llm_lab.LabContent | None, str | None]:
+        """`content/llm_lab.yaml`, or why it cannot be read (AD-19): traced as `harness_error`
+        once per message, the page staying served."""
+        try:
+            return llm_lab.load_lab_content(), None
+        except Exception as exc:  # noqa: BLE001 - AD-16: an invalid file never breaks the page
+            error_fr = (
+                "Textes de l'écran « LLM nu » illisibles (content/llm_lab.yaml) : corrigez le "
+                "fichier puis rechargez la page."
+            )
+            cause = f"{type(exc).__name__}: {exc}"
+            if self._lab_error_traced != cause:
+                self._lab_error_traced = cause
+                with scoped(**self._lab_scope("llm")):
+                    self._error(error_fr, cause, "La page « LLM nu » reste servie sans ses textes.")
+            return None, f"{error_fr} Détail : {str(exc).splitlines()[0][:200]}"
+
+    def _tokenizer_state(self) -> dict[str, Any]:
+        """Whether the active model's tokenizer cuts exactly here, and why in French."""
+        with self._lock:
+            engine, cloud, active = self._engine, self._cloud, self._active
+        if engine is None:
+            return {"exact": False, "reason_fr": "Aucun modèle actif : aucun tokenizer à montrer."}
+        if cloud is not None:
+            return {
+                "exact": False,
+                "reason_fr": (
+                    f"Le tokenizer de {cloud.model} est chez {cloud.provider}, pas sur ce poste : "
+                    "WaveStack ne peut pas découper le texte comme lui. Il estime le nombre de "
+                    "tokens à partir des caractères, sans aucune puce."
+                ),
+            }
+        if active is not None and active.kind == "server":
+            how = (
+                "le tokenizer de llama-server (/tokenize)"
+                if active.provider == "llama-server"
+                else "le tokenizer du fichier GGUF qu'Ollama sert, ouvert par WaveStack"
+            )
+            return {"exact": True, "reason_fr": f"Découpage exact, par {how}."}
+        return {"exact": True, "reason_fr": "Découpage exact, par le tokenizer du modèle chargé."}
+
+    def lab_state(self) -> dict[str, Any]:
+        """`GET /api/llm_lab` (story 29, AD-1): what the page needs before the stream, from
+        `seq` on: its texts (or why not), the active model, the session's state and the
+        tokenizer's exactness."""
+        tip = get_journal().last_seq()
+        content, error_fr = self._lab_content()
+        with self._lock:
+            state, reason_fr = self.state, self.reason_fr
+        return {
+            "content": content.model_dump() if content is not None else None,
+            "content_error_fr": error_fr,
+            "active_model": self.active_model(),
+            "session_state": {"state": state, "reason_fr": reason_fr},
+            "tokenizer": self._tokenizer_state(),
+            "seq": tip,
+        }
+
+    def _lab_request(self) -> str:
+        """A screen request's id, `llm{n}`: accepted in `idle` with a model only (AD-3)."""
+        with self._lock:
+            if self.state != "idle" or self._engine is None:
+                raise SendRefused(self._refusal_reason())
+            self._labs += 1
+            return f"llm{self._labs}"
+
+    def llm_tokenize(self, text: str) -> str:
+        """Intention `llm_tokenize` (story 29): the raw text, without template, cut by the
+        active model's tokenizer on the worker; the state does not change. Refused outside
+        `idle` (`SendRefused`). Returns the request's id; `llm_tokenized` answers it."""
+        request_id = self._lab_request()
+        self._executor.submit(self._run_lab_tokenize, request_id, text)
+        return request_id
+
+    def _run_lab_tokenize(self, request_id: str, text: str) -> None:
+        with scoped(**self._lab_scope(request_id)):
+            try:
+                payload = LlmTokenizedPayload.model_validate(self._lab_tokenized(request_id, text))
+                get_journal().emit("llm_tokenized", payload.model_dump(mode="json"))
+            except Exception as exc:  # noqa: BLE001 - AD-16
+                self._error(
+                    exc.message_fr
+                    if isinstance(exc, ServerError)
+                    else "Le découpage en tokens a échoué.",
+                    exc,
+                    "Rien n'a changé ; l'atelier et l'écran « LLM nu » restent utilisables.",
+                )
+
+    def _lab_tokenized(self, request_id: str, text: str) -> dict[str, Any]:
+        with self._lock:
+            engine, cloud = self._engine, self._cloud
+        model = self.active_model() or {}
+        base = {
+            "request_id": request_id,
+            "text": text,
+            "char_count": len(text),
+            "model_label": model.get("label") or "",
+            "hosting": model.get("hosting") or "local",
+            "tokenizer_fr": self._tokenizer_state()["reason_fr"],
+            "figures_fr": {"char_count": llm_lab.fr_int(len(text))},
+        }
+        if engine is None:
+            raise RuntimeError("aucun modèle actif")
+        if cloud is not None:
+            estimate = config.estimate_tokens(text, self.cfg.chars_per_token)
+            ratio = f"{self.cfg.chars_per_token:g}".replace(".", ",")
+            return base | {
+                "exact": False,
+                "tokens": [],
+                "token_count": None,
+                "estimate": estimate,
+                "chars_per_token": self.cfg.chars_per_token,
+                "figures_fr": base["figures_fr"]
+                | {"estimate": llm_lab.fr_int(estimate), "chars_per_token": ratio},
+                "unavailable_fr": base["tokenizer_fr"],
+                "dimensions": None,
+                "dimensions_fr": (
+                    f"Dimensions inconnues : le modèle tourne chez {cloud.provider}, qui ne les "
+                    "publie pas dans son API."
+                ),
+            }
+        ids = engine.tokenize(text)
+        shown = ids[: llm_lab.TOKEN_LIMIT]
+        rows, more = llm_lab.token_rows(
+            ids, engine.token_pieces(shown), engine.metadata().special_tokens
+        )
+        dimensions = self._lab_dimensions(engine)
+        return base | {
+            "exact": True,
+            "tokens": rows,
+            "token_count": len(ids),
+            "more": more,
+            "figures_fr": base["figures_fr"]
+            | {"token_count": llm_lab.fr_int(len(ids)), "more": llm_lab.fr_int(more)},
+            "dimensions": dimensions,
+            "dimensions_fr": llm_lab.dimensions_fr(dimensions),
+        }
+
+    def _lab_dimensions(self, engine: Any) -> dict[str, Any]:
+        """The model's sizes (story 29): the engine's own answer when it has `dimensions`,
+        else the GGUF header of the file loaded; tolerated absent or failing (AD-16)."""
+        source_fr = "Ce moteur ne dit pas les dimensions du modèle."
+        dims: dict[str, Any] | None = None
+        read = getattr(engine, "dimensions", None)
+        if read is not None:
+            try:
+                dims = read()
+            except Exception:  # noqa: BLE001 - unknown sizes, never a failure
+                dims = None
+        if dims:
+            source_fr = str(dims.get("source_fr") or source_fr)
+        else:
+            with self._lock:
+                active = self._active
+            if active is not None and active.kind == "file":
+                header = gguf_meta.try_read_metadata(active.ref)
+                if header:
+                    dims = gguf_meta.dimensions_from_header(header)
+                    source_fr = "Lues dans l'en-tête GGUF du fichier du modèle."
+        return llm_lab.dimensions_payload(dims, source_fr)

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <script src="/static/theme.js"></script>
+  <title>WaveStack — LLM nu</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/fonts.css" />
+  <link rel="stylesheet" href="/static/tokens.css" />
+  <link rel="stylesheet" href="/static/pages.css" />
+  <link rel="stylesheet" href="/static/llm.css" />
+</head>
+<body class="llm-page">
+  <nav class="page-tabs" aria-label="Pages de WaveStack">
+    <a href="/" id="back-link" class="llm-back">← Atelier</a>
+    <a href="/diagnostic">Diagnostic</a>
+    <a href="/models">Modèles</a>
+    <a href="/llm" aria-current="page">LLM nu</a>
+    <select id="theme-picker" class="theme-picker" data-theme-picker aria-label="Thème de l'interface" title="Thème de l'interface">
+      <option value="system">◐ Système</option>
+      <option value="light">☀ Clair</option>
+      <option value="dark">☾ Sombre</option>
+    </select>
+  </nav>
+
+  <main class="llm-main">
+    <header class="llm-header">
+      <h1 id="llm-title">LLM nu : l'intérieur du modèle</h1>
+      <p class="llm-model" id="llm-model">
+        <span class="llm-model-label" id="llm-model-label">Modèle actif</span>
+        <span id="llm-model-tag"></span>
+        <strong id="llm-model-name">…</strong>
+        <a href="/" id="llm-change-model" class="llm-link">Changer de modèle dans l'atelier</a>
+      </p>
+      <p class="llm-intro" id="llm-intro"></p>
+      <p class="llm-error" id="llm-content-error" role="alert" hidden></p>
+      <p class="llm-busy" id="llm-busy" role="status" hidden></p>
+    </header>
+
+    <section class="llm-section" id="sec-tokenization" aria-labelledby="sec-tokenization-title">
+      <h2 class="llm-section-title" id="sec-tokenization-title"><span class="llm-step" aria-hidden="true">1</span> <span data-text="sections.tokenization.title_fr">Tokenisation et vectorisation</span></h2>
+      <p class="llm-section-intro" data-text="sections.tokenization.intro_fr"></p>
+      <label class="llm-label" for="llm-prompt" data-text="tokenization.prompt_label_fr">Texte à découper</label>
+      <textarea id="llm-prompt" class="llm-prompt" maxlength="2000" rows="3"></textarea>
+      <div class="llm-actions">
+        <button type="button" id="tokenize-button" class="llm-button-primary" data-text="tokenization.button_fr">Découper en tokens</button>
+        <span class="llm-status" id="tokenize-status" role="status" aria-live="polite"></span>
+      </div>
+      <p class="llm-note" id="token-info"></p>
+      <p class="llm-counts" id="token-counts" hidden></p>
+      <ol class="token-chips" id="token-chips" aria-label="Tokens du texte"></ol>
+      <p class="llm-note" id="token-more" hidden></p>
+      <p class="llm-note" id="token-blanks" data-text="tokenization.blanks_fr" hidden></p>
+      <figure class="embedding-diagram" id="embedding-diagram" hidden>
+        <figcaption class="embedding-title" data-text="vectorization.title_fr">Du texte au vecteur</figcaption>
+        <ol class="embedding-steps" id="embedding-steps"></ol>
+        <p class="llm-note" id="embedding-sentence"></p>
+        <p class="llm-note embedding-source" id="embedding-source"></p>
+      </figure>
+    </section>
+  </main>
+
+  <script type="module" src="/static/llm.js"></script>
+</body>
+</html>

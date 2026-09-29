@@ -34,7 +34,7 @@ from typing import Any, Protocol
 import httpx
 
 from wavestack import config
-from wavestack.models import probe
+from wavestack.models import gguf_meta, probe
 from wavestack.models.engine import (
     TEMPERATURE,
     TOP_K,
@@ -204,6 +204,14 @@ def _lines(
         ) from exc
 
 
+def _header_dimensions(path: str | None) -> dict[str, int | None]:
+    """Story 29: a GGUF header's sizes (`gguf_meta.dimensions_from_header`), when `path` is
+    a readable file of this disk; nothing otherwise."""
+    local = path if path and Path(path).is_absolute() else None
+    meta = gguf_meta.try_read_metadata(local)
+    return gguf_meta.dimensions_from_header(meta) if meta else {}
+
+
 def _positive(value: Any) -> int | None:
     try:
         n = int(value)
@@ -265,6 +273,9 @@ class LlamaServerEngine:
         self._client = _client(connect_timeout_s, read_timeout_s, transport)
         self._pieces: dict[int, bytes] = {}  # id -> bytes, filled by `tokenize`
         self._last_evaluated: int | None = None
+        # Story 29: what `/v1/models` and `/props` say of the model's sizes and file.
+        self._sizes: dict[str, Any] = {}
+        self._model_path: str | None = None
         try:
             self._metadata = self._read_metadata(markers)
         except BaseException:
@@ -280,8 +291,13 @@ class LlamaServerEngine:
         data = models.get("data")
         first = data[0] if isinstance(data, list) and data and isinstance(data[0], dict) else {}
         meta = first.get("meta") if isinstance(first.get("meta"), dict) else {}
-        settings = props.get("default_generation_settings")
-        settings = settings if isinstance(settings, dict) else {}
+        # Story 29: the real llama-server gives its vocabulary and embedding size there.
+        self._sizes = {
+            "vocab_size": _positive(meta.get("n_vocab")),
+            "embedding_length": _positive(meta.get("n_embd")),
+            "context_length": _positive(meta.get("n_ctx_train")),
+        }
+        self._model_path = str(props.get("model_path") or "") or None
         template = str(props.get("chat_template") or "") or None
         bos, eos = str(props.get("bos_token") or ""), str(props.get("eos_token") or "")
         special = [t for t in (bos, eos) if t]
@@ -303,6 +319,24 @@ class LlamaServerEngine:
 
     def metadata(self) -> EngineMetadata:
         return self._metadata
+
+    def dimensions(self) -> dict[str, Any] | None:
+        """Story 29: vocabulary and embedding size from `/v1/models` (the server's own
+        tokenizer and model), layers and heads from the GGUF header of the file it loaded,
+        when that file is on this disk."""
+        header = _header_dimensions(self._model_path)
+        dims = {k: v for k, v in self._sizes.items() if v is not None}
+        for name, value in header.items():
+            dims.setdefault(name, value)
+        source_fr = "Vocabulaire et dimension donnés par llama-server (/v1/models)"
+        if any(header.values()):
+            source_fr += " ; couches et têtes lues dans l'en-tête GGUF de son fichier."
+        else:
+            source_fr += (
+                " ; couches et têtes : le fichier du modèle, ouvert par llama-server, n'est "
+                "pas lisible depuis WaveStack."
+            )
+        return dims | {"source_fr": source_fr}
 
     # AD-4, AD-11: no access to the server's cache nor to its state.
 
@@ -419,6 +453,7 @@ class OllamaRawEngine:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.url, self.name = url.rstrip("/"), name
+        self._gguf_path = gguf_path  # story 29: its header gives the model's sizes
         self._tokenizer = tokenizer if tokenizer is not None else _open_tokenizer(gguf_path)
         self.num_ctx = n_ctx  # until the session gives its effective window
         self._unload = unload
@@ -433,6 +468,19 @@ class OllamaRawEngine:
 
     def metadata(self) -> EngineMetadata:
         return self._tokenizer.metadata()
+
+    def dimensions(self) -> dict[str, Any] | None:
+        """Story 29: the vocabulary from the GGUF's tokenizer (`vocab_only`), the other
+        sizes from its header, read in pure Python."""
+        vocab_size = getattr(self._tokenizer, "vocab_size", None)
+        dims: dict[str, Any] = dict(_header_dimensions(self._gguf_path))
+        dims["vocab_size"] = vocab_size() if callable(vocab_size) else None
+        return dims | {
+            "source_fr": (
+                "Vocabulaire lu par le tokenizer du fichier GGUF d'Ollama ; dimensions lues "
+                "dans son en-tête."
+            )
+        }
 
     # AD-4, AD-11: no access to the server's cache nor to its state.
 

@@ -2,7 +2,8 @@
 title: 'Écran « LLM nu » : l''architecture d''un modèle, sans l''agentique'
 type: 'feature'
 created: '2026-09-28'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '3ed84820dd956a75c8cd1fdfc894b3c74250db23'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:

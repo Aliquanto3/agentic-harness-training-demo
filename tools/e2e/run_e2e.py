@@ -5503,6 +5503,164 @@ def s_reasoning_locked(r: Run) -> None:
     )
 
 
+# ---------- story 29: the « LLM nu » screen ----------
+
+LLM_TEXT = "Bonjour <|im_end|> 🙂"
+
+
+def _pick_served(r: Run, label: str) -> None:
+    """The top bar's picker, a model an already-running server serves (no cloud warning)."""
+    page = r.page
+    r.wait_idle()
+    page.locator("#model-picker").blur()
+    r.poll(lambda: _picker_options(r).get(label) is False, 10)
+    seq = r.ev.mark()
+    page.select_option("#model-picker", label=label)
+    page.click("#model-picker-apply")
+    ended = r.ev.wait("model_load_ended", seq, timeout=30)
+    r.check(ended["payload"]["status"] == "ok", f"chargement de « {label} »")
+    r.wait_idle()
+
+
+def _goto_lab(r: Run) -> None:
+    """The « LLM nu » page, once it has read `/api/llm_lab`."""
+    r.page.goto(f"{r.stack.app_url}/llm")
+    expect(r.page.locator("body[data-lab-ready]")).to_be_attached(timeout=10_000)
+
+
+def _lab_tokenize(r: Run, text: str) -> dict[str, Any]:
+    page = r.page
+    page.fill("#llm-prompt", text)
+    expect(page.locator("#tokenize-button")).to_be_enabled(timeout=10_000)
+    seq = r.ev.mark()
+    page.click("#tokenize-button")
+    event = r.ev.wait("llm_tokenized", seq, timeout=15)
+    expect(page.locator("#token-counts")).to_be_visible(timeout=5000)
+    return event
+
+
+def _plain(text: str) -> str:
+    return text.replace("\u202f", " ").replace("\u00a0", " ")
+
+
+def s_llm_screen(r: Run) -> None:
+    """Story 29: the « LLM nu » screen. The top bar's link (whole, the bar on one line at
+    1600 × 1000), the workshop's theme on `/llm`; the tokenization on the fake cloud A (the
+    tokenizer is at the provider: the estimate, no chip), then on the fake llama-server
+    (chips with their id, `<|im_end|>` one special token, the diagram's real sizes). Back to
+    the fake cloud A at the end."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    r.goto_app()
+    r.wait_idle()
+    if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+        _pick_model(r, A_LABEL)
+    try:
+        _llm_screen(r)
+    finally:
+        if page.url.rstrip("/").endswith("/llm") or not page.url.startswith(r.stack.app_url):
+            r.goto_app()
+        picker = page.locator("#theme-picker")
+        if picker.count():
+            picker.select_option("system")
+        if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+            _pick_model(r, A_LABEL)
+
+
+def _llm_screen(r: Run) -> None:
+    page = r.page
+    # (1) The link, whole in the top bar, which stays on one line.
+    link = page.locator("#llm-link")
+    r.check(
+        link.is_visible() and link.inner_text() == "LLM nu" and not _fully_visible(r, "#llm-link"),
+        "barre haute : lien « LLM nu » visible et entier",
+        _fully_visible(r, "#llm-link"),
+    )
+    ok, detail = _bar_fits(r)
+    r.check(ok, "barre haute : toutes les commandes entières, sur une ligne, à 1600 × 1000", detail)
+
+    # (2) The workshop's theme applies on /llm.
+    page.select_option("#theme-picker", "dark")
+    link.click()
+    page.wait_for_url("**/llm")
+    expect(page.locator("body[data-lab-ready]")).to_be_attached(timeout=10_000)
+    r.check(
+        _theme_attr(r) == "dark"
+        and _body_bg(r) == _design_rgb("surface-dark")
+        and page.locator("select[data-theme-picker]").count() == 1
+        and page.locator("#theme-picker").input_value() == "dark",
+        "/llm : sélecteur de thème, le thème sombre choisi dans l'atelier s'applique",
+        f"{_theme_attr(r)} · {_body_bg(r)}",
+    )
+    r.check(
+        page.locator("h1").inner_text() == "LLM nu : l'intérieur du modèle"
+        and page.locator("nav.page-tabs a[aria-current=page]").inner_text() == "LLM nu",
+        "/llm : titre et onglet « LLM nu »",
+    )
+
+    # (3) The fake cloud A: the tokenizer is at the provider.
+    expect(page.locator("#llm-model")).to_contain_text("RÉSEAU", timeout=5000)
+    event = _lab_tokenize(r, "Bonjour tout le monde")
+    info = page.inner_text("#token-info")
+    counts = page.inner_text("#token-counts")
+    r.check(
+        event["payload"]["exact"] is False
+        and "chez Faux fournisseur (e2e)" in info
+        and "≈" in counts
+        and page.locator("#token-chips li").count() == 0,
+        "cloud A : le tokenizer est chez le fournisseur, estimation, aucune puce",
+        f"{info} · {counts}",
+    )
+    dark = _contrast_sweep(r, ["main"])
+    page.select_option("#theme-picker", "system")
+
+    # (4) The fake llama-server, chosen in the workshop's picker.
+    r.goto_app()
+    _pick_served(r, LLAMA_OPTION)
+    _goto_lab(r)
+    expect(page.locator("#llm-model")).to_contain_text("Local · llama-server", timeout=5000)
+    event = _lab_tokenize(r, LLM_TEXT)
+    payload = event["payload"]
+    chips = page.locator("#token-chips .token-chip")
+    shown = chips.evaluate_all(
+        "cs => cs.map(c => ({id: c.querySelector('.token-chip-id').textContent,"
+        " special: c.classList.contains('is-special'),"
+        " label: c.querySelector('.token-chip-special')?.textContent ?? null}))"
+    )
+    specials = [c for c in shown if c["special"]]
+    r.check(
+        payload["exact"]
+        and len(shown) == payload["token_count"] == len(payload["tokens"])
+        and [c["id"] for c in shown] == [str(t["id"]) for t in payload["tokens"]],
+        "llama-server : une puce par token, son identifiant dessous, total = token_count",
+        f"{len(shown)} puces · token_count {payload['token_count']}",
+    )
+    r.check(
+        specials == [{"id": "1002", "special": True, "label": "spécial"}],
+        "llama-server : <|im_end|> est un seul token, marqué spécial (id 1002)",
+        str(specials),
+    )
+    counts = _plain(page.inner_text("#token-counts"))
+    r.check(
+        counts.startswith(f"{payload['token_count']} tokens"),
+        "compte des tokens et des caractères (session)",
+        counts,
+    )
+    diagram = _plain(page.inner_text("#embedding-diagram"))
+    r.check(
+        "2 048" in diagram and "1 004" in diagram,
+        "schéma de vectorisation : 2 048 dimensions, 1 004 tokens de vocabulaire",
+        diagram.replace("\n", " · ")[:300],
+    )
+    light = _contrast_sweep(r, ["main"])
+    r.check(not dark and not light, "/llm : contrastes AA dans les deux thèmes", str(dark + light))
+    r.shot("52-llm-nu-tokenisation", full_page=True)
+
+    # (5) Back to the fake cloud A, from the workshop.
+    r.goto_app()
+    _pick_model(r, A_LABEL)
+
+
 SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("diagnostic", s_diagnostic),
     ("programme", s_programme),
@@ -5540,6 +5698,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("local_server", s_local_server),
     ("model_catalog", s_model_catalog),
     ("context_window", s_context_window),
+    ("llm_screen", s_llm_screen),
     ("relaunch", s_relaunch),
 ]
 
