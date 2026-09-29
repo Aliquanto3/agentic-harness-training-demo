@@ -2,7 +2,7 @@
 title: 'Atelier RAG : l''architecture RAG à manipuler'
 type: 'feature'
 created: '2026-09-28'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '23701e33e69fe94ce24d1ee771be54dcda048b67'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -17,7 +17,27 @@ context:
   - '{project-root}/tools/e2e/README.md'
 warnings:
   - oversized
-deferred: []
+deferred:
+  - summary: >-
+      Payloads des Design Notes de la spec en retard sur ce qui a été livré (option_label_fr, params, memory_fr, comparison.basis, summary_fr).
+    evidence: |-
+      ARCHITECTURE-SPINE documente les champs livrés ; la spec de la story garde l'état planifié.
+    severity: low
+  - summary: >-
+      Absence réelle de l'extra rag-alt, blocage AppLocker et installation sans droits jamais exercés (simulés par monkeypatch).
+    evidence: |-
+      Le conteneur a l'extra ; --no-rag-alt simule son absence.
+    severity: medium (unverified)
+  - summary: >-
+      fastembed jamais exécuté avec le vrai paquet.
+    evidence: |-
+      Seul un module factice injecté dans sys.modules est testé ; local_files_only supposé.
+    severity: medium (unverified)
+  - summary: >-
+      Effet réel du reranker, durées et mémoire réelles non observés.
+    evidence: |-
+      Tous les tests et l'E2E utilisent FakeEmbedder et FakeReranker.
+    severity: low (unverified)
 ---
 
 <intent-contract>
@@ -305,6 +325,44 @@ Les stories 33, 23, 34, 32, 24, 25, 26, 27, 31 et 29 modifient l'arbre avant cel
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 33 findings — high 0, medium 8, low 22, false 0, maybe-false 3 (écarts de l'auditeur d'intention : socle fixe et seule la récupération libre, options réelles surtout pour l'embedding et la base vectorielle, génération dessinée et non exécutée, mémoire du processus, bac à sable — conformes aux décisions par défaut ; « absence de l'extra » simulée et non réelle, fastembed jamais exécuté pour de vrai — différés)
+- findings:
+  - `[medium]` `[patch]` (vérif.) FAISS et LanceDB testés seulement si l'extra est installé — doublures de modules, succès de l'import testé ; README « Développement » avec l'extra.
+  - `[low]` `[patch]` (vérif.) brique éteinte pendant un passage : modèle emprunté fermé ? — test ajouté.
+  - `[low]` `[patch]` (vérif.) section `[rag_lab.fastembed]` invalide jamais testée — test ajouté.
+  - `[medium]` `[patch]` (vérif. + edge) deux couloirs qui chargent le même modèle : deux copies, budget sous-compté — prêt mis en commun.
+  - `[low]` `[patch]` (vérif.) README « Développement » sans l'extra — regroupé ci-dessus.
+  - `[medium]` `[patch]` (blind + edge) valeurs par défaut en dur (8, 3) contre celles de la validation — `param()` partout, test.
+  - `[medium]` `[patch]` (blind + edge) passage bloqué « en cours » si une étape hors boucle lève — fin toujours émise, page fermée au retour en `idle`.
+  - `[low]` `[patch]` (blind) BM25 qui ignore sigles et codes courts, sans pliage des accents — tokenisation revue.
+  - `[low]` `[patch]` (blind) fastembed sans chemin d'installation — décision documentée.
+  - `[medium]` `[patch]` (blind) import de fastembed non compté, contrairement à FAISS et LanceDB — créneau à vie.
+  - `[low]` `[patch]` (blind) onglet « Atelier RAG » absent des autres pages — ajouté et testé.
+  - `[low]` `[patch]` (blind) phrases sans accord du pluriel — aides existantes.
+  - `[low]` `[patch]` (blind) validation qui refait tout le catalogue à chaque modification — cache court et anti-rebond.
+  - `[low]` `[defer]` (blind) spec de la story en retard sur les charges livrées — mise à jour par l'orchestrateur en fin de story (Spec Change Log).
+  - `[low]` `[patch]` (blind) SPEC et spine non mis à jour pour les incréments 2 à 4 — corrigés.
+  - `[low]` `[patch]` (blind) notes de refus annoncées à chaque frappe — mise à jour en place.
+  - `[low]` `[patch]` (blind + edge) index LanceDB en cache vérifié au nombre de lignes seulement ; suppression silencieuse sous Windows — dimension vérifiée, table relâchée, erreur explicite.
+  - `[low]` `[patch]` (blind) passages vectorisés un par un — lots de 8.
+  - `[low]` `[patch]` (blind) code mort et caches sans borne — retirés ou bornés.
+  - `[low]` → regroupé (valeurs par défaut, edge).
+  - `[medium]` → regroupé (deux couloirs, edge).
+  - `[low]` → regroupé (fin de passage, edge).
+  - `[medium]` `[patch]` (edge) fastembed « disponible » si un autre modèle est dans le dossier ; taille comptée pour tout le dossier — dossier du modèle déclaré.
+  - `[low]` → regroupé (taille fastembed, edge).
+  - `[low]` → regroupé (LanceDB, edge).
+  - `[low]` `[patch]` (edge) score NaN — ramené à 0.
+  - `[medium]` `[patch]` (edge) `read_chunks` en échec : identifiants de la brique mélangés à un autre découpage — échec d'étape explicite.
+  - `[low]` `[patch]` (edge) état `rag_lab` sans libellé français dans l'atelier — ajouté.
+  - `[low]` `[patch]` (edge) chaîne enregistrée invalide : 422 sans fin — forme vérifiée, chaîne par défaut.
+  - `[low]` `[patch]` (edge) champ numérique vidé — valeur rétablie.
+  - `[low]` `[patch]` (edge) échec d'import d'un autre type non retenu — capturé et expliqué.
+  - `[maybe-false]` `[defer]` (intention) absence réelle de l'extra, AppLocker et installation sans droits jamais exercées (simulées) — vérification sur PC.
+  - `[maybe-false]` `[defer]` (intention) fastembed jamais exécuté avec le vrai paquet.
+  - `[maybe-false]` `[defer]` (intention) effet réel du reranker, durées et mémoire réelles — doublures seulement.
+
 ## Design Notes
 
 **Payloads.** Tous portent `run_id`. L'étape porte `lane` (`a` ou `b`) et `stage_id` :
@@ -415,3 +473,17 @@ Les stories 33, 23, 34, 32, 24, 25, 26, 27, 31 et 29 modifient l'arbre avant cel
   - **Attendu** : l'étape passe en « arrêtée », le retour en `idle` suit, et aucun fichier partiel ne reste.
   - **Critère** : arrêt en moins de 2 s ; aucun dossier `.tmp` restant sous `rag_lab`.
   - **Moyen** : Playwright.
+
+## Auto Run Result
+
+Statut : done (2026-09-29, orchestrateur de nuit ; étapes 1 à 4 menées par l'orchestrateur ; une limite d'usage a interrompu les corrections de revue, reprises ensuite sans perte). **Les quatre incréments sont livrés.**
+
+**Changement :** nouvel écran `/rag` « Atelier RAG » (lien de la barre haute, onglet des autres pages), bac à sable séparé de la brique RAG. (1) Chaîne livrée dessinée et exécutée (découpage, embedding, base vectorielle sqlite-vec, recherche, reranking, construction du contexte, génération dessinée avec son entrée) : pour une question, chaque étape montre ce qui entre et sort (extraits, scores, rangs, durée, mémoire). (2) Options et réglages (taille des extraits, candidats, top-k, recherche exhaustive en mémoire, fastembed s'il est installé et déclaré), cache de vecteurs dans le dossier de données, comparaison A/B côte à côte. (3) FAISS et LanceDB dans l'extra optionnel `rag-alt` (faiss-cpu 1.15.1, lancedb 0.39.0, roues seulement) : sans lui, option grisée avec la commande d'installation ; imports comptés au budget mémoire (AD-8). (4) Ajouter, retirer et déplacer les composants de récupération (BM25, fusion RRF, reranking) avec des règles vérifiées par la session. Moteur séparé (`rag/lab.py`), événements `rag_lab_*`, état `rag_lab`, prêt des modèles de la brique, rien écrit hors du dossier de données.
+
+**Fichiers :** `rag/lab.py` (nouveau), `rag/{retriever,embedding}.py`, `models/load_registry.py`, `config.py`, `trace/catalog.py`, `session/app_session.py`, `web/app.py`, `web/static/{rag.html,rag.js,rag.css (nouveaux),app.js,index.html,llm.html,diagnostic.html,models.html}`, `content/rag_lab.yaml` (nouveau), `pyproject.toml` et `uv.lock` (extra `rag-alt`), `wavestack.toml`, `tests/test_rag_lab{,_alt}.py` (nouveaux) et tests associés, `tools/e2e/{run_e2e.py,wavestack_e2e.py,README.md}`, README, EXPERIENCE.md, DESIGN.md, SPEC.md (CAP-45), ARCHITECTURE-SPINE.md, captures 55 à 58.
+
+**Revue :** 33 constats — 26 corrigés (8 medium, 18 low), 4 différés, 3 regroupés ; voir le triage. Décision prise à la correction : fastembed n'est ni livré ni ajouté à `rag-alt` (onnxruntime et son client de téléchargement non vérifiés hors ligne ni sous Windows) ; la manière de l'ajouter est documentée. Revue de suivi recommandée : false (aucun high).
+
+**Vérification :** ruff check et format verts ; pytest : 1294 passés, 3 ignorés ; E2E complet : 668 PASS, 0 FAIL (branche « avec l'extra ») ; `--only rag rag_rerank rag_lab --no-rag-alt` : 86 PASS, 0 FAIL (branche « sans l'extra », côté implémenteur) ; `uv lock --check --offline` : 97 paquets.
+
+**Risques résiduels :** installation de l'extra sans droits d'administrateur sous Windows (400 Mo, AppLocker) ; vrais modèles (effet du reranker, durées, mémoire) ; barre haute serrée à 1 440 px (chiffres de la jauge coupés d'environ 13 px).
