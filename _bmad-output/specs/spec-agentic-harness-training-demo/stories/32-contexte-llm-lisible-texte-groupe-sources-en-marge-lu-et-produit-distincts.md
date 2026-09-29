@@ -2,7 +2,8 @@
 title: 'Contexte LLM lisible : texte groupé, sources en marge, lu et produit distincts'
 type: 'feature'
 created: '2026-09-28'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '838ba499747cdf5d83e785b2e9ec735192cbfcfd'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -16,7 +17,22 @@ context:
   - '{project-root}/tools/e2e/README.md'
 warnings:
   - oversized
-deferred: []
+deferred:
+  - summary: >-
+      Relance après une coupe du raisonnement : ce que la relance relit (raisonnement tronqué, balise de fermeture) n'apparaît pas comme « lu » ni dans Texte exact.
+    evidence: |-
+      Décision par défaut : la relance reste le même appel, avec une note du harnais ; aucun context_rendered n'est émis pour elle.
+    severity: medium (unverified)
+  - summary: >-
+      Déjà-lu non testé en Python après un appel d'outil mal formé et après une compression entre deux appels.
+    evidence: |-
+      Seuls l'appel d'outil normal, le mode chat et le sous-agent ont un test d'intégration.
+    severity: low (unverified)
+  - summary: >-
+      Fonctions JS du volet (jsonSpans, readingRows, decodeFragment) sans test unitaire.
+    evidence: |-
+      Seul le parcours E2E les exerce.
+    severity: low (unverified)
 ---
 
 <intent-contract>
@@ -184,6 +200,39 @@ Deux bascules s'ajoutent : « Texte exact » (brut, sans habillage) et, en mode 
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 29 findings — high 0, medium 5, low 18, false 2, maybe-false 4 (écarts de l'auditeur d'intention : relance après coupe montrée comme un seul appel et thème sombre reporté à la story 31 — conformes aux décisions par défaut ; exactitude de la relecture de la relance — différée)
+- findings:
+  - `[low]` `[patch]` (blind) lignes périmées d'EXPERIENCE.md (sélection d'un appel, hors périmètre, vocabulaire « segment ») — réécrites.
+  - `[low]` `[patch]` (blind) `intent` de CAP-2 non mis à jour — réécrit.
+  - `[low]` `[patch]` (blind) appel lié hors écran — défilement vers l'appel au clic.
+  - `[low]` `[patch]` (blind) étiquette de marge redondante (« Prompt système · Prompt système ») — nom de brique omis s'il répète le type.
+  - `[medium]` `[patch]` (blind) lignes de section en `role="button"` : texte caché aux lecteurs d'écran, contrôles imbriqués — l'étiquette de marge devient le seul contrôle.
+  - `[medium]` `[patch]` (blind) `jsonSpans` trop large, quadratique, coupé en silence par un budget global — seuil de taille, pas de rebalayage.
+  - `[low]` `[patch]` (blind) compte « k sections » du déjà-lu différent des lignes affichées — compte des lignes.
+  - `[low]` `[patch]` (blind) sections fusionnées qui cachent les composants — composants listés en marge.
+  - `[low]` `[patch]` (blind) appel d'outil annoncé en flux alors qu'il n'apparaît qu'en fin d'appel — EXPERIENCE.md corrigé.
+  - `[low]` `[patch]` (blind) mémoires de dépliage jamais vidées — vidées au vidage et à la réinitialisation.
+  - `[low]` `[patch]` (blind) tests Python manquants (réconciliation, relance après coupe) — ajoutés ; retry après appel mal formé et compression entre deux appels différés.
+  - `[maybe-false]` `[reject]` (blind) clé de reconstruction liée à l'identité de `store.bricks` — les cartes sont toujours remplacées à chaque `bricks_changed` ; une édition en place serait un changement futur.
+  - `[low]` `[patch]` (vérif.) note de coupe du raisonnement non vérifiée — E2E ajouté.
+  - `[low]` `[patch]` (vérif.) rendu du dépassement non vérifié — E2E ajouté.
+  - `[medium]` `[patch]` (vérif.) JSON invalide ou tronqué non vérifié (risque de volet vide) — E2E local et chat.
+  - `[low]` `[patch]` (vérif.) flux en direct par correctif en place non vérifié — assertion en cours d'appel.
+  - `[medium]` `[patch]` (edge) sortie de l'appel précédent affichée sur le nouvel appel avant `model_call_started` (brut compris) — appel vivant seulement après son début.
+  - `[low]` → regroupé (brut, edge).
+  - `[low]` `[patch]` (edge) ligne « Le harnais exécute X » pour un outil refusé — seuls les outils démarrés sont nommés.
+  - `[low]` `[patch]` (edge + edge) `p.sections` non protégé — `?? []`.
+  - `[low]` `[patch]` (edge) clés de dépliage JSON en collision avec « / » — clés encodées.
+  - `[false]` `[reject]` (edge) catalogue d'outils toujours « Nouveau » en mode chat — conséquence voulue du préfixe strict (le corps met `tools` après `messages`) ; documenté.
+  - `[medium]` `[patch]` (edge) appel d'outil mal formé invisible en lecture groupée — bloc de sortie brute ajouté.
+  - `[low]` `[patch]` (edge) « Texte avant compression » refermé à chaque reconstruction — état mémorisé.
+  - `[low]` → regroupé (garde `sections`, edge).
+  - `[maybe-false]` `[defer]` (intention) exactitude de la relance après coupe : ce que la relance relit (raisonnement tronqué et balise de fin) n'apparaît pas comme lu.
+  - `[maybe-false]` `[defer]` (blind) retry après appel mal formé et compression entre deux appels sans test Python du déjà-lu.
+  - `[false]` `[reject]` (intention) jetons sans valeur sombre — la story 31, qui suit, couvre tous les jetons de tokens.css.
+  - `[maybe-false]` `[defer]` (intention) JS du volet sans test unitaire (`jsonSpans`, `readingRows`, `decodeFragment`) — seul l'E2E les exerce.
+
 ## Design Notes
 
 **Sections (session).**
@@ -274,3 +323,17 @@ L'étiquette « Produit par le modèle » est en `on-ink` sur `ink` (19,7). Les 
   - **Attendu** : réflexion, note « Raisonnement coupé par le harnais », puis réponse, dans un seul appel ; étiquettes de marge lisibles, sans défilement horizontal.
   - **Critère** : note placée entre les deux blocs ; aucun texte coupé.
   - **Moyen** : Claude in Chrome ou à la main.
+
+## Auto Run Result
+
+Statut : done (2026-09-29, orchestrateur de nuit ; étapes 1 à 4 menées par l'orchestrateur).
+
+**Changement :** Contexte LLM montre la suite des appels du tour, « Appel i sur n », avec les tokens lus, évalués et produits de `model_call_ended`. Le texte lu est groupé par source (sections calculées par la session : `sections`, `seen_segments`, `seen_tokens` ; AD-1), avec la source et les tokens en marge (seul contrôle de la ligne) ; le déjà-lu est replié, le nouveau porte « Nouveau ». Le texte produit (réflexion, réponse, appel d'outil, sortie brute d'un appel mal formé) a son propre fond et l'étiquette « Produit par le modèle » ; la coupe du raisonnement apparaît en note du harnais ; une ligne entre deux appels dit ce que le harnais a fait. JSON indentés, colorés, repliables (JS natif, seuil de taille). Vues « Lecture groupée », « Texte exact » (identique au texte envoyé) et « Corps JSON » en mode chat. Volet reconstruit seulement sur changement, texte en cours corrigé sur place.
+
+**Fichiers :** `context/window.py`, `context/render.py`, `trace/catalog.py`, `session/app_session.py`, `web/static/{app.js,app.css,tokens.css}`, `tests/test_context_sections.py` (nouveau), `tests/test_{tools,cloud,subagent,reasoning_budget,web_tokens}.py`, `tools/e2e/{run_e2e.py,fake_local_server.py,README.md}`, EXPERIENCE.md, DESIGN.md, SPEC.md (CAP-2), ARCHITECTURE-SPINE.md (AD-4, AD-9), captures 40 à 42 et captures réécrites.
+
+**Revue :** 29 constats — 22 corrigés (5 medium, 17 low), 3 différés (maybe-false), 4 rejetés (2 false, 1 maybe-false, 1 regroupement) ; voir le triage. Revue de suivi recommandée : false.
+
+**Vérification :** ruff check et format verts ; pytest : 993 passés, 3 ignorés ; E2E complet : 511 PASS, 0 FAIL.
+
+**Risques résiduels :** fluidité du flux sur le CPU cible ; gabarit Qwen réel ; le faux llama-server compte un token par morceau de 4 caractères (sous-estimation en E2E seulement).

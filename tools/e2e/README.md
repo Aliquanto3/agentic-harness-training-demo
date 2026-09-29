@@ -191,7 +191,7 @@ Vérifications ajoutées aux scénarios existants :
   (« n tokens dans le contexte », « n entrées · n tokens », « n déclarés · c contacté(s) », avec
   la puce « RÉSEAU ») ; Prompt système éteint par l'API, « Éteinte », explication toujours
   ouverte. Bulle de l'utilisateur sur l'encre, en-têtes des cinq volets sur `--color-surface`,
-  segments de Contexte LLM (filet du prompt système, pastille de son type), tuiles
+  sections de Contexte LLM (filet du prompt système, pastille de son type), tuiles
   d'Orchestration (appel au modèle sur l'encre, `wikipedia_summary` en réseau, « Description
   des outils » en harness), plaque du modèle et nœuds du schéma. `c` compte les outils réseau
   déjà contactés dans la session : 1 (Wikipédia) quand le scénario est joué seul, 2 après
@@ -235,9 +235,9 @@ Vérifications ajoutées aux scénarios existants :
   « Résume l'article Wikipédia… ». Survol de la carte Outils : `body.linking`, nœuds Wikipédia
   et Calculatrice, segments et étape « Exécute l'outil hors du poste » éclairés, carte Mémoire
   globale estompée (opacité < 0,5) ; pointeur sur le titre de la barre haute : plus rien.
-  Survol du segment harness de la jauge (carte Outils), de la plaque du modèle (chaque segment
-  de Contexte LLM), de « Répond » (plaque et segments : l'appel que montre Contexte LLM) et de
-  « Appelle le modèle » (plaque seule : un appel plus ancien). Au clavier, un segment focalisé
+  Survol du segment harness de la jauge (carte Outils), de la plaque du modèle (chaque section
+  de Contexte LLM), de « Répond » et de « Appelle le modèle » (plaque et sections de leur appel,
+  pas celles de l'autre : story 32). Au clavier, une section focalisée
   puis une ligne d'étape atteinte par Tab éclairent comme au survol ; focus perdu : plus rien.
   Clic sur le nœud Calculatrice, Contexte LLM masqué : carte Outils cerclée d'encre, puce
   « + Contexte LLM · lié » ; Échap efface tout. Mouvement réduit : `transition-duration` 0s.
@@ -245,7 +245,7 @@ Vérifications ajoutées aux scénarios existants :
   Frise : « Décrit les outils », « Appelle le modèle », « Demande un outil », « Exécute l'outil
   hors du poste », « Réinjecte le résultat », « Répond », pastilles H, M, M, R, H, M, ligne
   réseau « 🌐 RÉSEAU → fr.wikipedia.org », figure de « Répond », dépliage au clic. Après le
-  clic sur Calculatrice, un segment et une étape visibles sont cerclés d'encre, sans estompage
+  clic sur Calculatrice, une section et une étape visibles sont cerclées d'encre, sans estompage
   sous le pointeur resté sur la source. Bilan sous le schéma : K = `model_call_started` +
   `outbound_request{origin: brick}` des étapes d'outil qui n'ont pas échoué ; la requête vers
   Wikipédia, que le réseau coupé fait échouer, est citée à part, « 1 tentative en échec vers
@@ -264,6 +264,42 @@ Vérifications ajoutées aux scénarios existants :
   liable (`Run.rest_pointer`), pour qu'un clic précédent n'estompe pas la page ; la capture 35
   garde le survol. Les étapes d'outil se repèrent par `.turn-step-title` (le verbe, puis le
   libellé de l'outil).
+
+## Contexte LLM lisible : lu et produit (story 32)
+
+- `native_tools`, après « Quelle heure est-il ? » (faux cloud) : deux `.ctx-call` « Appel 1 sur 2 »
+  et « Appel 2 sur 2 », chacun « Lu : n tokens · évalués : … · produits : n » ; l'appel 2 replie
+  « Déjà lu à l'appel précédent · k sections · n tokens » et marque « Nouveau » la section
+  « Résultats d'outils » ; aucun badge à l'appel 1. Produit : l'appel d'outil de l'appel 1 en arbre
+  (`"name"`, `"get_datetime"`), la réponse de l'appel 2 ; fond `--color-produced-soft`, distinct de
+  toute section lue ; « Produit par le modèle » visible. « Texte exact » : chaque `pre.ctx-exact`
+  est le `body` du `context_rendered` de son appel, et son `json.loads` le corps reçu par le faux
+  fournisseur, sans habillage. « Corps JSON » : l'arbre montre `"messages"`, un clic sur le
+  summary replie, un second déplie. Retour à « Lecture groupée » (mémorisée par le navigateur).
+  Captures `40-contexte-appels-numerotes.jpg`, `41-contexte-texte-exact.jpg`,
+  `42-contexte-corps-json.jpg` (Contexte LLM en mode focus).
+- `bare_llm`, « Bonjour [raisonne] » : la réflexion (`--color-reasoning-soft`) précède la réponse,
+  sur un autre fond ; `.ctx-total` commence toujours par « Tour N · ». Puis `Lis ceci : {"a": et
+  {x}` : le volet s'affiche, le texte reste tel quel, sans arbre JSON (de même en mode local, dans
+  `local_server`).
+- `busy_and_stop` : pendant « Explique le harnais [lent] [long] », la réponse de l'appel en cours
+  grandit dans Contexte LLM avant `model_call_ended` ; à la fin, un message de 20 000 caractères
+  déborde : le dernier appel dit « non envoyé : contexte dépassé » et « Aucun appel : contexte
+  dépassé. ».
+- `local_server` (faux llama-server, gabarit Qwen3.5) : deux appels numérotés ; à l'appel 1, la
+  ligne des descriptions d'outils montre un arbre JSON (`"parameters"`) et sa marge empile les
+  sections que les JSON touchent (gabarit, descriptions d'outils) ; Σ `sections.tokens` =
+  `prompt_tokens` pour chaque appel ; « Texte exact » = jointure des segments (le prompt). Avec
+  la brique Raisonnement, « Bonjour [réfléchis longtemps] » : le faux llama-server raisonne
+  au-delà du budget sans fermer, le harnais coupe et relance ; un seul appel, la note du harnais
+  entre la réflexion et la réponse.
+- `subagent` : l'onglet du sous-agent numérote ses appels et replie le déjà-lu à partir du 2e ;
+  sur « Agent principal », la ligne entre les appels nomme la délégation et son bouton « Voir le
+  contexte du sous-agent subN » ouvre l'onglet.
+- `rag` : l'introduction et les trois extraits forment une section « Extraits RAG » de 4
+  segments ; `compression` : un segment compressé, son badge et « Texte avant compression » dans
+  sa section ; `disciplines`, `linked_view` : les vérifications portent sur `.ctx-section` (au
+  clavier, sa marge `.ctx-section-select`, seul contrôle de la ligne).
 
 ## Déclencheurs du faux modèle
 

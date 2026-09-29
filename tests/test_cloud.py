@@ -22,6 +22,7 @@ from wavestack.models import discovery
 from wavestack.models.openai_chat import OpenAIChatEngine, _quota_scope
 from wavestack.session.app_session import AppSession
 from wavestack.session.diagnostic import DiagnosticSession
+from wavestack.trace.catalog import ContextReconciledPayload
 from wavestack.trace.journal import get_journal
 from wavestack.web.app import create_app
 
@@ -924,3 +925,34 @@ def test_a_cancel_during_the_wait_sends_nothing():
     assert provider.requests == [] and get_journal().events_since(mark) == []
     assert openai_chat._last_start[entry.id] == seeded  # the slot is given back
     engine.close()
+
+
+# ---------- story 32: sections and « déjà lu » in chat mode ----------
+
+
+def test_chat_second_call_reads_the_first_one_again_and_reconciled_keeps_it():
+    provider = Provider(GROQ_TOOL, GROQ_TEXT)
+    session = _cloud_session("groq", provider, bricks=("tools",))
+
+    events = _turn(session, "Quelle heure est-il ?")
+
+    first, second = (e.payload for e in _of(events, "context_rendered"))
+    assert first["seen_segments"] == 0 and not any(s["seen"] for s in first["sections"])
+    assert second["seen_segments"] > 0
+    assert any(s["kind"] == "tool_result" and not s["seen"] for s in second["sections"])
+    for rendered, reconciled in zip(
+        _of(events, "context_rendered"), _of(events, "context_reconciled"), strict=True
+    ):
+        r, c = rendered.payload, reconciled.payload
+        assert c["seen_segments"] == r["seen_segments"]
+        cuts = [(s["start"], s["end"], s["kind"], s["seen"]) for s in r["sections"]]
+        assert [(s["start"], s["end"], s["kind"], s["seen"]) for s in c["sections"]] == cuts
+        assert sum(s["tokens"] for s in c["sections"]) == c["used"]  # recalibrated tokens
+        assert c["seen_tokens"] == sum(s["tokens"] for s in c["segments"][: c["seen_segments"]])
+        assert "".join(s["text"] for s in r["segments"]) == r["body"]
+    for reconciled in _of(events, "context_reconciled"):  # the catalogue's shape (AD-2)
+        checked = ContextReconciledPayload.model_validate(reconciled.payload)
+        assert checked.sections and checked.seen_segments == reconciled.payload["seen_segments"]
+    provider_section = second["sections"][-1]
+    assert provider_section["end"] - provider_section["start"] == 1
+    assert provider_section["label_fr"] == second["segments"][-1]["label_fr"]

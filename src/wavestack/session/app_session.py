@@ -63,11 +63,12 @@ from wavestack.context.segments import (
     CompressedFrom,
     Joined,
     Part,
+    Segment,
     SegmentKind,
     SegmentLabels,
     load_labels,
 )
-from wavestack.context.window import effective_window, gauge
+from wavestack.context.window import effective_window, gauge, seen_prefix
 from wavestack.hooks import (
     ALLOWED,
     AUDIT,
@@ -3139,12 +3140,15 @@ class AppSession:
         call_id: str | None,
         steps: list[dict[str, Any]] | None = None,
         sub: _SubContext | None = None,
+        read_before: list[Segment] | None = None,
     ) -> tuple[RenderedContext | RenderedChat, dict[str, Any]]:
         """`sub`: a sub-agent's call (AD-11), rendered the same way from its own messages and
-        tools (`_tool_definitions` reads only `tools` and `loadable`)."""
+        tools (`_tool_definitions` reads only `tools` and `loadable`). `read_before` (story
+        32): the segments of the previous call of the same context in the turn, whose common
+        prefix is « déjà lu »."""
         assert self._engine is not None and self._caps is not None and self._labels is not None
         if self._cloud is not None:
-            return self._render_chat(state, message, call_id, steps, sub)
+            return self._render_chat(state, message, call_id, steps, sub, read_before)
         meta = self._engine.metadata()
         template_vars: dict[str, Any] = {}
         if self._caps.reasoning_variable:  # AD-6: the brick sets the template's variable
@@ -3163,6 +3167,7 @@ class AppSession:
             add_generation_prompt=True,
             **template_vars,
         )
+        rendered.seen = seen_prefix(read_before, rendered.segments)
         payload = gauge(
             rendered.segments,
             window=self._window,
@@ -3171,6 +3176,7 @@ class AppSession:
             labels=self._labels,
             window_source=self._window_source,
             categories=self._categories(),
+            seen=rendered.seen,
         )
         return rendered, payload
 
@@ -3181,6 +3187,7 @@ class AppSession:
         call_id: str | None,
         steps: list[dict[str, Any]] | None,
         sub: _SubContext | None = None,
+        read_before: list[Segment] | None = None,
     ) -> tuple[RenderedChat, dict[str, Any]]:
         """AD-4, chat mode: `context` writes the body; before the call, the total is the
         estimates × `ratio` (the main one, or the sub-agents'), and only their raw sum can
@@ -3202,6 +3209,7 @@ class AppSession:
             estimate=lambda text: config.estimate_tokens(text, self.cfg.chars_per_token),
             provider_label_fr=content.provider_segment_fr,
         )
+        rendered.seen = seen_prefix(read_before, rendered.segments)
         payload = self._chat_gauge(
             rendered,
             round(rendered.raw_total * self._ratio),
@@ -3236,6 +3244,7 @@ class AppSession:
             window_source=self._window_source,
             raw_used=rendered.raw_total,
             categories=self._categories(),
+            seen=rendered.seen,  # story 32: the same « déjà lu » before and after the call
         )
         return payload | {"body": rendered.body, "usage_source": source}
 
@@ -3803,6 +3812,7 @@ class AppSession:
         retries = step = 0
         steps: list[dict[str, Any]] = []
         previous: tuple[list[int], str] | None = None
+        read_before: list[Segment] | None = None  # story 32: its previous call's segments
         stopped = _SubOutcome("cancelled", message_fr="délégation arrêtée.")
         for n in range(1, max_calls + 1):
             call_id = f"{turn_id}.{cid}.c{n}"
@@ -3815,7 +3825,8 @@ class AppSession:
                 )
             step += 1
             with scoped(call_id=call_id, step_id=f"{turn_id}.{cid}.s{step}"):
-                rendered, payload = self._render(state, "", call_id, steps, sub)
+                rendered, payload = self._render(state, "", call_id, steps, sub, read_before)
+                read_before = rendered.segments
                 journal.emit("context_rendered", payload)
                 figures["context_tokens"] = payload["used"]
                 figures["kept_tokens"] = _kind_tokens(payload, SegmentKind.TOOL_RESULT)
@@ -4908,6 +4919,8 @@ class AppSession:
         max_calls, max_retries = self.cfg.tool_max_calls, self.cfg.tool_max_retries
         retries = 0
         previous: tuple[list[int], str] | None = None  # last call's ids and raw output
+        # Story 32: the last call's segments, whose common prefix the next call read already.
+        read_before: list[Segment] | None = None
         # AD-25: documentations loaded in this turn are callable at once. Locally, they enter
         # `tools` only from the next turn (the prefix stays append only); in chat mode, from
         # the next call, since a provider refuses a call to a tool its `tools` lacks.
@@ -4945,7 +4958,10 @@ class AppSession:
             step += 1
             with scoped(call_id=call_id, step_id=f"{turn_id}.main.s{step}", component="core.model"):
                 shown = state if self._cloud is None else _with_loaded(state, loaded_in_turn)
-                rendered, payload = self._render(shown, message, call_id, steps)
+                rendered, payload = self._render(
+                    shown, message, call_id, steps, read_before=read_before
+                )
+                read_before = rendered.segments
                 sent = len(steps)
                 journal.emit("context_rendered", payload)
                 if payload["overflow"]:

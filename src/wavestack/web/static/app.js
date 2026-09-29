@@ -77,6 +77,13 @@ const store = {
   // default), and the reasoning blocks the user unfolded (`chat:` or `ctx:` + turn id).
   showReasoning: true,
   openReasoning: new Set(),
+  // Story 32, UI state only: Contexte LLM's view (« Lecture groupée », « Texte exact »,
+  // « Corps JSON »; remembered by the browser), the « déjà lu » blocks unfolded (by call), the
+  // JSON nodes folded (open by default) and the exact texts shown, by key.
+  ctxMode: "grouped",
+  openSeen: new Set(),
+  jsonClosed: new Set(),
+  openExact: new Set(),
   // Story 9: the armed actions as the session last sent them (AD-3), and every label seen, so
   // an `action_dropped` still names its action once the list moved on.
   armed: [],
@@ -284,6 +291,7 @@ function applyEnvelope(envelope) {
     case "conversation_cleared":
       // Past turns leave the Vue humain, Contexte LLM and Orchestration; the event list keeps them.
       dropSelection(); // story 34: its keys named what is gone
+      clearCtxFolds(); // story 32: the folds of calls that are gone
       store.chatFrom = store.turns.length;
       store.clearedSeq = envelope.seq;
       store.compare = null;
@@ -298,6 +306,7 @@ function applyEnvelope(envelope) {
       // Like `conversation_cleared`, but the panes go back to « Aucun tour », the MCP
       // connections seen so far stay in the harness preparation, and the event log restarts.
       dropSelection();
+      clearCtxFolds();
       store.chatFrom = store.turns.length;
       store.resetSeq = envelope.seq;
       store.compare = null;
@@ -540,9 +549,14 @@ function applyEnvelope(envelope) {
       if (turn) turn.phaseLabel = null;
       break;
     }
+    case "reasoning_cut": // lot C: the harness closed a reasoning at its budget
+      if (turn) {
+        turn.steps.push({ type: envelope.kind, payload: p });
+        lastCall(turn).cut = p; // story 32: a note between the call's reasoning and its answer
+      }
+      break;
     case "tool_call_malformed":
     case "prefix_not_reused":
-    case "reasoning_cut": // lot C: the harness closed a reasoning at its budget
       if (turn) turn.steps.push({ type: envelope.kind, payload: p });
       break;
     case "limit_reached":
@@ -730,9 +744,12 @@ function applySubEnvelope(turn, sub, envelope) {
       turn.phaseLabel = null;
       break;
     }
+    case "reasoning_cut":
+      sub.steps.push({ type: envelope.kind, payload: p });
+      lastCall(sub).cut = p; // story 32
+      break;
     case "tool_call_malformed":
     case "prefix_not_reused":
-    case "reasoning_cut":
       sub.steps.push({ type: envelope.kind, payload: p });
       break;
     case "limit_reached":
@@ -931,19 +948,26 @@ function selectOnActivate(node, id, name) {
   node.setAttribute("aria-label", name);
   node.dataset.selectId = id;
   node.setAttribute("aria-pressed", String(store.selection === id));
-  const own = (event) => event.target.closest("summary, button, a"); // its own controls (a fold)
+  // Its own controls (a fold), the node itself excepted when it is a button (story 32: a
+  // section's margin), whose keys are those of the row that holds it.
+  const own = (event) => {
+    const control = event.target.closest("summary, button, a");
+    return Boolean(control) && control !== node;
+  };
+  const keys = () => readLinks(node.closest("[data-links]"));
   node.addEventListener("pointerdown", (event) => {
     if (event.pointerType !== "mouse" || event.button !== 0 || own(event)) return;
-    select(id, readLinks(node));
+    select(id, keys());
   });
   node.addEventListener("click", (event) => {
     if (event.pointerType === "mouse" || own(event)) return;
-    select(id, readLinks(node));
+    select(id, keys());
   });
   node.addEventListener("keydown", (event) => {
-    if (event.target !== node || (event.key !== "Enter" && event.key !== " ")) return;
+    // A native button clicks on Enter and Space by itself: the `click` above selects it.
+    if (node.tagName === "BUTTON" || event.target !== node || (event.key !== "Enter" && event.key !== " ")) return;
     event.preventDefault(); // Space would scroll the pane
-    select(id, readLinks(node));
+    select(id, keys());
   });
 }
 
@@ -2832,36 +2856,158 @@ async function stopTurn() {
   }
 }
 
-// ---------- LLM context pane: labelled segments and raw output ----------
+// ---------- LLM context pane: each call of the turn, what it read then what it produced (story 32) ----------
+// The session cuts each context into sections (consecutive segments of one source) and says
+// which prefix the previous call of the same context read already (AD-1, AD-9): the pane only
+// lays them out. Three views: the grouped reading (default), the exact text sent (the join of
+// the segments, or the chat body, byte for byte), and, in chat mode, the JSON body as a tree.
+
+const CTX_MODE_STORAGE_KEY = "wavestack.ctxMode";
+const CTX_MODES = [
+  ["grouped", "Lecture groupée"],
+  ["exact", "Texte exact"],
+  ["body", "Corps JSON"], // chat mode only
+];
+
+function loadCtxMode() {
+  try {
+    const saved = localStorage.getItem(CTX_MODE_STORAGE_KEY);
+    if (CTX_MODES.some(([id]) => id === saved)) store.ctxMode = saved;
+  } catch {
+    // No storage: the grouped reading, until the user picks another view.
+  }
+}
+
+function setCtxMode(mode) {
+  store.ctxMode = mode;
+  try {
+    localStorage.setItem(CTX_MODE_STORAGE_KEY, mode);
+  } catch {
+    // No storage: the choice lasts until the page is reloaded.
+  }
+  renderContext();
+}
+
+const isChat = (p) => p?.body !== undefined && p?.body !== null;
+// « Corps JSON » falls back on the grouped reading outside chat mode.
+const ctxMode = (chat) => (store.ctxMode === "body" && !chat ? "grouped" : store.ctxMode);
+
+// A stable number per object, for the pane's rebuild key (a reconciled context, a call ended).
+const objectIds = new WeakMap();
+let nextObjectId = 1;
+function objectId(o) {
+  if (!o || typeof o !== "object") return 0;
+  if (!objectIds.has(o)) objectIds.set(o, nextObjectId++);
+  return objectIds.get(o);
+}
+
+// The turn and the context shown: the tab chosen (story 22), else the last turn with a context.
+function ctxShown() {
+  const turns = shownTurns();
+  const chosen = store.ctxView && turns.find((t) => t.id === store.ctxView.turn);
+  const turn = chosen?.subs.get(store.ctxView.sub)?.context ? chosen : turns.findLast((t) => t.context);
+  if (!turn) return null;
+  const subs = [...turn.subs.values()].filter((s) => s.context);
+  const view = store.ctxView?.turn === turn.id ? turn.subs.get(store.ctxView.sub) : null;
+  const owner = view?.context ? view : turn;
+  return { turn, subs, owner, chat: isChat(owner.context) };
+}
+
+const ctxCalls = (owner) => owner.steps.filter((s) => s.type === "call");
+
+// The steps between a call and the next call of the same context (tools, hooks, errors).
+function stepsAfter(owner, call) {
+  const from = owner.steps.indexOf(call) + 1;
+  const next = owner.steps.findIndex((s, i) => i >= from && s.type === "call");
+  return owner.steps.slice(from, next < 0 ? undefined : next);
+}
+
+// « Vider la conversation » and « Réinitialiser »: the folds of calls that are gone.
+function clearCtxFolds() {
+  for (const set of [store.openSeen, store.jsonClosed, store.openExact]) set.clear();
+}
+
+// A call step clicked in Orchestration (story 34 selection): its call in Contexte LLM is
+// brought into view, as its sections may sit far above (not on hover).
+function revealCall(keys) {
+  const id = keys.find((k) => k.startsWith("call:"))?.slice(5);
+  if (!id) return;
+  document.querySelector(`#ctx .ctx-call[data-call-id="${cssEscape(id)}"]`)?.scrollIntoView({ block: "nearest" });
+}
+
+// What the pane shows, as a key: it is rebuilt only when this changes (story 32), so an
+// unfolded block, the keyboard focus and the scroll stay; the running call's text is patched.
+function ctxKey(shown) {
+  if (!shown) return JSON.stringify(["none", cleared()]);
+  const { turn, owner, subs, chat } = shown;
+  const calls = ctxCalls(owner);
+  const last = calls.at(-1);
+  return JSON.stringify([
+    ctxMode(chat),
+    turn.id,
+    turnNumber(turn),
+    owner === turn ? "main" : owner.contextId,
+    subs.map((s) => s.contextId),
+    objectId(store.bricks),
+    store.activeModel?.banner_fr ?? null,
+    calls.map((c) => [c.id, c.startedAt ?? null, objectId(c.context), objectId(c.ended), objectId(c.cut)]),
+    owner.steps.length,
+    last && !last.ended ? [Boolean(owner.reasoning), Boolean(owner.text)] : null,
+    turn.status,
+    turn.errors.length,
+    owner.errors?.length ?? 0,
+    owner.notices?.length ?? 0,
+    Boolean(owner.overflow),
+    objectId(owner.ended),
+  ]);
+}
+
+let renderedCtxKey = null;
+// The running call's nodes, patched in place at each delta: `{ owner, answer, reasoning, raw }`.
+let ctxLive = null;
 
 function renderContext() {
   const pane = document.getElementById("ctx");
   if (store.compare) {
+    renderedCtxKey = null;
+    ctxLive = null;
     renderCompare(pane);
     return;
   }
-  // The rebuild would drop keyboard focus (e.g. on the context switch): restore it.
-  const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
-  renderContextBody(pane);
-  if (focusKey) quietFocus(pane.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`));
+  const shown = ctxShown();
+  const key = ctxKey(shown);
+  // Streaming (EXPERIENCE.md): the scroll follows the end of the text, unless the user went up.
+  const atEnd = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40;
+  if (key !== renderedCtxKey) {
+    renderedCtxKey = key;
+    // The rebuild would drop keyboard focus (e.g. on the view switch) and the scroll: restore them.
+    const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
+    const scroll = pane.scrollTop;
+    ctxLive = null;
+    renderContextBody(pane, shown);
+    pane.scrollTop = scroll;
+    if (focusKey) quietFocus(pane.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`));
+  }
+  if (ctxLive) {
+    const { owner } = ctxLive;
+    if (ctxLive.answer) setText(ctxLive.answer, owner.text);
+    if (ctxLive.reasoning) setText(ctxLive.reasoning, owner.reasoning);
+    if (ctxLive.raw) setText(ctxLive.raw, owner.reasoning + owner.text || "…");
+    if (atEnd) pane.scrollTop = pane.scrollHeight;
+  }
 }
 
-function renderContextBody(pane) {
+function renderContextBody(pane, shown) {
   pane.innerHTML = "";
-  const chosen = store.ctxView && shownTurns().find((t) => t.id === store.ctxView.turn);
-  const turn = chosen?.subs.get(store.ctxView.sub)?.context
-    ? chosen
-    : shownTurns().reverse().find((t) => t.context);
-  if (!turn) {
+  if (!shown) {
     pane.appendChild(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
     return;
   }
+  const { turn, subs, owner, chat } = shown;
   // Story 19: « Agent principal » / « Sous-agent sub1 », one tab per sub-agent (story 22);
   // what follows is the selected tab's panel.
-  const subs = [...turn.subs.values()].filter((s) => s.context);
-  const view = store.ctxView?.turn === turn.id ? turn.subs.get(store.ctxView.sub) : null;
   if (subs.length) {
-    const tabs = ctxViewSwitch(turn, subs, view?.context ? view : null);
+    const tabs = ctxViewSwitch(turn, subs, owner === turn ? null : owner);
     const panel = el("div", "ctx-view-panel");
     panel.id = "ctx-view-panel";
     panel.setAttribute("role", "tabpanel");
@@ -2869,98 +3015,658 @@ function renderContextBody(pane) {
     pane.append(tabs, panel);
     pane = panel;
   }
-  if (view?.context) {
-    renderSubContext(pane, view);
-    return;
-  }
-  const p = turn.context;
-  if (p.body !== undefined && p.body !== null) {
-    // Chat mode: the context is the JSON body sent to the provider (FR-43).
-    const banner = store.activeModel?.banner_fr ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
-    pane.appendChild(el("p", "ctx-banner", banner));
-  }
-  // AD-4: the provider's total replaces the sum of the segments, it is not added to it.
-  const source = p.usage_source === "api" ? "total renvoyé par le fournisseur" : "somme des segments";
-  pane.appendChild(
-    el(
-      "p",
-      "ctx-total",
-      `${turnName(turn)} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (${source}) · ` +
-        `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
-    )
-  );
-  if (p.uncertain_fr) pane.appendChild(el("p", "bubble-note", p.uncertain_fr));
-  if (p.uncompressed_used != null) {
-    // Story 20: the session's total without compression, next to the one sent (FR-31).
+  pane.appendChild(ctxModeSwitch(chat));
+  const p = owner.context;
+  if (owner === turn) {
+    if (chat) {
+      // Chat mode: the context is the JSON body sent to the provider (FR-43).
+      const banner = store.activeModel?.banner_fr ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
+      pane.appendChild(el("p", "ctx-banner", banner));
+    }
+    // AD-4: the provider's total replaces the sum of the segments, it is not added to it.
+    const source = p.usage_source === "api" ? "total renvoyé par le fournisseur" : "somme des segments";
     pane.appendChild(
       el(
         "p",
-        "ctx-compressed-total",
-        `🗜️ Sans compression : ≈ ${fmt(p.uncompressed_used)} tokens ; envoyés : ${approxTotal(p)}${fmt(p.used)}.`
+        "ctx-total",
+        `${turnName(turn)} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (${source}) · ` +
+          `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
       )
     );
+    if (p.uncertain_fr) pane.appendChild(el("p", "bubble-note", p.uncertain_fr));
+    if (p.uncompressed_used != null) {
+      // Story 20: the session's total without compression, next to the one sent (FR-31).
+      pane.appendChild(
+        el(
+          "p",
+          "ctx-compressed-total",
+          `🗜️ Sans compression : ≈ ${fmt(p.uncompressed_used)} tokens ; envoyés : ${approxTotal(p)}${fmt(p.used)}.`
+        )
+      );
+    }
+  } else {
+    pane.appendChild(
+      el(
+        "p",
+        "ctx-total",
+        `Sous-agent ${owner.contextId} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments) · ` +
+          `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
+      )
+    );
+    if (owner.ended) {
+      pane.appendChild(el("p", "subagent-saving", `Ce contexte reste dans le sous-agent. ${subSaving(owner.ended)}`));
+    }
   }
-  appendSegments(pane, p, turn, lastCall(turn).id);
-  for (const error of turn.errors) pane.appendChild(el("p", "bubble-note is-error", error));
-  // FR-9: the reasoning of the last call, always here, whatever the Vue humain option says:
-  // its `model_call_ended` once there, the live deltas while it streams.
-  const ended = lastCall(turn).ended;
-  const reasoning = ended ? ended.reasoning : turn.reasoning;
-  if (reasoning) {
-    pane.appendChild(el("h3", "ctx-heading", "Raisonnement du modèle"));
-    pane.appendChild(reasoningBlock(reasoning, `ctx:${turn.id}`, "Afficher le raisonnement de cet appel"));
+  pane.appendChild(renderCalls(owner, turn, chat));
+  for (const notice of owner === turn ? [] : owner.notices) pane.appendChild(el("p", "bubble-note", notice));
+  for (const error of owner.errors) pane.appendChild(el("p", "bubble-note is-error", error));
+}
+
+// « Lecture groupée », « Texte exact », and « Corps JSON » in chat mode: remembered by the
+// browser, a reading comfort, not a state of the harness.
+function ctxModeSwitch(chat) {
+  const group = el("div", "ctx-view-mode");
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", "Affichage du contexte");
+  const current = ctxMode(chat);
+  for (const [id, label] of CTX_MODES) {
+    if (id === "body" && !chat) continue;
+    const button = el("button", "ctx-mode-button", label);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(current === id));
+    button.dataset.focusKey = `ctxmode:${id}`;
+    button.addEventListener("click", () => setCtxMode(id));
+    group.appendChild(button);
   }
-  pane.appendChild(el("h3", "ctx-heading", "Sortie brute du modèle"));
-  const raw = turn.callEnded ? turn.callEnded.raw_output : turn.reasoning + turn.text;
-  pane.appendChild(
-    el("pre", "ctx-raw", raw || (turn.overflow ? "Aucun appel : contexte dépassé." : "…"))
+  return group;
+}
+
+// The calls of the context shown, numbered, each what it read then what it produced; between
+// two calls, what the harness did (EXPERIENCE.md > context-call).
+function renderCalls(owner, turn, chat) {
+  const list = el("div", "ctx-calls");
+  const calls = ctxCalls(owner);
+  const mode = ctxMode(chat);
+  calls.forEach((call, i) => {
+    const last = i === calls.length - 1;
+    const section = el("section", "ctx-call");
+    section.dataset.callId = call.id;
+    section.setAttribute("aria-label", `Appel ${i + 1} sur ${calls.length}`);
+    section.appendChild(callHead(call, i, calls.length, owner, turn, last));
+    if (mode === "exact") {
+      section.append(...exactParts(call, owner, last, turn));
+    } else {
+      section.appendChild(mode === "body" ? bodyPart(call) : readPart(call, turn, chat));
+      section.appendChild(producedPart(call, owner, turn, last));
+    }
+    list.appendChild(section);
+    if (!last) list.appendChild(betweenLine(owner, turn, call, calls[i + 1], i + 2));
+  });
+  return list;
+}
+
+// « Appel i sur n », then the call's figures, from its `model_call_ended` (AD-1): read,
+// evaluated by the engine (« non communiqué » when it cannot say), produced.
+function callHead(call, i, n, owner, turn, last) {
+  const head = el("header", "ctx-call-head");
+  head.appendChild(el("h3", "ctx-call-title", `Appel ${i + 1} sur ${n}`));
+  const ended = call.ended;
+  const p = call.context;
+  let figures;
+  if (ended) {
+    const guess = approx(ended.usage_source === "estimate");
+    const evaluated = ended.evaluated_tokens == null ? "non communiqué" : fmt(ended.evaluated_tokens);
+    figures =
+      `Lu : ${guess}${fmt(ended.prompt_tokens)} tokens · évalués : ${evaluated} · ` +
+      `produits : ${guess}${fmt(ended.output_tokens)}`;
+  } else {
+    const running = last && turn.status === null && !owner.ended && !owner.overflow;
+    const state = last && owner.overflow ? "non envoyé : contexte dépassé" : running ? "en cours" : "sans réponse";
+    figures = `Lu : ${approxTotal(p)}${fmt(p.used)} tokens · ${state}`;
+  }
+  head.appendChild(el("p", "ctx-call-figures", figures));
+  return head;
+}
+
+// ---- « Lu » : the grouped reading ----
+
+// Sections from an older journal (no `sections`): one per segment, nothing summed (AD-1).
+function fallbackSections(p) {
+  return p.segments.map((s, i) => ({
+    start: i,
+    end: i + 1,
+    kind: s.kind,
+    label_fr: s.label_fr,
+    brick: s.kind === "template" ? null : s.brick,
+    discipline: s.discipline || "neutral",
+    tokens: s.tokens,
+    template_tokens: 0,
+    estimated: s.estimated,
+    seen: false,
+  }));
+}
+
+// The JSON of the exact text, for the display only: balanced, aware of strings, accepted by
+// `JSON.parse` and worth a tree (`treeWorthy`); the first one wins, never nested. A JSON cut
+// or invalid stays text. `[start, end, value]`, in characters of `text`. Linear in practice:
+// a bracket that cannot close is skipped, and a bracket closed during an earlier scan reuses
+// its closing position (the scan from it is the suffix of that scan).
+function jsonSpans(text) {
+  const spans = [];
+  const closeAt = new Map(); // opening position -> position after its closing bracket
+  const failed = new Set(); // opening positions that can never close
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if ((c !== "{" && c !== "[") || failed.has(i)) {
+      i += 1;
+      continue;
+    }
+    if (!closeAt.has(i)) {
+      const stack = []; // [position, closing bracket]
+      let inString = false;
+      let j = i;
+      for (; j < text.length; j++) {
+        const d = text[j];
+        if (inString) {
+          if (d === "\\") j += 1;
+          else if (d === '"') inString = false;
+        } else if (d === '"') {
+          inString = true;
+        } else if (d === "{" || d === "[") {
+          stack.push([j, d === "{" ? "}" : "]"]);
+        } else if (d === "}" || d === "]") {
+          const top = stack.at(-1);
+          if (!top || top[1] !== d) break; // a mismatch: nothing still open here can close
+          stack.pop();
+          closeAt.set(top[0], j + 1);
+          if (!stack.length) break;
+        }
+      }
+      for (const [position] of stack) failed.add(position);
+    }
+    const end = closeAt.get(i);
+    const value = end ? parseJson(text.slice(i, end)) : undefined;
+    if (value !== undefined && treeWorthy(value, end - i)) {
+      spans.push([i, end, value]);
+      i = end;
+    } else {
+      i += 1;
+    }
+  }
+  return spans;
+}
+
+// Worth a tree: an object of at least 2 keys or 40 characters, or an array holding at least
+// one object, of 40 characters or more; a `[1, 2]` in prose stays text.
+function treeWorthy(value, length) {
+  if (Array.isArray(value)) {
+    return length >= 40 && value.some((v) => v !== null && typeof v === "object" && !Array.isArray(v));
+  }
+  return Object.keys(value).length >= 2 || length >= 40;
+}
+
+// A non-empty object or array, else `undefined`.
+function parseJson(text) {
+  try {
+    const value = JSON.parse(text);
+    if (value !== null && typeof value === "object" && Object.keys(value).length) return value;
+  } catch {
+    // Not JSON: shown as text.
+  }
+  return undefined;
+}
+
+// Chat mode: a fragment of the body is inside a JSON string (sentinels, AD-4); decoded for the
+// display, raw text when it is not a whole string (a fragment spanning JSON syntax).
+function decodeFragment(text) {
+  try {
+    const value = JSON.parse(`"${text}"`);
+    return typeof value === "string" ? value : text;
+  } catch {
+    return text;
+  }
+}
+
+// The rows of a context's grouped reading, computed once per payload: one per section, except
+// sections touched by one JSON of the exact text (locally), merged into one row whose margin
+// stacks their labels (Qwen3.5's `<tools>`: the JSON syntax falls in the template). Never a
+// merge across the « déjà lu » boundary, where the JSON stays text.
+const readingCache = new WeakMap();
+function readingRows(p, chat) {
+  const cached = readingCache.get(p);
+  if (cached) return cached;
+  const offsets = [0];
+  for (const segment of p.segments) offsets.push(offsets.at(-1) + segment.text.length);
+  const sections = (p.sections ?? []).length ? p.sections : fallbackSections(p);
+  const text = p.segments.map((s) => s.text).join("");
+  const seenAt = offsets[p.seen_segments ?? 0];
+  const spans = chat ? [] : jsonSpans(text).filter(([a, b]) => !(a < seenAt && seenAt < b));
+  const from = (s) => offsets[s.start];
+  const to = (s) => offsets[s.end];
+  const joined = new Array(sections.length).fill(false); // section k shares a row with k + 1
+  for (const [a, b] of spans) {
+    let k = sections.findIndex((s) => to(s) > a);
+    if (k < 0) continue;
+    while (k + 1 < sections.length && from(sections[k + 1]) < b) joined[k++] = true;
+  }
+  const rows = [];
+  let group = [];
+  sections.forEach((section, k) => {
+    group.push(section);
+    if (joined[k]) return;
+    const start = group[0].start;
+    const end = group.at(-1).end;
+    const [a, b] = [offsets[start], offsets[end]];
+    rows.push({ sections: group, start, end, from: a, to: b, seen: group[0].seen, json: spans.filter(([x, y]) => x >= a && y <= b) });
+    group = [];
+  });
+  const reading = { rows, offsets, text };
+  readingCache.set(p, reading);
+  return reading;
+}
+
+function readPart(call, turn, chat) {
+  const p = call.context;
+  const part = el("div", "ctx-read");
+  part.appendChild(el("h4", "ctx-part-title", "Lu par le modèle"));
+  const reading = readingRows(p, chat);
+  const seen = p.seen_segments ?? 0;
+  if (seen > 0) {
+    // What the previous call of this context read already, folded (its key remembered).
+    const key = `seen:${call.id}`;
+    const details = el("details", "ctx-seen");
+    details.open = store.openSeen.has(key);
+    const seenRows = reading.rows.filter((r) => r.seen);
+    const k = seenRows.length; // the rows shown inside the fold, JSON merges included
+    const summary = el(
+      "summary",
+      "",
+      `Déjà lu à l'appel précédent · ${fmt(k)} ${k > 1 ? "sections" : "section"} · ${fmt(p.seen_tokens)} tokens`
+    );
+    summary.dataset.focusKey = key;
+    details.appendChild(summary);
+    details.addEventListener("toggle", () => {
+      if (details.open) store.openSeen.add(key);
+      else store.openSeen.delete(key);
+    });
+    for (const row of seenRows) details.appendChild(sectionRow(p, reading, row, call, turn, chat, false));
+    part.appendChild(details);
+  }
+  for (const row of reading.rows.filter((r) => !r.seen)) {
+    part.appendChild(sectionRow(p, reading, row, call, turn, chat, seen > 0));
+  }
+  return part;
+}
+
+// The DESIGN.md colour token of a segment type (its gauge group), for the swatch.
+function kindColor(p, kind) {
+  const group = p.breakdown.find((item) => item.kinds.includes(kind))?.group ?? kind;
+  return GROUP_COLORS[group] || "--color-muted";
+}
+
+const tokensFr = (n, estimated) => `${approx(estimated)}${fmt(n)} ${n > 1 ? "tokens" : "token"}`;
+
+function sectionLabel(s) {
+  const count = s.end - s.start;
+  const brick = s.brick ? brickName(s.brick) : "hors brique";
+  // « Prompt système · Prompt système », « Extraits RAG · RAG »: the brick said once.
+  const source = s.brick && s.label_fr.toLowerCase().includes(brick.toLowerCase()) ? "" : ` · ${brick}`;
+  return (
+    `${s.label_fr}${source} · ${tokensFr(s.tokens, s.estimated)}` +
+    (s.template_tokens ? ` dont ${fmt(s.template_tokens)} de gabarit` : "") +
+    (count > 1 ? ` · ${count} segments` : "")
   );
+}
+
+// One row: the margin (discipline rule, type swatch, label and tokens of each section), then
+// the continuous text, one span per segment (its label and tokens in the tooltip). The margin
+// is the row's one control (a button, `aria-pressed`, named short): the text stays plain
+// readable content, and the row's own controls (JSON, compression) are never nested in it.
+function sectionRow(p, reading, row, call, turn, chat, marked) {
+  const node = el("div", "ctx-section");
+  const segments = p.segments.slice(row.start, row.end);
+  node.dataset.discipline = row.sections.find((s) => s.discipline && s.discipline !== "neutral")?.discipline ?? "neutral";
+  node.style.setProperty("--segment-color", `var(${kindColor(p, row.sections[0].kind)})`);
+  // Story 34: its segments' bricks and components, and its own call; its margin selects it.
+  setLinks(node, [...segments.flatMap((s) => [s.brick, s.component]), `call:${call.id}`]);
+  const id = `section:${call.id}:${row.start}`;
+  const margin = el("div", "ctx-section-margin");
+  if (marked) {
+    node.classList.add("is-new");
+    margin.appendChild(el("span", "ctx-new-badge", "Nouveau"));
+  }
+  const control = el("button", "ctx-section-select");
+  control.type = "button";
+  control.dataset.focusKey = id;
+  for (const section of row.sections) {
+    const label = el("span", "ctx-section-label");
+    label.style.setProperty("--segment-color", `var(${kindColor(p, section.kind)})`);
+    const swatch = el("span", "swatch");
+    swatch.setAttribute("aria-hidden", "true");
+    label.append(swatch, el("span", "", sectionLabel(section)));
+    control.appendChild(label);
+    // A section over several components (the tools of one brick) names them.
+    const components = [
+      ...new Set(p.segments.slice(section.start, section.end).map((s) => s.component).filter(Boolean)),
+    ];
+    if (components.length > 1) control.appendChild(el("span", "ctx-section-components", components.join(", ")));
+  }
+  const first = row.sections[0];
+  selectOnActivate(control, id, `${first.label_fr} · ${tokensFr(first.tokens, first.estimated)}${row.sections.length > 1 ? ` et ${row.sections.length - 1} de plus` : ""}`);
+  margin.appendChild(control);
+  const main = el("div", "ctx-section-main");
+  const pre = el("pre", "ctx-section-text");
+  if (chat) appendChatText(pre, p, reading, row, call);
+  else appendLocalText(pre, p, reading, row, call);
+  main.appendChild(pre);
+  for (const segment of segments) {
+    if (!segment.compressed_from) continue;
+    // Story 20: a compressed segment, and what it was before (AD-22).
+    const was = segment.compressed_from;
+    const tokens = `${approx(was.estimated)}${fmt(was.tokens_before)} tokens`;
+    node.classList.add("ctx-compressed");
+    margin.appendChild(el("span", "ctx-compressed-badge", `🗜️ compressé, ${tokens} avant`));
+    const text = textBefore(turn, was);
+    if (text !== null) {
+      const key = `before:${call.id}:${segment.id}`; // its unfolding kept like the other folds
+      const before = el("details");
+      before.open = store.openExact.has(key);
+      before.addEventListener("toggle", () => {
+        if (before.open) store.openExact.add(key);
+        else store.openExact.delete(key);
+      });
+      const summary = el("summary", "", `Texte avant compression (${tokens})`);
+      summary.dataset.focusKey = key;
+      before.append(summary, el("pre", "", text));
+      main.appendChild(before);
+    }
+  }
+  node.append(margin, main);
+  return node;
+}
+
+function segmentSpan(segment, text) {
+  const span = el("span", segment.kind === "template" ? "ctx-seg is-template" : "ctx-seg", text);
+  span.dataset.segmentId = segment.id;
+  span.title = `${segment.label_fr} · ${tokensFr(segment.tokens, segment.estimated)}`;
+  return span;
+}
+
+// Locally: the exact text of the row, each JSON found replaced by its tree (its exact text a
+// click away), the rest one span per segment piece.
+function appendLocalText(pre, p, reading, row, call) {
+  const { offsets, text } = reading;
+  const plain = (a, b) => {
+    for (let k = row.start; k < row.end; k++) {
+      const x = Math.max(a, offsets[k]);
+      const y = Math.min(b, offsets[k + 1]);
+      if (x < y) pre.appendChild(segmentSpan(p.segments[k], text.slice(x, y)));
+    }
+  };
+  let at = row.from;
+  for (const [a, b, value] of row.json) {
+    plain(at, a);
+    pre.appendChild(jsonBlock(value, text.slice(a, b), `${call.id}:${a}`));
+    at = b;
+  }
+  plain(at, row.to);
+}
+
+// Chat mode: the JSON syntax (template) in ink-soft, each fragment decoded (a template piece
+// inside a string too, the `\n\n` between two parts; JSON syntax stays as sent), and a tree
+// when the fragment is itself JSON (a tool result, arguments).
+function appendChatText(pre, p, reading, row, call) {
+  for (let k = row.start; k < row.end; k++) {
+    const segment = p.segments[k];
+    if (segment.kind === "template") {
+      if (segment.text) pre.appendChild(segmentSpan(segment, decodeFragment(segment.text)));
+      continue;
+    }
+    const decoded = decodeFragment(segment.text);
+    const trimmed = decoded.trim();
+    const value = /^[[{]/.test(trimmed) ? parseJson(trimmed) : undefined;
+    if (value !== undefined && treeWorthy(value, trimmed.length)) {
+      const block = jsonBlock(value, segment.text, `${call.id}:${reading.offsets[k]}`);
+      block.dataset.segmentId = segment.id;
+      pre.appendChild(block);
+    } else {
+      pre.appendChild(segmentSpan(segment, decoded));
+    }
+  }
+}
+
+// A JSON of the context: its tree, and « Texte exact », the substring sent.
+function jsonBlock(value, exact, key) {
+  const block = el("span", "ctx-json");
+  const exactKey = `jsonexact:${key}`;
+  const shown = store.openExact.has(exactKey);
+  const toggle = el("button", "ctx-json-exact-toggle", "Texte exact");
+  toggle.type = "button";
+  toggle.dataset.focusKey = exactKey;
+  toggle.setAttribute("aria-pressed", String(shown));
+  const raw = el("span", "ctx-json-exact", exact);
+  raw.hidden = !shown;
+  toggle.addEventListener("click", () => {
+    const on = !store.openExact.has(exactKey);
+    if (on) store.openExact.add(exactKey);
+    else store.openExact.delete(exactKey);
+    toggle.setAttribute("aria-pressed", String(on));
+    raw.hidden = !on;
+  });
+  block.append(toggle, jsonTree(value, key), raw);
+  return block;
+}
+
+// A JSON tree in native JS (no library, AD-18): a `details` per object or array, open by
+// default, its folding kept by key; keys, strings and literals in their classes.
+function jsonTree(value, key) {
+  const tree = el("span", "json-tree");
+  tree.appendChild(jsonNode(value, undefined, `json:${key}`, true));
+  return tree;
+}
+
+function jsonNode(value, name, path, last) {
+  const head = [];
+  if (typeof name === "string") head.push(el("span", "json-key", JSON.stringify(name)), el("span", "json-punct", ": "));
+  const comma = () => (last ? [] : [el("span", "json-punct", ",")]);
+  if (value !== null && typeof value === "object") {
+    const isArray = Array.isArray(value);
+    const entries = isArray ? value.map((v, i) => [i, v]) : Object.entries(value);
+    const [open, close] = isArray ? ["[", "]"] : ["{", "}"];
+    if (!entries.length) {
+      const leaf = el("span", "json-leaf");
+      leaf.append(...head, el("span", "json-punct", `${open}${close}`), ...comma());
+      return leaf;
+    }
+    const node = el("details", "json-node");
+    node.open = !store.jsonClosed.has(path);
+    node.addEventListener("toggle", () => {
+      if (node.open) store.jsonClosed.delete(path);
+      else store.jsonClosed.add(path);
+    });
+    const summary = el("summary", "json-summary");
+    summary.dataset.focusKey = path;
+    const count = entries.length;
+    const noun = isArray ? (count > 1 ? "éléments" : "élément") : count > 1 ? "clés" : "clé";
+    summary.append(...head, el("span", "json-punct", open), el("span", "json-folded", ` … ${close} ${fmt(count)} ${noun}`));
+    const children = el("span", "json-children");
+    entries.forEach(([k, v], i) => {
+      children.appendChild(jsonNode(v, isArray ? undefined : k, `${path}/${encodeURIComponent(k)}`, i === count - 1));
+    });
+    const end = el("span", "json-close");
+    end.append(el("span", "json-punct", close), ...comma());
+    node.append(summary, children, end);
+    return node;
+  }
+  const leaf = el("span", "json-leaf");
+  const literal = typeof value === "string" ? el("span", "json-string", JSON.stringify(value)) : el("span", "json-literal", JSON.stringify(value));
+  leaf.append(...head, literal, ...comma());
+  return leaf;
+}
+
+// « Corps JSON » (chat mode): the body sent, as a tree.
+function bodyPart(call) {
+  const part = el("div", "ctx-read ctx-body");
+  part.appendChild(el("h4", "ctx-part-title", "Corps JSON envoyé"));
+  const value = parseJson(call.context.body ?? "");
+  part.appendChild(value === undefined ? el("pre", "ctx-exact", call.context.body ?? "") : jsonTree(value, `body:${call.id}`));
+  return part;
+}
+
+// « Texte exact »: the join of the segments (the prompt sent, AD-4; the body in chat mode),
+// then the raw output, without colour nor margin. An earlier call's text is folded.
+function exactParts(call, owner, last, turn) {
+  const p = call.context;
+  const exact = el("pre", "ctx-exact", isChat(p) ? p.body : p.segments.map((s) => s.text).join(""));
+  const nodes = [];
+  if (last) {
+    nodes.push(el("h4", "ctx-part-title", "Texte lu, exact"), exact);
+  } else {
+    const key = `exact:${call.id}`;
+    const details = el("details", "ctx-exact-fold");
+    details.open = store.openExact.has(key);
+    const summary = el("summary", "", `Texte lu à cet appel, exact · ${approxTotal(p)}${fmt(p.used)} tokens`);
+    summary.dataset.focusKey = key;
+    details.addEventListener("toggle", () => {
+      if (details.open) store.openExact.add(key);
+      else store.openExact.delete(key);
+    });
+    details.append(summary, exact);
+    nodes.push(details);
+  }
+  nodes.push(el("h4", "ctx-part-title", "Sortie brute du modèle"));
+  let raw;
+  if (call.ended) raw = el("pre", "ctx-raw", call.ended.raw_output);
+  else if (last && owner.overflow) raw = el("pre", "ctx-raw", "Aucun appel : contexte dépassé.");
+  else if (last && call.startedAt != null) {
+    // Only once its `model_call_started` came: before, the deltas are the previous call's.
+    raw = el("pre", "ctx-raw", owner.reasoning + owner.text || "…");
+    ctxLive = { ...(ctxLive ?? { owner }), raw };
+  } else raw = el("pre", "ctx-raw", ctxRunning(owner, turn) ? "…" : "");
+  nodes.push(raw);
+  return nodes;
+}
+
+// ---- « Produit » : what the call itself produced, on its own background ----
+
+function producedBlock(className, kind, links) {
+  const block = el("div", `ctx-produced ${className}`);
+  block.dataset.discipline = "model";
+  setLinks(block, links);
+  const head = el("div", "ctx-produced-head");
+  head.append(el("span", "ctx-produced-tag", "Produit par le modèle"), el("span", "ctx-produced-kind", kind));
+  block.appendChild(head);
+  return block;
+}
+
+// Chat mode's `arguments` is the JSON string the provider emitted: decoded for the tree.
+function decodeArguments(args) {
+  if (typeof args !== "string") return args;
+  try {
+    return JSON.parse(args);
+  } catch {
+    return args;
+  }
+}
+
+// The turn (or the sub-agent) still running, its last call not answered yet.
+const ctxRunning = (owner, turn) => turn.status === null && !owner.ended && !owner.overflow;
+
+function producedPart(call, owner, turn, last) {
+  const part = el("div", "ctx-produced-list");
+  const ended = call.ended;
+  if (!ended && last && owner.overflow) {
+    part.appendChild(el("p", "ctx-produced-none", "Aucun appel : contexte dépassé."));
+    return part;
+  }
+  // The running call: the live deltas, patched in place by `renderContext`; only once its
+  // `model_call_started` came (a chat call may wait for its provider's pacing, and the
+  // deltas held until then are the previous call's).
+  const live = !ended && last && call.startedAt != null;
+  if (!ended && !live) {
+    // Not sent yet: a note while it waits, nothing once the turn stopped.
+    if (last && ctxRunning(owner, turn)) {
+      part.appendChild(el("p", "ctx-produced-none", "En attente de l'envoi au modèle…"));
+    }
+    return part;
+  }
+  if (live) ctxLive = { ...(ctxLive ?? {}), owner };
+  const reasoning = ended ? ended.reasoning : owner.reasoning;
+  const text = ended ? ended.text : owner.text;
+  const links = [`call:${call.id}`];
+  if (reasoning) {
+    // FR-9: always here, whatever the Vue humain option says; folded by default.
+    const block = producedBlock("is-reasoning", "Réflexion", [...links, "reasoning"]);
+    const details = reasoningBlock(reasoning, `ctx:${call.id}`, "Afficher le raisonnement de cet appel");
+    block.appendChild(details);
+    part.appendChild(block);
+    if (live) ctxLive.reasoning = details.querySelector(".reasoning-text");
+  }
+  // Lot C: the harness closed the reasoning at its budget and relaunched the same call.
+  if (call.cut) part.appendChild(el("p", "ctx-harness-note", `⚙ Le harnais : ${call.cut.message_fr}`));
+  if (text) {
+    const block = producedBlock("is-answer", "Réponse", links);
+    const pre = el("pre", "ctx-produced-text", text);
+    block.appendChild(pre);
+    part.appendChild(block);
+    if (live) ctxLive.answer = pre;
+  }
+  (ended?.tool_calls ?? []).forEach((toolCall, i) => {
+    const block = producedBlock("is-tool-call", "Appel d'outil", links);
+    block.appendChild(jsonTree({ name: toolCall.name, arguments: decodeArguments(toolCall.arguments) }, `tool:${call.id}:${i}`));
+    part.appendChild(block);
+  });
+  // A malformed tool call reaches no `tool_calls`: its raw output is what the model produced.
+  const malformed = stepsAfter(owner, call).some((s) => s.type === "tool_call_malformed");
+  if (ended?.raw_output && (malformed || !part.childElementCount)) {
+    const block = producedBlock("is-answer is-raw", malformed ? "Sortie brute (appel d'outil mal formé)" : "Sortie brute", links);
+    block.appendChild(el("pre", "ctx-produced-text", ended.raw_output));
+    part.appendChild(block);
+  }
+  if (!part.childElementCount) {
+    part.appendChild(el("p", "ctx-produced-none", live && ctxRunning(owner, turn) ? "En attente de la sortie du modèle…" : "Aucune sortie reçue."));
+  }
+  return part;
+}
+
+// Between two calls: what the harness ran (only the tools that started), what it refused
+// (a malformed call, a call blocked by a hook), and that the next call reads it; for a
+// delegation, the sub-agent's tab.
+function betweenLine(owner, turn, call, next, nextNumber) {
+  const steps = stepsAfter(owner, call);
+  const tools = steps.filter((s) => s.type === "tool");
+  const names = [
+    ...new Set(tools.map((s) => (s.started.tool === "delegate" ? "la délégation au sous-agent" : toolLabel(s.started.tool)))),
+  ];
+  const blocked = steps.filter((s) => s.type === "hook" && s.payload.decision === "block");
+  const malformed = steps.some((s) => s.type === "tool_call_malformed");
+  const parts = [];
+  if (names.length) parts.push(`exécute ${joinFr(names)}`);
+  if (blocked.length) parts.push(`refuse ${blocked.length > 1 ? `${blocked.length} appels d'outil` : "l'appel d'outil"} (${joinFr(blocked.map((s) => s.payload.hook_fr))})`);
+  if (malformed) parts.push("refuse l'appel d'outil mal formé et réinjecte l'erreur");
+  let text;
+  if (!parts.length) text = `Le harnais relance le modèle : appel ${nextNumber}.`;
+  else if (names.length && parts.length === 1) text = `Le harnais ${parts[0]} ; le résultat est lu à l'appel ${nextNumber}.`;
+  else text = `Le harnais ${joinFr(parts)} ; ${names.length ? "résultats et refus sont lus" : "le refus est lu"} à l'appel ${nextNumber}.`;
+  const line = el("div", "ctx-between");
+  line.appendChild(el("p", "", `⚙ ${text}`));
+  if (owner === turn) {
+    for (const step of tools.filter((s) => s.sub?.context)) {
+      const show = el("button", "subagent-show", `Voir le contexte du sous-agent ${step.sub.contextId}`);
+      show.type = "button";
+      show.dataset.focusKey = `ctxsub:${step.sub.contextId}`;
+      show.addEventListener("click", () => showSubContext(turn.id, step.sub.contextId));
+      line.appendChild(show);
+    }
+  }
+  return line;
 }
 
 // Story 20: the text a compressed segment had before, kept once by its compression step.
 function textBefore(turn, was) {
   const step = turn?.steps.find((s) => s.type === "compression" && s.stepId === was.step_id);
   return step?.ended?.items[was.item]?.text_before ?? null;
-}
-
-function appendSegments(pane, p, turn = null, callId = null) {
-  for (const segment of p.segments) {
-    const group = p.breakdown.find((item) => item.kinds.includes(segment.kind));
-    const box = el("div", "ctx-segment");
-    // Story 34: its brick, its component and the call shown; focusable, a click selects it.
-    setLinks(box, [segment.brick, segment.component, callId ? `call:${callId}` : null]);
-    box.dataset.focusKey = `segment:${segment.id}`;
-    const tokens = `${approx(segment.estimated)}${fmt(segment.tokens)} ${segment.tokens > 1 ? "tokens" : "token"}`;
-    selectOnActivate(box, `segment:${callId ?? ""}:${segment.id}`, `${segment.label_fr} · ${tokens}`);
-    // Story 33: the rule and the background say the discipline (from the session); the swatch
-    // keeps the segment type's colour, so the type stays readable.
-    box.dataset.discipline = segment.discipline || "neutral";
-    box.style.setProperty(
-      "--segment-color",
-      `var(${GROUP_COLORS[group?.group] || "--color-muted"})`
-    );
-    const label = el("div", "ctx-segment-label");
-    label.append(
-      el("span", "swatch"),
-      `${segment.label_fr}${segment.brick ? ` (${segment.brick})` : ""} · ` +
-        `${approx(segment.estimated)}${fmt(segment.tokens)} ${segment.tokens > 1 ? "tokens" : "token"}`
-    );
-    box.append(label, el("pre", "", segment.text));
-    if (segment.compressed_from) {
-      // Story 20: a compressed segment, and what it was before (AD-22).
-      const was = segment.compressed_from;
-      const tokens = `${approx(was.estimated)}${fmt(was.tokens_before)} tokens`;
-      box.classList.add("ctx-compressed");
-      label.append(el("span", "ctx-compressed-badge", `🗜️ compressé, ${tokens} avant`));
-      const text = textBefore(turn, was);
-      if (text !== null) {
-        const before = el("details");
-        before.append(el("summary", "", `Texte avant compression (${tokens})`), el("pre", "", text));
-        box.appendChild(before);
-      }
-    }
-    pane.appendChild(box);
-  }
 }
 
 // Story 19 (EXPERIENCE: Sous-agent au travail), story 22 (M6): tabs, `aria-selected` on the
@@ -2986,33 +3692,6 @@ function ctxViewSwitch(turn, subs, view) {
   bar.appendChild(button("Agent principal", null, !view));
   for (const sub of subs) bar.appendChild(button(`Sous-agent ${sub.contextId}`, sub.contextId, view === sub));
   return bar;
-}
-
-function renderSubContext(pane, sub) {
-  const p = sub.context;
-  pane.appendChild(
-    el(
-      "p",
-      "ctx-total",
-      `Sous-agent ${sub.contextId} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments) · ` +
-        `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
-    )
-  );
-  if (sub.ended) {
-    pane.appendChild(
-      el(
-        "p",
-        "subagent-saving",
-        `Ce contexte reste dans le sous-agent. ${subSaving(sub.ended)}`
-      )
-    );
-  }
-  appendSegments(pane, p, null, lastCall(sub).id);
-  for (const notice of sub.notices) pane.appendChild(el("p", "bubble-note", notice));
-  for (const error of sub.errors) pane.appendChild(el("p", "bubble-note is-error", error));
-  pane.appendChild(el("h3", "ctx-heading", "Sortie brute du sous-agent"));
-  const raw = sub.callEnded ? sub.callEnded.raw_output : sub.reasoning + sub.text;
-  pane.appendChild(el("pre", "ctx-raw", raw || (sub.overflow ? "Aucun appel : contexte du sous-agent dépassé." : "…")));
 }
 
 // ---------- turn comparison (story 9b, EXPERIENCE.md turn-compare) ----------
@@ -4293,6 +4972,7 @@ function stepNode(row, open, flags) {
     line.addEventListener("click", () => {
       toggleStep(key);
       select(`step:${key}`, readLinks(root));
+      if (store.selection === `step:${key}`) revealCall(readLinks(root)); // story 32
     });
     root.appendChild(line);
     node = { root, line, ...parts, body: null, bodySig: null };
@@ -6008,6 +6688,7 @@ async function boot() {
   bindLinkedView();
   loadShowForced();
   loadShowReasoning();
+  loadCtxMode(); // story 32: Contexte LLM's view, remembered by the browser
   document.getElementById("show-reasoning").addEventListener("change", toggleShowReasoning);
   createResizeHandles();
   applyPaneSizes();

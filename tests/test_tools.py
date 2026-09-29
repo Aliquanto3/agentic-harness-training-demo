@@ -726,3 +726,38 @@ def test_no_local_tool_declares_what_it_sends():
     remote = {spec.name for spec in network.network_tools(config.Config())}
     local = {n: t for n, t in load_tools_content().tools.items() if n not in remote}
     assert local and all(t.sends_fr is None for t in local.values())
+
+
+# ---------- story 32: sections and « déjà lu », computed by the session ----------
+
+
+def test_a_tool_turn_marks_what_the_second_call_read_already():
+    engine, session = tool_session([call("calculator", expression="12*37"), "Cela fait 444."])
+
+    events = _run(session, "Combien font 12 × 37 ?")
+
+    first, second = events["context_rendered"]
+    assert (first["seen_segments"], first["seen_tokens"]) == (0, 0)
+    assert not any(s["seen"] for s in first["sections"])
+    assert second["seen_segments"] > 0
+    seen = second["seen_segments"]
+    assert second["seen_tokens"] == sum(s["tokens"] for s in second["segments"][:seen])
+    assert [s["text"] for s in second["segments"][:seen]] == [
+        s["text"] for s in first["segments"][:seen]
+    ]
+    results = [s for s in second["sections"] if s["kind"] == "tool_result"]
+    assert results and not any(s["seen"] for s in results)
+    for ctx in (first, second):
+        sections = ctx["sections"]
+        assert sum(s["tokens"] for s in sections) == ctx["used"]  # AD-1: the session sums
+        assert [(s["start"], s["end"]) for s in sections] == list(
+            zip([0, *[s["end"] for s in sections[:-1]]], [s["end"] for s in sections], strict=True)
+        )  # contiguous, in order, covering every segment
+        assert sections[-1]["end"] == len(ctx["segments"])
+        for s in sections:
+            assert s["end"] <= ctx["seen_segments"] or s["start"] >= ctx["seen_segments"]
+    # The tool catalogue is one section, not one line per tool (templates absorbed).
+    catalog = [s for s in first["sections"] if s["kind"] == "tool_catalog"]
+    assert len(catalog) == 1 and catalog[0]["end"] - catalog[0]["start"] > 1
+    assert [list(_prompt(c).encode()) for c in (first, second)] == engine.calls
+    session.close()

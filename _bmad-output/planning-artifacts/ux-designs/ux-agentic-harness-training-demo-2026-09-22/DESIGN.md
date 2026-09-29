@@ -2,7 +2,7 @@
 title: DESIGN — WaveStack
 status: draft
 created: 2026-09-22
-updated: 2026-09-28
+updated: 2026-09-29
 sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/addendum.md
@@ -60,6 +60,13 @@ colors:
   # Sur encre (story 33) : textes et traits posés sur un fond {colors.ink}
   on-ink: '#FFFFFF'
   on-ink-soft: '#CFCDE4'
+  # Contexte LLM (story 32) : ce que l'appel a produit, sa réflexion, et les couleurs de texte
+  # des arbres JSON (distinctes des disciplines)
+  produced-soft: '#E8EEF7'
+  reasoning-soft: '#F3EFE3'
+  json-key: '#1E3A8A'
+  json-string: '#7A3410'
+  json-literal: '#0B5E73'
 typography:
   # Base ; le mode projection (story 34, NFR-9) multiplie toute la rampe par 9/7, dans app.css.
   pane-title:
@@ -287,6 +294,7 @@ components:
     legend-typography: '{typography.body-sm}'
     number-typography: '{typography.number}'
     radius: '{rounded.lg}'
+  # Turn comparison only since story 32; Contexte LLM reads by section (context-section).
   context-segment:
     radius: '{rounded.md}'
     rule: '{components.discipline-code}'
@@ -296,6 +304,52 @@ components:
     label-typography: '{typography.label}'
     body-typography: '{typography.code}'
     selected-outline: '{colors.ink}'
+  # Story 32: one call of the turn, « Appel i sur n », its figures, then read and produced.
+  context-call:
+    title-typography: '{typography.heading}'
+    figures-typography: '{typography.number}'
+    figures-color: '{colors.ink-soft}'
+    rule: '{colors.line}'
+    between-typography: '{typography.body-sm}'
+    between-color: '{colors.ink-soft}'
+    mode-pressed-background: '{colors.ink}'
+    mode-pressed-foreground: '{colors.on-ink}'
+    mode-border: '{colors.line}'
+  # Story 32: consecutive segments of one source, the margin (source) beside the text.
+  context-section:
+    radius: '{rounded.md}'
+    rule: '{components.discipline-code}'
+    background: '{components.discipline-code}'
+    swatch: '{colors.segment-system-prompt}' # celle de son type : segment-*
+    label-color: '{colors.ink}'
+    label-typography: '{typography.label}'
+    body-typography: '{typography.code}'
+    template-color: '{colors.ink-soft}'
+    new-badge-background: '{colors.ink}'
+    new-badge-foreground: '{colors.on-ink}'
+    seen-background: '{colors.surface}'
+    seen-foreground: '{colors.ink-soft}'
+    margin-stack-below: 28rem
+    selected-outline: '{colors.ink}'
+  # Story 32: what the call produced (reasoning, answer, tool call), on its own background.
+  produced-block:
+    background: '{colors.produced-soft}'
+    reasoning-background: '{colors.reasoning-soft}'
+    rule: '{colors.ink}'
+    tag-background: '{colors.ink}'
+    tag-foreground: '{colors.on-ink}'
+    foreground: '{colors.ink}'
+    label-typography: '{typography.label}'
+    body-typography: '{typography.code}'
+    radius: '{rounded.md}'
+  # Story 32: a JSON, indented and foldable, in native JS; text colours only.
+  json-tree:
+    key: '{colors.json-key}'
+    string: '{colors.json-string}'
+    literal: '{colors.json-literal}'
+    punctuation: '{colors.ink-soft}'
+    indent: '{spacing.4}'
+    typography: '{typography.code}'
   brick-card:
     background: '{colors.discipline-neutral-soft}'
     border: '{colors.line}'
@@ -576,6 +630,18 @@ Contrastes, verrouillés par `tests/test_web_tokens.py` (calcul WCAG en Python) 
 - La discipline « réseau » ne s'applique qu'à ce qui sort du poste : nœuds `hosting: network`, étapes avec données sortantes, puces « RÉSEAU », légende. Les segments et la jauge n'ont que prompt, context, harness et neutre : un résultat d'outil réseau est entré dans le contexte, il n'en sort pas.
 - La catégorie d'une brique (sa discipline) n'est pas son groupe du panneau : skills et compression sont en context engineering mais rangés dans « Ce que le harnais fait ».
 
+**Contexte LLM : lu et produit** (story 32). Ce qu'un appel a lu garde les fonds doux de discipline ; ce qu'il a lui-même produit repose sur un fond propre, qu'aucune discipline ne prend, avec un filet et une étiquette encre (« Produit par le modèle », `on-ink` sur `ink`, 19,7:1). Les arbres JSON colorent leur texte avec trois couleurs distinctes des disciplines, pour ne pas brouiller le code couleur de la story 33.
+
+| Jeton | Valeur | Rôle | Contrastes (`tests/test_web_tokens.py`) |
+|---|---|---|---|
+| `produced-soft` | `#E8EEF7` | fond de la réponse et des appels d'outil produits | encre 16,9 ; encre douce 7,4 |
+| `reasoning-soft` | `#F3EFE3` | fond de la réflexion produite | encre 17,1 ; encre douce 7,5 |
+| `json-key` | `#1E3A8A` | clés des arbres JSON | ≥ 8,7 |
+| `json-string` | `#7A3410` | chaînes | ≥ 7,6 |
+| `json-literal` | `#0B5E73` | nombres, booléens, `null` | ≥ 6,2 |
+
+Les trois couleurs JSON sont mesurées sur les deux fonds produits, sur `surface-raised` et sur chaque fond doux de discipline (une section lue). Ce sont des couleurs de texte seulement. Les jetons n'ont pas encore de jumeau sombre : la story 31 couvrira tous ceux de `tokens.css`.
+
 **Couleurs d'état** `[ASSUMPTION]`.
 - `{colors.state-active}` (vert) : composant en cours d'action, étape courante, diagnostic OK.
 - `{colors.state-blocked}` / `{colors.state-error}` (rouge) : blocage par un hook, échec de parsing, dépassement du contexte, diagnostic en échec. Rouge sur blanc = 3,7:1 : utilisé en fond de pastille avec texte encre (5,3:1), en filet latéral épais ou en icône, jamais en petit texte.
@@ -599,7 +665,7 @@ Validation (`validate_palette.js`, mode clair) : les paires de segments **voisin
 
 Depuis la story 33, la couleur de segment ne sert plus qu'à la pastille du type (Contexte LLM, détail de la jauge) : le filet et le fond du segment, comme les segments de la jauge, prennent la couleur de sa discipline. Le type reste lisible par la pastille, l'étiquette et l'infobulle.
 
-À éviter : dégradés, fonds colorés derrière du texte courant autres que les fonds doux de discipline et l'encre, toute couleur hors de cette liste, et toute réutilisation d'une couleur de segment pour autre chose que son type.
+À éviter : dégradés, fonds colorés derrière du texte courant autres que les fonds doux de discipline, les deux fonds du produit (story 32) et l'encre, toute couleur hors de cette liste, et toute réutilisation d'une couleur de segment pour autre chose que son type.
 
 ## Typography
 
@@ -702,7 +768,11 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Mode projection (`projection-toggle`)** (story 34, remplace le `text-size-control` « Aa 100 % », jamais construit) : bouton texte « Mode projection » sur la barre d'encre, fond transparent, texte `{colors.on-ink}`, bordure `{colors.on-ink-soft}`, `{rounded.md}` ; pressé (`aria-pressed="true"`), fond `{colors.on-ink}` et texte encre. Il agrandit toute la rampe (voir Typography).
 - **Jauge de contexte (`context-gauge`)** : barre horizontale empilée, rayons pleins, sur une piste claire (`{colors.surface-raised}`, bordure `{colors.on-ink-soft}`) dans la barre foncée. Les groupes gardent l'ordre d'empilement de la palette catégorielle, mais chacun prend la couleur de sa discipline (`discipline` reçu de la session), séparé du suivant par un filet blanc de 1 px ; l'infobulle nomme le groupe, ses tokens et sa discipline (« Prompt système : 31 tokens · Prompt engineering » ; « Hors brique » (message, gabarit, tour du modèle) pour le neutre, même libellé que la légende). La discipline d'un groupe est celle qui porte le plus de tokens parmi ses segments (à égalité, la première dans l'ordre du contexte). Espace libre hachuré. Sous la barre, la légende (`#gauge-legend`, `discipline-legend`) : une pastille bordée `{colors.on-ink-soft}` et le nom de chaque discipline présente, dans l'ordre prompt, context, harness, puis « Hors brique » (message, gabarit, tour du modèle), en `label` `{colors.on-ink-soft}` ; elle passe à la ligne plutôt que d'être coupée, et ne donne pas de tokens par discipline. À droite : `number` « 1 840 / 4 096 tokens · 45 % » en `{colors.on-ink}`. Un marqueur vertical en encre indique le seuil d'alerte. Au dépassement, le pourcentage passe sur pastille rouge avec icône.
 - **Détail de la jauge (`context-gauge-detail`)** : grille de cellules à la manière de `/context`, une cellule par tranche de tokens, colorée selon la palette catégorielle, cellules libres en crème hachuré. Légende à droite : pastille, nom du segment, tokens et pourcentage en `number`.
-- **Segment de contexte (`context-segment`)** : bloc de texte brut en `{typography.code}`, filet latéral gauche de 4 px et fond doux de sa discipline (story 33, `data-discipline`), étiquette `label` en encre avec pastille de la couleur du type de segment (palette catégorielle) et nombre de tokens. Même traitement dans la comparaison de tours. Segment sélectionné : contour encre de 2 px.
+- **Segment de contexte (`context-segment`)** : bloc de texte brut en `{typography.code}`, filet latéral gauche de 4 px et fond doux de sa discipline (story 33, `data-discipline`), étiquette `label` en encre avec pastille de la couleur du type de segment (palette catégorielle) et nombre de tokens. Depuis la story 32, il ne sert plus qu'à la comparaison de tours ; Contexte LLM lit par section. Segment sélectionné : contour encre de 2 px.
+- **Appel au modèle (`context-call`)** (story 32) : un bloc par appel, séparé du précédent par un filet `{colors.line}` de `{spacing.stroke-min}` ; titre « Appel i sur n » en `heading`, chiffres « Lu : … · évalués : … · produits : … » en `number` encre douce ; « Lu par le modèle » en `label` majuscule encre douce. Entre deux appels, la ligne du harnais en `body-sm` encre douce (⚙), avec le bouton de l'onglet du sous-agent après une délégation. En tête du volet, la bascule « Affichage du contexte » : trois pilules `label` bordées `{colors.line}`, la pressée sur l'encre, texte `{colors.on-ink}`. « Texte exact » : un `pre` en `code` sans filet, fond ni couleur.
+- **Section de contexte (`context-section`)** (story 32) : une ligne en grille, marge (10 à 15 em) puis texte ; filet gauche de 4 px et fond doux de sa discipline (`data-discipline`, story 33) ; dans la marge, pour chaque section de la ligne, la pastille de son type (palette catégorielle) et son étiquette `label` encre. Texte en `{typography.code}`, un `span` par segment, gabarit (et syntaxe JSON du mode chat) en `{colors.ink-soft}`. Nouveau : filet de 8 px et badge « Nouveau » sur l'encre, texte `{colors.on-ink}`. Déjà lu : un `details` replié, fond `{colors.surface}`, bordure en tirets `{colors.line}`, résumé `label` encre douce. Sous 28rem de volet (requête de conteneur), la marge passe au-dessus du texte. Tailles par les jetons de la rampe ou en `em` : le mode projection (story 34) les agrandit.
+- **Bloc produit (`produced-block`)** (story 32) : fond `{colors.produced-soft}` (réflexion : `{colors.reasoning-soft}`), filet gauche de 4 px `{colors.ink}`, `{rounded.md}` ; en tête, l'étiquette « Produit par le modèle » en pilule `{colors.ink}` / `{colors.on-ink}`, puis le type (« Réflexion », « Réponse », « Appel d'outil ») en `label` encre ; texte en `code`. Le produit n'a jamais un fond de discipline : on distingue d'un coup d'œil ce que le modèle a lu de ce qu'il a écrit.
+- **Arbre JSON (`json-tree`)** (story 32) : en `code`, indenté de `{spacing.4}` sous un filet `{colors.line}` ; un `details` par objet ou tableau, ouvert par défaut, résumé « … } n clés » quand il est replié ; clés en `{colors.json-key}` (graisse 600), chaînes en `{colors.json-string}`, littéraux en `{colors.json-literal}`, ponctuation en encre douce. Le bouton « Texte exact » (`label`, bordé `{colors.line}`, pressé sur l'encre) montre la sous-chaîne envoyée sur blanc.
 - **Panneau des briques** (story 33) : en tête, la légende des quatre disciplines (`discipline-legend` : « Prompt engineering », « Context engineering », « Harness engineering », « Sort du poste de travail » avec 🌐 dans sa pastille), puis deux groupes titrés en `label` majuscule encre douce, « Ce que le modèle lit » et « Ce que le harnais fait », selon le groupe que la session déclare pour chaque brique.
 - **Carte de brique (`brick-card`)** : nom, interrupteur (`brick-toggle`), puce de catégorie (`category-chip` : « prompt engineering », « context engineering », « harness engineering », bordée et teintée de sa discipline), étiquette de lieu d'hébergement (`hosting-tag-local`, neutre), puce « 🌐 RÉSEAU » (`hosting-tag-network`) quand une option activée sort du poste, ligne d'état (`brick-status`, `body-sm`), explication dépliable. Relief `{colors.relief}`. Active : fond doux de sa discipline, trait gauche de 5 px de sa couleur, interrupteur coché de sa couleur, texte encre, relief `{colors.relief-active}`. Éteinte : grisée, fond `{colors.discipline-neutral-soft}`, trait `{colors.discipline-neutral}`, texte `{colors.ink-soft}`. Raisonnement imposé par le modèle : interrupteur coché et désactivé, 🔒 à côté. Indisponible : posée à plat (sans relief), bordure en tirets, texte encre douce, interrupteur désactivé, raison toujours visible en `{colors.ink-soft}`. Sous-option d'une brique éteinte ou indisponible : interrupteur désactivé, coché en `{colors.muted}` au lieu du violet (`brick-toggle.parent-off`), libellé et résumé en `{colors.ink-soft}`.
 - **Tiroir d'édition (`edit-drawer`)** : panneau qui glisse par-dessus le panneau des briques pour éditer le prompt système ou la mémoire globale ; champ en `{typography.code}`. Confirmation d'enregistrement en `body-sm` encre, précédée de « ✓ ». Mémoire globale : en-tête (titre, croix « × » en bouton icône `{rounded.sm}` bordé `{colors.line}`), liste défilante, pied fixe séparé par un filet `{colors.line}` avec « Tout effacer » (`button-danger`) et « Fermer » (`button-secondary`) ; « Enregistrer » et « Supprimer » d'une entrée en actions compactes à plat, fond crème, bordure `{colors.line}`, `{rounded.sm}`.

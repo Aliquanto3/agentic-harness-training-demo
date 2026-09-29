@@ -420,6 +420,27 @@ def s_bare_llm(r: Run) -> None:
         details.count() == 1 and details.get_attribute("open") is None,
         "un champ `reasoning` du fournisseur s'affiche replié",
     )
+    # Story 32: the call's reflection, then its answer, each on its own background.
+    time.sleep(0.3)
+    blocks = r.page.locator("#ctx .ctx-call").last.locator(".ctx-produced")
+    found = blocks.evaluate_all(
+        "bs => bs.map(b => [b.classList.contains('is-reasoning') ? 'reasoning'"
+        " : b.classList.contains('is-answer') ? 'answer' : 'other',"
+        " getComputedStyle(b).backgroundColor])"
+    )
+    kinds = [k for k, _ in found]
+    colours = dict(found)
+    r.check(
+        kinds[:2] == ["reasoning", "answer"]
+        and colours["reasoning"] == r.token_color("--color-reasoning-soft")
+        and colours["answer"] != colours["reasoning"],
+        "Contexte LLM : la réflexion (--color-reasoning-soft) précède la réponse, sur un "
+        "autre fond",
+        str(found),
+    )
+    total = r.page.locator("#ctx .ctx-total").inner_text()
+    r.check(re.match(r"Tour \d+ · ", total) is not None, "« Tour N · » toujours en tête", total)
+    _braces_stay_text(r, "mode chat")
 
 
 def _parent_off_at_launch(r: Run) -> None:
@@ -564,6 +585,181 @@ def s_system_prompt(r: Run) -> None:
     r.page.click("#drawer-close")
 
 
+# ---------- story 32: Contexte LLM, each call what it read then what it produced ----------
+
+_CTX_CALLS_JS = """() => [...document.querySelectorAll('#ctx .ctx-call')].map((c) => {
+  const seen = c.querySelector('details.ctx-seen');
+  return {
+    id: c.dataset.callId,
+    title: c.querySelector('.ctx-call-title')?.textContent ?? '',
+    head: c.querySelector('.ctx-call-head')?.textContent ?? '',
+    seen: seen ? { open: seen.open, summary: seen.querySelector('summary').textContent } : null,
+    exact: [...c.querySelectorAll('pre.ctx-exact')].map((p) => p.textContent),
+  };
+})"""
+_CALL_FIGURES = re.compile(
+    r"Lu : ≈? ?[\d\u202f\u00a0]+ tokens · évalués : (non communiqué|[\d\u202f\u00a0]+) · "
+    r"produits : ≈? ?[\d\u202f\u00a0]+"
+)
+_SEEN_SUMMARY = re.compile(
+    r"Déjà lu à l'appel précédent · \d+ sections? · [\d\u202f\u00a0]+ tokens"
+)
+
+
+def _ctx_calls(r: Run) -> list[dict[str, Any]]:
+    time.sleep(0.3)  # the last render after `turn_ended`
+    return r.page.evaluate(_CTX_CALLS_JS)
+
+
+def _ctx_mode(r: Run, label: str) -> None:
+    """Story 32: « Lecture groupée », « Texte exact » or « Corps JSON » (remembered by the
+    browser: every scenario that switches goes back to « Lecture groupée »)."""
+    group = r.page.get_by_role("group", name="Affichage du contexte")
+    group.get_by_role("button", name=label, exact=True).click()
+    expect(group.get_by_role("button", name=label, exact=True)).to_have_attribute(
+        "aria-pressed", "true", timeout=5000
+    )
+
+
+def _ctx_focus_shot(r: Run, name: str) -> None:
+    """Contexte LLM in focus mode, for a capture of its calls, then back to the grid."""
+    focus = r.page.locator('.pane[data-pane="ctx"] .pane-focus')
+    focus.click()
+    time.sleep(0.3)
+    r.shot(name)
+    focus.click()
+    time.sleep(0.2)
+
+
+def _braces_stay_text(r: Run, where: str) -> None:
+    """Story 32: a message holding a cut JSON and braces (`{"a": ` and `{x}`): the pane still
+    renders, the text is shown as sent, no JSON tree for it."""
+    seq = r.ev.mark()
+    ended = r.send('Lis ceci : {"a": et {x}')
+    r.check(ended["payload"]["status"] == "completed", f"{where} : tour avec des accolades")
+    rendered = r.ev.since(seq, "context_rendered")
+    calls = _ctx_calls(r)
+    section = (
+        r.page.locator("#ctx .ctx-call")
+        .last.locator(".ctx-section")
+        .filter(has=r.page.locator(".ctx-section-label", has_text="Message de l'utilisateur"))
+        .last
+    )
+    text = section.locator(".ctx-section-text").inner_text() if section.count() else ""
+    r.check(
+        bool(calls)
+        and calls[-1]["id"] == rendered[-1]["call_id"]
+        and '{"a": et {x}' in text
+        and section.locator(".json-tree").count() == 0,
+        f'{where} : `{{"a": ` et `{{x}}` restent du texte, sans arbre, le volet s\'affiche',
+        text[:120],
+    )
+
+
+def _read_and_produced(r: Run, seq: int) -> None:
+    """Story 32, « Quelle heure est-il ? » with the fake cloud: two numbered calls, the second
+    folding what the first read and showing the tool result as new; what each produced, on
+    its own background; « Texte exact » equal to the body sent; « Corps JSON » as a tree."""
+    page = r.page
+    calls = _ctx_calls(r)
+    titles = [c["title"] for c in calls]
+    r.check(
+        titles == ["Appel 1 sur 2", "Appel 2 sur 2"],
+        "Contexte LLM : deux appels, « Appel 1 sur 2 » et « Appel 2 sur 2 »",
+        str(titles),
+    )
+    r.check(
+        bool(calls) and all(_CALL_FIGURES.search(c["head"]) for c in calls),
+        "chaque appel : « Lu : n tokens · évalués : … · produits : n »",
+        " | ".join(c["head"] for c in calls),
+    )
+    seen = calls[-1]["seen"] if calls else None
+    r.check(
+        len(calls) == 2
+        and calls[0]["seen"] is None
+        and seen is not None
+        and not seen["open"]
+        and _SEEN_SUMMARY.search(seen["summary"]) is not None,
+        "appel 2 : le déjà-lu replié (« Déjà lu à l'appel précédent · k sections · n tokens ») ;"
+        " appel 1 : rien de replié",
+        str(seen),
+    )
+    first, second = page.locator("#ctx .ctx-call").nth(0), page.locator("#ctx .ctx-call").nth(1)
+    new = second.locator(
+        ".ctx-section.is-new", has=page.locator(".ctx-new-badge", has_text="Nouveau")
+    ).filter(has_text="Résultats d'outils")
+    r.check(
+        new.count() >= 1 and first.locator(".ctx-new-badge").count() == 0,
+        "appel 2 : le résultat d'outil réinjecté marqué « Nouveau » ; aucun badge à l'appel 1",
+    )
+    tool = first.locator(".ctx-produced.is-tool-call")
+    r.check(
+        tool.count() == 1
+        and tool.locator(".json-key", has_text='"name"').count() >= 1
+        and tool.locator(".json-string", has_text="get_datetime").count() >= 1,
+        "appel 1 : l'appel d'outil produit, en arbre JSON (« name », « get_datetime »)",
+    )
+    answer = second.locator(".ctx-produced.is-answer")
+    r.check(
+        answer.count() == 1 and "D'après le résultat" in answer.inner_text(),
+        "appel 2 : la réponse produite, « D'après le résultat… »",
+    )
+    produced = r.css(page.locator("#ctx .ctx-produced").first, "background-color")
+    sections = set(
+        page.locator("#ctx .ctx-section").evaluate_all(
+            "ss => ss.map(s => getComputedStyle(s).backgroundColor)"
+        )
+    )
+    r.check(
+        produced == r.token_color("--color-produced-soft") and produced not in sections,
+        "le produit sur --color-produced-soft, distinct du fond de toute section lue",
+        f"{produced} · sections {sorted(sections)}",
+    )
+    r.check(
+        page.locator("#ctx .ctx-produced-tag", has_text="Produit par le modèle").first.is_visible(),
+        "« Produit par le modèle » visible",
+    )
+    _ctx_focus_shot(r, "40-contexte-appels-numerotes")
+
+    # « Texte exact »: the body of each call's `context_rendered`, byte for byte, that is the
+    # body the fake provider received.
+    rendered = {e["call_id"]: e["payload"] for e in r.ev.since(seq, "context_rendered")}
+    received = r.fake_calls()[-2:]
+    _ctx_mode(r, "Texte exact")
+    calls = _ctx_calls(r)
+    exact = [c["exact"][0] if len(c["exact"]) == 1 else None for c in calls]
+    r.check(
+        len(exact) == 2
+        and all(
+            x == rendered.get(c["id"], {}).get("body") for x, c in zip(exact, calls, strict=True)
+        ),
+        "« Texte exact » : chaque pre.ctx-exact est le body du context_rendered de son appel",
+    )
+    try:
+        loaded = [json.loads(x or "") for x in exact]
+    except ValueError:
+        loaded = None
+    r.check(loaded == received, "« Texte exact » : json.loads = corps reçu par le faux fournisseur")
+    styled = page.locator("#ctx pre.ctx-exact .ctx-seg, #ctx pre.ctx-exact .json-tree").count()
+    r.check(styled == 0, "« Texte exact » : sans habillage (ni marge ni arbre)", str(styled))
+    _ctx_focus_shot(r, "41-contexte-texte-exact")
+
+    # « Corps JSON »: a tree, folded and unfolded by its summary.
+    _ctx_mode(r, "Corps JSON")
+    tree = page.locator("#ctx .json-tree").first
+    key = tree.locator(".json-key", has_text='"messages"').first
+    r.check(key.is_visible(), "« Corps JSON » : l'arbre montre la clé « messages »")
+    summary = tree.locator("details.json-node > summary").first
+    children = tree.locator("details.json-node > .json-children").first
+    summary.click()
+    folded = not children.is_visible()
+    summary.click()
+    unfolded = children.is_visible()
+    r.check(folded and unfolded, "un clic sur le summary replie l'arbre, un second le déplie")
+    _ctx_focus_shot(r, "42-contexte-corps-json")
+    _ctx_mode(r, "Lecture groupée")
+
+
 def s_native_tools(r: Run) -> None:
     r.launch("native_tools")
     b = r.bricks()
@@ -596,6 +792,8 @@ def s_native_tools(r: Run) -> None:
             f"réponse finale après {tool}",
             r.last_answer()[:160],
         )
+        if tool == "get_datetime":
+            _read_and_produced(r, seq)
     orch = r.page.locator("#orch-scroll").inner_text()
     r.check("Demande un outil" in orch, "Orchestration montre la demande d'outil")
     r.shot("05-outils-natifs-orchestration")
@@ -1163,20 +1361,26 @@ def s_disciplines(r: Run) -> None:
     )
     r.shot_element("30-disciplines-vue-humain", '.pane[data-pane="human"]')
 
-    # Contexte LLM: every segment its discipline; the system prompt's rule and swatch.
-    ctx = page.locator("#ctx .ctx-segment")
+    # Contexte LLM: every section its discipline; the system prompt's rule and swatch.
+    ctx = page.locator("#ctx .ctx-section")
     disciplines = ctx.evaluate_all("ss => ss.map(s => s.dataset.discipline || '')")
     r.check(
         bool(disciplines) and all(disciplines),
-        "Contexte LLM : chaque segment porte sa discipline",
+        "Contexte LLM : chaque section porte sa discipline",
         str(disciplines),
     )
-    prompt = page.locator("#ctx .ctx-segment", has_text="(system_prompt)").first
+    prompt = (
+        page.locator("#ctx .ctx-section")
+        .filter(
+            has=page.locator(".ctx-section-label", has_text=re.compile(r"^Prompt système · ≈? ?\d"))
+        )
+        .first
+    )
     r.check(
         r.css(prompt, "border-left-color") == r.token_color("--color-discipline-prompt")
-        and r.css(prompt.locator(".swatch"), "background-color")
+        and r.css(prompt.locator(".swatch").first, "background-color")
         == r.token_color("--color-segment-system-prompt"),
-        "segment du prompt système : filet de sa discipline, pastille de son type",
+        "section du prompt système : filet de sa discipline, pastille de son type",
     )
     r.shot_element("31-disciplines-contexte", '.pane[data-pane="ctx"]')
 
@@ -1280,7 +1484,7 @@ def s_linked_view(r: Run) -> None:
     time.sleep(0.3)
     wiki = page.locator("#schema .arch-node", has_text="Résumé Wikipédia").first
     calc = page.locator("#schema .arch-node", has_text="Calculatrice").first
-    lit_segments = page.locator("#ctx .ctx-segment.is-linked").count()
+    lit_segments = page.locator("#ctx .ctx-section.is-linked").count()
     tool_step = _step(r, "Exécute l'outil hors du poste")
     memory_opacity = float(r.css(r.card("Mémoire globale"), "opacity") or 1)
     r.check(
@@ -1312,37 +1516,50 @@ def s_linked_view(r: Run) -> None:
     )
     plate.first.hover()
     time.sleep(0.2)
-    flags = page.locator("#ctx .ctx-segment").evaluate_all(
+    flags = page.locator("#ctx .ctx-section").evaluate_all(
         "ss => ss.map(s => s.classList.contains('is-linked'))"
     )
     r.check(
         bool(flags) and all(flags),
-        "survol de la plaque du modèle : chaque segment de Contexte LLM s'éclaire",
+        "survol de la plaque du modèle : chaque section de Contexte LLM s'éclaire",
         f"{sum(flags)} / {len(flags)}",
     )
-    # The last call (« Répond ») is the one Contexte LLM shows: plate and segments; an older
-    # call (« Appelle le modèle ») lights the plate and itself only (Design Notes).
-    for name, segments in (("Répond", True), ("Appelle le modèle", False)):
-        _step(r, name).locator(".turn-step-line").hover()
-        time.sleep(0.2)
-        flags = page.locator("#ctx .ctx-segment").evaluate_all(
-            "ss => ss.map(s => s.classList.contains('is-linked'))"
+    # Story 32: Contexte LLM shows every call of the turn; a call step lights the sections of
+    # its own call (« Répond », the last one; « Appelle le modèle », an older one), no other.
+    for name in ("Répond", "Appelle le modèle"):
+        step = _step(r, name)
+        call_id = next(
+            (
+                k[5:]
+                for k in (step.get_attribute("data-links") or "").split()
+                if k.startswith("call:")
+            ),
+            "",
         )
-        lit = bool(flags) and (all(flags) if segments else not any(flags))
+        step.locator(".turn-step-line").hover()
+        time.sleep(0.2)
+        flags = page.locator("#ctx .ctx-section").evaluate_all(
+            "(ss, id) => ss.map(s => [s.closest('.ctx-call')?.dataset.callId === id,"
+            " s.classList.contains('is-linked')])",
+            call_id,
+        )
+        own = [lit for mine, lit in flags if mine]
+        others = [lit for mine, lit in flags if not mine]
         r.check(
-            _is_linked(plate.first) and lit,
-            f"survol de « {name} » : plaque du modèle éclairée, segments "
-            f"{'éclairés' if segments else 'non éclairés (appel plus ancien)'}",
-            f"plaque {_is_linked(plate.first)}, segments {sum(flags)} / {len(flags)}",
+            _is_linked(plate.first) and bool(own) and all(own) and not any(others),
+            f"survol de « {name} » : plaque du modèle et sections de son appel éclairées, "
+            "celles de l'autre appel non",
+            f"appel {call_id}, plaque {_is_linked(plate.first)}, sections {sum(own)} / {len(own)}"
+            f", autres {sum(others)} / {len(others)}",
         )
 
-    # Keyboard: a focused segment, then a step line reached by Tab, light as the hover does.
-    segment = page.locator("#ctx .ctx-segment").first
+    # Keyboard: a focused section, then a step line reached by Tab, light as the hover does.
+    segment = page.locator("#ctx .ctx-section").first
     segment.hover()
     time.sleep(0.2)
     hovered = page.evaluate(_LINKED_JS)
     r.rest_pointer()
-    segment.focus()
+    segment.locator(".ctx-section-select").focus()  # story 32: the margin is its control
     time.sleep(0.2)
     focused = page.evaluate(_LINKED_JS)
     r.check(
@@ -1379,7 +1596,7 @@ def s_linked_view(r: Run) -> None:
     calc.click()
     time.sleep(0.3)
     shown = page.evaluate(
-        "() => ['#ctx .ctx-segment', '#orch-scroll .turn-step'].map((q) =>"
+        "() => ['#ctx .ctx-section', '#orch-scroll .turn-step'].map((q) =>"
         " [...document.querySelectorAll(`${q}.is-selection-linked`)]"
         ".some((e) => e.getClientRects().length > 0))"
     )
@@ -1992,6 +2209,19 @@ def s_subagent(r: Run) -> None:
         and "Sous-agent sub" in text,
         "onglet du sous-agent : son prompt, la tâche, le résultat d'outil, son total",
     )
+    # Story 32: the sub-agent's calls numbered the same way; its second one folds what its
+    # first one read.
+    calls = _ctx_calls(r)
+    n = len(calls)
+    r.check(
+        n >= 1
+        and [c["title"] for c in calls] == [f"Appel {i} sur {n}" for i in range(1, n + 1)]
+        and all(c["id"].split(".")[1].startswith("sub") for c in calls)
+        and calls[0]["seen"] is None
+        and all(c["seen"] is not None and not c["seen"]["open"] for c in calls[1:]),
+        "onglet du sous-agent : ses appels numérotés, le déjà-lu replié à partir du 2e",
+        " | ".join(f"{c['title']} ({'déjà lu' if c['seen'] else '—'})" for c in calls),
+    )
     main_tab.click()
     text = ctx.inner_text()
     r.check(
@@ -2000,6 +2230,22 @@ def s_subagent(r: Run) -> None:
         and guide not in text,
         "onglet « Agent principal » : le seul résultat, en « Résultat du sous-agent »",
     )
+    between = ctx.locator(".ctx-between").get_by_role(
+        "button", name=re.compile(r"^Voir le contexte du sous-agent sub\d+$")
+    )
+    r.check(
+        between.count() == 1
+        and "délégation au sous-agent" in ctx.locator(".ctx-between").first.inner_text(),
+        "« Agent principal » : entre les appels, la délégation et l'onglet du sous-agent",
+        " | ".join(ctx.locator(".ctx-between").all_inner_texts()),
+    )
+    if between.count() == 1:
+        between.click()
+        r.check(
+            sub_tab.get_attribute("aria-selected") == "true",
+            "la ligne entre les appels ouvre l'onglet du sous-agent",
+        )
+        main_tab.click()
     body.get_by_role("button", name="Voir le contexte du sous-agent").click()
     r.check(
         sub_tab.get_attribute("aria-selected") == "true"
@@ -2999,10 +3245,25 @@ def s_rag(r: Run) -> None:
     )
     r.check(True, "un clic sur un extrait sélectionne le composant RAG dans le schéma")
 
-    # Contexte LLM: the intro and three excerpts, labelled, before the message.
-    labels = r.page.locator("#ctx .ctx-segment-label").all_inner_texts()
-    rag_labels = [x for x in labels if x.startswith("Extraits RAG (rag)")]
-    r.check(len(rag_labels) == 4, "Contexte LLM : 4 segments « Extraits RAG (rag) »", str(labels))
+    # Contexte LLM: the intro and three excerpts, one section of four segments (story 32),
+    # before the message.
+    rag = (
+        r.page.locator("#ctx .ctx-call")
+        .last.locator(".ctx-section")
+        .filter(
+            has=r.page.locator(".ctx-section-label", has_text=re.compile(r"^Extraits RAG · ≈? ?\d"))
+        )
+    )
+    pieces = (
+        rag.first.locator(".ctx-seg:not(.is-template), .ctx-json[data-segment-id]").count()
+        if rag.count()
+        else 0
+    )
+    r.check(
+        rag.count() == 1 and pieces == 4,
+        "Contexte LLM : une section « Extraits RAG », 4 segments (intro et 3 extraits)",
+        f"{rag.count()} section(s), {pieces} segments",
+    )
     r.shot("22-rag-recherche-et-extraits")
 
     # « Comparer » the replay with the turn without RAG.
@@ -3427,6 +3688,17 @@ def s_busy_and_stop(r: Run) -> None:
     r.page.fill("#composer-input", "Explique le harnais [lent] [long]")
     r.page.press("#composer-input", "Enter")
     r.ev.wait("model_first_token", seq, timeout=20)
+    # Story 32: the running call's answer grows in Contexte LLM before `model_call_ended`.
+    answer = r.page.locator("#ctx .ctx-call").last.locator(".ctx-produced.is-answer pre")
+    expect(answer).to_be_visible(timeout=5000)
+    before = len(answer.inner_text())
+    time.sleep(1.5)  # « [lent] »: a chunk every 0.4 s
+    after = len(answer.inner_text())
+    r.check(
+        after > before and not r.ev.since(seq, "model_call_ended"),
+        "Contexte LLM : la réponse de l'appel en cours grandit avant `model_call_ended`",
+        f"{before} → {after} caractères",
+    )
     r.check(r.page.locator("#scenario-picker").is_disabled(), "sélecteur désactivé pendant un tour")
     # A submit that reaches the form while the field is disabled is never dropped silently.
     r.page.evaluate("() => document.getElementById('composer').requestSubmit()")
@@ -3457,6 +3729,23 @@ def s_busy_and_stop(r: Run) -> None:
     r.check(ok, "envoi d'un message vide : invitation à écrire", reason.inner_text())
     unknown = r.api("POST", "/api/intentions/scenario", {"scenario_id": "nope"})
     r.check(unknown.status_code == 404, "scénario inconnu : 404")
+    # Story 32: an overflow; the last call says it was not sent, and produced nothing.
+    seq = r.ev.mark()
+    r.page.fill("#composer-input", "Résume : " + "mot " * 5000)
+    r.page.press("#composer-input", "Enter")
+    ended = r.ev.wait("turn_ended", seq)
+    calls = _ctx_calls(r)
+    none = r.page.locator("#ctx .ctx-call").last.locator(".ctx-produced-none")
+    r.check(
+        ended["payload"]["status"] == "overflow"
+        and bool(calls)
+        and "non envoyé : contexte dépassé" in calls[-1]["head"]
+        and none.count() == 1
+        and none.inner_text() == "Aucun appel : contexte dépassé.",
+        "dépassement : le dernier appel « non envoyé : contexte dépassé », "
+        "« Aucun appel : contexte dépassé. »",
+        f"{ended['payload']['status']} · {calls[-1]['head'] if calls else '—'}",
+    )
 
 
 # Every change of the composer field's `disabled`, from the page's first byte on.
@@ -3907,6 +4196,42 @@ def s_local_server(r: Run) -> None:
         "somme des segments = prompt_tokens = ids reçus par llama-server",
         str([c["prompt_tokens"] for c in calls]),
     )
+    # Story 32: the grouped reading of the Qwen3.5 template (the tools' JSON as trees), the
+    # exact text equal to the prompt, the sections' sum equal to `prompt_tokens`.
+    shown = _ctx_calls(r)
+    r.check(
+        [c["title"] for c in shown] == ["Appel 1 sur 2", "Appel 2 sur 2"],
+        "Contexte LLM : les deux appels du tour, numérotés",
+        str([c["title"] for c in shown]),
+    )
+    tools_row = (
+        page.locator("#ctx .ctx-call")
+        .first.locator(".ctx-section")
+        .filter(has=page.locator(".ctx-section-label", has_text="Descriptions d'outils"))
+    )
+    r.check(
+        tools_row.count() >= 1
+        and tools_row.first.locator(".json-tree .json-key", has_text='"parameters"').count() >= 1
+        and tools_row.first.locator(".ctx-section-label").count() > 1,
+        "appel 1 : la ligne des descriptions d'outils montre un arbre JSON (« parameters »), "
+        "sa marge empile les sources qu'il touche",
+        " | ".join(tools_row.first.locator(".ctx-section-label").all_inner_texts())
+        if tools_row.count()
+        else "absente",
+    )
+    r.check(
+        [sum(s["tokens"] for s in ctx["sections"]) for ctx in rendered]
+        == [c["prompt_tokens"] for c in calls],
+        "somme des sections = prompt_tokens, pour chaque appel",
+        str([sum(s["tokens"] for s in ctx["sections"]) for ctx in rendered]),
+    )
+    _ctx_mode(r, "Texte exact")
+    exact = [c["exact"][0] if len(c["exact"]) == 1 else None for c in _ctx_calls(r)]
+    r.check(
+        exact == prompts,
+        "« Texte exact » : chaque texte est la jointure des segments de son appel (le prompt)",
+    )
+    _ctx_mode(r, "Lecture groupée")
     # Story 34: nothing left the workstation during that turn.
     summary = page.inner_text("#schema-outbound")
     r.check(
@@ -3915,6 +4240,36 @@ def s_local_server(r: Run) -> None:
         summary,
     )
     r.shot("23-serveur-local-llama-server")
+    _braces_stay_text(r, "mode local")
+
+    # Story 32: a reasoning cut by the harness stays one call; the harness's note sits
+    # between the reflection and the answer. The LLM nu, so that the reasoning's reserve
+    # leaves room (the fake tokenizer counts one token per byte).
+    r.launch("bare_llm")
+    r.set_brick("Raisonnement", True)
+    seq = r.ev.mark()
+    ended = r.send("Bonjour [réfléchis longtemps]")
+    cuts = r.ev.since(seq, "reasoning_cut")
+    rendered = r.ev.since(seq, "context_rendered")
+    order = (
+        r.page.locator("#ctx .ctx-call")
+        .last.locator(".ctx-produced.is-reasoning, .ctx-harness-note, .ctx-produced.is-answer")
+        .evaluate_all(
+            "ns => ns.map(n => n.classList.contains('ctx-harness-note') ? 'note'"
+            " : n.classList.contains('is-reasoning') ? 'reasoning' : 'answer')"
+        )
+    )
+    r.check(
+        ended["payload"]["status"] == "completed"
+        and len(cuts) == 1
+        and len(rendered) == 1
+        and len(_ctx_calls(r)) == 1
+        and order == ["reasoning", "note", "answer"],
+        "raisonnement coupé : un seul appel, la note du harnais entre la réflexion et la réponse",
+        f"{ended['payload']['status']} · {len(cuts)} coupe(s), {len(rendered)} contexte(s), "
+        f"ordre {order}",
+    )
+    r.set_brick("Raisonnement", False)
 
     r.reload_app()
     expect(page.locator("#model-indicator")).to_contain_text("Local · llama-server", timeout=10_000)

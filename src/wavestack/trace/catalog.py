@@ -202,6 +202,24 @@ class BrickTokens(BaseModel):
     estimated: bool = False  # chat mode: at least one of its segments is an estimate
 
 
+class ContextSection(BaseModel):
+    """Story 32: consecutive segments of one source (`kind`, `brick`), the template pieces
+    between them absorbed (`template_tokens`); `start` and `end` index `segments`, `end`
+    excluded. `seen`: read already by the previous call of the same context in the turn.
+    Computed by the session (AD-1, AD-9): the interface adds nothing up."""
+
+    start: int
+    end: int
+    kind: str
+    label_fr: str
+    brick: str | None = None
+    discipline: Discipline = "neutral"
+    tokens: int
+    template_tokens: int = 0
+    estimated: bool = False
+    seen: bool = False
+
+
 class ContextWindowPayload(BaseModel):
     """Shared by `context_rendered`, `context_preview` and `context_reconciled`: every figure
     comes from the session (AD-9)."""
@@ -227,6 +245,11 @@ class ContextWindowPayload(BaseModel):
     # Story 33: tokens per brick, in order of first appearance, segments without a brick left
     # out; the brick cards read them (AD-1).
     by_brick: list[BrickTokens] = []
+    # Story 32: the reading sections, and the prefix of segments the previous call of the same
+    # context read already in this turn (0 at a turn's first call), with their tokens.
+    sections: list[ContextSection] = []
+    seen_segments: int = 0
+    seen_tokens: int = 0
 
 
 class ContextReconciledPayload(ContextWindowPayload):

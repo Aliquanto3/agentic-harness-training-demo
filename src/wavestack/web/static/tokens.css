@@ -46,6 +46,11 @@
   --color-discipline-neutral-soft: #EFEFF4;
   --color-on-ink: #FFFFFF;
   --color-on-ink-soft: #CFCDE4;
+  --color-produced-soft: #E8EEF7;
+  --color-reasoning-soft: #F3EFE3;
+  --color-json-key: #1E3A8A;
+  --color-json-string: #7A3410;
+  --color-json-literal: #0B5E73;
 
   /* typography */
   --typography-pane-title-font-family: Fredoka, system-ui, sans-serif;

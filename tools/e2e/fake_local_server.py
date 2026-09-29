@@ -8,7 +8,8 @@ an Ollama that serves one model whose GGUF is not on this disk (`/api/tags`, `/a
 
 The answer of `/completion` depends on the prompt the harness rendered: the result of a
 tool if the turn has one, a call to `get_datetime` for « heure » when the tool is offered,
-else « Réponse du faux llama-server au message : « … » ».
+else « Réponse du faux llama-server au message : « … » ». With the reasoning on, « [réfléchis
+longtemps] » gives a reasoning longer than the budget (story 32: the harness cuts it).
 
 Debug routes: `GET /_e2e/requests` (the POST bodies received, newest last).
 
@@ -36,6 +37,9 @@ SPECIAL = {"<|im_start|>": 1001, "<|im_end|>": 1002, "<|endoftext|>": 1003}
 PIECES = {v: k.encode() for k, v in SPECIAL.items()}
 CHUNK_DELAY_S = 0.02
 N_CTX = 8192
+# Story 32: streamed one character per chunk (the adapter counts a token per chunk), without
+# delay, so that it passes the reasoning budget (768 by default) quickly.
+LONG_REASONING = "Je réfléchis longuement à la question. " * 25
 
 
 def tokenize(text: str) -> list[int]:
@@ -66,6 +70,11 @@ def plan(prompt: str) -> str:
     user_at = prompt.rfind("<|im_start|>user\n")
     turn = prompt[user_at:] if user_at >= 0 else prompt
     message = turn.removeprefix("<|im_start|>user\n").split("<|im_end|>")[0].strip()
+    if "[réfléchis longtemps]" in message and prompt.endswith("<think>\n"):
+        # Story 32: a reasoning never closed, longer than the budget (one token per byte):
+        # the harness cuts it and relaunches on this prompt and the reasoning kept, which ends
+        # with the closure, so the relaunch gets the answer below.
+        return LONG_REASONING
     thinking = "Je réfléchis.\n</think>\n\n" if prompt.endswith("<think>\n") else ""
     if "<tool_response>" in turn:
         result = turn.rsplit("<tool_response>", 1)[1].split("</tool_response>")[0].strip()
@@ -116,12 +125,13 @@ def create_app(flavor: str) -> Starlette:
     async def completion(request: Request) -> Response:
         body = await body_of(request)
         output = plan(detokenize(body.get("prompt", [])))
-        chunks = [output[i : i + 4] for i in range(0, len(output), 4)]
+        size, delay = (1, 0) if output == LONG_REASONING else (4, CHUNK_DELAY_S)
+        chunks = [output[i : i + size] for i in range(0, len(output), size)]
 
         async def stream():
             for text in chunks:
                 yield f"data: {json.dumps({'content': text, 'stop': False})}\n\n"
-                await asyncio.sleep(CHUNK_DELAY_S)
+                await asyncio.sleep(delay)
             end = {"content": "", "stop": True, "stop_type": "eos"}
             yield f"data: {json.dumps(end | {'tokens_predicted': len(tokenize(output))})}\n\n"
 

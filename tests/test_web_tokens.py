@@ -131,6 +131,41 @@ _PAIRS = [
 ]
 
 
+# Story 32: what the call produced and its reasoning, then the JSON trees' text colours, on
+# both backgrounds, on `surface-raised` and on each discipline's soft background (a section).
+_STORY32_TEXT = [
+    ("ink", "produced-soft", 16.9),
+    ("ink-soft", "produced-soft", 7.4),
+    ("ink", "reasoning-soft", 17.1),
+    ("ink-soft", "reasoning-soft", 7.5),
+    ("on-ink", "ink", 19.7),  # the « Produit par le modèle » tag
+]
+_JSON_FLOORS = {"json-key": 8.7, "json-string": 7.6, "json-literal": 6.2}
+_JSON_BACKGROUNDS = [
+    "produced-soft",
+    "reasoning-soft",
+    "surface-raised",
+    *(f"discipline-{n}-soft" for n in ("prompt", "context", "harness", "network", "neutral")),
+]
+
+
+def test_story32_tokens_meet_wcag_aa():
+    colors = _design_frontmatter()["colors"]
+    failures = []
+    for fg, bg, expected in _STORY32_TEXT:
+        ratio = _contrast(colors[fg], colors[bg])
+        if ratio < 4.5 or round(ratio, 1) != expected:
+            failures.append(f"{fg} sur {bg} : {ratio:.2f} (attendu {expected})")
+    for fg, floor in _JSON_FLOORS.items():
+        lowest = min(_contrast(colors[fg], colors[bg]) for bg in _JSON_BACKGROUNDS)
+        if round(lowest, 1) < floor or lowest < 4.5:
+            failures.append(f"{fg} : {lowest:.2f} au plus bas (< {floor})")
+    # The JSON colours are text colours only: none reuses a discipline's.
+    disciplines = {v for k, v in colors.items() if k.startswith("discipline-")}
+    failures += [fg for fg in _JSON_FLOORS if colors[fg] in disciplines]
+    assert not failures, failures
+
+
 def test_discipline_tokens_meet_wcag_aa():
     colors = _design_frontmatter()["colors"]
     failures = []

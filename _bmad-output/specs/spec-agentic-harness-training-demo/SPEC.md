@@ -27,14 +27,14 @@ WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à 
   - **intent:** L'utilisateur peut converser avec le modèle comme dans un chatbot, en streaming, avec un indicateur pendant les phases sans token visible.
   - **success:** Les réponses s'affichent au fil de la génération ; un indicateur distinct signale le traitement du contexte ou l'exécution d'un outil.
 - **CAP-2** Vue harnais : contexte LLM et orchestration (FR-2, palier 1)
-  - **intent:** L'utilisateur peut inspecter le contexte exact de chaque appel (segments étiquetés par brique, sortie brute) et les étapes du tour.
-  - **success:** Chaque segment du contexte LLM porte sa brique d'origine, sans troncature par défaut ; le volet orchestration liste les étapes dans l'ordre réel.
+  - **intent:** L'utilisateur peut inspecter chaque appel du tour : ce qu'il a lu (le contexte exact, groupé par source et étiqueté par brique) et ce qu'il a produit (réflexion, réponse, appels d'outils, sortie brute), ainsi que les étapes du tour.
+  - **success:** Chaque segment du contexte LLM porte sa brique d'origine, sans troncature par défaut ; le volet orchestration liste les étapes dans l'ordre réel. Story 32 : Contexte LLM montre chaque appel du tour, numéroté : ce qu'il a lu (texte groupé par source, source et tokens en marge, ce que l'appel précédent avait déjà lu replié, le nouveau mis en avant), puis ce qu'il a produit (réflexion, réponse, appels d'outils) sur un fond propre ; « Texte exact » redonne le prompt envoyé octet pour octet, et « Corps JSON » l'arbre du corps en mode chat.
 - **CAP-3** Schéma d'architecture en direct (FR-3, palier 1)
   - **intent:** L'utilisateur voit les composants actifs et leur lieu d'hébergement (processus local, fichier local, service réseau).
   - **success:** Seules les briques actives apparaissent ; le composant en cours d'action est mis en évidence pendant un tour ; un modèle cloud est dessiné comme service réseau, avec son fournisseur.
 - **CAP-4** Synchronisation des volets (FR-4, palier 1)
   - **intent:** Sélectionner un élément dans un volet met en évidence ses correspondants ailleurs.
-  - **success:** Le survol, le focus clavier ou le clic d'un élément (segment de contexte ou de la jauge, carte de brique, étape, nœud du schéma, plaque du modèle) éclaire l'élément lié dans chaque volet, volets masqués signalés par leur puce (« lié ») ; le clic en fait une sélection persistante, `Échap` l'efface (story 34).
+  - **success:** Le survol, le focus clavier ou le clic d'un élément (section de contexte ou segment de la jauge, carte de brique, étape, nœud du schéma, plaque du modèle) éclaire l'élément lié dans chaque volet, volets masqués signalés par leur puce (« lié ») ; le clic en fait une sélection persistante, `Échap` l'efface (story 34).
 - **CAP-5** Activation indépendante des briques (FR-5, palier 1)
   - **intent:** L'utilisateur active ou désactive chaque brique sans redémarrer WaveStack.
   - **success:** Le changement prend effet au tour suivant ; toutes briques désactivées = comportement LLM nu ; une dépendance manquante indique pourquoi la brique est indisponible.

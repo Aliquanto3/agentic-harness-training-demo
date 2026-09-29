@@ -865,3 +865,27 @@ def test_a_failed_delegation_counts_the_error_actually_reinjected():
     assert ended["result_tokens"] == len(ended["result"].encode("utf-8"))
     assert ended["saved_tokens"] == 0
     session.close()
+
+
+# ---------- story 32: the sub-agent's « déjà lu », against its own previous call ----------
+
+
+def test_the_sub_agent_second_call_reads_its_first_one_again():
+    outputs = [delegation(), call("read_file", path="notes_reunion.txt"), RESULT, "Voilà."]
+    _, session = sub_session(outputs)
+
+    events = run(session, "Quelles décisions ont été prises ?")
+
+    first, second = (e.payload for e in of(events, "context_rendered", "sub1"))
+    assert first["seen_segments"] == 0
+    assert second["seen_segments"] > 0
+    assert any(s["kind"] == "tool_result" and not s["seen"] for s in second["sections"])
+    # The main context's second call compares with the main first call, never the sub-agent's.
+    main_first, main_second = (e.payload for e in of(events, "context_rendered", "main"))
+    assert main_first["seen_segments"] == 0
+    seen = main_second["seen_segments"]
+    assert seen > 0
+    assert [s["text"] for s in main_second["segments"][:seen]] == [
+        s["text"] for s in main_first["segments"][:seen]
+    ]
+    session.close()
