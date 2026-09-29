@@ -2383,6 +2383,52 @@ def s_linked_view(r: Run) -> None:
                 "légende de la jauge dégagée, « · lié » entier sur la puce (10 px de marge)",
                 "; ".join(problems) or f"puce « {chip.inner_text()} »",
             )
+        # Lot K, suite (K1): 1280 and 1366 px zoomed to 150 % (853 and 911 CSS px), the chip
+        # linked but free to give way: the bar on one line, « Réinitialiser » in the window,
+        # no horizontal scroll, the « Fenêtre » panel open whole in the window.
+        for width, height in ((853, 433), (911, 512)):
+            page.set_viewport_size({"width": width, "height": height})
+            time.sleep(0.3)
+            if "· lié" not in chip.inner_text():
+                node("Calculatrice").click()
+                time.sleep(0.3)
+            problems = _top_bar_problems(r, None)
+            if "· lié" not in chip.inner_text():
+                problems.append(f"puce « {chip.inner_text()} » sans « · lié »")
+            if cut := _fully_visible(r, "#reset-button"):
+                problems.append(f"« Réinitialiser » {cut}")
+            scroll = page.evaluate(
+                "() => { const s = document.scrollingElement;"
+                " return s.scrollWidth - s.clientWidth; }"
+            )
+            if scroll > 1:
+                problems.append(f"la page défile de {scroll} px en largeur")
+            page.locator("#window-toggle").click()
+            expect(page.locator("#window-panel")).to_be_visible(timeout=5000)
+            panel = page.evaluate(
+                "() => { const p = document.getElementById('window-panel')"
+                ".getBoundingClientRect(); return [p.left, p.right, p.bottom,"
+                " innerWidth, innerHeight].map(Math.round); }"
+            )
+            left, right, bottom, inner_w, inner_h = panel
+            if left < 0 or right > inner_w or bottom > inner_h:
+                problems.append(f"panneau « Fenêtre » hors de la fenêtre ({panel})")
+            page.keyboard.press("Escape")
+            expect(page.locator("#window-panel")).to_be_hidden(timeout=5000)
+            chip_cut, figures = page.evaluate(
+                "(c) => [c.scrollWidth - c.clientWidth, Math.round(document"
+                ".getElementById('gauge-figures').getBoundingClientRect().width)]",
+                chip.element_handle(),
+            )
+            r.check(
+                not problems,
+                f"{width} × {height} (zoom 150 %) en {mode} : barre sur une ligne, "
+                "« Réinitialiser » entier dans la fenêtre, aucun défilement horizontal, "
+                "panneau « Fenêtre » entier",
+                "; ".join(problems)
+                or f"puce « {chip.inner_text()} » coupée de {chip_cut} px ; chiffres de la "
+                f"jauge sur {figures} px",
+            )
     page.set_viewport_size({"width": 1024, "height": 700})
     time.sleep(0.3)
     problems = _top_bar_problems(r, None)

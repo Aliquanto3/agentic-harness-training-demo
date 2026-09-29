@@ -4872,3 +4872,61 @@ body .arch .arch-robots .robot.is-selection-linked {
     text-overflow: ellipsis;
   }
 }
+
+/* Lot K, suite (K1): under 1000 px (a 1280 or 1366 px window zoomed to 150 %), the bar keeps
+   « Réinitialiser » whole and the page never scrolls sideways: the gauge's legend goes (each
+   segment's tooltip names its discipline) and its bar narrows to 180 px, its figures still
+   giving way (whole in their tooltip); the gaps and the bar's padding tighten, the names go
+   to their minimum (projection mode keeps its own, lower ones), « Mode projection » says
+   « Aa » (its accessible name and tooltip unchanged); the theme picker is compact already. */
+.projection-toggle-tiny {
+  display: none;
+}
+
+@media (width < 1000px) {
+  .top-bar,
+  :root.projection .top-bar {
+    gap: var(--spacing-1);
+    padding: 0 var(--spacing-2);
+  }
+
+  .gauge-legend {
+    display: none;
+  }
+
+  .gauge-stack {
+    width: 180px;
+  }
+
+  .top-bar > .gauge,
+  :root.projection .top-bar > .gauge {
+    min-width: calc(180px + var(--spacing-3));
+  }
+
+  .top-bar > .scenario-picker {
+    min-width: 3rem;
+  }
+
+  .top-bar > .model-indicator {
+    min-width: 2rem;
+  }
+
+  .top-bar > .model-picker {
+    min-width: 2.5rem;
+  }
+
+  .projection-toggle-long,
+  .projection-toggle-short,
+  :root.projection .projection-toggle-long,
+  :root.projection .projection-toggle-short {
+    display: none;
+  }
+
+  .projection-toggle-tiny {
+    display: inline;
+  }
+
+  .projection-toggle {
+    padding: 0 var(--spacing-2);
+  }
+}
