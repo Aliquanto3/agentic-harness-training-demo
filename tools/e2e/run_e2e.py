@@ -2559,6 +2559,24 @@ def s_mcp_lazy(r: Run) -> None:
         str(tools)[:200],
     )
     r.shot("11-mcp-lazy-force")
+    # Lot K (2026-09-29): force the MCP tool's call itself, with its preset.
+    armed = r.arm("Forcer l'appel : local__define_term", preset="MCP")
+    action = armed["payload"]["actions"][0]
+    r.check(
+        (action["kind"], action["target"], action["args"])
+        == ("tool", "local__define_term", {"term": "MCP"}),
+        "« Forcer l'appel » d'un outil MCP armé avec son préréglage",
+        str(action),
+    )
+    seq = r.ev.mark()
+    r.send("Bonjour")
+    started = [e for e in r.ev.since(seq, "tool_started")]
+    forced = [e for e in started if e["payload"]["tool"] == "local__define_term"]
+    r.check(
+        bool(forced) and forced[0]["trigger"] == "user" and forced[0]["brick"] == "mcp",
+        "l'appel MCP forcé part au tour suivant, déclenché par l'utilisateur",
+        str([(e["payload"]["tool"], e.get("trigger")) for e in started])[:200],
+    )
     r.show_forced(False)
 
 

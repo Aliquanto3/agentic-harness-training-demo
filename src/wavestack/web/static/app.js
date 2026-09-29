@@ -1467,6 +1467,12 @@ function brickOptions(brick, offReason = null) {
       const open = store.forceForm?.brick === brick.id && store.forceForm?.id === option.id;
       if (open) li.appendChild(forceForm(brick, option));
     }
+    // Lot K: « Forcer l'appel » of each tool of a connected MCP server, both modes.
+    for (const call of store.showForced && brick.id === "mcp" ? option.calls || [] : []) {
+      const callOption = mcpCallOption(call);
+      li.appendChild(forceButton(brick, callOption));
+      if (isFormOpen(brick.id, callOption.id)) li.appendChild(forceForm(brick, callOption));
+    }
     list.appendChild(li);
   }
   details.appendChild(list);
@@ -1558,25 +1564,40 @@ function isFormOpen(brickId, optionId) {
   return store.forceForm?.brick === brickId && store.forceForm?.id === optionId;
 }
 
+// Lot K: the forced call of one MCP tool, as an option of its server's row (`call`: from
+// `bricks_changed`, its parameters described by the server and its presets).
+function mcpCallOption(call) {
+  return {
+    id: `call:${call.tool}`,
+    label_fr: call.tool,
+    target: call.tool,
+    call: true,
+    parameters: call.parameters,
+    presets: call.presets,
+  };
+}
+
 function forceButton(brick, option) {
-  // Tools, skills, and in lazy loading only, the documentation of an MCP server's tool.
-  const label = FORCE_LABELS[brick.id];
+  // Tools, skills, and in lazy loading only, the documentation of an MCP server's tool; lot K:
+  // the call of an MCP tool (`option.call`), in both modes.
+  const label = option.call ? FORCE_LABELS.tools : FORCE_LABELS[brick.id];
   if (!label) return null;
-  if (brick.id === "mcp" && (brick.mode !== "lazy" || !option.tools?.length)) return null;
+  if (brick.id === "mcp" && !option.call && (brick.mode !== "lazy" || !option.tools?.length)) return null;
   const button = el("button", "force-button");
   button.type = "button";
-  button.append(handIcon(), label);
+  button.append(handIcon(), option.call ? `${label} · ${option.label_fr}` : label);
   button.setAttribute("aria-label", `${label} : ${option.label_fr}`);
   button.dataset.focusKey = `force:${brick.id}:${option.id}`;
   // A tool without parameter and a skill are armed at once; the others open their form.
+  const hasParameters = Object.keys(option.parameters || {}).length > 0;
   const needsForm =
-    brick.id === "mcp" ||
+    (brick.id === "mcp" && (!option.call || hasParameters)) ||
     brick.id === "global_memory" ||
-    (brick.id === "tools" && Object.keys(option.parameters || {}).length > 0);
+    (brick.id === "tools" && hasParameters);
   if (needsForm) button.setAttribute("aria-expanded", String(isFormOpen(brick.id, option.id)));
   button.addEventListener("click", () => {
     if (!needsForm) {
-      armAction(brick.id === "skills" ? "skill" : "tool", option.id, {});
+      armAction(brick.id === "skills" ? "skill" : "tool", option.target ?? option.id, {});
       return;
     }
     store.forceForm = isFormOpen(brick.id, option.id) ? null : newForceForm(brick, option);
@@ -1616,7 +1637,9 @@ function presetValues(option, index) {
 }
 
 function newForceForm(brick, option) {
-  if (brick.id === "mcp") return { brick: brick.id, id: option.id, values: { tool: option.tools[0] }, error: null };
+  if (brick.id === "mcp" && !option.call) {
+    return { brick: brick.id, id: option.id, values: { tool: option.tools[0] }, error: null };
+  }
   const preset = option.presets?.length ? 0 : -1; // prefilled by the first preset
   return { brick: brick.id, id: option.id, preset, values: presetValues(option, preset), error: null };
 }
@@ -1635,14 +1658,16 @@ function forceForm(brick, option) {
   const box = el("div", "force-form");
   box.setAttribute("role", "group");
   const arm = () =>
-    brick.id === "mcp"
+    option.call
+      ? armAction("tool", option.target, { ...form.values }, form)
+      : brick.id === "mcp"
       ? armAction("tool_doc", form.values.tool, {}, form)
       : brick.id === "global_memory"
         ? armAction("memory", option.id, { text: form.values.text ?? "" }, form)
       : brick.force
         ? armAction(brick.force.kind, brick.force.target, { ...form.values }, form)
         : armAction("tool", option.id, { ...form.values }, form);
-  if (brick.id === "mcp") {
+  if (brick.id === "mcp" && !option.call) {
     box.setAttribute("aria-label", `Charger la documentation d'un outil de ${option.label_fr}`);
     const select = el("select");
     select.dataset.focusKey = `${base}:tool`;

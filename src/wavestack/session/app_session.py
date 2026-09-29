@@ -1267,9 +1267,32 @@ class AppSession:
                 "network": server.network,
                 # Story 9: the tools whose documentation « Charger la documentation » loads.
                 "tools": tools.get(server.id, []),
+                # Lot K: « Forcer l'appel » of each of them, its form and its presets.
+                "calls": [self._mcp_call_option(n) for n in tools.get(server.id, [])],
             }
             for server in self._mcp_servers.values()
         ]
+
+    def _mcp_call_option(self, name: str) -> dict[str, Any]:
+        """Lot K: the form of an MCP tool's forced call: one field per parameter of its
+        schema, described by the server (« facultatif » when not required), and the presets
+        of `content/mcp.yaml` restricted to those parameters."""
+        spec = self._registry.get(name)
+        params = dict(spec.params) if spec else {}
+        properties = ((spec.schema if spec else None) or {}).get("properties") or {}
+        required = set(params) if spec is None or spec.required is None else set(spec.required)
+        parameters = {}
+        for arg in params:
+            described = properties.get(arg, {}) if isinstance(properties, dict) else {}
+            text = described.get("description") if isinstance(described, dict) else None
+            text = str(text).strip() if text else f"Argument {arg}."
+            parameters[arg] = text if arg in required else f"{text} (facultatif)"
+        content = self._mcp_content.call_presets.get(name, []) if self._mcp_content else []
+        presets = [
+            {"label_fr": p.label_fr, "args": {k: v for k, v in p.args.items() if k in params}}
+            for p in content
+        ]
+        return {"tool": name, "parameters": parameters, "presets": presets}
 
     def _skill_options(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -4037,18 +4060,25 @@ class AppSession:
         `ArmRefused` for an unknown target (`not_found`) or invalid arguments: nothing is
         armed then. Whether the target is still available is checked at consumption."""
         args = dict(args or {})
-        if kind == "tool":  # a tool of the tools brick, never an MCP one (2026-09-25)
+        if kind == "tool":  # a tool of the tools brick, or an MCP server's (lot K, 2026-09-29)
             spec = self._registry.get(target)
-            if spec is None or spec.is_mcp or spec.source == "harness":
+            if (
+                spec is None
+                or spec.source == "harness"  # a meta-tool has its own action
+                or (spec.is_mcp and self._mcp_content is None)
+            ):
                 raise ArmRefused(
-                    f"Outil inconnu : « {target} » n'est pas un outil de la brique Outils. "
-                    "Rien n'est armé.",
+                    f"Outil inconnu : « {target} » n'est ni un outil de la brique Outils ni "
+                    "l'outil d'un serveur MCP. Rien n'est armé.",
                     not_found=True,
                 )
-            # The form's fields are text: converted per the tool's schema, as a model's call.
+            # The form's fields are text: converted per the tool's schema, as a model's call;
+            # an optional argument left empty is not sent (an MCP tool's optional ones).
+            optional = set(spec.params) - set(spec.required) if spec.required is not None else set()
             args = {
                 arg: convert_value(value, spec.params.get(arg)) if isinstance(value, str) else value
                 for arg, value in args.items()
+                if not (arg in optional and isinstance(value, str) and not value.strip())
             }
             detail = self._tool_executor.check(ToolCall(target, args), [target])
             if detail is not None:
@@ -5520,8 +5550,10 @@ class AppSession:
         # the next call, since a provider refuses a call to a tool its `tools` lacks.
         loaded_in_turn: list[str] = []
         # AD-3: the armed actions, after `on_user_message` and before the first call, outside
-        # the call budget (AD-10).
-        stopped, step = self._consume_armed(turn_id, state, cancel, steps, loaded_in_turn)
+        # the call budget (AD-10). Lot K: the MCP tools they called join `tools` at once.
+        defined: list[str] = []
+        stopped, step = self._consume_armed(turn_id, state, cancel, steps, loaded_in_turn, defined)
+        state = _with_loaded(state, defined)
         if stopped:
             return "cancelled", "", ""
         if "rag" in state.effective:  # story 15: once per turn, main context, before any call
@@ -6157,12 +6189,17 @@ class AppSession:
         cancel: CancelToken,
         steps: list[dict[str, Any]],
         loaded_in_turn: list[str],
+        defined: list[str],
     ) -> tuple[bool, int]:
         """AD-3, AD-25: runs the actions the turn took, in arming order, each through the
         single executor, hooks included, with `trigger = user`. Each is rendered as an
         assistant call attributed to its brick, then its reply. A failure (H1's block, a tool
         error) is reinjected, never a new attempt; an unavailable target is dropped with its
-        reason. Returns whether the turn was stopped, and the steps numbered so far."""
+        reason. Returns whether the turn was stopped, and the steps numbered so far.
+
+        Lot K: a forced call of an MCP tool whose documentation is not loaded (lazy loading)
+        adds its definition to `tools` (AD-25), for the conversation: its name joins
+        `defined`, and the caller moves it out of `loadable` for this turn's calls."""
         step = 0
         for action in state.armed:
             if cancel.cancelled:
@@ -6187,6 +6224,11 @@ class AppSession:
                         },
                     )
                 continue
+            if action.kind == "tool" and spec.is_mcp and call.name in state.loadable:
+                with self._lock:
+                    self._loaded_docs.add(call.name)
+                if call.name not in defined:
+                    defined.append(call.name)
             step += 1
             step_id = f"{turn_id}.main.s{step}"
             call_ref = self._new_call_id(step_id, 0)  # AD-4: index 0, its own step
@@ -6241,6 +6283,12 @@ class AppSession:
         """Why a forced action's target is not available to this turn, in French; `None`
         when it is. Read from the frozen `TurnState`, plus what this turn loaded."""
         target = action.target
+        if action.kind == "tool" and action.brick == "mcp":  # lot K: an MCP tool's call
+            if "mcp" not in state.effective:
+                return "la brique « MCP » n'est pas active dans ce tour"
+            if target not in state.tools and target not in state.loadable:
+                return f"le serveur de l'outil « {target} » n'est pas connecté ou est désactivé"
+            return None
         if action.kind == "tool":
             if "tools" not in state.effective:
                 return "la brique « Outils » n'est pas active dans ce tour"

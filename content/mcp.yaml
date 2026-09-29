@@ -21,3 +21,15 @@ load_tool_doc:
     Charge la documentation d'un outil MCP, qui devient appelable ; ne charge pas de
     skill. À appeler avant tout outil de cette liste :
   tool: Nom exact de l'outil, tel qu'il figure dans la liste.
+# Préréglages de « Forcer l'appel » d'un outil MCP (lot K), par nom complet d'outil
+# (`{serveur}__{outil}`). Les paramètres viennent du serveur, à la connexion : un argument
+# qu'il ne déclare pas est ignoré.
+call_presets:
+  local__define_term:
+    - label_fr: MCP
+      args:
+        term: MCP
+  datagouv__search_datasets:
+    - label_fr: cybersécurité
+      args:
+        query: cybersécurité

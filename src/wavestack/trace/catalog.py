@@ -398,6 +398,15 @@ class ToolPresetState(BaseModel):
     args: dict[str, object]
 
 
+class McpCallOption(BaseModel):
+    """Lot K: the forced call of one MCP tool of a connected server: its parameters (name ->
+    French description, from the server's schema) and the presets of `content/mcp.yaml`."""
+
+    tool: str
+    parameters: dict[str, str]
+    presets: list[ToolPresetState] = []
+
+
 class BrickOption(BaseModel):
     """A sub-option of a brick card (story 5: one native tool)."""
 
@@ -412,6 +421,8 @@ class BrickOption(BaseModel):
     presets: list[ToolPresetState] = []
     # Story 9, MCP servers: the tools whose documentation can be loaded by force.
     tools: list[str] = []
+    # Lot K, MCP servers: the form of each tool's forced call (« Forcer l'appel »).
+    calls: list[McpCallOption] = []
 
 
 class BrickForce(BaseModel):
