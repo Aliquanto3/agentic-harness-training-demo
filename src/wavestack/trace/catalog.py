@@ -997,7 +997,17 @@ class LlmGenerationStartedPayload(BaseModel):
     reserve: int
     reasoning: bool = False
     phase_label: str
+    # What one `llm_token` is: a token of the in-process engine, or a fragment of a server's
+    # or a provider's stream (usually one token, not always).
+    unit: Literal["token", "fragment"] = "token"
     figures_fr: dict[str, str] = {}
+
+
+class LlmTokenPart(BaseModel):
+    """A token's decoded text in one channel, tags dropped (the reasoning's lanes)."""
+
+    channel: Channel
+    text: str
 
 
 class LlmCandidate(BaseModel):
@@ -1024,6 +1034,7 @@ class LlmTokenPayload(BaseModel):
     channel: Channel
     elapsed_ms: int
     candidates: list[LlmCandidate] | None = None
+    parts: list[LlmTokenPart] = []
 
 
 class LlmGenerationEndedPayload(BaseModel):

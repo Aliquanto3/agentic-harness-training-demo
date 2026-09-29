@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, SecretStr, model_validator
 
 from wavestack import config
 from wavestack.models import catalog
-from wavestack.models.engine import Sampling
+from wavestack.models.engine import SAMPLING_BOUNDS, Sampling
 from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession, Refused
 from wavestack.trace.envelope import Envelope
@@ -150,13 +150,19 @@ class LlmTokenizeIntention(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
 
 
-class SamplingIntention(BaseModel):
-    """Story 29: the screen's four sampling settings, within `engine.SAMPLING_BOUNDS`."""
+def _bounded(name: str) -> Any:
+    low, high = SAMPLING_BOUNDS[name]
+    return Field(ge=low, le=high)
 
-    temperature: float = Field(ge=0.0, le=2.0)
-    top_k: int = Field(ge=1, le=100)
-    top_p: float = Field(ge=0.05, le=1.0)
-    min_p: float = Field(ge=0.0, le=0.5)
+
+class SamplingIntention(BaseModel):
+    """Story 29: the screen's four sampling settings, within `engine.SAMPLING_BOUNDS` (the
+    single source of the bounds)."""
+
+    temperature: float = _bounded("temperature")
+    top_k: int = _bounded("top_k")
+    top_p: float = _bounded("top_p")
+    min_p: float = _bounded("min_p")
 
 
 class LlmGenerateIntention(BaseModel):

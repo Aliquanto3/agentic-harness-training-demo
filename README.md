@@ -282,8 +282,8 @@ dans l'atelier » ramène au sélecteur de la barre haute.
   tokenizer sur le poste : la page le dit et montre l'estimation du harnais.
 - **Réglages d'échantillonnage.** L'échantillonnage est un paramètre de chaque appel au
   modèle : l'atelier envoie toujours les valeurs du harnais (température 0,7, top-k 20, top-p
-  0,8, min-p 0), l'écran envoie les siennes, réglables par curseur (température 0 à 2, top-k 1 à
-  100, top-p 0,05 à 1, min-p 0 à 0,5), au moteur en processus, à llama-server et à Ollama. Un
+  0,8, min-p 0), l'écran envoie les siennes, réglables par curseur (température 0 à 2, top-k 0 à
+  100, 0 le désactivant, top-p 0,05 à 1, min-p 0 à 0,5), au moteur en processus, à llama-server et à Ollama. Un
   modèle cloud ne prend que ce que son entrée déclare (`sampling`, voir « Modèle cloud »), les
   autres réglages sont grisés avec leur raison. Chaque appel trace son échantillonnage dans
   `model_call_started` (journal des événements).

@@ -35,7 +35,7 @@ DEFAULT_SAMPLING = Sampling(temperature=0.7, top_k=20, top_p=0.8, min_p=0.0)
 # The screen's bounds, inclusive (its intention validates them).
 SAMPLING_BOUNDS: dict[str, tuple[float, float]] = {
     "temperature": (0.0, 2.0),
-    "top_k": (1, 100),
+    "top_k": (0, 100),  # 0: top-k off (llama.cpp keeps the whole vocabulary)
     "top_p": (0.05, 1.0),
     "min_p": (0.0, 0.5),
 }
@@ -99,8 +99,10 @@ class Engine(Protocol):
         self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
     ) -> Iterator[Fragment]:
         """Story 29: the adapters also take `*, sampling: Sampling | None = None` (`None`:
-        `DEFAULT_SAMPLING`); the session passes it only when the « LLM nu » screen asks, so an
-        engine with the four arguments alone stays valid."""
+        `DEFAULT_SAMPLING`), and the in-process one `candidates: int = 0` (read that many
+        candidates with each token, into `Fragment.candidates`); the session passes them only
+        when the « LLM nu » screen asks (`candidates` only to a file's engine), so an engine
+        with the four arguments alone stays valid."""
         ...
 
     def tokenize(self, text: str) -> list[int]: ...

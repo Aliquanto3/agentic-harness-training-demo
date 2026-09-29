@@ -64,12 +64,18 @@ function saveDraft(value) {
   }
 }
 
+// Never rejects: a network failure is an answer too, with a French detail.
 async function post(path, body) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return { ok: false, status: 0, body: { detail: "WaveStack ne répond pas : rechargez la page." } };
+  }
   let answer = {};
   try {
     answer = await response.json();
@@ -78,6 +84,16 @@ async function post(path, body) {
   }
   return { ok: response.ok, status: response.status, body: answer };
 }
+
+// A refusal's text: the session's French detail, never « [object Object] ».
+function refusalText(answer) {
+  const detail = answer.body?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail) && detail[0]?.msg) return `Intention invalide : ${detail[0].msg}`;
+  return answer.status ? `Refusé (HTTP ${answer.status}).` : "WaveStack ne répond pas : rechargez la page.";
+}
+
+const EMPTY_PROMPT_FR = "Écrivez d'abord un texte (2 000 caractères au plus).";
 
 // ---------- state of the session: what may be asked now ----------
 
@@ -287,13 +303,18 @@ function renderDiagram(p) {
 async function tokenize() {
   const value = $("llm-prompt").value;
   const status = $("tokenize-status");
+  if (!value.trim()) {
+    status.classList.add("is-error");
+    status.textContent = EMPTY_PROMPT_FR;
+    return;
+  }
   status.classList.remove("is-error");
   status.textContent = text("tokenization.running_fr") || "…";
   $("tokenize-button").disabled = true;
   const answer = await post("/api/intentions/llm_tokenize", { text: value });
   if (!answer.ok) {
     status.classList.add("is-error");
-    status.textContent = answer.body.detail || `Refusé (HTTP ${answer.status}).`;
+    status.textContent = refusalText(answer);
     store.pending.tokenize = null;
     renderBusy();
     return;
@@ -377,7 +398,8 @@ function renderSampling() {
         saveSampling();
       });
       source.addEventListener("change", () => {
-        store.values[name] = clampSetting(name, source.value);
+        // An emptied field takes back the value it had, not 0.
+        if (source.value.trim() !== "") store.values[name] = clampSetting(name, source.value);
         source.value = other.value = String(store.values[name]);
         saveSampling();
       });
@@ -452,9 +474,12 @@ function startStopwatch(ts) {
   store.gen.timer = setInterval(tick, 100);
 }
 
+const CHIP_LIMIT = 512; // as the tokenization: the page stays fluid on a projector
+
 function renderGenerationStarted(p) {
   store.gen.first = false;
   store.gen.cloud = !p.exact;
+  store.gen.fragments = p.unit === "fragment";
   $("reading-empty").hidden = true;
   $("reading-body").hidden = false;
   $("reading-label").textContent = text(p.exact ? "reading.rendered_label_fr" : "reading.body_label_fr");
@@ -472,7 +497,10 @@ function renderGenerationStarted(p) {
   $("generation-count").textContent = "";
   $("generation-rate").textContent = "";
   $("generation-empty").hidden = true;
-  $("generation-cloud").hidden = p.exact;
+  const unitNote = $("generation-cloud");
+  unitNote.hidden = !store.gen.fragments;
+  unitNote.textContent = text(p.exact ? "generation.server_fr" : "generation.cloud_fr");
+  $("generation-more").textContent = "";
   clearLanes();
   const status = $("generate-status");
   status.classList.remove("is-error");
@@ -481,17 +509,27 @@ function renderGenerationStarted(p) {
 
 function renderToken(p) {
   store.gen.first = true;
+  $("generation-count").textContent = text(store.gen.fragments ? "generation.fragments_fr" : "generation.count_fr", {
+    tokens: numberFr.format(p.index + 1),
+  });
+  if (p.index >= CHIP_LIMIT) {
+    $("generation-more").textContent = text("generation.more_fr", {
+      reste: numberFr.format(p.index + 1 - CHIP_LIMIT),
+    });
+    return;
+  }
   const chip = el("li", "token-chip");
   chip.dataset.parity = p.index % 2 ? "odd" : "even";
   chip.dataset.channel = p.channel;
-  if (store.gen.cloud) chip.classList.add("is-fragment");
+  if (store.gen.fragments) chip.classList.add("is-fragment");
+  chip.setAttribute(
+    "aria-label",
+    p.token_id === null ? `« ${p.text} »` : `« ${p.text} », identifiant ${p.token_id}`
+  );
   chip.append(el("span", "token-chip-text", visibleBlanks(p.text)));
   chip.append(el("span", "token-chip-id", p.token_id === null ? "" : String(p.token_id)));
   if (p.candidates?.length) bindCandidates(chip, p);
   $("generation-tokens").append(chip);
-  $("generation-count").textContent = text(store.gen.cloud ? "generation.fragments_fr" : "generation.count_fr", {
-    tokens: numberFr.format(p.index + 1),
-  });
 }
 
 function renderCallEnded(p) {
@@ -515,8 +553,9 @@ function renderGenerationEnded(p) {
       : text("reading.read_rate_unknown_fr");
   if (!$("generation-tokens").children.length) $("generation-empty").hidden = false;
   const figures = p.figures_fr || {};
-  $("lane-thinking-count").textContent = text("reasoning.count_fr", { tokens: figures.reasoning_tokens ?? "0" });
-  $("lane-answer-count").textContent = text("reasoning.count_fr", { tokens: figures.answer_tokens ?? "0" });
+  const count = store.gen.fragments ? "reasoning.fragments_count_fr" : "reasoning.count_fr";
+  $("lane-thinking-count").textContent = text(count, { tokens: figures.reasoning_tokens ?? "0" });
+  $("lane-answer-count").textContent = text(count, { tokens: figures.answer_tokens ?? "0" });
   for (const id of ["lane-thinking", "lane-answer"]) {
     if (!$(id).textContent) $(id).textContent = text("reasoning.empty_fr");
   }
@@ -524,6 +563,11 @@ function renderGenerationEnded(p) {
 
 async function generate() {
   const status = $("generate-status");
+  if (!$("llm-prompt").value.trim()) {
+    status.classList.add("is-error");
+    status.textContent = EMPTY_PROMPT_FR;
+    return;
+  }
   status.classList.remove("is-error");
   status.textContent = text("generation.running_fr");
   store.pending.generate = "…";
@@ -536,7 +580,7 @@ async function generate() {
   });
   if (!answer.ok) {
     status.classList.add("is-error");
-    status.textContent = answer.body.detail || `Refusé (HTTP ${answer.status}).`;
+    status.textContent = refusalText(answer);
     store.pending.generate = null;
     renderBusy();
     return;
@@ -555,7 +599,7 @@ async function stopGeneration() {
 const STEP_NAMES = {
   release: "Libération",
   probe: "Sonde",
-  check: "Contrôle du budget",
+  check: "Budget",
   engine: "Moteur",
   ready: "Prêt",
 };
@@ -655,9 +699,12 @@ function clearLanes() {
   $("lane-cut").hidden = true;
 }
 
+// The lanes read the token's decoded text by channel (tags dropped), never its bytes.
 function laneToken(p) {
-  const lane = p.channel === "reasoning" ? $("lane-thinking") : $("lane-answer");
-  lane.textContent += p.text;
+  for (const part of p.parts || []) {
+    const lane = part.channel === "reasoning" ? $("lane-thinking") : $("lane-answer");
+    lane.textContent += part.text;
+  }
 }
 
 // ---------- increment 4: the candidates of each token ----------
@@ -678,21 +725,34 @@ function renderCandidatesOffer() {
 function bindCandidates(chip, p) {
   chip.classList.add("has-candidates");
   chip.tabIndex = 0;
+  chip.setAttribute("role", "button");
   chip.setAttribute("aria-haspopup", "dialog");
   const show = () => showCandidates(chip, p);
   chip.addEventListener("mouseenter", show);
   chip.addEventListener("focus", show);
   chip.addEventListener("mouseleave", () => store.pinned !== chip && hideCandidates());
   chip.addEventListener("blur", () => store.pinned !== chip && hideCandidates());
-  chip.addEventListener("click", () => {
+  const toggle = () => {
     store.pinned = store.pinned === chip ? null : chip;
     if (store.pinned) show();
     else hideCandidates();
+  };
+  chip.addEventListener("click", toggle);
+  chip.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggle();
+    }
   });
 }
 
 function showCandidates(chip, p) {
   const box = $("candidates-popover");
+  for (const other of document.querySelectorAll("[aria-describedby='candidates-popover']")) {
+    other.removeAttribute("aria-describedby");
+  }
+  chip.setAttribute("aria-describedby", "candidates-popover");
+  chip.setAttribute("aria-expanded", "true");
   $("candidates-title").textContent = text("candidates.title_fr", { index: p.index + 1 });
   const list = $("candidates-list");
   list.replaceChildren();
@@ -725,6 +785,9 @@ function showCandidates(chip, p) {
 
 function hideCandidates() {
   $("candidates-popover").hidden = true;
+  for (const chip of document.querySelectorAll(".token-chip[aria-expanded='true']")) {
+    chip.setAttribute("aria-expanded", "false");
+  }
 }
 
 // ---------- the journal ----------
@@ -863,8 +926,11 @@ async function refresh() {
     return null;
   }
   store.content = body.content;
-  store.activeModel = body.active_model;
-  store.session = body.session_state;
+  // A late answer never takes the page back in time: the stream may already be further.
+  if (body.seq >= store.lastSeq) {
+    store.activeModel = body.active_model;
+    store.session = body.session_state;
+  }
   store.tokenizer = body.tokenizer;
   store.sampling = body.sampling;
   store.reasoning = body.reasoning;
@@ -886,7 +952,13 @@ async function refresh() {
 
 async function main() {
   const prompt = $("llm-prompt");
-  const body = await refresh();
+  // The stream starts from the answer's `seq`: without it, retried, never the whole journal.
+  let body = await refresh();
+  while (!body) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    body = await refresh();
+  }
+  $("llm-content-error").hidden = !body.content_error_fr;
   prompt.value = loadDraft() ?? (text("tokenization.default_text_fr") || "");
   prompt.addEventListener("input", () => saveDraft(prompt.value));
   $("tokenize-button").addEventListener("click", tokenize);
@@ -899,7 +971,7 @@ async function main() {
       hideCandidates();
     }
   });
-  if (body) store.lastSeq = body.seq;
+  store.lastSeq = body.seq;
   document.body.dataset.labReady = "true";
   streamEvents();
 }

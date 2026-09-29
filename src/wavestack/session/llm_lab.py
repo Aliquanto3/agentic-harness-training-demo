@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from functools import cache
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -136,6 +137,8 @@ class GenerationText(_Strict):
     fragments_fr: str
     rate_fr: str
     cloud_fr: str
+    server_fr: str
+    more_fr: str
     status: GenerationStatus
 
 
@@ -161,6 +164,7 @@ class ReasoningText(_Strict):
     answer_fr: str
     empty_fr: str
     count_fr: str
+    fragments_count_fr: str
     reserve_fr: str
 
 
@@ -195,10 +199,19 @@ class LabContent(_Strict):
 
 
 @cache
+def _read_lab_content(path: str, mtime_ns: int) -> LabContent:
+    return LabContent.model_validate(yaml.safe_load(Path(path).read_text(encoding="utf-8")))
+
+
 def load_lab_content() -> LabContent:
-    """Read `content/llm_lab.yaml`. Raises on an invalid file (the session traces it)."""
+    """Read `content/llm_lab.yaml`, again once the file changed (its modification time): a
+    corrected file shows on the page's reload. Raises on an invalid file (the session traces
+    it)."""
     path = config.content_dir() / "llm_lab.yaml"
-    return LabContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+    return _read_lab_content(str(path), path.stat().st_mtime_ns)
+
+
+load_lab_content.cache_clear = _read_lab_content.cache_clear  # type: ignore[attr-defined]
 
 
 def fr_int(n: int) -> str:
@@ -209,10 +222,12 @@ def fr_int(n: int) -> str:
 def fr_count(n: int) -> str:
     """A large count in words: « 311 millions », « 1,2 milliard », else `fr_int`."""
     for size, word in ((10**9, "milliard"), (10**6, "million")):
-        if n >= size:
-            value = n / size
-            text = f"{value:.1f}".rstrip("0").rstrip(".") if value < 10 else f"{round(value)}"
-            return f"{text.replace('.', ',')} {word}{'s' if value >= 2 else ''}"
+        value = n / size
+        # The unit and the plural from the rounded value: never « 1000 millions ».
+        rounded = round(value, 1) if value < 10 else float(round(value))
+        if rounded >= 1 and (size == 10**9 or rounded < 1000):
+            text = f"{rounded:.1f}".rstrip("0").rstrip(".").replace(".", ",")
+            return f"{text} {word}{'s' if rounded >= 2 else ''}"
     return fr_int(n)
 
 

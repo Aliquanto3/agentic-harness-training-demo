@@ -243,7 +243,7 @@ def test_ollama_sizes_from_the_blob_header(monkeypatch, tmp_path):
     )
     dims = engine.dimensions()
     assert dims["vocab_size"] == 151936 and dims["embedding_length"] == 1024
-    assert dims["layer_count"] is None and "en-tête" in dims["source_fr"]
+    assert dims.get("layer_count") is None and "en-tête" in dims["source_fr"]
 
 
 def test_llama_server_dimensions_read_its_file_header_when_local(tmp_path, monkeypatch):
@@ -340,6 +340,8 @@ def test_screen_generation_events_and_sampling_sent_to_the_engine():
     assert [t.payload["index"] for t in tokens] == list(range(7))
     assert kinds[-3:] == ["model_call_ended", "llm_generation_ended", "session_state"]
     assert events[-1].payload["state"] == "idle" and session.state == "idle"
+    # The workshop's projections read it: out of the screen's context.
+    assert events[-1].context_id is None and events[-1].step_id is None
     lab = [e for e in events if e.kind != "session_state"]
     assert all(e.context_id == "llm" and e.turn_id is None for e in lab)
     assert all(e.step_id == e.call_id == "llm1" for e in lab if e.kind != "session_state")
@@ -436,7 +438,7 @@ def test_screen_refused_outside_idle_and_bounds_validated():
     answer = post({"prompt": "Bonjour", "sampling": good})
     assert answer.status_code == 200 and answer.json()["request_id"].startswith("llm")
     session.join()
-    for field, value in (("temperature", 2.5), ("top_k", 0), ("top_p", 0.01), ("min_p", 0.6)):
+    for field, value in (("temperature", 2.5), ("top_k", -1), ("top_p", 0.01), ("min_p", 0.6)):
         bad = post({"prompt": "Bonjour", "sampling": good | {field: value}})
         assert bad.status_code == 422, field
     assert post({"prompt": "", "sampling": good}).status_code == 422
@@ -445,7 +447,8 @@ def test_screen_refused_outside_idle_and_bounds_validated():
     assert busy.status_code == 409 and "Un tour est déjà en cours" in busy.json()["detail"]
     lab = client.get("/api/llm_lab").json()["sampling"]
     assert lab["defaults"] == {"temperature": 0.7, "top_k": 20, "top_p": 0.8, "min_p": 0.0}
-    assert lab["bounds"]["top_k"] == [1, 100]
+    assert lab["bounds"]["top_k"] == [0, 100]  # 0: top-k off
+    assert post({"prompt": "Bonjour", "sampling": good | {"top_k": 0}}).status_code == 409
     assert set(lab["supported"].values()) == {None}  # a local model takes all four
 
 
@@ -767,3 +770,62 @@ def test_real_engine_candidates(tmp_path):
             assert len(chosen) == 1 and chosen[0]["kept"]
     finally:
         engine.close()
+
+
+# ---------- review fixes ----------
+
+
+def test_large_counts_take_their_unit_from_the_rounded_value():
+    assert llm_lab.fr_count(999_600_000) == "1 milliard"
+    assert llm_lab.fr_count(1_999_000_000) == "2 milliards"
+    assert llm_lab.fr_count(311_000_000) == "311 millions"
+
+
+def test_the_screen_is_refused_like_a_turn_when_idle_carries_a_reason():
+    session = booted_session(FakeEngine())
+    session.reason_fr = "Envoi indisponible : le modèle n'a pas pu être chargé."
+    for ask in (lambda: session.llm_tokenize("abc"), lambda: session.llm_generate("a", SCREEN)):
+        with pytest.raises(SendRefused):
+            ask()
+    assert session.reason_fr.startswith("Envoi indisponible")  # never wiped
+
+
+def test_the_final_fragment_of_held_text_is_no_chip_and_lanes_have_decoded_text():
+    engine = FakeEngine(output="Oui 🙂")
+    session = booted_session(engine)
+    events = _generate(session)
+    tokens = [e.payload for e in events if e.kind == "llm_token"]
+    assert len(tokens) == len("Oui 🙂")
+    assert "".join(p["text"] for t in tokens for p in t["parts"]) == "Oui 🙂"
+
+
+def test_the_content_is_read_again_once_the_file_changed(monkeypatch, tmp_path):
+    content = tmp_path / "content"
+    shutil.copytree(config.content_dir(), content)
+    monkeypatch.setattr(config, "content_dir", lambda: content)
+    llm_lab.load_lab_content.cache_clear()
+    try:
+        assert llm_lab.load_lab_content().title_fr == "LLM nu : l'intérieur du modèle"
+        path = content / "llm_lab.yaml"
+        path.write_text(path.read_text("utf-8").replace("l'intérieur", "le dedans"), "utf-8")
+        import os
+
+        stat = path.stat()
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
+        assert llm_lab.load_lab_content().title_fr == "LLM nu : le dedans du modèle"
+        path.write_text("", "utf-8")
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 2 * 10**9))
+        session = booted_session(FakeEngine())
+        body = _web(session).get("/api/llm_lab")
+        assert body.status_code == 200 and body.json()["content_error_fr"]  # no IndexError
+    finally:
+        llm_lab.load_lab_content.cache_clear()
+
+
+def test_sampling_intention_bounds_are_the_engine_bounds():
+    from wavestack.models.engine import SAMPLING_BOUNDS
+    from wavestack.web.app import SamplingIntention
+
+    schema = SamplingIntention.model_json_schema()["properties"]
+    for name, (low, high) in SAMPLING_BOUNDS.items():
+        assert (schema[name]["minimum"], schema[name]["maximum"]) == (low, high)

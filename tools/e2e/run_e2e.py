@@ -5716,10 +5716,27 @@ def _llm_screen(r: Run) -> None:
     )
     r.shot("52-llm-nu-tokenisation", full_page=True)
 
-    # (5) The screen's sampling reaches llama-server; the tokens come one by one.
+    # (5) The screen's sampling reaches llama-server; the tokens come one by one. A workshop
+    # tab left open meanwhile follows the state: busy, then back to idle, without reload.
+    workshop = page.context.browser.new_page(viewport={"width": 1600, "height": 1000})
+    workshop.goto(f"{r.stack.app_url}/")
+    expect(workshop.locator("body[data-journal-replayed]")).to_be_attached(timeout=30_000)
+    expect(workshop.locator("#composer-send")).to_be_enabled(timeout=30_000)
     _set_lab_sampling(r)
     seq = r.ev.mark()
     ended = _lab_generate(r, "Explique " + "très longuement " * 14, watch=True)
+    back = True
+    try:
+        expect(workshop.locator("#composer-send")).to_be_enabled(timeout=10_000)
+    except AssertionError:
+        back = False
+    idle = [e for e in r.ev.since(seq, "session_state") if e["payload"]["state"] == "idle"]
+    r.check(
+        back and idle and idle[-1]["context_id"] is None,
+        "atelier déjà ouvert pendant la génération : revenu en idle sans rechargement",
+        f"envoi actif : {back} · dernier idle : {idle[-1]['context_id'] if idle else 'aucun'}",
+    )
+    workshop.close()
     body = [q for q in r.stack.local_requests(r.stack.llama_url) if q["path"] == "/completion"][-1]
     sent = {k: body["body"].get(k) for k in ("temperature", "top_k", "top_p", "min_p")}
     started = [

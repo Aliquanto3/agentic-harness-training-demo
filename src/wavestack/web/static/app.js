@@ -251,7 +251,7 @@ function applyEnvelope(envelope) {
   store.journal.push(envelope);
   // Story 29: the « LLM nu » screen's events (context `llm`, no turn) go to the event log
   // only; no pane of the workshop shows them.
-  if (envelope.context_id === "llm") {
+  if (envelope.context_id === "llm" && envelope.kind !== "session_state") {
     scheduleRender();
     return;
   }
@@ -5980,6 +5980,14 @@ const SESSION_STATES = {
   llm_lab: "écran LLM nu", // story 29
 };
 
+// Story 29: how a generation of the « LLM nu » screen ended.
+const LAB_STATUS = {
+  completed: "terminée",
+  cancelled: "arrêtée",
+  limit: "réserve de sortie atteinte",
+  error: "en échec",
+};
+
 // Story 29: « T 0,7 · top-k 20 · top-p 0,8 · min-p 0 », a value not sent as « — ».
 function samplingSummary(s) {
   if (s.source === "provider") return s.note_fr || "réglé par le fournisseur";
@@ -6018,11 +6026,17 @@ function eventSummary(group) {
     case "llm_generation_started":
       return p.phase_label;
     case "llm_token":
-      return `${p.index + 1} · « ${p.text} »`;
+      return group.events
+        .filter((x) => x.kind === "llm_token")
+        .map((x) => x.payload.text)
+        .join("")
+        .slice(0, 200);
     case "model_load_step":
       return `${p.label_fr} · ${seconds(p.duration_ms)}`;
     case "llm_generation_ended":
-      return [p.status, seconds(p.duration_ms), p.message_fr].filter(Boolean).join(" · ");
+      return [LAB_STATUS[p.status] ?? p.status, seconds(p.duration_ms), p.message_fr]
+        .filter(Boolean)
+        .join(" · ");
     case "model_load_ended":
       return [`${p.model.label} : ${MODEL_LOAD_STATUS[p.status] ?? p.status}`, seconds(p.duration_ms), p.reason_fr]
         .filter(Boolean)
@@ -6109,7 +6123,7 @@ function eventSummary(group) {
 
 // Rows are built only once the log is unfolded, then kept: consecutive `model_delta` of one
 // call share a row (« Morceaux de réponse × N »), every other event has its own.
-const eventLog = { groups: [], processed: 0, rows: [], list: null };
+const eventLog = { groups: [], processed: 0, rows: [], list: null, labStreams: new Map() };
 
 function syncLogGroups() {
   for (; eventLog.processed < store.journal.length; eventLog.processed++) {
@@ -6117,6 +6131,17 @@ function syncLogGroups() {
     if (e.kind === "scenario_changed" && e.payload?.refresh) continue; // lot E: not a launch
     const last = eventLog.groups.at(-1);
     const first = last?.events[0];
+    // Story 29: one line per generation of the « LLM nu » screen, its tokens and deltas.
+    if (e.context_id === "llm" && (e.kind === "llm_token" || e.kind === "model_delta")) {
+      const stream = eventLog.labStreams.get(e.step_id);
+      if (stream) stream.events.push(e);
+      else {
+        const group = { key: e.seq, kind: "llm_token", events: [e] };
+        eventLog.labStreams.set(e.step_id, group);
+        eventLog.groups.push(group);
+      }
+      continue;
+    }
     if (e.kind === "model_delta" && first?.kind === "model_delta" && first.call_id === e.call_id && first.turn_id === e.turn_id) {
       last.events.push(e);
     } else {
@@ -6154,7 +6179,15 @@ function logRow(i) {
   const open = store.orch.logRowsOpen.has(group.key);
   if (row.count !== count) {
     const merged = group.kind === "model_delta" && count > 1;
-    setText(row.name, merged ? `Morceaux de réponse × ${fmt(count)}` : KIND_LABELS[group.kind] || group.kind);
+    const tokens = group.kind === "llm_token" ? group.events.filter((x) => x.kind === "llm_token").length : 0;
+    setText(
+      row.name,
+      merged
+        ? `Morceaux de réponse × ${fmt(count)}`
+        : tokens
+          ? `LLM nu : tokens produits × ${fmt(tokens)}`
+          : KIND_LABELS[group.kind] || group.kind
+    );
     const summary = eventSummary(group);
     setText(row.summary, summary);
     row.line.title = summary;

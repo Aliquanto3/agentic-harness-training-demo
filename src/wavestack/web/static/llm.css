@@ -750,3 +750,7 @@ body.llm-page {
   font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
     var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
 }
+
+.llm-note:empty {
+  display: none;
+}

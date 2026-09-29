@@ -98,6 +98,11 @@
     <section class="llm-section" id="sec-generation" aria-labelledby="sec-generation-title">
       <h2 class="llm-section-title" id="sec-generation-title"><span class="llm-step" aria-hidden="true">5</span> <span data-text="sections.generation.title_fr">Génération</span></h2>
       <p class="llm-section-intro" data-text="sections.generation.intro_fr"></p>
+      <label class="reasoning-toggle" id="reasoning-toggle-box">
+        <input type="checkbox" id="reasoning-toggle" />
+        <span data-text="reasoning.toggle_fr">Raisonner avant de répondre</span>
+      </label>
+      <p class="llm-note" id="reasoning-reason"></p>
       <div class="llm-actions">
         <button type="button" id="generate-button" class="llm-button-primary" data-text="generation.button_fr">Générer</button>
         <button type="button" id="stop-button" class="llm-button-secondary" data-text="generation.stop_fr" disabled>Arrêter</button>
@@ -112,17 +117,13 @@
       <p class="llm-counts" id="generation-count"></p>
       <ol class="token-chips token-stream" id="generation-tokens" aria-label="Tokens produits"></ol>
       <p class="llm-note" id="generation-empty" data-text="generation.empty_fr"></p>
+      <p class="llm-note" id="generation-more"></p>
       <p class="llm-figure" id="generation-rate"></p>
     </section>
 
     <section class="llm-section" id="sec-reasoning" aria-labelledby="sec-reasoning-title">
       <h2 class="llm-section-title" id="sec-reasoning-title"><span class="llm-step" aria-hidden="true">6</span> <span data-text="sections.reasoning.title_fr">Raisonnement</span></h2>
       <p class="llm-section-intro" data-text="sections.reasoning.intro_fr"></p>
-      <label class="reasoning-toggle" id="reasoning-toggle-box">
-        <input type="checkbox" id="reasoning-toggle" />
-        <span data-text="reasoning.toggle_fr">Raisonner avant de répondre</span>
-      </label>
-      <p class="llm-note" id="reasoning-reason"></p>
       <p class="llm-note" id="reasoning-budget"></p>
       <div class="reasoning-lanes">
         <section class="reasoning-lane is-thinking" aria-labelledby="lane-thinking-title">

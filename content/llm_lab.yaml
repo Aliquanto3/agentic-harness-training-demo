@@ -26,7 +26,9 @@ sections:
     title_fr: "Réglages d'échantillonnage"
     intro_fr: >-
       À chaque pas, le modèle donne une probabilité à chaque token du vocabulaire. Ces
-      réglages décident comment le token suivant est tiré parmi eux.
+      réglages décident comment le token suivant est tiré parmi eux. L'ordre décrit ici est
+      celui de llama.cpp (moteur de WaveStack, llama-server, Ollama) : top-k, puis top-p, puis
+      min-p, puis la température ; un fournisseur cloud peut appliquer les siens autrement.
   loading:
     title_fr: "Chargement du modèle"
     intro_fr: >-
@@ -100,7 +102,7 @@ sampling:
       label_fr: "Top-k"
       help_fr: >-
         Ne garde que les k tokens les plus probables ; tous les autres sont écartés avant le
-        tirage.
+        tirage. À 0, top-k est désactivé : aucun token n'est écarté par lui.
     top_p:
       label_fr: "Top-p"
       help_fr: >-
@@ -134,6 +136,10 @@ generation:
   cloud_fr: >-
     Modèle cloud : ce sont des fragments reçus du fournisseur, pas des tokens un par un. Le
     fournisseur regroupe les tokens comme il veut avant de les envoyer.
+  server_fr: >-
+    Modèle servi : ce sont les morceaux du flux du serveur, en général un token chacun, pas
+    toujours. Le compte exact de tokens est celui du serveur, dans le journal des événements.
+  more_fr: "… et {reste} de plus, non affichés (512 puces au plus)."
   status:
     completed: "Réponse terminée."
     cancelled: "Génération arrêtée."
@@ -158,6 +164,7 @@ reasoning:
   answer_fr: "Réponse"
   empty_fr: "Rien pour l'instant."
   count_fr: "{tokens} tokens"
+  fragments_count_fr: "{tokens} fragments"
   reserve_fr: "Réserve de sortie : {reserve} tokens quand le modèle raisonne."
 
 candidates:
@@ -171,6 +178,6 @@ candidates:
   dropped_fr: "écarté par top-k, top-p ou min-p"
   chosen_fr: "tiré"
   legend_fr: >-
-    La probabilité du modèle vient de ses logits (température 1). Top-k, top-p et min-p
-    écartent des candidats, puis la température redistribue la chance d'être tiré entre ceux
-    qui restent.
+    La probabilité du modèle vient de ses logits (température 1). Dans l'ordre de llama.cpp,
+    top-k, top-p et min-p écartent des candidats, puis la température redistribue la chance
+    d'être tiré entre ceux qui restent.

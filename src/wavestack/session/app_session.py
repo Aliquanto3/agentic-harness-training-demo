@@ -1796,18 +1796,26 @@ class AppSession:
         return f"Modèle précédent libéré ({previous.label}){after}."
 
     def _check_fr(self, choice: ModelChoice, window: int | None) -> str:
+        """The step « check »: the budget was checked before anything was released (AD-3,
+        and again after a probe); this says it is confirmed. A label only: never a failure."""
+        try:
+            return self._check_label_fr(choice, window)
+        except Exception:  # noqa: BLE001 - a figure shown, never a load's failure
+            return "Budget confirmé : contrôlé avant la libération du modèle précédent."
+
+    def _check_label_fr(self, choice: ModelChoice, window: int | None) -> str:
         if choice.kind == "cloud":
-            return "Budget mémoire : rien à charger sur ce poste (modèle cloud)."
+            return "Budget confirmé : rien à charger sur ce poste (modèle cloud)."
         cost = self._cost(choice, window)
         budget = config.size_fr(self._load_registry.budget_bytes)
         if choice.kind == "server" and not self._checked(choice):
             return (
-                f"Budget mémoire : {config.size_fr(cost)} déjà en mémoire chez "
+                f"Budget confirmé : {config.size_fr(cost)} déjà en mémoire chez "
                 f"{choice.provider}, comptés sans refus (budget de {budget})."
             )
         return (
-            f"Budget mémoire contrôlé : environ {config.size_fr(cost)} demandés, budget de "
-            f"{budget}."
+            f"Budget confirmé (contrôlé avant la libération) : environ {config.size_fr(cost)} "
+            f"demandés, budget de {budget}."
         )
 
     @staticmethod
@@ -6603,7 +6611,7 @@ class AppSession:
         reserve: int,
         reasons: bool = False,
         sampling: Sampling | None = None,
-        on_token: Callable[[Fragment, str], None] | None = None,
+        on_token: Callable[[Fragment, str, list[tuple[str, str]]], None] | None = None,
         candidates: int = 0,
     ) -> _ModelOutput:
         """One streamed call of at most `reserve` output tokens (AD-9); with tools on, its
@@ -6611,7 +6619,8 @@ class AppSession:
         reasons in this call (`_reasoning_on`), which the reasoning budget requires (lot C).
         Story 29, the « LLM nu » screen: `sampling` is passed to the engine only when given
         (an engine with four arguments stays valid), and `on_token(fragment, channel)` is
-        called for each fragment that carries a token; the trace says which sampling."""
+        called for each fragment that carries a token, with the splitter's parts of its text;
+        the trace says which sampling."""
         assert self._engine is not None and self._caps is not None
         if isinstance(rendered, RenderedChat):
             return self._call_model_chat(rendered, cancel, reserve)
@@ -6705,6 +6714,7 @@ class AppSession:
             nonlocal first_at, output_tokens, reasoning_tokens
             assert self._engine is not None and self._caps is not None
             base, reason = output_tokens, "stop"
+            pieces = False  # the engine gives each token's bytes (story 29)
             fragments = self._engine.complete(
                 ids, self._caps.stop_sequences, max_tokens, cancel, **extra
             )
@@ -6716,10 +6726,16 @@ class AppSession:
                         first_at = time.monotonic()
                         journal.emit("model_first_token", {}, actor="model")
                     raw.append(fragment.text)
-                    channel = splitter.channel  # where this token starts (story 29)
-                    take(splitter.feed(fragment.text))
-                    if on_token is not None and (fragment.piece or fragment.text):
-                        on_token(fragment, channel)
+                    before = splitter.channel
+                    parts = splitter.feed(fragment.text)
+                    take(parts)
+                    # Story 29: one call per token. An engine that gives pieces ends with a
+                    # fragment of held-back text only: not a token of its own.
+                    pieces = pieces or fragment.piece is not None
+                    carries = fragment.piece is not None if pieces else bool(fragment.text)
+                    if on_token is not None and carries:
+                        # The token's channel: its first part's, else where it started.
+                        on_token(fragment, parts[0][0] if parts else before, parts)
                     if splitter.channel == "reasoning":
                         reasoning_tokens += new
                     if fragment.stop_reason:
@@ -6972,7 +6988,9 @@ class AppSession:
                 self._lab_error_traced = cause
                 with scoped(**self._lab_scope("llm")):
                     self._error(error_fr, cause, "La page « LLM nu » reste servie sans ses textes.")
-            return None, f"{error_fr} Détail : {str(exc).splitlines()[0][:200]}"
+            llm_lab.load_lab_content.cache_clear()  # corrected, the file is read again
+            detail = (str(exc).splitlines() or [type(exc).__name__])[0][:200]
+            return None, f"{error_fr} Détail : {detail}"
 
     def _tokenizer_state(self) -> dict[str, Any]:
         """Whether the active model's tokenizer cuts exactly here, and why in French."""
@@ -7022,7 +7040,7 @@ class AppSession:
     def _lab_request(self) -> str:
         """A screen request's id, `llm{n}`: accepted in `idle` with a model only (AD-3)."""
         with self._lock:
-            if self.state != "idle" or self._engine is None:
+            if self.state != "idle" or self._engine is None or self.reason_fr:
                 raise SendRefused(self._refusal_reason())
             self._labs += 1
             return f"llm{self._labs}"
@@ -7232,6 +7250,11 @@ class AppSession:
         rules), the budget (local mode) and the reserve."""
         with self._lock:
             caps, cloud, window = self._caps, self._cloud, self._window
+        return self._reasoning_info(caps, cloud, window)
+
+    def _reasoning_info(
+        self, caps: Capabilities | None, cloud: CloudModel | None, window: int
+    ) -> dict[str, Any]:
         mode, reason_fr = reasoning_mode(caps, window if caps is not None else None)
         local = cloud is None and caps is not None and caps.reasoning_tags is not None
         return {
@@ -7253,17 +7276,19 @@ class AppSession:
         `llm_lab` under the lock in this call, then run on the worker; « Arrêter » stops it
         (class c). `reasoning`: refused when the model cannot reason (mode `never` or
         `unknown`), forced when it always does. Returns the request's id."""
-        lab = self._lab_reasoning()
-        if reasoning and lab["mode"] in ("never", "unknown"):
-            raise SendRefused(
-                "Raisonnement indisponible : "
-                + (lab["reason_fr"] or "le modèle actif ne sait pas raisonner.")
-            )
-        if candidates and not (offer := self._lab_candidates())["available"]:
-            raise SendRefused(offer["reason_fr"])
         with self._memory_lock, self._lock:
-            if self.state != "idle" or self._engine is None:
+            if self.state != "idle" or self._engine is None or self.reason_fr:
                 raise SendRefused(self._refusal_reason())
+            # Checked under the lock: no model switch can come in between.
+            lab = self._reasoning_info(self._caps, self._cloud, self._window)
+            if reasoning and lab["mode"] in ("never", "unknown"):
+                raise SendRefused(
+                    "Raisonnement indisponible : "
+                    + (lab["reason_fr"] or "le modèle actif ne sait pas raisonner.")
+                )
+            offer = self._candidates_info(self._active, self._cloud, self._engine)
+            if candidates and not offer["available"]:
+                raise SendRefused(offer["reason_fr"])
             self._labs += 1
             request_id = f"llm{self._labs}"
             cancel = self._cancel = CancelToken()
@@ -7279,6 +7304,12 @@ class AppSession:
         read in the in-process engine only (a file), with why elsewhere."""
         with self._lock:
             active, cloud, engine = self._active, self._cloud, self._engine
+        return self._candidates_info(active, cloud, engine)
+
+    @staticmethod
+    def _candidates_info(
+        active: ModelChoice | None, cloud: CloudModel | None, engine: Any
+    ) -> dict[str, Any]:
         reason: str | None = None
         if engine is None or active is None:
             reason = "Aucun modèle actif."
@@ -7317,7 +7348,15 @@ class AppSession:
         touched, saved = False, None
         index = 0
 
-        def token(text: str, token_id: int | None, channel: str, read: Any = None) -> None:
+        def token(
+            text: str,
+            token_id: int | None,
+            channel: str,
+            read: Any = None,
+            parts: list[tuple[str, str]] | None = None,
+        ) -> None:
+            """One `llm_token`: `text` for its chip (its bytes when they are part of a
+            character), `parts` the decoded text by channel, tags dropped (the lanes)."""
             nonlocal index
             counts[channel] = counts.get(channel, 0) + 1
             payload = LlmTokenPayload(
@@ -7328,13 +7367,14 @@ class AppSession:
                 channel=channel,  # type: ignore[arg-type]
                 elapsed_ms=_ms(time.monotonic() - started),
                 candidates=list(read) if read else None,
+                parts=[{"channel": c, "text": t} for c, t in (parts or [])],
             )
             journal.emit("llm_token", payload.model_dump(mode="json"), actor="model")
             index += 1
 
-        def local_token(fragment: Fragment, channel: str) -> None:
+        def local_token(fragment: Fragment, channel: str, parts: list[tuple[str, str]]) -> None:
             text = llm_lab.piece_text(fragment.piece) if fragment.piece else fragment.text
-            token(text, fragment.token_id, channel, fragment.candidates)
+            token(text, fragment.token_id, channel, fragment.candidates, parts)
 
         with scoped(**self._lab_scope(request_id, call=True), origin="model", trigger="user"):
             try:
@@ -7364,6 +7404,9 @@ class AppSession:
                     )
                     text, tokens, exact = rendered.prompt, len(rendered.ids), True
                     phase = f"Lecture du prompt ({_fr(tokens)} tokens)"
+                    with self._lock:
+                        served = self._active is not None and self._active.kind == "server"
+                    unit = "fragment" if served else "token"
                 else:
                     content = self._cloud_content or load_cloud_content()
                     rendered = render_chat_body(
@@ -7376,6 +7419,7 @@ class AppSession:
                         provider_label_fr=content.provider_segment_fr,
                     )
                     text, tokens, exact = rendered.body, rendered.raw_total, False
+                    unit = "fragment"
                     phase = f"Envoi du prompt à {cloud.provider} (≈ {_fr(tokens)} tokens)"
                 usable = window - reserve
                 figures = {"prompt_tokens": ("" if exact else "≈ ") + _fr(tokens)}
@@ -7389,6 +7433,7 @@ class AppSession:
                     reserve=reserve,
                     reasoning=reasons,
                     phase_label=phase,
+                    unit=unit,
                     figures_fr=figures | {"reserve": _fr(reserve), "usable": _fr(usable)},
                 )
                 journal.emit("llm_generation_started", started_payload.model_dump(mode="json"))
@@ -7413,7 +7458,7 @@ class AppSession:
                         on_token=local_token,
                         candidates=CANDIDATES if candidates else 0,
                     )
-                    ended["status"] = out.status if out.status != "completed" else "completed"
+                    ended["status"] = out.status
                 else:
                     cloud_used = True
                     ended["status"] = self._lab_cloud_call(
@@ -7444,25 +7489,38 @@ class AppSession:
                     "L'écran « LLM nu » et l'atelier restent utilisables.",
                 )
             finally:
-                if touched:
-                    self._lab_restore(saved)
-                ended["reasoning_tokens"] = counts["reasoning"]
-                ended["answer_tokens"] = counts["text"] + counts.get("tool_call", 0)
-                ended["duration_ms"] = _ms(time.monotonic() - started)
-                approx = "≈ " if cloud_used else ""
-                ended["figures_fr"] = {
-                    "reasoning_tokens": approx + _fr(ended["reasoning_tokens"]),
-                    "answer_tokens": approx + _fr(ended["answer_tokens"]),
-                } | (
-                    {"read_tps": f"{ended['read_tps']:g}".replace(".", ",")}
-                    if ended.get("read_tps")
-                    else {}
-                )
-                payload = LlmGenerationEndedPayload.model_validate(ended)
-                journal.emit("llm_generation_ended", payload.model_dump(mode="json"))
-                with self._lock:
-                    self._cancel = None
-                self._set_state("idle")
+                try:
+                    if touched:
+                        self._lab_restore(saved)
+                    ended["reasoning_tokens"] = counts["reasoning"]
+                    ended["answer_tokens"] = counts["text"] + counts.get("tool_call", 0)
+                    ended["duration_ms"] = _ms(time.monotonic() - started)
+                    approx = "≈ " if cloud_used else ""
+                    ended["figures_fr"] = {
+                        "reasoning_tokens": approx + _fr(ended["reasoning_tokens"]),
+                        "answer_tokens": approx + _fr(ended["answer_tokens"]),
+                    } | (
+                        {"read_tps": f"{ended['read_tps']:g}".replace(".", ",")}
+                        if ended.get("read_tps")
+                        else {}
+                    )
+                    payload = LlmGenerationEndedPayload.model_validate(ended)
+                    journal.emit("llm_generation_ended", payload.model_dump(mode="json"))
+                except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
+                    self._error(
+                        "La fin de la génération de l'écran « LLM nu » n'a pas pu être tracée.",
+                        exc,
+                        "La session revient en attente ; l'atelier reste utilisable.",
+                    )
+                finally:
+                    with self._lock:
+                        self._cancel = None
+                    # Out of the lab's scope: the workshop's projections read it (context
+                    # `None`, as every session state out of a turn).
+                    with scoped(
+                        **self._lab_scope(request_id) | {"context_id": None, "step_id": None}
+                    ):
+                        self._set_state("idle")
 
     def _lab_cloud_call(
         self,
@@ -7478,7 +7536,9 @@ class AppSession:
         """The screen's cloud call: `run_call` directly (neither `context_reconciled` nor the
         estimate's ratio: the workshop's gauge learns nothing from it), each fragment the
         provider sends one `llm_token`. Returns the generation's status."""
-        engine = _TokenTap(self._engine, lambda channel, text: token(text, None, channel))
+        engine = _TokenTap(
+            self._engine, lambda channel, text: token(text, None, channel, None, [(channel, text)])
+        )
         try:
             call = run_call(
                 engine,

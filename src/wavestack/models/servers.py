@@ -209,7 +209,8 @@ def _header_dimensions(path: str | None) -> dict[str, int | None]:
     a readable file of this disk; nothing otherwise."""
     local = path if path and Path(path).is_absolute() else None
     meta = gguf_meta.try_read_metadata(local)
-    return gguf_meta.dimensions_from_header(meta) if meta else {}
+    sizes = gguf_meta.dimensions_from_header(meta) if meta else {}
+    return {name: value for name, value in sizes.items() if value is not None}
 
 
 def _positive(value: Any) -> int | None:
@@ -326,19 +327,28 @@ class LlamaServerEngine:
         """Story 29: vocabulary and embedding size from `/v1/models` (the server's own
         tokenizer and model), layers and heads from the GGUF header of the file it loaded,
         when that file is on this disk."""
-        header = _header_dimensions(self._model_path)
-        dims = {k: v for k, v in self._sizes.items() if v is not None}
-        for name, value in header.items():
-            dims.setdefault(name, value)
-        source_fr = "Vocabulaire et dimension donnés par llama-server (/v1/models)"
-        if any(header.values()):
-            source_fr += " ; couches et têtes lues dans l'en-tête GGUF de son fichier."
+        names = {
+            "vocab_size": "vocabulaire",
+            "embedding_length": "dimension",
+            "layer_count": "couches",
+            "head_count": "têtes",
+            "context_length": "contexte natif",
+        }
+        served = {k: v for k, v in self._sizes.items() if v is not None}
+        header = {k: v for k, v in _header_dimensions(self._model_path).items() if k not in served}
+        said = []
+        if served:
+            listed = ", ".join(names[k] for k in names if k in served)
+            said.append(f"{listed.capitalize()} donnés par llama-server (/v1/models)")
+        if header:
+            listed = ", ".join(names[k] for k in names if k in header)
+            said.append(f"{listed} lus dans l'en-tête GGUF de son fichier")
         else:
-            source_fr += (
-                " ; couches et têtes : le fichier du modèle, ouvert par llama-server, n'est "
-                "pas lisible depuis WaveStack."
+            said.append(
+                "le fichier du modèle, ouvert par llama-server, n'est pas lisible depuis WaveStack"
             )
-        return dims | {"source_fr": source_fr}
+        source_fr = " ; ".join(said)
+        return served | header | {"source_fr": source_fr[0].upper() + source_fr[1:] + "."}
 
     # AD-4, AD-11: no access to the server's cache nor to its state.
 
