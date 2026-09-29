@@ -43,8 +43,10 @@ from wavestack.compression.port import (
     load_compression_content,
 )
 from wavestack.config import (
+    DEFAULT_WINDOW,
     MAX_RESERVE,
     MIN_REASONING_BUDGET,
+    WINDOW_CHOICES,
     CloudModel,
     EmbeddingModel,
     ModelFile,
@@ -68,7 +70,15 @@ from wavestack.context.segments import (
     SegmentLabels,
     load_labels,
 )
-from wavestack.context.window import gauge, seen_prefix, window_for
+from wavestack.context.window import (
+    bound_fr,
+    gauge,
+    kv_fr,
+    read_seconds,
+    read_time_fr,
+    seen_prefix,
+    window_for,
+)
 from wavestack.hooks import (
     ALLOWED,
     AUDIT,
@@ -97,7 +107,13 @@ from wavestack.models.capabilities import (
     reasoning_window_fr,
 )
 from wavestack.models.embedding import Embedder
-from wavestack.models.engine import CancelToken, Engine, EngineSnapshot, LlamaCppEngine
+from wavestack.models.engine import (
+    CancelToken,
+    Engine,
+    EngineMetadata,
+    EngineSnapshot,
+    LlamaCppEngine,
+)
 from wavestack.models.load_registry import (
     COMPRESSOR,
     EMBEDDING,
@@ -263,6 +279,19 @@ _LOAD_STOPPED_FR = (
     "Envoi indisponible : le chargement du modèle a été arrêté et aucun modèle n'est chargé. "
     "Choisissez un modèle sur la page de diagnostic."
 )
+# Story 26: the read rate is measured on a call that evaluated at least this many tokens, not
+# on a cache hit (lot A).
+READ_MIN_TOKENS = 64
+# Story 26 (AD-9): what the window panel says of a model's context cache and read time when
+# they are not WaveStack's to measure.
+_KV_CLOUD_FR = "Cache de contexte : chez le fournisseur, aucune mémoire sur ce poste"
+_KV_NO_MODEL_FR = "Cache de contexte : calculé au chargement d'un modèle"
+_READ_CLOUD_FR = (
+    "Temps de lecture : chez le fournisseur, non estimé (le temps mesuré est surtout celui du "
+    "réseau)"
+)
+_READ_NO_MODEL_FR = "Temps de lecture : pas encore mesuré, aucun modèle actif"
+
 # Lot B: the heaviest kind of segment names the cause (message first on ties), every kind
 # but the template counted, some with another (`_OVERFLOW_GROUP`).
 _OVERFLOW_CAUSES_FR = {
@@ -687,7 +716,18 @@ class AppSession:
         self._engine: Engine | None = None
         self._model_name: str | None = None  # file stem of the loaded GGUF, shown in the schema
         self._caps: Capabilities | None = None
-        self._window = self.cfg.context_window
+        # Story 26 (AD-9): the window chosen in the interface, else read at launch
+        # (`[context] window`, `settings.json` over `wavestack.toml`); every load reads it
+        # (`configured_window`), and the active model's effective one is `_window`.
+        self._configured_window = self.cfg.context_window
+        self._window = self._configured_window
+        # The active model's metadata (its native and server contexts), for the window
+        # panel's choices; `None` for a cloud model or none.
+        self._meta: EngineMetadata | None = None
+        # Story 26: the prompt read rate measured by model label (tokens a second), on a local
+        # or served call that evaluated at least `READ_MIN_TOKENS` tokens.
+        self._read_tps: dict[str, float] = {}
+        self._read_warm = False  # a call was made since the last load: the next one measures
         self._labels: SegmentLabels | None = None
         self._turns = 0
         self._cancel: CancelToken | None = None
@@ -912,6 +952,7 @@ class AppSession:
         self._emit_state()
         self._emit_architecture()
         self._emit_bricks()
+        self._emit_window_state()  # story 26: the window panel, before any model
 
     def _drawn_components(self, brick: BrickDeclaration) -> list[Component]:
         """A tool or an MCP server is drawn only while its sub-option is enabled."""
@@ -1401,9 +1442,20 @@ class AppSession:
         model = self._cloud.id if self._cloud is not None else ""
         return f"{model}#sub" if self._ratio_key() == "sub" else model
 
-    def _cost(self, choice: ModelChoice) -> int:
-        """AD-8: a file's estimated cost at the configured window (an upper bound of the
-        effective one); a cloud model costs nothing."""
+    @property
+    def configured_window(self) -> int:
+        """Story 26 (AD-9): the window every load reads, chosen in the interface or read at
+        launch (`[context] window`); the model's effective one may be smaller (`_window`).
+        An attribute read, atomic: safe with or without the lock."""
+        return self._configured_window
+
+    def _cost(self, choice: ModelChoice, window: int | None = None) -> int:
+        """AD-8: a file's estimated cost at the configured window, or at `window` (an upper
+        bound of the effective one); a cloud model costs nothing. Story 26: a file whose
+        probe did not read its KV cache adds it, read in its header, for the tokens beyond
+        the probe's own window (the same rule for the check and the grant)."""
+        if window is None:
+            window = self.configured_window
         if choice.kind == "cloud":
             return 0
         if choice.kind == "server":  # AD-8: the served model's memory, outside WaveStack
@@ -1416,11 +1468,34 @@ class AppSession:
             # llama-cpp-python in WaveStack's child (buffers, KV), not Ollama.
             # The diagnostic's figure (`servers.served_bytes` at the window, with its fallback
             # to the size Ollama reports), read again only for a candidate without one.
-            memory = served.served_bytes
+            # Story 26: at another window than the launch's, read again at this one.
+            memory = served.served_bytes if window == self.cfg.context_window else None
             if memory is None:
-                memory = ollama_load_bytes(served.gguf_path, self.cfg.context_window)
+                memory = ollama_load_bytes(served.gguf_path, window)
             return (memory or 0) + self._load_registry.margin_bytes
-        return self._load_registry.file_cost(choice.ref, self.cfg.context_window)
+        cost = self._load_registry.file_cost(choice.ref, window)
+        entry = probe_module.probed_entry(choice.ref) or {}
+        if not entry.get("kv_bytes_per_token"):
+            probed = int(entry.get("probe_window") or 0) if entry.get("rss_bytes") else 0
+            kv = probe_module.gguf_kv_bytes_per_token(choice.ref) or 0
+            cost += kv * max(window - probed, 0)
+        return cost
+
+    def _reload_cost(self, choice: ModelChoice, window: int) -> int | None:
+        """Story 26 (AD-8): what reloading the active model with `window` costs. Ollama loads
+        it again at its new `num_ctx`: a model it holds costs what one it does not would
+        (its file, its KV at `window`, the margin); `None` when that cannot be read (no
+        readable blob, KV unknown). Any other model: `_cost` at `window`."""
+        served = choice.server if choice.kind == "server" else None
+        if served is None or served.engine != "ollama":
+            return self._cost(choice, window)
+        memory = ollama_load_bytes(served.gguf_path, window)
+        if memory is None:
+            kv = probe_module.gguf_kv_bytes_per_token(served.gguf_path)
+            if not kv or not served.size_bytes:
+                return None
+            memory = served.size_bytes + kv * window
+        return memory + self._load_registry.margin_bytes
 
     @property
     def memory_budget_bytes(self) -> int:
@@ -1524,6 +1599,7 @@ class AppSession:
         previous: ModelChoice | None,
         probe: ProbeFn | None,
         save: bool,
+        window: int | None = None,
     ) -> str:
         """The single load path, on the worker, in `model_load` (AD-3, AD-8): release the
         active model, probe a GGUF never measured (AD-7) and check the budget again with the
@@ -1532,15 +1608,22 @@ class AppSession:
         story 24: the probe's child is killed at once): what was loaded is released and
         `previous` reloaded (`cancelled`). Then
         `model_load_ended`, `idle`, and the bricks, schema and preview again. The choice is
-        saved (`save`) after a success only. Returns `ok`, `restored`, `cancelled` or
-        `error`."""
+        saved (`save`) after a success only. Story 26, `window`: the active model reloaded
+        with this window (`previous` is the same model): on success the window is the one
+        configured and saved, on failure or « Arrêter » the model comes back with the window
+        it had. Returns `ok`, `restored`, `cancelled` or `error`."""
         started = time.monotonic()
         model = self._model_payload(choice)
         journal = get_journal()
         off_turn = {"turn_id": None, "step_id": None, "call_id": None, "context_id": None}
+        phase_label = (
+            self._reload_reason(choice, window) if window is not None else self._load_reason(choice)
+        )
         with scoped(**off_turn):
             journal.emit(
-                "model_load_started", {"model": model, "phase_label": self._load_reason(choice)}
+                "model_load_started",
+                {"model": model, "phase_label": phase_label}
+                | ({"window": window} if window is not None else {}),
             )
         status, reason_fr, idle_fr = "error", None, _LOAD_FAILED_FR
         with self._lock:
@@ -1564,17 +1647,23 @@ class AppSession:
                     if refusal is not None:
                         over_fr = "Le modèle dépasse le budget mémoire une fois mesuré."
                         raise _LoadFailed(over_fr, refusal)
-                self._install(choice)
+                self._install(choice, window)
                 self._last_checkpoint(cancel)
                 status, idle_fr = "ok", None
             except _LoadCancelled:
                 self._last_checkpoint(None)
-                reason_fr, idle_fr, status = self._load_cancelled(previous)
+                reason_fr, idle_fr, status = self._load_cancelled(previous, window is not None)
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._last_checkpoint(None)  # « Arrêter » cannot stop the way back
-                reason_fr, idle_fr, status = self._load_failed(choice, previous, exc)
+                reason_fr, idle_fr, status = self._load_failed(choice, previous, exc, window)
             if status == "ok" and save:
                 reason_fr = self._save_choice(choice)
+            if status == "ok" and window is not None:  # story 26: applied, then saved
+                with self._lock:
+                    self._configured_window = window
+                reason_fr = self._save_window(window) or (
+                    f"Fenêtre de contexte : {_fr(window)} tokens (conversation gardée)."
+                )
         except Exception as exc:  # noqa: BLE001 - AD-16: never let the worker die silently
             self._error("Le changement de modèle s'est interrompu.", exc, _NO_TURN_FR)
             status, reason_fr, idle_fr = "error", str(exc), _LOAD_FAILED_FR
@@ -1606,6 +1695,7 @@ class AppSession:
             self._emit_architecture()
             self._emit_bricks()
             self._emit_preview()
+            self._emit_window_state()  # story 26: the choices' costs for the model now active
             # Story 15 (AD-8): memory changed with the model; an embedding model the budget
             # refused gets another chance.
             with self._lock:
@@ -1621,10 +1711,15 @@ class AppSession:
         return status
 
     def _load_failed(
-        self, choice: ModelChoice, previous: ModelChoice | None, exc: Exception
+        self,
+        choice: ModelChoice,
+        previous: ModelChoice | None,
+        exc: Exception,
+        window: int | None = None,
     ) -> tuple[str, str | None, str]:
         """AD-3: back to `previous` when there was one. Returns the `model_load_ended`
-        reason, the reason left in `idle` and the status."""
+        reason, the reason left in `idle` and the status. Story 26, `window`: the window
+        that could not be applied, `previous` coming back with the one it had."""
         cause: BaseException | str = exc
         reason: str | None = None  # lot E (E6): the French reason, when the cause is not
         if isinstance(exc, _LoadFailed):
@@ -1664,6 +1759,14 @@ class AppSession:
                 _LOAD_FAILED_FR,
                 "error",
             )
+        if window is not None:
+            return (
+                f"Fenêtre de {_fr(window)} tokens non appliquée ({cause_fr}) : "
+                f"{previous.label} est de nouveau actif avec {_fr(self._window)} "
+                "tokens.",
+                None,
+                "restored",
+            )
         return (
             f"{choice.label} n'a pas pu être chargé ({cause_fr}) : {previous.label} est de "
             "nouveau actif.",
@@ -1678,11 +1781,13 @@ class AppSession:
             self._load_cancel = None
             _checkpoint(cancel)
 
-    def _load_cancelled(self, previous: ModelChoice | None) -> tuple[str, str | None, str]:
+    def _load_cancelled(
+        self, previous: ModelChoice | None, reload: bool = False
+    ) -> tuple[str, str | None, str]:
         """Lot E (E4): « Arrêter » during a load. What was loaded is released and `previous`
         reloaded (none: no model is active). Returns the `model_load_ended` reason, the
         reason left in `idle` and the status (`cancelled`; `error` when `previous` fails to
-        come back)."""
+        come back). Story 26, `reload`: a window change, `previous` back with its window."""
         self._release()
         if previous is None:
             return "Chargement arrêté : aucun modèle n'est actif.", _LOAD_STOPPED_FR, "cancelled"
@@ -1701,6 +1806,13 @@ class AppSession:
                 _LOAD_FAILED_FR,
                 "error",
             )
+        if reload:
+            return (
+                f"Rechargement arrêté : {previous.label} est de nouveau actif avec "
+                f"{_fr(self._window)} tokens.",
+                None,
+                "cancelled",
+            )
         return f"Chargement arrêté : {previous.label} est de nouveau actif.", None, "cancelled"
 
     def _release(self) -> None:
@@ -1709,7 +1821,7 @@ class AppSession:
         with self._lock:
             engine = self._engine
             self._engine, self._caps, self._cloud, self._active = None, None, None, None
-            self._model_name = None
+            self._model_name, self._meta = None, None
             # Lot A: the next engine starts with an empty cache, nothing to check against.
             self._main_cache = self._cache_evicted = None
         try:
@@ -1718,14 +1830,15 @@ class AppSession:
         finally:
             self._load_registry.release()
 
-    def _install(self, choice: ModelChoice) -> None:
+    def _install(self, choice: ModelChoice, window: int | None = None) -> None:
         """Load `choice` as the active model, nothing being loaded: raises on failure, the
-        engine it opened closed first (AD-8: never two models)."""
+        engine it opened closed first (AD-8: never two models). Story 26, `window`: the
+        window to load it with, else the configured one."""
         base: int | None = None
+        configured = self.configured_window if window is None else window
         if choice.entry is not None:
-            self._install_cloud(choice.entry)
+            self._install_cloud(choice.entry, configured)
         else:
-            configured = self.cfg.context_window
             if choice.kind == "server":  # story 18: its adapter; nothing loads in-process
                 engine = self._server_factory(choice.server, n_ctx=configured)
             else:
@@ -1748,17 +1861,18 @@ class AppSession:
                         "Modèle incompatible.", caps.incompatible_reason, caps.incompatible_reason
                     )
                 # AD-9: min(configured, native, the server's own context).
-                window, source = window_for(meta, configured)
+                effective, source = window_for(meta, configured)
                 if hasattr(engine, "use_window"):  # `ollama_raw`: num_ctx = this window
-                    engine.use_window(window)
+                    engine.use_window(effective)
                 labels = self._load_labels()
             except BaseException:
                 engine.close()
                 raise
             with self._lock:
                 self._engine, self._caps, self._cloud = engine, caps, None
-                self._model_name = choice.label
-                self._window = window
+                self._model_name, self._meta = choice.label, meta
+                self._read_warm = False  # story 26: its first call warms it up
+                self._window = effective
                 self._window_source = source
                 self._labels = labels
                 self._active = choice
@@ -1766,11 +1880,17 @@ class AppSession:
         # (E3): only a file's cost is in WaveStack's RSS, never a served model's.
         in_process = choice.kind == "file"
         share = self._load_registry.file_share(choice.ref) if in_process else None
+        # Story 26: a window reload is granted the cost it was checked with.
+        cost = self._reload_cost(choice, configured) if window is not None else None
         self._load_registry.grant(
-            choice.label, self._cost(choice), in_process=in_process, share=share, base=base
+            choice.label,
+            self._cost(choice, configured) if cost is None else cost,
+            in_process=in_process,
+            share=share,
+            base=base,
         )
 
-    def _install_cloud(self, entry: CloudModel) -> None:
+    def _install_cloud(self, entry: CloudModel, configured: int | None = None) -> None:
         key = config.cloud_key(entry)
         if key is None:
             raise ValueError("aucune clé enregistrée pour cette adresse")
@@ -1782,14 +1902,16 @@ class AppSession:
         try:
             # AD-6: declared capabilities; the API's structured format parses the tool calls.
             caps = cloud_capabilities(entry)
-            window, source = config.cloud_window(entry, self.cfg.context_window)
+            window, source = config.cloud_window(
+                entry, self.configured_window if configured is None else configured
+            )
             labels = self._load_labels()
         except BaseException:
             engine.close()
             raise
         with self._lock:
             self._engine, self._caps, self._cloud = engine, caps, entry
-            self._model_name = entry.model
+            self._model_name, self._meta = entry.model, None
             self._window, self._window_source = window, source
             self._labels = labels
             self._active = ModelChoice("cloud", entry.id, entry)
@@ -1806,6 +1928,284 @@ class AppSession:
             self._error("Impossible d'écrire le fichier de réglages settings.json.", exc, notice)
             return notice
         return None
+
+    # ---------- context window (story 26, AD-9) ----------
+
+    @staticmethod
+    def _reload_reason(choice: ModelChoice, window: int) -> str:
+        return f"Rechargement de {choice.label} avec une fenêtre de {_fr(window)} tokens…"
+
+    @staticmethod
+    def _locked_fr(entry: CloudModel | None) -> str | None:
+        """AD-9: a cloud model that declares its `window` takes no other: why, in French."""
+        if entry is None or not entry.window:
+            return None
+        return (
+            "Réglage désactivé : fenêtre fixée par la déclaration du modèle "
+            f"({entry.model} déclare window = {_fr(entry.window)})."
+        )
+
+    def set_context_window(self, window: int) -> tuple[str, Future[str] | None]:
+        """Intention `context_window` (class b, AD-3): accepted in `idle` only, else
+        `SendRefused` with the reason. No model active: the window is saved for the next
+        load. A cloud model: the window takes effect at the next turn, nothing reloads
+        (refused when its declaration fixes `window`). A local or served model: the budget
+        is checked before anything is released (AD-8; never for llama-server, whose memory
+        its `-c` fixes), then the model reloads by `_load` with the new window, the
+        conversation kept; a refusal, in figures, releases, writes and reloads nothing.
+        Returns the French answer and the reload's future (`None`: nothing reloads)."""
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+            if window == self._configured_window:
+                return f"La fenêtre est déjà de {_fr(window)} tokens.", None
+            active, cloud = self._active, self._cloud
+            if cloud is not None:
+                locked = self._locked_fr(cloud)
+                if locked:
+                    raise SendRefused(locked)
+                self._window, self._window_source = config.cloud_window(cloud, window)
+            if active is None or cloud is not None:
+                self._configured_window = window
+            effective, source = self._window, self._window_source
+        if active is None or cloud is not None:
+            notice = self._save_window(window)
+            if cloud is not None:  # AD-9: the gauge and the reasoning card follow at once
+                self._executor.submit(self._after_window_change)
+                bound = bound_fr(source, effective)
+                message = (
+                    f"Fenêtre de contexte : {_fr(window)} tokens, prise en compte au prochain "
+                    f"tour, sans rechargement{f' ({bound})' if bound else ''}."
+                )
+            else:
+                self._executor.submit(self._emit_window_state)
+                message = (
+                    f"Fenêtre de {_fr(window)} tokens enregistrée : elle s'appliquera au "
+                    "prochain chargement d'un modèle."
+                )
+            return notice or message, None
+        with self._lock:
+            meta, current = self._meta, self._window
+        effective, source = window_for(meta, window) if meta else (window, "configured")
+        if effective == current:  # the model's window does not change: nothing to reload
+            with self._lock:
+                if self.state != "idle" or self._active is not active:
+                    raise SendRefused(self._refusal_reason())
+                self._configured_window = window
+                self._window_source = source
+            notice = self._save_window(window)
+            self._executor.submit(self._after_window_change)
+            bound = bound_fr(source, effective, active.provider)
+            return notice or (
+                f"Fenêtre de {_fr(window)} tokens enregistrée ; la fenêtre effective de "
+                f"{active.label} reste de {_fr(effective)} tokens"
+                f"{f' ({bound})' if bound else ''}, sans rechargement."
+            ), None
+        refusal = self._window_refusal(active, window, current)
+        with self._lock:
+            if self.state != "idle" or self._active is not active:
+                raise SendRefused(self._refusal_reason())
+            if refusal is None:  # switched under the lock: a second intention is refused
+                self.state, self.reason_fr = "model_load", self._reload_reason(active, window)
+                self._load_cancel = CancelToken()  # « Arrêter » from now on
+        if refusal is not None:
+            self._error(
+                refusal, "budget mémoire dépassé (AD-8)", "Rien n'est libéré, écrit ni rechargé."
+            )
+            raise SendRefused(refusal)
+        self._emit_state()
+        future = self._executor.submit(self._load, active, active, None, False, window)
+        return self._reload_reason(active, window), future
+
+    def _window_refusal(self, active: ModelChoice, window: int, current: int) -> str | None:
+        """Story 26 (AD-8): why reloading the local or served `active` model with `window`
+        is refused, else `None`. Never for llama-server (its `-c` fixes its memory) nor for a
+        window smaller than the effective one `current` (shrinking only frees memory)."""
+        if active.kind == "server" and active.provider == "llama-server":
+            return None
+        if window < current:
+            return None
+        cost = self._reload_cost(active, window)
+        if cost is None:
+            return (
+                f"Fenêtre de {_fr(window)} tokens refusée : le coût de {active.label} avec "
+                "cette fenêtre est inconnu (fichier du modèle illisible depuis WaveStack). "
+                f"{active.label} reste actif avec {_fr(current)} tokens."
+            )
+        return self._load_registry.check_window(active.label, window, current, cost)
+
+    def _after_window_change(self) -> None:
+        """A cloud model's new window (AD-9): the preview, the bricks (the reasoning card
+        needs room for its reserve) and the window panel, on the worker."""
+        self._emit_bricks()
+        self._emit_preview()
+        self._emit_window_state()
+
+    def _save_window(self, window: int) -> str | None:
+        """Story 26 (AD-20): `context.window` in `settings.json`, by the single applier
+        (AD-23), keeping the other keys of `context`; read back at the next launch by
+        `load_config`. Returns the French notice when it could not be written."""
+        try:
+            saved = config.read_settings().get("context")
+            value = {**(saved if isinstance(saved, dict) else {}), "window": window}
+            apply_setting(SettingWrite(key="context", value=value))
+        except Exception as exc:  # noqa: BLE001 - AD-16: the window applied stays applied
+            notice = (
+                f"Fenêtre de {_fr(window)} tokens appliquée ; choix non mémorisé pour les "
+                "prochains lancements."
+            )
+            self._error("Impossible d'écrire le fichier de réglages settings.json.", exc, notice)
+            return notice
+        return None
+
+    def _note_read_rate(self, evaluated: int | None, prompt_ms: int) -> None:
+        """Story 26: the active local or served model's read rate, from a call that
+        evaluated at least `READ_MIN_TOKENS` tokens (not a cache hit, lot A). Never the
+        first call after a load (warm-up, or Ollama loading at its new `num_ctx`), nor a
+        call whose engine does not say what it evaluated (the cached prefix is no read)."""
+        first, self._read_warm = not self._read_warm, True
+        if first or evaluated is None:
+            return
+        if evaluated < READ_MIN_TOKENS or prompt_ms <= 0 or self._model_name is None:
+            return
+        self._read_tps[self._model_name] = evaluated / (prompt_ms / 1000)
+
+    def _kv_per_token(self, active: ModelChoice) -> int | None:
+        """The KV cache's bytes per token of the active local model: the probe's reading,
+        else its GGUF header (f16); a served model's blob (Ollama); `None` for llama-server
+        (its `-c` reserved it) or when unreadable."""
+        if active.kind == "file":
+            probed = (probe_module.probed_entry(active.ref) or {}).get("kv_bytes_per_token")
+            return int(probed) if probed else probe_module.gguf_kv_bytes_per_token(active.ref)
+        if active.kind == "server" and active.provider != "llama-server":
+            return probe_module.gguf_kv_bytes_per_token(active.server.gguf_path)
+        return None
+
+    def _window_choice(
+        self,
+        window: int,
+        active: ModelChoice | None,
+        meta: EngineMetadata | None,
+        configured: int,
+        tps: float | None,
+        kv_per_token: int | None,
+        now: int,
+    ) -> dict[str, Any]:
+        """One choice of the window panel (AD-1: every figure and text from here); `now`:
+        the active model's effective window."""
+        current = window == configured
+        row: dict[str, Any] = {
+            "window": window,
+            "current": current,
+            "bound_fr": None,
+            "kv_bytes": None,
+            "read_s": None,
+            "fits": True,
+            "refusal_fr": None,
+        }
+        if active is None:
+            return row | {
+                "effective": window,
+                "source": "configured",
+                "kv_fr": _KV_NO_MODEL_FR,
+                "read_fr": _READ_NO_MODEL_FR,
+            }
+        if active.entry is not None:
+            effective, source = config.cloud_window(active.entry, window)
+            return row | {
+                "effective": effective,
+                "source": source,
+                "bound_fr": bound_fr(source, effective),
+                "kv_fr": _KV_CLOUD_FR,
+                "read_fr": _READ_CLOUD_FR,
+            }
+        effective, source = window_for(meta, window) if meta else (window, "configured")
+        llama = active.kind == "server" and active.provider == "llama-server"
+        if llama:
+            slot = (meta.server_context if meta else None) or active.server.n_ctx
+            kv_text = "Cache de contexte : réservé par llama-server" + (
+                f" (-c {_fr(slot)}), inchangé" if slot else ", inchangé"
+            )
+            kv_bytes = None
+        else:
+            kv_bytes = kv_per_token * effective if kv_per_token else None
+            kv_text = f"Cache de contexte : {kv_fr(kv_bytes)}"
+        read_s = read_seconds(effective, tps)
+        refusal = None if current else self._window_refusal(active, window, now)
+        return row | {
+            "effective": effective,
+            "source": source,
+            "bound_fr": bound_fr(source, effective, active.provider),
+            "kv_bytes": kv_bytes,
+            "kv_fr": kv_text,
+            "read_s": round(read_s, 1) if read_s is not None else None,
+            "read_fr": f"Temps de lecture : {read_time_fr(effective, tps)}",
+            "fits": refusal is None,
+            "refusal_fr": refusal,
+        }
+
+    def _window_state(self) -> dict[str, Any]:
+        """The `context_window_state` payload (AD-2, AD-9): the window configured, the
+        active model's effective one, and each choice's cost (AD-1)."""
+        with self._lock:
+            active, meta = self._active, self._meta
+            configured = self._configured_window
+            effective, source = self._window, self._window_source
+        if active is None:
+            effective, source = configured, "configured"
+        local = active is not None and active.entry is None
+        tps = self._read_tps.get(active.label) if local else None
+        kv_per_token = self._kv_per_token(active) if local else None
+        if active is None:
+            note = "Aucun modèle actif : la fenêtre choisie s'appliquera au prochain chargement."
+        elif not local:
+            note = (
+                "Modèle cloud : « Appliquer » ne recharge rien, la fenêtre compte dès le "
+                "prochain tour. La lecture du contexte se fait chez le fournisseur."
+            )
+        elif tps is None:
+            note = (
+                f"« Appliquer » recharge {active.label}, la conversation est gardée. Débit de "
+                "lecture pas encore mesuré : envoyez un message, le temps de lecture de chaque "
+                "fenêtre s'affichera."
+            )
+        else:
+            note = (
+                f"« Appliquer » recharge {active.label}, la conversation est gardée. Débit de "
+                f"lecture mesuré : {_fr(round(tps))} tokens/s, sur le dernier appel qui a lu "
+                f"au moins {READ_MIN_TOKENS} tokens. Le temps affiché est une borne basse : le "
+                "débit baisse quand le contexte s'allonge."
+            )
+        return {
+            "configured": configured,
+            "default": DEFAULT_WINDOW,
+            "window": effective,
+            "window_source": source,
+            "bound_fr": bound_fr(source, effective, active.provider if active else None),
+            "model_label": active.label if active else None,
+            "hosting": active.kind if active else None,
+            "read_tps": round(tps, 1) if tps else None,
+            "read_note_fr": note,
+            "locked_fr": self._locked_fr(active.entry if active else None),
+            "choices": [
+                self._window_choice(n, active, meta, configured, tps, kv_per_token, effective)
+                for n in WINDOW_CHOICES
+            ],
+        }
+
+    def _emit_window_state(self) -> None:
+        """Story 26: `context_window_state`, out of any turn; a failure is contained."""
+        try:
+            payload = self._window_state()
+        except Exception as exc:  # noqa: BLE001 - AD-16
+            self._error(
+                "Le coût des fenêtres de contexte n'a pas pu être calculé.",
+                exc,
+                "Le panneau « Fenêtre » garde ses chiffres précédents.",
+            )
+            return
+        with scoped(turn_id=None, step_id=None, call_id=None, context_id=None):
+            get_journal().emit("context_window_state", payload)
 
     def hold(self, state: str, reason_fr: str, run: Callable[[], Any]) -> Any:
         """AD-3: runs `run` holding the operation lock in `state` (`test_cloud_model`:
@@ -4916,6 +5316,7 @@ class AppSession:
                     if self._turn_called:  # lot A: `abandoned` only for a turn that
                         self._last_status = status  # left its output in the engine's cache
                 self._set_state("idle")
+                self._emit_window_state()  # story 26: the read rate this turn measured
 
     def _turn(
         self,
@@ -6122,6 +6523,8 @@ class AppSession:
             # A server's count comes in its last chunk, never read after a cut: the known ones.
             known = [n for n in evaluations if n is not None]
             evaluated = sum(known) if known else None
+            if first_at is not None:  # story 26: the read of the first generation's prompt
+                self._note_read_rate(evaluations[0], _ms(first - started))
             journal.emit(
                 "model_call_ended",
                 {

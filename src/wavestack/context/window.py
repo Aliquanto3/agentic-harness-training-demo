@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from wavestack.config import size_fr
 from wavestack.context.segments import Segment, SegmentKind, SegmentLabels
 from wavestack.models.engine import EngineMetadata
 
@@ -169,6 +170,66 @@ def window_for(meta: EngineMetadata, configured: int) -> tuple[int, str]:
     if meta.server_context and meta.server_context < window:
         window, source = meta.server_context, "server"
     return window, source
+
+
+# Story 26 (AD-9): the first-token time NFR-1 aims at, which a full window's read may exceed.
+READ_TARGET_S = 30
+
+
+def _tokens_fr(n: int) -> str:
+    """« 8 192 »: French thousands separator (narrow no-break space)."""
+    return f"{n:,}".replace(",", " ")
+
+
+def bound_fr(source: str, window: int, provider: str | None = None) -> str | None:
+    """Story 26: why a chosen window is not the effective one, in French, by the source of
+    the effective window (`window_for`, `config.cloud_window`); `None` when it is the chosen
+    one (`configured`). `provider`: the server of a `server` bound (llama-server)."""
+    n = _tokens_fr(window)
+    if source == "native":
+        return f"bornée à {n} par le contexte natif du modèle"
+    if source == "server":
+        return f"bornée à {n} par {provider or 'llama-server'} (-c)"
+    if source == "tpm":
+        return f"bornée à {n} par le quota du fournisseur"
+    if source == "override":
+        return f"fixée à {n} par la déclaration du modèle"
+    return None
+
+
+def _duration_fr(seconds: float) -> str:
+    """« 45 s », « 1 min 40 s », « 2 min »."""
+    total = max(1, round(seconds))
+    minutes, rest = divmod(total, 60)
+    if not minutes:
+        return f"{rest} s"
+    return f"{minutes} min {rest} s" if rest else f"{minutes} min"
+
+
+def read_seconds(window: int, tps: float | None) -> float | None:
+    """The time to read a full window of `window` tokens at `tps` tokens a second; `None`
+    when the read rate is unknown."""
+    return window / tps if tps else None
+
+
+def read_time_fr(window: int, tps: float | None) -> str:
+    """Story 26: a full window's read time at the measured read rate, a lower bound (the
+    rate drops as the context grows): « au moins ≈ 45 s », « au moins ≈ 1 min 40 s, au-delà
+    des 30 s visées au premier token (NFR-1) »; unknown rate: « pas encore mesuré, envoyez
+    un message »."""
+    seconds = read_seconds(window, tps)
+    if seconds is None:
+        return "pas encore mesuré, envoyez un message"
+    text = f"au moins ≈ {_duration_fr(seconds)}"
+    if max(1, round(seconds)) > READ_TARGET_S:  # the value shown, not the raw one
+        text += f", au-delà des {READ_TARGET_S} s visées au premier token (NFR-1)"
+    return text
+
+
+def kv_fr(n: int | None) -> str:
+    """Story 26: a KV cache's size, as the load registry writes sizes (« 448 Mo »,
+    « 1,8 Go »); « inconnu » when it could not be read."""
+    return "inconnu" if n is None else size_fr(n)
 
 
 def gauge(

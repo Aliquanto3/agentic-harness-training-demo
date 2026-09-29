@@ -4621,6 +4621,202 @@ def s_model_catalog(r: Run) -> None:
     r.goto_app()
 
 
+A_LABEL = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+
+
+def _window_panel(r: Run) -> None:
+    """Opens the « Fenêtre ▾ » panel (story 26) and waits for its three choices."""
+    if r.page.locator("#window-panel").is_hidden():
+        r.page.click("#window-toggle")
+    expect(r.page.locator("#window-panel")).to_be_visible(timeout=5000)
+    expect(r.page.locator("#window-choices .window-choice")).to_have_count(3, timeout=5000)
+
+
+def _apply_window(r: Run, window: int) -> dict[str, Any]:
+    """Notes `window` in the panel, « Appliquer », and waits for the session's new state."""
+    seq = r.ev.mark()
+    _window_panel(r)
+    r.page.locator(f'#window-choices input[name="window-choice"][value="{window}"]').check()
+    expect(r.page.locator("#window-apply")).to_be_enabled(timeout=5000)
+    r.page.click("#window-apply")
+    state = r.ev.wait("context_window_state", seq, lambda p: p["configured"] == window, 30)
+    r.wait_idle()
+    return state["payload"]
+
+
+def s_context_window(r: Run) -> None:
+    """Story 26: the « Fenêtre ▾ » panel of the top bar. On the fake cloud A: three choices,
+    « chez le fournisseur », « (actuelle) » on 4 096; 8 192 applied without a reload (gauge,
+    figures, conversation, `settings.json`); on the fake llama-server (`-c 8192`), 16 384
+    noted shows its bound before « Appliquer »; back to A and to 4 096 (`relaunch` unchanged)."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    r.goto_app()
+    r.wait_idle()
+    if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+        _pick_model(r, A_LABEL)
+    try:
+        r.launch("short_memory")
+        r.send("Bonjour")
+
+        # (a) The panel on the fake cloud A.
+        toggle = page.locator("#window-toggle")
+        r.check(
+            toggle.inner_text().replace(" ", " ").startswith("Fenêtre 4 096"),
+            "bouton « Fenêtre 4 096 ▾ » dans la barre haute",
+            toggle.inner_text(),
+        )
+        r.check(
+            toggle.get_attribute("aria-haspopup") == "dialog"
+            and toggle.get_attribute("aria-expanded") == "false",
+            "bouton : aria-haspopup=dialog, aria-expanded=false",
+        )
+        _window_panel(r)
+        r.check(toggle.get_attribute("aria-expanded") == "true", "panneau ouvert : aria-expanded")
+        panel = page.locator("#window-panel")
+        r.check(panel.get_attribute("role") == "dialog", "panneau : role=dialog")
+        text = panel.inner_text()
+        rows = page.locator("#window-choices .window-choice").all_inner_texts()
+        heads = [row.split("\n")[0] for row in rows]
+        r.check(
+            [h.replace(" ", " ").split(" tokens")[0] for h in heads]
+            == ["4 096", "8 192", "16 384"],
+            "trois choix : 4 096, 8 192 et 16 384 tokens",
+            str(heads),
+        )
+        r.check(
+            "(actuelle)" in rows[0] and not any("(actuelle)" in row for row in rows[1:]),
+            "« (actuelle) » sur 4 096 seulement",
+            " | ".join(row.split("\n")[1] if "\n" in row else row for row in rows),
+        )
+        r.check(
+            all("chez le fournisseur" in row for row in rows)
+            and all("Tient dans le budget" in row for row in rows),
+            "modèle cloud : cache « chez le fournisseur », chaque choix tient dans le budget",
+            " | ".join(row.replace("\n", " · ") for row in rows),
+        )
+        r.check(
+            "Les scénarios sont conçus pour 4 096 tokens" in text and "Fenêtre de contexte" in text,
+            "panneau : titre et aide « conçus pour 4 096 tokens »",
+        )
+        apply = page.locator("#window-apply")
+        r.check(
+            apply.is_disabled() and "déjà de 4 096" in (apply.get_attribute("title") or ""),
+            "« Appliquer » désactivé sur la fenêtre actuelle, raison en infobulle",
+            apply.get_attribute("title") or "",
+        )
+        page.keyboard.press("Escape")
+        expect(panel).to_be_hidden(timeout=5000)
+        r.check(True, "Échap ferme le panneau")
+
+        # (b) 8 192 applied: no reload for a cloud model, the gauge follows.
+        seq = r.ev.mark()
+        state = _apply_window(r, 8192)
+        r.check(
+            state["window"] == 8192 and not r.ev.since(seq, "model_load_started"),
+            "modèle cloud : 8 192 appliqué sans rechargement",
+        )
+        expect(panel).to_be_hidden(timeout=5000)
+        expect(toggle).to_contain_text("Fenêtre 8 192", timeout=10_000)
+        r.check(True, "bouton « Fenêtre 8 192 »")
+        ok, _ = r.poll(
+            lambda: "Fenêtre de 8 192 tokens" in (page.get_attribute("#gauge", "title") or ""),
+            10,
+        )
+        r.check(
+            ok,
+            "infobulle de la jauge « Fenêtre de 8 192 tokens »",
+            page.get_attribute("#gauge", "title") or "",
+        )
+        figures = page.inner_text("#gauge-figures")
+        r.check("/ 7 680 tokens" in figures, "jauge : « / 7 680 tokens »", figures)
+        r.check(
+            page.locator("#chat .bubble-user", has_text="Bonjour").count() >= 1,
+            "le message reste dans la Vue humain",
+        )
+        saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
+        r.check(
+            (saved.get("context") or {}).get("window") == 8192,
+            "settings.json : context.window == 8192",
+            str(saved.get("context")),
+        )
+
+        # (c) The fake llama-server (`-c 8192`): 16 384 noted shows its bound.
+        page.locator("#model-picker").blur()
+        ok, _ = r.poll(lambda: _picker_options(r).get(LLAMA_OPTION) is False, 10)
+        r.check(ok, "sélecteur : le faux llama-server est choisissable")
+        seq = r.ev.mark()
+        page.select_option("#model-picker", label=LLAMA_OPTION)
+        page.click("#model-picker-apply")
+        ended = r.ev.wait("model_load_ended", seq, timeout=30)
+        r.check(ended["payload"]["status"] == "ok", "faux llama-server chargé à 8 192")
+        r.ev.wait("context_window_state", seq, lambda p: p["hosting"] == "server", 10)
+        r.wait_idle()
+        # The first call after a load warms it up and is never measured: the second is.
+        r.send("Bonjour")
+        seq = r.ev.mark()
+        r.send("Bonjour encore")
+        r.ev.wait("context_window_state", seq, lambda p: p["read_tps"] is not None, 10)
+        _window_panel(r)
+        page.locator('#window-choices input[name="window-choice"][value="16384"]').check()
+        row = page.locator('#window-choices .window-choice[data-window="16384"]')
+        r.check(
+            row.locator(
+                ".window-choice-bound", has_text="bornée à 8 192 par llama-server"
+            ).first.is_visible(),
+            "16 384 noté : « bornée à 8 192 par llama-server (-c) » visible avant d'appliquer",
+            row.inner_text().replace("\n", " · "),
+        )
+        r.check(
+            re.search(r"Temps de lecture : au moins ≈ \d", row.inner_text()) is not None
+            and "réservé par llama-server" in row.inner_text(),
+            "llama-server : temps de lecture mesuré (« au moins ≈ N s ») et cache réservé par "
+            "son -c",
+            row.inner_text().replace("\n", " · "),
+        )
+        r.shot("45-fenetre-contexte-reglage")
+        page.click("#window-close")
+        expect(page.locator("#window-panel")).to_be_hidden(timeout=5000)
+
+        # A reload of the served model: 4 096 shrinks its effective window (8 192).
+        seq = r.ev.mark()
+        _apply_window(r, 4096)
+        started = r.ev.wait("model_load_started", seq, timeout=10)["payload"]
+        ended = r.ev.wait("model_load_ended", seq, timeout=30)["payload"]
+        r.check(
+            started.get("window") == 4096
+            and started["phase_label"]
+            == "Rechargement de faux-llama-server avec une fenêtre de 4\u202f096 tokens…"
+            and ended["status"] == "ok",
+            "llama-server : « Rechargement de … avec une fenêtre de 4 096 tokens… », puis ok",
+            f"{started['phase_label']} · {ended['status']}",
+        )
+        expect(page.locator("#top-status")).to_have_text(
+            "Fenêtre de contexte : 4\u202f096 tokens (conversation gardée).", timeout=10_000
+        )
+        r.check(True, "barre haute : « Fenêtre de contexte : 4 096 tokens (conversation gardée). »")
+    finally:
+        # (d) Back to the fake cloud A and to 4 096: `relaunch` expects them. A failure here
+        # is its own check, never a mask over the one that led here.
+        try:
+            page.keyboard.press("Escape")
+            r.goto_app()
+            if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+                _pick_model(r, A_LABEL)
+            if (r.state().get("context_window_state") or {}).get("configured") != 4096:
+                _apply_window(r, 4096)
+        except Exception as exc:  # noqa: BLE001 - reported, the scenario's own error kept
+            r.check(False, "retour au faux cloud A et à 4 096", f"{type(exc).__name__}: {exc}")
+    saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
+    r.check(
+        (saved.get("context") or {}).get("window") == 4096
+        and saved.get("selected_model") == {"kind": "cloud", "ref": MODEL_ENTRY_ID},
+        "retour au faux cloud A et à 4 096 (settings.json)",
+        str({k: saved.get(k) for k in ("context", "selected_model")}),
+    )
+    expect(page.locator("#window-toggle")).to_contain_text("Fenêtre 4 096", timeout=10_000)
+
+
 def s_relaunch(r: Run) -> None:
     """Story 11: the cloud model chosen is kept at the next launch, without a new warning."""
     saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
@@ -4761,6 +4957,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("reasoning_locked", s_reasoning_locked),
     ("local_server", s_local_server),
     ("model_catalog", s_model_catalog),
+    ("context_window", s_context_window),
     ("relaunch", s_relaunch),
 ]
 

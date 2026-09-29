@@ -220,13 +220,17 @@ class ContextSection(BaseModel):
     seen: bool = False
 
 
+# AD-9: where the effective window comes from.
+WindowSource = Literal["configured", "native", "server", "tpm", "override"]
+
+
 class ContextWindowPayload(BaseModel):
     """Shared by `context_rendered`, `context_preview` and `context_reconciled`: every figure
     comes from the session (AD-9)."""
 
     segments: list[SegmentPayload]
     window: int
-    window_source: Literal["configured", "native", "server", "tpm", "override"] = "configured"
+    window_source: WindowSource = "configured"
     reserve: int
     usable: int
     used: int
@@ -256,6 +260,48 @@ class ContextReconciledPayload(ContextWindowPayload):
     """AD-4, chat mode: after the call, `usage.prompt_tokens` is the total."""
 
     call_id: str
+
+
+class WindowChoicePayload(BaseModel):
+    """Story 26 (AD-9): one window the panel offers, with what it would cost the active
+    model, every figure and text computed by the session (AD-1). `effective`: the window the
+    model would get (bounded by `source`, `bound_fr` says so); `kv_bytes`: its KV cache at
+    `effective` (f16, an upper bound), `null` when unknown or not on this workstation;
+    `read_s`: a full window's read at the measured rate (a lower bound), `null` when not
+    measured; `fits`: within the memory budget (AD-8), else `refusal_fr`; `current`: the
+    window configured now."""
+
+    window: int
+    effective: int
+    source: WindowSource
+    bound_fr: str | None = None
+    kv_bytes: int | None = None
+    kv_fr: str
+    read_s: float | None = None
+    read_fr: str
+    fits: bool
+    refusal_fr: str | None = None
+    current: bool
+
+
+class ContextWindowStatePayload(BaseModel):
+    """Story 26 (AD-2, AD-9): the context window as the session holds it and the choices the
+    interface offers. `configured`: the window chosen (or read at launch); `window` and
+    `window_source`: the active model's effective one; `hosting`: the active model's kind;
+    `read_tps`: its measured read rate (local or served); `locked_fr`: why no window can be
+    applied (a cloud model's declared `window`)."""
+
+    configured: int
+    default: int
+    window: int
+    window_source: WindowSource
+    bound_fr: str | None = None
+    model_label: str | None = None
+    hosting: Literal["file", "server", "cloud"] | None = None
+    read_tps: float | None = None
+    read_note_fr: str
+    locked_fr: str | None = None
+    choices: list[WindowChoicePayload]
 
 
 class ContextOverflowPayload(BaseModel):
@@ -677,6 +723,9 @@ class ModelLoadStartedPayload(BaseModel):
 
     model: ActiveModel  # the model being loaded
     phase_label: str
+    # Story 26: the window of a reload of the active model with another window, which the
+    # top bar then names by `phase_label` (« Rechargement de … avec une fenêtre de … »).
+    window: int | None = None
 
 
 class ModelLoadEndedPayload(BaseModel):
@@ -843,6 +892,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "context_preview": ContextWindowPayload,
     "context_reconciled": ContextReconciledPayload,
     "context_overflow": ContextOverflowPayload,
+    "context_window_state": ContextWindowStatePayload,
     "output_truncated": OutputTruncatedPayload,
     "reasoning_cut": ReasoningCutPayload,
     "model_call_started": ModelCallStartedPayload,

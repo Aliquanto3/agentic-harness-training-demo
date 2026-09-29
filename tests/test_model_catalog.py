@@ -632,3 +632,12 @@ def test_api_diagnostic_with_an_invalid_publishers_file(monkeypatch, tmp_path):
     models = response.json()["models"]
     assert {g["label_fr"] for g in models["groups"]} == {"Réseau · Autres éditeurs"}
     assert "content/models/publishers.yaml" in models["publishers_error_fr"]
+
+
+def test_local_entries_read_the_window_configured_now(tmp_path):
+    """Story 26: the table shows the window the session holds, not the launch's."""
+    candidate = _file(_qwen_file(tmp_path))
+    cfg = config.Config(values={"context": {"window": 4096}})
+    [launch] = catalog.local_entries([candidate], cfg)
+    [chosen] = catalog.local_entries([candidate], cfg, window=8192)
+    assert (launch.window, chosen.window) == (4096, 8192)

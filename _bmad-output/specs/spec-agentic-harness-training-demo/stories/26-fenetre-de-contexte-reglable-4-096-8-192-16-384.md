@@ -2,7 +2,8 @@
 title: 'Fenêtre de contexte réglable (4 096, 8 192, 16 384)'
 type: 'feature'
 created: '2026-09-28'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'db86e0f6b1bb4e325f0c66809df790069443dd83'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -14,7 +15,32 @@ context:
   - '{project-root}/_bmad-output/specs/spec-agentic-harness-training-demo/stories/25-selecteur-de-modeles-regroupe-et-tableau-des-capacites.md'
   - '{project-root}/tools/e2e/README.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      Formateur des milliers en français recopié (window.py, load_registry.py, app_session.py).
+    evidence: |-
+      À mettre en commun avec les aides de config (story 25 a le même point).
+    severity: low
+  - summary: >-
+      Rechargement d'un modèle local à une nouvelle fenêtre et jauge qui suit, jamais vus dans le navigateur.
+    evidence: |-
+      Couvert par pytest ; l'E2E n'applique une fenêtre qu'au modèle cloud, faute de doublure locale rechargeable.
+    severity: medium (unverified)
+  - summary: >-
+      Deux POST simultanés sur context_window : settings.json et la session peuvent diverger.
+    evidence: |-
+      Écriture de settings.json hors du verrou qui ordonne les mises à jour.
+    severity: low (unverified)
+  - summary: >-
+      Débit de lecture tiré de la première génération plutôt que de la somme des tokens évalués.
+    evidence: |-
+      Écart seulement sur les appels à plusieurs générations (relance après coupe).
+    severity: low (unverified)
+  - summary: >-
+      Scénario M4 (MCP en lazy loading + documentation) non testé à 8 192 ou 16 384.
+    evidence: |-
+      Motivation de la story ; seulement dans « À vérifier sur PC ».
+    severity: medium (unverified)
 ---
 
 <intent-contract>
@@ -187,6 +213,37 @@ Numéros de ligne omis : `app_session.py` bouge avec les stories 33, 23, 34, 32,
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 27 findings — high 0, medium 5, low 17, false 0, maybe-false 5 (écarts de l'auditeur d'intention : servis rechargés comme les locaux, réserve de sortie inchangée, débit = lecture du prompt, fenêtre gardée après Réinitialiser, M4 à vérifier sur PC — conformes aux décisions par défaut ; rechargement local non vu en E2E — retenu ci-dessous)
+- findings:
+  - `[low]` `[patch]` (blind) choix sans effet sur la fenêtre effective qui recharge quand même — enregistré sans rechargement.
+  - `[medium]` `[patch]` (blind + edge ×2) débit mesuré sur le premier token (chargement, préfixe en cache) — mesure sautée sans évaluation et au premier appel après un chargement.
+  - `[medium]` `[patch]` (blind + edge + vérif.) coût contrôlé au rechargement différent du coût accordé ; cache de la sonde compté deux fois — une seule règle, delta de fenêtre.
+  - `[medium]` `[patch]` (blind) coût Ollama au rechargement sans cache de contexte si le blob est illisible — cache ajouté ou refus « coût inconnu ».
+  - `[low]` `[patch]` (blind) choix refusé encore sélectionnable, contraire à AD-9 — désactivé et relié à sa raison.
+  - `[low]` `[patch]` (blind) « 4 096 » écrit en dur dans l'aide — lu dans l'événement.
+  - `[low]` `[patch]` (blind + edge) double clic sur « Appliquer » — requête gardée.
+  - `[low]` `[patch]` (blind) réglage de l'interface qui masque `wavestack.toml`, commentaire faux, valeur hors liste inexpliquée — source affichée, commentaire corrigé.
+  - `[low]` `[defer]` (blind) formateur des milliers en trois exemplaires — mise en commun avec les aides de la story 25.
+  - `[low]` `[patch]` (blind + vérif. ×4) comportements documentés sans test (Réinitialiser, verrou cloud, exemption llama-server, coût Ollama hors rechargement, fenêtre des lignes locales, `window` de `model_load_started`) — tests ajoutés.
+  - `[low]` `[patch]` (blind) restes CSS — nettoyés.
+  - `[low]` `[patch]` (blind) `finally` de l'E2E qui masque l'échec — gardé.
+  - `[low]` `[patch]` (vérif.) contrôle « Temps de lecture » qui passe sur « pas encore mesuré » — assertion précise.
+  - `[maybe-false]` `[defer]` (intention) rechargement d'un modèle local et jauge après rechargement jamais vus dans le navigateur — ajouté si atteignable sans nouvelle doublure, sinon à vérifier sur PC.
+  - `[low]` `[patch]` (edge) fenêtre plus petite refusée quand la RSS a grossi — réduire n'est jamais refusé.
+  - `[maybe-false]` `[defer]` (edge) deux POST simultanés : `settings.json` et la session divergent — usage mono-utilisateur, verrou d'écriture à ajouter si besoin.
+  - `[low]` `[patch]` (edge) focus perdu à la mise à jour du panneau — rétabli.
+  - `[low]` `[patch]` (edge ×2) messages qui citent la fenêtre configurée au lieu de l'effective — fenêtre effective.
+  - `[low]` `[patch]` (edge) « ≈ 30 s, au-delà des 30 s » — comparaison arrondie.
+  - `[medium]` `[patch]` (edge) `context.window` à 0, négatif ou booléen dans `settings.json` — rejeté, défaut.
+  - `[maybe-false]` `[defer]` (edge) débit tiré de la première génération plutôt que de la somme des tokens évalués — écart minime sur les appels à plusieurs générations.
+  - `[maybe-false]` `[defer]` (intention) aucun test du scénario M4 à 8 192 ou 16 384.
+  - `[low]` → regroupé (coût accordé, vérif. « Other findings »).
+  - `[low]` → regroupé (double clic, edge).
+  - `[low]` → regroupé (débit, edge « claim »).
+  - `[low]` → regroupé (exemption llama-server, vérif.).
+  - `[low]` → regroupé (fenêtre des lignes locales, vérif.).
+
 ## Design Notes
 
 - Mémoriser sous `context.window` dans `settings.json` : `load_config` fusionne déjà `settings.json` sur `wavestack.toml`. Au relancement, la sonde, la découverte et l'avertissement `-c` de llama-server suivent donc la fenêtre choisie, sans nouveau lecteur. En cours de session, seule l'application fait foi, par `configured_window`.
@@ -227,3 +284,17 @@ Numéros de ligne omis : `app_session.py` bouge avec les stories 33, 23, 34, 32,
 - **Geste** : llama-server lancé avec `-c 4096`, puis choisir 8 192. — **Attendu** : « bornée à 4 096 par llama-server (-c) ». — **Critère** : la jauge reste à 4 096, `window_source=server`. — **Moyen** : Claude in Chrome.
 - **Geste** : relancer WaveStack après avoir choisi 8 192. — **Attendu** : 8 192 repris ; le diagnostic conseille `-c 8192` pour llama-server. — **Critère** : bouton « Fenêtre 8 192 » au premier affichage. — **Moyen** : Playwright ou à la main.
 - **Geste** : lire le panneau vidéoprojeté, sous Chrome et Edge, à 125 % et à 150 %. — **Attendu** : barre haute sur une ligne, panneau lisible et non coupé. — **Critère** : aucune commande de la barre haute sur deux lignes à 1280×650. — **Moyen** : à la main seulement.
+
+## Auto Run Result
+
+Statut : done (2026-09-29, orchestrateur de nuit ; étapes 1 à 4 menées par l'orchestrateur).
+
+**Changement :** bouton « Fenêtre N ▾ » dans la barre haute et panneau non modal à trois choix (4 096 par défaut, 8 192, 16 384). Chaque choix affiche, calculés par la session : cache de contexte du modèle actif, temps de lecture d'une fenêtre pleine au débit mesuré (note NFR-1 au-delà de 30 s), borne du modèle (contexte natif, `-c` de llama-server, déclaration cloud) et verdict du budget mémoire. Nouvel événement `context_window_state`, nouvelle intention `POST /api/intentions/context_window` (200, 409, 422). Un modèle local ou servi est rechargé par `_load` (budget contrôlé avant libération, conversation gardée, ancienne fenêtre rétablie en cas d'échec ou d'arrêt) ; un choix sans effet est enregistré sans rechargement ; un modèle cloud est borné. Même règle de coût pour le contrôle et la réservation. Choix mémorisé dans `settings.json` (`context.window`), valeurs invalides ramenées au défaut. Les scénarios restent conçus pour 4 096 (test `fits` inchangé).
+
+**Fichiers :** `config.py`, `models/load_registry.py`, `context/window.py`, `trace/catalog.py`, `session/app_session.py`, `models/catalog.py`, `web/app.py`, `web/static/{app.js,app.css,index.html}`, `tests/test_context_window_setting.py` (nouveau) et tests associés, `tools/e2e/{run_e2e.py,launch_app.py,fake_local_server.py,README.md}`, EXPERIENCE.md, DESIGN.md, SPEC.md (CAP-33), README, wavestack.toml, ARCHITECTURE-SPINE.md (AD-2, AD-8, AD-9, AD-20), capture 45.
+
+**Revue :** 27 constats — 16 corrigés (4 medium, 12 low), 5 différés, 6 regroupés ; aucun rejet ; voir le triage. Décision prise à la correction : une fenêtre configurée ≤ 512 (et non ≤ 1 536) retombe sur le défaut, pour garder les tests existants à petites fenêtres. Revue de suivi recommandée : false.
+
+**Vérification :** ruff check et format verts ; pytest : 1181 passés, 3 ignorés ; E2E complet : 569 PASS, 0 FAIL.
+
+**Risques résiduels :** mémoire et débit réels sur le PC ; rechargement d'Ollama au nouveau `num_ctx` ; barre haute serrée à 1 280 px.

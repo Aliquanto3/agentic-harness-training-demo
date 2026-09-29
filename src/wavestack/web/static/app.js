@@ -23,6 +23,12 @@ const store = {
   // under Windows), and whether its list failed to load.
   pickerPending: "",
   modelListError: false,
+  // Story 26: the last `context_window_state` (the window and its choices, as the session
+  // computed them, AD-1); the panel's choice waiting for « Appliquer » and its last refusal
+  // (UI state only).
+  windowState: null,
+  windowPick: null,
+  windowError: null,
   // The journal's tip when `/api/state` answered: an older `model_load_ended`, replayed by
   // the stream after a reload, does not come back in the top bar.
   liveFrom: 0,
@@ -268,6 +274,9 @@ function applyEnvelope(envelope) {
     case "context_preview":
       if (isLive(envelope)) store.gauge = { payload: p, preview: true, callId: null };
       break;
+    case "context_window_state":
+      if (isLive(envelope)) store.windowState = p; // story 26: the « Fenêtre » panel
+      break;
     case "bricks_changed":
       if (isLive(envelope)) {
         store.bricks = p;
@@ -325,7 +334,12 @@ function applyEnvelope(envelope) {
       }, RESET_STATUS_MS);
       break;
     case "model_load_started":
-      store.modelLoad = { model: p.model, startedAt: Date.parse(envelope.ts) };
+      // Story 26: a reload with another window is named by its phase label.
+      store.modelLoad = {
+        model: p.model,
+        startedAt: Date.parse(envelope.ts),
+        phaseLabel: p.window ? p.phase_label : null,
+      };
       store.topStatus = null;
       break;
     case "model_load_ended":
@@ -988,6 +1002,7 @@ function render() {
   renderMenu();
   renderPaneVisibility();
   renderGauge();
+  renderWindowPicker();
   renderModelIndicator();
   renderChat();
   renderComposer();
@@ -2287,6 +2302,162 @@ function renderModelPicker() {
   );
 }
 
+// ---------- story 26: the context window (DESIGN.md > window-picker, AD-9) ----------
+
+// Every figure and text of the panel comes from `context_window_state` (AD-1): the browser
+// only lays them out, marks the choice noted and says why « Appliquer » is disabled.
+const windowPanel = () => document.getElementById("window-panel");
+let renderedWindowKey = null;
+let windowApplying = false; // a POST in flight: a second click sends nothing
+
+function bindWindowPicker() {
+  document.getElementById("window-toggle").addEventListener("click", () => {
+    if (windowPanel().hidden) openWindowPanel();
+    else closeWindowPanel(true);
+  });
+  document.getElementById("window-close").addEventListener("click", () => closeWindowPanel(true));
+  document.getElementById("window-apply").addEventListener("click", applyWindow);
+  document.getElementById("window-choices").addEventListener("change", (event) => {
+    if (event.target.name !== "window-choice") return;
+    store.windowPick = Number(event.target.value);
+    store.windowError = null;
+    renderWindowPicker();
+  });
+}
+
+function openWindowPanel() {
+  store.windowPick = store.windowState?.configured ?? null;
+  store.windowError = null;
+  windowPanel().hidden = false;
+  document.getElementById("window-toggle").setAttribute("aria-expanded", "true");
+  renderWindowPicker();
+  const checked = windowPanel().querySelector('input[name="window-choice"]:checked');
+  (checked ?? windowPanel().querySelector('input[name="window-choice"]'))?.focus();
+}
+
+function closeWindowPanel(returnFocus = false) {
+  if (windowPanel().hidden) return;
+  windowPanel().hidden = true;
+  store.windowError = null;
+  const toggle = document.getElementById("window-toggle");
+  toggle.setAttribute("aria-expanded", "false");
+  if (returnFocus) toggle.focus();
+}
+
+// Why « Appliquer » cannot act on the choice noted, else `null`.
+function windowApplyReason(ws, pick) {
+  const state = store.sessionState;
+  if (state?.state !== "idle") return state?.reason_fr || "Disponible entre deux tours seulement.";
+  if (ws.locked_fr) return ws.locked_fr;
+  if (pick === ws.configured) return `La fenêtre est déjà de ${fmt(pick)} tokens.`;
+  const choice = ws.choices.find((c) => c.window === pick);
+  if (!choice) return "Choisissez une fenêtre.";
+  return choice.fits ? null : choice.refusal_fr;
+}
+
+function renderWindowPicker() {
+  const ws = store.windowState;
+  const toggle = document.getElementById("window-toggle");
+  setText(document.getElementById("window-toggle-value"), ws ? fmt(ws.window) : "…");
+  toggle.disabled = !ws;
+  const title = !ws
+    ? "Fenêtre de contexte : en attente de la session."
+    : `Fenêtre de contexte : ${fmt(ws.window)} tokens` + (ws.bound_fr ? `, ${ws.bound_fr}.` : ".");
+  if (toggle.title !== title) toggle.title = title;
+  toggle.setAttribute("aria-label", ws ? `Fenêtre ${fmt(ws.window)} : régler la fenêtre de contexte` : "Fenêtre de contexte");
+  if (!ws || windowPanel().hidden) return;
+  const pick = store.windowPick ?? ws.configured;
+  const list = document.getElementById("window-choices");
+  setText(
+    document.getElementById("window-help"),
+    `Les scénarios sont conçus pour ${fmt(ws.default)} tokens. Une fenêtre plus grande coûte ` +
+      "de la mémoire et du temps de lecture."
+  );
+  // A value set by hand outside the choices: said, no choice marked « (actuelle) ».
+  const offList = !ws.choices.some((c) => c.current);
+  const currentLine = document.getElementById("window-current");
+  currentLine.hidden = !offList;
+  setText(currentLine, offList ? `Fenêtre actuelle : ${fmt(ws.configured)} (valeur de configuration)` : "");
+  // Rebuilt only when the session's figures change: an arrow key moving the choice keeps
+  // its focus (the choice noted is set in place below); a rebuild gives it back.
+  const key = JSON.stringify(ws);
+  if (key !== renderedWindowKey) {
+    renderedWindowKey = key;
+    const focused = list.contains(document.activeElement) ? document.activeElement.value : null;
+    list.replaceChildren(...ws.choices.map(windowChoiceNode));
+    if (focused !== null) list.querySelector(`input[name="window-choice"][value="${focused}"]`)?.focus();
+  }
+  for (const input of list.querySelectorAll('input[name="window-choice"]')) {
+    const checked = Number(input.value) === pick;
+    if (input.checked !== checked) input.checked = checked;
+    input.closest(".window-choice").classList.toggle("is-picked", checked);
+  }
+  setText(document.getElementById("window-note"), ws.read_note_fr);
+  const apply = document.getElementById("window-apply");
+  const reason = windowApplying ? "Demande en cours…" : windowApplyReason(ws, pick);
+  apply.disabled = Boolean(reason);
+  const applyTitle = reason ?? `Appliquer une fenêtre de ${fmt(pick)} tokens.`;
+  if (apply.title !== applyTitle) apply.title = applyTitle;
+  const alert = document.getElementById("window-alert");
+  alert.hidden = !store.windowError;
+  setText(alert, store.windowError ?? "");
+}
+
+function windowChoiceNode(choice) {
+  const row = el("div", "window-choice");
+  row.dataset.window = String(choice.window);
+  row.classList.toggle("is-refused", !choice.fits);
+  const label = el("label", "window-choice-label");
+  const input = el("input");
+  input.type = "radio";
+  input.name = "window-choice";
+  input.value = String(choice.window);
+  input.disabled = !choice.fits; // AD-9: a refused choice is only disabled, its reason shown
+  const details = el("div", "window-choice-details");
+  const figures = el("span", "window-choice-figures");
+  figures.id = `window-choice-${choice.window}`;
+  label.append(input, el("strong", "", `${fmt(choice.window)} tokens`));
+  if (choice.current) label.append(el("span", "window-choice-current", " (actuelle)"));
+  figures.append(el("span", "window-choice-line", choice.kv_fr), el("span", "window-choice-line", choice.read_fr));
+  if (choice.bound_fr) figures.append(el("span", "window-choice-line window-choice-bound", choice.bound_fr));
+  const verdict = choice.fits
+    ? el("span", "window-choice-verdict is-fits", "✓ Tient dans le budget")
+    : el("span", "window-choice-verdict is-refused", `⚠ ${choice.refusal_fr}`);
+  verdict.id = `window-choice-${choice.window}-verdict`;
+  details.append(figures, verdict);
+  // The figures and the verdict (a refused choice's reason) describe the radio.
+  input.setAttribute("aria-describedby", `${figures.id} ${verdict.id}`);
+  row.append(label, details);
+  return row;
+}
+
+async function applyWindow() {
+  const ws = store.windowState;
+  if (!ws || windowApplying) return;
+  const pick = store.windowPick ?? ws.configured;
+  store.windowError = null;
+  windowApplying = true;
+  renderWindowPicker(); // « Appliquer » disabled during the request
+  try {
+    const response = await postIntention("/api/intentions/context_window", { window: pick });
+    const answer = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = typeof answer.detail === "string" ? answer.detail : "Fenêtre refusée.";
+      store.windowError = detail; // in the panel and in the top bar
+      store.topStatus = detail;
+    } else {
+      closeWindowPanel(true);
+      // A reload is followed as a model load (`model_load_*`); otherwise the answer says it.
+      store.topStatus = answer.switching ? null : answer.message_fr ?? null;
+    }
+  } catch (error) {
+    store.windowError = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
+  } finally {
+    windowApplying = false;
+  }
+  render();
+}
+
 // Story 25: the groups the session built (`/api/diagnostic.models`: hosting, then publisher,
 // sorted by size, AD-1); the browser only marks the active model. Before the story's API,
 // or when the table could not be built, the former lists.
@@ -2467,7 +2638,8 @@ function modelLoadText() {
   // Lot E (E4), story 24: the probe stops at once, an in-process load at the end of its step;
   // the front cannot tell which, so it only says the stop was asked.
   const stopping = load.stopRequested ? "Arrêt demandé · " : "";
-  return `${stopping}Chargement du modèle ${load.model.label}… ${seconds(Date.now() - load.startedAt)}`;
+  const what = load.phaseLabel ?? `Chargement du modèle ${load.model.label}…`;
+  return `${stopping}${what} ${seconds(Date.now() - load.startedAt)}`;
 }
 
 // Story 24: why « Arrêt demandé » may last, in the top bar's tooltip; `undefined` otherwise.
@@ -6773,7 +6945,9 @@ async function boot() {
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".pane-menu")) closePaneMenu();
+    if (!event.target.closest(".window-picker")) closeWindowPanel();
   });
+  bindWindowPicker();
 
   for (const paneId of PANES) {
     const section = document.querySelector(`.pane[data-pane="${paneId}"]`);
@@ -6859,6 +7033,8 @@ async function boot() {
       closeMemoryDrawer();
     } else if (!document.getElementById("pane-menu-list").hidden) {
       closePaneMenu();
+    } else if (!windowPanel().hidden) {
+      closeWindowPanel(true); // story 26: the focus back on « Fenêtre ▾ »
     } else if (store.selection !== null && selectionShown()) {
       clearSelection(); // story 34: before leaving focus mode
     } else {
@@ -6884,6 +7060,7 @@ async function boot() {
     store.armed = body.armed_actions_changed?.actions ?? [];
     store.scenarios = body.scenario_changed;
     store.memory = body.memory_changed ?? null;
+    store.windowState = body.context_window_state ?? null;
     const preview = body.context_preview;
     const rendered = body.context_rendered;
     const reconciled = body.context_reconciled;

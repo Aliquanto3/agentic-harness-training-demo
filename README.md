@@ -216,6 +216,40 @@ budget_ram_ratio = 0.6   # part de la RAM disponible au lancement (de 0,1 à 0,9
 load_margin_mb = 256     # marge ajoutée au coût estimé de chaque modèle local
 ```
 
+## Fenêtre de contexte
+
+La fenêtre de contexte vaut **4 096 tokens par défaut** : les scénarios sont conçus pour elle.
+Elle se règle dans la barre haute, par le bouton « Fenêtre 4 096 ▾ » juste après la jauge, à
+**4 096, 8 192 ou 16 384 tokens** (par exemple quand les trois serveurs MCP en lazy loading font
+déborder 4 096 tokens après le chargement d'une documentation). Le panneau donne, pour chaque
+choix et pour le modèle actif, ce que la fenêtre coûte :
+- **le cache de contexte** en mémoire (la taille d'un token du cache, lue par la sonde ou dans
+  l'en-tête du fichier, multipliée par la fenêtre, en f16 : une borne haute) ; « réservé par
+  llama-server (-c N), inchangé » pour un modèle de llama-server, « chez le fournisseur, aucune
+  mémoire sur ce poste » pour un modèle cloud ;
+- **le temps de lecture** d'une fenêtre pleine, au débit mesuré sur le dernier appel local qui a
+  lu au moins 64 tokens : une borne basse (le débit baisse quand le contexte s'allonge), signalée
+  au-delà des 30 s visées au premier token ; « pas encore mesuré » avant le premier message ;
+- **la borne**, quand le modèle ne peut pas prendre toute la fenêtre : son contexte natif, le
+  `-c` de llama-server, le quota par minute d'un fournisseur (`tpm`), ou la fenêtre qu'une
+  déclaration cloud fixe (`window` : le réglage est alors désactivé) ;
+- **le verdict du budget mémoire** : « Tient dans le budget », ou le refus chiffré (ce que
+  demanderait le modèle avec cette fenêtre, ce qu'occupe WaveStack sans lui, le budget et son
+  calcul).
+
+« Appliquer », entre deux tours seulement : un modèle local (fichier ou Ollama) est rechargé avec
+la nouvelle fenêtre après le contrôle du budget, qui refuse avant de rien libérer ; un modèle de
+llama-server est rechargé sans contrôle (sa mémoire est fixée par son `-c`) ; un modèle cloud
+prend la fenêtre au tour suivant, sans rechargement. La conversation est gardée ; un échec du
+rechargement ou « Arrêter » rend l'ancienne fenêtre. Un choix qui ne change pas la fenêtre
+effective (llama-server lancé avec `-c 8192`, à 8 192 puis 16 384) est enregistré sans
+rechargement ; une fenêtre plus petite n'est jamais refusée par le budget. Ollama est recompté comme s'il chargeait le
+modèle (fichier plus cache à la nouvelle fenêtre, plus la marge), même s'il le tient déjà en
+mémoire : il le recharge à son nouveau `num_ctx`. Le choix est mémorisé dans `settings.json`
+(`"context": {"window": 8192}`) et repris au lancement suivant ; « Réinitialiser » ne le touche
+pas. Sans modèle actif, il est enregistré pour le prochain chargement. Une autre valeur saisie à
+la main dans `[context] window` reste lue, mais n'est pas proposée par le panneau.
+
 ## Modèle par défaut
 
 Le modèle recommandé est **Qwen3.5-2B en Q4_K_M** (GGUF amont publié par unsloth, licence
@@ -245,7 +279,9 @@ read_timeout_s = 300    # lecture de la réponse (le premier appel d'Ollama char
 
 Lancez le serveur avant WaveStack, par exemple `ollama serve`, ou
 `llama-server -m C:\modeles\Qwen3.5-2B-Q4_K_M.gguf --port 8080 -np 1 -c 4096`. **Donnez
-toujours `-c 4096` à llama-server** (la fenêtre de WaveStack, `[context] window`) : sans `-c`,
+toujours à llama-server un `-c` égal à la fenêtre choisie** (4 096 par défaut ; 8 192 ou
+16 384 si vous l'avez choisie dans « Fenêtre ▾ », section précédente) : WaveStack ne relance
+jamais llama-server, et une fenêtre plus grande que son `-c` est bornée à celui-ci. Sans `-c`,
 il prend tout le contexte natif du modèle (262 144 tokens pour Qwen3.5) et réserve dès son
 lancement la mémoire de ce contexte entier, quelle que soit la longueur des conversations
 (5 137 Mo mesurés pour le 2B lors du test du 2026-09-27, pour un fichier de 1,28 Go). Avec

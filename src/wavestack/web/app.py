@@ -137,6 +137,12 @@ class MemoryIntention(BaseModel):
         return self
 
 
+class ContextWindowIntention(BaseModel):
+    """Story 26 (AD-9): one of the windows the interface offers (`config.WINDOW_CHOICES`)."""
+
+    window: Literal[config.WINDOW_CHOICES]  # type: ignore[valid-type]
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -251,6 +257,7 @@ def create_app(
         armed = _latest(events, "armed_actions_changed")  # story 9: the chips after a reload
         scenario = _latest(events, "scenario_changed")  # story 10: programme and active one
         memory = _latest(events, "memory_changed")  # story 14: the drawer and the card
+        window = _latest(events, "context_window_state")  # story 26: the window panel
         return {
             # A1: the front compares it with the stream's `server_instance` event.
             "instance_id": journal.instance_id,
@@ -266,6 +273,7 @@ def create_app(
             "armed_actions_changed": armed.payload if armed else None,
             "scenario_changed": scenario.payload if scenario else None,
             "memory_changed": memory.payload if memory else None,
+            "context_window_state": window.payload if window else None,
             "seq": seq,
         }
 
@@ -316,7 +324,11 @@ def create_app(
         """`models`, or nothing when it could not be built: the picker then lists the
         candidates as before (AD-16: a failure is contained)."""
         try:
-            return {"models": catalog.models_payload(candidates, session.cfg, cloud["models"])}
+            return {
+                "models": catalog.models_payload(
+                    candidates, session.cfg, cloud["models"], app_session.configured_window
+                )
+            }
         except Exception:  # noqa: BLE001 - the diagnostic's answer never fails for the table
             log.exception("Tableau des modèles impossible à construire")
             return {}
@@ -370,6 +382,18 @@ def create_app(
             "ref": ref_loading if switching else None,
             "message_fr": message_fr,
         }
+
+    @app.post("/api/intentions/context_window")
+    def context_window(intention: ContextWindowIntention) -> dict[str, object]:
+        """Story 26, class (b): the window, applied in `idle` only (AD-3). A local or served
+        model reloads with it (after the budget's check, AD-8), a cloud model takes it at the
+        next turn; without a model, it is saved for the next load (AD-9)."""
+        _diagnostic_class_b()
+        try:
+            message_fr, future = app_session.set_context_window(intention.window)
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"switching": future is not None, "message_fr": message_fr}
 
     @app.post("/api/intentions/set_api_key")
     def set_api_key(intention: SetApiKeyIntention) -> dict[str, object]:

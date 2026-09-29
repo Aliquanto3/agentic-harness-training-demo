@@ -88,6 +88,11 @@ def process_rss() -> int:
     return total
 
 
+def _tokens_fr(n: int) -> str:
+    """« 16 384 »: French thousands separator (narrow no-break space)."""
+    return f"{n:,}".replace(",", " ")
+
+
 def _file_size(path: str) -> int:
     try:
         return Path(path).stat().st_size
@@ -166,6 +171,29 @@ class LoadRegistry:
             f"Changement refusé : {label} demande environ {_size(cost_bytes)} ; WaveStack "
             f"occupe {_size(without)} sans le modèle actif, pour un budget de "
             f"{self._budget_fr(_size)}.{stays} {advice}"
+        )
+
+    def check_window(self, label: str, window: int, current: int, cost_bytes: int) -> str | None:
+        """Story 26 (AD-8): the French refusal, in figures, when reloading the active model
+        `label` with a window of `window` tokens would exceed the budget, else `None`. The
+        same check as `check`: the active model comes off (`_without`), and `cost_bytes` is
+        the whole reload's cost, weights included. `current`: the window it keeps."""
+        if cost_bytes <= 0:
+            return None
+        without = self._without(self._slots.get(GENERATIVE))
+        if without + cost_bytes <= self.budget_bytes:
+            return None
+        advice = (
+            "Choisissez une fenêtre plus petite, ou fermez des applications puis relancez "
+            "WaveStack."
+            if self._ram_limited
+            else "Choisissez une fenêtre plus petite."
+        )
+        return (
+            f"Fenêtre de {_tokens_fr(window)} tokens refusée : {label} demanderait environ "
+            f"{_size(cost_bytes)} ; WaveStack occupe {_size(without)} sans le modèle actif, "
+            f"pour un budget de {self._budget_fr(_size)}. {label} reste actif avec "
+            f"{_tokens_fr(current)} tokens. {advice}"
         )
 
     @property

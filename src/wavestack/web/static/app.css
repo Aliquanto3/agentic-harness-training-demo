@@ -3803,6 +3803,245 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   margin: 0;
 }
 
+/* ---------- story 26: the context window (DESIGN.md > window-picker) ----------
+   A button on the ink top bar, like « Mode projection »; its panel drops under it like the
+   « Volets ▾ » list, on white, not modal (the demo stays visible). */
+
+.window-picker {
+  position: relative;
+}
+
+.window-toggle {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  background: transparent;
+  color: var(--color-on-ink);
+  border: 1px solid var(--color-on-ink-soft);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.window-toggle[aria-expanded="true"] {
+  background: var(--color-on-ink);
+  color: var(--color-ink);
+}
+
+.window-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Under 1400 px the bar tightens (see « Projection »): the figure and ▾ stay, the word goes
+   (the button's accessible name keeps « Fenêtre »), and the scenario's and the model's names
+   may give way a little further (as in projection mode), so that at 1280 px the chips of
+   hidden panes keep some room. */
+@media (max-width: 1400px) {
+  .window-toggle-long {
+    display: none;
+  }
+
+  .window-toggle {
+    padding: 0 var(--spacing-2);
+  }
+
+  .top-bar > .scenario-picker {
+    min-width: 6rem;
+  }
+
+  .top-bar > .model-indicator {
+    min-width: 5rem;
+  }
+
+  /* In projection mode at 1280 px, the button takes room the chip « · lié » needs: the
+     names and the model picker give a little more, the button tightens. */
+  :root.projection .top-bar > select.scenario-picker {
+    min-width: 4.5rem;
+  }
+
+  :root.projection .top-bar > .model-picker {
+    min-width: 4rem;
+  }
+
+  :root.projection .window-toggle {
+    padding: 0 var(--spacing-1);
+  }
+}
+
+.window-panel {
+  position: absolute;
+  left: 0;
+  top: calc(100% + var(--spacing-2));
+  z-index: 30; /* over the top bar's message */
+  width: min(30rem, calc(100vw - 2 * var(--spacing-4)));
+  max-height: calc(100vh - var(--spacing-top-bar-height) - 4 * var(--spacing-gutter));
+  overflow: auto;
+  padding: var(--spacing-3) var(--spacing-4);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  box-shadow: 0 var(--spacing-relief-offset-overlay) 0 var(--color-relief);
+  white-space: normal; /* the top bar's pieces never wrap; the panel's texts do */
+  font-size: var(--typography-body-sm-font-size);
+  line-height: var(--typography-body-sm-line-height);
+}
+
+.window-panel[hidden] {
+  display: none;
+}
+
+.window-panel-title {
+  margin: 0 0 var(--spacing-1);
+  font-family: var(--typography-heading-font-family);
+  font-size: var(--typography-heading-font-size);
+  font-weight: var(--typography-heading-font-weight);
+  line-height: var(--typography-heading-line-height);
+}
+
+.window-help,
+.window-note {
+  margin: 0 0 var(--spacing-2);
+  color: var(--color-ink-soft);
+}
+
+.window-choices {
+  margin: 0 0 var(--spacing-2);
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.window-choices-legend {
+  padding: 0;
+  margin-bottom: var(--spacing-1);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+}
+
+#window-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.window-choice {
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+}
+
+.window-choice.is-picked {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.window-choice-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  cursor: pointer;
+  font-family: var(--typography-number-font-family);
+  font-size: var(--typography-number-font-size);
+}
+
+.window-choice-label input {
+  accent-color: var(--color-primary);
+  width: 1.1em;
+  height: 1.1em;
+  margin: 0;
+}
+
+.window-choice-current {
+  color: var(--color-ink-soft);
+  font-weight: normal;
+}
+
+.window-choice-figures {
+  display: flex;
+  flex-direction: column;
+}
+
+.window-choice-details {
+  display: flex;
+  flex-direction: column;
+  margin-left: calc(1.1em + var(--spacing-2));
+  color: var(--color-ink-soft);
+}
+
+/* A refused choice is only disabled (AD-9): dashed, its radio not clickable. */
+.window-choice.is-refused {
+  border-style: dashed;
+}
+
+.window-choice.is-refused .window-choice-label {
+  cursor: not-allowed;
+}
+
+.window-current {
+  margin: 0 0 var(--spacing-2);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+/* A refusal in the danger style of DESIGN.md > button-danger: ink text beside a danger rule
+   (the danger red as text would not reach 4.5:1 on white). */
+.window-choice-verdict.is-refused {
+  color: var(--color-ink);
+  border-left: var(--spacing-stroke-min) solid var(--color-danger);
+  padding-left: var(--spacing-2);
+  margin-top: var(--spacing-1);
+}
+
+.window-choice-verdict.is-fits {
+  color: var(--color-ink);
+}
+
+.window-alert {
+  margin: 0 0 var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  color: var(--color-ink);
+  border: var(--spacing-stroke-min) solid var(--color-danger);
+  border-radius: var(--rounded-sm);
+}
+
+.window-actions {
+  display: flex;
+  gap: var(--spacing-2);
+}
+
+.window-apply,
+.window-close {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.window-apply {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.window-close {
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.window-apply:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* ---------- story 17: model picker, hot switch (DESIGN.md > model-picker) ---------- */
 
 /* A neutral drop-down list: model name and size (« 2B »). */
@@ -4281,7 +4520,13 @@ body .arch .arch-robots .robot.is-selection-linked {
 /* ---------- story 33: focus on the ink top bar ----------
    Last in the file: wins over each control's own ring. Its drop-down list stays on white. */
 
-.top-bar :focus-visible:not(.pane-menu-list *) {
+.top-bar :focus-visible:not(.pane-menu-list *):not(.window-panel *) {
   outline: var(--spacing-stroke-min) solid var(--color-on-ink);
+  outline-offset: 2px;
+}
+
+/* Story 26: the window panel is white, its focus ring the primary one. */
+.window-panel :focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
   outline-offset: 2px;
 }

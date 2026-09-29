@@ -403,9 +403,11 @@ def _label(prefix: str, name: str, params_label: str | None) -> str:
     return " · ".join(part for part in (prefix, name, params_label) if part)
 
 
-def _local_entry(candidate: ModelCandidate, cfg: config.Config) -> ModelEntry:
+def _local_entry(
+    candidate: ModelCandidate, cfg: config.Config, window: int | None = None
+) -> ModelEntry:
     content, _ = load_publishers()
-    configured = cfg.context_window
+    configured = cfg.context_window if window is None else window
     served = candidate.source == "server"
     engine = candidate.engine if served else None
     found = candidate.status != "incompatible"
@@ -494,10 +496,13 @@ def _local_entry(candidate: ModelCandidate, cfg: config.Config) -> ModelEntry:
     )
 
 
-def local_entries(candidates: Iterable[ModelCandidate], cfg: config.Config) -> list[ModelEntry]:
+def local_entries(
+    candidates: Iterable[ModelCandidate], cfg: config.Config, window: int | None = None
+) -> list[ModelEntry]:
     """Every local model the last diagnostic found: the files, once per path (a usable
     listing wins over an incompatible one), incompatible ones included (greyed, with their
-    reason), and the models of already-running servers."""
+    reason), and the models of already-running servers. `window` (story 26): the window
+    configured now, else the launch's."""
     files: dict[str, ModelCandidate] = {}
     served: list[ModelCandidate] = []
     for candidate in candidates:
@@ -507,17 +512,21 @@ def local_entries(candidates: Iterable[ModelCandidate], cfg: config.Config) -> l
             candidate.path not in files or files[candidate.path].status != "found"
         ):
             files[candidate.path] = candidate
-    return [_local_entry(c, cfg) for c in [*files.values(), *served]]
+    return [_local_entry(c, cfg, window) for c in [*files.values(), *served]]
 
 
-def cloud_entries(cfg: config.Config, rows: Iterable[dict[str, Any]] = ()) -> list[ModelEntry]:
+def cloud_entries(
+    cfg: config.Config, rows: Iterable[dict[str, Any]] = (), window: int | None = None
+) -> list[ModelEntry]:
     """Every declared cloud model; `rows`: the diagnostic's `cloud_rows`, whose `disabled_fr`
-    says why one cannot be chosen now (no key…)."""
+    says why one cannot be chosen now (no key…). `window` (story 26): as `local_entries`."""
     disabled = {row.get("id"): row.get("disabled_fr") for row in rows}
     entries = []
     for entry in cfg.cloud_models[0]:
         caps = cloud_capabilities(entry)
-        window, source = config.cloud_window(entry, cfg.context_window)
+        effective, source = config.cloud_window(
+            entry, cfg.context_window if window is None else window
+        )
         params_b, params_label = _first_params([entry.model])
         publisher = publisher_for([], [entry.model])
         prefix = f"RÉSEAU · {entry.provider}"
@@ -541,8 +550,8 @@ def cloud_entries(cfg: config.Config, rows: Iterable[dict[str, Any]] = ()) -> li
                 params_label=params_label,
                 size_bytes=None,
                 size_fr=size_fr(params_label, None),
-                **_window(window, source, entry.context),
-                **_capabilities(caps, None, window),
+                **_window(effective, source, entry.context),
+                **_capabilities(caps, None, effective),
                 usable=not reason,
                 disabled_fr=reason or None,
             )
@@ -600,11 +609,13 @@ def models_payload(
     candidates: Iterable[ModelCandidate],
     cfg: config.Config,
     cloud_rows: Iterable[dict[str, Any]] = (),
+    window: int | None = None,
 ) -> dict[str, Any]:
     """`/api/diagnostic.models`: the legend, the groups, and why the publishers' table could
-    not be read, if so. One answer serves the picker and the `/models` page."""
+    not be read, if so. One answer serves the picker and the `/models` page. `window`
+    (story 26): the window configured now (`AppSession.configured_window`)."""
     content, error_fr = load_publishers()
-    entries = local_entries(candidates, cfg) + cloud_entries(cfg, cloud_rows)
+    entries = local_entries(candidates, cfg, window) + cloud_entries(cfg, cloud_rows, window)
     return {
         "legend_fr": content.legend_fr,
         "groups": [g.model_dump(mode="json") for g in group_models(entries)],

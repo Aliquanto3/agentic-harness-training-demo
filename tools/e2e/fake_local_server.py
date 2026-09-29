@@ -37,6 +37,7 @@ SPECIAL = {"<|im_start|>": 1001, "<|im_end|>": 1002, "<|endoftext|>": 1003}
 PIECES = {v: k.encode() for k, v in SPECIAL.items()}
 CHUNK_DELAY_S = 0.02
 N_CTX = 8192
+READ_DELAY_S = 0.02  # story 26: the prompt's read, before the first chunk
 # Story 32: streamed one character per chunk (the adapter counts a token per chunk), without
 # delay, so that it passes the reasoning budget (768 by default) quickly.
 LONG_REASONING = "Je réfléchis longuement à la question. " * 25
@@ -128,12 +129,18 @@ def create_app(flavor: str) -> Starlette:
         size, delay = (1, 0) if output == LONG_REASONING else (4, CHUNK_DELAY_S)
         chunks = [output[i : i + size] for i in range(0, len(output), size)]
 
+        # Story 26: as a real llama-server, the prompt's read takes a moment and the last
+        # chunk says how many tokens it evaluated (`timings.prompt_n`: all, no cache here).
+        evaluated = len(body.get("prompt", []))
+
         async def stream():
+            await asyncio.sleep(READ_DELAY_S)
             for text in chunks:
                 yield f"data: {json.dumps({'content': text, 'stop': False})}\n\n"
                 await asyncio.sleep(delay)
             end = {"content": "", "stop": True, "stop_type": "eos"}
-            yield f"data: {json.dumps(end | {'tokens_predicted': len(tokenize(output))})}\n\n"
+            end |= {"tokens_predicted": len(tokenize(output)), "timings": {"prompt_n": evaluated}}
+            yield f"data: {json.dumps(end)}\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 

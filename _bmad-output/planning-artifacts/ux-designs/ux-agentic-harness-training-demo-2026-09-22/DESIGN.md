@@ -276,6 +276,28 @@ components:
     border: '{colors.line}'
     shadow: '{colors.relief}'
     radius: '{rounded.md}'
+  # Story 26: « Fenêtre ▾ » on the ink top bar (as projection-toggle), and its panel (as the
+  # « Volets ▾ » list, on white); no new token.
+  window-picker:
+    toggle-background: transparent
+    toggle-foreground: '{colors.on-ink}'
+    toggle-border: '{colors.on-ink-soft}'
+    toggle-expanded-background: '{colors.on-ink}'
+    toggle-expanded-foreground: '{colors.ink}'
+    panel-background: '{colors.surface-raised}'
+    panel-foreground: '{colors.ink}'
+    panel-border: '{colors.line}'
+    panel-shadow: '{colors.relief}'
+    radius: '{rounded.md}'
+    choice-border: '{colors.line}'
+    choice-picked-border: '{colors.primary}'
+    choice-picked-background: '{colors.primary-soft}'
+    detail-foreground: '{colors.ink-soft}'
+    refusal-rule: '{colors.danger}'
+    refusal-foreground: '{colors.ink}'
+    focus-ring: '{colors.primary}'
+    typography: '{typography.body-sm}'
+    figure-typography: '{typography.number}'
   context-gauge:
     track: '{colors.surface-raised}'
     border: '{colors.on-ink-soft}'
@@ -744,7 +766,7 @@ Les nœuds réseau gardent le même rayon que les nœuds locaux : seule la bordu
 Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 
 - **Fond de page (`page`)** : crème à pois, voir Layout & Spacing.
-- **Barre haute (`top-bar`)** : carte flottante sur l'encre (story 33), haute de `{spacing.top-bar-height}` (56 px, pour loger la légende sous la jauge), rayon `{rounded.lg}`, relief `{colors.relief}`. Titre, chiffres de la jauge et statut en `{colors.on-ink}` ; anneau de focus `{colors.on-ink}` de 2 px (la liste « Volets ▾ », sur blanc, garde le sien). Les commandes gardent leur fond propre et ne passent jamais sur deux lignes. La jauge a une largeur fixe (barre et légende sur 300 px, la légende sur deux lignes au plus), pour que rien ne la fasse bouger ; sur une fenêtre étroite (1280 px), le nom du scénario et celui du modèle cèdent la place, entiers dans la liste et l'infobulle. De gauche à droite : sélecteur de scénario, jauge de contexte (élément le plus large), puces des volets masqués et menu « Volets ▾ », sélecteur de modèle, bouton « Mode projection » (`projection-toggle`), bouton Réinitialiser.
+- **Barre haute (`top-bar`)** : carte flottante sur l'encre (story 33), haute de `{spacing.top-bar-height}` (56 px, pour loger la légende sous la jauge), rayon `{rounded.lg}`, relief `{colors.relief}`. Titre, chiffres de la jauge et statut en `{colors.on-ink}` ; anneau de focus `{colors.on-ink}` de 2 px (la liste « Volets ▾ » et le panneau « Fenêtre », sur blanc, gardent le leur). Les commandes gardent leur fond propre et ne passent jamais sur deux lignes. La jauge a une largeur fixe (barre et légende sur 300 px, la légende sur deux lignes au plus), pour que rien ne la fasse bouger ; sur une fenêtre étroite (1280 px), le nom du scénario et celui du modèle cèdent la place, entiers dans la liste et l'infobulle. De gauche à droite : sélecteur de scénario, jauge de contexte (élément le plus large), bouton « Fenêtre ▾ » (`window-picker`, story 26), puces des volets masqués et menu « Volets ▾ », sélecteur de modèle, bouton « Mode projection » (`projection-toggle`), bouton Réinitialiser.
 - **Volet (`pane`)** : carte blanche sans bordure, rayon `{rounded.lg}`, relief `{colors.relief}`. L'en-tête est un bandeau `{colors.surface}` séparé du contenu par un filet `{colors.line}` (story 33). En haut à gauche, le numéro de lecture (`pane-step`, story 34), puis le titre `pane-title` en encre et, dessous, le sous-titre pédagogique `pane-subtitle` en encre douce, qui dit en quelques mots ce que le volet montre :
 
   | Volet | Numéro | Sous-titre |
@@ -761,6 +783,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Puce de volet masqué (`pane-chip`)** : « + Nom du volet » sur violet doux, bordure en tirets violette. Quand le volet masqué contient un élément lié à la sélection, la puce porte un point encre et devient « + Nom · lié » (story 34) ; elle se tronque après les noms du scénario et du modèle.
 - **Vue liée (`link-state`)** (story 34, d'après la maquette de refonte, `.hl`) : un élément liable porte ses clés (`data-links`). Survol ou focus : les éléments liés gardent leur opacité et prennent un anneau de `{spacing.stroke-min}` (un contour : l'ombre propre de l'élément, relief ou halo « en action », reste) de la couleur de leur discipline (`--discipline`), en encre pour le réseau et le neutre (le jaune et le gris n'atteignent pas 3:1 sur blanc) ; sur la plaque d'encre du modèle, l'anneau est `{colors.on-ink}`, à l'intérieur ; dans la jauge, encre, à l'intérieur. Les autres éléments liables passent à une opacité de 0,35 ; un conteneur qui contient un élément éclairé n'est pas estompé, et un élément dans un conteneur estompé ne l'est pas deux fois. Sélection : contour `{colors.ink}` de `{spacing.stroke-min}`, décalé de 2 px (à l'intérieur sur la plaque, en `{colors.on-ink}`), sans estomper le reste : l'estompage n'est jamais le seul signal. Transitions de 150 ms sur l'opacité, l'anneau et le contour, supprimées sous `prefers-reduced-motion`.
 - **Menu Volets (`pane-menu`)** : bouton « Volets ▾ » ; liste déroulante des cinq volets avec case à cocher chacun.
+- **Réglage de la fenêtre (`window-picker`)** (story 26) : bouton texte « Fenêtre 4 096 ▾ » juste après la jauge, fait comme `projection-toggle` (fond transparent, texte `{colors.on-ink}`, bordure `{colors.on-ink-soft}`, `{rounded.md}`, `label`) ; ouvert (`aria-expanded="true"`), fond `{colors.on-ink}` et texte encre ; sous 1400 px, seul le nombre et ▾ restent visibles, le bouton se resserre, et les noms du scénario et du modèle (et, en mode projection, le sélecteur de modèle) cèdent un peu plus, pour que la barre reste sur une ligne à 1280 px avec les puces des volets masqués (« · lié » lisible en mode projection). Son panneau tombe sous le bouton comme la liste « Volets ▾ » : fond `{colors.surface-raised}`, bordure `{colors.line}`, `{rounded.md}`, relief `{colors.relief}`, texte encre en `body-sm`, largeur 30 rem au plus ; titre en `heading`, aide et note en `{colors.ink-soft}`. Chaque choix est une carte bordée `{colors.line}` (`{rounded.sm}`) : radio à `accent-color` `{colors.primary}`, taille en `number`, « (actuelle) » en encre douce, puis cache, temps de lecture et borne en `{colors.ink-soft}` ; le choix noté est bordé `{colors.primary}` sur `{colors.primary-soft}`. Verdict : « ✓ Tient dans le budget » en encre ; un refus en style danger, texte encre à côté d'un filet `{colors.danger}` de `{spacing.stroke-min}` (le rouge en texte n'atteint pas 4,5:1 sur blanc), comme `button-danger`. « Appliquer » en primaire (fond `{colors.primary}`, texte `{colors.on-primary}`), « Fermer » en secondaire ; l'alerte d'un refus reçu, bordée `{colors.danger}`. Anneau de focus `{colors.primary}` dans le panneau (la barre d'encre garde le sien). Faits des jetons existants, aucun nouveau jeton ; en mode projection, la rampe les agrandit.
 - **Poignée de gouttière (`pane-resize-handle`)** : invisible au repos (on voit les pois de la page). Au survol ou au focus, une pilule violette de 4 × 32 px apparaît au milieu de la gouttière, avec le curseur ↔ ou ↕. Pendant le glissement, la pilule reste visible. La zone de saisie fait au moins `{spacing.hit-target-min}`, même si la gouttière visible reste à `{spacing.gutter}`.
 - **Boutons (`button-primary`, `button-secondary`, `reset-button`, `button-danger`)** : primaire violet plein sur relief violet foncé, qui s'enfonce au clic (relief de 4 px à 1 px) ; secondaire contour violet sur relief actif ; Réinitialiser neutre et sans relief, pour ne pas attirer le clic par erreur. Danger (« Tout effacer » de la mémoire globale) : fond blanc, bordure `{colors.danger}` de `{spacing.stroke-min}`, texte encre, sans relief ; sa confirmation (« Oui, tout effacer ») est pleine, fond `{colors.danger}` et texte encre (≈ 5,4:1 ; le blanc sur ce rouge ne tient pas 4,5:1). Libellés en `label` Fredoka. Hauteur minimale `{spacing.hit-target-min}`.
 - **Sélecteur de scénario (`scenario-picker`)** : pastille violet doux avec le nom du module et du scénario en cours.

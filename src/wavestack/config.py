@@ -121,6 +121,11 @@ def _is_loopback(host: str) -> bool:
 
 OUTPUT_RESERVE = 512  # AD-9: the output reserve of a model that does not reason
 MAX_RESERVE = 1536  # AD-9: the largest output reserve; `tpm // 2` must exceed it
+# Story 26 (AD-9): the windows the interface offers, the one list read by the intention and
+# the panel; `[context] window` defaults to `DEFAULT_WINDOW` (a value set by hand outside the
+# list is still read, never offered).
+WINDOW_CHOICES = (4096, 8192, 16384)
+DEFAULT_WINDOW = 4096
 DEFAULT_TOOL_RESULT_MAX_TOKENS = 1200  # lot B (N3): `[tools] result_max_tokens`
 DEFAULT_REASONING_BUDGET = 768  # lot C (N4), lot J: `[reasoning] budget_tokens`
 MIN_REASONING_BUDGET = 128  # lot C: the floor, and what is always left to the answer
@@ -531,10 +536,22 @@ class Config:
 
     @property
     def context_window(self) -> int:
+        """`[context] window` (AD-9), `DEFAULT_WINDOW` by default. Story 26: a window chosen
+        in the interface comes from `settings.json` (`context.window`), merged over
+        `wavestack.toml` by `load_config`; during the session, `AppSession.configured_window`
+        is the one that holds. A boolean, a non-number, or a value not above `OUTPUT_RESERVE`
+        gives `DEFAULT_WINDOW`."""
+        value = self.get("context", "window", default=DEFAULT_WINDOW)
+        if isinstance(value, bool):  # `true` is no window
+            return DEFAULT_WINDOW
         try:
-            return int(self.get("context", "window", default=4096))
-        except (TypeError, ValueError):
-            return 4096
+            window = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return DEFAULT_WINDOW
+        # A window no larger than the output reserve leaves no context (`usable` ≤ 0): the
+        # default. Above it, a window up to `MAX_RESERVE` stays valid: the reasoning brick is
+        # then unavailable (`reasoning_window_fr`), so `usable` stays positive.
+        return window if window > OUTPUT_RESERVE else DEFAULT_WINDOW
 
     @cached_property
     def memory_budget(self) -> MemoryBudget:

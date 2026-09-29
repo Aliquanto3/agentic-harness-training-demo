@@ -289,6 +289,29 @@ Vérifications ajoutées aux scénarios existants :
   `43-modeles-selecteur.jpg` (la liste affichée en boîte de liste : une liste native ne se
   capture pas ouverte) et `44-modeles-tableau.jpg` (page entière).
 
+## Fenêtre de contexte réglable (story 26)
+
+- `context_window`, joué entre `model_catalog` et `relaunch` (seul, il part du faux cloud A) :
+  (a) sur le faux cloud A, après un message, le bouton « Fenêtre 4 096 ▾ » (`aria-haspopup`
+  `dialog`, `aria-expanded`) ouvre le panneau (`role="dialog"`) : titre, aide « conçus pour
+  4 096 tokens », trois choix 4 096, 8 192 et 16 384 tokens, « (actuelle) » sur 4 096 seulement,
+  cache « chez le fournisseur » et « Tient dans le budget » pour chacun, « Appliquer » désactivé
+  sur la fenêtre actuelle (raison en infobulle) ; `Échap` le ferme. (b) 8 192 appliqué : aucun
+  `model_load_started` (modèle cloud), panneau fermé, bouton « Fenêtre 8 192 », infobulle de
+  `#gauge` « Fenêtre de 8 192 tokens », chiffres « / 7 680 tokens », message toujours dans la
+  Vue humain, `settings.json` `context.window == 8192`. (c) Le faux llama-server (`N_CTX = 8192`)
+  chargé depuis le sélecteur et un message : 16 384 noté montre « bornée à 8 192 par
+  llama-server (-c) », le temps de lecture et le cache « réservé par llama-server », avant
+  d'appliquer. Deux messages d'abord : le premier appel après un chargement n'est jamais mesuré, le second
+  donne « au moins ≈ N s » (le faux llama-server attend 20 ms avant le premier fragment et
+  renvoie `timings.prompt_n`, comme le vrai). Capture `45-fenetre-contexte-reglage.jpg`. Puis
+  4 096 appliqué au faux llama-server (fenêtre effective 8 192 → 4 096) : rechargement
+  « Rechargement de faux-llama-server avec une fenêtre de 4 096 tokens… » (`window` dans
+  `model_load_started`), puis « Fenêtre de contexte : 4 096 tokens (conversation gardée). » dans
+  la barre haute. (d) Retour au faux cloud A et à 4 096, même après un échec (`finally`, dont
+  l'échec est une vérification à part) : `relaunch` reste inchangé. Les nombres portent l'espace fine
+  insécable (U+202F).
+
 ## Contexte LLM lisible : lu et produit (story 32)
 
 - `native_tools`, après « Quelle heure est-il ? » (faux cloud) : deux `.ctx-call` « Appel 1 sur 2 »

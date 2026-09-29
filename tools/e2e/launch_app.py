@@ -23,10 +23,10 @@ DELAY_S = float(os.environ.get("WAVESTACK_E2E_LOAD_DELAY_S", "2"))
 _install = app_session.AppSession._install
 
 
-def _slow_install(self: app_session.AppSession, choice) -> None:  # noqa: ANN001
+def _slow_install(self: app_session.AppSession, choice, window=None) -> None:  # noqa: ANN001
     if choice.ref == SLOW_REF:
         time.sleep(DELAY_S)
-    _install(self, choice)
+    _install(self, choice, window)  # story 26: the window of a reload, if any
 
 
 app_session.AppSession._install = _slow_install

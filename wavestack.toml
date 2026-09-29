@@ -36,6 +36,12 @@ connect_timeout_s = 2
 read_timeout_s = 300
 
 [context]
+# Fenêtre de contexte, en tokens (AD-9) : 4 096 par défaut, la taille pour laquelle les
+# scénarios sont conçus. Elle se règle aussi dans l'interface (« Fenêtre ▾ » de la barre haute :
+# 4 096, 8 192 ou 16 384), et ce choix, écrit dans settings.json ("context": {"window": …}),
+# prend le pas sur cette valeur aux lancements suivants. Une autre valeur mise ici reste lue,
+# mais le panneau ne la propose pas. Donnez à llama-server un `-c` égal à la fenêtre choisie
+# (réglage de l'interface, sinon cette valeur).
 window = 4096
 near_limit_ratio = 0.8
 
