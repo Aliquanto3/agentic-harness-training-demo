@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import bisect
 import importlib.util
+import inspect
 import json
 import logging
 import math
@@ -233,6 +234,38 @@ _CORE_MODEL = {
 }
 
 _TURN_FR = "Un tour est en cours : attendez sa fin ou arrêtez-le."
+# Languages (1/5): why the language cannot change, in French, then in the current language
+# (the buttons keep their French names until the interface is translated).
+_LANGUAGE_LOCKED = {
+    "fr": (
+        "La langue ne se change que sur une conversation vide : cliquez d'abord sur « Vider "
+        "la conversation » ou sur « Réinitialiser »."
+    ),
+    "en": (
+        "The language can only change on an empty conversation: first click « Vider la "
+        "conversation » (clear the conversation) or « Réinitialiser » (reset)."
+    ),
+    "de": (
+        "Die Sprache lässt sich nur bei leerer Unterhaltung ändern: Klicken Sie zuerst auf "
+        "« Vider la conversation » (Unterhaltung leeren) oder « Réinitialiser » "
+        "(Zurücksetzen)."
+    ),
+}
+
+
+def _takes_lang(load: Callable[..., Any]) -> bool:
+    """Whether a content loader takes `lang` (every loader of `wavestack` does)."""
+    try:
+        return "lang" in inspect.signature(load).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _language_locked_reason(language: str) -> str:
+    french = _LANGUAGE_LOCKED["fr"]
+    return french if language == "fr" else f"{french} / {_LANGUAGE_LOCKED[language]}"
+
+
 # Lot A (AD-4): why a turn's first call does not extend what the engine holds in cache.
 _PREFIX_CAUSES_FR = {
     "system": (
@@ -732,6 +765,9 @@ class AppSession:
         compressor_factory: Callable[[], Compressor] | None = None,
     ) -> None:
         self.cfg = cfg or config.load_config()
+        # Languages (1/5): the language of the content sent to the model, `fr` by default;
+        # changed only on an empty conversation (`set_language`).
+        self._language = self.cfg.language
         self._engine_factory = engine_factory
         # Story 18: the adapter of a model an already-running local server serves
         # (`llama_server`, `ollama_raw`), a fake one in tests.
@@ -1007,9 +1043,16 @@ class AppSession:
     def _emit_state(self) -> None:
         with self._lock:
             state, reason_fr = self.state, self.reason_fr
+            language, locked = self._language, self._conversation_started()
         get_journal().emit(
             "session_state",
-            {"state": state, "reason_fr": reason_fr, "active_model": self.active_model()},
+            {
+                "state": state,
+                "reason_fr": reason_fr,
+                "active_model": self.active_model(),
+                "language": language,
+                "language_locked": locked,
+            },
         )
 
     def emit_initial(self) -> None:
@@ -1477,6 +1520,26 @@ class AppSession:
         get_journal().emit(
             "harness_error", {"message_fr": message_fr, "cause": cause, "effect_fr": effect_fr}
         )
+
+    def _localized(self, load: Callable[..., Any], *args: Any) -> Any:
+        """Languages (1/5, AD-19): `load(*args)` in the session's language. A translation
+        that fails is traced (`harness_error`), then the French file answers; the French
+        file's own failure is raised, for the caller to trace as before."""
+        lang = self._language
+        if lang == config.DEFAULT_LANGUAGE:
+            # Always the session's language, never `settings.json`'s; a loader a test replaces
+            # without `lang` is called as it is.
+            return load(*args, lang=lang) if _takes_lang(load) else load(*args)
+        try:
+            return load(*args, lang=lang)
+        except Exception as exc:  # noqa: BLE001 - AD-19: traced, then French
+            content = load(*args, lang=config.DEFAULT_LANGUAGE)
+            self._error(
+                f"Un fichier traduit ({lang}) sous content/i18n/{lang}/ est invalide.",
+                exc,
+                "Le texte français de ce fichier le remplace ; le reste de WaveStack fonctionne.",
+            )
+            return content
 
     def join(self) -> None:
         """Wait until the worker has run everything submitted so far."""
@@ -2439,7 +2502,7 @@ class AppSession:
         """AD-19: an invalid file makes its brick unavailable with the reason, never a crash."""
         for brick_id in self._bricks:
             try:
-                self._content[brick_id] = load_brick_content(brick_id)
+                self._content[brick_id] = self._localized(load_brick_content, brick_id)
             except Exception as exc:  # noqa: BLE001
                 self._content_errors[brick_id] = (
                     f"Le fichier content/bricks/{brick_id}.yaml est absent ou invalide : "
@@ -2452,7 +2515,7 @@ class AppSession:
                 )
         if "tools" in self._bricks:
             try:
-                self._tools_content = load_tools_content()
+                self._tools_content = self._localized(load_tools_content)
             except Exception as exc:  # noqa: BLE001
                 self._content_errors["tools"] = (
                     "Le fichier content/tools.yaml est absent ou invalide : corrigez-le puis "
@@ -2465,7 +2528,7 @@ class AppSession:
                 )
         if "mcp" in self._bricks:
             try:
-                self._mcp_content = load_mcp_content()
+                self._mcp_content = self._localized(load_mcp_content)
             except Exception as exc:  # noqa: BLE001
                 self._content_errors["mcp"] = (
                     "Le fichier content/mcp.yaml est absent ou invalide : corrigez-le puis "
@@ -2478,7 +2541,7 @@ class AppSession:
                 )
         if "skills" in self._bricks:
             try:
-                self._skills_content = load_skills_content(self._skill_ids())
+                self._skills_content = self._localized(load_skills_content, self._skill_ids())
             except Exception as exc:  # noqa: BLE001
                 self._content_errors["skills"] = (
                     "Un fichier des skills (content/skills.yaml ou content/skills/*/SKILL.md) "
@@ -2491,7 +2554,7 @@ class AppSession:
                 )
         if "hooks" in self._bricks:
             try:
-                self._hooks_content = load_hooks_content(self._hook_ids())
+                self._hooks_content = self._localized(load_hooks_content, self._hook_ids())
             except Exception as exc:  # noqa: BLE001
                 self._content_errors["hooks"] = (
                     "Le fichier content/hooks.yaml est absent ou invalide : corrigez-le puis "
@@ -2506,7 +2569,7 @@ class AppSession:
             self._load_memory()
         if "subagent" in self._bricks:
             try:
-                self._subagent_content = load_subagent_content()
+                self._subagent_content = self._localized(load_subagent_content)
             except Exception as exc:  # noqa: BLE001
                 self._content_errors["subagent"] = (
                     "Le fichier content/subagent.yaml ou le prompt du sous-agent "
@@ -2522,7 +2585,7 @@ class AppSession:
             self._load_rag()
         if "compression" in self._bricks:
             try:
-                self._compression_content = load_compression_content()
+                self._compression_content = self._localized(load_compression_content)
             except Exception as exc:  # noqa: BLE001
                 self._content_errors["compression"] = (
                     "Le fichier content/compression.yaml est absent ou invalide : corrigez-le "
@@ -2536,7 +2599,7 @@ class AppSession:
         if "system_prompt" not in self._bricks:
             return
         try:
-            self._default_prompt = load_default_system_prompt()
+            self._default_prompt = self._localized(load_default_system_prompt)
         except Exception as exc:  # noqa: BLE001
             self._content_errors["system_prompt"] = (
                 "Le prompt système par défaut (content/prompts/system.md) est absent ou vide : "
@@ -2553,7 +2616,7 @@ class AppSession:
         demonstration memory, in memory only; an unreadable one makes the brick unavailable,
         and is never written again but by a reset."""
         try:
-            self._memory_content = memory_file.load_memory_content()
+            self._memory_content = self._localized(memory_file.load_memory_content)
         except Exception as exc:  # noqa: BLE001
             self._content_errors["global_memory"] = (
                 "Le fichier content/memory/memory.yaml est absent ou invalide : corrigez-le puis "
@@ -2592,7 +2655,7 @@ class AppSession:
         self._rerank_model, self._rerank_config_error = self.cfg.rag_reranker
         self._rerank_refresh()  # before any early return: the sub-option says why
         try:
-            self._rag_content = load_rag_content()
+            self._rag_content = self._localized(load_rag_content)
         except Exception as exc:  # noqa: BLE001
             self._content_errors["rag"] = (
                 "Le fichier content/rag.yaml est absent ou invalide : corrigez-le puis relancez "
@@ -4890,6 +4953,7 @@ class AppSession:
                     loop,
                     connect_timeout=self.cfg.mcp_connect_timeout_s,
                     call_timeout=self.cfg.mcp_call_timeout_s,
+                    language=self._language,
                 )
                 if loop is not None
                 else None
@@ -5054,6 +5118,129 @@ class AppSession:
         get_journal().emit("conversation_cleared", {})
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
+
+    # ---------- languages (1/5, AD-19) ----------
+
+    def _conversation_started(self) -> bool:
+        """Under `_lock`: something of the conversation is in the context (its exchanges,
+        a documentation or a skill loaded, the global memory it read): no change of language."""
+        return bool(
+            self._history
+            or self._loaded_docs
+            or self._loaded_skills
+            or self._memory_snapshot is not None
+        )
+
+    def language_state(self) -> dict[str, Any]:
+        """`/api/state`: the language, the languages offered (each written in itself), and
+        whether the conversation locks the choice."""
+        with self._lock:
+            language, locked = self._language, self._conversation_started()
+        return {
+            "language": language,
+            "languages": [
+                {"id": lang, "label": config.LANGUAGE_LABELS[lang]} for lang in config.LANGUAGES
+            ],
+            "language_locked": locked,
+        }
+
+    def set_language(self, language: str) -> None:
+        """Class (b): saves `language` in `settings.json`, then reads again every text sent
+        to the model in it. `SendRefused` outside `idle` or once the conversation is not
+        empty, with the reason in French (and in the current language)."""
+        language = config.as_language(language)
+        with self._memory_lock:  # no turn starts before the texts are read again
+            with self._lock:
+                if self.state != "idle":
+                    raise SendRefused(self._refusal_reason())
+                if self._conversation_started():
+                    raise SendRefused(_language_locked_reason(self._language))
+                if language == self._language:
+                    return
+                old_default = self._default_prompt
+                old_demo = list(self._memory_content.demo) if self._memory_content else None
+            try:
+                config.save_setting("language", language)
+            except OSError as exc:
+                raise SendRefused(
+                    f"La langue n'a pas pu être enregistrée dans {config.settings_path()} "
+                    f"({exc.strerror or exc}) : elle reste inchangée."
+                ) from None
+            with self._lock:
+                self._language = language
+            config.clear_content_caches()
+            self._reload_texts()
+            with self._lock:  # what the last `send` froze: the new default is no change
+                if self._sent[1] == old_default:
+                    self._sent = (self._sent[0], self._default_prompt, *self._sent[2:])
+                restart = [s for s in self._mcp_conns if self._mcp_servers[s].url is None]
+            self._demo_memory_in(old_demo)
+        get_journal().emit("language_changed", {"language": language})
+        self._emit_state()  # `language` in the session's state
+        for server_id in restart:  # the local server describes its tools in the language
+            self._mcp_disconnect(server_id)
+            self._mcp_connect(server_id)
+        self._emit_bricks()
+        self._load_scenarios()  # `scenario_changed`
+        self._emit_memory()
+        self._emit_architecture()
+        self._executor.submit(self._emit_preview)
+
+    def _reload_texts(self) -> None:
+        """Every text read from `content/` at launch, read again in the new language. A
+        file that cannot be read in any language keeps the text read before (its error was
+        traced at launch)."""
+
+        def again(load: Callable[..., Any], *args: Any) -> Any:
+            try:
+                return self._localized(load, *args)
+            except Exception as exc:  # noqa: BLE001 - AD-19: traced, the text read before stays
+                self._error(
+                    f"Un fichier traduit ({self._language}) sous content/i18n/{self._language}/ "
+                    "et son original français sont invalides.",
+                    exc,
+                    "Le texte lu avant le changement de langue reste utilisé ; le reste de "
+                    "WaveStack fonctionne.",
+                )
+                return None
+
+        for brick_id in self._bricks:
+            if (brick := again(load_brick_content, brick_id)) is not None:
+                self._content[brick_id] = brick
+        loaders: dict[str, tuple[str, Callable[..., Any], tuple[Any, ...]]] = {
+            "tools": ("_tools_content", load_tools_content, ()),
+            "mcp": ("_mcp_content", load_mcp_content, ()),
+            "skills": ("_skills_content", load_skills_content, (self._skill_ids(),)),
+            "hooks": ("_hooks_content", load_hooks_content, (self._hook_ids(),)),
+            "subagent": ("_subagent_content", load_subagent_content, ()),
+            "compression": ("_compression_content", load_compression_content, ()),
+            "global_memory": ("_memory_content", memory_file.load_memory_content, ()),
+            "rag": ("_rag_content", load_rag_content, ()),
+            "system_prompt": ("_default_prompt", load_default_system_prompt, ()),
+        }
+        for brick_id, (attribute, load, args) in loaders.items():
+            if brick_id in self._bricks and (text := again(load, *args)) is not None:
+                setattr(self, attribute, text)
+
+        # The same tools, described again: only values change, never the registry's names.
+        self._registry.content = self._tools_content
+        self._registry.replace(self._harness_tools())
+
+    def _demo_memory_in(self, old_demo: list[str] | None) -> None:
+        """Under `_memory_lock`: a global memory that is the demonstration in the former
+        language becomes the new language's; one the user or the model wrote stays as is."""
+        content = self._memory_content
+        if old_demo is None or content is None or content.demo == old_demo:
+            return
+        with self._lock:
+            entries, error_fr = list(self._memory), self._memory_error
+        if error_fr is not None or not memory_file.is_demo(entries, old_demo):
+            return
+        if config.memory_path().exists():
+            self._restore_memory()  # the file is written again, as by « Réinitialiser »
+            return
+        with self._lock:  # H5: the demonstration, still not written until a change
+            self._memory = memory_file.demo_entries(content.demo, memory_file.now())
 
     # ---------- scenarios and reset (story 10, AD-19, FR-38, FR-39) ----------
 

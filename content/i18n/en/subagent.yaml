@@ -1,0 +1,30 @@
+# English translation of content/subagent.yaml (languages 1/5, AD-19): same fields, presets
+# with `task` only (the demo files keep their French names).
+delegate:
+  description: >-
+    Hands a sub-task to a sub-agent that works in a separate context, with its own tools
+    (file reading for example). Use it to read or analyse a long document: only the
+    sub-agent's result comes back here, not the whole document.
+  task: >-
+    The sub-agent's task, complete and self-contained: it does not see the conversation.
+    For example: Read the file guide_harnais.md and summarise it in five points.
+phase_label_fr: Calling the sub-agent
+force_label_fr: Delegate to the sub-agent
+task_label_fr: >-
+  Task handed to the sub-agent, complete: it does not see the conversation.
+presets:
+  - label_fr: Summarise the harness guide
+    args:
+      task: Read the file guide_harnais.md and summarise it in five short points.
+  - label_fr: Bounds of the loop
+    args:
+      task: >-
+        Read the file guide_harnais.md and say which bounds the harness sets on an agent's
+        loop.
+  - label_fr: Meeting notes
+    args:
+      task: Read the file notes_reunion.txt and list the decisions taken.
+overflow_cause_fr: >-
+  Cause: the sub-agent's context is full, most often because of a tool's result (a document
+  that is too long). To carry on with the demo: hand it a shorter document, or a task that
+  reads less. The main turn goes on without this result.

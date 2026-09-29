@@ -57,6 +57,12 @@ class SendIntention(BaseModel):
     message: str = Field(min_length=1)
 
 
+class LanguageIntention(BaseModel):
+    """Languages (1/5): one of `config.LANGUAGES`; any other value is refused (422)."""
+
+    language: Literal["fr", "en", "de"]
+
+
 class BrickIntention(BaseModel):
     brick: str
     wanted: bool
@@ -404,6 +410,8 @@ def create_app(
             "scenario_changed": scenario.payload if scenario else None,
             "memory_changed": memory.payload if memory else None,
             "context_window_state": window.payload if window else None,
+            # Languages (1/5): `language`, `languages` and `language_locked`.
+            **app_session.language_state(),
             "seq": seq,
         }
 
@@ -689,6 +697,16 @@ def create_app(
         except SendRefused as refused:
             raise HTTPException(status_code=409, detail=refused.reason_fr) from None
         return {"cleared": True}
+
+    @app.post("/api/intentions/language")
+    def language(intention: LanguageIntention) -> dict[str, str]:
+        """Class (b), languages (1/5): refused outside `idle` or on a conversation that is
+        not empty, with the reason (409); the front then reloads the page."""
+        try:
+            app_session.set_language(intention.language)
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+        return {"language": intention.language}
 
     @app.post("/api/intentions/memory")
     def memory(intention: MemoryIntention) -> dict[str, bool]:

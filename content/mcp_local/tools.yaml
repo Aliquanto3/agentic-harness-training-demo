@@ -1,0 +1,6 @@
+# Descriptions des outils du serveur MCP local (story 6, AD-19), lues par le modèle dans la
+# variable `tools` du gabarit ; le serveur les lit au lancement, dans sa langue.
+list_terms: Liste les termes du glossaire du démonstrateur WaveStack, un par ligne.
+define_term: >-
+  Donne la définition d'une notion du démonstrateur WaveStack (harnais, contexte, outil,
+  MCP, skill, hook, RAG…). Appeler list_terms pour connaître les termes.

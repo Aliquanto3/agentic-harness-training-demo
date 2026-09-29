@@ -73,7 +73,20 @@ class McpContent(BaseModel):
     call_presets: dict[str, list[CallPreset]] = {}
 
 
-def load_mcp_content() -> McpContent:
+def load_mcp_content(lang: str | None = None) -> McpContent:
     """Raises on a missing or invalid file (the session traces it)."""
-    path = config.content_dir() / "mcp.yaml"
+    path = config.content_file("mcp.yaml", lang)
     return McpContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+
+
+class LocalToolsText(BaseModel):
+    """`content/mcp_local/tools.yaml`: the local server's tool descriptions, seen by the model."""
+
+    list_terms: str = Field(min_length=1)
+    define_term: str = Field(min_length=1)
+
+
+def load_local_tools(lang: str | None = None) -> LocalToolsText:
+    """Raises on a missing or invalid file (the local server then does not start)."""
+    path = config.content_file("mcp_local/tools.yaml", lang)
+    return LocalToolsText.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))

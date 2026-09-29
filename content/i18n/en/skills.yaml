@@ -1,0 +1,12 @@
+# English translation of content/skills.yaml (languages 1/5, AD-19); each skill's text is
+# in content/i18n/en/skills/{id}/SKILL.md.
+catalog_intro: >-
+  Available skills. A skill is a set of instructions for one kind of request. When
+  a request matches one of them, call the load_skill tool with its name, then
+  follow the instructions you receive.
+load_skill:
+  label_fr: Skill loading
+  description: >-
+    Loads, by its name, the full instructions of a skill from the "Available
+    skills" list (for example meeting_minutes). It is not an MCP tool.
+  skill: Exact name of the skill, as it appears in the list.

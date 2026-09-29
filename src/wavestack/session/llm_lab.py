@@ -207,7 +207,7 @@ def load_lab_content() -> LabContent:
     """Read `content/llm_lab.yaml`, again once the file changed (its modification time): a
     corrected file shows on the page's reload. Raises on an invalid file (the session traces
     it)."""
-    path = config.content_dir() / "llm_lab.yaml"
+    path = config.content_file("llm_lab.yaml")
     return _read_lab_content(str(path), path.stat().st_mtime_ns)
 
 

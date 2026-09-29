@@ -1,0 +1,48 @@
+# English translation of content/mcp_local/glossary.yaml (languages 1/5, AD-19), served by
+# the local MCP server: key = term, value = definition.
+terms:
+  harness: >-
+    All the code around the model: it assembles the context, calls the model,
+    interprets its output, carries out actions and decides whether to go on or stop.
+  bare LLM: >-
+    The model called without any brick: each message is sent alone, with only the
+    model's chat template.
+  context: >-
+    The exact set of tokens sent to the model in a call. It is made of segments,
+    each credited to the brick that produced it.
+  context window: >-
+    The largest number of tokens the context can reach, answer included.
+  token: >-
+    The piece of text (word, part of a word, punctuation) the model reads and writes.
+    The size of the context and the cost of a call are counted in tokens.
+  tool: >-
+    A function the harness runs when the model asks for it, whose result is fed back
+    into the context.
+  MCP: >-
+    Model Context Protocol: a standard protocol through which a server, a separate
+    local process or a service on the Internet, exposes tools to a harness. The
+    harness connects to it, lists its tools and calls them for the model.
+  MCP server: >-
+    A separate process that exposes tools through the MCP protocol, on the
+    workstation (local) or reachable over the network (public).
+  skill: >-
+    A set of instructions and resources the harness loads into the context on
+    demand. Only the name and the description are there until the skill is
+    triggered.
+  hook: >-
+    Deterministic harness code, run automatically at an event of the turn. The
+    model does not decide it.
+  RAG: >-
+    Retrieval-Augmented Generation: the harness searches for relevant document
+    excerpts and adds them to the context before calling the model.
+  sub-agent: >-
+    A second agent, which reuses the same model with its own context, to which the
+    harness delegates a sub-task. Only its result comes back into the main context.
+  lazy loading: >-
+    Loading a tool's full documentation into the context only when the model needs
+    it, to save tokens.
+  short-term memory: >-
+    Feeding the previous messages of the current conversation back into the context.
+  system prompt: >-
+    The instructions the harness places at the head of the context, before the
+    conversation.

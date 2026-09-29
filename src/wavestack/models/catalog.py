@@ -147,7 +147,7 @@ _FALLBACK = PublishersContent(
 
 
 def publishers_path() -> Path:
-    return config.content_dir() / PUBLISHERS_FILE
+    return config.content_file(PUBLISHERS_FILE)
 
 
 def _cause(exc: Exception) -> str:

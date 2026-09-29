@@ -1,0 +1,53 @@
+# German translation of content/mcp_local/glossary.yaml (languages 1/5, AD-19), served by
+# the local MCP server: key = term, value = definition.
+terms:
+  Harness: >-
+    Der gesamte Code rund um das Modell: Er stellt den Kontext zusammen, ruft das
+    Modell auf, interpretiert seine Ausgabe, führt Aktionen aus und entscheidet, ob es
+    weitergeht oder endet.
+  nacktes LLM: >-
+    Das Modell ohne jeden Baustein: Jede Nachricht wird allein gesendet, nur mit der
+    Chat-Vorlage des Modells.
+  Kontext: >-
+    Die genaue Menge der Tokens, die bei einem Aufruf an das Modell gesendet werden.
+    Er besteht aus Segmenten, die jeweils dem Baustein zugeordnet sind, der sie
+    erzeugt hat.
+  Kontextfenster: >-
+    Die größte Anzahl an Tokens, die der Kontext erreichen kann, die Antwort
+    eingeschlossen.
+  Token: >-
+    Das Textstück (Wort, Wortteil, Satzzeichen), das das Modell liest und schreibt.
+    Die Größe des Kontexts und die Kosten eines Aufrufs werden in Tokens gezählt.
+  Tool: >-
+    Eine Funktion, die der Harness auf Anfrage des Modells ausführt und deren
+    Ergebnis in den Kontext zurückgegeben wird.
+  MCP: >-
+    Model Context Protocol: ein Standardprotokoll, über das ein Server, ein
+    getrennter lokaler Prozess oder ein Dienst im Internet, einem Harness Tools
+    bereitstellt. Der Harness verbindet sich mit ihm, listet seine Tools auf und ruft
+    sie für das Modell auf.
+  MCP-Server: >-
+    Ein getrennter Prozess, der Tools über das MCP-Protokoll bereitstellt, auf dem
+    Arbeitsplatz (lokal) oder über das Netzwerk erreichbar (öffentlich).
+  Skill: >-
+    Eine Sammlung von Anweisungen und Ressourcen, die der Harness bei Bedarf in den
+    Kontext lädt. Solange der Skill nicht ausgelöst ist, sind nur sein Name und seine
+    Beschreibung vorhanden.
+  Hook: >-
+    Deterministischer Code des Harness, der bei einem Ereignis der Runde automatisch
+    ausgeführt wird. Das Modell entscheidet nicht darüber.
+  RAG: >-
+    Retrieval-Augmented Generation: Der Harness sucht relevante Auszüge aus
+    Dokumenten und fügt sie dem Kontext hinzu, bevor er das Modell aufruft.
+  Sub-Agent: >-
+    Ein zweiter Agent, der dasselbe Modell mit einem eigenen Kontext nutzt und an den
+    der Harness eine Teilaufgabe delegiert. Nur sein Ergebnis kommt in den
+    Hauptkontext zurück.
+  Lazy Loading: >-
+    Die vollständige Dokumentation eines Tools erst dann in den Kontext laden, wenn
+    das Modell sie braucht, um Tokens zu sparen.
+  Kurzzeitgedächtnis: >-
+    Das erneute Einspeisen der vorherigen Nachrichten der laufenden Unterhaltung.
+  System-Prompt: >-
+    Die Anweisungen, die der Harness vor der Unterhaltung an den Anfang des Kontexts
+    stellt.

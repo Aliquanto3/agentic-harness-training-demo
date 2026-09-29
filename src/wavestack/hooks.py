@@ -52,6 +52,41 @@ _MONTHS_FR = (
     "décembre",
 )
 _APPROVAL_FR = {"approved": "autorisé", "refused": "refusé", "cancelled": "annulé"}
+# Languages (1/5): H3's date in English and German, days from Monday.
+_WEEKDAYS = {
+    "en": ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"),
+    "de": ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"),
+}
+_MONTHS = {
+    "en": (
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ),
+    "de": (
+        "Januar",
+        "Februar",
+        "März",
+        "April",
+        "Mai",
+        "Juni",
+        "Juli",
+        "August",
+        "September",
+        "Oktober",
+        "November",
+        "Dezember",
+    ),
+}
 
 
 class HookText(BaseModel):
@@ -66,6 +101,9 @@ class HooksContent(BaseModel):
     points: dict[HookPoint, str]
     injection: str = Field(min_length=1)  # H3's text, `{date}` replaced at each turn
     audit_label_fr: str = Field(min_length=1)
+    # Languages (1/5): the language the texts were asked in, set by `load_hooks_content`
+    # (never in the file); H3 writes its date in it.
+    language: str = config.DEFAULT_LANGUAGE
 
     @model_validator(mode="after")
     def _every_point_labelled(self) -> HooksContent:
@@ -75,10 +113,14 @@ class HooksContent(BaseModel):
         return self
 
 
-def load_hooks_content(ids: Iterable[str]) -> HooksContent:
-    """Raises on a missing or invalid file, or a declared hook without text."""
-    path = config.content_dir() / "hooks.yaml"
-    content = HooksContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+def load_hooks_content(ids: Iterable[str], lang: str | None = None) -> HooksContent:
+    """Raises on a missing or invalid file, or a declared hook without text. `language` is
+    the one of the file read (H3's date follows its sentence): French when it answered."""
+    asked = config.as_language(lang) if lang is not None else config.current_language()
+    path = config.content_file("hooks.yaml", asked)
+    language = asked if path != config.content_file("hooks.yaml", "fr") else "fr"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    content = HooksContent.model_validate(data).model_copy(update={"language": language})
     missing = [i for i in ids if i not in content.hooks]
     if missing:
         raise ValueError(f"{path}: no text for hooks {missing}")
@@ -218,11 +260,23 @@ def date_fr(now: datetime) -> str:
     return f"{day}, {now.hour} h {now.minute:02d}"
 
 
+def date_text(now: datetime, lang: str) -> str:
+    """H3's date in `lang`: « Thursday 24 September 2026, 10:12 », « Donnerstag, 24.
+    September 2026, 10:12 Uhr »; French (`date_fr`) for any other language."""
+    if lang == "en":
+        day = f"{_WEEKDAYS['en'][now.weekday()]} {now.day} {_MONTHS['en'][now.month - 1]}"
+        return f"{day} {now.year}, {now.hour}:{now.minute:02d}"
+    if lang == "de":
+        day = f"{_WEEKDAYS['de'][now.weekday()]}, {now.day}. {_MONTHS['de'][now.month - 1]}"
+        return f"{day} {now.year}, {now.hour}:{now.minute:02d} Uhr"
+    return date_fr(now)
+
+
 def inject(ctx: HookContext) -> HookResult | None:
     """Adds the workstation's date and the mission's rules before the user's message."""
     if ctx.content is None:
         return None
-    text = ctx.content.injection.replace("{date}", date_fr(ctx.now))
+    text = ctx.content.injection.replace("{date}", date_text(ctx.now, ctx.content.language))
     return HookResult(
         "modify", "Date du poste et règles de la mission ajoutées avant le message.", injection=text
     )

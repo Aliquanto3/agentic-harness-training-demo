@@ -1,0 +1,77 @@
+# English translation of content/tools.yaml (languages 1/5, AD-19): same ids, same
+# parameters, same preset arguments (the demo files keep their French names).
+demo_dir_label_fr: Demo files
+tools:
+  get_datetime:
+    label_fr: Time and date
+    description: >-
+      Gives the workstation's local day, date and time. Use it whenever a
+      question is about the time, the date or the day of the week.
+    parameters: {}
+  calculator:
+    label_fr: Calculator
+    description: >-
+      Computes an arithmetic expression exactly: numbers, + - * / // % **
+      and parentheses. Use it for any calculation instead of computing in your head.
+    parameters:
+      expression: Expression to compute, for example 12*37 or (3+4)**2.
+    presets:
+      - label_fr: Multiplication
+        args: {expression: "12*37"}
+  read_file:
+    label_fr: File reading
+    description: >-
+      Reads a text file from the demo folder. Give "." as the path to list
+      the available files.
+    parameters:
+      path: Relative path of the file in the demo folder, for example notes_reunion.txt.
+    presets:
+      - label_fr: Sensitive file
+        args: {path: confidentiel/budget_projet.txt}
+      - label_fr: Meeting notes
+        args: {path: notes_reunion.txt}
+      - label_fr: List of files
+        args: {path: "."}
+      - label_fr: SIEM alerts (SOC)
+        args: {path: alertes_siem.log}
+      - label_fr: Privileged accounts (SOC, confidential)
+        args: {path: confidentiel/comptes_privilegies.txt}
+      - label_fr: Backup log (compression)
+        args: {path: journal_serveur.log}
+      - label_fr: Harness guide (prose, compression)
+        args: {path: guide_harnais.md}
+  public_holidays:
+    label_fr: Public holidays
+    sends_fr: the requested year
+    description: >-
+      Gives the list of public holidays in metropolitan France for a year, one
+      "date : name" line each (names in French). Queries a public service on
+      the Internet.
+    parameters:
+      year: Year, for example 2026.
+    presets:
+      - label_fr: Year 2026
+        args: {year: 2026}
+  wikipedia_summary:
+    label_fr: Wikipedia summary
+    sends_fr: the article's title
+    description: >-
+      Gives the summary of a page of the French-language Wikipedia. Queries
+      Wikipedia on the Internet.
+    parameters:
+      title: Exact title of the page on the French-language Wikipedia, for example Tour Eiffel.
+    presets:
+      - label_fr: Eiffel Tower
+        args: {title: Tour Eiffel}
+  fetch_page:
+    label_fr: Web page reading
+    sends_fr: the page's address
+    description: >-
+      Reads the text of a web page (without tags), cut if it is too long. Only
+      https:// addresses on fr.wikipedia.org and calendrier.api.gouv.fr are
+      accepted.
+    parameters:
+      url: Full address of the page, for example https://fr.wikipedia.org/wiki/Paris.
+    presets:
+      - label_fr: Paris page
+        args: {url: "https://fr.wikipedia.org/wiki/Paris"}

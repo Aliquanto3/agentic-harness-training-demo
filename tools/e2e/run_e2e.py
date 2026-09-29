@@ -4650,6 +4650,151 @@ def s_reload_and_reset(r: Run) -> None:
     _first_turn_after(r, "Vider la conversation", f"t{last + 2}")
 
 
+# ---------- languages (1/5): the language picker and the defaults sent to the model ----------
+
+_PROMPT_EN = "You are WaveStack's demonstration assistant. Answer in English"
+_PROMPT_FR = "Tu es l'assistant de démonstration de WaveStack. Réponds en français"
+
+
+def _html_lang(r: Run) -> str:
+    return r.page.evaluate("() => document.documentElement.lang")
+
+
+def _pick_language(r: Run, language: str) -> None:
+    """Choose `language` in the picker: the intention is accepted, then the page reloads."""
+    seq = r.ev.mark()
+    with r.page.expect_navigation(timeout=15_000):
+        r.page.select_option("#language-picker", language)
+    r.ev.wait("language_changed", seq, lambda p: p["language"] == language, timeout=15)
+    r.wait_idle()
+
+
+def _clear_conversation(r: Run) -> None:
+    seq = r.ev.mark()
+    r.page.click("#clear-conversation")
+    r.ev.wait("conversation_cleared", seq, timeout=10)
+
+
+def _sent_system(r: Run) -> str:
+    messages = r.fake_calls()[-1]["messages"]
+    return messages[0]["content"] if messages and messages[0]["role"] == "system" else ""
+
+
+def _sent_tool(r: Run, name: str) -> str:
+    tools = r.fake_calls()[-1].get("tools") or []
+    found = [t["function"] for t in tools if t["function"]["name"] == name]
+    return found[0].get("description", "") if found else ""
+
+
+def s_language(r: Run) -> None:
+    """Languages (1/5): the picker locked by a turn, English once the conversation is
+    cleared (reload, `<html lang>`, English defaults sent to the model and shown in
+    « Contexte LLM »), then back to French. Always ends in French."""
+    try:
+        _language(r)
+    finally:
+        if r.state().get("language") != "fr":
+            r.wait_idle()
+            cleared = r.api("POST", "/api/intentions/clear_conversation", {})
+            back = r.api("POST", "/api/intentions/language", {"language": "fr"})
+            r.check(
+                cleared.status_code == back.status_code == 200,
+                "nettoyage : conversation vidée et retour au français",
+                f"{cleared.status_code} {back.status_code} {back.text[:160]}",
+            )
+            r.goto_app()
+
+
+def _language(r: Run) -> None:
+    page = r.page
+    picker = page.locator("#language-picker")
+    r.launch("native_tools")  # system prompt and tools among its bricks
+    r.check(
+        picker.is_enabled() and picker.input_value() == "fr" and _html_lang(r) == "fr",
+        "conversation vide : sélecteur de langue actif, sur « Français », <html lang=fr>",
+    )
+    labels = picker.locator("option").all_inner_texts()
+    r.check(
+        labels == ["Français", "English", "Deutsch"], "langues écrites en elles-mêmes", str(labels)
+    )
+    r.send("Bonjour")
+    ok, took = r.poll(lambda: picker.is_disabled(), 10)
+    title = picker.get_attribute("title") or ""
+    r.check(
+        ok and "Videz d'abord la conversation" in title,
+        "après un tour : sélecteur désactivé, l'infobulle dit de vider la conversation",
+        f"{title} ({took:.1f} s)",
+    )
+    refused = r.api("POST", "/api/intentions/language", {"language": "en"})
+    r.check(
+        refused.status_code == 409 and "conversation vide" in refused.json().get("detail", ""),
+        "l'intention est refusée (409) tant que la conversation n'est pas vide",
+        f"{refused.status_code} {refused.text[:160]}",
+    )
+    r.shot_element("language-01-verrouille", ".top-bar")
+
+    seq = r.ev.mark()
+    page.click("#reset-button")
+    r.ev.wait("harness_reset", seq, timeout=10)
+    ok, took = r.poll(lambda: picker.is_enabled(), 10)
+    r.check(ok, "« Réinitialiser » : sélecteur de nouveau actif", f"{took:.1f} s")
+    r.launch("native_tools")
+    r.send("Bonjour")
+    ok, _ = r.poll(lambda: picker.is_disabled(), 10)
+    r.check(ok, "un nouveau tour verrouille de nouveau le sélecteur")
+    _clear_conversation(r)
+    ok, took = r.poll(lambda: picker.is_enabled(), 10)
+    r.check(ok, "conversation vidée : sélecteur de nouveau actif", f"{took:.1f} s")
+    _pick_language(r, "en")
+    state = r.state()
+    r.check(
+        _html_lang(r) == "en"
+        and page.locator("#language-picker").input_value() == "en"
+        and page.locator("#language-picker").get_attribute("aria-label") == "Language"
+        and state["language"] == "en"
+        and not state["language_locked"],
+        "« English » : page rechargée en <html lang=en>, sélecteur sur English, nommé Language",
+        f"lang={_html_lang(r)}, état {state.get('language')}",
+    )
+    r.check(
+        page.locator("#language-picker-code").inner_text() == "EN",
+        "le sélecteur compact affiche « EN »",
+    )
+    r.check(r.bricks()["tools"]["wanted"], "les briques du scénario restent allumées")
+    r.send("What time is it?")
+    system = _sent_system(r)
+    datetime_doc = _sent_tool(r, "get_datetime")
+    r.check(
+        system.startswith(_PROMPT_EN) and "Réponds en français" not in system,
+        "corps envoyé au modèle : prompt système anglais",
+        system[:120],
+    )
+    r.check(
+        datetime_doc.startswith("Gives the workstation's local day")
+        and _sent_tool(r, "calculator").startswith("Computes an arithmetic expression"),
+        "corps envoyé au modèle : descriptions d'outils anglaises",
+        datetime_doc[:120],
+    )
+    ok, took = r.poll(lambda: _PROMPT_EN in (page.locator("#ctx").text_content() or ""), 10)
+    r.check(ok, "« Contexte LLM » montre le prompt système anglais", f"{took:.1f} s")
+    r.shot("language-02-anglais")
+
+    _clear_conversation(r)
+    _pick_language(r, "fr")
+    r.check(
+        _html_lang(r) == "fr" and r.state()["language"] == "fr",
+        "retour au français : page rechargée en <html lang=fr>",
+    )
+    r.send("Bonjour")
+    system = _sent_system(r)
+    r.check(
+        system.startswith(_PROMPT_FR) and _sent_tool(r, "get_datetime").startswith("Donne le jour"),
+        "retour au français : prompt système et descriptions d'outils français",
+        system[:120],
+    )
+    _clear_conversation(r)
+
+
 def _first_turn_after(r: Run, gesture: str, turn_id: str) -> None:
     seq = r.ev.mark()
     r.send("Bonjour")
@@ -6804,6 +6949,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("compression", s_compression),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
+    ("language", s_language),
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),

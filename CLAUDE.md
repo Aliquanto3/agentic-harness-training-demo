@@ -11,5 +11,5 @@ Démonstrateur pédagogique local qui montre, brique par brique, ce qu'un harnai
 ## Conventions
 - Utiliser `uv` pour tout (`uv add`, `uv run`), jamais pip.
 - Utiliser `ruff` pour le lint et le formatage, `pytest` pour les tests.
-- Code et identifiants en anglais. Textes d'interface et contenus pédagogiques en français.
+- Code et identifiants en anglais. Textes d'interface et contenus pédagogiques en français par défaut, anglais et allemand en surcouche sous `content/i18n/{en,de}/` (même arborescence, mêmes noms de fichiers, résolus par `config.content_file`).
 - Le processus de développement suit la méthode BMAD, dont la configuration est dans `_bmad/`.
