@@ -1348,6 +1348,25 @@ def test_llama_server_memory_counts_its_whole_context(fake, n_ctx, warned):
         assert candidate.warning_fr is None
 
 
+@pytest.mark.parametrize(("n_ctx", "window"), [(4096, 8192), (32_768, 4096), (8192, 8192)])
+def test_llama_server_under_the_window_chosen_is_advised_to_relaunch(fake, n_ctx, window):
+    """Lot K (A3): `-c 4096` under the window chosen (8 192): relaunch it with
+    `-np 1 -c 8192`; a larger context keeps its own advice, an equal one none."""
+    config.save_setting("context", {"window": window})
+    fake.n_ctx, fake.model_path = n_ctx, TINY
+
+    warning = _llama_candidate(fake).warning_fr
+
+    if n_ctx < window:
+        assert "contexte de 4 096 tokens par emplacement" in warning
+        assert "sous la fenêtre choisie de 8 192" in warning
+        assert warning.endswith("relancez-le avec `-np 1 -c 8192`.")
+    elif n_ctx > window:
+        assert warning.endswith("relancez-le avec `-c 4096`.")
+    else:
+        assert warning is None
+
+
 def test_llama_server_kv_unreadable_counts_the_file_and_keeps_the_warning(fake):
     fake.n_ctx = 262_144  # `model_path` is not on this disk: no KV readable
 
@@ -1424,6 +1443,29 @@ def test_diagnostic_advises_c_4096_for_the_served_model(monkeypatch, tmp_path, f
     assert check["status"] == "warn" and "servi par llama-server" in check["message_fr"]
     assert "relancez-le avec `-c 4096`" in check["message_fr"]
     assert result.server.warning_fr and result.server.served_bytes > 128 * 262_144
+
+
+def test_diagnostic_advises_np_1_c_8192_when_the_server_is_under_the_window(
+    monkeypatch, tmp_path, fake
+):
+    """Lot K (A3, N26-7): 8 192 chosen, llama-server relaunched at `-c 4096`: the model's
+    line at the diagnostic advises `-np 1 -c 8192`."""
+    fake.ollama, fake.n_ctx, fake.model_path = False, 4096, TINY
+    ref = "llama_server/tiny-llama.gguf"
+    config.save_setting("selected_model", {"kind": "server", "ref": ref})
+    config.save_setting("context", {"window": 8192})
+    session = _diagnostic(monkeypatch, tmp_path)
+    mark = get_journal().last_seq()
+
+    result = session.check_model()
+
+    check = [
+        e.payload
+        for e in get_journal().events_since(mark)
+        if e.kind == "diagnostic_check" and e.payload["check"] == "model"
+    ][-1]
+    assert result.server is not None and check["status"] == "warn"
+    assert "relancez-le avec `-np 1 -c 8192`" in check["message_fr"]
 
 
 def test_refusal_with_a_served_model_active_counts_wavestack_whole(fake, tmp_path):

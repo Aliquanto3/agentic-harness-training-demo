@@ -5437,6 +5437,22 @@ def s_context_window(r: Run) -> None:
         page.click("#window-close")
         expect(page.locator("#window-panel")).to_be_hidden(timeout=5000)
 
+        # Lot K (A3): 16 384 applied, bounded to 8 192 by the server: the button shows the
+        # effective window, its tooltip the one chosen.
+        state = _apply_window(r, 16384)
+        toggle = page.locator("#window-toggle")
+        title = toggle.get_attribute("title") or ""
+        r.check(
+            state["window"] == 8192
+            and "8\u202f192" in page.inner_text("#window-toggle-value")
+            and title.endswith(", 16\u202f384 choisi."),
+            "16 384 appliqué, borné par llama-server : bouton « Fenêtre 8 192 ▾ », infobulle "
+            "« …, 16 384 choisi »",
+            f"{page.inner_text('#window-toggle-value')} · {title}",
+        )
+        if not page.locator("#window-panel").is_hidden():
+            page.click("#window-close")
+
         # A reload of the served model: 4 096 shrinks its effective window (8 192).
         seq = r.ev.mark()
         _apply_window(r, 4096)

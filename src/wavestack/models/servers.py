@@ -889,8 +889,18 @@ def context_warning_fr(n_ctx: int | None, window: int, slot_ctx: int | None = No
     """Lot E (E1): the French warning when a slot of llama-server has a context much larger
     than WaveStack's window (`-c` omitted: the model's whole native context), whose memory
     it reserved for nothing; `None` otherwise. With several slots (`-np N`), `-c {window}`
-    alone would shrink each slot below the window: the advice is `-np 1 -c {window}`."""
+    alone would shrink each slot below the window: the advice is `-np 1 -c {window}`.
+
+    Lot K (A3): a slot smaller than the window chosen bounds the effective window to it; the
+    advice is then `-np 1 -c {window}` too (one slot, the whole context for it)."""
     slot = slot_ctx or n_ctx
+    if slot and slot < window:
+        return (
+            f"llama-server a été lancé avec un contexte de {_fr_int(slot)} tokens par "
+            f"emplacement, sous la fenêtre choisie de {_fr_int(window)} : la fenêtre effective "
+            f"reste de {_fr_int(slot)} tokens. Arrêtez-le et relancez-le avec "
+            f"`-np 1 -c {window}`."
+        )
     if not slot or slot <= window * CONTEXT_WARN_FACTOR:
         return None
     whole = max(n_ctx or 0, slot)

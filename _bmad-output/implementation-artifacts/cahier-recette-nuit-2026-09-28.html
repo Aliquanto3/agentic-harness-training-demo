@@ -1173,10 +1173,10 @@ const TESTS = [
     steps: [
       "Chargez « Local · llama-server · … ».",
       "« Fenêtre ▾ » → 8 192 : lisez la ligne du choix ; « Appliquer ».",
-      "Lisez le bouton « Fenêtre … ▾ » et la jauge.",
+      "Lisez le bouton « Fenêtre … ▾ », son infobulle et la jauge.",
     ],
-    expect: ["« bornée à 4 096 par llama-server (-c) ».", "Choix enregistré sans rechargement ; bouton et jauge à 4 096."],
-    crit: "La jauge reste à 4 096.",
+    expect: ["« bornée à 4 096 par llama-server (-c) ».", "Choix enregistré sans rechargement ; bouton et jauge sur la fenêtre effective, 4 096 ; infobulle « …, 8 192 choisi. »."],
+    crit: "La jauge reste à 4 096 ; l'infobulle du bouton dit « 8 192 choisi ».",
     report: "Texte de la borne.",
     fields: [{ k: "borne", label: "Texte de la borne", type: "text" }] },
 
@@ -1188,8 +1188,8 @@ const TESTS = [
       "Arrêtez llama-server (Ctrl+C dans son terminal). Chargez le 2B intégré.",
       "« Fenêtre ▾ » → 4 096 → « Appliquer » (indispensable pour le groupe 27).",
     ],
-    expect: ["« Fenêtre 8 192 ▾ » au premier affichage.", "Le diagnostic conseille de relancer llama-server avec -c 8192."],
-    crit: "8 192 repris ; conseil -c 8192 affiché ; retour à 4 096 fait.",
+    expect: ["« Fenêtre 4 096 ▾ » au premier affichage (la fenêtre effective, comme en N26-6), infobulle « …, 8 192 choisi. ».", "Le diagnostic conseille de relancer llama-server avec -np 1 -c 8192."],
+    crit: "8 192 repris (infobulle) ; conseil -np 1 -c 8192 affiché ; retour à 4 096 fait.",
     report: "Texte du conseil.",
     fields: [{ k: "repris", label: "8 192 repris ?", type: "yn" }, { k: "conseil", label: "Conseil du diagnostic", type: "text" }, { k: "retour", label: "Revenu à 4 096 ?", type: "yn" }] },
 

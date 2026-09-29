@@ -2391,9 +2391,12 @@ function renderWindowPicker() {
   const toggle = document.getElementById("window-toggle");
   setText(document.getElementById("window-toggle-value"), ws ? fmt(ws.window) : "…");
   toggle.disabled = !ws;
+  // Lot K (A3): the button shows the effective window; the one chosen, when it differs
+  // (llama-server's `-c`, the native context…), is in its tooltip.
+  const chosen = ws && ws.configured !== ws.window ? `, ${fmt(ws.configured)} choisi` : "";
   const title = !ws
     ? "Fenêtre de contexte : en attente de la session."
-    : `Fenêtre de contexte : ${fmt(ws.window)} tokens` + (ws.bound_fr ? `, ${ws.bound_fr}.` : ".");
+    : `Fenêtre de contexte : ${fmt(ws.window)} tokens` + (ws.bound_fr ? `, ${ws.bound_fr}` : "") + `${chosen}.`;
   if (toggle.title !== title) toggle.title = title;
   toggle.setAttribute("aria-label", ws ? `Fenêtre ${fmt(ws.window)} : régler la fenêtre de contexte` : "Fenêtre de contexte");
   if (!ws || windowPanel().hidden) return;
