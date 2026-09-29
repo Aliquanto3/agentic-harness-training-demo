@@ -295,6 +295,8 @@ def create_app(
             ),
             # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
             "cloud": session.cloud_rows(active.ref if active and active.kind == "cloud" else None),
+            # Story 24: the budget the session refuses with (the diagnostic's memory line).
+            "memory_budget_bytes": app_session.memory_budget_bytes,
             "seq": tip,
         }
 

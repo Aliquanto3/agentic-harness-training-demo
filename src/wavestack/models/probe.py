@@ -294,7 +294,30 @@ def failed_entry(path: str) -> dict[str, Any] | None:
         return None
     if entry.get("probe_version") != PROBE_VERSION:
         return None
-    return entry if _same_file(entry, path) else None
+    if not _same_file(entry, path):
+        return None
+    # Story 24: a reason an older WaveStack read in cp1252 is repaired at every read;
+    # settings.json is never rewritten by a read (a remembered failure is not probed again,
+    # so the stored text stays garbled until the file or llama-cpp-python changes).
+    if isinstance(entry.get("reason"), str):
+        entry = {**entry, "reason": repair_mojibake(entry["reason"])}
+    return entry
+
+
+# Story 24: what UTF-8 text read as cp1252 shows (« Ã® » for « î », « â€™ » for « ’ »).
+_MOJIBAKE_MARKS = ("Ã", "Â", "â€")
+
+
+def repair_mojibake(text: str) -> str:
+    """Story 24: `text` as it was before UTF-8 bytes were decoded as cp1252 (« abÃ®mÃ© » →
+    « abîmé »), when it shows the marks of it; unchanged otherwise, or when the repair is
+    impossible (never an exception)."""
+    if not any(mark in text for mark in _MOJIBAKE_MARKS):
+        return text
+    try:
+        return text.encode("cp1252").decode("utf-8")
+    except UnicodeError:
+        return text
 
 
 def measured(path: str) -> bool:
@@ -365,7 +388,13 @@ def main() -> int:
         return 2
 
     result = probe_file(*args)
-    print(result.model_dump_json())
+    # Story 24: ASCII JSON (accents as `\u` escapes), whatever the console's code page, and
+    # UTF-8 besides: the parent reads it as UTF-8 on every OS (cp1252 garbled it on Windows).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass  # not a text stream that can be reconfigured: the JSON is ASCII anyway
+    print(json.dumps(result.model_dump(mode="json")))
     return 0 if result.ok else 1
 
 

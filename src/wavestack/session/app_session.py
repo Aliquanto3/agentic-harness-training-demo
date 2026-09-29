@@ -111,7 +111,12 @@ from wavestack.models.openai_chat import (
     run_call,
 )
 from wavestack.models.reranker import RerankCancelled, Reranker
-from wavestack.models.servers import ServerError, TokenizerRefused, open_engine
+from wavestack.models.servers import (
+    ServerError,
+    TokenizerRefused,
+    ollama_load_bytes,
+    open_engine,
+)
 from wavestack.rag import index as rag_index
 from wavestack.rag.corpus import Chunk, RagContent, chunk_corpus, load_rag_content
 from wavestack.rag.retriever import Excerpt, SqliteVecRetriever
@@ -515,6 +520,11 @@ class SendRefused(Exception):
         self.reason_fr = reason_fr
 
 
+# AD-7, story 24: a hot switch's probe of a GGUF (`DiagnosticSession.probe_path`): `None`
+# when it loads or when « Arrêter » (the load's token) killed it, else why, in French.
+ProbeFn = Callable[[str, CancelToken | None], str | None]
+
+
 class _LoadCancelled(Exception):
     """Lot E (E4): « Arrêter » during a load, seen at one of `_load`'s checkpoints."""
 
@@ -664,7 +674,7 @@ class AppSession:
         self._ratios: dict[str, float] = {}
         # AD-8: every model load goes through the registry, one generative slot.
         self._load_registry = LoadRegistry(
-            self.cfg.memory_budget_bytes, self.cfg.load_margin_bytes, rss_fn or process_rss
+            self.cfg.memory_budget, self.cfg.load_margin_bytes, rss_fn or process_rss
         )
         self._active: ModelChoice | None = None  # the model loaded now (AD-3)
         self._call_ids: set[str] = set()  # the running turn's `tool_call_id`s (AD-4)
@@ -1399,11 +1409,22 @@ class AppSession:
             served = choice.server
             if served.resident or not served.gguf_path:
                 return served.served_bytes or 0  # already in memory: what it takes there
-            # Ollama will load it: its file, its KV cache at the window, and the margin,
-            # which also covers its tokenizer opened `vocab_only` in WaveStack (measured
-            # afterwards in WaveStack's RSS).
-            return self._load_registry.file_cost(served.gguf_path, self.cfg.context_window)
+            # Ollama will load it in its own process: its file, its KV cache (f16) at the
+            # window, and the margin, which also covers its tokenizer opened `vocab_only` in
+            # WaveStack. Story 24: never the probe's RSS of the blob, which measured
+            # llama-cpp-python in WaveStack's child (buffers, KV), not Ollama.
+            # The diagnostic's figure (`servers.served_bytes` at the window, with its fallback
+            # to the size Ollama reports), read again only for a candidate without one.
+            memory = served.served_bytes
+            if memory is None:
+                memory = ollama_load_bytes(served.gguf_path, self.cfg.context_window)
+            return (memory or 0) + self._load_registry.margin_bytes
         return self._load_registry.file_cost(choice.ref, self.cfg.context_window)
+
+    @property
+    def memory_budget_bytes(self) -> int:
+        """Story 24: the budget the refusals use (`/api/diagnostic`, the E2E run)."""
+        return self._load_registry.budget_bytes
 
     @staticmethod
     def _checked(choice: ModelChoice) -> bool:
@@ -1468,13 +1489,14 @@ class AppSession:
         return self._load(choice, previous, None, save=False)
 
     def switch_model(
-        self, choice: ModelChoice, probe: Callable[[str], str | None] | None = None
+        self, choice: ModelChoice, probe: ProbeFn | None = None
     ) -> tuple[str, Future[str] | None]:
         """Intention `select_model` once past the diagnostic (class b, AD-3): accepted in
         `idle`, even with a reason; refused otherwise (`SendRefused`). The budget is checked
         before anything is released (AD-8): its refusal, in figures, leaves the active model.
-        `probe(path)` probes a GGUF never probed, after the release: `None` if it loads, else
-        why. Returns the French answer and the load's future (`None`: already active)."""
+        `probe(path, cancel)` probes a GGUF never probed, after the release: `None` if it
+        loads (or « Arrêter » killed it: story 24, `cancel` is the load's token), else why.
+        Returns the French answer and the load's future (`None`: already active)."""
         cost = self._cost(choice)
         with self._lock:
             if self.state != "idle":
@@ -1499,14 +1521,15 @@ class AppSession:
         self,
         choice: ModelChoice,
         previous: ModelChoice | None,
-        probe: Callable[[str], str | None] | None,
+        probe: ProbeFn | None,
         save: bool,
     ) -> str:
         """The single load path, on the worker, in `model_load` (AD-3, AD-8): release the
         active model, probe a GGUF never measured (AD-7) and check the budget again with the
         measure, load; on failure, reload `previous`. Lot E (E4): « Arrêter » is seen after
-        the release, after the probe and after the load (llama.cpp cannot interrupt a load):
-        what was loaded is released and `previous` reloaded (`cancelled`). Then
+        the release, after the probe and after the load (llama.cpp cannot interrupt a load;
+        story 24: the probe's child is killed at once): what was loaded is released and
+        `previous` reloaded (`cancelled`). Then
         `model_load_ended`, `idle`, and the bricks, schema and preview again. The choice is
         saved (`save`) after a success only. Returns `ok`, `restored`, `cancelled` or
         `error`."""
@@ -1531,7 +1554,7 @@ class AppSession:
                     and probe is not None
                     and not probe_module.measured(choice.ref)
                 ):
-                    why = probe(choice.ref)
+                    why = probe(choice.ref, cancel)  # story 24: « Arrêter » kills it
                     _checkpoint(cancel)
                     if why is not None:
                         raise _LoadFailed(f"Le fichier {choice.file_name} est incompatible.", why)
@@ -1697,6 +1720,7 @@ class AppSession:
     def _install(self, choice: ModelChoice) -> None:
         """Load `choice` as the active model, nothing being loaded: raises on failure, the
         engine it opened closed first (AD-8: never two models)."""
+        base: int | None = None
         if choice.entry is not None:
             self._install_cloud(choice.entry)
         else:
@@ -1704,6 +1728,9 @@ class AppSession:
             if choice.kind == "server":  # story 18: its adapter; nothing loads in-process
                 engine = self._server_factory(choice.server, n_ctx=configured)
             else:
+                # Story 24: WaveStack without the model, measured after the release and
+                # before the engine: the floor of any later refusal's remainder.
+                base = self._load_registry.baseline()
                 try:
                     engine = self._engine_factory(choice.ref, n_ctx=configured)
                 except Exception as exc:  # lot E (E6): llama.cpp's message is the detail
@@ -1742,7 +1769,7 @@ class AppSession:
         in_process = choice.kind == "file"
         share = self._load_registry.file_share(choice.ref) if in_process else None
         self._load_registry.grant(
-            choice.label, self._cost(choice), in_process=in_process, share=share
+            choice.label, self._cost(choice), in_process=in_process, share=share, base=base
         )
 
     def _install_cloud(self, entry: CloudModel) -> None:

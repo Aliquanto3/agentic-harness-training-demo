@@ -138,3 +138,15 @@ def _no_local_model_server(monkeypatch):
         raise httpx.ConnectError("aucun serveur local en test", request=request)
 
     monkeypatch.setattr(servers, "default_transport", httpx.MockTransport(refuse))
+
+
+GIB = 1024**3
+
+
+@pytest.fixture(autouse=True)
+def _fixed_system_memory(monkeypatch):
+    """Story 24: the machine's RAM, pinned (16 Gio, 12 Gio available): the dynamic budget
+    stays at its 4 096 Mo cap whatever the machine running the tests."""
+    from wavestack import config
+
+    monkeypatch.setattr(config, "system_memory", lambda: (16 * GIB, 12 * GIB))

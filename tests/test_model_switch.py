@@ -55,7 +55,7 @@ class Tracker:
         return engine
 
     def probe(self, path: str, reason: str | None = None):  # noqa: ANN201
-        def run(probed: str) -> str | None:
+        def run(probed: str, cancel=None) -> str | None:  # noqa: ANN001 - story 24: the token
             self.log.append(f"probe {Path(probed).stem}")
             self.overlap |= bool(self.open)
             return reason
@@ -85,14 +85,16 @@ def _files(tmp_path: Path, *names: str) -> dict[str, str]:
     return paths
 
 
-def _session(tracker: Tracker, *, rss: int = 0, budget_mb: int = 4096, margin_mb: int = 0):
+def _session(tracker: Tracker, *, rss=0, budget_mb: int = 4096, margin_mb: int = 0):  # noqa: ANN001
+    """`rss`: the RSS injected, constant, or a function (story 24: it may change once the
+    engine is created)."""
     cfg = config.load_config()
     cfg.values["memory"] = {"budget_mb": budget_mb, "load_margin_mb": margin_mb}
     return AppSession(
         cfg,
         engine_factory=tracker.factory,
         cloud_factory=lambda entry, key: FakeCloud(tracker),
-        rss_fn=lambda: rss,
+        rss_fn=rss if callable(rss) else (lambda: rss),
     )
 
 
@@ -247,8 +249,8 @@ def test_budget_exceeded_refuses_before_any_release(tmp_path):
 
     assert refused.value.reason_fr == (
         "Changement refusé : Qwen3.5-4B demande environ 3,1 Go ; WaveStack occupe 1,9 Go sans "
-        "le modèle actif, pour un budget de 4,0 Go. Qwen3.5-2B reste actif. Choisissez un "
-        "modèle plus petit."
+        "le modèle actif, pour un budget de 4,0 Go (= plafond [memory] budget_mb). Qwen3.5-2B "
+        "reste actif. Choisissez un modèle plus petit."
     )
     assert tracker.open == {"Qwen3.5-2B"} and session.state == "idle"
     assert _events(mark, "harness_error")[-1]["message_fr"] == refused.value.reason_fr
@@ -434,7 +436,7 @@ def _web(monkeypatch, tmp_path, **session_kwargs):
     cfg = config.load_config()
     session = DiagnosticSession(cfg, port=8420)
     monkeypatch.setattr(session, "check_network", lambda: None)
-    monkeypatch.setattr(session, "_probe_candidate", lambda candidate: None)
+    monkeypatch.setattr(session, "_probe_candidate", lambda candidate, cancel=None: None)
     app_session = _session(tracker, **session_kwargs)
     app = create_app(session, port=8420, version="test", app_session=app_session)
     session.hand_to(app_session, session.run(), launch=True)
@@ -493,11 +495,11 @@ def _probe_child(monkeypatch, session: DiagnosticSession, result: dict) -> list[
         def __init__(self, path: str) -> None:
             self.stdout = probe.ProbeResult(path=path, **result).model_dump_json()
 
-    def run(cmd, **kwargs):  # noqa: ANN001, ANN202
-        probed.append(cmd[-1])
-        return _Done(cmd[-1])
+    def run(argv, cancel, timeout):  # noqa: ANN001, ANN202 - story 24: `_run_probe`
+        probed.append(argv[-1])
+        return _Done(argv[-1])
 
-    monkeypatch.setattr(diagnostic_module.subprocess, "run", run)
+    monkeypatch.setattr(diagnostic_module, "_run_probe", run)
     return probed
 
 
@@ -553,7 +555,7 @@ def test_relaunch_after_a_switch_loads_the_new_model(monkeypatch, tmp_path):
     app_session.join()
 
     relaunched = DiagnosticSession(config.load_config(), port=8420)
-    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate: None)
+    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate, cancel=None: None)
     assert relaunched.check_model().model_path == b
 
     entry = _cloud_entry()
@@ -564,7 +566,7 @@ def test_relaunch_after_a_switch_loads_the_new_model(monkeypatch, tmp_path):
     )
     app_session.join()
     relaunched = DiagnosticSession(config.load_config(), port=8420)
-    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate: None)
+    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate, cancel=None: None)
     result = relaunched.check_model()  # AD-21: no warning, no request at a relaunch
     assert result.cloud_model is not None and result.cloud_model.id == entry.id
 
@@ -765,7 +767,7 @@ def test_a_failing_close_still_releases_and_restores(tmp_path):
 def test_budget_checked_again_with_the_probe_measure(tmp_path):
     session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
 
-    def probe_measuring(path: str) -> None:
+    def probe_measuring(path: str, cancel=None) -> None:  # noqa: ANN001
         tracker.log.append("probe B")
         _record_probe(path, rss_bytes=5 * GIB)  # what the child process measured
         return None
@@ -897,7 +899,7 @@ def test_stop_during_a_slow_load_brings_the_previous_model_back(tmp_path):
 def test_stop_during_the_probe_never_loads_the_new_model(tmp_path):
     session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
 
-    def probe_and_stop(path: str) -> None:
+    def probe_and_stop(path: str, cancel=None) -> None:  # noqa: ANN001
         tracker.log.append("probe B")
         assert session.stop() is True  # the click lands while the child process runs
         return None
@@ -986,7 +988,10 @@ def test_refusal_with_a_local_model_active_gives_the_real_remainder(tmp_path):
     share = round(1.5 * GIB)
     _record_probe(paths["A"], rss_bytes=share, kv_bytes_per_token=131_072)  # estimate: 2,25 Go
     _record_probe(paths["B"], rss_bytes=round(3.9 * GIB))
-    session = _session(tracker, rss=210 * MIB + share, margin_mb=256)
+    # Story 24: the RSS grows by A's share once its engine is created.
+    session = _session(
+        tracker, rss=lambda: 210 * MIB + (share if tracker.open else 0), margin_mb=256
+    )
     session.boot(paths["A"]).result()
 
     with pytest.raises(SendRefused) as refused:
@@ -1068,7 +1073,7 @@ def test_launch_boot_stopped_blocks_the_diagnostic(monkeypatch, tmp_path):
     (config.models_dir() / "A.gguf").write_bytes(b"placeholder")
     session = DiagnosticSession(config.load_config(), port=8420)
     monkeypatch.setattr(session, "check_network", lambda: None)
-    monkeypatch.setattr(session, "_probe_candidate", lambda candidate: None)
+    monkeypatch.setattr(session, "_probe_candidate", lambda candidate, cancel=None: None)
     tracker = Tracker({"A": FakeEngine()})
     app_session = _session(tracker)
     entered, gate = _gated(app_session, tracker, "A")

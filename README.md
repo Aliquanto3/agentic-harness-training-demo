@@ -148,18 +148,48 @@ par fichier ; un fichier sondé par une version précédente de WaveStack est me
 lancement s'il est le modèle enregistré, sinon quand on le choisit. Une sonde à court de
 mémoire ou de temps n'est pas retenue contre le fichier. Avec le budget de 4 Go, Qwen3.5-4B
 devrait être refusé : 4,27 Go mesurés après 3 000 tokens lors du test du 2026-09-27 (à vérifier
-sur PC avec la nouvelle sonde) ; relevez `budget_mb` pour l'utiliser. Le refus dit aussi ce
-qu'occupe WaveStack sans le modèle actif.
+sur PC avec la nouvelle sonde). Pour l'utiliser malgré tout : fermez des applications,
+relevez `budget_mb` (le plafond) et au besoin `budget_ram_ratio`, ou passez en
+`budget_mode = "fixed"` avec un `budget_mb` suffisant, puis relancez WaveStack (le budget est
+calculé au lancement).
 
-« Arrêter » (à droite du champ de message) interrompt un chargement en cours : il prend effet
-à la fin de l'étape en cours (libération, sonde ou chargement, que llama.cpp ne sait pas
-interrompre), puis WaveStack recharge le modèle précédent. Le budget se règle dans
-`wavestack.toml` (ou `settings.json`) :
+Le refus dit aussi ce qu'occupe WaveStack sans le modèle actif : la mémoire mesurée juste avant
+la création de son moteur (après la libération du précédent), ou davantage si d'autres
+composants se sont chargés depuis (embedding, reranker). Les poids d'un modèle sont projetés en
+mémoire depuis le fichier et peuvent être bien moins présents que ce que la sonde a mesuré :
+retrancher la mesure de la sonde pouvait donner « 0 Mo », ce que la mesure d'avant le moteur
+évite.
+
+**Budget calculé au lancement.** Par défaut (`budget_mode = "dynamic"`), le budget vaut le plus
+petit de deux nombres : le plafond `budget_mb` (4 096 Mo, NFR-2) et 60 % de la RAM disponible
+au lancement (`budget_ram_ratio`). Il est calculé une seule fois, au lancement, puis ne bouge
+plus pendant la séance. La ligne « memory » du diagnostic donne la RAM du poste, la RAM
+disponible, la part retenue, le plafond et le budget ; chaque refus donne le même budget et son
+calcul en bref, par exemple « budget de 4,0 Go (= plafond [memory] budget_mb) » ou « budget de
+2,9 Go (= 60 % des 4,9 Go de RAM disponibles au lancement) » ; le diagnostic donne le calcul
+complet (« plafond [memory] budget_mb de 4 096 Mo, plus petit que 60 % des 9 600 Mo de RAM
+disponibles au lancement (5 760 Mo), sur 16 071 Mo »). Le budget ne descend jamais sous
+512 Mo. Quand la RAM
+disponible fait descendre le budget sous le plafond, le diagnostic l'avertit (sans bloquer) :
+fermez des applications (navigateur, messagerie, visioconférence) puis relancez WaveStack. Si
+la RAM ne peut pas être lue, le budget est le plafond. `budget_mode = "fixed"` garde un budget
+fixe de `budget_mb`, quelle que soit la RAM (« valeur fixe » dans le calcul) ; le diagnostic
+avertit s'il dépasse la RAM disponible.
+
+« Arrêter » (à droite du champ de message) interrompt un chargement en cours. Pendant la sonde
+d'un fichier jamais chargé, il arrête le processus de la sonde aussitôt : rien n'est retenu
+contre le fichier, et le modèle précédent revient. Pendant un chargement dans WaveStack, il
+prend effet à la fin de l'étape (libération ou chargement, que llama.cpp ne sait pas
+interrompre), puis WaveStack recharge le modèle précédent. La sonde du diagnostic de lancement,
+elle, n'a pas de bouton « Arrêter ». Le budget se règle dans `wavestack.toml` (ou
+`settings.json`) :
 
 ```toml
 [memory]
-budget_mb = 4096      # mémoire de WaveStack et de ses processus enfants, modèle compris
-load_margin_mb = 256  # marge ajoutée au coût estimé de chaque modèle local
+budget_mode = "dynamic"  # ou "fixed"
+budget_mb = 4096         # plafond (dynamic) ou valeur (fixed), en Mo, modèle compris
+budget_ram_ratio = 0.6   # part de la RAM disponible au lancement (de 0,1 à 0,9)
+load_margin_mb = 256     # marge ajoutée au coût estimé de chaque modèle local
 ```
 
 ## Modèle par défaut
@@ -233,9 +263,14 @@ d'un modèle Ollama y est ouvert, sans les poids). Le budget `[memory]` compte l
   `/props`), la taille d'un token du cache étant lue dans l'en-tête du fichier GGUF (sans les
   poids, sans llama.cpp) ; si WaveStack ne peut pas lire ce fichier, le chiffre affiché le dit
   et ne compte que la taille du fichier. Pour Ollama, la mémoire qu'il annonce (`/api/ps`) ;
-- pas encore chargé par Ollama : compté comme un fichier (taille, cache de contexte à la
-  fenêtre, marge `load_margin_mb`, qui couvre aussi le tokenizer), et refusé, chiffres à
-  l'appui, s'il dépasse le budget.
+- pas encore chargé par Ollama : compté pour la taille de son fichier plus son cache de
+  contexte (f16) à la fenêtre, lu dans l'en-tête du fichier (la ligne du diagnostic), plus la
+  marge `load_margin_mb` au moment du choix (elle couvre aussi le tokenizer), et refusé,
+  chiffres à l'appui, s'il dépasse le budget. Jamais la mémoire mesurée par la sonde de son
+  fichier : elle mesure llama-cpp-python dans un processus de WaveStack (tampons de calcul
+  compris), pas Ollama. Par exemple `llama3.2:3b` (2,0 Go) : ≈ 2,3 Go au diagnostic, ≈ 2,6 Go
+  avec la marge, sous un budget de 4 096 Mo. Un cache quantifié ou `OLLAMA_NUM_PARALLEL` > 1
+  dans Ollama changent sa mémoire réelle (à vérifier sur PC).
 
 En quittant un modèle Ollama (changement de modèle ou fermeture de WaveStack), WaveStack demande
 à Ollama de le décharger (`keep_alive: 0`), seulement s'il l'a fait charger : un modèle
@@ -282,8 +317,9 @@ entrent dans le message. L'étape « Reranking » d'Orchestration montre l'ordre
 - **Modèle.** Il est nommé dans la seule section `[rag.reranker]` de `wavestack.toml` : BGE
   Reranker v2 M3, GGUF Q4_K_M, 438 Mo, Apache-2.0. C'est le verdict **provisoire** de la
   story 12 : sa latence et sa mémoire restent à mesurer sur le PC cible.
-- **Mémoire.** Il est compté dans le budget (`[memory] budget_mb`) pour la taille de son fichier
-  plus `[memory] load_margin_mb` (environ 690 Mo), ou pour `measured_rss_mb` une fois mesuré.
+- **Mémoire.** Il est compté dans le budget mémoire (`[memory]`, calculé au lancement) pour la
+  taille de son fichier plus `[memory] load_margin_mb` (environ 690 Mo), ou pour
+  `measured_rss_mb` une fois mesuré.
   Refusé, seule la case est indisponible, avec la raison chiffrée.
 - **Lenteur.** Un passage du reranker par candidat, avant le premier appel au modèle : si
   l'étape « Reranking » est trop lente sur le poste, baissez `[rag] rerank_candidates` dans

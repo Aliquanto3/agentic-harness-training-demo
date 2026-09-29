@@ -12,6 +12,7 @@ import math
 import os
 import sys
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -291,6 +292,141 @@ def _merge_cloud_models(base: Any, override: Any) -> list[Any]:
     return list(merged.values())
 
 
+_MIB = 1024 * 1024
+_GIB = 1024 * _MIB
+DEFAULT_BUDGET_MB = 4096  # AD-8, NFR-2: `[memory] budget_mb`, the cap in `dynamic` mode
+DEFAULT_BUDGET_RAM_RATIO = 0.6  # story 24: `[memory] budget_ram_ratio`
+BUDGET_RAM_RATIO_BOUNDS = (0.1, 0.9)
+BUDGET_FLOOR_MB = 512  # story 24: the dynamic budget never goes below it (nor above the cap)
+
+
+def system_memory() -> tuple[int, int]:
+    """Story 24: the machine's RAM, total and available, in bytes (`psutil`). Raises when
+    the OS does not say it; tests replace this function."""
+    import psutil  # opens no connection; imported here to keep `config` light at import
+
+    memory = psutil.virtual_memory()
+    return int(memory.total), int(memory.available)
+
+
+def mo_fr(n: int) -> str:
+    """Bytes in Mo, rounded, French thousands separator: « 4 096 » (the unit apart)."""
+    return f"{round(n / _MIB):,}".replace(",", "\u202f")
+
+
+def go_fr(n: int) -> str:
+    """Bytes in Go, one decimal, French decimal comma: « 3,1 Go »."""
+    return f"{n / _GIB:.1f}".replace(".", ",") + " Go"
+
+
+def size_fr(n: int) -> str:
+    """Lot E (E3): « 210 Mo » under 1 Go, « 3,1 Go » from there on."""
+    return f"{mo_fr(n)} Mo" if n < _GIB else go_fr(n)
+
+
+def _with_mo(n: int) -> str:
+    return f"{mo_fr(n)} Mo"
+
+
+def _percent_fr(ratio: float) -> str:
+    """« 60 % », « 62,5 % »."""
+    return f"{ratio * 100:.1f}".rstrip("0").rstrip(".").replace(".", ",") + "\u00a0%"
+
+
+@dataclass(frozen=True)
+class MemoryBudget:
+    """Story 24 (AD-8, NFR-2): WaveStack's memory budget, computed once at launch.
+
+    `dynamic` (default): `min(cap, max(floor, ratio × RAM available at launch))`; `fixed`:
+    the cap itself (`[memory] budget_mb`). `ram_limited`: the RAM, not the cap, set it;
+    `floored`: the RAM share was below `BUDGET_FLOOR_MB`. `measured`: the RAM could be read
+    (else the budget is the cap)."""
+
+    bytes: int
+    mode: Literal["dynamic", "fixed"]
+    cap_bytes: int
+    ratio: float
+    total_bytes: int | None = None
+    available_bytes: int | None = None
+    ram_limited: bool = False
+    measured: bool = False
+    floored: bool = False
+
+    def calc_fr(self) -> str:
+        """How the budget was reached, in French and in Mo (the diagnostic)."""
+        cap = f"[memory] budget_mb de {_with_mo(self.cap_bytes)}"
+        if self.mode == "fixed":
+            return f"valeur fixe {cap} (budget_mode = « fixed »)"
+        if not self.measured or self.available_bytes is None:
+            return f"plafond {cap}, RAM du poste non mesurée"
+        share = f"{_percent_fr(self.ratio)} des {_with_mo(self.available_bytes)} de RAM"
+        total = f", sur {_with_mo(self.total_bytes)}" if self.total_bytes else ""
+        part = f"({_with_mo(int(self.ratio * self.available_bytes))})"
+        if self.floored:
+            return (
+                f"{share} disponibles au lancement {part}{total}, relevé au plancher de "
+                f"{BUDGET_FLOOR_MB} Mo"
+            )
+        if self.ram_limited:
+            return f"{share} disponibles au lancement {part}{total}, sous le plafond {cap}"
+        return f"plafond {cap}, plus petit que {share} disponibles au lancement {part}{total}"
+
+    def short_fr(self, fmt: Callable[[int], str] = size_fr) -> str:
+        """The calculation in short, for a refusal (one unit: `fmt`): « = plafond
+        [memory] budget_mb », « = 60 % des 7,2 Go de RAM disponibles au lancement »."""
+        if self.mode == "fixed":
+            return "= valeur fixe [memory] budget_mb"
+        if not self.measured or self.available_bytes is None:
+            return "= plafond [memory] budget_mb, RAM du poste non mesurée"
+        if self.floored:
+            return "= plancher, RAM disponible au lancement faible"
+        if self.ram_limited:
+            return (
+                f"= {_percent_fr(self.ratio)} des {fmt(self.available_bytes)} de RAM "
+                "disponibles au lancement"
+            )
+        return "= plafond [memory] budget_mb"
+
+
+def compute_memory_budget(mode: str, cap_mb: int, ratio: float) -> MemoryBudget:
+    """Story 24: the budget from the `[memory]` settings (already bounded) and the RAM read
+    now. The RAM unreadable (or said to be 0): the cap, said in the calculation."""
+    cap = max(1, cap_mb) * _MIB
+    fixed = mode == "fixed"
+    try:
+        total, available = system_memory()
+    except Exception:  # noqa: BLE001 - any failure of the OS reading: the cap, never a crash
+        total = available = 0
+    if available <= 0:
+        return MemoryBudget(
+            bytes=cap, mode="fixed" if fixed else "dynamic", cap_bytes=cap, ratio=ratio
+        )
+    total = total if total > 0 else None
+    if fixed:  # the RAM is read for the diagnostic only
+        return MemoryBudget(
+            bytes=cap,
+            mode="fixed",
+            cap_bytes=cap,
+            ratio=ratio,
+            total_bytes=total,
+            available_bytes=available,
+            measured=True,
+        )
+    part = int(ratio * available)
+    floor = BUDGET_FLOOR_MB * _MIB
+    return MemoryBudget(
+        bytes=min(cap, max(floor, part)),
+        mode="dynamic",
+        cap_bytes=cap,
+        ratio=ratio,
+        total_bytes=total,
+        available_bytes=available,
+        ram_limited=part < cap,
+        measured=True,
+        floored=part < floor < cap,
+    )
+
+
 @dataclass(frozen=True)
 class Config:
     """Merged configuration: wavestack.toml defaults overridden by settings.json."""
@@ -400,10 +536,39 @@ class Config:
         except (TypeError, ValueError):
             return 4096
 
+    @cached_property
+    def memory_budget(self) -> MemoryBudget:
+        """AD-8, story 24: the memory budget, computed once per `Config` (the launch computes
+        it right after loading the configuration, `cli.main`), shared by the diagnostic and
+        the session: `[memory] budget_mode`
+        (`dynamic` by default, an unknown mode too, or `fixed`), `budget_mb` (the cap, or
+        the fixed value) and `budget_ram_ratio` (0,6, bounded to [0,1 ; 0,9])."""
+        raw_mode = self.get("memory", "budget_mode", default="dynamic")
+        mode = "fixed" if str(raw_mode).strip().lower() == "fixed" else "dynamic"
+        low, high = BUDGET_RAM_RATIO_BOUNDS
+        raw_ratio = self.get("memory", "budget_ram_ratio", default=DEFAULT_BUDGET_RAM_RATIO)
+        ratio = (
+            DEFAULT_BUDGET_RAM_RATIO
+            if isinstance(raw_ratio, bool)
+            else self._float(
+                "memory", "budget_ram_ratio", default=DEFAULT_BUDGET_RAM_RATIO, low=low, high=high
+            )
+        )
+        if not math.isfinite(ratio):
+            ratio = DEFAULT_BUDGET_RAM_RATIO
+        raw_cap = self.get("memory", "budget_mb", default=DEFAULT_BUDGET_MB)
+        try:  # `inf`, `true`, a text, 0 or less: the default, never a crash nor a 1 Mo budget
+            cap_mb = DEFAULT_BUDGET_MB if isinstance(raw_cap, bool) else int(raw_cap)
+        except (TypeError, ValueError, OverflowError):
+            cap_mb = DEFAULT_BUDGET_MB
+        if cap_mb < 1:
+            cap_mb = DEFAULT_BUDGET_MB
+        return compute_memory_budget(mode, cap_mb, ratio)
+
     @property
     def memory_budget_bytes(self) -> int:
-        """AD-8: WaveStack's memory budget, `[memory] budget_mb`."""
-        return max(1, self._int("memory", "budget_mb", default=4096)) * 1024 * 1024
+        """AD-8: WaveStack's memory budget in bytes (`memory_budget`)."""
+        return self.memory_budget.bytes
 
     @property
     def load_margin_bytes(self) -> int:

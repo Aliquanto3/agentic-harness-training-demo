@@ -2,7 +2,8 @@
 title: 'Modèles : mémoire comptée juste, budget dynamique, sonde interruptible'
 type: 'bugfix'
 created: '2026-09-28'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'a1980cb2acdf9b7d08c31a7e85bc2d85a5a6d0da'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -12,7 +13,27 @@ context:
   - '{project-root}/_bmad-output/implementation-artifacts/retours-recette-palier-2-2026-09-28.md'
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-agentic-harness-training-demo-2026-09-22/EXPERIENCE.md'
 warnings: ['oversized', 'multiple-goals']
-deferred: []
+deferred:
+  - summary: >-
+      Seuil « enfant terminé en moins de 1 s » et critère 5 (raison affichée au sélecteur) vérifiés plus largement que spécifié.
+    evidence: |-
+      Tests unitaires à 2 s, E2E à 3 s ; la réparation est testée par failed_entry, pas par le sélecteur.
+    severity: low (unverified)
+  - summary: >-
+      Base non abaissée quand un embedder ou un reranker chargé avant elle est libéré.
+    evidence: |-
+      _without garde max(base, rss − part) ; la mémoire du composant libéré reste comptée dans la base.
+    severity: medium (unverified)
+  - summary: >-
+      Réparation des raisons mal décodées limitée au cp1252.
+    evidence: |-
+      Un poste en cp1250 ou cp850 garderait un texte abîmé.
+    severity: low (unverified)
+  - summary: >-
+      Modèle Ollama déjà chargé au lancement : il réduit la RAM disponible, donc le budget dynamique, et compte encore comme coût via /api/ps.
+    evidence: |-
+      Interaction des points (2) et (4) de la story non traitée ; à mesurer sur le PC avec Ollama chaud.
+    severity: medium (unverified)
 ---
 
 <intent-contract>
@@ -91,6 +112,37 @@ Numéros de ligne indicatifs (`app_session.py` bouge avec les stories 33, 23, 34
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 27 findings — high 0, medium 4, low 16, false 2, maybe-false 5 (écarts de l'auditeur d'intention : double compte d'un modèle Ollama déjà chargé au lancement dans la RAM disponible — différé ; refus en mode fixe sans RAM — couvert par la reformulation ; scénario `fake_b` inchangé — rejeté, la sonde est couverte par un scénario dédié)
+- findings:
+  - `[medium]` `[patch]` (blind + edge ×2) coût Ollama réduit à la marge si le blob est illisible, chiffre différent du diagnostic — `served_bytes(…, window)` + marge, test.
+  - `[low]` `[patch]` (blind) commentaire « la prochaine sonde réécrit l'entrée » faux — corrigé.
+  - `[low]` `[patch]` (blind) budget fixe au-dessus de la RAM disponible sans avertissement — avertissement.
+  - `[low]` `[patch]` (blind) refus qui mêlent Go et Mo et répètent le plafond — une unité, calcul court.
+  - `[low]` `[patch]` (blind) formateur Mo recopié trois fois — une aide commune.
+  - `[low]` `[patch]` (blind) docs de l'ancienne formule — alignées.
+  - `[low]` `[patch]` (blind) « Arrêt demandé » sans explication — infobulle, contrôle E2E.
+  - `[maybe-false]` `[defer]` (blind) seuil « moins de 1 s » et critère 5 (raison au sélecteur) vérifiés plus largement que spécifié.
+  - `[low]` `[patch]` (blind + edge + vérif.) branches du contrôle mémoire non testées (ok, RAM faible en fixe, fixe illisible) — tests ajoutés.
+  - `[medium]` `[patch]` (blind) budget calculé à la première lecture et non au lancement — calcul dès la lecture de la configuration.
+  - `[low]` `[patch]` (blind) conseil pour Qwen3.5-4B retiré du README — rétabli pour le budget dynamique.
+  - `[low]` `[patch]` (blind + edge) nettoyage E2E hors `try/finally` — ajouté.
+  - `[false]` `[reject]` (blind) captures non commitées — elles sont dans l'arbre de travail (exclues du diff de revue) et commitées avec la story.
+  - `[false]` `[reject]` (blind) `memory_budget_bytes` sans appelant — gardé comme accès simple pour les appelants existants hors `src/` (tests, outils).
+  - `[low]` `[patch]` (edge + edge) arrêt dans la même tranche que la fin de l'enfant : échec enregistré — jeton vérifié avant tout enregistrement.
+  - `[maybe-false]` `[defer]` (edge) base non abaissée quand un composant chargé avant elle est libéré — refus parasite possible.
+  - `[medium]` `[patch]` (edge) RAM disponible lue à 0 : budget de 1 Mo — traitée comme non mesurée, plancher.
+  - `[low]` `[patch]` (edge) `budget_mb` à `inf` ou booléen — lecture protégée.
+  - `[low]` → regroupé (fixe et RAM illisible, edge).
+  - `[maybe-false]` `[defer]` (edge) réparation limitée au cp1252 (postes cp1250 ou cp850).
+  - `[low]` → regroupé (E2E `try/finally`, edge).
+  - `[medium]` → regroupé (coût Ollama, edge « claim »).
+  - `[low]` → regroupé (course d'arrêt, edge « claim »).
+  - `[low]` → regroupé (tests du contrôle mémoire, vérif.).
+  - `[maybe-false]` `[defer]` (intention) modèle Ollama déjà chargé au lancement : il réduit la RAM disponible, donc le budget, et compte encore comme coût.
+  - `[low]` → regroupé (refus en mode fixe, intention).
+  - `[maybe-false]` `[reject]` (intention) E2E sur `fake_b` inchangé — la sonde interrompue a son propre scénario ; `fake_b` couvre l'arrêt en fin d'étape.
+
 ## Design Notes
 
 - Base : `max(base, rss − part)` et non `base` seule, pour compter aussi ce qui s'est chargé après le modèle (embedding, reranker, caches) quand les poids sont résidents ; `base` seule garantit le plancher.
@@ -131,3 +183,17 @@ Numéros de ligne indicatifs (`app_session.py` bouge avec les stories 33, 23, 34
 - **Geste** : Ollama lancé, `llama3.2:3b` non chargé (`ollama ps` vide), le choisir. — **Attendu** : accepté ; ligne du diagnostic ≈ 2,3 Go. — **Critère** : pas de refus ; après un message, `ollama ps` (SIZE) à ±30 % de l'estimation ; noter `OLLAMA_NUM_PARALLEL` et le type de KV d'Ollama. — **Moyen** : script AppSession et PowerShell.
 - **Geste** : reprendre le fichier incompatible de C6 (même fichier que la recette), le choisir. — **Attendu** : raison accentuée juste dans le diagnostic et le journal. — **Critère** : aucun « Ã » ni « Â » dans la page ni dans les nouvelles entrées de `settings.json`. — **Moyen** : Claude in Chrome.
 - **Geste** : avant la mise à jour, garder le `settings.json` du PC (entrée C6 abîmée) ; après, ouvrir le diagnostic. — **Attendu** : raison réparée sans nouvelle sonde. — **Critère** : « abîmé » et « modèle » corrects ; `settings.json` inchangé tant qu'aucune sonde ne réécrit l'entrée. — **Moyen** : à la main.
+
+## Auto Run Result
+
+Statut : done (2026-09-29, orchestrateur de nuit ; étapes 1 à 4 menées par l'orchestrateur).
+
+**Changement :** (1) la mémoire de base de WaveStack est mesurée juste avant la création du moteur et gardée dans la réservation ; le refus calcule `min(RSS, max(base, RSS − part))`, jamais « 0 Mo ». (2) Budget dynamique plafonné : `min(budget_mb, max(512 Mo, budget_ram_ratio × RAM disponible au lancement))`, mode `fixed` possible, calcul complet au diagnostic, forme courte dans les refus, valeurs invalides ramenées au défaut, calcul fait dès le lancement. (3) « Arrêter » pendant la sonde d'un GGUF tue l'enfant tout de suite (`Popen` par tranches), rien n'est enregistré, le modèle précédent revient. (4) Coût d'un modèle Ollama non chargé = chiffre du diagnostic (poids + cache à la fenêtre) + marge, jamais la RSS de la sonde ; règle écrite dans AD-8 (« décision provisoire, à valider »). (5) Sonde en JSON ASCII, lecture UTF-8, raisons abîmées réparées à la lecture sans réécrire `settings.json`.
+
+**Fichiers :** `config.py`, `cli.py`, `models/{load_registry,probe,servers,discovery}.py`, `session/{app_session,diagnostic}.py`, `web/app.py`, `web/static/app.js`, `tests/conftest.py`, `tests/test_memory_budget.py` (nouveau), `tests/test_{probe,model_servers,model_switch,rag,compression,…}.py`, `tools/e2e/{launch_app.py,run_e2e.py}`, README.md, wavestack.toml, SPEC.md (NFR-2), EXPERIENCE.md, ARCHITECTURE-SPINE.md (AD-7, AD-8).
+
+**Revue :** 27 constats — 16 corrigés (4 medium, 12 low), 4 différés (maybe-false), 3 rejetés, le reste regroupé ; voir le triage. Revue de suivi recommandée : false.
+
+**Vérification :** ruff check et format verts ; pytest : 1042 passés, 3 ignorés ; E2E complet : 521 PASS, 0 FAIL (arrêt pendant la sonde lente en 0,2 s).
+
+**Risques résiduels :** RAM réelle du PC, mémoire réelle d'Ollama (cache quantifié, `OLLAMA_NUM_PARALLEL`) et `kill()` de l'enfant sous Windows : vérifiés ici par doublures et sous Linux seulement.

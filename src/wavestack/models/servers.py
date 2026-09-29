@@ -738,12 +738,13 @@ def list_served(
     return served
 
 
-def served_bytes(model: ServedModel, path: str | None) -> int | None:
+def served_bytes(model: ServedModel, path: str | None, window: int | None = None) -> int | None:
     """AD-8: the served model's memory. Resident: what Ollama reports in `/api/ps`; else
     (llama-server) its file's size plus its KV cache for its whole context `n_ctx` (lot E,
     E1: llama-server reserves it at launch), the KV read in the file's metadata, without the
     weights (the file's size alone when unreadable); not loaded yet (Ollama): its blob's
-    size. `None` when nothing says it."""
+    size, plus (story 24) its KV cache at `window` when given and readable
+    (`ollama_load_bytes`). `None` when nothing says it."""
     if model.resident and model.resident_size:
         return model.resident_size
     size = model.size
@@ -753,8 +754,27 @@ def served_bytes(model: ServedModel, path: str | None) -> int | None:
             size = Path(local).stat().st_size
         except OSError:
             pass
+    if model.engine == "ollama" and not model.resident and window and local:
+        return ollama_load_bytes(local, window) or size
     kv = served_kv(model, path)
     return size + kv * (model.n_ctx or 0) if size is not None and kv else size
+
+
+def ollama_load_bytes(path: str | None, window: int) -> int | None:
+    """Story 24 (AD-8): what Ollama will take to load a model it does not hold yet: its
+    blob's size plus its KV cache (f16) at `window`, read in the blob's header in pure
+    Python; the size alone when the KV is unreadable; `None` without a readable file.
+    Never the probe's RSS of the blob: that measured llama-cpp-python in WaveStack's own
+    child (compute buffers, KV at `probe_window`), not Ollama's engine."""
+    local = _local(path)
+    if not local:
+        return None
+    try:
+        size = Path(local).stat().st_size
+    except OSError:
+        return None
+    kv = probe.gguf_kv_bytes_per_token(local) or 0
+    return size + kv * max(window, 0)
 
 
 def served_kv(model: ServedModel, path: str | None) -> int | None:

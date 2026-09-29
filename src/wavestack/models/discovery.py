@@ -206,7 +206,10 @@ def _server_candidates(
                 model.n_ctx, cfg.context_window, model.slot_ctx
             )
             candidate.context_counted = servers.served_kv(model, model.model_path) is not None
-        candidate.served_bytes = servers.served_bytes(model, candidate.gguf_path)
+        # Story 24: an Ollama model not loaded yet counts its KV at the window, as `_cost`.
+        candidate.served_bytes = servers.served_bytes(
+            model, candidate.gguf_path, cfg.context_window
+        )
         candidate.resident = model.resident
         candidates.append(candidate)
     return candidates

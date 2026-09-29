@@ -40,12 +40,24 @@ window = 4096
 near_limit_ratio = 0.8
 
 [memory]
-# Budget mémoire de WaveStack (AD-8), en Mo : un changement de modèle est refusé si la
-# mémoire mesurée (WaveStack et ses processus enfants), moins le coût du modèle actif, plus
-# le coût du nouveau, dépasse ce budget. Le modèle actif reste alors chargé. Le modèle
-# d'embedding du RAG (story 15) et le reranker (story 16) sont refusés de même, avec la brique
-# ou sa sous-option indisponible.
+# Budget mémoire de WaveStack (AD-8, NFR-2) : un changement de modèle est refusé si ce
+# qu'occupe WaveStack sans le modèle actif, plus le coût du nouveau, dépasse ce budget. Sans le
+# modèle actif : la mémoire mesurée (WaveStack et ses processus enfants) moins la part du
+# modèle, jamais sous la mémoire mesurée juste avant la création de son moteur. Le modèle actif reste alors chargé. Le modèle d'embedding du RAG
+# (story 15) et le reranker (story 16) sont refusés de même, avec la brique ou sa sous-option
+# indisponible. Story 24 : le budget est calculé une seule fois, au lancement ; le diagnostic
+# (ligne « memory ») et chaque refus donnent le budget retenu et son calcul.
+# Mode du budget : "dynamic" (défaut, et pour toute valeur inconnue) ou "fixed".
+#   dynamic : min(budget_mb, budget_ram_ratio × RAM disponible au lancement), jamais sous
+#             512 Mo ; si la RAM est illisible, budget_mb. Fermer des applications puis relancer WaveStack l'agrandit,
+#             jusqu'au plafond.
+#   fixed   : budget_mb, quelle que soit la RAM du poste.
+budget_mode = "dynamic"
+# En Mo : le plafond du budget en mode "dynamic", la valeur du budget en mode "fixed".
 budget_mb = 4096
+# Part de la RAM disponible au lancement retenue en mode "dynamic" (0,6 ; bornée de 0,1 à 0,9 ;
+# une valeur illisible vaut 0,6).
+budget_ram_ratio = 0.6
 # Marge ajoutée au coût estimé de chaque modèle local (poids, cache KV à la fenêtre ; pour
 # l'embedding, sa taille quand aucune mesure n'est déclarée), en Mo.
 load_margin_mb = 256

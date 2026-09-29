@@ -20,13 +20,13 @@ import json
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import httpx
-import psutil
 from pydantic import SecretStr
 
 from wavestack import config
@@ -39,6 +39,7 @@ from wavestack.cloud import (
     warning_fr,
 )
 from wavestack.config import CloudModel
+from wavestack.config import mo_fr as _mo
 from wavestack.context.render import render_chat_body
 from wavestack.context.segments import Part, SegmentKind
 from wavestack.models import discovery, probe
@@ -52,13 +53,55 @@ from wavestack.tools.parser import tool_call_id
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import scoped
 
-# ponytail: fixed threshold, revisit once AD-8's measured memory budget lands
+# Story 24: below this RAM available at launch, the memory check warns whatever the budget.
 MEMORY_WARN_MB = 1024
 NETWORK_CHECK_TIMEOUT = 3.0
 PROBE_TIMEOUT_S = 300  # lot E: the probe also reads a first batch of 512 tokens
+PROBE_POLL_S = 0.2  # story 24: how often a hot switch's probe looks at « Arrêter »
 SEARCHED_SOURCES_FR = (
     "dossier de modèles WaveStack, Ollama, LM Studio, cache Hugging Face, serveur local"
 )
+
+
+def _probe_argv(path: str, window: int) -> list[str]:
+    """AD-7: the probe's child process, at the window the engine loads it with (lot E, E2),
+    the path last. Story 24: the seam the tests and the E2E launcher replace."""
+    return [sys.executable, "-m", "wavestack.models.probe", "--window", str(window), path]
+
+
+def _run_probe(
+    argv: list[str], cancel: CancelToken | None, timeout: float
+) -> subprocess.CompletedProcess[str] | None:
+    """Story 24: run the probe's child, waiting by slices of `PROBE_POLL_S` so that
+    « Arrêter » (`cancel`) kills it at once: `None` then, nothing read. Past `timeout`, the
+    child is killed and `subprocess.TimeoutExpired` raised (lot E: time, not the file). The
+    output is read as UTF-8 (the child writes ASCII JSON), invalid bytes replaced."""
+    proc = subprocess.Popen(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            out, err = proc.communicate(timeout=PROBE_POLL_S)
+        except subprocess.TimeoutExpired:
+            pass  # retrying `communicate` loses no output
+        else:
+            if cancel is not None and cancel.cancelled:
+                return None  # ended in the slice « Arrêter » was pressed: stopped all the same
+            return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+        if cancel is not None and cancel.cancelled:
+            proc.kill()  # TerminateProcess on Windows: immediate; the probe writes nothing
+            proc.communicate()  # reap the child
+            return None
+        if time.monotonic() >= deadline:
+            proc.kill()
+            out, err = proc.communicate()
+            raise subprocess.TimeoutExpired(argv, timeout, output=out, stderr=err)
 
 
 @dataclass
@@ -150,19 +193,52 @@ class DiagnosticSession:
         )
 
     def check_memory(self) -> None:
-        available_mb = psutil.virtual_memory().available / (1024 * 1024)
-        if available_mb < MEMORY_WARN_MB:
-            self._emit_check(
-                "memory",
-                "warn",
-                f"Mémoire disponible faible : {available_mb:.0f} Mo.",
-                "Fermez des applications avant de continuer.",
-                blocking=False,
+        """AD-8, story 24: the RAM read at launch and the budget the session refuses with
+        (the same `Config.memory_budget`, computed once), with how it was reached. `warn`,
+        never blocking, when the RAM could not be read, when it limits the dynamic budget
+        below its cap, when it is low, or when a fixed budget exceeds it."""
+        budget = self.cfg.memory_budget
+        figures = f"Budget mémoire de WaveStack : {_mo(budget.bytes)} Mo ({budget.calc_fr()})."
+        if not budget.measured or budget.available_bytes is None:
+            action = (
+                "Le budget retenu est la valeur fixe : vérifiez qu'elle tient dans la mémoire "
+                "du poste."
+                if budget.mode == "fixed"
+                else "Le budget retenu est le plafond : relancez WaveStack si la mémoire du "
+                "poste est juste."
             )
+            self._emit_check(
+                "memory", "warn", f"RAM du poste non mesurée. {figures}", action, blocking=False
+            )
+            return
+        available = budget.available_bytes
+        ram = (
+            f"RAM du poste : {_mo(budget.total_bytes)} Mo, dont {_mo(available)} Mo "
+            "disponibles au lancement. "
+            if budget.total_bytes
+            else f"RAM disponible au lancement : {_mo(available)} Mo. "
+        )
+        if budget.mode == "fixed" and budget.bytes > available:
+            where = (
+                "la RAM totale du poste"
+                if budget.total_bytes and budget.bytes > budget.total_bytes
+                else "la RAM disponible au lancement"
+            )
+            why = (
+                f"Le budget fixe dépasse {where} : fermez des applications puis relancez "
+                "WaveStack, ou baissez [memory] budget_mb."
+            )
+        elif budget.ram_limited:
+            why = (
+                "La RAM disponible limite le budget sous son plafond : fermez des applications "
+                "puis relancez WaveStack."
+            )
+        elif available < MEMORY_WARN_MB * 1024 * 1024:
+            why = "La RAM disponible est faible : fermez des applications puis relancez WaveStack."
         else:
-            self._emit_check(
-                "memory", "ok", f"Mémoire disponible : {available_mb:.0f} Mo.", blocking=False
-            )
+            self._emit_check("memory", "ok", f"{ram}{figures}", blocking=False)
+            return
+        self._emit_check("memory", "warn", f"{ram}{figures}", why, blocking=False)
 
     def check_port(self) -> None:
         self._emit_check("port", "ok", f"Port {self.port} réservé pour WaveStack.", blocking=False)
@@ -188,28 +264,30 @@ class DiagnosticSession:
             finally:
                 client.close()
 
-    def _probe_candidate(self, candidate: discovery.ModelCandidate) -> None:
+    def _probe_candidate(
+        self, candidate: discovery.ModelCandidate, cancel: CancelToken | None = None
+    ) -> None:
+        """AD-7: probe `candidate` in a child process. Story 24: `cancel` (a hot switch's
+        load token; never the launch's diagnostic, which has no « Arrêter ») kills the child
+        at once; then nothing is touched: neither the candidate, nor `failed_probes`, nor
+        the journal."""
         assert candidate.path is not None
         proc = None
+
+        def stopped() -> bool:  # « Arrêter », even in the slice where the child ended
+            return cancel is not None and cancel.cancelled
+
         try:
             # Lot E (E2): at the window the engine loads it with (the path stays last).
-            window = str(self.cfg.context_window)
-            proc = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "wavestack.models.probe",
-                    "--window",
-                    window,
-                    candidate.path,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=PROBE_TIMEOUT_S,
-            )
+            argv = _probe_argv(candidate.path, self.cfg.context_window)
+            proc = _run_probe(argv, cancel=cancel, timeout=PROBE_TIMEOUT_S)
+            if proc is None or stopped():  # the load is stopped: nothing said about the file
+                return
             last_line = proc.stdout.strip().splitlines()[-1]
             result = probe.ProbeResult.model_validate_json(last_line)
         except Exception as exc:  # noqa: BLE001 - any probe failure marks the file incompatible
+            if stopped():
+                return
             if isinstance(exc, subprocess.TimeoutExpired):  # lot E: time, not the file
                 self._probe_transient(candidate, probe.transient_fr(), str(exc))
                 return
@@ -233,6 +311,8 @@ class DiagnosticSession:
             candidate.reason = "La sonde n'a pas pu confirmer ce fichier."
             return
 
+        if stopped():
+            return
         if result.ok:
             candidate.architecture = result.architecture
             candidate.size_label = result.size_label
@@ -719,14 +799,18 @@ class DiagnosticSession:
             blocking=False,
         )
 
-    def probe_path(self, path: str) -> str | None:
+    def probe_path(self, path: str, cancel: CancelToken | None = None) -> str | None:
         """AD-7's probe of `path` in a child process, for the application session's hot
         switch: `None` when the file loads, else why. A failure marks the listed candidate
-        incompatible. Runs on the session's worker, without this session's lock."""
+        incompatible. Runs on the session's worker, without this session's lock. Story 24:
+        « Arrêter » (`cancel`) kills the child and answers `None`, nothing recorded: the
+        load's next checkpoint sees the stop."""
         candidate = discovery.ModelCandidate(
             source="explicit", status="found", path=path, name=Path(path).name
         )
-        self._probe_candidate(candidate)
+        self._probe_candidate(candidate, cancel)
+        if cancel is not None and cancel.cancelled:
+            return None
         listed = self.last_result.candidates if self.last_result else []
         for known in listed:
             if known.path == path:

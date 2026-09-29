@@ -2407,9 +2407,17 @@ function bindCloudWarning() {
 function modelLoadText() {
   const load = store.modelLoad;
   if (!load) return null;
-  // Lot E (E4): llama.cpp cannot interrupt a load; the stop acts at the end of the step.
-  const stopping = load.stopRequested ? "Arrêt demandé, effectif à la fin de l'étape en cours · " : "";
+  // Lot E (E4), story 24: the probe stops at once, an in-process load at the end of its step;
+  // the front cannot tell which, so it only says the stop was asked.
+  const stopping = load.stopRequested ? "Arrêt demandé · " : "";
   return `${stopping}Chargement du modèle ${load.model.label}… ${seconds(Date.now() - load.startedAt)}`;
+}
+
+// Story 24: why « Arrêt demandé » may last, in the top bar's tooltip; `undefined` otherwise.
+const STOP_EXPLAINED_FR =
+  "Un chargement du moteur en cours se termine avant l'arrêt ; une sonde est interrompue tout de suite.";
+function modelLoadTitle() {
+  return store.modelLoad?.stopRequested ? STOP_EXPLAINED_FR : undefined;
 }
 
 // ---------- human view: bubbles, working indicator, composer ----------
@@ -2709,7 +2717,8 @@ function renderScenarioControls(state) {
   const reset = document.getElementById("reset-button");
   reset.disabled = !idle;
   reset.title = reason || "Retour au LLM nu, conversation vide.";
-  setTopStatus(modelLoadText() ?? store.topStatus ?? "");
+  const topText = modelLoadText() ?? store.topStatus ?? "";
+  setTopStatus(topText, modelLoadTitle() ?? topText);
 
   // Vue humain: the active scenario's instructions, then one chip per suggested prompt.
   const scenario = findScenario(store.scenarios?.active);
@@ -5316,10 +5325,10 @@ function renderSteps() {
 }
 
 // Story 33: the top bar's message may be cut on a narrow window: its whole text in the tooltip.
-function setTopStatus(text) {
+function setTopStatus(text, title = text) {
   const status = document.getElementById("top-status");
   setText(status, text);
-  if (status.title !== text) status.title = text;
+  if (status.title !== title) status.title = title;
 }
 
 let renderedChipsKey = null;
@@ -6778,7 +6787,8 @@ async function boot() {
     }
     if (store.modelLoad) {
       renderChat();
-      setTopStatus(modelLoadText());
+      const loadText = modelLoadText();
+      setTopStatus(loadText, modelLoadTitle() ?? loadText);
     }
   }, 250);
 

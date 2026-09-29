@@ -45,7 +45,7 @@ def _build(monkeypatch, tmp_path, *, models=(), saved=None, app_session=None):
     # the subprocess GGUF probe are covered separately (test_net_guard.py,
     # test_probe.py); this file checks the diagnostic session/API wiring.
     monkeypatch.setattr(session, "check_network", lambda: None)
-    monkeypatch.setattr(session, "_probe_candidate", lambda candidate: None)
+    monkeypatch.setattr(session, "_probe_candidate", lambda candidate, cancel=None: None)
     app = create_app(session, port=8420, version="test", app_session=app_session)
     return session, app
 
@@ -157,9 +157,7 @@ def test_probe_failure_marks_candidate_incompatible_and_stays_blocking(monkeypat
     class _FakeCompletedProcess:
         stdout = '{"ok": false, "path": "bad.gguf", "reason": "Fichier corrompu."}'
 
-    monkeypatch.setattr(
-        diagnostic_module.subprocess, "run", lambda *a, **k: _FakeCompletedProcess()
-    )
+    monkeypatch.setattr(diagnostic_module, "_run_probe", lambda *a, **k: _FakeCompletedProcess())
 
     before = get_journal().last_seq()
     result = session.check_model()
@@ -182,7 +180,7 @@ def test_probe_subprocess_crash_marks_candidate_incompatible(monkeypatch, tmp_pa
     def _raise(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd="probe", timeout=1)
 
-    monkeypatch.setattr(diagnostic_module.subprocess, "run", _raise)
+    monkeypatch.setattr(diagnostic_module, "_run_probe", _raise)
 
     result = session.check_model()
 
@@ -204,7 +202,7 @@ def test_probe_failure_is_remembered_and_not_reprobed(monkeypatch, tmp_path):
         runs.append(args)
         return _FakeCompletedProcess()
 
-    monkeypatch.setattr(diagnostic_module.subprocess, "run", _run)
+    monkeypatch.setattr(diagnostic_module, "_run_probe", _run)
 
     session.check_model()
     result = session.check_model()  # next launch: same file, same size and date
@@ -225,7 +223,7 @@ def test_native_crash_is_remembered_python_error_is_not(monkeypatch, tmp_path):
         stdout = ""
         returncode = 1  # Python error in the child: environment, not the file
 
-    monkeypatch.setattr(diagnostic_module.subprocess, "run", lambda *a, **k: _Died())
+    monkeypatch.setattr(diagnostic_module, "_run_probe", lambda *a, **k: _Died())
     session.check_model()
     assert "failed_probes" not in config.read_settings()
 
@@ -254,7 +252,7 @@ def test_probe_timeout_is_not_remembered(monkeypatch, tmp_path):
     def _raise(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd="probe", timeout=1)
 
-    monkeypatch.setattr(diagnostic_module.subprocess, "run", _raise)
+    monkeypatch.setattr(diagnostic_module, "_run_probe", _raise)
     session.check_model()
 
     assert "failed_probes" not in config.read_settings()
@@ -351,7 +349,7 @@ def _fake_probe_ok(monkeypatch, session, architecture="qwen35"):
 
         return _Done()
 
-    monkeypatch.setattr(diagnostic_module.subprocess, "run", _run)
+    monkeypatch.setattr(diagnostic_module, "_run_probe", _run)
     return calls
 
 
@@ -430,7 +428,7 @@ def test_choose_before_load_saves_and_loads_exactly_that_file(monkeypatch, tmp_p
 
     # Relaunch: the saved choice is loaded with no further action.
     relaunched = DiagnosticSession(config.load_config(), port=8420)
-    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate: None)
+    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate, cancel=None: None)
     assert relaunched.check_model().model_path == str(chosen)
 
 
@@ -478,7 +476,7 @@ def test_invalid_path_is_neither_saved_nor_loaded(monkeypatch, tmp_path):
     class _Refused:
         stdout = '{"ok": false, "path": "bad.gguf", "reason": "Architecture inconnue."}'
 
-    monkeypatch.setattr(diagnostic_module.subprocess, "run", lambda *a, **k: _Refused())
+    monkeypatch.setattr(diagnostic_module, "_run_probe", lambda *a, **k: _Refused())
     bad = tmp_path / "bad.gguf"
     bad.write_bytes(b"not a gguf")
     incompatible = _select(app, bad)
@@ -603,7 +601,7 @@ def test_selected_ollama_blob_is_listed_once_under_its_name(monkeypatch, tmp_pat
 
     # Relaunch with the saved blob: still listed once.
     relaunched = DiagnosticSession(config.load_config(), port=8420)
-    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate: None)
+    monkeypatch.setattr(relaunched, "_probe_candidate", lambda candidate, cancel=None: None)
     result = relaunched.check_model()
     assert result.model_path == str(blob)
     assert [c.path for c in result.candidates].count(str(blob)) == 1
@@ -747,13 +745,13 @@ def test_old_or_incomplete_probe_entries_are_probed_again(monkeypatch, tmp_path)
     assert [probe.measured(str(config.models_dir() / n)) for n in names] == [False, False, True]
     windows = []
     calls = _fake_probe_ok(monkeypatch, session)
-    real_run = diagnostic_module.subprocess.run
+    real_run = diagnostic_module._run_probe
 
     def run(cmd, **kwargs):  # noqa: ANN001, ANN202
         windows.append(cmd[cmd.index("--window") + 1])
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(diagnostic_module.subprocess, "run", run)
+    monkeypatch.setattr(diagnostic_module, "_run_probe", run)
 
     kept = session._discover(None)
     assert calls == [] and all(c.architecture == "qwen35" for c in kept)  # entries read
@@ -793,7 +791,7 @@ def test_transient_probe_failure_is_never_remembered(monkeypatch, tmp_path):
         raise sp.TimeoutExpired(cmd, kwargs["timeout"])
 
     for run in (lambda cmd, **kw: _Done(), timeout):
-        monkeypatch.setattr(diagnostic_module.subprocess, "run", run)
+        monkeypatch.setattr(diagnostic_module, "_run_probe", run)
         [candidate] = session._discover(None)
         assert (candidate.status, candidate.reason) == ("incompatible", probe.transient_fr())
         assert probe.failed_entry(path) is None
@@ -815,7 +813,7 @@ def test_incompatible_probe_keeps_the_loader_message_as_the_cause(monkeypatch, t
             ok=False, path=path, reason=reason, detail=f"Failed to load model from file: {path}"
         ).model_dump_json()
 
-    monkeypatch.setattr(diagnostic_module.subprocess, "run", lambda cmd, **kw: _Done())
+    monkeypatch.setattr(diagnostic_module, "_run_probe", lambda cmd, **kw: _Done())
     before = get_journal().last_seq()
 
     session.check_model()

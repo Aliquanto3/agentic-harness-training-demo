@@ -4079,6 +4079,108 @@ def s_model_switch(r: Run) -> None:
         r.fake_calls()[-1].get("model") != SECOND_MODEL,
         "le tour suivant part avec le modèle précédent",
     )
+    _slow_probe_stopped(r)
+
+
+SLOW_PROBE = "sonde-lente-e2e"  # `launch_app.py`: its probe is a child that only sleeps
+
+
+def _probe_children(marker: str) -> list[int]:
+    """The processes whose command line names `marker` (the slow probe's file)."""
+    import psutil
+
+    found = []
+    for proc in psutil.process_iter(["cmdline"]):
+        try:
+            if any(marker in part for part in proc.info["cmdline"] or []):
+                found.append(proc.pid)
+        except psutil.Error:
+            continue
+    return found
+
+
+def _slow_probe_stopped(r: Run) -> None:
+    """Story 24: the memory budget and its calculation at the diagnostic, the session's own
+    figure; then « Arrêter » during the probe of a file chosen hot: the child is killed at
+    once, the previous model is back within 3 s, and the file is never marked incompatible."""
+    import psutil
+
+    page = r.page
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    memory = page.locator("#checks li", has_text="Budget mémoire")
+    expect(memory).to_be_visible(timeout=10_000)
+    text = memory.inner_text()
+    budget = r.api("GET", "/api/diagnostic").json()["memory_budget_bytes"]
+    budget_mo = f"{round(budget / 1024**2):,}".replace(",", "\u202f")
+    r.check(
+        "%" in text and "RAM" in text and f"Budget mémoire de WaveStack : {budget_mo} Mo" in text,
+        "diagnostic : « Budget mémoire » avec son calcul, le budget des refus de la session",
+        f"{budget_mo} Mo · " + text.replace("\n", " · "),
+    )
+    slow = r.stack.data_dir / f"{SLOW_PROBE}.gguf"  # outside the folders scanned at launch
+    slow.write_bytes(b"octets quelconques, jamais charges")
+    try:
+        seq = r.ev.mark()
+        page.fill("#model-path", str(slow))
+        page.click("#submit-path")
+        r.ev.wait("model_load_started", seq, timeout=10)
+        ok, _ = r.poll(lambda: bool(_probe_children(SLOW_PROBE)), 10)
+        r.check(ok, "sonde lente en cours (processus enfant)")
+        r.goto_app()
+        stop = page.locator("#composer-stop")
+        ok = True
+        try:
+            expect(stop).to_be_visible(timeout=5000)
+        except AssertionError:
+            ok = False
+        r.check(ok, "« Arrêter » visible pendant la sonde")
+        top = page.locator("#top-status")
+        clicked = time.monotonic()
+        stop.click()  # the page renders « Arrêt demandé » before it even sends the intention
+        after_click, tooltip = top.inner_text(), top.get_attribute("title") or ""
+        ended = r.ev.wait("model_load_ended", seq, timeout=10)["payload"]
+        elapsed = time.monotonic() - clicked
+        r.check(
+            after_click.startswith("Arrêt demandé · "),
+            "barre haute : « Arrêt demandé · » après le clic",
+            after_click,
+        )
+        r.check(
+            "une sonde est interrompue tout de suite" in tooltip,
+            "barre haute : l'infobulle explique le délai de l'arrêt",
+            tooltip,
+        )
+        r.check(
+            ended["status"] == "cancelled"
+            and ended["reason_fr"] == "Chargement arrêté : wavestack-fake est de nouveau actif."
+            and elapsed < 3,
+            "« Arrêter » pendant la sonde : arrêt en moins de 3 s, modèle précédent rétabli",
+            f"{ended['status']} · {ended['reason_fr']} · {elapsed:.1f} s",
+        )
+        active = r.state()["active_model"] or {}
+        r.check(active.get("ref") == MODEL_ENTRY_ID, "le modèle précédent est actif", str(active))
+        left = _probe_children(SLOW_PROBE)
+        r.check(not left, "plus aucun processus de sonde", str(left))
+        saved = json.loads((r.stack.data_dir / "settings.json").read_text(encoding="utf-8"))
+        r.check(
+            str(slow) not in saved.get("failed_probes", {}),
+            "le fichier n'est pas marqué incompatible (failed_probes)",
+            str(saved.get("failed_probes")),
+        )
+        errors = [
+            e["payload"]
+            for e in r.ev.since(seq, "harness_error")
+            if "incompatible" in json.dumps(e["payload"], ensure_ascii=False)
+        ]
+        r.check(not errors, "aucune erreur « incompatible »", str(errors))
+        r.wait_idle()
+    finally:
+        for pid in _probe_children(SLOW_PROBE):  # a failed check never leaves the sleeper
+            try:
+                psutil.Process(pid).kill()
+            except psutil.Error:
+                pass
+        slow.unlink(missing_ok=True)
 
 
 LLAMA_FILE = "faux-llama-server.gguf"

@@ -1,10 +1,14 @@
 """The load registry (AD-8, NFR-2): every model load goes through it, one generative slot.
 
 It holds what each loaded component was granted and refuses, in figures, a load that would
-take WaveStack past its memory budget: `RSS measured − cost of the slot's current holder +
-cost of the newcomer > budget`. The check comes before any release, so a refusal leaves the
-active model loaded (AD-3). Story 15 adds the `embedding` slot (the RAG's model), refused
-with its own message; story 16 adds the `reranker` slot, refused the same way.
+take WaveStack past its memory budget: `WaveStack without the slot's holder + cost of the
+newcomer > budget`. Without an in-process holder, WaveStack weighs `min(RSS, max(base,
+RSS − its share))`, `base` being the RSS measured just before its engine was created (story
+24); a served model's memory was never in the RSS. The check comes before any release, so a
+refusal leaves the active model loaded (AD-3). Story 24: the budget is `Config.memory_budget`,
+computed once at launch, and every refusal says how, in short. Story 15 adds the `embedding`
+slot (the RAG's model), refused with its own message; story 16 adds the `reranker` slot,
+refused the same way.
 """
 
 from __future__ import annotations
@@ -16,14 +20,15 @@ from typing import Any
 
 import psutil
 
-from wavestack.config import CloudModel
+from wavestack.config import CloudModel, MemoryBudget
+from wavestack.config import mo_fr as _mo
+from wavestack.config import size_fr as _size
 from wavestack.models import probe
 
 GENERATIVE = "generative"
 EMBEDDING = "embedding"  # story 15: the RAG brick's embedding model
 RERANKER = "reranker"  # story 16: the RAG brick's reranking model (its sub-option)
 COMPRESSOR = "compressor"  # story 20: Headroom, the compression brick's library
-_GIB = 1024**3
 _MIB = 1024**2
 
 
@@ -90,21 +95,6 @@ def _file_size(path: str) -> int:
         return 0
 
 
-def _mo(n: int) -> str:
-    """Bytes in Mo, rounded, French thousands separator: « 1 234 »."""
-    return f"{round(n / _MIB):,}".replace(",", "\u202f")
-
-
-def _go(n: int) -> str:
-    """Bytes in Go, one decimal, French decimal comma: « 3,1 Go »."""
-    return f"{n / _GIB:.1f}".replace(".", ",") + " Go"
-
-
-def _size(n: int) -> str:
-    """Lot E (E3): « 210 Mo » under 1 Go, « 3,1 Go » from there on."""
-    return f"{_mo(n)} Mo" if n < _GIB else _go(n)
-
-
 @dataclass
 class _Grant:
     label: str
@@ -114,6 +104,9 @@ class _Grant:
     # weighs there when measured (the probe's RSS), else its cost.
     in_process: bool = True
     share: int | None = None
+    # Story 24: WaveStack's RSS measured just before this holder's engine was created (after
+    # the previous one's release): the floor of what WaveStack weighs without it.
+    base: int | None = None
 
 
 class LoadRegistry:
@@ -121,11 +114,14 @@ class LoadRegistry:
 
     def __init__(
         self,
-        budget_bytes: int,
+        budget: int | MemoryBudget,
         margin_bytes: int,
         rss_fn: Callable[[], int] = process_rss,
     ) -> None:
-        self.budget_bytes = budget_bytes
+        # Story 24: the budget computed at launch (`Config.memory_budget`), with how; plain
+        # bytes (tests) give no calculation to show.
+        self.budget = budget if isinstance(budget, MemoryBudget) else None
+        self.budget_bytes = budget.bytes if isinstance(budget, MemoryBudget) else budget
         self.margin_bytes = margin_bytes
         self._rss = rss_fn
         self._slots: dict[str, _Grant] = {}
@@ -161,19 +157,45 @@ class LoadRegistry:
         if without + cost_bytes <= self.budget_bytes:
             return None
         stays = f" {held.label} reste actif." if held else ""
+        advice = (
+            "Choisissez un modèle plus petit, ou fermez des applications puis relancez WaveStack."
+            if self._ram_limited
+            else "Choisissez un modèle plus petit."
+        )
         return (
             f"Changement refusé : {label} demande environ {_size(cost_bytes)} ; WaveStack "
             f"occupe {_size(without)} sans le modèle actif, pour un budget de "
-            f"{_size(self.budget_bytes)}.{stays} Choisissez un modèle plus petit."
+            f"{self._budget_fr(_size)}.{stays} {advice}"
         )
 
+    @property
+    def _ram_limited(self) -> bool:
+        return self.budget is not None and self.budget.ram_limited
+
+    def _budget_fr(self, fmt: Callable[[int], str]) -> str:
+        """Story 24: the budget and, in short, how (« 4,0 Go (= plafond [memory]
+        budget_mb) »), in the unit `fmt` of the rest of the sentence; the full calculation
+        is the diagnostic's."""
+        calc = f" ({self.budget.short_fr(fmt)})" if self.budget is not None else ""
+        return f"{fmt(self.budget_bytes)}{calc}"
+
+    def baseline(self) -> int:
+        """Story 24: WaveStack's RSS now, measured just before a model's engine is created
+        (the previous one released): what it weighs without the model."""
+        return self._rss()
+
     def _without(self, held: _Grant | None) -> int:
-        """WaveStack's RSS without the slot's holder: its cost comes off only when it is in
-        this process (lot E, E3: a served model's memory was never in the RSS)."""
+        """WaveStack's RSS without the slot's holder: its share comes off only when it is in
+        this process (lot E, E3: a served model's memory was never in the RSS), and never
+        below the RSS measured before its engine was created (story 24: mmap'd weights may
+        be far less resident than the probe measured); above it, what loaded after the
+        model (embedding, reranker, caches) still counts; never above the RSS now (memory
+        freed since the base was measured)."""
         rss = self._rss()
         if held is None or not held.in_process:
             return rss
-        return max(0, rss - (held.share if held.share is not None else held.cost))
+        part = held.share if held.share is not None else held.cost
+        return min(rss, max(held.base or 0, rss - part))
 
     def component_cost(self, measured_rss_mb: int | None, file_sizes: list[int]) -> int:
         """Stories 15 and 16 (embedding, reranker): the RSS story 12 measured when declared,
@@ -189,11 +211,15 @@ class LoadRegistry:
         without = self._without(held)
         if without + cost_bytes <= self.budget_bytes:
             return None
+        advice = (
+            "Désactivez une brique, ou fermez des applications puis relancez WaveStack."
+            if self._ram_limited
+            else "Désactivez une brique ou relevez [memory] budget_mb dans settings.json."
+        )
         return (
             f"Mémoire insuffisante pour charger {label} : WaveStack occupe {_mo(without)} Mo, "
             f"il en faut environ {_mo(cost_bytes)} de plus, au-delà du budget de "
-            f"{_mo(self.budget_bytes)} Mo. Désactivez une brique ou relevez [memory] budget_mb "
-            "dans settings.json."
+            f"{self._budget_fr(lambda n: f'{_mo(n)} Mo')}. {advice}"
         )
 
     def grant(
@@ -204,11 +230,12 @@ class LoadRegistry:
         *,
         in_process: bool = True,
         share: int | None = None,
+        base: int | None = None,
     ) -> None:
         """`label` is loaded in `slot`: one holder per slot (the generative one: AD-8).
         `in_process`: its cost is in WaveStack's RSS; `share`: what it weighs there, when
-        known (lot E, E3)."""
-        self._slots[slot] = _Grant(label, cost_bytes, in_process, share)
+        known (lot E, E3); `base`: the RSS measured before its engine (story 24)."""
+        self._slots[slot] = _Grant(label, cost_bytes, in_process, share, base)
 
     def release(self, slot: str = GENERATIVE) -> None:
         self._slots.pop(slot, None)

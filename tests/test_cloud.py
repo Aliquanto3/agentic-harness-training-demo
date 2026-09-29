@@ -622,7 +622,7 @@ def test_a_choice_after_a_model_is_loaded_is_a_hot_switch(monkeypatch, tmp_path)
     provider = Provider(GROQ_TEXT)
     session, app_session, _, client = _app(monkeypatch, provider)
     app_session._engine_factory = lambda path, n_ctx: FakeEngine()
-    monkeypatch.setattr(session, "_probe_candidate", lambda candidate: None)
+    monkeypatch.setattr(session, "_probe_candidate", lambda candidate, cancel=None: None)
     gguf = tmp_path / "local.gguf"
     gguf.write_bytes(b"placeholder")
     app_session.boot(str(gguf)).result()  # a GGUF is loaded

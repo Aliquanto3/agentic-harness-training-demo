@@ -310,3 +310,60 @@ def test_gguf_header_reader_on_tiny_llama_and_a_hybrid_layout(tmp_path):
     truncated = (tmp_path / "h.gguf").read_bytes()[:60]
     (tmp_path / "cut.gguf").write_bytes(truncated)
     assert gguf_meta.try_read_metadata(tmp_path / "cut.gguf") is None
+
+
+# ---------- story 24: ASCII output, UTF-8 reading, garbled reasons repaired ----------
+
+REASON = "Fichier abîmé : ce modèle ne se charge pas."
+
+
+def test_main_prints_ascii_json_whatever_the_reason(monkeypatch, capsys, tmp_path):
+    """C6: the child's JSON is ASCII (accents escaped), so no code page can garble it."""
+    import json
+    import sys
+
+    path = str(tmp_path / "m.gguf")
+    monkeypatch.setattr(sys, "argv", ["probe", "--window", "4096", path])
+    monkeypatch.setattr("wavestack.net.guard.install", lambda hosts: None)
+    monkeypatch.setattr(
+        probe, "probe_file", lambda p, w: probe.ProbeResult(ok=False, path=p, reason=REASON)
+    )
+
+    assert probe.main() == 1
+
+    line = capsys.readouterr().out.strip().splitlines()[-1]
+    assert line.isascii() and "\\u00ee" in line  # « î », escaped
+    assert probe.ProbeResult.model_validate(json.loads(line)).reason == REASON
+
+
+@pytest.mark.parametrize(
+    ("garbled", "repaired"),
+    [
+        ("abÃ®mÃ©", "abîmé"),
+        ("modÃ¨le", "modèle"),
+        ("lâ€™architecture", "l’architecture"),
+        ("Ã  vÃ©rifier", "à vérifier"),
+    ],
+)
+def test_repair_mojibake(garbled, repaired):
+    assert probe.repair_mojibake(garbled) == repaired
+
+
+@pytest.mark.parametrize("text", [REASON, "plain ascii", "Ãx é", "Â"])
+def test_repair_mojibake_keeps_what_it_cannot_or_need_not_repair(text):
+    assert probe.repair_mojibake(text) == text  # never an exception
+
+
+def test_failed_entry_repairs_the_reason_without_rewriting_settings(monkeypatch, tmp_path):
+    """C6: a reason an older WaveStack wrote garbled reads right; settings.json is untouched."""
+    from wavestack import config
+
+    monkeypatch.setattr(probe, "_llama_cpp_version", lambda: "0.3.35")
+    model = tmp_path / "bad.gguf"
+    model.write_bytes(b"bad")
+    probe.record_failure(str(model), REASON.encode("utf-8").decode("cp1252"))
+    before = config.settings_path().read_bytes()
+    assert "abÃ®mÃ©" in config.read_settings()["failed_probes"][str(model)]["reason"]
+
+    assert probe.failed_entry(str(model))["reason"] == REASON
+    assert config.settings_path().read_bytes() == before  # a read writes nothing
