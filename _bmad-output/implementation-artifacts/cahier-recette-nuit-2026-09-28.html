@@ -294,7 +294,8 @@ $ev = Get-Content "$env:TEMP\ws-journal.txt" -Encoding UTF8 | Where-Object { $_ 
   Select-Object Name, Id, @{n = "Mo"; e = { [math]::Round($_.WorkingSet64 / 1MB) } },
     @{n = "Pic Mo"; e = { [math]::Round($_.PeakWorkingSet64 / 1MB) } }</script>
 <script type="text/plain" id="cmd-llama-install">[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12   # PowerShell 5.1
-$rel = Invoke-RestMethod -UseBasicParsing https://api.github.com/repos/ggml-org/llama.cpp/releases/latest
+$rels = Invoke-RestMethod -UseBasicParsing "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
+$rel = $rels | Where-Object { $_.assets.name -match '^llama-b\d+-bin-win-cpu-x64\.zip$' } | Select-Object -First 1
 $asset = $rel.assets | Where-Object name -match '^llama-b\d+-bin-win-cpu-x64\.zip$'
 $zip = "$env:TEMP\$($asset.name)"; $dest = "$env:LOCALAPPDATA\llama.cpp\$($rel.tag_name)"
 Invoke-WebRequest -UseBasicParsing $asset.browser_download_url -OutFile $zip
@@ -439,7 +440,7 @@ const TESTS = [
   { id: "P5", g: "prep", title: "Installer llama-server sans droits d'administrateur", min: 10, opt: true,
     pre: "Pour N25-6, N26-6 et N26-7 seulement. Un nouveau terminal PowerShell (le troisième). Rien à installer en administrateur : tout va dans %LOCALAPPDATA%\\llama.cpp\\<version>.",
     steps: [
-      "Collez le bloc « Installation » ligne par ligne. Il lit la dernière version sur l'API GitHub, télécharge l'archive llama-bNNNNN-bin-win-cpu-x64.zip, la décompresse dans le profil, débloque les fichiers et affiche la version.",
+      "Collez le bloc « Installation » ligne par ligne. Il lit les dix dernières releases sur l'API GitHub, prend la première qui porte l'archive llama-bNNNNN-bin-win-cpu-x64.zip (« releases/latest » peut désigner une release sans archive, comme v0.5.0 le 29/09), la télécharge, la décompresse dans le profil, débloque les fichiers et affiche la version.",
       "Si Invoke-RestMethod échoue : notez le code (403 ou 407), réessayez avec -ProxyUseDefaultCredentials, puis utilisez le bloc « Repli » (version fixe b11239).",
       "Ne copiez jamais llama-server.exe seul, et ne le décompressez pas dans Program Files : il doit rester avec ses DLL.",
       "Dans un nouveau terminal, retrouvez l'exécutable avec « Retrouver llama-server ». Le lancement (« Lancer llama-server ») se fait dans les tests qui en ont besoin.",

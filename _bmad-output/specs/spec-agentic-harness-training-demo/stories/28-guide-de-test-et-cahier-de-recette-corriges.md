@@ -113,6 +113,14 @@ deferred:
 
 ## Spec Change Log
 
+- 2026-09-29 (lot K, point 8, recette sur PC anomalie A6) : `releases/latest` de
+  ggml-org/llama.cpp pointe désormais sur `v0.5.0`, dont le seul fichier est
+  `nightly-tag.txt` ; les builds `bNNNNN` restent publiées à côté. La procédure des Design
+  Notes lit donc `/releases?per_page=10` et prend la première release qui porte
+  `llama-b*-bin-win-cpu-x64.zip` ; le repli `b11239` reste (vérifié sur le PC cible le
+  2026-09-29 : version affichée, sans élévation). Le cahier du 2026-09-28 (P5) est corrigé de
+  même ; le README et le cahier du palier 2 que cette story écrit doivent reprendre ce bloc.
+
 ## Review Triage Log
 
 ### 2026-09-29 — Review pass
@@ -151,7 +159,8 @@ deferred:
 
 ```powershell
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12   # PowerShell 5.1
-$rel = Invoke-RestMethod -UseBasicParsing https://api.github.com/repos/ggml-org/llama.cpp/releases/latest
+$rels = Invoke-RestMethod -UseBasicParsing "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
+$rel = $rels | Where-Object { $_.assets.name -match '^llama-b\d+-bin-win-cpu-x64\.zip$' } | Select-Object -First 1
 $asset = $rel.assets | Where-Object name -match '^llama-b\d+-bin-win-cpu-x64\.zip$'
 $zip = "$env:TEMP\$($asset.name)"; $dest = "$env:LOCALAPPDATA\llama.cpp\$($rel.tag_name)"
 Invoke-WebRequest -UseBasicParsing $asset.browser_download_url -OutFile $zip
