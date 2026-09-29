@@ -5868,6 +5868,243 @@ def _lab_generate(r: Run, prompt: str, watch: bool = False) -> dict[str, Any]:
     return ended
 
 
+# ---------- story 30: the RAG workshop ----------
+
+RAG_LAB_QUESTION = "Combien de jours de télétravail par semaine ?"
+RAG_LAB_STAGES = [
+    "Découpage",
+    "Embedding",
+    "Base vectorielle",
+    "Recherche",
+    "Reranking",
+    "Construction du contexte",
+    "Génération",
+]
+
+# Every text a `.rag-stage-status` shows, recorded as it changes (the run is fast: a status
+# may last one render only).
+_WATCH_STATUSES_JS = """() => {
+  window.__ragStatuses = [];
+  const seen = () => { for (const s of document.querySelectorAll('.rag-stage-status'))
+    window.__ragStatuses.push(s.textContent); };
+  new MutationObserver(seen).observe(document.getElementById('rag-results'),
+    { childList: true, subtree: true, characterData: true });
+}"""
+
+
+def _goto_rag_lab(r: Run) -> None:
+    r.page.goto(f"{r.stack.app_url}/rag")
+    expect(r.page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+
+
+def _rag_lab_run(r: Run, question: str = RAG_LAB_QUESTION) -> tuple[dict[str, Any], int]:
+    """« Lancer la chaîne »: the run's end, and the mark before it."""
+    page = r.page
+    page.fill("#rag-question", question)
+    expect(page.locator("#rag-run")).to_be_enabled(timeout=10_000)
+    seq = r.ev.mark()
+    page.click("#rag-run")
+    ended = r.ev.wait("rag_lab_run_ended", seq, timeout=60)
+    expect(page.locator("#rag-run")).to_be_enabled(timeout=10_000)
+    return ended, seq
+
+
+def _stage_ended(r: Run, seq: int, kind: str, lane: str = "a") -> dict[str, Any]:
+    found = [
+        e["payload"]
+        for e in r.ev.since(seq, "rag_lab_stage_ended")
+        if e["payload"]["kind"] == kind and e["payload"]["lane"] == lane
+    ]
+    return found[-1] if found else {}
+
+
+def _result_card(r: Run, kind: str, lane: str = "a"):
+    return r.page.locator(f'.rag-lane[data-lane="{lane}"] .rag-stage-card[data-kind="{kind}"]')
+
+
+def s_rag_lab(r: Run) -> None:
+    """Story 30, after `rag_rerank` (index built, both fake models on the workstation): the
+    « Atelier RAG » link of the top bar, the chain drawn (seven cards, the shipped options,
+    their explanations), a run on a question (each stage's input, output, excerpts, duration
+    and memory), the same run after a reload, a 409 while a workshop turn runs. Back to `/`."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    try:
+        _rag_lab(r, errors)
+    finally:
+        page.remove_listener("pageerror", listener)
+        picker = page.locator("#theme-picker")
+        if picker.count():
+            picker.select_option("system")
+        r.goto_app()
+
+
+def _rag_lab(r: Run, errors: list[str]) -> None:
+    page = r.page
+    r.goto_app()
+    r.wait_idle()
+    # (1) The link, whole in the top bar, which stays on one line.
+    link = page.locator("#rag-link")
+    r.check(
+        link.is_visible()
+        and link.inner_text() == "Atelier RAG"
+        and link.get_attribute("href") == "/rag"
+        and not _fully_visible(r, "#rag-link"),
+        "barre haute : lien « Atelier RAG » visible, entier, vers /rag",
+        _fully_visible(r, "#rag-link"),
+    )
+    ok, detail = _bar_fits(r)
+    r.check(ok, "barre haute : toutes les commandes entières, sur une ligne, à 1600 × 1000", detail)
+
+    # (2) The chain: seven cards in order, their shipped options, their explanations.
+    link.click()
+    page.wait_for_url("**/rag")
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    cards = page.locator("#rag-chain .rag-chain-card")
+    names = [cards.nth(i).locator(".rag-chain-name").inner_text() for i in range(cards.count())]
+    r.check(names == RAG_LAB_STAGES, "/rag : sept cartes dans l'ordre de la chaîne", str(names))
+    options = {
+        page.locator(f'#rag-chain [data-kind="{kind}"] .rag-chain-option').inner_text()
+        for kind in ("embedding", "vector_store", "rerank")
+    }
+    explained = all(
+        len(cards.nth(i).locator(".rag-chain-explain").inner_text()) > 40
+        for i in range(cards.count())
+    )
+    r.check(
+        options == {"Faux embedding (e2e)", "sqlite-vec", "Faux reranker (e2e)"} and explained,
+        "chaque carte nomme son option livrée et l'explique",
+        str(options),
+    )
+    r.check(
+        page.locator("nav.page-tabs a[aria-current=page]").inner_text() == "Atelier RAG"
+        and page.locator("select[data-theme-picker]").count() == 1,
+        "/rag : onglet « Atelier RAG » courant, sélecteur de thème",
+    )
+    generation = page.locator('#rag-chain [data-kind="generation"]')
+    r.check(
+        r.css(generation, "background-color") == r.token_color("--color-ink-fill"),
+        "la carte Génération repose sur l'encre (ink-fill), les autres en discipline context",
+        r.css(generation, "background-color"),
+    )
+    light = _contrast_sweep(r, ["main", "nav.page-tabs"])
+    page.select_option("#theme-picker", "dark")
+    dark = _contrast_sweep(r, ["main", "nav.page-tabs"])
+    page.select_option("#theme-picker", "system")
+    r.check(not light and not dark, "/rag : contrastes AA en clair et en sombre", str(light + dark))
+    r.shot("55-atelier-rag-chaine", full_page=True)
+
+    # (3) A run on the question: each stage, its excerpts, its duration and its memory.
+    page.evaluate(_WATCH_STATUSES_JS)
+    ended, seq = _rag_lab_run(r)
+    r.check(ended["payload"]["status"] == "ok", "exécution de la chaîne livrée terminée")
+    started = {e["payload"]["kind"] for e in r.ev.since(seq, "rag_lab_stage_started")}
+    r.check(
+        started == set(RAG_LAB_STAGES_KINDS[:-1]),
+        "une paire started/ended par étape exécutée, la génération non exécutée",
+        str(sorted(started)),
+    )
+    statuses = page.evaluate("() => window.__ragStatuses")
+    figures = [
+        _result_card(r, kind).locator(".rag-stage-figures").inner_text()
+        for kind in RAG_LAB_STAGES_KINDS[:-1]
+    ]
+    r.check(
+        any(s.startswith("en cours") for s in statuses)
+        and all(re.search(r"\d+ ms", f) and re.search(r"\d+ Mo", f) for f in figures),
+        "chaque carte passe de « en cours » à une durée en ms et une mémoire en Mo",
+        f"{sorted(set(statuses))[:6]} · {figures[0]!r}",
+    )
+    cfg_candidates = 8
+    search = _stage_ended(r, seq, "vector_search")
+    rows = _result_card(r, "vector_search").locator("tbody tr")
+    r.check(
+        len(search.get("items", [])) == cfg_candidates
+        and rows.count() == cfg_candidates
+        and [i["rank"] for i in search["items"]] == list(range(1, cfg_candidates + 1))
+        and all(
+            re.match(r"\d,\d{3}$", rows.nth(i).locator("td").nth(3).inner_text())
+            for i in range(rows.count())
+        ),
+        "Recherche : 8 extraits (rag_rerank_candidates) avec rang et score",
+        str([(i["rank"], i["doc_id"], i["score"]) for i in search.get("items", [])]),
+    )
+    rerank = _stage_ended(r, seq, "rerank")
+    rows = _result_card(r, "rerank").locator("tbody tr")
+    befores = [rows.nth(i).locator("td").nth(1).inner_text() for i in range(rows.count())]
+    r.check(
+        rerank.get("status") == "ok"
+        and len(rerank.get("items", [])) == cfg_candidates
+        and all(b.strip("↑↓ ").isdigit() for b in befores)
+        and sorted(i["before"] for i in rerank["items"]) == list(range(1, cfg_candidates + 1)),
+        "Reranking : pour chaque extrait, le rang avant et le rang après",
+        str([(i["rank"], i["before"], i["doc_id"]) for i in rerank.get("items", [])]),
+    )
+    context = _stage_ended(r, seq, "context")
+    output = _result_card(r, "context").locator(".rag-stage-output").inner_text()
+    r.check(
+        len(context.get("items", [])) == 3
+        and output.count("Extrait ") == 3
+        and "Extrait 1 — " in output
+        and "Extrait 3 — " in output,
+        "Contexte : les 3 extraits (top_k) au format de la brique",
+        output[:200],
+    )
+    gen = _result_card(r, "generation").inner_text()
+    r.check(
+        "non exécutée dans l'atelier rag" in gen.lower(),
+        "Génération : « non exécutée dans l'atelier RAG »",
+        gen[:200],
+    )
+    r.check(not errors, "aucune pageerror", str(errors[:3]))
+    r.shot("56-atelier-rag-resultats", full_page=True)
+
+    # (4) Reloaded: the same run, from `last_run`.
+    run_id = ended["payload"]["run_id"]
+    page.reload()
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    reloaded = page.locator(".rag-stage-card").count()
+    summary = page.inner_text("#rag-run-summary")
+    state = r.api("GET", "/api/rag_lab").json()
+    r.check(
+        reloaded == len(RAG_LAB_STAGES)
+        and RAG_LAB_QUESTION in summary
+        and state["last_run"][0]["payload"]["run_id"] == run_id,
+        "après rechargement, le même run se réaffiche (last_run)",
+        f"{reloaded} cartes · {summary}",
+    )
+
+    # (5) A workshop turn running: the run is refused, 409 with the reason.
+    seq = r.ev.mark()
+    r.api("POST", "/api/intentions/send", {"message": "Explique le harnais [lent] [long]"})
+    r.ev.wait("model_first_token", seq, timeout=20)
+    refused = r.api("POST", "/api/intentions/rag_lab_run", {"question": RAG_LAB_QUESTION})
+    button = page.locator("#rag-run")
+    expect(button).to_be_disabled(timeout=5000)
+    r.check(
+        refused.status_code == 409 and "tour" in refused.json().get("detail", ""),
+        "tour de l'atelier en cours : rag_lab_run répond 409 avec la raison, « Lancer » grisé",
+        f"{refused.status_code} {refused.text[:160]}",
+    )
+    r.api("POST", "/api/intentions/stop")
+    r.ev.wait("turn_ended", seq, timeout=30)
+    expect(button).to_be_enabled(timeout=10_000)
+
+
+RAG_LAB_STAGES_KINDS = [
+    "chunking",
+    "embedding",
+    "vector_store",
+    "vector_search",
+    "rerank",
+    "context",
+    "generation",
+]
+
+
 SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("diagnostic", s_diagnostic),
     ("programme", s_programme),
@@ -5896,6 +6133,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("global_memory", s_global_memory),
     ("rag", s_rag),
     ("rag_rerank", s_rag_rerank),
+    ("rag_lab", s_rag_lab),
     ("compression", s_compression),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),

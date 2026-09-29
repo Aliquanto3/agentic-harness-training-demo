@@ -143,6 +143,7 @@ from wavestack.models.servers import (
     open_engine,
 )
 from wavestack.rag import index as rag_index
+from wavestack.rag import lab as rag_lab
 from wavestack.rag.corpus import Chunk, RagContent, chunk_corpus, load_rag_content
 from wavestack.rag.retriever import Excerpt, SqliteVecRetriever
 from wavestack.scenarios import EMPTY_PROGRAM, ScenariosContent, load_scenarios
@@ -179,6 +180,7 @@ from wavestack.tools.registry import (
     load_tools_content,
 )
 from wavestack.trace.catalog import (
+    PAYLOAD_MODELS,
     LlmGenerationEndedPayload,
     LlmGenerationStartedPayload,
     LlmTokenizedPayload,
@@ -258,6 +260,7 @@ _PREFIX_CAUSES_FR = {
     "llm": "L'écran « LLM nu » a occupé le cache du moteur{why}.",
 }
 _LAB_FR = "L'écran « LLM nu » génère une réponse : attendez sa fin ou arrêtez-la."
+_RAG_LAB_FR = "Atelier RAG : exécution en cours ; attendez sa fin ou arrêtez-la."
 CANDIDATES = 5  # story 29: the candidates read with each token, the one drawn added if apart
 _SUBAGENT_EVICTED_FR = {
     "stateless": " : ce moteur ne sait pas sauvegarder l'état du contexte principal",
@@ -846,6 +849,10 @@ class AppSession:
         # (`llm{n}`), and the content error already traced (once per message).
         self._labs = 0
         self._lab_error_traced: str | None = None
+        # Story 30 (the RAG workshop): its runs, numbered over the session's life (`lab{n}`),
+        # and its content error already traced (once per message).
+        self._rag_labs = 0
+        self._rag_lab_error_traced: str | None = None
         self._load_content()
         self._registry = ToolRegistry(
             NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
@@ -2578,6 +2585,22 @@ class AppSession:
         if model is None or content is None:
             return
         path = self.cfg.rag_index_path()
+        kind, reason, chunks, longest, missing, missing_fr = self._rag_index_state(model, content)
+        with self._lock:
+            self._rag_index_kind, self._rag_index_error = kind, reason
+            self._rag_chunks = chunks
+            self._rag_stamp = _stamp(path)
+            self._rag_longest, self._rag_missing = longest, missing
+            self._rag_missing_fr = missing_fr
+
+    def _rag_index_state(
+        self, model: EmbeddingModel, content: RagContent
+    ) -> tuple[str | None, str | None, int, list[Chunk], list[ModelFile], str | None]:
+        """What the index and the model's files are now, read without storing anything
+        (story 30: the RAG workshop reads it too, and never changes the brick's state): the
+        index's kind and reason, its excerpts, the preview's excerpts, the files missing and
+        their reason."""
+        path = self.cfg.rag_index_path()
         kind, reason, chunks, longest = None, None, 0, []
         missing = download_module.missing_files(model.files, config.models_dir())
         build = "Cliquez sur « Construire l'index » sur la carte RAG"
@@ -2618,12 +2641,7 @@ class AppSession:
                 chunks = meta.chunks
                 kind, reason = self._rag_index_mismatch(meta, model, content, build)
         missing_fr = _missing_model_fr("d'embedding", model.label_fr, missing) if missing else None
-        with self._lock:
-            self._rag_index_kind, self._rag_index_error = kind, reason
-            self._rag_chunks = chunks
-            self._rag_stamp = _stamp(path)
-            self._rag_longest, self._rag_missing = longest, missing
-            self._rag_missing_fr = missing_fr
+        return kind, reason, chunks, longest, missing, missing_fr
 
     def _rerank_refresh(self) -> None:
         """Story 16: the reranker's files read again, and the reason they give."""
@@ -5104,7 +5122,10 @@ class AppSession:
             if self.state == "model_load" and self._load_cancel is not None:
                 self._load_cancel.cancel()
                 return True
-            if self.state not in ("turn", "awaiting_human", "llm_lab") or self._cancel is None:
+            if (
+                self.state not in ("turn", "awaiting_human", "llm_lab", "rag_lab")
+                or self._cancel is None
+            ):
                 return False
             self._cancel.cancel()
             approval = self._approval
@@ -7572,3 +7593,277 @@ class AppSession:
             self._cache_evicted = None
             return
         self._cache_cause = self._cache_cause or "llm"
+
+    # ---------- story 30: the RAG workshop (context `rag_lab`, no turn) ----------
+
+    @staticmethod
+    def _rag_lab_scope(step_id: str, component: str | None, brick: str | None = "rag") -> dict:
+        """The workshop's trace scope: context `rag_lab`, no turn; the workshop's own
+        components (`rag_lab.{kind}`), which the schema does not draw."""
+        return {
+            "turn_id": None,
+            "context_id": "rag_lab",
+            "call_id": None,
+            "step_id": step_id,
+            "parent_step": None,
+            "brick": brick,
+            "component": component,
+            "edge": None,
+            "actor": "harness",
+            "trigger": "user",
+        }
+
+    def _rag_lab_content(self) -> tuple[rag_lab.RagLabContent | None, str | None]:
+        """`content/rag_lab.yaml`, or why it cannot be read (AD-19): traced as `harness_error`
+        once per message (outside the RAG brick: its card does not show it), the page staying
+        served."""
+        try:
+            return rag_lab.load_lab_content(), None
+        except Exception as exc:  # noqa: BLE001 - AD-16: an invalid file never breaks the page
+            error_fr = (
+                "Textes de l'atelier RAG illisibles (content/rag_lab.yaml) : corrigez le fichier "
+                "puis rechargez la page."
+            )
+            cause = f"{type(exc).__name__}: {exc}"
+            if self._rag_lab_error_traced != cause:
+                self._rag_lab_error_traced = cause
+                with scoped(**self._rag_lab_scope("rag_lab", None, brick=None)):
+                    self._error(error_fr, cause, "La page « Atelier RAG » reste servie sans eux.")
+            rag_lab.load_lab_content.cache_clear()  # corrected, the file is read again
+            detail = (str(exc).splitlines() or [type(exc).__name__])[0][:200]
+            return None, f"{error_fr} Détail : {detail}"
+
+    def _rag_lab_catalog(self, texts: rag_lab.RagLabContent) -> rag_lab.Catalog:
+        """The options the workshop offers, named after the brick's models, with what a run
+        would meet now: the embedding model's files, the brick's index, the reranker's files
+        (the reasons of `_rag_unavailable` and `_rerank_availability`, read afresh)."""
+        model, content = self._rag_model, self._rag_content
+        options: dict[tuple[str, str], rag_lab.OptionState] = {}
+        for kind, names in rag_lab.OPTIONS.items():
+            for name in names:
+                options[(kind, name)] = rag_lab.OptionState(texts.options[kind][name].label_fr)
+        embedding = options[("embedding", "declared")]
+        store = options[("vector_store", "sqlite_vec")]
+        if model is None or content is None:
+            embedding.note_fr = self._content_errors.get("rag") or "Brique RAG non configurée."
+        else:
+            embedding.label_fr = model.label_fr
+            _, index_error, _, _, _, missing_fr = self._rag_index_state(model, content)
+            embedding.note_fr = missing_fr
+            store.note_fr = index_error
+        rerank = options[("rerank", "declared")]
+        if self._rerank_model is not None:
+            rerank.label_fr = self._rerank_model.label_fr
+        rerank.note_fr = self._rerank_static_reason()
+        return rag_lab.Catalog(texts, rag_lab.default_pipeline(self.cfg), options)
+
+    def rag_lab_state(self) -> dict[str, Any]:
+        """`GET /api/rag_lab` (story 30, AD-1): what the page needs before the stream, from
+        `seq` on: the catalog and the shipped chain, its texts (or why not), the last run
+        read in the journal and the session's state."""
+        journal = get_journal()
+        tip = journal.last_seq()
+        texts, error_fr = self._rag_lab_content()
+        catalog = self._rag_lab_catalog(texts) if texts is not None else None
+        with self._lock:
+            state, reason_fr = self.state, self.reason_fr
+        events = [e for e in journal.all_events() if e.seq <= tip]
+        return {
+            "catalog": catalog.payload() if catalog is not None else None,
+            "default_pipeline": rag_lab.default_pipeline(self.cfg).model_dump(),
+            "content": texts.model_dump() if texts is not None else None,
+            "content_error_fr": error_fr,
+            "unavailable_fr": self._rag_lab_unavailable(),
+            "last_run": rag_lab.last_run(events),
+            "session_state": {"state": state, "reason_fr": reason_fr},
+            "seq": tip,
+        }
+
+    def _rag_lab_unavailable(self) -> str | None:
+        """Why no chain can run at all: the RAG brick's corpus and texts are unreadable."""
+        if self._rag_content is None:
+            return self._content_errors.get("rag") or (
+                "Le corpus de la brique RAG (content/rag.yaml) est illisible : l'atelier RAG ne "
+                "peut rien découper."
+            )
+        return None
+
+    def run_rag_lab(self, question: str, pipelines: list[rag_lab.Pipeline] | None = None) -> str:
+        """Intention `rag_lab_run` (story 30, class b): accepted in `idle` only (a reason
+        there, such as no model loaded, does not matter: nothing is generated), switched to
+        `rag_lab` under the lock in this call, then run on the worker; « Arrêter » (class c)
+        stops it between two stages, passages or candidates. A chain the workshop refuses:
+        `SendRefused` with the reason, nothing emitted. Returns the run's id, `lab{n}`."""
+        texts, error_fr = self._rag_lab_content()
+        if texts is None:
+            raise SendRefused(error_fr or "Textes de l'atelier RAG illisibles.")
+        unavailable = self._rag_lab_unavailable()
+        if unavailable is not None:
+            raise SendRefused(unavailable)
+        catalog = self._rag_lab_catalog(texts)
+        chains = list(pipelines) if pipelines else [catalog.default]
+        for chain in chains:
+            reason = rag_lab.validate_pipeline(chain, catalog)
+            if reason is not None:
+                raise SendRefused(reason)
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+            previous = self.reason_fr
+            self._rag_labs += 1
+            run_id = f"lab{self._rag_labs}"
+            cancel = self._cancel = CancelToken()
+            self.state, self.reason_fr = "rag_lab", _RAG_LAB_FR
+        self._emit_state()
+        self._executor.submit(
+            self._run_rag_lab, run_id, question, chains, texts, catalog, cancel, previous
+        )
+        return run_id
+
+    def _run_rag_lab(
+        self,
+        run_id: str,
+        question: str,
+        chains: list[rag_lab.Pipeline],
+        texts: rag_lab.RagLabContent,
+        catalog: rag_lab.Catalog,
+        cancel: CancelToken,
+        previous: str | None,
+    ) -> None:
+        """On the worker, in series with the turns and `_sync_rag`: a model the brick holds
+        cannot be closed meanwhile. What the run loads is closed and freed at its end (AD-8),
+        and the session goes back to `idle` with the reason it had."""
+        loans = rag_lab.Loans(self._load_registry)
+        try:
+            content = self._rag_content
+            model = self._rag_model
+            index_error = None
+            if model is not None and content is not None:
+                index_error = self._rag_index_state(model, content)[1]
+            assert content is not None  # checked when the intention was accepted
+            deps = rag_lab.LabDeps(
+                content=content,
+                texts=texts,
+                catalog=catalog,
+                shipped_chunk_max_chars=self.cfg.rag_chunk_max_chars,
+                brick_index=self.cfg.rag_index_path(),
+                brick_index_error=index_error,
+                embedder=lambda option: self._rag_lab_embedder(option, loans),
+                reranker=lambda option: self._rag_lab_reranker(option, loans),
+                cancelled=lambda: cancel.cancelled,
+                emit=self._rag_lab_emit,
+                rss=self._rss_now,
+            )
+            rag_lab.LabRun(run_id, question, chains, deps).run()
+        except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
+            with scoped(**self._rag_lab_scope(run_id, "rag_lab", brick=None)):
+                self._error(
+                    "L'atelier RAG s'est interrompu sur une erreur.",
+                    exc,
+                    "La session revient en attente ; l'atelier reste utilisable.",
+                )
+        finally:
+            errors = loans.close()
+            if errors:
+                with scoped(**self._rag_lab_scope(run_id, "rag_lab", brick=None)):
+                    self._error(
+                        "Un modèle chargé par l'atelier RAG n'a pas pu être fermé.",
+                        " ; ".join(errors),
+                        "Il est oublié ; son créneau mémoire est libéré.",
+                    )
+            with self._lock:
+                self._cancel = None
+            self._set_state("idle", previous)
+
+    def _rag_lab_emit(
+        self, kind: str, payload: dict[str, Any], step_id: str, component: str
+    ) -> None:
+        model = PAYLOAD_MODELS[kind]
+        with scoped(**self._rag_lab_scope(step_id, component)):
+            get_journal().emit(kind, model.model_validate(payload).model_dump(mode="json"))
+
+    def _rag_lab_embedder(self, option: str, loans: rag_lab.Loans) -> rag_lab.Lent:
+        """The brick's embedding model, borrowed when it holds it, else loaded as
+        `_load_embedder` loads it (budget, declared sha256, factory) and closed at the run's
+        end; its errors are said in the stage, never as `harness_error`."""
+        model = self._rag_model
+        if option != "declared" or model is None:
+            raise rag_lab.StageFailed(
+                self._content_errors.get("rag") or "Aucun modèle d'embedding n'est déclaré."
+            )
+        with self._lock:
+            borrowed = self._embedder
+        missing = download_module.missing_files(model.files, config.models_dir())
+        unavailable = None
+        if missing:
+            names = ", ".join(PurePosixPath(f.path).name for f in missing)
+            unavailable = (
+                f"Modèle d'embedding absent ({names} dans {config.models_dir()}). Téléchargez-le "
+                "depuis la carte RAG de l'atelier."
+            )
+
+        def open_model() -> Embedder:
+            path = embedding_module.model_path(model)
+            declared = model.load_file.sha256
+            if declared and rag_index.file_sha256(path) != declared.lower():
+                raise ValueError(
+                    f"le fichier {path} n'est pas le modèle déclaré (sha256 différent de "
+                    "celui de [rag.embedding])"
+                )
+            return self._embedder_factory(model)
+
+        return loans.lend(
+            borrowed=borrowed,
+            label_fr=model.label_fr,
+            noun_fr="modèle d'embedding",
+            unavailable_fr=unavailable,
+            cost=self._load_registry.component_cost(
+                model.measured_rss_mb, [f.size for f in model.files]
+            ),
+            slot=EMBEDDING,
+            open_model=open_model,
+        )
+
+    def _rag_lab_reranker(self, option: str, loans: rag_lab.Loans) -> rag_lab.Lent:
+        """The brick's reranker, borrowed or loaded as `_load_reranker` loads it; without its
+        declaration or its file, the stage is skipped and the chain goes on."""
+        model = self._rerank_model
+        if option != "declared" or model is None:
+            raise rag_lab.StageSkipped(
+                self._rerank_config_error or "Aucun modèle de reranking n'est déclaré."
+            )
+        with self._lock:
+            borrowed = self._reranker
+        missing = download_module.missing_files(model.files, config.models_dir())
+        unavailable = None
+        if missing:
+            names = ", ".join(PurePosixPath(f.path).name for f in missing)
+            unavailable = (
+                f"Modèle de reranking absent ({names} dans {config.models_dir()}) : "
+                "téléchargez-le depuis la carte RAG de l'atelier "
+                "(sous-option « Reranking »). La construction du contexte garde l'ordre de la "
+                "recherche."
+            )
+
+        def open_model() -> Reranker:
+            path = reranker_module.model_path(model)
+            declared = model.load_file.sha256
+            if declared and rag_index.file_sha256(path) != declared.lower():
+                raise ValueError(
+                    f"le fichier {path} n'est pas le modèle déclaré (sha256 différent de "
+                    "celui de [rag.reranker])"
+                )
+            return self._reranker_factory(model)
+
+        return loans.lend(
+            borrowed=borrowed,
+            label_fr=model.label_fr,
+            noun_fr="modèle de reranking",
+            unavailable_fr=unavailable,
+            cost=self._load_registry.component_cost(
+                model.measured_rss_mb, [f.size for f in model.files]
+            ),
+            slot=RERANKER,
+            open_model=open_model,
+            soft=True,
+        )

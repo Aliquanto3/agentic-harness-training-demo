@@ -71,6 +71,7 @@ SessionState = Literal[
     "reset",
     "diagnostic",
     "llm_lab",  # story 29: the « LLM nu » screen generates
+    "rag_lab",  # story 30: the RAG workshop runs its chains
 ]
 
 
@@ -1051,6 +1052,130 @@ class LlmGenerationEndedPayload(BaseModel):
     figures_fr: dict[str, str] = {}
 
 
+# ---------- story 30: the RAG workshop (AD-2, AD-22), context `rag_lab`, no turn ----------
+
+RagLabLaneId = Literal["a", "b"]
+RagLabStageStatus = Literal["ok", "error", "skipped", "cancelled", "not_run"]
+
+
+class RagLabStageRef(BaseModel):
+    """A stage of a lane as the run draws it: its kind, its option and their French names,
+    its settings."""
+
+    stage_id: str
+    kind: str
+    option: str
+    label_fr: str
+    option_label_fr: str
+    params: dict[str, int] = {}
+
+
+class RagLabLane(BaseModel):
+    lane: RagLabLaneId
+    label_fr: str
+    stages: list[RagLabStageRef]
+
+
+class RagLabRunStartedPayload(BaseModel):
+    run_id: str
+    question: str
+    lanes: list[RagLabLane]
+    phase_label: str
+
+
+class RagLabStageStartedPayload(BaseModel):
+    run_id: str
+    lane: RagLabLaneId
+    stage_id: str
+    kind: str
+    option: str
+    phase_label: str
+
+
+class RagLabStageProgressPayload(BaseModel):
+    run_id: str
+    lane: RagLabLaneId
+    stage_id: str
+    kind: str
+    option: str
+    done: int
+    total: int
+
+
+class RagLabFact(BaseModel):
+    label_fr: str
+    value_fr: str
+
+
+class RagLabSource(BaseModel):
+    """Where an excerpt stood in a list an earlier stage made (a search, before a fusion or a
+    reranking), and its score there."""
+
+    kind: str
+    label_fr: str
+    rank: int | None = None
+    score: float | None = None
+
+
+class RagLabItem(BaseModel):
+    rank: int  # from 1, in the list this stage makes
+    before: int | None = None  # its rank in the list the stage received
+    chunk_id: int
+    doc_id: str
+    title_fr: str
+    text: str
+    score: float | None = None  # this stage's, 3 decimals
+    sources: list[RagLabSource] = []
+
+
+class RagLabStageEndedPayload(BaseModel):
+    """What a stage received and made, its figures and its excerpts, its duration and
+    WaveStack's memory at its end (`None` for a stage that did not run)."""
+
+    run_id: str
+    lane: RagLabLaneId
+    stage_id: str
+    kind: str
+    option: str
+    status: RagLabStageStatus
+    input_fr: str = ""
+    output_fr: str = ""
+    facts: list[RagLabFact] = []
+    items: list[RagLabItem] = []
+    borrowed: bool = False  # the model was the RAG brick's, lent and not closed
+    error_fr: str | None = None
+    duration_ms: int
+    rss_bytes: int | None = None
+    memory_fr: str | None = None
+
+
+class RagLabCompared(BaseModel):
+    key: str  # an excerpt (`doc_id#position`) or a document (`doc_id`)
+    doc_id: str
+    title_fr: str
+    rank_a: int | None = None
+    rank_b: int | None = None
+
+
+class RagLabComparison(BaseModel):
+    """The two contexts compared, in Python (AD-1): excerpt by excerpt when both chains cut
+    the corpus alike, else document by document."""
+
+    basis: Literal["excerpt", "document"]
+    common: list[RagLabCompared]
+    only_a: list[RagLabCompared]
+    only_b: list[RagLabCompared]
+    rank_changes: list[RagLabCompared]
+    summary_fr: str
+
+
+class RagLabRunEndedPayload(BaseModel):
+    run_id: str
+    status: Literal["ok", "error", "cancelled"]
+    duration_ms: int
+    comparison: RagLabComparison | None = None
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -1107,4 +1232,9 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "llm_generation_started": LlmGenerationStartedPayload,
     "llm_token": LlmTokenPayload,
     "llm_generation_ended": LlmGenerationEndedPayload,
+    "rag_lab_run_started": RagLabRunStartedPayload,
+    "rag_lab_stage_started": RagLabStageStartedPayload,
+    "rag_lab_stage_progress": RagLabStageProgressPayload,
+    "rag_lab_stage_ended": RagLabStageEndedPayload,
+    "rag_lab_run_ended": RagLabRunEndedPayload,
 }

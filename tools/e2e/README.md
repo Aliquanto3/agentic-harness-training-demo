@@ -443,6 +443,26 @@ Vérifications ajoutées aux scénarios existants :
   aucun moteur en processus dans le parcours). (7) Retour au faux cloud A, puis `/llm` dit « aucune
   mémoire sur ce poste ».
 
+## Atelier RAG (story 30)
+
+- `rag_lab`, joué juste après `rag_rerank` (index construit, faux modèles d'embedding et de
+  reranking présents), à 1600 × 1000 : (1) le lien « Atelier RAG » de la barre haute est entier
+  (`_fully_visible`), vers `/rag`, et toute la barre tient sur une ligne (`_bar_fits`) ; (2) sur
+  `/rag`, sept cartes dans l'ordre (Découpage, Embedding, Base vectorielle, Recherche,
+  Reranking, Construction du contexte, Génération), les options « Faux embedding (e2e) »,
+  « sqlite-vec » et « Faux reranker (e2e) », chaque carte expliquée, la génération sur
+  `--color-ink-fill`, l'onglet « Atelier RAG » courant, contrastes AA en clair et en sombre
+  (`_contrast_sweep`) ; capture `55-atelier-rag-chaine.jpg` ; (3) « Combien de jours de
+  télétravail par semaine ? » puis « Lancer la chaîne » : une paire `started`/`ended` par étape
+  exécutée, les statuts vus au fil de l'eau (`MutationObserver`) passent par « en cours » puis
+  « terminée · N ms », chaque carte donne sa durée en ms et la mémoire en Mo ; la Recherche liste
+  8 extraits (`rag_rerank_candidates`) avec rang et score, le Reranking le rang avant et après
+  de chacun, le Contexte les 3 extraits au format de la brique, la Génération « non exécutée
+  dans l'atelier RAG » ; aucune `pageerror` ; capture `56-atelier-rag-resultats.jpg` ; (4) après
+  rechargement, le même run (`last_run`) ; (5) pendant un tour lent de l'atelier, `rag_lab_run`
+  répond 409 avec la raison et « Lancer » est grisé. Retour à `/` en fin de scénario, thème
+  « Système ».
+
 ## Déclencheurs du faux modèle
 
 La réponse dépend du dernier message de l'utilisateur (sans le texte ajouté par H3 ni les

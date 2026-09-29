@@ -2,7 +2,8 @@
 title: 'Atelier RAG : l''architecture RAG à manipuler'
 type: 'feature'
 created: '2026-09-28'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '23701e33e69fe94ce24d1ee771be54dcda048b67'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:

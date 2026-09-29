@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <script src="/static/theme.js"></script>
+  <title>WaveStack — Atelier RAG</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/fonts.css" />
+  <link rel="stylesheet" href="/static/tokens.css" />
+  <link rel="stylesheet" href="/static/pages.css" />
+  <link rel="stylesheet" href="/static/rag.css" />
+</head>
+<body class="rag-page">
+  <nav class="page-tabs" aria-label="Pages de WaveStack">
+    <a href="/" id="back-link" class="rag-back">← Atelier</a>
+    <a href="/llm">LLM nu</a>
+    <a href="/rag" aria-current="page">Atelier RAG</a>
+    <a href="/diagnostic">Diagnostic</a>
+    <a href="/models">Modèles</a>
+    <select id="theme-picker" class="theme-picker" data-theme-picker aria-label="Thème de l'interface" title="Thème de l'interface">
+      <option value="system">◐ Système</option>
+      <option value="light">☀ Clair</option>
+      <option value="dark">☾ Sombre</option>
+    </select>
+  </nav>
+
+  <main class="rag-main">
+    <header class="rag-header">
+      <h1 id="rag-title">Atelier RAG : l'architecture RAG à manipuler</h1>
+      <p class="rag-intro" id="rag-intro"></p>
+      <p class="rag-error" id="rag-content-error" role="alert" hidden></p>
+      <p class="rag-busy" id="rag-busy" role="status" hidden></p>
+    </header>
+
+    <section class="rag-section" id="sec-chain" aria-labelledby="sec-chain-title">
+      <h2 class="rag-section-title" id="sec-chain-title"><span class="rag-step" aria-hidden="true">1</span> <span data-text="chain_title_fr">La chaîne</span></h2>
+      <p class="rag-note" data-text="chain_help_fr"></p>
+      <ol class="rag-chain" id="rag-chain" aria-label="Étapes de la chaîne RAG"></ol>
+    </section>
+
+    <section class="rag-section" id="sec-question" aria-labelledby="sec-question-title">
+      <h2 class="rag-section-title" id="sec-question-title"><span class="rag-step" aria-hidden="true">2</span> <span data-text="question_label_fr">Question</span></h2>
+      <label class="rag-label" for="rag-question" data-text="question_label_fr">Question</label>
+      <input type="text" id="rag-question" class="rag-question" maxlength="500" autocomplete="off" />
+      <div class="rag-actions">
+        <button type="button" id="rag-run" class="rag-button-primary" data-text="run_fr">Lancer la chaîne</button>
+        <button type="button" id="rag-stop" class="rag-button-secondary" data-text="stop_fr" disabled>Arrêter</button>
+        <span class="rag-status" id="rag-status" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section class="rag-section" id="sec-results" aria-labelledby="sec-results-title">
+      <h2 class="rag-section-title" id="sec-results-title"><span class="rag-step" aria-hidden="true">3</span> <span data-text="results_title_fr">Ce que fait chaque étape</span></h2>
+      <p class="rag-note" id="rag-results-empty" data-text="results_empty_fr"></p>
+      <p class="rag-run-summary" id="rag-run-summary" role="status" hidden></p>
+      <div class="rag-results" id="rag-results"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/static/rag.js"></script>
+</body>
+</html>

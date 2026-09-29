@@ -4683,3 +4683,42 @@ body .arch .arch-robots .robot.is-selection-linked {
     min-width: 2.5rem;
   }
 }
+
+/* ---------- story 30: a second screen link, « Atelier RAG », after « LLM nu » ----------
+   Room for it on the one-line bar, the gauge's figures kept whole from 1280 to 1600 px: the
+   bar's gaps tighten, the links' padding too, and up to 1600 px the projection button says
+   « Projection » (its accessible name stays « Mode projection »). */
+
+.top-bar {
+  gap: var(--spacing-2);
+}
+
+.top-bar > .screen-link {
+  padding: 0 var(--spacing-2);
+}
+
+@media (max-width: 1600px) {
+  .projection-toggle-long {
+    display: none;
+  }
+
+  .projection-toggle-short {
+    display: inline;
+  }
+}
+
+@media (max-width: 1400px) {
+  .top-bar > .screen-link {
+    padding: 0 var(--spacing-1);
+  }
+
+  .top-bar > .scenario-picker,
+  .top-bar > .model-indicator {
+    min-width: 3rem;
+  }
+
+  /* In projection mode, the larger texts: the gaps tighten further, for « · lié ». */
+  :root.projection .top-bar {
+    gap: var(--spacing-1);
+  }
+}

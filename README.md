@@ -315,6 +315,32 @@ Les textes de la page sont dans `content/llm_lab.yaml`. Les événements de l'é
 dans le contexte `llm` : le journal des événements de l'atelier les liste, aucun volet ne les
 montre.
 
+## Atelier RAG
+
+Le lien **« Atelier RAG »** de la barre haute ouvre la page `/rag` : l'architecture d'une chaîne
+RAG, dessinée pièce par pièce, puis exécutée sur une question, étape par étape. C'est un bac à
+sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne change pas.
+
+- **La chaîne.** Sept cartes : découpage du corpus, embedding, base vectorielle, recherche,
+  reranking, construction du contexte, génération. Chaque carte nomme son option (le modèle
+  déclaré dans `[rag.embedding]` et `[rag.reranker]`, sqlite-vec…), ses réglages, et explique
+  ce qu'elle fait ; une note dit ce qu'une exécution rencontrerait (modèle absent, index de la
+  brique à construire). La génération est dessinée mais ne s'exécute pas ici : générer, c'est un
+  tour de l'atelier ; la carte montre ce que le modèle recevrait.
+- **L'exécution.** « Lancer la chaîne » exécute chaque étape sur la question (500 caractères au
+  plus) et montre ce qu'elle reçoit, ce qu'elle produit, ses chiffres, ses extraits (rang, rang
+  d'avant, document, score), sa durée et la mémoire de WaveStack. La chaîne livrée lit l'index
+  de la brique (sans jamais y écrire) ; l'embedder et le reranker sont empruntés à la brique RAG
+  quand elle les a chargés, sinon chargés pour l'exécution (dans le budget mémoire) puis fermés.
+  Sans modèle d'embedding, l'étape le dit : téléchargez-le depuis la carte RAG de l'atelier ;
+  sans reranker, le reranking est sauté et le contexte garde l'ordre de la recherche.
+  « Arrêter » interrompt entre deux étapes. Pendant l'exécution, l'atelier attend (état
+  « Atelier RAG : exécution en cours »).
+
+Les textes de la page sont dans `content/rag_lab.yaml`. Les événements `rag_lab_*` sont tracés
+dans le contexte `rag_lab` : le journal des événements de l'atelier les liste, aucun volet ne
+les montre. Après un rechargement, la page réaffiche la dernière exécution.
+
 ## Modèle par défaut
 
 Le modèle recommandé est **Qwen3.5-2B en Q4_K_M** (GGUF amont publié par unsloth, licence

@@ -19,11 +19,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 from wavestack import config
 from wavestack.models import catalog
 from wavestack.models.engine import SAMPLING_BOUNDS, Sampling
+from wavestack.rag.lab import QUESTION_MAX, Pipeline
 from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession, Refused
 from wavestack.trace.envelope import Envelope
@@ -174,6 +175,21 @@ class LlmGenerateIntention(BaseModel):
     candidates: bool = False  # the in-process engine only, else 409
 
 
+class RagLabRunIntention(BaseModel):
+    """Story 30: the question the RAG workshop's chains run on (500 characters at most), and
+    the chain (the shipped one when absent)."""
+
+    question: str = Field(min_length=1, max_length=QUESTION_MAX)
+    pipelines: list[Pipeline] | None = Field(default=None, min_length=1, max_length=1)
+
+    @field_validator("question")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("question vide")
+        return value
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -299,6 +315,26 @@ def create_app(
             raise HTTPException(
                 status_code=409, detail=f"Refusé pour l'instant : {refused.reason_fr}"
             ) from None
+
+    @app.get("/rag")
+    def rag_page() -> FileResponse:
+        """Story 30: the RAG workshop, a RAG chain drawn and run apart from the brick."""
+        return FileResponse(STATIC_DIR / "rag.html")
+
+    @app.get("/api/rag_lab")
+    def api_rag_lab() -> dict[str, object]:
+        """Story 30 (AD-1): the catalog, the shipped chain, the texts, the last run read in the
+        journal, the session's state and the journal's tip; the page then streams from `seq`."""
+        return app_session.rag_lab_state()
+
+    @app.post("/api/intentions/rag_lab_run")
+    def rag_lab_run(intention: RagLabRunIntention) -> dict[str, str]:
+        """Story 30, class (b): accepted in `idle` only, the session in `rag_lab` until the run
+        ends; « Arrêter » (`stop`) stops it. A chain refused: 409 with the reason."""
+        try:
+            return {"run_id": app_session.run_rag_lab(intention.question, intention.pipelines)}
+        except SendRefused as refused:
+            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
 
     @app.get("/api/state")
     def api_state() -> dict[str, object]:
