@@ -1951,7 +1951,7 @@ def s_mcp_full(r: Run) -> None:
     )
     gauge = r.page.locator("#gauge-figures").inner_text()
     seq = r.ev.mark()
-    ended = r.send("Que veut dire MCP ?")
+    ended = r.send(_prompts("mcp_full")[0])
     tools = [e["payload"]["tool"] for e in r.ev.since(seq, "tool_started")]
     r.check("local__define_term" in tools, "outil MCP local appelé", str(tools))
     r.check(
@@ -1964,10 +1964,17 @@ def s_mcp_full(r: Run) -> None:
 
 
 def s_mcp_lazy(r: Run) -> None:
+    first, second = _prompts("mcp_lazy")
     r.launch("mcp_lazy")
+    guide = r.page.locator("#scenario-guide").inner_text()
+    r.check(
+        not r.bricks()["rag"]["wanted"] and "le RAG, laissé éteint" in guide,
+        "lazy loading : RAG non voulu (story 27), la consigne le dit",
+        guide[:200],
+    )
     body_tools = None
     seq = r.ev.mark()
-    ended = r.send("Que veut dire MCP ?")
+    ended = r.send(first)
     calls = r.fake_calls()
     body_tools = (
         [t["function"]["name"] for t in calls[-3].get("tools") or []] if len(calls) >= 3 else []
@@ -1984,7 +1991,7 @@ def s_mcp_lazy(r: Run) -> None:
         str(body_tools),
     )
     r.check(ended["payload"]["status"] == "completed", "tour lazy terminé")
-    ended = r.send("Quels jeux de données publics existent sur la qualité de l'air ?")
+    ended = r.send(second)
     r.check(
         ended["payload"]["status"] == "completed",
         "qualité de l'air sans data.gouv.fr : réponse sans outil",
@@ -2009,11 +2016,15 @@ def s_mcp_lazy(r: Run) -> None:
 
 def s_skills(r: Run) -> None:
     r.launch("skills")
-    seq = r.ev.mark()
-    ended = r.send(
-        "Rédige le compte rendu de cette réunion : Paul présente le budget, Julie valide le "
-        "planning, prochaine réunion lundi à 10 h."
+    guide = r.page.locator("#scenario-guide").inner_text()
+    r.check(
+        "« Déclencher le skill » sur « Compte rendu de réunion »" in guide
+        and not r.bricks()["rag"]["wanted"],
+        "consigne des skills : l'action forcée de secours ; RAG non voulu",
+        guide[:200],
     )
+    seq = r.ev.mark()
+    ended = r.send(_prompts("skills")[0])
     tools = [e["payload"]["tool"] for e in r.ev.since(seq, "tool_started")]
     r.check("load_skill" in tools, "le modèle charge le skill", str(tools))
     r.check(ended["payload"]["status"] == "completed", "tour terminé")
@@ -2116,10 +2127,13 @@ def s_subagent(r: Run) -> None:
     delegation line and its child lines in Orchestration, the second robot of the schema."""
     page = r.page
     r.launch("subagent")
-    prompt = (
-        "Délègue à ton sous-agent la lecture du fichier guide_harnais.md : il doit le lire et "
-        "te rendre un résumé en cinq points. Puis présente-moi ce résumé. [lent]"
+    r.check(
+        not r.bricks()["rag"]["wanted"]
+        and "sans le raisonnement ni le RAG" in page.locator("#scenario-guide").inner_text(),
+        "sous-agent : RAG non voulu, la consigne le dit (story 27, D5)",
     )
+    # The scenario's own prompt; « [lent] » slows the fake model down to see the robot work.
+    prompt = _prompts("subagent")[0] + " [lent]"
     before = len(r.fake_calls())
     r.wait_idle()
     seq = r.ev.mark()
@@ -2360,28 +2374,31 @@ def s_subagent(r: Run) -> None:
 
 
 def s_data_flows(r: Run) -> None:
-    r.launch("data_flows")
-    r.set_brick("MCP", True)
-    time.sleep(1)
+    """Story 27 (X1): everything is active at launch, nothing to turn on by hand: the MCP
+    brick in lazy loading, the local server and data.gouv.fr."""
     seq = r.ev.mark()
-    r.set_option("MCP", "data.gouv.fr", True)
-    ended = r.ev.wait("mcp_connect_ended", seq, lambda p: p["server"] == "datagouv", 45)
+    r.launch("data_flows")
+    enabled, mode = _enabled_servers(r)
     r.check(
-        ended["payload"]["status"] == "error",
-        "data.gouv.fr échoue, sans réseau",
-        (ended["payload"].get("error_fr") or "")[:200],
+        r.bricks()["mcp"]["wanted"] and enabled == ["datagouv", "local"] and mode == "lazy",
+        "lancement : brique MCP voulue, serveur local et data.gouv.fr, lazy loading",
+        f"{enabled} · {mode}",
     )
-    time.sleep(0.5)
-    arch = r.state()["architecture_changed"]
-    crossing = [e for e in arch["edges"] if e.get("crosses_boundary")]
+    r.check(
+        "Décochez puis recochez data.gouv.fr" in r.page.locator("#scenario-guide").inner_text(),
+        "consigne : tout est actif, décocher puis recocher data.gouv.fr",
+    )
+    _public_server_offline(r, "datagouv", "data.gouv.fr", seq)
+    crossing = _crossing_besides_the_model(r)
     r.check(
         any("datagouv" in e["from"] + e["to"] for e in crossing),
         "le flux vers data.gouv.fr franchit la frontière du poste",
         str(crossing)[:300],
     )
+    arch = r.state()["architecture_changed"]
     local = [e for e in arch["edges"] if "mcp.local" in e["from"] + e["to"]]
     r.check(
-        all(not e.get("crosses_boundary") for e in local),
+        bool(local) and all(not e.get("crosses_boundary") for e in local),
         "le serveur MCP local reste sur le poste",
         str(local)[:200],
     )
@@ -2389,6 +2406,34 @@ def s_data_flows(r: Run) -> None:
     _datagouv_connection_outbound(r, seq)
     r.shot("15-ou-vont-mes-donnees-schema")
     schema_fits(r, "data.gouv.fr")
+    # The instructions' gesture: data.gouv.fr unchecked, then checked again.
+    r.set_option("MCP", "data.gouv.fr", False)
+    crossing = _crossing_besides_the_model(r)
+    r.check(
+        not crossing,
+        "data.gouv.fr décoché : plus aucun flux ne franchit la frontière (hors modèle cloud)",
+        str(crossing)[:300],
+    )
+    seq = r.ev.mark()
+    r.set_option("MCP", "data.gouv.fr", True)
+    r.ev.wait("mcp_connect_ended", seq, lambda p: p["server"] == "datagouv", 45)
+    time.sleep(0.5)
+    crossing = _crossing_besides_the_model(r)
+    r.check(
+        any("datagouv" in e["from"] + e["to"] for e in crossing),
+        "data.gouv.fr recoché : son flux franchit de nouveau la frontière",
+        str(crossing)[:300],
+    )
+
+
+def _crossing_besides_the_model(r: Run) -> list[dict[str, Any]]:
+    """The schema's edges that cross the workstation's boundary, but the run's cloud model's."""
+    arch = r.state()["architecture_changed"]
+    return [
+        e
+        for e in arch["edges"]
+        if e.get("crosses_boundary") and "core.model" not in e["from"] + e["to"]
+    ]
 
 
 def _datagouv_node_reveals_its_connection(r: Run) -> None:
@@ -2522,18 +2567,19 @@ def s_programme(r: Run) -> None:
         for m in content["program"][:4]
         for i in m["scenarios"]
         for b in content["scenarios"][i]["bricks"]
-    } - {"reasoning"}
+    } - {"reasoning", "rag"}
     r.launch(first)  # module 5, launched directly
     wanted = {k for k, b in r.bricks().items() if b["wanted"]}
     r.check(
-        earlier <= wanted and "reasoning" not in wanted,
-        "module 5 lancé directement : les briques des modules 1 à 4, sans le raisonnement",
+        earlier <= wanted and not {"reasoning", "rag"} & wanted,
+        "module 5 lancé directement : les briques des modules 1 à 4, sans le raisonnement ni "
+        "le RAG",
         str(sorted(wanted)),
     )
     guide = r.page.locator("#scenario-guide")
     r.check(
-        "sans le raisonnement" in guide.inner_text(),
-        "la consigne dit que le raisonnement reste éteint",
+        "sans le raisonnement ni le RAG" in guide.inner_text(),
+        "la consigne dit que le raisonnement et le RAG restent éteints",
     )
     r.launch("mcp_full")
     r.check(
@@ -2548,7 +2594,10 @@ def s_soc(r: Run) -> None:
     first, second = _prompts("soc")
     r.launch("soc")
     guide = r.page.locator("#scenario-guide")
-    r.check("Métier SOC" in guide.inner_text(), "consigne du scénario SOC affichée")
+    r.check(
+        "Métier SOC" in guide.inner_text() and "analyste habilité" in guide.inner_text(),
+        "consigne du scénario SOC affichée, qui cite l'analyste habilité",
+    )
     seq = r.ev.mark()
     ended = r.send(first)
     _folded_guide(r)
@@ -2681,11 +2730,15 @@ def _folded_guide(r: Run) -> None:
     )
 
 
-def _public_server_offline(r: Run, server: str, label: str) -> None:
-    # A server already enabled by the previous scenario is not contacted again (AD-15):
-    # its last answer, from before `seq`, still stands.
-    ends = {e["payload"]["server"]: e["payload"] for e in r.ev.since(0, "mcp_connect_ended")}
-    ended = ends.get(server, {})
+def _public_server_offline(r: Run, server: str, label: str, seq: int | None = None) -> None:
+    """`seq`: the server is contacted by this launch, its answer is awaited after `seq`.
+    Without it, a server already enabled by the previous scenario is not contacted again
+    (AD-15): its last answer, the current connection state, still stands."""
+    if seq is not None:
+        ended = r.ev.wait("mcp_connect_ended", seq, lambda p: p["server"] == server, 45)["payload"]
+    else:
+        ends = {e["payload"]["server"]: e["payload"] for e in r.ev.since(0, "mcp_connect_ended")}
+        ended = ends.get(server, {})
     r.check(
         ended.get("status") == "error" and bool(ended.get("error_fr")),
         f"{label} injoignable sans réseau : échec expliqué",
@@ -2720,7 +2773,7 @@ def s_iam(r: Run) -> None:
         "carte MCP : Microsoft Learn seul, documentation complète",
         f"{enabled} · {mode}",
     )
-    _public_server_offline(r, "mslearn", "Microsoft Learn")
+    _public_server_offline(r, "mslearn", "Microsoft Learn", seq)
     for prompt in _prompts("iam"):
         seq = r.ev.mark()
         ended = r.send(prompt)
@@ -3495,15 +3548,6 @@ def s_rag_rerank(r: Run) -> None:
     )
 
 
-COMPRESSION_QUESTION = (
-    "Lis le fichier journal_serveur.log et dis-moi quelle erreur grave la sauvegarde de cette "
-    "nuit a rencontrée."
-)
-
-
-COMPRESSION_SECOND = "Dans le journal_serveur.log, à quelle heure le lot 12 a-t-il été copié ?"
-
-
 def _compression_step(r: Run):
     """The last « Compression (…) » step of Orchestration."""
     name = r.page.locator(".turn-step-name", has_text="Compression (")
@@ -3516,7 +3560,14 @@ def s_compression(r: Run) -> None:
     compression in Contexte LLM, the compressor in the schema, « Comparer », a reload."""
     log = (REPO / "content" / "demo_files" / "journal_serveur.log").read_text(encoding="utf-8")
     error_line = next(line for line in log.splitlines() if " ERROR " in line)
+    question, second = _prompts("compression")
     r.launch("compression")
+    r.check(
+        not r.bricks()["rag"]["wanted"]
+        and "« Journal de sauvegarde (compression) »"
+        in r.page.locator("#scenario-guide").inner_text(),
+        "compression : RAG non voulu, la consigne donne le préréglage de secours (story 27)",
+    )
     brick = r.bricks()["compression"]
     reason = brick.get("reason_fr") or ""
     if not brick["available"] and "uv sync --extra compression" in reason:
@@ -3528,7 +3579,7 @@ def s_compression(r: Run) -> None:
             reason[:160],
         )
         seq = r.ev.mark()
-        ended = r.send(COMPRESSION_QUESTION)
+        ended = r.send(question)
         r.check(
             ended["payload"]["status"] == "completed"
             and not r.ev.since(seq, "compression_started"),
@@ -3560,11 +3611,23 @@ def s_compression(r: Run) -> None:
     # Compression off: the whole log goes to the model.
     r.set_brick("Compression", False)
     seq = r.ev.mark()
-    ended = r.send(COMPRESSION_QUESTION)
+    ended = r.send(question)
     r.check(ended["payload"]["status"] == "completed", "tour sans compression terminé")
     r.check(not r.ev.since(seq, "compression_started"), "sans compression : aucune étape")
+    started = [e["payload"] for e in r.ev.since(seq, "tool_started")]
+    r.check(
+        [(t["tool"], t["arguments"]) for t in started[:1]]
+        == [("read_file", {"path": "journal_serveur.log"})],
+        "le modèle lit journal_serveur.log, que le prompt nomme",
+        str(started)[:200],
+    )
     body = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
     r.check("lot 12 copié" in body, "sans compression : le journal entier part au modèle")
+    r.check(
+        not r.ev.since(seq, "rag_search_started")
+        and "documentation interne d'Exemplia" not in body,
+        "aucun extrait RAG n'entre dans le contexte (RAG non voulu)",
+    )
 
     # On again, the prompt replayed: the log is compressed before the second call.
     seq = r.ev.mark()
@@ -3588,11 +3651,7 @@ def s_compression(r: Run) -> None:
         str([(i["source_fr"], i["tokens_before"], i["tokens_after"]) for i in tool_items]),
     )
     rag_items = [i for e in done for i in e["payload"]["items"] if i["kind"] == "rag_excerpt"]
-    r.check(
-        all(not i["changed"] for i in rag_items),
-        "extraits RAG candidats, prose inchangée",
-        f"{len(rag_items)} extraits",
-    )
+    r.check(not rag_items, "aucun extrait RAG parmi les candidats", f"{len(rag_items)} extraits")
     tool = next(m for m in r.fake_calls()[-1]["messages"] if m.get("role") == "tool")
     content = tool["content"] if isinstance(tool["content"], str) else json.dumps(tool["content"])
     r.check(
@@ -3664,7 +3723,7 @@ def s_compression(r: Run) -> None:
 
     # The second prompt: what Headroom cut is lost for the model (lot 12 is left out).
     seq = r.ev.mark()
-    ended = r.send(COMPRESSION_SECOND)
+    ended = r.send(second)
     done = r.ev.since(seq, "compression_ended")
     r.check(
         ended["payload"]["status"] == "completed" and len(done) >= 1,
@@ -3681,6 +3740,31 @@ def s_compression(r: Run) -> None:
         bool(kept) and all("lot 12 " not in text for text in kept) and "lot 12 copié" in log,
         "second prompt : le lot 12 est dans le fichier, pas dans la version compressée",
     )
+
+    # Story 27: the limit of the tool, shown by forcing a prose file (no RAG any more).
+    r.show_forced(True)
+    r.open_options("Outils")
+    armed = r.arm(
+        "Forcer l'appel : Lecture de fichier", preset="Guide du harnais (prose, compression)"
+    )
+    r.check(
+        armed["payload"]["actions"][0]["args"].get("path") == "guide_harnais.md",
+        "préréglage « Guide du harnais (prose, compression) »",
+    )
+    seq = r.ev.mark()
+    ended = r.replay()
+    prose = [
+        i
+        for e in r.ev.since(seq, "compression_ended")
+        for i in e["payload"]["items"]
+        if i["kind"] == "tool_result" and "# Guide du harnais d'agent" in i["text_before"]
+    ]
+    r.check(
+        ended["payload"]["status"] == "completed" and bool(prose) and not prose[0]["changed"],
+        "de la prose (le guide du harnais) passe inchangée : la limite de Headroom",
+        str([(i["source_fr"], i["tokens_before"], i["changed"]) for i in prose])[:200],
+    )
+    r.show_forced(False)
 
 
 def s_busy_and_stop(r: Run) -> None:

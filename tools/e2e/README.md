@@ -138,10 +138,27 @@ Le scénario `programme` attend que les groupes du sélecteur de scénario soien
 `content/scenarios.yaml` (modules « Module N · titre · durée », puis « Transverses et métier ») :
 la liste attendue et les prompts des scénarios métier sont lus dans ce fichier, pas recopiés.
 Il lance ensuite le premier scénario du module 5 directement (briques des modules 1 à 4, sans
-le raisonnement, consigne qui le dit) et « MCP en documentation complète » (RAG éteint).
+le raisonnement ni le RAG, consigne qui le dit) et « MCP en documentation complète » (RAG
+éteint, « sauf le raisonnement et le RAG »).
 
-- `soc` : `read_file` lit `alertes_siem.log`, H2 journalise ; au second prompt, qui ne nomme
-  aucun fichier, le modèle liste le dossier puis tente `confidentiel/comptes_privilegies.txt`,
+Story 27 : les prompts des scénarios `mcp_full`, `mcp_lazy`, `skills`, `subagent` (suivi de
+« [lent] »), `compression`, `soc`, `iam` et `sovereignty` sont lus dans `content/scenarios.yaml` (`_prompts`), pas recopiés ; ils
+nomment l'outil ou le skill attendu. Le RAG n'est voulu dans aucun module après le 3 :
+`mcp_lazy` (consigne « le RAG, laissé éteint »), `skills` (consigne qui cite « Déclencher le
+skill » sur « Compte rendu de réunion »), `subagent` (« sans le raisonnement ni le RAG ») et
+`compression` (préréglage « Journal de sauvegarde (compression) » cité, `read_file` sur
+`journal_serveur.log` au premier tour, aucun extrait RAG dans le corps envoyé ni parmi les
+candidats de la compression ; à la fin, le préréglage « Guide du harnais (prose,
+compression) » forcé puis rejoué : la prose passe inchangée, la limite de Headroom).
+`data_flows` est actif au lancement, sans geste : brique MCP voulue, serveurs `datagouv` et
+`local` en lazy loading, échec expliqué de data.gouv.fr attendu après le lancement, flux qui
+franchit la frontière, serveur local sur le poste, puis les vérifications de la story 23 ; enfin
+le geste de la consigne : data.gouv.fr décoché, plus aucun flux ne franchit la frontière (hors
+modèle cloud du parcours), recoché, son flux revient.
+
+- `soc` : consigne qui cite l'analyste habilité ; `read_file` lit `alertes_siem.log`, H2
+  journalise ; au second prompt, qui ne nomme aucun fichier et demande de ne pas contourner un
+  refus, le modèle liste le dossier puis tente `confidentiel/comptes_privilegies.txt`,
   que H1 bloque ; la réponse escalade vers un analyste habilité et le contenu du fichier
   n'atteint pas le modèle ; `/api/audit` porte les lectures ; un clic sur « Journal d'audit »
   dans le schéma ouvre le fichier (attendu jusqu'au blocage de H1, puis défilé en bas).
@@ -360,7 +377,7 @@ d'autres (story 21) :
 | « heure », « Combien font », « recette_crepes », « confidentiel », « férié », « Wikipédia », « compte rendu », « MCP … veut dire » | appel de l'outil correspondant s'il est proposé (`get_datetime`, `calculator`, `read_file`, `public_holidays`, `wikipedia_summary`, `load_skill`, `load_tool_doc` puis `local__define_term`), puis « D'après le résultat de l'outil : … » |
 | « alertes_siem », « confidentiel/chemin » (story 21) | `read_file` sur `alertes_siem.log`, ou sur le fichier confidentiel nommé dans le message, sous-dossiers compris (`confidentiel/budget_projet.txt` s'il n'en nomme aucun) |
 | « fichiers disponibles » (story 21, SOC) | `read_file` sur `.`, puis sur le fichier confidentiel de la liste qui parle de comptes ou de privilèges ; bloqué par H1 : « … je transmets la vérification à un analyste habilité. » |
-| « Entra ID », « data.gouv » (story 21) | recherche de Microsoft Learn ou de data.gouv.fr si elle est proposée ; en lazy loading, `load_tool_doc` d'abord (outil lu dans la description du méta-outil) ; serveur absent : les déclencheurs suivants s'appliquent, puis « Sans la documentation Microsoft Learn… » / « Sans accès à data.gouv.fr… » |
+| « Entra ID », « data.gouv », « qualité de l'air » (stories 21 et 27) | recherche de Microsoft Learn ou de data.gouv.fr si elle est proposée (requête « air » quand le message parle de la qualité de l'air, « cybersécurité » sinon) ; en lazy loading, `load_tool_doc` d'abord (outil lu dans la description du méta-outil) ; serveur absent : les déclencheurs suivants s'appliquent, puis « Sans la documentation Microsoft Learn… » / « Sans accès à data.gouv.fr… » |
 | « Délègue … sous-agent » (story 19) | appel de `delegate`, tâche « Lis le fichier guide_harnais.md et résume-le… » (` [lent]` recopié ; avec « page web » : tâche de lecture de page, le sous-agent appelle `fetch_page`) ; le sous-agent (tâche avec « guide_harnais ») appelle `read_file`, puis répond « D'après le résultat de l'outil : … » |
 | « Je m'appelle X » / « Comment je m'appelle » | retient X s'il est dans l'historique |
 | « lot N » avec un résultat d'outil (story 20) | « D'après le journal : » suivi de la ligne du lot N, ou « Le résultat de l'outil ne mentionne pas le lot N. » si la compression l'a coupée |

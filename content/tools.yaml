@@ -44,6 +44,12 @@ tools:
         args: {path: alertes_siem.log}
       - label_fr: Comptes à privilèges (SOC, confidentiel)
         args: {path: confidentiel/comptes_privilegies.txt}
+      # Story 27, scénario Compression : l'action forcée de secours (brique éteinte), puis
+      # un texte sans redondance, que Headroom laisse inchangé (la limite de l'outil).
+      - label_fr: Journal de sauvegarde (compression)
+        args: {path: journal_serveur.log}
+      - label_fr: Guide du harnais (prose, compression)
+        args: {path: guide_harnais.md}
   public_holidays:
     label_fr: Jours fériés
     sends_fr: l'année demandée

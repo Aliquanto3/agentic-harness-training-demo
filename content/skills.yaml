@@ -4,11 +4,12 @@
 # skill chargeable.
 catalog_intro: >-
   Skills disponibles. Un skill est un ensemble d'instructions pour un type de
-  demande. Quand une demande correspond à l'un d'eux, appelle d'abord l'outil
-  load_skill avec son nom, puis suis les instructions reçues.
+  demande. Quand une demande correspond à l'un d'eux, appelle l'outil load_skill
+  avec son nom, puis suis les instructions reçues.
 # Méta-outil du harnais (AD-25). `description` et `skill` sont lus par le modèle.
 load_skill:
   label_fr: Chargement du skill
   description: >-
-    Charge les instructions complètes d'un skill de la liste « Skills disponibles ».
+    Charge par son nom les instructions complètes d'un skill de la liste « Skills
+    disponibles » (par exemple meeting_minutes). Ce n'est pas un outil MCP.
   skill: Nom exact du skill, tel qu'il figure dans la liste.

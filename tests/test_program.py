@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -43,11 +44,15 @@ FR38 = [
     "subagent",
     "compression",
 ]
-# The exceptions written at the top of content/scenarios.yaml (AD-9).
-NEVER_CARRIED = {"reasoning"}
-LEFT_OFF = {"mcp_full": {"rag"}}
-# Variants of a module's first scenario (a sub-option): the same bricks, but for
-# `mcp_lazy`, which lights the RAG again (the room the lazy loading frees).
+# The exceptions written at the top of content/scenarios.yaml (AD-9): shown in their own
+# module, never carried into the next ones (story 27: the RAG joins the reasoning, D5).
+NEVER_CARRIED = {"reasoning", "rag"}
+# The phrases the first scenario of each later module uses to say so (one of them).
+NEVER_CARRIED_FR = {
+    "reasoning": ("sauf le raisonnement", "sans le raisonnement"),
+    "rag": ("sauf le raisonnement et le RAG", "sans le raisonnement ni le RAG"),
+}
+# Variants of a module's first scenario (a sub-option): the same bricks.
 VARIANTS = {"network_tools": "native_tools", "rag_rerank": "rag", "mcp_lazy": "mcp_full"}
 LAUNCH_HOOKS = {"h1", "h2", "h3"}  # `hooks` absent: the launch values (story 8)
 # Lot B (B3): without `WAVESTACK_TEST_GGUF`, the test session estimates 2 characters per
@@ -60,15 +65,14 @@ SAFETY = 1.1  # AD-9: room for the template and what the estimate still misses
 EXACT = 1.0  # lot J: the local gauge counts every token, template included
 # Lot B (N3): the scenarios whose first prompt calls a public MCP server or a network tool,
 # which must leave room for its first result, bounded to `[tools] result_max_tokens`.
-# `data_flows` as its description says: the MCP brick, local and data.gouv.fr.
+# `data_flows`: the MCP brick, local and data.gouv.fr, active at launch (story 27).
 FIRST_RESULT_ROOM = {"network_tools", "data_flows", "iam", "sovereignty"}
-# `mcp_full` and `mcp_lazy`: their first prompt (« Que veut dire MCP ? ») calls the local
+# `mcp_full` and `mcp_lazy`: their first prompt (« Que veut dire MCP ? … ») calls the local
 # server's `define_term`, whose real answer is measured in the test (227 characters, 114
 # tokens at 2 characters per token) and must fit too.
 LOCAL_FIRST = {"mcp_full", "mcp_lazy"}
 LOCAL_FIRST_CALL = ("local__define_term", {"term": "MCP"})
 LOCAL_ANSWER_MAX = 200  # the measure above, with margin: a longer answer revisits the room
-BY_HAND = {"data_flows": {"bricks": ["mcp"], "mcp_servers": ["local", "datagouv"]}}
 FIXTURES = Path(__file__).parent / "fixtures" / "mcp_tools"
 
 
@@ -125,19 +129,18 @@ def test_first_scenario_of_each_module_has_the_previous_modules_bricks():
     content = _content()
     before: set[str] = set()
     hooks_before: set[str] = set()
-    for i, module in enumerate(content.program):
+    for module in content.program:
         first_id = module.scenarios[0]
         first = content.scenarios[first_id]
-        expected = before - NEVER_CARRIED - LEFT_OFF.get(first_id, set())
+        expected = before - NEVER_CARRIED
         assert expected <= set(first.bricks), (first_id, expected - set(first.bricks))
         if "hooks" in first.bricks:  # the hooks shown before stay active
             assert hooks_before <= set(first.hooks or LAUNCH_HOOKS), first_id
         if "mcp" in before and "mcp" in first.bricks:  # lazy loading, to keep room
             assert first.mcp_lazy, first_id
-        if i > 0:  # the instructions say which brick stays off
-            assert "raisonnement" in first.description_fr, first_id
-        if "rag" in LEFT_OFF.get(first_id, set()):
-            assert "RAG" in first.description_fr, first_id
+        for brick in NEVER_CARRIED & before:  # the instructions say which brick stays off
+            said = [p for p in NEVER_CARRIED_FR[brick] if p in first.description_fr]
+            assert said, (first_id, brick, NEVER_CARRIED_FR[brick])
         # A module started directly starts from the demonstration memory.
         assert first.restore_memory == ("global_memory" in first.bricks), first_id
         for scenario_id in module.scenarios:
@@ -147,20 +150,25 @@ def test_first_scenario_of_each_module_has_the_previous_modules_bricks():
                 hooks_before |= set(scenario.hooks or LAUNCH_HOOKS)
 
 
-def test_reasoning_stays_off_after_module_1_and_variants_keep_their_bricks():
+def test_reasoning_and_rag_stay_in_their_module_and_variants_keep_their_bricks():
     content = _content()
-    first_module = set(content.program[0].scenarios)
+    # No module start after the one that introduces them carries them (story 27, D5); the
+    # later scenarios of a module, the transverse and business ones set their bricks freely.
+    before: set[str] = set()
+    for module in content.program:
+        first_id = module.scenarios[0]
+        carried = NEVER_CARRIED & before & set(content.scenarios[first_id].bricks)
+        assert not carried, (first_id, carried)
+        for scenario_id in module.scenarios:
+            before |= set(content.scenarios[scenario_id].bricks)
     for scenario_id, scenario in content.scenarios.items():
-        if scenario_id not in first_module:
-            assert "reasoning" not in scenario.bricks, scenario_id
         # Only a module's start (or the memory's own scenario) restores the memory.
         starts = {m.scenarios[0] for m in content.program} | {"global_memory"}
         assert not scenario.restore_memory or scenario_id in starts, scenario_id
         assert not scenario.expects_overflow, scenario_id  # AD-9: none today (story 10b)
     for variant_id, first_id in VARIANTS.items():
         variant, first = content.scenarios[variant_id], content.scenarios[first_id]
-        extra = LEFT_OFF.get(first_id, set())
-        assert set(variant.bricks) == set(first.bricks) | extra, variant_id
+        assert set(variant.bricks) == set(first.bricks), variant_id
         assert variant.mcp_servers == first.mcp_servers and variant.hooks == first.hooks
 
 
@@ -189,6 +197,94 @@ def test_business_scenarios_fix_their_bricks_and_hooks():
     assert "confidentiel/" not in soc.prompts[1] and "fichiers disponibles" in soc.prompts[1]
     assert "Alertes SIEM (SOC)" in soc.description_fr
     assert "Comptes à privilèges (SOC, confidentiel)" in soc.description_fr
+
+
+def test_data_flows_is_active_at_launch():
+    """Story 27 (X1): the tools and the MCP brick, the local server and data.gouv.fr, in lazy
+    loading, with nothing to turn on by hand."""
+    data_flows = _content().scenarios["data_flows"]
+
+    assert data_flows.bricks == ["short_memory", "system_prompt", "tools", "mcp"]
+    assert data_flows.mcp_servers == ["local", "datagouv"] and data_flows.mcp_lazy
+    assert "qualité de l'air" in data_flows.prompts[0] and "data.gouv.fr" in data_flows.prompts[0]
+    assert (
+        "Décochez puis" in data_flows.description_fr and "indisponible" in data_flows.description_fr
+    )
+
+
+def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
+    """Story 27: for a small model, the prompts name the tool or skill expected, and the
+    instructions give the forced action to fall back on, with its exact labels."""
+    from wavestack.skills import load_skills_content
+    from wavestack.tools.registry import load_tools_content
+
+    content = _content()
+    scenario = content.scenarios
+    # MCP, both modes: the same need, the glossary's tool asked for (`mcp_full`: < 120 chars).
+    first = scenario["mcp_full"].prompts[0]
+    assert first == scenario["mcp_lazy"].prompts[0] and len(first) < 120
+    assert "veut dire MCP" in first and "local__define_term" in first
+    assert "data.gouv.fr" in scenario["mcp_lazy"].prompts[1]
+    assert "Charger la documentation" in scenario["mcp_lazy"].description_fr
+    # IAM and sovereignty: the prompts name tools the public servers really have.
+    snapshots = {s: {t["name"] for t in _public_tools(s)[0]} for s in ("datagouv", "mslearn")}
+    for scenario_id in ("iam", "sovereignty"):
+        for prompt in scenario[scenario_id].prompts:
+            named = re.findall(r"\b([a-z0-9]+)__([A-Za-z0-9_]+)\b", prompt)
+            assert named, (scenario_id, prompt)
+            for server_id, tool in named:
+                assert server_id in scenario[scenario_id].mcp_servers, (scenario_id, server_id)
+                assert server_id in snapshots, (
+                    f"{scenario_id} : serveur {server_id} sans instantané"
+                )
+                assert tool in snapshots[server_id], (scenario_id, server_id, tool)
+    assert all("Charge la documentation de" in p for p in scenario["sovereignty"].prompts)
+    assert "Charger la documentation" in scenario["sovereignty"].description_fr
+    # Skills: the skill and the meta-tool named, « Déclencher le skill » on its label.
+    skills = scenario["skills"]
+    label = load_skills_content(["meeting_minutes"]).skills["meeting_minutes"].label_fr
+    assert "meeting_minutes" in skills.prompts[0] and "load_skill" in skills.prompts[0]
+    assert "compte rendu" in skills.prompts[0]  # the fake provider's trigger (E2E)
+    assert (
+        "Déclencher le skill" in skills.description_fr and f"« {label} »" in skills.description_fr
+    )
+    # Compression: read_file named, and the preset to force it with.
+    compression = scenario["compression"]
+    presets = {p.label_fr: p.args for p in load_tools_content().tools["read_file"].presets}
+    assert presets["Journal de sauvegarde (compression)"] == {"path": "journal_serveur.log"}
+    assert presets["Guide du harnais (prose, compression)"] == {"path": "guide_harnais.md"}
+    for label in ("Journal de sauvegarde (compression)", "Guide du harnais (prose, compression)"):
+        assert f"« {label} »" in compression.description_fr, label
+    assert "« Forcer l'appel » sur « Lecture de fichier »" in compression.description_fr
+    assert "read_file" in compression.prompts[0] and "journal_serveur.log" in compression.prompts[0]
+    assert "extraits RAG" not in compression.description_fr
+    # SOC: the exact file name, then the refusal not to get round (D6).
+    soc = scenario["soc"]
+    assert "alertes_siem.log" in soc.prompts[0] and "nom exact" in soc.prompts[0]
+    assert "ne la contourne pas" in soc.prompts[1] and "transmettre" in soc.prompts[1]
+    assert "analyste habilité" in soc.description_fr and "concluez vous-même" in soc.description_fr
+    assert "« Forcer l'appel » sur « Lecture de fichier »" in soc.description_fr
+    # A forced MCP documentation, then the replay; the MCP call itself is never forced.
+    for scenario_id in ("mcp_lazy", "sovereignty"):
+        text = scenario[scenario_id].description_fr
+        assert "« Rejouer le dernier prompt »" in text and "ne se force pas" in text, scenario_id
+    assert "local__define_term" in scenario["mcp_lazy"].description_fr
+
+
+def test_meta_tools_say_which_is_which():
+    """Story 27 (H2): `load_tool_doc` loads no skill; `load_skill` loads a skill of the
+    « Skills disponibles » list by its name, and is not an MCP tool."""
+    from wavestack.mcp.servers import load_mcp_content
+    from wavestack.skills import load_skills_content
+
+    tool_doc = load_mcp_content().load_tool_doc.intro
+    skills = load_skills_content([])
+    assert "ne charge pas de skill" in tool_doc
+    assert "Skills disponibles" in skills.load_skill.description
+    assert "meeting_minutes" in skills.load_skill.description
+    assert "pas un outil MCP" in skills.load_skill.description
+    assert skills.catalog_intro.startswith("Skills disponibles.")
+    assert "appelle l'outil load_skill" in skills.catalog_intro
 
 
 def test_soc_presets_force_the_two_files():
@@ -380,15 +476,7 @@ def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loo
         for scenario_id in [i for m in content.program for i in m.scenarios] + content.transverse:
             scenario = content.scenarios[scenario_id]
             mark = get_journal().last_seq()
-            session.launch_scenario(scenario_id)
-            session.join()
-            _wait_mcp(mark)
-            session.join()
-            by_hand = BY_HAND.get(scenario_id, {})
-            for brick in by_hand.get("bricks", []):
-                session.set_brick(brick, True)
-            for server_id in by_hand.get("mcp_servers", []):
-                session.set_mcp_server(server_id, True)
+            session.launch_scenario(scenario_id)  # nothing turned on by hand (story 27)
             session.join()
             _wait_mcp(mark)
             session.join()
@@ -411,12 +499,12 @@ def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loo
             segments = " ".join(s["text"] for s in ctx["segments"])
             if "rag" in scenario.bricks:  # counted: the brick is available here
                 assert any(s["kind"] == "rag_excerpt" for s in ctx["segments"]), scenario_id
-            mcp_servers = scenario.mcp_servers or by_hand.get("mcp_servers") or ["local"]
-            if "mcp" in scenario.bricks and not scenario.mcp_lazy:
+            # Every server's tools are counted: their documentation, or in lazy loading their
+            # line in `load_tool_doc`'s description.
+            mcp_servers = scenario.mcp_servers or ["local"]
+            if "mcp" in scenario.bricks:
                 for server_id in mcp_servers:
                     assert f"{server_id}__" in segments, (scenario_id, server_id)
-            if scenario_id in BY_HAND:  # the servers turned on by hand are in the context
-                assert all(f"{s}__" in segments for s in mcp_servers), (scenario_id, segments)
         # Lot B (B3): the full documentation, 3 204 tokens on the target PC, is not underrated.
         assert measured["mcp_full"][0] > 2800, measured["mcp_full"]
         assert local_answer.startswith("MCP : ") and count(local_answer) < LOCAL_ANSWER_MAX
@@ -441,13 +529,16 @@ def test_business_mcp_servers_are_drawn_unavailable_with_their_reason_offline(lo
     server.offline = True
     session = mcp_session(loop, ["Voilà."])  # a model that calls tools
 
-    for scenario_id in ("iam", "sovereignty"):
+    for scenario_id in ("iam", "sovereignty", "data_flows"):
         mark = get_journal().last_seq()
         session.launch_scenario(scenario_id)
         session.join()
         _wait_mcp(mark)
         session.join()
-        for server_id in session._scenarios.scenarios[scenario_id].mcp_servers:
+        servers = session._scenarios.scenarios[scenario_id].mcp_servers
+        public = [s for s in servers if session._mcp_servers[s].network]
+        assert public, scenario_id
+        for server_id in public:  # the public servers only: the local one stays reachable
             drawn = node(session, f"mcp.{server_id}")
             assert drawn is not None and drawn["hosting"] == "network", scenario_id
             assert (drawn["contact"], drawn["available"]) == ("unavailable", False)

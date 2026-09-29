@@ -2,7 +2,8 @@
 title: 'Lot H : scénarios et consignes du palier 2'
 type: 'bugfix'
 created: '2026-09-28'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '78f6e5af7270a1c3576abff812b5d050515d443b'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -13,7 +14,22 @@ context:
   - '{project-root}/tools/e2e/README.md'
 warnings:
   - oversized
-deferred: []
+deferred:
+  - summary: >-
+      --only programme mcp_full échoue : s_programme lance mcp_full juste avant.
+    evidence: |-
+      Antérieur à la story ; contredit « chaque scénario se lance seul » du README E2E. Le parcours complet n'est pas touché.
+    severity: low (unverified)
+  - summary: >-
+      Aucune action forcée d'appel MCP : la recherche de souveraineté et l'appel iam dépendent du modèle.
+    evidence: |-
+      arm refuse un appel forcé sur un outil MCP ; seule la documentation peut être chargée de force. Demanderait du code de harnais.
+    severity: medium (unverified)
+  - summary: >-
+      Tests du faux fournisseur incapables de distinguer anciens et nouveaux prompts.
+    evidence: |-
+      Les mots-clés déclencheurs sont présents dans les deux ; seul le 2B réel dit si la nouvelle formulation corrige les échecs.
+    severity: low (unverified)
 ---
 
 <intent-contract>
@@ -101,6 +117,34 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 24 findings — high 0, medium 4, low 17, false 0, maybe-false 3 (l'auditeur d'intention confirme la lecture « leviers de contenu, comportement du 2B à vérifier sur PC » ; ses écarts par item — pas de recherche MCP forçable, escalade portée par la consigne — sont traités par les points ci-dessous ou différés)
+- findings:
+  - `[medium]` `[patch]` (blind + edge ×2) secours de souveraineté et de `mcp_lazy` qui forcent l'étape qui marche déjà ; chargement refusé si la doc est déjà là — « Rejouer » après le chargement forcé, dépendance au modèle dite clairement.
+  - `[low]` `[patch]` (blind) promesse d'un secours pour chaque scénario — restreinte aux scénarios qui en ont un.
+  - `[low]` `[patch]` (blind) « forcez read_file » au lieu des libellés de l'écran — libellés exacts.
+  - `[medium]` `[patch]` (blind + edge ×2) limite de la prose enseignée mais plus montrable ni testée — préréglage de prose et contrôle E2E rétabli.
+  - `[low]` `[patch]` (blind) test plus strict que la règle documentée — limité aux ouvertures de module.
+  - `[low]` `[patch]` (blind + edge) UJ-4 du PRD périmé — aligné.
+  - `[low]` `[patch]` (blind) EXPERIENCE Flow 4 : clic sur le flux au lieu du nœud — corrigé.
+  - `[low]` `[patch]` (blind) geste décocher/recocher data.gouv.fr non testé — E2E ajouté.
+  - `[low]` `[patch]` (blind) entrées du lot H fermées avant vérification — « à confirmer sur PC ».
+  - `[low]` `[patch]` (blind) « pas de mémoire » ambigu — « sans répondre de tête ».
+  - `[low]` `[patch]` (blind) auto-correction du SOC affirmée — nuancée, préréglage de secours cité.
+  - `[low]` `[patch]` (blind) contrôle NEVER_CARRIED_FR trop lâche ; prompt de `s_subagent` en dur — phrases exactes, prompt lu dans le YAML.
+  - `[medium]` `[patch]` (edge) « l'outil du glossaire » désigne `local__list_terms` — `local__define_term` nommé.
+  - `[low]` `[patch]` (edge) secours de `mcp_lazy` qui charge la doc du premier outil — outil à choisir précisé.
+  - `[low]` `[patch]` (edge) test des noms d'outils : KeyError et regex partielle — assertion claire, regex élargie.
+  - `[low]` `[patch]` (vérif. « Other ») `_public_server_offline` lit les événements depuis le début — attente d'un événement frais.
+  - `[maybe-false]` `[defer]` (vérif. « Other ») `--only programme mcp_full` échoue : `s_programme` lance `mcp_full` en dernier — antérieur à la story.
+  - `[maybe-false]` `[defer]` (intention) aucune action forcée d'appel MCP : la recherche de souveraineté et l'appel `iam` dépendent du modèle — demanderait du code de harnais (hors story, AD-19).
+  - `[maybe-false]` `[defer]` (intention) tests du faux fournisseur qui ne distinguent pas les anciens des nouveaux prompts — seul le 2B réel tranche (À vérifier sur PC).
+  - `[low]` → regroupé (secours sans appel MCP, edge).
+  - `[low]` → regroupé (prose, edge « deletion »).
+  - `[low]` → regroupé (prose, edge « claim »).
+  - `[low]` → regroupé (PRD, edge).
+  - `[medium]` → regroupé (souveraineté, edge).
+
 ## Design Notes
 
 Nouvelle règle du cumul, exemple de consigne de début de module (module 6) :
@@ -154,3 +198,17 @@ Nommer l'outil dans le prompt est aussi une leçon : un petit modèle local ne f
 - **Geste** : lancer « Compression du contexte », éteindre la brique Compression, envoyer le prompt 1 ; si rien n'est lu, forcer read_file avec « Journal de sauvegarde (compression) » et rejouer. — **Attendu** : `read_file("journal_serveur.log")` appelé par le modèle, sans débordement. — **Critère** : `tool_started.trigger == "model"` au premier essai ; jauge sous 3 584. — **Moyen** : script AppSession, secours à la main.
 - **Geste** : `$env:WAVESTACK_TEST_GGUF = "<chemin du 2B>"` puis `uv run pytest -s -rA tests/test_program.py -k fits`. — **Attendu** : réussi, avec la jauge locale exacte. — **Critère** : `mcp_full` tient avec son nouveau prompt ; chaque scénario garde une marge positive. — **Moyen** : PowerShell sur le PC cible.
 - **Geste** : faire lire les consignes de « Où vont mes données ? », « Skills » et « Métier SOC » (dépliées) à un formateur novice. — **Attendu** : il sait quoi cliquer et quoi dire sans aide. — **Critère** : chaque consigne est suivie jusqu'au bout en moins de 2 min. — **Moyen** : à la main seulement.
+
+## Auto Run Result
+
+Statut : done (2026-09-29, orchestrateur de nuit ; étapes 1 à 4 menées par l'orchestrateur). Contenu seulement : aucun code du harnais modifié (AD-19).
+
+**Changement :** (1)(8) RAG retiré de `mcp_lazy`, `skills`, `subagent` et `compression`, nouvelle exception au cumul CAP-40 (comme le raisonnement), tenue à jour dans l'en-tête de `scenarios.yaml`, les tests et le README. (2) « Où vont mes données ? » démarre avec MCP, serveur local et data.gouv.fr en lazy loading ; geste décocher/recocher. (3)(4)(5) Prompts qui nomment l'outil ou le skill exact (`local__define_term`, `load_skill`/`meeting_minutes`, `mslearn__microsoft_docs_search`, recherche data.gouv.fr) ; descriptions des deux méta-outils distinguées ; secours forcé dans la consigne quand il existe (skill, lecture de fichier, chargement de documentation puis « Rejouer »), et mention claire qu'un appel MCP ne se force pas. (6) SOC : nom exact `alertes_siem.log`, consigne « ne la contourne pas », conclusion du formateur si le modèle n'escalade pas. (7) Compression : `read_file` sur `journal_serveur.log` nommé, préréglages « Journal de sauvegarde » et « Guide du harnais (prose) » pour montrer la limite.
+
+**Fichiers :** `content/{scenarios,tools,mcp,skills}.yaml`, `tests/{test_program,test_e2e_fake_openai}.py`, `tools/e2e/{run_e2e.py,fake_openai.py,README.md}`, README.md, EXPERIENCE.md (Flow 4), user-journeys.md (UJ-4), prd.md (UJ-4), deferred-work.md (lot H « à confirmer sur PC »).
+
+**Revue :** 24 constats — 16 corrigés (4 medium, 12 low), 3 différés (maybe-false), 5 regroupés ; voir le triage. Revue de suivi recommandée : false.
+
+**Vérification :** ruff check et format verts ; pytest : 1185 passés, 3 ignorés ; E2E complet : 583 PASS, 0 FAIL ; test `fits` à 4 096 vert (marges : `mcp_full` ≈ 530 tokens).
+
+**Risques résiduels :** le comportement réel du 2B (appels d'outils, `load_skill`, escalade, lecture du journal) ne se vérifie que sur PC ; le préréglage « Guide du harnais » (≈ 1 800 tokens non compressibles) peut approcher la fenêtre de 3 584 utilisables avec le vrai tokenizer.

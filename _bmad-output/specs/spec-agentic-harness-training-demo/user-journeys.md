@@ -18,7 +18,7 @@ Ces parcours ancrent les scénarios (CAP-40, CAP-42) et servent de guide pour la
   - Le proxy bloque le téléchargement du modèle depuis Hugging Face. Le diagnostic de démarrage le signale en français et propose la voie hors ligne (copie du fichier depuis un partage fourni par le formateur).
   - Léa relance, WaveStack démarre, le diagnostic est vert.
 - **UJ-4 (usage client en V2, scénario livré en V1). Anaël montre WaveStack à un client RSSI.** (palier 1 — CAP-3, CAP-14, CAP-20, CAP-21, CAP-40)
-  - Anaël ouvre le scénario « Où vont mes données ? » et active successivement un outil local, un MCP local, un MCP public. Le schéma distingue ce qui reste sur le poste de ce qui en sort.
+  - Anaël ouvre le scénario « Où vont mes données ? » : un outil local, un MCP local et un MCP public sont actifs dès le lancement (story 27). Le schéma distingue ce qui reste sur le poste de ce qui en sort ; décocher puis recocher le MCP public fait disparaître puis revenir le seul flux sortant.
 - **UJ-5. Sophie, consultante conformité, voit d'où vient la réponse.** (palier 2 — CAP-17, CAP-18, CAP-19)
   - Module RAG, corpus déjà indexé. Anaël pose une question dont la réponse se trouve dans un seul document ; le volet contexte LLM montre trois extraits, score et position.
   - Anaël active le reranking : l'ordre des extraits change, visible avant/après.

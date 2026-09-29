@@ -84,16 +84,31 @@ Le sélecteur de scénario de la barre haute liste six modules, dans l'ordre des
 
 Lancer le premier scénario d'un module active les briques des modules précédents et restaure la
 mémoire globale de démonstration : on peut reprendre la formation à n'importe quel module, dans
-un état reproductible. Deux exceptions, pour tenir dans la fenêtre de contexte : le raisonnement
-reste éteint après le module 1, et le RAG est éteint pendant « MCP en documentation complète ».
+un état reproductible. Deux exceptions, que la consigne rappelle : le raisonnement reste éteint
+après le module 1 (sa réserve de sortie prend de la place et allonge chaque tour), et le RAG
+après le module 3 (ses extraits sur Exemplia sont hors sujet dans les démonstrations suivantes,
+trompent un petit modèle et font relire tout le contexte à chaque tour). Rallumez-les à la main
+pour les montrer.
 
-Le groupe « Transverses et métier » suit les modules : « Où vont mes données ? », puis trois
+Pour un petit modèle local, les prompts suggérés nomment l'outil ou le skill attendu (par
+exemple `load_skill` et `meeting_minutes`, ou `mslearn__microsoft_docs_search`) : un modèle
+plus gros fait seul le lien entre la demande et l'outil, ce qui se montre avec un modèle cloud.
+Quand une action forcée existe, la consigne la donne en secours : « Déclencher le skill »
+(Skills), « Forcer l'appel » sur « Lecture de fichier » avec un préréglage (Compression, SOC),
+« Charger la documentation » en lazy loading (Lazy loading, Souveraineté), puis « Rejouer le
+dernier prompt ». Un appel d'outil MCP ne se force pas : dans « MCP en documentation
+complète », IAM, et pour la recherche elle-même en lazy loading, l'appel reste au modèle, et
+la consigne dit quoi montrer s'il ne vient pas.
+
+Le groupe « Transverses et métier » suit les modules : « Où vont mes données ? » (outils locaux,
+serveur MCP local et data.gouv.fr actifs dès le lancement, en lazy loading ; décochez puis
+recochez data.gouv.fr pour voir le flux sortant disparaître puis revenir), puis trois
 scénarios métier, fictifs, pour que chaque practice imagine ses usages. Leur consigne, projetée,
 se termine par le message à retenir ; la réponse attendue, ci-dessous, est pour le formateur.
 
 | Scénario | Durée | Réponse attendue |
 |---|---|---|
-| SOC : journal d'audit et garde-fou | 20 min | Un seul incident, le compte adm.leroy : connexion depuis un pays inhabituel à 02:14 UTC (accès initial, comptes valides), auto-ajout aux « Admins du domaine » à 02:15 (élévation de privilèges, manipulation de compte), antivirus arrêté à 02:21 (contournement des défenses), 2,3 Go sortants à 02:40 (exfiltration), pendant une fenêtre de maintenance où des alertes étaient en sourdine. Les échecs de svc-sauvegarde sont à investiguer à part. Au second prompt, H1 bloque l'inventaire des comptes à privilèges : l'agent doit escalader vers un analyste habilité. |
+| SOC : journal d'audit et garde-fou | 20 min | Un seul incident, le compte adm.leroy : connexion depuis un pays inhabituel à 02:14 UTC (accès initial, comptes valides), auto-ajout aux « Admins du domaine » à 02:15 (élévation de privilèges, manipulation de compte), antivirus arrêté à 02:21 (contournement des défenses), 2,3 Go sortants à 02:40 (exfiltration), pendant une fenêtre de maintenance où des alertes étaient en sourdine. Les échecs de svc-sauvegarde sont à investiguer à part. Au second prompt, H1 bloque l'inventaire des comptes à privilèges : l'agent doit escalader vers un analyste habilité, comme le prompt le lui demande ; s'il ne le fait pas (fréquent avec un petit modèle), le formateur conclut : l'agent n'a pas ce privilège, la décision revient à un analyste habilité. |
 | IAM : Entra ID avec Microsoft Learn | 15 min | MFA des administrateurs : une stratégie d'accès conditionnel qui cible les rôles d'administrateur et exige l'authentification multifacteur (modèle « Exiger l'authentification multifacteur pour les administrateurs »), ou les paramètres de sécurité par défaut pour un petit locataire. PIM : rôles attribués « éligibles », activés à la demande pour une durée limitée, avec justification, MFA et, au besoin, approbation. La réponse cite ses liens Microsoft Learn. |
 | Souveraineté : où partent les requêtes ? | 15 min | Deux flux sortent du poste : la recherche vers data.gouv.fr (opérateur public français) et celle vers Microsoft Learn (éditeur américain, soumis au Cloud Act même en Europe). Chaque requête révèle le sujet de la mission. Hébergement et qualification (SecNumCloud) de chaque serveur restent à vérifier ; le modèle local ne sort pas du poste, un modèle cloud y ajouterait un troisième flux. |
 

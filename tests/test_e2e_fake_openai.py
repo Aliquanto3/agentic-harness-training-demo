@@ -284,3 +284,33 @@ def test_business_mcp_prompts_search_offered_or_lazy_and_say_when_offline(scenar
 def test_an_absent_server_does_not_hide_the_next_triggers():
     ask = _user("Sur data.gouv.fr, quelle heure est-il ?")
     assert _calls(fake.plan_reply(_body(ask, tools=("get_datetime",)))) == [("get_datetime", {})]
+
+
+def test_story_27_prompts_keep_their_triggers():
+    """Story 27: the prompts that now name their tool or skill still reach the scripted
+    call: the glossary in both MCP modes, the skill, the log, and the air quality search on
+    data.gouv.fr (its own subject, not the sovereignty one)."""
+    mcp = _prompts("mcp_full")[0]
+    assert mcp == _prompts("mcp_lazy")[0]
+    assert _calls(fake.plan_reply(_body(_user(mcp), tools=("local__define_term",)))) == [
+        ("local__define_term", {"term": "MCP"})
+    ]
+    assert _calls(fake.plan_reply(_body(_user(mcp), tools=("load_tool_doc",)))) == [
+        ("load_tool_doc", {"tool": "local__define_term"})
+    ]
+    skill = _prompts("skills")[0]
+    assert _calls(fake.plan_reply(_body(_user(skill), tools=("load_skill", "read_file")))) == [
+        ("load_skill", {"skill": "meeting_minutes"})
+    ]
+    log = _prompts("compression")[0]
+    assert _calls(fake.plan_reply(_body(_user(log), tools=("read_file",)))) == [
+        ("read_file", {"path": "journal_serveur.log"})
+    ]
+    search = "datagouv__search_datasets"
+    for air in (_prompts("mcp_lazy")[1], _prompts("data_flows")[0]):
+        tools = (search, "get_datetime", "read_file")
+        assert _calls(fake.plan_reply(_body(_user(air), tools=tools))) == [
+            (search, {"query": "air"})
+        ]
+        offline = fake.plan_reply(_body(_user(air), tools=("get_datetime", "read_file")))
+        assert not offline.tool_calls and "data.gouv.fr" in offline.text

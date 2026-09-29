@@ -343,12 +343,12 @@ Comment l'interface soutient le formateur devant la salle (UJ-1, UJ-4). Aucune f
 
 ### Flow 4 — « Où vont mes données ? » (Anaël face à un client RSSI, démonstration pilotée) — UJ-4
 
-1. Anaël ouvre directement le scénario « Où vont mes données ? » dans le sélecteur de scénario.
-2. Il active un outil local. Un nœud à trait continu, dans la couleur du harness engineering, apparaît dans la zone Poste de travail, étiqueté « processus local ».
-3. Il active le serveur MCP local. Un second nœud de la même couleur apparaît, distinct du harnais : un processus séparé, toujours sur le poste.
-4. Il active le serveur MCP public. Un nœud jaune à tirets apparaît de l'autre côté de la frontière, étiqueté « RÉSEAU ».
-5. Il envoie le prompt suggéré. Seul le flux vers le serveur public traverse la frontière.
-6. **Temps fort :** Anaël passe le schéma en mode focus. Le RSSI voit d'un coup d'œil ce qui reste sur le poste et ce qui en sort ; un clic sur le flux sortant affiche les données exactes envoyées. La démonstration se fait sans adaptation du produit.
+1. Anaël ouvre directement le scénario « Où vont mes données ? » dans le sélecteur de scénario. Tout est actif au lancement, sans geste (story 27) : les outils locaux, la brique MCP en lazy loading, le serveur MCP local et le serveur public data.gouv.fr.
+2. Il lit le schéma avec le client. Les outils locaux, à trait continu dans la couleur du harness engineering, sont dans la zone Poste de travail, étiquetés « processus local ».
+3. Le serveur MCP local est un second nœud de la même couleur, distinct du harnais : un processus séparé, toujours sur le poste.
+4. Le serveur public est un nœud jaune à tirets de l'autre côté de la frontière, étiqueté « RÉSEAU ». Geste facultatif : Anaël décoche puis recoche data.gouv.fr dans la carte MCP ; le flux qui franchit la frontière disparaît, puis revient.
+5. Il envoie le prompt suggéré, qui nomme data.gouv.fr. Seul le flux vers le serveur public traverse la frontière.
+6. **Temps fort :** Anaël passe le schéma en mode focus. Le RSSI voit d'un coup d'œil ce qui reste sur le poste et ce qui en sort ; un clic sur le nœud data.gouv.fr affiche dans Orchestration les données exactes envoyées (story 23). La démonstration se fait sans adaptation du produit.
 
 Échec : pas de réseau chez le client. Le serveur public reste dessiné, marqué indisponible avec sa raison ; le message sur l'hébergement tient sans l'appel réel.
 

@@ -18,6 +18,6 @@ lazy_label_fr: Lazy loading
 load_tool_doc:
   label_fr: Chargement de la documentation
   intro: >-
-    Charge la documentation complète d'un outil MCP, qui devient alors appelable.
-    Appelle cet outil avant tout outil de la liste suivante :
+    Charge la documentation d'un outil MCP, qui devient appelable ; ne charge pas de
+    skill. À appeler avant tout outil de cette liste :
   tool: Nom exact de l'outil, tel qu'il figure dans la liste.

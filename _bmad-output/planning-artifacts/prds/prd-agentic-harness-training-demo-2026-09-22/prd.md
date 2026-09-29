@@ -83,11 +83,11 @@ Trajectoire :
   - *Installation.* Elle suit le README. Le proxy bloque le téléchargement du modèle depuis Hugging Face. Le diagnostic de démarrage le signale en français et propose la voie hors ligne : copier le fichier du modèle depuis un partage fourni par le formateur.
   - *Résultat.* Léa relance, WaveStack démarre, et le diagnostic est vert.
 - **UJ-4 (usage client en V2, scénario livré en V1). Anaël montre WaveStack à un client RSSI.**
-  - Anaël ouvre directement le scénario « Où vont mes données ? ». Il active successivement :
+  - Anaël ouvre directement le scénario « Où vont mes données ? ». Dès le lancement (story 27), sont actifs :
     - un outil local ;
     - un MCP local ;
     - un MCP public.
-  - Le schéma d'architecture distingue ce qui reste sur le poste de ce qui en sort. La démo se fait sans adaptation du produit.
+  - Le schéma d'architecture distingue ce qui reste sur le poste de ce qui en sort ; décocher puis recocher le MCP public fait disparaître puis revenir le seul flux sortant. La démo se fait sans adaptation du produit.
 - **UJ-5. Sophie, consultante conformité, voit d'où vient la réponse.**
   - *Contexte.* Module RAG, en salle. Le corpus de démonstration est déjà indexé.
   - *Recherche.* Anaël pose une question dont la réponse se trouve dans un seul document. La réponse s'affiche dans la vue humain. Le volet contexte LLM montre trois extraits, avec leur score et leur place dans le contexte.
