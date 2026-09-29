@@ -1,7 +1,7 @@
 # Prompt pour le Claude Code du PC cible : recette intermédiaire (stories 22 à 27 et 31 à 34)
 
 À coller tel quel dans Claude Code sur le PC cible, depuis le dossier du dépôt. Il couvre le
-commit `175eb5a` (PR 2). Les stories 29, 30 et 28 auront leur propre prompt
+code du commit `175eb5a` (PR 2), testé au commit `3ed8482` qui ajoute le cahier. Les stories 29, 30 et 28 auront leur propre prompt
 (`prompt-test-pc-2026-09-29.md`).
 
 ---
@@ -16,8 +16,9 @@ ne peut pas juger. Travaille en français.
   Modèles réels : Qwen3.5-2B et Qwen3.5-4B en GGUF (dossier des modèles de WaveStack, en général
   `%LOCALAPPDATA%\WaveStack\models`), Ollama s'il tourne, clés Groq et Mistral éventuelles
   (variables d'environnement ou `api_keys.json`). Navigateurs : Chrome et Edge.
-- Dépôt : branche `claude/lucid-cori-1rkbjf`, commit à tester
-  `175eb5afcd6d410870e27d30948757e528c4be62`.
+- Dépôt : branche `claude/lucid-cori-1rkbjf`, commit à tester `3ed8482` : le code de la fin de
+  la story 31 (`175eb5a`) plus le cahier de recette. Les commits suivants de la branche
+  (stories 29, 30, 28) ne font pas partie de ce test.
 - Liste des tests : le cahier `_bmad-output/implementation-artifacts/cahier-recette-nuit-2026-09-28.html`
   (identifiants P1 à P7 et N22-1 à N34-6, chacun avec geste, attendu et critère). Version en
   ligne, où Anaël enregistre ses résultats : https://claude.ai/artifact/7Er6qrF3fcLtTsMoY6meLf
@@ -51,7 +52,7 @@ ne peut pas juger. Travaille en français.
 
 ```powershell
 git fetch origin claude/lucid-cori-1rkbjf
-git checkout --detach 175eb5afcd6d410870e27d30948757e528c4be62
+git checkout --detach 3ed8482
 uv sync --extra compression
 uv run ruff check .
 uv run ruff format --check .
