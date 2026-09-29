@@ -51,6 +51,8 @@ class FakeEngine:
         self.cache_lags = cache_lags
         self.cache: list[int] = []
         self.evaluated: list[int] = []
+        # Story 29: the sampling of each call that gave one (the « LLM nu » screen only).
+        self.samplings: list = []
         self.snapshots = 0
         self.restores = 0
 
@@ -91,8 +93,16 @@ class FakeEngine:
         )
 
     def complete(
-        self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
+        self,
+        prompt_ids: Sequence[int],
+        stop: Sequence[str],
+        max_tokens: int,
+        cancel: CancelToken,
+        *,
+        sampling=None,  # noqa: ANN001 - story 29: given by the « LLM nu » screen only
     ) -> Iterator[Fragment]:
+        if sampling is not None:
+            self.samplings.append(sampling)
         self.calls.append(list(prompt_ids))
         prefix = self.cache and list(prompt_ids[: len(self.cache)]) == self.cache
         self.evaluated.append(len(prompt_ids) - (len(self.cache) if prefix else 0))
@@ -116,7 +126,8 @@ class FakeEngine:
                 held = list(char.encode("utf-8"))
             else:
                 self.cache += list(char.encode("utf-8"))
-            yield Fragment(char, count)
+            # Story 29: one character = one token, its bytes the piece.
+            yield Fragment(char, count, piece=char.encode("utf-8"))
             if count >= max_tokens:
                 yield Fragment("", count, "length")
                 return

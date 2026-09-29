@@ -398,3 +398,111 @@ body.llm-page {
   font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
     var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
 }
+
+/* ---------- sampling-controls (increment 2): a slider and a number per setting ---------- */
+
+.sampling-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--spacing-3) var(--spacing-5);
+  margin: var(--spacing-3) 0;
+}
+
+.sampling-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+}
+
+.sampling-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.sampling-row-head label {
+  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.sampling-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--color-primary);
+}
+
+.sampling-row input[type="number"] {
+  width: 5.5em;
+  margin-left: auto;
+  padding: 2px var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+.sampling-row-help {
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.sampling-row.is-unsupported {
+  background: var(--color-discipline-neutral-soft);
+}
+
+.sampling-row-reason {
+  color: var(--color-ink);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.sampling-row-reason::before {
+  content: "⊘ ";
+}
+
+/* ---------- prompt reading (increment 2) ---------- */
+
+.rendered-prompt {
+  margin: var(--spacing-1) 0 var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  max-height: 16rem;
+  overflow: auto;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-left: 4px solid var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-code-font-weight) var(--typography-code-font-size) /
+    var(--typography-code-line-height) var(--typography-code-font-family);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.llm-figure {
+  margin: var(--spacing-1) 0;
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+.llm-figure:empty,
+.llm-counts:empty {
+  display: none;
+}
+
+/* ---------- token-stream (increment 2): one chip per token, as it comes ---------- */
+
+.token-stream .token-chip-id:empty {
+  display: none;
+}
+
+.token-chip.is-fragment {
+  align-items: flex-start;
+}

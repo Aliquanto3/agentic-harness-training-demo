@@ -12,7 +12,10 @@ const store = {
   tokenizer: null,
   serverInstance: null,
   lastSeq: 0,
-  pending: { tokenize: null },
+  pending: { tokenize: null, generate: null },
+  sampling: null, // `lab_state().sampling`: defaults, bounds, what can be set
+  values: null, // the sliders' values, sent with « Générer »
+  gen: { callTs: null, timer: null, first: false, cloud: false },
   // The requests already answered by an event: the answer may come before the POST's own.
   answered: new Set(),
 };
@@ -104,9 +107,14 @@ function renderBusy() {
   const busy = $("llm-busy");
   busy.hidden = !reason;
   busy.textContent = reason || "";
-  const button = $("tokenize-button");
-  button.disabled = Boolean(reason) || store.pending.tokenize !== null;
-  button.title = reason || "";
+  const pending = store.pending.tokenize !== null || store.pending.generate !== null;
+  for (const id of ["tokenize-button", "generate-button"]) {
+    const button = $(id);
+    button.disabled = Boolean(reason) || pending;
+    button.title = reason || "";
+  }
+  // « Arrêter »: while the screen generates (class c, `/api/intentions/stop`).
+  $("stop-button").disabled = store.session.state !== "llm_lab";
 }
 
 function renderContent() {
@@ -290,6 +298,241 @@ async function tokenize() {
   renderBusy();
 }
 
+// ---------- section 2: sampling settings ----------
+
+const SAMPLING_KEY = "wavestack.llm.sampling";
+const SAMPLING_ORDER = ["temperature", "top_k", "top_p", "min_p"];
+const SAMPLING_STEP = { temperature: 0.05, top_k: 1, top_p: 0.05, min_p: 0.01 };
+const numberFr = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
+
+function loadSampling() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SAMPLING_KEY) || "null");
+    return saved && typeof saved === "object" ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSampling() {
+  try {
+    localStorage.setItem(SAMPLING_KEY, JSON.stringify(store.values));
+  } catch {
+    // no storage: the settings live with the page
+  }
+}
+
+// Within the session's bounds, else the harness's value.
+function clampSetting(name, value) {
+  const [low, high] = store.sampling.bounds[name];
+  const number = Number(value);
+  if (!Number.isFinite(number)) return store.sampling.defaults[name];
+  const clamped = Math.min(high, Math.max(low, number));
+  return name === "top_k" ? Math.round(clamped) : clamped;
+}
+
+function renderSampling() {
+  const box = $("sampling-controls");
+  const sampling = store.sampling;
+  if (!sampling) return;
+  if (!store.values) {
+    const saved = loadSampling() || {};
+    store.values = {};
+    for (const name of SAMPLING_ORDER) {
+      store.values[name] = clampSetting(name, saved[name] ?? sampling.defaults[name]);
+    }
+  }
+  box.replaceChildren();
+  for (const name of SAMPLING_ORDER) {
+    const reason = sampling.supported[name];
+    const row = el("div", "sampling-row");
+    row.dataset.setting = name;
+    const head = el("div", "sampling-row-head");
+    const label = el("label", "", text(`sampling.settings.${name}.label_fr`) || name);
+    const number = el("input");
+    number.type = "number";
+    number.id = `sampling-${name}`;
+    label.htmlFor = number.id;
+    const range = el("input");
+    range.type = "range";
+    range.setAttribute("aria-label", `${label.textContent} (curseur)`);
+    const [low, high] = sampling.bounds[name];
+    for (const input of [number, range]) {
+      input.min = String(low);
+      input.max = String(high);
+      input.step = String(SAMPLING_STEP[name]);
+      input.value = String(store.values[name]);
+      input.disabled = Boolean(reason);
+    }
+    const sync = (source, other) => {
+      source.addEventListener("input", () => {
+        if (source === number && source.value === "") return;
+        store.values[name] = clampSetting(name, source.value);
+        other.value = String(store.values[name]);
+        saveSampling();
+      });
+      source.addEventListener("change", () => {
+        store.values[name] = clampSetting(name, source.value);
+        source.value = other.value = String(store.values[name]);
+        saveSampling();
+      });
+    };
+    sync(number, range);
+    sync(range, number);
+    head.append(label, number);
+    row.append(head, range, el("span", "sampling-row-help", text(`sampling.settings.${name}.help_fr`)));
+    if (reason) {
+      row.classList.add("is-unsupported");
+      const why = el("span", "sampling-row-reason", reason);
+      why.id = `sampling-${name}-reason`;
+      number.setAttribute("aria-describedby", why.id);
+      range.setAttribute("aria-describedby", why.id);
+      row.append(why);
+    }
+    box.append(row);
+  }
+  $("sampling-source").textContent = sampling.source_fr || "";
+  $("sampling-defaults").textContent = sampling.defaults_fr || "";
+}
+
+function resetSampling() {
+  store.values = { ...store.sampling.defaults };
+  saveSampling();
+  renderSampling();
+}
+
+// What « Générer » sends: the settings the model takes; the others keep the harness's value.
+function samplingToSend() {
+  const values = {};
+  for (const name of SAMPLING_ORDER) {
+    values[name] = store.sampling.supported[name]
+      ? store.sampling.defaults[name]
+      : clampSetting(name, store.values[name]);
+  }
+  return values;
+}
+
+// « T 0,2 · top-k 5 · top-p 0,9 · min-p 0,05 » from a `sampling` trace; `—` for what is not sent.
+function samplingFr(trace) {
+  const part = (label, value) => `${label} ${value === null || value === undefined ? "—" : numberFr.format(value)}`;
+  const line = [
+    part("T", trace.temperature),
+    part("top-k", trace.top_k),
+    part("top-p", trace.top_p),
+    part("min-p", trace.min_p),
+  ].join(" · ");
+  return trace.note_fr ? `${line} (${trace.note_fr})` : line;
+}
+
+// ---------- sections 4 and 5: the prompt's reading, the generation token by token ----------
+
+const duration = (ms) =>
+  ms < 1000 ? `${Math.round(ms)} ms` : `${numberFr.format(Math.round(ms / 100) / 10)} s`;
+
+function stopStopwatch() {
+  if (store.gen.timer) clearInterval(store.gen.timer);
+  store.gen.timer = null;
+}
+
+// The local stopwatch, anchored on `model_call_started.ts`, until the first token.
+function startStopwatch(ts) {
+  stopStopwatch();
+  store.gen.callTs = Date.parse(ts);
+  const tick = () => {
+    if (store.gen.first) return stopStopwatch();
+    const elapsed = Math.max(Date.now() - store.gen.callTs, 0);
+    $("reading-first-token").textContent = text("reading.waiting_fr", { duree: duration(elapsed) });
+  };
+  tick();
+  store.gen.timer = setInterval(tick, 100);
+}
+
+function renderGenerationStarted(p) {
+  store.gen.first = false;
+  store.gen.cloud = !p.exact;
+  $("reading-empty").hidden = true;
+  $("reading-body").hidden = false;
+  $("reading-label").textContent = text(p.exact ? "reading.rendered_label_fr" : "reading.body_label_fr");
+  $("reading-rendered").textContent = p.rendered;
+  $("reading-tokens").textContent = text("reading.tokens_fr", {
+    tokens: p.figures_fr.prompt_tokens,
+    reserve: p.figures_fr.reserve,
+  });
+  $("reading-sampling").textContent = text("reading.sampling_fr", { reglages: samplingFr(p.sampling) });
+  $("reading-first-token").textContent = "";
+  $("reading-rate").textContent = "";
+  $("generation-tokens").replaceChildren();
+  $("generation-count").textContent = "";
+  $("generation-rate").textContent = "";
+  $("generation-empty").hidden = true;
+  $("generation-cloud").hidden = p.exact;
+  const status = $("generate-status");
+  status.classList.remove("is-error");
+  status.textContent = text("generation.running_fr");
+}
+
+function renderToken(p) {
+  store.gen.first = true;
+  const chip = el("li", "token-chip");
+  chip.dataset.parity = p.index % 2 ? "odd" : "even";
+  chip.dataset.channel = p.channel;
+  if (store.gen.cloud) chip.classList.add("is-fragment");
+  chip.append(el("span", "token-chip-text", visibleBlanks(p.text)));
+  chip.append(el("span", "token-chip-id", p.token_id === null ? "" : String(p.token_id)));
+  $("generation-tokens").append(chip);
+  $("generation-count").textContent = text(store.gen.cloud ? "generation.fragments_fr" : "generation.count_fr", {
+    tokens: numberFr.format(p.index + 1),
+  });
+}
+
+function renderCallEnded(p) {
+  stopStopwatch();
+  store.gen.first = true;
+  $("reading-first-token").textContent = text("reading.first_token_fr", { duree: duration(p.prompt_ms) });
+  if (p.output_tps !== null && p.output_tps !== undefined) {
+    $("generation-rate").textContent = text("generation.rate_fr", { debit: numberFr.format(p.output_tps) });
+  }
+}
+
+function renderGenerationEnded(p) {
+  stopStopwatch();
+  const status = $("generate-status");
+  status.classList.toggle("is-error", p.status === "error");
+  status.textContent = [text(`generation.status.${p.status}`), p.message_fr].filter(Boolean).join(" ");
+  $("reading-rate").textContent = p.figures_fr?.read_tps
+    ? text("reading.read_rate_fr", { debit: p.figures_fr.read_tps })
+    : store.gen.cloud
+      ? ""
+      : text("reading.read_rate_unknown_fr");
+  if (!$("generation-tokens").children.length) $("generation-empty").hidden = false;
+}
+
+async function generate() {
+  const status = $("generate-status");
+  status.classList.remove("is-error");
+  status.textContent = text("generation.running_fr");
+  store.pending.generate = "…";
+  renderBusy();
+  const answer = await post("/api/intentions/llm_generate", {
+    prompt: $("llm-prompt").value,
+    sampling: samplingToSend(),
+  });
+  if (!answer.ok) {
+    status.classList.add("is-error");
+    status.textContent = answer.body.detail || `Refusé (HTTP ${answer.status}).`;
+    store.pending.generate = null;
+    renderBusy();
+    return;
+  }
+  const id = answer.body.request_id;
+  store.pending.generate = store.answered.has(id) ? null : id;
+  renderBusy();
+}
+
+async function stopGeneration() {
+  await post("/api/intentions/stop", {});
+}
+
 // ---------- the journal ----------
 
 function applyEnvelope(envelope) {
@@ -312,6 +555,24 @@ function applyEnvelope(envelope) {
       store.answered.add(p.request_id);
       if (store.pending.tokenize === p.request_id) store.pending.tokenize = null;
       renderTokenized(p);
+      renderBusy();
+      break;
+    case "llm_generation_started":
+      renderGenerationStarted(p);
+      break;
+    case "model_call_started":
+      startStopwatch(envelope.ts);
+      break;
+    case "llm_token":
+      renderToken(p);
+      break;
+    case "model_call_ended":
+      renderCallEnded(p);
+      break;
+    case "llm_generation_ended":
+      store.answered.add(p.request_id);
+      if (store.pending.generate === p.request_id) store.pending.generate = null;
+      renderGenerationEnded(p);
       renderBusy();
       break;
     case "harness_error":
@@ -395,12 +656,14 @@ async function refresh() {
   store.activeModel = body.active_model;
   store.session = body.session_state;
   store.tokenizer = body.tokenizer;
+  store.sampling = body.sampling;
   const alert = $("llm-content-error");
   alert.hidden = !body.content_error_fr;
   alert.textContent = body.content_error_fr || "";
   renderContent();
   renderModel();
   renderTokenizerInfo();
+  renderSampling();
   renderBusy();
   return body;
 }
@@ -411,6 +674,9 @@ async function main() {
   prompt.value = loadDraft() ?? (text("tokenization.default_text_fr") || "");
   prompt.addEventListener("input", () => saveDraft(prompt.value));
   $("tokenize-button").addEventListener("click", tokenize);
+  $("generate-button").addEventListener("click", generate);
+  $("stop-button").addEventListener("click", stopGeneration);
+  $("sampling-reset").addEventListener("click", resetSampling);
   if (body) store.lastSeq = body.seq;
   document.body.dataset.labReady = "true";
   streamEvents();

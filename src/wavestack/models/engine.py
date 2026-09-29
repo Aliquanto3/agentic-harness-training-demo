@@ -17,10 +17,28 @@ from typing import Any, Literal, Protocol
 
 StopReason = Literal["stop", "length", "cancelled", "error"]
 
-# Default sampling, fixed until a story exposes it (Qwen non-thinking recommendations).
-TEMPERATURE = 0.7
-TOP_P = 0.8
-TOP_K = 20
+
+@dataclass(frozen=True)
+class Sampling:
+    """Story 29: how the next token is drawn, a parameter of every call (AD-5). llama.cpp's
+    chain applies top-k, top-p and min-p to the raw logits, then the temperature."""
+
+    temperature: float
+    top_k: int
+    top_p: float
+    min_p: float
+
+
+# The harness's own values (Qwen non-thinking recommendations): every workshop call, and the
+# « LLM nu » screen until it changes them.
+DEFAULT_SAMPLING = Sampling(temperature=0.7, top_k=20, top_p=0.8, min_p=0.0)
+# The screen's bounds, inclusive (its intention validates them).
+SAMPLING_BOUNDS: dict[str, tuple[float, float]] = {
+    "temperature": (0.0, 2.0),
+    "top_k": (1, 100),
+    "top_p": (0.05, 1.0),
+    "min_p": (0.0, 0.5),
+}
 
 
 class CancelToken:
@@ -46,6 +64,10 @@ class Fragment:
     text: str
     output_tokens: int
     stop_reason: StopReason | None = None
+    # Story 29: the token this fragment carries, when the engine knows it (in-process: its id
+    # and bytes; a server: the chunk it streamed, as bytes), for the « LLM nu » screen.
+    token_id: int | None = None
+    piece: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -72,7 +94,11 @@ class EngineSnapshot:
 class Engine(Protocol):
     def complete(
         self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
-    ) -> Iterator[Fragment]: ...
+    ) -> Iterator[Fragment]:
+        """Story 29: the adapters also take `*, sampling: Sampling | None = None` (`None`:
+        `DEFAULT_SAMPLING`); the session passes it only when the « LLM nu » screen asks, so an
+        engine with the four arguments alone stays valid."""
+        ...
 
     def tokenize(self, text: str) -> list[int]: ...
 
@@ -296,8 +322,15 @@ class LlamaCppEngine:
         return self._tokenizer.token_pieces(ids)
 
     def complete(
-        self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
+        self,
+        prompt_ids: Sequence[int],
+        stop: Sequence[str],
+        max_tokens: int,
+        cancel: CancelToken,
+        *,
+        sampling: Sampling | None = None,
     ) -> Iterator[Fragment]:
+        s = sampling or DEFAULT_SAMPLING
         decoder = codecs.getincrementaldecoder("utf-8")("replace")
         pending = ""
         count = 0
@@ -305,7 +338,7 @@ class LlamaCppEngine:
         self._last_evaluated = None
         self._lib.llama_perf_context_reset(self._llm.ctx)
         tokens = self._llm.generate(
-            prompt_ids, temp=TEMPERATURE, top_p=TOP_P, top_k=TOP_K, min_p=0.0
+            prompt_ids, temp=s.temperature, top_p=s.top_p, top_k=s.top_k, min_p=s.min_p
         )
         try:
             for token in tokens:
@@ -315,12 +348,13 @@ class LlamaCppEngine:
                 if self._tokenizer.is_eog(token):
                     break
                 count += 1
-                pending += decoder.decode(self.token_pieces([token])[0])
+                piece = self.token_pieces([token])[0]
+                pending += decoder.decode(piece)
                 emit, pending, stopped = cut_stop(pending, stop)
                 if stopped:
-                    yield Fragment(emit, count, "stop")
+                    yield Fragment(emit, count, "stop", int(token), piece)
                     return
-                yield Fragment(emit, count)
+                yield Fragment(emit, count, token_id=int(token), piece=piece)
                 if count >= max_tokens:
                     reason = "length"
                     break

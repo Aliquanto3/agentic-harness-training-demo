@@ -5614,9 +5614,59 @@ def _llm_screen(r: Run) -> None:
     dark = _contrast_sweep(r, ["main"])
     page.select_option("#theme-picker", "system")
 
+    # (3b) A workshop turn running: « Générer » disabled with the reason, a direct call 409.
+    seq = r.ev.mark()
+    r.api("POST", "/api/intentions/send", {"message": "Explique le harnais [lent] [long]"})
+    r.ev.wait("model_first_token", seq, timeout=20)
+    button = page.locator("#generate-button")
+    expect(button).to_be_disabled(timeout=5000)
+    refused = r.api(
+        "POST",
+        "/api/intentions/llm_generate",
+        {"prompt": "Bonjour", "sampling": _LAB_SAMPLING},
+    )
+    r.check(
+        "tour" in (button.get_attribute("title") or "")
+        and "tour" in page.inner_text("#llm-busy")
+        and refused.status_code == 409,
+        "tour de l'atelier en cours : « Générer » désactivé avec la raison, appel direct 409",
+        f"{button.get_attribute('title')} · {refused.status_code} {refused.text[:120]}",
+    )
+    r.api("POST", "/api/intentions/stop")
+    r.ev.wait("turn_ended", seq, timeout=30)
+    expect(button).to_be_enabled(timeout=10_000)
+
+    # (3c) The fake cloud A takes temperature and top-p only; top-k is disabled, with why.
+    _set_lab_sampling(r)
+    top_k = page.locator("#sampling-top_k")
+    reason = page.inner_text('.sampling-row[data-setting="top_k"] .sampling-row-reason')
+    r.check(
+        top_k.is_disabled() and "non réglable chez Faux fournisseur (e2e)" in reason,
+        "cloud A : top-k désactivé, sa raison visible",
+        reason,
+    )
+    ended = _lab_generate(r, "Bonjour")
+    body = r.fake_calls()[-1]
+    r.check(
+        ended["payload"]["status"] == "completed"
+        and body.get("temperature") == 0.2
+        and body.get("top_p") == 0.9
+        and "top_k" not in body
+        and "min_p" not in body
+        and body.get("messages") == [{"role": "user", "content": "Bonjour"}],
+        "cloud A : le corps envoyé porte temperature et top_p seulement, un seul message",
+        str({k: v for k, v in body.items() if k != "messages"}),
+    )
+    r.check(
+        page.locator("#generation-cloud").is_visible()
+        and page.locator("#generation-tokens .token-chip").count() >= 1,
+        "cloud A : fragments reçus du fournisseur, dits comme tels",
+    )
+
     # (4) The fake llama-server, chosen in the workshop's picker.
     r.goto_app()
     _pick_served(r, LLAMA_OPTION)
+    bubbles = page.locator("#chat .bubble").count()
     _goto_lab(r)
     expect(page.locator("#llm-model")).to_contain_text("Local · llama-server", timeout=5000)
     event = _lab_tokenize(r, LLM_TEXT)
@@ -5652,13 +5702,92 @@ def _llm_screen(r: Run) -> None:
         "schéma de vectorisation : 2 048 dimensions, 1 004 tokens de vocabulaire",
         diagram.replace("\n", " · ")[:300],
     )
-    light = _contrast_sweep(r, ["main"])
-    r.check(not dark and not light, "/llm : contrastes AA dans les deux thèmes", str(dark + light))
     r.shot("52-llm-nu-tokenisation", full_page=True)
 
-    # (5) Back to the fake cloud A, from the workshop.
+    # (5) The screen's sampling reaches llama-server; the tokens come one by one.
+    _set_lab_sampling(r)
+    seq = r.ev.mark()
+    ended = _lab_generate(r, "Explique " + "très longuement " * 14, watch=True)
+    body = [q for q in r.stack.local_requests(r.stack.llama_url) if q["path"] == "/completion"][-1]
+    sent = {k: body["body"].get(k) for k in ("temperature", "top_k", "top_p", "min_p")}
+    started = [
+        e["payload"]
+        for e in r.ev.since(seq, "model_call_started")
+        if e["context_id"] == "llm" and e["turn_id"] is None
+    ]
+    traced = started[-1]["sampling"] if started else {}
+    r.check(
+        sent == _LAB_SAMPLING
+        and {k: traced.get(k) for k in _LAB_SAMPLING} == _LAB_SAMPLING
+        and traced.get("source") == "screen",
+        "llama-server : le corps /completion et model_call_started (contexte llm) portent les "
+        "réglages, source screen",
+        f"{sent} · {traced}",
+    )
+    first = page.inner_text("#reading-first-token")
+    rate = page.inner_text("#generation-rate")
+    r.check(
+        ended["payload"]["status"] == "completed"
+        and first.startswith("Premier token après")
+        and rate.startswith("Débit de sortie"),
+        "temps jusqu'au premier token puis débit affichés",
+        f"{first} · {rate}",
+    )
+    r.check(
+        page.inner_text("#reading-rendered").startswith("<|im_start|>user")
+        and r.state()["session_state"]["state"] == "idle",
+        "prompt rendu par le gabarit, session revenue en idle",
+    )
+    light = _contrast_sweep(r, ["main"])
+    r.check(not dark and not light, "/llm : contrastes AA dans les deux thèmes", str(dark + light))
+    r.shot("53-llm-nu-generation", full_page=True)
+
+    # (6) The workshop got nothing from the screen.
     r.goto_app()
+    r.check(
+        page.locator("#chat .bubble").count() == bubbles,
+        "atelier : la Vue humain n'a rien reçu de l'écran",
+        f"{bubbles} → {page.locator('#chat .bubble').count()}",
+    )
+
+    # (7) Back to the fake cloud A.
     _pick_model(r, A_LABEL)
+
+
+_LAB_SAMPLING = {"temperature": 0.2, "top_k": 5, "top_p": 0.9, "min_p": 0.05}
+
+
+def _set_lab_sampling(r: Run) -> None:
+    """The four settings of the screen, typed in their number fields (the disabled ones
+    left as they are)."""
+    for name, value in _LAB_SAMPLING.items():
+        field = r.page.locator(f"#sampling-{name}")
+        if field.is_enabled():
+            field.fill(str(value))
+            field.dispatch_event("change")
+
+
+def _lab_generate(r: Run, prompt: str, watch: bool = False) -> dict[str, Any]:
+    """« Générer » on the screen; `watch`: the chips counted while they come, and checked
+    to grow."""
+    page = r.page
+    page.fill("#llm-prompt", prompt)
+    expect(page.locator("#generate-button")).to_be_enabled(timeout=10_000)
+    seq = r.ev.mark()
+    page.click("#generate-button")
+    counts: list[int] = []
+    if watch:
+        r.ev.wait("llm_token", seq, timeout=20)
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline and not r.ev.since(seq, "llm_generation_ended"):
+            counts.append(page.locator("#generation-tokens .token-chip").count())
+            time.sleep(0.1)
+    ended = r.ev.wait("llm_generation_ended", seq, timeout=30)
+    expect(page.locator("#generate-button")).to_be_enabled(timeout=10_000)
+    if watch:
+        grows = len({c for c in counts if c}) >= 2 and counts == sorted(counts)
+        r.check(grows, "les puces apparaissent une à une", str(counts[:12]) + "…")
+    return ended
 
 
 SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [

@@ -280,6 +280,20 @@ dans l'atelier » ramène au sélecteur de la barre haute.
   vecteur → couches, avec les dimensions réelles du modèle (lues par llama.cpp, dans l'en-tête
   GGUF, ou données par llama-server), ou « inconnue » et pourquoi. Un modèle cloud n'a pas de
   tokenizer sur le poste : la page le dit et montre l'estimation du harnais.
+- **Réglages d'échantillonnage.** L'échantillonnage est un paramètre de chaque appel au
+  modèle : l'atelier envoie toujours les valeurs du harnais (température 0,7, top-k 20, top-p
+  0,8, min-p 0), l'écran envoie les siennes, réglables par curseur (température 0 à 2, top-k 1 à
+  100, top-p 0,05 à 1, min-p 0 à 0,5), au moteur en processus, à llama-server et à Ollama. Un
+  modèle cloud ne prend que ce que son entrée déclare (`sampling`, voir « Modèle cloud »), les
+  autres réglages sont grisés avec leur raison. Chaque appel trace son échantillonnage dans
+  `model_call_started` (journal des événements).
+- **Lecture du prompt et génération.** « Générer » envoie le texte comme un seul message de
+  l'utilisateur, rendu par le gabarit du modèle, sans prompt système ni historique. La page
+  montre le prompt rendu, son nombre de tokens, le temps jusqu'au premier token et le débit de
+  lecture, puis les tokens un par un (des fragments pour un modèle cloud) et le débit de
+  sortie. « Arrêter » interrompt. Pendant la génération, l'atelier attend (état « écran LLM
+  nu ») ; sa conversation n'en reçoit rien, et l'état du moteur est restauré pour le tour
+  suivant.
 
 Les textes de la page sont dans `content/llm_lab.yaml`. Les événements de l'écran sont tracés
 dans le contexte `llm` : le journal des événements de l'atelier les liste, aucun volet ne les
@@ -529,7 +543,7 @@ entrée nouvelle doit être complète :
 Une entrée de même `id` qu'un préréglage le modifie champ par champ (par exemple
 `{"id": "groq", "tpm": 6000}`), et `"enabled": false` le masque.
 
-Deux champs facultatifs :
+Trois champs facultatifs :
 - `key_env` : nom de la variable d'environnement qui fournit la clé (lettres majuscules,
   chiffres et `_`), jamais la clé elle-même.
 - `min_interval_s` : délai minimal, en secondes (au plus 60), entre deux envois au même modèle,
@@ -540,6 +554,11 @@ Deux champs facultatifs :
   de la séance, ne vient pas de l'espacement : le quota du compte est épuisé, et
   `min_interval_s` n'y peut rien. Lisez d'abord le message du fournisseur dans le journal
   (capacité saturée ou quota), puis vérifiez le quota dans la console Mistral.
+- `sampling` (écran « LLM nu ») : les réglages d'échantillonnage que le modèle accepte, parmi
+  `"temperature"` et `"top_p"` (les deux champs de l'API compatible OpenAI) ; vide par défaut :
+  le fournisseur garde les siens. Les préréglages Groq et Mistral déclarent les deux. Seul l'écran
+  « LLM nu » les envoie ; les tours de l'atelier n'envoient aucun réglage, et top-k et min-p ne
+  partent jamais chez un fournisseur.
 
 ## Développement
 

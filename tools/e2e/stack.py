@@ -72,6 +72,8 @@ def _entry(
         "training": "no",
         "notes_fr": "Faux modèle scripté pour les tests de bout en bout.",
         "key_env": KEY_ENV,
+        # Story 29: as the Groq and Mistral presets, for the « LLM nu » screen.
+        "sampling": ["temperature", "top_p"],
     }
     if reasoning is not None:
         entry["reasoning"] = reasoning

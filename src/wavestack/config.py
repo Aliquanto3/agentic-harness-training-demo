@@ -162,6 +162,9 @@ class CloudModel(_Strict):
     enabled: bool = True
     key_env: str | None = Field(default=None, pattern=r"^[A-Z_][A-Z0-9_]*$")
     min_interval_s: float | None = Field(default=None, gt=0, le=60)
+    # Story 29: the sampling settings the « LLM nu » screen may send; none by default (the
+    # provider's own). Top-k and min-p are never sent to a provider.
+    sampling: list[Literal["temperature", "top_p"]] = []
 
     @field_validator("base_url")
     @classmethod

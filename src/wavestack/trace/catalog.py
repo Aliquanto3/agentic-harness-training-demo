@@ -62,7 +62,15 @@ class HarnessErrorPayload(BaseModel):
 
 
 SessionState = Literal[
-    "idle", "turn", "awaiting_human", "model_load", "download", "index_build", "reset", "diagnostic"
+    "idle",
+    "turn",
+    "awaiting_human",
+    "model_load",
+    "download",
+    "index_build",
+    "reset",
+    "diagnostic",
+    "llm_lab",  # story 29: the « LLM nu » screen generates
 ]
 
 
@@ -328,8 +336,22 @@ class ReasoningCutPayload(BaseModel):
     message_fr: str
 
 
+class SamplingTrace(BaseModel):
+    """Story 29: the sampling a call sends, each value `None` when it is not sent; `source`:
+    the harness's defaults (`harness`), the « LLM nu » screen's (`screen`), or the
+    provider's own, nothing sent (`provider`); `note_fr` what could not be set."""
+
+    temperature: float | None = None
+    top_k: int | None = None
+    top_p: float | None = None
+    min_p: float | None = None
+    source: Literal["harness", "screen", "provider"]
+    note_fr: str | None = None
+
+
 class ModelCallStartedPayload(BaseModel):
     phase_label: str
+    sampling: SamplingTrace | None = None  # story 29
 
 
 class ModelFirstTokenPayload(BaseModel):
@@ -526,7 +548,15 @@ class LimitReachedPayload(BaseModel):
 # of the first byte that differs: `system` (system message, memory, catalogs, skills),
 # `history`, or `template`.
 PrefixCause = Literal[
-    "in_turn", "system", "history", "template", "reset", "replay", "abandoned", "subagent"
+    "in_turn",
+    "system",
+    "history",
+    "template",
+    "reset",
+    "replay",
+    "abandoned",
+    "subagent",
+    "llm",  # story 29: the « LLM nu » screen took the engine's cache
 ]
 
 
@@ -928,6 +958,49 @@ class LlmTokenizedPayload(BaseModel):
     figures_fr: dict[str, str] = {}
 
 
+class LlmGenerationStartedPayload(BaseModel):
+    """The screen's prompt, rendered as one user message by the model's template (`rendered`:
+    the text, or a cloud model's JSON body), its tokens (`exact`: counted by the model's
+    tokenizer, else estimated), the sampling sent, the output reserve (AD-9)."""
+
+    request_id: str
+    prompt: str
+    rendered: str
+    prompt_tokens: int
+    exact: bool
+    sampling: SamplingTrace
+    reserve: int
+    reasoning: bool = False
+    phase_label: str
+    figures_fr: dict[str, str] = {}
+
+
+class LlmTokenPayload(BaseModel):
+    """One token as it comes (a cloud model: one fragment the provider sent), its channel,
+    and the ms since the generation started."""
+
+    request_id: str
+    index: int
+    token_id: int | None = None
+    text: str
+    channel: Channel
+    elapsed_ms: int
+
+
+class LlmGenerationEndedPayload(BaseModel):
+    """How the screen's generation ended; `read_tps` the prompt's read rate (`evaluated_tokens
+    / prompt_ms`, `None` when the engine does not say), the tokens of each channel."""
+
+    request_id: str
+    status: Literal["completed", "cancelled", "limit", "error"]
+    duration_ms: int
+    read_tps: float | None = None
+    reasoning_tokens: int = 0
+    answer_tokens: int = 0
+    message_fr: str | None = None
+    figures_fr: dict[str, str] = {}
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -980,4 +1053,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "compression_started": CompressionStartedPayload,
     "compression_ended": CompressionEndedPayload,
     "llm_tokenized": LlmTokenizedPayload,
+    "llm_generation_started": LlmGenerationStartedPayload,
+    "llm_token": LlmTokenPayload,
+    "llm_generation_ended": LlmGenerationEndedPayload,
 }

@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, SecretStr, model_validator
 
 from wavestack import config
 from wavestack.models import catalog
+from wavestack.models.engine import Sampling
 from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession, Refused
 from wavestack.trace.envelope import Envelope
@@ -149,6 +150,22 @@ class LlmTokenizeIntention(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
 
 
+class SamplingIntention(BaseModel):
+    """Story 29: the screen's four sampling settings, within `engine.SAMPLING_BOUNDS`."""
+
+    temperature: float = Field(ge=0.0, le=2.0)
+    top_k: int = Field(ge=1, le=100)
+    top_p: float = Field(ge=0.05, le=1.0)
+    min_p: float = Field(ge=0.0, le=0.5)
+
+
+class LlmGenerateIntention(BaseModel):
+    """Story 29: the screen's prompt (2 000 characters at most) and its sampling."""
+
+    prompt: str = Field(min_length=1, max_length=2000)
+    sampling: SamplingIntention
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -252,6 +269,18 @@ def create_app(
         """Story 29, class (b): accepted in `idle` only (AD-3); `llm_tokenized` answers."""
         try:
             return {"request_id": app_session.llm_tokenize(intention.text)}
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=f"Refusé pour l'instant : {refused.reason_fr}"
+            ) from None
+
+    @app.post("/api/intentions/llm_generate")
+    def llm_generate(intention: LlmGenerateIntention) -> dict[str, str]:
+        """Story 29, class (b): accepted in `idle` only, the session in `llm_lab` until the
+        generation ends; « Arrêter » (`stop`) stops it."""
+        sampling = Sampling(**intention.sampling.model_dump())
+        try:
+            return {"request_id": app_session.llm_generate(intention.prompt, sampling)}
         except SendRefused as refused:
             raise HTTPException(
                 status_code=409, detail=f"Refusé pour l'instant : {refused.reason_fr}"

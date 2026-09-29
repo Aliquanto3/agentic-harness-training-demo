@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from wavestack import config
 from wavestack.config import CloudModel
+from wavestack.models.engine import Sampling
 
 
 class WarningText(BaseModel):
@@ -80,12 +81,22 @@ def warning_fr(entry: CloudModel, content: CloudContent) -> dict[str, str]:
     }
 
 
-def chat_fields(entry: CloudModel, max_tokens: int, reasoning: bool = False) -> dict[str, Any]:
+def chat_fields(
+    entry: CloudModel,
+    max_tokens: int,
+    reasoning: bool = False,
+    sampling: Sampling | None = None,
+) -> dict[str, Any]:
     """AD-4, chat mode: the body's fields besides `messages` and `tools`, in their order:
-    `model`, `stream`, the output limit, `stream_options`, the reasoning parameters (`on`
-    while the reasoning brick is effective or the model always reasons, else `off`)."""
+    `model`, `stream`, the output limit, story 29's sampling (only when `sampling` is given,
+    by the « LLM nu » screen, and only the fields the entry declares), `stream_options`, the
+    reasoning parameters (`on` while the reasoning brick is effective or the model always
+    reasons, else `off`). The workshop's bodies stay byte for byte what they were."""
     fields: dict[str, Any] = {"model": entry.model, "stream": True}
     fields[entry.max_tokens_field] = max_tokens
+    if sampling is not None:
+        for name in entry.sampling:
+            fields[name] = getattr(sampling, name)
     if entry.stream_usage:
         fields["stream_options"] = {"include_usage": True}
     return {**fields, **entry.reasoning_params(reasoning)}

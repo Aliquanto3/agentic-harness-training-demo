@@ -88,6 +88,55 @@ class VectorizationText(_Strict):
     steps: DiagramSteps
 
 
+class SamplingSetting(_Strict):
+    label_fr: str
+    help_fr: str
+
+
+class SamplingSettings(_Strict):
+    temperature: SamplingSetting
+    top_k: SamplingSetting
+    top_p: SamplingSetting
+    min_p: SamplingSetting
+
+
+class SamplingText(_Strict):
+    reset_fr: str
+    unsupported_fr: str
+    settings: SamplingSettings
+
+
+class ReadingText(_Strict):
+    empty_fr: str
+    rendered_label_fr: str
+    body_label_fr: str
+    tokens_fr: str
+    waiting_fr: str
+    first_token_fr: str
+    read_rate_fr: str
+    read_rate_unknown_fr: str
+    sampling_fr: str
+
+
+class GenerationStatus(_Strict):
+    completed: str
+    cancelled: str
+    limit: str
+    error: str
+
+
+class GenerationText(_Strict):
+    button_fr: str
+    stop_fr: str
+    running_fr: str
+    empty_fr: str
+    count_fr: str
+    fragments_fr: str
+    rate_fr: str
+    cloud_fr: str
+    status: GenerationStatus
+
+
 class LabContent(_Strict):
     title_fr: str
     intro_fr: str
@@ -99,6 +148,9 @@ class LabContent(_Strict):
     sections: LabSections
     tokenization: TokenizationText
     vectorization: VectorizationText
+    sampling: SamplingText  # story 29, increment 2
+    reading: ReadingText
+    generation: GenerationText
 
 
 @cache

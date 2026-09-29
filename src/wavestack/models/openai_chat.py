@@ -590,10 +590,12 @@ def run_call(
     estimated_prompt: int,
     chars_per_token: float,
     call_id: Callable[[int], str],
+    sampling_trace: dict[str, Any] | None = None,
 ) -> ChatCall:
     """One streamed call under the caller's scope: `model_call_started`, `model_first_token`,
     `model_delta` (grouped), `model_call_ended`. Raises `ProviderError` after ending the call
-    with `stop_reason: error`. `call_id(index)` gives a valid call's session id (AD-4)."""
+    with `stop_reason: error`. `call_id(index)` gives a valid call's session id (AD-4).
+    `sampling_trace` (story 29): `model_call_started.sampling`."""
     entry = getattr(engine, "entry", None)
     # AD-16: the spacing wait, before the call starts, so neither `prompt_ms` nor
     # `duration_ms` counts it; cancelled while waiting, nothing is sent.
@@ -601,7 +603,10 @@ def run_call(
         return ChatCall(stop_reason="cancelled")
     journal = get_journal()
     started = time.monotonic()
-    journal.emit("model_call_started", {"phase_label": phase_label})
+    started_payload: dict[str, Any] = {"phase_label": phase_label}
+    if sampling_trace is not None:  # story 29: what sampling the call carries, and whose
+        started_payload["sampling"] = sampling_trace
+    journal.emit("model_call_started", started_payload)
     out = ChatCall()
     channels: dict[str, list[str]] = {"reasoning": [], "text": [], "tool_call": []}
     pending: list[tuple[str, str]] = []

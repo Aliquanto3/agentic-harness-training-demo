@@ -85,3 +85,57 @@ vectorization:
     layers_fr: "Couches"
     layers_caption_fr: "{couches} couches, {tetes} têtes d'attention"
     layers_only_caption_fr: "{couches} couches"
+
+sampling:
+  reset_fr: "Revenir aux valeurs du harnais"
+  unsupported_fr: "Non réglable"
+  settings:
+    temperature:
+      label_fr: "Température"
+      help_fr: >-
+        Aplatit ou creuse les probabilités avant le tirage. À 0, le modèle prend toujours le
+        token le plus probable (réponse identique à chaque fois) ; au-dessus de 1, les tokens
+        peu probables ont leur chance.
+    top_k:
+      label_fr: "Top-k"
+      help_fr: >-
+        Ne garde que les k tokens les plus probables ; tous les autres sont écartés avant le
+        tirage.
+    top_p:
+      label_fr: "Top-p"
+      help_fr: >-
+        Garde les tokens les plus probables jusqu'à ce que leurs probabilités cumulées
+        atteignent p ; 1 n'écarte rien.
+    min_p:
+      label_fr: "Min-p"
+      help_fr: >-
+        Écarte tout token dont la probabilité est inférieure à min-p fois celle du plus
+        probable ; 0 n'écarte rien.
+
+reading:
+  empty_fr: "Générez une réponse : le prompt rendu par le gabarit du modèle apparaîtra ici."
+  rendered_label_fr: "Prompt rendu par le gabarit (texte exact envoyé au modèle)"
+  body_label_fr: "Corps JSON envoyé au fournisseur (le gabarit est appliqué chez lui)"
+  tokens_fr: "{tokens} tokens à lire, réserve de sortie de {reserve} tokens"
+  waiting_fr: "Lecture du prompt… {duree}"
+  first_token_fr: "Premier token après {duree}"
+  read_rate_fr: "Débit de lecture : {debit} tokens/s"
+  read_rate_unknown_fr: "Débit de lecture : non communiqué par ce moteur."
+  sampling_fr: "Échantillonnage envoyé : {reglages}"
+
+generation:
+  button_fr: "Générer"
+  stop_fr: "Arrêter"
+  running_fr: "Génération en cours…"
+  empty_fr: "Les tokens produits apparaîtront ici, un par un."
+  count_fr: "{tokens} tokens produits"
+  fragments_fr: "{tokens} fragments reçus"
+  rate_fr: "Débit de sortie : {debit} tokens/s"
+  cloud_fr: >-
+    Modèle cloud : ce sont des fragments reçus du fournisseur, pas des tokens un par un. Le
+    fournisseur regroupe les tokens comme il veut avant de les envoyer.
+  status:
+    completed: "Réponse terminée."
+    cancelled: "Génération arrêtée."
+    limit: "Réserve de sortie atteinte : la réponse est coupée."
+    error: "La génération a échoué."

@@ -13,7 +13,8 @@ builds the whole text, template included; nothing goes through the servers' chat
   (`VocabTokenizer`). More prompt tokens read by Ollama than the harness counted, or a
   `thinking` field, is reported as « transparence réduite »; fewer is Ollama's cache.
 
-Sampling: the in-process engine's values (`engine.py`), and the penalties llama-cpp-python's
+Sampling: the call's (`engine.Sampling`, story 29; the harness's defaults unless the « LLM
+nu » screen gives its own), and the penalties llama-cpp-python's
 `generate` leaves neutral, sent explicitly (Ollama's own default `repeat_penalty` is 1.1). No
 seed is sent: the in-process engine draws a random one too.
 """
@@ -36,13 +37,12 @@ import httpx
 from wavestack import config
 from wavestack.models import gguf_meta, probe
 from wavestack.models.engine import (
-    TEMPERATURE,
-    TOP_K,
-    TOP_P,
+    DEFAULT_SAMPLING,
     CancelToken,
     EngineMetadata,
     EngineSnapshot,
     Fragment,
+    Sampling,
     StopReason,
     VocabTokenizer,
     cut_stop,
@@ -220,13 +220,15 @@ def _positive(value: Any) -> int | None:
     return n if n > 0 else None
 
 
-def _sampling() -> dict[str, float | int]:
-    """The in-process engine's sampling (`engine.py`, llama-cpp-python's `generate`)."""
+def _sampling(sampling: Sampling | None = None) -> dict[str, float | int]:
+    """The call's sampling (story 29; `None`: the harness's defaults, `DEFAULT_SAMPLING`), and
+    the penalties llama-cpp-python's `generate` leaves neutral."""
+    s = sampling or DEFAULT_SAMPLING
     return {
-        "temperature": TEMPERATURE,
-        "top_p": TOP_P,
-        "top_k": TOP_K,
-        "min_p": 0.0,
+        "temperature": s.temperature,
+        "top_p": s.top_p,
+        "top_k": s.top_k,
+        "min_p": s.min_p,
         "repeat_penalty": 1.0,
         "presence_penalty": 0.0,
         "frequency_penalty": 0.0,
@@ -386,7 +388,13 @@ class LlamaServerEngine:
         return [self._pieces[t] for t in ids]
 
     def complete(
-        self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
+        self,
+        prompt_ids: Sequence[int],
+        stop: Sequence[str],
+        max_tokens: int,
+        cancel: CancelToken,
+        *,
+        sampling: Sampling | None = None,
     ) -> Iterator[Fragment]:
         body = {
             "prompt": list(prompt_ids),
@@ -394,7 +402,7 @@ class LlamaServerEngine:
             "stop": list(stop),
             "stream": True,
             "cache_prompt": True,
-            **_sampling(),
+            **_sampling(sampling),
         }
         pending = ""
         count = 0
@@ -413,10 +421,10 @@ class LlamaServerEngine:
                 pending += text
                 emit, pending, stopped = cut_stop(pending, stop)
                 if stopped:
-                    yield Fragment(emit, count, "stop")
+                    yield Fragment(emit, count, "stop", piece=text.encode("utf-8"))
                     return
                 if text:
-                    yield Fragment(emit, count)
+                    yield Fragment(emit, count, piece=text.encode("utf-8"))
                 if data.get("stop"):
                     reason = "length" if data.get("stop_type") == "limit" else "stop"
                     timings = data.get("timings")  # its last chunk: `prompt_n` evaluated
@@ -505,7 +513,13 @@ class OllamaRawEngine:
         return self._tokenizer.token_pieces(ids)
 
     def complete(
-        self, prompt_ids: Sequence[int], stop: Sequence[str], max_tokens: int, cancel: CancelToken
+        self,
+        prompt_ids: Sequence[int],
+        stop: Sequence[str],
+        max_tokens: int,
+        cancel: CancelToken,
+        *,
+        sampling: Sampling | None = None,
     ) -> Iterator[Fragment]:
         prompt = b"".join(self.token_pieces(prompt_ids)).decode("utf-8")
         body = {
@@ -517,7 +531,7 @@ class OllamaRawEngine:
                 "num_ctx": self.num_ctx,
                 "num_predict": max_tokens,
                 "stop": list(stop),
-                **_sampling(),
+                **_sampling(sampling),
             },
         }
         pending = ""
@@ -546,7 +560,7 @@ class OllamaRawEngine:
                 if text and not stopped:
                     pending += text
                     emit, pending, stopped = cut_stop(pending, stop)
-                    yield Fragment(emit, count)
+                    yield Fragment(emit, count, piece=text.encode("utf-8"))
                 if data.get("done"):
                     count = _positive(data.get("eval_count")) or count
                     reason = (

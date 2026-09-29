@@ -52,7 +52,7 @@ vrais services.
   `POST /_e2e/model_ready` n'a pas été appelé (un téléchargement qui échoue, puis réussit).
   `/_e2e/reranker.gguf` est celui du faux reranker (story 16), toujours servi.
 - `stack.py` : réseau sortant de WaveStack coupé (proxy fermé, voir plus haut), dossier de
-  données temporaire, `settings.json` qui déclare trois modèles sur le faux serveur, `fake`
+  données temporaire, `settings.json` qui déclare trois modèles sur le faux serveur (tous avec `sampling = ["temperature", "top_p"]` depuis la story 29), `fake`
   (`wavestack-fake`), `fake_b` (`faux-modele-b`, pour le changement de modèle de la
   story 17) et `fake_r` (`faux-modele-raisonne`, `reasoning: {format: "field", always: true}`,
   pour la carte Raisonnement verrouillée de la story 33), clé par
@@ -422,7 +422,17 @@ Vérifications ajoutées aux scénarios existants :
   (id 1002), « N tokens pour M caractères », et le schéma de vectorisation montre « 2 048 » et
   « 1 004 » (le faux llama-server donne `n_vocab` et `n_embd` dans `/v1/models`, comme le vrai) ;
   contrastes AA de la page dans les deux thèmes (`_contrast_sweep`). Capture
-  `52-llm-nu-tokenisation.jpg` (page entière). (5) Retour au faux cloud A.
+  `52-llm-nu-tokenisation.jpg` (page entière). Incrément 2 : (3b) pendant un tour lent de
+  l'atelier (« [lent] [long] », envoyé par l'API), « Générer » est désactivé avec la raison et un
+  appel direct à `llm_generate` reçoit 409 ; le tour est arrêté. (3c) Sur le faux cloud A, top-k
+  est désactivé avec sa raison, et la génération envoie `temperature: 0.2` et `top_p: 0.9`
+  seulement (dernier corps de `/_e2e/requests`), un seul message ; les puces sont dites
+  « fragments ». (5) Sur le faux llama-server, T 0,2, top-k 5, top-p 0,9 et min-p 0,05 saisis :
+  le dernier corps `/completion` et `model_call_started` du contexte `llm` (source `screen`) les
+  portent ; le nombre de puces croît d'un relevé à l'autre ; « Premier token après … » et
+  « Débit de sortie » s'affichent ; le prompt rendu commence par `<|im_start|>user` ; la
+  session est revenue en `idle`. Capture `53-llm-nu-generation.jpg`. (6) La Vue humain de
+  l'atelier a le même nombre de bulles. (7) Retour au faux cloud A.
 
 ## Déclencheurs du faux modèle
 

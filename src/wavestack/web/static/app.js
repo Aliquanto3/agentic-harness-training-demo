@@ -5956,6 +5956,9 @@ const KIND_LABELS = {
   compression_started: "Compression commencée",
   compression_ended: "Compression terminée",
   llm_tokenized: "LLM nu : texte découpé en tokens",
+  llm_generation_started: "LLM nu : génération commencée",
+  llm_token: "LLM nu : token produit",
+  llm_generation_ended: "LLM nu : génération terminée",
 };
 const MODEL_LOAD_STATUS = {
   ok: "chargé",
@@ -5973,7 +5976,15 @@ const SESSION_STATES = {
   index_build: "construction de l'index RAG",
   reset: "réinitialisation",
   diagnostic: "diagnostic",
+  llm_lab: "écran LLM nu", // story 29
 };
+
+// Story 29: « T 0,7 · top-k 20 · top-p 0,8 · min-p 0 », a value not sent as « — ».
+function samplingSummary(s) {
+  if (s.source === "provider") return s.note_fr || "réglé par le fournisseur";
+  const part = (label, value) => `${label} ${value === null || value === undefined ? "—" : fmt(value)}`;
+  return [part("T", s.temperature), part("top-k", s.top_k), part("top-p", s.top_p), part("min-p", s.min_p)].join(" · ");
+}
 
 function eventSummary(group) {
   // One line per event, formatting only (AD-1).
@@ -6000,9 +6011,15 @@ function eventSummary(group) {
         .filter(Boolean)
         .join(" · ");
     case "model_call_started":
+      return p.sampling ? `${p.phase_label} · ${samplingSummary(p.sampling)}` : p.phase_label;
     case "mcp_connect_started":
     case "model_load_started":
+    case "llm_generation_started":
       return p.phase_label;
+    case "llm_token":
+      return `${p.index + 1} · « ${p.text} »`;
+    case "llm_generation_ended":
+      return [p.status, seconds(p.duration_ms), p.message_fr].filter(Boolean).join(" · ");
     case "model_load_ended":
       return [`${p.model.label} : ${MODEL_LOAD_STATUS[p.status] ?? p.status}`, seconds(p.duration_ms), p.reason_fr]
         .filter(Boolean)

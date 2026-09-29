@@ -58,6 +58,46 @@
         <p class="llm-note embedding-source" id="embedding-source"></p>
       </figure>
     </section>
+
+    <section class="llm-section" id="sec-sampling" aria-labelledby="sec-sampling-title">
+      <h2 class="llm-section-title" id="sec-sampling-title"><span class="llm-step" aria-hidden="true">2</span> <span data-text="sections.sampling.title_fr">Réglages d'échantillonnage</span></h2>
+      <p class="llm-section-intro" data-text="sections.sampling.intro_fr"></p>
+      <div class="sampling-controls" id="sampling-controls"></div>
+      <p class="llm-note" id="sampling-source"></p>
+      <div class="llm-actions">
+        <span class="llm-note" id="sampling-defaults"></span>
+        <button type="button" id="sampling-reset" class="llm-button-secondary" data-text="sampling.reset_fr">Revenir aux valeurs du harnais</button>
+      </div>
+    </section>
+
+    <section class="llm-section" id="sec-reading" aria-labelledby="sec-reading-title">
+      <h2 class="llm-section-title" id="sec-reading-title"><span class="llm-step" aria-hidden="true">4</span> <span data-text="sections.reading.title_fr">Lecture du prompt</span></h2>
+      <p class="llm-section-intro" data-text="sections.reading.intro_fr"></p>
+      <p class="llm-note" id="reading-empty" data-text="reading.empty_fr"></p>
+      <div id="reading-body" hidden>
+        <p class="llm-label" id="reading-label"></p>
+        <pre class="rendered-prompt" id="reading-rendered"></pre>
+        <p class="llm-counts" id="reading-tokens"></p>
+        <p class="llm-note" id="reading-sampling"></p>
+        <p class="llm-figure" id="reading-first-token" role="status"></p>
+        <p class="llm-figure" id="reading-rate"></p>
+      </div>
+    </section>
+
+    <section class="llm-section" id="sec-generation" aria-labelledby="sec-generation-title">
+      <h2 class="llm-section-title" id="sec-generation-title"><span class="llm-step" aria-hidden="true">5</span> <span data-text="sections.generation.title_fr">Génération</span></h2>
+      <p class="llm-section-intro" data-text="sections.generation.intro_fr"></p>
+      <div class="llm-actions">
+        <button type="button" id="generate-button" class="llm-button-primary" data-text="generation.button_fr">Générer</button>
+        <button type="button" id="stop-button" class="llm-button-secondary" data-text="generation.stop_fr" disabled>Arrêter</button>
+        <span class="llm-status" id="generate-status" role="status" aria-live="polite"></span>
+      </div>
+      <p class="llm-note" id="generation-cloud" data-text="generation.cloud_fr" hidden></p>
+      <p class="llm-counts" id="generation-count"></p>
+      <ol class="token-chips token-stream" id="generation-tokens" aria-label="Tokens produits"></ol>
+      <p class="llm-note" id="generation-empty" data-text="generation.empty_fr"></p>
+      <p class="llm-figure" id="generation-rate"></p>
+    </section>
   </main>
 
   <script type="module" src="/static/llm.js"></script>
