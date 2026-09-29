@@ -73,6 +73,20 @@ FIRST_RESULT_ROOM = {"network_tools", "data_flows", "iam", "sovereignty"}
 LOCAL_FIRST = {"mcp_full", "mcp_lazy"}
 LOCAL_FIRST_CALL = ("local__define_term", {"term": "MCP"})
 LOCAL_ANSWER_MAX = 200  # the measure above, with margin: a longer answer revisits the room
+# Lot K (A5): every prompt, not the first only, after the previous exchange of the scenario
+# (its prompt, its tool result, at most the bound, and an answer that fills the output
+# reserve), as the
+# short memory keeps it. The scenarios whose instructions empty the conversation between
+# their prompts are counted without history (« Vider la conversation » : two public search
+# results, 1 200 tokens each at most, never fit together).
+CLEARED_BETWEEN_PROMPTS = {"iam", "sovereignty"}
+EXCHANGE_TEMPLATE = 40  # the tags of an exchange's four messages (user, call, result, answer)
+_PUBLIC_SUBJECTS = ("data.gouv.fr", "Microsoft Learn")  # results that fill the bound
+# The network tools' results are short: 11 public holidays, a Wikipedia summary (≈ 800
+# characters); their first prompt keeps the bound's room (lot B), the next ones this.
+_NETWORK_SUBJECTS = ("Wikipédia", "jours fériés")
+NETWORK_TOOL_RESULT = 400
+_FILE = re.compile(r"\b([\w/]+\.(?:txt|log|md))\b")
 FIXTURES = Path(__file__).parent / "fixtures" / "mcp_tools"
 
 
@@ -238,8 +252,10 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
                     f"{scenario_id} : serveur {server_id} sans instantané"
                 )
                 assert tool in snapshots[server_id], (scenario_id, server_id, tool)
-    assert all("Charge la documentation de" in p for p in scenario["sovereignty"].prompts)
-    assert "Charger la documentation" in scenario["sovereignty"].description_fr
+    # Lot K (A5): no « Charge la documentation » (the small model then stops after loading).
+    assert not any("Charge la documentation" in p for p in scenario["sovereignty"].prompts)
+    assert not any("Charge la documentation" in p for p in scenario["mcp_lazy"].prompts)
+    assert all("deux liens Microsoft Learn" in p for p in scenario["iam"].prompts)
     # Skills: the skill and the meta-tool named, « Déclencher le skill » on its label.
     skills = scenario["skills"]
     label = load_skills_content(["meeting_minutes"]).skills["meeting_minutes"].label_fr
@@ -264,11 +280,28 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
     assert "ne la contourne pas" in soc.prompts[1] and "transmettre" in soc.prompts[1]
     assert "analyste habilité" in soc.description_fr and "concluez vous-même" in soc.description_fr
     assert "« Forcer l'appel » sur « Lecture de fichier »" in soc.description_fr
-    # A forced MCP documentation, then the replay; the MCP call itself is never forced.
-    for scenario_id in ("mcp_lazy", "sovereignty"):
+    assert "en 8 lignes au plus" in soc.prompts[0]  # lot K: within the output reserve
+    # Lot K (decision of 2026-09-29): the MCP tool's call forced, with its preset, then the
+    # replay (the button's text: « Forcer l'appel · <tool> »).
+    from wavestack.mcp.servers import load_mcp_content
+
+    presets = {
+        tool: {p.label_fr: p.args for p in listed}
+        for tool, listed in load_mcp_content().call_presets.items()
+    }
+    assert presets["local__define_term"] == {"MCP": {"term": "MCP"}}
+    assert presets["datagouv__search_datasets"] == {"cybersécurité": {"query": "cybersécurité"}}
+    for scenario_id, tool, preset in (
+        ("mcp_lazy", "local__define_term", "MCP"),
+        ("sovereignty", "datagouv__search_datasets", "cybersécurité"),
+    ):
         text = scenario[scenario_id].description_fr
-        assert "« Rejouer le dernier prompt »" in text and "ne se force pas" in text, scenario_id
-    assert "local__define_term" in scenario["mcp_lazy"].description_fr
+        assert f"« Forcer l'appel · {tool} »" in text and f"préréglage « {preset} »" in text
+        assert "« Rejouer le dernier prompt »" in text, scenario_id
+    assert all("ne se force pas" not in s.description_fr for s in scenario.values())
+    # Two public search results do not fit together: the conversation emptied between them.
+    for scenario_id in CLEARED_BETWEEN_PROMPTS:
+        assert "« Vider la conversation »" in scenario[scenario_id].description_fr, scenario_id
 
 
 def test_meta_tools_say_which_is_which():
@@ -431,13 +464,53 @@ def test_verdict_honours_expects_overflow_the_safety_factor_and_the_room():
     assert _verdict(plain, 3250, fits, 20, safety=EXACT) is None  # an exact count: no factor
 
 
+def _result_room(
+    scenario_id: str,
+    scenario: scenarios.Scenario,
+    position: int,
+    reserve: int,
+    bound: int,
+    local_answer: str,
+    count,  # noqa: ANN001 - the test's token count
+) -> int:
+    """Lot K: the room the tool result of prompt `position` takes, by what the prompt asks: the
+    sub-agent's answer (at most the reserve), the local glossary's measured answer, a public
+    server's result (bounded to `[tools] result_max_tokens`, lot B), a network tool's, a
+    file `read_file` reads (whole; a confidential one is refused by H1, one the previous
+    prompt read is answered from the history), else nothing."""
+    prompt = scenario.prompts[position]
+    if "subagent" in scenario.bricks and "Délègue" in prompt:
+        return reserve
+    if LOCAL_FIRST_CALL[0] in prompt:
+        return count(local_answer)
+    public = re.search(r"\b(?:datagouv|mslearn)__\w+", prompt)
+    if public or any(s in prompt for s in _PUBLIC_SUBJECTS):
+        return bound
+    if position == 0 and scenario_id in FIRST_RESULT_ROOM:
+        return bound
+    if any(s in prompt for s in _NETWORK_SUBJECTS):
+        return NETWORK_TOOL_RESULT
+    named = _FILE.search(prompt)
+    readable = scenario.tools is None or "read_file" in scenario.tools
+    if named and "tools" in scenario.bricks and readable:
+        again = position > 0 and named.group(1) in scenario.prompts[position - 1]  # in the history
+        if not again and not named.group(1).startswith("confidentiel/"):
+            return count(read_file(named.group(1)))
+    return 0
+
+
 def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loop, web):  # noqa: F811
     """With `WAVESTACK_TEST_GGUF`, that GGUF booted in local mode: the exact local gauge
     (lot J). Else as the cloud estimate does at 2 characters per token, with a safety factor.
     Both with the reasoning reserve, the RAG excerpts at their declared maximum, the
     demonstration memory, the real local MCP server and the public servers' tools (snapshot
     or fixture); and, when the first prompt calls a public server or a network tool, the room
-    of its first bounded result (lot B)."""
+    of its first bounded result (lot B).
+
+    Lot K (A5): every prompt of the scenario, in order, after the previous exchange when the
+    short memory keeps it (its prompt, its result, an answer at the reserve, the template's
+    tags), except where the instructions empty the conversation between the prompts
+    (`CLEARED_BETWEEN_PROMPTS`)."""
     public = PublicServers()
     web(public)
     place_model()
@@ -488,14 +561,29 @@ def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loo
             if scenario_id in LOCAL_FIRST and not local_answer:  # the real local server
                 local_answer = session._registry.get(LOCAL_FIRST_CALL[0]).run(**LOCAL_FIRST_CALL[1])
             used = ctx["used"]  # exact in local mode, the 2-character estimate otherwise
-            room = cfg.tool_result_max_tokens if scenario_id in FIRST_RESULT_ROOM else 0
-            if scenario_id in LOCAL_FIRST:
-                room = count(local_answer)
-            measured[scenario_id] = (used, ctx["usable"], room)
             assert ctx["window"] == 4096, scenario_id
-            assert ctx["reserve"] == (1536 if "reasoning" in scenario.bricks else 512), scenario_id
-            verdict = _verdict(scenario, used, ctx, count(scenario.prompts[0]), room, safety)
-            assert verdict is None, (scenario_id, verdict)
+            reserve = ctx["reserve"]
+            assert reserve == (1536 if "reasoning" in scenario.bricks else 512), scenario_id
+            keeps = "short_memory" in scenario.bricks and scenario_id not in CLEARED_BETWEEN_PROMPTS
+            history = 0
+            for n in range(len(scenario.prompts)):
+                room = _result_room(
+                    scenario_id,
+                    scenario,
+                    n,
+                    reserve,
+                    cfg.tool_result_max_tokens,
+                    local_answer,
+                    count,
+                )
+                prompt = count(scenario.prompts[n])
+                measured[(scenario_id, n + 1)] = (used, ctx["usable"], history, room)
+                verdict = _verdict(scenario, used, ctx, history + prompt, room, safety)
+                assert verdict is None, (scenario_id, f"prompt {n + 1}", verdict)
+                if keeps:  # the previous exchange, as the next prompt reads it; its result
+                    # at most the bound (`compression`: Headroom on for the second prompt)
+                    kept = min(room, cfg.tool_result_max_tokens)
+                    history = prompt + kept + reserve + EXCHANGE_TEMPLATE
             segments = " ".join(s["text"] for s in ctx["segments"])
             if "rag" in scenario.bricks:  # counted: the brick is available here
                 assert any(s["kind"] == "rag_excerpt" for s in ctx["segments"]), scenario_id
@@ -506,15 +594,19 @@ def test_every_scenario_fits_the_default_window_with_its_first_prompt(index, loo
                 for server_id in mcp_servers:
                     assert f"{server_id}__" in segments, (scenario_id, server_id)
         # Lot B (B3): the full documentation, 3 204 tokens on the target PC, is not underrated.
-        assert measured["mcp_full"][0] > 2800, measured["mcp_full"]
+        assert measured[("mcp_full", 1)][0] > 2800, measured[("mcp_full", 1)]
         assert local_answer.startswith("MCP : ") and count(local_answer) < LOCAL_ANSWER_MAX
         counted = (
             "jauge locale du GGUF" if tokenizer is not None else f"{CHARS_PER_TOKEN} car./token"
         )
-        print(f"\nAD-9, aperçu (sans le prompt, {counted}) / utilisables, marge, place réservée :")
-        for scenario_id, (used, usable, room) in measured.items():
+        print(
+            f"\nAD-9, aperçu (sans le prompt, {counted}) / utilisables, marge ; historique "
+            "simulé et place du résultat, par prompt :"
+        )
+        for (scenario_id, n), (used, usable, history, room) in measured.items():
             print(
-                f"  {scenario_id:<14} {used:>5} / {usable}  marge {usable - used:>5}  {room or ''}"
+                f"  {scenario_id:<14} p{n}  {used:>5} / {usable}  marge {usable - used:>5}"
+                f"  historique {history:>5}  résultat {room:>5}"
             )
         for server_id, source in public.sources.items():
             print(f"  outils de {server_id} : {source}")
