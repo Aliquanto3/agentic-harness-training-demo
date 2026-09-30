@@ -5014,7 +5014,7 @@ def _readable_bar(r: Run, lang: str) -> None:
     """At 1280 and 1600 px, normal and projection mode: the bar whole, its names readable, the
     « Affichage ▾ » menu whole; captures in German."""
     page = r.page
-    system = _ui_catalogue(lang)["main.theme.system"]
+    system = _ui_catalogue(lang)["common.theme.system"]
     for width, height in ((1280, 720), (1600, 1000)):
         page.set_viewport_size({"width": width, "height": height})
         for projection in (False, True):

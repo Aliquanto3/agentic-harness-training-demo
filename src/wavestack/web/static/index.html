@@ -59,8 +59,8 @@
     <select id="model-picker" class="model-picker" aria-label="Changer de modèle" data-i18n-aria-label="main.model.picker_label"></select>
     <button type="button" id="model-picker-apply" class="model-picker-apply" hidden data-i18n="main.model.load">Charger</button>
     <span class="top-status" id="top-status" role="status" aria-live="polite"></span>
-    <a id="llm-link" class="screen-link" href="/llm" aria-label="LLM nu" data-i18n-aria-label="main.links.llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="main.links.llm_title"><span class="screen-link-long" data-i18n="main.links.llm">LLM nu</span><span class="screen-link-short" aria-hidden="true">LLM</span></a>
-    <a id="rag-link" class="screen-link" href="/rag" aria-label="Atelier RAG" data-i18n-aria-label="main.links.rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="main.links.rag_title"><span class="screen-link-long" data-i18n="main.links.rag">Atelier RAG</span><span class="screen-link-short" aria-hidden="true">RAG</span></a>
+    <a id="llm-link" class="screen-link" href="/llm" aria-label="LLM nu" data-i18n-aria-label="common.links.llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title"><span class="screen-link-long" data-i18n="common.links.llm">LLM nu</span><span class="screen-link-short" aria-hidden="true">LLM</span></a>
+    <a id="rag-link" class="screen-link" href="/rag" aria-label="Atelier RAG" data-i18n-aria-label="common.links.rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title"><span class="screen-link-long" data-i18n="common.links.rag">Atelier RAG</span><span class="screen-link-short" aria-hidden="true">RAG</span></a>
     <!-- Languages (2/5): « Affichage ▾ » holds the theme, the language and the projection mode
          (decision of 2026-09-30); its face shows the theme's symbol and the language's code. -->
     <div class="display-menu" id="display-menu">
@@ -68,10 +68,10 @@
       <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="main.display.menu" hidden>
         <label class="display-menu-row"><span class="display-menu-label" data-i18n="main.display.theme">Thème</span>
           <span class="theme-picker-box" id="theme-picker-box">
-            <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="main.theme.name" title="Thème de l'interface" data-i18n-title="main.theme.name">
-              <option value="system" data-i18n="main.theme.system">◐ Système</option>
-              <option value="light" data-i18n="main.theme.light">☀ Clair</option>
-              <option value="dark" data-i18n="main.theme.dark">☾ Sombre</option>
+            <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
+              <option value="system" data-i18n="common.theme.system">◐ Système</option>
+              <option value="light" data-i18n="common.theme.light">☀ Clair</option>
+              <option value="dark" data-i18n="common.theme.dark">☾ Sombre</option>
             </select>
           </span>
         </label>

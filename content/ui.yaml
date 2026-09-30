@@ -4,7 +4,10 @@
 # - Clés en anglais, snake_case, hiérarchiques : main.top_bar.reset.
 # - Variables {name} ; un nombre passé en variable est formaté dans la langue.
 # - Pluriel : une clé .one et une clé .other, choisies par Intl.PluralRules sur {count}.
-# - common : les textes partagés ; main : l'écran principal (index.html, app.js).
+# - common : les textes partagés, dont la navigation et le thème des cinq pages ; main : l'écran
+#   principal (index.html, app.js) ; llm : « LLM nu » (llm.html, llm.js) ; rag : l'atelier RAG
+#   (rag.html, rag.js) ; diagnostic et models : les pages du diagnostic et des modèles (langues
+#   4/5). Les textes des ateliers eux-mêmes sont dans content/llm_lab.yaml et content/rag_lab.yaml.
 
 common:
   language:
@@ -26,6 +29,8 @@ common:
   cancel: "Annuler"
   save: "Enregistrer"
   close: "Fermer"
+  unreachable: "WaveStack ne répond pas : rechargez la page."
+  refused_http: "Refusé (HTTP {status})."
   count:
     token:
       one: "{count} token"
@@ -66,6 +71,21 @@ common:
     tool:
       one: "{count} outil"
       other: "{count} outils"
+  links:
+    pages: "Pages de WaveStack"
+    back: "← Atelier"
+    diagnostic: "Diagnostic"
+    models: "Modèles"
+    open: "Ouvrir WaveStack"
+    llm: "LLM nu"
+    llm_title: "LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)"
+    rag: "Atelier RAG"
+    rag_title: "Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)"
+  theme:
+    name: "Thème de l'interface"
+    system: "◐ Système"
+    light: "☀ Clair"
+    dark: "☾ Sombre"
 
 main:
   pane_titles:
@@ -748,16 +768,6 @@ main:
   projection:
     name: "Mode projection"
     title: "Mode projection : agrandit tous les textes pour la salle ; le navigateur s'en souvient"
-  links:
-    llm: "LLM nu"
-    llm_title: "LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)"
-    rag: "Atelier RAG"
-    rag_title: "Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)"
-  theme:
-    name: "Thème de l'interface"
-    system: "◐ Système"
-    light: "☀ Clair"
-    dark: "☾ Sombre"
   audit:
     title: "Journal d'audit"
     help: "Écrit par le hook de journalisation, en lecture seule. Le modèle ne le voit pas."
@@ -839,3 +849,137 @@ main:
   display:
     menu: "Affichage"
     theme: "Thème"
+
+llm:
+  page_title: "WaveStack — LLM nu"
+  token_list: "Tokens du texte"
+  generated_list: "Tokens produits"
+  invalid_intention: "Intention invalide : {detail}"
+  empty_prompt: "Écrivez d'abord un texte (2 000 caractères au plus)."
+  no_model: "Aucun modèle actif."
+  hosting:
+    network: "🌐 RÉSEAU · {provider}"
+    server: "Local · {provider}"
+    server_default: "serveur"
+    file: "Local · fichier"
+  special: "spécial"
+  token_label: "{text}, identifiant {id}"
+  unknown: "inconnue"
+  slider: "{label} (curseur)"
+  load_steps:
+    release: "Libération"
+    probe: "Sonde"
+    check: "Budget"
+    engine: "Moteur"
+    ready: "Prêt"
+  step_time: "{duration} · à {elapsed}"
+  unavailable: "Écran indisponible ({cause}) : rechargez la page."
+
+rag:
+  page_title: "WaveStack — Atelier RAG"
+  chain_steps: "Étapes de la chaîne RAG"
+  chain_b_steps: "Étapes de la chaîne B"
+  chain_a: "Chaîne A"
+  chain_b: "Chaîne B"
+  chain: "Chaîne {label}"
+  rank:
+    one: "{count}er"
+    other: "{count}ᵉ"
+  rank_absent: "absent"
+  param_range: "De {min} à {max} {unit}"
+  option_label: "Option de l'étape {stage}"
+  move_before: "Déplacer avant"
+  move_after: "Déplacer après"
+  remove: "Retirer"
+  add: "Ajouter un composant"
+  add_button: "Ajouter"
+  comparison:
+    common: "{title} (A : {a}, B : {b})"
+    only: "{title} ({rank})"
+    changed: "{title} : {a} → {b}"
+  empty_question: "Écrivez d'abord une question (500 caractères au plus)."
+  unavailable: "Atelier RAG indisponible ({cause}) : rechargez la page."
+
+diagnostic:
+  page_title: "WaveStack — Diagnostic de démarrage"
+  title: "Diagnostic de démarrage WaveStack"
+  candidates_title: "Modèles détectés"
+  cloud_title: "Modèles cloud"
+  cloud_help: "Hors du poste : chaque appel envoie tout le contexte au fournisseur."
+  path_label: "Ou indiquez le chemin d'un fichier GGUF :"
+  path_placeholder: 'C:\chemin\vers\modele.gguf'
+  path_button: "Choisir ce fichier"
+  error: "erreur"
+  no_candidate: "Aucun candidat trouvé."
+  architecture: "architecture {name}"
+  loaded: "chargé"
+  saved_choice: "choix enregistré"
+  active: "actif"
+  choose: "Choisir"
+  test: "Tester"
+  local: "Local"
+  network: "RÉSEAU"
+  served:
+    title: " — serveur local déjà lancé"
+    size: "≈ {size} Go"
+    unknown: "inconnue"
+    resident: "déjà en mémoire"
+    on_first_call: "chargé par le serveur au premier appel"
+    no_cache: ", sans son cache de contexte (fichier du modèle illisible depuis WaveStack)"
+    memory: "Mémoire du modèle servi : {size}{cache}, {where} (processus distinct de WaveStack)"
+    unusable: "Modèle inutilisable."
+  no_cloud: "Aucun modèle cloud déclaré (voir wavestack.toml)."
+  hosting: "Hébergement : {hosting}"
+  training: "Entraînement : {training}"
+  trial: "Offre d'essai"
+  cloud_line: "Hébergement : {hosting} · Entraînement : {training}"
+  cloud_line_trial: "Hébergement : {hosting} · Entraînement : {training} · offre d'essai"
+  key:
+    from_env: "Clé lue dans {env} (en saisir une pour la remplacer)"
+    saved: "Clé enregistrée (la saisir de nouveau pour la remplacer)"
+    placeholder: "Clé API"
+    label: "Clé API {provider}"
+    save: "Enregistrer la clé"
+    env_source: "Clé fournie par la variable {env}"
+    env_hint: "Ou définissez la variable {env}, puis ouvrez un nouveau terminal."
+    saving: "Enregistrement de la clé…"
+  answer: "Réponse : {answer}"
+  tool_call: "Appel d'outil reçu : {name} {arguments}"
+  failed: "La demande n'a pas abouti : {cause}. Réessayez."
+  testing: "Test en cours…"
+  no_warning: "L'avertissement de ce modèle est indisponible (fichier content/cloud.yaml absent ou invalide) : il ne peut pas être choisi tant que le fichier n'est pas corrigé."
+  already_busy: "Une demande est déjà en cours : réessayez dans un instant."
+  choosing: "Choix en cours…"
+  is_active: "{model} est actif."
+  not_loaded: "{model} n'a pas pu être chargé."
+  checking: "Vérification en cours…"
+  ready: "Modèle prêt."
+  see_above: "Voir ci-dessus."
+
+models:
+  page_title: "WaveStack — Modèles disponibles"
+  title: "Modèles disponibles"
+  loading: "Chargement de la liste des modèles…"
+  caption: "Modèles trouvés au dernier diagnostic, par lieu d'hébergement puis par éditeur, du plus petit au plus grand ; tailles en paramètres (B : milliards) et en octets (1 Go = 1024³ octets, 1 Mo = 1024² octets)"
+  columns:
+    model: "Modèle"
+    publisher: "Éditeur"
+    size: "Taille"
+    hosting: "Hébergement"
+    window: "Fenêtre"
+    tools: "Appel d'outils"
+    reasoning: "Raisonnement"
+    price: "Prix"
+    state: "État"
+  note: "Capacités lues comme au chargement : mêmes règles que les cartes des briques."
+  state:
+    active: "actif"
+    available: "disponible"
+    unavailable: "indisponible"
+    incompatible: "incompatible"
+  list_unavailable: "Liste des modèles indisponible ({cause}) : rechargez la page."
+  table_unavailable: "Tableau des modèles indisponible : voir le terminal de WaveStack."
+  count:
+    one: "{count} modèle au dernier diagnostic."
+    other: "{count} modèles au dernier diagnostic."
+  none: "Aucun modèle trouvé au dernier diagnostic."

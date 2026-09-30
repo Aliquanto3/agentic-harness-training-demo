@@ -2,8 +2,15 @@
 // `rag_lab_*` event of the journal (AD-1): the catalog, the options' availability, the
 // excerpts, their ranks and scores, the durations and the memory are built in Python. The
 // page lays them out and runs no computation of its own.
+//
+// Languages (4/5): the page's own texts come from `content/ui.yaml` (section `rag`) through
+// `t()`, its formats from the language (`i18n.js`); the workshop's texts stay those of
+// `content/rag_lab.yaml`, read in the session's language by `GET /api/rag_lab`.
+
+import { numberFormat, ready as textsReady, t } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
+const quote = (value) => t("common.format.quote", { text: value });
 
 const store = {
   content: null,
@@ -37,12 +44,17 @@ function text(path, values = {}) {
   return value.replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? ""));
 }
 
-// « 1 536 » (narrow no-break space) and « 0,812 »: formatting only.
-const fmtInt = (n) => (typeof n === "number" ? n.toLocaleString("fr-FR").replace(/\s/g, " ") : "—");
+// « 1 536 » (narrow no-break space in French) and « 0,812 »: formatting only, in the
+// session's language (read at each use: the language is known once `textsReady` resolved).
+const fmtInt = (n) => (typeof n === "number" ? numberFormat().format(n) : "—");
 // A fusion's score (1 / (60 + rank)) needs a fourth decimal to tell two apart.
-const fmtScore = (x) =>
-  typeof x === "number" ? x.toFixed(x > 0 && x < 0.1 ? 4 : 3).replace(".", ",") : "—";
-const fmtRank = (n) => (typeof n === "number" ? `${n}${n === 1 ? "er" : "ᵉ"}` : "absent");
+const fmtScore = (x) => {
+  if (typeof x !== "number") return "—";
+  const digits = x > 0 && x < 0.1 ? 4 : 3;
+  return numberFormat({ minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false }).format(x);
+};
+// « 1er », « 2ᵉ » (« No. 2 », « Nr. 2 »): a plural pair of the catalogue, by the rank.
+const fmtRank = (n) => (typeof n === "number" ? t("rag.rank", { count: n }) : t("rag.rank_absent"));
 
 const QUESTION_KEY = "wavestack.ragLab.question";
 const CHAINS_KEY = "wavestack.ragLab"; // the chains being edited (a browser setting only)
@@ -73,7 +85,7 @@ async function post(path, body) {
       body: JSON.stringify(body),
     });
   } catch {
-    return { ok: false, status: 0, body: { detail: "WaveStack ne répond pas : rechargez la page." } };
+    return { ok: false, status: 0, body: { detail: t("common.unreachable") } };
   }
   let answer = {};
   try {
@@ -87,7 +99,7 @@ async function post(path, body) {
 function refusalText(answer) {
   const detail = answer.body?.detail;
   if (typeof detail === "string") return detail;
-  return answer.status ? `Refusé (HTTP ${answer.status}).` : "WaveStack ne répond pas : rechargez la page.";
+  return answer.status ? t("common.refused_http", { status: String(answer.status) }) : t("common.unreachable");
 }
 
 // ---------- the chain ----------
@@ -167,7 +179,7 @@ function paramInput(lane, stage, param) {
   input.dataset.lane = lane;
   input.dataset.stageId = stage.id;
   input.dataset.param = param.name;
-  input.title = `De ${fmtInt(param.min)} à ${fmtInt(param.max)} ${param.unit_text}`.trim();
+  input.title = t("rag.param_range", { min: fmtInt(param.min), max: fmtInt(param.max), unit: param.unit_text }).trim();
   input.addEventListener("change", () => {
     const value = Number(input.value);
     stage.params = { ...(stage.params || {}) };
@@ -186,7 +198,7 @@ function paramInput(lane, stage, param) {
 
 function optionSelect(lane, stage, info) {
   const select = el("select", "rag-option");
-  select.setAttribute("aria-label", `Option de l'étape ${info.label_text}`);
+  select.setAttribute("aria-label", t("rag.option_label", { stage: info.label_text }));
   select.dataset.lane = lane;
   select.dataset.stageId = stage.id;
   for (const option of info.options) {
@@ -224,7 +236,9 @@ function chainCard(lane, stage, index) {
   if (option?.note_text) card.append(el("p", "rag-chain-note", option.note_text));
   for (const other of info?.options ?? []) {
     if (!other.available && other.reason_text) {
-      card.append(el("p", "rag-chain-unavailable", `${other.label_text} : ${other.reason_text}`));
+      card.append(
+        el("p", "rag-chain-unavailable", t("common.format.label_value", { label: other.label_text, value: other.reason_text }))
+      );
     }
   }
   card.append(el("p", "rag-chain-explain", info?.explain_text ?? ""));
@@ -266,9 +280,9 @@ function moveButtons(lane, index) {
     (again && !again.disabled ? again : document.querySelector(`.rag-chain[data-lane="${lane}"] [data-stage-id="${stage.id}"] .rag-move-button:not(:disabled)`))?.focus();
   };
   box.append(
-    button(text("move_before_text") || "Déplacer avant", "◀", !isMovable(stages[index - 1]), move(-1)),
-    button(text("move_after_text") || "Déplacer après", "▶", !isMovable(stages[index + 1]), move(1)),
-    button(text("remove_text") || "Retirer", text("remove_text") || "Retirer", false, () => {
+    button(text("move_before_text") || t("rag.move_before"), "◀", !isMovable(stages[index - 1]), move(-1)),
+    button(text("move_after_text") || t("rag.move_after"), "▶", !isMovable(stages[index + 1]), move(1)),
+    button(text("remove_text") || t("rag.remove"), text("remove_text") || t("rag.remove"), false, () => {
       stages.splice(index, 1);
       changed();
       document.querySelector(`#rag-palette-${lane} select`)?.focus();
@@ -286,7 +300,7 @@ function renderPalette(lane) {
   const absent = store.catalog.stages.filter((s) => s.movable && !present.has(s.kind));
   if (!absent.length) return;
   const label = el("label", "rag-palette-label");
-  label.append(el("span", null, text("add_text") || "Ajouter un composant"));
+  label.append(el("span", null, text("add_text") || t("rag.add")));
   const select = el("select", "rag-palette-select");
   for (const info of absent) {
     const option = el("option", null, info.label_text);
@@ -294,7 +308,7 @@ function renderPalette(lane) {
     select.append(option);
   }
   label.append(select);
-  const add = el("button", "rag-button-secondary rag-palette-add", text("add_button_text") || "Ajouter");
+  const add = el("button", "rag-button-secondary rag-palette-add", text("add_button_text") || t("rag.add_button"));
   add.type = "button";
   add.addEventListener("click", () => {
     const info = store.catalog.stages.find((s) => s.kind === select.value);
@@ -390,8 +404,8 @@ function renderChains() {
   const compared = store.pipelines.length > 1;
   $("rag-chain-title-a").hidden = !compared;
   $("rag-chain-title-b").hidden = !compared;
-  $("rag-chain-title-a").textContent = text("chain_a_text") || "Chaîne A";
-  $("rag-chain-title-b").textContent = text("chain_b_text") || "Chaîne B";
+  $("rag-chain-title-a").textContent = text("chain_a_text") || t("rag.chain_a");
+  $("rag-chain-title-b").textContent = text("chain_b_text") || t("rag.chain_b");
   $("rag-chain-b").hidden = !compared;
   $("rag-compare").checked = compared;
   store.pipelines.forEach((pipeline, i) => {
@@ -580,8 +594,9 @@ function stageCard(stage, index) {
   if (ended.items.length) card.append(itemsTable(ended.items));
   if (ended.memory_text || ["ok", "error", "cancelled"].includes(stage.status)) {
     const foot = el("p", "rag-stage-figures");
-    foot.append(el("span", "rag-stage-duration", `${text("duration_text")} : ${fmtInt(ended.duration_ms)} ms`));
-    if (ended.memory_text) foot.append(el("span", "rag-stage-memory", `${text("memory_text")} : ${ended.memory_text}`));
+    const labelled = (label, value) => t("common.format.label_value", { label, value });
+    foot.append(el("span", "rag-stage-duration", labelled(text("duration_text"), `${fmtInt(ended.duration_ms)} ms`)));
+    if (ended.memory_text) foot.append(el("span", "rag-stage-memory", labelled(text("memory_text"), ended.memory_text)));
     card.append(foot);
   }
   return card;
@@ -599,13 +614,13 @@ function renderResults() {
     return;
   }
   const status = run.ended ? text(STATUS_KEYS[run.ended.status === "ok" ? "ok" : run.ended.status]) : text("status.running_text");
-  summary.textContent = `« ${run.question} » · ${status}${typeof run.ended?.duration_ms === "number" ? ` · ${fmtInt(run.ended.duration_ms)} ms` : ""}`;
+  summary.textContent = `${quote(run.question)} · ${status}${typeof run.ended?.duration_ms === "number" ? ` · ${fmtInt(run.ended.duration_ms)} ms` : ""}`;
   box.dataset.lanes = String(run.lanes.length);
   renderComparison(run.ended?.comparison ?? null);
   for (const lane of run.lanes) {
     const column = el("section", "rag-lane");
     column.dataset.lane = lane.lane;
-    if (run.lanes.length > 1) column.append(el("h3", "rag-lane-title", `Chaîne ${lane.label_text}`));
+    if (run.lanes.length > 1) column.append(el("h3", "rag-lane-title", t("rag.chain", { label: lane.label_text })));
     lane.stages.forEach((stage, index) => column.append(stageCard(stage, index)));
     box.append(column);
   }
@@ -618,12 +633,13 @@ function renderComparison(comparison) {
   $("rag-comparison-summary").textContent = comparison.summary_text;
   const lists = $("rag-comparison-lists");
   lists.replaceChildren();
-  const rank = (n) => (n === null || n === undefined ? "—" : `${n}${n === 1 ? "er" : "ᵉ"}`);
+  const rank = (n) => (n === null || n === undefined ? "—" : fmtRank(n));
+  const line = (key, e, vars) => t(`rag.comparison.${key}`, { title: e.title_text, ...vars });
   const groups = [
-    ["common_text", comparison.common, (e) => `${e.title_text} (A : ${rank(e.rank_a)}, B : ${rank(e.rank_b)})`],
-    ["only_a_text", comparison.only_a, (e) => `${e.title_text} (${rank(e.rank_a)})`],
-    ["only_b_text", comparison.only_b, (e) => `${e.title_text} (${rank(e.rank_b)})`],
-    ["rank_changes_text", comparison.rank_changes, (e) => `${e.title_text} : ${rank(e.rank_a)} → ${rank(e.rank_b)}`],
+    ["common_text", comparison.common, (e) => line("common", e, { a: rank(e.rank_a), b: rank(e.rank_b) })],
+    ["only_a_text", comparison.only_a, (e) => line("only", e, { rank: rank(e.rank_a) })],
+    ["only_b_text", comparison.only_b, (e) => line("only", e, { rank: rank(e.rank_b) })],
+    ["rank_changes_text", comparison.rank_changes, (e) => line("changed", e, { a: rank(e.rank_a), b: rank(e.rank_b) })],
   ];
   for (const [key, entries, line] of groups) {
     const dd = el("dd");
@@ -686,7 +702,7 @@ async function runChain() {
   status.classList.remove("is-error");
   if (!question) {
     status.classList.add("is-error");
-    status.textContent = "Écrivez d'abord une question (500 caractères au plus).";
+    status.textContent = t("rag.empty_question");
     return;
   }
   store.pending = true;
@@ -774,7 +790,7 @@ async function refresh() {
   } catch (error) {
     const alert = $("rag-content-error");
     alert.hidden = false;
-    alert.textContent = `Atelier RAG indisponible (${error.message}) : rechargez la page.`;
+    alert.textContent = t("rag.unavailable", { cause: error.message });
     return null;
   }
   store.content = body.content;
@@ -800,6 +816,7 @@ async function refresh() {
 }
 
 async function main() {
+  await textsReady; // the page's texts and formats in the session's language (languages 4/5)
   let body = await refresh();
   while (!body) {
     await new Promise((resolve) => setTimeout(resolve, 2000));

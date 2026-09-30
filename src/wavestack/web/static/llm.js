@@ -2,8 +2,15 @@
 // from an event of the journal (AD-1): the page counts no token and computes no rate, no
 // probability, no size; it lays them out, shows blanks (␣, ↵) and runs a local stopwatch
 // anchored on a `*_started` event, replaced by its `*_ended`.
+//
+// Languages (4/5): the page's own texts come from `content/ui.yaml` (section `llm`) through
+// `t()`, its formats from the language (`i18n.js`); the screen's texts stay those of
+// `content/llm_lab.yaml`, read in the session's language by `GET /api/llm_lab`.
+
+import { numberFormat, ready as textsReady, section, t } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
+const quote = (value) => t("common.format.quote", { text: value });
 
 const store = {
   content: null,
@@ -74,7 +81,7 @@ async function post(path, body) {
       body: JSON.stringify(body),
     });
   } catch {
-    return { ok: false, status: 0, body: { detail: "WaveStack ne répond pas : rechargez la page." } };
+    return { ok: false, status: 0, body: { detail: t("common.unreachable") } };
   }
   let answer = {};
   try {
@@ -89,16 +96,14 @@ async function post(path, body) {
 function refusalText(answer) {
   const detail = answer.body?.detail;
   if (typeof detail === "string") return detail;
-  if (Array.isArray(detail) && detail[0]?.msg) return `Intention invalide : ${detail[0].msg}`;
-  return answer.status ? `Refusé (HTTP ${answer.status}).` : "WaveStack ne répond pas : rechargez la page.";
+  if (Array.isArray(detail) && detail[0]?.msg) return t("llm.invalid_intention", { detail: detail[0].msg });
+  return answer.status ? t("common.refused_http", { status: String(answer.status) }) : t("common.unreachable");
 }
-
-const EMPTY_PROMPT_FR = "Écrivez d'abord un texte (2 000 caractères au plus).";
 
 // ---------- state of the session: what may be asked now ----------
 
 function busyReason() {
-  if (!store.activeModel) return text("no_model_text") || "Aucun modèle actif.";
+  if (!store.activeModel) return text("no_model_text") || t("llm.no_model");
   const { state, reason_text: reason } = store.session;
   if (state !== "idle") return text("busy_text", { raison: reason || state }) || reason || state;
   return null;
@@ -110,15 +115,15 @@ function renderModel() {
   const name = $("llm-model-name");
   tag.replaceChildren();
   if (!model) {
-    name.textContent = text("no_model_text") || "Aucun modèle actif.";
+    name.textContent = text("no_model_text") || t("llm.no_model");
     return;
   }
   const network = model.hosting === "network";
   const label = network
-    ? `🌐 RÉSEAU · ${model.provider || ""}`
+    ? t("llm.hosting.network", { provider: model.provider || "" })
     : model.kind === "server"
-      ? `Local · ${model.provider || "serveur"}`
-      : "Local · fichier";
+      ? t("llm.hosting.server", { provider: model.provider || t("llm.hosting.server_default") })
+      : t("llm.hosting.file");
   tag.append(el("span", network ? "hosting-tag-network" : "hosting-tag-local", label));
   name.textContent = model.label;
 }
@@ -208,10 +213,10 @@ function tokenChip(token, index) {
   chip.append(el("span", "token-chip-id", String(token.id)));
   if (token.special) {
     chip.classList.add("is-special");
-    chip.append(el("span", "token-chip-special", text("tokenization.special_text") || "spécial"));
+    chip.append(el("span", "token-chip-special", text("tokenization.special_text") || t("llm.special")));
     chip.title = text("tokenization.special_help_text");
   }
-  chip.setAttribute("aria-label", `« ${token.text} », identifiant ${token.id}`);
+  chip.setAttribute("aria-label", t("llm.token_label", { text: quote(token.text), id: String(token.id) }));
   return chip;
 }
 
@@ -232,12 +237,12 @@ function renderDiagram(p) {
   const steps = $("embedding-steps");
   steps.replaceChildren();
   figure.hidden = false;
-  const unknown = text("vectorization.unknown_text") || "inconnue";
+  const unknown = text("vectorization.unknown_text") || t("llm.unknown");
   const dims = p.dimensions;
   const figures = dims?.figures_text || {};
   const s = (key, values) => text(`vectorization.steps.${key}`, values);
   const sample = p.text.length > 24 ? `${p.text.slice(0, 24)}…` : p.text;
-  steps.append(diagramStep(s("text_text"), `« ${sample} »`, null, { isText: true }));
+  steps.append(diagramStep(s("text_text"), quote(sample), null, { isText: true }));
   if (p.exact) {
     const shown = p.tokens.slice(0, 4);
     steps.append(
@@ -305,7 +310,7 @@ async function tokenize() {
   const status = $("tokenize-status");
   if (!value.trim()) {
     status.classList.add("is-error");
-    status.textContent = EMPTY_PROMPT_FR;
+    status.textContent = t("llm.empty_prompt");
     return;
   }
   status.classList.remove("is-error");
@@ -329,7 +334,8 @@ async function tokenize() {
 const SAMPLING_KEY = "wavestack.llm.sampling";
 const SAMPLING_ORDER = ["temperature", "top_k", "top_p", "min_p"];
 const SAMPLING_STEP = { temperature: 0.05, top_k: 1, top_p: 0.05, min_p: 0.01 };
-const numberFr = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
+// Read at each use: the language is known once `textsReady` resolved.
+const decimals = () => numberFormat({ maximumFractionDigits: 2 });
 
 function loadSampling() {
   try {
@@ -381,7 +387,7 @@ function renderSampling() {
     label.htmlFor = number.id;
     const range = el("input");
     range.type = "range";
-    range.setAttribute("aria-label", `${label.textContent} (curseur)`);
+    range.setAttribute("aria-label", t("llm.slider", { label: label.textContent }));
     const [low, high] = sampling.bounds[name];
     for (const input of [number, range]) {
       input.min = String(low);
@@ -441,7 +447,7 @@ function samplingToSend() {
 
 // « T 0,2 · top-k 5 · top-p 0,9 · min-p 0,05 » from a `sampling` trace; `—` for what is not sent.
 function samplingFr(trace) {
-  const part = (label, value) => `${label} ${value === null || value === undefined ? "—" : numberFr.format(value)}`;
+  const part = (label, value) => `${label} ${value === null || value === undefined ? "—" : decimals().format(value)}`;
   const line = [
     part("T", trace.temperature),
     part("top-k", trace.top_k),
@@ -454,7 +460,7 @@ function samplingFr(trace) {
 // ---------- sections 4 and 5: the prompt's reading, the generation token by token ----------
 
 const duration = (ms) =>
-  ms < 1000 ? `${Math.round(ms)} ms` : `${numberFr.format(Math.round(ms / 100) / 10)} s`;
+  ms < 1000 ? `${Math.round(ms)} ms` : `${decimals().format(Math.round(ms / 100) / 10)} s`;
 
 function stopStopwatch() {
   if (store.gen.timer) clearInterval(store.gen.timer);
@@ -510,11 +516,11 @@ function renderGenerationStarted(p) {
 function renderToken(p) {
   store.gen.first = true;
   $("generation-count").textContent = text(store.gen.fragments ? "generation.fragments_text" : "generation.count_text", {
-    tokens: numberFr.format(p.index + 1),
+    tokens: decimals().format(p.index + 1),
   });
   if (p.index >= CHIP_LIMIT) {
     $("generation-more").textContent = text("generation.more_text", {
-      reste: numberFr.format(p.index + 1 - CHIP_LIMIT),
+      reste: decimals().format(p.index + 1 - CHIP_LIMIT),
     });
     return;
   }
@@ -524,7 +530,7 @@ function renderToken(p) {
   if (store.gen.fragments) chip.classList.add("is-fragment");
   chip.setAttribute(
     "aria-label",
-    p.token_id === null ? `« ${p.text} »` : `« ${p.text} », identifiant ${p.token_id}`
+    p.token_id === null ? quote(p.text) : t("llm.token_label", { text: quote(p.text), id: String(p.token_id) })
   );
   chip.append(el("span", "token-chip-text", visibleBlanks(p.text)));
   chip.append(el("span", "token-chip-id", p.token_id === null ? "" : String(p.token_id)));
@@ -537,7 +543,7 @@ function renderCallEnded(p) {
   store.gen.first = true;
   $("reading-first-token").textContent = text("reading.first_token_text", { duree: duration(p.prompt_ms) });
   if (p.output_tps !== null && p.output_tps !== undefined) {
-    $("generation-rate").textContent = text("generation.rate_text", { debit: numberFr.format(p.output_tps) });
+    $("generation-rate").textContent = text("generation.rate_text", { debit: decimals().format(p.output_tps) });
   }
 }
 
@@ -565,7 +571,7 @@ async function generate() {
   const status = $("generate-status");
   if (!$("llm-prompt").value.trim()) {
     status.classList.add("is-error");
-    status.textContent = EMPTY_PROMPT_FR;
+    status.textContent = t("llm.empty_prompt");
     return;
   }
   status.classList.remove("is-error");
@@ -596,13 +602,7 @@ async function stopGeneration() {
 
 // ---------- section 3: the model's load ----------
 
-const STEP_NAMES = {
-  release: "Libération",
-  probe: "Sonde",
-  check: "Budget",
-  engine: "Moteur",
-  ready: "Prêt",
-};
+const STEP_NAMES = section("llm.load_steps");
 
 function stopLoadTimer() {
   if (store.load.timer) clearInterval(store.load.timer);
@@ -614,7 +614,9 @@ function appendLoadStep(p) {
   item.dataset.step = p.step;
   item.append(el("span", "load-step-name", STEP_NAMES[p.step] || p.step));
   item.append(el("span", "", p.label_text));
-  item.append(el("span", "load-step-time", `${duration(p.duration_ms)} · à ${duration(p.elapsed_ms)}`));
+  item.append(
+    el("span", "load-step-time", t("llm.step_time", { duration: duration(p.duration_ms), elapsed: duration(p.elapsed_ms) }))
+  );
   $("loading-steps").append(item);
 }
 
@@ -686,7 +688,7 @@ function renderReasoning() {
   toggle.title = can ? "" : r.reason_text || "";
   $("reasoning-budget").textContent = [
     r.budget_text,
-    text("reasoning.reserve_text", { reserve: numberFr.format(r.reserve) }),
+    text("reasoning.reserve_text", { reserve: decimals().format(r.reserve) }),
   ]
     .filter(Boolean)
     .join(" ");
@@ -709,7 +711,7 @@ function laneToken(p) {
 
 // ---------- increment 4: the candidates of each token ----------
 
-const percent = new Intl.NumberFormat("fr-FR", { style: "percent", maximumFractionDigits: 1 });
+const percent = () => numberFormat({ style: "percent", maximumFractionDigits: 1 });
 
 function renderCandidatesOffer() {
   const offer = store.candidates;
@@ -760,15 +762,15 @@ function showCandidates(chip, p) {
     const row = el("li", "candidate");
     if (c.chosen) row.classList.add("is-chosen");
     if (!c.kept) row.classList.add("is-dropped");
-    row.append(el("span", "candidate-text", `« ${visibleBlanks(c.text)} »`));
+    row.append(el("span", "candidate-text", quote(visibleBlanks(c.text))));
     const bar = el("span", "candidate-bar");
     const fill = el("span");
     fill.style.width = `${Math.max(0, Math.min(1, c.p)) * 100}%`;
     bar.append(fill);
     bar.setAttribute("aria-hidden", "true");
-    row.append(bar, el("span", "candidate-p", percent.format(c.p)));
+    row.append(bar, el("span", "candidate-p", percent().format(c.p)));
     const notes = [
-      text("candidates.chance_text", { chance: percent.format(c.p_sampled) }),
+      text("candidates.chance_text", { chance: percent().format(c.p_sampled) }),
       c.kept ? null : text("candidates.dropped_text"),
       c.chosen ? text("candidates.chosen_text") : null,
     ].filter(Boolean);
@@ -922,7 +924,7 @@ async function refresh() {
   } catch (error) {
     const alert = $("llm-content-error");
     alert.hidden = false;
-    alert.textContent = `Écran indisponible (${error.message}) : rechargez la page.`;
+    alert.textContent = t("llm.unavailable", { cause: error.message });
     return null;
   }
   store.content = body.content;
@@ -951,6 +953,7 @@ async function refresh() {
 }
 
 async function main() {
+  await textsReady; // the page's texts and formats in the session's language (languages 4/5)
   const prompt = $("llm-prompt");
   // The stream starts from the answer's `seq`: without it, retried, never the whole journal.
   let body = await refresh();

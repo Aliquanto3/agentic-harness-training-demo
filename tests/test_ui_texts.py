@@ -22,6 +22,16 @@ STATIC = config.repo_root() / "src" / "wavestack" / "web" / "static"
 TRANSLATED = ("en", "de")
 _VARIABLE = re.compile(r"\{(\w+)\}")
 _KEY = r"[a-z0-9_.]+"
+# Languages (4/5): a section per page, and `common` for the shared texts.
+SECTIONS = {"common", "main", "llm", "rag", "diagnostic", "models"}
+# Each page and its scripts (its inline `<script type="module">` included).
+PAGES = {
+    "index.html": ("main", ("app.js",)),
+    "llm.html": ("llm", ("llm.js",)),
+    "rag.html": ("rag", ("rag.js",)),
+    "diagnostic.html": ("diagnostic", ()),
+    "models.html": ("models", ()),
+}
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +71,7 @@ FRENCH = _read(CONTENT / "ui.yaml")
 
 
 def test_french_catalogue_has_the_sections_and_valid_keys():
-    assert set(FRENCH) == {"common", "main"}
+    assert set(FRENCH) == SECTIONS
     for key, value in _leaves(FRENCH).items():
         assert re.fullmatch(r"[a-z][a-z0-9_]*(\.[a-z0-9_]+)*", key), key
         assert isinstance(value, str) and value.strip(), key
@@ -113,12 +123,22 @@ def test_german_uses_the_formal_register():
 # ---------- the page's keys ----------
 
 
-def test_every_key_of_the_page_is_in_french_and_the_html_says_it():
-    page = (STATIC / "index.html").read_text(encoding="utf-8")
-    script = (STATIC / "app.js").read_text(encoding="utf-8")
+def _script(page: str, scripts: tuple[str, ...]) -> str:
+    """The page's scripts: its files and its inline modules."""
+    inline = re.findall(r'<script type="module">(.*?)</script>', page, re.S)
+    files = [(STATIC / name).read_text(encoding="utf-8") for name in scripts]
+    return "\n".join([*files, *inline])
+
+
+@pytest.mark.parametrize("name", sorted(PAGES))
+def test_every_key_of_the_page_is_in_french_and_the_html_says_it(name):
+    page = (STATIC / name).read_text(encoding="utf-8")
+    own, scripts = PAGES[name]
+    script = _script(page, scripts)
     keys = set(re.findall(rf'\bt\(\s*"({_KEY})"', script))
-    # Every key written as a string, a ternary's included (`t(a ? "main.x" : "main.y")`).
-    keys |= set(re.findall(r'"((?:main|common)\.[a-z0-9_.]+)"', script))
+    # Every key of its section written as a string, a ternary's included
+    # (`t(a ? "main.x" : "main.y")`).
+    keys |= set(re.findall(rf'"((?:common|{own})\.[a-z0-9_.]+)"', script))
     keys |= {f"common.count.{n}" for n in re.findall(r'plural\([^()]*?, "(\w+)"\)', script)}
     sections = set(re.findall(rf'section\("({_KEY})"\)', script))
     missing = [k for k in sorted(keys) if not isinstance(_node(FRENCH, k), (str, dict))]
@@ -142,7 +162,7 @@ def test_every_key_of_the_page_is_in_french_and_the_html_says_it():
             if data in attrs:
                 assert _node(FRENCH, attrs[data]) == html.unescape(attrs[attribute]), attrs
                 checked += 1
-    assert checked > 60
+    assert checked > (60 if name == "index.html" else 8), checked
 
 
 def test_every_page_loads_i18n_js_after_theme_js():
@@ -157,6 +177,39 @@ def test_app_js_has_no_french_number_format_left():
     script = (STATIC / "app.js").read_text(encoding="utf-8")
     assert '"fr-FR"' not in script and "toLocale" not in script
     assert "LANGUAGE_TEXTS" not in script
+
+
+@pytest.mark.parametrize("name", sorted(PAGES))
+def test_no_page_formats_numbers_in_french_by_hand(name):
+    """Languages (4/5): every format through `numberFormat` and `dateTimeFormat`."""
+    script = _script((STATIC / name).read_text(encoding="utf-8"), PAGES[name][1])
+    assert '"fr-FR"' not in script and "toLocale" not in script
+    assert '.replace(".", ",")' not in script
+
+
+@pytest.mark.parametrize("name", [n for n in sorted(PAGES) if n != "index.html"])
+def test_each_annex_page_awaits_the_texts_and_shares_the_navigation(name):
+    page = (STATIC / name).read_text(encoding="utf-8")
+    script = _script(page, PAGES[name][1])
+    assert re.search(r"await (textsReady|ready);", script), name
+    nav = page[page.index("<nav") : page.index("</nav>")]
+    assert 'data-i18n-aria-label="common.links.pages" data-i18n-links>' in nav
+    assert 'data-i18n-aria-label="common.theme.name"' in nav
+    # The links, named by their address by `applyTexts`: their French is the catalogue's.
+    links = dict(re.findall(r'<a href="/(\w+)"[^>]*>([^<]+)</a>', nav))
+    assert set(links) == {"diagnostic", "models", "llm", "rag"}, name
+    for link, text in links.items():
+        assert FRENCH["common"]["links"][link] == text, (name, link)
+    opened = re.search(r'<a href="/" id="open-link" hidden>([^<]+)</a>', nav)
+    assert opened is None or opened.group(1) == FRENCH["common"]["links"]["open"]
+
+
+def test_the_models_table_headers_are_the_catalogues_in_order():
+    page = (STATIC / "models.html").read_text(encoding="utf-8")
+    order = re.search(r"const COLUMN_ORDER = \[([^\]]+)\]", page).group(1)
+    columns = [FRENCH["models"]["columns"][k] for k in re.findall(r'"(\w+)"', order)]
+    head = page[page.index("<thead>") : page.index("</thead>")]
+    assert re.findall(r'<th scope="col">([^<]+)</th>', head) == columns
 
 
 # ---------- the loader ----------
@@ -205,7 +258,7 @@ def test_the_route_serves_the_sessions_language(lang):
     _, session = _session(language=lang)
     body = _client(session).get("/api/ui_texts").json()
     assert body["language"] == lang
-    assert set(body["texts"]) == {"common", "main"}
+    assert set(body["texts"]) == SECTIONS
     assert set(_leaves(body["texts"])) == set(_leaves(FRENCH))
     expected = _read(config.content_file("ui.yaml", lang))["common"]["language"]["name"]
     assert body["texts"]["common"]["language"]["name"] == expected

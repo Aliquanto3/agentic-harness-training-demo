@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <script src="/static/theme.js"></script>
   <script type="module" src="/static/i18n.js"></script>
-  <title>WaveStack — Diagnostic de démarrage</title>
+  <title data-i18n="diagnostic.page_title">WaveStack — Diagnostic de démarrage</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
@@ -66,27 +66,27 @@
   </style>
 </head>
 <body>
-  <nav class="page-tabs" aria-label="Pages de WaveStack">
+  <nav class="page-tabs" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
     <a href="/diagnostic" aria-current="page">Diagnostic</a>
     <a href="/models">Modèles</a>
     <a href="/llm">LLM nu</a>
     <a href="/rag">Atelier RAG</a>
     <!-- Shown once the diagnostic is ready (`body.ready`), as the former link. -->
     <a href="/" id="open-link" hidden>Ouvrir WaveStack</a>
-    <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" title="Thème de l'interface">
-      <option value="system">◐ Système</option>
-      <option value="light">☀ Clair</option>
-      <option value="dark">☾ Sombre</option>
+    <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
+      <option value="system" data-i18n="common.theme.system">◐ Système</option>
+      <option value="light" data-i18n="common.theme.light">☀ Clair</option>
+      <option value="dark" data-i18n="common.theme.dark">☾ Sombre</option>
     </select>
   </nav>
-  <h1>Diagnostic de démarrage WaveStack</h1>
+  <h1 data-i18n="diagnostic.title">Diagnostic de démarrage WaveStack</h1>
   <ul id="checks"></ul>
 
-  <h2>Modèles détectés</h2>
+  <h2 data-i18n="diagnostic.candidates_title">Modèles détectés</h2>
   <ul id="candidates"></ul>
 
-  <h2>Modèles cloud</h2>
-  <p class="action">Hors du poste : chaque appel envoie tout le contexte au fournisseur.</p>
+  <h2 data-i18n="diagnostic.cloud_title">Modèles cloud</h2>
+  <p class="action" data-i18n="diagnostic.cloud_help">Hors du poste : chaque appel envoie tout le contexte au fournisseur.</p>
   <ul id="cloud-models"></ul>
 
   <dialog id="cloud-warning" aria-labelledby="cloud-warning-title">
@@ -97,13 +97,18 @@
   </dialog>
 
   <div id="select-model">
-    <p>Ou indiquez le chemin d'un fichier GGUF :</p>
-    <input type="text" id="model-path" placeholder="C:\chemin\vers\modele.gguf" />
-    <button id="submit-path" class="choose">Choisir ce fichier</button>
+    <p data-i18n="diagnostic.path_label">Ou indiquez le chemin d'un fichier GGUF :</p>
+    <input type="text" id="model-path" placeholder="C:\chemin\vers\modele.gguf" data-i18n-placeholder="diagnostic.path_placeholder" />
+    <button id="submit-path" class="choose" data-i18n="diagnostic.path_button">Choisir ce fichier</button>
     <p id="select-model-status"></p>
   </div>
 
   <script type="module">
+    // Languages (4/5): the page's texts come from `content/ui.yaml` (section `diagnostic`)
+    // through `t()`, its formats from the language; the session's messages stay its own.
+    import { numberFormat, ready, t } from "/static/i18n.js";
+
+    const quote = (value) => t("common.format.quote", { text: value });
     const checksEl = document.getElementById("checks");
     const candidatesEl = document.getElementById("candidates");
     const selectStatusEl = document.getElementById("select-model-status");
@@ -202,14 +207,14 @@
     function renderHarnessError(payload) {
       const li = document.createElement("li");
       li.className = "fail";
-      fillLine(li, "erreur", payload.message_text, payload.cause);
+      fillLine(li, t("diagnostic.error"), payload.message_text, payload.cause);
       checksEl.appendChild(li);
     }
 
     function renderCandidates(candidates) {
       if (!candidates.length) {
         const li = document.createElement("li");
-        li.textContent = "Aucun candidat trouvé.";
+        li.textContent = t("diagnostic.no_candidate");
         patchList(candidatesEl, [li]);
         return;
       }
@@ -225,7 +230,7 @@
         title.textContent = c.name || c.server_url || c.source;
         li.appendChild(title);
         const details = [
-          c.architecture ? `architecture ${c.architecture}` : null,
+          c.architecture ? t("diagnostic.architecture", { name: c.architecture }) : null,
           c.source,
           c.reason,
         ].filter(Boolean).join(" · ");
@@ -244,7 +249,7 @@
     }
 
     function addMarks(li, kind, ref) {
-      for (const [model, text] of [[loadedModel, "chargé"], [selectedModel, "choix enregistré"]]) {
+      for (const [model, text] of [[loadedModel, t("diagnostic.loaded")], [selectedModel, t("diagnostic.saved_choice")]]) {
         if (!ref || !isModel(model, kind, ref)) continue;
         const mark = document.createElement("span");
         mark.className = "saved-mark";
@@ -257,7 +262,7 @@
       const button = document.createElement("button");
       button.className = "choose";
       button.disabled = busy;
-      button.textContent = "Choisir";
+      button.textContent = t("diagnostic.choose");
       button.addEventListener("click", () => chooseModel(model));
       return button;
     }
@@ -269,10 +274,10 @@
       li.className = c.status;
       const tag = document.createElement("span");
       tag.className = "hosting-tag-local";
-      tag.textContent = "Local";
+      tag.textContent = t("diagnostic.local");
       const title = document.createElement("strong");
       title.textContent = `${c.provider} · ${c.name}`;
-      li.append(tag, title, " — serveur local déjà lancé");
+      li.append(tag, title, t("diagnostic.served.title"));
       addMarks(li, "server", c.ref);
       const where = document.createElement("div");
       where.className = "action";
@@ -281,13 +286,16 @@
       if (c.status !== "incompatible") {
         const size = document.createElement("div");
         size.className = "served";
-        const go = c.served_bytes ? `≈ ${(c.served_bytes / 1024 ** 3).toFixed(1).replace(".", ",")} Go` : "inconnue";
-        const where = c.resident ? "déjà en mémoire" : "chargé par le serveur au premier appel";
+        const gb = numberFormat({ minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        const go = c.served_bytes
+          ? t("diagnostic.served.size", { size: gb.format(c.served_bytes / 1024 ** 3) })
+          : t("diagnostic.served.unknown");
+        const where = c.resident ? t("diagnostic.served.resident") : t("diagnostic.served.on_first_call");
         // Lot E (E1): llama-server's context cache, when its GGUF could not be read here.
         const cache = c.engine === "llama_server" && c.context_counted === false
-          ? ", sans son cache de contexte (fichier du modèle illisible depuis WaveStack)"
+          ? t("diagnostic.served.no_cache")
           : "";
-        size.textContent = `Mémoire du modèle servi : ${go}${cache}, ${where} (processus distinct de WaveStack)`;
+        size.textContent = t("diagnostic.served.memory", { size: go, cache, where });
         li.appendChild(size);
       }
       if (c.warning_text) {
@@ -301,7 +309,7 @@
       if (c.status === "incompatible") {
         const why = document.createElement("div");
         why.className = "action";
-        why.textContent = c.reason || "Modèle inutilisable.";
+        why.textContent = c.reason || t("diagnostic.served.unusable");
         li.appendChild(why);
       } else if (!isModel(loadedModel, "server", c.ref)) {
         li.appendChild(chooseButton({ kind: "server", ref: c.ref }));
@@ -332,7 +340,7 @@
 
     function renderCloud() {
       if (!cloud.models.length) {
-        patchList(cloudEl, [node("li", "", "Aucun modèle cloud déclaré (voir wavestack.toml).")]);
+        patchList(cloudEl, [node("li", "", t("diagnostic.no_cloud"))]);
         return;
       }
       const rows = [];
@@ -340,16 +348,17 @@
         const li = node("li", "cloud");
         const d = m.disclosure;
         li.title = [
-          `Hébergement : ${d.hosting_text}`,
-          `Entraînement : ${m.training_text}`,
-          d.trial ? "Offre d'essai" : null,
+          t("diagnostic.hosting", { hosting: d.hosting_text }),
+          t("diagnostic.training", { training: m.training_text }),
+          d.trial ? t("diagnostic.trial") : null,
           d.notes_text,
         ].filter(Boolean).join("\n");
-        li.append(node("span", "hosting-tag-network", "RÉSEAU"), node("strong", "", `${m.provider} · ${m.model}`));
-        for (const [on, text] of [[m.loaded, "actif"], [m.selected && !m.loaded, "choix enregistré"]]) {
+        li.append(node("span", "hosting-tag-network", t("diagnostic.network")), node("strong", "", `${m.provider} · ${m.model}`));
+        for (const [on, text] of [[m.loaded, t("diagnostic.active")], [m.selected && !m.loaded, t("diagnostic.saved_choice")]]) {
           if (on) li.appendChild(node("span", "saved-mark", text));
         }
-        li.appendChild(node("div", "action", `Hébergement : ${d.hosting_text} · Entraînement : ${m.training_text}${d.trial ? " · offre d'essai" : ""}`));
+        const line = d.trial ? "diagnostic.cloud_line_trial" : "diagnostic.cloud_line";
+        li.appendChild(node("div", "action", t(line, { hosting: d.hosting_text, training: m.training_text })));
         // FinOps: the declared prices, as the session wrote them (none without `pricing`).
         if (m.price_text) li.appendChild(node("div", "action", m.price_text));
         const keyRow = node("div", "cloud-key");
@@ -359,23 +368,23 @@
         // AD-20: the variable's name only, never its value; a key typed here comes first.
         const fromEnv = m.key_source === "env";
         input.placeholder = fromEnv
-          ? `Clé lue dans ${m.key_env} (en saisir une pour la remplacer)`
-          : m.key_set ? "Clé enregistrée (la saisir de nouveau pour la remplacer)" : "Clé API";
-        input.setAttribute("aria-label", `Clé API ${m.provider}`);
-        const save = node("button", "choose", "Enregistrer la clé");
+          ? t("diagnostic.key.from_env", { env: m.key_env })
+          : m.key_set ? t("diagnostic.key.saved") : t("diagnostic.key.placeholder");
+        input.setAttribute("aria-label", t("diagnostic.key.label", { provider: m.provider }));
+        const save = node("button", "choose", t("diagnostic.key.save"));
         save.type = "button";
         save.disabled = busy;
         save.addEventListener("click", () => {
           if (input.value.trim()) setApiKey(currentModel(m), input.value);
         });
         keyRow.append(input, save);
-        if (fromEnv) li.appendChild(node("div", "action", `Clé fournie par la variable ${m.key_env}`));
+        if (fromEnv) li.appendChild(node("div", "action", t("diagnostic.key.env_source", { env: m.key_env })));
         else if (m.key_env && !m.key_set) {
-          li.appendChild(node("div", "action", `Ou définissez la variable ${m.key_env}, puis ouvrez un nouveau terminal.`));
+          li.appendChild(node("div", "action", t("diagnostic.key.env_hint", { env: m.key_env })));
         }
         li.append(keyRow, node("div", "action", cloud.key_hint_text));
-        const test = node("button", "choose", "Tester");
-        const choose = node("button", "choose", "Choisir");
+        const test = node("button", "choose", t("diagnostic.test"));
+        const choose = node("button", "choose", t("diagnostic.choose"));
         for (const button of [test, choose]) {
           button.type = "button";
           button.disabled = busy || Boolean(m.disabled_text);
@@ -392,8 +401,10 @@
         const result = testResults.has(m.id) ? testResults.get(m.id) : m.last_test;
         if (result) {
           const parts = [result.message_text];
-          if (result.answer) parts.push(`Réponse : « ${result.answer} »`);
-          if (result.tool_call) parts.push(`Appel d'outil reçu : ${result.tool_call.name} ${result.tool_call.arguments ?? ""}`);
+          if (result.answer) parts.push(t("diagnostic.answer", { answer: quote(result.answer) }));
+          if (result.tool_call) {
+            parts.push(t("diagnostic.tool_call", { name: result.tool_call.name, arguments: result.tool_call.arguments ?? "" }));
+          }
           if (result.action_text) parts.push(result.action_text);
           li.appendChild(node("div", `cloud-result ${result.status}`, parts.join(" · ")));
         }
@@ -426,7 +437,7 @@
         else cloudStatus.set(m.id, message);
       } catch (error) {
         if (mine && switching === mine) finishSwitch();
-        cloudStatus.set(m.id, `La demande n'a pas abouti : ${error.message}. Réessayez.`);
+        cloudStatus.set(m.id, t("diagnostic.failed", { cause: error.message }));
       } finally {
         setBusy(false);
         loadDiagnostic();
@@ -435,20 +446,18 @@
 
     function setApiKey(m, key) {
       // The key goes out once, in this request; it is never shown nor sent back (AD-15).
-      cloudIntention(m, "/api/intentions/set_api_key", { id: m.id, key }, "Enregistrement de la clé…");
+      cloudIntention(m, "/api/intentions/set_api_key", { id: m.id, key }, t("diagnostic.key.saving"));
     }
 
     function testCloud(m) {
       testResults.set(m.id, null);
-      cloudIntention(m, "/api/intentions/test_cloud_model", { id: m.id }, "Test en cours…");
+      cloudIntention(m, "/api/intentions/test_cloud_model", { id: m.id }, t("diagnostic.testing"));
     }
 
     function openWarning(m, opener) {
       if (!m.warning) {
         // Without its warning, a cloud model cannot be confirmed, hence not chosen (AD-21).
-        cloudStatus.set(m.id, "L'avertissement de ce modèle est indisponible (fichier " +
-          "content/cloud.yaml absent ou invalide) : il ne peut pas être choisi tant que le " +
-          "fichier n'est pas corrigé.");
+        cloudStatus.set(m.id, t("diagnostic.no_warning"));
         renderCloud();
         return;
       }
@@ -478,7 +487,7 @@
       const m = warningFor;
       warningEl.close();
       if (m && busy) {
-        cloudStatus.set(m.id, "Une demande est déjà en cours : réessayez dans un instant.");
+        cloudStatus.set(m.id, t("diagnostic.already_busy"));
         renderCloud();
       } else if (m) {
         const mine = startSwitch((text) => {
@@ -489,7 +498,7 @@
           m,
           "/api/intentions/select_model",
           { kind: "cloud", ref: m.id, acknowledged: true },
-          "Choix en cours…",
+          t("diagnostic.choosing"),
           mine
         );
       }
@@ -530,7 +539,7 @@
       const active = body.loaded?.ref;
       if (mine?.answered && active === mine.ref) {
         // Named like `model_load_ended` would: the outcome reads the same whichever comes first.
-        const text = `${body.loaded.label} est actif.`;
+        const text = t("diagnostic.is_active", { model: body.loaded.label });
         setTimeout(() => { if (switching === mine) finishSwitch(text); }, 3000);
       }
     }
@@ -552,14 +561,15 @@
       source.addEventListener("harness_error", (event) => onEnvelope(event, renderHarnessError));
       source.addEventListener("model_load_ended", (event) => onEnvelope(event, onModelLoadEnded));
     }
+    await ready; // the page's texts and formats in the session's language (languages 4/5)
     loadDiagnostic().then(openStream);
 
     function onModelLoadEnded(payload, live) {
       if (!live) return; // an earlier load: the lists already show where it led
       if (switching) {
         const text = payload.status === "ok"
-          ? [`${payload.model.label} est actif.`, payload.reason_text].filter(Boolean).join(" ")
-          : payload.reason_text || `${payload.model.label} n'a pas pu être chargé.`;
+          ? [t("diagnostic.is_active", { model: payload.model.label }), payload.reason_text].filter(Boolean).join(" ")
+          : payload.reason_text || t("diagnostic.not_loaded", { model: payload.model.label });
         const ref = payload.model.ref;
         if (!switching.answered) switching.outcomes.set(ref, text); // matched by the answer
         else if (ref === switching.ref) finishSwitch(text); // another model's load: ignored
@@ -577,7 +587,7 @@
     async function chooseModel(model) {
       if (busy) return;
       setBusy(true);
-      selectStatusEl.textContent = "Vérification en cours…";
+      selectStatusEl.textContent = t("diagnostic.checking");
       const mine = startSwitch((text) => {
         selectStatusEl.textContent = text;
       });
@@ -589,10 +599,10 @@
         });
         const body = await response.json();
         answerSwitch(mine, body, body.message_text || body.detail ||
-          (body.ready ? "Modèle prêt." : "Voir ci-dessus."));
+          (body.ready ? t("diagnostic.ready") : t("diagnostic.see_above")));
       } catch (error) {
         if (switching === mine) finishSwitch();
-        selectStatusEl.textContent = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
+        selectStatusEl.textContent = t("diagnostic.failed", { cause: error.message });
       } finally {
         setBusy(false);
         loadDiagnostic();

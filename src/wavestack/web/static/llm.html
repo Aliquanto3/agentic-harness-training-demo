@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <script src="/static/theme.js"></script>
   <script type="module" src="/static/i18n.js"></script>
-  <title>WaveStack — LLM nu</title>
+  <title data-i18n="llm.page_title">WaveStack — LLM nu</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
@@ -13,16 +13,16 @@
   <link rel="stylesheet" href="/static/llm.css" />
 </head>
 <body class="llm-page">
-  <nav class="page-tabs" aria-label="Pages de WaveStack">
-    <a href="/" id="back-link" class="llm-back">← Atelier</a>
+  <nav class="page-tabs" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
+    <a href="/" id="back-link" class="llm-back" data-i18n="common.links.back">← Atelier</a>
     <a href="/diagnostic">Diagnostic</a>
     <a href="/models">Modèles</a>
     <a href="/llm" aria-current="page">LLM nu</a>
     <a href="/rag">Atelier RAG</a>
-    <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" title="Thème de l'interface">
-      <option value="system">◐ Système</option>
-      <option value="light">☀ Clair</option>
-      <option value="dark">☾ Sombre</option>
+    <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
+      <option value="system" data-i18n="common.theme.system">◐ Système</option>
+      <option value="light" data-i18n="common.theme.light">☀ Clair</option>
+      <option value="dark" data-i18n="common.theme.dark">☾ Sombre</option>
     </select>
   </nav>
 
@@ -51,7 +51,7 @@
       </div>
       <p class="llm-note" id="token-info"></p>
       <p class="llm-counts" id="token-counts" hidden></p>
-      <ol class="token-chips" id="token-chips" aria-label="Tokens du texte"></ol>
+      <ol class="token-chips" id="token-chips" aria-label="Tokens du texte" data-i18n-aria-label="llm.token_list"></ol>
       <p class="llm-note" id="token-more" hidden></p>
       <p class="llm-note" id="token-blanks" data-text="tokenization.blanks_text" hidden></p>
       <figure class="embedding-diagram" id="embedding-diagram" hidden>
@@ -118,7 +118,7 @@
       <p class="llm-note" id="candidates-reason"></p>
       <p class="llm-note" id="generation-cloud" data-text="generation.cloud_text" hidden></p>
       <p class="llm-counts" id="generation-count"></p>
-      <ol class="token-chips token-stream" id="generation-tokens" aria-label="Tokens produits"></ol>
+      <ol class="token-chips token-stream" id="generation-tokens" aria-label="Tokens produits" data-i18n-aria-label="llm.generated_list"></ol>
       <p class="llm-note" id="generation-empty" data-text="generation.empty_text"></p>
       <p class="llm-note" id="generation-more"></p>
       <p class="llm-figure" id="generation-rate"></p>
