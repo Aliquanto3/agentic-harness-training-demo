@@ -224,6 +224,25 @@ def test_cloud_without_declarations():
     assert entry.hosting_fr.startswith("Mistral AI, France")
 
 
+def test_prices_per_million_tokens_for_the_cloud_and_a_dash_for_local(tmp_path):
+    """FinOps: « 0,30 $ / 2,50 $ » (input / output) with its date; « — » without prices."""
+    prices = {e.ref: e for e in catalog.cloud_entries(config.load_config())}
+    assert prices["gemini"].price_fr == "0,30 $ / 2,50 $"
+    assert prices["groq"].price_fr == prices["mistral"].price_fr == "0,15 $ / 0,60 $"
+    reason = prices["gemini"].price_reason_fr
+    assert reason == (
+        "par million de tokens (entrée / sortie), relevé le 29/09/2026 ; le coût de chaque "
+        "appel en est une estimation"
+    )
+    assert _entry(_file(_qwen_file(tmp_path))).price_fr == "—"
+    unpriced = _cloud_entry(pricing=None)
+    assert unpriced.price_fr == "—" and unpriced.price_reason_fr == "prix non déclaré"
+    odd = config.CloudPricing(
+        input_usd_per_mtok=0.075, output_usd_per_mtok=12, checked="2026-09-29"
+    )
+    assert _cloud_entry(pricing=odd).price_fr == "0,075 $ / 12,00 $"
+
+
 def test_cloud_window_as_the_session():
     entry = _cloud_entry(tpm=6000)  # min(configured 4 096, context, tpm // 2 = 3 000)
     assert (entry.window, entry.native_context) == (3000, 131072)

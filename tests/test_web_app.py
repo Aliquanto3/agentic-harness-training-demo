@@ -365,6 +365,25 @@ def test_state_gives_the_journal_instance(monkeypatch, tmp_path):
     assert len(body["instance_id"]) == 32
 
 
+def test_the_session_spend_is_in_the_state_and_has_its_place_in_the_top_bar(monkeypatch, tmp_path):
+    """FinOps: `/api/state` gives the session's spend (`None` before a paid call), for a
+    reloaded page; `#consumption` follows the gauge's figures; `/models` has « Prix »."""
+    from wavestack.models import openai_chat
+
+    client = _client(_build(monkeypatch, tmp_path))
+    assert client.get("/api/state").json()["consumption_updated"] is None
+
+    openai_chat.record_spend(openai_chat.CallCost(0.001, 0.002, "api"), 0.86)
+
+    spend = client.get("/api/state").json()["consumption_updated"]
+    assert spend["total_in_usd"] == 0.001 and spend["total_out_usd"] == 0.002
+    assert spend["calls"] == 1 and spend["approx"] is False
+    assert spend["total_eur"] == (0.001 + 0.002) * 0.86
+    index = client.get("/").text
+    assert index.index('id="gauge-figures"') < index.index('id="consumption"')
+    assert '<th scope="col">Prix</th>' in client.get("/models").text
+
+
 def test_select_model_boots_the_found_candidate_path(monkeypatch, tmp_path):
     _build(monkeypatch, tmp_path)
     received = []

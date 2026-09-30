@@ -122,8 +122,19 @@ def _fresh_pacing():
     from wavestack.models import openai_chat
 
     openai_chat._last_start.clear()
+    openai_chat.reset_spend()  # FinOps: the session's spend starts at zero in each test
     yield
     openai_chat._last_start.clear()
+    openai_chat.reset_spend()
+
+
+@pytest.fixture(autouse=True)
+def _no_codecarbon(monkeypatch):
+    """GreenOps: no real CodeCarbon tracker around a test's local calls (its first start takes
+    seconds): CodeCarbon plays absent; `tests/test_greenops.py` plays it installed."""
+    from wavestack import greenops
+
+    monkeypatch.setattr(greenops, "_find_spec", lambda name: None)
 
 
 @pytest.fixture(autouse=True)

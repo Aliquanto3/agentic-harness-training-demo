@@ -1330,3 +1330,227 @@ def test_a_second_gemini_turn_sends_the_earlier_call_back_signed():
     later = json.loads(provider.requests[2].content)
     (assistant,) = [m for m in later["messages"] if m.get("tool_calls")]
     assert assistant["tool_calls"][0]["extra_content"] == SIGNATURE
+
+
+# ---------- FinOps: the estimated cost of each cloud call, the turn and the session ----------
+
+GEMINI_IN, GEMINI_OUT = 0.30, 2.50  # the preset's `pricing`, dollars per million tokens
+
+
+def _cost(payload: dict) -> tuple:
+    return payload.get("cost_in_usd"), payload.get("cost_out_usd"), payload.get("cost_source")
+
+
+def _spent() -> dict | None:
+    from wavestack.models import openai_chat
+
+    return openai_chat.session_spend(0.86)
+
+
+def test_a_gemini_call_costs_its_prompt_and_every_output_token():
+    """65 prompt tokens, `total_tokens` 1 065, `completion_tokens` 14: the output billed is
+    1 000 tokens, the thinking tokens included (total − prompt)."""
+    from wavestack.trace.catalog import ConsumptionUpdatedPayload, ModelCallEndedPayload
+
+    usage = gemini_usage(65, 14, 986)
+    stream = sse(gemini_delta(content="Bonjour.", usage=usage), gemini_delta("stop", usage=usage))
+    session = _cloud_session("gemini", GeminiProvider(stream))
+
+    events = _turn(session, "Bonjour")
+
+    (ended,) = (e.payload for e in _of(events, "model_call_ended"))
+    assert ended["prompt_tokens"] == 65 and ended["output_tokens"] == 1000
+    cost_in, cost_out = 65 * GEMINI_IN / 1e6, 1000 * GEMINI_OUT / 1e6
+    assert _cost(ended) == (pytest.approx(cost_in), pytest.approx(cost_out), "api")
+    ModelCallEndedPayload.model_validate(ended)
+    (spend,) = (e.payload for e in _of(events, "consumption_updated"))
+    ConsumptionUpdatedPayload.model_validate(spend)
+    assert spend["total_in_usd"] == pytest.approx(cost_in)
+    assert spend["total_out_usd"] == pytest.approx(cost_out)
+    assert spend["calls"] == 1 and spend["approx"] is False
+    assert spend["eur_per_usd"] == 0.86
+    assert spend["total_eur"] == pytest.approx((cost_in + cost_out) * 0.86)
+    (turn_ended,) = (e.payload for e in _of(events, "turn_ended"))
+    assert _cost(turn_ended) == (pytest.approx(cost_in), pytest.approx(cost_out), "api")
+
+
+def test_a_call_without_usage_has_an_estimated_cost():
+    """Mistral (`stream_usage = false`): the cost follows the estimated tokens, « ≈ »."""
+    session = _cloud_session("mistral", Provider(sse(delta(content="Oui."), delta("stop"))))
+
+    events = _turn(session, "Bonjour")
+
+    (ended,) = (e.payload for e in _of(events, "model_call_ended"))
+    assert ended["usage_source"] == "estimate" and ended["cost_source"] == "estimate"
+    assert ended["cost_in_usd"] == pytest.approx(ended["prompt_tokens"] * 0.15 / 1e6)
+    assert ended["cost_out_usd"] == pytest.approx(ended["output_tokens"] * 0.60 / 1e6)
+    (spend,) = (e.payload for e in _of(events, "consumption_updated"))
+    assert spend["approx"] is True
+    assert _of(events, "turn_ended")[0].payload["cost_source"] == "estimate"
+
+
+def test_an_entry_without_pricing_has_no_cost_and_leaves_the_total_alone():
+    # GreenOps: without `impacts` either, nothing reaches the session's registry.
+    settings = {"cloud": {"models": [{"id": "groq", "pricing": None, "impacts": None}]}}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+    session = _cloud_session("groq", Provider(GROQ_TEXT))
+
+    events = _turn(session, "Bonjour")
+
+    (ended,) = (e.payload for e in _of(events, "model_call_ended"))
+    assert "cost_in_usd" not in ended and "cost_source" not in ended
+    assert _of(events, "consumption_updated") == [] and _spent() is None
+    assert "cost_in_usd" not in _of(events, "turn_ended")[0].payload
+    assert session.consumption() is None
+
+
+def test_the_turn_sums_every_call_the_sub_agent_included():
+    provider = GeminiProvider(
+        gemini_call("delegate", '{"task": "Lis notes_reunion.txt."}', "p1", "sig-principal"),
+        gemini_call("read_file", '{"path": "notes_reunion.txt"}', "p2", "sig-sous-agent"),
+        GEMINI_TEXT,
+        GEMINI_TEXT,
+    )
+    session = _cloud_session("gemini", provider, bricks=("tools", "subagent"))
+
+    events = _turn(session, "Quelles décisions ?")
+
+    calls = _of(events, "model_call_ended")
+    assert len(calls) == 4 and any((c.context_id or "").startswith("sub") for c in calls)
+    assert all(c.payload["cost_in_usd"] is not None for c in calls)
+    turn_ended = _of(events, "turn_ended")[0].payload
+    total_in = sum(c.payload["cost_in_usd"] for c in calls)
+    total_out = sum(c.payload["cost_out_usd"] for c in calls)
+    assert turn_ended["cost_in_usd"] == pytest.approx(total_in)
+    assert turn_ended["cost_out_usd"] == pytest.approx(total_out)
+    # The session's total follows each call, in order.
+    spends = [e.payload for e in _of(events, "consumption_updated")]
+    assert [s["calls"] for s in spends] == [1, 2, 3, 4]
+    assert spends[-1]["total_in_usd"] == pytest.approx(total_in)
+
+
+def test_tester_counts_in_the_session_total_and_the_state_gives_it(monkeypatch):
+    provider = GeminiProvider(GEMINI_TOOL, GEMINI_TEXT)
+    _, _, _, client = _app(monkeypatch, provider)
+    client.post(
+        "/api/intentions/set_api_key", json={"id": "gemini", "key": SENTINEL}, headers=ORIGIN
+    )
+    assert client.get("/api/state").json()["consumption_updated"] is None
+    mark = get_journal().last_seq()
+
+    client.post("/api/intentions/test_cloud_model", json={"id": "gemini"}, headers=ORIGIN)
+
+    spends = [e for e in get_journal().events_since(mark) if e.kind == "consumption_updated"]
+    assert [s.payload["calls"] for s in spends] == [1, 2]
+    assert all(s.context_id == "diag" for s in spends)
+    assert client.get("/api/state").json()["consumption_updated"] == spends[-1].payload
+    row = _row(client, "gemini")
+    assert row["price_fr"].startswith("Prix : 0,30 $ / 2,50 $ par million de tokens")
+    assert row["price_fr"].endswith(
+        "relevé le 29/09/2026 ; le coût de chaque appel en est une estimation"
+    )
+
+
+def test_the_llm_screen_counts_in_the_session_total():
+    from wavestack.models.engine import Sampling
+
+    session = _cloud_session("gemini", GeminiProvider(GEMINI_TEXT))
+    mark = get_journal().last_seq()
+
+    session.llm_generate("Bonjour", Sampling(temperature=0.2, top_k=5, top_p=0.9, min_p=0.05))
+    session.join()
+
+    (spend,) = [e for e in get_journal().events_since(mark) if e.kind == "consumption_updated"]
+    assert spend.context_id == "llm" and spend.payload["calls"] == 1
+    assert session.consumption() == spend.payload
+
+
+def test_neither_clearing_nor_resetting_gives_the_money_back():
+    session = _cloud_session("gemini", GeminiProvider(GEMINI_TEXT))
+    _turn(session, "Bonjour")
+    before = session.consumption()
+    assert before is not None and before["calls"] == 1
+
+    session.clear_conversation()
+    session.join()
+    session.reset()
+    session.join()
+
+    assert session.consumption() == before
+    events = _turn(session, "Encore")
+    assert _of(events, "consumption_updated")[0].payload["calls"] == 2
+
+
+def test_a_refused_call_costs_nothing():
+    """A provider's refusal before any output (here a 401) is not billed."""
+    provider = Provider(httpx.Response(401, json={"error": {"message": "Invalid API Key"}}))
+    session = _cloud_session("gemini", provider)
+
+    events = _turn(session, "Bonjour")
+
+    (ended,) = (e.payload for e in _of(events, "model_call_ended"))
+    assert ended["stop_reason"] == "error" and "cost_in_usd" not in ended
+    assert _of(events, "consumption_updated") == [] and session.consumption() is None
+
+
+def test_a_negative_price_leaves_the_entry_out_with_the_reason():
+    pricing = {"input_usd_per_mtok": -1, "output_usd_per_mtok": 2.5, "checked": "2026-09-29"}
+    settings = {"cloud": {"models": [{"id": "gemini", "pricing": pricing}]}}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+
+    valid, errors = config.load_config().cloud_models
+
+    assert "gemini" not in [m.id for m in valid]
+    (error,) = [e for e in errors if "gemini" in e]
+    assert "écarté" in error and "pricing.input_usd_per_mtok" in error
+
+
+def test_the_euro_rate_is_bounded():
+    """Bounded to [0,5 ; 2]; a value that is not a finite number is the default."""
+    assert config.Config(values={}).eur_per_usd == 0.86
+    assert config.Config(values={"finops": {"eur_per_usd": 0.92}}).eur_per_usd == 0.92
+    assert config.Config(values={"finops": {"eur_per_usd": 5}}).eur_per_usd == 2.0
+    assert config.Config(values={"finops": {"eur_per_usd": 0.1}}).eur_per_usd == 0.5
+    for unreadable in ("abc", "nan", "inf", None):
+        assert config.Config(values={"finops": {"eur_per_usd": unreadable}}).eur_per_usd == 0.86
+
+
+def test_a_configured_euro_rate_reaches_the_event_and_the_state(monkeypatch):
+    settings = {"finops": {"eur_per_usd": 0.92}}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+    provider = GeminiProvider(GEMINI_TEXT)
+    _, app_session, _, client = _app(monkeypatch, provider)
+    config.write_api_key("gemini", "generativelanguage.googleapis.com", SecretStr(SENTINEL))
+    app_session.boot_cloud(config.load_config().cloud_model("gemini")).result()
+    app_session.join()
+
+    events = _turn(app_session, "Bonjour")
+
+    (spend,) = (e.payload for e in _of(events, "consumption_updated"))
+    assert spend["eur_per_usd"] == 0.92
+    assert spend["total_eur"] == pytest.approx(spend["total_usd"] * 0.92)
+    assert spend["total_usd"] == pytest.approx(spend["total_in_usd"] + spend["total_out_usd"])
+    assert client.get("/api/state").json()["consumption_updated"] == spend
+
+
+def test_a_priced_call_cut_by_an_error_after_its_output_is_billed_to_the_turn():
+    """Content, then an error in the stream: the call ends in error, yet an output came, so
+    it is billed; the turn's total is that call's cost."""
+    error = {"error": {"message": "Internal error", "code": 500}}
+    session = _cloud_session("gemini", GeminiProvider(sse(delta(content="Il est"), error)))
+
+    events = _turn(session, "Quelle heure est-il ?")
+
+    (ended,) = (e.payload for e in _of(events, "model_call_ended"))
+    assert ended["stop_reason"] == "error"
+    assert ended["cost_in_usd"] > 0 and ended["cost_out_usd"] > 0
+    assert ended["cost_source"] == "estimate"  # no `usage` came before the error
+    (spend,) = (e.payload for e in _of(events, "consumption_updated"))
+    assert spend["calls"] == 1 and spend["total_in_usd"] == ended["cost_in_usd"]
+    turn_ended = _of(events, "turn_ended")[0].payload
+    assert turn_ended["status"] == "error" and turn_ended["cost_source"] == "estimate"
+    assert turn_ended["cost_in_usd"] == ended["cost_in_usd"]
+    assert turn_ended["cost_out_usd"] == ended["cost_out_usd"]

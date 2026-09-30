@@ -138,6 +138,7 @@
           <th scope="col">Fenêtre</th>
           <th scope="col">Appel d'outils</th>
           <th scope="col">Raisonnement</th>
+          <th scope="col">Prix</th>
           <th scope="col">État</th>
         </tr>
       </thead>
@@ -188,6 +189,8 @@
         withReason(m.window_fr, m.window_reason_fr, "figures"),
         withReason(m.tools_fr, m.tools_reason_fr),
         withReason(m.reasoning_fr, m.reason_fr),
+        // FinOps: the declared prices per million tokens (input / output), « — » when local.
+        withReason(m.price_fr, m.price_reason_fr, "figures"),
         state
       );
       return tr;
@@ -218,7 +221,7 @@
         const head = node("tr");
         const th = node("th", "", group.label_fr);
         th.scope = "rowgroup";
-        th.colSpan = 8;
+        th.colSpan = 9;
         head.append(th);
         tbody.append(head, ...group.models.map((m) => row(m, body.loaded)));
         table.append(tbody);

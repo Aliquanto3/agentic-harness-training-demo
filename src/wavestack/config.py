@@ -14,6 +14,7 @@ import sys
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date
 from functools import cached_property
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Annotated, Any, Literal
@@ -115,6 +116,27 @@ class CloudReasoning(_Strict):
     )
 
 
+class CloudPricing(_Strict):
+    """FinOps: a cloud model's list prices, in US dollars per million tokens, and the day they
+    were read on the provider's page (`checked`, ISO). The cost of a call is an estimate."""
+
+    input_usd_per_mtok: float = Field(ge=0, allow_inf_nan=False)
+    output_usd_per_mtok: float = Field(ge=0, allow_inf_nan=False)
+    checked: date
+
+
+class CloudImpacts(_Strict):
+    """GreenOps: the names EcoLogits knows a cloud model by (`provider`, `model`, as in its
+    model repository) and the electricity mix of the estimate (`zone`, ISO 3166-1 alpha-3, or
+    `WOR`); without `zone`, the provider's own in EcoLogits. `note_fr`: what the estimate
+    stands for, added to each call's note (a model estimated through another one)."""
+
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    zone: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    note_fr: str | None = None
+
+
 def _is_loopback(host: str) -> bool:
     if host == "localhost":
         return True
@@ -136,6 +158,9 @@ DEFAULT_REASONING_BUDGET = 768  # lot C (N4), lot J: `[reasoning] budget_tokens`
 MIN_REASONING_BUDGET = 128  # lot C: the floor, and what is always left to the answer
 # Lot D: `[net] contact`, the way to reach the demo's maintainers, sent in the User-Agent.
 DEFAULT_NET_CONTACT = "https://github.com/Aliquanto3/agentic-harness-training-demo"
+DEFAULT_EUR_PER_USD = 0.86  # FinOps: `[finops] eur_per_usd`
+# GreenOps: `[greenops] local_gco2e_per_kwh`, EcoLogits' France mix (life cycle).
+DEFAULT_LOCAL_GCO2E_PER_KWH = 41.4
 
 
 def output_reserve(reasoning: bool) -> int:
@@ -174,6 +199,10 @@ class CloudModel(_Strict):
     # `function`, in chat mode: Gemini 3.x refuses a replayed call without its thought
     # signature, and a made-up call has none. Empty by default: nothing added.
     tool_call_extra: dict[str, Any] = {}
+    # FinOps: the declared prices; without them, no cost is computed nor shown for this model.
+    pricing: CloudPricing | None = None
+    # GreenOps: the model's names in EcoLogits; without them, no footprint is estimated.
+    impacts: CloudImpacts | None = None
 
     @field_validator("base_url")
     @classmethod
@@ -555,6 +584,36 @@ class Config:
         return self._float("cloud", "estimate_ratio", default=1.0, low=0.8, high=1.5)
 
     @property
+    def eur_per_usd(self) -> float:
+        """FinOps: `[finops] eur_per_usd`, the rate the session's spend is converted at, in
+        euros per dollar (0,86 by default, bounded to [0,5 ; 2]). A value that is not a finite
+        number (unreadable, `nan`, `inf`) is the default, never clamped."""
+        try:
+            rate = float(self.get("finops", "eur_per_usd", default=DEFAULT_EUR_PER_USD))
+        except (TypeError, ValueError):
+            return DEFAULT_EUR_PER_USD
+        return min(2.0, max(0.5, rate)) if math.isfinite(rate) else DEFAULT_EUR_PER_USD
+
+    @property
+    def local_gco2e_per_kwh(self) -> float:
+        """GreenOps: `[greenops] local_gco2e_per_kwh`, the intensity a local call's energy is
+        converted at, in g CO₂e per kWh (41,4 by default, bounded to [0 ; 2 000]). A value
+        that is not a finite number is the default, never clamped."""
+        try:
+            value = float(
+                self.get("greenops", "local_gco2e_per_kwh", default=DEFAULT_LOCAL_GCO2E_PER_KWH)
+            )
+        except (TypeError, ValueError):
+            return DEFAULT_LOCAL_GCO2E_PER_KWH
+        return min(2000.0, max(0.0, value)) if math.isfinite(value) else DEFAULT_LOCAL_GCO2E_PER_KWH
+
+    @property
+    def greenops_codecarbon_cost_bytes(self) -> int:
+        """GreenOps (AD-8): what importing CodeCarbon (and pandas) is expected to add, counted
+        once for the life of WaveStack at its first use, `[greenops] codecarbon_cost_mb`."""
+        return max(0, self._int("greenops", "codecarbon_cost_mb", default=80)) * 1024 * 1024
+
+    @property
     def cloud_connect_timeout_s(self) -> float:
         return self._seconds("cloud", "connect_timeout_s", default=10.0)
 
@@ -755,7 +814,7 @@ class Config:
     def _int(self, *path: str, default: int) -> int:
         try:
             return int(self.get(*path, default=default))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # `inf`: the default
             return default
 
     @property

@@ -173,6 +173,17 @@ class TurnStartedPayload(BaseModel):
 class TurnEndedPayload(BaseModel):
     status: TurnStatus
     duration_ms: int | None = None
+    # FinOps: the sum of the costs of the turn's cloud calls (sub-agent included), in dollars,
+    # when the turn cost something; `cost_source` is `estimate` when one of them was.
+    cost_in_usd: float | None = None
+    cost_out_usd: float | None = None
+    cost_source: Literal["api", "estimate"] | None = None
+    # GreenOps: the sums of the estimated footprints of the turn's calls (sub-agent
+    # included), in Wh and g CO₂e (min and max), when one of them had a footprint.
+    energy_wh_min: float | None = None
+    energy_wh_max: float | None = None
+    gco2e_min: float | None = None
+    gco2e_max: float | None = None
 
 
 class CompressedFromPayload(BaseModel):
@@ -384,6 +395,41 @@ class ModelCallEndedPayload(BaseModel):
     # Lot A (AD-4): the prompt tokens the engine really evaluated, the ones reused from its
     # cache excluded; `None` when the engine cannot say.
     evaluated_tokens: int | None = None
+    # FinOps: a cloud call's estimated cost, in dollars, when its entry declares `pricing`;
+    # `cost_source` follows `usage_source` (`estimate`: « ≈ »). Never for a local model.
+    cost_in_usd: float | None = None
+    cost_out_usd: float | None = None
+    cost_source: Literal["api", "estimate"] | None = None
+    # GreenOps: the call's estimated footprint, in Wh and g CO₂e, as a range (min = max for
+    # a single value): EcoLogits for a cloud call whose entry declares `impacts`, CodeCarbon
+    # for a local one. `impact_note_fr`: the method and its limits, or why there is none.
+    energy_wh_min: float | None = None
+    energy_wh_max: float | None = None
+    gco2e_min: float | None = None
+    gco2e_max: float | None = None
+    impact_method: Literal["ecologits", "codecarbon"] | None = None
+    impact_note_fr: str | None = None
+
+
+class ConsumptionUpdatedPayload(BaseModel):
+    """FinOps: the session's API spend after a paid call (turns, sub-agent, « Tester », « LLM
+    nu »), in dollars; reset by a relaunch only. `approx`: one of its calls was estimated.
+    `total_eur`: the total at `eur_per_usd` (`[finops]`), computed by the session. GreenOps:
+    also after a call with a footprint (a local one included, which costs nothing), the sums
+    of the footprints of `impact_calls` calls, in Wh and g CO₂e (min and max)."""
+
+    total_in_usd: float
+    total_out_usd: float
+    total_usd: float
+    calls: int
+    approx: bool
+    eur_per_usd: float
+    total_eur: float
+    energy_wh_min: float = 0.0
+    energy_wh_max: float = 0.0
+    gco2e_min: float = 0.0
+    gco2e_max: float = 0.0
+    impact_calls: int = 0
 
 
 class SpecialTokenNeutralizedPayload(BaseModel):
@@ -1221,6 +1267,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "model_first_token": ModelFirstTokenPayload,
     "model_delta": ModelDeltaPayload,
     "model_call_ended": ModelCallEndedPayload,
+    "consumption_updated": ConsumptionUpdatedPayload,
     "special_token_neutralized": SpecialTokenNeutralizedPayload,
     "bricks_changed": BricksChangedPayload,
     "conversation_cleared": ConversationClearedPayload,
