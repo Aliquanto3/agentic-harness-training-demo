@@ -20,10 +20,12 @@ from test_turn import _run
 from wavestack import config
 from wavestack.bricks.contract import load_brick_content
 from wavestack.cloud import active_model, load_cloud_content
+from wavestack.cloud import fill as cloud_fill
 from wavestack.compression.port import load_compression_content
 from wavestack.context.segments import SegmentKind, load_labels
 from wavestack.hooks import DEMO_HOOKS
 from wavestack.models import catalog
+from wavestack.models.discovery import ModelCandidate
 from wavestack.scenarios import load_scenarios
 from wavestack.session.app_session import AppSession
 from wavestack.tools.native import read_file
@@ -87,6 +89,9 @@ def marked(tmp_path, monkeypatch) -> Path:
         data = _load(CONTENT / "models" / "publishers.yaml")
         data["legend_text"] = mark + data["legend_text"]
         data["hosting_text"]["network"] = mark + data["hosting_text"]["network"]
+        data["hosting_text"]["local"] = mark + data["hosting_text"]["local"]
+        for engine in ("file", "ollama"):
+            data["served_by_text"][engine] = mark + data["served_by_text"][engine]
         _dump(root / "models" / "publishers.yaml", data)
         data = _load(CONTENT / "compression.yaml")
         data["limits_text"] = mark + data["limits_text"]
@@ -161,6 +166,35 @@ def test_the_models_catalog_speaks_the_language_it_is_given(marked, lang):
     assert payload["groups"] and all(
         g["label_text"].startswith(f"{network} · ") for g in payload["groups"]
     )
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_local_models_speak_the_language_they_are_given(marked, tmp_path, lang):
+    """A file and an Ollama model: their hosting label and their group's, in `lang`."""
+    gguf = tmp_path / "x.gguf"
+    gguf.write_bytes(b"not a gguf")
+    candidates = [
+        ModelCandidate(source="models_dir", status="found", path=str(gguf), name=gguf.name),
+        ModelCandidate(
+            source="server",
+            status="incompatible",
+            server_url="http://127.0.0.1:11434",
+            name="faux-ollama:latest",
+            engine="ollama",
+            ref="ollama/faux-ollama:latest",
+            provider="Ollama",
+            reason="Fichier GGUF introuvable.",
+            publisher_hint="qwen3",
+        ),
+    ]
+    config.save_setting("language", _other(lang))
+    payload = catalog.models_payload(candidates, config.load_config(), lang=lang)
+    local = [g for g in payload["groups"] if g["hosting"] == "local"]
+    entries = {m["kind"]: m for g in local for m in g["models"]}
+    here = _expected(lang, "Sur ce poste")
+    assert entries["file"]["hosting_label_text"] == f"{here} · {_expected(lang, 'fichier')}"
+    assert entries["server"]["hosting_label_text"] == f"{here} · {_expected(lang, 'Ollama')}"
+    assert local and all(g["label_text"].startswith(f"{here} · ") for g in local)
 
 
 # ---------- read_file (matrix) ----------
@@ -293,8 +327,29 @@ def test_set_language_reads_the_programme_the_cloud_and_the_labels_again(marked)
 def test_the_active_model_of_a_cloud_choice_is_in_the_language():
     entry = config.load_config().cloud_model("groq")
     french = active_model(entry, "fr")["banner_text"]
-    assert active_model(entry, "en")["banner_text"]  # never bare for an existing language
+    english = _load(CONTENT / "i18n" / "en" / "cloud.yaml")["banner_text"]
+    assert active_model(entry, "en")["banner_text"] == cloud_fill(
+        english, entry, load_cloud_content("en")
+    )
+    assert active_model(entry, "en")["banner_text"] != french
     assert french == active_model(entry)["banner_text"]
+
+
+def test_an_invalid_translated_cloud_file_gives_the_french_texts(marked):
+    """An invalid `i18n/de/cloud.yaml`: the indicator and the diagnostic in French, the
+    diagnostic's `harness_error` naming the translated folder."""
+    (marked / "i18n" / "de" / "cloud.yaml").write_text(": :\n", encoding="utf-8")
+    entry = config.load_config().cloud_model("groq")
+    assert active_model(entry, "de")["banner_text"] == active_model(entry, "fr")["banner_text"]
+    session = _session("de", ["Voilà."])
+    mark = get_journal().last_seq()
+    response = _client(session).get("/api/diagnostic")
+    assert response.status_code == 200
+    french = _load(CONTENT / "cloud.yaml")
+    assert response.json()["cloud"]["key_hint_text"] == french["key_hint_text"]
+    errors = [e.payload for e in get_journal().events_since(mark) if e.kind == "harness_error"]
+    assert errors and all("content/i18n/de/" in e["message_text"] for e in errors)
+    session.close()
 
 
 def test_an_invalid_translated_programme_falls_back_on_french(marked):

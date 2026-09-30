@@ -35,7 +35,7 @@ explanation_text:
     zweites lokales Modell, liest die Frage und einen Auszug zusammen und bewertet ihre
     Relevanz von 0 bis 1. Der Harness behält zuerst mehr Kandidaten ({candidates}, [rag]
     rerank_candidates), lässt sie einzeln bewerten und behält dann nur die ersten {keep}
-    ([rag] top_k): Der Schritt „Reranking“ in Orchestrierung zeigt die Reihenfolge vorher
+    ([rag] top_k): Der Schritt „Reranking“ im Bereich Orchestrierung zeigt die Reihenfolge vorher
     und nachher. Die beiden Scores sind nicht miteinander vergleichbar.
   - - "Nutzen: Die behaltenen Auszüge beantworten die Frage häufiger."
     - >-

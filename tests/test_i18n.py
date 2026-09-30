@@ -143,9 +143,17 @@ def _demo_names(text: str) -> set[str]:
 
 def test_every_default_sent_to_the_model_is_translated():
     for lang in TRANSLATED:
-        for rel in (*LLM_DEFAULTS, *PEDAGOGICAL):
+        for rel in LLM_DEFAULTS:
             assert (CONTENT / "i18n" / lang / rel).is_file(), f"{lang}: {rel} manque"
     assert not (CONTENT / "i18n" / "en" / "skills" / "caveman" / "NOTICE.md").exists()
+
+
+def test_every_pedagogical_file_is_translated():
+    """Languages (3/5): the bricks, the scenarios, the cloud, compression, segment and
+    publisher texts, and the demonstration files."""
+    for lang in TRANSLATED:
+        for rel in PEDAGOGICAL:
+            assert (CONTENT / "i18n" / lang / rel).is_file(), f"{lang}: {rel} manque"
 
 
 @pytest.mark.parametrize(("lang", "rel"), _translations())

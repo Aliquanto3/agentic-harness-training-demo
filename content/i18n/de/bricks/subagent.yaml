@@ -21,7 +21,7 @@ explanation_text:
       hat; der Sub-Agent hat eigene Aufrufe, höchstens 4, neue Versuche eingeschlossen. Er
       hat keinen Denkprozess, damit Platz für sein Dokument bleibt.
   - >-
-    Ersparnis: Orchestrierung vergleicht die im Kontext des Sub-Agenten gebliebenen
+    Ersparnis: Der Bereich Orchestrierung vergleicht die im Kontext des Sub-Agenten gebliebenen
     Tool-Ergebnisse (was der Haupt-Agent ohne Delegation gelesen hätte) mit dem in den
     Hauptkontext eingespeisten Ergebnis. LLM-Kontext schaltet zwischen den beiden Kontexten
     um, und das Schema zeichnet einen zweiten Modell-Knoten.

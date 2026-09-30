@@ -166,12 +166,14 @@ def load_publishers(lang: str = config.DEFAULT_LANGUAGE) -> tuple[PublishersCont
     the reason naming the translated file (AD-19). On any other error, an empty table
     (every model in « Autres éditeurs ») and the French reason naming the file."""
     path = publishers_path(lang)
+    translated = lang != config.DEFAULT_LANGUAGE and path != publishers_path()
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         return PublishersContent.model_validate(data), None
     except (OSError, UnicodeDecodeError, yaml.YAMLError, ValidationError, ValueError) as exc:
-        log.warning("%s invalide : %s", path, exc)
-        if lang != config.DEFAULT_LANGUAGE and path != publishers_path():
+        where = f"i18n/{lang}/" if translated else ""
+        log.warning("content/%s%s invalide : %s", where, PUBLISHERS_FILE.as_posix(), exc)
+        if translated:
             content, error_text = load_publishers()
             return content, error_text or (
                 f"Fichier content/i18n/{lang}/models/publishers.yaml invalide ({_cause(exc)}) : "

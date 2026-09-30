@@ -8,7 +8,7 @@ warning:
   sent_text: >-
     What leaves: each call sends the whole context (messages, system prompt, tool results,
     memory) to {fournisseur}, {hebergement}.
-  provider_text: "What the provider does with it: training {entrainement}.{essai}"
+  provider_text: "What the provider does with it: training – {entrainement}.{essai}"
   unseen_text: >-
     What the harness no longer sees: the template and the parsing of tool calls are
     applied at the provider's, and the tokens per segment are estimated.

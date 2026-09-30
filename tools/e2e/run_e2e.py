@@ -5176,6 +5176,16 @@ def s_content_language(r: Run) -> None:
         page.set_viewport_size({"width": 1600, "height": 1000})
         if page.evaluate("() => document.documentElement.classList.contains('projection')"):
             _toggle_projection(page)
+        # What the slice turned on, turned off again; a failure here never masks its result.
+        try:
+            r.wait_idle()
+            r.api("POST", "/api/intentions/brick", {"brick": "hooks", "wanted": False})
+        except Exception as exc:  # noqa: BLE001 - cleaning up only
+            print(f"  nettoyage : brique Hooks non éteinte ({exc})")
+        try:
+            r.show_forced(False)
+        except Exception as exc:  # noqa: BLE001 - cleaning up only
+            print(f"  nettoyage : actions forcées non masquées ({exc})")
         if r.state().get("language") != "fr":
             r.wait_idle()
             _switch_language(r, "fr")

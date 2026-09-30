@@ -103,7 +103,7 @@ scenarios:
     description_text: >-
       Die Bausteine aus Modul 1 bleiben aktiv, außer dem Denkprozess (das globale Gedächtnis
       kehrt zu seiner Demo zurück), und die lokalen Tools kommen hinzu. Senden Sie einen
-      Prompt und verfolgen Sie in Orchestrierung den Ablauf des Aufrufs: Das Modell fordert
+      Prompt und verfolgen Sie im Bereich Orchestrierung den Ablauf des Aufrufs: Das Modell fordert
       das Tool an, der Harness führt es aus und speist sein Ergebnis wieder ein.
     bricks: [short_memory, system_prompt, global_memory, tools]
     restore_memory: true
@@ -116,7 +116,7 @@ scenarios:
     title_text: Netzwerk-Tools
     description_text: >-
       Die Netzwerk-Tools kommen zu den lokalen Tools hinzu: Ihr Knoten ist in der Zone
-      Netzwerk gezeichnet. Senden Sie einen Prompt und öffnen Sie dann in Orchestrierung die
+      Netzwerk gezeichnet. Senden Sie einen Prompt und öffnen Sie dann im Bereich Orchestrierung die
       ausgehenden Daten: Das ist der genaue Text, der den Arbeitsplatz verlassen hat.
     bricks: [short_memory, system_prompt, global_memory, tools]
     tools:
@@ -135,7 +135,7 @@ scenarios:
       Baustein wieder ein, wiederholen Sie den Prompt und öffnen Sie „Vergleichen“: Die
       RAG-Auszüge stehen in Ihrer Nachricht, und die Antwort stützt sich auf das richtige
       Dokument.
-      Klappen Sie den Schritt „RAG-Suche“ in Orchestrierung auf (Suchanfrage, Auszüge,
+      Klappen Sie den Schritt „RAG-Suche“ im Bereich Orchestrierung auf (Suchanfrage, Auszüge,
       Scores) und sehen Sie sich die Indexdatei im Schema an. Erstinstallation: Bietet die
       Karte „Embedding-Modell herunterladen“ an, klicken Sie darauf, dann auf „Index
       erstellen“, sobald sie es anbietet; der Baustein wird ohne Kommandozeile verfügbar.
@@ -152,7 +152,7 @@ scenarios:
       „Reranking“: Der Harness behält {candidates} Kandidaten per Embedding, ein zweites
       lokales Modell bewertet sie zusammen mit der Frage, dann kommen nur die ersten {keep}
       in Ihre Nachricht. Senden Sie den ersten Prompt und klappen Sie den Schritt
-      „Reranking“ in Orchestrierung auf: die Reihenfolge vorher und nachher, die behaltenen
+      „Reranking“ im Bereich Orchestrierung auf: die Reihenfolge vorher und nachher, die behaltenen
       und verworfenen Auszüge und die beiden Scores. Wählen Sie „Reranking“ ab, wiederholen
       Sie und öffnen Sie „Vergleichen“: Welche Auszüge haben sich geändert? Erste Nutzung:
       Bietet die Karte „Reranking-Modell herunterladen“ an, klicken Sie zuerst darauf.
@@ -193,10 +193,10 @@ scenarios:
       Dieselben Server, mit Lazy Loading: Nur eine Zeile pro Tool kommt in den Kontext.
       Vergleichen Sie die Füllstandsanzeige mit dem vorigen Szenario: Der gewonnene Platz
       könnte RAG aufnehmen, das ausgeschaltet bleibt, weil seine Auszüge über Exemplia hier
-      nicht helfen. Senden Sie den ersten Prompt und verfolgen Sie in Orchestrierung das
+      nicht helfen. Senden Sie den ersten Prompt und verfolgen Sie im Bereich Orchestrierung das
       Laden der Dokumentation, dann den Aufruf von local__define_term. Was man mit einem
       kleinen Modell beobachtet: Es hört nach load_tool_doc auf und antwortet aus dem Kopf,
-      manchmal mit „ich habe gesucht“, obwohl Orchestrierung keinen Aufruf von
+      manchmal mit „ich habe gesucht“, obwohl der Bereich Orchestrierung keinen Aufruf von
       local__define_term zeigt. Warum: Ein kleines Modell verkettet zwei Aufrufe schlecht
       und hält die Dokumentation für die Antwort. Das ist die Demonstration: Klicken Sie
       „Aufruf erzwingen · local__define_term“ unter „WaveStack-Glossar“ auf der Karte MCP
@@ -272,8 +272,8 @@ scenarios:
       halten, und der Baustein Sub-Agent kommt hinzu. Das lange Dokument ist eine lokale
       Datei, guide_harnais.md, für eine Demonstration ohne Netzwerk. Senden Sie den ersten
       Prompt: Das Modell überträgt das Lesen einem Sub-Agenten, und nur dessen
-      Zusammenfassung kommt zurück. Klappen Sie „Delegation an den Sub-Agenten“ in
-      Orchestrierung auf: die beim Sub-Agenten gebliebenen Tool-Ergebnisse gegenüber der
+      Zusammenfassung kommt zurück. Klappen Sie „Delegation an den Sub-Agenten“ im
+      Bereich Orchestrierung auf: die beim Sub-Agenten gebliebenen Tool-Ergebnisse gegenüber der
       eingespeisten Zusammenfassung, das ist die Ersparnis. Schalten Sie LLM-Kontext
       zwischen dem Hauptkontext (nur die Zusammenfassung, als „Ergebnis des Sub-Agenten“)
       und dem des Sub-Agenten (der ganze Leitfaden) um. Liest das Modell die Datei selbst,
@@ -309,7 +309,7 @@ scenarios:
       (Komprimierung)“, „Scharf schalten“, dann „Letzten Prompt wiederholen“, die Kompression
       weiterhin ausgeschaltet. Schalten Sie sie wieder ein, wiederholen Sie den
       Prompt und öffnen Sie „Vergleichen“. Klappen Sie den Schritt „Komprimierung des
-      Kontexts“ in Orchestrierung auf: Tokens vorher und nachher, Originaltext und
+      Kontexts“ im Bereich Orchestrierung auf: Tokens vorher und nachher, Originaltext und
       Kurzfassung, wo der Fehler geblieben ist. Im LLM-Kontext ist das Tool-Ergebnis mit
       „komprimiert“ markiert, und die Kopfzeile nennt die Summe ohne Komprimierung. Headroom
       verringert nur Redundanz: Ein Text ohne Redundanz, etwa Fließtext, geht unverändert
@@ -339,7 +339,7 @@ scenarios:
       Arbeitsplatz, data.gouv.fr ist in der Zone Netzwerk gezeichnet. Wählen Sie
       data.gouv.fr auf der Karte MCP ab und wieder an: Der Fluss, der die Grenze des
       Arbeitsplatzes überschreitet, verschwindet und kommt zurück; es ist der einzige.
-      Senden Sie dann den Prompt und klicken Sie auf den Knoten data.gouv.fr: Orchestrierung
+      Senden Sie dann den Prompt und klicken Sie auf den Knoten data.gouv.fr: Der Bereich Orchestrierung
       zeigt die genauen gesendeten Daten. Das Lazy Loading lässt Platz für das Suchergebnis,
       den die vollständige Dokumentation von data.gouv.fr nicht ließe. Ohne Netzwerk ist
       data.gouv.fr als nicht verfügbar gezeichnet, mit seinem Grund: Die Botschaft darüber,
@@ -402,7 +402,7 @@ scenarios:
       ist verbunden, mit vollständiger Dokumentation, zusammen mit dem Kurzzeitgedächtnis
       und dem System-Prompt: Ein kleines Modell kennt die neuen Oberflächen von Entra ID
       nicht, die offizielle Dokumentation schon. Senden Sie den ersten Prompt: Das Modell
-      sucht in Microsoft Learn, und Orchestrierung zeigt das Ziel und die genau gesendeten
+      sucht in Microsoft Learn, und der Bereich Orchestrierung zeigt das Ziel und die genau gesendeten
       Daten, vor dem Ergebnis. Die Prompts nennen das Such-Tool,
       mslearn__microsoft_docs_search: Ein kleines lokales Modell stellt nicht immer die
       Verbindung zwischen Frage und Tool her, ein größeres (Cloud-)Modell sucht allein auf
@@ -442,14 +442,14 @@ scenarios:
       Für die Practice Souveränität, etwa 15 Minuten. Zwei öffentliche MCP-Server sind
       verbunden, mit Lazy Loading: data.gouv.fr, betrieben von der französischen
       Verwaltung, und Microsoft Learn, betrieben von einem amerikanischen Hersteller. Senden
-      Sie die beiden Prompts und öffnen Sie in Orchestrierung die ausgehenden Daten jedes
+      Sie die beiden Prompts und öffnen Sie im Bereich Orchestrierung die ausgehenden Daten jedes
       Aufrufs: Die Suchanfrage allein verrät das Thema der Mission, und sie geht an zwei
       Betreiber, die zwei verschiedenen Rechtsordnungen unterliegen; ein amerikanischer
       Hersteller fällt unter den Cloud Act, selbst wenn seine Server in Europa stehen. Jeder
       Prompt nennt das Such-Tool. Was man mit einem kleinen Modell beobachtet: Es hört nach
       load_tool_doc auf (oder ruft das Tool ohne seine Dokumentation auf, was der Harness
       ablehnt) und antwortet aus dem Kopf, manchmal mit „ich habe gesucht“ und erfundenen
-      Datensätzen, obwohl Orchestrierung weder einen Aufruf des Tools noch eine ausgehende
+      Datensätzen, obwohl der Bereich Orchestrierung weder einen Aufruf des Tools noch eine ausgehende
       Anfrage zeigt. Warum: Ein kleines Modell verkettet zwei Aufrufe schlecht und hält die
       Dokumentation für die Antwort. Das ist die Demonstration: Klicken Sie beim ersten
       Prompt „Aufruf erzwingen · datagouv__search_datasets“ unter „data.gouv.fr“ auf der
