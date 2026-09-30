@@ -4207,6 +4207,23 @@ def _rerank_step(r: Run):
     return r.page.locator("#orch-scroll .turn-step", has=name).last
 
 
+def _rerank_wait_failure(r: Run, seq: int) -> str:
+    """Story 4: why the reranker is still not available after its download, on one line (the
+    run reports an exception's first line): the `rag.rerank` card's reason, the
+    `harness_error`s since `seq`, and the session states the worker went through."""
+    try:
+        rerank = r.bricks()["rag"].get("rerank") or {}
+        reason = f"rerank.available={rerank.get('available')}, raison : {rerank.get('reason_text')}"
+    except Exception as exc:  # noqa: BLE001 - the report must not hide the timeout
+        reason = f"état des briques illisible ({type(exc).__name__}: {exc})"
+    errors = [e["payload"].get("message_text", "") for e in r.ev.since(seq, "harness_error")]
+    states = [e["payload"].get("state") for e in r.ev.since(seq, "session_state")]
+    text = (
+        f"{reason} · harness_error : {errors or 'aucun'} · états de session : {states or 'aucun'}"
+    )
+    return " ".join(text.split())
+
+
 def s_rag_rerank(r: Run) -> None:
     """Story 16, after `rag` (index built, embedding model there): the « Reranking »
     sub-option of the RAG card, its model absent (the RAG goes on without it), then
@@ -4260,15 +4277,23 @@ def s_rag_rerank(r: Run) -> None:
     seq = r.ev.mark()
     download.click()
     r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
-    r.ev.wait(
-        "bricks_changed",
-        seq,
-        lambda p: (
-            (next(b for b in p["bricks"] if b["id"] == "rag").get("rerank") or {}).get("available")
-            is True
-        ),
-        30,
-    )
+    try:
+        r.ev.wait(
+            "bricks_changed",
+            seq,
+            lambda p: (
+                (next(b for b in p["bricks"] if b["id"] == "rag").get("rerank") or {}).get(
+                    "available"
+                )
+                is True
+            ),
+            30,
+        )
+    except TimeoutError as exc:
+        # Story 4 (deferred work): the card's reason and the harness errors tell a budget
+        # refusal (fixed by the stack's budget) from a worker queue still busy (not the case
+        # observed: the delay stays 30 s until such a queue is seen).
+        raise TimeoutError(f"{exc} · {_rerank_wait_failure(r, seq)}") from None
     r.check(
         (r.stack.data_dir / "models" / "reranker" / "fake-e2e.gguf").is_file(),
         "téléchargement réussi : le fichier du reranker est dans le dossier des modèles",
@@ -5948,8 +5973,12 @@ def _slow_probe_stopped(r: Run) -> None:
     text = memory.inner_text()
     budget = r.api("GET", "/api/diagnostic").json()["memory_budget_bytes"]
     budget_mo = f"{round(budget / 1024**2):,}".replace(",", "\u202f")
+    # Story 4: the stack fixes the budget (`stack.E2E_BUDGET_MB`), whatever the host's free RAM;
+    # its calculation then names the fixed mode, not a share of the RAM.
     r.check(
-        "%" in text and "RAM" in text and f"Budget mémoire de WaveStack : {budget_mo} Mo" in text,
+        "valeur fixe" in text
+        and "« fixed »" in text
+        and f"Budget mémoire de WaveStack : {budget_mo} Mo" in text,
         "diagnostic : « Budget mémoire » avec son calcul, le budget des refus de la session",
         f"{budget_mo} Mo · " + text.replace("\n", " · "),
     )
