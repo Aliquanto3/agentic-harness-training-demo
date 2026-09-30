@@ -51,7 +51,7 @@ class CloudContent(BaseModel):
 @cache
 def load_cloud_content() -> CloudContent:
     """Read `content/cloud.yaml`. Raises on an invalid file (the caller traces it)."""
-    path = config.content_dir() / "cloud.yaml"
+    path = config.content_file("cloud.yaml")
     return CloudContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
 
 

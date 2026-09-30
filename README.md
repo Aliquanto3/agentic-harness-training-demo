@@ -268,6 +268,37 @@ mémoire : il le recharge à son nouveau `num_ctx`. Le choix est mémorisé dans
 pas. Sans modèle actif, il est enregistré pour le prochain chargement. Une autre valeur saisie à
 la main dans `[context] window` reste lue, mais n'est pas proposée par le panneau.
 
+## Langue
+
+Le sélecteur de langue de la barre haute (« FR ▾ », juste avant « Réinitialiser ») propose
+**Français**, **English** et **Deutsch**. Il ne s'ouvre que sur une conversation vide : après un
+échange, il est grisé et son infobulle demande de cliquer d'abord sur « Vider la conversation »
+ou « Réinitialiser ». Le choix est enregistré dans `settings.json` (`"language": "en"`), repris
+au lancement suivant, et la page se recharge dans la langue choisie.
+
+Pour l'instant, la langue change :
+- **ce qui part vers le modèle** : prompt système par défaut, prompt du sous-agent,
+  descriptions des outils et de leurs paramètres (outils natifs, serveur MCP local,
+  méta-outils `load_skill`, `load_tool_doc`, `remember`, `delegate`), skills, texte et date
+  ajoutés par H3, introduction et entrées de la mémoire globale de démonstration, glossaire du
+  serveur MCP local, introduction et format des extraits du RAG ;
+- **les libellés tirés de ces mêmes fichiers** : noms et préréglages des outils (carte
+  « Outils », schéma, actions forcées), noms et descriptions des hooks et points du tour
+  (Orchestration), noms des skills, libellés des serveurs MCP et de leurs préréglages, bouton,
+  phase et préréglages du sous-agent, textes du tiroir de la mémoire, boutons et phases de la
+  carte RAG ;
+- le nom et l'infobulle du sélecteur de langue.
+
+Restent en français : le reste de l'interface (boutons, volets, messages), les noms et
+explications des briques, les scénarios et leurs consignes, les messages produits par le
+harnais (erreurs, raisons d'indisponibilité, erreurs d'outils, résultat de `get_datetime`), les
+écrans « LLM nu » et « Atelier RAG », le corpus RAG et les titres de ses documents.
+Une mémoire globale que vous avez modifiée est gardée telle quelle ; la mémoire de
+démonstration, elle, passe dans la nouvelle langue.
+
+Les traductions sont dans `content/i18n/en/` et `content/i18n/de/`, avec les mêmes noms de
+fichiers que `content/` ; un fichier absent y est lu en français.
+
 ## Écran « LLM nu »
 
 Le lien **« LLM nu »** de la barre haute ouvre la page `/llm` : ce qui se passe *dans* le modèle

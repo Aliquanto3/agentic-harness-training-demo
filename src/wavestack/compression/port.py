@@ -55,7 +55,7 @@ class CompressionContent(BaseModel):
         return self
 
 
-def load_compression_content() -> CompressionContent:
+def load_compression_content(lang: str | None = None) -> CompressionContent:
     """Raises on a missing or invalid file (the session traces it)."""
-    path = config.content_dir() / "compression.yaml"
+    path = config.content_file("compression.yaml", lang)
     return CompressionContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))

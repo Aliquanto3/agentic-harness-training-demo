@@ -1,0 +1,34 @@
+# English translation of content/hooks.yaml (languages 1/5, AD-19): same hook ids, same
+# points, same `{date}` placeholder (H3 writes the date in English).
+hooks:
+  h1:
+    label_fr: Sensitive file guard
+    description_fr: >-
+      Before a tool runs: blocks any read in the confidential folder of the demo
+      files.
+  h2:
+    label_fr: Logging
+    description_fr: >-
+      After each tool and at the end of the turn: adds the model calls, the tool
+      calls, the blocks and the end of the turn to the audit log.
+  h3:
+    label_fr: Context injection
+    description_fr: >-
+      When the message arrives: adds the workstation's date and the mission's
+      rules before it.
+  h5:
+    label_fr: Human approval
+    description_fr: >-
+      Before a network tool runs: pauses the turn and shows you the exact request
+      that would leave the workstation; it is only sent if you allow it.
+points:
+  on_user_message: Message received
+  before_model_call: Before the model call
+  before_tool: Before a tool runs
+  after_tool: After a tool runs
+  on_turn_end: End of the turn
+injection: >-
+  Workstation date and time: {date}. Mission rules: answer in English, sticking
+  to the facts; only use the files of the demo folder; flag any request that
+  would touch confidential data.
+audit_label_fr: Audit log

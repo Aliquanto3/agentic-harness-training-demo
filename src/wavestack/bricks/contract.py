@@ -57,13 +57,13 @@ class SystemPromptContent(BaseModel):
     text: str = Field(min_length=1)
 
 
-def load_brick_content(brick_id: str) -> BrickContent:
+def load_brick_content(brick_id: str, lang: str | None = None) -> BrickContent:
     """Raises on a missing or invalid file (the session traces it)."""
-    path = config.content_dir() / "bricks" / f"{brick_id}.yaml"
+    path = config.content_file(f"bricks/{brick_id}.yaml", lang)
     return BrickContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
 
 
-def load_default_system_prompt() -> str:
-    """Raises on a missing or blank `content/prompts/system.md`."""
-    path = config.content_dir() / "prompts" / "system.md"
+def load_default_system_prompt(lang: str | None = None) -> str:
+    """Raises on a missing or blank `content/prompts/system.md` (or its translation)."""
+    path = config.content_file("prompts/system.md", lang)
     return SystemPromptContent(text=path.read_text(encoding="utf-8-sig").strip()).text

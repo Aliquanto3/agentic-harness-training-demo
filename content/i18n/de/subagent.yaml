@@ -1,0 +1,32 @@
+# German translation of content/subagent.yaml (languages 1/5, AD-19): same fields, presets
+# with `task` only (the demo files keep their French names).
+delegate:
+  description: >-
+    Übergibt eine Teilaufgabe an einen Sub-Agenten, der in einem getrennten Kontext mit
+    eigenen Tools arbeitet (zum Beispiel Datei lesen). Verwenden, um ein langes Dokument zu
+    lesen oder zu analysieren: Nur das Ergebnis des Sub-Agenten kommt hierher zurück, nicht
+    das ganze Dokument.
+  task: >-
+    Die Aufgabe des Sub-Agenten, vollständig und eigenständig: Er sieht die Unterhaltung
+    nicht. Zum Beispiel: Lies die Datei guide_harnais.md und fasse sie in fünf Punkten
+    zusammen.
+phase_label_fr: Aufruf des Sub-Agenten
+force_label_fr: An den Sub-Agenten delegieren
+task_label_fr: >-
+  Aufgabe für den Sub-Agenten, vollständig: Er sieht die Unterhaltung nicht.
+presets:
+  - label_fr: Harness-Leitfaden zusammenfassen
+    args:
+      task: Lies die Datei guide_harnais.md und fasse sie in fünf kurzen Punkten zusammen.
+  - label_fr: Grenzen der Schleife
+    args:
+      task: >-
+        Lies die Datei guide_harnais.md und gib an, welche Grenzen der Harness der Schleife
+        eines Agenten setzt.
+  - label_fr: Besprechungsnotizen
+    args:
+      task: Lies die Datei notes_reunion.txt und liste die getroffenen Entscheidungen auf.
+overflow_cause_fr: >-
+  Ursache: Der Kontext des Sub-Agenten ist voll, meist wegen des Ergebnisses eines Tools
+  (ein zu langes Dokument). Um die Demo fortzusetzen: Geben Sie ihm ein kürzeres Dokument
+  oder eine Aufgabe, die weniger liest. Die Hauptrunde läuft ohne dieses Ergebnis weiter.

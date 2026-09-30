@@ -80,8 +80,10 @@ class McpConnection:
         *,
         connect_timeout: float,
         call_timeout: float,
+        language: str = "fr",
     ) -> None:
         self.server = server
+        self.language = language  # languages (1/5): the local server's, from the session
         self.loop = loop
         self.connect_timeout = connect_timeout
         self.call_timeout = call_timeout
@@ -96,9 +98,9 @@ class McpConnection:
 
     def _transport(self, stack: AsyncExitStack) -> Any:
         if self.server.url is None:
-            return StdioServerParameters(
-                command=sys.executable, args=["-m", "wavestack.mcp.local_server"]
-            )
+            # Languages (1/5): the session's language, as the process's only argument.
+            args = ["-m", "wavestack.mcp.local_server", self.language]
+            return StdioServerParameters(command=sys.executable, args=args)
         http = create_async_client(scope=lambda: self.scope, timeout=self.connect_timeout)
         stack.push_async_callback(http.aclose)
         return streamable_http_client(self.server.url, http_client=http)

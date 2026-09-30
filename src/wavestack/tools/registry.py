@@ -101,9 +101,9 @@ class ToolsContent(BaseModel):
     tools: dict[str, ToolText]
 
 
-def load_tools_content() -> ToolsContent:
+def load_tools_content(lang: str | None = None) -> ToolsContent:
     """Raises on a missing or invalid file (the session traces it)."""
-    path = config.content_dir() / "tools.yaml"
+    path = config.content_file("tools.yaml", lang)
     return ToolsContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
 
 
@@ -147,6 +147,14 @@ class ToolRegistry:
             self._by_name[name] = spec
             added.append(name)
         return added
+
+    def replace(self, specs: list[ToolSpec]) -> None:
+        """Languages (1/5): tools already registered, described again in another language;
+        a name not registered is left out."""
+        for spec in specs:
+            name = self.exposed_name(spec)
+            if name in self._by_name:
+                self._by_name[name] = spec
 
     def remove(self, prefix: str) -> None:
         """Unregister every tool whose exposed name starts with `prefix` (e.g. `local__`)."""

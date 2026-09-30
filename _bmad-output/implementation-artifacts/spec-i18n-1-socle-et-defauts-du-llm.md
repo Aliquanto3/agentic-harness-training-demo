@@ -2,7 +2,8 @@
 title: 'Langues (1/5) : socle, sélecteur de langue et défauts du LLM en anglais et en allemand'
 type: 'feature'
 created: '2026-09-29'
-status: 'draft'
+status: 'done'
+baseline_commit: '7ab42a706754c3bd6cba5d14b6760db9ab3dc2b0'
 route: 'dispatch'
 review_loop_iteration: 0
 context: []
@@ -114,12 +115,12 @@ La story est approuvée par délégation, pendant la nuit, et relue le matin.
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/wavestack/config.py` et tous les chargeurs -- `content_file`, la langue, le vidage des caches.
-- [ ] `src/wavestack/session/app_session.py`, `src/wavestack/web/app.py`, `src/wavestack/trace/catalog.py`, `src/wavestack/hooks.py` -- l'intention, le rechargement, l'état, la date H3.
-- [ ] `content/i18n/en/**`, `content/i18n/de/**` -- les traductions des défauts du LLM.
-- [ ] `src/wavestack/web/static/index.html`, `app.js` -- le sélecteur.
-- [ ] `tests/test_i18n.py`, `tools/e2e/*` -- la matrice et l'E2E.
-- [ ] `ARCHITECTURE-SPINE.md`, `CLAUDE.md`, `deferred-work.md`, `README.md` -- la documentation.
+- [x] `src/wavestack/config.py` et tous les chargeurs -- `content_file`, la langue, le vidage des caches.
+- [x] `src/wavestack/session/app_session.py`, `src/wavestack/web/app.py`, `src/wavestack/trace/catalog.py`, `src/wavestack/hooks.py` -- l'intention, le rechargement, l'état, la date H3.
+- [x] `content/i18n/en/**`, `content/i18n/de/**` -- les traductions des défauts du LLM.
+- [x] `src/wavestack/web/static/index.html`, `app.js` -- le sélecteur.
+- [x] `tests/test_i18n.py`, `tools/e2e/*` -- la matrice et l'E2E.
+- [x] `ARCHITECTURE-SPINE.md`, `CLAUDE.md`, `deferred-work.md`, `README.md` -- la documentation.
 
 **Acceptance Criteria:**
 - Given une conversation vide, when on choisit « English » puis on envoie « What time is it? » avec la brique Outils, then le corps envoyé au modèle ne contient que des défauts anglais (prompt système, descriptions d'outils), et l'interface se recharge en `lang="en"`.
@@ -138,3 +139,39 @@ La story est approuvée par délégation, pendant la nuit, et relue le matin.
 ## Spec Change Log
 
 ## Review Triage Log
+
+Revue 1 (2026-09-30, trois relecteurs : aveugle (B), cas limites (EC), trous de vérification (VG)).
+
+| # | Constat | Verdict | Preuve | Suite |
+|---|---------|---------|--------|-------|
+| 1 | Langue de la session pas toujours transmise : `_localized` en `fr` (sans `lang`), `McpConnection` (`config.current_language()`), H3 date dans la langue demandée même quand le fichier résolu est français (B, EC) | medium | Relu : branche `fr` de `_localized` et transport MCP lisent `settings.json` ; `load_hooks_content` pose la langue demandée | patch |
+| 2 | Descriptions des outils du serveur MCP local en dur dans `local_server.py`, contre AD-19 (B) | medium | `_DESCRIPTIONS` en trois langues dans le code | patch : dans `content/.../mcp_local/`, couvertes par la parité |
+| 3 | Rechargement : fichier de la nouvelle langue et français en échec, l'ancien texte reste sans `harness_error` (B, EC) | low | `again()` avale l'erreur | patch : tracer l'erreur |
+| 4 | Pas de `session_state` après le changement (EC) | low | `set_language` n'émet pas l'état | patch : l'émettre |
+| 5 | Sélecteur actif si `/api/state` échoue au démarrage (EC) | low | `renderLanguagePicker` sans garde | patch |
+| 6 | Nettoyage de `s_language` sans attente de repos : l'E2E peut continuer en anglais (EC) | low | `finally` sans `wait_idle` ni contrôle des codes | patch |
+| 7 | `current_language()` lève sur `OSError` de lecture (EC) | low | `read_settings` ne rattrape que `JSONDecodeError` | patch |
+| 8 | Docs : « le reste de l'interface reste en français », mais les libellés `*_fr` des outils, hooks, préréglages, RAG et du tiroir mémoire sont traduits (B) | low | Fichiers traduits en entier | patch : README, AD-19, infobulle |
+| 9 | Numéro de story du corpus RAG par langue incohérent (4 ou 5) (B) | low | `deferred-work` dit 4, les commentaires disent 5 | patch : 4 partout |
+| 10 | Liste des langues répétée sans contrôle ; `languages` de `/api/state` inutilisé (B) | low | Sept tables | patch : un test de cohérence des tables par langue |
+| 11 | Tournures de traduction : « short-term memory », « Human approval », « Year », majuscule du préréglage, genre en allemand (B) | low | Relu | patch |
+| 12 | Tests manquants : rechargement de H3, sous-agent, MCP et RAG après `set_language` ; serveur MCP local relancé en anglais ; badge `pending` du prompt système ; verrou sans historique (compétence chargée, tour arrêté) ; déverrouillage par « Réinitialiser » dans l'E2E ; échec d'`OSError` à l'enregistrement (VG, B) | medium | Aucune suppression correspondante ne fait échouer un test | patch |
+| 13 | Textes restés français dans le nouveau code, et champs `*_fr` porteurs d'anglais ou d'allemand (B) | low | Relu | defer (stories 2 et 5) |
+| 14 | `<html lang>` en anglais alors que l'interface reste en français (B) | false | L'intention figée impose « `<html lang>` suit la langue » | rejeté |
+| 15 | Fichier français cassé et allemand valide : erreur de contenu périmée (EC) | low | Les fichiers français sont validés par les tests | rejeté (improbable) |
+| 16 | `tools.yaml` traduit sans un outil : `KeyError` (EC) | false | Le test de parité impose les mêmes identifiants | rejeté |
+| 17 | `save_setting` non atomique (EC) | low | Préexistant, hors de cette story | rejeté |
+| 18 | Tour lancé entre le verrou et la relance MCP ; erreur parasite si le serveur se connectait (EC) | low | Fenêtre de quelques millisecondes, geste improbable | rejeté |
+| 19 | « Rejouer » après changement renvoie le message d'avant (EC) | false | C'est le texte de l'utilisateur, les défauts sont les nouveaux | rejeté |
+| 20 | Réponse HTTP perdue pendant le changement (EC) | low | Boucle locale | rejeté |
+| 21 | Chargeurs d'interface (`cloud`, `segments`, `catalog`) résolus par `settings.json` ; `documents` de `rag.yaml` recopiés (B) | low | Textes d'interface de la story 3 ; parité contrôlée | rejeté |
+
+## Vérification finale (nuit du 2026-09-30, intégration)
+
+- Vérifié sur la branche d'intégration `feat/i18n-1`, au commit `ddc63e4`, qui réunit Gemini, FinOps, GreenOps et Langues.
+- Joué dans le `.venv` de la démo, qui a l'extra `compression`, sans `greenops` : la branche « Empreinte estimée : indisponible » est donc celle jouée.
+- `ruff check` et `ruff format --check` : propres.
+- `pytest` en deux moitiés au premier plan : 894, puis 548 réussis, 0 échec.
+- E2E complet en quatre tranches : 177, 174, 179 et 219 vérifications réussies.
+  - `[rag_rerank]` a expiré une fois sous charge, puis est passé seul (56 sur 56) : instabilité connue, consignée dans `deferred-work.md`.
+  - La barre haute réunie (langue, dépense, empreinte) passe à 1 280, 1 440 et 1 600 px, en mode normal et en projection, mais elle est saturée à 1 600 px : consigné dans `deferred-work.md`.

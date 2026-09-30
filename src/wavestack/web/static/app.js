@@ -13,6 +13,9 @@ const PANE_LABELS = {
 
 const store = {
   sessionState: null,
+  // Languages (1/5): `{language, languages, language_locked}` from `/api/state`; the lock
+  // follows `session_state` and is lifted by `conversation_cleared` or `harness_reset`.
+  language: null,
   // AD-12: the model indicator's only source (`session_state.active_model`, `/api/state`).
   activeModel: null,
   // Story 17: the load in progress, from `model_load_started` to `model_load_ended`
@@ -296,6 +299,16 @@ function applyEnvelope(envelope) {
       // The diagnostic session's own states carry no model: the last known one stays.
       if (p.active_model !== undefined) store.activeModel = p.active_model;
       if (p.state === "idle") store.composerError = null;
+      if (typeof p.language_locked === "boolean" && store.language) {
+        store.language.language_locked = p.language_locked;
+      }
+      break;
+    case "language_changed":
+      // Another tab changed the language: this page reloads in it too. Only against a language
+      // `/api/state` gave (without it, a replayed change would reload the page).
+      if (isLive(envelope) && !languageChanging && store.language && p.language !== store.language.language) {
+        location.reload();
+      }
       break;
     case "architecture_changed":
       if (isLive(envelope)) store.architecture = p;
@@ -328,6 +341,7 @@ function applyEnvelope(envelope) {
       break;
     case "conversation_cleared":
       // Past turns leave the Vue humain, Contexte LLM and Orchestration; the event list keeps them.
+      if (isLive(envelope) && store.language) store.language.language_locked = false;
       dropSelection(); // story 34: its keys named what is gone
       clearCtxFolds(); // story 32: the folds of calls that are gone
       store.chatFrom = store.turns.length;
@@ -343,6 +357,7 @@ function applyEnvelope(envelope) {
     case "harness_reset":
       // Like `conversation_cleared`, but the panes go back to « Aucun tour », the MCP
       // connections seen so far stay in the harness preparation, and the event log restarts.
+      if (isLive(envelope) && store.language) store.language.language_locked = false;
       dropSelection();
       clearCtxFolds();
       store.chatFrom = store.turns.length;
@@ -1029,6 +1044,7 @@ function selectionShown() {
 // ---------- rendering ----------
 
 function render() {
+  renderLanguagePicker();
   renderBricks();
   updateBrickStatuses();
   renderChips();
@@ -3233,6 +3249,78 @@ function resetHarness() {
   store.openBrickHelp.clear();
   for (const popover of document.querySelectorAll(".brick-explanation:popover-open")) popover.hidePopover();
   scenarioIntention("/api/intentions/reset", {}, "WaveStack ne répond pas : rien n'a été réinitialisé.");
+}
+
+// ---------- languages (1/5): the language picker of the top bar ----------
+
+// Only the picker and its tooltip speak the chosen language for now: the rest of the
+// interface stays French until it is translated (languages, story 2).
+const LANGUAGE_TEXTS = {
+  fr: {
+    name: "Langue",
+    help: "Langue de ce qui part vers le modèle (prompt système, outils, skills, hooks, mémoire, glossaire, RAG) et des noms d'outils, de hooks, de skills et de serveurs MCP. Le reste de l'interface, les briques, les scénarios et les messages du harnais restent en français pour l'instant.",
+    locked: "Videz d'abord la conversation (« Vider la conversation » ou « Réinitialiser ») : la langue ne se change que sur une conversation vide.",
+    failed: "WaveStack ne répond pas : la langue n'a pas changé.",
+  },
+  en: {
+    name: "Language",
+    help: "Language of what is sent to the model (system prompt, tools, skills, hooks, memory, glossary, RAG) and of the names of tools, hooks, skills and MCP servers. The rest of the interface, the bricks, the scenarios and the harness's messages stay in French for now.",
+    locked: "Clear the conversation first (« Vider la conversation » or « Réinitialiser »): the language can only change on an empty conversation.",
+    failed: "WaveStack does not answer: the language did not change.",
+  },
+  de: {
+    name: "Sprache",
+    help: "Sprache dessen, was an das Modell geht (System-Prompt, Tools, Skills, Hooks, Gedächtnis, Glossar, RAG), und der Namen von Tools, Hooks, Skills und MCP-Servern. Der Rest der Oberfläche, die Bausteine, die Szenarien und die Meldungen des Harness bleiben vorerst auf Französisch.",
+    locked: "Leeren Sie zuerst die Unterhaltung (« Vider la conversation » oder « Réinitialiser »): Die Sprache lässt sich nur bei leerer Unterhaltung ändern.",
+    failed: "WaveStack antwortet nicht: Die Sprache wurde nicht geändert.",
+  },
+};
+let languageChanging = false; // the intention is on its way: the page reloads on success
+
+const languageTexts = () => LANGUAGE_TEXTS[store.language?.language] ?? LANGUAGE_TEXTS.fr;
+
+function renderLanguagePicker() {
+  const info = store.language;
+  const picker = document.getElementById("language-picker");
+  if (!picker) return;
+  if (!info) {
+    picker.disabled = true; // no `/api/state`: the lock is unknown, nothing to offer
+    return;
+  }
+  const texts = languageTexts();
+  const idle = store.sessionState?.state === "idle";
+  const locked = Boolean(info.language_locked);
+  if (picker.value !== info.language) picker.value = info.language;
+  picker.disabled = locked || !idle || languageChanging;
+  const busy = store.sessionState?.reason_fr || "Disponible hors d'un tour.";
+  const title = locked ? texts.locked : idle ? texts.help : busy;
+  picker.title = title;
+  document.getElementById("language-picker-box").title = title;
+  picker.setAttribute("aria-label", texts.name);
+  setText(document.getElementById("language-picker-code"), info.language.toUpperCase());
+}
+
+async function changeLanguage(event) {
+  const wanted = event.target.value;
+  const current = store.language?.language ?? "fr";
+  event.target.value = current; // the option shown follows the session until the reload
+  if (wanted === current) return;
+  languageChanging = true;
+  store.composerError = null;
+  render();
+  try {
+    const response = await postIntention("/api/intentions/language", { language: wanted });
+    if (response.ok) {
+      location.reload(); // the page comes back in the new language
+      return;
+    }
+    const detail = await response.json().catch(() => ({}));
+    store.composerError = typeof detail.detail === "string" ? detail.detail : "Changement de langue refusé.";
+  } catch {
+    store.composerError = languageTexts().failed;
+  }
+  languageChanging = false;
+  render();
 }
 
 async function postIntention(path, body) {
@@ -6128,6 +6216,7 @@ const KIND_LABELS = {
   conversation_cleared: "Conversation vidée",
   scenario_changed: "Scénario",
   harness_reset: "Réinitialisation",
+  language_changed: "Langue changée",
   tool_started: "Outil lancé",
   tool_ended: "Outil terminé",
   tool_call_malformed: "Appel d'outil mal formé",
@@ -7258,6 +7347,7 @@ async function boot() {
   document.getElementById("model-picker-apply").addEventListener("click", applyPick);
   bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
+  document.getElementById("language-picker").addEventListener("change", changeLanguage);
   document.getElementById("projection-toggle").addEventListener("click", toggleProjection);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
@@ -7347,6 +7437,14 @@ async function boot() {
     store.memory = body.memory_changed ?? null;
     store.windowState = body.context_window_state ?? null;
     store.consumption = body.consumption_updated ?? null; // FinOps: kept across a reload
+    if (body.language) {
+      store.language = {
+        language: body.language,
+        languages: body.languages ?? [],
+        language_locked: Boolean(body.language_locked),
+      };
+      document.documentElement.lang = body.language; // languages (1/5): `<html lang>`
+    }
     const preview = body.context_preview;
     const rendered = body.context_rendered;
     const reconciled = body.context_reconciled;

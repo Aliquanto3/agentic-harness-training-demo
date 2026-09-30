@@ -13,6 +13,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from wavestack import config
+from wavestack.config import localized_path
 
 
 class Scenario(BaseModel):
@@ -84,7 +85,7 @@ EMPTY_PROGRAM: dict[str, Any] = {"modules": [], "transverse": []}
 def load_scenarios(known: dict[str, set[str]]) -> ScenariosContent:
     """`known` maps `bricks`, `tools`, `mcp_servers`, `skills` and `hooks` to their ids.
     Raises on a missing or invalid file, or any unknown id."""
-    path = config.content_dir() / "scenarios.yaml"
+    path = localized_path(config.content_dir(), "scenarios.yaml")
     content = ScenariosContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
     unknown = []
     for scenario_id, scenario in content.scenarios.items():

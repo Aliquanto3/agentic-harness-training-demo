@@ -4193,6 +4193,59 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   }
 }
 
+/* ---------- languages (1/5): the language picker of the top bar ----------
+   Always compact, as the theme picker under 1400 px: a face with the language's code and a
+   chevron, the native list whole on top of it, transparent, so that a click, the keyboard
+   and a screen reader reach it (its name and its tooltip are in the chosen language). */
+.language-picker-box {
+  position: relative;
+  display: inline-flex;
+}
+
+.language-picker-face {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-1) 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-on-ink-soft);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.language-picker-chevron {
+  font-size: 0.75em;
+}
+
+.language-picker {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 0;
+  opacity: 0;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+/* Locked (a conversation in progress) or outside `idle`: as the scenario picker. */
+.language-picker:disabled {
+  cursor: not-allowed;
+}
+
+.language-picker-box:has(.language-picker:disabled) .language-picker-face {
+  opacity: 0.6;
+}
+
+.top-bar .language-picker-box:has(.language-picker:focus-visible) {
+  outline: var(--spacing-stroke-min) solid var(--color-on-ink);
+  outline-offset: 2px;
+  border-radius: var(--rounded-md);
+}
+
 /* Vue humain: the model that plays the turns below, when it changed. */
 .model-switch-line {
   align-self: center;
@@ -4983,5 +5036,45 @@ body .arch .arch-robots .robot.is-selection-linked {
 
   .projection-toggle {
     padding: 0 var(--spacing-2);
+  }
+}
+
+/* ---------- languages (1/5): room for the language picker in the top bar ----------
+   « FR ▾ » takes about 45 px of the one-line bar that lot K tuned: from 1300 px down the title
+   goes (the page's title keeps it); under 1100 px the names give a few more pixels (their whole
+   text stays in the list and the tooltip), and the picker drops its chevron. */
+@media (max-width: 1300px) {
+  .top-bar-title {
+    display: none;
+  }
+}
+
+@media (min-width: 1000px) and (max-width: 1100px) {
+  .top-bar > .scenario-picker,
+  .top-bar > .model-indicator {
+    min-width: 3rem;
+  }
+
+  .top-bar > .model-picker {
+    min-width: 2.5rem;
+  }
+}
+
+@media (max-width: 1100px) {
+  :root.projection .top-bar > select.scenario-picker,
+  :root.projection .top-bar > .model-picker {
+    min-width: 2rem;
+  }
+
+  :root.projection .top-bar > .model-indicator {
+    min-width: 1.5rem;
+  }
+
+  .language-picker-face {
+    padding: 0 var(--spacing-1);
+  }
+
+  .language-picker-chevron {
+    display: none;
   }
 }

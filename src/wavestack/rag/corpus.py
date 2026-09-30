@@ -81,9 +81,9 @@ class Chunk(NamedTuple):
     text: str
 
 
-def load_rag_content() -> RagContent:
+def load_rag_content(lang: str | None = None) -> RagContent:
     """Raises on a missing or invalid file (the session traces it)."""
-    path = config.content_dir() / "rag.yaml"
+    path = config.content_file("rag.yaml", lang)
     return RagContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
 
 
@@ -130,7 +130,9 @@ def chunk_corpus(content: RagContent, max_chars: int) -> list[Chunk]:
     """Every document of the corpus, read from `content/` and chunked, in declared order."""
     chunks: list[Chunk] = []
     for doc in content.documents:
-        text = _COMMENT.sub("", (config.content_dir() / doc.file).read_text(encoding="utf-8-sig"))
+        # The corpus stays French whatever the language, and so does its index (story 4).
+        path = config.content_file(doc.file, config.DEFAULT_LANGUAGE)
+        text = _COMMENT.sub("", path.read_text(encoding="utf-8-sig"))
         for position, piece in enumerate(split_text(text, max_chars), start=1):
             chunks.append(Chunk(doc.id, doc.title_fr, position, piece))
     return chunks

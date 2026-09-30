@@ -2,7 +2,7 @@
 title: 'Estimateur GreenOps de tous les modèles (EcoLogits pour le cloud, CodeCarbon en local)'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-review'
+status: 'done'
 baseline_commit: '950ead3b3270de378912ee544e6c97ca3eaa8618'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -163,3 +163,13 @@ Revue 1 (2026-09-30, trois relecteurs : aveugle (B), cas limites (EC), trous de 
 | 22 | Import d'EcoLogits hors budget mémoire ; `Impact.method` typé `str` (B) | low | Environ 5 Mo ; cosmétique | rejeté |
 | 23 | Concurrence : classe de journalisation d'EcoLogits, budget vérifié sans le verrou du registre (EC) | low | Fenêtres étroites, premier appel seulement | rejeté |
 | 24 | Appel cloud annulé avant toute sortie avec une empreinte (EC) | low | La requête est partie et a consommé ; même règle que le coût (entrée facturée) | rejeté |
+
+## Vérification finale (nuit du 2026-09-30, intégration)
+
+- Vérifié sur la branche d'intégration `feat/i18n-1`, au commit `ddc63e4`, qui réunit Gemini, FinOps, GreenOps et Langues.
+- Joué dans le `.venv` de la démo, qui a l'extra `compression`, sans `greenops` : la branche « Empreinte estimée : indisponible » est donc celle jouée.
+- `ruff check` et `ruff format --check` : propres.
+- `pytest` en deux moitiés au premier plan : 894, puis 548 réussis, 0 échec.
+- E2E complet en quatre tranches : 177, 174, 179 et 219 vérifications réussies.
+  - `[rag_rerank]` a expiré une fois sous charge, puis est passé seul (56 sur 56) : instabilité connue, consignée dans `deferred-work.md`.
+  - La barre haute réunie (langue, dépense, empreinte) passe à 1 280, 1 440 et 1 600 px, en mode normal et en projection, mais elle est saturée à 1 600 px : consigné dans `deferred-work.md`.

@@ -199,7 +199,7 @@ _CONTENT: dict[str, tuple[int, RagLabContent]] = {}  # the latest read, by path
 def load_lab_content() -> RagLabContent:
     """Read `content/rag_lab.yaml`, again once the file changed: a corrected file shows on
     the page's reload. Raises on a missing or invalid file. Only the latest read is kept."""
-    path = config.content_dir() / "rag_lab.yaml"
+    path = config.content_file("rag_lab.yaml")
     mtime = path.stat().st_mtime_ns
     kept = _CONTENT.get(str(path))
     if kept is not None and kept[0] == mtime:

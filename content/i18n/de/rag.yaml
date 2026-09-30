@@ -1,0 +1,63 @@
+# German translation of content/rag.yaml (languages 1/5, AD-19): same fields, same
+# placeholders. The corpus and its index stay French (languages, story 4): `documents` is the
+# French file's, titles included, since the index holds them.
+notice_fr: >-
+  Fiktive Texte, geschrieben für WaveStack: Exemplia ist eine erfundene Organisation,
+  ihre Regeln beschreiben kein reales Unternehmen.
+
+intro_fr: >-
+  Auszüge aus der internen Dokumentation von Exemplia, die der Harness zu dieser Frage
+  gefunden hat (auf Französisch). Sie sind nicht unbedingt alle relevant: Stütze dich
+  auf die, die antworten, und nenne das verwendete Dokument.
+
+excerpt_format_fr: "Auszug {position} — {title_fr}:\n{text}"
+
+placement_fr: In der Nachricht des Benutzers in dieser Runde, vor der Frage
+
+phase_label_fr: Suche im Korpus…
+
+index_label_fr: RAG-Index (rag_index.sqlite)
+
+download_label_fr: "Embedding-Modell herunterladen (≈ {size_mb} MB)"
+
+build_label_fr: Index erstellen
+
+rerank_label_fr: Reranking
+
+rerank_phase_label_fr: Reranking der Auszüge…
+
+rerank_search_placement_fr: >-
+  Keiner direkt: Diese {candidates} Kandidaten gehen ins Reranking, das nur {keep}
+  davon behält
+
+rerank_placement_fr: >-
+  Die ersten {keep} nach dem Reranking, in der Nachricht des Benutzers in dieser
+  Runde, vor der Frage
+
+rerank_download_label_fr: "Reranking-Modell herunterladen (≈ {size_mb} MB)"
+
+documents:
+  - id: mots_de_passe
+    title_fr: Politique des mots de passe
+    file: corpus/mots_de_passe.md
+  - id: teletravail
+    title_fr: Accord de télétravail
+    file: corpus/teletravail.md
+  - id: classification
+    title_fr: Classification de l'information
+    file: corpus/classification.md
+  - id: incidents
+    title_fr: Incidents de sécurité
+    file: corpus/incidents.md
+  - id: donnees_personnelles
+    title_fr: Conservation des données personnelles
+    file: corpus/donnees_personnelles.md
+  - id: ia_generative
+    title_fr: Usage de l'IA générative
+    file: corpus/ia_generative.md
+  - id: deplacements
+    title_fr: Déplacements et notes de frais
+    file: corpus/deplacements.md
+  - id: sauvegardes
+    title_fr: Sauvegardes
+    file: corpus/sauvegardes.md

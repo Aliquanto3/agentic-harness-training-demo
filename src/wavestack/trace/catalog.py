@@ -97,6 +97,10 @@ class SessionStatePayload(BaseModel):
     state: SessionState
     reason_fr: str | None = None
     active_model: ActiveModel | None = None
+    # Languages (1/5): the application session's language, and whether the conversation
+    # locks it; absent from the diagnostic session's states.
+    language: Literal["fr", "en", "de"] | None = None
+    language_locked: bool | None = None
 
 
 class ArchitectureNode(BaseModel):
@@ -771,6 +775,15 @@ class HarnessResetPayload(BaseModel):
     pass
 
 
+# ---------- languages (1/5, AD-19) ----------
+
+
+class LanguageChangedPayload(BaseModel):
+    """The language saved in `settings.json`; the texts sent to the model follow it."""
+
+    language: Literal["fr", "en", "de"]
+
+
 # ---------- story 14: global memory (AD-20, AD-23) ----------
 
 
@@ -1273,6 +1286,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "action_dropped": ActionDroppedPayload,
     "scenario_changed": ScenarioChangedPayload,
     "harness_reset": HarnessResetPayload,
+    "language_changed": LanguageChangedPayload,
     "memory_changed": MemoryChangedPayload,
     "model_load_started": ModelLoadStartedPayload,
     "model_load_ended": ModelLoadEndedPayload,

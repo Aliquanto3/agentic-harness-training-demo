@@ -921,6 +921,11 @@ class Config:
         return ports
 
     @property
+    def language(self) -> str:
+        """Languages (1/5): `language` of `settings.json`, one of `LANGUAGES`; `fr` otherwise."""
+        return as_language(self.get("language"))
+
+    @property
     def selected_model(self) -> dict[str, str] | None:
         """AD-20: `{kind: file|server|cloud, ref}`; a plain string (story 1b) is a file."""
         value = self.get("selected_model")
@@ -1002,6 +1007,60 @@ def save_setting(key: str, value: Any) -> None:
 def content_dir() -> Path:
     """French pedagogical content shipped with the repo (AD-19)."""
     return repo_root() / "content"
+
+
+# Languages (1/5, AD-19): French by default; English and German overlay it under
+# `content/i18n/{lang}/`, with the same tree and file names.
+LANGUAGES: tuple[str, ...] = ("fr", "en", "de")
+DEFAULT_LANGUAGE = "fr"
+# Each language written in itself, for the selector.
+LANGUAGE_LABELS: dict[str, str] = {"fr": "Français", "en": "English", "de": "Deutsch"}
+
+
+def as_language(value: Any) -> str:
+    """`value` when it is one of `LANGUAGES`, else `DEFAULT_LANGUAGE`."""
+    return value if isinstance(value, str) and value in LANGUAGES else DEFAULT_LANGUAGE
+
+
+def current_language() -> str:
+    """The language `settings.json` holds now (`fr` when absent, unknown or unreadable)."""
+    try:
+        return as_language(read_settings().get("language"))
+    except OSError:
+        return DEFAULT_LANGUAGE
+
+
+def localized_path(root: Path, rel: str | PurePosixPath, lang: str | None = None) -> Path:
+    """`root/i18n/{lang}/{rel}` when that translation exists, else `root/{rel}` (French).
+    `lang=None` reads the setting. The only resolution rule; `content_file` applies it."""
+    lang = as_language(lang) if lang is not None else current_language()
+    if lang != DEFAULT_LANGUAGE:
+        translated = root / "i18n" / lang / rel
+        if translated.is_file():
+            return translated
+    return root / rel
+
+
+def content_file(rel: str | PurePosixPath, lang: str | None = None) -> Path:
+    """The file `rel` of `content/` in `lang` (the setting's language when `None`): its
+    translation under `content/i18n/{lang}/` when it exists, else the French file."""
+    return localized_path(content_dir(), rel, lang)
+
+
+def clear_content_caches() -> None:
+    """Forget every content a loader keeps (`@cache`): after a change of language, each is
+    read again from its file in the new language. The session keeps the others itself."""
+    from wavestack import cloud
+    from wavestack.context import segments
+    from wavestack.models import catalog
+    from wavestack.rag import lab as rag_lab
+    from wavestack.session import llm_lab
+
+    cloud.load_cloud_content.cache_clear()
+    segments.load_labels.cache_clear()
+    catalog.load_publishers.cache_clear()
+    llm_lab.load_lab_content.cache_clear()  # type: ignore[attr-defined]
+    rag_lab.load_lab_content.cache_clear()  # type: ignore[attr-defined]
 
 
 def models_dir() -> Path:

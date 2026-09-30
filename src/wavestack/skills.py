@@ -36,14 +36,13 @@ class SkillsContent(BaseModel):
     skills: dict[str, SkillText] = {}
 
 
-def load_skills_content(ids: Iterable[str]) -> SkillsContent:
+def load_skills_content(ids: Iterable[str], lang: str | None = None) -> SkillsContent:
     """Raises on a missing or invalid file (the session traces it)."""
-    root = config.content_dir()
     content = SkillsContent.model_validate(
-        yaml.safe_load((root / "skills.yaml").read_text(encoding="utf-8"))
+        yaml.safe_load(config.content_file("skills.yaml", lang).read_text(encoding="utf-8"))
     )
     for skill_id in ids:
-        path = root / "skills" / skill_id / "SKILL.md"
+        path = config.content_file(f"skills/{skill_id}/SKILL.md", lang)
         match = _FRONT_MATTER.fullmatch(path.read_text(encoding="utf-8-sig"))
         if match is None:
             raise ValueError(f"{path}: en-tête YAML entre deux lignes « --- » attendu")

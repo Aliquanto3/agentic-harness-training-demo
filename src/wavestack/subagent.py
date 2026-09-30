@@ -34,9 +34,9 @@ class SubagentContent(BaseModel):
         return self
 
 
-def load_subagent_content() -> SubagentContent:
+def load_subagent_content(lang: str | None = None) -> SubagentContent:
     """Raises on a missing or invalid file (the session traces it)."""
-    root = config.content_dir()
-    data = yaml.safe_load((root / "subagent.yaml").read_text(encoding="utf-8")) or {}
-    prompt = (root / "prompts" / "subagent.md").read_text(encoding="utf-8-sig").strip()
+    data = yaml.safe_load(config.content_file("subagent.yaml", lang).read_text("utf-8")) or {}
+    path = config.content_file("prompts/subagent.md", lang)
+    prompt = path.read_text(encoding="utf-8-sig").strip()
     return SubagentContent.model_validate({**data, "prompt": prompt})

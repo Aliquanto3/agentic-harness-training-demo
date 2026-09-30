@@ -1,0 +1,37 @@
+# English translation of content/mcp.yaml (languages 1/5, AD-19): same server ids, same
+# tool names in `call_presets`, same argument names.
+servers:
+  local:
+    label_fr: WaveStack glossary
+  datagouv:
+    label_fr: data.gouv.fr
+    sends_fr: the search and its arguments
+  mslearn:
+    label_fr: Microsoft Learn
+    sends_fr: the question asked
+lazy_label_fr: Lazy loading
+load_tool_doc:
+  label_fr: Documentation loading
+  intro: >-
+    Loads the documentation of an MCP tool, which becomes callable; does not load
+    a skill. Call it before any tool of this list:
+  tool: Exact name of the tool, as it appears in the list.
+call_presets:
+  local__define_term:
+    - label_fr: MCP
+      args:
+        term: MCP
+  datagouv__search_datasets:
+    - label_fr: Cybersecurity
+      args:
+        query: cybersécurité
+  mslearn__microsoft_docs_search:
+    - label_fr: MFA for administrators (IAM)
+      args:
+        query: require multifactor authentication for all Entra ID administrators
+    - label_fr: Just-in-time PIM (IAM)
+      args:
+        query: Privileged Identity Management just-in-time activation of an Entra ID role
+    - label_fr: Logging of admin sign-ins (Sovereignty)
+      args:
+        query: sign-in logs of Entra ID administrator accounts

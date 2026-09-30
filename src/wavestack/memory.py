@@ -113,9 +113,9 @@ class MemoryContent(BaseModel):
         return self
 
 
-def load_memory_content() -> MemoryContent:
+def load_memory_content(lang: str | None = None) -> MemoryContent:
     """Raises on a missing or invalid file (the session traces it)."""
-    path = config.content_dir() / "memory" / "memory.yaml"
+    path = config.content_file("memory/memory.yaml", lang)
     return MemoryContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
 
 

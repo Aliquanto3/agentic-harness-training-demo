@@ -1,0 +1,6 @@
+# German translation of content/mcp_local/tools.yaml (languages 1/5, AD-19): the local MCP
+# server's tool descriptions, seen by the model.
+list_terms: Listet die Begriffe des Glossars des WaveStack-Demonstrators auf, einen pro Zeile.
+define_term: >-
+  Gibt die Definition eines Begriffs des WaveStack-Demonstrators (Harness, Kontext, Tool,
+  MCP, Skill, Hook, RAG…). list_terms aufrufen, um die Begriffe zu kennen.
