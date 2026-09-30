@@ -1,6 +1,7 @@
-# German translation of content/rag.yaml (languages 1/5, AD-19): same fields, same
-# placeholders. The corpus and its index stay French (languages, story 4): `documents` is the
-# French file's, titles included, since the index holds them.
+# German translation of content/rag.yaml (languages 1/5 and 4/5, AD-19): same fields, same
+# placeholders. `documents` keeps the French ids and files (the corpus is translated under
+# content/i18n/de/corpus/, same names); only the titles change, and the index of this
+# language (data/rag_index.de.sqlite) holds them.
 notice_text: >-
   Fiktive Texte, geschrieben für WaveStack: Exemplia ist eine erfundene Organisation,
   ihre Regeln beschreiben kein reales Unternehmen.

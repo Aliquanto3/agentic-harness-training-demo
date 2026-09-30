@@ -625,18 +625,29 @@ Sur une installation neuve, tout se fait depuis la carte RAG, sans ligne de comm
 2. « Construire l'index » : le corpus est découpé et indexé sur le poste, dans
    `data/rag_index.sqlite` (sqlite-vec), avec une progression et « Arrêter ».
 
-Le script fait la même chose, et peut committer l'index avec le dépôt :
+**Un corpus et un index par langue.** Le corpus anglais et le corpus allemand sont dans
+`content/i18n/{en,de}/corpus/`, sous les mêmes noms de fichiers, et les titres des documents
+dans `content/i18n/{en,de}/rag.yaml`. Chaque langue a son index, à côté du français :
+`data/rag_index.en.sqlite` et `data/rag_index.de.sqlite` (le chemin de `[rag] index_path`,
+`.{langue}` inséré avant l'extension). Les trois index sont livrés avec le dépôt : la brique
+RAG et l'atelier RAG ouvrent celui de la langue de la session, titres des extraits compris.
+Après un changement de langue, un index absent se construit depuis la carte, comme ci-dessus.
+
+Le script fait la même chose, pour une langue à la fois (`fr` par défaut, jamais lue dans
+`settings.json`), et peut committer l'index avec le dépôt :
 
 ```bash
-uv run python scripts/build_rag_index.py                  # modèle de [rag.embedding]
+uv run python scripts/build_rag_index.py                  # modèle de [rag.embedding], français
+uv run python scripts/build_rag_index.py --lang de        # corpus allemand, rag_index.de.sqlite
 uv run python scripts/build_rag_index.py --download       # télécharge d'abord le modèle
 uv run python scripts/build_rag_index.py --model C:\chemin\modele.gguf
 ```
 
 `--model` n'accepte que le fichier déclaré (même taille, même sha256 s'il est renseigné).
 L'index garde l'identifiant, les dimensions et le fichier de son modèle, et une empreinte du
-corpus : un autre modèle, un corpus modifié ou un autre `[rag] chunk_max_chars` rendent la
-brique indisponible, avec la raison, et la carte propose « Construire l'index ». Le dossier
+corpus de sa langue : un autre modèle, un corpus modifié (ou celui d'une autre langue) ou un
+autre `[rag] chunk_max_chars` rendent la brique indisponible, avec la raison, et la carte
+propose « Construire l'index ». Le dossier
 `models/embedding/` n'est jamais proposé comme modèle de conversation.
 
 ### Reranking (sous-option de la brique RAG)

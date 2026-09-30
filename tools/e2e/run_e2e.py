@@ -5327,6 +5327,241 @@ def _forced_read(r: Run, tools_card: str, preset: str, lang: str) -> list[dict[s
     return [e["payload"] for e in r.ev.since(seq, "tool_ended")]
 
 
+# ---------- languages (4/5): the workshops, the annex pages and the RAG in the language ----------
+
+ANNEX_PAGES = ("llm", "rag", "diagnostic", "models")
+ANNEX_QUESTIONS = {
+    "en": "How many characters must a password have at least at Exemplia?",
+    "de": "Wie viele Zeichen muss ein Passwort bei Exemplia mindestens haben?",
+}
+
+
+def _yaml_leaves(tree: Any, prefix: str = "") -> dict[str, str]:
+    """The texts of a YAML tree, by dotted key (numbers and lists aside)."""
+    found: dict[str, str] = {}
+    if isinstance(tree, dict):
+        for key, value in tree.items():
+            found |= _yaml_leaves(value, f"{prefix}{key}.")
+    elif isinstance(tree, str):
+        found[prefix.rstrip(".")] = " ".join(tree.split())
+    return found
+
+
+def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
+    """The French values of the story's scope whose `lang` value differs: the sections
+    `common`, `llm`, `rag`, `diagnostic` and `models` of `ui.yaml`, and the workshops'
+    `llm_lab.yaml` and `rag_lab.yaml`. As `_french_patterns`: a variable is any text, and
+    only fixed words of six letters at least say something."""
+    french, translated = {}, {}
+    for key, value in _ui_catalogue("fr").items():
+        if key.split(".")[0] in ("common", *ANNEX_PAGES):
+            french[f"ui.{key}"] = " ".join(value.split())
+    for key, value in _ui_catalogue(lang).items():
+        translated[f"ui.{key}"] = " ".join(value.split())
+    for rel in ("llm_lab.yaml", "rag_lab.yaml"):
+        french |= {f"{rel}:{k}": v for k, v in _yaml_leaves(_content("fr", rel)).items()}
+        translated |= {f"{rel}:{k}": v for k, v in _yaml_leaves(_content(lang, rel)).items()}
+    patterns = []
+    for key, value in french.items():
+        if translated.get(key) == value:
+            continue
+        if len(re.findall(r"[^\W\d_]", _UI_VAR.sub("", value))) < 6:
+            continue
+        parts = [re.escape(part) for part in _UI_VAR.split(value)]
+        patterns.append((key, re.compile(".+?".join(parts), re.S)))
+    return patterns
+
+
+def _annex_backend(r: Run) -> set[str]:
+    """What the session sent, as whole strings (its messages stay French until story 5):
+    the state, the events, and the pages' own routes."""
+    found = _backend_strings(r)
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            found.add(" ".join(value.split()))
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    for route in ("/api/llm_lab", "/api/rag_lab", "/api/diagnostic"):
+        walk(r.api("GET", route).json())
+    return found
+
+
+def _annex_french_left(r: Run, lang: str) -> list[str]:
+    backend = _annex_backend(r)
+    quoted = sorted((b for b in backend if len(b) >= 4), key=len, reverse=True)
+    patterns = _annex_patterns(lang)
+    found = []
+    for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
+        text = " ".join(text.split())
+        if text in backend:
+            continue
+        for part in quoted:
+            if part in text:
+                text = text.replace(part, "§")
+        for key, pattern in patterns:
+            if pattern.fullmatch(text):
+                found.append(f"{where} « {text[:80]} » ({key})")
+                break
+    return sorted(set(found))
+
+
+def _goto_annex(r: Run, name: str) -> None:
+    """An annex page, once it rendered in the session's language."""
+    page = r.page
+    if name == "llm":
+        _goto_lab(r)
+    elif name == "rag":
+        _goto_rag_lab(r)
+    elif name == "diagnostic":
+        page.goto(f"{r.stack.app_url}/diagnostic")
+        expect(page.locator("#cloud-models li").first).to_be_visible(timeout=20_000)
+    else:
+        page.goto(f"{r.stack.app_url}/models")
+        expect(page.locator("#models-table tbody").first).to_be_attached(timeout=20_000)
+    time.sleep(0.5)
+
+
+def _annex_page(r: Run, lang: str, name: str) -> None:
+    _goto_annex(r, name)
+    left = _annex_french_left(r, lang)
+    r.check(
+        not left and _html_lang(r) == lang,
+        f"{lang} : /{name} sans texte français du catalogue (ui.yaml, ateliers), "
+        f"<html lang={lang}>",
+        f"lang={_html_lang(r)} · " + "; ".join(left[:10]),
+    )
+
+
+def _titles(lang: str) -> set[str]:
+    return {d["title_text"] for d in _content(lang, "rag.yaml")["documents"]}
+
+
+def _annex_rag_turn(r: Run) -> None:
+    """German: the index built from the card (the fake embedding model, the shipped index
+    being Granite's), then a RAG turn whose excerpts are German, titles included."""
+    lang = "de"
+    rag_texts = _content(lang, "rag.yaml")
+    brick = _content(lang, "bricks/rag.yaml")["label_text"]
+    r.launch("rag")
+    rag = r.bricks()["rag"]
+    if rag.get("download") is not None:  # alone: the fake model's file, served first
+        httpx.post(f"{r.stack.fake_url}/_e2e/model_ready", timeout=5, trust_env=False)
+        seq = r.ev.mark()
+        r.api("POST", "/api/intentions/download_model", {"target": rag["download"]["target"]})
+        r.ev.wait(
+            "bricks_changed",
+            seq,
+            lambda p: (
+                next(b for b in p["bricks"] if b["id"] == "rag").get("build_index") is not None
+            ),
+            30,
+        )
+        r.wait_idle()
+    card = r.card(brick)
+    build = card.get_by_role("button", name=rag_texts["build_label_text"])
+    expect(build).to_be_visible(timeout=10_000)
+    target = r.stack.data_dir / "rag_index.de.sqlite"
+    r.check(
+        not target.exists() and "rag_index.de.sqlite" in card.inner_text(),
+        "de : index allemand absent, « Construire l'index » proposé dans la langue",
+        card.inner_text()[:200],
+    )
+    seq = r.ev.mark()
+    build.click()
+    r.ev.wait(
+        "bricks_changed",
+        seq,
+        lambda p: next(b for b in p["bricks"] if b["id"] == "rag")["available"],
+        60,
+    )
+    r.check(target.is_file(), "de : la carte construit data/rag_index.de.sqlite", str(target))
+    r.wait_idle()
+    seq = r.ev.mark()
+    ended = r.send(ANNEX_QUESTIONS[lang])
+    searched = r.ev.since(seq, "rag_search_ended")
+    body = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
+    first = re.search(r"Auszug 1 — ([^:\n]+):", body)
+    french = sorted(t for t in _titles("fr") if t in body)
+    r.check(
+        ended["payload"]["status"] == "completed"
+        and len(searched) == 1
+        and first is not None
+        and first.group(1) in _titles(lang)
+        and not french,
+        "de : tour RAG, « Auszug 1 — » et un titre allemand dans le corps envoyé, aucun titre "
+        "français",
+        f"{first.group(0) if first else None} · titres français : {french}",
+    )
+
+
+def _annex_rag_lab(r: Run) -> None:
+    """German: a run of the RAG workshop, its excerpts and their titles German."""
+    lang = "de"
+    _goto_rag_lab(r)
+    question = _content(lang, "rag_lab.yaml")["default_question_text"]
+    ended, seq = _rag_lab_run(r, question)
+    items = [
+        item
+        for e in r.ev.since(seq, "rag_lab_stage_ended")
+        for item in e["payload"].get("items") or []
+    ]
+    titles = {item["title_text"] for item in items}
+    r.check(
+        ended["payload"]["status"] != "error"
+        and bool(items)
+        and titles <= _titles(lang)
+        and not titles & _titles("fr"),
+        "de : une chaîne de l'atelier RAG, ses extraits et leurs titres allemands",
+        f"{ended['payload']['status']} · {sorted(titles)}",
+    )
+    time.sleep(0.5)
+
+
+def s_annex_language(r: Run) -> None:
+    """Languages (4/5): in `en` then `de`, « LLM nu », the RAG workshop, the diagnostic and
+    the models page: no French text of the story's catalogue (ui.yaml's sections, the
+    workshops' files), `<html lang>`. In German: the index built from the RAG card, a RAG
+    turn sending German excerpts and titles, a workshop run; captures at 1280 and 1600 px
+    (no projection mode outside `/`). Always ends in French, at rest, the RAG brick off."""
+    page = r.page
+    try:
+        for lang in ("en", "de"):
+            page.set_viewport_size({"width": 1600, "height": 1000})
+            r.goto_app()  # an annex page does not replay the journal
+            _switch_language(r, lang)
+            if lang == "de":
+                _annex_rag_turn(r)
+                _annex_rag_lab(r)
+            for name in ANNEX_PAGES:
+                _annex_page(r, lang, name)
+                if lang == "de":
+                    for width, height in ((1280, 720), (1600, 1000)):
+                        page.set_viewport_size({"width": width, "height": height})
+                        time.sleep(0.4)
+                        r.shot(f"annex-language-de-{name}-{width}")
+                    page.set_viewport_size({"width": 1600, "height": 1000})
+    finally:
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        try:
+            r.goto_app()
+            r.wait_idle()
+            r.api("POST", "/api/intentions/brick", {"brick": "rag", "wanted": False})
+        except Exception as exc:  # noqa: BLE001 - cleaning up only
+            print(f"  nettoyage : brique RAG non éteinte ({exc})")
+        if r.state().get("language") != "fr":
+            _switch_language(r, "fr")
+        r.check(
+            r.state()["language"] == "fr" and not r.bricks()["rag"]["wanted"],
+            "nettoyage : retour au français, brique RAG éteinte",
+        )
+
+
 def _first_turn_after(r: Run, gesture: str, turn_id: str) -> None:
     seq = r.ev.mark()
     r.send("Bonjour")
@@ -7756,6 +7991,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("language", s_language),
     ("ui_language", s_ui_language),
     ("content_language", s_content_language),
+    ("annex_language", s_annex_language),
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),
