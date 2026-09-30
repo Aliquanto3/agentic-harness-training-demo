@@ -27,6 +27,7 @@ import psutil
 from pydantic import BaseModel
 
 from wavestack import config
+from wavestack.messages import Message
 from wavestack.models import gguf_meta
 
 # Lot E (E2): version 2 measures the RSS after a real evaluation; an entry of an older probe
@@ -43,7 +44,9 @@ _NEUTRAL_TEXT = (
 class ProbeResult(BaseModel):
     ok: bool
     path: str
-    reason: str | None = None  # in French
+    # In French: a `Message` becomes its French text here (and in settings.json);
+    # `discovery.reason_message` gives the `Message` back, for the session to render.
+    reason: str | None = None
     detail: str | None = None  # lot E (E6): the loader's own message, a technical detail
     architecture: str | None = None
     has_chat_template: bool = False
@@ -117,25 +120,28 @@ def kv_bytes_per_token(meta: dict[str, Any]) -> int | None:
 
 
 def incompatible_fr() -> str:
-    """Lot E (E6): why llama-cpp-python refuses a file, in French; its own message is kept
-    apart, as a technical detail."""
+    """Lot E (E6): why llama-cpp-python refuses a file, a `Message` (French as a text,
+    rendered by the session in its language); its own message is kept apart, as a technical
+    detail."""
     version = _llama_cpp_version()
     lib = f"llama-cpp-python {version}" if version else "llama-cpp-python"
-    return (
-        f"{lib} ne sait pas charger ce fichier (architecture non prise en charge, fichier "
-        "incomplet ou abîmé). Choisissez un autre modèle, ou servez-le avec Ollama ou "
-        "llama-server."
-    )
+    return Message("models.probe.incompatible", lib=lib)
 
 
 def transient_fr() -> str:
     """Lot E: a probe that lacked memory or time says nothing about the file: not
-    remembered, the file is probed again when chosen."""
-    return (
-        "La sonde n'a pas pu mesurer ce fichier, faute de mémoire ou de temps (création du "
-        "contexte ou lecture d'un premier prompt). Fermez des applications, puis choisissez-le "
-        "de nouveau : rien n'est mémorisé."
-    )
+    remembered, the file is probed again when chosen. A `Message`, as `incompatible_fr`."""
+    return Message("models.probe.transient")
+
+
+def not_found_fr() -> str:
+    """The file is not there (a `Message`)."""
+    return Message("models.probe.not_found")
+
+
+def not_installed_fr() -> str:
+    """llama-cpp-python is missing (a `Message`)."""
+    return Message("models.probe.not_installed")
 
 
 def _load_refused(exc: BaseException) -> bool:
@@ -176,12 +182,12 @@ def probe_file(path: str, window: int = DEFAULT_WINDOW) -> ProbeResult:
     prompt, and report the outcome with the RSS peak gained. Never raises."""
     file_path = Path(path)
     if not file_path.is_file():
-        return ProbeResult(ok=False, path=path, reason="Fichier introuvable.")
+        return ProbeResult(ok=False, path=path, reason=not_found_fr())
 
     try:
         from llama_cpp import Llama
     except ImportError:
-        return ProbeResult(ok=False, path=path, reason="llama-cpp-python non installé.")
+        return ProbeResult(ok=False, path=path, reason=not_installed_fr())
 
     process = psutil.Process(os.getpid())
     before = process.memory_info().rss  # the interpreter and llama-cpp-python, without weights

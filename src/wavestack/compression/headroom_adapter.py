@@ -29,6 +29,7 @@ from typing import Any
 
 from wavestack.compression.env import apply_offline_env
 from wavestack.compression.port import Compressed
+from wavestack.messages import Message
 
 HEADROOM_VERSION = "0.38.0"
 # Headroom counts its own tokens with this model's tiktoken table: only its internal decisions
@@ -36,7 +37,7 @@ HEADROOM_VERSION = "0.38.0"
 # litellm ships (`TIKTOKEN_CACHE_DIR`, see `env`); `gpt-4o` read `o200k_base`, missing from the
 # target PC's cache (2026-09-27), so tiktoken tried to download it (AD-15). Lot F.
 COUNTING_MODEL = "gpt-4"
-_INSTALL_FR = "Installez-la depuis le dossier de WaveStack avec `uv sync --extra compression`"
+_INSTALL = "uv sync --extra compression"
 # A short JSON array: the warm-up call pays the lazy imports once, at load time.
 _WARM_UP = '[{"id": 1, "etat": "ok"}, {"id": 2, "etat": "ok"}, {"id": 3, "etat": "erreur"}]'
 # Indirections, so a test can pretend Headroom is absent without patching `importlib` itself.
@@ -45,23 +46,22 @@ _version = importlib.metadata.version
 
 
 def missing_fr() -> str | None:
-    """Why Headroom cannot be used, in French with the command to run; `None` when the pinned
+    """Why Headroom cannot be used, with the command to run: a `Message` (French as a
+    text), rendered in the session's language where it is shown; `None` when the pinned
     version is installed."""
+    install = Message("compression.install", command=_INSTALL)
     if _find_spec("headroom") is None:
-        return (
-            f"Indisponible : la bibliothèque Headroom (headroom-ai {HEADROOM_VERSION}), "
-            f"dépendance optionnelle, n'est pas installée. {_INSTALL_FR}, puis relancez "
-            "WaveStack. Les autres briques fonctionnent sans elle."
-        )
+        return Message("compression.missing", version=HEADROOM_VERSION, install=install)
     try:
-        version = _version("headroom-ai")
+        version: str = _version("headroom-ai")
     except importlib.metadata.PackageNotFoundError:
-        version = "inconnue"
+        version = Message("compression.unknown_version")
     if version != HEADROOM_VERSION:
-        return (
-            f"Indisponible : headroom-ai {version} est installé, alors que WaveStack a été "
-            f"vérifié hors ligne avec la version {HEADROOM_VERSION} seulement. {_INSTALL_FR}, "
-            "puis relancez WaveStack."
+        return Message(
+            "compression.wrong_version",
+            version=version,
+            pinned=HEADROOM_VERSION,
+            install=install,
         )
     return None
 

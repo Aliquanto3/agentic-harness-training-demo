@@ -19,6 +19,7 @@ from pathlib import Path
 import httpx
 
 from wavestack.config import ModelFile
+from wavestack.messages import KeyedError, Message
 from wavestack.models.engine import CancelToken
 from wavestack.net.factory import create_client
 from wavestack.net.guard import NetworkBlocked, find_blocked, is_loopback
@@ -50,13 +51,21 @@ class StopToken(CancelToken):
             response.close()
 
 
-class DownloadError(Exception):
-    """A download that did not complete: `reason_text` says why, in French."""
+class DownloadError(KeyedError):
+    """A download that did not complete: `reason_text` says why, a `Message` (languages
+    5/5: French as a text, `render(lang)` in the session's language; a plain text is kept
+    verbatim)."""
 
-    def __init__(self, reason_text: str, *, cancelled: bool = False) -> None:
+    def __init__(self, reason_text: str | Message, *, cancelled: bool = False) -> None:
+        if not isinstance(reason_text, Message):
+            reason_text = Message("common.verbatim", text=reason_text)
         super().__init__(reason_text)
         self.reason_text = reason_text
         self.cancelled = cancelled
+
+
+def _stopped() -> DownloadError:
+    return DownloadError(Message("models.download.stopped"), cancelled=True)
 
 
 def missing_files(files: Sequence[ModelFile], dest: Path) -> list[ModelFile]:
@@ -75,7 +84,7 @@ def _same_size(path: Path, size: int) -> bool:
 def _check_hop(request: httpx.Request) -> None:
     url = request.url
     if url.scheme != "https" and not (url.scheme == "http" and is_loopback(url.host)):
-        raise NetworkBlocked(f"adresse non https refusée : {url}")
+        raise NetworkBlocked(Message("models.download.not_https", url=str(url)))
 
 
 def download_files(
@@ -94,7 +103,7 @@ def download_files(
     digests: dict[str, str] = {}
     for file in files:
         if cancel.cancelled:
-            raise DownloadError("téléchargement arrêté", cancelled=True)
+            raise _stopped()
         target = dest / file.path
         part = target.with_name(target.name + ".part")
         try:
@@ -108,7 +117,9 @@ def download_files(
             raise
         except OSError as exc:
             part.unlink(missing_ok=True)
-            raise DownloadError(f"écriture impossible de {part} ({exc})") from None
+            raise DownloadError(
+                Message("models.download.write_failed", path=str(part), cause=exc)
+            ) from None
         except BaseException:
             part.unlink(missing_ok=True)
             raise
@@ -134,49 +145,56 @@ def _download_one(
                     cancel.watch(response)
                 if response.status_code >= 400:
                     raise DownloadError(
-                        f"le serveur a répondu {response.status_code} "
-                        f"({response.reason_phrase}) pour {response.url}"
+                        Message(
+                            "models.download.http_error",
+                            status=response.status_code,
+                            reason=response.reason_phrase,
+                            url=str(response.url),
+                        )
                     )
                 with part.open("wb") as out:
                     for chunk in response.iter_bytes(CHUNK_BYTES):
                         if cancel.cancelled:
-                            raise DownloadError("téléchargement arrêté", cancelled=True)
+                            raise _stopped()
                         out.write(chunk)
                         digest.update(chunk)
                         written += len(chunk)
                         if written > file.size:
                             raise DownloadError(
-                                f"le fichier reçu dépasse la taille déclarée ({file.size} octets)"
+                                Message("models.download.too_large", size=file.size)
                             )
                         on_progress(done + written, total)
     except DownloadError:
         raise
     except Exception as exc:
         if cancel.cancelled:  # the response closed by « Arrêter »
-            raise DownloadError("téléchargement arrêté", cancelled=True) from None
+            raise _stopped() from None
         raise _network_error(exc, file) from None
     finally:
         if isinstance(cancel, StopToken):
             cancel.watch(None)
     if cancel.cancelled:
-        raise DownloadError("téléchargement arrêté", cancelled=True)
+        raise _stopped()
     if written != file.size:
-        raise DownloadError(f"taille reçue incorrecte : {written} octets au lieu de {file.size}")
+        raise DownloadError(Message("models.download.wrong_size", written=written, size=file.size))
     if file.sha256 and digest.hexdigest() != file.sha256.lower():
-        raise DownloadError("empreinte sha256 différente de celle déclarée")
+        raise DownloadError(Message("models.download.wrong_sha256"))
     return done + written, digest.hexdigest()
 
 
 def _network_error(exc: Exception, file: ModelFile) -> Exception:
-    """A network failure as a `DownloadError` in French; anything else unchanged."""
+    """A network failure as a keyed `DownloadError`; anything else unchanged."""
     if isinstance(exc, httpx.TooManyRedirects):
-        return DownloadError("trop de redirections")
+        return DownloadError(Message("models.download.too_many_redirects"))
     if isinstance(exc, NetworkBlocked | httpx.HTTPError):
         blocked = find_blocked(exc)
         if blocked is not None:
-            return DownloadError(f"connexion refusée par le harnais ({blocked})")
+            return DownloadError(Message("models.download.blocked", cause=blocked))
         return DownloadError(
-            f"serveur injoignable ({type(exc).__name__}) : le poste n'a pas accès à "
-            f"{httpx.URL(file.url).host}"
+            Message(
+                "models.download.unreachable",
+                kind=type(exc).__name__,
+                host=httpx.URL(file.url).host,
+            )
         )
     return exc

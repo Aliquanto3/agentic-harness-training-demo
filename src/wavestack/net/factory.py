@@ -29,6 +29,7 @@ import httpx2
 import truststore
 
 from wavestack.config import PUBLIC_HEADERS, load_config
+from wavestack.messages import Message
 from wavestack.net.guard import NetworkBlocked, is_host_allowed, is_loopback
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import TraceScope, current
@@ -49,7 +50,7 @@ def user_agent() -> str:
 def _check_and_trace(request: httpx.Request | httpx2.Request, scope: TraceScope) -> None:
     host = request.url.host
     if not is_host_allowed(host, load_config().allowed_hosts):
-        raise NetworkBlocked(f"Hôte réseau non autorisé : {host}")
+        raise NetworkBlocked(Message("net.host_refused", host=host))
     if is_loopback(host):
         return  # AD-15: only destinations outside the loopback range are traced
     get_journal().emit(
@@ -119,7 +120,7 @@ def create_client(
 def _loopback_only(request: httpx.Request) -> None:
     host = request.url.host
     if not is_loopback(host):
-        raise NetworkBlocked(f"Hôte hors boucle locale refusé : {host}")
+        raise NetworkBlocked(Message("net.loopback_refused", host=host))
 
 
 def create_loopback_client(

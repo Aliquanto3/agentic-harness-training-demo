@@ -408,28 +408,45 @@ def system_memory() -> tuple[int, int]:
     return int(memory.total), int(memory.available)
 
 
-def mo_fr(n: int) -> str:
-    """Bytes in Mo, rounded, French thousands separator: « 4 096 » (the unit apart)."""
+def mo_fr(n: int, lang: str = "fr") -> str:
+    """Bytes in Mo, rounded, French thousands separator: « 4 096 » (the unit apart); in
+    `lang`'s style for another language (languages 5/5)."""
+    if lang != DEFAULT_LANGUAGE:
+        from wavestack.messages import number
+
+        return number(round(n / _MIB), lang)
     return f"{round(n / _MIB):,}".replace(",", "\u202f")
 
 
-def go_fr(n: int) -> str:
-    """Bytes in Go, one decimal, French decimal comma: « 3,1 Go »."""
-    return f"{n / _GIB:.1f}".replace(".", ",") + " Go"
+def go_fr(n: int, lang: str = "fr") -> str:
+    """Bytes in Go, one decimal, French decimal comma: « 3,1 Go » (« 3.1 GB » in `en`)."""
+    from wavestack.messages import msg, number
+
+    value = (
+        f"{n / _GIB:.1f}".replace(".", ",")
+        if lang == DEFAULT_LANGUAGE
+        else number(n / _GIB, lang, 1)
+    )
+    return f"{value} {msg('common.units.gb', lang)}"
 
 
-def size_fr(n: int) -> str:
+def size_fr(n: int, lang: str = "fr") -> str:
     """Lot E (E3): « 210 Mo » under 1 Go, « 3,1 Go » from there on."""
-    return f"{mo_fr(n)} Mo" if n < _GIB else go_fr(n)
+    return _with_mo(n, lang) if n < _GIB else go_fr(n, lang)
 
 
-def _with_mo(n: int) -> str:
-    return f"{mo_fr(n)} Mo"
+def _with_mo(n: int, lang: str = "fr") -> str:
+    from wavestack.messages import msg
+
+    return f"{mo_fr(n, lang)} {msg('common.units.mb', lang)}"
 
 
-def _percent_fr(ratio: float) -> str:
-    """« 60 % », « 62,5 % »."""
-    return f"{ratio * 100:.1f}".rstrip("0").rstrip(".").replace(".", ",") + "\u00a0%"
+def _percent_fr(ratio: float, lang: str = "fr") -> str:
+    """« 60 % », « 62,5 % »; « 60% », « 62.5% » in English, « 60 % », « 62,5 % » in German."""
+    text = f"{ratio * 100:.1f}".rstrip("0").rstrip(".")
+    if lang == "en":
+        return f"{text}%"
+    return text.replace(".", ",") + "\u00a0%"
 
 
 @dataclass(frozen=True)
@@ -451,40 +468,57 @@ class MemoryBudget:
     measured: bool = False
     floored: bool = False
 
-    def calc_fr(self) -> str:
-        """How the budget was reached, in French and in Mo (the diagnostic)."""
-        cap = f"[memory] budget_mb de {_with_mo(self.cap_bytes)}"
-        if self.mode == "fixed":
-            return f"valeur fixe {cap} (budget_mode = « fixed »)"
-        if not self.measured or self.available_bytes is None:
-            return f"plafond {cap}, RAM du poste non mesurée"
-        share = f"{_percent_fr(self.ratio)} des {_with_mo(self.available_bytes)} de RAM"
-        total = f", sur {_with_mo(self.total_bytes)}" if self.total_bytes else ""
-        part = f"({_with_mo(int(self.ratio * self.available_bytes))})"
-        if self.floored:
-            return (
-                f"{share} disponibles au lancement {part}{total}, relevé au plancher de "
-                f"{BUDGET_FLOOR_MB} Mo"
-            )
-        if self.ram_limited:
-            return f"{share} disponibles au lancement {part}{total}, sous le plafond {cap}"
-        return f"plafond {cap}, plus petit que {share} disponibles au lancement {part}{total}"
+    def calc_fr(self, lang: str = "fr") -> str:
+        """How the budget was reached, in Mo (the diagnostic), in `lang` (French by
+        default; languages 5/5)."""
+        from wavestack.messages import msg
 
-    def short_fr(self, fmt: Callable[[int], str] = size_fr) -> str:
-        """The calculation in short, for a refusal (one unit: `fmt`): « = plafond
-        [memory] budget_mb », « = 60 % des 7,2 Go de RAM disponibles au lancement »."""
+        def t(key: str, **kw: Any) -> str:
+            return msg(f"config.budget.calc.{key}", lang, **kw)
+
+        cap = t("cap", size=_with_mo(self.cap_bytes, lang))
         if self.mode == "fixed":
-            return "= valeur fixe [memory] budget_mb"
+            return t("fixed", cap=cap)
         if not self.measured or self.available_bytes is None:
-            return "= plafond [memory] budget_mb, RAM du poste non mesurée"
+            return t("not_measured", cap=cap)
+        share = t(
+            "share",
+            percent=_percent_fr(self.ratio, lang),
+            available=_with_mo(self.available_bytes, lang),
+        )
+        total = t("total", total=_with_mo(self.total_bytes, lang)) if self.total_bytes else ""
+        part = f"({_with_mo(int(self.ratio * self.available_bytes), lang)})"
         if self.floored:
-            return "= plancher, RAM disponible au lancement faible"
+            return t("floored", share=share, part=part, total=total, floor=BUDGET_FLOOR_MB)
         if self.ram_limited:
-            return (
-                f"= {_percent_fr(self.ratio)} des {fmt(self.available_bytes)} de RAM "
-                "disponibles au lancement"
+            return t("ram_limited", share=share, part=part, total=total, cap=cap)
+        return t("capped", share=share, part=part, total=total, cap=cap)
+
+    def short_fr(self, fmt: Callable[..., str] = size_fr, lang: str = "fr") -> str:
+        """The calculation in short, for a refusal (one unit: `fmt`, called with `lang`
+        in another language): « = plafond [memory] budget_mb », « = 60 % des 7,2 Go de RAM
+        disponibles au lancement »."""
+        from wavestack.messages import msg
+
+        if self.mode == "fixed":
+            return msg("config.budget.short.fixed", lang)
+        if not self.measured or self.available_bytes is None:
+            return msg("config.budget.short.not_measured", lang)
+        if self.floored:
+            return msg("config.budget.short.floored", lang)
+        if self.ram_limited:
+            available = (
+                fmt(self.available_bytes)
+                if lang == DEFAULT_LANGUAGE
+                else fmt(self.available_bytes, lang)
             )
-        return "= plafond [memory] budget_mb"
+            return msg(
+                "config.budget.short.ram_limited",
+                lang,
+                percent=_percent_fr(self.ratio, lang),
+                available=available,
+            )
+        return msg("config.budget.short.capped", lang)
 
 
 def compute_memory_budget(mode: str, cap_mb: int, ratio: float) -> MemoryBudget:
@@ -586,8 +620,7 @@ class Config:
                     if e["loc"][:1] == ("auth_header",) and e["type"] == "value_error"
                 )
                 errors.append(
-                    f"Modèle cloud « {name} » écarté : déclaration invalide ({fields}).{reasons} "
-                    "Corrigez wavestack.toml ou settings.json, puis relancez WaveStack."
+                    _message("config.cloud_rejected", name=name, fields=fields, reasons=reasons)
                 )
                 continue
             if model.enabled and all(m.id != model.id for m in valid):
@@ -721,22 +754,14 @@ class Config:
         """Story 15: the `[rag.embedding]` model, or why its declaration is invalid (French)."""
         raw = self.get("rag", "embedding")
         if raw is None:
-            return None, (
-                "La section [rag.embedding] de wavestack.toml est absente : elle nomme le "
-                "modèle d'embedding. Rétablissez-la, puis relancez WaveStack (la configuration "
-                "n'est lue qu'au lancement)."
-            )
+            return None, _message("config.rag_embedding.absent")
         try:
             return EmbeddingModel.model_validate(raw), None
         except ValidationError as exc:
             fields = ", ".join(
                 ".".join(str(p) for p in e["loc"]) or "section" for e in exc.errors()
             )
-            return None, (
-                f"La section [rag.embedding] est invalide ({fields}). Corrigez wavestack.toml "
-                "ou settings.json, puis relancez WaveStack (la configuration n'est lue qu'au "
-                "lancement)."
-            )
+            return None, _message("config.rag_embedding.invalid", fields=fields)
 
     @property
     def rag_top_k(self) -> int:
@@ -750,20 +775,14 @@ class Config:
         (French)."""
         raw = self.get("rag", "reranker")
         if raw is None:
-            return None, (
-                "Indisponible : la section [rag.reranker] de wavestack.toml est absente (elle "
-                "nomme le modèle de reranking). Rétablissez-la, puis relancez WaveStack."
-            )
+            return None, _message("config.rag_reranker.absent")
         try:
             return RerankerModel.model_validate(raw), None
         except ValidationError as exc:
             fields = ", ".join(
                 ".".join(str(p) for p in e["loc"]) or "section" for e in exc.errors()
             )
-            return None, (
-                f"Indisponible : la section [rag.reranker] est invalide ({fields}). Corrigez "
-                "wavestack.toml ou settings.json, puis relancez WaveStack."
-            )
+            return None, _message("config.rag_reranker.invalid", fields=fields)
 
     @property
     def rag_rerank_candidates(self) -> int:
@@ -792,21 +811,14 @@ class Config:
         """Story 30: the workshop's fastembed model, or why there is none (French)."""
         raw = self.get("rag_lab", "fastembed")
         if raw is None:
-            return None, (
-                "Indisponible : aucun modèle fastembed n'est déclaré. Ajoutez une section "
-                "[rag_lab.fastembed] (model_name, dims, label_text) à settings.json, WaveStack "
-                "arrêté."
-            )
+            return None, _message("config.fastembed.absent")
         try:
             return FastembedModel.model_validate(raw), None
         except ValidationError as exc:
             fields = ", ".join(
                 ".".join(str(p) for p in e["loc"]) or "section" for e in exc.errors()
             )
-            return None, (
-                f"Indisponible : la section [rag_lab.fastembed] est invalide ({fields}). "
-                "Corrigez-la, puis relancez WaveStack."
-            )
+            return None, _message("config.fastembed.invalid", fields=fields)
 
     @property
     def rag_lab_faiss_cost_bytes(self) -> int:
@@ -982,11 +994,16 @@ def cloud_window(entry: CloudModel, configured: int) -> tuple[int, str]:
 def cloud_unavailable_fr(entry: CloudModel) -> str | None:
     """AD-9: why an entry cannot serve a turn whatever its key, `None` when it can."""
     if entry.tpm and entry.tpm // 2 <= MAX_RESERVE:
-        return (
-            f"Indisponible : le quota de {entry.tpm} tokens par minute ne laisse pas de place "
-            f"au contexte une fois la réponse réservée ({MAX_RESERVE} tokens)."
-        )
+        return _message("config.cloud_quota", tpm=entry.tpm, reserve=MAX_RESERVE)
     return None
+
+
+def _message(key: str, **kw: Any) -> str:
+    """Languages (5/5): a reason as a `Message` (French as a text), rendered in the
+    session's language where it is shown. Imported here: `messages` imports `config`."""
+    from wavestack.messages import Message
+
+    return Message(key, **kw)
 
 
 def estimate_tokens(text: str, chars_per_token: float) -> int:

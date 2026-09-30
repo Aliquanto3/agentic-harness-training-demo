@@ -27,6 +27,7 @@ from pydantic import SecretStr
 
 from wavestack.config import DEFAULT_EUR_PER_USD, CloudModel, CloudPricing, estimate_tokens
 from wavestack.greenops import Impact, cloud_impacts
+from wavestack.messages import KeyedError, Message, render
 from wavestack.models.capabilities import ChannelSplitter
 from wavestack.models.engine import CancelToken, EngineSnapshot
 from wavestack.net.factory import create_client
@@ -40,7 +41,7 @@ _CONTEXT_WORDS = ("context length", "context_length", "context window", "maximum
 PROVIDER_MESSAGE_MAX = 500  # characters of the provider's own message shown, then « … »
 
 # Story 17: the local model comes back without relaunch (CAP-34).
-_BACK_TO_LOCAL_FR = "Revenez au modèle local depuis le sélecteur de modèle de la barre haute."
+_BACK_TO_LOCAL_FR = Message("models.openai_chat.back_to_local")
 
 
 @dataclass(frozen=True)
@@ -71,12 +72,14 @@ class ChatEnd:
     provider_message: str | None = None
 
 
-class ProviderError(Exception):
-    """AD-16: one outcome of the closed list, already in French and masked."""
+class ProviderError(KeyedError):
+    """AD-16: one outcome of the closed list, masked. Languages (5/5): its text and its
+    hints are `Message`s (a plain text is kept verbatim): `str()`, `message_text` and
+    `hints_text` give the French, `payload(effect_text, lang=)` the event in `lang`."""
 
     def __init__(
         self,
-        message_text: str,
+        message_text: str | Message,
         *,
         cause: str,
         hints_text: list[str],
@@ -84,6 +87,8 @@ class ProviderError(Exception):
         retry_after_s: float | None = None,
         quota_scope: str | None = None,
     ) -> None:
+        if not isinstance(message_text, Message):
+            message_text = Message("common.verbatim", text=message_text)
         super().__init__(message_text)
         self.message_text = message_text
         self.cause = cause
@@ -96,13 +101,14 @@ class ProviderError(Exception):
         # GreenOps: its estimated footprint, likewise.
         self.impact: Impact | None = None
 
-    def payload(self, effect_text: str) -> dict[str, Any]:
-        """The `harness_error` payload."""
+    def payload(self, effect_text: str, lang: str = "fr") -> dict[str, Any]:
+        """The `harness_error` payload, its texts in `lang` (the session's); `effect_text`
+        may be a `Message`. `cause` is the provider's own text, never translated."""
         return {
-            "message_text": self.message_text,
+            "message_text": self.render(lang),
             "cause": self.cause,
-            "effect_text": effect_text,
-            "hints_text": self.hints_text,
+            "effect_text": render(effect_text, lang),
+            "hints_text": [render(hint, lang) for hint in self.hints_text],
             "http_status": self.http_status,
             "retry_after_s": self.retry_after_s,
             "quota_scope": self.quota_scope,
@@ -179,9 +185,7 @@ def _quota_scope(message: str) -> str:
 
 
 _QUOTA_FR = {
-    "second": "quota dépassé par seconde",
-    "minute": "quota dépassé par minute",
-    "day": "quota dépassé par jour",
+    scope: Message(f"models.openai_chat.quota.{scope}") for scope in ("second", "minute", "day")
 }
 
 
@@ -372,9 +376,21 @@ class OpenAIChatEngine:
     def last_evaluated(self) -> int | None:
         return None
 
+    def _text(self, key: str, **kw: Any) -> Message:
+        """`models.openai_chat.{key}`, every plain text variable masked (AD-15)."""
+        return Message(
+            f"models.openai_chat.{key}",
+            **{
+                name: self.mask(value)
+                if isinstance(value, str) and not isinstance(value, Message)
+                else value
+                for name, value in kw.items()
+            },
+        )
+
     def _error(
         self,
-        message_text: str,
+        message_text: Message,
         cause: str,
         hints_text: list[str],
         *,
@@ -384,11 +400,13 @@ class OpenAIChatEngine:
         """A masked `ProviderError`; `message_text` ends with the provider's own message, when
         its answer carries one (AD-16)."""
         if provider_message and provider_message.strip():
-            message_text = (
-                f"{message_text} Message du fournisseur : {_clip(self.mask(provider_message))}"
+            message_text = self._text(
+                "with_provider_message",
+                message=message_text,
+                said=_clip(self.mask(provider_message)),
             )
         return ProviderError(
-            self.mask(message_text), cause=_clip(self.mask(cause)), hints_text=hints_text, **figures
+            message_text, cause=_clip(self.mask(cause)), hints_text=hints_text, **figures
         )
 
     def complete(self, body: ChatBody, cancel: CancelToken) -> Iterator[tuple[str, str] | ChatEnd]:
@@ -413,22 +431,22 @@ class OpenAIChatEngine:
             raise
         except httpx.TimeoutException as exc:
             raise self._error(
-                f"Délai dépassé : {entry.provider} n'a pas répondu à temps.",
+                self._text("timeout", provider=entry.provider),
                 f"{type(exc).__name__}: {exc}",
                 [
-                    "Relancez le tour : un fournisseur chargé répond parfois lentement.",
-                    "Vérifiez le réseau du poste avec « Tester » au diagnostic.",
+                    Message("models.openai_chat.hint.slow_provider"),
+                    Message("models.openai_chat.hint.test_network"),
                 ],
             ) from None
         except Exception as exc:
             if find_blocked(exc) is None and not isinstance(exc, httpx.TransportError):
                 raise
             raise self._error(
-                f"Réseau absent : {entry.provider} ({entry.host}) est injoignable depuis ce poste.",
+                self._text("no_network", provider=entry.provider, host=entry.host),
                 f"{type(exc).__name__}: {exc}",
                 [
-                    "Vérifiez la connexion du poste, ou le proxy.",
-                    f"L'hôte {entry.host} doit être autorisé par le réseau de l'entreprise.",
+                    Message("models.openai_chat.hint.check_connection"),
+                    Message("models.openai_chat.hint.allow_host", host=entry.host),
                     _BACK_TO_LOCAL_FR,
                 ],
             ) from None
@@ -452,12 +470,18 @@ class OpenAIChatEngine:
         local = [_BACK_TO_LOCAL_FR]
         said = {"provider_message": message if shown else None}  # HTML: in `cause` only
         if 300 <= status < 400:
+            location = response.headers.get("location")
             raise self._error(
-                f"Redirection refusée : {provider} a répondu {status} vers "
-                f"{response.headers.get('location', 'une autre adresse')}. La clé n'est "
-                "jamais renvoyée ailleurs.",
+                self._text(
+                    "redirect",
+                    provider=provider,
+                    status=status,
+                    location=Message("models.openai_chat.another_address")
+                    if location is None
+                    else location,
+                ),
                 cause,
-                ["Vérifiez base_url dans la déclaration du modèle.", *local],
+                [Message("models.openai_chat.hint.check_base_url"), *local],
                 http_status=status,
                 **said,
             )
@@ -467,25 +491,32 @@ class OpenAIChatEngine:
                 retry_after = float(retry) if retry else None
             except ValueError:
                 retry_after = None
-            wait = [f"Attendez {retry_after:g} s avant de relancer."] if retry_after else []
+            wait = (
+                [Message("models.openai_chat.hint.wait_seconds", seconds=f"{retry_after:g}")]
+                if retry_after
+                else []
+            )
             scope = _quota_scope(message)
             interval = self.entry.min_interval_s
             spacing = (
                 [
-                    f"Augmentez min_interval_s ({interval:g} s aujourd'hui) dans la déclaration "
-                    f"du modèle « {self.entry.id} »."
+                    Message(
+                        "models.openai_chat.hint.min_interval",
+                        interval=f"{interval:g}",
+                        model=self.entry.id,
+                    )
                 ]
                 if interval
                 else []
             )
-            quota = _QUOTA_FR.get(scope, "quota dépassé (par seconde, par minute ou par jour)")
+            quota = _QUOTA_FR.get(scope, Message("models.openai_chat.quota.unknown"))
             raise self._error(
-                f"Le fournisseur refuse l'appel : {quota}.",
+                self._text("quota_refused", quota=quota),
                 cause,
                 [
-                    *(wait or ["Attendez un peu avant de relancer."]),
+                    *(wait or [Message("models.openai_chat.hint.wait_a_bit")]),
                     *spacing,
-                    "Réduisez le contexte : lazy loading, moins d'outils, conversation vidée.",
+                    Message("models.openai_chat.hint.reduce_context"),
                     *local,
                 ],
                 http_status=status,
@@ -495,55 +526,54 @@ class OpenAIChatEngine:
             )
         if status == 413:
             raise self._error(
-                "La requête dépasse à elle seule le quota par minute du fournisseur.",
+                self._text("too_large"),
                 cause,
-                ["Réduisez la fenêtre de contexte : attendre ne sert à rien.", *local],
+                [Message("models.openai_chat.hint.reduce_window"), *local],
                 http_status=status,
                 **said,
             )
         if status == 400 and any(w in message.lower() for w in _CONTEXT_WORDS):
             raise self._error(
-                f"Contexte dépassé : {provider} refuse un contexte plus long que sa fenêtre.",
+                self._text("context_exceeded", provider=provider),
                 cause,
-                ["Videz la conversation, ou passez la brique MCP en lazy loading.", *local],
+                [Message("models.openai_chat.hint.clear_conversation"), *local],
                 http_status=status,
                 **said,
             )
         if status in (400, 422):
             raise self._error(
-                f"Requête refusée par {provider} ({status}) : défaut du harnais ou du préréglage.",
+                self._text("bad_request", provider=provider, status=status),
                 cause,
-                ["Vérifiez la déclaration du modèle (wavestack.toml ou settings.json).", *local],
+                [Message("models.openai_chat.hint.check_declaration"), *local],
                 http_status=status,
                 **said,
             )
         if status in (401, 403):
             raise self._error(
-                f"Clé refusée par {provider} ({status}). Vérifiez-la dans le diagnostic.",
+                self._text("key_refused", provider=provider, status=status),
                 cause,
-                ["Ressaisissez la clé au diagnostic, puis « Tester ».", *local],
+                [Message("models.openai_chat.hint.reenter_key"), *local],
                 http_status=status,
                 **said,
             )
         if status == 404:
             raise self._error(
-                f"Modèle introuvable chez {provider} (404) : « {self.entry.model} » a "
-                "peut-être été retiré.",
+                self._text("not_found", provider=provider, model=self.entry.model),
                 cause,
-                ["Vérifiez le nom du modèle dans la console du fournisseur.", *local],
+                [Message("models.openai_chat.hint.check_model_name"), *local],
                 http_status=status,
                 **said,
             )
         if status >= 500:
             raise self._error(
-                f"{provider} est indisponible ({status}).",
+                self._text("unavailable", provider=provider, status=status),
                 cause,
-                ["Réessayez dans quelques minutes.", *local],
+                [Message("models.openai_chat.hint.retry_later"), *local],
                 http_status=status,
                 **said,
             )
         raise self._error(
-            f"Réponse inattendue de {provider} ({status}).",
+            self._text("unexpected", provider=provider, status=status),
             cause,
             local,
             http_status=status,
@@ -576,11 +606,10 @@ class OpenAIChatEngine:
                 chunk = None
             if not isinstance(chunk, dict):
                 raise self._error(
-                    f"Réponse illisible : une ligne du flux de {entry.provider} n'est pas au "
-                    "format attendu (SSE).",
+                    self._text("unreadable_stream", provider=entry.provider),
                     line[:300],
                     [
-                        "Relancez le tour.",
+                        Message("models.openai_chat.hint.retry_turn"),
                         _BACK_TO_LOCAL_FR,
                     ],
                 )
@@ -601,10 +630,10 @@ class OpenAIChatEngine:
                     )
                     return
                 raise self._error(
-                    f"{entry.provider} a interrompu la réponse sur une erreur.",
+                    self._text("interrupted", provider=entry.provider),
                     said,
                     [
-                        "Relancez le tour.",
+                        Message("models.openai_chat.hint.retry_turn"),
                         _BACK_TO_LOCAL_FR,
                     ],
                     provider_message=said,
@@ -623,10 +652,10 @@ class OpenAIChatEngine:
             if finish:
                 if finish not in _FINISH:
                     raise self._error(
-                        f"{entry.provider} a arrêté la réponse ({finish}).",
+                        self._text("stopped", provider=entry.provider, finish=finish),
                         f"finish_reason: {finish}",
                         [
-                            "Reformulez le message.",
+                            Message("models.openai_chat.hint.rephrase"),
                             _BACK_TO_LOCAL_FR,
                         ],
                     )
@@ -716,16 +745,17 @@ def _reinjected(text: str, calls: list[dict[str, Any]]) -> str:
 
 
 def _check_calls(calls: list[dict[str, Any]]) -> str | None:
-    """Why the output's calls cannot run (AD-10), in French; `None` when all are valid."""
+    """Why the output's calls cannot run (AD-10), a `Message` (French as a text, rendered
+    by the executor in the session's language); `None` when all are valid."""
     for call in calls:
         if not call["name"]:
-            return "un appel d'outil n'a pas de nom"
+            return Message("models.openai_chat.call.no_name")
         try:
             parsed = json.loads(call["arguments"] or "{}")
         except ValueError as exc:
-            return f"les arguments de « {call['name']} » ne sont pas du JSON valide ({exc})"
+            return Message("models.openai_chat.call.invalid_json", name=call["name"], cause=exc)
         if not isinstance(parsed, dict):
-            return f"les arguments de « {call['name']} » ne sont pas un objet JSON"
+            return Message("models.openai_chat.call.not_object", name=call["name"])
         call["parsed"] = parsed
     return None
 
@@ -884,9 +914,9 @@ def run_call(
     out.stop_reason, out.usage, out.calls = end.stop_reason, end.usage, end.tool_calls
     if end.provider_error is not None:
         detail = (
-            f"le fournisseur a refusé l'appel d'outil : {end.provider_message}"
+            Message("models.openai_chat.call.refused_with", said=end.provider_message)
             if end.provider_message
-            else "le fournisseur a refusé l'appel d'outil mal formé"
+            else Message("models.openai_chat.call.refused")
         )
         out.malformed = (end.provider_error, detail)
     elif out.calls and out.stop_reason == "stop":

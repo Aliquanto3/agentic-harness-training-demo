@@ -28,6 +28,7 @@ import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol
@@ -35,6 +36,7 @@ from typing import Any, Protocol
 import httpx
 
 from wavestack import config
+from wavestack.messages import KeyedError, Lazy, Message, msg, number, render
 from wavestack.models import gguf_meta, probe
 from wavestack.models.engine import (
     DEFAULT_SAMPLING,
@@ -62,14 +64,16 @@ _TEMPLATE_MARKERS = re.compile(r"<\|[^|<>\s]{1,40}\|>|</?[a-z_]{2,30}>")
 _RESPONSE_ERRORS = (ValueError, TypeError, AttributeError, KeyError, IndexError)
 
 
-class ServerError(Exception):
-    """A local server unreachable, or refusing the request: the French message names its
-    address and the cause (AD-16)."""
+class ServerError(KeyedError):
+    """A local server unreachable, or refusing the request: the message names its address
+    and the cause (AD-16). Languages (5/5): keyed, `str()` and `message_text` give the
+    French, `render(lang)` the session's language; `cause` is a `Message` when WaveStack
+    wrote it, else the server's own text (never translated)."""
 
     def __init__(self, url: str, cause: str) -> None:
         self.url, self.cause = url, cause
-        self.message_text = f"Serveur local injoignable ({url}) : {cause}"
-        super().__init__(self.message_text)
+        super().__init__("models.servers.unreachable", url=url, cause=cause)
+        self.message_text = self.message
 
 
 class Tokenizer(Protocol):
@@ -84,9 +88,9 @@ class Tokenizer(Protocol):
 
 def _cause(exc: httpx.HTTPError) -> str:
     if isinstance(exc, httpx.ConnectError):
-        return "connexion refusée (serveur arrêté ?)"
+        return Message("models.servers.cause.refused")
     if isinstance(exc, httpx.TimeoutException):
-        return "délai dépassé"
+        return Message("models.servers.cause.timeout")
     return f"{type(exc).__name__}: {exc}"
 
 
@@ -122,9 +126,9 @@ def _json(
     try:
         data = response.json()
     except ValueError as exc:
-        raise ServerError(base, f"réponse illisible sur {path}") from exc
+        raise ServerError(base, Message("models.servers.cause.unreadable", path=path)) from exc
     if not isinstance(data, dict):
-        raise ServerError(base, f"réponse illisible sur {path}")
+        raise ServerError(base, Message("models.servers.cause.unreadable", path=path))
     return data
 
 
@@ -192,9 +196,13 @@ def _lines(
             try:
                 data = json.loads(line)
             except ValueError as exc:
-                raise ServerError(base, f"flux illisible : {line[:80]}") from exc
+                raise ServerError(
+                    base, Message("models.servers.cause.unreadable_stream", line=line[:80])
+                ) from exc
             if not isinstance(data, dict):
-                raise ServerError(base, f"flux illisible : {line[:80]}")
+                raise ServerError(
+                    base, Message("models.servers.cause.unreadable_stream", line=line[:80])
+                )
             yield data
     except (httpx.HTTPError, httpx.StreamError, RuntimeError, OSError) as exc:
         if cancel.cancelled:
@@ -241,22 +249,25 @@ def _file_name(path: str) -> str:
     return re.split(r"[\\/]", path.rstrip("\\/"))[-1]
 
 
-def _reduced(message_text: str, cause: str) -> None:
+def _reduced(message_text: str, cause: str, lang: str) -> None:
+    """« Transparence réduite », in `lang` (the engine's `language`, the session's)."""
     get_journal().emit(
         "harness_error",
         {
             "message_text": message_text,
             "cause": cause,
-            "effect_text": (
-                "Le tour continue. La jauge affiche le compte du harnais, qui n'est plus "
-                "exactement ce que le serveur a lu."
-            ),
+            "effect_text": msg("models.servers.reduced.effect", lang),
         },
     )
 
 
 def _interrupted(base: str) -> ServerError:
-    return ServerError(base, "flux interrompu avant la fin de la réponse")
+    return ServerError(base, Message("models.servers.cause.interrupted"))
+
+
+def _count(n: int) -> Lazy:
+    """A count of tokens, written in the language its message is rendered in (« 262 144 »)."""
+    return Lazy(partial(number, n))
 
 
 class LlamaServerEngine:
@@ -273,6 +284,8 @@ class LlamaServerEngine:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.url = url.rstrip("/")
+        # Languages (5/5): the session's, which it sets; the texts this engine traces.
+        self.language = config.DEFAULT_LANGUAGE
         self._client = _client(connect_timeout_s, read_timeout_s, transport)
         self._pieces: dict[int, bytes] = {}  # id -> bytes, filled by `tokenize`
         self._last_evaluated: int | None = None
@@ -327,28 +340,13 @@ class LlamaServerEngine:
         """Story 29: vocabulary and embedding size from `/v1/models` (the server's own
         tokenizer and model), layers and heads from the GGUF header of the file it loaded,
         when that file is on this disk."""
-        names = {
-            "vocab_size": "vocabulaire",
-            "embedding_length": "dimension",
-            "layer_count": "couches",
-            "head_count": "têtes",
-            "context_length": "contexte natif",
-        }
         served = {k: v for k, v in self._sizes.items() if v is not None}
         header = {k: v for k, v in _header_dimensions(self._model_path).items() if k not in served}
-        said = []
-        if served:
-            listed = ", ".join(names[k] for k in names if k in served)
-            said.append(f"{listed.capitalize()} donnés par llama-server (/v1/models)")
-        if header:
-            listed = ", ".join(names[k] for k in names if k in header)
-            said.append(f"{listed} lus dans l'en-tête GGUF de son fichier")
-        else:
-            said.append(
-                "le fichier du modèle, ouvert par llama-server, n'est pas lisible depuis WaveStack"
-            )
-        source_text = " ; ".join(said)
-        return served | header | {"source_text": source_text[0].upper() + source_text[1:] + "."}
+        # A `Message` (French as a text), rendered by the session in its language.
+        source_text = Message(
+            "common.verbatim", text=Lazy(partial(_llama_source, list(served), list(header)))
+        )
+        return served | header | {"source_text": source_text}
 
     # AD-4, AD-11: no access to the server's cache nor to its state.
 
@@ -383,7 +381,9 @@ class LlamaServerEngine:
                     token = int(item)
                 ids.append(token)
         except _RESPONSE_ERRORS as exc:
-            raise ServerError(self.url, "réponse illisible sur /tokenize") from exc
+            raise ServerError(
+                self.url, Message("models.servers.cause.unreadable", path="/tokenize")
+            ) from exc
         return ids
 
     def token_pieces(self, ids: Sequence[int]) -> list[bytes]:
@@ -393,7 +393,9 @@ class LlamaServerEngine:
             data = _json(self._client, self.url, "POST", "/detokenize", {"tokens": [token]})
             content = str(data.get("content") or "")
             if "\ufffd" in content:
-                raise ServerError(self.url, f"pièce du token {token} illisible par /detokenize")
+                raise ServerError(
+                    self.url, Message("models.servers.cause.piece_unreadable", token=token)
+                )
             self._pieces[token] = content.encode("utf-8")
         return [self._pieces[t] for t in ids]
 
@@ -471,6 +473,8 @@ class OllamaRawEngine:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.url, self.name = url.rstrip("/"), name
+        # Languages (5/5): the session's, which it sets; the texts this engine traces.
+        self.language = config.DEFAULT_LANGUAGE
         self._gguf_path = gguf_path  # story 29: its header gives the model's sizes
         self._tokenizer = tokenizer if tokenizer is not None else _open_tokenizer(gguf_path)
         self.num_ctx = n_ctx  # until the session gives its effective window
@@ -493,12 +497,7 @@ class OllamaRawEngine:
         vocab_size = getattr(self._tokenizer, "vocab_size", None)
         dims: dict[str, Any] = dict(_header_dimensions(self._gguf_path))
         dims["vocab_size"] = vocab_size() if callable(vocab_size) else None
-        return dims | {
-            "source_text": (
-                "Vocabulaire lu par le tokenizer du fichier GGUF d'Ollama ; dimensions lues "
-                "dans son en-tête."
-            )
-        }
+        return dims | {"source_text": Message("models.servers.dimensions.ollama")}
 
     # AD-4, AD-11: no access to the server's cache nor to its state.
 
@@ -559,10 +558,9 @@ class OllamaRawEngine:
                 if data.get("thinking") and not thinking:  # once per call
                     thinking = True
                     _reduced(
-                        "Transparence réduite : Ollama a renvoyé un champ « thinking » en mode "
-                        "raw ; ce raisonnement, séparé par Ollama, n'est pas dans la sortie "
-                        "brute que lit le harnais.",
-                        "champ thinking reçu",
+                        msg("models.servers.reduced.thinking", self.language),
+                        msg("models.servers.reduced.thinking_cause", self.language),
+                        self.language,
                     )
                 text = str(data.get("response") or "")
                 if text:
@@ -594,11 +592,13 @@ class OllamaRawEngine:
         if not isinstance(evaluated, int) or evaluated == counted:
             return
         if evaluated > counted:
+            lang = self.language
             _reduced(
-                f"Transparence réduite : Ollama a lu {evaluated} tokens de prompt, le harnais "
-                f"en a compté {counted}. Ollama a tokenisé le texte à sa façon (par exemple "
-                "en ajoutant un token de début).",
-                f"prompt_eval_count = {evaluated}, harnais = {counted}",
+                msg("models.servers.reduced.count", lang, evaluated=evaluated, counted=counted),
+                msg(
+                    "models.servers.reduced.count_cause", lang, evaluated=evaluated, counted=counted
+                ),
+                lang,
             )
             return
         get_journal().emit(
@@ -606,9 +606,11 @@ class OllamaRawEngine:
             {
                 "prompt_tokens": counted,
                 "evaluated_tokens": evaluated,
-                "message_text": (
-                    f"Ollama n'a relu que {evaluated} tokens sur {counted} : le début du "
-                    "prompt venait de son cache (préfixe identique à l'appel précédent)."
+                "message_text": msg(
+                    "models.servers.cache_used",
+                    self.language,
+                    evaluated=evaluated,
+                    counted=counted,
                 ),
             },
         )
@@ -626,12 +628,13 @@ class OllamaRawEngine:
                     get_journal().emit(
                         "harness_error",
                         {
-                            "message_text": f"Ollama n'a pas déchargé le modèle {self.name}.",
-                            "cause": error,
-                            "effect_text": (
-                                "WaveStack continue ; Ollama le déchargera de lui-même après "
-                                "son délai d'inactivité."
+                            "message_text": msg(
+                                "models.servers.not_unloaded.message",
+                                self.language,
+                                name=self.name,
                             ),
+                            "cause": render(error, self.language),
+                            "effect_text": msg("models.servers.not_unloaded.effect", self.language),
                         },
                     )
         finally:
@@ -639,11 +642,14 @@ class OllamaRawEngine:
             self._tokenizer.close()
 
 
-class TokenizerRefused(ValueError):
-    """Lot E (E6): llama-cpp-python refused a served model's GGUF. `reason_text` in French,
-    `detail` the loader's own message (a technical detail, never the reason)."""
+class TokenizerRefused(KeyedError, ValueError):
+    """Lot E (E6): llama-cpp-python refused a served model's GGUF. `reason_text` a `Message`
+    (French as a text; a plain text is kept verbatim), `render(lang)` in the session's
+    language; `detail` the loader's own message (a technical detail, never the reason)."""
 
     def __init__(self, reason_text: str, detail: str) -> None:
+        if not isinstance(reason_text, Message):
+            reason_text = Message("common.verbatim", text=reason_text)
         super().__init__(reason_text)
         self.reason_text, self.detail = reason_text, detail
 
@@ -660,9 +666,7 @@ def _open_tokenizer(gguf_path: str | None) -> VocabTokenizer:
         except PackageNotFoundError:
             lib = "llama-cpp-python"
         raise TokenizerRefused(
-            f"{lib} ne sait pas lire le tokenizer de ce modèle (certains modèles "
-            "récents d'Ollama) : servez-le plutôt avec llama-server, qui tokenise lui-même.",
-            str(exc),
+            Message("models.servers.tokenizer_refused", lib=lib), str(exc)
         ) from exc
 
 
@@ -886,7 +890,8 @@ CONTEXT_WARN_FACTOR = 1.5
 
 
 def context_warning_fr(n_ctx: int | None, window: int, slot_ctx: int | None = None) -> str | None:
-    """Lot E (E1): the French warning when a slot of llama-server has a context much larger
+    """Lot E (E1): the warning (a `Message`, French as a text, its numbers written in the
+    language it is rendered in) when a slot of llama-server has a context much larger
     than WaveStack's window (`-c` omitted: the model's whole native context), whose memory
     it reserved for nothing; `None` otherwise. With several slots (`-np N`), `-c {window}`
     alone would shrink each slot below the window: the advice is `-np 1 -c {window}`.
@@ -895,28 +900,51 @@ def context_warning_fr(n_ctx: int | None, window: int, slot_ctx: int | None = No
     advice is then `-np 1 -c {window}` too (one slot, the whole context for it)."""
     slot = slot_ctx or n_ctx
     if slot and slot < window:
-        return (
-            f"llama-server a été lancé avec un contexte de {_fr_int(slot)} tokens par "
-            f"emplacement, sous la fenêtre choisie de {_fr_int(window)} : la fenêtre effective "
-            f"reste de {_fr_int(slot)} tokens. Arrêtez-le et relancez-le avec "
-            f"`-np 1 -c {window}`."
+        return Message(
+            "models.servers.context_warning.below",
+            slot=_count(slot),
+            window=_count(window),
+            raw_window=window,
         )
     if not slot or slot <= window * CONTEXT_WARN_FACTOR:
         return None
     whole = max(n_ctx or 0, slot)
     slots = whole // slot if whole > slot else 1
-    shared = f" ({_fr_int(slot)} par emplacement, {slots} emplacements)" if slots > 1 else ""
+    shared = (
+        Message("models.servers.context_warning.shared", slot=_count(slot), slots=slots)
+        if slots > 1
+        else ""
+    )
     advice = f"-np 1 -c {window}" if slots > 1 else f"-c {window}"
-    return (
-        f"llama-server a été lancé avec un contexte de {_fr_int(whole)} tokens{shared}, alors "
-        f"que WaveStack n'en utilise que {_fr_int(window)} : il réserve la mémoire de tout ce "
-        f"contexte. Arrêtez-le et relancez-le avec `{advice}`."
+    return Message(
+        "models.servers.context_warning.above",
+        whole=_count(whole),
+        shared=shared,
+        window=_count(window),
+        advice=advice,
     )
 
 
-def _fr_int(n: int) -> str:
-    """« 262 144 »: French thousands separator (narrow no-break space)."""
-    return f"{n:,}".replace(",", "\u202f")
+def _llama_source(served: list[str], header: list[str], lang: str) -> str:
+    """Story 29: where llama-server's sizes were read, in `lang`: the served ones, then the
+    header's (or why the file could not be read)."""
+    names = ("vocab_size", "embedding_length", "layer_count", "head_count", "context_length")
+
+    def listed(keys: list[str]) -> str:
+        return ", ".join(
+            msg(f"models.servers.dimensions.names.{k}", lang) for k in names if k in keys
+        )
+
+    said = []
+    if served:
+        text = listed(served)
+        said.append(msg("models.servers.dimensions.served", lang, names=text.capitalize()))
+    if header:
+        said.append(msg("models.servers.dimensions.header", lang, names=listed(header)))
+    else:
+        said.append(msg("models.servers.dimensions.unreadable", lang))
+    source_text = msg("models.servers.dimensions.separator", lang).join(said)
+    return source_text[0].upper() + source_text[1:] + "."
 
 
 def open_engine(

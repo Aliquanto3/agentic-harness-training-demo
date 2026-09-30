@@ -626,7 +626,7 @@ def test_script_builds_the_index_and_records_the_file(tmp_path, capsys):
     assert _script().main([], embedder_factory=fake_factory) == 0
 
     meta = rag_index.read_meta(tmp_path / "script.sqlite")
-    assert meta.model_size == MODEL_SIZE and "Index écrit" in capsys.readouterr().out
+    assert meta.model_size == MODEL_SIZE and "Index written" in capsys.readouterr().out
 
 
 def test_script_refuses_another_file_and_invalid_content(tmp_path, capsys, monkeypatch):
@@ -636,7 +636,7 @@ def test_script_refuses_another_file_and_invalid_content(tmp_path, capsys, monke
     script = _script()
 
     assert script.main(["--model", str(other)], embedder_factory=fake_factory) == 2
-    assert "n'est pas le modèle déclaré" in capsys.readouterr().err
+    assert "is not the model declared" in capsys.readouterr().err
     assert not (tmp_path / "script.sqlite").exists()
 
     def invalid(lang):  # noqa: ARG001 - languages (4/5): the script passes `--lang`
@@ -644,10 +644,10 @@ def test_script_refuses_another_file_and_invalid_content(tmp_path, capsys, monke
 
     monkeypatch.setattr(script, "load_rag_content", invalid)
     assert script.main([], embedder_factory=fake_factory) == 2
-    assert "content/rag.yaml est absent ou invalide" in capsys.readouterr().err
+    assert "content/rag.yaml is missing or invalid" in capsys.readouterr().err
 
 
-def test_script_says_in_french_that_wavestack_uses_the_index(tmp_path, capsys, monkeypatch):
+def test_script_says_in_english_that_wavestack_uses_the_index(tmp_path, capsys, monkeypatch):
     _settings(tmp_path)
     place_model()
     target = tmp_path / "script.sqlite"
@@ -659,8 +659,8 @@ def test_script_says_in_french_that_wavestack_uses_the_index(tmp_path, capsys, m
 
     err = capsys.readouterr().err
     assert err.strip() == (
-        f"{rag_index.INDEX_IN_USE_FR} Construisez-le depuis la carte RAG, ou arrêtez "
-        "WaveStack, puis relancez ce script."
+        f"{rag_index.INDEX_IN_USE_FR.render('en')} Build it from the RAG card, or stop "
+        "WaveStack, then run this script again."
     )
     assert not target.with_name(target.name + ".tmp").exists()
     assert rag_index.read_meta(target) == before  # the old index, intact

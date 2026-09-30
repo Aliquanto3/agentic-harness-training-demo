@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from wavestack import config
 from wavestack.config import CloudModel
+from wavestack.messages import msg
 from wavestack.models.engine import Sampling
 
 
@@ -104,39 +105,43 @@ def chat_fields(
     return {**fields, **entry.reasoning_params(reasoning)}
 
 
-def usd_price_fr(value: float) -> str:
-    """FinOps: a price per million tokens, French comma, 2 decimals at least (« 0,30 $ »)."""
+def usd_price_fr(value: float, lang: str = "fr") -> str:
+    """FinOps: a price per million tokens, 2 decimals at least: « 0,30 $ » (French and
+    German), « $0.30 » (English)."""
     text = f"{value:.4f}".rstrip("0")
     whole, _, decimals = text.partition(".")
+    if lang == "en":
+        return f"${whole}.{decimals.ljust(2, '0')}"
     return f"{whole},{decimals.ljust(2, '0')} $"
 
 
-def price_fr(entry: CloudModel) -> str | None:
+def price_fr(entry: CloudModel, lang: str = "fr") -> str | None:
     """FinOps: « 0,30 $ / 2,50 $ » (input / output, per million tokens); `None` without
     declared prices."""
     pricing = entry.pricing
     if pricing is None:
         return None
     return (
-        f"{usd_price_fr(pricing.input_usd_per_mtok)} / {usd_price_fr(pricing.output_usd_per_mtok)}"
+        f"{usd_price_fr(pricing.input_usd_per_mtok, lang)} / "
+        f"{usd_price_fr(pricing.output_usd_per_mtok, lang)}"
     )
 
 
-def price_reason_fr(entry: CloudModel) -> str | None:
-    """FinOps: what the price means and when it was read."""
+def price_reason_fr(entry: CloudModel, lang: str = "fr") -> str | None:
+    """FinOps: what the price means and when it was read, in `lang`."""
     pricing = entry.pricing
     if pricing is None:
         return None
-    return (
-        "par million de tokens (entrée / sortie), relevé le "
-        f"{pricing.checked:%d/%m/%Y} ; le coût de chaque appel en est une estimation"
-    )
+    checked = f"{pricing.checked:%d.%m.%Y}" if lang == "de" else f"{pricing.checked:%d/%m/%Y}"
+    return msg("cloud.price.reason", lang, checked=checked)
 
 
-def price_line_fr(entry: CloudModel) -> str | None:
+def price_line_fr(entry: CloudModel, lang: str = "fr") -> str | None:
     """FinOps, the diagnostic's « Prix » line; `None` without declared prices."""
-    price = price_fr(entry)
-    return f"Prix : {price} {price_reason_fr(entry)}" if price else None
+    price = price_fr(entry, lang)
+    if not price:
+        return None
+    return msg("cloud.price.line", lang, price=price, reason=price_reason_fr(entry, lang))
 
 
 def disclosure(entry: CloudModel) -> dict[str, Any]:

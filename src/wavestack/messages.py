@@ -10,6 +10,7 @@ the French text; an unknown key or a missing variable is a programming error, ra
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from functools import cache
 from typing import Any
 
@@ -117,7 +118,7 @@ def msg(key: str, lang: str, /, **kw: Any) -> str:
         name = match.group(1)
         if name not in kw:
             raise MessageError(f"{key}: missing variable {name!r}")
-        return str(kw[name])
+        return render(kw[name], lang)  # a `Message` variable in the same language
 
     return _VARIABLE.sub(value, text)
 
@@ -176,13 +177,100 @@ class KeyedError(Exception):
         return self.render(config.DEFAULT_LANGUAGE)
 
 
+class Said(str):
+    """A text in a language that keeps its `Message`: the session places it in an event,
+    and the terminal renders `.message` again in English (`cli._print_journal_event`).
+    Everything else reads it as the text it is."""
+
+    message: Message
+    lang: str
+
+    def __new__(cls, message: Message, lang: str) -> Said:
+        self = super().__new__(cls, message.render(lang))
+        self.message, self.lang = message, lang
+        return self
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (Said, (self.message, self.lang))
+
+
+def said(value: Any, lang: str) -> Any:
+    """`value` placed in `lang`: a `Message` or a `KeyedError` as a `Said`, a `Lazy`
+    rendered, anything else as it is."""
+    if isinstance(value, Message):
+        return Said(value, lang)
+    if isinstance(value, KeyedError):
+        return Said(value.message, lang)
+    if isinstance(value, Lazy):
+        return value.render(lang)
+    return value
+
+
+def in_language(value: Any, lang: str) -> Any:
+    """`value` with every `Message`, `KeyedError` or `Lazy` it holds (in a dict, a list or a
+    tuple, at any depth) placed in `lang` (`said`); the same object when it holds none. The
+    session applies it to what it emits, the web to what it answers."""
+    if isinstance(value, Message | KeyedError | Lazy):
+        return said(value, lang)
+    if isinstance(value, dict):
+        items = {k: in_language(v, lang) for k, v in value.items()}
+        return value if all(items[k] is value[k] for k in value) else items
+    if isinstance(value, list | tuple):
+        items = [in_language(v, lang) for v in value]
+        if all(a is b for a, b in zip(items, value, strict=True)):
+            return value
+        return items if isinstance(value, list) else type(value)(items)
+    return value
+
+
 def render(value: Any, lang: str) -> str:
-    """`value` in `lang`: a `Message` or a `KeyedError` rendered, anything else `str()`."""
-    if isinstance(value, Message | KeyedError):
+    """`value` in `lang`: a `Message`, a `KeyedError` or a `Lazy` rendered, anything else
+    `str()`."""
+    if isinstance(value, Message | KeyedError | Lazy):
         return value.render(lang)
     return str(value)
 
 
 def _rendered(value: Any, lang: str) -> Any:
-    """A variable: a `Message` or a `KeyedError` rendered in `lang`, anything else kept."""
-    return value.render(lang) if isinstance(value, Message | KeyedError) else value
+    """A variable: a `Message`, a `KeyedError` or a `Lazy` rendered in `lang`, anything
+    else kept."""
+    return value.render(lang) if isinstance(value, Message | KeyedError | Lazy) else value
+
+
+class Lazy:
+    """A variable written in the language its message is rendered in: a number, a size, an
+    enumeration (`Lazy(lambda lang: number(n, lang))`). `str()` gives the French."""
+
+    __slots__ = ("fn",)
+
+    def __init__(self, fn: Callable[[str], str]) -> None:
+        self.fn = fn
+
+    def render(self, lang: str) -> str:
+        return self.fn(config.as_language(lang))
+
+    def __str__(self) -> str:
+        return self.render(config.DEFAULT_LANGUAGE)
+
+    def __repr__(self) -> str:
+        return f"Lazy({self})"
+
+
+# The separators of a number, by language: thousands, then decimals. French groups with a
+# narrow no-break space (U+202F); a module that wrote another space keeps its own for `fr`.
+_SEPARATORS = {"fr": (" ", ","), "en": (",", "."), "de": (".", ",")}
+
+
+def number(value: float, lang: str, digits: int = 0) -> str:
+    """`value` with `digits` decimals, in `lang`'s style: « 12 345,6 », « 12,345.6 »,
+    « 12.345,6 »."""
+    group, point = _SEPARATORS[config.as_language(lang)]
+    text = f"{value:,.{digits}f}"
+    return text.replace(",", "\0").replace(".", point).replace("\0", group)
+
+
+def join(items: list[str], lang: str) -> str:
+    """« a, b et c », « a, b and c », « a, b und c »: an enumeration in `lang`."""
+    if len(items) < 2:
+        return "".join(items)
+    return ", ".join(items[:-1]) + f" {msg('common.and', lang)} {items[-1]}"

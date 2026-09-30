@@ -3,6 +3,8 @@ offline with the model `[rag.embedding]` names, written into `[rag] index_path`.
 card of WaveStack does the same (« Construire l'index »). Languages (4/5): `--lang` (`fr` by
 default, never read from `settings.json`) picks the corpus and its titles
 (`content/i18n/{lang}/`) and the index (`rag_index.{lang}.sqlite` outside French).
+Languages (5/5): what it prints is always English (`content/messages.yaml`, section
+`build_rag_index`, read in `en`), whatever `--lang` and `settings.json` say.
 
     uv run python scripts/build_rag_index.py [--lang fr|en|de] [--download] [--model CHEMIN]
 
@@ -27,6 +29,7 @@ _install_guard(_config.load_config().allowed_hosts if "--download" in sys.argv[1
 from pydantic import ValidationError  # noqa: E402
 
 from wavestack import config  # noqa: E402
+from wavestack.messages import msg, render  # noqa: E402
 from wavestack.models import download  # noqa: E402
 from wavestack.models.embedding import LlamaCppEmbedder, model_path  # noqa: E402
 from wavestack.models.engine import CancelToken  # noqa: E402
@@ -35,12 +38,19 @@ from wavestack.rag.index import (  # noqa: E402
     IndexInUse,
     VecUnavailable,
     build_index,
+    exception_text,
     file_sha256,
 )
 
-BUILD_FROM_THE_CARD_FR = (
-    "Construisez-le depuis la carte RAG, ou arrêtez WaveStack, puis relancez ce script."
-)
+TERMINAL = "en"  # the terminal's language (languages 5/5), never `settings.json`'s
+
+
+def _en(key: str, **kw: object) -> str:
+    """`build_rag_index.{key}`, in English."""
+    return msg(f"build_rag_index.{key}", TERMINAL, **kw)
+
+
+BUILD_FROM_THE_CARD_FR = _en("from_the_card")  # the name kept; English since languages 5/5
 
 
 def _fail(message: str, code: int = 2) -> int:
@@ -53,68 +63,52 @@ def _mo(n: int) -> str:
 
 
 def main(argv: list[str] | None = None, embedder_factory=LlamaCppEmbedder) -> int:  # noqa: ANN001
-    parser = argparse.ArgumentParser(
-        description="Construit l'index RAG (sqlite-vec) du corpus de démonstration."
-    )
-    parser.add_argument(
-        "--model",
-        type=Path,
-        help="Chemin du GGUF d'embedding (par défaut : load_path de [rag.embedding], "
-        "dans le dossier des modèles). Il doit être le fichier déclaré (même taille, même "
-        "sha256 s'il est renseigné).",
-    )
-    parser.add_argument(
-        "--download",
-        action="store_true",
-        help="Télécharge d'abord les fichiers manquants de [rag.embedding].",
-    )
+    parser = argparse.ArgumentParser(description=_en("description"))
+    parser.add_argument("--model", type=Path, help=_en("help_model"))
+    parser.add_argument("--download", action="store_true", help=_en("help_download"))
     parser.add_argument(
         "--lang",
         choices=config.LANGUAGES,
         default=config.DEFAULT_LANGUAGE,
-        help="Langue du corpus et de l'index (par défaut : fr, l'index [rag] index_path ; "
-        "en et de : rag_index.en.sqlite et rag_index.de.sqlite à côté).",
+        help=_en("help_lang"),
     )
     args = parser.parse_args(argv)
     cfg = config.load_config()
     model, error_text = cfg.rag_embedding
     if model is None:
-        return _fail(error_text or "La section [rag.embedding] est invalide.")
+        return _fail(render(error_text, TERMINAL) if error_text else _en("embedding_invalid"))
     try:
         content = load_rag_content(args.lang)
     except (OSError, ValueError, ValidationError) as exc:
         rel = config.content_file("rag.yaml", args.lang).relative_to(config.repo_root())
-        return _fail(f"Le fichier {rel.as_posix()} est absent ou invalide : {exc}")
+        return _fail(_en("content_invalid", path=rel.as_posix(), cause=exc))
     if args.download:
         missing = download.missing_files(model.files, config.models_dir())
         if missing:
-            print(f"Téléchargement de {len(missing)} fichier(s) dans {config.models_dir()}…")
+            print(_en("downloading", count=len(missing), folder=config.models_dir()))
             try:
                 download.download_files(missing, config.models_dir(), CancelToken(), _dots)
             except download.DownloadError as exc:
-                return _fail(f"\nTéléchargement impossible : {exc.reason_text}.")
+                reason = render(exc.reason_text, TERMINAL)
+                return _fail("\n" + _en("download_failed", reason=reason))
             print()
     path = args.model or model_path(model)
     if not path.is_file():
-        return _fail(
-            f"Modèle d'embedding introuvable : {path}. Relancez avec --download, ou copiez-le "
-            f"à cet endroit ({model.load_file.url}), ou passez --model CHEMIN."
-        )
+        return _fail(_en("model_missing", path=path, url=model.load_file.url))
     declared = model.load_file
     size = path.stat().st_size
     if size != declared.size:
         return _fail(
-            f"{path} n'est pas le modèle déclaré dans [rag.embedding] : {size} octets au lieu "
-            f"de {declared.size}. L'index porterait l'identifiant « {model.id} » à tort."
+            _en("wrong_size", path=path, size=size, expected=declared.size, model=model.id)
         )
     if declared.sha256 and file_sha256(path) != declared.sha256.lower():
-        return _fail(f"{path} n'est pas le modèle déclaré : sha256 différent de [rag.embedding].")
+        return _fail(_en("wrong_sha256", path=path))
     started = time.monotonic()
-    print(f"Chargement du modèle d'embedding {model.label_text} ({path})…")
+    print(_en("loading", model=model.label_text, path=path))
     try:
         embedder = embedder_factory(model, path)
     except (ValueError, OSError) as exc:
-        return _fail(f"Modèle d'embedding inutilisable : {exc}.")
+        return _fail(_en("model_unusable", cause=exception_text(exc, TERMINAL)))
     target = cfg.rag_index_path(args.lang)
     try:
         meta = build_index(
@@ -122,29 +116,37 @@ def main(argv: list[str] | None = None, embedder_factory=LlamaCppEmbedder) -> in
             embedder,
             target,
             cfg.rag_chunk_max_chars,
-            on_progress=lambda i, n: print(f"\r  extrait {i} / {n}", end="", flush=True),
+            on_progress=lambda i, n: print(
+                "\r" + _en("progress", done=i, total=n), end="", flush=True
+            ),
             model_file=path,
             lang=args.lang,
         )
     except IndexInUse as exc:  # held open (Windows): its message, then what to do
-        return _fail(f"\n{exc} {BUILD_FROM_THE_CARD_FR}", 1)
+        return _fail(f"\n{exc.render(TERMINAL)} {BUILD_FROM_THE_CARD_FR}", 1)
     except (ValueError, OSError, sqlite3.Error, VecUnavailable) as exc:
-        return _fail(f"\nIndex non construit : {exc}.", 1)
+        return _fail("\n" + _en("not_built", cause=exception_text(exc, TERMINAL)), 1)
     finally:
         embedder.close()
-    print(
-        f"\nIndex écrit : {target}\n"
-        f"  documents : {len(content.documents)}\n"
-        f"  extraits : {meta.chunks} (au plus {meta.chunk_max_chars} caractères)\n"
-        f"  modèle : {meta.embedding_model_id}, {meta.dims} dimensions, "
-        f"{_mo(meta.model_size)} Mo, sha256 {meta.model_sha256}\n"
-        f"  durée : {time.monotonic() - started:.1f} s"
-    )
+    lines = [
+        _en("written", path=target),
+        _en("documents", count=len(content.documents)),
+        _en("extracts", count=meta.chunks, max=meta.chunk_max_chars),
+        _en(
+            "model",
+            model=meta.embedding_model_id,
+            dims=meta.dims,
+            size=_mo(meta.model_size),
+            sha256=meta.model_sha256,
+        ),
+        _en("duration", seconds=f"{time.monotonic() - started:.1f}"),
+    ]
+    print("\n" + "\n".join(lines))
     return 0
 
 
 def _dots(done: int, total: int) -> None:
-    print(f"\r  {_mo(done)} / {_mo(total)} Mo", end="", flush=True)
+    print("\r" + _en("download_progress", done=_mo(done), total=_mo(total)), end="", flush=True)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 from wavestack import config
+from wavestack.messages import in_language, msg, render
 from wavestack.models import catalog
 from wavestack.models.engine import SAMPLING_BOUNDS, Sampling
 from wavestack.rag.lab import LANES_MAX, QUESTION_MAX, Pipeline
@@ -232,21 +233,31 @@ def create_app(
     app = FastAPI(title="WaveStack", version=version, lifespan=lifespan)
     app.state.app_session = app_session
 
+    def t(key: str, **kw: Any) -> str:
+        """Languages (5/5): an HTTP `detail` in the session's language."""
+        return msg(key, app_session.language, **kw)
+
+    def shown(value: Any) -> Any:
+        """Languages (5/5): an answer with every text of the session (a `Message`, at any
+        depth) in its language; anything else as it is."""
+        return in_language(value, app_session.language)
+
     @app.exception_handler(RequestValidationError)
     async def _invalid_intention(_: Request, exc: RequestValidationError) -> JSONResponse:
-        """AD-18: a French message with `loc` and `type`, never `input` nor `ctx` (a key)."""
+        """AD-18: a message with `loc` and `type`, never `input` nor `ctx` (a key)."""
         errors = [{"loc": list(e["loc"]), "type": e["type"]} for e in exc.errors()]
-        fields = ", ".join(".".join(str(p) for p in e["loc"][1:]) or "corps" for e in errors)
+        body = t("web.body")
+        fields = ", ".join(".".join(str(p) for p in e["loc"][1:]) or body for e in errors)
         return JSONResponse(
-            {"detail": f"Intention invalide : vérifiez {fields}.", "errors": errors},
+            {"detail": t("web.invalid_intention", fields=fields), "errors": errors},
             status_code=422,
         )
 
     def _diagnostic_class_b() -> None:
         """AD-3: the diagnostic's intentions are refused outside `diagnostic` and `idle`."""
         if app_session.state not in ("idle", "diagnostic"):
-            reason = app_session.reason_text or "WaveStack est occupé."
-            raise HTTPException(status_code=409, detail=f"Refusé pour l'instant : {reason}")
+            reason = app_session.reason_text or t("web.busy")
+            raise HTTPException(status_code=409, detail=t("web.refused_now", reason=reason))
 
     app.add_middleware(
         TrustedHostMiddleware,
@@ -259,9 +270,9 @@ def create_app(
             origin = request.headers.get("origin")
             expected = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
             if origin not in expected:
-                return JSONResponse({"detail": "Origine refusée."}, status_code=403)
+                return JSONResponse({"detail": t("web.origin_refused")}, status_code=403)
             if request.headers.get("content-type", "").split(";")[0] != "application/json":
-                return JSONResponse({"detail": "JSON attendu."}, status_code=415)
+                return JSONResponse({"detail": t("web.json_expected")}, status_code=415)
         return await call_next(request)
 
     @app.middleware("http")
@@ -313,7 +324,7 @@ def create_app(
     def api_llm_lab() -> dict[str, object]:
         """Story 29 (AD-1): the screen's texts, the active model, the session's state and the
         journal's tip; the page then streams from `seq`."""
-        return app_session.lab_state()
+        return shown(app_session.lab_state())
 
     @app.post("/api/intentions/llm_tokenize")
     def llm_tokenize(intention: LlmTokenizeIntention) -> dict[str, str]:
@@ -322,7 +333,7 @@ def create_app(
             return {"request_id": app_session.llm_tokenize(intention.text)}
         except SendRefused as refused:
             raise HTTPException(
-                status_code=409, detail=f"Refusé pour l'instant : {refused.reason_text}"
+                status_code=409, detail=t("web.refused_now", reason=refused.reason_text)
             ) from None
 
     @app.post("/api/intentions/llm_generate")
@@ -340,7 +351,7 @@ def create_app(
             return {"request_id": request_id}
         except SendRefused as refused:
             raise HTTPException(
-                status_code=409, detail=f"Refusé pour l'instant : {refused.reason_text}"
+                status_code=409, detail=t("web.refused_now", reason=refused.reason_text)
             ) from None
 
     @app.get("/rag")
@@ -352,13 +363,13 @@ def create_app(
     def api_rag_lab() -> dict[str, object]:
         """Story 30 (AD-1): the catalog, the shipped chain, the texts, the last run read in the
         journal, the session's state and the journal's tip; the page then streams from `seq`."""
-        return app_session.rag_lab_state()
+        return shown(app_session.rag_lab_state())
 
     @app.post("/api/rag_lab/validate")
     def rag_lab_validate(request: RagLabValidateRequest) -> dict[str, object]:
         """Story 30, increment 4, read only: why each chain would be refused, and the stage at
         fault; nothing runs, nothing is emitted."""
-        return app_session.validate_rag_lab(request.pipelines)
+        return shown(app_session.validate_rag_lab(request.pipelines))
 
     @app.post("/api/intentions/rag_lab_run")
     def rag_lab_run(intention: RagLabRunIntention) -> dict[str, str]:
@@ -367,7 +378,9 @@ def create_app(
         try:
             return {"run_id": app_session.run_rag_lab(intention.question, intention.pipelines)}
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
 
     @app.get("/api/state")
     def api_state() -> dict[str, object]:
@@ -402,28 +415,30 @@ def create_app(
         scenario = _latest(events, "scenario_changed")  # story 10: programme and active one
         memory = _latest(events, "memory_changed")  # story 14: the drawer and the card
         window = _latest(events, "context_window_state")  # story 26: the window panel
-        return {
-            # A1: the front compares it with the stream's `server_instance` event.
-            "instance_id": journal.instance_id,
-            "session_state": session_state.payload if session_state else None,
-            # AD-12: the model indicator, rebuilt from the session on every reload.
-            "active_model": app_session.active_model(),
-            "architecture_changed": architecture.payload if architecture else None,
-            "context_preview": preview.model_dump(mode="json") if preview else None,
-            "context_rendered": rendered.model_dump(mode="json") if rendered else None,
-            "context_reconciled": reconciled.model_dump(mode="json") if reconciled else None,
-            "bricks_changed": bricks.payload if bricks else None,
-            "pending_approval": pending,
-            "armed_actions_changed": armed.payload if armed else None,
-            "scenario_changed": scenario.payload if scenario else None,
-            "memory_changed": memory.payload if memory else None,
-            "context_window_state": window.payload if window else None,
-            # FinOps: the session's API spend, from the session (never reset by a reset).
-            "consumption_updated": app_session.consumption(),
-            # Languages (1/5): `language`, `languages` and `language_locked`.
-            **app_session.language_state(),
-            "seq": seq,
-        }
+        return shown(
+            {
+                # A1: the front compares it with the stream's `server_instance` event.
+                "instance_id": journal.instance_id,
+                "session_state": session_state.payload if session_state else None,
+                # AD-12: the model indicator, rebuilt from the session on every reload.
+                "active_model": app_session.active_model(),
+                "architecture_changed": architecture.payload if architecture else None,
+                "context_preview": preview.model_dump(mode="json") if preview else None,
+                "context_rendered": rendered.model_dump(mode="json") if rendered else None,
+                "context_reconciled": reconciled.model_dump(mode="json") if reconciled else None,
+                "bricks_changed": bricks.payload if bricks else None,
+                "pending_approval": pending,
+                "armed_actions_changed": armed.payload if armed else None,
+                "scenario_changed": scenario.payload if scenario else None,
+                "memory_changed": memory.payload if memory else None,
+                "context_window_state": window.payload if window else None,
+                # FinOps: the session's API spend, from the session (never reset by a reset).
+                "consumption_updated": app_session.consumption(),
+                # Languages (1/5): `language`, `languages` and `language_locked`.
+                **app_session.language_state(),
+                "seq": seq,
+            }
+        )
 
     @app.get("/api/diagnostic")
     def diagnostic_state() -> dict[str, object]:
@@ -447,26 +462,30 @@ def create_app(
         )
         cloud = session.cloud_rows(active.ref if active and active.kind == "cloud" else None)
         candidates = result.candidates if result else []
-        return {
-            "version": version,
-            "ready": result.ready if result else False,
-            "blocking_checks": result.blocking_checks if result else [],
-            "candidates": [c.model_dump() for c in candidates],
-            "selected_model": session.selected_model_path,
-            "loaded_model": active.ref if active and active.kind == "file" else None,
-            # Story 18: the saved choice and the loaded model, whatever their kind.
-            "selected": selected,
-            "loaded": (
-                {"kind": active.kind, "ref": active.ref, "label": active.label} if active else None
-            ),
-            # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
-            "cloud": cloud,
-            # Story 25: the picker's groups and the `/models` table, built in Python (AD-1).
-            **_models(candidates, cloud),
-            # Story 24: the budget the session refuses with (the diagnostic's memory line).
-            "memory_budget_bytes": app_session.memory_budget_bytes,
-            "seq": tip,
-        }
+        return shown(
+            {
+                "version": version,
+                "ready": result.ready if result else False,
+                "blocking_checks": result.blocking_checks if result else [],
+                "candidates": [c.model_dump() for c in candidates],
+                "selected_model": session.selected_model_path,
+                "loaded_model": active.ref if active and active.kind == "file" else None,
+                # Story 18: the saved choice and the loaded model, whatever their kind.
+                "selected": selected,
+                "loaded": (
+                    {"kind": active.kind, "ref": active.ref, "label": active.label}
+                    if active
+                    else None
+                ),
+                # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
+                "cloud": cloud,
+                # Story 25: the picker's groups and the `/models` table, built in Python (AD-1).
+                **_models(candidates, cloud),
+                # Story 24: the budget the session refuses with (the diagnostic's memory line).
+                "memory_budget_bytes": app_session.memory_budget_bytes,
+                "seq": tip,
+            }
+        )
 
     def _models(candidates: list, cloud: dict[str, Any]) -> dict[str, object]:
         """`models`, or nothing when it could not be built: the picker then lists the
@@ -496,14 +515,16 @@ def create_app(
         if not ref.strip():
             raise HTTPException(
                 status_code=422,
-                detail="Intention invalide : indiquez le modèle choisi (ref) ou le chemin (path).",
+                detail=t("web.model_ref_missing"),
             )
         hot = session.handed_out or app_session.state != "diagnostic"
         if intention.kind == "cloud":
             try:
                 result = session.select_cloud(ref, intention.acknowledged, hot=hot)
             except Refused as refused:
-                raise HTTPException(status_code=409, detail=refused.reason_text) from None
+                raise HTTPException(
+                    status_code=409, detail=render(refused.reason_text, app_session.language)
+                ) from None
         elif intention.kind == "server":
             result = session.select_server(ref, hot=hot)
         else:
@@ -522,7 +543,9 @@ def create_app(
             try:
                 message_text, switching = session.switch(app_session, result)
             except SendRefused as refused:
-                raise HTTPException(status_code=409, detail=refused.reason_text) from None
+                raise HTTPException(
+                    status_code=409, detail=render(refused.reason_text, app_session.language)
+                ) from None
         else:
             session.hand_to(app_session, result)
         return {
@@ -532,7 +555,7 @@ def create_app(
             "saved": result.saved,
             "switching": switching,
             "ref": ref_loading if switching else None,
-            "message_text": message_text,
+            "message_text": shown(message_text),
         }
 
     @app.post("/api/intentions/context_window")
@@ -544,32 +567,48 @@ def create_app(
         try:
             message_text, future = app_session.set_context_window(intention.window)
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
-        return {"switching": future is not None, "message_text": message_text}
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
+        return {"switching": future is not None, "message_text": shown(message_text)}
 
     @app.post("/api/intentions/set_api_key")
     def set_api_key(intention: SetApiKeyIntention) -> dict[str, object]:
         """Class (b): the key is saved with its host; the answer never repeats it (AD-15)."""
         _diagnostic_class_b()
         try:
-            return session.set_api_key(intention.id, intention.key)
+            return shown(session.set_api_key(intention.id, intention.key))
         except Refused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
 
     @app.post("/api/intentions/test_cloud_model")
     def test_cloud_model(intention: CloudTestIntention) -> dict[str, object]:
         """Class (b): holds `model_load` (« Test de {modèle} ») for its duration (AD-3)."""
         _diagnostic_class_b()
         entry = session.cfg.cloud_model(intention.id)
-        label = f"{entry.model} chez {entry.provider}" if entry else intention.id
+        label = (
+            t("web.cloud_test.label", model=entry.model, provider=entry.provider)
+            if entry
+            else intention.id
+        )
         try:
-            return app_session.hold(
-                "model_load", f"Test de {label}", lambda: session.test_cloud_model(intention.id)
+            return shown(
+                app_session.hold(
+                    "model_load",
+                    t("web.cloud_test.reason", label=label),
+                    lambda: session.test_cloud_model(intention.id),
+                )
             )
         except Refused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
 
     @app.post("/api/intentions/send")
     def send(intention: SendIntention) -> dict[str, str]:
@@ -577,7 +616,9 @@ def create_app(
         try:
             return {"turn_id": app_session.send(intention.message)}
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
 
     @app.post("/api/intentions/replay")
     def replay() -> dict[str, str]:
@@ -585,7 +626,9 @@ def create_app(
         try:
             return {"turn_id": app_session.replay()}
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
 
     @app.post("/api/intentions/stop")
     def stop() -> dict[str, bool]:
@@ -600,7 +643,9 @@ def create_app(
                 intention.approval_id, intention.approved, intention.disable_hook
             )
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
         return {"accepted": True}
 
     @app.post("/api/intentions/brick")
@@ -609,7 +654,7 @@ def create_app(
         try:
             app_session.set_brick(intention.brick, intention.wanted)
         except KeyError:
-            raise HTTPException(status_code=404, detail="Brique inconnue.") from None
+            raise HTTPException(status_code=404, detail=t("web.unknown.brick")) from None
         return {"accepted": True}
 
     @app.post("/api/intentions/tool")
@@ -618,7 +663,7 @@ def create_app(
         try:
             app_session.set_tool(intention.tool, intention.enabled)
         except KeyError:
-            raise HTTPException(status_code=404, detail="Outil inconnu.") from None
+            raise HTTPException(status_code=404, detail=t("web.unknown.tool")) from None
         return {"accepted": True}
 
     @app.post("/api/intentions/mcp_server")
@@ -627,7 +672,7 @@ def create_app(
         try:
             app_session.set_mcp_server(intention.server, intention.enabled)
         except KeyError:
-            raise HTTPException(status_code=404, detail="Serveur MCP inconnu.") from None
+            raise HTTPException(status_code=404, detail=t("web.unknown.mcp_server")) from None
         return {"accepted": True}
 
     @app.post("/api/intentions/mcp_mode")
@@ -643,7 +688,7 @@ def create_app(
         try:
             app_session.set_rag_rerank(intention.enabled)
         except KeyError:
-            raise HTTPException(status_code=404, detail="Aucune brique RAG.") from None
+            raise HTTPException(status_code=404, detail=t("web.unknown.rag")) from None
         return {"accepted": True}
 
     @app.post("/api/intentions/skill")
@@ -652,7 +697,7 @@ def create_app(
         try:
             app_session.set_skill(intention.skill, intention.enabled)
         except KeyError:
-            raise HTTPException(status_code=404, detail="Skill inconnu.") from None
+            raise HTTPException(status_code=404, detail=t("web.unknown.skill")) from None
         return {"accepted": True}
 
     @app.post("/api/intentions/hook")
@@ -661,7 +706,7 @@ def create_app(
         try:
             app_session.set_hook(intention.hook, intention.enabled)
         except KeyError:
-            raise HTTPException(status_code=404, detail="Hook inconnu.") from None
+            raise HTTPException(status_code=404, detail=t("web.unknown.hook")) from None
         return {"accepted": True}
 
     @app.post("/api/intentions/arm")
@@ -671,7 +716,9 @@ def create_app(
             armed_id = app_session.arm(intention.kind, intention.target, intention.args)
         except ArmRefused as refused:
             status = 404 if refused.not_found else 422
-            raise HTTPException(status_code=status, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=status, detail=render(refused.reason_text, app_session.language)
+            ) from None
         return {"armed_id": armed_id}
 
     @app.post("/api/intentions/disarm")
@@ -680,7 +727,9 @@ def create_app(
         try:
             app_session.disarm(intention.armed_id)
         except ArmRefused as refused:
-            raise HTTPException(status_code=404, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=404, detail=render(refused.reason_text, app_session.language)
+            ) from None
         return {"accepted": True}
 
     @app.get("/api/audit")
@@ -694,14 +743,14 @@ def create_app(
         except OSError as exc:  # a folder in its place, a locked file
             raise HTTPException(
                 status_code=500,
-                detail=f"Le journal d'audit ({path}) est illisible : {exc.strerror or exc}",
+                detail=t("web.audit_unreadable", path=path, cause=exc.strerror or exc),
             ) from None
         return {"path": str(path), "text": text}
 
     @app.post("/api/intentions/system_prompt")
     def system_prompt(intention: SystemPromptIntention) -> dict[str, object]:
         """Class (a): the saved prompt applies from the next turn (AD-3)."""
-        return app_session.save_system_prompt(intention.text)
+        return shown(app_session.save_system_prompt(intention.text))
 
     @app.post("/api/intentions/clear_conversation")
     def clear_conversation() -> dict[str, bool]:
@@ -709,7 +758,9 @@ def create_app(
         try:
             app_session.clear_conversation()
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
         return {"cleared": True}
 
     @app.post("/api/intentions/language")
@@ -719,7 +770,9 @@ def create_app(
         try:
             app_session.set_language(intention.language)
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
         return {"language": intention.language}
 
     @app.post("/api/intentions/memory")
@@ -729,11 +782,13 @@ def create_app(
         try:
             app_session.edit_memory(intention.op, intention.entry_id, intention.text)
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
         except KeyError:
-            raise HTTPException(status_code=404, detail="Entrée de mémoire inconnue.") from None
+            raise HTTPException(status_code=404, detail=t("web.unknown.memory_entry")) from None
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from None
+            raise HTTPException(status_code=422, detail=render(exc, app_session.language)) from None
         except OSError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from None
         return {"accepted": True}
@@ -744,9 +799,11 @@ def create_app(
         try:
             app_session.launch_scenario(intention.scenario_id)
         except KeyError:
-            raise HTTPException(status_code=404, detail="Scénario inconnu.") from None
+            raise HTTPException(status_code=404, detail=t("web.unknown.scenario")) from None
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
         return {"launched": True}
 
     @app.post("/api/intentions/download_model")
@@ -756,12 +813,15 @@ def create_app(
         try:
             reason_text = app_session.download_model(intention.target)
         except KeyError:
-            raise HTTPException(
-                status_code=404, detail="Cible de téléchargement inconnue."
-            ) from None
+            raise HTTPException(status_code=404, detail=t("web.unknown.download_target")) from None
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
-        return {"started": True, "reason_text": reason_text}
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
+        return {
+            "started": True,
+            "reason_text": shown(reason_text),
+        }
 
     @app.post("/api/intentions/build_rag_index")
     def build_rag_index() -> dict[str, object]:
@@ -770,10 +830,15 @@ def create_app(
         try:
             reason_text = app_session.build_rag_index()
         except KeyError:
-            raise HTTPException(status_code=404, detail="Aucune brique RAG.") from None
+            raise HTTPException(status_code=404, detail=t("web.unknown.rag")) from None
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
-        return {"started": True, "reason_text": reason_text}
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
+        return {
+            "started": True,
+            "reason_text": shown(reason_text),
+        }
 
     @app.post("/api/intentions/reset")
     def reset() -> dict[str, bool]:
@@ -781,7 +846,9 @@ def create_app(
         try:
             app_session.reset()
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
         return {"reset": True}
 
     @app.get("/api/diagnostic/stream")

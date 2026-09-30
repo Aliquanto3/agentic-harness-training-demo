@@ -2,6 +2,7 @@
 
 common:
   verbatim: "{text}"
+  and: und
 
 session:
   translation_invalid:

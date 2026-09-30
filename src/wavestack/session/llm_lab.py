@@ -16,6 +16,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict
 
 from wavestack import config
+from wavestack.messages import join, msg, number, render
 from wavestack.models.candidates import piece_text
 from wavestack.models.gguf_meta import dimensions_from_header, positive_size
 
@@ -27,13 +28,6 @@ TEXT_LIMIT = 2000  # the characters of a prompt the screen accepts
 
 # The dimensions a model's diagram shows, in its order.
 DIMENSION_KEYS = ("vocab_size", "embedding_length", "layer_count", "head_count", "context_length")
-_DIMENSION_NAMES_FR = {
-    "vocab_size": "le vocabulaire",
-    "embedding_length": "la dimension d'embedding",
-    "layer_count": "le nombre de couches",
-    "head_count": "le nombre de têtes d'attention",
-    "context_length": "le contexte natif",
-}
 
 
 class _Strict(BaseModel):
@@ -221,14 +215,35 @@ def fr_int(n: int) -> str:
 
 def fr_count(n: int) -> str:
     """A large count in words: « 311 millions », « 1,2 milliard », else `fr_int`."""
-    for size, word in ((10**9, "milliard"), (10**6, "million")):
+    return count_text(n, config.DEFAULT_LANGUAGE)
+
+
+# ---------- figures in the session's language (languages 5/5) ----------
+
+
+def _french(lang: str) -> bool:
+    return config.as_language(lang) == config.DEFAULT_LANGUAGE
+
+
+def lang_int(n: int, lang: str) -> str:
+    """`fr_int` in `lang`: « 151 936 », « 151,936 », « 151.936 »."""
+    return fr_int(n) if _french(lang) else number(n, lang)
+
+
+def count_text(n: int, lang: str) -> str:
+    """`fr_count` in `lang`: « 1,2 milliard », « 1.2 billion », « 1,2 Milliarden »."""
+    for size, word in ((10**9, "billion"), (10**6, "million")):
         value = n / size
         # The unit and the plural from the rounded value: never « 1000 millions ».
         rounded = round(value, 1) if value < 10 else float(round(value))
         if rounded >= 1 and (size == 10**9 or rounded < 1000):
-            text = f"{rounded:.1f}".rstrip("0").rstrip(".").replace(".", ",")
-            return f"{text} {word}{'s' if rounded >= 2 else ''}"
-    return fr_int(n)
+            text = f"{rounded:.1f}".rstrip("0").rstrip(".")
+            if _french(lang):
+                text = text.replace(".", ",")
+            else:
+                text = number(rounded, lang, 1 if "." in text else 0)
+            return msg(f"llm_lab.count.{word}", lang, count=rounded, n=text)
+    return lang_int(n, lang)
 
 
 # ---------- tokens ----------
@@ -264,18 +279,21 @@ def merge_dimensions(*sources: dict[str, Any] | None) -> dict[str, int | None]:
     return merged
 
 
-def dimensions_payload(dims: dict[str, Any] | None, source_text: str) -> dict[str, Any]:
+def dimensions_payload(
+    dims: dict[str, Any] | None, source_text: str, *, lang: str = config.DEFAULT_LANGUAGE
+) -> dict[str, Any]:
     """`llm_tokenized.dimensions`: the values (`None` when unknown), the embedding table's
-    size (vocabulary × dimension), their French figures, and where they come from, with
-    what is unknown."""
+    size (vocabulary × dimension), their figures in `lang`, and where they come from (a
+    `Message` rendered in `lang`), with what is unknown."""
     values = {name: positive_size((dims or {}).get(name)) for name in DIMENSION_KEYS}
     vocab, width = values["vocab_size"], values["embedding_length"]
     params = vocab * width if vocab and width else None
-    figures = {name: fr_int(v) if v else None for name, v in values.items()}
-    figures["embedding_params"] = fr_count(params) if params else None
-    missing = [_DIMENSION_NAMES_FR[n] for n in DIMENSION_KEYS if values[n] is None]
+    figures = {name: lang_int(v, lang) if v else None for name, v in values.items()}
+    figures["embedding_params"] = count_text(params, lang) if params else None
+    source_text = render(source_text, lang)
+    missing = [msg(f"llm_lab.dimension.{n}", lang) for n in DIMENSION_KEYS if values[n] is None]
     if missing:
-        source_text = f"{source_text} Inconnus : {_join_fr(missing)}."
+        source_text = msg("llm_lab.unknown", lang, source=source_text, names=join(missing, lang))
     return values | {
         "embedding_params": params,
         "figures_text": figures,
@@ -283,26 +301,15 @@ def dimensions_payload(dims: dict[str, Any] | None, source_text: str) -> dict[st
     }
 
 
-def dimensions_fr(values: dict[str, Any]) -> str:
-    """One sentence of the diagram: what a token becomes, with the figures known."""
+def dimensions_fr(values: dict[str, Any], *, lang: str = config.DEFAULT_LANGUAGE) -> str:
+    """One sentence of the diagram, in `lang`: what a token becomes, with the figures known
+    (`values`: `dimensions_payload`'s, built in the same language)."""
     width, layers = (
         values.get("figures_text", {}).get("embedding_length"),
         values.get("layer_count"),
     )
     if not width:
-        return (
-            "Dimension d'embedding inconnue : le vecteur de chaque token existe, mais ce moteur "
-            "ne dit pas sa taille."
-        )
+        return msg("llm_lab.width_unknown", lang)
     if layers:
-        return (
-            f"Chaque token devient un vecteur de {width} nombres, que {fr_int(layers)} couches "
-            "transforment l'une après l'autre."
-        )
-    return f"Chaque token devient un vecteur de {width} nombres, que les couches transforment."
-
-
-def _join_fr(items: list[str]) -> str:
-    if len(items) < 2:
-        return "".join(items)
-    return ", ".join(items[:-1]) + f" et {items[-1]}"
+        return msg("llm_lab.vector_layers", lang, width=width, layers=lang_int(layers, lang))
+    return msg("llm_lab.vector", lang, width=width)

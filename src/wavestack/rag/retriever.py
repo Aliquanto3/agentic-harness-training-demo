@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
 
+from wavestack.messages import Message
 from wavestack.models.embedding import Embedder
 from wavestack.rag.index import VEC_TABLE, connect, serialize_vector
 
@@ -56,10 +57,10 @@ class SqliteVecRetriever:
     def search(self, query: str, k: int | None = None) -> list[Excerpt]:
         vector = self._embedder.embed_queries([query])[0]
         if not any(vector):
-            raise ValueError("la question ne donne aucun vecteur exploitable (vecteur nul)")
+            raise ValueError(Message("rag.search.null_vector"))
         with self._lock:
             if self._conn is None:
-                raise RuntimeError("l'index est fermé")
+                raise RuntimeError(Message("rag.search.closed"))
             rows = self._conn.execute(
                 "SELECT c.id, v.distance, c.doc_id, c.title_fr AS title_text, c.text "
                 f"FROM {VEC_TABLE} AS v "
@@ -84,7 +85,7 @@ class SqliteVecRetriever:
         `(chunk id, raw cosine distance)`, nearest first."""
         with self._lock:
             if self._conn is None:
-                raise RuntimeError("l'index est fermé")
+                raise RuntimeError(Message("rag.search.closed"))
             rows = self._conn.execute(
                 f"SELECT v.rowid, v.distance FROM {VEC_TABLE} AS v "
                 "WHERE v.embedding MATCH ? AND v.k = ? ORDER BY v.distance",
