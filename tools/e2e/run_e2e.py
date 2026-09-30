@@ -5660,6 +5660,8 @@ def s_annex_language(r: Run) -> None:
                             "; ".join(nav),
                         )
                         r.shot(f"annex-language-de-{name}-{width}")
+                        if name == "models" and width == 1280:
+                            _models_window_then_network(r)  # story 3 of 2026-09-30
                     page.set_viewport_size({"width": 1600, "height": 1000})
     finally:
         page.set_viewport_size({"width": 1600, "height": 1000})
@@ -6292,6 +6294,239 @@ def _models_row(r: Run, value: str) -> dict[str, str]:
     return row_texts
 
 
+# ---------- story 3 of 2026-09-30: sort and filters of /models, the diagnostic's search ------
+
+# Each visible group of the table, its visible rows in order: the pairs out of order for the
+# column `key` (`size`: bytes, then parameters), unknown values always last.
+_MODELS_ORDER_JS = """({key, descending}) => {
+  const problems = [];
+  const read = (tr) => (key === "size" ? [tr.dataset.size, tr.dataset.params] : [tr.dataset[key]])
+    .map((v) => (v === "" || v === undefined ? null : Number(v)));
+  for (const body of document.querySelectorAll("#models-table tbody")) {
+    if (body.hidden) continue;
+    const rows = [...body.querySelectorAll("tr[data-value]")].filter((tr) => !tr.hidden);
+    for (let i = 1; i < rows.length; i++) {
+      const a = read(rows[i - 1]);
+      const b = read(rows[i]);
+      for (let j = 0; j < a.length; j++) {
+        if (a[j] === b[j]) continue;
+        const wrong = a[j] === null || (b[j] !== null && (descending ? a[j] < b[j] : a[j] > b[j]));
+        const [x, y] = [rows[i - 1].dataset.value, rows[i].dataset.value];
+        if (wrong) problems.push(`${x} (${a}) > ${y} (${b})`);
+        break;
+      }
+    }
+  }
+  return problems;
+}"""
+
+
+def _models_order_problems(r: Run, key: str, descending: bool) -> list[str]:
+    return r.page.evaluate(_MODELS_ORDER_JS, {"key": key, "descending": descending})
+
+
+def _models_sort_marks(r: Run) -> dict[str, str | None]:
+    """`aria-sort` of each header of the table, by its `data-sort` (the price: « price »)."""
+    return r.page.eval_on_selector_all(
+        "#models-table thead th",
+        "ths => Object.fromEntries(ths.map(th => [th.dataset.sort ?? 'price',"
+        " th.getAttribute('aria-sort')]))",
+    )
+
+
+def _models_visible_values(r: Run) -> list[str]:
+    return r.page.eval_on_selector_all(
+        "#models-table tbody:not([hidden]) tr[data-value]:not([hidden])",
+        "trs => trs.map(tr => tr.dataset.value)",
+    )
+
+
+def _folded(text: str) -> str:
+    import unicodedata
+
+    decomposed = unicodedata.normalize("NFD", text or "")
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+
+
+def _models_sort_and_filters(r: Run) -> None:
+    """Sort by size (twice: descending, `aria-sort`), by the window from the keyboard; the
+    network filter with a free text, its count; no result, then « Réinitialiser les filtres »."""
+    page = r.page
+    models = r.api("GET", "/api/diagnostic").json()["models"]
+    rows = [m for g in models["groups"] for m in g["models"]]
+    total = len(rows)
+    size = page.locator('#models-table th[data-sort="size"] .sort-button')
+    size.click()
+    size.click()
+    marks = _models_sort_marks(r)
+    problems = _models_order_problems(r, "size", descending=True)
+    r.check(
+        marks["size"] == "descending"
+        and all(v is None for k, v in marks.items() if k != "size")
+        and not problems,
+        "tableau : « Taille » deux fois, décroissant par taille dans chaque groupe, inconnues "
+        "en dernier, aria-sort=descending sur cet en-tête seul",
+        f"{marks} · " + "; ".join(problems[:4]),
+    )
+    window = page.locator('#models-table th[data-sort="window"] .sort-button')
+    window.focus()
+    page.keyboard.press("Enter")
+    marks = _models_sort_marks(r)
+    problems = _models_order_problems(r, "window", descending=False)
+    r.check(
+        marks["window"] == "ascending" and marks["size"] is None and not problems,
+        "tableau : Entrée sur « Fenêtre », croissant par fenêtre, aria-sort passé à cet en-tête",
+        f"{marks} · " + "; ".join(problems[:4]),
+    )
+    r.check(
+        page.locator("#models-table thead th", has_text="Prix").locator("button").count() == 0,
+        "tableau : le prix ne se trie pas",
+    )
+
+    page.select_option("#filter-hosting", "network")
+    page.fill("#filter-text", "gem")
+    expected = sorted(
+        m["value"]
+        for m in rows
+        if m["hosting"] == "network" and "gem" in _folded(f"{m['name']} {m['publisher_text']}")
+    )
+    shown = sorted(_models_visible_values(r))
+    status = page.inner_text("#models-status")
+    word = "modèle" if len(expected) <= 1 else "modèles"
+    local_hidden = page.eval_on_selector_all(
+        "#models-table tbody",
+        "bs => bs.every(b => b.hidden || [...b.querySelectorAll('tr[data-value]')]"
+        ".some(tr => !tr.hidden))",
+    )
+    r.check(
+        bool(expected)
+        and shown == expected
+        and status == f"{len(expected)} {word} sur {total}"
+        and local_hidden,
+        "filtres : réseau + « gem », les seules lignes réseau dont le nom ou l'éditeur contient "
+        "« gem », compteur « n modèles sur N », groupes vides masqués",
+        f"{shown} · attendu {expected} · « {status} »",
+    )
+    r.shot("44b-modeles-filtres", full_page=True)
+
+    page.fill("#filter-text", "zzz")
+    empty = page.locator("#models-empty")
+    expect(empty).to_be_visible(timeout=5000)
+    r.check(
+        page.locator("#models-table").is_hidden()
+        and "Aucun modèle ne correspond à ces filtres." in empty.inner_text()
+        and page.inner_text("#models-status") == f"0 modèle sur {total}",
+        "filtres : « zzz », aucun résultat, message dédié, tableau masqué",
+        page.inner_text("#models-status"),
+    )
+    page.locator("#models-empty-reset").click()
+    shown = _models_visible_values(r)
+    r.check(
+        empty.is_hidden()
+        and len(shown) == total
+        and page.input_value("#filter-text") == ""
+        and page.input_value("#filter-hosting") == ""
+        and page.inner_text("#models-status").startswith(f"{total} modèles"),
+        "« Réinitialiser les filtres » : toutes les lignes de nouveau, compteur entier",
+        f"{len(shown)} / {total} · {page.inner_text('#models-status')}",
+    )
+
+
+def _models_window_then_network(r: Run) -> None:
+    """German, at the width of the moment: sort by « Fenster », then the « Netzwerk » filter;
+    the network rows only, by window in their group, the count right (AC of story 3)."""
+    page = r.page
+    rows = [
+        m for g in r.api("GET", "/api/diagnostic").json()["models"]["groups"] for m in g["models"]
+    ]
+    network = sorted(m["value"] for m in rows if m["hosting"] == "network")
+    page.locator('#models-table th[data-sort="window"] .sort-button').click()
+    page.select_option("#filter-hosting", "network")
+    option = page.eval_on_selector("#filter-hosting", "s => s.selectedOptions[0].textContent")
+    shown = sorted(_models_visible_values(r))
+    problems = _models_order_problems(r, "window", descending=False)
+    status = page.inner_text("#models-status")
+    word = "Modell" if len(network) == 1 else "Modelle"
+    r.check(
+        option == "Netzwerk"
+        and shown == network
+        and not problems
+        and status == f"{len(network)} {word} von {len(rows)}",
+        "de : « Fenster » puis « Netzwerk », les seules lignes réseau, par fenêtre dans leur "
+        "groupe, compteur juste",
+        f"{option} · {len(shown)} / {len(network)} · « {status} » · " + "; ".join(problems[:3]),
+    )
+    page.locator("#filters-reset").click()
+
+
+def _diagnostic_search_shown(r: Run) -> None:
+    """The diagnostic while the models are searched: `/api/diagnostic` and its stream
+    simulated (the E2E stack is diagnosed once, at launch): the message without a count
+    (`diagnostic_progress{0, 0}`), then « 3 modèles testés sur 30 » and the bar at 10 %
+    from a live event, never « Aucun candidat trouvé. »; the real answer then lists them."""
+    page = r.page
+    real = r.api("GET", "/api/diagnostic").json()
+    r.check(
+        real.get("searching") is False and real.get("progress") is None,
+        "/api/diagnostic : searching faux et progress nul une fois le contrôle « model » rendu",
+        f"{real.get('searching')} · {real.get('progress')}",
+    )
+    fake = {**real, "searching": True, "progress": {"done": 0, "total": 0}, "candidates": []}
+    fake["ready"] = False
+    envelope = {
+        "seq": real["seq"] + 1000,
+        "ts": "2026-10-01T00:00:00Z",
+        "session_epoch": 0,
+        "kind": "diagnostic_progress",
+        "actor": "harness",
+        "trigger": "harness",
+        "payload": {"done": 3, "total": 30},
+    }
+    stream = f"id: {envelope['seq']}\nevent: diagnostic_progress\ndata: {json.dumps(envelope)}\n\n"
+    search = page.locator("#candidates-search")
+    count = page.locator("#candidates-progress-text")
+    page.route("**/api/diagnostic", lambda route: route.fulfill(json=fake))
+    page.route("**/api/diagnostic/stream", lambda route: route.abort())
+    try:
+        page.goto(f"{r.stack.app_url}/diagnostic")
+        expect(search).to_be_visible(timeout=10_000)
+        r.check(
+            "Recherche et test des modèles en cours…" in search.inner_text()
+            and count.is_hidden()
+            and "Aucun candidat trouvé." not in page.inner_text("#candidates")
+            and page.locator("#candidates li").count() == 0,
+            "diagnostic en recherche, rien à sonder : le message sans compteur, jamais "
+            "« Aucun candidat trouvé. »",
+            search.inner_text(),
+        )
+        page.unroute("**/api/diagnostic/stream")
+        page.route(
+            "**/api/diagnostic/stream",
+            lambda route: route.fulfill(
+                status=200, headers={"Content-Type": "text/event-stream"}, body=stream
+            ),
+        )
+        page.reload()
+        expect(count).to_have_text("3 modèles testés sur 30", timeout=10_000)
+        bar = page.eval_on_selector("#candidates-progress", "p => [p.value, p.max, p.hidden]")
+        r.check(
+            bar == [3, 30, False]
+            and "Aucun candidat trouvé." not in page.inner_text("#candidates"),
+            "diagnostic en recherche : « 3 modèles testés sur 30 » en direct, barre à 10 %",
+            str(bar),
+        )
+        r.shot("49b-diagnostic-recherche")
+    finally:
+        page.unroute("**/api/diagnostic")
+        page.unroute("**/api/diagnostic/stream")
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    expect(page.locator("#candidates li").first).to_be_visible(timeout=20_000)
+    r.check(
+        search.is_hidden() and "Aucun candidat trouvé." not in page.inner_text("#candidates"),
+        "diagnostic, recherche finie : la liste des candidats, sans message de recherche",
+    )
+
+
 def _open_models_page(r: Run) -> None:
     r.page.goto(f"{r.stack.app_url}/models")
     expect(r.page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
@@ -6460,6 +6695,7 @@ def s_model_catalog(r: Run) -> None:
         "tableau : « Capacités lues comme au chargement… »",
     )
     r.shot("44-modeles-tableau", full_page=True)
+    _models_sort_and_filters(r)  # story 3 of 2026-09-30
     page.locator(".site-nav a", has_text="Diagnostic").click()
     page.wait_for_url(f"{r.stack.app_url}/diagnostic", timeout=10_000)
     r.check(
@@ -6467,6 +6703,7 @@ def s_model_catalog(r: Run) -> None:
         and page.locator(".site-nav a", has_text="Modèles").get_attribute("href") == "/models",
         "diagnostic : même barre commune, « Diagnostic » courant",
     )
+    _diagnostic_search_shown(r)  # story 3 of 2026-09-30
 
     # One truth: the reasoning card after the load and the table say the same.
     r.goto_app()

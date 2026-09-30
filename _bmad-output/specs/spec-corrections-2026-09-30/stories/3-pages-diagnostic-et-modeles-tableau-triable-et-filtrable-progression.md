@@ -2,7 +2,8 @@
 title: 'Pages Diagnostic et Modèles : tableau triable et filtrable, progression'
 type: 'feature'
 created: '2026-10-01'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: 'ea027d2637d93d390d4f0423d97145941195b67d'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:

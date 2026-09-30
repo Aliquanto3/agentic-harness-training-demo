@@ -233,10 +233,34 @@ def test_i18n_names_the_links_by_their_address_the_brand_aside():
 
 def test_the_models_table_headers_are_the_catalogues_in_order():
     page = (STATIC / "models.html").read_text(encoding="utf-8")
-    order = re.search(r"const COLUMN_ORDER = \[([^\]]+)\]", page).group(1)
-    columns = [FRENCH["models"]["columns"][k] for k in re.findall(r'"(\w+)"', order)]
+    order = re.findall(r'"(\w+)"', re.search(r"const COLUMN_ORDER = \[([^\]]+)\]", page).group(1))
+    columns = [FRENCH["models"]["columns"][k] for k in order]
     head = page[page.index("<thead>") : page.index("</thead>")]
-    assert re.findall(r'<th scope="col">([^<]+)</th>', head) == columns
+    # Story 3 of 2026-09-30: a header's name is its `.sort-label`, in the button of every
+    # sortable column (all but the price: no number served), whose `data-sort` is its key.
+    headers = re.findall(r'<th scope="col"([^>]*)>(.*?)</th>', head)
+    labels = [re.search(r'<span class="sort-label">([^<]+)</span>', c).group(1) for _, c in headers]
+    assert labels == columns
+    for (attributes, cell), key in zip(headers, order, strict=True):
+        sortable = key != "price"
+        assert ('<button type="button" class="sort-button">' in cell) is sortable, key
+        assert (f'data-sort="{key}"' in attributes) is sortable, key
+
+
+def test_the_models_filters_and_sort_keys_exist_in_every_language():
+    """Story 3 of 2026-09-30: the filters, the sort and the filtered count, in the three
+    languages (the parity test checks their variables)."""
+    for lang in ("fr", *TRANSLATED):
+        catalogue = FRENCH if lang == "fr" else _read(CONTENT / "i18n" / lang / "ui.yaml")
+        models, diagnostic = catalogue["models"], catalogue["diagnostic"]
+        assert set(models["count_filtered"]) == {"one", "other"}, lang
+        assert "{total}" in models["count_filtered"]["other"], lang
+        assert {"reset", "none", "hosting", "publisher", "tools", "reasoning", "text"} <= set(
+            models["filters"]
+        ), lang
+        assert "{column}" in models["sort"]["title"], lang
+        assert diagnostic["searching"] and set(diagnostic["progress"]) == {"one", "other"}, lang
+        assert catalogue["main"]["log"]["kinds"]["diagnostic_progress"], lang
 
 
 # ---------- the loader ----------

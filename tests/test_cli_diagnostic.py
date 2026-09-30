@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from fake_engine import FakeEngine
+from pydantic import ValidationError
 from starlette.testclient import TestClient
 
 from wavestack import config
@@ -13,6 +14,7 @@ from wavestack.models import discovery, probe
 from wavestack.session import diagnostic as diagnostic_module
 from wavestack.session.app_session import AppSession
 from wavestack.session.diagnostic import DiagnosticSession
+from wavestack.trace.catalog import PAYLOAD_MODELS
 from wavestack.trace.journal import get_journal
 from wavestack.web import app as app_module
 from wavestack.web.app import create_app
@@ -349,6 +351,101 @@ def test_full_run_emits_all_checks(monkeypatch, tmp_path):
         if e.kind == "diagnostic_check"
     }
     assert kinds_checked == {"memory", "model", "port"}
+
+
+# ---------- story 3 (corrections 2026-09-30): the model search's progress ----------
+
+
+def _progress(before: int) -> list[tuple[int, int]]:
+    return [
+        (e.payload["done"], e.payload["total"])
+        for e in get_journal().events_since(before)
+        if e.kind == "diagnostic_progress"
+    ]
+
+
+def test_discovery_emits_its_progress_zero_first_then_once_per_probe(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf", "c.gguf"))
+    probed = []
+    monkeypatch.setattr(
+        session, "_probe_candidate", lambda candidate, cancel=None: probed.append(candidate.name)
+    )
+
+    before = get_journal().last_seq()
+    session.check_model()
+
+    assert len(probed) == 3
+    assert _progress(before) == [(0, 3), (1, 3), (2, 3), (3, 3)]
+
+
+def test_discovery_counts_only_the_probes_it_needs(monkeypatch, tmp_path):
+    """A file already in the probe cache costs nothing: it is not in `total`."""
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"))
+    calls = _fake_probe_ok(monkeypatch, session)
+    session.check_model()  # both probed, then cached
+    assert len(calls) == 2
+    (config.models_dir() / "c.gguf").write_bytes(b"placeholder")
+
+    before = get_journal().last_seq()
+    session.check_model()
+
+    assert calls[2:] == [str(config.models_dir() / "c.gguf")]
+    assert _progress(before) == [(0, 1), (1, 1)]
+
+
+def test_discovery_with_everything_cached_emits_a_single_zero_progress(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf",))
+    _fake_probe_ok(monkeypatch, session)
+    session.check_model()
+
+    before = get_journal().last_seq()
+    session.check_model()
+
+    assert _progress(before) == [(0, 0)]
+
+
+def test_diagnostic_progress_payload_is_validated_by_the_catalog():
+    model = PAYLOAD_MODELS["diagnostic_progress"]
+    assert model.model_validate({"done": 0, "total": 0}).model_dump() == {"done": 0, "total": 0}
+    for bad in ({"done": -1, "total": 3}, {"done": 1}, {"done": 1, "total": -2}):
+        with pytest.raises(ValidationError):
+            model.model_validate(bad)
+
+
+def test_diagnostic_says_searching_and_progress_until_the_model_check(monkeypatch, tmp_path):
+    session, app = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"))
+    client = _client(app)
+    seen = []
+
+    def probe_and_look(candidate, cancel=None):
+        body = client.get("/api/diagnostic").json()
+        seen.append((body["searching"], body["progress"], body["candidates"]))
+
+    monkeypatch.setattr(session, "_probe_candidate", probe_and_look)
+    get_journal().emit("diagnostic_progress", {"done": 7, "total": 9})  # an older search
+    body = client.get("/api/diagnostic").json()
+    assert body["searching"] is True
+    assert body["progress"] == {"done": 7, "total": 9}  # the journal's last, whatever it is
+
+    session.check_model()
+
+    assert seen == [
+        (True, {"done": 0, "total": 2}, []),
+        (True, {"done": 1, "total": 2}, []),
+    ]
+    body = client.get("/api/diagnostic").json()
+    assert body["searching"] is False and body["progress"] is None
+    assert len(body["candidates"]) == 2
+
+
+def test_diagnostic_before_any_progress_searches_without_a_count(monkeypatch, tmp_path):
+    _, app = _build(monkeypatch, tmp_path)
+    monkeypatch.setattr(get_journal(), "all_events", lambda: [])
+
+    body = _client(app).get("/api/diagnostic").json()
+
+    assert body["searching"] is True and body["progress"] is None
+    assert body["candidates"] == []
 
 
 # ---------- story 1b: model choice at the diagnostic ----------

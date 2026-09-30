@@ -12,21 +12,9 @@
   <link rel="stylesheet" href="/static/tokens.css" />
   <link rel="stylesheet" href="/static/pages.css" />
   <style>
-    /* Story 25: colours by the tokens of tokens.css only (as app.css, story 33). */
-    body {
-      margin: 0;
-      padding: var(--spacing-5) var(--spacing-5) var(--spacing-6);
-      background: var(--color-surface);
-      color: var(--color-ink);
-      font: var(--typography-body-font-weight) var(--typography-body-font-size) /
-        var(--typography-body-line-height) var(--typography-body-font-family);
-    }
+    /* Story 25: colours by the tokens of tokens.css only (as app.css, story 33); story 3 of
+       2026-09-30: the page, the table, the badges, the buttons and the fields in pages.css. */
     main { max-width: 1500px; margin-left: auto; margin-right: auto; }
-    h1 {
-      margin: var(--spacing-4) 0 var(--spacing-2);
-      font: var(--typography-heading-font-weight) calc(var(--typography-heading-font-size) * 1.3) /
-        var(--typography-heading-line-height) var(--typography-heading-font-family);
-    }
     .models-legend, .models-note, #models-status {
       color: var(--color-ink-soft);
       margin: var(--spacing-2) 0;
@@ -39,40 +27,33 @@
       border-radius: var(--rounded-sm);
       color: var(--color-ink);
     }
-    .model-table {
-      width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
+    /* The filters above the table: one line when it fits, the free text the widest. */
+    .models-filters {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: var(--spacing-3);
+      margin: var(--spacing-3) 0;
+      padding: var(--spacing-3);
       background: var(--color-surface-raised);
       border: 1px solid var(--color-line);
-      border-radius: var(--rounded-sm);
-      overflow: hidden;
+      border-radius: var(--rounded-md);
     }
-    .model-table caption {
-      text-align: left;
-      padding: var(--spacing-2) 0;
-      color: var(--color-ink-soft);
-      font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-        var(--typography-label-line-height) var(--typography-label-font-family);
-      text-transform: uppercase;
-    }
-    .model-table th, .model-table td {
-      padding: var(--spacing-2) var(--spacing-3);
-      text-align: left;
-      vertical-align: top;
-      border-bottom: 1px solid var(--color-line);
-    }
-    .model-table thead th {
-      color: var(--color-ink-soft);
-      font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-        var(--typography-label-line-height) var(--typography-label-font-family);
+    .models-filters[hidden], .models-empty[hidden] { display: none; }
+    .models-filters .field-text { flex: 1 1 25%; }
+    .models-filters .field-text .field-input { width: 100%; }
+    .models-empty {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--spacing-3);
+      margin: var(--spacing-3) 0;
+      padding: var(--spacing-3);
       background: var(--color-surface-raised);
+      border: 1px dashed var(--color-ink-soft);
+      border-radius: var(--rounded-md);
     }
-    .model-table th[scope="rowgroup"] {
-      background: var(--color-surface);
-      font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
-        var(--typography-heading-line-height) var(--typography-heading-font-family);
-    }
+    .models-empty p { margin: 0; }
     .model-name { display: block; margin-top: var(--spacing-1); word-break: break-word; }
     .figures {
       font: var(--typography-number-font-weight) var(--typography-number-font-size) /
@@ -89,28 +70,9 @@
     }
     .state-active { font-weight: 700; }
     tr.unusable td { color: var(--color-ink-soft); }
-    .hosting-tag-local, .hosting-tag-network {
-      display: inline-block;
-      font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-        var(--typography-label-line-height) var(--typography-label-font-family);
-      border-radius: var(--rounded-full);
-      padding: 2px var(--spacing-2);
-      white-space: nowrap;
-    }
-    .hosting-tag-local {
-      background: var(--color-surface-raised);
-      color: var(--color-ink);
-      border: 1px solid var(--color-ink-soft);
-    }
-    .hosting-tag-network {
-      background: var(--color-hosting-network);
-      color: var(--color-on-vivid); /* story 31: explicit on the yellow, in both themes */
-      border: 1px dashed var(--color-ink);
-    }
-    .hosting-tag-network::before { content: "🌐 "; }
   </style>
 </head>
-<body>
+<body class="annex-page">
   <!-- Story 2 (2026-09-30): the bar shared by the five pages, the same HTML in each but for
        `aria-current` and, on the main screen only, the projection mode (site-nav.js). -->
   <nav class="site-nav" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
@@ -149,20 +111,58 @@
     <h1 data-i18n="models.title">Modèles disponibles</h1>
     <p id="publishers-error" class="models-error" role="alert" hidden></p>
     <p id="models-legend" class="models-legend"></p>
+    <!-- Story 3 of 2026-09-30: filters and sort on the rows already served, nothing reloaded. -->
+    <div id="models-filters" class="models-filters" role="search" aria-label="Filtrer les modèles" data-i18n-aria-label="models.filters.name" hidden>
+      <label class="field"><span data-i18n="models.filters.hosting">Hébergement</span>
+        <select id="filter-hosting" class="field-input" autocomplete="off">
+          <option value="" data-i18n="models.filters.all">Tous</option>
+          <option value="local" data-i18n="models.filters.local">Local</option>
+          <option value="network" data-i18n="models.filters.network">Réseau</option>
+        </select>
+      </label>
+      <label class="field"><span data-i18n="models.filters.publisher">Éditeur</span>
+        <select id="filter-publisher" class="field-input" autocomplete="off">
+          <option value="" data-i18n="models.filters.all">Tous</option>
+        </select>
+      </label>
+      <label class="field"><span data-i18n="models.filters.tools">Appel d'outils</span>
+        <select id="filter-tools" class="field-input" autocomplete="off">
+          <option value="" data-i18n="models.filters.all">Tous</option>
+          <option value="yes" data-i18n="models.filters.answer_yes">Oui</option>
+          <option value="no" data-i18n="models.filters.answer_no_or_unknown">Non ou inconnu</option>
+        </select>
+      </label>
+      <label class="field"><span data-i18n="models.filters.reasoning">Raisonnement</span>
+        <select id="filter-reasoning" class="field-input" autocomplete="off">
+          <option value="" data-i18n="models.filters.all">Tous</option>
+          <option value="yes" data-i18n="models.filters.answer_yes">Oui</option>
+          <option value="no" data-i18n="models.filters.answer_no">Non</option>
+          <option value="unknown" data-i18n="models.filters.answer_unknown">Inconnu</option>
+        </select>
+      </label>
+      <label class="field field-text"><span data-i18n="models.filters.text">Nom ou éditeur</span>
+        <input type="search" id="filter-text" class="field-input" autocomplete="off" placeholder="gemma, qwen…" data-i18n-placeholder="models.filters.text_placeholder" />
+      </label>
+      <button type="button" id="filters-reset" class="button-secondary" data-i18n="models.filters.reset">Réinitialiser les filtres</button>
+    </div>
     <p id="models-status" role="status" data-i18n="models.loading">Chargement de la liste des modèles…</p>
+    <div id="models-empty" class="models-empty" hidden>
+      <p data-i18n="models.filters.none">Aucun modèle ne correspond à ces filtres.</p>
+      <button type="button" id="models-empty-reset" class="button-primary" data-i18n="models.filters.reset">Réinitialiser les filtres</button>
+    </div>
     <table id="models-table" class="model-table" hidden>
       <caption data-i18n="models.caption">Modèles trouvés au dernier diagnostic, par lieu d'hébergement puis par éditeur, du plus petit au plus grand ; tailles en paramètres (B : milliards) et en octets (1 Go = 1024³ octets, 1 Mo = 1024² octets)</caption>
       <thead>
         <tr>
-          <th scope="col">Modèle</th>
-          <th scope="col">Éditeur</th>
-          <th scope="col">Taille</th>
-          <th scope="col">Hébergement</th>
-          <th scope="col">Fenêtre</th>
-          <th scope="col">Appel d'outils</th>
-          <th scope="col">Raisonnement</th>
-          <th scope="col">Prix</th>
-          <th scope="col">État</th>
+          <th scope="col" data-sort="model"><button type="button" class="sort-button"><span class="sort-label">Modèle</span><span class="sort-mark" aria-hidden="true"></span></button></th>
+          <th scope="col" data-sort="publisher"><button type="button" class="sort-button"><span class="sort-label">Éditeur</span><span class="sort-mark" aria-hidden="true"></span></button></th>
+          <th scope="col" data-sort="size"><button type="button" class="sort-button"><span class="sort-label">Taille</span><span class="sort-mark" aria-hidden="true"></span></button></th>
+          <th scope="col" data-sort="hosting"><button type="button" class="sort-button"><span class="sort-label">Hébergement</span><span class="sort-mark" aria-hidden="true"></span></button></th>
+          <th scope="col" data-sort="window"><button type="button" class="sort-button"><span class="sort-label">Fenêtre</span><span class="sort-mark" aria-hidden="true"></span></button></th>
+          <th scope="col" data-sort="tools"><button type="button" class="sort-button"><span class="sort-label">Appel d'outils</span><span class="sort-mark" aria-hidden="true"></span></button></th>
+          <th scope="col" data-sort="reasoning"><button type="button" class="sort-button"><span class="sort-label">Raisonnement</span><span class="sort-mark" aria-hidden="true"></span></button></th>
+          <th scope="col"><span class="sort-label">Prix</span></th>
+          <th scope="col" data-sort="state"><button type="button" class="sort-button"><span class="sort-label">État</span><span class="sort-mark" aria-hidden="true"></span></button></th>
         </tr>
       </thead>
     </table>
@@ -172,7 +172,7 @@
   <script type="module">
     // Languages (4/5): the page's texts come from `content/ui.yaml` (section `models`)
     // through `t()`; the table's values are the session's.
-    import { ready, section, t } from "/static/i18n.js";
+    import { locale, ready, section, t } from "/static/i18n.js";
 
     // The table's headers, in their order (the HTML keeps its French ones as they are).
     const COLUMNS = section("models.columns");
@@ -180,8 +180,23 @@
 
     // Story 25: read only. Groups, order, labels and capabilities come from the session
     // (`/api/diagnostic.models`, AD-1); the page only lays them out and marks the active model.
+    // Story 3 of 2026-09-30: it also sorts each group and filters the rows it was served, as
+    // it folds a pane: presentation, nothing reloaded, nothing asked of the server.
     const table = document.getElementById("models-table");
     const status = document.getElementById("models-status");
+    const filtersEl = document.getElementById("models-filters");
+    const emptyEl = document.getElementById("models-empty");
+    const filterEls = {
+      hosting: document.getElementById("filter-hosting"),
+      publisher: document.getElementById("filter-publisher"),
+      tools: document.getElementById("filter-tools"),
+      reasoning: document.getElementById("filter-reasoning"),
+      text: document.getElementById("filter-text"),
+    };
+    // Each row with its model, in the order served, by group: the sort starts from it.
+    const groups = []; // { tbody, head, rows: [{ tr, m, index }] }
+    let total = 0;
+    let sort = null; // { key, direction: "ascending" | "descending" }
 
     function node(tag, className, text) {
       const element = document.createElement(tag);
@@ -197,16 +212,26 @@
       return td;
     }
 
+    const isActive = (m, loaded) => Boolean(loaded && loaded.kind === m.kind && loaded.ref === m.ref);
+
     function row(m, loaded) {
       const tr = node("tr", m.usable ? "" : "unusable");
       tr.dataset.value = m.value;
+      // The raw values the sort and the filters read (the cells keep the session's texts).
+      tr.dataset.hosting = m.hosting;
+      tr.dataset.publisher = m.publisher_id;
+      tr.dataset.size = m.size_bytes ?? "";
+      tr.dataset.params = m.params_b ?? "";
+      tr.dataset.window = m.window ?? "";
+      tr.dataset.tools = m.tools === true ? "yes" : m.tools === false ? "no" : "unknown";
+      tr.dataset.reasoning = m.reasoning;
       const network = m.hosting === "network";
       const model = node("td");
       model.append(
         node("span", network ? "hosting-tag-network" : "hosting-tag-local", m.prefix_text),
         node("strong", "model-name", m.name)
       );
-      const active = loaded && loaded.kind === m.kind && loaded.ref === m.ref;
+      const active = isActive(m, loaded);
       const state = active
         ? node("td", "state-active", t("models.state.active"))
         : m.usable
@@ -227,6 +252,126 @@
       return tr;
     }
 
+    // ---------- sort: within each group, unknown values always last ----------
+
+    // Each sortable column: the values it compares, in order (null: unknown). Texts by the
+    // language's collator; the price has no number served, so it is not sortable.
+    const REASONING_RANK = { always: 0, toggle: 1, never: 2 };
+    const SORT_KEYS = {
+      model: (m) => [m.name],
+      publisher: (m) => [m.publisher_text],
+      size: (m) => [m.size_bytes ?? null, m.params_b ?? null],
+      hosting: (m) => [m.hosting_label_text],
+      window: (m) => [m.window ?? null],
+      tools: (m) => [m.tools === true ? 0 : m.tools === false ? 1 : null],
+      reasoning: (m) => [REASONING_RANK[m.reasoning] ?? null],
+      state: (m, loaded) => [isActive(m, loaded) ? 0 : m.usable ? 1 : 2],
+    };
+    let collator = null;
+    let loadedModel = null;
+
+    function compareValues(a, b, direction) {
+      for (let i = 0; i < a.length; i++) {
+        const x = a[i];
+        const y = b[i];
+        if (x === y) continue;
+        if (x === null) return 1; // unknown last, whatever the direction
+        if (y === null) return -1;
+        const order = typeof x === "string" ? collator.compare(x, y) : x - y;
+        if (order) return direction === "descending" ? -order : order;
+      }
+      return 0;
+    }
+
+    function applySort() {
+      for (const group of groups) {
+        const rows = [...group.rows];
+        if (sort) {
+          const key = SORT_KEYS[sort.key];
+          rows.sort(
+            (a, b) =>
+              compareValues(key(a.m, loadedModel), key(b.m, loadedModel), sort.direction) || a.index - b.index
+          );
+        }
+        group.tbody.append(...rows.map((r) => r.tr)); // after the group's head, in order
+      }
+      for (const th of table.querySelectorAll("thead th")) {
+        if (sort && th.dataset.sort === sort.key) th.setAttribute("aria-sort", sort.direction);
+        else th.removeAttribute("aria-sort");
+      }
+    }
+
+    function sortBy(key) {
+      // The same column again: the other direction; another one: ascending first.
+      const direction = sort?.key === key && sort.direction === "ascending" ? "descending" : "ascending";
+      sort = { key, direction };
+      applySort();
+    }
+
+    // ---------- filters: combined, on the values shown ----------
+
+    // Neither case nor accents: « Réseau » matches « reseau ».
+    const folded = (text) => (text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase(locale());
+
+    function matches(tr, m, wanted) {
+      if (wanted.hosting && tr.dataset.hosting !== wanted.hosting) return false;
+      if (wanted.publisher && tr.dataset.publisher !== wanted.publisher) return false;
+      if (wanted.tools === "yes" && tr.dataset.tools !== "yes") return false;
+      if (wanted.tools === "no" && tr.dataset.tools === "yes") return false; // no, or unknown
+      if (wanted.reasoning === "yes" && !["always", "toggle"].includes(m.reasoning)) return false;
+      if (wanted.reasoning === "no" && m.reasoning !== "never") return false;
+      if (wanted.reasoning === "unknown" && m.reasoning !== "unknown") return false;
+      if (wanted.text && !folded(`${m.name} ${m.publisher_text}`).includes(wanted.text)) return false;
+      return true;
+    }
+
+    function applyFilters() {
+      const wanted = {
+        hosting: filterEls.hosting.value,
+        publisher: filterEls.publisher.value,
+        tools: filterEls.tools.value,
+        reasoning: filterEls.reasoning.value,
+        text: folded(filterEls.text.value.trim()),
+      };
+      const filtering = Object.values(wanted).some(Boolean);
+      let shown = 0;
+      for (const group of groups) {
+        let visible = 0;
+        for (const { tr, m } of group.rows) {
+          tr.hidden = !matches(tr, m, wanted);
+          if (!tr.hidden) visible++;
+        }
+        group.tbody.hidden = !visible; // a group without a visible row is hidden, head included
+        shown += visible;
+      }
+      table.hidden = !shown;
+      emptyEl.hidden = Boolean(shown) || !total;
+      status.textContent = !total
+        ? t("models.none")
+        : filtering
+          ? t("models.count_filtered", { count: shown, total: String(total) })
+          : t("models.count", { count: total });
+    }
+
+    function resetFilters() {
+      for (const el of Object.values(filterEls)) el.value = "";
+      applyFilters();
+      filterEls.text.focus();
+    }
+
+    // The publishers of the rows served, in the table's order (groups come by publisher).
+    function fillPublishers(models) {
+      const seen = new Map();
+      for (const group of models.groups) {
+        for (const m of group.models) if (!seen.has(m.publisher_id)) seen.set(m.publisher_id, m.publisher_text);
+      }
+      for (const [id, text] of seen) {
+        const option = node("option", "", text);
+        option.value = id;
+        filterEls.publisher.append(option);
+      }
+    }
+
     async function load() {
       let body;
       try {
@@ -242,10 +387,12 @@
         status.textContent = t("models.table_unavailable");
         return;
       }
+      loadedModel = body.loaded;
       document.getElementById("models-legend").textContent = models.legend_text;
       const error = document.getElementById("publishers-error");
       error.hidden = !models.publishers_error_text;
       error.textContent = models.publishers_error_text ?? "";
+      let index = 0;
       for (const group of models.groups) {
         const tbody = node("tbody");
         const head = node("tr");
@@ -253,18 +400,31 @@
         th.scope = "rowgroup";
         th.colSpan = 9;
         head.append(th);
-        tbody.append(head, ...group.models.map((m) => row(m, body.loaded)));
+        const rows = group.models.map((m) => ({ tr: row(m, body.loaded), m, index: index++ }));
+        tbody.append(head, ...rows.map((r) => r.tr));
         table.append(tbody);
+        groups.push({ tbody, head, rows });
       }
-      const count = models.groups.reduce((n, g) => n + g.models.length, 0);
-      status.textContent = count ? t("models.count", { count }) : t("models.none");
-      table.hidden = !count;
+      total = index;
+      fillPublishers(models);
+      filtersEl.hidden = !total;
+      applyFilters();
     }
 
     await ready; // the page's texts in the session's language (languages 4/5)
+    collator = new Intl.Collator(locale(), { sensitivity: "base", numeric: true });
     document.querySelectorAll("#models-table thead th").forEach((th, i) => {
-      th.textContent = COLUMNS[COLUMN_ORDER[i]] ?? th.textContent;
+      const label = th.querySelector(".sort-label") ?? th;
+      label.textContent = COLUMNS[COLUMN_ORDER[i]] ?? label.textContent;
+      const button = th.querySelector(".sort-button");
+      if (!button) return;
+      // Its name says the column; its title, what a click does (Entrée and Espace: a button).
+      button.title = t("models.sort.title", { column: label.textContent });
+      button.addEventListener("click", () => sortBy(th.dataset.sort));
     });
+    for (const el of Object.values(filterEls)) el.addEventListener("input", applyFilters);
+    document.getElementById("filters-reset").addEventListener("click", resetFilters);
+    document.getElementById("models-empty-reset").addEventListener("click", resetFilters);
     load();
   </script>
 </body>
