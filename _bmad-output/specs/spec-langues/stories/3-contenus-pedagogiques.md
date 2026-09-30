@@ -85,14 +85,14 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Commit 1, la langue suit : `scenarios.py`, `cloud.py`, `context/segments.py`, `models/catalog.py`, `tools/native.py`, `hooks.py`, `app_session.py`, `web/app.py`, `session/diagnostic.py` -- `lang` explicite, `_localized`, relecture au changement de langue, `read_file` lié à la langue -- aucun texte ni fichier de `content/` ne change, suite verte.
-- [ ] `tests/test_content_language.py` (nouveau) -- commit 1 puis 2 -- paramétré `fr`, `en`, `de` : chaque ligne de la matrice ; chaque chargeur du périmètre lit sa langue sans `settings.json` (réglage contraire au paramètre) ; `set_language` relit programme, cloud et libellés.
-- [ ] Commit 2, traductions : `content/i18n/{en,de}/` -- les fichiers du périmètre -- écrits par deux sous-agents (un par langue), avec la liste des libellés à citer.
-- [ ] `content/ui.yaml`, `content/i18n/{en,de}/ui.yaml` -- `common.language.help` -- commit 2.
-- [ ] `tests/test_i18n.py` -- commit 2 -- une branche de parité par fichier : mêmes clés, mêmes `id`, champs non textuels identiques (`bricks`, `tools`, `duration_min`, motifs des éditeurs, `test.tool.name`, `tool_reply`), même nombre de prompts, un nom de fichier de démonstration cité en `fr` l'est aussi dans la traduction ; `demo_files` : même ensemble de fichiers, même nombre de lignes pour les `.log`. `cloud.yaml` rejoint `LLM_DEFAULTS`.
-- [ ] `tests/test_content_language.py` -- commit 2 -- chaque libellé cité dans une consigne `en`/`de` existe dans un catalogue de sa langue ; le nom de brique cité par les skills égale `label_text` de `bricks/tools.yaml` de sa langue ; `test_program.py:216` rejoué en `en` et `de`.
-- [ ] `tools/e2e/run_e2e.py` -- commit 3 -- tranche `content_language` : en `en` puis `de`, lancer `native_tools`, comparer titre, consigne, prompts et aide de la brique Tools aux valeurs de sa langue (et à aucune valeur française qui en diffère) ; forcer `read_file` sur un préréglage et lire le contenu traduit dans Orchestration ; H1 refuse `confidentiel/` en `de` ; captures `de` à 1 280 et 1 600 px, normal et projection ; `finally` : repos puis `fr`.
-- [ ] `ARCHITECTURE-SPINE.md` (AD-19), `deferred-work.md` (fermer la part story 3 et le nom des briques des skills) -- commit 3.
+- [x] Commit 1, la langue suit : `scenarios.py`, `cloud.py`, `context/segments.py`, `models/catalog.py`, `tools/native.py`, `hooks.py`, `app_session.py`, `web/app.py`, `session/diagnostic.py` -- `lang` explicite, `_localized`, relecture au changement de langue, `read_file` lié à la langue -- aucun texte ni fichier de `content/` ne change, suite verte.
+- [x] `tests/test_content_language.py` (nouveau) -- commit 1 puis 2 -- paramétré `fr`, `en`, `de` : chaque ligne de la matrice ; chaque chargeur du périmètre lit sa langue sans `settings.json` (réglage contraire au paramètre) ; `set_language` relit programme, cloud et libellés.
+- [x] Commit 2, traductions : `content/i18n/{en,de}/` -- les fichiers du périmètre -- écrits par deux sous-agents (un par langue), avec la liste des libellés à citer.
+- [x] `content/ui.yaml`, `content/i18n/{en,de}/ui.yaml` -- `common.language.help` -- commit 2.
+- [x] `tests/test_i18n.py` -- commit 2 -- une branche de parité par fichier : mêmes clés, mêmes `id`, champs non textuels identiques (`bricks`, `tools`, `duration_min`, motifs des éditeurs, `test.tool.name`, `tool_reply`), même nombre de prompts, un nom de fichier de démonstration cité en `fr` l'est aussi dans la traduction ; `demo_files` : même ensemble de fichiers, même nombre de lignes pour les `.log`. `cloud.yaml` rejoint `LLM_DEFAULTS`.
+- [x] `tests/test_content_language.py` -- commit 2 -- chaque libellé cité dans une consigne `en`/`de` existe dans un catalogue de sa langue ; le nom de brique cité par les skills égale `label_text` de `bricks/tools.yaml` de sa langue ; `test_program.py:216` rejoué en `en` et `de`.
+- [x] `tools/e2e/run_e2e.py` -- commit 3 -- tranche `content_language` : en `en` puis `de`, lancer `native_tools`, comparer titre, consigne, prompts et aide de la brique Tools aux valeurs de sa langue (et à aucune valeur française qui en diffère) ; forcer `read_file` sur un préréglage et lire le contenu traduit dans Orchestration ; H1 refuse `confidentiel/` en `de` ; captures `de` à 1 280 et 1 600 px, normal et projection ; `finally` : repos puis `fr`.
+- [x] `ARCHITECTURE-SPINE.md` (AD-19), `deferred-work.md` (fermer la part story 3 et le nom des briques des skills) -- commit 3.
 
 **Acceptance Criteria:**
 - Given la langue `fr`, when on joue ruff, pytest en quarts et l'E2E par tranches après chaque commit, then tout passe, et aucun fichier français de `content/` n'a changé.
@@ -100,6 +100,10 @@ context:
 - Given une consigne `en` ou `de` qui cite un libellé, when le test des libellés joue, then ce libellé existe dans un catalogue de sa langue.
 
 ## Implementation Notes
+
+- Commit 1 (`439711d`) : `lang` a pour défaut `fr` dans les chargeurs touchés (jamais `settings.json`). `read_file` est lié par `AppSession._read_file`, qui lit `_language` à chaque appel : rien à remplacer au changement de langue. `DiagnosticSession.language` (lié par `create_app` à `AppSession.language`) donne la langue aux textes du cloud du diagnostic. Une traduction invalide de `publishers.yaml` donne la table française, avec la raison qui nomme le fichier traduit (`load_publishers` ne lève jamais, il ne passe donc pas par `_localized`).
+- Commit 2 (`ac0df1b`) : traductions écrites par deux sous-agents (un par langue) à partir d'une table des libellés français → `en`/`de`. Le test des libellés cités compte, par consigne, les citations qui sont des libellés d'un catalogue de la langue (valeur, texte avant la variable, début de valeur, ou « <Forcer l'appel> · <outil> ») : autant qu'en français, et autant de citations en tout.
+- Constaté, hors périmètre : la carte Tools affiche encore « Bornes du tour : … » et la carte RAG la raison d'un modèle absent en français (textes produits par `app_session.py`, story 5). La consigne française de la brique Raisonnement cite « toujours active pour ce modèle », que l'interface ne montre plus (« Imposé par ce modèle ») : les traductions citent le libellé réel.
 
 ## Spec Change Log
 

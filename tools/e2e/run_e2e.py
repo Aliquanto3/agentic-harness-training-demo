@@ -5130,6 +5130,193 @@ def _ui_language(r: Run) -> None:
     _ui_route_down(r)
 
 
+def _content(lang: str, rel: str) -> Any:
+    """`content/{rel}` in `lang` (its translation, else the French file)."""
+    import yaml
+
+    translated = REPO / "content" / "i18n" / lang / rel
+    path = translated if lang != "fr" and translated.is_file() else REPO / "content" / rel
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _demo_text(lang: str, rel: str) -> str:
+    translated = REPO / "content" / "i18n" / lang / "demo_files" / rel
+    path = (
+        translated
+        if lang != "fr" and translated.is_file()
+        else REPO / "content" / "demo_files" / rel
+    )
+    return path.read_text(encoding="utf-8")
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _paragraphs(brick: dict[str, Any]) -> list[str]:
+    """A brick's explanation, each paragraph and each bullet, as the page shows them."""
+    return [
+        _flat(item)
+        for block in brick["explanation_text"]
+        for item in (block if isinstance(block, list) else [block])
+    ]
+
+
+def s_content_language(r: Run) -> None:
+    """Languages (3/5): in `en` then `de`, `native_tools` launched: its title, instructions and
+    prompts, the Tools brick's explanation, all of the language and no French value of the
+    scope that differs; a forced `read_file` (preset) reads the translated demonstration file,
+    shown in Orchestration; in German, H1 refuses `confidentiel/`. Captures in German at 1280
+    and 1600 px, normal and projection mode. Always ends in French, at rest."""
+    page = r.page
+    try:
+        for lang in ("en", "de"):
+            _content_language(r, lang)
+    finally:
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        if page.evaluate("() => document.documentElement.classList.contains('projection')"):
+            _toggle_projection(page)
+        if r.state().get("language") != "fr":
+            r.wait_idle()
+            _switch_language(r, "fr")
+        r.check(r.state()["language"] == "fr", "nettoyage : retour au français")
+
+
+def _content_language(r: Run, lang: str) -> None:
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    _switch_language(r, lang)
+    r.launch("native_tools")
+    time.sleep(0.5)
+    scenario = _content(lang, "scenarios.yaml")["scenarios"]["native_tools"]
+    french = _content("fr", "scenarios.yaml")["scenarios"]["native_tools"]
+    brick, french_brick = _content(lang, "bricks/tools.yaml"), _content("fr", "bricks/tools.yaml")
+
+    # The scenario: its title in the picker, its instructions, its prompts.
+    title = page.locator("#scenario-picker option:checked").inner_text()
+    guide = _flat(page.locator("#scenario-guide-text").text_content() or "")
+    prompts = page.locator("#suggested-prompts button").all_inner_texts()
+    r.check(
+        scenario["title_text"] in title
+        and guide.endswith(_flat(scenario["description_text"]))
+        and [_flat(p) for p in prompts] == [_flat(p) for p in scenario["prompts"]],
+        f"{lang} : titre, consigne et prompts suggérés de native_tools dans la langue",
+        f"« {title} » · « {guide[:80]} » · {prompts}",
+    )
+
+    # The Tools brick's explanation, opened from its « ? ».
+    r.card(brick["label_text"]).locator(".brick-help").click()
+    explain = page.locator("#explain-tools")
+    expect(explain).to_be_visible(timeout=5000)
+    shown = _flat(explain.inner_text())
+    missing = [p[:60] for p in _paragraphs(brick) if p not in shown]
+    r.check(
+        not missing,
+        f"{lang} : l'aide de la brique {brick['label_text']} est celle de la langue",
+        f"absents : {missing}",
+    )
+    if lang == "de":
+        for width, height in ((1280, 720), (1600, 1000)):
+            page.set_viewport_size({"width": width, "height": height})
+            for projection in (False, True):
+                if projection:
+                    _toggle_projection(page)
+                    r.card(brick["label_text"]).locator(".brick-help").click()
+                    expect(explain).to_be_visible(timeout=5000)
+                time.sleep(0.4)
+                mode = "projection" if projection else "normal"
+                r.shot(f"content-language-de-{width}-{mode}")
+                if projection:
+                    page.keyboard.press("Escape")
+                    _toggle_projection(page)
+        page.set_viewport_size({"width": 1600, "height": 1000})
+    page.keyboard.press("Escape")
+
+    # No French value of the scope that differs from its translation.
+    body = _flat(page.locator("body").inner_text())
+    french_values = [french["title_text"], french["description_text"], *french["prompts"]]
+    french_values += _paragraphs(french_brick) + [french_brick["label_text"]]
+    translated = {
+        _flat(v) for v in [*scenario.values(), *scenario["prompts"]] if isinstance(v, str)
+    }
+    translated |= set(_paragraphs(brick)) | {brick["label_text"]}
+    left = [
+        _flat(v)[:60]
+        for v in french_values
+        if _flat(v) not in translated
+        and (_flat(v) in body if len(_flat(v)) > 12 else f" {_flat(v)} " in f" {body} ")
+    ]
+    r.check(not left, f"{lang} : aucune valeur française du périmètre à l'écran", f"{left}")
+
+    # A forced `read_file` on a preset: the translated demonstration file, in Orchestration.
+    tools = _content(lang, "tools.yaml")["tools"]["read_file"]
+    notes = next(p for p in tools["presets"] if p["args"]["path"] == "notes_reunion.txt")
+    ended = _forced_read(r, brick["label_text"], notes["label_text"], lang)
+    expected = _demo_text(lang, "notes_reunion.txt")
+    first = next(line for line in expected.splitlines() if line.strip())
+    step = page.locator("#orch-scroll .turn-step").filter(
+        has_text=re.compile(f"read_file|{re.escape(tools['label_text'])}")
+    )
+    if not step.last.locator(".turn-step-body").count():
+        step.last.locator(".turn-step-line").click()
+    time.sleep(0.3)
+    orch = _flat(step.last.text_content() or "")
+    r.check(
+        bool(ended)
+        and ended[-1]["status"] == "ok"
+        and ended[-1]["result"].strip() == expected.strip()
+        and expected != _demo_text("fr", "notes_reunion.txt"),
+        f"{lang} : read_file forcé (préréglage « {notes['label_text']} ») lit le fichier traduit",
+        str(ended[-1] if ended else None)[:200],
+    )
+    r.check(
+        _flat(first) in orch,
+        f"{lang} : Orchestration montre le contenu traduit",
+        "" if _flat(first) in orch else f"« {first[:60]} » absent",
+    )
+
+    # German: H1 refuses `confidentiel/`, as in French.
+    if lang == "de":
+        seq = r.ev.mark()
+        r.api("POST", "/api/intentions/brick", {"brick": "hooks", "wanted": True})
+        r.ev.wait("bricks_changed", seq, timeout=10)
+        secret = next(
+            p for p in tools["presets"] if p["args"]["path"] == "confidentiel/budget_projet.txt"
+        )
+        seq = r.ev.mark()
+        _forced_read(r, brick["label_text"], secret["label_text"], lang)
+        decided = [e["payload"] for e in r.ev.since(seq, "hook_decided")]
+        r.check(
+            any(d["hook"] == "h1" and d["decision"] == "block" for d in decided)
+            and not r.ev.since(seq, "tool_ended"),
+            "de : H1 refuse confidentiel/budget_projet.txt (préréglage "
+            f"« {secret['label_text']} »)",
+            str([(d["hook"], d["decision"]) for d in decided]),
+        )
+
+
+def _forced_read(r: Run, tools_card: str, preset: str, lang: str) -> list[dict[str, Any]]:
+    """Arms `read_file` with `preset` (its button and the form's « Armer » found by their
+    role, whatever the language), sends a prompt; returns this turn's `tool_ended`."""
+    page = r.page
+    r.show_forced(True)
+    r.open_options(tools_card)
+    seq = r.ev.mark()
+    button = page.locator('[data-focus-key="force:tools:read_file"]')
+    if button.get_attribute("aria-expanded") != "true":
+        button.click()
+    form = page.locator(".force-form")
+    expect(form).to_be_visible(timeout=5000)
+    form.locator("select").first.select_option(label=preset)
+    form.locator("button.force-arm").click()
+    r.ev.wait("armed_actions_changed", seq, lambda p: bool(p["actions"]), timeout=10)
+    seq = r.ev.mark()
+    r.send({"en": "Read this file.", "de": "Lies diese Datei."}[lang])
+    r.wait_idle()
+    time.sleep(0.5)
+    return [e["payload"] for e in r.ev.since(seq, "tool_ended")]
+
+
 def _first_turn_after(r: Run, gesture: str, turn_id: str) -> None:
     seq = r.ev.mark()
     r.send("Bonjour")
@@ -7558,6 +7745,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("reload_and_reset", s_reload_and_reset),
     ("language", s_language),
     ("ui_language", s_ui_language),
+    ("content_language", s_content_language),
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),
