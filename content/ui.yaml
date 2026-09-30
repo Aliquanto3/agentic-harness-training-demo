@@ -17,6 +17,7 @@ common:
     usd: "{amount} $"
     usd_below: "< {amount} $"
     eur: "{amount} €"
+    quote: "« {text} »"
   unavailable_outside_turn: "Disponible hors d'un tour."
   busy: "WaveStack est occupé."
   action_refused: "Action refusée."
@@ -87,7 +88,7 @@ main:
     reset_title: "Retour au LLM nu, conversation vide."
     reset_no_answer: "WaveStack ne répond pas : rien n'a été réinitialisé."
     scenario: "Scénario"
-    reset: "⟲ Réinitialiser"
+    reset: "Réinitialiser"
   trigger:
     user: "Forcé par l'utilisateur"
     model: "Déclenché par le modèle"

@@ -5013,12 +5013,72 @@ body .arch .arch-robots .robot.is-selection-linked {
   }
 }
 
-/* Languages (2/5): from 1100 px up, in projection mode, the two pickers of the bar keep a few
-   words of their choice (« Outils natifs », « Modell wechseln… »), never two letters and
-   « … »: the longer German labels take their room from the model picker first. */
-@media (min-width: 1100px) {
-  :root.projection .top-bar > select.scenario-picker,
-  :root.projection .top-bar > .model-picker {
-    min-width: 4.5rem;
+/* ---------- languages (2/5): names of the top bar readable in every language ----------
+   From 1000 px up, the scenario's name, the model's hosting and name and the model picker keep
+   about six characters and « … » (a character is about 0.6 em in the bar's fonts; a native
+   list adds its arrow and padding), in normal and projection mode: the longer English and
+   German labels of the bar take their room elsewhere. `:is(:root, :root.projection)` outranks
+   the earlier minimums of every width. From 1200 px (1280 px windows and wider), and while no
+   chip says « · lié »: that chip never gives way (lot K), and the names do so for it, as
+   before. */
+@media (min-width: 1200px) {
+  :is(:root, :root.projection) .top-bar:not(:has(.pane-chip.is-linked)) > select.scenario-picker {
+    min-width: calc(4.2em + 1.25em + 2 * var(--spacing-3) + 2px);
+  }
+
+  :is(:root, :root.projection) .top-bar:not(:has(.pane-chip.is-linked)) > select.model-picker {
+    min-width: calc(4.2em + 1.25em + 2 * var(--spacing-2) + 2px);
+  }
+
+  /* Its two pieces keep their minimum (the chip in the label's size, its globe included, with
+     its padding and border), the gap between them besides. */
+  :is(:root, :root.projection) .top-bar:not(:has(.pane-chip.is-linked)) > .model-indicator {
+    min-width: calc(
+      7 * var(--typography-label-font-size) + 2 * var(--spacing-2) + 2px + 4.2em +
+        var(--spacing-xs, 4px) + 1px
+    );
+  }
+
+  .top-bar:not(:has(.pane-chip.is-linked)) > .model-indicator > .hosting-tag-local,
+  .top-bar:not(:has(.pane-chip.is-linked)) > .model-indicator > .hosting-tag-network {
+    box-sizing: content-box;
+    min-width: 7em;
+  }
+
+  .top-bar:not(:has(.pane-chip.is-linked)) > .model-indicator > .model-indicator-name {
+    min-width: 4.2em;
+  }
+}
+
+/* Room for them: under 1700 px the title goes (the page's title keeps it), the screen links
+   say « LLM » and « RAG », and the model's chip keeps its hosting (« RÉSEAU »), its provider
+   staying in the tooltip; under 1400 px « Affichage ▾ » keeps its symbol and code (its
+   accessible name unchanged). */
+@media (max-width: 1700px) {
+  .top-bar-title,
+  .top-bar .model-indicator-provider {
+    display: none;
+  }
+
+  .screen-link-long {
+    display: none;
+  }
+
+  .screen-link-short {
+    display: inline;
+  }
+}
+
+@media (max-width: 1400px) {
+  .display-menu-word {
+    display: none;
+  }
+}
+
+/* In projection mode up to 1600 px, with the session's spend or footprint in the bar, the
+   reset button keeps its symbol « ⟲ » (its accessible name and its tooltip say the word). */
+@media (max-width: 1600px) {
+  :root.projection .top-bar:has(> #consumption:not([hidden])) .reset-word {
+    display: none;
   }
 }

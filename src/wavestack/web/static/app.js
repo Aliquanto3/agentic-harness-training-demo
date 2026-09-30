@@ -173,6 +173,8 @@ const seconds = (ms) => `${numberFormat().format(Math.max(ms, 0) / 1000)} s`;
 const moneyFormat = () => intlNumber({ maximumSignificantDigits: 4 });
 const usd = (n) => t("common.format.usd", { amount: moneyFormat().format(n) });
 const eur = (n) => t("common.format.eur", { amount: moneyFormat().format(n) });
+// What the user (or the model) wrote, quoted as the language quotes: « … », “…”, „…“.
+const quote = (text) => t("common.format.quote", { text });
 // GreenOps: energy and emissions, 2 significant digits, French comma; a range « 0,035–0,23 Wh »
 // when its bounds differ once formatted. Under the display's precision (a thousandth), a
 // positive value is « < 0,001 » and a range from under it « ≤ 0,0016 »; 0 is a true 0 (its
@@ -2394,15 +2396,11 @@ function renderModelIndicator() {
   const key = JSON.stringify(model);
   if (button.dataset.key === key) return;
   button.dataset.key = key;
-  const tag = el(
-    "span",
-    network ? "hosting-tag-network" : "hosting-tag-local",
-    network
-      ? `${t("main.hosting.network")} · ${model.provider}`
-      : served
-        ? `${t("main.hosting.local")} · ${model.provider}`
-        : t("main.hosting.local")
-  );
+  // Languages (2/5): the provider in a span of its own, which a narrow bar drops (app.css);
+  // it stays in the tooltip and the accessible name.
+  const tag = el("span", network ? "hosting-tag-network" : "hosting-tag-local");
+  tag.append(t(network ? "main.hosting.network" : "main.hosting.local"));
+  if (network || served) tag.append(el("span", "model-indicator-provider", ` · ${model.provider}`));
   button.replaceChildren(tag, el("span", "model-indicator-name", model.label));
   button.title = served
     ? t("main.model.served_title", { provider: model.provider, url: model.server_url })
@@ -4299,7 +4297,7 @@ function renderCompare(pane) {
     select.setAttribute("aria-label", label);
     select.dataset.focusKey = `compare:${side}`;
     for (const turn of turns) {
-      const option = el("option", "", `${turnName(turn)}${turn.replayOf ? ` ${t("main.compare.replay_suffix")}` : ""} · « ${turn.message} »`);
+      const option = el("option", "", `${turnName(turn)}${turn.replayOf ? ` ${t("main.compare.replay_suffix")}` : ""} · ${quote(turn.message)}`);
       option.value = turn.id;
       option.selected = turn.id === store.compare[side];
       select.append(option);
@@ -5778,7 +5776,7 @@ function renderSteps() {
       [`turn-group-status ${statusClass}`, statusLabel],
       ["turn-group-replay", turn.replayOf ? t("main.chat.replay_badge") : null],
       ["turn-group-figures", figures.filter(Boolean).join(" · ")],
-      ["turn-group-message", `« ${turn.message} »`],
+      ["turn-group-message", quote(turn.message)],
     ]);
     node.head.title = turn.message;
     node.parts[0].title = turnIdTitle(turn); // story 22: links « Tour N » to the journal
@@ -6191,7 +6189,7 @@ function eventSummary(group) {
     case "context_overflow":
       return t("main.orch.overflow.figures", { used: p.used, usable: p.usable });
     case "turn_started":
-      return `« ${p.message} »`;
+      return quote(p.message);
     case "turn_ended":
       return [
         turnStatusOf(p.status)?.[1] ?? p.status,
@@ -6250,7 +6248,7 @@ function eventSummary(group) {
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
-      if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · « ${p.text} »`;
+      if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · ${quote(p.text)}`;
       if (p.effect === "model_download" || p.effect === "rag_index_write") return p.lines.join(" · ");
       if (p.effect === "audit_append") return t("main.log.audit_lines", { lines: plural(p.lines.length, "line") });
       return p.key ?? p.id ?? p.effect;
@@ -6271,9 +6269,9 @@ function eventSummary(group) {
         .filter(Boolean)
         .join(" · ");
     case "rag_search_started":
-      return `« ${p.query} » · ${t("main.log.at_most", { count: p.top_k })}`;
+      return `${quote(p.query)} · ${t("main.log.at_most", { count: p.top_k })}`;
     case "rag_rerank_started":
-      return `« ${p.query} » · ${plural(p.candidates, "candidate")}, ${plural(p.keep, "kept")}`;
+      return `${quote(p.query)} · ${plural(p.candidates, "candidate")}, ${plural(p.keep, "kept")}`;
     case "rag_rerank_progress":
       return t("main.log.rerank_progress", { done: p.done, total: p.total });
     case "rag_rerank_ended":
@@ -7342,7 +7340,7 @@ async function boot() {
         languages: body.languages ?? [],
         language_locked: Boolean(body.language_locked),
       };
-      document.documentElement.lang = body.language; // languages (1/5): `<html lang>`, as i18n.js
+      // `<html lang>` is i18n.js's: the language of the texts shown (French when they fail).
     }
     const preview = body.context_preview;
     const rendered = body.context_rendered;

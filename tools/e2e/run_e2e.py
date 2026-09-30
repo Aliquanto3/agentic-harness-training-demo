@@ -2128,9 +2128,10 @@ def s_linked_view(r: Run) -> None:
         f"{lit_segments} segments, étape {_is_linked(tool_step)}, opacité {memory_opacity}",
     )
     r.shot("35-vue-liee-survol", keep_pointer=True)
-    page.locator(".top-bar-title").hover()
+    # Languages (2/5): the title leaves the bar under 1 700 px; « Réinitialiser » links nothing.
+    page.locator("#reset-button").hover()
     time.sleep(0.2)
-    r.check(not _linking(r), "pointeur sur le titre de la barre haute : plus d'éclairage")
+    r.check(not _linking(r), "pointeur sur « Réinitialiser » : plus d'éclairage")
 
     # Hover: a gauge segment, the model's plate, the model's calls.
     page.locator('.gauge-seg[data-discipline="harness"]').first.hover()
@@ -4940,14 +4941,18 @@ def _switch_language(r: Run, lang: str) -> None:
 
 
 def s_ui_language(r: Run) -> None:
-    """Languages (2/5): the main screen in `en` then in `de`, after a turn: no French text of
-    the catalogue (texts and attributes), `<html lang>`, numbers in the language's format;
-    captures in German at 1280 and 1600 px, normal and projection mode, the top bar whole.
-    Always ends in French, at rest."""
+    """Languages (2/5): the main screen in `fr`, `en` then `de`, after a turn. In `en` and
+    `de`: no French text of the catalogue (texts and attributes), `<html lang>`, numbers in
+    the language's format, `t()`'s plurals. In each language, at 1280 and 1600 px, normal and
+    projection mode: the top bar whole on one line, its names readable (about six characters
+    of the scenario, the model's hosting and name, the model picker); captures in German. In
+    German, `/api/ui_texts` unreachable: the HTML's French, `t()` gives its keys. Always ends in
+    French, at rest."""
     page = r.page
     try:
         _ui_language(r)
     finally:
+        page.unroute("**/api/ui_texts")
         page.set_viewport_size({"width": 1600, "height": 1000})
         if page.evaluate("() => document.documentElement.classList.contains('projection')"):
             _toggle_projection(page)
@@ -4959,57 +4964,164 @@ def s_ui_language(r: Run) -> None:
 
 _THOUSANDS = {"en": r"\d,\d{3}", "de": r"\d\.\d{3}"}
 
+# The names of the top bar: the part of each that shows, against its first six characters
+# and « … » in its own font (its globe too, for the hosting chip), or its whole text when
+# shorter. A native list loses its arrow's width (1.25 em) besides its padding.
+_READABLE_NAMES_JS = """() => {
+  const ctx = document.createElement('canvas').getContext('2d');
+  const problems = [];
+  const names = {
+    'sélecteur de scénario': document.getElementById('scenario-picker'),
+    'hébergement du modèle': document.querySelector('#model-indicator > :first-child'),
+    'nom du modèle': document.querySelector('#model-indicator .model-indicator-name'),
+    'sélecteur de modèle': document.getElementById('model-picker'),
+  };
+  for (const [name, e] of Object.entries(names)) {
+    if (!e || !e.checkVisibility()) { problems.push(`${name} absent`); continue; }
+    const cs = getComputedStyle(e);
+    ctx.font = cs.font;
+    const em = parseFloat(cs.fontSize);
+    const padding = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    let shown = e.clientWidth - padding;
+    let text, full;
+    if (e.tagName === 'SELECT') {
+      text = e.options[e.selectedIndex]?.text ?? '';
+      full = ctx.measureText(text).width;
+      shown -= 1.25 * em;
+    } else {
+      text = e.innerText;
+      full = e.scrollWidth - padding;
+    }
+    const before = getComputedStyle(e, '::before').content;
+    const prefix = before && before !== 'none' && before !== 'normal' ? JSON.parse(before) : '';
+    const need = Math.min(full, ctx.measureText(prefix + text.trim().slice(0, 6) + '…').width);
+    if (shown + 1 < need) {
+      const say = `${Math.round(shown)} px visibles sur ${Math.round(need)}`;
+      problems.push(`${name} « ${text.trim()} » : ${say}`);
+    }
+  }
+  return problems;
+}"""
+
+
+def _readable_bar(r: Run, lang: str) -> None:
+    """At 1280 and 1600 px, normal and projection mode: the bar whole, its names readable, the
+    « Affichage ▾ » menu whole; captures in German."""
+    page = r.page
+    system = _ui_catalogue(lang)["main.theme.system"]
+    for width, height in ((1280, 720), (1600, 1000)):
+        page.set_viewport_size({"width": width, "height": height})
+        for projection in (False, True):
+            if projection:
+                _toggle_projection(page)
+            time.sleep(0.4)
+            mode = "projection" if projection else "normal"
+            fits, detail = _bar_fits(r)
+            names = page.evaluate(_READABLE_NAMES_JS)
+            menu = _display_menu_picker(r, system)
+            if not fits or names:  # what each control of the bar takes, to see who to trim
+                detail += " ; " + page.evaluate(
+                    "() => [...document.querySelectorAll('.top-bar > *')]"
+                    ".filter(e => e.checkVisibility())"
+                    ".map(e => `${e.id || e.className} ${Math.round(e.offsetWidth)}`).join(', ')"
+                )
+            r.check(
+                fits and not names and not menu,
+                f"{lang}, {width} × {height}, mode {mode} : barre haute entière sur une ligne, "
+                "scénario, hébergement et nom du modèle, sélecteur de modèle lisibles "
+                "(≈ 6 caractères)",
+                f"{detail} ; {names} {menu}",
+            )
+            if lang == "de":
+                r.shot(f"ui-language-de-{width}-{mode}")
+            if projection:
+                _toggle_projection(page)
+    page.set_viewport_size({"width": 1600, "height": 1000})
+
+
+def _ui_plurals(r: Run, lang: str) -> None:
+    """Matrix « Pluriel »: `t()` of the page's `i18n.js`, `count` 1 then 2, on a `.one` /
+    `.other` key: the two forms of the catalogue."""
+    forms = r.page.evaluate(
+        "async () => { const m = await import('/static/i18n.js'); await m.ready;"
+        " return [1, 2].map((count) => m.t('common.count.token', { count })); }"
+    )
+    catalogue = _ui_catalogue(lang)
+    expected = [
+        catalogue["common.count.token.one"].replace("{count}", "1"),
+        catalogue["common.count.token.other"].replace("{count}", "2"),
+    ]
+    r.check(
+        forms == expected and forms[0] != forms[1],
+        f"{lang} : t() choisit .one pour 1 et .other pour 2 (Intl.PluralRules)",
+        f"{forms} / attendu {expected}",
+    )
+
+
+def _ui_route_down(r: Run) -> None:
+    """Matrix « Route injoignable »: `/api/ui_texts` aborted, the page reloaded: the HTML keeps
+    its French, `t()` gives the key and says so in the console. Then the route back."""
+    page = r.page
+    warnings: list[str] = []
+
+    def listener(message: Any) -> None:
+        if message.type == "warning":
+            warnings.append(message.text)
+
+    page.route("**/api/ui_texts", lambda route: route.abort())
+    page.on("console", listener)
+    try:
+        r.reload_app()
+        time.sleep(0.5)
+        send = page.inner_text("#composer-send")
+        french = _ui_catalogue("fr")["main.composer.send"]
+        key = page.evaluate("async () => (await import('/static/i18n.js')).t('main.composer.send')")
+        said = [w for w in warnings if w.startswith("i18n :")]
+        r.check(
+            send == french and key == "main.composer.send" and _html_lang(r) == "fr" and said,
+            "route /api/ui_texts injoignable : le HTML garde son français, t() rend la clé, "
+            "la console le signale",
+            f"« {send} » · t() = {key} · lang={_html_lang(r)} · {said[:2]}",
+        )
+    finally:
+        page.remove_listener("console", listener)
+        page.unroute("**/api/ui_texts")
+        r.reload_app()
+    r.check(
+        page.inner_text("#composer-send") == _ui_catalogue("de")["main.composer.send"],
+        "route rétablie : la page revient en allemand",
+    )
+
 
 def _ui_language(r: Run) -> None:
     page = r.page
-    for lang in ("en", "de"):
+    for lang in ("fr", "en", "de"):
         page.set_viewport_size({"width": 1600, "height": 1000})
         _switch_language(r, lang)
         r.launch("native_tools")
-        r.send("Bonjour" if lang == "en" else "Hallo")
+        r.send({"fr": "Bonjour", "en": "Hello", "de": "Hallo"}[lang])
         r.wait_idle()
         time.sleep(0.5)
-        _open_display(page)
-        left = _french_left(r, lang)
-        _close_display(page)
-        figures = page.inner_text("#gauge-figures")
-        r.check(
-            not left,
-            f"{lang} : aucun texte français du catalogue à l'écran (textes, title, aria-label, "
-            "placeholder), après un tour",
-            "; ".join(left[:12]),
-        )
-        r.check(
-            _html_lang(r) == lang and re.search(_THOUSANDS[lang], figures) is not None,
-            f"{lang} : <html lang={lang}>, nombres au format de la langue",
-            f"lang={_html_lang(r)} · {figures}",
-        )
-        if lang != "de":
-            continue
-        for width, height in ((1280, 720), (1600, 1000)):
-            page.set_viewport_size({"width": width, "height": height})
-            for projection in (False, True):
-                if projection:
-                    _toggle_projection(page)
-                time.sleep(0.4)
-                mode = "projection" if projection else "normal"
-                fits, detail = _bar_fits(r)
-                # No picker reduced to two letters and « … » (the saturation of 2026-09-30).
-                narrow = page.evaluate(
-                    "() => [...document.querySelectorAll('.top-bar > select')]"
-                    ".filter(s => s.checkVisibility() && s.clientWidth < 64)"
-                    ".map(s => `#${s.id} ${s.clientWidth} px`)"
-                )
-                menu = _display_menu_picker(r, _ui_catalogue("de")["main.theme.system"])
-                r.check(
-                    fits and not narrow and not menu,
-                    f"de, {width} × {height}, mode {mode} : barre haute entière sur une ligne",
-                    f"{detail} {narrow} {menu}",
-                )
-                r.shot(f"ui-language-de-{width}-{mode}")
-                if projection:
-                    _toggle_projection(page)
+        if lang != "fr":
+            _open_display(page)
+            left = _french_left(r, lang)
+            _close_display(page)
+            figures = page.inner_text("#gauge-figures")
+            r.check(
+                not left,
+                f"{lang} : aucun texte français du catalogue à l'écran (textes, title, "
+                "aria-label, placeholder), après un tour",
+                "; ".join(left[:12]),
+            )
+            r.check(
+                _html_lang(r) == lang and re.search(_THOUSANDS[lang], figures) is not None,
+                f"{lang} : <html lang={lang}>, nombres au format de la langue",
+                f"lang={_html_lang(r)} · {figures}",
+            )
+            _ui_plurals(r, lang)
+        _readable_bar(r, lang)
     r.shot_element("ui-language-de-barre", ".top-bar")
+    _ui_route_down(r)
 
 
 def _first_turn_after(r: Run, gesture: str, turn_id: str) -> None:
@@ -6558,7 +6670,11 @@ def _llm_screen(r: Run) -> None:
     # (1) The link, whole in the top bar, which stays on one line.
     link = page.locator("#llm-link")
     r.check(
-        link.is_visible() and link.inner_text() == "LLM nu" and not _fully_visible(r, "#llm-link"),
+        link.is_visible()
+        # Languages (2/5): « LLM » under 1 700 px, its accessible name whole.
+        and link.inner_text() in ("LLM nu", "LLM")
+        and link.get_attribute("aria-label") == "LLM nu"
+        and not _fully_visible(r, "#llm-link"),
         "barre haute : lien « LLM nu » visible et entier",
         _fully_visible(r, "#llm-link"),
     )
@@ -6935,7 +7051,9 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     link = page.locator("#rag-link")
     r.check(
         link.is_visible()
-        and link.inner_text() == "Atelier RAG"
+        # Languages (2/5): « RAG » under 1 700 px, its accessible name whole.
+        and link.inner_text() in ("Atelier RAG", "RAG")
+        and link.get_attribute("aria-label") == "Atelier RAG"
         and link.get_attribute("href") == "/rag"
         and not _fully_visible(r, "#rag-link"),
         "barre haute : lien « Atelier RAG » visible, entier, vers /rag",
@@ -6985,7 +7103,16 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     # (3) A run on the question: each stage, its excerpts, its duration and its memory.
     page.evaluate(_WATCH_STATUSES_JS)
     ended, seq = _rag_lab_run(r)
-    r.check(ended["payload"]["status"] == "ok", "exécution de la chaîne livrée terminée")
+    failed = [
+        (e["payload"].get("kind"), e["payload"].get("error_text"))
+        for e in r.ev.since(seq, "rag_lab_stage_ended")
+        if e["payload"].get("status") not in ("ok", None)
+    ]
+    r.check(
+        ended["payload"]["status"] == "ok",
+        "exécution de la chaîne livrée terminée",
+        f"{ended['payload'].get('status')} {failed}",
+    )
     started = {e["payload"]["kind"] for e in r.ev.since(seq, "rag_lab_stage_started")}
     r.check(
         started == set(RAG_LAB_STAGES_KINDS[:-1]),

@@ -11,6 +11,7 @@ common:
     usd: "${amount}"
     usd_below: "< ${amount}"
     eur: "€{amount}"
+    quote: "“{text}”"
   unavailable_outside_turn: "Available when no turn is running."
   busy: "WaveStack is busy."
   action_refused: "Action refused."
@@ -81,7 +82,7 @@ main:
     reset_title: "Back to the Bare LLM, empty conversation."
     reset_no_answer: "WaveStack does not answer: nothing was reset."
     scenario: "Scenario"
-    reset: "⟲ Reset"
+    reset: "Reset"
   trigger:
     user: "Forced by the user"
     model: "Triggered by the model"
