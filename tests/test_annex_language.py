@@ -379,3 +379,63 @@ def test_the_script_defaults_to_french_whatever_the_setting(marked, tmp_path):
 
     assert index.is_file() and not (tmp_path / "script.en.sqlite").exists()
     assert {c.title_text for c in rag_index.read_chunks(index)} == _french_titles()
+
+
+# ---------- the shipped translations and indexes (commit 3) ----------
+
+# `data/rag_index.sqlite` as the story found it (baseline da6748d): never rebuilt.
+FRENCH_INDEX_SHA256 = "7a27518b66d0d265d4daa7e2639b9e91f8d8777412bbd9e4d15b39b8b79d4175"
+EXCERPT = {"fr": "Extrait 1 — ", "en": "Excerpt 1 — ", "de": "Auszug 1 — "}
+QUESTIONS = {
+    "en": "How many characters must a password have at least at Exemplia?",
+    "de": "Wie viele Zeichen muss ein Passwort bei Exemplia mindestens haben?",
+}
+
+
+def test_the_french_index_is_the_one_the_story_found():
+    path = config.repo_root() / "data" / "rag_index.sqlite"
+    assert rag_index.file_sha256(path) == FRENCH_INDEX_SHA256
+
+
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_the_shipped_index_of_a_language_is_fresh_for_the_declared_model(lang):
+    """Acceptance: on a fresh install with the embedding model, the RAG brick in `lang` needs
+    no build. Read from `meta` and the chunks, without the real model."""
+    cfg = config.load_config()
+    path = cfg.rag_index_path(lang)
+    assert path == config.repo_root() / "data" / f"rag_index.{lang}.sqlite"
+    meta = rag_index.read_meta(path)
+    model, error = cfg.rag_embedding
+    assert error is None and model is not None
+    declared = model.load_file
+    assert (meta.embedding_model_id, meta.dims) == (model.id, model.dims)
+    assert meta.model_size == declared.size
+    assert not declared.sha256 or meta.model_sha256 == declared.sha256.lower()
+    assert meta.chunk_max_chars == cfg.rag_chunk_max_chars
+    content = load_rag_content(lang)
+    chunks = chunk_corpus(content, cfg.rag_chunk_max_chars, lang)
+    assert meta.corpus_sha256 == rag_index.corpus_digest(chunks)
+    titles = {c.title_text for c in rag_index.read_chunks(path)}
+    assert titles == {d.title_text for d in content.documents}
+    assert not titles & _french_titles()
+
+
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_a_rag_turn_in_a_translated_language_sends_its_excerpts(tmp_path, lang):
+    """Matrix « Tour RAG en allemand », with the shipped translations: « Auszug 1 — » and a
+    German title, no French title in the context."""
+    place_model()
+    index = tmp_path / "rag_index.sqlite"
+    _build(config.Config(values=_values(index, lang)).rag_index_path(lang), lang)
+    session, _ = rag_session(_values(index, lang))
+
+    excerpts = _excerpts(turn_events(QUESTIONS[lang], session))
+
+    titles = {d.title_text for d in load_rag_content(lang).documents}
+    assert len(excerpts) == 3
+    for position, text in enumerate(excerpts, start=1):
+        head = text.split("\n", 1)[0]
+        assert head.startswith(EXCERPT[lang].replace("1", str(position)))
+        assert head.removeprefix(EXCERPT[lang].replace("1", str(position))).rstrip(":") in titles
+    assert not any(title in "\n".join(excerpts) for title in _french_titles())
+    session.close()

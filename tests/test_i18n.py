@@ -31,9 +31,11 @@ from wavestack.hooks import date_fr, date_text, load_hooks_content
 from wavestack.mcp.connection import McpConnection
 from wavestack.mcp.servers import LOCAL, McpServer, load_local_tools, load_mcp_content
 from wavestack.models.catalog import load_publishers
+from wavestack.rag import lab as rag_lab
 from wavestack.rag.corpus import load_rag_content
 from wavestack.scenarios import load_scenarios
 from wavestack.session import app_session as app_session_module
+from wavestack.session import llm_lab
 from wavestack.session.app_session import SendRefused
 from wavestack.skills import load_skills_content
 from wavestack.subagent import load_subagent_content
@@ -86,6 +88,9 @@ PEDAGOGICAL = (
     "models/publishers.yaml",
     *(f"demo_files/{f}" for f in DEMO_FILES),
 )
+# Languages (4/5): the workshops and the RAG corpus, translated under the same names.
+CORPUS = sorted(p.name for p in (CONTENT / "corpus").glob("*.md"))
+WORKSHOPS = ("llm_lab.yaml", "rag_lab.yaml", *(f"corpus/{c}" for c in CORPUS))
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?")
 PROMPTS = {
     "fr": "Tu es l'assistant de démonstration de WaveStack. Réponds en français",
@@ -156,6 +161,15 @@ def test_every_pedagogical_file_is_translated():
             assert (CONTENT / "i18n" / lang / rel).is_file(), f"{lang}: {rel} manque"
 
 
+def test_every_workshop_and_corpus_file_is_translated():
+    """Languages (4/5): the two workshops and the same set of corpus files."""
+    for lang in TRANSLATED:
+        for rel in WORKSHOPS:
+            assert (CONTENT / "i18n" / lang / rel).is_file(), f"{lang}: {rel} manque"
+        translated = sorted(p.name for p in (CONTENT / "i18n" / lang / "corpus").glob("*"))
+        assert translated == CORPUS
+
+
 @pytest.mark.parametrize(("lang", "rel"), _translations())
 def test_translated_file_mirrors_the_french_one(lang, rel):
     """Same tree and name as a French file, same template keys, validated by the French
@@ -207,10 +221,31 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     elif rel == "ui.yaml":  # languages (2/5): its parity key by key is in test_ui_texts
         fr, tr = load_ui_texts("fr"), load_ui_texts(lang)
         assert tr["common"]["language"] != fr["common"]["language"]
-    elif rel == "rag.yaml":
+    elif rel == "rag.yaml":  # languages (4/5): the same documents, their titles translated
         fr, tr = load_rag_content("fr"), load_rag_content(lang)
-        assert tr.documents == fr.documents  # the corpus and its index stay French (story 4)
+        assert [(d.id, d.file) for d in tr.documents] == [(d.id, d.file) for d in fr.documents]
+        assert not {d.title_text for d in tr.documents} & {d.title_text for d in fr.documents}
         assert tr.intro_text != fr.intro_text
+        assert "French" not in tr.intro_text and "Französisch" not in tr.intro_text
+    elif rel == "llm_lab.yaml":  # languages (4/5)
+        fr, tr = llm_lab.load_lab_content("fr"), llm_lab.load_lab_content(lang)
+        assert tr.title_text != fr.title_text
+        assert tr.model_dump().keys() == fr.model_dump().keys()
+    elif rel == "rag_lab.yaml":  # languages (4/5): the same stages, options and settings
+        fr, tr = rag_lab.load_lab_content("fr"), rag_lab.load_lab_content(lang)
+        assert tr.title_text != fr.title_text
+        assert (tr.stages.keys(), tr.params.keys()) == (fr.stages.keys(), fr.params.keys())
+        assert {k: v.keys() for k, v in tr.options.items()} == {
+            k: v.keys() for k, v in fr.options.items()
+        }
+    elif rel.startswith("corpus/"):  # languages (4/5): the same sections, about as long
+        fr_text = french.read_text(encoding="utf-8")
+        tr_text = translated.read_text(encoding="utf-8")
+        headings = [x.split(" ")[0] for x in fr_text.splitlines() if x.startswith("#")]
+        assert [x.split(" ")[0] for x in tr_text.splitlines() if x.startswith("#")] == headings
+        assert tr_text.count("<!--") == fr_text.count("<!--")
+        ratio = len(tr_text) / len(fr_text)
+        assert 0.6 <= ratio <= 1.4, ratio
     elif rel.startswith("bricks/"):  # languages (3/5)
         brick_id = rel.removeprefix("bricks/").removesuffix(".yaml")
         fr, tr = load_brick_content(brick_id, "fr"), load_brick_content(brick_id, lang)
@@ -276,8 +311,8 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
 def test_content_file_falls_back_on_french():
     assert config.content_file("tools.yaml", "fr") == CONTENT / "tools.yaml"
     assert config.content_file("tools.yaml", "en") == CONTENT / "i18n" / "en" / "tools.yaml"
-    # Not translated (the workshops, story 4): French.
-    assert config.content_file("llm_lab.yaml", "de") == CONTENT / "llm_lab.yaml"
+    # Languages (4/5): the workshops are translated too.
+    assert config.content_file("llm_lab.yaml", "de") == CONTENT / "i18n" / "de" / "llm_lab.yaml"
     assert config.content_file("tools.yaml", "it") == CONTENT / "tools.yaml"  # unknown language
 
 

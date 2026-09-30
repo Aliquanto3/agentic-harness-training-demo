@@ -7,8 +7,8 @@ notice_text: >-
 
 intro_text: >-
   Excerpts from Exemplia's internal documentation that the harness found for this
-  question (in French). They are not all necessarily relevant: rely on the ones that
-  answer and cite the document used.
+  question. They are not all necessarily relevant: rely on the ones that answer and cite
+  the document used.
 
 excerpt_format_text: "Excerpt {position} — {title_text}:\n{text}"
 
@@ -16,7 +16,7 @@ placement_text: In the user's message of this turn, before the question
 
 phase_label_text: Searching the corpus…
 
-index_label_text: RAG index (rag_index.sqlite)
+index_label_text: "RAG index (rag_index.en.sqlite)"
 
 download_label_text: "Download the embedding model (≈ {size_mb} MB)"
 
@@ -38,26 +38,26 @@ rerank_download_label_text: "Download the reranking model (≈ {size_mb} MB)"
 
 documents:
   - id: mots_de_passe
-    title_text: Politique des mots de passe
+    title_text: Password policy
     file: corpus/mots_de_passe.md
   - id: teletravail
-    title_text: Accord de télétravail
+    title_text: Remote work agreement
     file: corpus/teletravail.md
   - id: classification
-    title_text: Classification de l'information
+    title_text: Information classification
     file: corpus/classification.md
   - id: incidents
-    title_text: Incidents de sécurité
+    title_text: Security incidents
     file: corpus/incidents.md
   - id: donnees_personnelles
-    title_text: Conservation des données personnelles
+    title_text: Personal data retention
     file: corpus/donnees_personnelles.md
   - id: ia_generative
-    title_text: Usage de l'IA générative
+    title_text: Use of generative AI
     file: corpus/ia_generative.md
   - id: deplacements
-    title_text: Déplacements et notes de frais
+    title_text: Business travel and expense claims
     file: corpus/deplacements.md
   - id: sauvegardes
-    title_text: Sauvegardes
+    title_text: Backups
     file: corpus/sauvegardes.md

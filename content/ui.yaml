@@ -12,7 +12,7 @@
 common:
   language:
     name: "Langue"
-    help: "Langue de l'interface, des briques et des scénarios, de ce qui part vers le modèle (prompt système, outils, fichiers de démonstration, skills, hooks, mémoire, glossaire, RAG) et des noms d'outils, de hooks, de skills et de serveurs MCP. Les ateliers, les pages annexes et les messages du harnais restent en français pour l'instant."
+    help: "Langue de l'interface, des briques et des scénarios, des ateliers et des pages annexes, de ce qui part vers le modèle (prompt système, outils, fichiers de démonstration, skills, hooks, mémoire, glossaire, RAG et son corpus) et des noms d'outils, de hooks, de skills et de serveurs MCP. Seuls les messages du harnais restent en français pour l'instant."
     locked: "Videz d'abord la conversation (« Vider la conversation » ou « Réinitialiser ») : la langue ne se change que sur une conversation vide."
     failed: "WaveStack ne répond pas : la langue n'a pas changé."
     refused: "Changement de langue refusé."

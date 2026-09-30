@@ -7,8 +7,8 @@ notice_text: >-
 
 intro_text: >-
   Auszüge aus der internen Dokumentation von Exemplia, die der Harness zu dieser Frage
-  gefunden hat (auf Französisch). Sie sind nicht unbedingt alle relevant: Stütze dich
-  auf die, die antworten, und nenne das verwendete Dokument.
+  gefunden hat. Sie sind nicht unbedingt alle relevant: Stütze dich auf die, die
+  antworten, und nenne das verwendete Dokument.
 
 excerpt_format_text: "Auszug {position} — {title_text}:\n{text}"
 
@@ -16,7 +16,7 @@ placement_text: In der Nachricht des Benutzers in dieser Runde, vor der Frage
 
 phase_label_text: Suche im Korpus…
 
-index_label_text: RAG-Index (rag_index.sqlite)
+index_label_text: "RAG-Index (rag_index.de.sqlite)"
 
 download_label_text: "Embedding-Modell herunterladen (≈ {size_mb} MB)"
 
@@ -38,26 +38,26 @@ rerank_download_label_text: "Reranking-Modell herunterladen (≈ {size_mb} MB)"
 
 documents:
   - id: mots_de_passe
-    title_text: Politique des mots de passe
+    title_text: Passwortrichtlinie
     file: corpus/mots_de_passe.md
   - id: teletravail
-    title_text: Accord de télétravail
+    title_text: Vereinbarung zur Telearbeit
     file: corpus/teletravail.md
   - id: classification
-    title_text: Classification de l'information
+    title_text: Klassifizierung von Informationen
     file: corpus/classification.md
   - id: incidents
-    title_text: Incidents de sécurité
+    title_text: Sicherheitsvorfälle
     file: corpus/incidents.md
   - id: donnees_personnelles
-    title_text: Conservation des données personnelles
+    title_text: Aufbewahrung personenbezogener Daten
     file: corpus/donnees_personnelles.md
   - id: ia_generative
-    title_text: Usage de l'IA générative
+    title_text: Nutzung generativer KI
     file: corpus/ia_generative.md
   - id: deplacements
-    title_text: Déplacements et notes de frais
+    title_text: Dienstreisen und Spesenabrechnungen
     file: corpus/deplacements.md
   - id: sauvegardes
-    title_text: Sauvegardes
+    title_text: Datensicherungen
     file: corpus/sauvegardes.md

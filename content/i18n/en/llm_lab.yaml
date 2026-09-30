@@ -1,0 +1,180 @@
+# English translation of content/llm_lab.yaml (languages 4/5, AD-19): same keys, same
+# placeholders. Validated by wavestack.session.llm_lab.LabContent.
+
+title_text: "Bare LLM: inside the model"
+intro_text: >-
+  No bricks here: no system prompt, no history, no tools, no memory. We look at what the
+  model does by itself: split the text into tokens, turn them into vectors, then produce
+  an answer, token by token. This screen works on the workshop's active model, without
+  touching its conversation.
+back_text: "← Workshop"
+change_model_text: "Change model in the workshop"
+active_model_text: "Active model"
+no_model_text: "No active model: choose one in the workshop."
+busy_text: "Unavailable for now: {raison}"
+
+sections:
+  tokenization:
+    title_text: "Tokenisation and vectorisation"
+    intro_text: >-
+      The model does not read letters: its tokenizer splits the text into tokens, pieces
+      of words taken from a fixed vocabulary. Each token has an identifier, simply a row
+      number in the embedding table, which turns it into a vector of numbers.
+  sampling:
+    title_text: "Sampling settings"
+    intro_text: >-
+      At each step, the model gives a probability to every token in the vocabulary. These
+      settings decide how the next token is drawn from them. The order described here is
+      llama.cpp's (the engine of WaveStack, llama-server and Ollama): top-k, then top-p, then
+      min-p, then temperature; a cloud provider may apply its own differently.
+  loading:
+    title_text: "Loading the model"
+    intro_text: >-
+      Before answering, the model must be in memory. Here are the steps of the last load,
+      how long they took and the memory the model takes up.
+  reading:
+    title_text: "Reading the prompt"
+    intro_text: >-
+      The prompt is rendered with the model's template, then read in one block: this is the
+      wait before the first token.
+  generation:
+    title_text: "Generation"
+    intro_text: >-
+      The model produces its answer one token at a time: each token drawn is read back to
+      draw the next one.
+  reasoning:
+    title_text: "Reasoning"
+    intro_text: >-
+      A reasoning model first writes out its thinking, then its answer. Both are tokens,
+      produced in the same way.
+
+tokenization:
+  prompt_label_text: "Text to split"
+  placeholder_text: "Write a text, for example: Hello, how are you?"
+  default_text_text: "Hello, how are you?"
+  button_text: "Split into tokens"
+  running_text: "Splitting…"
+  counts_text: "{tokens} tokens for {caracteres} characters"
+  more_text: "… and {reste} more tokens, not shown (512 chips at most)."
+  special_text: "special"
+  special_help_text: >-
+    Special token: a template marker (start or end of a message), read as a single token.
+  blanks_text: "␣ marks a space, ↵ a line break: they are tokens like any other."
+  exact_text: "Exact split, by the active model's tokenizer."
+  estimate_text: >-
+    Harness estimate: ≈ {estimation} tokens ({caracteres} characters, at {ratio} characters
+    per token).
+  empty_text: "Split a text: its tokens will appear here."
+
+vectorization:
+  title_text: "From text to vector"
+  help_text: >-
+    Each identifier picks a row of the embedding table. That row is a vector of numbers,
+    which the model's layers transform one after the other.
+  unknown_text: "unknown"
+  steps:
+    text_text: "Text"
+    tokens_text: "Tokens"
+    ids_text: "Identifiers"
+    table_text: "Embedding table"
+    table_caption_text: "{vocabulaire} rows (vocabulary) × {dimension} columns (dimension)"
+    params_text: "learned numbers: {parametres}"
+    vector_text: "Vector"
+    vector_caption_text: "{dimension} numbers per token"
+    layers_text: "Layers"
+    layers_caption_text: "{couches} layers, {tetes} attention heads"
+    layers_only_caption_text: "{couches} layers"
+
+sampling:
+  reset_text: "Back to the harness values"
+  unsupported_text: "Not adjustable"
+  settings:
+    temperature:
+      label_text: "Temperature"
+      help_text: >-
+        Flattens or sharpens the probabilities before the draw. At 0, the model always takes
+        the most probable token (the same answer every time); above 1, unlikely tokens get
+        their chance.
+    top_k:
+      label_text: "Top-k"
+      help_text: >-
+        Keeps only the k most probable tokens; all the others are discarded before the draw.
+        At 0, top-k is off: it discards no token.
+    top_p:
+      label_text: "Top-p"
+      help_text: >-
+        Keeps the most probable tokens until their cumulative probabilities reach p; 1
+        discards nothing.
+    min_p:
+      label_text: "Min-p"
+      help_text: >-
+        Discards any token whose probability is below min-p times that of the most probable
+        one; 0 discards nothing.
+
+reading:
+  empty_text: "Generate an answer: the prompt rendered by the model's template will appear here."
+  rendered_label_text: "Prompt rendered by the template (exact text sent to the model)"
+  body_label_text: "JSON body sent to the provider (the template is applied on its side)"
+  tokens_text: "{tokens} tokens to read, output reserve of {reserve} tokens"
+  waiting_text: "Reading the prompt… {duree}"
+  first_token_text: "First token after {duree}"
+  read_rate_text: "Reading rate: {debit} tokens/s"
+  read_rate_unknown_text: "Reading rate: not reported by this engine."
+  sampling_text: "Sampling sent: {reglages}"
+
+generation:
+  button_text: "Generate"
+  stop_text: "Stop"
+  running_text: "Generating…"
+  empty_text: "The tokens produced will appear here, one by one."
+  count_text: "{tokens} tokens produced"
+  fragments_text: "{tokens} fragments received"
+  rate_text: "Output rate: {debit} tokens/s"
+  cloud_text: >-
+    Cloud model: these are fragments received from the provider, not tokens one by one. The
+    provider groups the tokens as it likes before sending them.
+  server_text: >-
+    Served model: these are the chunks of the server's stream, usually one token each, but
+    not always. The exact token count is the server's, in the event log.
+  more_text: "… and {reste} more, not shown (512 chips at most)."
+  status:
+    completed: "Answer complete."
+    cancelled: "Generation stopped."
+    limit: "Output reserve reached: the answer is cut."
+    error: "The generation failed."
+
+loading:
+  empty_text: "No load since WaveStack started."
+  running_text: "Loading… {duree}"
+  total_text: "{modele}: {statut} in {duree}"
+  local_text: "Local: CPU RAM, no GPU. The model runs on this workstation's processor."
+  status:
+    ok: "loaded"
+    restored: "failed, previous model reloaded"
+    cancelled: "loading stopped"
+    error: "failed"
+
+reasoning:
+  toggle_text: "Reason before answering"
+  always_text: "Always: this model reasons for every answer."
+  thinking_text: "Thinking"
+  answer_text: "Answer"
+  empty_text: "Nothing yet."
+  count_text: "{tokens} tokens"
+  fragments_count_text: "{tokens} fragments"
+  reserve_text: "Output reserve: {reserve} tokens when the model reasons."
+
+candidates:
+  toggle_text: "Show the candidate tokens"
+  help_text: >-
+    For each token produced, the five tokens the model judged most probable at that point.
+    Hover over a chip, give it focus or click it.
+  title_text: "Candidates for token {index}"
+  probability_text: "model probability"
+  chance_text: "chance of being drawn: {chance}"
+  dropped_text: "discarded by top-k, top-p or min-p"
+  chosen_text: "drawn"
+  legend_text: >-
+    The model probability comes from its logits (temperature 1). In llama.cpp's order,
+    top-k, top-p and min-p discard candidates, then the temperature redistributes the chance
+    of being drawn among those that remain.
