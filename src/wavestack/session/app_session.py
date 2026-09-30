@@ -173,7 +173,7 @@ from wavestack.session.effects import (
 from wavestack.skills import SkillsContent, SkillText, load_skills_content
 from wavestack.subagent import SubagentContent, load_subagent_content
 from wavestack.tools.executor import ToolExecutor
-from wavestack.tools.native import NATIVE_TOOLS
+from wavestack.tools.native import NATIVE_TOOLS, read_file
 from wavestack.tools.network import network_tools
 from wavestack.tools.parser import (
     Malformed,
@@ -920,7 +920,8 @@ class AppSession:
         self._rag_lab_catalog_kept: tuple[float, Any, rag_lab.Catalog] | None = None
         self._load_content()
         self._registry = ToolRegistry(
-            NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
+            self._native_tools() + network_tools(self.cfg) + self._harness_tools(),
+            self._tools_content,
         )
         self._tool_executor = ToolExecutor(self._registry)
         self._check_subagent_tools()
@@ -1051,7 +1052,7 @@ class AppSession:
     def active_model(self) -> dict[str, Any] | None:
         """AD-12: the model indicator's only source, from the file or the cloud entry."""
         if self._cloud is not None:
-            return active_model(self._cloud)
+            return active_model(self._cloud, self._language)
         if self._model_name is None:
             return None
         active = self._active
@@ -1694,11 +1695,10 @@ class AppSession:
             return f"Préparation du modèle servi par {choice.provider}…"
         return f"Chargement du modèle {choice.file_name}…"
 
-    @staticmethod
-    def _model_payload(choice: ModelChoice) -> dict[str, Any]:
+    def _model_payload(self, choice: ModelChoice) -> dict[str, Any]:
         """The `ActiveModel` of a model not loaded yet: `model_load_*`."""
         if choice.entry is not None:
-            return active_model(choice.entry)
+            return active_model(choice.entry, self._language)
         label = choice.label
         if choice.kind == "server":  # AD-12, story 18: a local process apart from WaveStack
             return {
@@ -2198,7 +2198,7 @@ class AppSession:
         unavailable = config.cloud_unavailable_fr(entry)
         if unavailable:
             raise ValueError(unavailable)
-        self._cloud_content = load_cloud_content()
+        self._cloud_content = self._localized(load_cloud_content)
         engine = self._cloud_factory(entry, key)
         try:
             # AD-6: declared capabilities; the API's structured format parses the tool calls.
@@ -2528,7 +2528,7 @@ class AppSession:
 
     def _load_labels(self) -> SegmentLabels:
         try:
-            return load_labels()
+            return self._localized(load_labels)
         except Exception as exc:  # noqa: BLE001 - AD-19: invalid content is traced, not fatal
             self._error(
                 "Le fichier des libellés de segments est invalide.",
@@ -4338,6 +4338,16 @@ class AppSession:
         self._emit_bricks()
         self._executor.submit(self._emit_preview)
 
+    def _native_tools(self) -> list[ToolSpec]:
+        """The native tools, `read_file` bound to the session's language (languages 3/5): it
+        reads the demonstration file of the language current at each call."""
+        return [
+            replace(s, run=self._read_file) if s.name == "read_file" else s for s in NATIVE_TOOLS
+        ]
+
+    def _read_file(self, path: str) -> str:
+        return read_file(path, self._language)
+
     def _harness_tools(self) -> list[ToolSpec]:
         """`load_tool_doc`, `load_skill` and `remember`, registered once; the turn state
         decides when they are offered. Invalid content: their brick is unavailable anyway."""
@@ -5180,6 +5190,11 @@ class AppSession:
             or self._memory_snapshot is not None
         )
 
+    @property
+    def language(self) -> str:
+        """The session's language (languages 3/5): what every content loader is given."""
+        return self._language
+
     def language_state(self) -> dict[str, Any]:
         """`/api/state`: the language, the languages offered (each written in itself), and
         whether the conversation locks the choice."""
@@ -5297,6 +5312,12 @@ class AppSession:
         # Languages (2/5): the interface's texts, in the new language for the reloaded page
         # (`None`, read again at its request, when neither file can be read).
         self._ui_texts = again(load_ui_texts)
+        # Languages (3/5): what the session keeps of a loaded model, in the new language (the
+        # programme is read again by `set_language`, `read_file` reads `_language` at each call).
+        if self._cloud_content is not None and (cloud := again(load_cloud_content)) is not None:
+            self._cloud_content = cloud
+        if self._labels is not None and (labels := again(load_labels)) is not None:
+            self._labels = labels
 
         # The same tools, described again: only values change, never the registry's names.
         self._registry.content = self._tools_content
@@ -5334,7 +5355,7 @@ class AppSession:
             "hooks": set(self._hook_ids()),
         }
         try:
-            self._scenarios = load_scenarios(known)
+            self._scenarios = self._localized(load_scenarios, known)
         except Exception as exc:  # noqa: BLE001
             self._error(
                 "Le fichier des scénarios (content/scenarios.yaml) est absent ou invalide.",
@@ -7899,7 +7920,7 @@ class AppSession:
                         served = self._active is not None and self._active.kind == "server"
                     unit = "fragment" if served else "token"
                 else:
-                    content = self._cloud_content or load_cloud_content()
+                    content = self._cloud_content or self._localized(load_cloud_content)
                     rendered = render_chat_body(
                         message,
                         None,

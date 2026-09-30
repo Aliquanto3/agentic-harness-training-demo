@@ -1,4 +1,4 @@
-"""French texts of the cloud models (AD-19, `content/cloud.yaml`) and what the session
+"""Texts of the cloud models (AD-19, `content/cloud.yaml` and its translations) and what the session
 builds from a declaration: the warning, the disclosure, `active_model` (AD-12, AD-20)."""
 
 from __future__ import annotations
@@ -49,9 +49,11 @@ class CloudContent(BaseModel):
 
 
 @cache
-def load_cloud_content() -> CloudContent:
-    """Read `content/cloud.yaml`. Raises on an invalid file (the caller traces it)."""
-    path = config.content_file("cloud.yaml")
+def load_cloud_content(lang: str = config.DEFAULT_LANGUAGE) -> CloudContent:
+    """Read `content/cloud.yaml` in `lang` (languages 3/5: the session's, never
+    `settings.json`'s; one cache entry per language). Raises on an invalid file (the caller
+    traces it)."""
+    path = config.content_file("cloud.yaml", lang)
     return CloudContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
 
 
@@ -147,12 +149,17 @@ def disclosure(entry: CloudModel) -> dict[str, Any]:
     }
 
 
-def active_model(entry: CloudModel) -> dict[str, Any]:
-    """AD-12: the model indicator's only source; its tooltip is the warning's text."""
+def _readable_content(lang: str) -> CloudContent | None:
     try:
-        content = load_cloud_content()
+        return load_cloud_content(lang)
     except Exception:  # noqa: BLE001 - the caller traced it at boot; the indicator stays bare
-        content = None
+        return None
+
+
+def active_model(entry: CloudModel, lang: str = config.DEFAULT_LANGUAGE) -> dict[str, Any]:
+    """AD-12: the model indicator's only source; its tooltip is the warning's text, in
+    `lang` (the session's), in French when that translation cannot be read."""
+    content = _readable_content(lang) or _readable_content(config.DEFAULT_LANGUAGE)
     warning = warning_fr(entry, content) if content else None
     return {
         "id": entry.id,

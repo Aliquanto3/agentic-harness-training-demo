@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import operator
 from datetime import datetime
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 
 from wavestack import config
 from wavestack.tools.registry import ToolError, ToolSpec
@@ -85,6 +85,8 @@ def calculator(expression: str) -> str:
 
 
 def demo_dir() -> Path:
+    """The French demonstration folder: the confinement and the listing are always its own,
+    whatever the language (languages 3/5)."""
     return (config.content_dir() / "demo_files").resolve()
 
 
@@ -94,20 +96,35 @@ def resolve_demo_path(path: str) -> Path | None:
     return None if PurePath(path).anchor else (demo_dir() / path).resolve()
 
 
-def read_file(path: str) -> str:
-    base = demo_dir()
+def demo_relative(path: str) -> PurePosixPath | None:
+    """`path` relative to the French demonstration folder, as `read_file` resolves it;
+    `None` when it leaves the folder. H1 and the translation judge this relative path,
+    never the folder it is finally read from (languages 3/5)."""
     target = resolve_demo_path(path)
+    base = demo_dir()
     if target is None or not target.is_relative_to(base):
+        return None
+    return PurePosixPath(target.relative_to(base).as_posix())
+
+
+def read_file(path: str, lang: str = config.DEFAULT_LANGUAGE) -> str:
+    """The demonstration file `path` in `lang` (the session's, never `settings.json`'s):
+    its translation under `content/i18n/{lang}/demo_files/` when it exists, else the French
+    file, file by file. The confinement and the listing are the French folder's."""
+    base = demo_dir()
+    rel = demo_relative(path)
+    if rel is None:
         raise ToolError(
             f"Accès refusé : « {path} » sort du dossier de démonstration. Seuls les fichiers "
             "de content/demo_files/ sont lisibles, par un chemin relatif."
         )
+    target = base / rel
     files = sorted(p.relative_to(base).as_posix() for p in base.rglob("*") if p.is_file())
     if target.is_dir():
         return "Fichiers disponibles :\n" + "\n".join(files)
     if not target.is_file():
         raise ToolError(f"Fichier absent : « {path} ». Fichiers disponibles : {', '.join(files)}.")
-    return target.read_text(encoding="utf-8")
+    return config.content_file(PurePosixPath("demo_files") / rel, lang).read_text(encoding="utf-8")
 
 
 NATIVE_TOOLS = [

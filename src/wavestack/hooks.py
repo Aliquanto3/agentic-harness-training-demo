@@ -11,7 +11,6 @@ import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import PurePath
 from typing import Any, NamedTuple, get_args
 
 import httpx
@@ -20,7 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from wavestack import config
 from wavestack.session.effects import AuditAppend, Effect
-from wavestack.tools.native import _WEEKDAYS_FR, demo_dir, resolve_demo_path
+from wavestack.tools.native import _WEEKDAYS_FR, demo_relative
 from wavestack.tools.parser import ToolCall
 from wavestack.tools.registry import ToolError, ToolSpec
 from wavestack.trace.catalog import HookDecision, HookPoint
@@ -164,19 +163,20 @@ class Hook(NamedTuple):
 
 def guard(ctx: HookContext) -> HookResult | None:
     """Blocks any `reads_local_path` tool whose path, resolved as `read_file` resolves it,
-    is the confidential folder or inside it. Compares flags and resolved paths (AD-14)."""
+    is the confidential folder or inside it. Compares flags and the path relative to the
+    demonstration folder (AD-14): `confidentiel/…` is refused whatever the language, and
+    whatever folder the file is finally read from (languages 3/5)."""
     spec, call = ctx.spec, ctx.call
     if spec is None or call is None or not spec.reads_local_path:
         return None
     path = call.arguments.get(spec.reads_local_path)
     if not isinstance(path, str):
         return None
-    target = resolve_demo_path(path)
-    if target is None or not target.is_relative_to(demo_dir()):
+    rel = demo_relative(path)
+    if rel is None:
         return None  # outside the demo folder: `read_file`'s confinement refuses it (AD-14)
     # Case-folded: on a case-insensitive filesystem, `CONFIDENTIEL/` is the same folder.
-    folded = PurePath(str(target).casefold())
-    if folded.is_relative_to(PurePath(str(demo_dir() / CONFIDENTIAL).casefold())):
+    if rel.parts and rel.parts[0].casefold() == CONFIDENTIAL:
         return HookResult(
             "block",
             f"Bloqué par le hook garde-fou : « {path} » est dans le dossier confidentiel, "

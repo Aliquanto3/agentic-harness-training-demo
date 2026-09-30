@@ -219,6 +219,8 @@ def create_app(
 ) -> FastAPI:
     """`app_session` is the single application session; built here only when a test omits it."""
     app_session = app_session or AppSession(session.cfg)
+    # Languages (3/5): the diagnostic's cloud texts follow the session's language.
+    session.language = lambda: app_session.language
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -472,7 +474,11 @@ def create_app(
         try:
             return {
                 "models": catalog.models_payload(
-                    candidates, session.cfg, cloud["models"], app_session.configured_window
+                    candidates,
+                    session.cfg,
+                    cloud["models"],
+                    app_session.configured_window,
+                    app_session.language,
                 )
             }
         except Exception:  # noqa: BLE001 - the diagnostic's answer never fails for the table

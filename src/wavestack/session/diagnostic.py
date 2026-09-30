@@ -154,6 +154,9 @@ class DiagnosticSession:
         # Set once a model is handed out for loading: from then on a choice is a hot switch
         # (story 17). What is loaded is the application session's to say.
         self.handed_out = False
+        # Languages (3/5): the application session's language, for the cloud texts; `create_app`
+        # binds it to `AppSession.language` (the launch's language until then).
+        self.language: Callable[[], str] = lambda: cfg.language
         self.state = "diagnostic"
         self.last_result: DiagnosticResult | None = None
         self._lock = threading.Lock()
@@ -855,8 +858,28 @@ class DiagnosticSession:
         return config.cloud_unavailable_fr(entry)
 
     def _cloud_content(self) -> CloudContent | None:
+        """`content/cloud.yaml` in the session's language; an invalid translation is traced,
+        then the French file answers (AD-19, as `AppSession._localized`)."""
+        lang = self.language()
+        if lang != config.DEFAULT_LANGUAGE:
+            try:
+                return load_cloud_content(lang)
+            except Exception as exc:  # noqa: BLE001 - AD-19: traced, then French
+                get_journal().emit(
+                    "harness_error",
+                    {
+                        "message_text": (
+                            f"Un fichier traduit ({lang}) sous content/i18n/{lang}/ est invalide."
+                        ),
+                        "cause": str(exc),
+                        "effect_text": (
+                            "Le texte français de ce fichier le remplace ; le reste de WaveStack "
+                            "fonctionne."
+                        ),
+                    },
+                )
         try:
-            return load_cloud_content()
+            return load_cloud_content(config.DEFAULT_LANGUAGE)
         except Exception as exc:  # noqa: BLE001 - AD-19: traced, never fatal
             get_journal().emit(
                 "harness_error",

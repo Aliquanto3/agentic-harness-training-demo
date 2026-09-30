@@ -82,10 +82,13 @@ class ScenariosContent(BaseModel):
 EMPTY_PROGRAM: dict[str, Any] = {"modules": [], "transverse": []}
 
 
-def load_scenarios(known: dict[str, set[str]]) -> ScenariosContent:
-    """`known` maps `bricks`, `tools`, `mcp_servers`, `skills` and `hooks` to their ids.
-    Raises on a missing or invalid file, or any unknown id."""
-    path = localized_path(config.content_dir(), "scenarios.yaml")
+def load_scenarios(
+    known: dict[str, set[str]], lang: str = config.DEFAULT_LANGUAGE
+) -> ScenariosContent:
+    """`known` maps `bricks`, `tools`, `mcp_servers`, `skills` and `hooks` to their ids;
+    `lang`, the session's language (languages 3/5, never `settings.json`'s). Raises on a
+    missing or invalid file, or any unknown id."""
+    path = localized_path(config.content_dir(), "scenarios.yaml", lang)
     content = ScenariosContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
     unknown = []
     for scenario_id, scenario in content.scenarios.items():

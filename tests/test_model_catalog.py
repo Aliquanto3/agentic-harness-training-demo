@@ -495,7 +495,7 @@ def test_unknown_publisher_is_last_of_its_hosting():
 def test_invalid_publishers_file_puts_every_model_in_others(tmp_path, monkeypatch, text):
     path = tmp_path / "publishers.yaml"
     path.write_text(text, encoding="utf-8")
-    monkeypatch.setattr(catalog, "publishers_path", lambda: path)
+    monkeypatch.setattr(catalog, "publishers_path", lambda lang="fr": path)
     content, error = catalog.load_publishers()
     assert error.startswith("Fichier content/models/publishers.yaml invalide")
     assert content.publishers == []
@@ -522,7 +522,7 @@ def test_publisher_ids_are_distinct_and_never_other(tmp_path, monkeypatch, chang
     change(data["publishers"])
     path = tmp_path / "publishers.yaml"
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
-    monkeypatch.setattr(catalog, "publishers_path", lambda: path)
+    monkeypatch.setattr(catalog, "publishers_path", lambda lang="fr": path)
     content, error = catalog.load_publishers()
     assert content.publishers == [] and cause in error
 
@@ -665,7 +665,7 @@ def test_api_diagnostic_carries_the_models(monkeypatch, tmp_path):
 def test_api_diagnostic_with_an_invalid_publishers_file(monkeypatch, tmp_path):
     path = tmp_path / "publishers.yaml"
     path.write_text("publishers: [{id: x, label_text: X, names: ['[']}]", encoding="utf-8")
-    monkeypatch.setattr(catalog, "publishers_path", lambda: path)
+    monkeypatch.setattr(catalog, "publishers_path", lambda lang="fr": path)
     response = _client(_build(monkeypatch, tmp_path)).get("/api/diagnostic")
     assert response.status_code == 200
     models = response.json()["models"]

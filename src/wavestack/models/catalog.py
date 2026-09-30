@@ -147,8 +147,8 @@ _FALLBACK = PublishersContent(
 )
 
 
-def publishers_path() -> Path:
-    return config.content_file(PUBLISHERS_FILE)
+def publishers_path(lang: str = config.DEFAULT_LANGUAGE) -> Path:
+    return config.content_file(PUBLISHERS_FILE, lang)
 
 
 def _cause(exc: Exception) -> str:
@@ -160,15 +160,24 @@ def _cause(exc: Exception) -> str:
 
 
 @cache
-def load_publishers() -> tuple[PublishersContent, str | None]:
-    """`content/models/publishers.yaml`, patterns compiled; on any error, an empty table
+def load_publishers(lang: str = config.DEFAULT_LANGUAGE) -> tuple[PublishersContent, str | None]:
+    """`content/models/publishers.yaml` in `lang` (languages 3/5: the session's, never
+    `settings.json`'s), patterns compiled. An invalid translation: the French table, and
+    the reason naming the translated file (AD-19). On any other error, an empty table
     (every model in « Autres éditeurs ») and the French reason naming the file."""
-    path = publishers_path()
+    path = publishers_path(lang)
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         return PublishersContent.model_validate(data), None
     except (OSError, UnicodeDecodeError, yaml.YAMLError, ValidationError, ValueError) as exc:
-        log.warning("content/models/publishers.yaml invalide : %s", exc)
+        log.warning("%s invalide : %s", path, exc)
+        if lang != config.DEFAULT_LANGUAGE and path != publishers_path():
+            content, error_text = load_publishers()
+            return content, error_text or (
+                f"Fichier content/i18n/{lang}/models/publishers.yaml invalide ({_cause(exc)}) : "
+                "le texte français de ce fichier le remplace. Corrigez le fichier, puis "
+                "relancez WaveStack."
+            )
         return _FALLBACK, (
             f"Fichier content/models/publishers.yaml invalide ({_cause(exc)}) : tous les "
             "modèles sont rangés dans « Autres éditeurs ». Corrigez le fichier, puis relancez "
@@ -176,13 +185,18 @@ def load_publishers() -> tuple[PublishersContent, str | None]:
         )
 
 
-def publisher_for(architectures: Iterable[str | None], names: Iterable[str | None]) -> Publisher:
+def publisher_for(
+    architectures: Iterable[str | None],
+    names: Iterable[str | None],
+    lang: str = config.DEFAULT_LANGUAGE,
+) -> Publisher:
     """The publisher of a model: first by the names of the publishers marked `names_first`,
     then by its architectures (the header's, Ollama's family, the registry's family, in that
     order; `unknown` and `openai_chat` say nothing), then by its names (`general.basename`,
     `general.name`, the name shown, a cloud `model`), each in the table's order; « Autres
-    éditeurs » otherwise."""
-    content, _ = load_publishers()
+    éditeurs » otherwise. `lang`: the language of its label (the patterns are the same in
+    every language)."""
+    content, _ = load_publishers(lang)
     names = [n for n in names if n]
     for name in names:
         for publisher in content.publishers:
@@ -409,9 +423,12 @@ def _label(prefix: str, name: str, params_label: str | None) -> str:
 
 
 def _local_entry(
-    candidate: ModelCandidate, cfg: config.Config, window: int | None = None
+    candidate: ModelCandidate,
+    cfg: config.Config,
+    window: int | None = None,
+    lang: str = config.DEFAULT_LANGUAGE,
 ) -> ModelEntry:
-    content, _ = load_publishers()
+    content, _ = load_publishers(lang)
     configured = cfg.context_window if window is None else window
     served = candidate.source == "server"
     engine = candidate.engine if served else None
@@ -452,6 +469,7 @@ def _local_entry(
         [_text(raw.get("general.architecture")), candidate.architecture, candidate.publisher_hint]
         + ([caps.family] if caps else []),
         [_text(raw.get("general.basename")), _text(raw.get("general.name")), name],
+        lang,
     )
     params_b, params_label = _first_params(
         [
@@ -502,7 +520,10 @@ def _local_entry(
 
 
 def local_entries(
-    candidates: Iterable[ModelCandidate], cfg: config.Config, window: int | None = None
+    candidates: Iterable[ModelCandidate],
+    cfg: config.Config,
+    window: int | None = None,
+    lang: str = config.DEFAULT_LANGUAGE,
 ) -> list[ModelEntry]:
     """Every local model the last diagnostic found: the files, once per path (a usable
     listing wins over an incompatible one), incompatible ones included (greyed, with their
@@ -517,11 +538,14 @@ def local_entries(
             candidate.path not in files or files[candidate.path].status != "found"
         ):
             files[candidate.path] = candidate
-    return [_local_entry(c, cfg, window) for c in [*files.values(), *served]]
+    return [_local_entry(c, cfg, window, lang) for c in [*files.values(), *served]]
 
 
 def cloud_entries(
-    cfg: config.Config, rows: Iterable[dict[str, Any]] = (), window: int | None = None
+    cfg: config.Config,
+    rows: Iterable[dict[str, Any]] = (),
+    window: int | None = None,
+    lang: str = config.DEFAULT_LANGUAGE,
 ) -> list[ModelEntry]:
     """Every declared cloud model; `rows`: the diagnostic's `cloud_rows`, whose `disabled_text`
     says why one cannot be chosen now (no key…). `window` (story 26): as `local_entries`."""
@@ -533,7 +557,7 @@ def cloud_entries(
             entry, cfg.context_window if window is None else window
         )
         params_b, params_label = _first_params([entry.model])
-        publisher = publisher_for([], [entry.model])
+        publisher = publisher_for([], [entry.model], lang)
         prefix = f"RÉSEAU · {entry.provider}"
         reason = disabled.get(entry.id)
         entries.append(
@@ -588,10 +612,12 @@ def sort_key(entry: ModelEntry) -> tuple[bool, float, bool, int, str]:
     )
 
 
-def group_models(entries: Iterable[ModelEntry]) -> list[ModelGroup]:
+def group_models(
+    entries: Iterable[ModelEntry], lang: str = config.DEFAULT_LANGUAGE
+) -> list[ModelGroup]:
     """Local before network; in each, the publishers in the table's order, « Autres
     éditeurs » last; empty groups left out; models by `sort_key`."""
-    content, _ = load_publishers()
+    content, _ = load_publishers(lang)
     order = {p.id: i for i, p in enumerate(content.publishers)}
     buckets: dict[tuple[str, str], list[ModelEntry]] = {}
     for entry in entries:
@@ -617,14 +643,18 @@ def models_payload(
     cfg: config.Config,
     cloud_rows: Iterable[dict[str, Any]] = (),
     window: int | None = None,
+    lang: str = config.DEFAULT_LANGUAGE,
 ) -> dict[str, Any]:
     """`/api/diagnostic.models`: the legend, the groups, and why the publishers' table could
     not be read, if so. One answer serves the picker and the `/models` page. `window`
-    (story 26): the window configured now (`AppSession.configured_window`)."""
-    content, error_text = load_publishers()
-    entries = local_entries(candidates, cfg, window) + cloud_entries(cfg, cloud_rows, window)
+    (story 26): the window configured now (`AppSession.configured_window`); `lang`
+    (languages 3/5): the session's language, for the publishers' texts."""
+    content, error_text = load_publishers(lang)
+    entries = local_entries(candidates, cfg, window, lang) + cloud_entries(
+        cfg, cloud_rows, window, lang
+    )
     return {
         "legend_text": content.legend_text,
-        "groups": [g.model_dump(mode="json") for g in group_models(entries)],
+        "groups": [g.model_dump(mode="json") for g in group_models(entries, lang)],
         "publishers_error_text": error_text,
     }

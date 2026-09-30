@@ -90,7 +90,8 @@ class SegmentLabels(BaseModel):
 
 
 @cache
-def load_labels() -> SegmentLabels:
-    """Read `content/labels/segment_kinds.yaml`. Raises on an invalid file (caller traces it)."""
-    path = config.content_file("labels/segment_kinds.yaml")
+def load_labels(lang: str = config.DEFAULT_LANGUAGE) -> SegmentLabels:
+    """Read `content/labels/segment_kinds.yaml` in `lang` (languages 3/5: the session's,
+    never `settings.json`'s). Raises on an invalid file (caller traces it)."""
+    path = config.content_file("labels/segment_kinds.yaml", lang)
     return SegmentLabels.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
