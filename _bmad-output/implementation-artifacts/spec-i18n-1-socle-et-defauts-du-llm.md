@@ -2,7 +2,7 @@
 title: 'Langues (1/5) : socle, sélecteur de langue et défauts du LLM en anglais et en allemand'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-review'
+status: 'done'
 baseline_commit: '7ab42a706754c3bd6cba5d14b6760db9ab3dc2b0'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -165,3 +165,13 @@ Revue 1 (2026-09-30, trois relecteurs : aveugle (B), cas limites (EC), trous de 
 | 19 | « Rejouer » après changement renvoie le message d'avant (EC) | false | C'est le texte de l'utilisateur, les défauts sont les nouveaux | rejeté |
 | 20 | Réponse HTTP perdue pendant le changement (EC) | low | Boucle locale | rejeté |
 | 21 | Chargeurs d'interface (`cloud`, `segments`, `catalog`) résolus par `settings.json` ; `documents` de `rag.yaml` recopiés (B) | low | Textes d'interface de la story 3 ; parité contrôlée | rejeté |
+
+## Vérification finale (nuit du 2026-09-30, intégration)
+
+- Vérifié sur la branche d'intégration `feat/i18n-1`, au commit `ddc63e4`, qui réunit Gemini, FinOps, GreenOps et Langues.
+- Joué dans le `.venv` de la démo, qui a l'extra `compression`, sans `greenops` : la branche « Empreinte estimée : indisponible » est donc celle jouée.
+- `ruff check` et `ruff format --check` : propres.
+- `pytest` en deux moitiés au premier plan : 894, puis 548 réussis, 0 échec.
+- E2E complet en quatre tranches : 177, 174, 179 et 219 vérifications réussies.
+  - `[rag_rerank]` a expiré une fois sous charge, puis est passé seul (56 sur 56) : instabilité connue, consignée dans `deferred-work.md`.
+  - La barre haute réunie (langue, dépense, empreinte) passe à 1 280, 1 440 et 1 600 px, en mode normal et en projection, mais elle est saturée à 1 600 px : consigné dans `deferred-work.md`.
