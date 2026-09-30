@@ -1,0 +1,58 @@
+- id: "2"
+  title: "Langues (2/5) : renommage des champs *_fr, catalogue ui.yaml et t(), interface principale"
+  description: >-
+    Renommer les champs *_fr en *_text partout, poser le catalogue d'interface (ui.yaml par
+    langue, route, i18n.js et t()) et traduire l'écran principal, formats Intl et barre haute
+    compris (CAP-1, contraintes « Renommage », « Textes de l'interface » et « L'allemand est la
+    langue la plus longue » de SPEC.md).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Lire i18n-conventions.md avant tout. Trois commits dans cet ordre : (1) renommage pur
+    *_fr -> *_text, sans aucun texte changé, suite verte avant et après ; (2) mécanisme
+    ui.yaml, route, i18n.js, t() ; (3) traductions en et de. Barre haute : la faire tenir en
+    de à 1 280 et 1 600 px, normal et projection (entrée « Barre haute saturée » de
+    deferred-work.md). Reprendre les textes du code de langue restés français côté front.
+    Exécution sur ce PC (16 Go) : pytest en deux moitiés, E2E par tranches --only, toujours
+    au premier plan, jamais deux suites à la fois.
+- id: "3"
+  title: "Langues (3/5) : contenus pédagogiques"
+  description: >-
+    Traduire en anglais et en allemand les briques, les scénarios (consignes et prompts
+    suggérés), cloud.yaml, compression.yaml, les types de segments, les éditeurs de modèles et
+    les fichiers de démonstration (CAP-2).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Lire i18n-conventions.md (section « Contenus pédagogiques »). Aligner les noms de briques
+    que citent les skills traduits de la story 1. demo_files/ sous les mêmes noms de fichiers.
+    Exécution sur ce PC (16 Go) : pytest en deux moitiés, E2E par tranches --only, toujours
+    au premier plan, jamais deux suites à la fois.
+- id: "4"
+  title: "Langues (4/5) : ateliers, pages annexes, corpus et index RAG par langue"
+  description: >-
+    Traduire « LLM nu », l'atelier RAG, le diagnostic et la page des modèles avec t(), puis
+    livrer le corpus traduit et un index RAG versionné par langue, lu par la brique et
+    l'atelier (CAP-3, CAP-4, contrainte « Index RAG » de SPEC.md).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Lire i18n-conventions.md (sections « Catalogue d'interface » et « Corpus et index RAG »).
+    data/rag_index.sqlite ne bouge pas ; en et de construits par build_rag_index.py --lang et
+    versionnés. Titres des documents dans les extraits : ceux de la langue. Exécution sur ce
+    PC (16 Go) : pytest en deux moitiés, E2E par tranches --only, toujours au premier plan,
+    jamais deux suites à la fois ; construire les index un par un.
+- id: "5"
+  title: "Langues (5/5) : messages produits par le backend"
+  description: >-
+    Faire passer les messages produits par le code, vus par l'utilisateur ou lus par le LLM,
+    par un catalogue messages.yaml par langue et msg(key, lang, **kw), avec des tests
+    paramétrés en fr, en et de (CAP-5).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Lire i18n-conventions.md (section « Messages du backend »). La langue est un argument
+    explicite, jamais relue de settings.json. Reprendre le harness_error de _localized, le jour
+    de get_datetime et « Terme inconnu du glossaire ». Les tests existants restent en français.
+    Exécution sur ce PC (16 Go) : pytest en deux moitiés, E2E par tranches --only, toujours
+    au premier plan, jamais deux suites à la fois.
