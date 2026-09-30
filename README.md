@@ -655,12 +655,13 @@ uv run wavestack
   `[compression] min_chars` (300 caractères) n'est pas compressé. La brique n'a d'effet
   qu'avec Outils, MCP ou RAG : sans eux, rien à compresser.
 
-## Modèle cloud (Groq, Mistral)
+## Modèle cloud (Groq, Mistral, Gemini)
 
 Un modèle cloud compatible OpenAI peut remplacer le SLM local : plus rapide, meilleur avec les
-outils, et il montre un vrai appel hors du poste. Les préréglages Groq (`openai/gpt-oss-120b`) et
-Mistral (`mistral-small-latest`) sont déclarés dans `wavestack.toml` ; Google, NVIDIA et
-OpenRouter y figurent en exemples commentés, avec leur avertissement.
+outils, et il montre un vrai appel hors du poste. Les préréglages Groq (`openai/gpt-oss-120b`),
+Mistral (`mistral-small-latest`) et Gemini (`gemini-3.5-flash-lite`, Google AI Studio) sont
+déclarés dans `wavestack.toml` ; NVIDIA et OpenRouter y figurent en exemples commentés, avec leur
+avertissement.
 
 1. **Clé.** Créez une clé API dans la console du fournisseur, puis collez-la sur la page de
    diagnostic, dans la ligne du modèle (« Enregistrer la clé »). Elle est stockée sur ce poste
@@ -668,8 +669,8 @@ OpenRouter y figurent en exemples commentés, avec leur avertissement.
    seul hôte déclaré. Si l'adresse du fournisseur change, la clé est à ressaisir.
 
    **Ou par variable d'environnement.** Chaque préréglage nomme une variable (`key_env`) :
-   `GROQ_API_KEY` pour Groq, `MISTRAL_API_KEY` pour Mistral. Sous Windows, sans droits
-   administrateur :
+   `GROQ_API_KEY` pour Groq, `MISTRAL_API_KEY` pour Mistral, `GEMINI_API_KEY` pour Gemini. Sous
+   Windows, sans droits administrateur :
 
    ```bat
    setx GROQ_API_KEY votre-clé
@@ -698,14 +699,28 @@ dont 1 536 réservés à la réponse : il reste **2 464 tokens utilisables**. Le
 (MCP en documentation complète, longue conversation) dépassent : passez en lazy loading, videz la
 conversation, ou préférez Mistral.
 
+**Gemini (Google AI Studio).** L'offre payante est obligatoire : la clause EEE de Google
+interdit l'offre gratuite pour des utilisateurs de l'EEE, de Suisse ou du Royaume-Uni, et sur
+l'offre payante les contenus ne servent pas à l'entraînement. Les prix se vérifient dans la
+console (relevé le 2026-09-29 : 0,30 $ / 2,50 $ par million de tokens pour
+`gemini-3.5-flash-lite`, sans hausse annoncée ; hausse au 2027-01-01 pour les 3.6 à 3.8 Flash). Le raisonnement s'allume et s'éteint avec la
+brique : allumé, `thinking_level` « low » et le texte de la réflexion (entre `<thought>` et
+`</thought>`) ; éteint, `reasoning_effort` « minimal ». Gemini 3.x signe une réponse qui appelle
+des outils (sur le premier appel seulement quand il y en a plusieurs en parallèle) et refuse un
+appel rejoué sans cette signature : WaveStack la lui renvoie telle quelle, et à lui seul. Si la forme réelle diffère (balises, `minimal` ou `extra_body` refusés), corrigez
+l'entrée `gemini` dans `settings.json`, sans toucher au code : les secours sont décrits en
+commentaire dans `wavestack.toml`. `null` n'y retire qu'une clé de premier niveau de
+`reasoning.on` ou `reasoning.off` (par exemple `"extra_body": null`) : un `null` plus profond
+est envoyé tel quel, et `tool_call_extra` ou `tags` à `null` rendent l'entrée invalide.
+
 **Revenir au modèle local.** Choisissez un fichier GGUF dans le sélecteur de la barre haute, ou
 cliquez sur « Choisir » en face d'un fichier sur la page de diagnostic : le modèle local est
 rechargé sans relance, conversation gardée.
 
-**Hôtes à autoriser** sur le réseau de l'entreprise : `api.groq.com` et `api.mistral.ai` (plus
-l'hôte de tout modèle ajouté dans `settings.json`).
+**Hôtes à autoriser** sur le réseau de l'entreprise : `api.groq.com`, `api.mistral.ai` et
+`generativelanguage.googleapis.com` (plus l'hôte de tout modèle ajouté dans `settings.json`).
 
-**Ajouter un modèle.** Les exemples Google, NVIDIA et OpenRouter de `wavestack.toml` sont en TOML :
+**Ajouter un modèle.** Les exemples NVIDIA et OpenRouter de `wavestack.toml` sont en TOML :
 recopiez-en les champs, en JSON, dans `settings.json` (dossier de données, WaveStack arrêté). Une
 entrée nouvelle doit être complète :
 

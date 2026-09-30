@@ -259,28 +259,70 @@ sampling = ["temperature", "top_p"]
 # envois à ce modèle (tour ou « Tester »). Augmentez la valeur si des 429 persistent.
 min_interval_s = 1
 
+# Préréglage Gemini (Google AI Studio, API compatible OpenAI ; vérifié sur ai.google.dev le
+# 2026-09-29). Offre payante obligatoire, clause EEE : « You may use only Paid Services when
+# making API Clients available to users in the European Economic Area, Switzerland, or the
+# United Kingdom. » Sur l'offre payante, les contenus ne servent pas à l'entraînement ; sur
+# l'offre gratuite, ils servent à améliorer les produits Google et peuvent être lus par des
+# relecteurs humains, sans opt-out possible.
+# gemini-3.5-flash-lite (stable) : 1 048 576 tokens en entrée, 65 536 en sortie ; niveaux de
+# raisonnement minimal (par défaut), low, medium et high ; 0,30 $ / 2,50 $ par million de
+# tokens (entrée / sortie), aucune hausse annoncée pour ce modèle.
+# Raisonnement : allumé, thinking_level "low" avec include_thoughts, seule façon de recevoir
+# le texte du raisonnement, que Gemini écrit dans content entre <thought> et </thought>
+# (relevé sur l'API réelle le 2026-09-29 ; s'il change, changez tags ou format dans
+# settings.json) ; éteint, reasoning_effort "minimal". reasoning_effort et thinking_config ne
+# se combinent pas. Son usage.completion_tokens ne compte pas les tokens de réflexion :
+# WaveStack lit total_tokens − prompt_tokens.
+# tool_call_extra : Gemini 3.x signe une réponse qui appelle des outils (une signature de
+# pensée, sur le premier appel seulement quand il y en a plusieurs en parallèle, relevé le
+# 2026-09-29) et refuse (400) un appel du tour en cours rejoué sans elle ; WaveStack la renvoie
+# telle quelle, à Gemini seulement. Un appel que le harnais fabrique (action forcée) n'en a
+# pas : il porte la valeur de contournement documentée par Google.
+# Secours, dans settings.json (fusion par id, champ par champ). null ne retire qu'une clé de
+# premier niveau de reasoning.on ou reasoning.off (extra_body, reasoning_effort) : un null
+# plus profond est envoyé tel quel, et tool_call_extra ou tags à null rendent l'entrée
+# invalide.
+# - gemini-3.6-flash accepte aussi minimal : {"id": "gemini", "model": "gemini-3.6-flash"}
+#   (0,75 $ / 3,75 $, puis 1,50 $ / 7,50 $ au 2027-01-01). Les 3.7 et 3.8 Flash n'ont pas
+#   minimal : il faudrait "off": {"reasoning_effort": "low"}, et le modèle raisonnerait alors
+#   même brique Raisonnement éteinte (réflexion facturée, invisible, prise sur la réserve de
+#   512 tokens de la réponse).
+# - gemini-2.5-flash, réservé aux projets qui l'ont déjà utilisé : "model": "gemini-2.5-flash"
+#   et "reasoning": {"on": {"extra_body": null, "reasoning_effort": "low"}, "off":
+#   {"reasoning_effort": "none"}} (1 024 tokens de raisonnement, dans la réserve de 1 536).
+# - extra_body refusé : "on": {"extra_body": null, "reasoning_effort": "low"} ; le modèle
+#   raisonne alors sans montrer son raisonnement.
+[[cloud.models]]
+id = "gemini"
+provider = "Google AI Studio"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+model = "gemini-3.5-flash-lite"
+stream_usage = true
+tools = true
+context = 1048576
+hosting_fr = "Google (hébergement non précisé)"
+training = "no"
+notes_fr = "Offre payante obligatoire (clause EEE : l'offre gratuite ne doit pas servir à des utilisateurs de l'EEE, de Suisse ou du Royaume-Uni). Sur l'offre payante, rien n'est utilisé pour l'entraînement. Prix à vérifier dans la console : hausse au 2027-01-01 pour les 3.6 à 3.8 Flash."
+key_env = "GEMINI_API_KEY"
+tool_call_extra = { extra_content = { google = { thought_signature = "skip_thought_signature_validator" } } }
+
+[cloud.models.reasoning]
+format = "think_tags"
+tags = ["<thought>", "</thought>"]
+on = { extra_body = { google = { thinking_config = { thinking_level = "low", include_thoughts = true } } } }
+off = { reasoning_effort = "minimal" }
+always = false
+resend = false
+
 # Exemples à recopier dans settings.json (entrée complète, enabled = true), avec leur
 # avertissement. Leur hôte rejoint alors la liste d'adresses autorisées.
 # Champs facultatifs de toute entrée : key_env (nom d'une variable d'environnement qui
-# fournit la clé, par exemple "GOOGLE_API_KEY"), min_interval_s (secondes au moins entre
-# deux envois au même modèle, de 0 exclu à 60) et sampling (story 29 : les réglages que
+# fournit la clé, par exemple "OPENROUTER_API_KEY"), min_interval_s (secondes au moins entre
+# deux envois au même modèle, de 0 exclu à 60), sampling (story 29 : les réglages que
 # l'écran « LLM nu » peut envoyer, parmi "temperature" et "top_p" ; vide par défaut, réglés
-# par le fournisseur).
-#
-# Google AI Studio : clause EEE. « You may use only Paid Services when making API Clients
-# available to users in the European Economic Area, Switzerland, or the United Kingdom. »
-# Sur l'offre gratuite, les contenus servent à améliorer les produits Google et peuvent
-# être lus par des relecteurs humains, sans opt-out possible.
-# [[cloud.models]]
-# id = "google"
-# provider = "Google AI Studio"
-# base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
-# model = "gemini-2.5-flash"
-# tools = true
-# context = 1048576
-# hosting_fr = "Google (hébergement non précisé)"
-# training = "yes"
-# notes_fr = "Clause EEE : l'offre gratuite ne doit pas servir à des utilisateurs de l'EEE, de Suisse ou du Royaume-Uni. Contenus lus par des relecteurs humains, sans opt-out."
+# par le fournisseur) et tool_call_extra (ce qu'ajoute à chaque appel d'outil fabriqué par
+# le harnais un fournisseur qui l'exige, comme Gemini ci-dessus).
 #
 # NVIDIA : offre d'essai, « limited trial purposes only », hors production ; les contenus
 # sont collectés (§3.3 des conditions).

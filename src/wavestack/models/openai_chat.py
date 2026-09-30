@@ -26,7 +26,7 @@ import httpx
 from pydantic import SecretStr
 
 from wavestack.config import CloudModel, estimate_tokens
-from wavestack.models.capabilities import _THINK_TAGS, ChannelSplitter
+from wavestack.models.capabilities import ChannelSplitter
 from wavestack.models.engine import CancelToken, EngineSnapshot
 from wavestack.net.factory import create_client
 from wavestack.net.guard import find_blocked
@@ -51,9 +51,16 @@ class ChatBody:
 
 @dataclass
 class ChatEnd:
-    """A completion's end. `tool_calls`: `{provider_id, name, arguments}` in index order,
-    `arguments` as emitted. `provider_error`: `tool_use_failed`'s generation (AD-10), and
-    `provider_message` its `error.message`; both masked."""
+    """A completion's end. `tool_calls`: `{provider_id, name, arguments}` in index order (in
+    arrival order without `index`), `arguments` as emitted, plus `extra_content` when the
+    provider sent one (Gemini 3.x: the thought signature it wants back with the call).
+    `provider_error`: `tool_use_failed`'s generation (AD-10), and `provider_message` its
+    `error.message`. All masked, except `extra_content`: it goes back as received, to its own
+    provider only (a signature with a piece masked would be refused). It is masked only in
+    `model_call_ended.tool_calls` (`run_call`); the next call's body carries it verbatim, and
+    so do `context_rendered.body` and `outbound_request.body`, which trace the bytes sent
+    (AD-5). A key fragment of 4 characters found inside that base64 signature is a random
+    match, not a leak: the provider never sees the key there, it made the signature."""
 
     stop_reason: str
     tool_calls: list[dict[str, Any]]
@@ -108,6 +115,24 @@ def mask_key(text: str, key: SecretStr | None) -> str:
     return text
 
 
+def _mask_value(value: Any, mask: Callable[[str], str]) -> Any:
+    """`mask` on every string of a JSON value (`extra_content`), at any depth."""
+    if isinstance(value, str):
+        return mask(value)
+    if isinstance(value, dict):
+        return {k: _mask_value(v, mask) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_value(v, mask) for v in value]
+    return value
+
+
+def _is_thought(delta: dict[str, Any]) -> bool:
+    """Gemini may mark a `content` delta as thought (`extra_content.google.thought`)."""
+    extra = delta.get("extra_content")
+    google = extra.get("google") if isinstance(extra, dict) else None
+    return isinstance(google, dict) and google.get("thought") is True
+
+
 def _clip(text: str, limit: int = PROVIDER_MESSAGE_MAX) -> str:
     text = text.strip()
     return text if len(text) <= limit else text[:limit].rstrip() + "…"
@@ -121,6 +146,8 @@ def _provider_message(response: httpx.Response) -> tuple[str, dict[str, Any], bo
     except ValueError:
         html = "text/html" in response.headers.get("content-type", "").lower()
         return response.text, {}, not html
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        data = data[0]  # Gemini: `[{"error": {…}}]`
     error = data.get("error") if isinstance(data, dict) else None
     if isinstance(error, dict):
         return str(error.get("message") or error), error, True
@@ -416,8 +443,9 @@ class OpenAIChatEngine:
         self, response: httpx.Response, cancel: CancelToken
     ) -> Iterator[tuple[str, str] | ChatEnd]:
         entry = self.entry
-        think = entry.reasoning is not None and entry.reasoning.format == "think_tags"
-        splitter = ChannelSplitter(_THINK_TAGS) if think else None
+        reasoning = entry.reasoning
+        think = reasoning is not None and reasoning.format == "think_tags"
+        splitter = ChannelSplitter(tuple(reasoning.tags)) if think else None
         calls: dict[Any, dict[str, Any]] = {}
         raw: list[str] = []
         usage = groq_usage = None
@@ -495,9 +523,15 @@ class OpenAIChatEngine:
         if splitter is not None:
             for channel, text in splitter.flush():
                 yield channel, self.mask(text)
+        # By `index` when every call has one; else (Gemini sends none, calls keyed by `id`) in
+        # arrival order: ids do not sort (`call_99999` would follow `call_100002`).
+        indexed = all(isinstance(key, int) for key in calls)
         ordered = [
-            {k: self.mask(v) if isinstance(v, str) else v for k, v in calls[key].items()}
-            for key in sorted(calls, key=lambda k: (isinstance(k, str), k))
+            {
+                k: self.mask(v) if isinstance(v, str) and k != "extra_content" else v
+                for k, v in calls[key].items()
+            }
+            for key in (sorted(calls) if indexed else calls)
         ]
         yield ChatEnd(stop, ordered, usage or groq_usage, self.mask("\n".join(raw)))
 
@@ -509,7 +543,12 @@ class OpenAIChatEngine:
             if isinstance(delta.get(name), str) and delta[name]:
                 yield "reasoning", delta[name]
         content = delta.get("content")
-        if isinstance(content, str) and content:
+        # Gemini marks its thought chunks (`extra_content.google.thought`), tags included: with
+        # `think_tags`, the tags decide (the closing one comes in an unmarked chunk); the mark
+        # alone decides only without them.
+        if isinstance(content, str) and content and splitter is None and _is_thought(delta):
+            yield "reasoning", content
+        elif isinstance(content, str) and content:
             yield from splitter.feed(content) if splitter else [("text", content)]
         elif isinstance(content, list):  # Mistral: `thinking` and `text` blocks
             for block in content:
@@ -529,6 +568,8 @@ class OpenAIChatEngine:
             acc = calls.setdefault(key, {"provider_id": None, "name": "", "arguments": ""})
             if call.get("id"):
                 acc["provider_id"] = call["id"]
+            if isinstance(call.get("extra_content"), dict):  # Gemini 3.x: thought signature
+                acc["extra_content"] = acc.get("extra_content", {}) | call["extra_content"]
             function = call.get("function") or {}
             text = (function.get("name") or "") + (function.get("arguments") or "")
             acc["name"] += function.get("name") or ""
@@ -574,6 +615,21 @@ def _check_calls(calls: list[dict[str, Any]]) -> str | None:
             return f"les arguments de « {call['name']} » ne sont pas un objet JSON"
         call["parsed"] = parsed
     return None
+
+
+def output_tokens(usage: dict[str, Any]) -> int:
+    """The tokens the model produced, from `usage` (0: unknown). Gemini's `completion_tokens`
+    leaves out its thinking tokens, billed as output and counted against `max_tokens`:
+    `total_tokens − prompt_tokens` then says more, and is taken. Groq and Mistral give
+    `total = prompt + completion`: their `completion_tokens` stays."""
+    try:
+        completion = int(usage.get("completion_tokens") or 0)
+    except (TypeError, ValueError):
+        completion = 0
+    total, prompt = usage.get("total_tokens"), usage.get("prompt_tokens")
+    if isinstance(total, int) and isinstance(prompt, int) and total - prompt > completion:
+        return total - prompt
+    return completion
 
 
 def output_tps(output_tokens: int, gen_ms: int) -> int | None:
@@ -623,14 +679,23 @@ def run_call(
             journal.emit("model_delta", {"channel": channel, "text": text}, actor="model")
         last_flush = time.monotonic()
 
+    mask = getattr(engine, "mask", None) or (lambda text: text)
+
+    def traced(call: dict[str, Any]) -> dict[str, Any]:
+        keys = ("id", "provider_id", "name", "arguments", "extra_content")
+        found = {k: call.get(k) for k in keys if call.get(k)}
+        # AD-15: masked in this event only; the replayed body, and so `context_rendered.body`
+        # and `outbound_request.body` (the bytes sent, AD-5), carry the signature verbatim.
+        if "extra_content" in found:
+            found["extra_content"] = _mask_value(found["extra_content"], mask)
+        return found
+
     def ended(stop_reason: str, raw_output: str) -> None:
         now = time.monotonic()
         first, last = first_at or now, last_at or first_at or now
         text_all = "".join("".join(v) for v in channels.values())
         usage = out.usage or {}
-        out.output_tokens = int(
-            usage.get("completion_tokens") or estimate_tokens(text_all, chars_per_token)
-        )
+        out.output_tokens = output_tokens(usage) or estimate_tokens(text_all, chars_per_token)
         gen_ms = round((last - first) * 1000)
         out.output_tps = output_tps(out.output_tokens, gen_ms)
         journal.emit(
@@ -639,10 +704,7 @@ def run_call(
                 "raw_output": raw_output,
                 "reasoning": out.reasoning,
                 "text": out.text,
-                "tool_calls": [
-                    {k: c.get(k) for k in ("id", "provider_id", "name", "arguments") if c.get(k)}
-                    for c in out.calls
-                ],
+                "tool_calls": [traced(c) for c in out.calls],
                 "prompt_tokens": int(usage.get("prompt_tokens") or estimated_prompt),
                 "output_tokens": out.output_tokens,
                 "prompt_ms": round((first - started) * 1000),

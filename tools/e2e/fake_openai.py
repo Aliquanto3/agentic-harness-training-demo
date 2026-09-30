@@ -5,6 +5,21 @@
 last user message of the turn, on the tools offered and on the tool results already
 received. `plan_reply` holds the whole script; `README.md` lists the triggers.
 
+Gemini mode, when the body's `model` starts with `gemini`, in the shapes the real
+`gemini-3.5-flash-lite` streamed through its OpenAI-compatible API (probe of 2026-09-29):
+- the thought, only when `extra_body.google.thinking_config.include_thoughts` asks for it, in
+  `content`: `<thought>` and the thought in chunks marked `extra_content.google.thought`, then
+  an unmarked chunk `</thought>` + the start of the answer; no `reasoning` field;
+- the tool calls in one chunk, without `index`, the first one only with
+  `extra_content.google.thought_signature` (a parallel set is signed once), then
+  `{"role": "assistant"}` with `finish_reason: "stop"` (never `tool_calls`); a text answer
+  ends on a chunk whose delta holds a `thought_signature` and no content, `finish_reason:
+  "stop"`;
+- `usage` on every chunk, cumulative, its `completion_tokens` without the thinking tokens,
+  which `total_tokens` includes;
+- an assistant message of the turn sent back without the signature on its first call: a 400
+  whose body is a JSON array.
+
 Debug routes: `GET /_e2e/requests` (the bodies received, newest last) and
 `POST /_e2e/reset` (forget them). Story 15: `GET /_e2e/model.gguf` is the fake embedding
 model's file, a 503 until `POST /_e2e/model_ready` (a failed, then a successful download);
@@ -60,6 +75,9 @@ class Reply:
     delay_s: float = CHUNK_DELAY_S
     stream_error: dict[str, Any] | None = None  # an `error` chunk in the middle of the stream
     usage: bool = True  # `usage` at the end when asked; False: as a provider that omits it
+    gemini: bool = False  # Gemini mode: signatures on the calls, thoughts in `content`
+    thought: str = ""  # Gemini mode: the thought written between `<thought>` tags
+    error_list: bool = False  # Gemini mode: the error body is `[{"error": …}]`
 
 
 # ---------- reading the request ----------
@@ -320,8 +338,62 @@ def _final_text(user: str, messages: list[dict[str, Any]], results: list[str]) -
     return f"Réponse scriptée du faux modèle au message : « {user.strip()[:120]} »."
 
 
+GEMINI_THOUGHT = "Je réfléchis : l'outil donne la réponse exacte, je le consulte d'abord."
+MISSING_SIGNATURE = (
+    "Function call is missing a thought_signature in functionCall parts. This is required for "
+    "tools to work correctly, and missing thought_signature may lead to degraded model "
+    "performance. Additional data, function call `default_api:{name}` , position {position}. "
+    "Please refer to https://ai.google.dev/gemini-api/docs/thought-signatures for more details."
+)
+
+
+def is_gemini(body: dict[str, Any]) -> bool:
+    return str(body.get("model") or "").startswith("gemini")
+
+
+def include_thoughts(body: dict[str, Any]) -> bool:
+    """Gemini mode: `extra_body.google.thinking_config.include_thoughts` asked."""
+    extra = body.get("extra_body")
+    google = extra.get("google") if isinstance(extra, dict) else None
+    config = google.get("thinking_config") if isinstance(google, dict) else None
+    return isinstance(config, dict) and config.get("include_thoughts") is True
+
+
+def unsigned_calls(messages: list[dict[str, Any]], start: int) -> list[tuple[str, int]]:
+    """Gemini mode: the assistant messages of the turn (from `start`) sent back without a
+    thought signature on their first call, the one Gemini signs: `(name, position)`."""
+    missing = []
+    for position, m in enumerate(messages[start:], start):
+        for call in (m.get("tool_calls") or [])[:1]:
+            extra = call.get("extra_content") if isinstance(call, dict) else None
+            google = extra.get("google") if isinstance(extra, dict) else None
+            if not (isinstance(google, dict) and google.get("thought_signature")):
+                missing.append((str((call.get("function") or {}).get("name", "")), position))
+    return missing
+
+
 def plan_reply(body: dict[str, Any]) -> Reply:
-    """The whole script: what to answer to `body`, a chat completions request."""
+    """The whole script: what to answer to `body`, a chat completions request; in Gemini
+    mode, a 400 for a call of the turn sent back unsigned, and the thought in `content`."""
+    if not is_gemini(body):
+        return _script(body)
+    messages = [m for m in body.get("messages") or [] if isinstance(m, dict)]
+    _, after = turn_slice(messages)
+    missing = unsigned_calls(messages, len(messages) - len(after))
+    if missing:
+        name, position = missing[0]
+        said = MISSING_SIGNATURE.format(name=name, position=position)
+        error = {"code": 400, "message": said, "status": "INVALID_ARGUMENT"}
+        return Reply(status=400, error=error, error_list=True)
+    reply = _script(body)
+    if reply.status == 200:
+        reply.gemini, reply.reasoning = True, ""  # no `reasoning` field at Gemini
+        reply.thought = GEMINI_THOUGHT if include_thoughts(body) else ""
+    return reply
+
+
+def _script(body: dict[str, Any]) -> Reply:
+    """The script, whatever the provider's shape."""
     messages = [m for m in body.get("messages") or [] if isinstance(m, dict)]
     offered = tool_names(body)
     user, after = turn_slice(messages)
@@ -400,6 +472,8 @@ def _pieces(text: str, size: int = 12) -> list[str]:
 
 def sse_chunks(reply: Reply, body: dict[str, Any], completion_id: str) -> list[dict[str, Any]]:
     """The chunks of a 200 answer, in order, without the final `[DONE]`."""
+    if reply.gemini:
+        return gemini_chunks(reply, body, completion_id)
     base = {"id": completion_id, "object": "chat.completion.chunk", "model": MODEL_ID}
 
     def chunk(delta: dict[str, Any], finish: str | None = None) -> dict[str, Any]:
@@ -437,6 +511,62 @@ def sse_chunks(reply: Reply, body: dict[str, Any], completion_id: str) -> list[d
     return out
 
 
+def gemini_chunks(reply: Reply, body: dict[str, Any], completion_id: str) -> list[dict[str, Any]]:
+    """Gemini mode: the chunks as the real API streams them (see the module's docstring)."""
+    base = {"id": completion_id, "object": "chat.completion.chunk", "model": MODEL_ID}
+    # Nothing of the key (`e2e-fake-key`): WaveStack masks its pieces in the trace.
+    signature = f"signature-fausse-{completion_id[-6:]}"
+    marked = {"google": {"thought": True}}
+    deltas: list[tuple[dict[str, Any], str | None]] = []
+    text = reply.text
+    if reply.thought:
+        for piece in _pieces(f"<thought>{reply.thought}"):
+            deltas.append(({"role": "assistant", "content": piece, "extra_content": marked}, None))
+        head, text = text[:12], text[12:]
+        deltas.append(({"role": "assistant", "content": f"</thought>{head}"}, None))
+    deltas += [({"role": "assistant", "content": p}, None) for p in _pieces(text)]
+    calls = [
+        {
+            "function": {"arguments": call["arguments"], "name": call["name"]},
+            "id": f"call_{completion_id[-6:]}_{index}",
+            "type": "function",
+        }
+        for index, call in enumerate(reply.tool_calls)
+    ]
+    if calls:
+        # The first call of the set only is signed, as by the real API.
+        signed = {"extra_content": {"google": {"thought_signature": f"{signature}-0"}}}
+        calls[0] = signed | calls[0]
+        deltas.append(({"role": "assistant", "tool_calls": calls}, None))
+        deltas.append(({"role": "assistant"}, reply.finish))
+    else:
+        end = {"role": "assistant", "extra_content": {"google": {"thought_signature": signature}}}
+        deltas.append((end, reply.finish))
+    with_usage = reply.usage and (body.get("stream_options") or {}).get("include_usage")
+    prompt = estimate_tokens(json.dumps(body.get("messages"), ensure_ascii=False))
+    prompt += estimate_tokens(json.dumps(body.get("tools") or [], ensure_ascii=False))
+    thinking = estimate_tokens(reply.thought) * 3  # in `total_tokens` only, as at Gemini
+    written = ""
+    out = []
+    for delta, finish in deltas:
+        if "content" in delta and delta.get("extra_content") != marked:
+            written += delta["content"].replace("</thought>", "")
+        for call in delta.get("tool_calls") or []:
+            written += call["function"]["name"] + call["function"]["arguments"]
+        chunk = base | {"choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+        if with_usage:  # on every chunk, cumulative
+            completion = estimate_tokens(written)
+            chunk["usage"] = {
+                "prompt_tokens": prompt,
+                "completion_tokens": completion,
+                "total_tokens": prompt + completion + thinking,
+            }
+        out.append(chunk)
+    if reply.stream_error:
+        return out[:-1] + [{"error": reply.stream_error}]
+    return out
+
+
 # ---------- the app ----------
 
 
@@ -460,9 +590,8 @@ def create_app() -> Starlette:
         counter["n"] += 1
         reply = plan_reply(body)
         if reply.status != 200:
-            return JSONResponse(
-                {"error": reply.error}, status_code=reply.status, headers=reply.headers
-            )
+            error = [{"error": reply.error}] if reply.error_list else {"error": reply.error}
+            return JSONResponse(error, status_code=reply.status, headers=reply.headers)
         if not body.get("stream"):
             message: dict[str, Any] = {"role": "assistant", "content": reply.text}
             return JSONResponse(

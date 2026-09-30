@@ -376,10 +376,11 @@ def test_cloud_models_merge_by_id_and_invalid_entries_are_left_out():
     cfg = config.load_config()
     valid, errors = cfg.cloud_models
 
-    assert [m.id for m in valid] == ["groq"]
+    assert [m.id for m in valid] == ["groq", "gemini"]
     assert valid[0].tpm == 6000 and valid[0].model == "openai/gpt-oss-120b"
     assert len(errors) == 1 and "Bad-Id" in errors[0]
     assert "api.groq.com" in cfg.allowed_hosts and "api.mistral.ai" not in cfg.allowed_hosts
+    assert "generativelanguage.googleapis.com" in cfg.allowed_hosts
     assert config.cloud_window(valid[0], 4096) == (3000, "tpm")
 
 
@@ -435,8 +436,9 @@ def test_without_key_test_and_choose_are_disabled_with_the_reason(monkeypatch):
 
     rows = {r["id"]: r for r in client.get("/api/diagnostic").json()["cloud"]["models"]}
 
-    assert set(rows) == {"groq", "mistral"}
-    assert rows["groq"]["key_set"] is False and "clé API" in rows["groq"]["disabled_fr"]
+    assert set(rows) == {"groq", "mistral", "gemini"}
+    for model_id in rows:
+        assert rows[model_id]["key_set"] is False and "clé API" in rows[model_id]["disabled_fr"]
     response = client.post("/api/intentions/test_cloud_model", json={"id": "groq"}, headers=ORIGIN)
     assert response.status_code == 409
 
@@ -956,3 +958,375 @@ def test_chat_second_call_reads_the_first_one_again_and_reconciled_keeps_it():
     provider_section = second["sections"][-1]
     assert provider_section["end"] - provider_section["start"] == 1
     assert provider_section["label_fr"] == second["segments"][-1]["label_fr"]
+
+
+# ---------- Gemini (Google AI Studio): thought signatures and tagged reasoning ----------
+
+# The shapes the real `gemini-3.5-flash-lite` streamed (probe of 2026-09-29): the tool call
+# in one chunk, without `index`, then `{"role": "assistant"}` with `finish_reason: "stop"`; a
+# text answer ending on a delta that holds a signature and no content; `usage` on every chunk,
+# cumulative, `completion_tokens` without the thinking tokens that `total_tokens` includes.
+SIGNATURE = {"google": {"thought_signature": "c2lnbmF0dXJlLWUyZS0x"}}
+
+
+def gemini_usage(prompt: int, completion: int, thinking: int = 0) -> dict:
+    total = prompt + completion + thinking
+    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
+
+
+def gemini_delta(finish=None, usage=None, **fields) -> dict:
+    chunk = delta(finish, role="assistant", **fields)
+    return chunk | ({"usage": usage} if usage else {})
+
+
+GEMINI_TOOL = sse(
+    gemini_delta(
+        usage=gemini_usage(300, 8),
+        tool_calls=[
+            {
+                "extra_content": SIGNATURE,
+                "function": {"arguments": "{}", "name": "get_datetime"},
+                "id": "call_91152",
+                "type": "function",
+            }
+        ],
+    ),
+    gemini_delta("stop", usage=gemini_usage(300, 8)),
+)
+GEMINI_TEXT = sse(
+    gemini_delta(content="Il est 9 h.", usage=gemini_usage(340, 5)),
+    gemini_delta(
+        "stop",
+        usage=gemini_usage(340, 5),
+        extra_content={"google": {"thought_signature": "c2lnLWZpbg=="}},
+    ),
+)
+MISSING_SIGNATURE = (
+    "Function call is missing a thought_signature in functionCall parts. This is required for "
+    "tools to work correctly, and missing thought_signature may lead to degraded model "
+    "performance. Additional data, function call `default_api:get_datetime` , position 2. "
+    "Please refer to https://ai.google.dev/gemini-api/docs/thought-signatures for more details."
+)
+
+
+class GeminiProvider(Provider):
+    """As Gemini 3.x: an assistant message replayed without the `thought_signature` of its
+    first call is a 400 (Gemini signs only the first call of a parallel set; its host only:
+    another provider's requests pass as they are)."""
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        gemini = request.url.host == "generativelanguage.googleapis.com"
+        for message in body["messages"] if gemini else []:
+            for call in (message.get("tool_calls") or [])[:1]:
+                google = (call.get("extra_content") or {}).get("google") or {}
+                if not google.get("thought_signature"):
+                    self.requests.append(request)
+                    error = {"code": 400, "message": MISSING_SIGNATURE}
+                    error["status"] = "INVALID_ARGUMENT"
+                    return httpx.Response(400, json=[{"error": error}])  # an array, as Gemini
+        return super().__call__(request)
+
+
+def test_gemini_replays_the_thought_signature_with_reasoning_off(caplog):
+    caplog.set_level(logging.DEBUG)
+    provider = GeminiProvider(GEMINI_TOOL, GEMINI_TEXT)
+    session = _cloud_session("gemini", provider, bricks=("tools",))
+
+    events = _turn(session, "Quelle heure est-il ?")
+
+    assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    assert _of(events, "harness_error") == [] and len(provider.requests) == 2
+    first = json.loads(provider.requests[0].content)
+    assert first["model"] == "gemini-3.5-flash-lite" and first["max_tokens"] == 512
+    assert first["reasoning_effort"] == "minimal" and "extra_body" not in first
+    assert first["stream_options"] == {"include_usage": True}
+    assert provider.requests[0].url.host == "generativelanguage.googleapis.com"
+    assert provider.requests[0].headers["authorization"] == f"Bearer {SENTINEL}"
+    second = json.loads(provider.requests[1].content)
+    assistant = next(m for m in second["messages"] if m.get("tool_calls"))
+    assert assistant["tool_calls"][0]["extra_content"] == SIGNATURE
+    # The trace carries it too, for the acceptance run to check.
+    ended = _of(events, "model_call_ended")[0].payload
+    assert ended["tool_calls"][0]["extra_content"] == SIGNATURE
+    assert "thought_signature" in ended["raw_output"]
+    # AD-5: the body sent is the one rendered and traced, its segments cover it all.
+    for ctx, request in zip(_of(events, "context_rendered"), provider.requests, strict=True):
+        assert request.content == ctx.payload["body"].encode("utf-8")
+        assert "".join(s["text"] for s in ctx.payload["segments"]) == ctx.payload["body"]
+    _no_sentinel(_journal_text(), caplog.text)
+
+
+def test_without_the_signature_the_fake_gemini_refuses():
+    """The fake provider itself: the matrix's « sans signature, 400 » holds."""
+    groq_shaped = sse(
+        delta(
+            tool_calls=[
+                {
+                    "index": 0,
+                    "id": "c1",
+                    "function": {"name": "get_datetime", "arguments": "{}"},
+                }
+            ]
+        ),
+        delta("tool_calls"),
+    )
+    provider = GeminiProvider(groq_shaped, GEMINI_TEXT)
+    session = _cloud_session("gemini", provider, bricks=("tools",))
+
+    events = _turn(session, "Quelle heure est-il ?")
+
+    assert _of(events, "turn_ended")[0].payload["status"] == "error"
+    harness = _of(events, "harness_error")[0].payload
+    assert harness["http_status"] == 400
+    # Gemini's error body is an array: its own message still ends the French one.
+    assert harness["message_fr"].startswith("Requête refusée par Google AI Studio (400)")
+    assert harness["message_fr"].endswith(f"Message du fournisseur : {MISSING_SIGNATURE}")
+
+
+def test_gemini_reasoning_on_reads_the_thought_tags():
+    marked = {"google": {"thought": True}}
+    stream = sse(
+        gemini_delta(content="<thought>Je réfl", extra_content=marked, usage=gemini_usage(40, 0)),
+        gemini_delta(content="échis.", extra_content=marked, usage=gemini_usage(40, 0)),
+        gemini_delta(content="</thought>Bon", usage=gemini_usage(40, 1, 986)),
+        gemini_delta(content="jour.", usage=gemini_usage(40, 2, 986)),
+        gemini_delta(
+            "stop", usage=gemini_usage(40, 2, 986), extra_content={"google": SIGNATURE["google"]}
+        ),
+    )
+    provider = Provider(stream)
+    session = _cloud_session("gemini", provider, bricks=("reasoning",))
+
+    events = _turn(session, "Bonjour")
+
+    body = json.loads(provider.requests[0].content)
+    assert body["extra_body"] == {
+        "google": {"thinking_config": {"thinking_level": "low", "include_thoughts": True}}
+    }
+    assert "reasoning_effort" not in body and body["max_tokens"] == 1536
+    ended = _of(events, "model_call_ended")[0].payload
+    assert ended["reasoning"] == "Je réfléchis." and ended["text"] == "Bonjour."
+    channels = {d.payload["channel"] for d in _of(events, "model_delta")}
+    assert channels == {"reasoning", "text"}
+    # The thinking tokens count: `total − prompt`, not `completion_tokens` alone.
+    assert ended["output_tokens"] == 988 and ended["stop_reason"] == "stop"
+
+
+def test_gemini_thought_marked_apart_goes_to_the_reasoning_channel():
+    """Without `think_tags` (a fallback of settings.json), the mark alone decides."""
+    settings = {"cloud": {"models": [{"id": "gemini", "reasoning": {"format": "field"}}]}}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+    thought = {"google": {"thought": True}}
+    stream = sse(
+        gemini_delta(content="Pensée.", extra_content=thought),
+        gemini_delta(content="Réponse."),
+        gemini_delta("stop"),
+    )
+    session = _cloud_session("gemini", Provider(stream))
+
+    ended = _of(_turn(session, "Bonjour"), "model_call_ended")[0].payload
+
+    assert ended["reasoning"] == "Pensée." and ended["text"] == "Réponse."
+
+
+@pytest.mark.parametrize(
+    ("usage", "expected"),
+    [
+        ({"prompt_tokens": 65, "completion_tokens": 14, "total_tokens": 1065}, 1000),  # Gemini
+        ({"prompt_tokens": 700, "completion_tokens": 12, "total_tokens": 712}, 12),  # Groq
+        ({"prompt_tokens": 40, "completion_tokens": 3}, 3),  # no total
+        ({}, 0),  # unknown: the caller estimates
+    ],
+)
+def test_output_tokens_count_the_hidden_thinking(usage, expected):
+    from wavestack.models.openai_chat import output_tokens
+
+    assert output_tokens(usage) == expected
+
+
+def test_the_signature_never_reaches_another_provider():
+    provider = GeminiProvider(GEMINI_TOOL, GEMINI_TEXT, GROQ_TEXT)
+    session = _cloud_session("gemini", provider, bricks=("tools", "short_memory"))
+    _turn(session, "Quelle heure est-il ?")
+    groq = session.cfg.cloud_model("groq")
+    config.write_api_key(groq.id, groq.host, SecretStr(SENTINEL))
+    session.boot_cloud(groq).result()
+    session.join()
+
+    events = _turn(session, "Et demain ?")
+
+    assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    sent = provider.requests[-1]
+    assert sent.url.host == "api.groq.com" and b'"tool_calls"' in sent.content
+    assert b"extra_content" not in sent.content and b"thought_signature" not in sent.content
+
+
+def test_a_forced_action_on_gemini_carries_tool_call_extra_and_no_other_entry_does():
+    for model_id, expected in (
+        ("gemini", {"google": {"thought_signature": "skip_thought_signature_validator"}}),
+        ("groq", None),
+        ("mistral", None),
+    ):
+        provider = GeminiProvider(GEMINI_TEXT) if model_id == "gemini" else Provider(GROQ_TEXT)
+        session = _cloud_session(model_id, provider, bricks=("tools",))
+        session.arm("tool", "get_datetime", {})
+
+        events = _turn(session, "Quelle heure est-il ?")
+
+        assert _of(events, "turn_ended")[0].payload["status"] == "completed", model_id
+        messages = json.loads(provider.requests[0].content)["messages"]
+        call = next(m for m in messages if m.get("tool_calls"))["tool_calls"][0]
+        assert call.get("extra_content") == expected, model_id
+        extra = {"extra_content"} if expected else set()
+        assert set(call) == {"id", "type", "function"} | extra, model_id
+
+
+def test_gemini_test_replays_the_signature_of_the_first_call(monkeypatch, caplog):
+    caplog.set_level(logging.DEBUG)
+    provider = GeminiProvider(GEMINI_TOOL, GEMINI_TEXT)
+    _, _, _, client = _app(monkeypatch, provider)
+    client.post(
+        "/api/intentions/set_api_key", json={"id": "gemini", "key": SENTINEL}, headers=ORIGIN
+    )
+
+    response = client.post(
+        "/api/intentions/test_cloud_model", json={"id": "gemini"}, headers=ORIGIN
+    )
+
+    assert response.status_code == 200 and response.json()["ok"] is True
+    assert len(provider.requests) == 2
+    second = json.loads(provider.requests[1].content)
+    assistant = next(m for m in second["messages"] if m.get("tool_calls"))
+    assert assistant["tool_calls"][0]["extra_content"] == SIGNATURE
+    _no_sentinel(_journal_text(), caplog.text, response.text, client.get("/api/diagnostic").text)
+
+
+def test_gemini_key_from_its_variable_makes_it_choosable(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", SENTINEL)
+    _, _, _, client = _app(monkeypatch)
+
+    row = _row(client, "gemini")
+
+    assert row["key_set"] is True and row["disabled_fr"] is None
+    assert row["key_source"] == "env" and row["key_env"] == "GEMINI_API_KEY"
+    assert "generativelanguage.googleapis.com" in config.load_config().allowed_hosts
+    _no_sentinel(client.get("/api/diagnostic").text)
+
+
+def test_gemini_fallbacks_come_from_settings_without_code():
+    """A null removes a field the preset declares: the fallback `reasoning_effort` alone."""
+    settings = {
+        "cloud": {
+            "models": [
+                {
+                    "id": "gemini",
+                    "model": "gemini-3.6-flash",
+                    "reasoning": {
+                        "tags": ["<thinking>", "</thinking>"],
+                        "on": {"extra_body": None, "reasoning_effort": "low"},
+                    },
+                }
+            ]
+        }
+    }
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+
+    entry = config.load_config().cloud_model("gemini")
+
+    assert entry.model == "gemini-3.6-flash"
+    assert entry.reasoning_params(True) == {"reasoning_effort": "low"}
+    assert entry.reasoning_params(False) == {"reasoning_effort": "minimal"}
+    assert entry.reasoning.tags == ("<thinking>", "</thinking>")
+    with pytest.raises(ValueError):
+        config.CloudReasoning.model_validate({"format": "think_tags", "tags": ["", "</x>"]})
+
+
+def test_the_signature_goes_back_as_received_and_is_masked_in_the_trace():
+    """A signature is opaque: masked, it would be refused. It goes back byte for byte to the
+    provider that emitted it; `model_call_ended` masks it like any provider string."""
+    raw = f"sig{SENTINEL[:4]}tail"
+    stream = GEMINI_TOOL.replace(b"c2lnbmF0dXJlLWUyZS0x", raw.encode())
+    provider = GeminiProvider(stream, GEMINI_TEXT)
+    session = _cloud_session("gemini", provider, bricks=("tools",))
+
+    events = _turn(session, "Quelle heure est-il ?")
+
+    traced = _of(events, "model_call_ended")[0].payload["tool_calls"][0]["extra_content"]
+    assert traced == {"google": {"thought_signature": "sig•••tail"}}
+    second = json.loads(provider.requests[1].content)
+    assistant = next(m for m in second["messages"] if m.get("tool_calls"))
+    assert assistant["tool_calls"][0]["extra_content"]["google"]["thought_signature"] == raw
+
+
+def gemini_call(name: str, arguments: str, call_id: str, signature: str) -> bytes:
+    """A Gemini tool call as the real API streams it: one chunk, no `index`, then « stop »."""
+    call = {
+        "extra_content": {"google": {"thought_signature": signature}},
+        "function": {"arguments": arguments, "name": name},
+        "id": call_id,
+        "type": "function",
+    }
+    return sse(gemini_delta(tool_calls=[call]), gemini_delta("stop"))
+
+
+def test_calls_without_index_keep_their_arrival_order():
+    """Gemini sends no `index`: calls keyed by `id` stay in arrival order, never sorted."""
+    from wavestack.models.engine import CancelToken
+    from wavestack.models.openai_chat import ChatBody, ChatEnd
+
+    calls = [
+        {"id": call_id, "type": "function", "function": {"name": name, "arguments": "{}"}}
+        for call_id, name in (("call_99999", "get_datetime"), ("call_100002", "calculator"))
+    ]
+    stream = sse(gemini_delta(tool_calls=calls), gemini_delta("stop"))
+    entry = config.load_config().cloud_model("gemini")
+    engine = Provider(stream).factory(entry, SecretStr(SENTINEL))
+
+    end = list(engine.complete(ChatBody(b"{}"), CancelToken()))[-1]
+
+    assert isinstance(end, ChatEnd)
+    assert [c["provider_id"] for c in end.tool_calls] == ["call_99999", "call_100002"]
+    engine.close()
+
+
+def test_a_sub_agent_on_gemini_replays_its_own_signature():
+    """The sub-agent's context (`_sub_messages`) sends its call back signed, as the main one."""
+    provider = GeminiProvider(
+        gemini_call("delegate", '{"task": "Lis notes_reunion.txt."}', "p1", "sig-principal"),
+        gemini_call("read_file", '{"path": "notes_reunion.txt"}', "p2", "sig-sous-agent"),
+        GEMINI_TEXT,
+        GEMINI_TEXT,
+    )
+    session = _cloud_session("gemini", provider, bricks=("tools", "subagent"))
+
+    events = _turn(session, "Quelles décisions ?")
+
+    assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    assert _of(events, "harness_error") == [] and len(provider.requests) == 4
+    sub_second = json.loads(provider.requests[2].content)
+    assert sub_second["messages"][0]["content"].startswith("Tu es un sous-agent")
+    (assistant,) = [m for m in sub_second["messages"] if m.get("tool_calls")]
+    signed = assistant["tool_calls"][0]["extra_content"]["google"]["thought_signature"]
+    assert signed == "sig-sous-agent"
+    main_second = json.loads(provider.requests[3].content)
+    (assistant,) = [m for m in main_second["messages"] if m.get("tool_calls")]
+    signed = assistant["tool_calls"][0]["extra_content"]["google"]["thought_signature"]
+    assert signed == "sig-principal"
+
+
+def test_a_second_gemini_turn_sends_the_earlier_call_back_signed():
+    """Short memory: the earlier turn's call goes back to Gemini with its `extra_content`."""
+    provider = GeminiProvider(GEMINI_TOOL, GEMINI_TEXT, GEMINI_TEXT)
+    session = _cloud_session("gemini", provider, bricks=("tools", "short_memory"))
+    _turn(session, "Quelle heure est-il ?")
+
+    events = _turn(session, "Et demain ?")
+
+    assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    assert _of(events, "harness_error") == [] and len(provider.requests) == 3
+    later = json.loads(provider.requests[2].content)
+    (assistant,) = [m for m in later["messages"] if m.get("tool_calls")]
+    assert assistant["tool_calls"][0]["extra_content"] == SIGNATURE

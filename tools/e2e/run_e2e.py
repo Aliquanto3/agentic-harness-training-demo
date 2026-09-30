@@ -28,6 +28,9 @@ from playwright.sync_api import Page, expect, sync_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stack import (  # noqa: E402
+    GEMINI_ENTRY_ID,
+    GEMINI_MODEL,
+    GEMINI_PROVIDER,
     MODEL_ENTRY_ID,
     REASONING_ENTRY_ID,
     REASONING_MODEL,
@@ -5277,10 +5280,12 @@ def s_model_catalog(r: Run) -> None:
     r.check("où tourne le modèle" in title, "sélecteur : l'infobulle reprend la légende", title)
     groups = _picker_groups(r)
     labels = [g["label"] for g in groups]
-    # The three fake cloud models have no known publisher; the presets of wavestack.toml
-    # (Mistral, Groq's gpt-oss), declared without a key, come in the table's order before.
+    # Three fake cloud models have no known publisher; the fourth is named as Gemini, with
+    # the Gemini preset; the presets of wavestack.toml (Gemini, Mistral, Groq's gpt-oss),
+    # declared without a key, come in the table's order before.
     expected = [
         "Sur ce poste · Qwen (Alibaba)",
+        "Réseau · Gemini (Google)",
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
         "Réseau · Autres éditeurs",
@@ -5351,6 +5356,18 @@ def s_model_catalog(r: Run) -> None:
     )
     reasoning_r = _models_row(r, f"cloud:{REASONING_ENTRY_ID}")
     r.check(reasoning_r.get("reasoning") == "toujours", "tableau : modèle R « toujours »")
+    gemini = _models_row(r, "cloud:gemini")
+    r.check(
+        gemini.get("model") == "RÉSEAU · Google AI Studio"
+        and gemini.get("model_why") == "gemini-3.5-flash-lite"
+        and gemini.get("publisher") == "Gemini (Google)"
+        and gemini.get("reasoning") == "activable"
+        and gemini.get("state") == "indisponible"
+        and "clé API" in gemini.get("state_why", ""),
+        "tableau : préréglage Gemini, éditeur « Gemini (Google) », raisonnement « activable », "
+        "indisponible sans clé, avec la raison",
+        str(gemini),
+    )
     fake_a = _models_row(r, f"cloud:{MODEL_ENTRY_ID}")
     r.check(fake_a.get("reasoning") == "jamais", "tableau : wavestack-fake « jamais »")
     r.check(fake_a.get("state") == "actif", "tableau : la ligne du modèle actif dit « actif »")
@@ -5764,6 +5781,118 @@ def s_reasoning_locked(r: Run) -> None:
         and status != "Imposé par ce modèle",
         "retour à l'entrée A : plus de verrou ni de « Imposé par ce modèle »",
         status,
+    )
+
+
+# ---------- Gemini (Google AI Studio): the shape of its bodies ----------
+
+GEMINI_LABEL = f"RÉSEAU · {GEMINI_PROVIDER} · {GEMINI_MODEL}"
+
+
+def _gemini_turn(r: Run, prompt: str, tool: str) -> tuple[list[dict], list[dict], dict]:
+    """One turn on the fake Gemini: the bodies it received, the `model_call_ended`
+    payloads, and `turn_ended`."""
+    before = len(r.fake_calls())
+    seq = r.ev.mark()
+    ended = r.send(prompt)
+    bodies = r.fake_calls()[before:]
+    calls = [e["payload"] for e in r.ev.since(seq, "model_call_ended")]
+    tools = [e["payload"]["tool"] for e in r.ev.since(seq, "tool_started")]
+    r.check(
+        ended["payload"]["status"] == "completed" and tool in tools,
+        f"tour « {prompt} » terminé, {tool} appelé",
+        f"{ended['payload']['status']} · {tools}",
+    )
+    r.check(not r.ev.since(seq, "harness_error"), f"aucun harness_error ({tool})")
+    return bodies, calls, ended
+
+
+def _signature_replayed(r: Run, bodies: list[dict], calls: list[dict], what: str) -> None:
+    signed = (calls[0].get("tool_calls") or [{}])[0].get("extra_content") if calls else None
+    sent = None
+    if len(bodies) >= 2:
+        # The turn's own call: the last one (short memory sends the earlier turns' before).
+        messages = bodies[1]["messages"]
+        assistant = next((m for m in reversed(messages) if m.get("tool_calls")), {})
+        sent = (assistant.get("tool_calls") or [{}])[0].get("extra_content")
+    signature = ((signed or {}).get("google") or {}).get("thought_signature", "")
+    r.check(
+        signature.startswith("signature-fausse-") and sent == signed,
+        f"{what} : signature tracée dans model_call_ended, rejouée telle quelle au 2e corps",
+        f"{signed} · {sent}",
+    )
+
+
+def s_gemini_shape(r: Run) -> None:
+    """The fake Gemini (`fake_g`, the reasoning and `tool_call_extra` of the real preset): a
+    tool turn with the reasoning off (`reasoning_effort: minimal`, 512), then on
+    (`extra_body…include_thoughts`, 1 536, `<thought>` read as reasoning), the thought
+    signature sent back each time; the Reasoning card « activable »."""
+    r.goto_app()
+    r.launch("native_tools")
+    try:
+        _pick_model(r, GEMINI_LABEL)
+        active = r.state().get("active_model") or {}
+        r.check(active.get("ref") == GEMINI_ENTRY_ID, "faux Gemini actif", str(active.get("ref")))
+        r.set_brick("Raisonnement", False)
+        card = r.card("Raisonnement")
+        toggle = card.locator(".brick-head input.brick-toggle")
+        r.check(
+            not toggle.is_disabled() and card.locator(".brick-lock").count() == 0,
+            "faux Gemini : carte Raisonnement réglable, sans verrou",
+        )
+
+        bodies, calls, _ = _gemini_turn(r, "Quelle heure est-il ?", "get_datetime")
+        first = bodies[0] if bodies else {}
+        r.check(
+            len(bodies) == 2
+            and first.get("reasoning_effort") == "minimal"
+            and "extra_body" not in first
+            and first.get("max_tokens") == 512,
+            "raisonnement éteint : reasoning_effort « minimal », sans extra_body, 512 tokens",
+            json.dumps({k: v for k, v in first.items() if k not in ("messages", "tools")}),
+        )
+        _signature_replayed(r, bodies, calls, "raisonnement éteint")
+        r.check(
+            all(not c.get("reasoning") for c in calls), "raisonnement éteint : aucune réflexion"
+        )
+
+        r.set_brick("Raisonnement", True)
+        r.check(toggle.is_checked(), "carte Raisonnement allumée sur le faux Gemini")
+        seq = r.ev.mark()
+        bodies, calls, _ = _gemini_turn(r, "Combien font 12 multiplié par 37 ?", "calculator")
+        first = bodies[0] if bodies else {}
+        thinking = ((first.get("extra_body") or {}).get("google") or {}).get("thinking_config")
+        r.check(
+            thinking == {"thinking_level": "low", "include_thoughts": True}
+            and "reasoning_effort" not in first
+            and first.get("max_tokens") == 1536,
+            "raisonnement allumé : extra_body…include_thoughts, sans reasoning_effort, 1 536",
+            json.dumps({k: v for k, v in first.items() if k not in ("messages", "tools")}),
+        )
+        _signature_replayed(r, bodies, calls, "raisonnement allumé")
+        reasoning = calls[0].get("reasoning", "") if calls else ""
+        r.check(
+            reasoning.startswith("Je réfléchis")
+            and all("<thought>" not in c.get("text", "") for c in calls)
+            and "<thought>" in (calls[0].get("raw_output", "") if calls else ""),
+            "<thought>…</thought> lu comme réflexion, hors du texte, gardé dans raw_output",
+            reasoning[:120],
+        )
+        channels = {e["payload"]["channel"] for e in r.ev.since(seq, "model_delta")}
+        r.check("reasoning" in channels, "deltas du canal reasoning", str(channels))
+        answer = r.last_answer()
+        r.check("<thought>" not in answer and "444" in answer, "bulle sans balise", answer[:160])
+        r.shot("59-gemini-raisonnement")
+        r.set_brick("Raisonnement", False)
+    finally:
+        # Entry A back whatever happened: the scenarios after this one play on it.
+        if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+            r.goto_app()
+            _pick_model(r, A_LABEL)
+    r.check(
+        (r.state().get("active_model") or {}).get("ref") == MODEL_ENTRY_ID,
+        "retour à l'entrée A",
     )
 
 
@@ -6678,6 +6807,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),
+    ("gemini_shape", s_gemini_shape),
     ("local_server", s_local_server),
     ("model_catalog", s_model_catalog),
     ("context_window", s_context_window),
