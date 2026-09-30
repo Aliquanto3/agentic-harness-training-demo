@@ -364,10 +364,13 @@ Vérifications ajoutées aux scénarios existants :
   légende, désactivée (« où tourne le modèle », « qui le sert »), reprise dans l'infobulle ;
   groupes « Sur ce poste · Qwen (Alibaba) » (le faux Ollama par sa famille `qwen3`, le faux
   llama-server par la famille que `capabilities_for` lit dans son gabarit, jamais Llama pour
-  « llama-server »), puis « Réseau · Gemini (Google) » (préréglage Gemini et `fake_g`),
+  « llama-server »), puis « Réseau · Gemma (Google) » (préréglage Gemma), « Réseau · Gemini
+  (Google) » (préréglage Gemini et `fake_g`),
   « Réseau · Mistral (Mistral AI) » et « Réseau · gpt-oss (OpenAI) » (préréglages de
   `wavestack.toml`, sans clé) et « Réseau · Autres éditeurs » (les trois autres faux modèles
-  cloud) ; ligne du préréglage Gemini : éditeur « Gemini (Google) », raisonnement « activable » ; dans le groupe Qwen, le faux Ollama (0.6B) avant le faux llama-server
+  cloud) ; lignes des préréglages Gemini (éditeur « Gemini (Google) », raisonnement
+  « activable », prix « 0,30 $ / 2,50 $ ») et Gemma (éditeur « Gemma (Google) », « 26 B »,
+  prix « — » sans `pricing`) ; dans le groupe Qwen, le faux Ollama (0.6B) avant le faux llama-server
   (taille inconnue) ; chaque modèle commence par « Local · » ou « RÉSEAU · » ; « Tableau des
   modèles et de leurs capacités… » puis « Autre fichier ou clé API… » en dernier. « Ouvrir le
   tableau » mène à `/models` : onglet « Modèles » courant, « Diagnostic » vers `/diagnostic`

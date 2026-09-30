@@ -354,6 +354,7 @@ def test_groups_local_first_publishers_in_order_others_last(tmp_path):
         "Sur ce poste · Qwen (Alibaba)",
         "Sur ce poste · Gemma (Google)",
         "Sur ce poste · Autres éditeurs",
+        "Réseau · Gemma (Google)",
         "Réseau · Gemini (Google)",
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
@@ -647,11 +648,12 @@ def test_api_diagnostic_carries_the_models(monkeypatch, tmp_path):
     assert "où tourne le modèle" in models["legend_text"]
     assert models["publishers_error_text"] is None
     assert [g["label_text"] for g in models["groups"]] == [
+        "Réseau · Gemma (Google)",
         "Réseau · Gemini (Google)",
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
     ]
-    groq = models["groups"][2]["models"][0]
+    groq = models["groups"][3]["models"][0]
     assert (groq["value"], groq["reasoning"], groq["params_label"]) == (
         "cloud:groq",
         "always",

@@ -308,11 +308,13 @@ pricing = { input_usd_per_mtok = 0.15, output_usd_per_mtok = 0.60, checked = "20
 impacts = { provider = "mistralai", model = "mistral-small-latest" }
 
 # Préréglage Gemini (Google AI Studio, API compatible OpenAI ; vérifié sur ai.google.dev le
-# 2026-09-29). Offre payante obligatoire, clause EEE : « You may use only Paid Services when
-# making API Clients available to users in the European Economic Area, Switzerland, or the
-# United Kingdom. » Sur l'offre payante, les contenus ne servent pas à l'entraînement ; sur
-# l'offre gratuite, ils servent à améliorer les produits Google et peuvent être lus par des
-# relecteurs humains, sans opt-out possible.
+# 2026-09-29, conditions relues le 2026-09-30). Offre payante obligatoire, clause EEE : « You
+# may use only Paid Services when making API Clients available to users in the European
+# Economic Area, Switzerland, or the United Kingdom » (un « API Client » : site, application ou
+# service). Données : sur l'offre payante, rien ne sert à l'entraînement ; sur l'offre
+# gratuite, les contenus servent à améliorer les produits Google et peuvent être lus par des
+# relecteurs humains, sauf pour les utilisateurs de l'EEE, de Suisse et du Royaume-Uni, à qui
+# Google applique les règles de l'offre payante sur tous les services, quota gratuit compris.
 # gemini-3.5-flash-lite (stable) : 1 048 576 tokens en entrée, 65 536 en sortie ; niveaux de
 # raisonnement minimal (par défaut), low, medium et high ; 0,30 $ / 2,50 $ par million de
 # tokens (entrée / sortie), aucune hausse annoncée pour ce modèle.
@@ -353,7 +355,7 @@ tools = true
 context = 1048576
 hosting_text = "Google (hébergement non précisé)"
 training = "no"
-notes_text = "Offre payante obligatoire (clause EEE : l'offre gratuite ne doit pas servir à des utilisateurs de l'EEE, de Suisse ou du Royaume-Uni). Sur l'offre payante, rien n'est utilisé pour l'entraînement. Prix à vérifier dans la console : hausse au 2027-01-01 pour les 3.6 à 3.8 Flash."
+notes_text = "Offre payante obligatoire (clause EEE : un client d'API mis à disposition d'utilisateurs de l'EEE, de Suisse ou du Royaume-Uni doit utiliser l'offre payante). Sur l'offre payante, rien n'est utilisé pour l'entraînement ; ces règles de données s'appliquent aussi aux utilisateurs de l'EEE sur le quota gratuit (conditions relues le 2026-09-30). Prix à vérifier dans la console : hausse au 2027-01-01 pour les 3.6 à 3.8 Flash."
 key_env = "GEMINI_API_KEY"
 tool_call_extra = { extra_content = { google = { thought_signature = "skip_thought_signature_validator" } } }
 # FinOps : prix de gemini-3.5-flash-lite, relevés sur ai.google.dev/pricing (offre payante).
@@ -366,6 +368,50 @@ impacts = { provider = "google_genai", model = "gemini-3.5-flash-lite" }
 format = "think_tags"
 tags = ["<thought>", "</thought>"]
 on = { extra_body = { google = { thinking_config = { thinking_level = "medium", include_thoughts = true } } } }
+off = { reasoning_effort = "minimal" }
+always = false
+resend = false
+
+# Gemma 4 sur Google AI Studio (relevé sur l'API réelle le 2026-09-30) : modèles ouverts de
+# Google, servis seulement sur l'offre gratuite (aucun prix, aucune offre payante, aucun quota
+# publié). Même hôte, même clé et même signature de pensée sur les appels d'outils que Gemini.
+# gemma-4-26b-a4b-it (MoE, 4 milliards de paramètres actifs) : 262 144 tokens en entrée,
+# 32 768 en sortie. Il réfléchit par défaut et montre sa pensée par défaut, dans content entre
+# <thought> et </thought> (fragments marqués extra_content.google.thought), même sans
+# include_thoughts ; reasoning_effort "minimal" l'éteint (0 token de réflexion) ; thinking_level,
+# thinking_budget et les autres valeurs de reasoning_effort sont refusés (400 « not supported
+# for this model »). Conditions (voir Gemini) : Google réserve l'offre payante aux clients
+# d'API mis à disposition d'utilisateurs de l'EEE, et Gemma n'en a pas : usage personnel de la
+# clé sur son poste, pas une mise à disposition. Données : la page tarifaire dit que les
+# contenus de l'offre gratuite servent à améliorer les produits Google, mais les utilisateurs
+# de l'EEE, de Suisse et du Royaume-Uni ont les règles de l'offre payante, quota gratuit
+# compris : d'où training = "no", et trial = true (offre gratuite seule, quota non publié).
+# La clé saisie au diagnostic est propre à chaque ligne ; GEMINI_API_KEY sert aux deux.
+# Secours, dans settings.json : gemma-4-31b-it (dense, plus lent, même API), avec son
+# empreinte : {"id": "gemma", "model": "gemma-4-31b-it",
+#   "impacts": {"provider": "google_genai", "model": "gemma-4-31b-it"}}.
+[[cloud.models]]
+id = "gemma"
+provider = "Google AI Studio"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+model = "gemma-4-26b-a4b-it"
+stream_usage = true
+tools = true
+context = 262144
+hosting_text = "Google (hébergement non précisé)"
+training = "no"
+trial = true
+notes_text = "Modèle ouvert servi seulement sur l'offre gratuite de Google AI Studio (aucun prix, aucun quota publié), et Google réserve l'offre payante aux clients d'API mis à disposition d'utilisateurs de l'EEE : usage personnel de votre clé sur votre poste, pas une mise à disposition. Données : la page tarifaire dit que l'offre gratuite sert à améliorer les produits Google, mais les utilisateurs de l'EEE, de Suisse et du Royaume-Uni ont les règles de l'offre payante, quota gratuit compris (conditions relues le 2026-09-30) : rien n'est utilisé pour l'entraînement. Même clé que Gemini : à saisir aussi sur cette ligne, ou GEMINI_API_KEY."
+key_env = "GEMINI_API_KEY"
+tool_call_extra = { extra_content = { google = { thought_signature = "skip_thought_signature_validator" } } }
+# FinOps : pas de pricing, le modèle est gratuit ; aucun coût n'est estimé ni affiché.
+# GreenOps : EcoLogits connaît les deux Gemma 4 chez google_genai (architecture publiée).
+impacts = { provider = "google_genai", model = "gemma-4-26b-a4b-it" }
+
+[cloud.models.reasoning]
+format = "think_tags"
+tags = ["<thought>", "</thought>"]
+on = { extra_body = { google = { thinking_config = { include_thoughts = true } } } }
 off = { reasoning_effort = "minimal" }
 always = false
 resend = false

@@ -689,13 +689,13 @@ uv run wavestack
   `[compression] min_chars` (300 caractères) n'est pas compressé. La brique n'a d'effet
   qu'avec Outils, MCP ou RAG : sans eux, rien à compresser.
 
-## Modèle cloud (Groq, Mistral, Gemini)
+## Modèle cloud (Groq, Mistral, Gemini, Gemma)
 
 Un modèle cloud compatible OpenAI peut remplacer le SLM local : plus rapide, meilleur avec les
 outils, et il montre un vrai appel hors du poste. Les préréglages Groq (`openai/gpt-oss-120b`),
-Mistral (`mistral-small-latest`) et Gemini (`gemini-3.5-flash-lite`, Google AI Studio) sont
-déclarés dans `wavestack.toml` ; NVIDIA et OpenRouter y figurent en exemples commentés, avec leur
-avertissement.
+Mistral (`mistral-small-latest`), Gemini (`gemini-3.5-flash-lite`) et Gemma
+(`gemma-4-26b-a4b-it`, tous deux sur Google AI Studio) sont déclarés dans `wavestack.toml` ;
+NVIDIA et OpenRouter y figurent en exemples commentés, avec leur avertissement.
 
 1. **Clé.** Créez une clé API dans la console du fournisseur, puis collez-la sur la page de
    diagnostic, dans la ligne du modèle (« Enregistrer la clé »). Elle est stockée sur ce poste
@@ -703,8 +703,8 @@ avertissement.
    seul hôte déclaré. Si l'adresse du fournisseur change, la clé est à ressaisir.
 
    **Ou par variable d'environnement.** Chaque préréglage nomme une variable (`key_env`) :
-   `GROQ_API_KEY` pour Groq, `MISTRAL_API_KEY` pour Mistral, `GEMINI_API_KEY` pour Gemini. Sous
-   Windows, sans droits administrateur :
+   `GROQ_API_KEY` pour Groq, `MISTRAL_API_KEY` pour Mistral, `GEMINI_API_KEY` pour Gemini et
+   Gemma (même clé). Sous Windows, sans droits administrateur :
 
    ```bat
    setx GROQ_API_KEY votre-clé
@@ -733,9 +733,11 @@ dont 1 536 réservés à la réponse : il reste **2 464 tokens utilisables**. Le
 (MCP en documentation complète, longue conversation) dépassent : passez en lazy loading, videz la
 conversation, ou préférez Mistral.
 
-**Gemini (Google AI Studio).** L'offre payante est obligatoire : la clause EEE de Google
-interdit l'offre gratuite pour des utilisateurs de l'EEE, de Suisse ou du Royaume-Uni, et sur
-l'offre payante les contenus ne servent pas à l'entraînement. Les prix se vérifient dans la
+**Gemini (Google AI Studio).** L'offre payante est obligatoire : les conditions de Google
+(relues le 2026-09-30) réservent l'offre payante à tout client d'API (site, application ou
+service) mis à disposition d'utilisateurs de l'EEE, de Suisse ou du Royaume-Uni, et sur l'offre
+payante les contenus ne servent pas à l'entraînement. Ces règles de données s'appliquent aussi
+aux utilisateurs de l'EEE sur le quota gratuit. Les prix se vérifient dans la
 console (relevé le 2026-09-29 : 0,30 $ / 2,50 $ par million de tokens pour
 `gemini-3.5-flash-lite`, sans hausse annoncée ; hausse au 2027-01-01 pour les 3.6 à 3.8 Flash). Le raisonnement s'allume et s'éteint avec la
 brique : allumé, `thinking_level` « medium » et le texte de la réflexion (entre `<thought>` et
@@ -746,6 +748,28 @@ l'entrée `gemini` dans `settings.json`, sans toucher au code : les secours sont
 commentaire dans `wavestack.toml`. `null` n'y retire qu'une clé de premier niveau de
 `reasoning.on` ou `reasoning.off` (par exemple `"extra_body": null`) : un `null` plus profond
 est envoyé tel quel, et `tool_call_extra` ou `tags` à `null` rendent l'entrée invalide.
+
+**Gemma 4 (Google AI Studio).** `gemma-4-26b-a4b-it` est un modèle ouvert de Google : un MoE de
+26 milliards de paramètres au total, 4 milliards actifs par token (le sélecteur et le tableau
+lisent « 26B » dans le nom). Il est servi avec la même clé et sur le même hôte que Gemini, mais
+seulement sur l'offre gratuite : aucun prix, aucun quota publié, donc aucun coût estimé et
+« offre d'essai » dans l'avertissement. Conditions : Google réserve l'offre payante aux clients
+d'API mis à disposition d'utilisateurs de l'EEE, et Gemma n'en a pas ; l'entrée vaut pour un
+usage personnel de votre clé sur votre poste, pas pour une mise à disposition. Données : la page
+tarifaire dit que l'offre gratuite sert à améliorer les produits Google, mais les utilisateurs
+de l'EEE ont les règles de l'offre payante, quota gratuit compris, d'où `training = "no"` avec la
+nuance dans la note. Relevé sur l'API réelle le 2026-09-30 : 262 144 tokens en entrée, 32 768 en
+sortie ; le modèle réfléchit et montre sa pensée par défaut (entre `<thought>` et `</thought>`).
+Brique Raisonnement allumée, WaveStack envoie `include_thoughts` seul (explicite, et distinct du
+corps éteint) ; éteinte, `reasoning_effort` « minimal » supprime la réflexion ; `thinking_level`
+et `thinking_budget` sont refusés. Les appels d'outils portent la même signature de pensée que
+Gemini, rejouée de la même façon. Un 429 vient du quota gratuit, non publié : s'il survient
+« par seconde », posez `min_interval_s` dans `settings.json` ; au premier appel de « Tester »,
+c'est le quota du compte. Une clé saisie au diagnostic est propre à sa ligne : saisissez-la aussi
+sur la ligne Gemma, ou posez `GEMINI_API_KEY`, qui sert aux deux préréglages. Secours :
+`gemma-4-31b-it` (dense, plus lent), avec son empreinte, dans `settings.json` :
+`{"id": "gemma", "model": "gemma-4-31b-it", "impacts": {"provider": "google_genai", "model":
+"gemma-4-31b-it"}}`.
 
 **Revenir au modèle local.** Choisissez un fichier GGUF dans le sélecteur de la barre haute, ou
 cliquez sur « Choisir » en face d'un fichier sur la page de diagnostic : le modèle local est
@@ -811,7 +835,8 @@ Chaque entrée `[[cloud.models]]` peut déclarer ses prix dans `pricing` : prix 
 sortie, en dollars par million de tokens, et la date du relevé (`checked`, au format
 AAAA-MM-JJ). Relevés le 2026-09-29 sur les pages officielles : Groq `openai/gpt-oss-120b` et
 Mistral Small 4 à 0,15 $ / 0,60 $, Gemini `gemini-3.5-flash-lite` à 0,30 $ / 2,50 $. Sur le
-plan gratuit de Mistral, le coût réel est nul : le prix affiché est le prix catalogue.
+plan gratuit de Mistral, le coût réel est nul : le prix affiché est le prix catalogue. Gemma n'a
+pas de `pricing` : le modèle est gratuit, aucun coût n'est estimé ni affiché (« — »).
 
 **Estimation.** Pour chaque appel cloud, WaveStack calcule le coût d'entrée (tokens du prompt ×
 prix d'entrée / 10⁶) et le coût de sortie (tokens produits × prix de sortie / 10⁶, les tokens de
@@ -854,7 +879,8 @@ seul : aucun SDK n'est instrumenté) estime l'impact d'un appel à partir de ses
 le mix électrique (code ISO à trois lettres ; par défaut celui du fournisseur dans EcoLogits).
 Préréglages : Groq → `huggingface_hub` / `openai/gpt-oss-120b` (EcoLogits ne connaît pas Groq ;
 gpt-oss y figure chez Hugging Face, sur GPU), Mistral → `mistralai` / `mistral-small-latest`,
-Gemini → `google_genai` / `gemini-3.5-flash-lite`. Le champ facultatif `note_text` de `impacts`
+Gemini → `google_genai` / `gemini-3.5-flash-lite`, Gemma → `google_genai` /
+`gemma-4-26b-a4b-it`. Le champ facultatif `note_text` de `impacts`
 s'ajoute à l'infobulle de chaque appel : celui de Groq dit que l'estimation passe par un autre
 hébergeur. Quand EcoLogits donne une fourchette (architecture non
 publiée, comme Gemini), elle est gardée : « 0,066–0,45 Wh ». Ses avertissements (architecture non

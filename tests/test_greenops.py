@@ -607,7 +607,7 @@ _OFFLINE = textwrap.dedent(
 
     cfg = config.load_config()
     impacts = [greenops.cloud_impacts(cfg.cloud_model(i), 800, 3.0).estimated
-               for i in ("groq", "mistral", "gemini")]
+               for i in ("groq", "mistral", "gemini", "gemma")]
     local = None
     if greenops._find_spec("codecarbon") is not None:
         measure = greenops.LocalMeter(41.4).start(machine=False)
@@ -635,7 +635,7 @@ def test_ecologits_and_the_offline_tracker_never_reach_the_network(tmp_path):
 
     assert result.returncode == 0, result.stderr[-2000:]
     report = json.loads(result.stdout.strip().splitlines()[-1])
-    assert report["impacts"] == [True, True, True]
+    assert report["impacts"] == [True, True, True, True]
     # With the extra, the real tracker ran and measured.
     assert report["local"] is (True if _FIND_SPEC("codecarbon") is not None else None)
     assert report["seen"] == []
