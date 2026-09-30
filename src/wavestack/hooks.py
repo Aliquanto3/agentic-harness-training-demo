@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from wavestack import config
 from wavestack.session.effects import AuditAppend, Effect
-from wavestack.tools.native import _WEEKDAYS_FR, demo_relative
+from wavestack.tools.native import demo_relative, weekday
 from wavestack.tools.parser import ToolCall
 from wavestack.tools.registry import ToolError, ToolSpec
 from wavestack.trace.catalog import HookDecision, HookPoint
@@ -256,7 +256,7 @@ def audit(ctx: HookContext) -> HookResult | None:
 
 def date_fr(now: datetime) -> str:
     """« jeudi 24 septembre 2026, 10 h 12 »."""
-    day = f"{_WEEKDAYS_FR[now.weekday()]} {now.day} {_MONTHS_FR[now.month - 1]} {now.year}"
+    day = f"{weekday(now, 'fr')} {now.day} {_MONTHS_FR[now.month - 1]} {now.year}"
     return f"{day}, {now.hour} h {now.minute:02d}"
 
 

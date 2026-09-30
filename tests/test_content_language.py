@@ -359,7 +359,7 @@ def test_an_invalid_translated_programme_falls_back_on_french(marked):
     session = _session("de", ["Voilà."])
     events = get_journal().events_since(mark)
     errors = [e.payload["message_text"] for e in events if e.kind == "harness_error"]
-    assert errors == ["Un fichier traduit (de) sous content/i18n/de/ est invalide."]
+    assert errors == ["Eine übersetzte Datei (de) unter content/i18n/de/ ist ungültig."]
     program = _scenario_payloads(mark)[-1]["program"]
     titles = {s["id"]: s["title_text"] for m in program["modules"] for s in m["scenarios"]}
     assert titles["native_tools"] == "Outils natifs"

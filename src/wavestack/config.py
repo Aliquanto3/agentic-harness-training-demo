@@ -1084,7 +1084,7 @@ def content_file(rel: str | PurePosixPath, lang: str | None = None) -> Path:
 def clear_content_caches() -> None:
     """Forget every content a loader keeps (`@cache`): after a change of language, each is
     read again from its file in the new language. The session keeps the others itself."""
-    from wavestack import cloud, ui_texts
+    from wavestack import cloud, messages, ui_texts
     from wavestack.context import segments
     from wavestack.models import catalog
     from wavestack.rag import lab as rag_lab
@@ -1096,6 +1096,7 @@ def clear_content_caches() -> None:
     llm_lab.load_lab_content.cache_clear()  # type: ignore[attr-defined]
     rag_lab.load_lab_content.cache_clear()  # type: ignore[attr-defined]
     ui_texts.load_ui_texts.cache_clear()  # languages (2/5)
+    messages.clear_caches()  # languages (5/5)
 
 
 def models_dir() -> Path:

@@ -20,7 +20,7 @@ from test_mcp import enable, loop, mcp_session, wait_for  # noqa: F401 - fixture
 from test_tools import QWEN, _segments, call
 from test_turn import _run
 
-from wavestack import config
+from wavestack import config, messages
 from wavestack import hooks as hooks_module
 from wavestack import memory as memory_file
 from wavestack.bricks.contract import load_brick_content, load_default_system_prompt
@@ -221,6 +221,15 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     elif rel == "ui.yaml":  # languages (2/5): its parity key by key is in test_ui_texts
         fr, tr = load_ui_texts("fr"), load_ui_texts(lang)
         assert tr["common"]["language"] != fr["common"]["language"]
+    elif rel == "messages.yaml":  # languages (5/5): the same keys, the same variables
+        fr, tr = messages.load_messages("fr"), messages.load_messages(lang)
+        raw = messages.flatten(_yaml(rel, lang))
+        assert raw.keys() <= fr.keys()
+        for key, text in raw.items():
+            assert messages.variables(text) == messages.variables(fr[key]), key
+        assert (
+            tr["session.translation_invalid.message"] != fr["session.translation_invalid.message"]
+        )
     elif rel == "rag.yaml":  # languages (4/5): the same documents, their titles translated
         fr, tr = load_rag_content("fr"), load_rag_content(lang)
         assert [(d.id, d.file) for d in tr.documents] == [(d.id, d.file) for d in fr.documents]
@@ -493,7 +502,7 @@ def test_an_invalid_translation_falls_back_on_french(tmp_path, monkeypatch):
 
     errors = [e.payload for e in get_journal().events_since(mark) if e.kind == "harness_error"]
     assert [e["message_text"] for e in errors] == [
-        "Un fichier traduit (de) sous content/i18n/de/ est invalide."
+        "Eine übersetzte Datei (de) unter content/i18n/de/ ist ungültig."
     ]
     assert session._tools_content.tools["get_datetime"].label_text == "Heure et date"  # French
     assert session._hooks_content.points["on_turn_end"] == "Ende der Runde"  # German

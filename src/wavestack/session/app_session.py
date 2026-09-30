@@ -96,6 +96,7 @@ from wavestack.hooks import (
 )
 from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
+from wavestack.messages import load_messages, msg
 from wavestack.models import download as download_module
 from wavestack.models import embedding as embedding_module
 from wavestack.models import gguf_meta
@@ -173,7 +174,7 @@ from wavestack.session.effects import (
 from wavestack.skills import SkillsContent, SkillText, load_skills_content
 from wavestack.subagent import SubagentContent, load_subagent_content
 from wavestack.tools.executor import ToolExecutor
-from wavestack.tools.native import NATIVE_TOOLS, read_file
+from wavestack.tools.native import NATIVE_TOOLS, get_datetime, read_file
 from wavestack.tools.network import network_tools
 from wavestack.tools.parser import (
     Malformed,
@@ -1564,9 +1565,9 @@ class AppSession:
         except Exception as exc:  # noqa: BLE001 - AD-19: traced, then French
             content = load(*args, lang=config.DEFAULT_LANGUAGE)
             self._error(
-                f"Un fichier traduit ({lang}) sous content/i18n/{lang}/ est invalide.",
+                msg("session.translation_invalid.message", lang, lang=lang),
                 exc,
-                "Le texte français de ce fichier le remplace ; le reste de WaveStack fonctionne.",
+                msg("session.translation_invalid.effect", lang),
             )
             return content
 
@@ -2526,6 +2527,20 @@ class AppSession:
             if mine:
                 self._set_state(*previous)
 
+    def _load_messages(self) -> None:
+        """Languages (5/5): the backend's messages in the session's language, read once at
+        launch and at each change of language, so that an invalid translation is traced
+        once (`msg` then answers in French, silently)."""
+        try:
+            self._localized(load_messages)
+        except Exception as exc:  # noqa: BLE001 - the French catalogue itself: no text to use
+            self._error(
+                "Le fichier content/messages.yaml est absent ou invalide.",
+                exc,
+                "Les messages de WaveStack ne peuvent pas s'afficher ; corrigez le fichier, puis "
+                "relancez WaveStack.",
+            )
+
     def _load_labels(self) -> SegmentLabels:
         try:
             return self._localized(load_labels)
@@ -2539,6 +2554,7 @@ class AppSession:
 
     def _load_content(self) -> None:
         """AD-19: an invalid file makes its brick unavailable with the reason, never a crash."""
+        self._load_messages()
         for brick_id in self._bricks:
             try:
                 self._content[brick_id] = self._localized(load_brick_content, brick_id)
@@ -4356,12 +4372,14 @@ class AppSession:
     def _native_tools(self) -> list[ToolSpec]:
         """The native tools, `read_file` bound to the session's language (languages 3/5): it
         reads the demonstration file of the language current at each call."""
-        return [
-            replace(s, run=self._read_file) if s.name == "read_file" else s for s in NATIVE_TOOLS
-        ]
+        bound = {"read_file": self._read_file, "get_datetime": self._get_datetime}
+        return [replace(s, run=bound[s.name]) if s.name in bound else s for s in NATIVE_TOOLS]
 
     def _read_file(self, path: str) -> str:
         return read_file(path, self._language)
+
+    def _get_datetime(self) -> str:
+        return get_datetime(self._language)  # languages (5/5): the day in the session's
 
     def _harness_tools(self) -> list[ToolSpec]:
         """`load_tool_doc`, `load_skill` and `remember`, registered once; the turn state
@@ -5272,6 +5290,7 @@ class AppSession:
                 self._language = language
                 self._ui_texts = None  # never the former language's under the new code
             config.clear_content_caches()
+            self._load_messages()  # languages (5/5): traced once, in the new language
             self._reload_texts()
             if "rag" in self._bricks:  # languages (4/5): the new language's index and corpus
                 self._rag_refresh()

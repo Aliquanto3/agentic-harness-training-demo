@@ -17,6 +17,7 @@ from mcp_types import CallToolResult, TextContent  # noqa: E402
 
 from wavestack import config  # noqa: E402
 from wavestack.mcp.servers import load_local_tools  # noqa: E402
+from wavestack.messages import msg  # noqa: E402
 
 # Languages (1/5): the session names the language as the only argument (the process gets a
 # default environment, without the data dir); French when imported or without one.
@@ -52,7 +53,7 @@ def define_term(term: str) -> CallToolResult:
         if name.casefold() == wanted:
             return CallToolResult(content=[TextContent(type="text", text=f"{name} : {definition}")])
     known = ", ".join(glossary)
-    text = f"Terme inconnu du glossaire : « {term} ». Termes disponibles : {known}."
+    text = msg("mcp.glossary.unknown_term", LANGUAGE, term=term, known=known)
     return CallToolResult(content=[TextContent(type="text", text=text)], is_error=True)
 
 

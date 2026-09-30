@@ -8,14 +8,23 @@ from datetime import datetime
 from pathlib import Path, PurePath, PurePosixPath
 
 from wavestack import config
+from wavestack.messages import msg
 from wavestack.tools.registry import ToolError, ToolSpec
 
-_WEEKDAYS_FR = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+# Languages (5/5): the days from Monday, their names in `messages.yaml` (`tools.datetime`).
+_WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
 
-def get_datetime() -> str:
-    now = datetime.now().astimezone()  # the workstation's local time, no zone to choose
-    return f"{_WEEKDAYS_FR[now.weekday()]} {now.isoformat(timespec='seconds')}"
+def weekday(now: datetime, lang: str) -> str:
+    """The day of the week of `now` in `lang` (« mercredi », « Wednesday », « Mittwoch »)."""
+    return msg(f"tools.datetime.weekdays.{_WEEKDAYS[now.weekday()]}", lang)
+
+
+def get_datetime(lang: str = config.DEFAULT_LANGUAGE) -> str:
+    """The workstation's local time, no zone to choose, after its day in `lang` (the
+    session's, bound as `read_file` is)."""
+    now = datetime.now().astimezone()
+    return f"{weekday(now, lang)} {now.isoformat(timespec='seconds')}"
 
 
 # ---------- calculator: `ast` with a whitelist, never `eval` ----------

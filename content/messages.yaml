@@ -1,0 +1,29 @@
+# Languages (5/5, AD-19): the texts the backend writes, read by `msg(key, lang)`
+# (`src/wavestack/messages.py`). French here; English and German in
+# `content/i18n/{en,de}/messages.yaml`, same keys and, key by key, the same variables.
+# Keys in English, `snake_case`; `{name}` variables; a plural is a `{one, other}` pair.
+
+common:
+  # A text written elsewhere (a third party's error), kept in its language.
+  verbatim: "{text}"
+
+session:
+  translation_invalid:
+    message: "Un fichier traduit ({lang}) sous content/i18n/{lang}/ est invalide."
+    effect: "Le texte français de ce fichier le remplace ; le reste de WaveStack fonctionne."
+
+tools:
+  datetime:
+    # `get_datetime`: the day of the week before the ISO date, days from Monday.
+    weekdays:
+      monday: lundi
+      tuesday: mardi
+      wednesday: mercredi
+      thursday: jeudi
+      friday: vendredi
+      saturday: samedi
+      sunday: dimanche
+
+mcp:
+  glossary:
+    unknown_term: "Terme inconnu du glossaire : « {term} ». Termes disponibles : {known}."

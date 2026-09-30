@@ -287,7 +287,7 @@ def test_an_invalid_translation_gives_an_error_then_french(tmp_path, monkeypatch
     body = _client(session).get("/api/ui_texts").json()
     errors = [e.payload for e in get_journal().events_since(mark) if e.kind == "harness_error"]
     assert [e["message_text"] for e in errors] == [
-        "Un fichier traduit (de) sous content/i18n/de/ est invalide."
+        "Eine übersetzte Datei (de) unter content/i18n/de/ ist ungültig."
     ]
     assert body["language"] == "de" and body["texts"] == FRENCH
     session.close()

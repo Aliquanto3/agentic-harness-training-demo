@@ -1,0 +1,24 @@
+# Languages (5/5): English texts of `content/messages.yaml`, same keys and variables.
+
+common:
+  verbatim: "{text}"
+
+session:
+  translation_invalid:
+    message: "A translated file ({lang}) under content/i18n/{lang}/ is invalid."
+    effect: "The French text of this file replaces it; the rest of WaveStack works."
+
+tools:
+  datetime:
+    weekdays:
+      monday: Monday
+      tuesday: Tuesday
+      wednesday: Wednesday
+      thursday: Thursday
+      friday: Friday
+      saturday: Saturday
+      sunday: Sunday
+
+mcp:
+  glossary:
+    unknown_term: "Term not in the glossary: “{term}”. Available terms: {known}."

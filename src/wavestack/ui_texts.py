@@ -20,33 +20,39 @@ class UiTextsError(ValueError):
     """`ui.yaml` does not have the expected shape: the path of the first fault says where."""
 
 
-def _check(tree: Any, path: str) -> None:
+def check_tree(
+    tree: Any, path: str, name: str = "ui.yaml", error: type[Exception] = UiTextsError
+) -> None:
+    """A tree of non-empty sections whose leaves are non-empty strings; shared with
+    `messages.yaml` (languages 5/5), which names its file and its error."""
     if not isinstance(tree, dict) or not tree:
-        raise UiTextsError(f"{path or 'ui.yaml'} : une section non vide est attendue")
+        raise error(f"{path or name} : une section non vide est attendue")
     for key, value in tree.items():
         where = f"{path}.{key}" if path else str(key)
         if not isinstance(key, str) or not key:
-            raise UiTextsError(f"{where} : clé invalide")
+            raise error(f"{where} : clé invalide")
         if isinstance(value, dict):
-            _check(value, where)
+            check_tree(value, where, name, error)
         elif not isinstance(value, str) or not value.strip():
-            raise UiTextsError(f"{where} : un texte non vide est attendu")
+            raise error(f"{where} : un texte non vide est attendu")
 
 
-def _filled(french: UiTexts, translated: UiTexts, path: str = "") -> UiTexts:
+def filled_tree(
+    french: UiTexts, translated: UiTexts, path: str = "", error: type[Exception] = UiTextsError
+) -> UiTexts:
     """`translated` on the French tree: a key it lacks takes the French value; a section
     where French has a text (or the reverse), or a key French lacks, is an error."""
     for key in translated:
         if key not in french:
-            raise UiTextsError(f"{path}{key} : clé absente du français")
+            raise error(f"{path}{key} : clé absente du français")
     filled: UiTexts = {}
     for key, value in french.items():
         if key not in translated:
             filled[key] = value
         elif isinstance(value, dict) != isinstance(translated[key], dict):
-            raise UiTextsError(f"{path}{key} : pas la même forme qu'en français")
+            raise error(f"{path}{key} : pas la même forme qu'en français")
         elif isinstance(value, dict):
-            filled[key] = _filled(value, translated[key], f"{path}{key}.")
+            filled[key] = filled_tree(value, translated[key], f"{path}{key}.", error)
         else:
             filled[key] = translated[key]
     return filled
@@ -55,7 +61,7 @@ def _filled(french: UiTexts, translated: UiTexts, path: str = "") -> UiTexts:
 def _read(lang: str) -> UiTexts:
     path = config.content_file("ui.yaml", lang)
     tree = yaml.safe_load(path.read_text(encoding="utf-8"))
-    _check(tree, "")
+    check_tree(tree, "")
     return tree
 
 
@@ -68,4 +74,4 @@ def load_ui_texts(lang: str | None = None) -> UiTexts:
     french = _read(config.DEFAULT_LANGUAGE)
     if lang == config.DEFAULT_LANGUAGE:
         return french
-    return _filled(french, _read(lang))
+    return filled_tree(french, _read(lang))

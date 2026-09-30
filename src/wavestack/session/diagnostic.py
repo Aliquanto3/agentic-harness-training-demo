@@ -43,6 +43,7 @@ from wavestack.config import CloudModel
 from wavestack.config import mo_fr as _mo
 from wavestack.context.render import render_chat_body
 from wavestack.context.segments import Part, SegmentKind
+from wavestack.messages import msg
 from wavestack.models import discovery, probe
 from wavestack.models.engine import CancelToken
 from wavestack.models.load_registry import ModelChoice
@@ -868,14 +869,9 @@ class DiagnosticSession:
                 get_journal().emit(
                     "harness_error",
                     {
-                        "message_text": (
-                            f"Un fichier traduit ({lang}) sous content/i18n/{lang}/ est invalide."
-                        ),
+                        "message_text": msg("session.translation_invalid.message", lang, lang=lang),
                         "cause": str(exc),
-                        "effect_text": (
-                            "Le texte français de ce fichier le remplace ; le reste de WaveStack "
-                            "fonctionne."
-                        ),
+                        "effect_text": msg("session.translation_invalid.effect", lang),
                     },
                 )
         try:
