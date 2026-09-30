@@ -1,0 +1,25 @@
+# German translation of content/bricks/reasoning.yaml (languages 3/5, AD-19): same fields,
+# same paragraphs and lists.
+label_text: Denkprozess
+category_text: Prompt Engineering
+hosting_text: Lokal
+explanation_text:
+  - >-
+    Manche Modelle können „laut denken“, bevor sie antworten: Sie schreiben zuerst einen
+    Denkprozess, dann die Antwort. Der Harness schaltet diesen Modus lokal über eine
+    Variable der Chat-Vorlage ein, in der Cloud über einen Parameter der Anfrage.
+  - >-
+    Der Denkprozess ist im LLM-Kontext immer sichtbar. In der Nutzeransicht zeigt oder
+    verbirgt ihn die Option „Denkprozess anzeigen“, wie es Chatbots tun.
+  - - "Nutzen: oft genauere Antworten bei einer Rechnung oder einem Problem in mehreren Schritten."
+    - >-
+      Kosten: mehr Ausgabe-Tokens, also mehr Zeit. Die Ausgabereserve steigt von 512 auf
+      1.536 Tokens, was weniger Platz für den Kontext lässt. Lokal teilen sich diese 1.536
+      Tokens auf das Nachdenken, bis zum Denkbudget (standardmäßig 768 Tokens, Einstellung
+      [reasoning] budget_tokens, lokal), und die Antwort auf: Ein Nachdenken, das dieses
+      Budget erreicht, ohne sich zu schließen, wird vom Harness geschlossen, und der Rest
+      der Reserve geht an die Antwort.
+  - >-
+    Nicht verfügbar, wenn das aktive Modell keinen Denkprozess beherrscht. Manche
+    Cloud-Modelle denken immer nach: Der Baustein zeigt dann „Von diesem Modell
+    vorgegeben“.

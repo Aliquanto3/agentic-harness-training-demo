@@ -1,6 +1,6 @@
 ---
 name: working_days
-label_fr: Arbeitstage
+label_text: Arbeitstage
 description: Die Arbeitstage eines Zeitraums mit den Tools get_datetime, public_holidays (Netzwerk) und calculator zählen. Laden, wenn der Benutzer fragt, wie viele Arbeits- oder Werktage ein Zeitraum hat.
 ---
 Zähle die Arbeitstage (Montag bis Freitag, ohne Feiertage) eines Zeitraums, in drei Schritten, in dieser Reihenfolge.

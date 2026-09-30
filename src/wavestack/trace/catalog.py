@@ -22,8 +22,8 @@ class DiagnosticCheckPayload(BaseModel):
     # `cloud`: an invalid or unusable cloud declaration; `cloud_test`: « Tester » (story 11).
     check: Literal["memory", "model", "network", "port", "cloud", "cloud_test"]
     status: Literal["ok", "warn", "fail"]
-    message_fr: str
-    action_fr: str | None = None
+    message_text: str
+    action_text: str | None = None
     blocking: bool
     # Story 11, `cloud_test`: the model tested, its answer, the tool call received, the rate.
     model_id: str | None = None
@@ -51,11 +51,11 @@ class OutboundRequestPayload(BaseModel):
 
 
 class HarnessErrorPayload(BaseModel):
-    message_fr: str
+    message_text: str
     cause: str | None = None
-    effect_fr: str | None = None
+    effect_text: str | None = None
     # AD-16, a cloud provider's outcome: what to try, and the figures built in Python.
-    hints_fr: list[str] = []
+    hints_text: list[str] = []
     http_status: int | None = None
     retry_after_s: float | None = None
     quota_scope: Literal["second", "minute", "day", "unknown"] | None = None
@@ -83,8 +83,8 @@ class ActiveModel(BaseModel):
     hosting: Literal["local", "network"]
     provider: str | None = None
     disclosure: dict[str, object] | None = None
-    warning_fr: str | None = None  # the `cloud-warning`'s text, the indicator's tooltip
-    banner_fr: str | None = None  # Contexte LLM's banner (chat mode)
+    warning_text: str | None = None  # the `cloud-warning`'s text, the indicator's tooltip
+    banner_text: str | None = None  # Contexte LLM's banner (chat mode)
     # Story 17: which entry of the model lists is active: a file (`ref`: its path) or a
     # cloud model (`ref`: its `id`); story 18: a served model (`ref`: `ollama/{name}` or
     # `llama_server/{file}`), `provider` its server, `server_url` its loopback address.
@@ -95,7 +95,7 @@ class ActiveModel(BaseModel):
 
 class SessionStatePayload(BaseModel):
     state: SessionState
-    reason_fr: str | None = None
+    reason_text: str | None = None
     active_model: ActiveModel | None = None
     # Languages (1/5): the application session's language, and whether the conversation
     # locks it; absent from the diagnostic session's states.
@@ -112,10 +112,10 @@ class ArchitectureNode(BaseModel):
     id: str
     kind: Literal["harness", "model", "brick", "tool", "file", "mcp_server", "skill", "hook"]
     hosting: Literal["local", "network"]
-    label_fr: str
+    label_text: str
     wanted: bool
     available: bool
-    reason_fr: str | None = None
+    reason_text: str | None = None
     # Network tools: the state left by the last call actually sent. MCP servers: the
     # state of their connection (AD-12).
     contact: Literal["not_contacted", "available", "unavailable"] | None = None
@@ -129,10 +129,10 @@ class ArchitectureNode(BaseModel):
     # Skills (story 7): loaded in the conversation or not. Any node: what its tooltip adds
     # (a skill's or a hook's description, the audit log's path).
     loaded: bool | None = None
-    detail_fr: str | None = None
+    detail_text: str | None = None
     # Story 34, network nodes (tools, public MCP servers): what the harness sends there, in
     # French, from `content/` (AD-19); the outbound summary under the schema quotes it.
-    sends_fr: str | None = None
+    sends_text: str | None = None
 
 
 class ArchitectureEdge(BaseModel):
@@ -198,7 +198,7 @@ class CompressedFromPayload(BaseModel):
 class SegmentPayload(BaseModel):
     id: str
     kind: str
-    label_fr: str
+    label_text: str
     brick: str | None = None
     component: str | None = None
     text: str
@@ -212,7 +212,7 @@ class SegmentPayload(BaseModel):
 
 class BreakdownItem(BaseModel):
     group: str
-    label_fr: str
+    label_text: str
     tokens: int
     kinds: list[str]
     discipline: Discipline = "neutral"  # story 33: its first segment's
@@ -235,7 +235,7 @@ class ContextSection(BaseModel):
     start: int
     end: int
     kind: str
-    label_fr: str
+    label_text: str
     brick: str | None = None
     discipline: Discipline = "neutral"
     tokens: int
@@ -267,7 +267,7 @@ class ContextWindowPayload(BaseModel):
     # that only exceeds `usable` once corrected.
     body: str | None = None
     usage_source: Literal["engine", "api", "estimate"] = "engine"
-    uncertain_fr: str | None = None
+    uncertain_text: str | None = None
     # Story 20: the total if the compressed segments were not, computed by the session.
     uncompressed_used: int | None = None
     # Story 33: tokens per brick, in order of first appearance, segments without a brick left
@@ -289,22 +289,22 @@ class ContextReconciledPayload(ContextWindowPayload):
 class WindowChoicePayload(BaseModel):
     """Story 26 (AD-9): one window the panel offers, with what it would cost the active
     model, every figure and text computed by the session (AD-1). `effective`: the window the
-    model would get (bounded by `source`, `bound_fr` says so); `kv_bytes`: its KV cache at
+    model would get (bounded by `source`, `bound_text` says so); `kv_bytes`: its KV cache at
     `effective` (f16, an upper bound), `null` when unknown or not on this workstation;
     `read_s`: a full window's read at the measured rate (a lower bound), `null` when not
-    measured; `fits`: within the memory budget (AD-8), else `refusal_fr`; `current`: the
+    measured; `fits`: within the memory budget (AD-8), else `refusal_text`; `current`: the
     window configured now."""
 
     window: int
     effective: int
     source: WindowSource
-    bound_fr: str | None = None
+    bound_text: str | None = None
     kv_bytes: int | None = None
-    kv_fr: str
+    kv_text: str
     read_s: float | None = None
-    read_fr: str
+    read_text: str
     fits: bool
-    refusal_fr: str | None = None
+    refusal_text: str | None = None
     current: bool
 
 
@@ -312,27 +312,27 @@ class ContextWindowStatePayload(BaseModel):
     """Story 26 (AD-2, AD-9): the context window as the session holds it and the choices the
     interface offers. `configured`: the window chosen (or read at launch); `window` and
     `window_source`: the active model's effective one; `hosting`: the active model's kind;
-    `read_tps`: its measured read rate (local or served); `locked_fr`: why no window can be
+    `read_tps`: its measured read rate (local or served); `locked_text`: why no window can be
     applied (a cloud model's declared `window`)."""
 
     configured: int
     default: int
     window: int
     window_source: WindowSource
-    bound_fr: str | None = None
+    bound_text: str | None = None
     model_label: str | None = None
     hosting: Literal["file", "server", "cloud"] | None = None
     read_tps: float | None = None
-    read_note_fr: str
-    locked_fr: str | None = None
+    read_note_text: str
+    locked_text: str | None = None
     choices: list[WindowChoicePayload]
 
 
 class ContextOverflowPayload(BaseModel):
     used: int
     usable: int
-    message_fr: str
-    strategies_fr: list[str]
+    message_text: str
+    strategies_text: list[str]
 
 
 class OutputTruncatedPayload(BaseModel):
@@ -349,20 +349,20 @@ class ReasoningCutPayload(BaseModel):
     budget: int
     reasoning_tokens: int
     answer_reserve: int
-    message_fr: str
+    message_text: str
 
 
 class SamplingTrace(BaseModel):
     """Story 29: the sampling a call sends, each value `None` when it is not sent; `source`:
     the harness's defaults (`harness`), the « LLM nu » screen's (`screen`), or the
-    provider's own, nothing sent (`provider`); `note_fr` what could not be set."""
+    provider's own, nothing sent (`provider`); `note_text` what could not be set."""
 
     temperature: float | None = None
     top_k: int | None = None
     top_p: float | None = None
     min_p: float | None = None
     source: Literal["harness", "screen", "provider"]
-    note_fr: str | None = None
+    note_text: str | None = None
 
 
 class ModelCallStartedPayload(BaseModel):
@@ -402,13 +402,13 @@ class ModelCallEndedPayload(BaseModel):
     cost_source: Literal["api", "estimate"] | None = None
     # GreenOps: the call's estimated footprint, in Wh and g CO₂e, as a range (min = max for
     # a single value): EcoLogits for a cloud call whose entry declares `impacts`, CodeCarbon
-    # for a local one. `impact_note_fr`: the method and its limits, or why there is none.
+    # for a local one. `impact_note_text`: the method and its limits, or why there is none.
     energy_wh_min: float | None = None
     energy_wh_max: float | None = None
     gco2e_min: float | None = None
     gco2e_max: float | None = None
     impact_method: Literal["ecologits", "codecarbon"] | None = None
-    impact_note_fr: str | None = None
+    impact_note_text: str | None = None
 
 
 class ConsumptionUpdatedPayload(BaseModel):
@@ -435,7 +435,7 @@ class ConsumptionUpdatedPayload(BaseModel):
 class SpecialTokenNeutralizedPayload(BaseModel):
     segment_kind: str
     tokens: list[str]
-    message_fr: str
+    message_text: str
 
 
 # ---------- story 4: bricks, system prompt, conversation (AD-3, AD-12, AD-17) ----------
@@ -444,7 +444,7 @@ class SpecialTokenNeutralizedPayload(BaseModel):
 class ToolPresetState(BaseModel):
     """A preset of a forced tool call's arguments (story 9), from `content/tools.yaml`."""
 
-    label_fr: str
+    label_text: str
     args: dict[str, object]
 
 
@@ -461,9 +461,9 @@ class BrickOption(BaseModel):
     """A sub-option of a brick card (story 5: one native tool)."""
 
     id: str
-    label_fr: str
+    label_text: str
     enabled: bool
-    hosting_fr: str
+    hosting_text: str
     network: bool
     # Story 9, tools: the parameters of a forced call (name -> French description, in the
     # call's order) and the presets that fill its form.
@@ -481,7 +481,7 @@ class BrickForce(BaseModel):
 
     kind: Literal["delegate"]
     target: str
-    label_fr: str
+    label_text: str
     parameters: dict[str, str]
     presets: list[ToolPresetState] = []
 
@@ -490,24 +490,24 @@ class DownloadOffer(BaseModel):
     """Story 15: « Télécharger » on a brick card, its target and its label (size included)."""
 
     target: Literal["rag_embedding", "rag_reranker"]  # story 16: the reranking model
-    label_fr: str
+    label_text: str
 
 
 class IndexBuildOffer(BaseModel):
     """Story 15: « Construire l'index » on the RAG card, once its model is there."""
 
-    label_fr: str
+    label_text: str
 
 
 class RerankOption(BaseModel):
     """Story 16, `rag` brick: the reranking sub-option, its availability computed by the
     session, and « Télécharger » while its model's files are missing (AD-21)."""
 
-    label_fr: str
+    label_text: str
     enabled: bool
     available: bool
-    reason_fr: str | None = None
-    hosting_fr: str
+    reason_text: str | None = None
+    hosting_text: str
     download: DownloadOffer | None = None
 
 
@@ -515,30 +515,30 @@ class BrickState(BaseModel):
     """One brick card: its content, and `available`/`pending` as computed by the session."""
 
     id: str
-    label_fr: str
+    label_text: str
     category: Literal["prompt", "context", "harness"]
     # Story 33: « Ce que le modèle lit » (`reads`) or « Ce que le harnais fait » (`acts`).
     group: Literal["reads", "acts"] | None = None
-    category_fr: str
-    hosting_fr: str
-    explanation_fr: list[str | list[str]]
+    category_text: str
+    hosting_text: str
+    explanation_text: list[str | list[str]]
     wanted: bool
     available: bool
-    reason_fr: str | None = None
+    reason_text: str | None = None
     pending: bool
     options: list[BrickOption] = []
-    limits_fr: str | None = None
+    limits_text: str | None = None
     # Story 6b, `mcp` brick only: documentation complète or lazy loading (AD-25).
     mode: Literal["full", "lazy"] | None = None
-    lazy_label_fr: str | None = None
+    lazy_label_text: str | None = None
     # Story 13, `reasoning` brick only: the model always reasons, whatever the switch says.
-    always_fr: str | None = None
+    always_text: str | None = None
     # Story 14, `global_memory` brick: what the card adds (e.g. no tool parser, AD-6).
-    note_fr: str | None = None
+    note_text: str | None = None
     # Story 14, `global_memory` brick: the empty drawer's text and the forced write's help
     # (AD-19), which depend on the model's tool parser.
-    empty_fr: str | None = None
-    text_help_fr: str | None = None
+    empty_text: str | None = None
+    text_help_text: str | None = None
     # Story 19, `subagent` brick only: « Déléguer au sous-agent », on the card itself.
     force: BrickForce | None = None
     # Story 15, `rag` brick: offered when the embedding model's files are missing (AD-21).
@@ -547,7 +547,7 @@ class BrickState(BaseModel):
     # Story 16, `rag` brick: the reranking sub-option (None: no RAG content).
     rerank: RerankOption | None = None
     # Story 23, `tools` and `mcp` bricks: what leaves the workstation and where to read it.
-    outbound_fr: str | None = None
+    outbound_text: str | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -586,7 +586,7 @@ class ToolResultTruncated(BaseModel):
 class ToolEndedPayload(BaseModel):
     status: Literal["ok", "error", "blocked", "limit", "overflow", "cancelled"]
     result: str | None = None
-    error_fr: str | None = None
+    error_text: str | None = None
     duration_ms: int
     truncated: ToolResultTruncated | None = None
 
@@ -594,13 +594,13 @@ class ToolEndedPayload(BaseModel):
 class ToolCallMalformedPayload(BaseModel):
     raw: str
     fragment: str
-    detail_fr: str
+    detail_text: str
     reaction: Literal["retry", "stop"]
 
 
 class LimitReachedPayload(BaseModel):
     limit: Literal["calls", "retries", "sub_calls", "sub_retries"]
-    message_fr: str
+    message_text: str
 
 
 # Lot A (AD-4): why the engine reads again. `in_turn`: call n+1 does not extend call n and
@@ -624,7 +624,7 @@ PrefixCause = Literal[
 
 class PrefixNotReusedPayload(BaseModel):
     common_tokens: int
-    message_fr: str
+    message_text: str
     cause: PrefixCause = "in_turn"
 
 
@@ -640,7 +640,7 @@ class McpConnectEndedPayload(BaseModel):
     server: str
     status: Literal["ok", "error"]
     tools: list[str]
-    error_fr: str | None = None
+    error_text: str | None = None
     duration_ms: int
 
 
@@ -658,10 +658,10 @@ class HookDecidedPayload(BaseModel):
     hook: str
     point: HookPoint
     decision: HookDecision
-    detail_fr: str
+    detail_text: str
     # French labels from content/hooks.yaml, so the front formats without a table (AD-1).
-    hook_fr: str
-    point_fr: str
+    hook_text: str
+    point_text: str
 
 
 class EffectAppliedPayload(BaseModel):
@@ -720,7 +720,7 @@ class ArmedActionState(BaseModel):
     brick: str
     target: str
     args: dict[str, object] = {}
-    label_fr: str
+    label_text: str
 
 
 class ArmedActionsChangedPayload(BaseModel):
@@ -729,7 +729,7 @@ class ArmedActionsChangedPayload(BaseModel):
 
 class ActionDroppedPayload(BaseModel):
     armed_id: str
-    reason_fr: str
+    reason_text: str
 
 
 # ---------- story 10: scenarios, programme, reset (AD-19, FR-38, FR-39) ----------
@@ -737,13 +737,13 @@ class ActionDroppedPayload(BaseModel):
 
 class ScenarioEntry(BaseModel):
     id: str
-    title_fr: str
-    description_fr: str
+    title_text: str
+    description_text: str
     prompts: list[str]
 
 
 class ProgramModule(BaseModel):
-    title_fr: str
+    title_text: str
     duration_min: int
     scenarios: list[ScenarioEntry]
 
@@ -757,8 +757,8 @@ class UnavailableBrick(BaseModel):
     """Lot E (E5): a brick the active scenario wants and the active model cannot offer."""
 
     brick: str
-    label_fr: str
-    reason_fr: str
+    label_text: str
+    reason_text: str
 
 
 class ScenarioChangedPayload(BaseModel):
@@ -800,7 +800,7 @@ class MemoryChangedPayload(BaseModel):
     entries: list[MemoryEntryState]
     path: str
     # Unreadable or invalid `memory.json`: why the brick is unavailable, until a reset.
-    error_fr: str | None = None
+    error_text: str | None = None
     # The limits the drawer and the forced write apply (AD-19: from the session).
     max_entries: int
     max_chars: int
@@ -815,7 +815,7 @@ class ServerCacheUsedPayload(BaseModel):
 
     prompt_tokens: int
     evaluated_tokens: int
-    message_fr: str
+    message_text: str
 
 
 class ModelLoadStartedPayload(BaseModel):
@@ -832,12 +832,12 @@ class ModelLoadStartedPayload(BaseModel):
 class ModelLoadEndedPayload(BaseModel):
     """`ok`: the model is active; `restored`: it failed and the previous one is active again;
     `cancelled` (lot E): « Arrêter » stopped it, the previous one is active again (or none,
-    when there was none, `reason_fr` says it); `error`: no model is active."""
+    when there was none, `reason_text` says it); `error`: no model is active."""
 
     model: ActiveModel  # the model that was being loaded
     status: Literal["ok", "restored", "cancelled", "error"]
     duration_ms: int
-    reason_fr: str | None = None
+    reason_text: str | None = None
     # Story 29: the memory the load took, on `ok` (the « LLM nu » screen shows it).
     memory: LoadMemory | None = None
 
@@ -849,7 +849,7 @@ class LoadMemory(BaseModel):
     rss_before: int | None = None
     rss_after: int | None = None
     cost_bytes: int = 0
-    where_fr: str
+    where_text: str
 
 
 class ModelLoadStepPayload(BaseModel):
@@ -859,7 +859,7 @@ class ModelLoadStepPayload(BaseModel):
 
     model: ActiveModel
     step: Literal["release", "probe", "check", "engine", "ready"]
-    label_fr: str
+    label_text: str
     elapsed_ms: int
     duration_ms: int = 0
     rss_bytes: int | None = None
@@ -909,7 +909,7 @@ class RagExcerpt(BaseModel):
     position: int  # rank, from 1
     chunk_id: int
     doc_id: str
-    title_fr: str
+    title_text: str
     text: str
     score: float  # 1 − cosine distance, 3 decimals
 
@@ -923,11 +923,11 @@ class RagSearchStartedPayload(BaseModel):
 class RagSearchEndedPayload(BaseModel):
     status: Literal["ok", "error"]
     excerpts: list[RagExcerpt]
-    placement_fr: str  # where the excerpts go in the context
-    error_fr: str | None = None
+    placement_text: str  # where the excerpts go in the context
+    error_text: str | None = None
     duration_ms: int
     # Story 16: the reranking enabled but not applied to this turn, and why.
-    rerank_skipped_fr: str | None = None
+    rerank_skipped_text: str | None = None
 
 
 # ---------- story 16: reranking (AD-2, AD-22) ----------
@@ -938,7 +938,7 @@ class RerankedExcerpt(BaseModel):
     before: int  # rank given by the embedding search, from 1
     chunk_id: int
     doc_id: str
-    title_fr: str  # the text is the search's, found by `chunk_id`
+    title_text: str  # the text is the search's, found by `chunk_id`
     score: float  # the reranker's, 0 to 1, 3 decimals
     retrieval_score: float  # the embedding search's
     truncated: bool = False  # cut to fit the reranker's pair (`[rag.reranker] max_tokens`)
@@ -960,8 +960,8 @@ class RagRerankEndedPayload(BaseModel):
     status: Literal["ok", "error", "cancelled"]
     excerpts: list[RerankedExcerpt]  # every candidate, in the reranker's order
     keep: int  # the first `keep` go to the context
-    placement_fr: str
-    error_fr: str | None = None
+    placement_text: str
+    error_text: str | None = None
     duration_ms: int
 
 
@@ -971,7 +971,7 @@ class RagRerankEndedPayload(BaseModel):
 class CompressionItem(BaseModel):
     """One candidate of a compression step: a tool result or a RAG excerpt."""
 
-    source_fr: str  # « Résultat de l'outil « read_file » », « Extrait RAG n° 2 »
+    source_text: str  # « Résultat de l'outil « read_file » », « Extrait RAG n° 2 »
     kind: Literal["tool_result", "rag_excerpt"]
     brick: str | None = None
     component: str | None = None
@@ -981,26 +981,26 @@ class CompressionItem(BaseModel):
     text_after: str | None = None  # only when `changed`: else the text before goes on
     changed: bool  # false: the compressor left it as it was (or did not shorten it)
     transforms: list[str] = []
-    error_fr: str | None = None
+    error_text: str | None = None
 
 
 class CompressionStartedPayload(BaseModel):
     phase_label: str
-    title_fr: str  # the step's title, « Compression (Headroom) » (content/compression.yaml)
+    title_text: str  # the step's title, « Compression (Headroom) » (content/compression.yaml)
     items: int  # candidates given to the compressor
-    compressor_fr: str
+    compressor_text: str
 
 
 class CompressionEndedPayload(BaseModel):
     status: Literal["ok", "error"]
-    compressor_fr: str
+    compressor_text: str
     items: list[CompressionItem]
     tokens_before: int
     tokens_after: int
     saved_tokens: int
     estimated: bool = False  # chat mode: tokens estimated (AD-4)
-    unchanged_fr: str  # why a candidate may come back as it was (content/compression.yaml)
-    error_fr: str | None = None
+    unchanged_text: str  # why a candidate may come back as it was (content/compression.yaml)
+    error_text: str | None = None
     duration_ms: int
 
 
@@ -1026,8 +1026,8 @@ class LlmDimensions(BaseModel):
     head_count: int | None = None
     context_length: int | None = None
     embedding_params: int | None = None
-    figures_fr: dict[str, str | None] = {}
-    source_fr: str
+    figures_text: dict[str, str | None] = {}
+    source_text: str
 
 
 class LlmTokenizedPayload(BaseModel):
@@ -1041,17 +1041,17 @@ class LlmTokenizedPayload(BaseModel):
     model_label: str
     hosting: Literal["local", "network"]
     exact: bool
-    tokenizer_fr: str
+    tokenizer_text: str
     tokens: list[LlmToken]
     token_count: int | None = None
     more: int = 0
     estimate: int | None = None
     chars_per_token: float | None = None  # the estimate's ratio (AD-4, chat mode)
-    unavailable_fr: str | None = None
+    unavailable_text: str | None = None
     dimensions: LlmDimensions | None = None
-    dimensions_fr: str
+    dimensions_text: str
     # The counts in French (« 1 004 »), written by the session: the page places them.
-    figures_fr: dict[str, str] = {}
+    figures_text: dict[str, str] = {}
 
 
 class LlmGenerationStartedPayload(BaseModel):
@@ -1071,7 +1071,7 @@ class LlmGenerationStartedPayload(BaseModel):
     # What one `llm_token` is: a token of the in-process engine, or a fragment of a server's
     # or a provider's stream (usually one token, not always).
     unit: Literal["token", "fragment"] = "token"
-    figures_fr: dict[str, str] = {}
+    figures_text: dict[str, str] = {}
 
 
 class LlmTokenPart(BaseModel):
@@ -1118,8 +1118,8 @@ class LlmGenerationEndedPayload(BaseModel):
     read_tps: float | None = None
     reasoning_tokens: int = 0
     answer_tokens: int = 0
-    message_fr: str | None = None
-    figures_fr: dict[str, str] = {}
+    message_text: str | None = None
+    figures_text: dict[str, str] = {}
 
 
 # ---------- story 30: the RAG workshop (AD-2, AD-22), context `rag_lab`, no turn ----------
@@ -1135,14 +1135,14 @@ class RagLabStageRef(BaseModel):
     stage_id: str
     kind: str
     option: str
-    label_fr: str
-    option_label_fr: str
+    label_text: str
+    option_label_text: str
     params: dict[str, int] = {}
 
 
 class RagLabLane(BaseModel):
     lane: RagLabLaneId
-    label_fr: str
+    label_text: str
     stages: list[RagLabStageRef]
 
 
@@ -1173,8 +1173,8 @@ class RagLabStageProgressPayload(BaseModel):
 
 
 class RagLabFact(BaseModel):
-    label_fr: str
-    value_fr: str
+    label_text: str
+    value_text: str
 
 
 class RagLabSource(BaseModel):
@@ -1182,7 +1182,7 @@ class RagLabSource(BaseModel):
     reranking), and its score there."""
 
     kind: str
-    label_fr: str
+    label_text: str
     rank: int | None = None
     score: float | None = None
 
@@ -1192,7 +1192,7 @@ class RagLabItem(BaseModel):
     before: int | None = None  # its rank in the list the stage received
     chunk_id: int
     doc_id: str
-    title_fr: str
+    title_text: str
     text: str
     score: float | None = None  # this stage's, 3 decimals
     sources: list[RagLabSource] = []
@@ -1208,21 +1208,21 @@ class RagLabStageEndedPayload(BaseModel):
     kind: str
     option: str
     status: RagLabStageStatus
-    input_fr: str = ""
-    output_fr: str = ""
+    input_text: str = ""
+    output_text: str = ""
     facts: list[RagLabFact] = []
     items: list[RagLabItem] = []
     borrowed: bool = False  # the model was the RAG brick's, lent and not closed
-    error_fr: str | None = None
+    error_text: str | None = None
     duration_ms: int
     rss_bytes: int | None = None
-    memory_fr: str | None = None
+    memory_text: str | None = None
 
 
 class RagLabCompared(BaseModel):
     key: str  # an excerpt (`doc_id#position`) or a document (`doc_id`)
     doc_id: str
-    title_fr: str
+    title_text: str
     rank_a: int | None = None
     rank_b: int | None = None
 
@@ -1236,7 +1236,7 @@ class RagLabComparison(BaseModel):
     only_a: list[RagLabCompared]
     only_b: list[RagLabCompared]
     rank_changes: list[RagLabCompared]
-    summary_fr: str
+    summary_text: str
 
 
 class RagLabRunEndedPayload(BaseModel):

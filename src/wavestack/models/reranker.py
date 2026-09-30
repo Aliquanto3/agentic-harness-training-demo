@@ -17,6 +17,7 @@ from typing import NamedTuple, Protocol
 
 from wavestack import config
 from wavestack.config import RerankerModel
+from wavestack.messages import KeyedError
 
 
 class RerankScore(NamedTuple):
@@ -46,6 +47,11 @@ class Reranker(Protocol):
 
 class RerankCancelled(Exception):
     """« Arrêter » between two excerpts."""
+
+
+class RerankerRefused(KeyedError, ValueError):
+    """A reranking model that cannot serve (a `ValueError`, as before): keyed (languages
+    5/5), `str()` the French, `render(lang)` the session's language."""
 
 
 def sigmoid(logit: float) -> float:
@@ -130,25 +136,16 @@ class LlamaCppReranker:
         declared = meta.get(f"{meta.get('general.architecture', '')}.pooling_type")
         if declared is not None and str(declared) != str(int(llama_cpp.LLAMA_POOLING_TYPE_RANK)):
             self.close()
-            raise ValueError(
-                f"le fichier déclare le pooling {declared} dans ses métadonnées GGUF, pas RANK "
-                "(4) : c'est un modèle d'embedding, pas un modèle de reranking"
-            )
+            raise RerankerRefused("models.reranker.embedding_pooling", pooling=declared)
         try:
             self._bos, self._eos, self._sep = special_tokens(llama_cpp, self._llm)
             probe = self._logit("Exemplia", "Politique des mots de passe")[0]
         except Exception as exc:  # noqa: BLE001 - said in French, below
             self.close()
-            raise ValueError(
-                f"le modèle ne note pas une paire question-extrait ({type(exc).__name__}) : "
-                "ce n'est pas un modèle de reranking en pooling RANK"
-            ) from exc
+            raise RerankerRefused("models.reranker.no_score", kind=type(exc).__name__) from exc
         if not math.isfinite(probe):
             self.close()
-            raise ValueError(
-                "le modèle rend un score non fini pour une paire question-extrait : ce n'est "
-                "pas un modèle de reranking utilisable"
-            )
+            raise RerankerRefused("models.reranker.not_finite")
 
     def _tokens(self, text: str) -> list[int]:
         return self._llm.tokenize(text.encode("utf-8"), add_bos=False, special=False)

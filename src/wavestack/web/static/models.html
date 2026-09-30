@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <script src="/static/theme.js"></script>
-  <title>WaveStack — Modèles disponibles</title>
+  <script type="module" src="/static/i18n.js"></script>
+  <title data-i18n="models.page_title">WaveStack — Modèles disponibles</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
@@ -109,26 +110,26 @@
   </style>
 </head>
 <body>
-  <nav class="page-tabs" aria-label="Pages de WaveStack">
+  <nav class="page-tabs" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
     <a href="/diagnostic">Diagnostic</a>
     <a href="/models" aria-current="page">Modèles</a>
     <a href="/llm">LLM nu</a>
     <a href="/rag">Atelier RAG</a>
     <!-- Shown once the diagnostic is ready (`ready`), as on the diagnostic page. -->
     <a href="/" id="open-link" hidden>Ouvrir WaveStack</a>
-    <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" title="Thème de l'interface">
-      <option value="system">◐ Système</option>
-      <option value="light">☀ Clair</option>
-      <option value="dark">☾ Sombre</option>
+    <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
+      <option value="system" data-i18n="common.theme.system">◐ Système</option>
+      <option value="light" data-i18n="common.theme.light">☀ Clair</option>
+      <option value="dark" data-i18n="common.theme.dark">☾ Sombre</option>
     </select>
   </nav>
   <main>
-    <h1>Modèles disponibles</h1>
+    <h1 data-i18n="models.title">Modèles disponibles</h1>
     <p id="publishers-error" class="models-error" role="alert" hidden></p>
     <p id="models-legend" class="models-legend"></p>
-    <p id="models-status" role="status">Chargement de la liste des modèles…</p>
+    <p id="models-status" role="status" data-i18n="models.loading">Chargement de la liste des modèles…</p>
     <table id="models-table" class="model-table" hidden>
-      <caption>Modèles trouvés au dernier diagnostic, par lieu d'hébergement puis par éditeur, du plus petit au plus grand ; tailles en paramètres (B : milliards) et en octets (1 Go = 1024³ octets, 1 Mo = 1024² octets)</caption>
+      <caption data-i18n="models.caption">Modèles trouvés au dernier diagnostic, par lieu d'hébergement puis par éditeur, du plus petit au plus grand ; tailles en paramètres (B : milliards) et en octets (1 Go = 1024³ octets, 1 Mo = 1024² octets)</caption>
       <thead>
         <tr>
           <th scope="col">Modèle</th>
@@ -143,10 +144,18 @@
         </tr>
       </thead>
     </table>
-    <p class="models-note">Capacités lues comme au chargement : mêmes règles que les cartes des briques.</p>
+    <p class="models-note" data-i18n="models.note">Capacités lues comme au chargement : mêmes règles que les cartes des briques.</p>
   </main>
 
   <script type="module">
+    // Languages (4/5): the page's texts come from `content/ui.yaml` (section `models`)
+    // through `t()`; the table's values are the session's.
+    import { ready, section, t } from "/static/i18n.js";
+
+    // The table's headers, in their order (the HTML keeps its French ones as they are).
+    const COLUMNS = section("models.columns");
+    const COLUMN_ORDER = ["model", "publisher", "size", "hosting", "window", "tools", "reasoning", "price", "state"];
+
     // Story 25: read only. Groups, order, labels and capabilities come from the session
     // (`/api/diagnostic.models`, AD-1); the page only lays them out and marks the active model.
     const table = document.getElementById("models-table");
@@ -172,25 +181,25 @@
       const network = m.hosting === "network";
       const model = node("td");
       model.append(
-        node("span", network ? "hosting-tag-network" : "hosting-tag-local", m.prefix_fr),
+        node("span", network ? "hosting-tag-network" : "hosting-tag-local", m.prefix_text),
         node("strong", "model-name", m.name)
       );
       const active = loaded && loaded.kind === m.kind && loaded.ref === m.ref;
       const state = active
-        ? node("td", "state-active", "actif")
+        ? node("td", "state-active", t("models.state.active"))
         : m.usable
-          ? node("td", "", "disponible")
-          : withReason(network ? "indisponible" : "incompatible", m.disabled_fr);
+          ? node("td", "", t("models.state.available"))
+          : withReason(t(network ? "models.state.unavailable" : "models.state.incompatible"), m.disabled_text);
       tr.append(
         model,
-        node("td", "", m.publisher_fr),
-        node("td", "figures", m.size_fr),
-        node("td", "", m.hosting_label_fr),
-        withReason(m.window_fr, m.window_reason_fr, "figures"),
-        withReason(m.tools_fr, m.tools_reason_fr),
-        withReason(m.reasoning_fr, m.reason_fr),
+        node("td", "", m.publisher_text),
+        node("td", "figures", m.size_text),
+        node("td", "", m.hosting_label_text),
+        withReason(m.window_text, m.window_reason_text, "figures"),
+        withReason(m.tools_text, m.tools_reason_text),
+        withReason(m.reasoning_text, m.reason_text),
         // FinOps: the declared prices per million tokens (input / output), « — » when local.
-        withReason(m.price_fr, m.price_reason_fr, "figures"),
+        withReason(m.price_text, m.price_reason_text, "figures"),
         state
       );
       return tr;
@@ -203,23 +212,23 @@
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         body = await response.json();
       } catch (error) {
-        status.textContent = `Liste des modèles indisponible (${error.message}) : rechargez la page.`;
+        status.textContent = t("models.list_unavailable", { cause: error.message });
         return;
       }
       const models = body.models;
       if (!models) {
-        status.textContent = "Tableau des modèles indisponible : voir le terminal de WaveStack.";
+        status.textContent = t("models.table_unavailable");
         return;
       }
       document.getElementById("open-link").hidden = !body.ready;
-      document.getElementById("models-legend").textContent = models.legend_fr;
+      document.getElementById("models-legend").textContent = models.legend_text;
       const error = document.getElementById("publishers-error");
-      error.hidden = !models.publishers_error_fr;
-      error.textContent = models.publishers_error_fr ?? "";
+      error.hidden = !models.publishers_error_text;
+      error.textContent = models.publishers_error_text ?? "";
       for (const group of models.groups) {
         const tbody = node("tbody");
         const head = node("tr");
-        const th = node("th", "", group.label_fr);
+        const th = node("th", "", group.label_text);
         th.scope = "rowgroup";
         th.colSpan = 9;
         head.append(th);
@@ -227,12 +236,14 @@
         table.append(tbody);
       }
       const count = models.groups.reduce((n, g) => n + g.models.length, 0);
-      status.textContent = count
-        ? `${count} modèle${count > 1 ? "s" : ""} au dernier diagnostic.`
-        : "Aucun modèle trouvé au dernier diagnostic.";
+      status.textContent = count ? t("models.count", { count }) : t("models.none");
       table.hidden = !count;
     }
 
+    await ready; // the page's texts in the session's language (languages 4/5)
+    document.querySelectorAll("#models-table thead th").forEach((th, i) => {
+      th.textContent = COLUMNS[COLUMN_ORDER[i]] ?? th.textContent;
+    });
     load();
   </script>
 </body>

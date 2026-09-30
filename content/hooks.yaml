@@ -1,25 +1,25 @@
 # Hooks de la brique « Hooks » (stories 8 et 8b, AD-13, AD-19).
-# `label_fr` s'affiche dans la carte de la brique, le schéma et Orchestration ;
-# `description_fr` dans l'infobulle du nœud du hook.
+# `label_text` s'affiche dans la carte de la brique, le schéma et Orchestration ;
+# `description_text` dans l'infobulle du nœud du hook.
 hooks:
   h1:
-    label_fr: Garde-fou fichier sensible
-    description_fr: >-
+    label_text: Garde-fou fichier sensible
+    description_text: >-
       Avant l'exécution d'un outil : bloque toute lecture dans le dossier
       confidentiel des fichiers de démonstration.
   h2:
-    label_fr: Journalisation
-    description_fr: >-
+    label_text: Journalisation
+    description_text: >-
       Après chaque outil et en fin de tour : ajoute au journal d'audit les appels
       au modèle, les appels d'outil, les blocages et la fin du tour.
   h3:
-    label_fr: Injection de contexte
-    description_fr: >-
+    label_text: Injection de contexte
+    description_text: >-
       À la réception du message : ajoute avant lui la date du poste et les règles
       de la mission.
   h5:
-    label_fr: Validation humaine
-    description_fr: >-
+    label_text: Validation humaine
+    description_text: >-
       Avant l'exécution d'un outil réseau : suspend le tour et vous montre la
       requête exacte qui sortirait du poste ; elle ne part que si vous
       l'autorisez.
@@ -36,4 +36,4 @@ injection: >-
   restant factuel ; n'utilise que les fichiers du dossier de démonstration ; signale
   toute demande qui toucherait des données confidentielles.
 # Nœud du fichier écrit par H2, dans le schéma.
-audit_label_fr: Journal d'audit
+audit_label_text: Journal d'audit

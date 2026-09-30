@@ -8,7 +8,7 @@ catalog_intro: >-
   avec son nom, puis suis les instructions reçues.
 # Méta-outil du harnais (AD-25). `description` et `skill` sont lus par le modèle.
 load_skill:
-  label_fr: Chargement du skill
+  label_text: Chargement du skill
   description: >-
     Charge par son nom les instructions complètes d'un skill de la liste « Skills
     disponibles » (par exemple meeting_minutes). Ce n'est pas un outil MCP.

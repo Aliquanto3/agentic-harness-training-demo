@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
 
+from wavestack.config import DEFAULT_LANGUAGE
+from wavestack.messages import KeyedError, Message
 from wavestack.models.embedding import Embedder
 from wavestack.rag.corpus import Chunk, RagContent, chunk_corpus
 
@@ -39,24 +41,42 @@ class VecUnavailable(Exception):
     """sqlite-vec cannot be loaded into this Python's sqlite3."""
 
 
-class BuildCancelled(Exception):
-    """The build was stopped (« Arrêter »): nothing is written."""
+class BuildCancelled(KeyedError):
+    """The build was stopped (« Arrêter »): nothing is written. `str()` is French, the
+    session calls `render(lang)` (languages 5/5)."""
+
+    def __init__(self, *_: object) -> None:
+        super().__init__("rag.index.build_cancelled")
 
 
-INDEX_IN_USE_FR = (
-    "L'index est ouvert par un autre programme (WaveStack, un antivirus ou un outil de "
-    "synchronisation) : il ne peut pas être remplacé."
-)
+# Languages (5/5): a `Message`, French as a `str`, `render(lang)` in another language.
+INDEX_IN_USE_FR = Message("rag.index.in_use")
 _WINERRORS_IN_USE = (5, 32)  # ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION
 
 
 class IndexInUse(OSError):
     """The system refused to replace the index because another program holds it open
     (lot G): Windows refuses to replace a file an open handle holds. Its message, in
-    French, says so; the caller adds what to do."""
+    French, says so; the caller adds what to do (`render(lang)`: in another language)."""
 
     def __init__(self, *args: object) -> None:
         super().__init__(*(args or (INDEX_IN_USE_FR,)))
+
+    def render(self, lang: str) -> str:
+        """The message in `lang` (a `Message` rendered, any other text as it is)."""
+        first = self.args[0] if len(self.args) == 1 else None
+        return first.render(lang) if isinstance(first, Message) else str(self)
+
+
+def exception_text(exc: BaseException, lang: str) -> str:
+    """An exception's text in `lang` (languages 5/5): a keyed one (`render`), or one whose
+    only argument is a `Message`, rendered; any other (a third party's) as `str()`."""
+    render = getattr(exc, "render", None)
+    if callable(render):
+        return str(render(lang))
+    if len(exc.args) == 1 and isinstance(exc.args[0], Message):
+        return exc.args[0].render(lang)
+    return str(exc)
 
 
 def _held_open(exc: PermissionError, path: Path) -> bool:
@@ -82,7 +102,7 @@ def corpus_digest(chunks: Sequence[Chunk]) -> str:
 
 def passage_text(chunk: Chunk) -> str:
     """What is embedded for a chunk: its document's title, then its text."""
-    return f"{chunk.title_fr}\n{chunk.text}"
+    return f"{chunk.title_text}\n{chunk.text}"
 
 
 def file_sha256(path: Path) -> str:
@@ -146,9 +166,9 @@ def write_index(
     """Write the index into `path` (a temporary file first, removed on failure). The
     system refusing to replace `path` because it is open elsewhere: `IndexInUse`."""
     if not chunks:
-        raise ValueError("corpus vide : aucun extrait à indexer")
+        raise ValueError(Message("rag.index.empty_corpus"))
     if len(vectors) != len(chunks) or any(len(v) != dims for v in vectors):
-        raise ValueError(f"il faut un vecteur de {dims} dimensions par extrait")
+        raise ValueError(Message("rag.index.wrong_vectors", dims=dims))
     meta = IndexMeta(
         model_id,
         dims,
@@ -203,7 +223,7 @@ def _fill(
     for i, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True), start=1):
         conn.execute(
             "INSERT INTO chunks (id, doc_id, title_fr, position, text) VALUES (?, ?, ?, ?, ?)",
-            (i, chunk.doc_id, chunk.title_fr, chunk.position, chunk.text),
+            (i, chunk.doc_id, chunk.title_text, chunk.position, chunk.text),
         )
         conn.execute(
             f"INSERT INTO {VEC_TABLE} (rowid, embedding) VALUES (?, ?)",
@@ -235,7 +255,7 @@ def read_chunks(path: Path) -> list[Chunk]:
     conn = connect(path)
     try:
         rows = conn.execute(
-            "SELECT doc_id, title_fr, position, text FROM chunks ORDER BY id"
+            "SELECT doc_id, title_fr AS title_text, position, text FROM chunks ORDER BY id"
         ).fetchall()
     finally:
         conn.close()
@@ -247,7 +267,7 @@ def longest_chunks(path: Path, n: int) -> list[Chunk]:
     conn = connect(path)
     try:
         rows = conn.execute(
-            "SELECT doc_id, title_fr, position, text FROM chunks "
+            "SELECT doc_id, title_fr AS title_text, position, text FROM chunks "
             "ORDER BY length(text) DESC, id LIMIT ?",
             (n,),
         ).fetchall()
@@ -265,17 +285,19 @@ def build_index(
     *,
     model_file: Path | None = None,
     cancelled: Callable[[], bool] | None = None,
+    lang: str = DEFAULT_LANGUAGE,
 ) -> IndexMeta:
     """Chunk the corpus, embed each passage (title and text) with `embedder`, write the
     index. `model_file`: the model's file, whose size and sha256 go into `meta`.
-    `cancelled()` true: `BuildCancelled`, nothing written."""
-    chunks = chunk_corpus(content, chunk_max_chars)
+    `cancelled()` true: `BuildCancelled`, nothing written. `lang`: the corpus's language
+    (languages 4/5), `content` being `rag.yaml` read in it (its titles)."""
+    chunks = chunk_corpus(content, chunk_max_chars, lang)
     if not chunks:
-        raise ValueError("corpus vide : aucun extrait à indexer")
+        raise ValueError(Message("rag.index.empty_corpus"))
     vectors = []
     for i, chunk in enumerate(chunks, start=1):
         if cancelled is not None and cancelled():
-            raise BuildCancelled("construction de l'index arrêtée")
+            raise BuildCancelled()
         vectors += embedder.embed_passages([passage_text(chunk)])
         if on_progress is not None:
             on_progress(i, len(chunks))

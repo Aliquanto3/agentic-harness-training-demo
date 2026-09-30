@@ -101,7 +101,7 @@ def _content() -> scenarios.ScenariosContent:
 
 
 def _business(content: scenarios.ScenariosContent) -> list[str]:
-    return [i for i in content.transverse if content.scenarios[i].title_fr.startswith("Métier ")]
+    return [i for i in content.transverse if content.scenarios[i].title_text.startswith("Métier ")]
 
 
 def test_programme_follows_fr38_then_the_hosting_and_business_scenarios():
@@ -156,7 +156,7 @@ def test_first_scenario_of_each_module_has_the_previous_modules_bricks():
         if "mcp" in before and "mcp" in first.bricks:  # lazy loading, to keep room
             assert first.mcp_lazy, first_id
         for brick in NEVER_CARRIED & before:  # the instructions say which brick stays off
-            said = [p for p in NEVER_CARRIED_FR[brick] if p in first.description_fr]
+            said = [p for p in NEVER_CARRIED_FR[brick] if p in first.description_text]
             assert said, (first_id, brick, NEVER_CARRIED_FR[brick])
         # A module started directly starts from the demonstration memory.
         assert first.restore_memory == ("global_memory" in first.bricks), first_id
@@ -202,8 +202,8 @@ def test_business_scenarios_fix_their_bricks_and_hooks():
     for scenario_id in _business(content):
         scenario = content.scenarios[scenario_id]
         assert len(scenario.prompts) >= 2, scenario_id
-        assert "minutes" in scenario.description_fr, scenario_id  # its length
-        assert "À retenir" in scenario.description_fr, scenario_id  # the key message
+        assert "minutes" in scenario.description_text, scenario_id  # its length
+        assert "À retenir" in scenario.description_text, scenario_id  # the key message
     # The SOC's files: fictitious (NFR-11); the second prompt names no file.
     alerts = read_file("alertes_siem.log")
     assert "FICTIF" in alerts and "UTC" in alerts and "adm.leroy" in alerts
@@ -212,8 +212,8 @@ def test_business_scenarios_fix_their_bricks_and_hooks():
     assert "Début de la fenêtre de maintenance" in alerts and "Fin de la fenêtre" in alerts
     assert "confidentiel/comptes_privilegies.txt" in read_file(".")
     assert "confidentiel/" not in soc.prompts[1] and "fichiers disponibles" in soc.prompts[1]
-    assert "Alertes SIEM (SOC)" in soc.description_fr
-    assert "Comptes à privilèges (SOC, confidentiel)" in soc.description_fr
+    assert "Alertes SIEM (SOC)" in soc.description_text
+    assert "Comptes à privilèges (SOC, confidentiel)" in soc.description_text
 
 
 def test_data_flows_is_active_at_launch():
@@ -225,7 +225,8 @@ def test_data_flows_is_active_at_launch():
     assert data_flows.mcp_servers == ["local", "datagouv"] and data_flows.mcp_lazy
     assert "qualité de l'air" in data_flows.prompts[0] and "data.gouv.fr" in data_flows.prompts[0]
     assert (
-        "Décochez puis" in data_flows.description_fr and "indisponible" in data_flows.description_fr
+        "Décochez puis" in data_flows.description_text
+        and "indisponible" in data_flows.description_text
     )
 
 
@@ -242,7 +243,7 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
     assert first == scenario["mcp_lazy"].prompts[0] and len(first) < 120
     assert "veut dire MCP" in first and "local__define_term" in first
     assert "data.gouv.fr" in scenario["mcp_lazy"].prompts[1]
-    assert "Charger la documentation" in scenario["mcp_lazy"].description_fr
+    assert "Charger la documentation" in scenario["mcp_lazy"].description_text
     # IAM and sovereignty: the prompts name tools the public servers really have.
     snapshots = {s: {t["name"] for t in _public_tools(s)[0]} for s in ("datagouv", "mslearn")}
     for scenario_id in ("iam", "sovereignty"):
@@ -269,7 +270,7 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
     assert "chacun avec son lien data.gouv.fr en premier" in first_sovereignty
     # Skills: the skill and the meta-tool named, « Déclencher le skill » on its label.
     skills = scenario["skills"]
-    label = load_skills_content(["meeting_minutes"]).skills["meeting_minutes"].label_fr
+    label = load_skills_content(["meeting_minutes"]).skills["meeting_minutes"].label_text
     assert "meeting_minutes" in skills.prompts[0] and "load_skill" in skills.prompts[0]
     assert "compte rendu" in skills.prompts[0]  # the fake provider's trigger (E2E)
     # Lot K (A7): the meeting of the prompt, never the demo file's notes.
@@ -279,18 +280,19 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
     assert "Seulement si le message ne donne aucune note" in skill.body
     assert "sans lire de fichier" in skill.body
     assert (
-        "Déclencher le skill" in skills.description_fr and f"« {label} »" in skills.description_fr
+        "Déclencher le skill" in skills.description_text
+        and f"« {label} »" in skills.description_text
     )
     # Compression: read_file named, and the preset to force it with.
     compression = scenario["compression"]
-    presets = {p.label_fr: p.args for p in load_tools_content().tools["read_file"].presets}
+    presets = {p.label_text: p.args for p in load_tools_content().tools["read_file"].presets}
     assert presets["Journal de sauvegarde (compression)"] == {"path": "journal_serveur.log"}
     assert presets["Guide du harnais (prose, compression)"] == {"path": "guide_harnais.md"}
     for label in ("Journal de sauvegarde (compression)", "Guide du harnais (prose, compression)"):
-        assert f"« {label} »" in compression.description_fr, label
-    assert "« Forcer l'appel » sur « Lecture de fichier »" in compression.description_fr
+        assert f"« {label} »" in compression.description_text, label
+    assert "« Forcer l'appel » sur « Lecture de fichier »" in compression.description_text
     assert "read_file" in compression.prompts[0] and "journal_serveur.log" in compression.prompts[0]
-    assert "extraits RAG" not in compression.description_fr
+    assert "extraits RAG" not in compression.description_text
     # SOC: the exact file name, then the refusal not to get round (D6).
     soc = scenario["soc"]
     assert "alertes_siem.log" in soc.prompts[0] and "nom exact" in soc.prompts[0]
@@ -299,15 +301,17 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
     assert "analyste" in soc.prompts[1] and "habilité" in soc.prompts[1]
     assert "3 lignes au plus" in soc.prompts[1]
     assert "confidentiel" not in soc.prompts[1]  # the fake provider's own trigger (E2E)
-    assert "analyste habilité" in soc.description_fr and "concluez vous-même" in soc.description_fr
-    assert "« Forcer l'appel » sur « Lecture de fichier »" in soc.description_fr
+    assert (
+        "analyste habilité" in soc.description_text and "concluez vous-même" in soc.description_text
+    )
+    assert "« Forcer l'appel » sur « Lecture de fichier »" in soc.description_text
     assert "en 8 lignes au plus" in soc.prompts[0]  # lot K: within the output reserve
     # Lot K (decision of 2026-09-29): the MCP tool's call forced, with its preset, then the
     # replay (the button's text: « Forcer l'appel · <tool> »).
     from wavestack.mcp.servers import load_mcp_content
 
     presets = {
-        tool: {p.label_fr: p.args for p in listed}
+        tool: {p.label_text: p.args for p in listed}
         for tool, listed in load_mcp_content().call_presets.items()
     }
     assert presets["local__define_term"] == {"MCP": {"term": "MCP"}}
@@ -324,22 +328,22 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
             "Journalisation des connexions admin (Souveraineté)",
         ),
     ):
-        text = scenario[scenario_id].description_fr
+        text = scenario[scenario_id].description_text
         assert f"« Forcer l'appel · {tool} »" in text, (scenario_id, tool)
         assert f"préréglage « {preset} »" in text and preset in presets[tool], (scenario_id, preset)
         assert "« Rejouer le dernier prompt »" in text, scenario_id
     # Sovereignty: the first prompt's fallback, then the clearing, then the second's.
-    text = scenario["sovereignty"].description_fr
+    text = scenario["sovereignty"].description_text
     assert (
         text.index("« Forcer l'appel · datagouv__search_datasets »")
         < text.index("« Vider la conversation »")
         < text.index("« Forcer l'appel · mslearn__microsoft_docs_search »")
     )
-    assert all("ne se force pas" not in s.description_fr for s in scenario.values())
+    assert all("ne se force pas" not in s.description_text for s in scenario.values())
     # Lot K, suite (K3, decision of 2026-09-29): with the 2B, the fallback is the lesson. Both
     # instructions tell what one sees, why, and « Forcer l'appel » as the harness's proof.
     for scenario_id in ("mcp_lazy", "sovereignty"):
-        text = scenario[scenario_id].description_fr
+        text = scenario[scenario_id].description_text
         seen = ("Ce qu'on observe", "load_tool_doc", "répond de tête", "« j'ai cherché »")
         assert all(words in text for words in seen), scenario_id
         assert "Orchestration ne montre" in text, scenario_id
@@ -357,12 +361,12 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
         ), scenario_id
     # The local glossary runs on the loopback, never traced as an outbound request (AD-15):
     # « requête sortante » for the public servers of Souveraineté only.
-    assert "ni requête sortante" in scenario["sovereignty"].description_fr
-    assert "aucun appel de local__define_term" in scenario["mcp_lazy"].description_fr
-    assert "requête sortante" not in scenario["mcp_lazy"].description_fr
+    assert "ni requête sortante" in scenario["sovereignty"].description_text
+    assert "aucun appel de local__define_term" in scenario["mcp_lazy"].description_text
+    assert "requête sortante" not in scenario["mcp_lazy"].description_text
     # Two public search results do not fit together: the conversation emptied between them.
     for scenario_id in CLEARED_BETWEEN_PROMPTS:
-        assert "« Vider la conversation »" in scenario[scenario_id].description_fr, scenario_id
+        assert "« Vider la conversation »" in scenario[scenario_id].description_text, scenario_id
 
 
 def test_call_presets_name_real_tools_and_their_arguments(loop):  # noqa: F811
@@ -391,7 +395,7 @@ def test_call_presets_name_real_tools_and_their_arguments(loop):  # noqa: F811
         assert tool in schemas, f"call_presets : outil inconnu {tool}"
         for preset in listed:
             unknown = sorted(set(preset.args) - set(schemas[tool]))
-            assert preset.args and not unknown, (tool, preset.label_fr, unknown)
+            assert preset.args and not unknown, (tool, preset.label_text, unknown)
 
 
 def test_meta_tools_say_which_is_which():
@@ -413,7 +417,7 @@ def test_meta_tools_say_which_is_which():
 def test_soc_presets_force_the_two_files():
     from wavestack.tools.registry import load_tools_content
 
-    presets = {p.label_fr: p.args for p in load_tools_content().tools["read_file"].presets}
+    presets = {p.label_text: p.args for p in load_tools_content().tools["read_file"].presets}
     assert presets["Alertes SIEM (SOC)"] == {"path": "alertes_siem.log"}
     assert presets["Comptes à privilèges (SOC, confidentiel)"] == {
         "path": "confidentiel/comptes_privilegies.txt"
@@ -544,7 +548,7 @@ def _verdict(
 def test_verdict_honours_expects_overflow_the_safety_factor_and_the_room():
     fits = {"usable": 3584, "overflow": False}
     full = {"usable": 3584, "overflow": True}
-    plain = scenarios.Scenario(title_fr="t", description_fr="d", prompts=["x" * 40])
+    plain = scenarios.Scenario(title_text="t", description_text="d", prompts=["x" * 40])
     over = plain.model_copy(update={"expects_overflow": True})
     assert _verdict(plain, 1000, fits, 20) is None and _verdict(plain, 3584, full, 20)
     assert _verdict(over, 3584, full, 20) is None and _verdict(over, 1000, fits, 20) == "tient"
@@ -726,7 +730,7 @@ def test_business_mcp_servers_are_drawn_unavailable_with_their_reason_offline(lo
             drawn = node(session, f"mcp.{server_id}")
             assert drawn is not None and drawn["hosting"] == "network", scenario_id
             assert (drawn["contact"], drawn["available"]) == ("unavailable", False)
-            assert "injoignable" in drawn["reason_fr"]
+            assert "injoignable" in drawn["reason_text"]
         assert _run(session, "Bonjour")["turn_ended"][0]["status"] == "completed"
     session.close()
 

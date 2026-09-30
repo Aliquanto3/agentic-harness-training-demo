@@ -4,7 +4,7 @@
 # préfixes d'architecture (`general.architecture` de l'en-tête GGUF, `details.family`
 # d'Ollama, famille reconnue par le registre des capacités), puis par les expressions
 # régulières sur les noms (`general.basename`, `general.name`, nom affiché, `model` d'un
-# modèle cloud ; insensibles à la casse), dans l'ordre de cette liste. Sinon : `other_fr`.
+# modèle cloud ; insensibles à la casse), dans l'ordre de cette liste. Sinon : `other_text`.
 #
 # L'architecture `llama` sert aussi à Mistral 7B et à SmolLM2 : Llama (Meta) se reconnaît
 # au nom seul. « llama-server » (le serveur) ne ressemble pas à `llama[-_. ]?\d`.
@@ -14,74 +14,74 @@
 # Un fichier invalide ne plante rien : tous les modèles vont dans « Autres éditeurs », et la
 # page « Modèles disponibles » affiche la raison.
 
-legend_fr: >-
+legend_text: >-
   Légende : « Local » ou « RÉSEAU » dit où tourne le modèle, puis vient qui le sert
   (fichier, Ollama, llama-server ou fournisseur cloud).
 
 # Qui sert un modèle local, après « Local · ».
-served_by_fr:
+served_by_text:
   file: fichier
   ollama: Ollama
   llama_server: llama-server
 
 # Premier niveau des groupes du sélecteur : « Sur ce poste · Qwen (Alibaba) ».
-hosting_fr:
+hosting_text:
   local: Sur ce poste
   network: Réseau
 
-other_fr: Autres éditeurs
+other_text: Autres éditeurs
 
 publishers:
   - id: qwen
-    label_fr: Qwen (Alibaba)
+    label_text: Qwen (Alibaba)
     architectures: [qwen]
     names: ['qwen', 'qwq']
   - id: llama
-    label_fr: Llama (Meta)
+    label_text: Llama (Meta)
     architectures: []
     names: ['llama[-_. ]?\d']
   - id: gemma
-    label_fr: Gemma (Google)
+    label_text: Gemma (Google)
     architectures: [gemma]
     names: ['gemma']
   - id: gemini
-    label_fr: Gemini (Google)
+    label_text: Gemini (Google)
     architectures: []
     names: ['gemini']
   - id: granite
-    label_fr: Granite (IBM)
+    label_text: Granite (IBM)
     architectures: [granite]
     names: ['granite']
   - id: phi
-    label_fr: Phi (Microsoft)
+    label_text: Phi (Microsoft)
     architectures: [phi]
     names: ['phi[-_. ]?\d']
   - id: mistral
-    label_fr: Mistral (Mistral AI)
+    label_text: Mistral (Mistral AI)
     architectures: [mistral]
     names: ['mistral', 'ministral', 'magistral', 'devstral', 'codestral']
   - id: lfm
-    label_fr: LFM (Liquid AI)
+    label_text: LFM (Liquid AI)
     architectures: [lfm]
     names: ['lfm']
   - id: nemotron
-    label_fr: Nemotron (NVIDIA)
+    label_text: Nemotron (NVIDIA)
     architectures: [nemotron]
     names: ['nemotron']
   - id: gpt_oss
-    label_fr: gpt-oss (OpenAI)
+    label_text: gpt-oss (OpenAI)
     architectures: [gpt-oss, gpt_oss]
     names: ['gpt[-_ ]?oss']
   - id: minicpm
-    label_fr: MiniCPM (OpenBMB)
+    label_text: MiniCPM (OpenBMB)
     architectures: [minicpm]
     names: ['minicpm']
   - id: deepseek
-    label_fr: DeepSeek (DeepSeek AI)
+    label_text: DeepSeek (DeepSeek AI)
     architectures: [deepseek]
     names: ['deepseek']
     names_first: true
   - id: smollm
-    label_fr: SmolLM (Hugging Face)
+    label_text: SmolLM (Hugging Face)
     architectures: [smollm]
     names: ['smollm']

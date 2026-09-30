@@ -12,19 +12,19 @@ NODES = [
         "id": "core.harness",
         "kind": "harness",
         "hosting": "local",
-        "label_fr": "Harnais WaveStack",
+        "label_text": "Harnais WaveStack",
         "wanted": True,
         "available": True,
-        "reason_fr": None,
+        "reason_text": None,
     },
     {
         "id": "core.model",
         "kind": "model",
         "hosting": "local",
-        "label_fr": "Modèle",
+        "label_text": "Modèle",
         "wanted": True,
         "available": True,
-        "reason_fr": None,
+        "reason_text": None,
     },
 ]
 

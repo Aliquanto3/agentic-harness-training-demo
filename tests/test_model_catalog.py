@@ -126,30 +126,30 @@ def _cloud_entry(**update) -> catalog.ModelEntry:
 def test_qwen_file(tmp_path):
     entry = _entry(_file(_qwen_file(tmp_path)))
     assert entry.value == f"file:{tmp_path / 'Qwen3.5-2B-Q4_K_M.gguf'}"
-    assert entry.label_fr == "Local · fichier · Qwen3.5-2B-Q4_K_M.gguf · 2B"
-    assert (entry.publisher_id, entry.publisher_fr) == ("qwen", "Qwen (Alibaba)")
+    assert entry.label_text == "Local · fichier · Qwen3.5-2B-Q4_K_M.gguf · 2B"
+    assert (entry.publisher_id, entry.publisher_text) == ("qwen", "Qwen (Alibaba)")
     assert (entry.params_b, entry.params_label) == (2.0, "2B")
-    assert (entry.tools, entry.tools_fr) == (True, "oui (hermes)")
-    assert (entry.reasoning, entry.reasoning_fr) == ("toggle", "activable")
+    assert (entry.tools, entry.tools_text) == (True, "oui (hermes)")
+    assert (entry.reasoning, entry.reasoning_text) == ("toggle", "activable")
     # AD-9: min(configured 4 096, native 262 144).
-    assert (entry.window, entry.native_context, entry.window_fr) == (
+    assert (entry.window, entry.native_context, entry.window_text) == (
         4096,
         262144,
         "4 096 tokens",
     )
-    assert entry.usable and entry.disabled_fr is None and entry.hosting == "local"
+    assert entry.usable and entry.disabled_text is None and entry.hosting == "local"
     [group] = catalog.group_models([entry])
-    assert group.label_fr == "Sur ce poste · Qwen (Alibaba)"
+    assert group.label_text == "Sur ce poste · Qwen (Alibaba)"
 
 
 def test_ollama_without_a_readable_blob():
     entry = _entry(_ollama_missing())
-    assert entry.label_fr == "Local · Ollama · faux-ollama:latest · 0.6B"
-    assert entry.publisher_fr == "Qwen (Alibaba)" and entry.params_b == 0.6
-    assert not entry.usable and "introuvable" in entry.disabled_fr
-    assert (entry.tools, entry.tools_fr, entry.reasoning_fr) == (None, "inconnu", "inconnu")
-    assert "introuvable" in entry.reason_fr and "introuvable" in entry.tools_reason_fr
-    assert entry.window is None and entry.window_fr == "—"
+    assert entry.label_text == "Local · Ollama · faux-ollama:latest · 0.6B"
+    assert entry.publisher_text == "Qwen (Alibaba)" and entry.params_b == 0.6
+    assert not entry.usable and "introuvable" in entry.disabled_text
+    assert (entry.tools, entry.tools_text, entry.reasoning_text) == (None, "inconnu", "inconnu")
+    assert "introuvable" in entry.reason_text and "introuvable" in entry.tools_reason_text
+    assert entry.window is None and entry.window_text == "—"
 
 
 def test_ollama_blob_read_in_its_header(tmp_path):
@@ -164,16 +164,16 @@ def test_ollama_blob_read_in_its_header(tmp_path):
 
 def test_llama_server_capabilities_from_props():
     entry = _entry(_llama_server())
-    assert entry.label_fr == "Local · llama-server · faux-llama-server.gguf"
+    assert entry.label_text == "Local · llama-server · faux-llama-server.gguf"
     assert entry.value == "server:llama_server/faux-llama-server.gguf"
-    assert entry.publisher_fr == "Qwen (Alibaba)"  # the family of `capabilities_for`
+    assert entry.publisher_text == "Qwen (Alibaba)"  # the family of `capabilities_for`
     assert entry.params_label is None and entry.size_bytes == 1_500_000_000
-    assert entry.size_fr == "1,4\u00a0Go"
-    assert entry.hosting_label_fr == "Sur ce poste · llama-server"
-    assert entry.window_reason_fr == "fenêtre configurée ; contexte natif : 32\u202f768 tokens"
+    assert entry.size_text == "1,4\u00a0Go"
+    assert entry.hosting_label_text == "Sur ce poste · llama-server"
+    assert entry.window_reason_text == "fenêtre configurée ; contexte natif : 32\u202f768 tokens"
     # min(configured 4 096, native 32 768, a slot's 8 192).
     assert (entry.window, entry.native_context) == (4096, 32768)
-    assert (entry.tools, entry.tools_fr) == (True, "oui (qwen3_coder)")
+    assert (entry.tools, entry.tools_text) == (True, "oui (qwen3_coder)")
     assert entry.reasoning == "toggle"
 
 
@@ -190,18 +190,18 @@ def test_llama_server_header_gives_publisher_and_size_never_capabilities(tmp_pat
         tokenizer__chat_template=CHATML,  # would give « jamais » if it were read
     )
     entry = _entry(_llama_server(str(path)))
-    assert (entry.publisher_fr, entry.params_label) == ("Gemma (Google)", "1B")
+    assert (entry.publisher_text, entry.params_label) == ("Gemma (Google)", "1B")
     assert entry.reasoning == "toggle"  # `/props`' template, as the adapter
 
 
 def test_llama_server_unreadable_header_by_family_then_name():
     no_template = _llama_server().model_copy(update={"server_template": None})
     entry = _entry(no_template)
-    assert entry.publisher_fr == "Autres éditeurs"  # « llama-server »: not Llama
+    assert entry.publisher_text == "Autres éditeurs"  # « llama-server »: not Llama
     # AD-6: no template, the load fails: never choosable.
-    assert not entry.usable and "tokenizer.chat_template" in entry.disabled_fr
+    assert not entry.usable and "tokenizer.chat_template" in entry.disabled_text
     named = no_template.model_copy(update={"name": "Llama-3.2-3B-Instruct-Q4_K_M.gguf"})
-    assert _entry(named).publisher_fr == "Llama (Meta)"
+    assert _entry(named).publisher_text == "Llama (Meta)"
     assert _entry(named).params_label == "3B"
 
 
@@ -209,38 +209,38 @@ def test_cloud_that_always_reasons():
     entry = _cloud_entry(
         model="openai/gpt-oss-120b", reasoning=config.CloudReasoning(format="field", always=True)
     )
-    assert (entry.reasoning, entry.reasoning_fr) == ("always", "toujours")
-    assert (entry.tools, entry.tools_fr) == (True, "oui (déclaré)")
-    assert entry.label_fr == "RÉSEAU · Mistral AI · openai/gpt-oss-120b · 120B"
-    assert entry.publisher_fr == "gpt-oss (OpenAI)" and entry.hosting == "network"
+    assert (entry.reasoning, entry.reasoning_text) == ("always", "toujours")
+    assert (entry.tools, entry.tools_text) == (True, "oui (déclaré)")
+    assert entry.label_text == "RÉSEAU · Mistral AI · openai/gpt-oss-120b · 120B"
+    assert entry.publisher_text == "gpt-oss (OpenAI)" and entry.hosting == "network"
 
 
 def test_cloud_without_declarations():
     entry = _cloud_entry(reasoning=None, tools=False)
-    assert (entry.reasoning_fr, entry.tools_fr) == ("jamais", "non")
-    assert "non déclaré" in entry.reason_fr and "non déclaré" in entry.tools_reason_fr
-    assert entry.publisher_fr == "Mistral (Mistral AI)"
-    assert entry.params_label is None and entry.size_fr == "—"
-    assert entry.hosting_fr.startswith("Mistral AI, France")
+    assert (entry.reasoning_text, entry.tools_text) == ("jamais", "non")
+    assert "non déclaré" in entry.reason_text and "non déclaré" in entry.tools_reason_text
+    assert entry.publisher_text == "Mistral (Mistral AI)"
+    assert entry.params_label is None and entry.size_text == "—"
+    assert entry.hosting_text.startswith("Mistral AI, France")
 
 
 def test_prices_per_million_tokens_for_the_cloud_and_a_dash_for_local(tmp_path):
     """FinOps: « 0,30 $ / 2,50 $ » (input / output) with its date; « — » without prices."""
     prices = {e.ref: e for e in catalog.cloud_entries(config.load_config())}
-    assert prices["gemini"].price_fr == "0,30 $ / 2,50 $"
-    assert prices["groq"].price_fr == prices["mistral"].price_fr == "0,15 $ / 0,60 $"
-    reason = prices["gemini"].price_reason_fr
+    assert prices["gemini"].price_text == "0,30 $ / 2,50 $"
+    assert prices["groq"].price_text == prices["mistral"].price_text == "0,15 $ / 0,60 $"
+    reason = prices["gemini"].price_reason_text
     assert reason == (
         "par million de tokens (entrée / sortie), relevé le 29/09/2026 ; le coût de chaque "
         "appel en est une estimation"
     )
-    assert _entry(_file(_qwen_file(tmp_path))).price_fr == "—"
+    assert _entry(_file(_qwen_file(tmp_path))).price_text == "—"
     unpriced = _cloud_entry(pricing=None)
-    assert unpriced.price_fr == "—" and unpriced.price_reason_fr == "prix non déclaré"
+    assert unpriced.price_text == "—" and unpriced.price_reason_text == "prix non déclaré"
     odd = config.CloudPricing(
         input_usd_per_mtok=0.075, output_usd_per_mtok=12, checked="2026-09-29"
     )
-    assert _cloud_entry(pricing=odd).price_fr == "0,075 $ / 12,00 $"
+    assert _cloud_entry(pricing=odd).price_text == "0,075 $ / 12,00 $"
 
 
 def test_cloud_window_as_the_session():
@@ -251,9 +251,9 @@ def test_cloud_window_as_the_session():
 def test_cloud_disabled_by_its_row():
     base = _preset("mistral")
     cfg = config.Config(values={"cloud": {"models": [base.model_dump(exclude_none=True)]}})
-    rows = [{"id": "mistral", "disabled_fr": "Désactivé : saisissez d'abord la clé API."}]
+    rows = [{"id": "mistral", "disabled_text": "Désactivé : saisissez d'abord la clé API."}]
     [entry] = catalog.cloud_entries(cfg, rows)
-    assert not entry.usable and entry.disabled_fr.startswith("Désactivé")
+    assert not entry.usable and entry.disabled_text.startswith("Désactivé")
 
 
 def test_think_tags_without_a_variable_is_unknown(tmp_path):
@@ -264,19 +264,19 @@ def test_think_tags_without_a_variable_is_unknown(tmp_path):
     )
     entry = _entry(_file(path))
     assert entry.reasoning == "unknown"
-    assert entry.reason_fr == (
+    assert entry.reason_text == (
         "raisonne peut-être de lui-même, WaveStack ne sait ni l'allumer ni l'éteindre"
     )
-    assert (entry.tools, entry.tools_fr) == (False, "non")
-    assert entry.tools_reason_fr == "aucun format d'appel connu pour cette famille de modèle"
+    assert (entry.tools, entry.tools_text) == (False, "non")
+    assert entry.tools_reason_text == "aucun format d'appel connu pour cette famille de modèle"
 
 
 def test_without_template_is_unknown_with_the_incompatible_reason(tmp_path):
     path = _gguf(tmp_path / "sans-gabarit.gguf", general__architecture="llama")
     entry = _entry(_file(path))
     assert entry.reasoning == "unknown" and entry.tools is None
-    assert "tokenizer.chat_template" in entry.reason_fr
-    assert entry.usable is False and entry.disabled_fr == entry.reason_fr
+    assert "tokenizer.chat_template" in entry.reason_text
+    assert entry.usable is False and entry.disabled_text == entry.reason_text
     assert entry.window is None
 
 
@@ -288,7 +288,7 @@ def test_relative_file_path_is_read(tmp_path, monkeypatch):
         source="explicit", status="found", path="Qwen3.5-2B-Q4_K_M.gguf", name="x.gguf"
     )
     entry = _entry(candidate)
-    assert (entry.publisher_fr, entry.reasoning, entry.params_label) == (
+    assert (entry.publisher_text, entry.reasoning, entry.params_label) == (
         "Qwen (Alibaba)",
         "toggle",
         "2B",
@@ -300,8 +300,8 @@ def test_unreadable_header_is_unknown(tmp_path):
     path = tmp_path / "pas-un-gguf.gguf"
     path.write_bytes(b"not a gguf")
     entry = _entry(_file(path))
-    assert entry.reasoning == "unknown" and "illisible" in entry.reason_fr
-    assert entry.usable and entry.publisher_fr == "Autres éditeurs"
+    assert entry.reasoning == "unknown" and "illisible" in entry.reason_text
+    assert entry.usable and entry.publisher_text == "Autres éditeurs"
 
 
 def test_plain_template_never_reasons(tmp_path):
@@ -312,7 +312,7 @@ def test_plain_template_never_reasons(tmp_path):
         tokenizer__chat_template=CHATML,
     )
     entry = _entry(_file(path))
-    assert (entry.reasoning, entry.publisher_fr, entry.params_label) == (
+    assert (entry.reasoning, entry.publisher_text, entry.params_label) == (
         "never",
         "Llama (Meta)",
         "3B",
@@ -349,7 +349,7 @@ def test_groups_local_first_publishers_in_order_others_last(tmp_path):
     cfg = config.load_config()
     local = catalog.local_entries([_file(unknown), _file(gemma), _ollama_missing()], cfg)
     cloud = catalog.cloud_entries(cfg)
-    labels = [g.label_fr for g in catalog.group_models(local + cloud)]
+    labels = [g.label_text for g in catalog.group_models(local + cloud)]
     assert labels == [
         "Sur ce poste · Qwen (Alibaba)",
         "Sur ce poste · Gemma (Google)",
@@ -365,14 +365,14 @@ def test_the_gemini_preset_is_its_own_network_group_and_toggles_its_reasoning():
     """The Gemini preset: « RÉSEAU · Google AI Studio · gemini-3.5-flash-lite » under
     « Réseau · Gemini (Google) », reasoning « activable », unavailable without a key."""
     cfg = config.load_config()
-    rows = [{"id": "gemini", "disabled_fr": "Aucune clé API : saisissez-la au diagnostic."}]
+    rows = [{"id": "gemini", "disabled_text": "Aucune clé API : saisissez-la au diagnostic."}]
     entries = catalog.cloud_entries(cfg, rows)
     [gemini] = [e for e in entries if e.ref == "gemini"]
-    assert gemini.label_fr == "RÉSEAU · Google AI Studio · gemini-3.5-flash-lite"
-    assert gemini.publisher_fr == "Gemini (Google)" and gemini.reasoning == "toggle"
+    assert gemini.label_text == "RÉSEAU · Google AI Studio · gemini-3.5-flash-lite"
+    assert gemini.publisher_text == "Gemini (Google)" and gemini.reasoning == "toggle"
     assert gemini.params_label is None and gemini.tools is True
-    assert not gemini.usable and gemini.disabled_fr == rows[0]["disabled_fr"]
-    groups = {g.label_fr: g for g in catalog.group_models(entries)}
+    assert not gemini.usable and gemini.disabled_text == rows[0]["disabled_text"]
+    groups = {g.label_text: g for g in catalog.group_models(entries)}
     assert [m.ref for m in groups["Réseau · Gemini (Google)"].models] == ["gemini"]
 
 
@@ -386,7 +386,7 @@ def test_files_deduplicated_by_path(tmp_path):
     entries = catalog.local_entries([*twice, failed, tensor], config.load_config())
     # Once per path, the usable listing kept; an incompatible file listed, greyed, with why.
     assert [(e.ref, e.usable) for e in entries] == [(str(path), True), ("/autre", False)]
-    assert entries[1].disabled_fr == "Format de tenseur." == entries[1].reason_fr
+    assert entries[1].disabled_text == "Format de tenseur." == entries[1].reason_text
     assert entries[1].reasoning == "unknown"
 
 
@@ -476,7 +476,7 @@ def test_unknown_publisher_is_last_of_its_hosting():
     fake = {**mistral, "id": "fake", "model": "wavestack-fake"}
     cfg = config.Config(values={"cloud": {"models": [fake, mistral]}})
     groups = catalog.group_models(catalog.cloud_entries(cfg) + [_entry(_ollama_missing())])
-    assert [g.label_fr for g in groups] == [
+    assert [g.label_text for g in groups] == [
         "Sur ce poste · Qwen (Alibaba)",
         "Réseau · Mistral (Mistral AI)",
         "Réseau · Autres éditeurs",
@@ -486,8 +486,8 @@ def test_unknown_publisher_is_last_of_its_hosting():
 @pytest.mark.parametrize(
     "text",
     [
-        "publishers: [{id: x, label_fr: X, names: ['(']}]",  # a wrong regex
-        "legend_fr: Légende\n",  # keys missing
+        "publishers: [{id: x, label_text: X, names: ['(']}]",  # a wrong regex
+        "legend_text: Légende\n",  # keys missing
         "- pas: un objet\n",
         ": : :\n",
     ],
@@ -495,15 +495,15 @@ def test_unknown_publisher_is_last_of_its_hosting():
 def test_invalid_publishers_file_puts_every_model_in_others(tmp_path, monkeypatch, text):
     path = tmp_path / "publishers.yaml"
     path.write_text(text, encoding="utf-8")
-    monkeypatch.setattr(catalog, "publishers_path", lambda: path)
+    monkeypatch.setattr(catalog, "publishers_path", lambda lang="fr": path)
     content, error = catalog.load_publishers()
     assert error.startswith("Fichier content/models/publishers.yaml invalide")
     assert content.publishers == []
 
     payload = catalog.models_payload([_ollama_missing()], config.load_config())
-    assert payload["publishers_error_fr"] == error
+    assert payload["publishers_error_text"] == error
     assert {g["publisher_id"] for g in payload["groups"]} == {"other"}
-    assert [g["label_fr"] for g in payload["groups"]] == [
+    assert [g["label_text"] for g in payload["groups"]] == [
         "Sur ce poste · Autres éditeurs",
         "Réseau · Autres éditeurs",
     ]
@@ -512,8 +512,8 @@ def test_invalid_publishers_file_puts_every_model_in_others(tmp_path, monkeypatc
 @pytest.mark.parametrize(
     ("change", "cause"),
     [
-        (lambda ps: ps.append({**ps[0], "label_fr": "Autre Qwen"}), "en double : qwen"),
-        (lambda ps: ps.append({"id": "other", "label_fr": "X"}), "« other » est réservé"),
+        (lambda ps: ps.append({**ps[0], "label_text": "Autre Qwen"}), "en double : qwen"),
+        (lambda ps: ps.append({"id": "other", "label_text": "X"}), "« other » est réservé"),
     ],
 )
 def test_publisher_ids_are_distinct_and_never_other(tmp_path, monkeypatch, change, cause):
@@ -522,7 +522,7 @@ def test_publisher_ids_are_distinct_and_never_other(tmp_path, monkeypatch, chang
     change(data["publishers"])
     path = tmp_path / "publishers.yaml"
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
-    monkeypatch.setattr(catalog, "publishers_path", lambda: path)
+    monkeypatch.setattr(catalog, "publishers_path", lambda lang="fr": path)
     content, error = catalog.load_publishers()
     assert content.publishers == [] and cause in error
 
@@ -530,7 +530,7 @@ def test_publisher_ids_are_distinct_and_never_other(tmp_path, monkeypatch, chang
 def test_shipped_publishers_file_is_valid():
     content, error = catalog.load_publishers()
     assert error is None
-    assert [p.label_fr for p in content.publishers] == [
+    assert [p.label_text for p in content.publishers] == [
         "Qwen (Alibaba)",
         "Llama (Meta)",
         "Gemma (Google)",
@@ -545,8 +545,8 @@ def test_shipped_publishers_file_is_valid():
         "DeepSeek (DeepSeek AI)",
         "SmolLM (Hugging Face)",
     ]
-    assert "où tourne le modèle" in content.legend_fr and "qui le sert" in content.legend_fr
-    assert content.other_fr == "Autres éditeurs"
+    assert "où tourne le modèle" in content.legend_text and "qui le sert" in content.legend_text
+    assert content.other_text == "Autres éditeurs"
 
 
 # ---------- the header, read once ----------
@@ -595,10 +595,10 @@ def test_local_mode_matches_the_reasoning_card(template, architecture, window, m
     assert found == mode
     session = booted_session(engine, window=window)
     card = _card()
-    assert (found == "toggle") == (card["available"] and not card["always_fr"])
-    assert (found == "always") == bool(card["always_fr"])
+    assert (found == "toggle") == (card["available"] and not card["always_text"])
+    assert (found == "always") == bool(card["always_text"])
     if window <= 1536:
-        assert not card["available"] and card["reason_fr"] == reason
+        assert not card["available"] and card["reason_text"] == reason
     session.close()
 
 
@@ -615,8 +615,8 @@ def test_cloud_mode_matches_the_reasoning_card(preset, update, mode):
     assert reasoning_mode(cloud_capabilities(entry))[0] == mode
     session = _cloud(entry, Provider(TEXT))
     card = _card()
-    assert (mode == "toggle") == (card["available"] and not card["always_fr"])
-    assert (mode == "always") == bool(card["always_fr"])
+    assert (mode == "toggle") == (card["available"] and not card["always_text"])
+    assert (mode == "always") == bool(card["always_text"])
     session.close()
 
 
@@ -645,9 +645,9 @@ def test_api_diagnostic_carries_the_models(monkeypatch, tmp_path):
     app = _build(monkeypatch, tmp_path)
     body = _client(app).get("/api/diagnostic").json()
     models = body["models"]
-    assert "où tourne le modèle" in models["legend_fr"]
-    assert models["publishers_error_fr"] is None
-    assert [g["label_fr"] for g in models["groups"]] == [
+    assert "où tourne le modèle" in models["legend_text"]
+    assert models["publishers_error_text"] is None
+    assert [g["label_text"] for g in models["groups"]] == [
         "Réseau · Gemma (Google)",
         "Réseau · Gemini (Google)",
         "Réseau · Mistral (Mistral AI)",
@@ -664,13 +664,13 @@ def test_api_diagnostic_carries_the_models(monkeypatch, tmp_path):
 
 def test_api_diagnostic_with_an_invalid_publishers_file(monkeypatch, tmp_path):
     path = tmp_path / "publishers.yaml"
-    path.write_text("publishers: [{id: x, label_fr: X, names: ['[']}]", encoding="utf-8")
-    monkeypatch.setattr(catalog, "publishers_path", lambda: path)
+    path.write_text("publishers: [{id: x, label_text: X, names: ['[']}]", encoding="utf-8")
+    monkeypatch.setattr(catalog, "publishers_path", lambda lang="fr": path)
     response = _client(_build(monkeypatch, tmp_path)).get("/api/diagnostic")
     assert response.status_code == 200
     models = response.json()["models"]
-    assert {g["label_fr"] for g in models["groups"]} == {"Réseau · Autres éditeurs"}
-    assert "content/models/publishers.yaml" in models["publishers_error_fr"]
+    assert {g["label_text"] for g in models["groups"]} == {"Réseau · Autres éditeurs"}
+    assert "content/models/publishers.yaml" in models["publishers_error_text"]
 
 
 def test_local_entries_read_the_window_configured_now(tmp_path):

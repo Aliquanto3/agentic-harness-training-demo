@@ -1,0 +1,75 @@
+# German translation of content/models/publishers.yaml (languages 3/5, AD-19): texts only.
+# Each publisher's `id`, `label_text`, `architectures`, `names` and `names_first` are the
+# French file's, in the same order (the matching rules are not translated).
+
+legend_text: >-
+  Legende: „Lokal“ oder „NETZWERK“ gibt an, wo das Modell läuft, danach folgt, wer es
+  bereitstellt (Datei, Ollama, llama-server oder Cloud-Anbieter).
+
+# Who serves a local model, after "Lokal · ".
+served_by_text:
+  file: Datei
+  ollama: Ollama
+  llama_server: llama-server
+
+# First level of the picker's groups: "Auf diesem Arbeitsplatz · Qwen (Alibaba)".
+hosting_text:
+  local: Auf diesem Arbeitsplatz
+  network: Netzwerk
+
+other_text: Andere Hersteller
+
+publishers:
+  - id: qwen
+    label_text: Qwen (Alibaba)
+    architectures: [qwen]
+    names: ['qwen', 'qwq']
+  - id: llama
+    label_text: Llama (Meta)
+    architectures: []
+    names: ['llama[-_. ]?\d']
+  - id: gemma
+    label_text: Gemma (Google)
+    architectures: [gemma]
+    names: ['gemma']
+  - id: gemini
+    label_text: Gemini (Google)
+    architectures: []
+    names: ['gemini']
+  - id: granite
+    label_text: Granite (IBM)
+    architectures: [granite]
+    names: ['granite']
+  - id: phi
+    label_text: Phi (Microsoft)
+    architectures: [phi]
+    names: ['phi[-_. ]?\d']
+  - id: mistral
+    label_text: Mistral (Mistral AI)
+    architectures: [mistral]
+    names: ['mistral', 'ministral', 'magistral', 'devstral', 'codestral']
+  - id: lfm
+    label_text: LFM (Liquid AI)
+    architectures: [lfm]
+    names: ['lfm']
+  - id: nemotron
+    label_text: Nemotron (NVIDIA)
+    architectures: [nemotron]
+    names: ['nemotron']
+  - id: gpt_oss
+    label_text: gpt-oss (OpenAI)
+    architectures: [gpt-oss, gpt_oss]
+    names: ['gpt[-_ ]?oss']
+  - id: minicpm
+    label_text: MiniCPM (OpenBMB)
+    architectures: [minicpm]
+    names: ['minicpm']
+  - id: deepseek
+    label_text: DeepSeek (DeepSeek AI)
+    architectures: [deepseek]
+    names: ['deepseek']
+    names_first: true
+  - id: smollm
+    label_text: SmolLM (Hugging Face)
+    architectures: [smollm]
+    names: ['smollm']

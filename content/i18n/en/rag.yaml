@@ -1,63 +1,64 @@
-# English translation of content/rag.yaml (languages 1/5, AD-19): same fields, same
-# placeholders. The corpus and its index stay French (languages, story 4): `documents` is the
-# French file's, titles included, since the index holds them.
-notice_fr: >-
+# English translation of content/rag.yaml (languages 1/5 and 4/5, AD-19): same fields, same
+# placeholders. `documents` keeps the French ids and files (the corpus is translated under
+# content/i18n/en/corpus/, same names); only the titles change, and the index of this
+# language (data/rag_index.en.sqlite) holds them.
+notice_text: >-
   Fictitious texts written for WaveStack: Exemplia is an imaginary organisation, its
   rules describe no real company.
 
-intro_fr: >-
+intro_text: >-
   Excerpts from Exemplia's internal documentation that the harness found for this
-  question (in French). They are not all necessarily relevant: rely on the ones that
-  answer and cite the document used.
+  question. They are not all necessarily relevant: rely on the ones that answer and cite
+  the document used.
 
-excerpt_format_fr: "Excerpt {position} — {title_fr}:\n{text}"
+excerpt_format_text: "Excerpt {position} — {title_text}:\n{text}"
 
-placement_fr: In the user's message of this turn, before the question
+placement_text: In the user's message of this turn, before the question
 
-phase_label_fr: Searching the corpus…
+phase_label_text: Searching the corpus…
 
-index_label_fr: RAG index (rag_index.sqlite)
+index_label_text: "RAG index (rag_index.en.sqlite)"
 
-download_label_fr: "Download the embedding model (≈ {size_mb} MB)"
+download_label_text: "Download the embedding model (≈ {size_mb} MB)"
 
-build_label_fr: Build the index
+build_label_text: Build the index
 
-rerank_label_fr: Reranking
+rerank_label_text: Reranking
 
-rerank_phase_label_fr: Reranking the excerpts…
+rerank_phase_label_text: Reranking the excerpts…
 
-rerank_search_placement_fr: >-
+rerank_search_placement_text: >-
   None directly: these {candidates} candidates go on to reranking, which keeps only
   {keep} of them
 
-rerank_placement_fr: >-
+rerank_placement_text: >-
   The first {keep} after reranking, in the user's message of this turn, before the
   question
 
-rerank_download_label_fr: "Download the reranking model (≈ {size_mb} MB)"
+rerank_download_label_text: "Download the reranking model (≈ {size_mb} MB)"
 
 documents:
   - id: mots_de_passe
-    title_fr: Politique des mots de passe
+    title_text: Password policy
     file: corpus/mots_de_passe.md
   - id: teletravail
-    title_fr: Accord de télétravail
+    title_text: Remote work agreement
     file: corpus/teletravail.md
   - id: classification
-    title_fr: Classification de l'information
+    title_text: Information classification
     file: corpus/classification.md
   - id: incidents
-    title_fr: Incidents de sécurité
+    title_text: Security incidents
     file: corpus/incidents.md
   - id: donnees_personnelles
-    title_fr: Conservation des données personnelles
+    title_text: Personal data retention
     file: corpus/donnees_personnelles.md
   - id: ia_generative
-    title_fr: Usage de l'IA générative
+    title_text: Use of generative AI
     file: corpus/ia_generative.md
   - id: deplacements
-    title_fr: Déplacements et notes de frais
+    title_text: Business travel and expense claims
     file: corpus/deplacements.md
   - id: sauvegardes
-    title_fr: Sauvegardes
+    title_text: Backups
     file: corpus/sauvegardes.md

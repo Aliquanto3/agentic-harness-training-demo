@@ -1,17 +1,17 @@
 # Compression du contexte (story 20, AD-22) : textes de l'étape et de la carte.
 # Indicateur de travail pendant l'étape.
-phase_label_fr: Compression du contexte…
+phase_label_text: Compression du contexte…
 # Titre de l'étape dans Orchestration.
-step_title_fr: Compression (Headroom)
+step_title_text: Compression (Headroom)
 # Source d'un candidat : {tool} est le nom de l'outil, {n} le rang de l'extrait RAG.
-tool_source_fr: Résultat de l'outil « {tool} »
-rag_source_fr: Extrait RAG n° {n}
+tool_source_text: Résultat de l'outil « {tool} »
+rag_source_text: Extrait RAG n° {n}
 # Un candidat que Headroom n'a pas raccourci.
-unchanged_fr: >-
+unchanged_text: >-
   Inchangé : Headroom ne raccourcit pas ce texte (de la prose, ou déjà court). Il part tel
   quel.
 # Ligne de la carte ; {min_chars} est le seuil de wavestack.toml ([compression] min_chars).
-limits_fr: >-
+limits_text: >-
   Compressés : les résultats d'outils (natifs, réseau, MCP) et les extraits RAG d'au moins
   {min_chars} caractères, dans le contexte principal. Jamais : l'historique, les skills, le
   résultat du sous-agent, un refus de hook. Sans effet tant que ni Outils (ou MCP) ni RAG ne

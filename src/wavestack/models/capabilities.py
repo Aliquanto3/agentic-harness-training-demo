@@ -8,9 +8,11 @@ unknown family falls back to what the GGUF says. A GGUF without
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Literal
 
 from wavestack.config import MAX_RESERVE
+from wavestack.messages import Lazy, Message, number
 from wavestack.models.engine import EngineMetadata, partial_suffix_len
 
 if TYPE_CHECKING:
@@ -19,7 +21,9 @@ if TYPE_CHECKING:
 _THINK_TAGS = ("<think>", "</think>")
 CLOUD_FAMILY = "openai_chat"  # a cloud model: capabilities declared, no template (AD-6)
 # AD-6: why a local model offers no tool call; the brick cards and the model table (story 25).
-NO_TOOL_PARSER_FR = "aucun format d'appel connu pour cette famille de modèle"
+# Languages (5/5): the texts of this module are `Message`s, French as a text, rendered by
+# the session in its language.
+NO_TOOL_PARSER_FR = Message("models.capabilities.no_tool_parser")
 
 
 @dataclass(frozen=True)
@@ -50,11 +54,7 @@ def capabilities_for(meta: EngineMetadata) -> Capabilities:
             reasoning_variable=None,
             native_context=meta.native_context,
             reasoning_tags=None,
-            incompatible_reason=(
-                "Ce fichier GGUF ne contient pas de gabarit de conversation "
-                "(tokenizer.chat_template) : WaveStack ne peut pas construire le prompt. "
-                "Choisissez un autre modèle."
-            ),
+            incompatible_reason=Message("models.capabilities.no_template"),
         )
     reasoning_variable = "enable_thinking" if "enable_thinking" in template else None
     # AD-6: llama-server exposes no architecture; its template says the family then: ChatML
@@ -106,11 +106,10 @@ def cloud_capabilities(entry: CloudModel) -> Capabilities:
 
 
 ReasoningMode = Literal["never", "always", "toggle", "unknown"]
+_NOT_READ = Message("models.capabilities.why.not_read")
 REASONING_FR: dict[str, str] = {
-    "never": "jamais",
-    "always": "toujours",
-    "toggle": "activable",
-    "unknown": "inconnu",
+    mode: Message(f"models.capabilities.reasoning.{mode}")
+    for mode in ("never", "always", "toggle", "unknown")
 }
 
 
@@ -120,15 +119,16 @@ def reasoning_window_fr(window: int) -> str | None:
     table (story 25) share it."""
     if window > MAX_RESERVE:
         return None
-    return (
-        f"Indisponible : la fenêtre de contexte ({_fr_int(window)} tokens) ne laisse "
-        f"aucune place au contexte une fois réservés les {_fr_int(MAX_RESERVE)} tokens de "
-        "sortie du raisonnement. Agrandissez la fenêtre dans la configuration."
+    return Message(
+        "models.capabilities.window_too_small",
+        window=_int(window),
+        reserve=_int(MAX_RESERVE),
     )
 
 
-def _fr_int(n: int) -> str:
-    return f"{n:,}".replace(",", "\u202f")  # narrow no-break space, French style
+def _int(n: int) -> Lazy:
+    """`n` in the language its message is rendered in (French: a narrow no-break space)."""
+    return Lazy(partial(number, n))
 
 
 def reasoning_mode(
@@ -140,42 +140,48 @@ def reasoning_mode(
     reasons whatever the brick says, `unknown` when nothing says it (no capabilities read,
     an incompatible model, or `<think>` tags without a variable), `never` otherwise."""
     if caps is None:
-        return "unknown", "capacités non lues"
+        return "unknown", _NOT_READ
     if caps.incompatible_reason:
         return "unknown", caps.incompatible_reason
     cloud = caps.family == CLOUD_FAMILY
     if caps.reasoning_always:
-        return "always", "raisonne à chaque réponse ; ce modèle ne permet pas de l'éteindre"
+        return "always", Message("models.capabilities.why.always")
     if caps.reasoning and window is not None and (too_small := reasoning_window_fr(window)):
         return "never", too_small
     if caps.reasoning:
         return "toggle", (
-            "déclaré dans la configuration (reasoning)"
+            Message("models.capabilities.why.declared_reasoning")
             if cloud
-            else f"variable {caps.reasoning_variable} du gabarit"
+            else Message("models.capabilities.why.template_variable", name=caps.reasoning_variable)
         )
     if caps.reasoning_tags:
-        return "unknown", (
-            "raisonne peut-être de lui-même, WaveStack ne sait ni l'allumer ni l'éteindre"
-        )
+        return "unknown", Message("models.capabilities.why.maybe")
     if cloud:
-        return "never", "non déclaré dans la configuration (reasoning)"
-    return "never", "le gabarit n'a pas de variable de raisonnement"
+        return "never", Message("models.capabilities.why.undeclared_reasoning")
+    return "never", Message("models.capabilities.why.no_variable")
 
 
 def tools_summary(caps: Capabilities | None) -> tuple[bool | None, str, str | None]:
     """Story 25: whether the model calls tools, as the tool cards decide it (a known parser,
     AD-6): `(tools, word in French, reason)`; `None` when nothing says it."""
+    unknown = Message("models.capabilities.tools.unknown")
     if caps is None:
-        return None, "inconnu", "capacités non lues"
+        return None, unknown, _NOT_READ
     if caps.incompatible_reason:
-        return None, "inconnu", caps.incompatible_reason
+        return None, unknown, caps.incompatible_reason
     cloud = caps.family == CLOUD_FAMILY
     if caps.tool_call_parser:
-        return True, "oui (déclaré)" if cloud else f"oui ({caps.tool_call_parser})", None
+        return (
+            True,
+            Message("models.capabilities.tools.declared")
+            if cloud
+            else Message("models.capabilities.tools.parser", parser=caps.tool_call_parser),
+            None,
+        )
+    no = Message("models.capabilities.tools.no")
     if cloud:
-        return False, "non", "non déclaré dans la configuration (tools)"
-    return False, "non", NO_TOOL_PARSER_FR
+        return False, no, Message("models.capabilities.why.undeclared_tools")
+    return False, no, NO_TOOL_PARSER_FR
 
 
 TOOL_CALL_TAGS = ("<tool_call>", "</tool_call>")  # shared by `qwen3_coder` and `hermes`

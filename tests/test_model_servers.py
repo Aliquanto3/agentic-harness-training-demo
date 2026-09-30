@@ -316,7 +316,7 @@ def _prompt(ctx: dict) -> str:
 
 
 def _errors(events: dict) -> list[str]:
-    return [e["message_fr"] for e in events.get("harness_error", [])]
+    return [e["message_text"] for e in events.get("harness_error", [])]
 
 
 # ---------- I/O matrix ----------
@@ -525,12 +525,12 @@ def test_vocab_only_failure_keeps_the_previous_model(monkeypatch, fake):
     assert future.result() == "restored"
     assert session.active_model()["label"] == "A" and session.state == "idle"
     events = [e.payload for e in get_journal().events_since(mark)]
-    error = next(e for e in events if "message_fr" in e and "Ollama" in e["message_fr"])
+    error = next(e for e in events if "message_text" in e and "Ollama" in e["message_text"])
     assert "Failed to load model from file" in error["cause"]  # lot E (E6): the detail
     ended = next(e for e in events if e.get("status") == "restored")
-    assert "Failed to load model" not in ended["reason_fr"]  # the reason, in French only
-    assert "ne sait pas lire le tokenizer de ce modèle" in ended["reason_fr"]
-    assert "servez-le plutôt avec llama-server" in ended["reason_fr"]  # the way out
+    assert "Failed to load model" not in ended["reason_text"]  # the reason, in French only
+    assert "ne sait pas lire le tokenizer de ce modèle" in ended["reason_text"]
+    assert "servez-le plutôt avec llama-server" in ended["reason_text"]  # the way out
 
 
 def test_budget_exceeded_keeps_the_previous_model(fake, tmp_path):
@@ -551,10 +551,10 @@ def test_budget_exceeded_keeps_the_previous_model(fake, tmp_path):
     with pytest.raises(SendRefused) as refused:
         session.switch_model(ModelChoice.served(_candidate("ollama", str(blob))))
 
-    assert refused.value.reason_fr.startswith(
+    assert refused.value.reason_text.startswith(
         f"Changement refusé : {OLLAMA_NAME} demande environ 5,0 Go"
     )
-    assert "A reste actif" in refused.value.reason_fr
+    assert "A reste actif" in refused.value.reason_text
     assert session.active_model()["label"] == "A"
     assert fake.posts("/api/generate") == []  # nothing sent to Ollama
 
@@ -624,7 +624,7 @@ def test_unload_failure_is_traced_never_blocking(fake):
 
     assert future.result() == "ok" and session.active_model()["label"] == "B"
     errors = [e.payload for e in get_journal().events_since(mark) if e.kind == "harness_error"]
-    assert errors[0]["message_fr"] == f"Ollama n'a pas déchargé le modèle {OLLAMA_NAME}."
+    assert errors[0]["message_text"] == f"Ollama n'a pas déchargé le modèle {OLLAMA_NAME}."
 
 
 def _diagnostic(monkeypatch, tmp_path, models: tuple[str, ...] = ()) -> DiagnosticSession:
@@ -672,7 +672,7 @@ def test_saved_server_choice_with_the_server_off(monkeypatch, tmp_path, fake):
     assert check["status"] == "warn"
     assert (
         "Le modèle servi enregistré n'est plus disponible : ollama/qwen3.5:2b"
-        in check["message_fr"]
+        in check["message_text"]
     )
 
 
@@ -687,7 +687,7 @@ def test_servers_only_block_with_a_choice(monkeypatch, tmp_path, fake):
     check = [e.payload for e in get_journal().events_since(mark) if e.kind == "diagnostic_check"][
         -1
     ]
-    assert check["blocking"] is True and "choisissez un modèle servi" in check["message_fr"]
+    assert check["blocking"] is True and "choisissez un modèle servi" in check["message_text"]
 
 
 # ---------- schema, indicator, window, capabilities, discovery, client ----------
@@ -869,7 +869,7 @@ def test_ollama_cache_is_an_information_not_reduced_transparency(fake):
     assert _errors(events) == []
     [cached] = events["server_cache_used"]
     assert (cached["prompt_tokens"], cached["evaluated_tokens"]) == (used, used - 10)
-    assert "cache" in cached["message_fr"]
+    assert "cache" in cached["message_text"]
     # Lot A: the call's `evaluated_tokens` is Ollama's `prompt_eval_count`.
     assert events["model_call_ended"][0]["evaluated_tokens"] == used - 10
 
@@ -942,7 +942,7 @@ def test_malformed_ollama_stream_is_a_server_error(fake, lines, cause):
     fake.stream_override = Lines(lines)
     with pytest.raises(servers.ServerError) as error:
         list(session._engine.complete(tokenize("Bonjour"), [], 10, CancelToken()))
-    assert cause in error.value.message_fr
+    assert cause in error.value.message_text
 
 
 def test_llama_stream_done_marker_is_skipped_and_an_early_end_refused(fake):
@@ -952,7 +952,7 @@ def test_llama_stream_done_marker_is_skipped_and_an_early_end_refused(fake):
     )
     with pytest.raises(servers.ServerError) as error:
         list(session._engine.complete(tokenize("Bonjour"), [], 10, CancelToken()))
-    assert "flux interrompu avant la fin" in error.value.message_fr
+    assert "flux interrompu avant la fin" in error.value.message_text
 
 
 def test_malformed_server_answers_are_skipped_or_refused(monkeypatch):
@@ -968,7 +968,7 @@ def test_malformed_server_answers_are_skipped_or_refused(monkeypatch):
     with pytest.raises(servers.ServerError) as error:
         servers.LlamaServerEngine(LLAMA_URL)
     expected = f"Serveur local injoignable ({LLAMA_URL}) : réponse illisible sur /props"
-    assert error.value.message_fr == expected
+    assert error.value.message_text == expected
 
 
 def test_ollama_cloud_models_are_never_listed_as_local(monkeypatch):
@@ -1046,7 +1046,7 @@ def test_detokenize_replacement_character_is_refused(fake):
     engine = servers.LlamaServerEngine(LLAMA_URL)
     with pytest.raises(servers.ServerError) as error:
         engine.token_pieces([0xC3])  # half of « é »: `/detokenize` gives U+FFFD
-    assert "illisible par /detokenize" in error.value.message_fr
+    assert "illisible par /detokenize" in error.value.message_text
     assert 0xC3 not in engine._pieces
     engine.close()
 
@@ -1115,7 +1115,7 @@ def test_saved_served_model_now_incompatible_shows_its_reason(monkeypatch, tmp_p
         for e in get_journal().events_since(mark)
         if e.kind == "diagnostic_check" and e.payload["check"] == "model"
     ][-1]
-    assert "Fichier GGUF du modèle introuvable dans le dossier d'Ollama" in check["message_fr"]
+    assert "Fichier GGUF du modèle introuvable dans le dossier d'Ollama" in check["message_text"]
 
 
 def _web_file_loaded(monkeypatch, tmp_path):
@@ -1341,11 +1341,11 @@ def test_llama_server_memory_counts_its_whole_context(fake, n_ctx, warned):
     assert candidate.served_bytes == size + 128 * n_ctx and candidate.context_counted
     if warned:
         assert f"lancé avec un contexte de {n_ctx:,} tokens".replace(",", "\u202f") in (
-            candidate.warning_fr
+            candidate.warning_text
         )
-        assert candidate.warning_fr.endswith("relancez-le avec `-c 4096`.")
+        assert candidate.warning_text.endswith("relancez-le avec `-c 4096`.")
     else:
-        assert candidate.warning_fr is None
+        assert candidate.warning_text is None
 
 
 @pytest.mark.parametrize(("n_ctx", "window"), [(4096, 8192), (32_768, 4096), (8192, 8192)])
@@ -1355,7 +1355,7 @@ def test_llama_server_under_the_window_chosen_is_advised_to_relaunch(fake, n_ctx
     config.save_setting("context", {"window": window})
     fake.n_ctx, fake.model_path = n_ctx, TINY
 
-    warning = _llama_candidate(fake).warning_fr
+    warning = _llama_candidate(fake).warning_text
 
     if n_ctx < window:
         assert "contexte de 4 096 tokens par emplacement" in warning
@@ -1374,7 +1374,7 @@ def test_llama_server_kv_unreadable_counts_the_file_and_keeps_the_warning(fake):
 
     assert candidate.served_bytes == 2 * GIB  # the size `/v1/models` gives
     assert candidate.context_counted is False  # the page says the cache is left out
-    assert "262\u202f144 tokens" in candidate.warning_fr
+    assert "262\u202f144 tokens" in candidate.warning_text
 
 
 def test_llama_server_relative_model_path_is_not_read_here(fake, monkeypatch):
@@ -1396,11 +1396,11 @@ def test_llama_server_with_several_slots_counts_the_whole_context(fake):
 
     assert candidate.n_ctx == 262_144
     assert candidate.served_bytes == Path(TINY).stat().st_size + 128 * 262_144
-    assert "65\u202f536 par emplacement, 4 emplacements" in candidate.warning_fr
-    assert candidate.warning_fr.endswith("relancez-le avec `-np 1 -c 4096`.")
+    assert "65\u202f536 par emplacement, 4 emplacements" in candidate.warning_text
+    assert candidate.warning_text.endswith("relancez-le avec `-np 1 -c 4096`.")
     fake.n_ctx = 4096  # `-np 4 -c 16384`: each slot fits the window, nothing to advise
     fake.n_ctx_total = 16_384
-    assert _llama_candidate(fake).warning_fr is None
+    assert _llama_candidate(fake).warning_text is None
 
 
 def test_hot_switch_to_llama_server_carries_its_warning(monkeypatch, tmp_path, fake):
@@ -1420,8 +1420,8 @@ def test_hot_switch_to_llama_server_carries_its_warning(monkeypatch, tmp_path, f
         for e in get_journal().events_since(mark)
         if e.kind == "diagnostic_check" and e.payload["check"] == "model"
     ][-1]
-    assert check["status"] == "warn" and check["message_fr"].startswith("Modèle actif :")
-    assert "relancez-le avec `-c 4096`" in check["message_fr"]
+    assert check["status"] == "warn" and check["message_text"].startswith("Modèle actif :")
+    assert "relancez-le avec `-c 4096`" in check["message_text"]
 
 
 def test_diagnostic_advises_c_4096_for_the_served_model(monkeypatch, tmp_path, fake):
@@ -1440,9 +1440,9 @@ def test_diagnostic_advises_c_4096_for_the_served_model(monkeypatch, tmp_path, f
         for e in get_journal().events_since(mark)
         if e.kind == "diagnostic_check" and e.payload["check"] == "model"
     ][-1]
-    assert check["status"] == "warn" and "servi par llama-server" in check["message_fr"]
-    assert "relancez-le avec `-c 4096`" in check["message_fr"]
-    assert result.server.warning_fr and result.server.served_bytes > 128 * 262_144
+    assert check["status"] == "warn" and "servi par llama-server" in check["message_text"]
+    assert "relancez-le avec `-c 4096`" in check["message_text"]
+    assert result.server.warning_text and result.server.served_bytes > 128 * 262_144
 
 
 def test_diagnostic_advises_np_1_c_8192_when_the_server_is_under_the_window(
@@ -1465,7 +1465,7 @@ def test_diagnostic_advises_np_1_c_8192_when_the_server_is_under_the_window(
         if e.kind == "diagnostic_check" and e.payload["check"] == "model"
     ][-1]
     assert result.server is not None and check["status"] == "warn"
-    assert "relancez-le avec `-np 1 -c 8192`" in check["message_fr"]
+    assert "relancez-le avec `-np 1 -c 8192`" in check["message_text"]
 
 
 def test_refusal_with_a_served_model_active_counts_wavestack_whole(fake, tmp_path):
@@ -1480,8 +1480,8 @@ def test_refusal_with_a_served_model_active_counts_wavestack_whole(fake, tmp_pat
     with pytest.raises(SendRefused) as refused:
         session.switch_model(ModelChoice.served(_candidate("ollama", str(blob))))
 
-    assert "WaveStack occupe 210 Mo sans le modèle actif" in refused.value.reason_fr
-    assert "Qwen3.5-2B-Q4_K_M reste actif" in refused.value.reason_fr
+    assert "WaveStack occupe 210 Mo sans le modèle actif" in refused.value.reason_text
+    assert "Qwen3.5-2B-Q4_K_M reste actif" in refused.value.reason_text
 
 
 # ---------- story 24: an Ollama model not resident costs its file, its KV and the margin ----------

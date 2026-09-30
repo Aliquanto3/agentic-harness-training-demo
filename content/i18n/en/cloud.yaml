@@ -1,0 +1,47 @@
+# English translation of content/cloud.yaml (languages 3/5, AD-19): same fields, same
+# placeholders ({fournisseur}, {hebergement}, {entrainement}, {essai}, {modele}, kept in
+# French), same keys of `training_text`, same test tool name and fixed reply.
+
+# Warning shown on clicking “Choose”, repeated in the indicator's tooltip.
+warning:
+  title_text: This model runs outside your workstation
+  sent_text: >-
+    What leaves: each call sends the whole context (messages, system prompt, tool results,
+    memory) to {fournisseur}, {hebergement}.
+  provider_text: "What the provider does with it: training – {entrainement}.{essai}"
+  unseen_text: >-
+    What the harness no longer sees: the template and the parsing of tool calls are
+    applied at the provider's, and the tokens per segment are estimated.
+  confirm_text: Use this model
+  cancel_text: Cancel
+
+# Values of `training` and mention of a trial offer.
+training_text:
+  "yes": "yes, the prompts are used to train its models"
+  "no": "no"
+  opt_out: "yes by default, can be turned off in the provider's console"
+trial_text: " Trial offer: not designed for lasting use."
+
+key_hint_text: Stored on this workstation, never displayed or logged.
+no_key_text: "Disabled: first enter the API key for {fournisseur}."
+host_changed_text: "Key to enter again: the provider's address has changed."
+test_hint_text: >-
+  Sends a fixed prompt, without your data. The key and the workstation's address go to
+  {fournisseur}.
+
+# Banner of the LLM context pane when the active model is a cloud one.
+banner_text: >-
+  Cloud model: this context is the JSON body sent to {fournisseur}. The template is
+  applied outside the workstation; the tokens per segment are estimated (≈).
+provider_segment_text: Template applied at the provider's (estimated)
+uncertain_text: "Uncertain estimate: the provider will decide."
+
+# Test of a cloud model (“Test”): fixed prompt, tool and reply, without any user data.
+test:
+  prompt: >-
+    WaveStack connection test. Call the get_datetime tool, then answer in one short
+    sentence with the date obtained.
+  tool:
+    name: get_datetime
+    description: Gives the current date and time.
+  tool_reply: "2026-01-01T09:00:00+01:00"

@@ -1,0 +1,47 @@
+# German translation of content/bricks/rag.yaml (languages 3/5, AD-19): same fields, same
+# paragraphs and lists, same `{candidates}` and `{keep}` placeholders.
+label_text: RAG
+category_text: Context Engineering
+hosting_text: Lokal
+explanation_text:
+  - >-
+    Beim RAG weiß nicht das Modell Bescheid: Der Harness sucht. In jeder Runde sucht der
+    Harness vor dem Modellaufruf in einem Korpus die Passagen, die Ihrer Frage am nächsten
+    sind, und setzt sie in Ihre Nachricht, direkt vor die Frage.
+  - >-
+    Die Suche ist semantisch: Ein kleines, lokales Embedding-Modell wandelt die Frage in
+    einen Vektor um, und der Index (rag_index.sqlite) liefert die Auszüge, deren Vektor am
+    nächsten liegt. Der Score reicht von 0 bis 1 (1 minus die Kosinus-Distanz, auf 0
+    gesetzt, wenn die Vektoren entgegengesetzt sind); es gilt keine Schwelle: Die Auszüge
+    gehen mit, auch wenn sie die Frage nicht beantworten.
+  - - "Nutzen: Das Modell antwortet anhand von Dokumenten, die es im Training nie gesehen hat."
+    - >-
+      Kosten: Die Auszüge belegen in jeder Runde Kontext, und ein Embedding-Modell wird
+      neben dem Hauptmodell in den Speicher geladen.
+    - >-
+      Daten: Der Index und das Embedding-Modell bleiben auf dem Arbeitsplatz; mit einem
+      Cloud-Modell gehen die Auszüge in Ihrer Nachricht an den Anbieter.
+  - >-
+    Der Demo-Korpus beschreibt Exemplia, eine erfundene Organisation: acht fiktive, für
+    WaveStack geschriebene Texte (Passwörter, Telearbeit, Spesen…). Die
+    Auszüge bleiben nicht im Verlauf: Jede Runde sucht erneut.
+  - >-
+    Grenze des einfachen RAG: Die Suchanfrage ist Ihre Nachricht, so wie sie ist. Eine
+    Nachfrage („Und in Lyon?“) sucht ohne den Kontext der vorigen Runden und findet oft
+    schlecht; ein fortgeschrittenes RAG formuliert die Frage zuerst um.
+  - >-
+    Unteroption „Reranking“: Das Embedding vergleicht Vektoren, die für die Frage und für
+    jeden Auszug getrennt berechnet werden; es ist schnell, aber ungenau. Der Reranker, ein
+    zweites lokales Modell, liest die Frage und einen Auszug zusammen und bewertet ihre
+    Relevanz von 0 bis 1. Der Harness behält zuerst mehr Kandidaten ({candidates}, [rag]
+    rerank_candidates), lässt sie einzeln bewerten und behält dann nur die ersten {keep}
+    ([rag] top_k): Der Schritt „Reranking“ im Bereich Orchestrierung zeigt die Reihenfolge vorher
+    und nachher. Die beiden Scores sind nicht miteinander vergleichbar.
+  - - "Nutzen: Die behaltenen Auszüge beantworten die Frage häufiger."
+    - >-
+      Kosten: ein Durchlauf des Rerankers pro Kandidat vor dem ersten Modellaufruf (das
+      erste Token kommt später) und ein weiteres Modell im Speicher.
+  - >-
+    Erstinstallation: „Embedding-Modell herunterladen“ holt das Embedding-Modell, dann
+    zerlegt „Index erstellen“ den Korpus und indexiert ihn auf dem Arbeitsplatz, ohne
+    Kommandozeile.

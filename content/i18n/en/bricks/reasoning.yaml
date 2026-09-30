@@ -1,0 +1,24 @@
+# English translation of content/bricks/reasoning.yaml (languages 3/5, AD-19): same
+# fields, same number of paragraphs and bullets.
+label_text: Reasoning
+category_text: prompt engineering
+hosting_text: Local
+explanation_text:
+  - >-
+    Some models can “think out loud” before answering: they first write a line of
+    reasoning, then the answer. The harness turns this mode on locally through a variable
+    of the chat template, and in the cloud through a parameter of the request.
+  - >-
+    The reasoning is always visible in LLM context. In the Human view, the “Show the
+    reasoning” option shows or hides it, as chatbots do.
+  - - "Gain: answers that are often more accurate on a calculation or a multi-step problem."
+    - >-
+      Cost: more output tokens, hence more time. The output reserve goes from 512 to
+      1,536 tokens, which leaves less room for the context. Locally, these 1,536 tokens are
+      shared between the thinking, up to the thinking budget (768 tokens by default,
+      setting [reasoning] budget_tokens, local only), and the answer: thinking that reaches
+      this budget without closing is closed by the harness, and the rest of the reserve
+      goes to the answer.
+  - >-
+    Unavailable if the active model cannot reason. Some cloud models always reason: the
+    brick then shows “Imposed by this model”.

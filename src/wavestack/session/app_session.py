@@ -96,6 +96,18 @@ from wavestack.hooks import (
 )
 from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
+from wavestack.messages import (
+    KeyedError,
+    Lazy,
+    Message,
+    in_language,
+    join,
+    load_messages,
+    msg,
+    number,
+    render,
+    said,
+)
 from wavestack.models import download as download_module
 from wavestack.models import embedding as embedding_module
 from wavestack.models import gguf_meta
@@ -173,7 +185,7 @@ from wavestack.session.effects import (
 from wavestack.skills import SkillsContent, SkillText, load_skills_content
 from wavestack.subagent import SubagentContent, load_subagent_content
 from wavestack.tools.executor import ToolExecutor
-from wavestack.tools.native import NATIVE_TOOLS
+from wavestack.tools.native import NATIVE_TOOLS, get_datetime, read_file
 from wavestack.tools.network import network_tools
 from wavestack.tools.parser import (
     Malformed,
@@ -199,6 +211,7 @@ from wavestack.trace.catalog import (
 )
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import current, scoped
+from wavestack.ui_texts import UiTexts, load_ui_texts
 
 DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
 LOAD_TOOL_DOC = "load_tool_doc"  # the harness meta-tool of the lazy loading mode (AD-25)
@@ -207,14 +220,9 @@ LOAD_SKILL = "load_skill"  # the harness meta-tool of the skills brick (AD-25)
 REMEMBER = "remember"  # the harness meta-tool of the global memory brick (AD-25)
 MEMORY = "file.memory"  # the schema node of `memory.json` (AD-12, AD-23)
 DELEGATE = "delegate"  # the harness meta-tool of the subagent brick (AD-11, AD-25)
-_NO_SUB_TEXT_FR = "(Le sous-agent n'a rendu aucun texte.)"
 RAG_INDEX = "file.rag_index"  # the schema node of the RAG index (story 15, AD-12)
 # Lot G: the card's reason when another program keeps the index open (Windows).
-INDEX_HELD_FR = (
-    "un autre programme garde l'index ouvert (un antivirus, un outil de synchronisation ou "
-    "le script de construction) : fermez-le, puis cliquez de nouveau sur « Construire "
-    "l'index »"
-)
+INDEX_HELD_FR = Message("session.rag.index_held")
 RAG_TARGET = "rag_embedding"  # a `download_model` target: the embedding model (story 15)
 RERANK_TARGET = "rag_reranker"  # the other one: the reranking model (story 16)
 RAG_RERANKER = "rag.reranker"  # the reranker's schema node (story 16, AD-12)
@@ -223,22 +231,22 @@ _CORE_HARNESS = {
     "id": "core.harness",
     "kind": "harness",
     "hosting": "local",
-    "label_fr": "Harnais WaveStack",
+    "label_text": Message("session.architecture.harness"),
     "wanted": True,
     "available": True,
-    "reason_fr": None,
+    "reason_text": None,
 }
 _CORE_MODEL = {
     "id": "core.model",
     "kind": "model",
     "hosting": "local",
-    "label_fr": "Modèle",
+    "label_text": Message("session.architecture.model"),
     "wanted": True,
     "available": True,
-    "reason_fr": None,
+    "reason_text": None,
 }
 
-_TURN_FR = "Un tour est en cours : attendez sa fin ou arrêtez-le."
+_TURN_FR = Message("session.state.turn")
 # Languages (1/5): why the language cannot change, in French, then in the current language
 # (the buttons keep their French names until the interface is translated).
 _LANGUAGE_LOCKED = {
@@ -258,6 +266,32 @@ _LANGUAGE_LOCKED = {
 }
 
 
+class ValueRefused(KeyedError, ValueError):
+    """Languages (5/5): a refusal raised as a `ValueError`, its text keyed."""
+
+    shown_name = "ValueError"  # the name a trace gives it, as before the keys
+
+
+class RuntimeRefused(KeyedError, RuntimeError):
+    """Languages (5/5): a failure raised as a `RuntimeError`, its text keyed."""
+
+    shown_name = "RuntimeError"
+
+
+class _RenderingJournal:
+    """The journal, seen from the session: `emit` writes the payload's `Message`s in the
+    session's language (languages 5/5); anything else is the journal's own."""
+
+    def __init__(self, journal: Any, lang: str) -> None:
+        self._journal, self._lang = journal, lang
+
+    def emit(self, kind: str, payload: dict[str, Any], **kw: Any) -> Any:
+        return self._journal.emit(kind, in_language(payload, self._lang), **kw)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._journal, name)
+
+
 def _takes_lang(load: Callable[..., Any]) -> bool:
     """Whether a content loader takes `lang` (every loader of `wavestack` does)."""
     try:
@@ -271,45 +305,22 @@ def _language_locked_reason(language: str) -> str:
     return french if language == "fr" else f"{french} / {_LANGUAGE_LOCKED[language]}"
 
 
-# Lot A (AD-4): why a turn's first call does not extend what the engine holds in cache.
-_PREFIX_CAUSES_FR = {
-    "system": (
-        "Le message système a changé depuis le tour précédent (prompt système, mémoire "
-        "globale, descriptions d'outils, catalogue de skills ou skill chargé)."
-    ),
-    "history": (
-        "L'historique n'est plus rendu tel que le modèle l'a lu (mémoire courte éteinte : "
-        "l'échange précédent n'est pas renvoyé ; extraits RAG retirés, documentation "
-        "remplacée par son talon, texte compressé ou réponse réécrite)."
-    ),
-    "template": (
-        "Une brique activée ou désactivée, ou le gabarit, rend autrement une partie du "
-        "contexte déjà lue."
-    ),
-    "reset": (
-        "La conversation a été vidée, ou un scénario ou la réinitialisation l'a remplacée : "
-        "le cache du moteur contient encore l'ancienne."
-    ),
-    "replay": (
-        "Rejeu : le tour repart de l'état qui précédait le tour rejoué, alors que le cache "
-        "du moteur contient ce tour."
-    ),
-    "abandoned": (
-        "Le tour précédent n'a pas abouti (arrêté, en erreur, bloqué ou dépassé) : sa "
-        "sortie est dans le cache du moteur, pas dans l'historique."
-    ),
-    "subagent": "Le sous-agent a occupé le cache du moteur{why}.",
-    # Story 29: a generation of the « LLM nu » screen, between two turns.
-    "llm": "L'écran « LLM nu » a occupé le cache du moteur{why}.",
-}
-_LAB_FR = "L'écran « LLM nu » génère une réponse : attendez sa fin ou arrêtez-la."
+# Lot A (AD-4): why a turn's first call does not extend what the engine holds in cache: the
+# causes of `messages.yaml` (`session.prefix.causes`), `{why}` filled for a sub-agent.
+_PREFIX_CAUSES = (
+    "system",
+    "history",
+    "template",
+    "reset",
+    "replay",
+    "abandoned",
+    "subagent",
+    "llm",
+)
+_LAB_FR = Message("session.state.llm_lab")
 RAG_LAB_CATALOG_TTL_S = 5.0  # story 30: the validation's catalog, read again after this
-_RAG_LAB_FR = "Atelier RAG : exécution en cours ; attendez sa fin ou arrêtez-la."
+_RAG_LAB_FR = Message("session.state.rag_lab")
 CANDIDATES = 5  # story 29: the candidates read with each token, the one drawn added if apart
-_SUBAGENT_EVICTED_FR = {
-    "stateless": " : ce moteur ne sait pas sauvegarder l'état du contexte principal",
-    "failed": " : la sauvegarde ou la restauration de l'état du contexte principal a échoué",
-}
 # Lot A (AD-4): the segment kinds of the system message, for the `system` cause, and those
 # of the conversation, for `history`.
 _CONVERSATION_KINDS = {
@@ -325,134 +336,46 @@ _SYSTEM_KINDS = {
     SegmentKind.SKILL_CATALOG,
     SegmentKind.SKILL_BODY,
 }
-_AWAITING_FR = "En attente de votre validation : autorisez ou refusez l'appel réseau."
-_NO_MODEL_FR = (
-    "Envoi indisponible : aucun modèle n'est choisi. Choisissez-en un sur la page de diagnostic."
-)
-_LOAD_FAILED_FR = (
-    "Envoi indisponible : le modèle n'a pas pu être chargé. Choisissez un autre fichier GGUF "
-    "sur la page de diagnostic."
-)
-_CLOUD_FAILED_FR = (
-    "Envoi indisponible : le modèle cloud n'a pas pu être préparé. Choisissez un modèle sur la "
-    "page de diagnostic."
-)
-_NO_TURN_FR = "Aucun tour possible."
+_AWAITING_FR = Message("session.state.awaiting")
+_NO_MODEL_FR = Message("session.state.no_model")
+_LOAD_FAILED_FR = Message("session.state.load_failed")
+_CLOUD_FAILED_FR = Message("session.state.cloud_failed")
+_NO_TURN_FR = Message("session.state.no_turn")
 # Lot E (E4): a load stopped with no previous model to come back to.
-_LOAD_STOPPED_FR = (
-    "Envoi indisponible : le chargement du modèle a été arrêté et aucun modèle n'est chargé. "
-    "Choisissez un modèle sur la page de diagnostic."
-)
+_LOAD_STOPPED_FR = Message("session.state.load_stopped")
 # Story 26: the read rate is measured on a call that evaluated at least this many tokens, not
 # on a cache hit (lot A).
 READ_MIN_TOKENS = 64
 # Story 26 (AD-9): what the window panel says of a model's context cache and read time when
 # they are not WaveStack's to measure.
-_KV_CLOUD_FR = "Cache de contexte : chez le fournisseur, aucune mémoire sur ce poste"
-_KV_NO_MODEL_FR = "Cache de contexte : calculé au chargement d'un modèle"
-_READ_CLOUD_FR = (
-    "Temps de lecture : chez le fournisseur, non estimé (le temps mesuré est surtout celui du "
-    "réseau)"
-)
-_READ_NO_MODEL_FR = "Temps de lecture : pas encore mesuré, aucun modèle actif"
+_KV_CLOUD_FR = Message("session.window.kv_cloud")
+_KV_NO_MODEL_FR = Message("session.window.kv_no_model")
+_READ_CLOUD_FR = Message("session.window.read_cloud")
+_READ_NO_MODEL_FR = Message("session.window.read_no_model")
 
 # Lot B: the heaviest kind of segment names the cause (message first on ties), every kind
-# but the template counted, some with another (`_OVERFLOW_GROUP`).
-_OVERFLOW_CAUSES_FR = {
-    SegmentKind.USER_MESSAGE: (
-        "Cause : le message à lui seul est trop long. "
-        "Pour continuer la démo : raccourcissez le message et renvoyez-le."
-    ),
-    SegmentKind.RAG_EXCERPT: (  # story 15: after the message, which wins the ties
-        "Cause : les extraits RAG occupent la plus grande part du contexte. Pour continuer la "
-        "démo : désactivez la brique RAG ou baissez [rag] top_k dans settings.json."
-    ),
-    SegmentKind.HISTORY: (
-        "Cause : l'historique de la conversation occupe la plus grande part du contexte. "
-        "Pour continuer la démo : videz la conversation ou raccourcissez le message."
-    ),
-    SegmentKind.SYSTEM_PROMPT: (
-        "Cause : le prompt système occupe la plus grande part du contexte. "
-        "Pour continuer la démo : raccourcissez le prompt système ou rétablissez le prompt "
-        "par défaut."
-    ),
-    SegmentKind.TOOL_CATALOG: (  # in lazy loading; see `_TOOL_CATALOG_FULL_FR`
-        "Cause : les descriptions d'outils occupent la plus grande part du contexte. Pour "
-        "continuer la démo : désactivez un serveur MCP (ou des outils) dans le panneau des "
-        "briques, ou videz la conversation pour décharger les documentations chargées."
-    ),
-    SegmentKind.TOOL_RESULT: (  # lot B: `_compression_hint_fr` fills `{compression}`
-        "Cause : les résultats d'outils (fichiers lus, recherches) occupent la plus grande part "
-        "du contexte. Pour continuer la démo : posez une question plus précise, pour des "
-        "résultats plus courts{compression}, ou videz la conversation."
-    ),
-    SegmentKind.HOOK_INJECTION: (
-        "Cause : le texte injecté par le hook H3 (injection de contexte) occupe la plus grande "
-        "part du contexte. Pour continuer la démo : désactivez H3 dans la carte des hooks, ou "
-        "raccourcissez son texte (injection dans content/hooks.yaml)."
-    ),
-    SegmentKind.SUBAGENT_RESULT: (
-        "Cause : le résultat du sous-agent occupe la plus grande part du contexte. Pour "
-        "continuer la démo : confiez-lui une tâche plus ciblée, ou videz la conversation."
-    ),
-    SegmentKind.GLOBAL_MEMORY: (
-        "Cause : la mémoire globale occupe la plus grande part du contexte. Pour continuer la "
-        "démo : retirez des entrées depuis « Modifier la mémoire », ou désactivez la brique "
-        "Mémoire globale."
-    ),
-    SegmentKind.SKILL_BODY: (  # with the catalog (`_OVERFLOW_GROUP`)
-        "Cause : les skills (leur catalogue et les skills chargés) occupent la plus grande "
-        "part du contexte. Pour continuer la démo : videz la conversation pour décharger les "
-        "skills chargés, ou désactivez la brique Skills."
-    ),
-}
+# but the template counted, some with another (`_OVERFLOW_GROUP`); the causes are
+# `session.overflow.causes.{kind}` of `messages.yaml`.
+_OVERFLOW_CAUSES = (
+    SegmentKind.USER_MESSAGE,
+    SegmentKind.RAG_EXCERPT,  # story 15: after the message, which wins the ties
+    SegmentKind.HISTORY,
+    SegmentKind.SYSTEM_PROMPT,
+    SegmentKind.TOOL_CATALOG,  # in lazy loading; see `tool_catalog_full`
+    SegmentKind.TOOL_RESULT,  # lot B: `_compression_hint_fr` fills `{compression}`
+    SegmentKind.HOOK_INJECTION,
+    SegmentKind.SUBAGENT_RESULT,
+    SegmentKind.GLOBAL_MEMORY,
+    SegmentKind.SKILL_BODY,  # with the catalog (`_OVERFLOW_GROUP`)
+)
 # Lot B: the kinds counted with another's cause.
 _OVERFLOW_GROUP = {
     SegmentKind.SKILL_CATALOG: SegmentKind.SKILL_BODY,
     SegmentKind.ASSISTANT_TURN: SegmentKind.HISTORY,  # the turn's calls, its exchanges
 }
-_OVERFLOW_COMPRESSION_FR = " ; allumez la compression, qui raccourcit les gros résultats"
-_TOOL_CATALOG_FULL_FR = (
-    "Cause : les descriptions d'outils occupent la plus grande part du contexte, chaque outil "
-    "y entrant avec sa documentation complète. Pour continuer la démo : passez la carte MCP en "
-    "lazy loading, ou désactivez un serveur MCP (ou des outils) dans le panneau des briques."
-)
-# AD-6: the French name of a model capability a brick requires.
-_CAPABILITIES_FR = {
-    "tool_call_parser": f"l'appel d'outils ({NO_TOOL_PARSER_FR})",
-}
-_LIMITS_FR = {
-    "calls": (
-        "Borne atteinte : {n} appels au modèle dans ce tour. Le harnais arrête la boucle pour "
-        "éviter qu'un modèle n'appelle des outils sans fin."
-    ),
-    "retries": (
-        "Le modèle n'a pas pu utiliser l'outil : {n} appels refusés dans ce tour (mal formés, "
-        "outil inconnu ou arguments invalides). Le harnais arrête là au lieu de relancer "
-        "indéfiniment."
-    ),
-    "sub_retries": (
-        "Le sous-agent n'a pas pu utiliser ses outils : {n} appels refusés (mal formés, outil "
-        "inconnu ou arguments invalides). Le harnais arrête le sous-agent ; le tour principal "
-        "continue avec une erreur à la place du résultat."
-    ),
-    "sub_calls": (
-        "Borne du sous-agent atteinte : {n} appels au modèle pour cette délégation. Le harnais "
-        "arrête le sous-agent ; le tour principal continue avec une erreur à la place du "
-        "résultat."
-    ),
-}
-# Lot B (N3): appended to a network or MCP tool's result the harness cut, seen by the model.
-_TRUNCATED_FR = (
-    "\n\n[Résultat tronqué par le harnais : {kept} tokens sur {total}. Réponds avec ce qui "
-    "est gardé, ou relance l'outil avec une demande plus précise.]"
-)
-_OVERFLOW_STRATEGIES_FR = [
-    "Fenêtre glissante : ne garder que les échanges les plus récents.",
-    "Compaction : résumer les anciens échanges en quelques lignes.",
-    "Retrait des anciens résultats d'outils.",
-    "Lazy loading : ne charger la documentation des outils qu'à la demande.",
-]
+# AD-6: the name of a model capability a brick requires (`session.capabilities`).
+_CAPABILITIES = ("tool_call_parser",)
+_OVERFLOW_STRATEGIES = ("sliding_window", "compaction", "old_tool_results", "lazy_loading")
 
 
 class Exchange(NamedTuple):
@@ -514,7 +437,7 @@ class _ModelOutput:
     # Chat mode: the call's `context_reconciled` payload once `usage` came back (AD-4); a
     # provider's refusal: its French message (for a failed delegation, AD-11).
     reconciled: dict[str, Any] | None = None
-    message_fr: str = ""
+    message_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -528,7 +451,7 @@ class ArmedAction:
     brick: str
     target: str
     args: dict[str, Any]
-    label_fr: str
+    label_text: str
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -537,16 +460,16 @@ class ArmedAction:
             "brick": self.brick,
             "target": self.target,
             "args": self.args,
-            "label_fr": self.label_fr,
+            "label_text": self.label_text,
         }
 
 
 class ArmRefused(Exception):
     """An arming the session refuses: unknown target (`not_found`) or invalid arguments."""
 
-    def __init__(self, reason_fr: str, *, not_found: bool = False) -> None:
-        super().__init__(reason_fr)
-        self.reason_fr = reason_fr
+    def __init__(self, reason_text: str, *, not_found: bool = False) -> None:
+        super().__init__(reason_text)
+        self.reason_text = reason_text
         self.not_found = not_found
 
 
@@ -578,7 +501,7 @@ class TurnState:
     rag_rerank: bool = False
     # Story 16: the sub-option enabled, but no reranker at the turn's start: why (the RAG
     # step says it), else `None`.
-    rag_rerank_skipped_fr: str | None = None
+    rag_rerank_skipped_text: str | None = None
     # Story 20 (AD-22): what each of `rag_excerpts` was before the compressor (same order).
     rag_compressed: tuple[CompressedFrom | None, ...] = ()
     # Story 19 (AD-11): the sub-agent's tools, `[subagent] tools` among the enabled ones.
@@ -598,11 +521,11 @@ class _SubContext:
 
 @dataclass
 class _SubOutcome:
-    """How a sub-agent's loop ended; `message_fr` is the error reinjected on a failure."""
+    """How a sub-agent's loop ended; `message_text` is the error reinjected on a failure."""
 
     status: str  # completed | limit | overflow | error | cancelled
     result: str = ""
-    message_fr: str = ""
+    message_text: str = ""
 
 
 def _with_loaded(state: TurnState, loaded_in_turn: list[str]) -> TurnState:
@@ -633,9 +556,9 @@ class _Approval:
 
 
 class SendRefused(Exception):
-    def __init__(self, reason_fr: str) -> None:
-        super().__init__(reason_fr)
-        self.reason_fr = reason_fr
+    def __init__(self, reason_text: str) -> None:
+        super().__init__(reason_text)
+        self.reason_text = reason_text
 
 
 # AD-7, story 24: a hot switch's probe of a GGUF (`DiagnosticSession.probe_path`): `None`
@@ -648,19 +571,19 @@ class _LoadCancelled(Exception):
 
 
 class _LoadFailed(Exception):
-    """A load refused for a known reason (probe, incompatible template): `message_fr` for
-    `harness_error`, `reason_fr` its cause, `idle_fr` the reason left in `idle` when no
+    """A load refused for a known reason (probe, incompatible template): `message_text` for
+    `harness_error`, `reason_text` its cause, `idle_text` the reason left in `idle` when no
     model is active afterwards."""
 
     def __init__(
         self,
-        message_fr: str,
-        reason_fr: str,
-        idle_fr: str | None = None,
+        message_text: str,
+        reason_text: str,
+        idle_text: str | None = None,
         detail: str | None = None,
     ) -> None:
-        super().__init__(reason_fr)
-        self.message_fr, self.reason_fr, self.idle_fr = message_fr, reason_fr, idle_fr
+        super().__init__(reason_text)
+        self.message_text, self.reason_text, self.idle_text = message_text, reason_text, idle_text
         self.detail = detail  # lot E (E6): the loader's own message, `harness_error.cause`
 
 
@@ -718,23 +641,22 @@ def _stamp(path: Path) -> tuple[int, int] | None:
     return stat.st_mtime_ns, stat.st_size
 
 
-def _missing_model_fr(noun: str, label_fr: str, missing: list[ModelFile], tail: str = "") -> str:
+def _missing_model_fr(noun: str, label_text: str, missing: list[ModelFile], tail: str = "") -> str:
     """Stories 15 and 16: « modèle absent » (or another file there) for the embedding or the
-    reranking model, with what to download or copy by hand, and where. Reads the disk: called
-    when the files are read again, never at each emission."""
+    reranking model (`noun`: `embedding` or `reranking`), with what to download or copy by
+    hand, and where: a `Message`, rendered where it is shown. Reads the disk: called when
+    the files are read again, never at each emission."""
     names = ", ".join(PurePosixPath(f.path).name for f in missing)
     folder = config.models_dir() / PurePosixPath(missing[0].path).parent
-    size = _mo(sum(f.size for f in missing))
+    total = sum(f.size for f in missing)
+    size = Lazy(lambda lang: number(round(total / 1_000_000), lang))
+    kind = Message(f"session.rag.model_noun.{noun}")
     if any((config.models_dir() / f.path).is_file() for f in missing):
-        return (
-            f"Indisponible : le fichier {names} de {folder} n'est pas le modèle {noun} déclaré "
-            f"({label_fr}, {size} Mo attendus). Cliquez sur « Télécharger » pour le "
-            f"remplacer.{tail}"
-        )
-    return (
-        f"Indisponible : modèle absent. Le modèle {noun} {label_fr} ({size} Mo) n'est pas sur "
-        f"le poste. Cliquez sur « Télécharger », ou copiez à la main {names} dans {folder}, "
-        f"puis cliquez de nouveau sur « Télécharger ».{tail}"
+        key = "session.rag.model_mismatch"
+    else:
+        key = "session.rag.model_absent"
+    return Message(
+        key, names=names, folder=folder, noun=kind, label=label_text, size=size, tail=tail
     )
 
 
@@ -742,10 +664,8 @@ _log = logging.getLogger(__name__)
 
 
 def _join_fr(items: list[str]) -> str:
-    """« a, b et c »: a French enumeration."""
-    if len(items) < 2:
-        return "".join(items)
-    return ", ".join(items[:-1]) + f" et {items[-1]}"
+    """« a, b et c »: a French enumeration (`messages.join` in another language)."""
+    return join(items, config.DEFAULT_LANGUAGE)
 
 
 def _ms(seconds: float) -> int:
@@ -773,6 +693,9 @@ class AppSession:
         # Languages (1/5): the language of the content sent to the model, `fr` by default;
         # changed only on an empty conversation (`set_language`).
         self._language = self.cfg.language
+        # Languages (2/5): the interface's texts, read at the first `ui_texts()` in the
+        # session's language, again after a change of language.
+        self._ui_texts: UiTexts | None = None
         self._engine_factory = engine_factory
         # Story 18: the adapter of a model an already-running local server serves
         # (`llama_server`, `ollama_raw`), a fake one in tests.
@@ -803,7 +726,7 @@ class AppSession:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="wavestack-worker")
         self._lock = threading.Lock()
         self.state = "diagnostic"
-        self.reason_fr: str | None = "Diagnostic de démarrage en cours."
+        self.reason_text: str | None = Message("session.state.diagnostic")
         self._engine: Engine | None = None
         self._model_name: str | None = None  # file stem of the loaded GGUF, shown in the schema
         self._caps: Capabilities | None = None
@@ -866,7 +789,7 @@ class AppSession:
         self._rag_stamp: tuple[int, int] | None = None  # the index file read: mtime, size
         self._rag_chunks = 0
         self._rag_missing: list[ModelFile] = []
-        self._rag_missing_fr: str | None = None  # its reason, read with the files
+        self._rag_missing_text: str | None = None  # its reason, read with the files
         self._rag_longest: list[Chunk] = []  # the preview's excerpts (AD-9)
         self._embedder: Embedder | None = None
         self._rag_retriever: SqliteVecRetriever | None = None  # its index connection
@@ -881,7 +804,7 @@ class AppSession:
         self._rerank_model: RerankerModel | None = None
         self._rerank_config_error: str | None = None
         self._rerank_missing: list[ModelFile] = []
-        self._rerank_missing_fr: str | None = None  # its reason, read with the files
+        self._rerank_missing_text: str | None = None  # its reason, read with the files
         self._reranker: Reranker | None = None
         self._rerank_loading = False
         self._rerank_load_error: str | None = None
@@ -916,9 +839,14 @@ class AppSession:
         self._rag_lab_catalog_kept: tuple[float, Any, rag_lab.Catalog] | None = None
         self._load_content()
         self._registry = ToolRegistry(
-            NATIVE_TOOLS + network_tools(self.cfg) + self._harness_tools(), self._tools_content
+            self._native_tools()
+            + network_tools(self.cfg, lambda: self._language)
+            + self._harness_tools(),
+            self._tools_content,
+            lambda: self._language,
         )
-        self._tool_executor = ToolExecutor(self._registry)
+        # Languages (5/5): what the executor writes, in the session's language at each call.
+        self._tool_executor = ToolExecutor(self._registry, lambda: self._language)
         self._check_subagent_tools()
         self._tools_enabled: set[str]  # sub-options: see `_apply_launch_config`
         # MCP servers (story 6): the local one starts enabled, the public ones disabled. A
@@ -927,7 +855,7 @@ class AppSession:
         self._mcp_servers = mcp_servers(self.cfg)
         self._mcp_enabled: set[str]
         self._mcp_conns: dict[str, McpConnection] = {}
-        self._mcp_state: dict[str, tuple[str, str | None]] = {}  # contact, reason_fr
+        self._mcp_state: dict[str, tuple[str, str | None]] = {}  # contact, reason_text
         # Story 6b: documentation complète by default; the documentations loaded belong to
         # the conversation (AD-17), and wait while their server is off.
         self._mcp_lazy: bool
@@ -1039,15 +967,15 @@ class AppSession:
 
     # ---------- state ----------
 
-    def _set_state(self, state: str, reason_fr: str | None = None) -> None:
+    def _set_state(self, state: str, reason_text: str | None = None) -> None:
         with self._lock:
-            self.state, self.reason_fr = state, reason_fr
+            self.state, self.reason_text = state, reason_text
         self._emit_state()
 
     def active_model(self) -> dict[str, Any] | None:
         """AD-12: the model indicator's only source, from the file or the cloud entry."""
         if self._cloud is not None:
-            return active_model(self._cloud)
+            return active_model(self._cloud, self._language)
         if self._model_name is None:
             return None
         active = self._active
@@ -1063,13 +991,13 @@ class AppSession:
 
     def _emit_state(self) -> None:
         with self._lock:
-            state, reason_fr = self.state, self.reason_fr
+            state, reason_text = self.state, self.reason_text
             language, locked = self._language, self._conversation_started()
-        get_journal().emit(
+        self._journal().emit(
             "session_state",
             {
                 "state": state,
-                "reason_fr": reason_fr,
+                "reason_text": reason_text,
                 "active_model": self.active_model(),
                 "language": language,
                 "language_locked": locked,
@@ -1102,7 +1030,7 @@ class AppSession:
 
     def _mcp_label(self, server_id: str) -> str:
         text = self._mcp_content.servers.get(server_id) if self._mcp_content else None
-        return text.label_fr if text else server_id
+        return text.label_text if text else server_id
 
     def _hook_ids(self) -> list[str]:
         """The declared hooks, in the registry's order, which is their call order."""
@@ -1111,7 +1039,7 @@ class AppSession:
 
     def _hook_label(self, hook_id: str) -> str:
         text = self._hooks_content.hooks.get(hook_id) if self._hooks_content else None
-        return text.label_fr if text else hook_id
+        return text.label_text if text else hook_id
 
     def _skill_ids(self) -> list[str]:
         """The declared skills, in the registry's order."""
@@ -1123,7 +1051,7 @@ class AppSession:
 
     def _skill_label(self, skill_id: str) -> str:
         text = self._skill_text(skill_id)
-        return text.label_fr if text else skill_id
+        return text.label_text if text else skill_id
 
     def _mcp_tools(self, server_id: str) -> list[str]:
         """The names the registry exposes for `server_id`'s tools."""
@@ -1136,14 +1064,14 @@ class AppSession:
         text = self._mcp_content.servers.get(server_id) if self._mcp_content else None
         node.update(
             kind="mcp_server",
-            label_fr=self._mcp_label(server_id),
+            label_text=self._mcp_label(server_id),
             contact=contact,
             tools=self._mcp_tools(server_id) if contact == "available" else [],
         )
         if node["hosting"] == "network" and text is not None:  # story 34, AD-19
-            node["sends_fr"] = text.sends_fr
+            node["sends_text"] = text.sends_text
         if node["available"] and contact == "unavailable":
-            node["available"], node["reason_fr"] = False, why
+            node["available"], node["reason_text"] = False, self._text(why)
 
     def _emit_architecture(self) -> None:
         """AD-12: a component is drawn as soon as its brick is `wanted`, even unavailable."""
@@ -1172,13 +1100,13 @@ class AppSession:
             edges.append({"from": "core.harness", "to": "core.model", "crosses_boundary": False})
         nodes: list[dict[str, Any]] = [_CORE_HARNESS, model]
         if any(b.id == "subagent" for b in wanted):  # AD-11: the same model, a second context
-            available, reason_fr = self._availability("subagent")
+            available, reason_text = self._availability("subagent")
             sub_model = {
                 **model,
                 "id": "core.model_sub",
-                "label_fr": "Modèle (sous-agent)",
+                "label_text": self._t("session.architecture.model_sub"),
                 "available": available,
-                "reason_fr": reason_fr,
+                "reason_text": reason_text,
             }
             nodes.append(sub_model)
             if self._cloud is not None:  # as `core.model`: an edge only across the boundary
@@ -1192,44 +1120,44 @@ class AppSession:
         files = {
             "file.demo_dir": (
                 "tools",
-                self._tools_content.demo_dir_label_fr if self._tools_content else "demo_files",
+                self._tools_content.demo_dir_label_text if self._tools_content else "demo_files",
                 None,
             ),
             AUDIT: (
                 "hooks",
-                self._hooks_content.audit_label_fr if self._hooks_content else "audit.log",
+                self._hooks_content.audit_label_text if self._hooks_content else "audit.log",
                 str(config.audit_path()),
             ),
             MEMORY: (
                 "global_memory",
-                self._memory_content.file_label_fr if self._memory_content else "memory.json",
+                self._memory_content.file_label_text if self._memory_content else "memory.json",
                 str(config.memory_path()),
             ),
             RAG_INDEX: (
                 "rag",
-                self._rag_content.index_label_fr if self._rag_content else "rag_index.sqlite",
+                self._rag_content.index_label_text if self._rag_content else "rag_index.sqlite",
                 self._rag_index_detail(),
             ),
         }
-        for file_id, (brick_id, label, detail_fr) in files.items():
+        for file_id, (brick_id, label, detail_text) in files.items():
             if file_id not in targets or brick_id not in self._bricks:
                 continue
-            available, reason_fr = self._availability(brick_id)
+            available, reason_text = self._availability(brick_id)
             nodes.append(
                 {
                     "id": file_id,
                     "kind": "file",
                     "hosting": "local",
-                    "label_fr": label,
+                    "label_text": label,
                     "wanted": True,
                     "available": available,
-                    "reason_fr": reason_fr,
-                    "detail_fr": detail_fr,
+                    "reason_text": reason_text,
+                    "detail_text": detail_text,
                 }
             )
         drawn = {n["id"] for n in nodes} | {c.id for cs in components.values() for c in cs}
         for brick in wanted:
-            available, reason_fr = self._availability(brick.id)
+            available, reason_text = self._availability(brick.id)
             for component in components[brick.id]:
                 hosting = "network" if component.hosting == "network_service" else "local"
                 is_tool = component.kind == "tool"
@@ -1239,7 +1167,7 @@ class AppSession:
                     "id": component.id,
                     "kind": component.kind if is_tool or is_skill or is_hook else "brick",
                     "hosting": hosting,
-                    "label_fr": (
+                    "label_text": (
                         self._registry.label(component.id.removeprefix("tools."))
                         if is_tool
                         else self._skill_label(component.id.removeprefix("skills."))
@@ -1250,15 +1178,15 @@ class AppSession:
                     ),
                     "wanted": True,
                     "available": available,
-                    "reason_fr": reason_fr,
+                    "reason_text": reason_text,
                 }
                 if is_tool and hosting == "network":
                     name = component.id.removeprefix("tools.")
                     contact, why = self._tool_executor.contact.get(name, ("not_contacted", None))
                     node["contact"] = contact
-                    node["sends_fr"] = self._registry.sends(name)  # story 34, AD-19
+                    node["sends_text"] = self._registry.sends(name)  # story 34, AD-19
                     if available and contact == "unavailable":
-                        node["available"], node["reason_fr"] = False, why
+                        node["available"], node["reason_text"] = False, self._text(why)
                 if component.kind == "mcp_server":
                     self._mcp_node(node, component.id.removeprefix("mcp."))
                 if is_skill:  # its tooltip gives its description and state (FR-3)
@@ -1266,26 +1194,27 @@ class AppSession:
                     text = self._skill_text(skill_id)
                     with self._lock:
                         node["loaded"] = skill_id in self._loaded_skills
-                    node["detail_fr"] = text.description if text else None
+                    node["detail_text"] = text.description if text else None
                 if is_hook and self._hooks_content:  # its tooltip says when it acts
                     hook = self._hooks_content.hooks.get(component.id.removeprefix("hooks."))
-                    node["detail_fr"] = hook.description_fr if hook else None
+                    node["detail_text"] = hook.description_text if hook else None
                 if component.id == "rag.retriever" and self._rag_model is not None:
-                    node["detail_fr"] = f"Modèle d'embedding {self._rag_model.id}, processus local"
+                    node["detail_text"] = self._t(
+                        "session.architecture.embedding", model=self._rag_model.id
+                    )
                 if component.id == RAG_RERANKER:  # story 16: its label, model and own reason
                     if self._rag_content is not None:
-                        node["label_fr"] = self._rag_content.rerank_label_fr
+                        node["label_text"] = self._rag_content.rerank_label_text
                     if self._rerank_model is not None:
-                        node["detail_fr"] = (
-                            f"Modèle de reranking {self._rerank_model.id}, processus local"
+                        node["detail_text"] = self._t(
+                            "session.architecture.reranking", model=self._rerank_model.id
                         )
                     ok, why = self._rerank_availability()
                     if node["available"] and not ok:
-                        node["available"], node["reason_fr"] = False, why
+                        node["available"], node["reason_text"] = False, self._text(why)
                 if component.id == "compression.compressor":
-                    node["detail_fr"] = (
-                        f"{self._compressor_label()}, bibliothèque dans le processus du "
-                        "harnais, hors ligne"
+                    node["detail_text"] = self._t(
+                        "session.architecture.compressor", label=self._compressor_label()
                     )
                 nodes.append(node)
                 edges += [
@@ -1293,7 +1222,7 @@ class AppSession:
                     for target in component.edges_to
                     if target in drawn  # e.g. a `file.*` node not emitted yet
                 ]
-        get_journal().emit("architecture_changed", {"nodes": nodes, "edges": edges})
+        self._journal().emit("architecture_changed", {"nodes": nodes, "edges": edges})
 
     def _pending_ids(self) -> set[str]:
         """Bricks whose effect on the next turn differs from what the last `send` froze."""
@@ -1333,9 +1262,11 @@ class AppSession:
         return [
             {
                 "id": server.id,
-                "label_fr": self._mcp_label(server.id),
+                "label_text": self._mcp_label(server.id),
                 "enabled": server.id in enabled,
-                "hosting_fr": "RÉSEAU" if server.network else "Local",
+                "hosting_text": self._t(
+                    "session.hosting.network" if server.network else "session.hosting.local"
+                ),
                 "network": server.network,
                 # Story 9: the tools whose documentation « Charger la documentation » loads.
                 "tools": tools.get(server.id, []),
@@ -1361,7 +1292,7 @@ class AppSession:
             parameters[arg] = text if arg in required else f"{text} (facultatif)"
         content = self._mcp_content.call_presets.get(name, []) if self._mcp_content else []
         presets = [
-            {"label_fr": p.label_fr, "args": {k: v for k, v in p.args.items() if k in params}}
+            {"label_text": p.label_text, "args": {k: v for k, v in p.args.items() if k in params}}
             for p in content
         ]
         return {"tool": name, "parameters": parameters, "presets": presets}
@@ -1372,9 +1303,9 @@ class AppSession:
         return [
             {
                 "id": skill_id,
-                "label_fr": self._skill_label(skill_id),
+                "label_text": self._skill_label(skill_id),
                 "enabled": skill_id in enabled,
-                "hosting_fr": "Local",
+                "hosting_text": "Local",
                 "network": False,
             }
             for skill_id in self._skill_ids()
@@ -1386,9 +1317,9 @@ class AppSession:
         return [
             {
                 "id": hook_id,
-                "label_fr": self._hook_label(hook_id),
+                "label_text": self._hook_label(hook_id),
                 "enabled": hook_id in enabled,
-                "hosting_fr": "Local",
+                "hosting_text": "Local",
                 "network": False,
             }
             for hook_id in self._hook_ids()
@@ -1407,9 +1338,11 @@ class AppSession:
             options.append(
                 {
                     "id": name,
-                    "label_fr": self._registry.label(name),
+                    "label_text": self._registry.label(name),
                     "enabled": name in enabled,
-                    "hosting_fr": "RÉSEAU" if spec.network else "Local",
+                    "hosting_text": self._t(
+                        "session.hosting.network" if spec.network else "session.hosting.local"
+                    ),
                     "network": spec.network,
                     # Story 9: the form of a forced call, one field per parameter.
                     "parameters": {
@@ -1421,52 +1354,53 @@ class AppSession:
         return options
 
     def _limits_fr(self) -> str:
-        return (
-            f"Bornes du tour : {self.cfg.tool_max_calls} appels au modèle au plus, dont "
-            f"{self.cfg.tool_max_retries} nouveaux essais après un appel refusé (mal formé, "
-            "outil inconnu ou arguments invalides)."
+        return self._t(
+            "session.bricks.limits",
+            calls=self.cfg.tool_max_calls,
+            retries=self.cfg.tool_max_retries,
         )
 
     def _subagent_card(self, text: SubagentContent) -> dict[str, Any]:
         """Story 19: « Déléguer au sous-agent » on the card (no sub-option), and the bounds."""
-        tools = ", ".join(self._registry.label(n) for n in self.cfg.subagent_tools) or "aucun"
+        tools = ", ".join(self._registry.label(n) for n in self.cfg.subagent_tools) or self._t(
+            "tools.check.none"
+        )
         n = self.cfg.subagent_max_calls
         return {
             "force": {
                 "kind": "delegate",
                 "target": DELEGATE,
-                "label_fr": text.force_label_fr,
-                "parameters": {"task": text.task_label_fr},
+                "label_text": text.force_label_text,
+                "parameters": {"task": text.task_label_text},
                 "presets": [p.model_dump() for p in text.presets],
             },
-            "limits_fr": (
-                f"Sous-agent : {n} appel{'s' if n > 1 else ''} au modèle au plus, nouveaux essais "
-                f"compris ; outils : {tools}, s'ils sont activés dans la brique Outils."
-            ),
+            "limits_text": self._t("session.bricks.subagent_limits", count=n, tools=tools),
         }
 
     def _outbound_fr(self, brick_id: str, content: BrickContent | None) -> str | None:
         """Story 23: the card's « what leaves the workstation, and where to read it », built
         from `content/bricks/*.yaml` (AD-19): the network tools, in the registry's order, and
         the public MCP servers. None for a brick with nothing that can leave."""
-        if content is None or content.outbound_fr is None or brick_id not in ("tools", "mcp"):
+        if content is None or content.outbound_text is None or brick_id not in ("tools", "mcp"):
             return None
         servers = [self._mcp_label(s.id) for s in self._mcp_servers.values() if s.network]
         tools: list[str] = []
         if brick_id == "tools":
-            tools = [o["label_fr"] for o in self._tool_options() if o["network"]]
+            tools = [o["label_text"] for o in self._tool_options() if o["network"]]
             if not tools and not servers:
                 return None
         elif not servers:
             return None
         try:
-            return content.outbound_fr.format(
-                tools=_join_fr(tools) or "aucun outil réseau", servers=_join_fr(servers) or "aucun"
+            lang = self._language
+            return content.outbound_text.format(
+                tools=join(tools, lang) or msg("session.outbound.no_tool", lang),
+                servers=join(servers, lang) or msg("tools.check.none", lang),
             )
         except (KeyError, IndexError, ValueError, AttributeError, TypeError) as exc:
             # A placeholder the session does not fill (`{x}`, `{tools.x}`, `{0}`): no line,
             # but the cards still go out.
-            _log.warning("outbound_fr of %s ignored: %s: %s", brick_id, type(exc).__name__, exc)
+            _log.warning("outbound_text of %s ignored: %s: %s", brick_id, type(exc).__name__, exc)
             return None
 
     def _emit_bricks(self) -> None:
@@ -1477,20 +1411,20 @@ class AppSession:
             lazy = self._mcp_lazy
         bricks = []
         for brick in self._bricks.values():
-            available, reason_fr = self._availability(brick.id)
+            available, reason_text = self._availability(brick.id)
             content = self._content.get(brick.id)
             bricks.append(
                 {
                     "id": brick.id,
-                    "label_fr": self._label(brick.id),
+                    "label_text": self._label(brick.id),
                     "category": brick.category,
                     "group": brick.group,
-                    "category_fr": content.category_fr if content else brick.category,
-                    "hosting_fr": content.hosting_fr if content else "",
-                    "explanation_fr": self._explanation(content),
+                    "category_text": content.category_text if content else brick.category,
+                    "hosting_text": content.hosting_text if content else "",
+                    "explanation_text": self._explanation(content),
                     "wanted": brick.id in wanted,
                     "available": available,
-                    "reason_fr": reason_fr,
+                    "reason_text": reason_text,
                     "pending": brick.id in pending,
                     "options": (
                         self._tool_options()
@@ -1503,13 +1437,13 @@ class AppSession:
                         if brick.id == "hooks"
                         else []
                     ),
-                    "limits_fr": self._limits_fr() if brick.id == "tools" else None,
-                    "outbound_fr": self._outbound_fr(brick.id, content),
+                    "limits_text": self._limits_fr() if brick.id == "tools" else None,
+                    "outbound_text": self._outbound_fr(brick.id, content),
                 }
             )
             if brick.id == "reasoning":
-                bricks[-1]["always_fr"] = self._always_fr()
-                bricks[-1]["limits_fr"] = self._reasoning_budget_fr()
+                bricks[-1]["always_text"] = self._always_fr()
+                bricks[-1]["limits_text"] = self._reasoning_budget_fr()
             if brick.id == "global_memory":
                 bricks[-1] |= self._memory_card()
             if brick.id == "subagent" and self._subagent_content is not None:
@@ -1517,18 +1451,18 @@ class AppSession:
             if brick.id == "rag":
                 bricks[-1] |= self._rag_offers() | {"rerank": self._rerank_card()}
             if brick.id == "compression" and self._compression_content is not None:
-                bricks[-1]["limits_fr"] = self._compression_content.limits_fr.format(
+                bricks[-1]["limits_text"] = self._compression_content.limits_text.format(
                     min_chars=self.cfg.compression_min_chars
                 )
             if brick.id == "mcp":
                 bricks[-1] |= {
                     "mode": "lazy" if lazy else "full",
-                    "lazy_label_fr": (
-                        self._mcp_content.lazy_label_fr if self._mcp_content else "Lazy loading"
+                    "lazy_label_text": (
+                        self._mcp_content.lazy_label_text if self._mcp_content else "Lazy loading"
                     ),
                 }
         text = custom if custom is not None else self._default_prompt
-        get_journal().emit(
+        self._journal().emit(
             "bricks_changed",
             {
                 "bricks": bricks,
@@ -1536,10 +1470,72 @@ class AppSession:
             },
         )
 
-    def _error(self, message_fr: str, exc: BaseException | str, effect_fr: str) -> None:
-        cause = exc if isinstance(exc, str) else f"{type(exc).__name__}: {exc}"
-        get_journal().emit(
-            "harness_error", {"message_fr": message_fr, "cause": cause, "effect_fr": effect_fr}
+    def _journal(self) -> _RenderingJournal:
+        """Languages (5/5): the journal, every `Message` of a payload written in the
+        session's language as it is emitted (the texts built far from the session)."""
+        return _RenderingJournal(get_journal(), self._language)
+
+    @staticmethod
+    def _mo_lazy(n: int) -> Lazy:
+        """Bytes in decimal Mo, rounded (story 15), in the language rendered in."""
+        return Lazy(lambda lang: number(round(n / 1_000_000), lang))
+
+    @staticmethod
+    def _num_lazy(n: int) -> Lazy:
+        """A count of tokens, in the language its message is rendered in (« 8 192 »)."""
+        return Lazy(lambda lang: number(n, lang))
+
+    @staticmethod
+    def _size_lazy(n: int) -> Lazy:
+        """A size (« 448 Mo », « 1,8 Go »), in the language its message is rendered in."""
+        return Lazy(lambda lang: config.size_fr(n, lang))
+
+    @staticmethod
+    def _bound_lazy(source: str, window: int, provider: str | None = None) -> Lazy:
+        """Story 26: « (bornée à … par …) » after a window, or nothing, in the language its
+        message is rendered in."""
+
+        def bound(lang: str) -> str:
+            text = bound_fr(source, window, provider, lang)
+            return f" ({text})" if text else ""
+
+        return Lazy(bound)
+
+    def _decimal(self, text: str) -> str:
+        """A decimal written with `.`, in the session's language (« 12,5 » but in English)."""
+        return text if self._language == "en" else text.replace(".", ",")
+
+    def _n(self, n: float) -> str:
+        """A count in the session's language: « 8 192 », « 8,192 », « 8.192 »."""
+        return number(n, self._language)
+
+    def _t(self, key: str, /, **kw: Any) -> str:
+        """Languages (5/5): the message `key` of `messages.yaml` in the session's language."""
+        return msg(key, self._language, **kw)
+
+    def _text(self, value: Any) -> Any:
+        """Languages (5/5): a `Message` or a `KeyedError` written in the session's language
+        where it is placed (an event, the state, the context), as a `Said` (a `str` that
+        keeps its `Message`, for the terminal); anything else as it is."""
+        return said(value, self._language)
+
+    def _error(self, message_text: str, exc: BaseException | str, effect_text: str) -> None:
+        """A `harness_error`: its texts (`Message`s, or a keyed exception as the cause) in
+        the session's language; a third party's exception text stays as it is."""
+        if isinstance(exc, str):
+            cause = self._text(exc)
+        elif isinstance(exc, KeyedError):
+            kind = getattr(exc, "shown_name", type(exc).__name__)
+            cause = self._text(Message("session.cause", kind=kind, text=exc.message))
+        else:
+            cause = f"{type(exc).__name__}: {exc}"
+        self._journal().emit(
+            "harness_error",
+            {
+                "message_text": self._text(message_text),
+                "cause": cause,
+                "effect_text": self._text(effect_text),
+            },
         )
 
     def _localized(self, load: Callable[..., Any], *args: Any) -> Any:
@@ -1556,9 +1552,9 @@ class AppSession:
         except Exception as exc:  # noqa: BLE001 - AD-19: traced, then French
             content = load(*args, lang=config.DEFAULT_LANGUAGE)
             self._error(
-                f"Un fichier traduit ({lang}) sous content/i18n/{lang}/ est invalide.",
+                msg("session.translation_invalid.message", lang, lang=lang),
                 exc,
-                "Le texte français de ce fichier le remplace ; le reste de WaveStack fonctionne.",
+                msg("session.translation_invalid.effect", lang),
             )
             return content
 
@@ -1682,16 +1678,17 @@ class AppSession:
     @staticmethod
     def _load_reason(choice: ModelChoice) -> str:
         if choice.entry is not None:
-            return f"Préparation du modèle cloud {choice.entry.model} chez {choice.entry.provider}…"
+            return Message(
+                "session.load.cloud", model=choice.entry.model, provider=choice.entry.provider
+            )
         if choice.kind == "server":
-            return f"Préparation du modèle servi par {choice.provider}…"
-        return f"Chargement du modèle {choice.file_name}…"
+            return Message("session.load.server", provider=choice.provider)
+        return Message("session.load.file", file=choice.file_name)
 
-    @staticmethod
-    def _model_payload(choice: ModelChoice) -> dict[str, Any]:
+    def _model_payload(self, choice: ModelChoice) -> dict[str, Any]:
         """The `ActiveModel` of a model not loaded yet: `model_load_*`."""
         if choice.entry is not None:
-            return active_model(choice.entry)
+            return active_model(choice.entry, self._language)
         label = choice.label
         if choice.kind == "server":  # AD-12, story 18: a local process apart from WaveStack
             return {
@@ -1730,7 +1727,7 @@ class AppSession:
             return "error"
         with self._lock:
             previous = self._active
-            self.state, self.reason_fr = "model_load", self._load_reason(choice)
+            self.state, self.reason_text = "model_load", self._load_reason(choice)
             self._load_cancel = CancelToken()
         self._emit_state()
         return self._load(choice, previous, None, save=False)
@@ -1750,19 +1747,23 @@ class AppSession:
                 raise SendRefused(self._refusal_reason())
             previous = self._active
             if choice.same_as(previous):
-                return f"{choice.label} est déjà actif.", None
+                return Message("session.load.already_active", label=choice.label), None
             refusal = (
                 self._load_registry.check(choice.label, cost) if self._checked(choice) else None
             )
             if refusal is None:  # switched under the lock: a second choice racing it is refused
-                self.state, self.reason_fr = "model_load", self._load_reason(choice)
+                self.state, self.reason_text = "model_load", self._load_reason(choice)
                 self._load_cancel = CancelToken()  # lot E (E4): « Arrêter » from now on
         if refusal is not None:
-            self._error(refusal, "budget mémoire dépassé (AD-8)", "Rien n'est libéré ni écrit.")
+            self._error(
+                refusal,
+                Message("session.load.budget_cause"),
+                Message("session.load.nothing_released"),
+            )
             raise SendRefused(refusal)
         self._emit_state()
         future = self._executor.submit(self._load, choice, previous, probe, True)
-        return f"Chargement de {choice.label}…", future
+        return Message("session.load.loading", label=choice.label), future
 
     def _load(
         self,
@@ -1785,7 +1786,7 @@ class AppSession:
         it had. Returns `ok`, `restored`, `cancelled` or `error`."""
         started = time.monotonic()
         model = self._model_payload(choice)
-        journal = get_journal()
+        journal = self._journal()
         off_turn = {"turn_id": None, "step_id": None, "call_id": None, "context_id": None}
         phase_label = (
             self._reload_reason(choice, window) if window is not None else self._load_reason(choice)
@@ -1796,14 +1797,14 @@ class AppSession:
                 {"model": model, "phase_label": phase_label}
                 | ({"window": window} if window is not None else {}),
             )
-        status, reason_fr, idle_fr = "error", None, _LOAD_FAILED_FR
+        status, reason_text, idle_text = "error", None, _LOAD_FAILED_FR
         with self._lock:
             cancel = self._load_cancel
         # Story 29: each step passed, with WaveStack's RSS, for the « LLM nu » screen.
         rss_before = self._rss_now()
         last_step = started
 
-        def step(name: str, label_fr: str) -> None:
+        def step(name: str, label_text: str) -> None:
             nonlocal last_step
             now = time.monotonic()
             with scoped(**off_turn):
@@ -1812,7 +1813,7 @@ class AppSession:
                     {
                         "model": model,
                         "step": name,
-                        "label_fr": label_fr,
+                        "label_text": label_text,
                         "elapsed_ms": _ms(now - started),
                         "duration_ms": _ms(now - last_step),
                         "rss_bytes": self._rss_now(),
@@ -1835,39 +1836,47 @@ class AppSession:
                     _checkpoint(cancel)
                     step(
                         "probe",
-                        "Sonde du fichier dans un processus à part : "
-                        + ("il se charge." if why is None else "incompatible."),
+                        Message(
+                            "session.load.steps.probe",
+                            outcome=Message(
+                                "session.load.steps.probe_ok"
+                                if why is None
+                                else "session.load.steps.probe_incompatible"
+                            ),
+                        ),
                     )
                     if why is not None:
-                        raise _LoadFailed(f"Le fichier {choice.file_name} est incompatible.", why)
+                        raise _LoadFailed(
+                            Message("session.load.incompatible", file=choice.file_name), why
+                        )
                     # AD-8: the probe's measure replaces the file size of the first check.
                     refusal = self._load_registry.check(choice.label, self._cost(choice))
                     if refusal is not None:
-                        over_fr = "Le modèle dépasse le budget mémoire une fois mesuré."
-                        raise _LoadFailed(over_fr, refusal)
+                        over_text = Message("session.load.over_budget")
+                        raise _LoadFailed(over_text, refusal)
                 step("check", self._check_fr(choice, window))
                 self._install(choice, window)
                 step("engine", self._engine_fr(choice))
                 self._last_checkpoint(cancel)
-                step("ready", f"Prêt : {choice.label} est actif.")
-                status, idle_fr = "ok", None
+                step("ready", Message("session.load.steps.ready", label=choice.label))
+                status, idle_text = "ok", None
             except _LoadCancelled:
                 self._last_checkpoint(None)
-                reason_fr, idle_fr, status = self._load_cancelled(previous, window is not None)
+                reason_text, idle_text, status = self._load_cancelled(previous, window is not None)
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._last_checkpoint(None)  # « Arrêter » cannot stop the way back
-                reason_fr, idle_fr, status = self._load_failed(choice, previous, exc, window)
+                reason_text, idle_text, status = self._load_failed(choice, previous, exc, window)
             if status == "ok" and save:
-                reason_fr = self._save_choice(choice)
+                reason_text = self._save_choice(choice)
             if status == "ok" and window is not None:  # story 26: applied, then saved
                 with self._lock:
                     self._configured_window = window
-                reason_fr = self._save_window(window) or (
-                    f"Fenêtre de contexte : {_fr(window)} tokens (conversation gardée)."
+                reason_text = self._save_window(window) or Message(
+                    "session.load.window_applied", window=self._num_lazy(window)
                 )
         except Exception as exc:  # noqa: BLE001 - AD-16: never let the worker die silently
-            self._error("Le changement de modèle s'est interrompu.", exc, _NO_TURN_FR)
-            status, reason_fr, idle_fr = "error", str(exc), _LOAD_FAILED_FR
+            self._error(Message("session.load.interrupted"), exc, _NO_TURN_FR)
+            status, reason_text, idle_text = "error", self._text(exc), _LOAD_FAILED_FR
         finally:
             with self._lock:  # « Arrêter » acts on this load no longer
                 self._load_cancel = None
@@ -1877,9 +1886,9 @@ class AppSession:
                     self._emit_scenario(refresh=True)
                 except Exception as exc:  # noqa: BLE001 - AD-16: the load still ends
                     self._error(
-                        "Les briques indisponibles du scénario n'ont pas pu être relues.",
+                        Message("session.load.scenario_bricks.message"),
                         exc,
-                        "Le chargement se termine ; la carte de chaque brique reste juste.",
+                        Message("session.load.scenario_bricks.effect"),
                     )
             memory = self._loaded_memory(choice, rss_before, window) if status == "ok" else None
             with scoped(**off_turn):
@@ -1889,11 +1898,11 @@ class AppSession:
                         "model": model,
                         "status": status,
                         "duration_ms": _ms(time.monotonic() - started),
-                        "reason_fr": reason_fr,
+                        "reason_text": reason_text,
                     }
                     | ({"memory": memory} if memory is not None else {}),
                 )
-            self._set_state("idle", idle_fr)
+            self._set_state("idle", idle_text)
             # AD-6, AD-9, AD-12: capabilities, window and model changed with the load.
             self._emit_architecture()
             self._emit_bricks()
@@ -1924,10 +1933,10 @@ class AppSession:
 
     def _release_fr(self, previous: ModelChoice | None) -> str:
         rss = self._rss_now()
-        after = f" : WaveStack occupe {config.size_fr(rss)}" if rss else ""
+        after = Message("session.load.steps.occupies", size=self._size_lazy(rss)) if rss else ""
         if previous is None:
-            return f"Aucun modèle à libérer{after}."
-        return f"Modèle précédent libéré ({previous.label}){after}."
+            return Message("session.load.steps.nothing_to_release", after=after)
+        return Message("session.load.steps.released", label=previous.label, after=after)
 
     def _check_fr(self, choice: ModelChoice, window: int | None) -> str:
         """The step « check »: the budget was checked before anything was released (AD-3,
@@ -1935,30 +1944,29 @@ class AppSession:
         try:
             return self._check_label_fr(choice, window)
         except Exception:  # noqa: BLE001 - a figure shown, never a load's failure
-            return "Budget confirmé : contrôlé avant la libération du modèle précédent."
+            return Message("session.load.steps.budget_checked")
 
     def _check_label_fr(self, choice: ModelChoice, window: int | None) -> str:
         if choice.kind == "cloud":
-            return "Budget confirmé : rien à charger sur ce poste (modèle cloud)."
-        cost = self._cost(choice, window)
-        budget = config.size_fr(self._load_registry.budget_bytes)
+            return Message("session.load.steps.budget_cloud")
+        cost = self._size_lazy(self._cost(choice, window))
+        budget = self._size_lazy(self._load_registry.budget_bytes)
         if choice.kind == "server" and not self._checked(choice):
-            return (
-                f"Budget confirmé : {config.size_fr(cost)} déjà en mémoire chez "
-                f"{choice.provider}, comptés sans refus (budget de {budget})."
+            return Message(
+                "session.load.steps.budget_server",
+                cost=cost,
+                provider=choice.provider,
+                budget=budget,
             )
-        return (
-            f"Budget confirmé (contrôlé avant la libération) : environ {config.size_fr(cost)} "
-            f"demandés, budget de {budget}."
-        )
+        return Message("session.load.steps.budget_file", cost=cost, budget=budget)
 
     @staticmethod
     def _engine_fr(choice: ModelChoice) -> str:
         if choice.kind == "cloud":
-            return "Préparation, sans chargement (modèle cloud)"
+            return Message("session.load.steps.engine_cloud")
         if choice.kind == "server":
-            return f"Connexion à {choice.provider}"
-        return "Lecture du fichier et copie des poids en mémoire vive"
+            return Message("session.load.steps.engine_server", provider=choice.provider)
+        return Message("session.load.steps.engine_file")
 
     def _loaded_memory(
         self, choice: ModelChoice, rss_before: int | None, window: int | None
@@ -1971,26 +1979,27 @@ class AppSession:
             cost = 0
         rss_after = self._rss_now()
         if choice.kind == "cloud":
-            provider = choice.entry.provider if choice.entry is not None else "le fournisseur"
-            where_fr = f"Aucune mémoire sur ce poste : le modèle tourne chez {provider}."
+            provider = (
+                choice.entry.provider
+                if choice.entry is not None
+                else Message("session.load.memory.the_provider")
+            )
+            where_text = Message("session.load.memory.cloud", provider=provider)
         elif choice.kind == "server":
-            where_fr = (
-                f"Chargé par {choice.provider}, dans son propre processus, en RAM de ce poste : "
-                f"environ {config.size_fr(cost)} comptés par le budget."
+            where_text = Message(
+                "session.load.memory.server", provider=choice.provider, cost=self._size_lazy(cost)
             )
         else:
-            before = config.size_fr(rss_before) if rss_before else "?"
-            after = config.size_fr(rss_after) if rss_after else "?"
-            where_fr = (
-                "Mémoire vive (RAM) du processeur, pas de carte graphique : WaveStack est passé "
-                f"de {before} à {after} ; le budget compte environ {config.size_fr(cost)}. Les "
-                "poids, lus en mmap, montent en RAM au premier appel."
+            before = self._size_lazy(rss_before) if rss_before else "?"
+            after = self._size_lazy(rss_after) if rss_after else "?"
+            where_text = Message(
+                "session.load.memory.file", before=before, after=after, cost=self._size_lazy(cost)
             )
         return {
             "rss_before": rss_before,
             "rss_after": rss_after,
             "cost_bytes": cost,
-            "where_fr": where_fr,
+            "where_text": where_text,
         }
 
     def _load_failed(
@@ -2006,53 +2015,66 @@ class AppSession:
         cause: BaseException | str = exc
         reason: str | None = None  # lot E (E6): the French reason, when the cause is not
         if isinstance(exc, _LoadFailed):
-            message_fr, reason, idle_fr = exc.message_fr, exc.reason_fr, exc.idle_fr
-            cause = exc.detail or exc.reason_fr  # lot E (E6): the raw message, a detail
+            message_text, reason, idle_text = exc.message_text, exc.reason_text, exc.idle_text
+            cause = exc.detail or exc.reason_text  # lot E (E6): the raw message, a detail
         elif choice.entry is not None:
-            message_fr = f"Le modèle cloud {choice.label} n'a pas pu être préparé."
-            idle_fr = _CLOUD_FAILED_FR
+            message_text = Message("session.load.failed.cloud", label=choice.label)
+            idle_text = _CLOUD_FAILED_FR
         elif choice.kind == "server":
-            message_fr = (
-                f"Le modèle {choice.label}, servi par {choice.provider}, n'a pas pu être préparé."
+            message_text = Message(
+                "session.load.failed.server", label=choice.label, provider=choice.provider
             )
-            idle_fr = None
+            idle_text = None
             if isinstance(exc, ServerError):
-                cause = exc.message_fr
+                cause = getattr(exc, "message", None) or exc.message_text
             elif isinstance(exc, TokenizerRefused):  # the loader's message, a detail
-                cause, reason = exc.detail, exc.reason_fr
+                cause, reason = exc.detail, exc.reason_text
         else:
-            message_fr, idle_fr = "Le modèle n'a pas pu être chargé.", None
-        cause_fr = reason or (cause if isinstance(cause, str) else str(cause))
+            message_text, idle_text = Message("session.load.failed.file"), None
+        if reason:
+            cause_text = reason
+        elif isinstance(cause, KeyedError):
+            cause_text = cause.message
+        else:
+            cause_text = cause if isinstance(cause, str) else str(cause)
         self._release()  # whatever the failed load left
         if previous is None:
-            self._error(message_fr, cause, _NO_TURN_FR)
-            return cause_fr, idle_fr or _LOAD_FAILED_FR, "error"
-        self._error(message_fr, cause, f"Retour au modèle précédent : {previous.label}.")
+            self._error(message_text, cause, _NO_TURN_FR)
+            return cause_text, idle_text or _LOAD_FAILED_FR, "error"
+        self._error(message_text, cause, Message("session.load.back", label=previous.label))
         try:
             self._install(previous)
         except Exception as back:  # noqa: BLE001 - AD-16
             self._release()
             self._error(
-                f"Le modèle précédent ({previous.label}) n'a pas pu être rechargé.",
-                back,
-                _NO_TURN_FR,
+                Message("session.load.previous_failed", label=previous.label), back, _NO_TURN_FR
             )
             return (
-                f"{message_fr} Le modèle précédent ({previous.label}) n'a pas pu être rechargé.",
+                Message(
+                    "session.load.failed.and_previous", message=message_text, label=previous.label
+                ),
                 _LOAD_FAILED_FR,
                 "error",
             )
         if window is not None:
             return (
-                f"Fenêtre de {_fr(window)} tokens non appliquée ({cause_fr}) : "
-                f"{previous.label} est de nouveau actif avec {_fr(self._window)} "
-                "tokens.",
+                Message(
+                    "session.load.failed.window",
+                    window=self._num_lazy(window),
+                    cause=cause_text,
+                    label=previous.label,
+                    current=self._num_lazy(self._window),
+                ),
                 None,
                 "restored",
             )
         return (
-            f"{choice.label} n'a pas pu être chargé ({cause_fr}) : {previous.label} est de "
-            "nouveau actif.",
+            Message(
+                "session.load.failed.restored",
+                label=choice.label,
+                cause=cause_text,
+                previous=previous.label,
+            ),
             None,
             "restored",
         )
@@ -2073,30 +2095,34 @@ class AppSession:
         come back). Story 26, `reload`: a window change, `previous` back with its window."""
         self._release()
         if previous is None:
-            return "Chargement arrêté : aucun modèle n'est actif.", _LOAD_STOPPED_FR, "cancelled"
+            return Message("session.load.stopped.none"), _LOAD_STOPPED_FR, "cancelled"
         try:
             self._install(previous)
         except Exception as back:  # noqa: BLE001 - AD-16
             self._release()
             self._error(
-                f"Le modèle précédent ({previous.label}) n'a pas pu être rechargé.",
-                back,
-                _NO_TURN_FR,
+                Message("session.load.previous_failed", label=previous.label), back, _NO_TURN_FR
             )
             return (
-                f"Chargement arrêté ; le modèle précédent ({previous.label}) n'a pas pu être "
-                "rechargé.",
+                Message("session.load.stopped.previous_failed", label=previous.label),
                 _LOAD_FAILED_FR,
                 "error",
             )
         if reload:
             return (
-                f"Rechargement arrêté : {previous.label} est de nouveau actif avec "
-                f"{_fr(self._window)} tokens.",
+                Message(
+                    "session.load.stopped.reload",
+                    label=previous.label,
+                    window=self._num_lazy(self._window),
+                ),
                 None,
                 "cancelled",
             )
-        return f"Chargement arrêté : {previous.label} est de nouveau actif.", None, "cancelled"
+        return (
+            Message("session.load.stopped.restored", label=previous.label),
+            None,
+            "cancelled",
+        )
 
     def _release(self) -> None:
         """AD-8: the active model is closed and leaves the registry before anything loads;
@@ -2132,7 +2158,7 @@ class AppSession:
                     engine = self._engine_factory(choice.ref, n_ctx=configured)
                 except Exception as exc:  # lot E (E6): llama.cpp's message is the detail
                     raise _LoadFailed(
-                        "Le modèle n'a pas pu être chargé.",
+                        Message("session.load.failed.file"),
                         probe_module.incompatible_fr(),
                         detail=str(exc) or type(exc).__name__,
                     ) from exc
@@ -2141,7 +2167,9 @@ class AppSession:
                 caps = capabilities_for(meta)
                 if caps.incompatible_reason:
                     raise _LoadFailed(
-                        "Modèle incompatible.", caps.incompatible_reason, caps.incompatible_reason
+                        Message("session.load.incompatible_model"),
+                        caps.incompatible_reason,
+                        caps.incompatible_reason,
                     )
                 # AD-9: min(configured, native, the server's own context).
                 effective, source = window_for(meta, configured)
@@ -2153,6 +2181,8 @@ class AppSession:
                 raise
             with self._lock:
                 self._engine, self._caps, self._cloud = engine, caps, None
+                if hasattr(engine, "language"):  # a served engine traces its own texts
+                    engine.language = self._language
                 self._model_name, self._meta = choice.label, meta
                 self._read_warm = False  # story 26: its first call warms it up
                 self._window = effective
@@ -2187,11 +2217,11 @@ class AppSession:
     def _install_cloud(self, entry: CloudModel, configured: int | None = None) -> None:
         key = config.cloud_key(entry)
         if key is None:
-            raise ValueError("aucune clé enregistrée pour cette adresse")
+            raise ValueRefused("session.load.no_key")
         unavailable = config.cloud_unavailable_fr(entry)
         if unavailable:
-            raise ValueError(unavailable)
-        self._cloud_content = load_cloud_content()
+            raise ValueRefused(unavailable)
+        self._cloud_content = self._localized(load_cloud_content)
         engine = self._cloud_factory(entry, key)
         try:
             # AD-6: declared capabilities; the API's structured format parses the tool calls.
@@ -2218,8 +2248,8 @@ class AppSession:
         try:
             apply_setting(SettingWrite(key="selected_model", value=value))
         except Exception as exc:  # noqa: BLE001 - AD-16: a success is never undone by this
-            notice = f"{choice.label} est actif ; choix non mémorisé pour les prochains lancements."
-            self._error("Impossible d'écrire le fichier de réglages settings.json.", exc, notice)
+            notice = Message("session.settings.choice_not_saved", label=choice.label)
+            self._error(Message("session.settings.unwritable"), exc, notice)
             return notice
         return None
 
@@ -2227,16 +2257,17 @@ class AppSession:
 
     @staticmethod
     def _reload_reason(choice: ModelChoice, window: int) -> str:
-        return f"Rechargement de {choice.label} avec une fenêtre de {_fr(window)} tokens…"
+        return Message(
+            "session.window.reloading", label=choice.label, window=AppSession._num_lazy(window)
+        )
 
     @staticmethod
     def _locked_fr(entry: CloudModel | None) -> str | None:
         """AD-9: a cloud model that declares its `window` takes no other: why, in French."""
         if entry is None or not entry.window:
             return None
-        return (
-            "Réglage désactivé : fenêtre fixée par la déclaration du modèle "
-            f"({entry.model} déclare window = {_fr(entry.window)})."
+        return Message(
+            "session.window.locked", model=entry.model, window=AppSession._num_lazy(entry.window)
         )
 
     def set_context_window(self, window: int) -> tuple[str, Future[str] | None]:
@@ -2252,7 +2283,7 @@ class AppSession:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
             if window == self._configured_window:
-                return f"La fenêtre est déjà de {_fr(window)} tokens.", None
+                return Message("session.window.already", window=self._num_lazy(window)), None
             active, cloud = self._active, self._cloud
             if cloud is not None:
                 locked = self._locked_fr(cloud)
@@ -2266,17 +2297,14 @@ class AppSession:
             notice = self._save_window(window)
             if cloud is not None:  # AD-9: the gauge and the reasoning card follow at once
                 self._executor.submit(self._after_window_change)
-                bound = bound_fr(source, effective)
-                message = (
-                    f"Fenêtre de contexte : {_fr(window)} tokens, prise en compte au prochain "
-                    f"tour, sans rechargement{f' ({bound})' if bound else ''}."
+                message = Message(
+                    "session.window.cloud_next_turn",
+                    window=self._num_lazy(window),
+                    bound=self._bound_lazy(source, effective),
                 )
             else:
                 self._executor.submit(self._emit_window_state)
-                message = (
-                    f"Fenêtre de {_fr(window)} tokens enregistrée : elle s'appliquera au "
-                    "prochain chargement d'un modèle."
-                )
+                message = Message("session.window.saved_for_next", window=self._num_lazy(window))
             return notice or message, None
         with self._lock:
             meta, current = self._meta, self._window
@@ -2289,22 +2317,25 @@ class AppSession:
                 self._window_source = source
             notice = self._save_window(window)
             self._executor.submit(self._after_window_change)
-            bound = bound_fr(source, effective, active.provider)
-            return notice or (
-                f"Fenêtre de {_fr(window)} tokens enregistrée ; la fenêtre effective de "
-                f"{active.label} reste de {_fr(effective)} tokens"
-                f"{f' ({bound})' if bound else ''}, sans rechargement."
+            return notice or Message(
+                "session.window.unchanged",
+                window=self._num_lazy(window),
+                label=active.label,
+                effective=self._num_lazy(effective),
+                bound=self._bound_lazy(source, effective, active.provider),
             ), None
         refusal = self._window_refusal(active, window, current)
         with self._lock:
             if self.state != "idle" or self._active is not active:
                 raise SendRefused(self._refusal_reason())
             if refusal is None:  # switched under the lock: a second intention is refused
-                self.state, self.reason_fr = "model_load", self._reload_reason(active, window)
+                self.state, self.reason_text = "model_load", self._reload_reason(active, window)
                 self._load_cancel = CancelToken()  # « Arrêter » from now on
         if refusal is not None:
             self._error(
-                refusal, "budget mémoire dépassé (AD-8)", "Rien n'est libéré, écrit ni rechargé."
+                refusal,
+                Message("session.load.budget_cause"),
+                Message("session.window.nothing_reloaded"),
             )
             raise SendRefused(refusal)
         self._emit_state()
@@ -2321,10 +2352,11 @@ class AppSession:
             return None
         cost = self._reload_cost(active, window)
         if cost is None:
-            return (
-                f"Fenêtre de {_fr(window)} tokens refusée : le coût de {active.label} avec "
-                "cette fenêtre est inconnu (fichier du modèle illisible depuis WaveStack). "
-                f"{active.label} reste actif avec {_fr(current)} tokens."
+            return Message(
+                "session.window.cost_unknown",
+                window=self._num_lazy(window),
+                label=active.label,
+                current=self._num_lazy(current),
             )
         return self._load_registry.check_window(active.label, window, current, cost)
 
@@ -2344,11 +2376,8 @@ class AppSession:
             value = {**(saved if isinstance(saved, dict) else {}), "window": window}
             apply_setting(SettingWrite(key="context", value=value))
         except Exception as exc:  # noqa: BLE001 - AD-16: the window applied stays applied
-            notice = (
-                f"Fenêtre de {_fr(window)} tokens appliquée ; choix non mémorisé pour les "
-                "prochains lancements."
-            )
-            self._error("Impossible d'écrire le fichier de réglages settings.json.", exc, notice)
+            notice = Message("session.settings.window_not_saved", window=self._num_lazy(window))
+            self._error(Message("session.settings.unwritable"), exc, notice)
             return notice
         return None
 
@@ -2391,51 +2420,55 @@ class AppSession:
         row: dict[str, Any] = {
             "window": window,
             "current": current,
-            "bound_fr": None,
+            "bound_text": None,
             "kv_bytes": None,
             "read_s": None,
             "fits": True,
-            "refusal_fr": None,
+            "refusal_text": None,
         }
         if active is None:
             return row | {
                 "effective": window,
                 "source": "configured",
-                "kv_fr": _KV_NO_MODEL_FR,
-                "read_fr": _READ_NO_MODEL_FR,
+                "kv_text": _KV_NO_MODEL_FR,
+                "read_text": _READ_NO_MODEL_FR,
             }
         if active.entry is not None:
             effective, source = config.cloud_window(active.entry, window)
             return row | {
                 "effective": effective,
                 "source": source,
-                "bound_fr": bound_fr(source, effective),
-                "kv_fr": _KV_CLOUD_FR,
-                "read_fr": _READ_CLOUD_FR,
+                "bound_text": bound_fr(source, effective, lang=self._language),
+                "kv_text": _KV_CLOUD_FR,
+                "read_text": _READ_CLOUD_FR,
             }
         effective, source = window_for(meta, window) if meta else (window, "configured")
         llama = active.kind == "server" and active.provider == "llama-server"
         if llama:
             slot = (meta.server_context if meta else None) or active.server.n_ctx
-            kv_text = "Cache de contexte : réservé par llama-server" + (
-                f" (-c {_fr(slot)}), inchangé" if slot else ", inchangé"
+            kv_text = (
+                self._t("session.window.kv_llama_slot", slot=self._num_lazy(slot))
+                if slot
+                else self._t("session.window.kv_llama")
             )
             kv_bytes = None
         else:
             kv_bytes = kv_per_token * effective if kv_per_token else None
-            kv_text = f"Cache de contexte : {kv_fr(kv_bytes)}"
+            kv_text = self._t("session.window.kv", size=kv_fr(kv_bytes, self._language))
         read_s = read_seconds(effective, tps)
         refusal = None if current else self._window_refusal(active, window, now)
         return row | {
             "effective": effective,
             "source": source,
-            "bound_fr": bound_fr(source, effective, active.provider),
+            "bound_text": bound_fr(source, effective, active.provider, self._language),
             "kv_bytes": kv_bytes,
-            "kv_fr": kv_text,
+            "kv_text": kv_text,
             "read_s": round(read_s, 1) if read_s is not None else None,
-            "read_fr": f"Temps de lecture : {read_time_fr(effective, tps)}",
+            "read_text": self._t(
+                "session.window.read", time=read_time_fr(effective, tps, self._language)
+            ),
             "fits": refusal is None,
-            "refusal_fr": refusal,
+            "refusal_text": refusal,
         }
 
     def _window_state(self) -> dict[str, Any]:
@@ -2451,36 +2484,31 @@ class AppSession:
         tps = self._read_tps.get(active.label) if local else None
         kv_per_token = self._kv_per_token(active) if local else None
         if active is None:
-            note = "Aucun modèle actif : la fenêtre choisie s'appliquera au prochain chargement."
+            note = self._t("session.window.note.no_model")
         elif not local:
-            note = (
-                "Modèle cloud : « Appliquer » ne recharge rien, la fenêtre compte dès le "
-                "prochain tour. La lecture du contexte se fait chez le fournisseur."
-            )
+            note = self._t("session.window.note.cloud")
         elif tps is None:
-            note = (
-                f"« Appliquer » recharge {active.label}, la conversation est gardée. Débit de "
-                "lecture pas encore mesuré : envoyez un message, le temps de lecture de chaque "
-                "fenêtre s'affichera."
-            )
+            note = self._t("session.window.note.not_measured", label=active.label)
         else:
-            note = (
-                f"« Appliquer » recharge {active.label}, la conversation est gardée. Débit de "
-                f"lecture mesuré : {_fr(round(tps))} tokens/s, sur le dernier appel qui a lu "
-                f"au moins {READ_MIN_TOKENS} tokens. Le temps affiché est une borne basse : le "
-                "débit baisse quand le contexte s'allonge."
+            note = self._t(
+                "session.window.note.measured",
+                label=active.label,
+                tps=self._num_lazy(round(tps)),
+                min=READ_MIN_TOKENS,
             )
         return {
             "configured": configured,
             "default": DEFAULT_WINDOW,
             "window": effective,
             "window_source": source,
-            "bound_fr": bound_fr(source, effective, active.provider if active else None),
+            "bound_text": bound_fr(
+                source, effective, active.provider if active else None, self._language
+            ),
             "model_label": active.label if active else None,
             "hosting": active.kind if active else None,
             "read_tps": round(tps, 1) if tps else None,
-            "read_note_fr": note,
-            "locked_fr": self._locked_fr(active.entry if active else None),
+            "read_note_text": note,
+            "locked_text": self._locked_fr(active.entry if active else None),
             "choices": [
                 self._window_choice(n, active, meta, configured, tps, kv_per_token, effective)
                 for n in WINDOW_CHOICES
@@ -2493,109 +2521,118 @@ class AppSession:
             payload = self._window_state()
         except Exception as exc:  # noqa: BLE001 - AD-16
             self._error(
-                "Le coût des fenêtres de contexte n'a pas pu être calculé.",
+                Message("session.window.error.message"),
                 exc,
-                "Le panneau « Fenêtre » garde ses chiffres précédents.",
+                Message("session.window.error.effect"),
             )
             return
         with scoped(turn_id=None, step_id=None, call_id=None, context_id=None):
-            get_journal().emit("context_window_state", payload)
+            self._journal().emit("context_window_state", payload)
 
-    def hold(self, state: str, reason_fr: str, run: Callable[[], Any]) -> Any:
+    def hold(self, state: str, reason_text: str, run: Callable[[], Any]) -> Any:
         """AD-3: runs `run` holding the operation lock in `state` (`test_cloud_model`:
         `model_load`), then gives the previous state back. Refused (`SendRefused`) outside
         `idle` and `diagnostic`."""
         with self._lock:
             if self.state not in ("idle", "diagnostic"):
                 raise SendRefused(self._refusal_reason())
-            previous = (self.state, self.reason_fr)
-            self.state, self.reason_fr = state, reason_fr
+            previous = (self.state, self.reason_text)
+            self.state, self.reason_text = state, reason_text
         self._emit_state()
         try:
             return run()
         finally:
             with self._lock:  # a boot may have moved the session meanwhile: leave it there
-                mine = (self.state, self.reason_fr) == (state, reason_fr)
+                mine = (self.state, self.reason_text) == (state, reason_text)
             if mine:
                 self._set_state(*previous)
 
+    def _load_messages(self) -> None:
+        """Languages (5/5): the backend's messages in the session's language, read once at
+        launch and at each change of language, so that an invalid translation is traced
+        once (`msg` then answers in French, silently)."""
+        try:
+            self._localized(load_messages)
+        except Exception as exc:  # noqa: BLE001 - the French catalogue itself: no text to use
+            # The French catalogue itself cannot be read: no key to render, French literals.
+            self._error(
+                "Le fichier content/messages.yaml est absent ou invalide.",
+                exc,
+                "Les messages de WaveStack ne peuvent pas s'afficher ; corrigez le fichier, "
+                "puis relancez WaveStack.",
+            )
+
     def _load_labels(self) -> SegmentLabels:
         try:
-            return load_labels()
+            return self._localized(load_labels)
         except Exception as exc:  # noqa: BLE001 - AD-19: invalid content is traced, not fatal
             self._error(
-                "Le fichier des libellés de segments est invalide.",
+                Message("session.content.labels.message"),
                 exc,
-                "Les types de segment s'affichent sous leur nom technique.",
+                Message("session.content.labels.effect"),
             )
             return SegmentLabels(kinds={k: k.value for k in SegmentKind}, groups={})
 
     def _load_content(self) -> None:
         """AD-19: an invalid file makes its brick unavailable with the reason, never a crash."""
+        self._load_messages()
         for brick_id in self._bricks:
             try:
                 self._content[brick_id] = self._localized(load_brick_content, brick_id)
             except Exception as exc:  # noqa: BLE001
-                self._content_errors[brick_id] = (
-                    f"Le fichier content/bricks/{brick_id}.yaml est absent ou invalide : "
-                    "corrigez-le puis relancez WaveStack."
+                self._content_errors[brick_id] = Message(
+                    "session.content.file_invalid", file=f"content/bricks/{brick_id}.yaml"
                 )
                 self._error(
-                    f"L'explication de la brique « {brick_id} » est invalide.",
+                    Message("session.content.explanation_invalid", brick=brick_id),
                     exc,
-                    "La brique est indisponible ; le reste de WaveStack fonctionne.",
+                    Message("session.content.brick_unavailable"),
                 )
         if "tools" in self._bricks:
             try:
                 self._tools_content = self._localized(load_tools_content)
             except Exception as exc:  # noqa: BLE001
-                self._content_errors["tools"] = (
-                    "Le fichier content/tools.yaml est absent ou invalide : corrigez-le puis "
-                    "relancez WaveStack."
+                self._content_errors["tools"] = Message(
+                    "session.content.file_invalid", file="content/tools.yaml"
                 )
                 self._error(
-                    "Les descriptions des outils sont invalides.",
+                    Message("session.content.invalid.tools"),
                     exc,
-                    "La brique « Outils » est indisponible ; le reste de WaveStack fonctionne.",
+                    Message("session.content.unavailable.tools"),
                 )
         if "mcp" in self._bricks:
             try:
                 self._mcp_content = self._localized(load_mcp_content)
             except Exception as exc:  # noqa: BLE001
-                self._content_errors["mcp"] = (
-                    "Le fichier content/mcp.yaml est absent ou invalide : corrigez-le puis "
-                    "relancez WaveStack."
+                self._content_errors["mcp"] = Message(
+                    "session.content.file_invalid", file="content/mcp.yaml"
                 )
                 self._error(
-                    "Les libellés des serveurs MCP sont invalides.",
+                    Message("session.content.invalid.mcp"),
                     exc,
-                    "La brique « MCP » est indisponible ; le reste de WaveStack fonctionne.",
+                    Message("session.content.unavailable.mcp"),
                 )
         if "skills" in self._bricks:
             try:
                 self._skills_content = self._localized(load_skills_content, self._skill_ids())
             except Exception as exc:  # noqa: BLE001
-                self._content_errors["skills"] = (
-                    "Un fichier des skills (content/skills.yaml ou content/skills/*/SKILL.md) "
-                    "est absent ou invalide : corrigez-le puis relancez WaveStack."
-                )
+                self._content_errors["skills"] = Message("session.content.skills_file_invalid")
                 self._error(
-                    "Les skills sont invalides.",
+                    Message("session.content.invalid.skills"),
                     exc,
-                    "La brique « Skills » est indisponible ; le reste de WaveStack fonctionne.",
+                    Message("session.content.unavailable.skills"),
                 )
         if "hooks" in self._bricks:
             try:
                 self._hooks_content = self._localized(load_hooks_content, self._hook_ids())
             except Exception as exc:  # noqa: BLE001
-                self._content_errors["hooks"] = (
-                    "Le fichier content/hooks.yaml est absent ou invalide : corrigez-le puis "
-                    "relancez WaveStack."
+                self._content_errors["hooks"] = Message(
+                    "session.content.file_invalid", file="content/hooks.yaml"
                 )
                 self._error(
-                    "Les textes des hooks sont invalides.",
+                    Message("session.content.invalid.hooks"),
                     exc,
-                    "La brique « Hooks » est indisponible ; le reste de WaveStack fonctionne.",
+                    Message("session.content.unavailable.hooks"),
                 )
         if "global_memory" in self._bricks:
             self._load_memory()
@@ -2603,15 +2640,11 @@ class AppSession:
             try:
                 self._subagent_content = self._localized(load_subagent_content)
             except Exception as exc:  # noqa: BLE001
-                self._content_errors["subagent"] = (
-                    "Le fichier content/subagent.yaml ou le prompt du sous-agent "
-                    "(content/prompts/subagent.md) est absent ou invalide : corrigez-le puis "
-                    "relancez WaveStack."
-                )
+                self._content_errors["subagent"] = Message("session.content.subagent_file_invalid")
                 self._error(
-                    "Les textes du sous-agent sont invalides.",
+                    Message("session.content.invalid.subagent"),
                     exc,
-                    "La brique « Sous-agent » est indisponible ; le reste de WaveStack fonctionne.",
+                    Message("session.content.unavailable.subagent"),
                 )
         if "rag" in self._bricks:
             self._load_rag()
@@ -2619,28 +2652,26 @@ class AppSession:
             try:
                 self._compression_content = self._localized(load_compression_content)
             except Exception as exc:  # noqa: BLE001
-                self._content_errors["compression"] = (
-                    "Le fichier content/compression.yaml est absent ou invalide : corrigez-le "
-                    "puis relancez WaveStack."
+                self._content_errors["compression"] = Message(
+                    "session.content.file_invalid", file="content/compression.yaml"
                 )
                 self._error(
-                    "Les textes de la compression sont invalides.",
+                    Message("session.content.invalid.compression"),
                     exc,
-                    "La brique « Compression » est indisponible ; le reste fonctionne.",
+                    Message("session.content.unavailable.compression"),
                 )
         if "system_prompt" not in self._bricks:
             return
         try:
             self._default_prompt = self._localized(load_default_system_prompt)
         except Exception as exc:  # noqa: BLE001
-            self._content_errors["system_prompt"] = (
-                "Le prompt système par défaut (content/prompts/system.md) est absent ou vide : "
-                "corrigez-le puis relancez WaveStack."
+            self._content_errors["system_prompt"] = Message(
+                "session.content.system_prompt_file_invalid"
             )
             self._error(
-                "Le prompt système par défaut est illisible.",
+                Message("session.content.invalid.system_prompt"),
                 exc,
-                "La brique « Prompt système » est indisponible ; le reste fonctionne.",
+                Message("session.content.unavailable.system_prompt"),
             )
 
     def _load_memory(self) -> None:
@@ -2650,30 +2681,24 @@ class AppSession:
         try:
             self._memory_content = self._localized(memory_file.load_memory_content)
         except Exception as exc:  # noqa: BLE001
-            self._content_errors["global_memory"] = (
-                "Le fichier content/memory/memory.yaml est absent ou invalide : corrigez-le puis "
-                "relancez WaveStack."
+            self._content_errors["global_memory"] = Message(
+                "session.content.file_invalid", file="content/memory/memory.yaml"
             )
             self._error(
-                "Les textes de la mémoire globale sont invalides.",
+                Message("session.content.invalid.global_memory"),
                 exc,
-                "La brique « Mémoire globale » est indisponible ; le reste de WaveStack "
-                "fonctionne.",
+                Message("session.content.unavailable.global_memory"),
             )
             return
         path = config.memory_path()
         try:
             entries = memory_file.read_memory(path)
         except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
-            self._memory_error = (
-                f"Le fichier de la mémoire globale ({path}) est illisible ou invalide : "
-                "corrigez-le puis relancez WaveStack, ou cliquez sur « Réinitialiser » pour "
-                "restaurer la mémoire de démonstration (le fichier sera remplacé)."
-            )
+            self._memory_error = Message("session.memory.file_unreadable", path=path)
             self._error(
-                "La mémoire globale est illisible.",
+                Message("session.memory.unreadable"),
                 exc,
-                "La brique « Mémoire globale » est indisponible ; le fichier n'est pas modifié.",
+                Message("session.memory.unreadable_effect"),
             )
             return
         if entries is None:  # H5: the demonstration, not written until a change
@@ -2689,28 +2714,32 @@ class AppSession:
         try:
             self._rag_content = self._localized(load_rag_content)
         except Exception as exc:  # noqa: BLE001
-            self._content_errors["rag"] = (
-                "Le fichier content/rag.yaml est absent ou invalide : corrigez-le puis relancez "
-                "WaveStack."
+            self._content_errors["rag"] = Message(
+                "session.content.file_invalid", file="content/rag.yaml"
             )
             self._error(
-                "Les textes de la brique RAG sont invalides.",
+                Message("session.content.invalid.rag"),
                 exc,
-                "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
+                Message("session.content.unavailable.rag"),
             )
             return
-        model, error_fr = self.cfg.rag_embedding
+        model, error_text = self.cfg.rag_embedding
         if model is None:
-            self._content_errors["rag"] = error_fr or "La section [rag.embedding] est invalide."
+            self._content_errors["rag"] = error_text or Message("session.rag.section_invalid")
             if self.cfg.get("rag", "embedding") is not None:  # absent: said by the card only
                 self._error(
-                    "La déclaration du modèle d'embedding est invalide.",
-                    error_fr or "",
-                    "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
+                    Message("session.rag.declaration_invalid"),
+                    error_text or "",
+                    Message("session.content.unavailable.rag"),
                 )
             return
         self._rag_model = model
         self._rag_refresh()
+
+    def _rag_index_path(self) -> Path:
+        """Languages (4/5): the index of the session's language (`[rag] index_path` in
+        French, `rag_index.{lang}.sqlite` otherwise)."""
+        return self.cfg.rag_index_path(self._language)
 
     def _rag_refresh(self) -> None:
         """Story 15: what the availability reads of the index (`meta`, the preview's
@@ -2722,14 +2751,14 @@ class AppSession:
         content = self._rag_content
         if model is None or content is None:
             return
-        path = self.cfg.rag_index_path()
-        kind, reason, chunks, longest, missing, missing_fr = self._rag_index_state(model, content)
+        path = self._rag_index_path()
+        kind, reason, chunks, longest, missing, missing_text = self._rag_index_state(model, content)
         with self._lock:
             self._rag_index_kind, self._rag_index_error = kind, reason
             self._rag_chunks = chunks
             self._rag_stamp = _stamp(path)
             self._rag_longest, self._rag_missing = longest, missing
-            self._rag_missing_fr = missing_fr
+            self._rag_missing_text = missing_text
 
     def _rag_index_state(
         self, model: EmbeddingModel, content: RagContent
@@ -2737,31 +2766,24 @@ class AppSession:
         """What the index and the model's files are now, read without storing anything
         (story 30: the RAG workshop reads it too, and never changes the brick's state): the
         index's kind and reason, its excerpts, the preview's excerpts, the files missing and
-        their reason."""
-        path = self.cfg.rag_index_path()
+        their reason. Languages (4/5): the index and the corpus of the session's language."""
+        lang = self._language
+        path = self.cfg.rag_index_path(lang)
         kind, reason, chunks, longest = None, None, 0, []
         missing = download_module.missing_files(model.files, config.models_dir())
-        build = "Cliquez sur « Construire l'index » sur la carte RAG"
+        build = Message("session.rag.build")
         if missing:
-            build = (
-                "Téléchargez d'abord le modèle d'embedding, puis cliquez sur « Construire l'index »"
-            )
+            build = Message("session.rag.download_then_build")
         why = rag_index.vec_unavailable()
         if why is not None:
-            kind, reason = (
-                "vec",
-                (
-                    "Indisponible : l'extension sqlite-vec ne se charge pas dans ce Python "
-                    f"({why}). Le RAG ne peut pas lire son index ; les autres briques fonctionnent."
-                ),
-            )
+            kind, reason = ("vec", Message("session.rag.vec_unavailable", why=why))
         elif not path.is_file():
+            script = "scripts/build_rag_index.py"
+            if lang != config.DEFAULT_LANGUAGE:  # languages (4/5): the script's option
+                script += f" --lang {lang}"
             kind, reason = (
                 "absent",
-                (
-                    f"Indisponible : index absent ({path}). {build} (ou lancez uv run python "
-                    "scripts/build_rag_index.py)."
-                ),
+                Message("session.rag.index_absent", path=path, build=build, script=script),
             )
         else:
             try:
@@ -2770,33 +2792,43 @@ class AppSession:
             except Exception as exc:  # noqa: BLE001 - a state, never a crash
                 kind, reason = (
                     "unreadable",
-                    (
-                        f"Indisponible : l'index {path} est illisible ({type(exc).__name__}). "
-                        f"{build} pour le reconstruire."
+                    Message(
+                        "session.rag.index_unreadable",
+                        path=path,
+                        kind=type(exc).__name__,
+                        build=build,
                     ),
                 )
             else:
                 chunks = meta.chunks
-                kind, reason = self._rag_index_mismatch(meta, model, content, build)
-        missing_fr = _missing_model_fr("d'embedding", model.label_fr, missing) if missing else None
-        return kind, reason, chunks, longest, missing, missing_fr
+                kind, reason = self._rag_index_mismatch(meta, model, content, build, lang)
+        missing_text = (
+            _missing_model_fr("embedding", model.label_text, missing) if missing else None
+        )
+        return kind, reason, chunks, longest, missing, missing_text
 
     def _rerank_refresh(self) -> None:
         """Story 16: the reranker's files read again, and the reason they give."""
         model = self._rerank_model
         missing = download_module.missing_files(model.files, config.models_dir()) if model else []
-        missing_fr = None
+        missing_text = None
         if model is not None and missing:
-            tail = " Le RAG fonctionne sans reranking."
-            missing_fr = _missing_model_fr("de reranking", model.label_fr, missing, tail)
+            tail = Message("session.rag.works_without_reranking")
+            missing_text = _missing_model_fr("reranking", model.label_text, missing, tail)
         with self._lock:
-            self._rerank_missing, self._rerank_missing_fr = missing, missing_fr
+            self._rerank_missing, self._rerank_missing_text = missing, missing_text
 
     def _rag_index_mismatch(
-        self, meta: rag_index.IndexMeta, model: EmbeddingModel, content: RagContent, build: str
+        self,
+        meta: rag_index.IndexMeta,
+        model: EmbeddingModel,
+        content: RagContent,
+        build: str,
+        lang: str = config.DEFAULT_LANGUAGE,
     ) -> tuple[str | None, str | None]:
         """An index built by another model (id, dimensions, file), or from another corpus or
-        another `chunk_max_chars`: its kind and French reason, else `(None, None)`."""
+        another `chunk_max_chars`: its kind and French reason, else `(None, None)`.
+        Languages (4/5): the corpus is `lang`'s, so another language's index is stale."""
         declared = model.load_file
         other_file = (meta.model_size and meta.model_size != declared.size) or (
             meta.model_sha256
@@ -2804,23 +2836,32 @@ class AppSession:
             and meta.model_sha256.lower() != declared.sha256.lower()
         )
         if meta.embedding_model_id != model.id or meta.dims != model.dims or other_file:
-            built = f"« {meta.embedding_model_id} » ({meta.dims} dimensions"
-            built += f", fichier de {_mo(meta.model_size)} Mo)" if meta.model_size else ")"
-            return "other_model", (
-                f"Indisponible : l'index a été construit avec le modèle d'embedding {built}, "
-                f"alors que [rag.embedding] déclare « {model.id} » ({model.dims} dimensions, "
-                f"fichier de {_mo(declared.size)} Mo). {build} pour le reconstruire."
+            built_size = meta.model_size
+            built_file = (
+                Message(
+                    "session.rag.built_file",
+                    size=Lazy(lambda lang: number(round(built_size / 1_000_000), lang)),
+                )
+                if built_size
+                else ""
             )
-        chunks = chunk_corpus(content, self.cfg.rag_chunk_max_chars)
+            declared_size = declared.size
+            return "other_model", Message(
+                "session.rag.other_model",
+                built_id=meta.embedding_model_id,
+                built_dims=meta.dims,
+                built_file=built_file,
+                model=model.id,
+                dims=model.dims,
+                size=Lazy(lambda lang: number(round(declared_size / 1_000_000), lang)),
+                build=build,
+            )
+        chunks = chunk_corpus(content, self.cfg.rag_chunk_max_chars, lang)
         stale = meta.chunk_max_chars != self.cfg.rag_chunk_max_chars or (
             meta.corpus_sha256 and meta.corpus_sha256 != rag_index.corpus_digest(chunks)
         )
         if stale or not meta.corpus_sha256:
-            return "stale", (
-                "Indisponible : index périmé. Le corpus (content/corpus) ou [rag] "
-                f"chunk_max_chars ont changé depuis sa construction ({meta.built_at}). "
-                f"{build} pour le reconstruire."
-            )
+            return "stale", Message("session.rag.stale", built_at=meta.built_at, build=build)
         return None, None
 
     def _rag_unavailable(self) -> str | None:
@@ -2829,7 +2870,7 @@ class AppSession:
         then, once wanted, loading (6) and a refused or failed load (7)."""
         model = self._rag_model
         with self._lock:
-            index_error, missing_fr = self._rag_index_error, self._rag_missing_fr
+            index_error, missing_text = self._rag_index_error, self._rag_missing_text
             wanted = "rag" in self._wanted
             loading, load_error, loaded = (
                 self._rag_loading,
@@ -2838,15 +2879,13 @@ class AppSession:
             )
         if index_error is not None:
             return index_error
-        if missing_fr is not None:
-            return missing_fr
+        if missing_text is not None:
+            return missing_text
         if not wanted or loaded:
             return None
         if loading:
-            return f"Chargement du modèle d'embedding {model.label_fr if model else ''}…"
-        return load_error or (
-            "Modèle d'embedding non chargé : désactivez puis réactivez la brique RAG."
-        )
+            return Message("session.rag.loading", label=model.label_text if model else "")
+        return load_error or Message("session.rag.not_loaded")
 
     def _rag_offers(self) -> dict[str, dict[str, str] | None]:
         """AD-21, the card's actions: « Télécharger » while the model's files are missing,
@@ -2862,22 +2901,22 @@ class AppSession:
             return none
         if missing:
             size_mb = max(1, round(sum(f.size for f in missing) / 1_000_000))
-            label = content.download_label_fr.format(size_mb=size_mb)
-            return none | {"download": {"target": RAG_TARGET, "label_fr": label}}
+            label = content.download_label_text.format(size_mb=size_mb)
+            return none | {"download": {"target": RAG_TARGET, "label_text": label}}
         if kind is not None:
-            return none | {"build_index": {"label_fr": content.build_label_fr}}
+            return none | {"build_index": {"label_text": content.build_label_text}}
         return none
 
     def _rag_index_detail(self) -> str:
         """The index node's tooltip: its path, its excerpts and its embedding model."""
-        path = self.cfg.rag_index_path()
+        path = self._rag_index_path()
         with self._lock:
             chunks, error = self._rag_chunks, self._rag_index_error
         if not chunks:
-            return f"{path} · index absent ou illisible"
+            return self._t("session.rag.detail_absent", path=path)
         model = self._rag_model.id if self._rag_model else "?"
-        detail = f"{path} · {chunks} extraits · modèle d'embedding {model}"
-        return f"{detail} · {error}" if error else detail
+        detail = self._t("session.rag.detail", path=path, chunks=chunks, model=model)
+        return f"{detail} · {self._text(error)}" if error else detail
 
     def _request_rag_sync(self) -> None:
         """Story 15 (AD-8): the embedding model follows the brick's `wanted`, loaded or
@@ -2912,10 +2951,10 @@ class AppSession:
     def _rag_static_reason(self) -> str | None:
         """Reasons 1 to 5: what prevents loading the model at all."""
         if "rag" in self._content_errors or self._rag_model is None:
-            return self._content_errors.get("rag") or "Brique RAG non configurée."
+            return self._content_errors.get("rag") or Message("session.rag.not_configured")
         with self._lock:
             index_error, missing = self._rag_index_error, bool(self._rag_missing)
-        return index_error or ("modèle absent" if missing else None)
+        return index_error or (Message("session.rag.model_missing") if missing else None)
 
     def _sync_rag(self) -> None:
         """On the worker: load the embedding model through the registry (AD-8) when the brick
@@ -2954,7 +2993,7 @@ class AppSession:
     ) -> tuple[Embedder | None, SqliteVecRetriever | None, str | None]:
         """The budget first (a refusal in figures, nothing loaded), then the file's identity
         (its declared sha256), then the load and the index's connection."""
-        label = f"le modèle d'embedding {model.label_fr}"
+        label = Message("session.rag.embedding_label", label=model.label_text)
         cost = self._load_registry.component_cost(
             model.measured_rss_mb, [f.size for f in model.files]
         )
@@ -2963,41 +3002,37 @@ class AppSession:
             with scoped(brick="rag", component="rag.retriever"):
                 self._error(
                     refusal,
-                    "budget mémoire dépassé (AD-8)",
-                    "La brique « RAG » est indisponible ; rien n'est chargé. Elle se charge "
-                    "d'elle-même après un changement de modèle, ou en la réactivant.",
+                    Message("session.load.budget_cause"),
+                    Message("session.rag.refused_effect"),
                 )
-            return None, None, f"Indisponible : {refusal}"
+            return None, None, Message("session.unavailable", reason=refusal)
         path = embedding_module.model_path(model)
         embedder: Embedder | None = None
         try:
             declared = model.load_file.sha256
             if declared and rag_index.file_sha256(path) != declared.lower():
-                raise ValueError(
-                    f"le fichier {path} n'est pas le modèle déclaré (sha256 différent de "
-                    "celui de [rag.embedding])"
-                )
+                raise ValueRefused("session.rag.sha256", path=path, section="rag.embedding")
             embedder = self._embedder_factory(model)
-            retriever = SqliteVecRetriever(self.cfg.rag_index_path(), embedder, self.cfg.rag_top_k)
+            retriever = SqliteVecRetriever(self._rag_index_path(), embedder, self.cfg.rag_top_k)
         except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
             self._close_embedder(embedder, None)
             with scoped(brick="rag", component="rag.retriever"):
                 self._error(
-                    "Le modèle d'embedding n'a pas pu être chargé.",
+                    Message("session.rag.load_failed"),
                     exc,
-                    "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
+                    Message("session.content.unavailable.rag"),
                 )
             return (
                 None,
                 None,
-                (
-                    f"Indisponible : le modèle d'embedding n'a pas pu être chargé "
-                    f"({type(exc).__name__}: {exc}). Vérifiez le fichier {path}, ou "
-                    "supprimez-le, puis désactivez et réactivez la brique RAG : elle relit ses "
-                    "fichiers et propose de le télécharger à nouveau."
+                Message(
+                    "session.rag.load_failed_reason",
+                    kind=type(exc).__name__,
+                    cause=exc,
+                    path=path,
                 ),
             )
-        self._load_registry.grant(model.label_fr, cost, EMBEDDING)
+        self._load_registry.grant(model.label_text, cost, EMBEDDING)
         return embedder, retriever, None
 
     def _close_embedder(
@@ -3009,7 +3044,7 @@ class AppSession:
             try:
                 embedder.close()
             except Exception as exc:  # noqa: BLE001 - AD-16
-                self._error("Le modèle d'embedding n'a pas pu être fermé.", exc, "Il est oublié.")
+                self._error(Message("session.rag.close_failed"), exc, Message("session.forgotten"))
         self._load_registry.release(EMBEDDING)
 
     def _release_embedder(self) -> None:
@@ -3023,9 +3058,9 @@ class AppSession:
     def _rerank_static_reason(self) -> str | None:
         """What prevents loading the reranker at all: its declaration, then its files."""
         if self._rerank_model is None:
-            return self._rerank_config_error or "Indisponible : [rag.reranker] non configurée."
+            return self._rerank_config_error or Message("session.rerank.not_configured")
         with self._lock:
-            return self._rerank_missing_fr
+            return self._rerank_missing_text
 
     def _rerank_availability(self) -> tuple[bool, str | None]:
         """The sub-option's own availability, in order: its declaration, its files, then,
@@ -3043,16 +3078,14 @@ class AppSession:
         if not wanted or loaded:
             return True, None
         if loading:
-            return False, f"Chargement du modèle de reranking {model.label_fr if model else ''}…"
+            return False, Message("session.rerank.loading", label=model.label_text if model else "")
         if error is not None:
             return False, error
         if not embedder:  # the reranker loads after the embedding model, never alone
             rag = self._rag_unavailable()
-            return False, (
-                "Indisponible tant que la brique RAG l'est"
-                + (f" ({rag.removeprefix('Indisponible : ')})" if rag else "")
-                + " : le reranker ne se charge qu'après le modèle d'embedding."
-            )
+            prefix = self._t("session.unavailable", reason="")
+            why = f" ({self._text(rag).removeprefix(prefix)})" if rag else ""
+            return False, self._t("session.rerank.waits_for_rag", why=why)
         return True, None
 
     def _rerank_skipped_fr(self) -> str | None:
@@ -3060,8 +3093,8 @@ class AppSession:
         step), or `None`."""
         ok, why = self._rerank_availability()
         if not ok:
-            return f"Reranking demandé mais non appliqué à ce tour. {why}"
-        return "Reranking demandé mais non appliqué à ce tour : le reranker n'est pas chargé."
+            return self._t("session.rerank.skipped", why=why)
+        return self._t("session.rerank.skipped_not_loaded")
 
     def _rerank_card(self) -> dict[str, Any] | None:
         """The RAG card's « Reranking » switch, its reason and « Télécharger » (AD-21)."""
@@ -3070,20 +3103,20 @@ class AppSession:
             return None
         with self._lock:
             enabled, missing = self._rag_rerank, list(self._rerank_missing)
-        available, reason_fr = self._rerank_availability()
+        available, reason_text = self._rerank_availability()
         download = None
         if model is not None and missing:
             size_mb = max(1, round(sum(f.size for f in missing) / 1_000_000))
             download = {
                 "target": RERANK_TARGET,
-                "label_fr": content.rerank_download_label_fr.format(size_mb=size_mb),
+                "label_text": content.rerank_download_label_text.format(size_mb=size_mb),
             }
         return {
-            "label_fr": content.rerank_label_fr,
+            "label_text": content.rerank_label_text,
             "enabled": enabled,
             "available": available,
-            "reason_fr": reason_fr,
-            "hosting_fr": "Local",
+            "reason_text": reason_text,
+            "hosting_text": self._t("session.hosting.local"),
             "download": download,
         }
 
@@ -3137,7 +3170,7 @@ class AppSession:
     def _load_reranker(self, model: RerankerModel) -> tuple[Reranker | None, str | None]:
         """The budget first (a refusal in figures, nothing loaded), then the file's declared
         sha256, then the load."""
-        label = f"le modèle de reranking {model.label_fr}"
+        label = Message("session.rerank.label", label=model.label_text)
         cost = self._load_registry.component_cost(
             model.measured_rss_mb, [f.size for f in model.files]
         )
@@ -3146,35 +3179,29 @@ class AppSession:
             with scoped(brick="rag", component=RAG_RERANKER):
                 self._error(
                     refusal,
-                    "budget mémoire dépassé (AD-8)",
-                    "Le reranking est indisponible ; le RAG fonctionne sans lui. Il se charge de "
-                    "lui-même après un changement de modèle, ou en le réactivant.",
+                    Message("session.load.budget_cause"),
+                    Message("session.rerank.refused_effect"),
                 )
-            return None, f"Indisponible : {refusal}"
+            return None, Message("session.unavailable", reason=refusal)
         path = reranker_module.model_path(model)
         reranker: Reranker | None = None
         try:
             declared = model.load_file.sha256
             if declared and rag_index.file_sha256(path) != declared.lower():
-                raise ValueError(
-                    f"le fichier {path} n'est pas le modèle déclaré (sha256 différent de "
-                    "celui de [rag.reranker])"
-                )
+                raise ValueRefused("session.rag.sha256", path=path, section="rag.reranker")
             reranker = self._reranker_factory(model)
         except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
             self._close_reranker(reranker)
             with scoped(brick="rag", component=RAG_RERANKER):
                 self._error(
-                    "Le modèle de reranking n'a pas pu être chargé.",
+                    Message("session.rerank.load_failed"),
                     exc,
-                    "Le reranking est indisponible ; le RAG fonctionne sans lui.",
+                    Message("session.rerank.unavailable_effect"),
                 )
-            return None, (
-                f"Indisponible : le modèle de reranking n'a pas pu être chargé "
-                f"({type(exc).__name__}: {exc}). Vérifiez le fichier {path}, ou supprimez-le "
-                "et cliquez sur « Télécharger »."
+            return None, Message(
+                "session.rerank.load_failed_reason", kind=type(exc).__name__, cause=exc, path=path
             )
-        self._load_registry.grant(model.label_fr, cost, RERANKER)
+        self._load_registry.grant(model.label_text, cost, RERANKER)
         return reranker, None
 
     def _close_reranker(self, reranker: Reranker | None) -> None:
@@ -3182,7 +3209,9 @@ class AppSession:
             try:
                 reranker.close()
             except Exception as exc:  # noqa: BLE001 - AD-16
-                self._error("Le modèle de reranking n'a pas pu être fermé.", exc, "Il est oublié.")
+                self._error(
+                    Message("session.rerank.close_failed"), exc, Message("session.forgotten")
+                )
         self._load_registry.release(RERANKER)
 
     def _release_reranker(self) -> None:
@@ -3196,8 +3225,9 @@ class AppSession:
         with self._lock:
             compressor = self._compressor
         if compressor is not None:
-            return compressor.label_fr
-        return str(getattr(self._compressor_factory, "label_fr", "le compresseur"))
+            return compressor.label_text
+        named = getattr(self._compressor_factory, "label_text", None)
+        return str(named) if named else self._t("session.compression.the_compressor")
 
     def _compression_unavailable(self) -> str | None:
         """Story 20: Headroom not installed (or another version), then, once wanted, loading
@@ -3211,9 +3241,11 @@ class AppSession:
         if not wanted or loaded:
             return None
         if loading:
-            named = getattr(self._compressor_factory, "label_fr", None)
-            return f"Chargement de {named}…" if named else "Chargement du compresseur…"
-        return error or "Compresseur non chargé : désactivez puis réactivez la brique."
+            named = getattr(self._compressor_factory, "label_text", None)
+            if named:
+                return Message("session.load.loading", label=named)
+            return Message("session.compression.loading")
+        return error or Message("session.compression.not_loaded")
 
     def _request_compression_sync(self) -> None:
         """As the RAG's model (story 15): Headroom follows the brick's `wanted`, loaded or
@@ -3269,27 +3301,24 @@ class AppSession:
             with scoped(brick="compression", component="compression.compressor"):
                 self._error(
                     refusal,
-                    "budget mémoire dépassé (AD-8)",
-                    "La brique « Compression » est indisponible ; rien n'est chargé. Elle se "
-                    "charge d'elle-même après un changement de modèle, ou en la réactivant.",
+                    Message("session.load.budget_cause"),
+                    Message("session.compression.refused_effect"),
                 )
-            return None, f"Indisponible : {refusal}"
+            return None, Message("session.unavailable", reason=refusal)
         try:
             compressor = self._compressor_factory()
         except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
             with scoped(brick="compression", component="compression.compressor"):
                 self._error(
-                    "Headroom n'a pas pu être chargé.",
+                    Message("session.compression.load_failed"),
                     exc,
-                    "La brique « Compression » est indisponible ; le reste de WaveStack "
-                    "fonctionne.",
+                    Message("session.compression.unavailable_effect"),
                 )
-            return None, (
-                f"Indisponible : Headroom n'a pas pu être chargé ({type(exc).__name__}: {exc}). "
-                "Réinstallez-le avec `uv sync --extra compression`, puis relancez WaveStack."
+            return None, Message(
+                "session.compression.load_failed_reason", kind=type(exc).__name__, cause=exc
             )
         self._compressor_imported = True
-        self._load_registry.grant(compressor.label_fr, cost, COMPRESSOR)
+        self._load_registry.grant(compressor.label_text, cost, COMPRESSOR)
         return compressor, None
 
     def _close_compressor(self, compressor: Compressor | None) -> None:
@@ -3297,7 +3326,9 @@ class AppSession:
             try:
                 compressor.close()
             except Exception as exc:  # noqa: BLE001 - AD-16
-                self._error("Le compresseur n'a pas pu être fermé.", exc, "Il est oublié.")
+                self._error(
+                    Message("session.compression.close_failed"), exc, Message("session.forgotten")
+                )
         self._load_registry.release(COMPRESSOR)
 
     def _release_compressor(self) -> None:
@@ -3309,15 +3340,15 @@ class AppSession:
         """AD-1: the drawer and the card project the last `memory_changed`."""
         if "global_memory" not in self._bricks:
             return
-        error_fr = self._memory_unavailable_fr()
+        error_text = self._memory_unavailable_fr()
         with self._lock:
-            entries = [e.model_dump() for e in self._memory] if error_fr is None else []
-        get_journal().emit(
+            entries = [e.model_dump() for e in self._memory] if error_text is None else []
+        self._journal().emit(
             "memory_changed",
             {
                 "entries": entries,
                 "path": str(config.memory_path()),
-                "error_fr": error_fr,
+                "error_text": error_text,
                 "max_entries": memory_file.MAX_ENTRIES,
                 "max_chars": memory_file.MAX_CHARS,
             },
@@ -3327,27 +3358,27 @@ class AppSession:
 
     def _label(self, brick_id: str) -> str:
         content = self._content.get(brick_id)
-        return content.label_fr if content else brick_id
+        return content.label_text if content else brick_id
 
     def _availability(self, brick_id: str) -> tuple[bool, str | None]:
         """The single point computing `available` and its French reason (AD-12)."""
         brick = self._bricks.get(brick_id)
         if brick is None:
-            return False, f"La brique « {brick_id} » n'existe pas dans cette version."
+            return False, Message("session.availability.unknown_brick", brick=brick_id)
         with self._lock:
             wanted = set(self._wanted)
         for dep in brick.requires:
             if dep not in wanted or not self._availability(dep)[0]:
-                return False, f"Nécessite la brique « {self._label(dep)} » : activez-la d'abord."
+                return False, Message("session.availability.requires", brick=self._label(dep))
         if (reason := self._capability_reason(brick_id)) is not None:
             return False, reason
         if brick_id in self._content_errors:
             return False, self._content_errors[brick_id]
         if brick_id == "global_memory":
             with self._lock:
-                error_fr = self._memory_error
-            if error_fr is not None:
-                return False, error_fr
+                error_text = self._memory_error
+            if error_text is not None:
+                return False, error_text
         if brick_id == "rag" and (reason := self._rag_unavailable()) is not None:
             return False, reason
         if brick_id == "compression" and (reason := self._compression_unavailable()) is not None:
@@ -3367,44 +3398,40 @@ class AppSession:
         if brick_id == "reasoning" and (too_small := reasoning_window_fr(self._window)):
             return too_small  # AD-9, as the cloud `tpm` guard
         if missing and self._cloud is not None:  # AD-6: a capability not declared is absent
-            return (
-                f"Le modèle cloud « {self._cloud.id} » ne déclare pas l'appel d'outils (tools) : "
-                "aucune action d'outil, pas même forcée. Déclarez tools = true si le modèle le "
-                "gère, ou choisissez un autre modèle."
-            )
+            return Message("session.availability.cloud_no_tools", model=self._cloud.id)
         if missing:
-            needs = ", ".join(_CAPABILITIES_FR.get(c, c) for c in missing)
-            return f"Le modèle chargé n'offre pas {needs} : choisissez un autre modèle."
+            needs = ", ".join(
+                self._t(f"session.capabilities.{c}", parser=NO_TOOL_PARSER_FR)
+                if c in _CAPABILITIES
+                else c
+                for c in missing
+            )
+            return self._t("session.availability.lacks", needs=needs)
         return None
 
     def _no_reasoning_fr(self) -> str:
         """EXPERIENCE.md's reason, then its cause: no model, the template, or the cloud
         declaration."""
         if self._caps is None:
-            return "Indisponible : aucun modèle chargé."
+            return Message("session.availability.no_model")
         if self._cloud is not None:
-            return (
-                "Indisponible : le modèle actif ne sait pas raisonner. Le modèle cloud "
-                f"« {self._cloud.id} » ne déclare pas de raisonnement (reasoning) : déclarez-le "
-                "si le modèle le gère, ou choisissez un autre modèle."
-            )
-        return (
-            "Indisponible : le modèle actif ne sait pas raisonner. Son gabarit de conversation "
-            "n'a pas de variable de raisonnement : choisissez un modèle qui raisonne."
-        )
+            return Message("session.availability.cloud_no_reasoning", model=self._cloud.id)
+        return Message("session.availability.no_reasoning")
 
     def _memory_card(self) -> dict[str, Any]:
         """What the memory card and its drawer say (AD-19): the note without a tool parser
         (H4), the empty drawer's text, the forced write's field help."""
-        note_fr = self._memory_note_fr()
+        note_text = self._memory_note_fr()
         content = self._memory_content
         if content is None:
-            return {"note_fr": note_fr}
+            return {"note_text": note_text}
         drawer = content.drawer
         return {
-            "note_fr": note_fr,
-            "empty_fr": drawer.empty_no_parser_fr if note_fr else drawer.empty_fr,
-            "text_help_fr": drawer.text_help_fr.replace("{max_chars}", str(memory_file.MAX_CHARS)),
+            "note_text": note_text,
+            "empty_text": drawer.empty_no_parser_text if note_text else drawer.empty_text,
+            "text_help_text": drawer.text_help_text.replace(
+                "{max_chars}", str(memory_file.MAX_CHARS)
+            ),
         }
 
     def _memory_note_fr(self) -> str | None:
@@ -3412,21 +3439,15 @@ class AppSession:
         model."""
         if self._caps is None or self._caps.tool_call_parser:
             return None
-        return (
-            "Le modèle actif ne sait pas appeler d'outil : il ne peut pas écrire en mémoire "
-            "lui-même, et « Écrire en mémoire » ne s'applique pas. La mémoire reste injectée "
-            "dans le contexte et modifiable depuis « Modifier la mémoire »."
-        )
+        return self._t("session.memory.no_parser")
 
     def _always_fr(self) -> str | None:
         """AD-6: a cloud model that always reasons shows it on the reasoning card."""
         entry = self._cloud
         if entry is None or not entry.always_reasons:
             return None
-        return (
-            f"Toujours active pour ce modèle : {entry.model} raisonne à chaque réponse ; ce "
-            f"modèle ne permet pas de l'éteindre. La réserve de sortie reste de "
-            f"{_fr(MAX_RESERVE)} tokens."
+        return self._t(
+            "session.reasoning.always", model=entry.model, reserve=self._num_lazy(MAX_RESERVE)
         )
 
     def _reasoning_budget_fr(self) -> str | None:
@@ -3436,9 +3457,10 @@ class AppSession:
         if self._cloud is not None or caps is None or not (caps.reasoning_tags and caps.reasoning):
             return None
         budget = self.cfg.reasoning_budget_tokens
-        return (
-            f"Budget de réflexion : {_fr(budget)} tokens ; au-delà, le harnais ferme la "
-            f"réflexion et garde {_fr(MAX_RESERVE - budget)} tokens pour la réponse."
+        return self._t(
+            "session.reasoning.budget",
+            budget=self._num_lazy(budget),
+            left=self._num_lazy(MAX_RESERVE - budget),
         )
 
     def _reasoning_on(self, state: TurnState) -> bool:
@@ -3552,7 +3574,7 @@ class AppSession:
             memory=memory,
             subagent_tools=tuple(sub_tools),
             rag_rerank=rerank,
-            rag_rerank_skipped_fr=skipped,
+            rag_rerank_skipped_text=skipped,
         )
 
     # ---------- rendering ----------
@@ -3743,7 +3765,8 @@ class AppSession:
             parts.append(Joined((intro, *lines), sep="\n"))
         for s in state.skills:  # each body named by a header line, so they stay apart
             text = content.skills[s]
-            body = f"Skill « {text.label_fr} » ({s}) :\n{text.body}"
+            header = self._t("session.skills.body_header", label=text.label_text, skill=s)
+            body = f"{header}\n{text.body}"
             parts.append(Part(SegmentKind.SKILL_BODY, body, "skills", f"skills.{s}"))
         return parts
 
@@ -3917,6 +3940,7 @@ class AppSession:
             eos_token=meta.eos_token,
             add_generation_prompt=True,
             **template_vars,
+            lang=self._language,
         )
         rendered.seen = seen_prefix(read_before, rendered.segments)
         payload = gauge(
@@ -3958,7 +3982,8 @@ class AppSession:
             fields=chat_fields(entry, reserve, reasoning=self._reasoning_on(state)),
             markers=self.cfg.cloud_markers,
             estimate=lambda text: config.estimate_tokens(text, self.cfg.chars_per_token),
-            provider_label_fr=content.provider_segment_fr,
+            provider_label_text=content.provider_segment_text,
+            lang=self._language,
         )
         rendered.seen = seen_prefix(read_before, rendered.segments)
         payload = self._chat_gauge(
@@ -3968,7 +3993,7 @@ class AppSession:
             reserve,
         )
         if not payload["overflow"] and payload["used"] > payload["usable"]:
-            payload["uncertain_fr"] = content.uncertain_fr
+            payload["uncertain_text"] = content.uncertain_text
         return rendered, payload
 
     @staticmethod
@@ -4011,26 +4036,26 @@ class AppSession:
             state = replace(
                 state,
                 rag_excerpts=self._rag_texts(
-                    [(i, c.title_fr, c.text) for i, c in enumerate(longest, start=1)]
+                    [(i, c.title_text, c.text) for i, c in enumerate(longest, start=1)]
                 ),
             )
         try:
             _, payload = self._render(state, "", None)
         except Exception as exc:  # noqa: BLE001 - AD-16
             self._error(
-                "L'aperçu du contexte n'a pas pu être calculé.",
+                Message("session.preview.error.message"),
                 exc,
-                "La jauge reste vide jusqu'au premier tour.",
+                Message("session.preview.error.effect"),
             )
             return
-        get_journal().emit("context_preview", payload)
+        self._journal().emit("context_preview", payload)
 
     def _rag_texts(self, excerpts: list[tuple[int, str, str]]) -> tuple[str, ...]:
-        """The intro, then each `(position, title_fr, text)` in `excerpt_format_fr`."""
+        """The intro, then each `(position, title_text, text)` in `excerpt_format_text`."""
         content = self._rag_content
         if content is None or not excerpts:
             return ()
-        return (content.intro_fr, *(content.excerpt(*excerpt) for excerpt in excerpts))
+        return (content.intro_text, *(content.excerpt(*excerpt) for excerpt in excerpts))
 
     def _preview_injection(self, state: TurnState) -> str:
         """What the active `on_user_message` hooks would add, for the gauge only: no
@@ -4040,7 +4065,14 @@ class AppSession:
             if hook.id not in state.hooks or "on_user_message" not in hook.points:
                 continue
             try:
-                result = hook.fn(HookContext("on_user_message", "", content=self._hooks_content))
+                result = hook.fn(
+                    HookContext(
+                        "on_user_message",
+                        "",
+                        content=self._hooks_content,
+                        language=self._language,
+                    )
+                )
             except Exception:  # noqa: BLE001, S112 - the turn traces it, not the preview
                 continue
             if result is not None and result.decision == "modify" and result.injection:
@@ -4062,11 +4094,11 @@ class AppSession:
         """Starts a turn: `message`, or the replay of the last turn when `None`."""
         replay_of = None
         with self._memory_lock, self._lock:  # never while a drawer write or a reset runs
-            if self.state != "idle" or self._engine is None or self.reason_fr:
+            if self.state != "idle" or self._engine is None or self.reason_text:
                 raise SendRefused(self._refusal_reason())
             if message is None:
                 if self._last is None:
-                    raise SendRefused("Aucun prompt à rejouer : envoyez d'abord un message.")
+                    raise SendRefused(Message("session.refused.nothing_to_replay"))
                 replay_of, message, history, skills, docs, memory = self._last
                 self._history[:] = history
                 self._loaded_skills, self._loaded_docs = set(skills), set(docs)
@@ -4076,7 +4108,7 @@ class AppSession:
             turn_id = f"t{self._turns}"
             cancel = self._cancel = CancelToken()
             # Switched under the lock, so a second `send` racing this one is refused.
-            self.state, self.reason_fr = "turn", _TURN_FR
+            self.state, self.reason_text = "turn", _TURN_FR
             # AD-3: the armed actions this turn takes; one armed from now waits for the next.
             armed = tuple(self._armed)
             self._last = (
@@ -4205,11 +4237,7 @@ class AppSession:
                 or spec.source == "harness"  # a meta-tool has its own action
                 or (spec.is_mcp and self._mcp_content is None)
             ):
-                raise ArmRefused(
-                    f"Outil inconnu : « {target} » n'est ni un outil de la brique Outils ni "
-                    "l'outil d'un serveur MCP. Rien n'est armé.",
-                    not_found=True,
-                )
+                raise ArmRefused(Message("session.arm.unknown_tool", target=target), not_found=True)
             # The form's fields are text: converted per the tool's schema, as a model's call;
             # an optional argument left empty is not sent (an MCP tool's optional ones).
             optional = set(spec.params) - set(spec.required) if spec.required is not None else set()
@@ -4220,61 +4248,64 @@ class AppSession:
             }
             detail = self._tool_executor.check(ToolCall(target, args), [target])
             if detail is not None:
-                raise ArmRefused(f"{detail} Rien n'est armé.")
+                raise ArmRefused(Message("session.arm.nothing_armed", why=detail))
             brick = spec.brick or spec.component.split(".")[0]
             shown = ", ".join(str(value) for value in args.values())
             label = self._registry.label(target)
-            label_fr = f"{label} ({shown})" if shown else label
+            label_text = f"{label} ({shown})" if shown else label
         elif kind == "skill":
             if self._skills_content is None or target not in self._skill_ids():
-                raise ArmRefused(f"Skill inconnu : « {target} ». Rien n'est armé.", not_found=True)
-            args, brick, label_fr = {}, "skills", self._skill_label(target)
+                raise ArmRefused(
+                    Message("session.arm.unknown_skill", target=target), not_found=True
+                )
+            args, brick, label_text = {}, "skills", self._skill_label(target)
         elif kind == "tool_doc":
             spec = self._registry.get(target)
             if self._mcp_content is None or spec is None or not spec.is_mcp:
                 raise ArmRefused(
-                    f"Outil MCP inconnu : « {target} » n'est l'outil d'aucun serveur connecté. "
-                    "Rien n'est armé.",
-                    not_found=True,
+                    Message("session.arm.unknown_mcp_tool", target=target), not_found=True
                 )
-            args, brick, label_fr = {}, "mcp", f"Documentation de {target}"
+            args, brick, label_text = {}, "mcp", Message("session.arm.doc_label", target=target)
         elif kind == "memory":
             if self._memory_content is None or target != REMEMBER:
                 raise ArmRefused(
-                    f"Action de mémoire inconnue : « {target} ». Rien n'est armé.", not_found=True
+                    Message("session.arm.unknown_memory_action", target=target), not_found=True
                 )
             try:
                 text = memory_file.check_text(args.get("text"))
             except ValueError as exc:
-                raise ArmRefused(f"{exc} Rien n'est armé.") from None
+                raise ArmRefused(Message("session.arm.nothing_armed", why=exc)) from None
             shown = text if len(text) <= 40 else f"{text[:40].rstrip()}…"
-            args, brick, label_fr = {"text": text}, "global_memory", f"Écrire en mémoire ({shown})"
+            args, brick, label_text = (
+                {"text": text},
+                "global_memory",
+                Message("session.arm.memory_label", text=shown),
+            )
         elif kind == "delegate":  # story 19: the card's action, its target fixed
             if self._subagent_content is None or target != DELEGATE:
                 raise ArmRefused(
-                    f"Action inconnue : « {target} » n'est pas la délégation au sous-agent. "
-                    "Rien n'est armé.",
-                    not_found=True,
+                    Message("session.arm.not_delegation", target=target), not_found=True
                 )
             extra = sorted(set(args) - {"task"})
             if extra:
-                raise ArmRefused(
-                    f"Argument inconnu pour la délégation : {', '.join(extra)}. Seule la tâche "
-                    "(« task ») est attendue. Rien n'est armé."
-                )
+                raise ArmRefused(Message("session.arm.delegation_argument", args=", ".join(extra)))
             task = args.get("task", "")
             if not isinstance(task, str):
-                raise ArmRefused("La tâche du sous-agent doit être un texte. Rien n'est armé.")
+                raise ArmRefused(Message("session.arm.task_not_text"))
             task = task.strip()
             if not task:
-                raise ArmRefused("La tâche du sous-agent est vide. Rien n'est armé.")
+                raise ArmRefused(Message("session.arm.task_empty"))
             shown = task if len(task) <= 40 else f"{task[:40].rstrip()}…"
-            args, brick, label_fr = {"task": task}, "subagent", f"Délégation : « {shown} »"
+            args, brick, label_text = (
+                {"task": task},
+                "subagent",
+                Message("session.arm.delegation_label", task=shown),
+            )
         else:
-            raise ArmRefused(f"Action inconnue : « {kind} ». Rien n'est armé.", not_found=True)
+            raise ArmRefused(Message("session.arm.unknown_action", kind=kind), not_found=True)
         with self._lock:
             self._arms += 1
-            action = ArmedAction(f"arm{self._arms}", kind, brick, target, args, label_fr)
+            action = ArmedAction(f"arm{self._arms}", kind, brick, target, args, label_text)
             self._armed.append(action)
         self._emit_armed()
         return action.armed_id
@@ -4288,7 +4319,7 @@ class AppSession:
             self._armed = kept
         if not found:
             raise ArmRefused(
-                f"Aucune action armée « {armed_id} » : elle a déjà été consommée ou désarmée.",
+                Message("session.arm.not_armed", armed_id=armed_id),
                 not_found=True,
             )
         self._emit_armed()
@@ -4297,7 +4328,7 @@ class AppSession:
         """AD-1: the front projects the chips from this event, replayed on reload."""
         with self._lock:
             actions = [a.payload() for a in self._armed]
-        get_journal().emit("armed_actions_changed", {"actions": actions})
+        self._journal().emit("armed_actions_changed", {"actions": actions})
 
     def _apply_arm_consumed(self, effects: list[ArmConsumed]) -> None:
         """`ArmConsumed`: the actions a turn took leave the list at its end, whatever its
@@ -4323,6 +4354,18 @@ class AppSession:
         self._emit_bricks()
         self._executor.submit(self._emit_preview)
 
+    def _native_tools(self) -> list[ToolSpec]:
+        """The native tools, `read_file` bound to the session's language (languages 3/5): it
+        reads the demonstration file of the language current at each call."""
+        bound = {"read_file": self._read_file, "get_datetime": self._get_datetime}
+        return [replace(s, run=bound[s.name]) if s.name in bound else s for s in NATIVE_TOOLS]
+
+    def _read_file(self, path: str) -> str:
+        return read_file(path, self._language)
+
+    def _get_datetime(self) -> str:
+        return get_datetime(self._language)  # languages (5/5): the day in the session's
+
     def _harness_tools(self) -> list[ToolSpec]:
         """`load_tool_doc`, `load_skill` and `remember`, registered once; the turn state
         decides when they are offered. Invalid content: their brick is unavailable anyway."""
@@ -4339,7 +4382,7 @@ class AppSession:
                     component="core.harness",
                     source="harness",
                     brick="skills",
-                    label_fr=text.label_fr,
+                    label_text=text.label_text,
                     description=text.description,  # the catalog is in the system message
                     schema={
                         "type": "object",
@@ -4359,7 +4402,7 @@ class AppSession:
                     component="core.harness",
                     source="harness",
                     brick="global_memory",
-                    label_fr=text.label_fr,
+                    label_text=text.label_text,
                     description=text.description,
                     schema={
                         "type": "object",
@@ -4379,7 +4422,7 @@ class AppSession:
                     component="subagent.agent",
                     source="harness",
                     brick="subagent",
-                    label_fr=text.phase_label_fr,  # the working indicator's phase (EXPERIENCE)
+                    label_text=text.phase_label_text,  # the working indicator's phase (EXPERIENCE)
                     description=text.delegate.description,
                     schema={
                         "type": "object",
@@ -4402,20 +4445,18 @@ class AppSession:
         status, and the main turn goes on."""
         ctx, text = self._turn_ctx, self._subagent_content
         if ctx is None or text is None:
-            raise DelegationFailed("Délégation impossible hors d'un tour.", "error")
+            raise DelegationFailed("delegation.outside_turn", "error")
         task = task.strip()
         if not task:
-            raise DelegationFailed(
-                "La tâche du sous-agent est vide : décris-la dans l'argument « task ».", "error"
-            )
+            raise DelegationFailed("delegation.empty_task", "error")
         state, cancel = ctx
         self._subs += 1
         sub = _SubContext(f"sub{self._subs}", task, text.prompt, state.subagent_tools)
-        journal = get_journal()
+        journal = self._journal()
         started = time.monotonic()
         # `estimated`: chat mode, the context's figures not reconciled by `usage` (AD-4).
         figures = {"calls": 0, "context_tokens": 0, "kept_tokens": 0, "estimated": 0}
-        outcome = _SubOutcome("error", message_fr="le sous-agent s'est interrompu.")
+        outcome = _SubOutcome("error", message_text=Message("delegation.interrupted"))
         saved = self._save_main_state()  # AD-11 (N2): the main context's cache, kept
         # AD-11: every event of the sub-agent hangs on the step of `delegate`; the trigger
         # (model or user) is inherited.
@@ -4429,15 +4470,13 @@ class AppSession:
         ):
             journal.emit(
                 "subagent_started",
-                {"task": task, "tools": list(sub.tools), "phase_label": text.phase_label_fr},
+                {"task": task, "tools": list(sub.tools), "phase_label": text.phase_label_text},
             )
             try:
                 outcome = self._run_subagent(sub, state, cancel, figures)
             except Exception as exc:  # noqa: BLE001 - AD-16: the delegation fails, not the turn
                 self._error(
-                    "Le sous-agent s'est interrompu sur une erreur.",
-                    exc,
-                    "La délégation échoue ; le tour principal continue.",
+                    Message("delegation.error.message"), exc, Message("delegation.error.effect")
                 )
             finally:
                 restore_ms = self._restore_main_state(saved, figures["calls"])
@@ -4445,7 +4484,9 @@ class AppSession:
                 failure = None if done else self._delegation_failure(outcome)
                 # What the main context reads: the result, or the error the executor
                 # reinjects in its place (« Erreur : … »).
-                result = outcome.result if done else f"Erreur : {failure.message_fr}"
+                result = (
+                    outcome.result if done else self._t("tools.error", text=self._text(failure))
+                )
                 result_tokens, estimated = self._count_tokens(result)
                 # The saving: what the main context would have read (every tool reply that
                 # stayed in the sub-agent, errors and refusals included) against the result it
@@ -4510,15 +4551,9 @@ class AppSession:
     def _delegation_failure(outcome: _SubOutcome) -> DelegationFailed:
         """The error a failed delegation reinjects (AD-11), with `delegate`'s status."""
         if outcome.status == "cancelled":
-            return DelegationFailed(
-                "Délégation arrêtée à la demande de l'utilisateur.", "cancelled"
-            )
+            return DelegationFailed("delegation.cancelled", "cancelled")
         status = outcome.status if outcome.status in ("limit", "overflow") else "error"
-        return DelegationFailed(
-            f"La délégation au sous-agent a échoué : {outcome.message_fr} Réponds sans ce "
-            "résultat, ou délègue une tâche plus simple.",
-            status,
-        )
+        return DelegationFailed("delegation.failed", status, reason=outcome.message_text)
 
     def _check_subagent_tools(self) -> None:
         """AD-19: a name of `[subagent] tools` that no tool of the tools brick bears is
@@ -4533,9 +4568,9 @@ class AppSession:
         unknown = [n for n in self.cfg.subagent_tools if n not in known]
         if unknown:
             self._error(
-                f"[subagent] tools nomme des outils inconnus : {', '.join(unknown)}.",
-                f"Outils de la brique Outils : {', '.join(sorted(known))}.",
-                "Ces noms sont ignorés : le sous-agent n'a que les outils connus et activés.",
+                Message("session.subagent.unknown_tools", tools=", ".join(unknown)),
+                Message("session.subagent.known_tools", tools=", ".join(sorted(known))),
+                Message("session.subagent.ignored"),
             )
 
     def _count_tokens(self, text: str, *, uncapped: bool = False) -> tuple[int, bool]:
@@ -4564,14 +4599,14 @@ class AppSession:
         context: its calls on a counter of their own, the new attempts among them; the hooks
         `before_model_call`, `before_tool` and `after_tool`; no armed action, no loading.
         Fills `figures` (`calls`, `context_tokens`) as it goes."""
-        journal = get_journal()
+        journal = self._journal()
         turn_id, cid = current().turn_id or "", sub.context_id
         max_calls, max_retries = self.cfg.subagent_max_calls, self.cfg.tool_max_retries
         retries = step = 0
         steps: list[dict[str, Any]] = []
         previous: tuple[list[int], str] | None = None
         read_before: list[Segment] | None = None  # story 32: its previous call's segments
-        stopped = _SubOutcome("cancelled", message_fr="délégation arrêtée.")
+        stopped = _SubOutcome("cancelled", message_text=Message("delegation.stopped"))
         for n in range(1, max_calls + 1):
             call_id = f"{turn_id}.{cid}.c{n}"
             with scoped(call_id=call_id):
@@ -4579,7 +4614,7 @@ class AppSession:
             if decided is not None and decided[1].decision == "block":
                 label = self._hook_label(decided[0])
                 return _SubOutcome(
-                    "error", message_fr=f"le hook « {label} » a bloqué son appel au modèle."
+                    "error", message_text=Message("delegation.hook_blocked", label=label)
                 )
             step += 1
             with scoped(call_id=call_id, step_id=f"{turn_id}.{cid}.s{step}"):
@@ -4595,8 +4630,11 @@ class AppSession:
                     self._emit_overflow(payload, getattr(rendered, "raw_total", None))
                     return _SubOutcome(
                         "overflow",
-                        message_fr=f"son contexte est dépassé ({_fr(payload['used'])} tokens pour "
-                        f"{_fr(payload['usable'])} utilisables).",
+                        message_text=Message(
+                            "delegation.overflow",
+                            used=self._num_lazy(payload["used"]),
+                            usable=self._num_lazy(payload["usable"]),
+                        ),
                     )
                 figures["calls"] += 1
                 out = self._call_model(
@@ -4611,12 +4649,17 @@ class AppSession:
             if out.status == "limit":  # `output_truncated` emitted in `sub{n}` (AD-9)
                 return _SubOutcome(
                     "limit",
-                    message_fr=f"sa sortie a été coupée à {_fr(payload['reserve'])} tokens.",
+                    message_text=Message(
+                        "delegation.cut", reserve=self._num_lazy(payload["reserve"])
+                    ),
                 )
             if out.status != "completed":  # a provider's refusal, traced in `sub{n}` (AD-16)
-                return _SubOutcome("error", message_fr=out.message_fr or "appel au modèle refusé.")
+                return _SubOutcome(
+                    "error", message_text=out.message_text or Message("delegation.refused")
+                )
             if not out.calls and out.malformed is None:
-                return _SubOutcome("completed", result=out.text.strip() or _NO_SUB_TEXT_FR)
+                no_text = self._t("delegation.no_text")
+                return _SubOutcome("completed", result=out.text.strip() or no_text)
             if isinstance(rendered, RenderedContext):
                 previous = (rendered.ids, out.raw)
 
@@ -4628,7 +4671,7 @@ class AppSession:
                     step += 1
                     with scoped(step_id=f"{turn_id}.{cid}.s{step}"):
                         error = self._tool_executor.reject(
-                            out.raw, out.malformed.fragment, out.malformed.detail_fr, reaction
+                            out.raw, out.malformed.fragment, out.malformed.detail_text, reaction
                         )
                     steps.append(
                         {
@@ -4680,16 +4723,12 @@ class AppSession:
                 if retries > max_retries:
                     self._emit_limit("sub_retries", retries)
                     return _SubOutcome(
-                        "limit",
-                        message_fr=f"{retries} appels d'outil refusés (mal formés, outil inconnu "
-                        "ou arguments invalides).",
+                        "limit", message_text=Message("delegation.retries", retries=retries)
                     )
             if cancel.cancelled:
                 return stopped
         self._emit_limit("sub_calls", max_calls)
-        return _SubOutcome(
-            "limit", message_fr=f"il a atteint sa borne de {max_calls} appels au modèle."
-        )
+        return _SubOutcome("limit", message_text=Message("delegation.calls", max=max_calls))
 
     @staticmethod
     def _assistant_step(out: _ModelOutput) -> dict[str, Any]:
@@ -4758,7 +4797,7 @@ class AppSession:
             component="core.harness",
             source="harness",
             brick="mcp",
-            label_fr=text.label_fr,
+            label_text=text.label_text,
             description=text.intro,  # the lines of the loadable tools follow, per turn
             schema={
                 "type": "object",
@@ -4774,12 +4813,11 @@ class AppSession:
         with self._lock:
             loaded = set(self._loaded_docs)
         if tool in available and tool in loaded:
-            return f"La documentation de « {tool} » est déjà chargée."
+            return self._t("mcp.doc.already_loaded", tool=tool)
         if tool not in available:
-            loadable = ", ".join(n for n in available if n not in loaded) or "aucun"
+            loadable = ", ".join(n for n in available if n not in loaded)
             raise ToolError(
-                f"Aucun outil MCP disponible ne s'appelle « {tool} ». Outils chargeables : "
-                f"{loadable}."
+                "mcp.doc.unknown", tool=tool, loadable=loadable or Message("tools.check.none")
             )
         definition = json.dumps(self._registry.definition(tool), ensure_ascii=False)
         return ToolReply(definition, (ToolDocLoaded(tool=tool),))
@@ -4789,13 +4827,14 @@ class AppSession:
         with self._lock:
             enabled, loaded = set(self._skills_enabled), set(self._loaded_skills)
         if skill in enabled and skill in loaded:
-            return f"Le skill « {skill} » est déjà chargé."
+            return self._t("skills.already_loaded", skill=skill)
         text = self._skill_text(skill)
         if skill not in enabled or text is None:
             loadable = [s for s in self._skill_ids() if s in enabled and s not in loaded]
             raise ToolError(
-                f"Aucun skill activé ne s'appelle « {skill} ». Skills chargeables : "
-                f"{', '.join(loadable) or 'aucun'}."
+                "skills.unknown",
+                skill=skill,
+                loadable=", ".join(loadable) or Message("tools.check.none"),
             )
         return ToolReply(text.body, (SkillLoaded(skill_id=skill),))
 
@@ -4810,25 +4849,18 @@ class AppSession:
         A refusal (empty, too long, full) is reinjected; a duplicate adds nothing."""
         try:
             text = memory_file.check_text(text)
-        except ValueError as exc:
-            raise ToolError(str(exc)) from None
+        except memory_file.TextRefused as exc:
+            raise ToolError(exc.message) from None
         if self._memory_unavailable_fr() is not None:  # the brick is unavailable then
-            raise ToolError("La mémoire globale est illisible : rien n'est écrit.")
+            raise ToolError("memory.unreadable")
         with self._lock:
             entries = list(self._memory)
         if any(memory_file.same_text(e.text, text) for e in entries):
-            return f"Déjà en mémoire : « {text} ». Rien n'est ajouté."
+            return self._t("memory.duplicate", text=text)
         if len(entries) >= memory_file.MAX_ENTRIES:
-            raise ToolError(
-                f"La mémoire globale est pleine ({memory_file.MAX_ENTRIES} entrées) : rien "
-                "n'est écrit. Réponds sans retenir cette information."
-            )
+            raise ToolError("memory.full", max=memory_file.MAX_ENTRIES)
         write = MemoryWrite(op="add", entry_id=memory_file.new_entry_id(), text=text)
-        return ToolReply(
-            f"Retenu en mémoire globale : « {text} ». Cette information sera dans le "
-            "contexte des prochaines conversations.",
-            (write,),
-        )
+        return ToolReply(self._t("memory.remembered", text=text), (write,))
 
     def _apply_now(self, effects: tuple[Effect, ...]) -> tuple[tuple[Effect, ...], str | None]:
         """The effects the executor applies before `tool_ended` (AD-23), so the trace never
@@ -4853,26 +4885,22 @@ class AppSession:
                 updated = memory_file.apply_writes(entries, writes, source, memory_file.now())
             except (KeyError, ValueError) as exc:  # changed meanwhile, or beyond its limits
                 self._error(
-                    "La mémoire globale n'a pas été modifiée.",
-                    exc,
-                    "Elle reste inchangée ; le reste de WaveStack fonctionne.",
+                    Message("memory.error.not_modified"), exc, Message("memory.error.unchanged")
                 )
-                return "La mémoire globale n'a pas été modifiée : rien n'est retenu."
+                return self._t("memory.not_modified")
             try:
                 memory_file.write_memory(config.memory_path(), updated)
             except OSError as exc:
                 self._error(
-                    "La mémoire globale n'a pas pu être écrite.",
-                    exc,
-                    "Elle reste inchangée ; le reste de WaveStack fonctionne.",
+                    Message("memory.error.not_written"), exc, Message("memory.error.unchanged")
                 )
-                return "La mémoire globale n'a pas pu être écrite : rien n'est retenu."
+                return self._t("memory.not_written")
             with self._lock:
                 self._memory = updated
                 self._memory_error = None  # written: readable again (reset, H5)
             with scoped(brick="global_memory", component=MEMORY):
                 for write in writes:
-                    get_journal().emit(
+                    self._journal().emit(
                         "effect_applied",
                         {
                             "effect": "memory_write",
@@ -4909,19 +4937,17 @@ class AppSession:
                     if text == entry.text:
                         return  # nothing changed: nothing written
                     if any(memory_file.same_text(e.text, text) for e in entries if e != entry):
-                        raise ValueError(f"« {text} » est déjà en mémoire : rien n'est modifié.")
+                        raise ValueRefused("session.memory.duplicate", text=text)
                     writes = [MemoryWrite(op="replace", entry_id=entry.id, text=text)]
                 elif op == "delete":
                     writes = [MemoryWrite(op="delete", entry_id=entry.id, text=entry.text)]
                 else:
-                    raise ValueError(f"Opération inconnue : « {op} ».")
+                    raise ValueRefused("session.memory.unknown_op", op=op)
             if not writes:
                 return
             with scoped(trigger="user"):
                 if self._apply_memory(writes, "user") is not None:
-                    raise OSError(
-                        "La mémoire globale n'a pas pu être écrite : elle reste inchangée."
-                    )
+                    raise OSError(self._t("session.memory.not_written"))
         self._executor.submit(self._emit_preview)
 
     def _restore_memory(self) -> None:
@@ -4934,8 +4960,8 @@ class AppSession:
         demo = self._memory_content.demo
         with self._memory_lock:
             with self._lock:
-                entries, error_fr = list(self._memory), self._memory_error
-            if error_fr is None and memory_file.is_demo(entries, demo):
+                entries, error_text = list(self._memory), self._memory_error
+            if error_text is None and memory_file.is_demo(entries, demo):
                 return
             writes = [MemoryWrite(op="delete", entry_id=e.id, text=e.text) for e in entries]
             writes += [
@@ -4992,18 +5018,20 @@ class AppSession:
             )
             if conn is not None:
                 self._mcp_conns[server_id] = conn
-        journal = get_journal()
+        journal = self._journal()
         with scoped(brick="mcp", component=server.component):
             journal.emit(
                 "mcp_connect_started",
                 {
                     "server": server_id,
-                    "phase_label": f"Connexion au serveur MCP {self._mcp_label(server_id)}",
+                    "phase_label": Message(
+                        "session.mcp.connecting", server=self._mcp_label(server_id)
+                    ),
                 },
             )
         started = time.monotonic()
         if conn is None:
-            reason = "Connexion impossible : la boucle asyncio de WaveStack n'est pas démarrée."
+            reason = Message("session.mcp.no_loop")
             self._executor.submit(
                 self._mcp_apply, server_id, None, started, started, None, RuntimeError(reason)
             )
@@ -5032,19 +5060,19 @@ class AppSession:
         with self._lock:
             current_conn = self._mcp_conns.get(server_id)
         names: list[str] = []
-        error_fr = None
+        error_text = None
         if error is not None:
-            error_fr = (
-                str(error)
+            error_text = (
+                (error.args[0] if error.args and isinstance(error.args[0], Message) else str(error))
                 if conn is None
                 else describe_error(error, self.cfg.mcp_connect_timeout_s)
             )
         if conn is not current_conn:  # disabled or closed meanwhile: nothing to apply
-            error_fr = "Connexion abandonnée : le serveur a été désactivé."
-        elif error_fr is not None:
+            error_text = Message("session.mcp.abandoned")
+        elif error_text is not None:
             with self._lock:
                 self._mcp_conns.pop(server_id, None)
-                self._mcp_state[server_id] = ("unavailable", error_fr)
+                self._mcp_state[server_id] = ("unavailable", error_text)
         else:
             specs = [self._mcp_spec(server, conn, tool) for tool in tools]
             self._registry.remove(f"{server_id}__")
@@ -5052,13 +5080,13 @@ class AppSession:
             with self._lock:
                 self._mcp_state[server_id] = ("available", None)
         with scoped(brick="mcp", component=server.component):
-            get_journal().emit(
+            self._journal().emit(
                 "mcp_connect_ended",
                 {
                     "server": server_id,
-                    "status": "ok" if error_fr is None else "error",
+                    "status": "ok" if error_text is None else "error",
                     "tools": names,
-                    "error_fr": error_fr,
+                    "error_text": error_text,
                     "duration_ms": _ms(ended - started),
                 },
             )
@@ -5088,7 +5116,7 @@ class AppSession:
 
         return ToolSpec(
             name=name,
-            run=lambda **arguments: conn.call(name, arguments),
+            run=lambda **arguments: conn.call(name, arguments, self._language),
             preview=preview if server.network else None,
             params=params,
             component=server.component,
@@ -5109,13 +5137,13 @@ class AppSession:
             conn.close(wait=False)
         self._executor.submit(self._registry.remove, f"{server_id}__")
 
-    def _mcp_failed(self, server_id: str, reason_fr: str | None) -> None:
+    def _mcp_failed(self, server_id: str, reason_text: str | None) -> None:
         """On the worker: a call could not reach its server, which becomes `unavailable`."""
         with self._lock:
             conn = self._mcp_conns.pop(server_id, None)
             if conn is None:  # disabled during the call: it stays « non contacté »
                 return
-            self._mcp_state[server_id] = ("unavailable", reason_fr)
+            self._mcp_state[server_id] = ("unavailable", reason_text)
         conn.close(wait=False)
         self._registry.remove(f"{server_id}__")
 
@@ -5147,7 +5175,7 @@ class AppSession:
             self._last = None  # nothing left to replay (story 9b)
             self._memory_snapshot = None  # N1: the next conversation reads the memory again
             self._cache_cause = "reset"
-        get_journal().emit("conversation_cleared", {})
+        self._journal().emit("conversation_cleared", {})
         self._emit_architecture()
         self._executor.submit(self._emit_preview)
 
@@ -5163,6 +5191,11 @@ class AppSession:
             or self._memory_snapshot is not None
         )
 
+    @property
+    def language(self) -> str:
+        """The session's language (languages 3/5): what every content loader is given."""
+        return self._language
+
     def language_state(self) -> dict[str, Any]:
         """`/api/state`: the language, the languages offered (each written in itself), and
         whether the conversation locks the choice."""
@@ -5175,6 +5208,28 @@ class AppSession:
             ],
             "language_locked": locked,
         }
+
+    def ui_texts(self) -> dict[str, Any]:
+        """`GET /api/ui_texts` (languages 2/5): the interface's texts in the session's
+        language, each key a translation lacks in French; an invalid translation is traced
+        (`harness_error`), then French answers. A French file that cannot be read gives no
+        texts, traced: the page stays in the French of its HTML."""
+        with self._lock:
+            language, texts = self._language, self._ui_texts
+        if texts is None:
+            try:
+                texts = self._localized(load_ui_texts)
+            except Exception as exc:  # noqa: BLE001 - AD-19: traced, never fatal
+                self._error(
+                    Message("session.content.ui_invalid.message"),
+                    exc,
+                    Message("session.content.ui_invalid.effect"),
+                )
+                return {"language": language, "texts": {}}
+            with self._lock:
+                if self._language == language:
+                    self._ui_texts = texts
+        return {"language": language, "texts": texts}
 
     def set_language(self, language: str) -> None:
         """Class (b): saves `language` in `settings.json`, then reads again every text sent
@@ -5195,19 +5250,28 @@ class AppSession:
                 config.save_setting("language", language)
             except OSError as exc:
                 raise SendRefused(
-                    f"La langue n'a pas pu être enregistrée dans {config.settings_path()} "
-                    f"({exc.strerror or exc}) : elle reste inchangée."
+                    Message(
+                        "session.language.not_saved",
+                        path=config.settings_path(),
+                        cause=exc.strerror or exc,
+                    )
                 ) from None
             with self._lock:
                 self._language = language
+                self._ui_texts = None  # never the former language's under the new code
+                if hasattr(self._engine, "language"):  # a served engine's own traces
+                    self._engine.language = language
             config.clear_content_caches()
+            self._load_messages()  # languages (5/5): traced once, in the new language
             self._reload_texts()
+            if "rag" in self._bricks:  # languages (4/5): the new language's index and corpus
+                self._rag_refresh()
             with self._lock:  # what the last `send` froze: the new default is no change
                 if self._sent[1] == old_default:
                     self._sent = (self._sent[0], self._default_prompt, *self._sent[2:])
                 restart = [s for s in self._mcp_conns if self._mcp_servers[s].url is None]
             self._demo_memory_in(old_demo)
-        get_journal().emit("language_changed", {"language": language})
+        self._journal().emit("language_changed", {"language": language})
         self._emit_state()  # `language` in the session's state
         for server_id in restart:  # the local server describes its tools in the language
             self._mcp_disconnect(server_id)
@@ -5216,7 +5280,22 @@ class AppSession:
         self._load_scenarios()  # `scenario_changed`
         self._emit_memory()
         self._emit_architecture()
+        if "rag" in self._bricks:
+            self._executor.submit(self._rag_follow_language)
         self._executor.submit(self._emit_preview)
+
+    def _rag_follow_language(self) -> None:
+        """Languages (4/5), on the worker (after a load in progress, before any turn): the
+        embedding model and its connection to the former language's index are released,
+        then loaded again on the new language's index when the brick is wanted and its
+        index is there (else the card says why, and offers « Construire l'index »)."""
+        with self._lock:
+            loaded = self._embedder is not None
+        if loaded:
+            self._release_embedder()
+        self._request_rag_sync()
+        self._emit_bricks()
+        self._emit_architecture()
 
     def _reload_texts(self) -> None:
         """Every text read from `content/` at launch, read again in the new language. A
@@ -5228,11 +5307,9 @@ class AppSession:
                 return self._localized(load, *args)
             except Exception as exc:  # noqa: BLE001 - AD-19: traced, the text read before stays
                 self._error(
-                    f"Un fichier traduit ({self._language}) sous content/i18n/{self._language}/ "
-                    "et son original français sont invalides.",
+                    Message("session.language.both_invalid.message", lang=self._language),
                     exc,
-                    "Le texte lu avant le changement de langue reste utilisé ; le reste de "
-                    "WaveStack fonctionne.",
+                    Message("session.language.both_invalid.effect"),
                 )
                 return None
 
@@ -5253,6 +5330,15 @@ class AppSession:
         for brick_id, (attribute, load, args) in loaders.items():
             if brick_id in self._bricks and (text := again(load, *args)) is not None:
                 setattr(self, attribute, text)
+        # Languages (2/5): the interface's texts, in the new language for the reloaded page
+        # (`None`, read again at its request, when neither file can be read).
+        self._ui_texts = again(load_ui_texts)
+        # Languages (3/5): what the session keeps of a loaded model, in the new language (the
+        # programme is read again by `set_language`, `read_file` reads `_language` at each call).
+        if self._cloud_content is not None and (cloud := again(load_cloud_content)) is not None:
+            self._cloud_content = cloud
+        if self._labels is not None and (labels := again(load_labels)) is not None:
+            self._labels = labels
 
         # The same tools, described again: only values change, never the registry's names.
         self._registry.content = self._tools_content
@@ -5265,8 +5351,8 @@ class AppSession:
         if old_demo is None or content is None or content.demo == old_demo:
             return
         with self._lock:
-            entries, error_fr = list(self._memory), self._memory_error
-        if error_fr is not None or not memory_file.is_demo(entries, old_demo):
+            entries, error_text = list(self._memory), self._memory_error
+        if error_text is not None or not memory_file.is_demo(entries, old_demo):
             return
         if config.memory_path().exists():
             self._restore_memory()  # the file is written again, as by « Réinitialiser »
@@ -5290,12 +5376,12 @@ class AppSession:
             "hooks": set(self._hook_ids()),
         }
         try:
-            self._scenarios = load_scenarios(known)
+            self._scenarios = self._localized(load_scenarios, known)
         except Exception as exc:  # noqa: BLE001
             self._error(
-                "Le fichier des scénarios (content/scenarios.yaml) est absent ou invalide.",
+                Message("session.content.scenarios_invalid.message"),
                 exc,
-                "Le sélecteur de scénario est vide ; le reste de WaveStack fonctionne.",
+                Message("session.content.scenarios_invalid.effect"),
             )
         self._emit_scenario()
 
@@ -5311,7 +5397,7 @@ class AppSession:
             return []
         return [
             [self._fill(t) for t in block] if isinstance(block, list) else self._fill(block)
-            for block in content.explanation_fr
+            for block in content.explanation_text
         ]
 
     def _emit_scenario(self, *, refresh: bool = False) -> None:
@@ -5320,7 +5406,7 @@ class AppSession:
         program = self._scenarios.payload(self._fill) if self._scenarios else EMPTY_PROGRAM
         with self._lock:
             active = self._active_scenario
-        get_journal().emit(
+        self._journal().emit(
             "scenario_changed",
             {
                 "program": program,
@@ -5344,7 +5430,7 @@ class AppSession:
             reason = self._capability_reason(brick_id)
             if reason is not None:
                 unavailable.append(
-                    {"brick": brick_id, "label_fr": self._label(brick_id), "reason_fr": reason}
+                    {"brick": brick_id, "label_text": self._label(brick_id), "reason_text": reason}
                 )
         return unavailable
 
@@ -5396,7 +5482,7 @@ class AppSession:
                 apply()
                 after = set(self._mcp_enabled) if "mcp" in self._wanted else set()
                 self._active_scenario = scenario_id
-            journal = get_journal()
+            journal = self._journal()
             journal.emit("conversation_cleared" if scenario_id else "harness_reset", {})
             if scenario_id is None or restore_memory:  # FR-39; story 21, a module's start
                 self._restore_memory()
@@ -5414,10 +5500,10 @@ class AppSession:
 
     def _refusal_reason(self) -> str:
         if self.state == "turn":
-            return "Un tour est déjà en cours : attendez sa fin ou cliquez sur « Arrêter »."
-        if self.reason_fr:
-            return self.reason_fr
-        return "Aucun modèle n'est chargé : terminez le diagnostic de démarrage."
+            return Message("session.refused.turn")
+        if self.reason_text:
+            return self.reason_text
+        return Message("session.refused.no_model")
 
     def stop(self) -> bool:
         """Intention class (c): arms the turn's `CancelToken`; no effect outside a turn. A
@@ -5454,11 +5540,13 @@ class AppSession:
             raise KeyError(target)
         rerank = target == RERANK_TARGET  # story 16: the reranking model
         model = self._rerank_model if rerank else self._rag_model
-        noun = "de reranking" if rerank else "d'embedding"
+        noun = Message(
+            "session.rag.model_noun.reranking" if rerank else "session.rag.model_noun.embedding"
+        )
         if model is None:
             raise SendRefused(
                 (self._rerank_config_error if rerank else self._content_errors.get("rag"))
-                or f"La brique RAG n'a pas de modèle {noun} déclaré."
+                or Message("session.download.no_model", noun=noun)
             )
         with self._lock:
             if self.state != "idle":
@@ -5467,9 +5555,7 @@ class AppSession:
         missing = download_module.missing_files(model.files, dest)
         if not missing:  # e.g. copied by hand meanwhile: the card catches up now
             self._rag_caught_up()
-            raise SendRefused(
-                f"Rien à télécharger : les fichiers du modèle {noun} sont déjà dans {dest}."
-            )
+            raise SendRefused(Message("session.download.nothing", noun=noun, dest=dest))
         total = sum(f.size for f in missing)
         cancel = download_module.StopToken()
         previous = self._enter_rag_job("download", self._download_fr(0, total, noun), cancel)
@@ -5482,14 +5568,14 @@ class AppSession:
         ).start()
         return self._download_fr(0, total, noun)
 
-    def _enter_rag_job(self, state: str, reason_fr: str, cancel: CancelToken) -> str | None:
+    def _enter_rag_job(self, state: str, reason_text: str, cancel: CancelToken) -> str | None:
         """`download` or `index_build`, switched under the lock from `idle` (class b). Returns
         the reason `idle` had (e.g. no model loaded), given back afterwards."""
         with self._lock:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
-            previous = self.reason_fr
-            self.state, self.reason_fr = state, reason_fr
+            previous = self.reason_text
+            self.state, self.reason_text = state, reason_text
             self._download_cancel = cancel
         self._emit_state()
         return previous
@@ -5503,12 +5589,18 @@ class AppSession:
         self._executor.submit(self._emit_preview)
 
     @staticmethod
-    def _download_fr(done: int, total: int, noun: str = "d'embedding") -> str:
+    def _download_fr(done: int, total: int, noun: str | None = None) -> str:
         percent = int(done * 100 / total) if total else 100
-        return f"Téléchargement du modèle {noun} : {percent} % ({_mo(done)} / {_mo(total)} Mo)"
+        return Message(
+            "session.download.progress",
+            noun=noun or Message("session.rag.model_noun.embedding"),
+            percent=percent,
+            done=Lazy(lambda lang: number(round(done / 1_000_000), lang)),
+            total=Lazy(lambda lang: number(round(total / 1_000_000), lang)),
+        )
 
     def _throttled(self, state: str, text: Callable[[int, int], str]) -> Callable[[int, int], None]:
-        """A progress callback: `session_state.reason_fr` at most once a second."""
+        """A progress callback: `session_state.reason_text` at most once a second."""
         last = time.monotonic()
 
         def progress(done: int, total: int) -> None:
@@ -5519,7 +5611,7 @@ class AppSession:
             with self._lock:
                 if self.state != state:
                     return
-                self.reason_fr = text(done, total)
+                self.reason_text = text(done, total)
             self._emit_state()
 
         return progress
@@ -5531,7 +5623,7 @@ class AppSession:
         cancel: CancelToken,
         previous: str | None,
         *,
-        noun: str = "d'embedding",
+        noun: str | None = None,
         component: str = "rag.retriever",
     ) -> None:
         """The download thread, then back to `idle`; the index and the files are read again,
@@ -5550,9 +5642,10 @@ class AppSession:
                     transport=self._download_transport,
                 )
         except download_module.DownloadError as exc:
-            failed, stopped = exc.reason_fr, exc.cancelled
+            failed, stopped = exc.reason_text, exc.cancelled
         except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
             failed = f"{type(exc).__name__}: {exc}"
+        noun = noun or Message("session.rag.model_noun.embedding")
         with self._lock:
             self._download_cancel = None
         with scoped(brick="rag", component=component):  # the card shows it (AD-1)
@@ -5560,15 +5653,15 @@ class AppSession:
                 names = ", ".join(PurePosixPath(f.path).name for f in files)
                 folder = dest / PurePosixPath(files[0].path).parent
                 self._error(
-                    f"Téléchargement du modèle {noun} arrêté."
-                    if stopped
-                    else f"Le téléchargement du modèle {noun} a échoué.",
+                    Message(
+                        "session.download.stopped" if stopped else "session.download.failed",
+                        noun=noun,
+                    ),
                     failed,
-                    f"Rien n'est installé. Pour continuer, copiez le fichier à la main dans "
-                    f"{folder} ({names}), puis cliquez de nouveau sur « Télécharger ».",
+                    Message("session.download.by_hand", folder=folder, names=names),
                 )
             else:
-                get_journal().emit(
+                self._journal().emit(
                     "effect_applied",
                     {
                         "effect": "model_download",
@@ -5590,27 +5683,22 @@ class AppSession:
             raise KeyError("rag")
         model, content = self._rag_model, self._rag_content
         if model is None or content is None:
-            raise SendRefused(
-                self._content_errors.get("rag") or "La brique RAG n'a pas de modèle déclaré."
-            )
+            raise SendRefused(self._content_errors.get("rag") or Message("session.build.no_model"))
         self._rag_refresh()  # the files may have been copied, the corpus edited
         if self._rag_offers()["build_index"] is None:
             with self._lock:
                 kind, missing = self._rag_index_kind, bool(self._rag_missing)
             self._rag_caught_up()
             if missing:
-                raise SendRefused(
-                    "Construction impossible : le modèle d'embedding n'est pas sur le poste. "
-                    "Cliquez d'abord sur « Télécharger »."
-                )
+                raise SendRefused(Message("session.build.model_missing"))
             if kind == "vec":
-                raise SendRefused(self._rag_index_error or "sqlite-vec ne se charge pas.")
-            raise SendRefused("Rien à construire : l'index est à jour.")
+                raise SendRefused(self._rag_index_error or Message("session.build.vec"))
+            raise SendRefused(Message("session.build.up_to_date"))
         cancel = CancelToken()
         previous = self._enter_rag_job("index_build", self._build_fr(0, 0), cancel)
         threading.Thread(
             target=self._run_build,
-            args=(model, content, cancel, previous),
+            args=(model, content, cancel, previous, self._language),
             name="wavestack-index-build",
             daemon=True,
         ).start()
@@ -5619,8 +5707,8 @@ class AppSession:
     @staticmethod
     def _build_fr(done: int, total: int) -> str:
         if not total:
-            return "Construction de l'index RAG : chargement du modèle d'embedding…"
-        return f"Construction de l'index RAG : {done} / {total} extraits"
+            return Message("session.build.loading")
+        return Message("session.build.progress", done=done, total=total)
 
     def _run_build(
         self,
@@ -5628,10 +5716,13 @@ class AppSession:
         content: RagContent,
         cancel: CancelToken,
         previous: str | None,
+        lang: str = config.DEFAULT_LANGUAGE,
     ) -> None:
         """The build thread: its own embedding model, through the registry (AD-8), closed
-        afterwards; the index written then read again; the brick loads if wanted."""
-        path = self.cfg.rag_index_path()
+        afterwards; the index written then read again; the brick loads if wanted.
+        Languages (4/5): the index and the corpus of `lang`, the session's (no change of
+        language outside `idle`)."""
+        path = self.cfg.rag_index_path(lang)
         self._release_embedder()  # its connection to the old index closes first (Windows)
         failed: BaseException | str | None = None
         stopped = False
@@ -5649,9 +5740,10 @@ class AppSession:
                     self._throttled("index_build", self._build_fr),
                     model_file=embedding_module.model_path(model),
                     cancelled=lambda: cancel.cancelled,
+                    lang=lang,
                 )
             except rag_index.BuildCancelled as exc:
-                failed, stopped = str(exc), True
+                failed, stopped = exc.message, True
             except rag_index.IndexInUse:  # lot G: another program holds it open (Windows)
                 failed = INDEX_HELD_FR
             except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
@@ -5663,20 +5755,23 @@ class AppSession:
         with scoped(brick="rag", component=RAG_INDEX):  # the card shows a failure (AD-1)
             if failed is not None:
                 self._error(
-                    "Construction de l'index RAG arrêtée."
-                    if stopped
-                    else "L'index RAG n'a pas pu être construit.",
+                    Message("session.build.stopped" if stopped else "session.build.failed"),
                     failed,
-                    f"L'index {path} n'est pas modifié.",
+                    Message("session.build.unchanged", path=path),
                 )
             elif meta is not None:
-                get_journal().emit(
+                self._journal().emit(
                     "effect_applied",
                     {
                         "effect": "rag_index_write",
                         "lines": [
-                            f"{path} · {meta.chunks} extraits · modèle d'embedding "
-                            f"{meta.embedding_model_id} ({meta.dims} dimensions)"
+                            Message(
+                                "session.build.written",
+                                path=path,
+                                chunks=meta.chunks,
+                                model=meta.embedding_model_id,
+                                dims=meta.dims,
+                            )
                         ],
                     },
                 )
@@ -5688,7 +5783,7 @@ class AppSession:
 
     def _build_embedder(self, model: EmbeddingModel) -> tuple[Embedder | None, str | None]:
         """The build's embedding model, loaded as the brick's is (budget, then load)."""
-        label = f"le modèle d'embedding {model.label_fr}"
+        label = Message("session.rag.embedding_label", label=model.label_text)
         cost = self._load_registry.component_cost(
             model.measured_rss_mb, [f.size for f in model.files]
         )
@@ -5698,10 +5793,10 @@ class AppSession:
         try:
             embedder = self._embedder_factory(model)
         except Exception as exc:  # noqa: BLE001 - AD-16
-            return None, (
-                f"le modèle d'embedding n'a pas pu être chargé ({type(exc).__name__}: {exc})"
+            return None, Message(
+                "session.build.embedder_failed", kind=type(exc).__name__, cause=exc
             )
-        self._load_registry.grant(model.label_fr, cost, EMBEDDING)
+        self._load_registry.grant(model.label_text, cost, EMBEDDING)
         return embedder, None
 
     def answer_approval(self, approval_id: str, approved: bool, disable_hook: bool) -> None:
@@ -5710,12 +5805,9 @@ class AppSession:
         with self._lock:
             approval = self._approval
             if approval is None or approval.id != approval_id:
-                raise SendRefused(
-                    f"Aucune validation « {approval_id} » n'est en attente : elle n'existe pas "
-                    "ou a déjà reçu une réponse."
-                )
+                raise SendRefused(Message("session.approval.unknown", approval_id=approval_id))
             if approval.decision is not None:
-                raise SendRefused("Cette validation a déjà reçu une réponse : la première compte.")
+                raise SendRefused(Message("session.approval.answered"))
             approval.decision = "approved" if approved else "refused"
             approval.disable_hook = approved and disable_hook
         approval.answered.set()
@@ -5732,7 +5824,7 @@ class AppSession:
     ) -> None:
         started = time.monotonic()
         status = "error"
-        journal = get_journal()
+        journal = self._journal()
         self._hook_steps = 0
         self._approvals = 0
         self._turn_called = False  # lot A: set by `_keep_cache`
@@ -5761,11 +5853,11 @@ class AppSession:
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error(
                     # Story 18: a local server stopped while the prompt was tokenized.
-                    exc.message_fr
+                    (getattr(exc, "message", None) or exc.message_text)
                     if isinstance(exc, ServerError)
-                    else "Le tour s'est interrompu sur une erreur.",
+                    else Message("session.turn.interrupted"),
                     exc,
-                    "Le tour est terminé ; WaveStack reste utilisable.",
+                    Message("session.turn.over"),
                 )
             finally:
                 self._turn_ctx = None
@@ -5774,9 +5866,9 @@ class AppSession:
                 except Exception as exc:  # noqa: BLE001 - AD-16: the turn still ends
                     ended = None
                     self._error(
-                        "Les hooks de fin de tour se sont interrompus.",
+                        Message("session.turn.end_hooks.message"),
                         exc,
-                        "Le tour se termine sans eux.",
+                        Message("session.turn.end_hooks.effect"),
                     )
                 if status == "completed" and ended is not None and ended[1].decision == "block":
                     status = "blocked"  # the answer stays out of the history
@@ -5809,7 +5901,7 @@ class AppSession:
         steps: list[dict[str, Any]],
     ) -> tuple[str, str, str]:
         """The bounded loop of AD-10. Returns `(status, text, reasoning)`; fills `steps`."""
-        journal = get_journal()
+        journal = self._journal()
         max_calls, max_retries = self.cfg.tool_max_calls, self.cfg.tool_max_retries
         retries = 0
         previous: tuple[list[int], str] | None = None  # last call's ids and raw output
@@ -5829,12 +5921,12 @@ class AppSession:
         if "rag" in state.effective:  # story 15: once per turn, main context, before any call
             step += 1
             excerpts = self._rag_search(
-                turn_id, step, message, state.rag_rerank, state.rag_rerank_skipped_fr
+                turn_id, step, message, state.rag_rerank, state.rag_rerank_skipped_text
             )
             if state.rag_rerank and excerpts and not cancel.cancelled:  # story 16: its own step
                 step += 1
                 excerpts = self._rag_rerank_step(turn_id, step, message, excerpts, cancel)
-            texts = [(e.position, e.title_fr, e.text) for e in excerpts[: self.cfg.rag_top_k]]
+            texts = [(e.position, e.title_text, e.text) for e in excerpts[: self.cfg.rag_top_k]]
             state = replace(state, rag_excerpts=self._rag_texts(texts))
             if cancel.cancelled:
                 return "cancelled", "", ""
@@ -5904,7 +5996,7 @@ class AppSession:
                     step += 1
                     with scoped(step_id=f"{turn_id}.main.s{step}"):
                         error = self._tool_executor.reject(
-                            out.raw, out.malformed.fragment, out.malformed.detail_fr, reaction
+                            out.raw, out.malformed.fragment, out.malformed.detail_text, reaction
                         )
                     # The output without its reasoning, the reasoning apart (AD-4); in chat
                     # mode, the raw output AD-10 reinjects.
@@ -6000,19 +6092,19 @@ class AppSession:
         if compressor is None or content is None:
             return step, state  # unloaded meanwhile: the turn goes on uncompressed
         minimum = self.cfg.compression_min_chars
-        # (source_fr, kind, brick, component, text, where: ("step" | "rag", index))
+        # (source_text, kind, brick, component, text, where: ("step" | "rag", index))
         candidates: list[tuple[str, SegmentKind, str | None, str | None, str, tuple]] = []
         if first:
             for i, text in enumerate(state.rag_excerpts):
                 if i > 0 and len(text.strip()) >= minimum:  # 0: the excerpts' intro
-                    source = content.rag_source_fr.format(n=i)
+                    source = content.rag_source_text.format(n=i)
                     candidates.append(
                         (source, SegmentKind.RAG_EXCERPT, "rag", "rag.retriever", text, ("rag", i))
                     )
         for i in range(sent, len(steps)):
             reply = steps[i]
             if self._compressible(reply):
-                source = content.tool_source_fr.format(tool=reply.get("name"))
+                source = content.tool_source_text.format(tool=reply.get("name"))
                 candidates.append(
                     (
                         source,
@@ -6027,7 +6119,7 @@ class AppSession:
             return step, state
         step += 1
         step_id = f"{turn_id}.main.s{step}"
-        journal = get_journal()
+        journal = self._journal()
         scope = {
             "step_id": step_id,
             "brick": "compression",
@@ -6044,10 +6136,10 @@ class AppSession:
             journal.emit(
                 "compression_started",
                 {
-                    "phase_label": content.phase_label_fr,
-                    "title_fr": content.step_title_fr,
+                    "phase_label": content.phase_label_text,
+                    "title_text": content.step_title_text,
                     "items": len(candidates),
-                    "compressor_fr": compressor.label_fr,
+                    "compressor_text": compressor.label_text,
                 },
             )
             started = time.monotonic()
@@ -6081,14 +6173,14 @@ class AppSession:
                     "compression_ended",
                     {
                         "status": "error" if errors else "ok",
-                        "compressor_fr": compressor.label_fr,
+                        "compressor_text": compressor.label_text,
                         "items": items,
                         "tokens_before": total_before,
                         "tokens_after": total_after,
                         "saved_tokens": max(0, total_before - total_after),
                         "estimated": estimated,
-                        "unchanged_fr": content.unchanged_fr,
-                        "error_fr": " ".join(errors) or None,
+                        "unchanged_text": content.unchanged_text,
+                        "error_text": " ".join(errors) or None,
                         "duration_ms": _ms(time.monotonic() - started),
                     },
                 )
@@ -6109,24 +6201,26 @@ class AppSession:
         `text_after` is then left out of the trace (the original is already there)."""
         original = text.strip()
         before, estimated = self._count_tokens(original)
-        after_text, transforms, error_fr = original, (), None
+        after_text, transforms, error_text = original, (), None
         try:
             result = compressor.compress(text)
             after_text = (result.text or "").strip()
             transforms = tuple(str(t) for t in (result.transforms or ()))
         except Exception as exc:  # noqa: BLE001 - AD-16: the original goes on
-            error_fr = f"{source} : la compression a échoué ({type(exc).__name__}: {exc})."
-            errors.append(error_fr)
+            error_text = Message(
+                "session.compression.text_failed", source=source, kind=type(exc).__name__, cause=exc
+            )
+            errors.append(error_text)
             self._error(
-                "La compression d'un texte a échoué.",
+                Message("session.compression.failed.message"),
                 exc,
-                "Le texte d'origine part tel quel ; le tour continue.",
+                Message("session.compression.failed.effect"),
             )
         after, estimate_after = self._count_tokens(after_text) if after_text else (0, False)
-        changed = error_fr is None and bool(after_text) and after_text != original
+        changed = error_text is None and bool(after_text) and after_text != original
         changed = changed and after < before
         return {
-            "source_fr": source,
+            "source_text": source,
             "kind": kind.value,
             "tokens_before": before,
             "tokens_after": after if changed else before,
@@ -6134,7 +6228,7 @@ class AppSession:
             "text_after": after_text if changed else None,
             "changed": changed,
             "transforms": list(transforms),
-            "error_fr": error_fr,
+            "error_text": error_text,
             "estimated": estimated or estimate_after,
         }
 
@@ -6145,8 +6239,8 @@ class AppSession:
         with self._lock:
             embedder, retriever, stamp = self._embedder, self._rag_retriever, self._rag_stamp
         if embedder is None or retriever is None:
-            raise RuntimeError("le modèle d'embedding n'est pas chargé")
-        path = self.cfg.rag_index_path()
+            raise RuntimeRefused("session.rag.embedder_not_loaded")
+        path = self._rag_index_path()
         if _stamp(path) == stamp:
             return retriever
         retriever.close()
@@ -6158,7 +6252,7 @@ class AppSession:
             self._release_reranker()  # story 16: no RAG, no reranking to keep in memory
             self._emit_bricks()
             self._emit_architecture()
-            raise RuntimeError(f"l'index a été remplacé pendant la séance. {reason}")
+            raise RuntimeRefused("session.rag.index_replaced", reason=reason)
         fresh = SqliteVecRetriever(path, embedder, self.cfg.rag_top_k)
         with self._lock:
             self._rag_retriever = fresh
@@ -6171,23 +6265,23 @@ class AppSession:
         step: int,
         message: str,
         rerank: bool = False,
-        rerank_skipped_fr: str | None = None,
+        rerank_skipped_text: str | None = None,
     ) -> list[Excerpt]:
         """Story 15 (AD-2, AD-22): the search, a step of the harness with its pair of events.
         Returns the excerpts found; a failure is traced and the turn goes on without excerpts
         (as a failing hook lets the turn through). Story 16: with `rerank`, the reranker's
-        candidates, none of which goes to the context directly; `rerank_skipped_fr`: why the
+        candidates, none of which goes to the context directly; `rerank_skipped_text`: why the
         reranking enabled does not apply to this turn, said by the step."""
         content = self._rag_content
         assert content is not None  # the brick is unavailable without it
         top_k = self.cfg.rag_top_k
-        placement_fr = content.placement_fr
+        placement_text = content.placement_text
         if rerank:
-            placement_fr = content.rerank_search_placement_fr.format(
+            placement_text = content.rerank_search_placement_text.format(
                 candidates=self.cfg.rag_rerank_candidates, keep=top_k
             )
             top_k = self.cfg.rag_rerank_candidates
-        journal = get_journal()
+        journal = self._journal()
         scope = {
             "step_id": f"{turn_id}.main.s{step}",
             "brick": "rag",
@@ -6198,27 +6292,30 @@ class AppSession:
         with scoped(**scope):
             journal.emit(
                 "rag_search_started",
-                {"query": message, "top_k": top_k, "phase_label": content.phase_label_fr},
+                {"query": message, "top_k": top_k, "phase_label": content.phase_label_text},
             )
             started = time.monotonic()
             try:
                 excerpts = self._rag_current_retriever().search(message, top_k)
             except Exception as exc:  # noqa: BLE001 - AD-16: the turn goes on
                 self._error(
-                    "La recherche RAG a échoué.", exc, "Le tour continue sans extraits RAG."
+                    Message("session.rag.search_failed.message"),
+                    exc,
+                    Message("session.rag.search_failed.effect"),
                 )
                 journal.emit(
                     "rag_search_ended",
                     {
                         "status": "error",
                         "excerpts": [],
-                        "placement_fr": placement_fr,
-                        "error_fr": (
-                            f"La recherche a échoué ({type(exc).__name__}: {exc}). Le tour "
-                            "continue sans extraits RAG."
+                        "placement_text": placement_text,
+                        "error_text": Message(
+                            "session.rag.search_failed.text",
+                            kind=type(exc).__name__,
+                            cause=Lazy(lambda lang, e=exc: rag_index.exception_text(e, lang)),
                         ),
                         "duration_ms": _ms(time.monotonic() - started),
-                        "rerank_skipped_fr": rerank_skipped_fr,
+                        "rerank_skipped_text": rerank_skipped_text,
                     },
                 )
                 return []
@@ -6227,10 +6324,10 @@ class AppSession:
                 {
                     "status": "ok",
                     "excerpts": [e.payload() for e in excerpts],
-                    "placement_fr": placement_fr,
-                    "error_fr": None,
+                    "placement_text": placement_text,
+                    "error_text": None,
                     "duration_ms": _ms(time.monotonic() - started),
-                    "rerank_skipped_fr": rerank_skipped_fr,
+                    "rerank_skipped_text": rerank_skipped_text,
                 },
             )
         return excerpts
@@ -6252,8 +6349,8 @@ class AppSession:
         content = self._rag_content
         assert content is not None  # the brick is unavailable without it
         keep = min(self.cfg.rag_top_k, len(candidates))
-        placement_fr = content.rerank_placement_fr.format(candidates=len(candidates), keep=keep)
-        journal = get_journal()
+        placement_text = content.rerank_placement_text.format(candidates=len(candidates), keep=keep)
+        journal = self._journal()
         scope = {
             "step_id": f"{turn_id}.main.s{step}",
             "brick": "rag",
@@ -6273,7 +6370,7 @@ class AppSession:
                     "query": message,
                     "candidates": len(candidates),
                     "keep": keep,
-                    "phase_label": content.rerank_phase_label_fr,
+                    "phase_label": content.rerank_phase_label_text,
                 },
             )
             started = time.monotonic()
@@ -6281,26 +6378,28 @@ class AppSession:
                 with self._lock:
                     reranker = self._reranker
                 if reranker is None:
-                    raise RuntimeError("le modèle de reranking n'est pas chargé")
+                    raise RuntimeRefused("session.rerank.not_loaded")
                 # As the index embeds them: each excerpt with its document's title.
-                passages = [f"{c.title_fr}\n{c.text}" for c in candidates]
+                passages = [f"{c.title_text}\n{c.text}" for c in candidates]
                 raw = reranker.score(message, passages, lambda: cancel.cancelled, progress)
                 if len(raw) != len(candidates):
-                    raise ValueError(f"{len(raw)} scores pour {len(candidates)} extraits")
+                    raise ValueRefused(
+                        "session.rerank.scores", scores=len(raw), excerpts=len(candidates)
+                    )
                 scores, truncated = [], []
                 for item in raw:
                     value = float(item.score)  # raises on what is not a figure
                     if not math.isfinite(value):
-                        raise ValueError(f"score non fini : {item.score!r}")
+                        raise ValueRefused("session.rerank.not_finite", score=repr(item.score))
                     scores.append(round(min(1.0, max(0.0, value)), 3))
                     truncated.append(bool(item.truncated))
             except Exception as exc:  # noqa: BLE001 - AD-16: the turn goes on
                 stopped = isinstance(exc, RerankCancelled)
                 if not stopped:
                     self._error(
-                        "Le reranking a échoué.",
+                        Message("session.rerank.failed.message"),
                         exc,
-                        f"Le tour continue avec les {keep} premiers extraits de l'embedding.",
+                        Message("session.rerank.failed.effect", keep=keep),
                     )
                 journal.emit(
                     "rag_rerank_ended",
@@ -6308,12 +6407,16 @@ class AppSession:
                         "status": "cancelled" if stopped else "error",
                         "excerpts": [],
                         "keep": keep,
-                        "placement_fr": placement_fr,
-                        "error_fr": (
-                            "Reranking arrêté."
+                        "placement_text": placement_text,
+                        "error_text": (
+                            Message("session.rerank.stopped")
                             if stopped
-                            else f"Le reranking a échoué ({type(exc).__name__}: {exc}). Le tour "
-                            f"continue avec les {keep} premiers extraits de l'embedding."
+                            else Message(
+                                "session.rerank.failed.text",
+                                kind=type(exc).__name__,
+                                cause=exc.message if isinstance(exc, KeyedError) else exc,
+                                keep=keep,
+                            )
                         ),
                         "duration_ms": _ms(time.monotonic() - started),
                     },
@@ -6329,7 +6432,7 @@ class AppSession:
                     "before": candidates[i].position,
                     "chunk_id": candidates[i].chunk_id,
                     "doc_id": candidates[i].doc_id,
-                    "title_fr": candidates[i].title_fr,
+                    "title_text": candidates[i].title_text,
                     "score": scores[i],
                     "retrieval_score": candidates[i].score,
                     "truncated": truncated[i],
@@ -6342,8 +6445,8 @@ class AppSession:
                     "status": "ok",
                     "excerpts": reranked,
                     "keep": keep,
-                    "placement_fr": placement_fr,
-                    "error_fr": None,
+                    "placement_text": placement_text,
+                    "error_text": None,
                     "duration_ms": _ms(time.monotonic() - started),
                 },
             )
@@ -6369,7 +6472,7 @@ class AppSession:
         if decided is not None:
             hook_id, result = decided
             if result.decision == "block":  # not a new attempt (AD-10)
-                return result.detail_fr, hook_id
+                return result.detail_text, hook_id
             if result.arguments is not None:
                 call = replace(call, arguments=result.arguments)
             if result.decision == "ask_human" and result.preview is not None:
@@ -6378,8 +6481,9 @@ class AppSession:
                     return None
                 if answer == "refused":  # nothing sent; not a new attempt either
                     return (
-                        "Refusé par l'utilisateur (validation humaine) : l'appel à "
-                        f"« {call.name} » vers {host(result.preview['url'])} n'a pas été envoyé.",
+                        self._t(
+                            "hooks.h5.refused", name=call.name, host=host(result.preview["url"])
+                        ),
                         hook_id,
                     )
         bounded = (spec.network or spec.is_mcp) and spec.name != DELEGATE
@@ -6416,12 +6520,17 @@ class AppSession:
         if total <= limit:
             return text, None
 
+        # Lot B (N3): the mention appended to the cut result, seen by the model, in the
+        # session's language (languages 5/5): its length counts in the bound.
+        def mention(kept: int) -> str:
+            return "\n\n" + self._t("tools.truncated", kept=kept, total=total)
+
         def cut(prefix: str) -> tuple[str, int, bool]:
             kept, rough = count(prefix)
-            return prefix + _TRUNCATED_FR.format(kept=kept, total=total), kept, rough
+            return prefix + mention(kept), kept, rough
 
         # The mention at its widest (as many digits kept as in total): one count per step.
-        widest = _TRUNCATED_FR.format(kept=total, total=total)
+        widest = mention(total)
         low, high = 0, len(text) - 1  # the longest fitting prefix is in [low, high]
         while low < high:
             middle = (low + high + 1) // 2
@@ -6478,18 +6587,19 @@ class AppSession:
             spec = self._registry.get(call.name)
             reason = self._armed_unavailable(action, state, loaded_in_turn)
             if reason is None and spec is None:
-                reason = f"l'outil « {call.name} » n'est plus déclaré"
+                reason = Message("session.forced.undeclared", name=call.name)
             if reason is None:
                 reason = self._tool_executor.check(call, [call.name])
             if reason is not None or spec is None:
                 with scoped(brick=action.brick, trigger="user"):
-                    get_journal().emit(
+                    self._journal().emit(
                         "action_dropped",
                         {
                             "armed_id": action.armed_id,
-                            "reason_fr": (
-                                f"Action forcée « {action.label_fr} » abandonnée : "
-                                f"{(reason or '').rstrip('.')}. Le tour continue sans elle."
+                            "reason_text": Message(
+                                "session.forced.dropped",
+                                label=action.label_text,
+                                reason=Lazy(lambda lang, r=reason: render(r, lang).rstrip(".")),
                             ),
                         },
                     )
@@ -6555,60 +6665,58 @@ class AppSession:
         """Why a forced action's target is not available to this turn, in French; `None`
         when it is. Read from the frozen `TurnState`, plus what this turn loaded."""
         target = action.target
+
+        def why(key: str, **kw: Any) -> Message:
+            return Message(f"session.forced.{key}", **kw)
+
         if action.kind == "tool" and action.brick == "mcp":  # lot K: an MCP tool's call
             if "mcp" not in state.effective:
-                return "la brique « MCP » n'est pas active dans ce tour"
+                return why("inactive.mcp")
             if target not in state.tools and target not in state.loadable:
-                return f"le serveur de l'outil « {target} » n'est pas connecté ou est désactivé"
+                return why("server_off", target=target)
             return None
         if action.kind == "tool":
             if "tools" not in state.effective:
-                return "la brique « Outils » n'est pas active dans ce tour"
+                return why("inactive.tools")
             if target not in state.tools:
-                return f"l'outil « {self._registry.label(target)} » est décoché"
+                return why("tool_unchecked", tool=self._registry.label(target))
             return None
         if action.kind == "skill":
             if "skills" not in state.effective:
-                return "la brique « Skills » n'est pas active dans ce tour"
+                return why("inactive.skills")
             with self._lock:
                 loaded = target in self._loaded_skills
             if target in state.skills or loaded:
-                return f"le skill « {self._skill_label(target)} » est déjà chargé"
+                return why("skill_loaded", skill=self._skill_label(target))
             if target not in state.skill_catalog:
-                return f"le skill « {self._skill_label(target)} » est décoché"
+                return why("skill_unchecked", skill=self._skill_label(target))
             return None
         if action.kind == "memory":
             if "global_memory" not in state.effective:
-                return "la brique « Mémoire globale » n'est pas active dans ce tour"
+                return why("inactive.global_memory")
             if REMEMBER not in state.tools:  # H4: no tool parser
-                return (
-                    "le modèle actif ne sait pas appeler d'outil, et l'écriture forcée passe par "
-                    "l'outil remember"
-                )
+                return why("no_parser")
             return None
         if action.kind == "delegate":
             if "subagent" not in state.effective:
-                return "la brique « Sous-agent » n'est pas active dans ce tour"
+                return why("inactive.subagent")
             return None
         if "mcp" not in state.effective:
-            return "la brique « MCP » n'est pas active dans ce tour"
+            return why("inactive.mcp")
         with self._lock:
             lazy = self._sent[4]  # the mode frozen for this turn by `send`
         if not lazy and target in state.tools:
-            return (
-                "la brique « MCP » est en documentation complète : la documentation de "
-                f"« {target} » est déjà dans le contexte"
-            )
+            return why("doc_in_context", target=target)
         if target in loaded_in_turn or target in state.tools:
-            return f"la documentation de « {target} » est déjà chargée"
+            return why("doc_loaded", target=target)
         if target not in state.loadable:
-            return f"le serveur de l'outil « {target} » n'est pas connecté ou est désactivé"
+            return why("server_off", target=target)
         return None
 
     def _await_human(self, hook_id: str, call: ToolCall, preview: dict[str, str]) -> str:
         """H5 (AD-13): `awaiting_human` until the user answers or stops the turn, without
         delay; on the hook's own step. Returns `approved`, `refused` or `cancelled`."""
-        journal = get_journal()
+        journal = self._journal()
         turn_id = current().turn_id or ""
         self._approvals += 1
         approval = _Approval(f"{turn_id}.a{self._approvals}")
@@ -6620,7 +6728,7 @@ class AppSession:
                 self._approval = approval
                 waiting = self._cancel is None or not self._cancel.cancelled
                 if waiting:
-                    self.state, self.reason_fr = "awaiting_human", _AWAITING_FR
+                    self.state, self.reason_text = "awaiting_human", _AWAITING_FR
                 else:  # stopped just before
                     approval.decision = "cancelled"
             journal.emit(
@@ -6668,7 +6776,7 @@ class AppSession:
         ]
         if not hooks:
             return None
-        journal = get_journal()
+        journal = self._journal()
         turn_id = current().turn_id or ""
         texts = self._hooks_content
         decided: tuple[str, HookResult] | None = None
@@ -6682,6 +6790,7 @@ class AppSession:
                 events=events,
                 content=texts,
                 context_id=current().context_id or "main",
+                language=self._language,
                 **ctx,
             )
             self._hook_steps += 1
@@ -6692,19 +6801,23 @@ class AppSession:
                     result = hook.fn(view)
                 except Exception as exc:  # noqa: BLE001 - AD-16
                     self._error(
-                        f"Le hook « {label} » a échoué.",
+                        Message("session.hooks.failed.message", label=label),
                         exc,
-                        "Il laisse passer : le tour continue.",
+                        Message("session.hooks.failed.effect"),
                     )
                     continue
                 if result is None:  # not concerned: nothing is emitted
                     continue
                 if result.decision not in ALLOWED[point]:
                     self._error(
-                        f"Le hook « {label} » a rendu la décision « {result.decision} », non "
-                        f"permise au point « {point} ».",
-                        "Décision hors de la liste permise (AD-13).",
-                        "Elle vaut « allow » : le tour continue.",
+                        Message(
+                            "session.hooks.not_allowed.message",
+                            label=label,
+                            decision=result.decision,
+                            point=point,
+                        ),
+                        Message("session.hooks.not_allowed.cause"),
+                        Message("session.hooks.not_allowed.effect"),
                     )
                     result = replace(result, decision="allow")
                 journal.emit(
@@ -6713,9 +6826,9 @@ class AppSession:
                         "hook": hook.id,
                         "point": point,
                         "decision": result.decision,
-                        "detail_fr": result.detail_fr,
-                        "hook_fr": label,
-                        "point_fr": texts.points[point] if texts else point,
+                        "detail_text": result.detail_text,
+                        "hook_text": label,
+                        "point_text": texts.points[point] if texts else point,
                     },
                 )
                 for effect in result.effects:  # AD-23: the session alone writes
@@ -6741,15 +6854,13 @@ class AppSession:
                 file.write("".join(f"{line}\n" for line in lines))
         except OSError as exc:
             self._error(
-                "Le journal d'audit n'a pas pu être écrit.",
+                Message("session.hooks.audit_unwritable.message"),
                 exc,
-                "Ces lignes ne sont pas écrites ; le tour continue. La journalisation les "
-                "reprendra à son prochain déclenchement dans ce tour, s'il y en a un ; sinon "
-                "elles sont perdues.",
+                Message("session.hooks.audit_unwritable.effect"),
             )
             return
         with scoped(component=AUDIT):
-            get_journal().emit("effect_applied", {"effect": "audit_append", "lines": lines})
+            self._journal().emit("effect_applied", {"effect": "audit_append", "lines": lines})
 
     def _apply_doc_loaded(self, tool: str, loaded_in_turn: list[str]) -> dict[str, Any]:
         """`ToolDocLoaded`: the documentation is loaded for the conversation and callable now.
@@ -6764,7 +6875,7 @@ class AppSession:
             "kind": SegmentKind.TOOL_CATALOG,
             "brick": "mcp",
             "component": spec.component if spec else "core.harness",
-            "stub": f"Documentation de « {tool} » chargée.",
+            "stub": self._t("session.stubs.doc", tool=tool),
         }
 
     def _apply_skill_loaded(self, skill_id: str) -> dict[str, Any]:
@@ -6778,7 +6889,7 @@ class AppSession:
             "kind": SegmentKind.SKILL_BODY,
             "brick": "skills",
             "component": f"skills.{skill_id}",
-            "stub": f"Skill « {self._skill_label(skill_id)} » chargé.",
+            "stub": self._t("session.stubs.skill", skill=self._skill_label(skill_id)),
         }
 
     def _after_mcp_call(self, name: str, spec: ToolSpec) -> None:
@@ -6792,16 +6903,17 @@ class AppSession:
         call_ref = tool_call_id(step_id, index)
         if call_ref in self._call_ids:
             self._error(
-                "Identifiant d'appel d'outil en double dans ce tour.",
-                f"{step_id}#{index} donne {call_ref}, déjà attribué.",
-                "Le tour continue ; deux réponses d'outil partagent cet identifiant.",
+                Message("session.call_id.message"),
+                Message("session.call_id.cause", ref=f"{step_id}#{index}", call_ref=call_ref),
+                Message("session.call_id.effect"),
             )
         self._call_ids.add(call_ref)
         return call_ref
 
     def _emit_limit(self, limit: str, n: int) -> None:
-        get_journal().emit(
-            "limit_reached", {"limit": limit, "message_fr": _LIMITS_FR[limit].format(n=n)}
+        self._journal().emit(
+            "limit_reached",
+            {"limit": limit, "message_text": self._t(f"session.limits.{limit}", n=n)},
         )
 
     def _check_prefix(self, previous_ids: list[int], raw: str, ids: list[int]) -> None:
@@ -6810,16 +6922,17 @@ class AppSession:
         expected = previous_ids + self._engine.tokenize(raw)
         common = _common_prefix(expected, ids)
         if common < len(expected):
-            get_journal().emit(
+            self._journal().emit(
                 "prefix_not_reused",
                 {
                     "common_tokens": common,
                     "cause": "in_turn",
-                    "message_fr": (
-                        f"Cet appel ne prolonge pas exactement le précédent : seuls "
-                        f"{_fr(common)} tokens sur {_fr(len(expected))} sont réutilisés, le "
-                        "modèle relit le reste. Le gabarit réécrit la sortie du modèle "
-                        "autrement qu'elle a été produite."
+                    "message_text": (
+                        self._t(
+                            "session.prefix.in_turn",
+                            common=self._n(common),
+                            expected=self._n(len(expected)),
+                        )
                     ),
                 },
             )
@@ -6865,28 +6978,30 @@ class AppSession:
                 return
         common = _common_prefix(cached, ids)
         cause = cause or self._diverging_cause(rendered, common)
-        why = _PREFIX_CAUSES_FR[cause].format(why=_SUBAGENT_EVICTED_FR.get(evicted or "", ""))
+        evicted_why = Message(f"session.prefix.evicted.{evicted}") if evicted else ""
+        why = self._t(f"session.prefix.causes.{cause}", why=evicted_why)
         again = len(ids) - common
-        hybrid = (
-            f", et tout le contexte ({_fr(len(ids))} tokens) sur un modèle hybride comme "
-            "Qwen3.5, qui ne sait pas tronquer son cache."
-        )
+        hybrid = self._t("session.prefix.hybrid", tokens=self._n(len(ids)))
         if not again:  # the new ids end inside the cache: nothing new, but a cut
-            tail = (
-                f" Les {_fr(len(ids))} tokens du contexte sont déjà en cache, suivis d'autres "
-                f"({_fr(len(cached))} en tout) : le moteur doit recalculer au moins le dernier "
-                "token" + hybrid
+            tail = self._t(
+                "session.prefix.in_cache",
+                tokens=self._n(len(ids)),
+                cached=self._n(len(cached)),
+                hybrid=hybrid,
             )
         elif cached:
-            tail = (
-                f" Seuls {_fr(common)} tokens sur {_fr(len(cached))} en cache sont "
-                f"réutilisés : le moteur relit {_fr(again)} tokens" + (hybrid if common else ".")
+            tail = self._t(
+                "session.prefix.partly",
+                common=self._n(common),
+                cached=self._n(len(cached)),
+                again=self._n(again),
+                end=hybrid if common else ".",
             )
         else:
-            tail = f" Le moteur relit les {_fr(again)} tokens du contexte."
-        get_journal().emit(
+            tail = self._t("session.prefix.all", again=self._n(again))
+        self._journal().emit(
             "prefix_not_reused",
-            {"common_tokens": common, "cause": cause, "message_fr": why + tail},
+            {"common_tokens": common, "cause": cause, "message_text": why + tail},
         )
 
     def _diverging_cause(self, rendered: RenderedContext, common: int) -> str:
@@ -6919,8 +7034,8 @@ class AppSession:
         """`raw_used` (chat mode): the raw sum of the estimates, which decided the block
         (AD-4), cited « ≈ »."""
         used, usable = payload["used"], payload["usable"]
-        shown = f"≈ {_fr(raw_used)}" if raw_used is not None else _fr(used)
-        tokens = dict.fromkeys(_OVERFLOW_CAUSES_FR, 0)
+        shown = f"≈ {self._n(raw_used)}" if raw_used is not None else self._n(used)
+        tokens = dict.fromkeys(_OVERFLOW_CAUSES, 0)
         for segment in payload["segments"]:
             kind = _OVERFLOW_GROUP.get(segment["kind"], segment["kind"])
             if kind in tokens:  # every kind but the template
@@ -6929,22 +7044,32 @@ class AppSession:
         with self._lock:
             lazy = self._sent[4]  # the mode frozen for this turn by `send`
         full = heaviest == SegmentKind.TOOL_CATALOG and not lazy
-        cause = _TOOL_CATALOG_FULL_FR if full else _OVERFLOW_CAUSES_FR[heaviest]
-        if heaviest == SegmentKind.TOOL_RESULT:
-            cause = cause.format(compression=self._compression_hint_fr())
+        if full:
+            cause = self._t("session.overflow.tool_catalog_full")
+        elif heaviest == SegmentKind.TOOL_RESULT:
+            cause = self._t(
+                "session.overflow.causes.tool_result", compression=self._compression_hint_fr()
+            )
+        else:
+            cause = self._t(f"session.overflow.causes.{heaviest.value}")
         if self._ratio_key() == "sub" and self._subagent_content is not None:
-            cause = self._subagent_content.overflow_cause_fr  # AD-11: the sub-agent's context
-        get_journal().emit(
+            cause = self._subagent_content.overflow_cause_text  # AD-11: the sub-agent's context
+        self._journal().emit(
             "context_overflow",
             {
                 "used": used if raw_used is None else raw_used,
                 "usable": usable,
-                "message_fr": (
-                    f"Le contexte compte {shown} tokens pour {_fr(usable)} utilisables "
-                    f"(fenêtre de {_fr(payload['window'])} moins {_fr(payload['reserve'])} "
-                    f"réservés à la réponse). {cause}"
+                "message_text": self._t(
+                    "session.overflow.message",
+                    shown=shown,
+                    usable=self._n(usable),
+                    window=self._n(payload["window"]),
+                    reserve=self._n(payload["reserve"]),
+                    cause=cause,
                 ),
-                "strategies_fr": _OVERFLOW_STRATEGIES_FR,
+                "strategies_text": [
+                    self._t(f"session.overflow.strategies.{s}") for s in _OVERFLOW_STRATEGIES
+                ],
             },
         )
 
@@ -6954,7 +7079,7 @@ class AppSession:
             return ""
         with self._lock:
             off = "compression" not in self._wanted
-        return _OVERFLOW_COMPRESSION_FR if off else ""
+        return self._t("session.overflow.compression") if off else ""
 
     def _call_model(
         self,
@@ -7004,12 +7129,14 @@ class AppSession:
         """`_call_model` on a local engine, under its CodeCarbon `measure`."""
         assert self._engine is not None and self._caps is not None
         step_id = current().step_id or ""
-        journal = get_journal()
+        journal = self._journal()
         started = time.monotonic()
         journal.emit(
             "model_call_started",
             {
-                "phase_label": f"Lecture du contexte ({_fr(len(rendered.ids))} tokens)",
+                "phase_label": self._t(
+                    "session.reading_context", tokens=self._n(len(rendered.ids))
+                ),
                 "sampling": self._sampling_trace(sampling),
             },
         )
@@ -7165,11 +7292,12 @@ class AppSession:
                         "budget": budget,
                         "reasoning_tokens": reasoning_tokens,
                         "answer_reserve": left,
-                        "message_fr": (
-                            f"Raisonnement coupé par le harnais à {_fr(reasoning_tokens)} "
-                            f"tokens : la réflexion a atteint le budget de {_fr(budget)} tokens "
-                            f"sans se fermer. Le harnais la ferme lui-même ({tags[1]}) et "
-                            f"relance le modèle, qui garde {_fr(left)} tokens pour la réponse."
+                        "message_text": self._t(
+                            "session.reasoning.cut",
+                            tokens=self._n(reasoning_tokens),
+                            budget=self._n(budget),
+                            tag=tags[1],
+                            left=self._n(left),
                         ),
                     },
                 )
@@ -7183,7 +7311,9 @@ class AppSession:
             flush()
             end("error")
             self._error(
-                error.message_fr, error.cause, "Le tour est terminé ; WaveStack reste utilisable."
+                getattr(error, "message", None) or error.message_text,
+                error.cause,
+                Message("session.turn.over"),
             )
             return _ModelOutput("error")
         except Exception:
@@ -7225,10 +7355,7 @@ class AppSession:
             out.calls, out.ids, out.malformed = (
                 [],
                 [],
-                Malformed(
-                    fragment,
-                    f"la sortie a été coupée à {_fr(limit)} tokens au milieu de l'appel",
-                ),
+                Malformed(fragment, Message("tools.parser.cut", limit=self._num_lazy(limit))),
             )
         return out
 
@@ -7294,7 +7421,7 @@ class AppSession:
             return
         if current().turn_id is not None:  # the « LLM nu » screen has no turn
             self._turn_impacts.append(impact)
-        journal = get_journal()
+        journal = self._journal()
         record_spend(
             None,
             self.cfg.eur_per_usd,
@@ -7315,7 +7442,7 @@ class AppSession:
         becomes `harness_error` (AD-16); `usage` reconciles the gauge (AD-4)."""
         entry = self._cloud
         assert entry is not None
-        journal = get_journal()
+        journal = self._journal()
         scope = current()
         step_id = scope.step_id or ""
         total = round(rendered.raw_total * self._ratio)
@@ -7326,7 +7453,11 @@ class AppSession:
                     self._engine,
                     ChatBody(rendered.body.encode("utf-8")),
                     cancel,
-                    phase_label=f"Envoi du contexte à {entry.provider} (≈ {_fr(total)} tokens)",
+                    phase_label=self._t(
+                        "session.cloud.sending_context",
+                        provider=entry.provider,
+                        tokens=self._n(total),
+                    ),
                     estimated_prompt=total,
                     chars_per_token=self.cfg.chars_per_token,
                     call_id=lambda index: self._new_call_id(step_id, index),
@@ -7338,13 +7469,9 @@ class AppSession:
                 self._turn_costs.append(error.cost)
             if error.impact is not None and error.impact.estimated:  # GreenOps, likewise
                 self._turn_impacts.append(error.impact)
-            effect_fr = (
-                "La délégation échoue ; le tour principal continue."
-                if in_sub
-                else "Le tour est terminé ; WaveStack reste utilisable."
-            )
-            journal.emit("harness_error", error.payload(effect_fr))
-            return _ModelOutput("error", message_fr=error.message_fr)
+            effect_text = Message("delegation.error.effect" if in_sub else "session.turn.over")
+            journal.emit("harness_error", error.payload(effect_text, lang=self._language))
+            return _ModelOutput("error", message_text=error.message_text)
         if call.cost is not None:
             self._turn_costs.append(call.cost)
         if call.impact is not None and call.impact.estimated:  # GreenOps
@@ -7393,8 +7520,7 @@ class AppSession:
                 return _ModelOutput("limit", reconciled=out.reconciled)
             out.calls, out.ids, out.arguments, out.extras = [], [], [], []
             out.malformed = Malformed(
-                out.raw,
-                f"la sortie a été coupée à {_fr(reserve)} tokens au milieu de l'appel",
+                out.raw, Message("tools.parser.cut", limit=self._num_lazy(reserve))
             )
         return out
 
@@ -7419,58 +7545,61 @@ class AppSession:
         """`content/llm_lab.yaml`, or why it cannot be read (AD-19): traced as `harness_error`
         once per message, the page staying served."""
         try:
-            return llm_lab.load_lab_content(), None
+            return self._localized(llm_lab.load_lab_content), None
         except Exception as exc:  # noqa: BLE001 - AD-16: an invalid file never breaks the page
-            error_fr = (
-                "Textes de l'écran « LLM nu » illisibles (content/llm_lab.yaml) : corrigez le "
-                "fichier puis rechargez la page."
-            )
+            error_text = self._t("session.llm_lab.content_invalid")
             cause = f"{type(exc).__name__}: {exc}"
             if self._lab_error_traced != cause:
                 self._lab_error_traced = cause
                 with scoped(**self._lab_scope("llm")):
-                    self._error(error_fr, cause, "La page « LLM nu » reste servie sans ses textes.")
+                    self._error(
+                        error_text, cause, Message("session.llm_lab.content_invalid_effect")
+                    )
             llm_lab.load_lab_content.cache_clear()  # corrected, the file is read again
             detail = (str(exc).splitlines() or [type(exc).__name__])[0][:200]
-            return None, f"{error_fr} Détail : {detail}"
+            return None, self._t("session.detail", text=error_text, detail=detail)
 
     def _tokenizer_state(self) -> dict[str, Any]:
         """Whether the active model's tokenizer cuts exactly here, and why in French."""
         with self._lock:
             engine, cloud, active = self._engine, self._cloud, self._active
         if engine is None:
-            return {"exact": False, "reason_fr": "Aucun modèle actif : aucun tokenizer à montrer."}
+            return {
+                "exact": False,
+                "reason_text": self._t("session.llm_lab.tokenizer.none"),
+            }
         if cloud is not None:
             return {
                 "exact": False,
-                "reason_fr": (
-                    f"Le tokenizer de {cloud.model} est chez {cloud.provider}, pas sur ce poste : "
-                    "WaveStack ne peut pas découper le texte comme lui. Il estime le nombre de "
-                    "tokens à partir des caractères, sans aucune puce."
+                "reason_text": self._t(
+                    "session.llm_lab.tokenizer.cloud", model=cloud.model, provider=cloud.provider
                 ),
             }
         if active is not None and active.kind == "server":
-            how = (
-                "le tokenizer de llama-server (/tokenize)"
+            how = Message(
+                "session.llm_lab.tokenizer.llama_server"
                 if active.provider == "llama-server"
-                else "le tokenizer du fichier GGUF qu'Ollama sert, ouvert par WaveStack"
+                else "session.llm_lab.tokenizer.ollama"
             )
-            return {"exact": True, "reason_fr": f"Découpage exact, par {how}."}
-        return {"exact": True, "reason_fr": "Découpage exact, par le tokenizer du modèle chargé."}
+            return {
+                "exact": True,
+                "reason_text": self._t("session.llm_lab.tokenizer.exact", how=how),
+            }
+        return {"exact": True, "reason_text": self._t("session.llm_lab.tokenizer.exact_loaded")}
 
     def lab_state(self) -> dict[str, Any]:
         """`GET /api/llm_lab` (story 29, AD-1): what the page needs before the stream, from
         `seq` on: its texts (or why not), the active model, the session's state and the
         tokenizer's exactness."""
-        tip = get_journal().last_seq()
-        content, error_fr = self._lab_content()
+        tip = self._journal().last_seq()
+        content, error_text = self._lab_content()
         with self._lock:
-            state, reason_fr = self.state, self.reason_fr
+            state, reason_text = self.state, self.reason_text
         return {
             "content": content.model_dump() if content is not None else None,
-            "content_error_fr": error_fr,
+            "content_error_text": error_text,
             "active_model": self.active_model(),
-            "session_state": {"state": state, "reason_fr": reason_fr},
+            "session_state": {"state": state, "reason_text": reason_text},
             "tokenizer": self._tokenizer_state(),
             "sampling": self._lab_sampling(),
             "last_load": self._last_load(tip),
@@ -7482,7 +7611,7 @@ class AppSession:
     def _lab_request(self) -> str:
         """A screen request's id, `llm{n}`: accepted in `idle` with a model only (AD-3)."""
         with self._lock:
-            if self.state != "idle" or self._engine is None or self.reason_fr:
+            if self.state != "idle" or self._engine is None or self.reason_text:
                 raise SendRefused(self._refusal_reason())
             self._labs += 1
             return f"llm{self._labs}"
@@ -7498,15 +7627,17 @@ class AppSession:
     def _run_lab_tokenize(self, request_id: str, text: str) -> None:
         with scoped(**self._lab_scope(request_id)):
             try:
-                payload = LlmTokenizedPayload.model_validate(self._lab_tokenized(request_id, text))
-                get_journal().emit("llm_tokenized", payload.model_dump(mode="json"))
+                payload = LlmTokenizedPayload.model_validate(
+                    in_language(self._lab_tokenized(request_id, text), self._language)
+                )
+                self._journal().emit("llm_tokenized", payload.model_dump(mode="json"))
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error(
-                    exc.message_fr
+                    exc.message_text
                     if isinstance(exc, ServerError)
-                    else "Le découpage en tokens a échoué.",
+                    else Message("session.llm_lab.tokenize_failed"),
                     exc,
-                    "Rien n'a changé ; l'atelier et l'écran « LLM nu » restent utilisables.",
+                    Message("session.llm_lab.nothing_changed"),
                 )
 
     def _lab_tokenized(self, request_id: str, text: str) -> dict[str, Any]:
@@ -7519,27 +7650,30 @@ class AppSession:
             "char_count": len(text),
             "model_label": model.get("label") or "",
             "hosting": model.get("hosting") or "local",
-            "tokenizer_fr": self._tokenizer_state()["reason_fr"],
-            "figures_fr": {"char_count": llm_lab.fr_int(len(text))},
+            "tokenizer_text": self._tokenizer_state()["reason_text"],
+            "figures_text": {"char_count": llm_lab.lang_int(len(text), self._language)},
         }
         if engine is None:
-            raise RuntimeError("aucun modèle actif")
+            raise RuntimeRefused("session.llm_lab.no_model")
         if cloud is not None:
             estimate = config.estimate_tokens(text, self.cfg.chars_per_token)
-            ratio = f"{self.cfg.chars_per_token:g}".replace(".", ",")
+            ratio = f"{self.cfg.chars_per_token:g}"
+            ratio = ratio if self._language == "en" else ratio.replace(".", ",")
             return base | {
                 "exact": False,
                 "tokens": [],
                 "token_count": None,
                 "estimate": estimate,
                 "chars_per_token": self.cfg.chars_per_token,
-                "figures_fr": base["figures_fr"]
-                | {"estimate": llm_lab.fr_int(estimate), "chars_per_token": ratio},
-                "unavailable_fr": base["tokenizer_fr"],
+                "figures_text": base["figures_text"]
+                | {
+                    "estimate": llm_lab.lang_int(estimate, self._language),
+                    "chars_per_token": ratio,
+                },
+                "unavailable_text": base["tokenizer_text"],
                 "dimensions": None,
-                "dimensions_fr": (
-                    f"Dimensions inconnues : le modèle tourne chez {cloud.provider}, qui ne les "
-                    "publie pas dans son API."
+                "dimensions_text": self._t(
+                    "session.llm_lab.dimensions_cloud", provider=cloud.provider
                 ),
             }
         ids = engine.tokenize(text)
@@ -7553,16 +7687,19 @@ class AppSession:
             "tokens": rows,
             "token_count": len(ids),
             "more": more,
-            "figures_fr": base["figures_fr"]
-            | {"token_count": llm_lab.fr_int(len(ids)), "more": llm_lab.fr_int(more)},
+            "figures_text": base["figures_text"]
+            | {
+                "token_count": llm_lab.lang_int(len(ids), self._language),
+                "more": llm_lab.lang_int(more, self._language),
+            },
             "dimensions": dimensions,
-            "dimensions_fr": llm_lab.dimensions_fr(dimensions),
+            "dimensions_text": llm_lab.dimensions_fr(dimensions, lang=self._language),
         }
 
     def _lab_dimensions(self, engine: Any) -> dict[str, Any]:
         """The model's sizes (story 29): the engine's own answer when it has `dimensions`,
         else the GGUF header of the file loaded; tolerated absent or failing (AD-16)."""
-        source_fr = "Ce moteur ne dit pas les dimensions du modèle."
+        source_text = self._t("session.llm_lab.dimensions_unknown")
         dims: dict[str, Any] | None = None
         read = getattr(engine, "dimensions", None)
         if read is not None:
@@ -7571,7 +7708,7 @@ class AppSession:
             except Exception:  # noqa: BLE001 - unknown sizes, never a failure
                 dims = None
         if dims:
-            source_fr = str(dims.get("source_fr") or source_fr)
+            source_text = str(dims.get("source_text") or source_text)
         else:
             with self._lock:
                 active = self._active
@@ -7579,17 +7716,13 @@ class AppSession:
                 header = gguf_meta.try_read_metadata(active.ref)
                 if header:
                     dims = gguf_meta.dimensions_from_header(header)
-                    source_fr = "Lues dans l'en-tête GGUF du fichier du modèle."
-        return llm_lab.dimensions_payload(dims, source_fr)
+                    source_text = self._t("session.llm_lab.dimensions_gguf")
+        return llm_lab.dimensions_payload(dims, source_text, lang=self._language)
 
     # ---------- story 29, increment 2: sampling, prompt reading, token by token ----------
 
-    _SAMPLING_NAMES_FR = {
-        "temperature": "température",
-        "top_k": "top-k",
-        "top_p": "top-p",
-        "min_p": "min-p",
-    }
+    # The sampling settings, their names in `messages.yaml` (`session.llm_lab.sampling`).
+    _SAMPLING_NAMES = ("temperature", "top_k", "top_p", "min_p")
 
     def _sampling_trace(self, sampling: Sampling | None) -> dict[str, Any]:
         """`model_call_started.sampling` (story 29): a local engine always takes the four
@@ -7605,33 +7738,40 @@ class AppSession:
                 "top_p": chosen.top_p,
                 "min_p": chosen.min_p,
                 "source": "screen" if sampling is not None else "harness",
-                "note_fr": None,
+                "note_text": None,
             }
         sent = list(cloud.sampling) if sampling is not None else []
         values = {
             name: (getattr(sampling, name) if name in sent else None)
-            for name in self._SAMPLING_NAMES_FR
+            for name in self._SAMPLING_NAMES
         }
         if not sent:
             return values | {
                 "source": "provider",
-                "note_fr": (
-                    f"Réglé par {cloud.provider} : WaveStack n'envoie aucun réglage "
-                    "d'échantillonnage."
+                "note_text": self._t(
+                    "session.llm_lab.sampling.by_provider", provider=cloud.provider
                 ),
             }
-        missing = [self._SAMPLING_NAMES_FR[n] for n in self._SAMPLING_NAMES_FR if n not in sent]
+        missing = [self._sampling_name(n) for n in self._SAMPLING_NAMES if n not in sent]
+        names = join(missing, self._language)
         return values | {
             "source": "screen",
-            "note_fr": f"{_join_fr(missing).capitalize()} non réglables chez {cloud.provider}.",
+            "note_text": self._t(
+                "session.llm_lab.sampling.not_settable",
+                names=names[:1].upper() + names[1:],
+                provider=cloud.provider,
+            ),
         }
 
-    @staticmethod
-    def _sampling_fr(sampling: Sampling) -> str:
-        """« T 0,7 · top-k 20 · top-p 0,8 · min-p 0 »."""
+    def _sampling_name(self, name: str) -> str:
+        return self._t(f"session.llm_lab.sampling.names.{name}")
+
+    def _sampling_fr(self, sampling: Sampling) -> str:
+        """« T 0,7 · top-k 20 · top-p 0,8 · min-p 0 » (a decimal point in English)."""
 
         def num(value: float) -> str:
-            return f"{value:g}".replace(".", ",")
+            text = f"{value:g}"
+            return text if self._language == "en" else text.replace(".", ",")
 
         return (
             f"T {num(sampling.temperature)} · top-k {sampling.top_k} · "
@@ -7643,34 +7783,33 @@ class AppSession:
         why it cannot be set (`None`: it can)."""
         with self._lock:
             cloud = self._cloud
-        supported: dict[str, str | None] = dict.fromkeys(self._SAMPLING_NAMES_FR)
+        supported: dict[str, str | None] = dict.fromkeys(self._SAMPLING_NAMES)
         if cloud is None:
-            source_fr = (
-                "Envoyés au moteur à chaque génération de l'écran ; l'atelier garde les valeurs "
-                "du harnais."
-            )
+            source_text = self._t("session.llm_lab.sampling.local")
         else:
             for name in supported:
                 if name in cloud.sampling:
                     continue
-                label = self._SAMPLING_NAMES_FR[name].capitalize()
-                supported[name] = (
-                    f"{label} non réglable chez {cloud.provider} : l'API compatible OpenAI ne "
-                    "le prévoit pas."
+                label = self._sampling_name(name)
+                label = label[:1].upper() + label[1:]
+                supported[name] = self._t(
+                    "session.llm_lab.sampling.no_api"
                     if name in ("top_k", "min_p")
-                    else f"{label} non réglable chez {cloud.provider} : le modèle ne le déclare "
-                    "pas (sampling) dans la configuration ; le fournisseur garde sa valeur."
+                    else "session.llm_lab.sampling.not_declared",
+                    label=label,
+                    provider=cloud.provider,
                 )
-            source_fr = (
-                f"Seuls les réglages que {cloud.model} déclare partent chez {cloud.provider} ; "
-                "les tours de l'atelier n'en envoient aucun."
+            source_text = self._t(
+                "session.llm_lab.sampling.cloud", model=cloud.model, provider=cloud.provider
             )
         return {
             "defaults": asdict(DEFAULT_SAMPLING),
-            "defaults_fr": f"Valeurs du harnais : {self._sampling_fr(DEFAULT_SAMPLING)}",
+            "defaults_text": self._t(
+                "session.llm_lab.sampling.defaults", values=self._sampling_fr(DEFAULT_SAMPLING)
+            ),
             "bounds": {name: list(b) for name, b in SAMPLING_BOUNDS.items()},
             "supported": supported,
-            "source_fr": source_fr,
+            "source_text": source_text,
         }
 
     @staticmethod
@@ -7697,13 +7836,13 @@ class AppSession:
     def _reasoning_info(
         self, caps: Capabilities | None, cloud: CloudModel | None, window: int
     ) -> dict[str, Any]:
-        mode, reason_fr = reasoning_mode(caps, window if caps is not None else None)
+        mode, reason_text = reasoning_mode(caps, window if caps is not None else None)
         local = cloud is None and caps is not None and caps.reasoning_tags is not None
         return {
             "mode": mode,
-            "reason_fr": reason_fr,
+            "reason_text": reason_text,
             "budget": self.cfg.reasoning_budget_tokens if local else None,
-            "budget_fr": self._reasoning_budget_fr(),
+            "budget_text": self._reasoning_budget_fr(),
             "reserve": MAX_RESERVE,
         }
 
@@ -7719,22 +7858,24 @@ class AppSession:
         (class c). `reasoning`: refused when the model cannot reason (mode `never` or
         `unknown`), forced when it always does. Returns the request's id."""
         with self._memory_lock, self._lock:
-            if self.state != "idle" or self._engine is None or self.reason_fr:
+            if self.state != "idle" or self._engine is None or self.reason_text:
                 raise SendRefused(self._refusal_reason())
             # Checked under the lock: no model switch can come in between.
             lab = self._reasoning_info(self._caps, self._cloud, self._window)
             if reasoning and lab["mode"] in ("never", "unknown"):
                 raise SendRefused(
-                    "Raisonnement indisponible : "
-                    + (lab["reason_fr"] or "le modèle actif ne sait pas raisonner.")
+                    Message(
+                        "session.llm_lab.no_reasoning",
+                        reason=lab["reason_text"] or Message("session.llm_lab.cannot_reason"),
+                    )
                 )
             offer = self._candidates_info(self._active, self._cloud, self._engine)
             if candidates and not offer["available"]:
-                raise SendRefused(offer["reason_fr"])
+                raise SendRefused(offer["reason_text"])
             self._labs += 1
             request_id = f"llm{self._labs}"
             cancel = self._cancel = CancelToken()
-            self.state, self.reason_fr = "llm_lab", _LAB_FR
+            self.state, self.reason_text = "llm_lab", _LAB_FR
         self._emit_state()
         self._executor.submit(
             self._run_lab, request_id, prompt, sampling, reasoning, cancel, candidates
@@ -7754,19 +7895,12 @@ class AppSession:
     ) -> dict[str, Any]:
         reason: str | None = None
         if engine is None or active is None:
-            reason = "Aucun modèle actif."
+            reason = Message("session.llm_lab.candidates.no_model")
         elif cloud is not None:
-            reason = (
-                f"Probabilités indisponibles : le modèle tourne chez {cloud.provider}, qui ne "
-                "les envoie pas à WaveStack sous une forme qu'il sait vérifier."
-            )
+            reason = Message("session.llm_lab.candidates.cloud", provider=cloud.provider)
         elif active.kind == "server":
-            reason = (
-                f"Probabilités indisponibles avec {active.provider} : WaveStack ne les lit que "
-                "dans le moteur qui tourne dans son propre processus (un fichier GGUF chargé par "
-                "WaveStack)."
-            )
-        return {"available": reason is None, "reason_fr": reason, "n": CANDIDATES}
+            reason = Message("session.llm_lab.candidates.server", provider=active.provider)
+        return {"available": reason is None, "reason_text": reason, "n": CANDIDATES}
 
     def _run_lab(
         self,
@@ -7783,7 +7917,7 @@ class AppSession:
         context's engine state is saved around it, else the next turn says why it reads
         again (`llm`). The workshop's conversation is never touched."""
         started = time.monotonic()
-        journal = get_journal()
+        journal = self._journal()
         ended: dict[str, Any] = {"request_id": request_id, "status": "error"}
         counts = {"reasoning": 0, "text": 0, "tool_call": 0}
         cloud_used = False
@@ -7843,14 +7977,15 @@ class AppSession:
                         eos_token=meta.eos_token,
                         add_generation_prompt=True,
                         **template_vars,
+                        lang=self._language,
                     )
                     text, tokens, exact = rendered.prompt, len(rendered.ids), True
-                    phase = f"Lecture du prompt ({_fr(tokens)} tokens)"
+                    phase = self._t("session.llm_lab.reading", tokens=self._n(tokens))
                     with self._lock:
                         served = self._active is not None and self._active.kind == "server"
                     unit = "fragment" if served else "token"
                 else:
-                    content = self._cloud_content or load_cloud_content()
+                    content = self._cloud_content or self._localized(load_cloud_content)
                     rendered = render_chat_body(
                         message,
                         None,
@@ -7858,13 +7993,16 @@ class AppSession:
                         fields=chat_fields(cloud, reserve, reasons, sampling),
                         markers=self.cfg.cloud_markers,
                         estimate=lambda t: config.estimate_tokens(t, self.cfg.chars_per_token),
-                        provider_label_fr=content.provider_segment_fr,
+                        provider_label_text=content.provider_segment_text,
+                        lang=self._language,
                     )
                     text, tokens, exact = rendered.body, rendered.raw_total, False
                     unit = "fragment"
-                    phase = f"Envoi du prompt à {cloud.provider} (≈ {_fr(tokens)} tokens)"
+                    phase = self._t(
+                        "session.llm_lab.sending", provider=cloud.provider, tokens=self._n(tokens)
+                    )
                 usable = window - reserve
-                figures = {"prompt_tokens": ("" if exact else "≈ ") + _fr(tokens)}
+                figures = {"prompt_tokens": ("" if exact else "≈ ") + self._n(tokens)}
                 started_payload = LlmGenerationStartedPayload(
                     request_id=request_id,
                     prompt=prompt,
@@ -7876,15 +8014,16 @@ class AppSession:
                     reasoning=reasons,
                     phase_label=phase,
                     unit=unit,
-                    figures_fr=figures | {"reserve": _fr(reserve), "usable": _fr(usable)},
+                    figures_text=figures | {"reserve": self._n(reserve), "usable": self._n(usable)},
                 )
                 journal.emit("llm_generation_started", started_payload.model_dump(mode="json"))
                 if tokens > usable:
-                    ended["message_fr"] = (
-                        f"Prompt trop long : {figures['prompt_tokens']} tokens pour "
-                        f"{_fr(usable)} utilisables (fenêtre de {_fr(window)} moins "
-                        f"{_fr(reserve)} réservés à la réponse). Raccourcissez-le : l'appel "
-                        "n'est pas envoyé."
+                    ended["message_text"] = self._t(
+                        "session.llm_lab.too_long",
+                        tokens=figures["prompt_tokens"],
+                        usable=self._n(usable),
+                        window=self._n(window),
+                        reserve=self._n(reserve),
                     )
                     return
                 mark = journal.last_seq()
@@ -7920,15 +8059,15 @@ class AppSession:
                     ended["read_tps"] = round(evaluated / (prompt_ms / 1000), 1)
             except Exception as exc:  # noqa: BLE001 - AD-16: the screen's call never breaks
                 ended["status"] = "error"
-                ended["message_fr"] = (
-                    exc.message_fr
+                ended["message_text"] = (
+                    (getattr(exc, "message", None) or exc.message_text)
                     if isinstance(exc, ServerError)
-                    else "La génération de l'écran « LLM nu » s'est interrompue sur une erreur."
+                    else Message("session.llm_lab.interrupted")
                 )
                 self._error(
-                    ended["message_fr"],
+                    ended["message_text"],
                     exc,
-                    "L'écran « LLM nu » et l'atelier restent utilisables.",
+                    Message("session.llm_lab.still_usable"),
                 )
             finally:
                 try:
@@ -7938,21 +8077,23 @@ class AppSession:
                     ended["answer_tokens"] = counts["text"] + counts.get("tool_call", 0)
                     ended["duration_ms"] = _ms(time.monotonic() - started)
                     approx = "≈ " if cloud_used else ""
-                    ended["figures_fr"] = {
-                        "reasoning_tokens": approx + _fr(ended["reasoning_tokens"]),
-                        "answer_tokens": approx + _fr(ended["answer_tokens"]),
+                    ended["figures_text"] = {
+                        "reasoning_tokens": approx + self._n(ended["reasoning_tokens"]),
+                        "answer_tokens": approx + self._n(ended["answer_tokens"]),
                     } | (
-                        {"read_tps": f"{ended['read_tps']:g}".replace(".", ",")}
+                        {"read_tps": self._decimal(f"{ended['read_tps']:g}")}
                         if ended.get("read_tps")
                         else {}
                     )
-                    payload = LlmGenerationEndedPayload.model_validate(ended)
+                    payload = LlmGenerationEndedPayload.model_validate(
+                        in_language(ended, self._language)
+                    )
                     journal.emit("llm_generation_ended", payload.model_dump(mode="json"))
                 except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
                     self._error(
-                        "La fin de la génération de l'écran « LLM nu » n'a pas pu être tracée.",
+                        Message("session.llm_lab.end_untraced"),
                         exc,
-                        "La session revient en attente ; l'atelier reste utilisable.",
+                        Message("session.llm_lab.back_to_idle"),
                     )
                 finally:
                     with self._lock:
@@ -7986,7 +8127,9 @@ class AppSession:
                 engine,
                 ChatBody(rendered.body.encode("utf-8")),
                 cancel,
-                phase_label=f"Envoi du prompt à {cloud.provider} (≈ {_fr(tokens)} tokens)",
+                phase_label=self._t(
+                    "session.llm_lab.sending", provider=cloud.provider, tokens=self._n(tokens)
+                ),
                 estimated_prompt=tokens,
                 chars_per_token=self.cfg.chars_per_token,
                 call_id=lambda index: f"{request_id}.{index}",
@@ -7994,11 +8137,11 @@ class AppSession:
                 eur_per_usd=self.cfg.eur_per_usd,
             )
         except ProviderError as error:
-            get_journal().emit(
+            self._journal().emit(
                 "harness_error",
-                error.payload("La génération de l'écran s'arrête ; WaveStack reste utilisable."),
+                error.payload(Message("session.llm_lab.stops"), lang=self._language),
             )
-            ended["message_fr"] = error.message_fr
+            ended["message_text"] = error.message_text
             return "error"
         return {"stop": "completed", "cancelled": "cancelled", "length": "limit"}.get(
             call.stop_reason, "error"
@@ -8040,20 +8183,19 @@ class AppSession:
         once per message (outside the RAG brick: its card does not show it), the page staying
         served."""
         try:
-            return rag_lab.load_lab_content(), None
+            return self._localized(rag_lab.load_lab_content), None
         except Exception as exc:  # noqa: BLE001 - AD-16: an invalid file never breaks the page
-            error_fr = (
-                "Textes de l'atelier RAG illisibles (content/rag_lab.yaml) : corrigez le fichier "
-                "puis rechargez la page."
-            )
+            error_text = self._t("session.rag_lab.content_invalid")
             cause = f"{type(exc).__name__}: {exc}"
             if self._rag_lab_error_traced != cause:
                 self._rag_lab_error_traced = cause
                 with scoped(**self._rag_lab_scope("rag_lab", None, brick=None)):
-                    self._error(error_fr, cause, "La page « Atelier RAG » reste servie sans eux.")
+                    self._error(
+                        error_text, cause, Message("session.rag_lab.content_invalid_effect")
+                    )
             rag_lab.load_lab_content.cache_clear()  # corrected, the file is read again
             detail = (str(exc).splitlines() or [type(exc).__name__])[0][:200]
-            return None, f"{error_fr} Détail : {detail}"
+            return None, self._t("session.detail", text=error_text, detail=detail)
 
     def _rag_lab_catalog(self, texts: rag_lab.RagLabContent) -> rag_lab.Catalog:
         """The options the workshop offers, named after the brick's models, with what a run
@@ -8063,41 +8205,42 @@ class AppSession:
         options: dict[tuple[str, str], rag_lab.OptionState] = {}
         for kind, names in rag_lab.OPTIONS.items():
             for name in names:
-                options[(kind, name)] = rag_lab.OptionState(texts.options[kind][name].label_fr)
+                options[(kind, name)] = rag_lab.OptionState(texts.options[kind][name].label_text)
         embedding = options[("embedding", "declared")]
         store = options[("vector_store", "sqlite_vec")]
         if model is None or content is None:
-            embedding.note_fr = self._content_errors.get("rag") or "Brique RAG non configurée."
+            embedding.note_text = self._content_errors.get("rag") or Message(
+                "session.rag.not_configured"
+            )
         else:
-            embedding.label_fr = model.label_fr
-            _, index_error, _, _, _, missing_fr = self._rag_index_state(model, content)
-            embedding.note_fr = missing_fr
-            store.note_fr = index_error
+            embedding.label_text = model.label_text
+            _, index_error, _, _, _, missing_text = self._rag_index_state(model, content)
+            embedding.note_text = missing_text
+            store.note_text = index_error
         rerank = options[("rerank", "declared")]
         if self._rerank_model is not None:
-            rerank.label_fr = self._rerank_model.label_fr
-        rerank.note_fr = self._rerank_static_reason()
+            rerank.label_text = self._rerank_model.label_text
+        rerank.note_text = self._rerank_static_reason()
         fastembed = options[("embedding", "fastembed")]
         declared, reason = self._rag_lab_fastembed()
         if declared is not None:
-            fastembed.label_fr = declared.label_fr
-        fastembed.available, fastembed.reason_fr = declared is not None, reason
+            fastembed.label_text = declared.label_text
+        fastembed.available, fastembed.reason_text = declared is not None, reason
         for option, (module, _) in rag_lab.LIBRARIES.items():
             state = options[("vector_store", option)]
             if option in self._rag_lab_import_errors:
-                state.available, state.reason_fr = False, self._rag_lab_import_errors[option]
+                state.available, state.reason_text = False, self._rag_lab_import_errors[option]
             elif option not in self._rag_lab_imported and not rag_lab.installed(module):
-                state.available, state.reason_fr = False, rag_lab.not_installed_fr(option)
-        return rag_lab.Catalog(texts, rag_lab.default_pipeline(self.cfg), options)
+                state.available, state.reason_text = False, rag_lab.not_installed_fr(option)
+        return rag_lab.Catalog(
+            texts, rag_lab.default_pipeline(self.cfg), options, lang=self._language
+        )
 
     def _rag_lab_fastembed(self) -> tuple[config.FastembedModel | None, str | None]:
         """Story 30: the fastembed option, offered only installed, declared and on the
         workstation (it is never downloaded), else why not."""
         if not rag_lab.installed("fastembed"):
-            return None, (
-                "Indisponible : fastembed n'est pas installé (ce n'est pas une dépendance de "
-                "WaveStack, seulement le repli de la story 12)."
-            )
+            return None, Message("session.rag_lab.fastembed_missing")
         model, error = self.cfg.rag_lab_fastembed
         if model is None:
             return None, error
@@ -8105,41 +8248,35 @@ class AppSession:
             return None, self._rag_lab_import_errors["fastembed"]
         folder = embedding_module.fastembed_dir() / model.folder_name
         if not folder.is_dir() or not any(folder.rglob("*.onnx")):
-            return None, (
-                f"Indisponible : les fichiers du modèle fastembed ne sont pas dans {folder}. "
-                "Copiez-les à la main : l'atelier RAG ne télécharge rien."
-            )
+            return None, Message("session.rag_lab.fastembed_files", folder=folder)
         return model, None
 
     def rag_lab_state(self) -> dict[str, Any]:
         """`GET /api/rag_lab` (story 30, AD-1): what the page needs before the stream, from
         `seq` on: the catalog and the shipped chain, its texts (or why not), the last run
         read in the journal and the session's state."""
-        journal = get_journal()
+        journal = self._journal()
         tip = journal.last_seq()
-        texts, error_fr = self._rag_lab_content()
+        texts, error_text = self._rag_lab_content()
         catalog = self._rag_lab_catalog(texts) if texts is not None else None
         with self._lock:
-            state, reason_fr = self.state, self.reason_fr
+            state, reason_text = self.state, self.reason_text
         events = [e for e in journal.all_events() if e.seq <= tip]
         return {
             "catalog": catalog.payload() if catalog is not None else None,
             "default_pipeline": rag_lab.default_pipeline(self.cfg).model_dump(),
             "content": texts.model_dump() if texts is not None else None,
-            "content_error_fr": error_fr,
-            "unavailable_fr": self._rag_lab_unavailable(),
+            "content_error_text": error_text,
+            "unavailable_text": self._rag_lab_unavailable(),
             "last_run": rag_lab.last_run(events),
-            "session_state": {"state": state, "reason_fr": reason_fr},
+            "session_state": {"state": state, "reason_text": reason_text},
             "seq": tip,
         }
 
     def _rag_lab_unavailable(self) -> str | None:
         """Why no chain can run at all: the RAG brick's corpus and texts are unreadable."""
         if self._rag_content is None:
-            return self._content_errors.get("rag") or (
-                "Le corpus de la brique RAG (content/rag.yaml) est illisible : l'atelier RAG ne "
-                "peut rien découper."
-            )
+            return self._content_errors.get("rag") or Message("session.rag_lab.corpus_unreadable")
         return None
 
     def run_rag_lab(self, question: str, pipelines: list[rag_lab.Pipeline] | None = None) -> str:
@@ -8148,29 +8285,30 @@ class AppSession:
         `rag_lab` under the lock in this call, then run on the worker; « Arrêter » (class c)
         stops it between two stages, passages or candidates. A chain the workshop refuses:
         `SendRefused` with the reason, nothing emitted. Returns the run's id, `lab{n}`."""
-        texts, error_fr = self._rag_lab_content()
+        texts, error_text = self._rag_lab_content()
         if texts is None:
-            raise SendRefused(error_fr or "Textes de l'atelier RAG illisibles.")
+            raise SendRefused(error_text or Message("session.rag_lab.texts_unreadable"))
         unavailable = self._rag_lab_unavailable()
         if unavailable is not None:
             raise SendRefused(unavailable)
         catalog = self._rag_lab_catalog(texts)
         chains = list(pipelines) if pipelines else [catalog.default]
         if len(chains) > rag_lab.LANES_MAX:
-            raise SendRefused("Deux chaînes au plus : A, puis B pour la comparaison.")
+            raise SendRefused(Message("session.rag_lab.two_chains"))
         for chain in chains:
             reason = rag_lab.validate_pipeline(chain, catalog)
             if reason is not None:
-                lane = f"Chaîne {chain.label_fr} : " if len(chains) > 1 else ""
-                raise SendRefused(lane + reason)
+                if len(chains) > 1:
+                    reason = Message("session.rag_lab.lane", chain=chain.label_text, reason=reason)
+                raise SendRefused(reason)
         with self._lock:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
-            previous = self.reason_fr
+            previous = self.reason_text
             self._rag_labs += 1
             run_id = f"lab{self._rag_labs}"
             cancel = self._cancel = CancelToken()
-            self.state, self.reason_fr = "rag_lab", _RAG_LAB_FR
+            self.state, self.reason_text = "rag_lab", _RAG_LAB_FR
         self._emit_state()
         self._executor.submit(
             self._run_rag_lab, run_id, question, chains, texts, catalog, cancel, previous
@@ -8193,19 +8331,19 @@ class AppSession:
         """`POST /api/rag_lab/validate` (story 30, increment 4), read only: the reason each
         chain would be refused for, and the stage at fault, so that the page says it on the
         stage's card before « Lancer » (AD-1: the rules are the session's)."""
-        texts, error_fr = self._rag_lab_content()
+        texts, error_text = self._rag_lab_content()
         if texts is None:
-            reason = error_fr or "Textes de l'atelier RAG illisibles."
+            reason = error_text or Message("session.rag_lab.texts_unreadable")
             return {
                 "valid": False,
-                "refusals": [{"lane": None, "stage_id": None, "reason_fr": reason}],
+                "refusals": [{"lane": None, "stage_id": None, "reason_text": reason}],
             }
         catalog = self._rag_lab_recent_catalog(texts)
         refusals = []
         for lane, chain in zip("ab", pipelines, strict=False):
             refusal = rag_lab.check_pipeline(chain, catalog)
             if refusal is not None:
-                refusals.append({"lane": lane, "stage_id": refusal[1], "reason_fr": refusal[0]})
+                refusals.append({"lane": lane, "stage_id": refusal[1], "reason_text": refusal[0]})
         return {"valid": not refusals, "refusals": refusals}
 
     def _run_rag_lab(
@@ -8235,7 +8373,7 @@ class AppSession:
                 texts=texts,
                 catalog=catalog,
                 shipped_chunk_max_chars=self.cfg.rag_chunk_max_chars,
-                brick_index=self.cfg.rag_index_path(),
+                brick_index=self._rag_index_path(),
                 brick_index_error=index_error,
                 lab_dir=config.rag_lab_dir(),
                 embedder=lambda option: self._rag_lab_embedder(option, loans),
@@ -8245,15 +8383,16 @@ class AppSession:
                 cancelled=lambda: cancel.cancelled,
                 emit=self._rag_lab_emit,
                 rss=self._rss_now,
+                lang=self._language,
             )
             lab_run = rag_lab.LabRun(run_id, question, chains, deps)
             lab_run.run()
         except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
             with scoped(**self._rag_lab_scope(run_id, "rag_lab", brick=None)):
                 self._error(
-                    "L'atelier RAG s'est interrompu sur une erreur.",
+                    Message("session.rag_lab.interrupted"),
                     exc,
-                    "La session revient en attente ; l'atelier reste utilisable.",
+                    Message("session.llm_lab.back_to_idle"),
                 )
             if lab_run is not None and not lab_run.ended:
                 try:  # the page never stays « en cours »
@@ -8265,9 +8404,9 @@ class AppSession:
             if errors:
                 with scoped(**self._rag_lab_scope(run_id, "rag_lab", brick=None)):
                     self._error(
-                        "Un modèle chargé par l'atelier RAG n'a pas pu être fermé.",
-                        " ; ".join(errors),
-                        "Il est oublié ; son créneau mémoire est libéré.",
+                        Message("session.rag_lab.close_failed.message"),
+                        " ; ".join(str(e) for e in errors),
+                        Message("session.rag_lab.close_failed.effect"),
                     )
             with self._lock:
                 self._cancel = None
@@ -8278,7 +8417,8 @@ class AppSession:
     ) -> None:
         model = PAYLOAD_MODELS[kind]
         with scoped(**self._rag_lab_scope(step_id, component)):
-            get_journal().emit(kind, model.model_validate(payload).model_dump(mode="json"))
+            payload = in_language(payload, self._language)
+            self._journal().emit(kind, model.model_validate(payload).model_dump(mode="json"))
 
     def _rag_lab_embedder(self, option: str, loans: rag_lab.Loans) -> rag_lab.Lent:
         """The brick's embedding model, borrowed when it holds it, else loaded as
@@ -8289,7 +8429,7 @@ class AppSession:
         model = self._rag_model
         if option != "declared" or model is None:
             raise rag_lab.StageFailed(
-                self._content_errors.get("rag") or "Aucun modèle d'embedding n'est déclaré."
+                self._content_errors.get("rag") or Message("session.rag_lab.no_embedding")
             )
         with self._lock:
             borrowed = self._embedder
@@ -8297,26 +8437,22 @@ class AppSession:
         unavailable = None
         if missing:
             names = ", ".join(PurePosixPath(f.path).name for f in missing)
-            unavailable = (
-                f"Modèle d'embedding absent ({names} dans {config.models_dir()}). Téléchargez-le "
-                "depuis la carte RAG de l'atelier."
+            unavailable = Message(
+                "session.rag_lab.embedding_absent", names=names, folder=config.models_dir()
             )
 
         def open_model() -> Embedder:
             path = embedding_module.model_path(model)
             declared = model.load_file.sha256
             if declared and rag_index.file_sha256(path) != declared.lower():
-                raise ValueError(
-                    f"le fichier {path} n'est pas le modèle déclaré (sha256 différent de "
-                    "celui de [rag.embedding])"
-                )
+                raise ValueRefused("session.rag.sha256", path=path, section="rag.embedding")
             return self._embedder_factory(model)
 
         return loans.lend(
             borrowed=borrowed,
-            label_fr=model.label_fr,
-            noun_fr="modèle d'embedding",
-            unavailable_fr=unavailable,
+            label_text=model.label_text,
+            noun_text=Message("session.rag_lab.noun.embedding"),
+            unavailable_text=unavailable,
             cost=self._load_registry.component_cost(
                 model.measured_rss_mb, [f.size for f in model.files]
             ),
@@ -8329,15 +8465,15 @@ class AppSession:
         slot may be held), within the budget, then closed."""
         model, reason = self._rag_lab_fastembed()
         if model is None:
-            raise rag_lab.StageFailed(reason or "fastembed indisponible.")
+            raise rag_lab.StageFailed(reason or Message("session.rag_lab.fastembed_unavailable"))
         self._rag_lab_import("fastembed")  # the library, counted for life (AD-8)
         folder = embedding_module.fastembed_dir() / model.folder_name
         sizes = [p.stat().st_size for p in folder.rglob("*") if p.is_file()]
         return loans.lend(
             borrowed=None,
-            label_fr=model.label_fr,
-            noun_fr="modèle d'embedding",
-            unavailable_fr=None,
+            label_text=model.label_text,
+            noun_text=Message("session.rag_lab.noun.embedding"),
+            unavailable_text=None,
             cost=self._load_registry.component_cost(None, sizes),
             slot=RAG_LAB_EMBEDDING,
             open_model=lambda: embedding_module.FastembedEmbedder(model.model_name, model.dims),
@@ -8363,10 +8499,19 @@ class AppSession:
             raise rag_lab.StageFailed(self._rag_lab_import_errors[option])
         if option in self._rag_lab_imported:
             added = self._rag_lab_imported[option]
-            said = f"+{_mo(added)} Mo au premier import" if added is not None else "mesure absente"
+            said = (
+                Message("session.rag_lab.import.first_added", size=self._mo_lazy(added))
+                if added is not None
+                else Message("session.rag_lab.import.no_measure")
+            )
             return rag_lab.Imported(
                 importlib.import_module(module_name),
-                [("Import", f"déjà fait dans cette session ({said}), compté à vie")],
+                [
+                    (
+                        self._t("session.rag_lab.import.label"),
+                        self._t("session.rag_lab.import.already", said=said),
+                    )
+                ],
             )
         refusal = self._load_registry.check_component(label, cost, slot)
         if refusal is not None:
@@ -8375,19 +8520,18 @@ class AppSession:
         try:
             module = importlib.import_module(module_name)
         except (ImportError, OSError) as exc:
-            reason = (
-                f"Import refusé : {label} n'a pas pu être chargé ({type(exc).__name__} : {exc}). "
-                "Une stratégie de sécurité (AppLocker, WDAC) bloque peut-être ses bibliothèques "
-                "non signées ; les autres bases vectorielles restent utilisables."
+            reason = Message(
+                "session.rag_lab.import.refused", label=label, kind=type(exc).__name__, cause=exc
             )
             self._rag_lab_import_errors[option] = reason
             raise rag_lab.StageFailed(reason) from exc
         except Exception as exc:  # noqa: BLE001 - a broken install (numpy ABI…), said once
-            reason = (
-                f"Import en échec : {label} n'a pas pu être chargé ({type(exc).__name__} : "
-                f"{exc}). Son installation est peut-être abîmée : relancez "
-                f"`{rag_lab.INSTALL_FR}` depuis le dossier de WaveStack ; les autres options "
-                "restent utilisables."
+            reason = Message(
+                "session.rag_lab.import.failed",
+                label=label,
+                kind=type(exc).__name__,
+                cause=exc,
+                install=rag_lab.INSTALL_FR,
             )
             self._rag_lab_import_errors[option] = reason
             raise rag_lab.StageFailed(reason) from exc
@@ -8395,12 +8539,22 @@ class AppSession:
         added = after - before if before is not None and after is not None else None
         self._load_registry.grant(label, cost, slot)
         self._rag_lab_imported[option] = added
-        said = f"+{_mo(added)} Mo" if added is not None else "mesure absente"
+        said = (
+            Message("session.rag_lab.import.added", size=self._mo_lazy(added))
+            if added is not None
+            else Message("session.rag_lab.import.no_measure")
+        )
         return rag_lab.Imported(
             module,
             [
-                ("Import", f"premier import : {said} dans WaveStack"),
-                ("Budget", f"{_mo(cost)} Mo réservés à vie (un module ne se décharge pas)"),
+                (
+                    self._t("session.rag_lab.import.label"),
+                    self._t("session.rag_lab.import.first", said=said),
+                ),
+                (
+                    self._t("session.rag_lab.import.budget_label"),
+                    self._t("session.rag_lab.import.budget", size=self._mo_lazy(cost)),
+                ),
             ],
         )
 
@@ -8426,7 +8580,7 @@ class AppSession:
         model = self._rerank_model
         if option != "declared" or model is None:
             raise rag_lab.StageSkipped(
-                self._rerank_config_error or "Aucun modèle de reranking n'est déclaré."
+                self._rerank_config_error or Message("session.rag_lab.no_reranker")
             )
         with self._lock:
             borrowed = self._reranker
@@ -8434,28 +8588,22 @@ class AppSession:
         unavailable = None
         if missing:
             names = ", ".join(PurePosixPath(f.path).name for f in missing)
-            unavailable = (
-                f"Modèle de reranking absent ({names} dans {config.models_dir()}) : "
-                "téléchargez-le depuis la carte RAG de l'atelier "
-                "(sous-option « Reranking »). La construction du contexte garde l'ordre de la "
-                "recherche."
+            unavailable = Message(
+                "session.rag_lab.reranker_absent", names=names, folder=config.models_dir()
             )
 
         def open_model() -> Reranker:
             path = reranker_module.model_path(model)
             declared = model.load_file.sha256
             if declared and rag_index.file_sha256(path) != declared.lower():
-                raise ValueError(
-                    f"le fichier {path} n'est pas le modèle déclaré (sha256 différent de "
-                    "celui de [rag.reranker])"
-                )
+                raise ValueRefused("session.rag.sha256", path=path, section="rag.reranker")
             return self._reranker_factory(model)
 
         return loans.lend(
             borrowed=borrowed,
-            label_fr=model.label_fr,
-            noun_fr="modèle de reranking",
-            unavailable_fr=unavailable,
+            label_text=model.label_text,
+            noun_text=Message("session.rag_lab.noun.reranking"),
+            unavailable_text=unavailable,
             cost=self._load_registry.component_cost(
                 model.measured_rss_mb, [f.size for f in model.files]
             ),

@@ -9,26 +9,26 @@ delegate:
     La tâche du sous-agent, complète et autonome : il ne voit pas la conversation. Par
     exemple : Lis le fichier guide_harnais.md et résume-le en cinq points.
 # Libellé de la phase en cours (indicateur de travail) pendant la délégation.
-phase_label_fr: Appel au sous-agent
+phase_label_text: Appel au sous-agent
 # Bouton de la carte (après « Afficher les actions forcées ») et aide du champ de son
 # formulaire. `presets` préremplit ce champ (`args` : `task` seulement).
-force_label_fr: Déléguer au sous-agent
-task_label_fr: >-
+force_label_text: Déléguer au sous-agent
+task_label_text: >-
   Tâche confiée au sous-agent, complète : il ne voit pas la conversation.
 presets:
-  - label_fr: Résumer le guide du harnais
+  - label_text: Résumer le guide du harnais
     args:
       task: Lis le fichier guide_harnais.md et résume-le en cinq points courts.
-  - label_fr: Bornes de la boucle
+  - label_text: Bornes de la boucle
     args:
       task: >-
         Lis le fichier guide_harnais.md et indique quelles bornes le harnais pose à la
         boucle d'un agent.
-  - label_fr: Notes de réunion
+  - label_text: Notes de réunion
     args:
       task: Lis le fichier notes_reunion.txt et liste les décisions prises.
 # Cause d'un dépassement du contexte du sous-agent (AD-9, AD-11).
-overflow_cause_fr: >-
+overflow_cause_text: >-
   Cause : le contexte du sous-agent est plein, le plus souvent à cause du résultat d'un
   outil (un document trop long). Pour continuer la démo : confiez-lui un document plus
   court, ou une tâche qui en lit moins. Le tour principal continue sans ce résultat.

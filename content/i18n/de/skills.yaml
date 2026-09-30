@@ -5,7 +5,7 @@ catalog_intro: >-
   Anfrage. Wenn eine Anfrage zu einem davon passt, rufe das Tool load_skill mit
   seinem Namen auf und befolge dann die erhaltenen Anweisungen.
 load_skill:
-  label_fr: Laden des Skills
+  label_text: Laden des Skills
   description: >-
     Lädt anhand seines Namens die vollständigen Anweisungen eines Skills aus der
     Liste „Verfügbare Skills“ (zum Beispiel meeting_minutes). Es ist kein MCP-Tool.

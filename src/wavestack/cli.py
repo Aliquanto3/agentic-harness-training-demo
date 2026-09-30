@@ -44,6 +44,7 @@ truststore.inject_into_ssl()
 
 import uvicorn  # noqa: E402
 
+from wavestack.messages import msg, render  # noqa: E402
 from wavestack.session.app_session import AppSession  # noqa: E402
 from wavestack.session.diagnostic import (  # noqa: E402
     DiagnosticResult,
@@ -56,6 +57,16 @@ from wavestack.web.app import create_app  # noqa: E402
 VERSION = "0.1.0"
 BROWSER_DELAY_S = 1.0  # the page opens 1 s after the start at the earliest
 LAUNCH_WAIT_S = 30.0  # past this, the diagnostic page opens while the checks go on
+# Languages (5/5): the terminal speaks English, whatever the session's language; never
+# read from settings.json.
+TERMINAL_LANGUAGE = "en"
+
+
+def _english(text: object) -> str:
+    """A text of an event in the terminal's language: one that keeps its `Message` (the
+    diagnostic's `Said`, a keyed error) or a `Message` is rendered again; any other text
+    (a third party's, or not keyed yet) is printed as it is."""
+    return render(getattr(text, "message", text), TERMINAL_LANGUAGE)
 
 
 def _print_journal_event(envelope) -> None:  # noqa: ANN001
@@ -63,10 +74,10 @@ def _print_journal_event(envelope) -> None:  # noqa: ANN001
     if envelope.kind not in ("diagnostic_check", "harness_error"):
         return
     payload = envelope.payload
-    parts = [payload.get("message_fr", "")]
-    for key in ("action_fr", "cause"):
+    parts = [_english(payload.get("message_text", ""))]
+    for key in ("action_text", "cause"):
         if payload.get(key):
-            parts.append(payload[key])
+            parts.append(_english(payload[key]))
     print(" — ".join(parts))
 
 
@@ -147,10 +158,9 @@ def _open_browser(port: int, first: bool, launched: _Launched) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="wavestack", description="Lance WaveStack.")
-    parser.add_argument(
-        "--port", type=int, default=_cfg.port, help="Port d'écoute (défaut : configuration)."
-    )
+    lang = TERMINAL_LANGUAGE
+    parser = argparse.ArgumentParser(prog="wavestack", description=msg("cli.description", lang))
+    parser.add_argument("--port", type=int, default=_cfg.port, help=msg("cli.port_help", lang))
     args = parser.parse_args(argv)
 
     reserved = _try_reserve_port(args.port)
@@ -159,10 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             page = "/" if _existing_instance_ready(args.port) else "/diagnostic"
             webbrowser.open(f"http://127.0.0.1:{args.port}{page}")
             return 0
-        print(
-            f"Le port {args.port} est déjà utilisé par un autre programme. "
-            f"Relancez avec --port <autre_port>."
-        )
+        print(msg("cli.port_taken", lang, port=args.port))
         return 1
     # ponytail: release-then-rebind is a small race window, acceptable for a
     # local training demo. Upgrade to a passed-fd server if it ever bites.

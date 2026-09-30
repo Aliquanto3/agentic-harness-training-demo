@@ -1,0 +1,158 @@
+# Languages (5/5): English texts of `content/messages.yaml`, same keys and variables.
+
+common:
+  verbatim: "{text}"
+  and: and
+
+session:
+  translation_invalid:
+    message: "A translated file ({lang}) under content/i18n/{lang}/ is invalid."
+    effect: "The French text of this file replaces it; the rest of WaveStack works."
+
+tools:
+  datetime:
+    weekdays:
+      monday: Monday
+      tuesday: Tuesday
+      wednesday: Wednesday
+      thursday: Thursday
+      friday: Friday
+      saturday: Saturday
+      sunday: Sunday
+
+mcp:
+  glossary:
+    unknown_term: "Term not in the glossary: “{term}”. Available terms: {known}."
+
+rag:
+  index:
+    in_use: "The index is open in another program (WaveStack, an antivirus or a synchronization tool): it cannot be replaced."
+    empty_corpus: "empty corpus: no excerpt to index"
+    wrong_vectors: "one vector of {dims} dimensions is needed per excerpt"
+    build_cancelled: "index build stopped"
+  search:
+    null_vector: "the question gives no usable vector (null vector)"
+    closed: "the index is closed"
+
+build_rag_index:
+  description: "Builds the RAG index (sqlite-vec) of the demonstration corpus."
+  help_model: "Path of the embedding GGUF (default: load_path of [rag.embedding], in the models folder). It must be the declared file (same size, same sha256 if given)."
+  help_download: "Downloads the missing files of [rag.embedding] first."
+  help_lang: "Language of the corpus and of the index (default: fr, the index [rag] index_path; en and de: rag_index.en.sqlite and rag_index.de.sqlite next to it)."
+  embedding_invalid: "The [rag.embedding] section is invalid."
+  content_invalid: "The file {path} is missing or invalid: {cause}"
+  downloading: "Downloading {count} file(s) into {folder}…"
+  download_failed: "Download impossible: {reason}."
+  model_missing: "Embedding model not found: {path}. Run again with --download, or copy it there ({url}), or pass --model PATH."
+  wrong_size: "{path} is not the model declared in [rag.embedding]: {size} bytes instead of {expected}. The index would wrongly carry the identifier “{model}”."
+  wrong_sha256: "{path} is not the declared model: sha256 differs from [rag.embedding]."
+  loading: "Loading the embedding model {model} ({path})…"
+  model_unusable: "Embedding model unusable: {cause}."
+  progress: "  excerpt {done} / {total}"
+  from_the_card: "Build it from the RAG card, or stop WaveStack, then run this script again."
+  not_built: "Index not built: {cause}."
+  written: "Index written: {path}"
+  documents: "  documents: {count}"
+  extracts: "  excerpts: {count} (at most {max} characters)"
+  model: "  model: {model}, {dims} dimensions, {size} MB, sha256 {sha256}"
+  duration: "  duration: {seconds} s"
+  download_progress: "  {done} / {total} MB"
+
+diagnostic:
+  starting: "Startup diagnostic in progress."
+  port: "Port {port} reserved for WaveStack."
+  memory:
+    figures: "WaveStack memory budget: {size} MB ({calc})."
+    not_measured: "Computer RAM not measured. {figures}"
+    fixed_action: "The budget used is the fixed value: check that it fits in the computer's memory."
+    cap_action: "The budget used is the cap: restart WaveStack if the computer's memory is tight."
+    ram_total: "Computer RAM: {total} MB, of which {available} MB available at launch. "
+    ram_available: "RAM available at launch: {available} MB. "
+    measured: "{ram}{figures}"
+    where_total: "the computer's total RAM"
+    where_available: "the RAM available at launch"
+    fixed_over: "The fixed budget exceeds {where}: close some applications then restart WaveStack, or lower [memory] budget_mb."
+    ram_limited: "The available RAM limits the budget below its cap: close some applications then restart WaveStack."
+    low: "The available RAM is low: close some applications then restart WaveStack."
+  network:
+    unavailable: "Network access unavailable."
+    offline_action: "The offline bricks remain usable without a network."
+    available: "Network access available."
+  probe:
+    unconfirmed: "The probe could not confirm this file."
+    failed: "The model probe failed for {path}."
+    marked_incompatible: "The file is marked incompatible."
+    incompatible: "Incompatible model: {reason}"
+    unmeasured: "The probe could not measure {path}."
+    unmeasured_effect: "The file cannot be used for now; nothing is remembered, it will be probed again when you choose it."
+  settings_write:
+    message: "Cannot write the settings file settings.json."
+    effect: "The diagnostic goes on; this setting will not be remembered."
+  unexpected:
+    message: "An unexpected error interrupted the diagnostic."
+    effect: "The check is marked as failed, not blocking."
+    check: "The model diagnostic failed unexpectedly."
+    action: "Try again, or report the problem if it persists."
+  model:
+    retained_file: "{notice}Model used: {name} ({path})."
+    retained_saved_cloud: "Model used: {model} at {provider} (cloud model, chosen at a previous launch)."
+    retained_server: "Model used: {name}, served by {provider} ({url}){why}.{warning}"
+    previous_launch: " (chosen at a previous launch)"
+    notice_cloud: "The saved cloud model can no longer be used: {reason} "
+    notice_server: "The saved served model is no longer available: {ref} ({why}). "
+    notice_file: "The saved model can no longer be used: {path}. "
+    server_gone: "server stopped, or model missing."
+    several: "{notice}Several models found: choose one."
+    several_action: "Click “Choose” next to a model, or give the path of a GGUF file."
+    served_only:
+      one: "{notice}No GGUF file, but a local server serves {count} model: choose a served model."
+      other: "{notice}No GGUF file, but a local server serves {count} models: choose a served model."
+    served_only_action: "Click “Choose” next to a served model (WaveStack neither starts nor stops the server), or give the path of a GGUF file."
+    detail: "{source} ({where}): {reason}"
+    no_candidate: "no candidate found in these locations"
+    searched_sources: "WaveStack models folder, Ollama, LM Studio, Hugging Face cache, local server"
+    none: "{notice}No usable model found. Locations searched: {sources}."
+    none_action: "{details}. Give the path of a GGUF file or copy one into the models folder."
+    file_missing: "File not found."
+    not_served: "no local server serves this model (server stopped?)."
+    not_retained: "Model not used ({ref}): {reason}"
+    chosen_file: "Model chosen: {name}. Loading.{not_saved}"
+    chosen_server: "Model chosen: {name}, served by {provider}. Preparing.{not_saved}"
+    not_saved_launches: " This choice could not be remembered for the next launches."
+    none_loaded_stopped: "No model is loaded: the loading was stopped."
+    none_loaded: "No model is loaded: the model used could not be loaded."
+    none_loaded_switch: "No model is loaded: {label} could not be loaded, nor could the previous model."
+    choose_below: "Choose a model below."
+    choose_other: "Choose another model below."
+    cloud_label: "{model} at {provider}"
+    server_label: "{name}, served by {provider}"
+    active: "Active model: {label} (changed without restart).{not_saved}{warning}"
+    switch_not_saved: " Choice not remembered for the next launches."
+  cloud:
+    undeclared: "the cloud model “{id}” is not declared (or is disabled)."
+    key_again: "Key to enter again."
+    no_key: "No key."
+    content_invalid: "The file content/cloud.yaml is missing or invalid."
+    content_invalid_effect: "The cloud models are shown without their texts."
+    unacknowledged: "Choice refused: warning not confirmed. Read the warning, then click “Use this model”."
+    choice_refused: "Choice refused: {reason}"
+    retained: "Model used: {label} (cloud model)."
+    chosen: "Model chosen: {label}. Preparing.{not_saved}"
+    not_saved: " This choice could not be remembered."
+    key_undeclared: "The cloud model “{id}” is not declared (or is disabled)."
+    key_empty: "Empty key: paste the API key given by the provider's console."
+    key_not_saved: "The key could not be saved ({path}): {cause}."
+    key_saved: "Key saved for {provider}. Click “Test”."
+    test_refused: "Test refused: {reason}"
+    test_impossible: "Test impossible: the file content/cloud.yaml is invalid."
+    test_phase: "Test of {model} at {provider}"
+    test_failed: "Test failed: {message}"
+    test_rate: ", {tps} tokens/s"
+    test_no_tool: "{provider} answers{rate}, but the model did not call the test tool: tool calls may fail during the session."
+    test_tool_called: " Tool call received: {name}."
+    test_ok: "Test passed: {provider} answers{rate}.{called}"
+
+cli:
+  description: "Launches WaveStack."
+  port_help: "Listening port (default: configuration)."
+  port_taken: "Port {port} is already used by another program. Restart with --port <other_port>."

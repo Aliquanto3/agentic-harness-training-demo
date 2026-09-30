@@ -270,8 +270,9 @@ la main dans `[context] window` reste lue, mais n'est pas proposée par le panne
 
 ## Langue
 
-Le sélecteur de langue de la barre haute (« FR ▾ », juste avant « Réinitialiser ») propose
-**Français**, **English** et **Deutsch**. Il ne s'ouvre que sur une conversation vide : après un
+Le sélecteur de langue est dans le menu « Affichage ▾ » de la barre haute (juste avant
+« Réinitialiser », avec le thème et le mode projection ; sa face montre le code de la langue,
+« FR ») et propose **Français**, **English** et **Deutsch**. Il ne s'ouvre que sur une conversation vide : après un
 échange, il est grisé et son infobulle demande de cliquer d'abord sur « Vider la conversation »
 ou « Réinitialiser ». Le choix est enregistré dans `settings.json` (`"language": "en"`), repris
 au lancement suivant, et la page se recharge dans la langue choisie.
@@ -287,12 +288,14 @@ Pour l'instant, la langue change :
   (Orchestration), noms des skills, libellés des serveurs MCP et de leurs préréglages, bouton,
   phase et préréglages du sous-agent, textes du tiroir de la mémoire, boutons et phases de la
   carte RAG ;
-- le nom et l'infobulle du sélecteur de langue.
+- **l'écran principal** : boutons, volets, menus, infobulles, jauge, Orchestration, schéma et
+  messages de l'interface elle-même, avec les nombres, montants et heures au format de la
+  langue (« 1 234 », « 1,234 », « 1.234 »). Ses textes sont dans `content/ui.yaml`.
 
-Restent en français : le reste de l'interface (boutons, volets, messages), les noms et
-explications des briques, les scénarios et leurs consignes, les messages produits par le
-harnais (erreurs, raisons d'indisponibilité, erreurs d'outils, résultat de `get_datetime`), les
-écrans « LLM nu » et « Atelier RAG », le corpus RAG et les titres de ses documents.
+Restent en français : les noms et explications des briques, les scénarios et leurs
+consignes, les messages produits par le harnais (erreurs, raisons d'indisponibilité, erreurs
+d'outils, résultat de `get_datetime`), les écrans « LLM nu » et « Atelier RAG », le corpus
+RAG et les titres de ses documents.
 Une mémoire globale que vous avez modifiée est gardée telle quelle ; la mémoire de
 démonstration, elle, passe dans la nouvelle langue.
 
@@ -376,7 +379,7 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   vectorielle peut être l'index sqlite-vec ou une **recherche exhaustive en mémoire** (Python pur,
   sans index) ; l'embedding peut être un modèle **fastembed** (ONNX), proposé seulement s'il est
   installé, déclaré dans `settings.json` (`"rag_lab": {"fastembed": {"model_name": …, "dims": …,
-  "label_fr": …}}`, `"folder"` en option) et copié à la main sous `models/fastembed/<son
+  "label_text": …}}`, `"folder"` en option) et copié à la main sous `models/fastembed/<son
   dossier>` du dossier de données (par défaut `models--<model_name>`, « / » devenant « -- ») :
   l'atelier ne
   télécharge jamais rien. Une chaîne refusée dit pourquoi, en nommant l'étape.
@@ -622,18 +625,32 @@ Sur une installation neuve, tout se fait depuis la carte RAG, sans ligne de comm
 2. « Construire l'index » : le corpus est découpé et indexé sur le poste, dans
    `data/rag_index.sqlite` (sqlite-vec), avec une progression et « Arrêter ».
 
-Le script fait la même chose, et peut committer l'index avec le dépôt :
+**Un corpus et un index par langue.** Le corpus anglais et le corpus allemand sont dans
+`content/i18n/{en,de}/corpus/`, sous les mêmes noms de fichiers, et les titres des documents
+dans `content/i18n/{en,de}/rag.yaml`. Chaque langue a son index, à côté du français :
+`data/rag_index.en.sqlite` et `data/rag_index.de.sqlite` (le chemin de `[rag] index_path`,
+`.{langue}` inséré avant l'extension). Les trois index sont livrés avec le dépôt : la brique
+RAG et l'atelier RAG ouvrent celui de la langue de la session, titres des extraits compris.
+Après un changement de langue, un index absent se construit depuis la carte, comme ci-dessus.
+Après un changement de `[rag.embedding]` ou de `[rag] chunk_max_chars`, reconstruisez les trois
+index ensemble, un par un : `uv run python scripts/build_rag_index.py --lang fr`, puis
+`--lang en`, puis `--lang de`.
+
+Le script fait la même chose, pour une langue à la fois (`fr` par défaut, jamais lue dans
+`settings.json`), et peut committer l'index avec le dépôt :
 
 ```bash
-uv run python scripts/build_rag_index.py                  # modèle de [rag.embedding]
+uv run python scripts/build_rag_index.py                  # modèle de [rag.embedding], français
+uv run python scripts/build_rag_index.py --lang de        # corpus allemand, rag_index.de.sqlite
 uv run python scripts/build_rag_index.py --download       # télécharge d'abord le modèle
 uv run python scripts/build_rag_index.py --model C:\chemin\modele.gguf
 ```
 
 `--model` n'accepte que le fichier déclaré (même taille, même sha256 s'il est renseigné).
 L'index garde l'identifiant, les dimensions et le fichier de son modèle, et une empreinte du
-corpus : un autre modèle, un corpus modifié ou un autre `[rag] chunk_max_chars` rendent la
-brique indisponible, avec la raison, et la carte propose « Construire l'index ». Le dossier
+corpus de sa langue : un autre modèle, un corpus modifié (ou celui d'une autre langue) ou un
+autre `[rag] chunk_max_chars` rendent la brique indisponible, avec la raison, et la carte
+propose « Construire l'index ». Le dossier
 `models/embedding/` n'est jamais proposé comme modèle de conversation.
 
 ### Reranking (sous-option de la brique RAG)
@@ -790,9 +807,9 @@ entrée nouvelle doit être complète :
         "model": "meta-llama/llama-3.3-70b-instruct:free",
         "tools": true,
         "context": 131072,
-        "hosting_fr": "Selon le fournisseur routé par OpenRouter",
+        "hosting_text": "Selon le fournisseur routé par OpenRouter",
         "training": "yes",
-        "notes_fr": "Catalogue gratuit instable : vérifiez le nom du modèle avant la séance."
+        "notes_text": "Catalogue gratuit instable : vérifiez le nom du modèle avant la séance."
       }
     ]
   }
@@ -800,7 +817,10 @@ entrée nouvelle doit être complète :
 ```
 
 Une entrée de même `id` qu'un préréglage le modifie champ par champ (par exemple
-`{"id": "groq", "tpm": 6000}`), et `"enabled": false` le masque.
+`{"id": "groq", "tpm": 6000}`), et `"enabled": false` le masque. Un `settings.json` écrit
+avant la version multilingue reste lu : les anciennes clés `hosting_fr`, `notes_fr`, `note_fr`
+(de `impacts`) et `label_fr` (de `[rag.embedding]`, `[rag.reranker]` ou `[rag_lab.fastembed]`)
+valent `hosting_text`, `notes_text`, `note_text` et `label_text`.
 
 Quatre champs facultatifs :
 - `key_env` : nom de la variable d'environnement qui fournit la clé (lettres majuscules,
@@ -874,7 +894,7 @@ le mix électrique (code ISO à trois lettres ; par défaut celui du fournisseur
 Préréglages : Groq → `huggingface_hub` / `openai/gpt-oss-120b` (EcoLogits ne connaît pas Groq ;
 gpt-oss y figure chez Hugging Face, sur GPU), Mistral → `mistralai` / `mistral-small-latest`,
 Gemini → `google_genai` / `gemini-3.5-flash-lite`, Gemma → `google_genai` /
-`gemma-4-26b-a4b-it`. Le champ facultatif `note_fr` de `impacts`
+`gemma-4-26b-a4b-it`. Le champ facultatif `note_text` de `impacts`
 s'ajoute à l'infobulle de chaque appel : celui de Groq dit que l'estimation passe par un autre
 hébergeur. Quand EcoLogits donne une fourchette (architecture non
 publiée, comme Gemini), elle est gardée : « 0,066–0,45 Wh ». Ses avertissements (architecture non

@@ -240,7 +240,7 @@ def test_explicit_choice_of_a_remembered_failure_is_not_reprobed(monkeypatch, tm
     result = session.select_model(path)
 
     assert result.saved is False
-    assert "Fichier corrompu." in result.message_fr
+    assert "Fichier corrompu." in result.message_text
 
 
 def test_probe_timeout_is_not_remembered(monkeypatch, tmp_path):
@@ -370,8 +370,8 @@ def test_saved_choice_gone_warns_then_applies_startup_rule(monkeypatch, tmp_path
 
     assert result.model_path is None and result.blocking_checks == ["model"]
     check = _last_model_check(before)
-    assert "gone.gguf" in check["message_fr"]
-    assert "Plusieurs modèles trouvés" in check["message_fr"]
+    assert "gone.gguf" in check["message_text"]
+    assert "Plusieurs modèles trouvés" in check["message_text"]
 
 
 def test_saved_choice_gone_with_single_file_loads_it_with_warning(monkeypatch, tmp_path):
@@ -382,7 +382,7 @@ def test_saved_choice_gone_with_single_file_loads_it_with_warning(monkeypatch, t
 
     assert result.model_path == str(config.models_dir() / "a.gguf")
     check = _last_model_check(before)
-    assert check["status"] == "warn" and "gone.gguf" in check["message_fr"]
+    assert check["status"] == "warn" and "gone.gguf" in check["message_text"]
 
 
 def test_single_candidate_is_loaded_at_startup(monkeypatch, tmp_path):
@@ -404,7 +404,7 @@ def test_several_candidates_block_until_a_choice(monkeypatch, tmp_path):
     assert result.blocking_checks == ["model"]
     check = _last_model_check(before)
     assert check["status"] == "warn" and check["blocking"] is True
-    assert check["message_fr"] == "Plusieurs modèles trouvés : choisissez-en un."
+    assert check["message_text"] == "Plusieurs modèles trouvés : choisissez-en un."
 
 
 def test_choose_before_load_saves_and_loads_exactly_that_file(monkeypatch, tmp_path):
@@ -482,8 +482,8 @@ def test_invalid_path_is_neither_saved_nor_loaded(monkeypatch, tmp_path):
     incompatible = _select(app, bad)
     app.state.app_session.join()
 
-    assert "Fichier introuvable" in missing["message_fr"]
-    assert "Architecture inconnue." in incompatible["message_fr"]
+    assert "Fichier introuvable" in missing["message_text"]
+    assert "Architecture inconnue." in incompatible["message_text"]
     for body in (missing, incompatible):
         assert body["saved"] is False and body["ready"] is False
     assert received == []  # no other candidate loaded instead
@@ -508,12 +508,12 @@ def test_choice_after_load_is_a_hot_switch(monkeypatch, tmp_path):
     body = _select(app, other)
     app.state.app_session.join()
 
-    assert body["switching"] is True and body["message_fr"] == "Chargement de other…"
-    assert "Choix enregistré" not in body["message_fr"] and "next_launch" not in body
+    assert body["switching"] is True and body["message_text"] == "Chargement de other…"
+    assert "Choix enregistré" not in body["message_text"] and "next_launch" not in body
     assert received == [first.model_path, str(other)] and probed == [str(other)]
     assert config.read_settings()["selected_model"] == {"kind": "file", "ref": str(other)}
     diagnostic = _client(app).get("/api/diagnostic").json()
-    assert "next_launch_fr" not in diagnostic
+    assert "next_launch_text" not in diagnostic
     assert diagnostic["loaded_model"] == diagnostic["selected_model"] == str(other)
     listed = next(c for c in diagnostic["candidates"] if c["path"] == str(other))
     assert listed["architecture"] == "qwen35"
@@ -540,7 +540,7 @@ def test_settings_write_failure_is_traced_and_model_still_loads(monkeypatch, tmp
     app.state.app_session.join()
 
     assert body["ready"] is True and received == [str(chosen)]
-    assert body["saved"] is False and "pas pu être mémorisé" in body["message_fr"]
+    assert body["saved"] is False and "pas pu être mémorisé" in body["message_text"]
     errors = [e for e in get_journal().events_since(before) if e.kind == "harness_error"]
     assert any("lecture seule" in e.payload["cause"] for e in errors)
 
@@ -597,7 +597,7 @@ def test_selected_ollama_blob_is_listed_once_under_its_name(monkeypatch, tmp_pat
     listed = _client(app).get("/api/diagnostic").json()
     assert [c["name"] for c in listed["candidates"] if c["path"] == str(blob)] == ["qwen3.5:9b"]
     assert listed["loaded_model"] == str(blob) and received == [str(blob)]
-    assert "Modèle retenu : qwen3.5:9b" in _last_model_check(before)["message_fr"]
+    assert "Modèle retenu : qwen3.5:9b" in _last_model_check(before)["message_text"]
 
     # Relaunch with the saved blob: still listed once.
     relaunched = DiagnosticSession(config.load_config(), port=8420)
@@ -636,7 +636,7 @@ def test_served_models_only_block_until_one_is_chosen(monkeypatch, tmp_path):
     assert result.ready is False and result.blocking_checks == ["model"]
     assert result.model_path is None and result.server is None
     check = _last_model_check(before)
-    assert check["blocking"] is True and "choisissez un modèle servi" in check["message_fr"]
+    assert check["blocking"] is True and "choisissez un modèle servi" in check["message_text"]
 
 
 def test_failed_load_lets_a_new_choice_load(monkeypatch, tmp_path):
@@ -710,7 +710,7 @@ def test_launch_fallback_loads_the_file(monkeypatch, tmp_path):
 
     assert result.model_path and session.selected_cloud == "groq"
     diagnostic = _client(app).get("/api/diagnostic").json()
-    assert diagnostic["loaded_model"] == result.model_path and "next_launch_fr" not in diagnostic
+    assert diagnostic["loaded_model"] == result.model_path and "next_launch_text" not in diagnostic
 
 
 def test_old_or_incomplete_probe_entries_are_probed_again(monkeypatch, tmp_path):
@@ -822,5 +822,5 @@ def test_incompatible_probe_keeps_the_loader_message_as_the_cause(monkeypatch, t
     assert (listed.status, listed.reason) == ("incompatible", reason)
     assert reason.startswith("llama-cpp-python") and "ne sait pas charger ce fichier" in reason
     error = [e.payload for e in get_journal().events_since(before) if e.kind == "harness_error"][0]
-    assert error["message_fr"] == f"Modèle incompatible : {reason}"
+    assert error["message_text"] == f"Modèle incompatible : {reason}"
     assert error["cause"] == f"Failed to load model from file: {path}"

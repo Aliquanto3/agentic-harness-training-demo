@@ -1,0 +1,19 @@
+# English translation of content/compression.yaml (languages 3/5, AD-19): same fields,
+# same placeholders ({tool}, {n}, {min_chars}).
+# Working indicator during the step.
+phase_label_text: Compressing the context…
+# Title of the step in Orchestration.
+step_title_text: Compression (Headroom)
+# Source of a candidate: {tool} is the tool's name, {n} the rank of the RAG excerpt.
+tool_source_text: Result of the tool “{tool}”
+rag_source_text: RAG excerpt no. {n}
+# A candidate Headroom did not shorten.
+unchanged_text: >-
+  Unchanged: Headroom does not shorten this text (prose, or already short). It is sent as
+  it is.
+# Line of the card; {min_chars} is the threshold in wavestack.toml ([compression] min_chars).
+limits_text: >-
+  Compressed: the tool results (native, network, MCP) and the RAG excerpts of at least
+  {min_chars} characters, in the main context. Never: the history, the skills, the
+  sub-agent's result, a hook's refusal. No effect as long as neither Tools (or MCP) nor RAG
+  is active: there is then nothing to compress.

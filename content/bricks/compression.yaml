@@ -1,8 +1,8 @@
 # Brique « Compression du contexte » (story 20, AD-12, AD-19, AD-22).
-label_fr: Compression
-category_fr: context engineering
-hosting_fr: Local
-explanation_fr:
+label_text: Compression
+category_text: context engineering
+hosting_text: Local
+explanation_text:
   - >-
     La compression réduit ce qui entre dans le contexte : avant d'appeler le modèle, le
     harnais passe les gros résultats d'outils et les extraits RAG à Headroom, une

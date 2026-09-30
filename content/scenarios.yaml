@@ -35,22 +35,22 @@
 # scénarios métier (FR-40). Un nouveau métier s'ajoute ici, sans modifier le code.
 
 program:
-  - title_fr: Du LLM nu au harnais
+  - title_text: Du LLM nu au harnais
     duration_min: 60
     scenarios: [bare_llm, reasoning, short_memory, system_prompt, global_memory]
-  - title_fr: Outils
+  - title_text: Outils
     duration_min: 45
     scenarios: [native_tools, network_tools]
-  - title_fr: RAG
+  - title_text: RAG
     duration_min: 45
     scenarios: [rag, rag_rerank]
-  - title_fr: MCP
+  - title_text: MCP
     duration_min: 45
     scenarios: [mcp_full, mcp_lazy]
-  - title_fr: Skills et hooks
+  - title_text: Skills et hooks
     duration_min: 60
     scenarios: [skills, caveman, hooks]
-  - title_fr: Sous-agent et compression
+  - title_text: Sous-agent et compression
     duration_min: 60
     scenarios: [subagent, compression]
 
@@ -58,8 +58,8 @@ transverse: [data_flows, soc, iam, sovereignty]
 
 scenarios:
   bare_llm:
-    title_fr: LLM nu
-    description_fr: >-
+    title_text: LLM nu
+    description_text: >-
       Toutes les briques sont éteintes : le modèle ne reçoit que votre message.
       Envoyez le prompt : sans outil, il ne peut pas connaître l'heure, il l'invente
       ou avoue ne pas la savoir.
@@ -68,8 +68,8 @@ scenarios:
       - Quelle heure est-il ?
 
   reasoning:
-    title_fr: Raisonnement
-    description_fr: >-
+    title_text: Raisonnement
+    description_text: >-
       Seule la brique Raisonnement est active, sur le LLM nu : le modèle écrit d'abord son
       raisonnement, puis sa réponse. Envoyez le prompt et dépliez le raisonnement, dans la
       Vue humain ou dans Contexte LLM ; la jauge montre la réserve de sortie passée à
@@ -85,8 +85,8 @@ scenarios:
         retard. À quelle heure arrive-t-il ?
 
   short_memory:
-    title_fr: Mémoire courte
-    description_fr: >-
+    title_text: Mémoire courte
+    description_text: >-
       Envoyez les deux prompts l'un après l'autre : le harnais réinjecte les tours
       précédents, le modèle se souvient du prénom. Éteignez la mémoire courte et
       renvoyez le second prompt pour voir l'oubli.
@@ -96,8 +96,8 @@ scenarios:
       - Comment je m'appelle, et quel est mon métier ?
 
   system_prompt:
-    title_fr: Prompt système
-    description_fr: >-
+    title_text: Prompt système
+    description_text: >-
       Envoyez le prompt, puis modifiez le prompt système depuis sa carte (par exemple
       « Réponds toujours en une phrase, comme un pirate. ») et rejouez-le : la réponse
       change alors que le message est le même.
@@ -106,8 +106,8 @@ scenarios:
       - Présente-toi en quelques phrases.
 
   global_memory:
-    title_fr: Mémoire globale
-    description_fr: >-
+    title_text: Mémoire globale
+    description_text: >-
       La mémoire courte et le prompt système restent actifs, et la mémoire globale s'y
       ajoute : lancer ce scénario restaure la mémoire de démonstration, dont les trois
       informations sont déjà dans le message système. Envoyez le premier prompt : le modèle
@@ -126,8 +126,8 @@ scenarios:
       - Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.
 
   native_tools:
-    title_fr: Outils natifs
-    description_fr: >-
+    title_text: Outils natifs
+    description_text: >-
       Les briques du module 1 restent actives, sauf le raisonnement (la mémoire globale
       revient à sa démonstration), et les outils locaux s'y ajoutent. Envoyez un prompt et suivez dans Orchestration le cycle d'appel : le
       modèle demande l'outil, le harnais l'exécute et réinjecte son résultat.
@@ -139,8 +139,8 @@ scenarios:
       - Lis le fichier recette_crepes.txt et donne-moi la liste des ingrédients.
 
   network_tools:
-    title_fr: Outils réseau
-    description_fr: >-
+    title_text: Outils réseau
+    description_text: >-
       Les outils réseau s'ajoutent aux outils locaux : leur nœud est dessiné dans la
       zone Réseau. Envoyez un prompt, puis ouvrez dans Orchestration les données
       sortantes : c'est le texte exact qui a quitté le poste.
@@ -152,8 +152,8 @@ scenarios:
       - Résume l'article Wikipédia sur le Mont-Saint-Michel.
 
   rag:
-    title_fr: RAG
-    description_fr: >-
+    title_text: RAG
+    description_text: >-
       Les briques des modules précédents restent actives, sauf le raisonnement, et la brique
       RAG s'y ajoute : le corpus décrit Exemplia, une organisation imaginaire. Éteignez
       d'abord la brique RAG et envoyez le premier prompt : le modèle ne connaît pas Exemplia,
@@ -171,8 +171,8 @@ scenarios:
       - Quel plafond de remboursement s'applique à une nuit d'hôtel à Paris chez Exemplia ?
 
   rag_rerank:
-    title_fr: RAG avec reranking
-    description_fr: >-
+    title_text: RAG avec reranking
+    description_text: >-
       Les briques du scénario RAG, avec la sous-option « Reranking » cochée sur la carte RAG :
       le harnais retient {candidates} candidats par embedding, un second modèle local les note
       avec la question, puis seuls les {keep} premiers entrent dans votre message. Envoyez le
@@ -187,8 +187,8 @@ scenarios:
       - Que faut-il faire en premier quand on perd son ordinateur portable chez Exemplia ?
 
   mcp_full:
-    title_fr: MCP en documentation complète
-    description_fr: >-
+    title_text: MCP en documentation complète
+    description_text: >-
       Les briques des modules précédents restent actives, sauf le raisonnement et le RAG,
       dont les extraits sur Exemplia seraient hors sujet ici : le serveur MCP local et
       data.gouv.fr sont connectés, et la documentation complète de chaque outil entre dans
@@ -211,8 +211,8 @@ scenarios:
         répondre de tête.
 
   mcp_lazy:
-    title_fr: Lazy loading
-    description_fr: >-
+    title_text: Lazy loading
+    description_text: >-
       Mêmes serveurs, en lazy loading : seule une ligne par outil entre dans le contexte.
       Comparez la jauge au scénario précédent : la place gagnée pourrait accueillir le RAG,
       laissé éteint parce que ses extraits sur Exemplia n'aident pas ici. Envoyez le premier
@@ -240,8 +240,8 @@ scenarios:
       - Cherche sur data.gouv.fr les jeux de données publics sur la qualité de l'air.
 
   skills:
-    title_fr: Skills
-    description_fr: >-
+    title_text: Skills
+    description_text: >-
       Les briques des modules précédents restent actives (MCP en lazy loading), sans le
       raisonnement ni le RAG, et les skills s'y ajoutent : seuls le nom et la description
       de chaque skill sont dans le contexte. Envoyez le prompt : le modèle appelle
@@ -262,8 +262,8 @@ scenarios:
         à 10 h.
 
   caveman:
-    title_fr: Caveman
-    description_fr: >-
+    title_text: Caveman
+    description_text: >-
       Envoyez le prompt, puis armez « Déclencher le skill » sur Caveman dans la carte
       Skills (après « Afficher les actions forcées »), rejouez le dernier prompt et
       ouvrez « Comparer » : même question, bien moins de tokens en sortie.
@@ -272,8 +272,8 @@ scenarios:
       - Explique en quelques phrases ce qu'est un harnais d'agent.
 
   hooks:
-    title_fr: Hooks
-    description_fr: >-
+    title_text: Hooks
+    description_text: >-
       Envoyez le prompt, puis regardez la bande « Points d'accroche » du schéma : le
       garde-fou H1 bloque la lecture, c'est du code et non le modèle qui décide. Si le
       modèle n'appelle pas l'outil, forcez l'appel de read_file avec le préréglage
@@ -285,8 +285,8 @@ scenarios:
       - Lis le fichier confidentiel/budget_projet.txt et résume-le.
 
   subagent:
-    title_fr: Sous-agent
-    description_fr: >-
+    title_text: Sous-agent
+    description_text: >-
       Les briques des modules précédents restent actives (MCP en lazy loading), sans le
       raisonnement ni le RAG, pour laisser de la place au sous-agent et garder des quiz
       rapides, et la brique Sous-agent s'y ajoute. Le document long est un fichier local,
@@ -315,8 +315,8 @@ scenarios:
       - "Quiz : que se passe-t-il si le contexte du sous-agent déborde ?"
 
   compression:
-    title_fr: Compression du contexte
-    description_fr: >-
+    title_text: Compression du contexte
+    description_text: >-
       Les briques du scénario Sous-agent restent actives, sans le sous-agent (ni le
       raisonnement ni le RAG), et la brique Compression s'y ajoute : Headroom raccourcit les
       gros résultats d'outils avant l'appel au modèle. Éteignez d'abord la compression et
@@ -347,8 +347,8 @@ scenarios:
       - Dans le journal_serveur.log, à quelle heure le lot 12 a-t-il été copié ?
 
   data_flows:
-    title_fr: Où vont mes données ?
-    description_fr: >-
+    title_text: Où vont mes données ?
+    description_text: >-
       Tout est actif au lancement : les outils locaux et la brique MCP, en lazy loading,
       avec le serveur local (Glossaire WaveStack) et le serveur public data.gouv.fr.
       Lisez d'abord le schéma : les outils et le serveur MCP local restent dans la zone
@@ -368,8 +368,8 @@ scenarios:
   # ---------- scénarios métier (story 21, FR-40) : fictifs, sans donnée client ----------
 
   soc:
-    title_fr: "Métier SOC : journal d'audit et garde-fou"
-    description_fr: >-
+    title_text: "Métier SOC : journal d'audit et garde-fou"
+    description_text: >-
       Pour la practice SOC, environ 20 minutes. La lecture de fichier et les hooks H1
       (garde-fou) et H2 (journal d'audit) sont actifs. Envoyez le premier prompt : le modèle
       lit les alertes d'un SIEM fictif (heures en UTC) et doit relier en un seul incident les
@@ -407,8 +407,8 @@ scenarios:
         en 3 lignes au plus.
 
   iam:
-    title_fr: "Métier IAM : Entra ID avec Microsoft Learn"
-    description_fr: >-
+    title_text: "Métier IAM : Entra ID avec Microsoft Learn"
+    description_text: >-
       Pour la practice IAM, environ 15 minutes. Seul le serveur MCP public Microsoft Learn
       est connecté, en documentation complète, avec la mémoire courte et le prompt système :
       un petit modèle ne connaît pas les écrans récents d'Entra ID, la documentation
@@ -447,8 +447,8 @@ scenarios:
         liens Microsoft Learn tirés du résultat, puis l'explication.
 
   sovereignty:
-    title_fr: "Métier Souveraineté : où partent les requêtes ?"
-    description_fr: >-
+    title_text: "Métier Souveraineté : où partent les requêtes ?"
+    description_text: >-
       Pour la practice souveraineté, environ 15 minutes. Deux serveurs MCP publics sont
       connectés, en lazy loading : data.gouv.fr, opéré par l'administration française, et
       Microsoft Learn, opéré par un éditeur américain. Envoyez les deux prompts et ouvrez

@@ -1,0 +1,24 @@
+# English translation of content/bricks/hooks.yaml (languages 3/5, AD-19): same fields,
+# same number of paragraphs and bullets.
+label_text: Hooks
+category_text: harness engineering
+hosting_text: Local
+explanation_text:
+  - >-
+    A hook is deterministic code that the harness runs at a fixed point of the turn:
+    message received, before the model call, before and after a tool, end of the turn.
+    The model does not decide: the hook lets through, modifies, blocks or asks a human,
+    and each decision is shown in Orchestration.
+  - - >-
+      The guard prevents reading the confidential folder even when the model asks for it
+      (security, DLP).
+    - "Logging writes an audit log that the model does not see."
+    - "Context injection adds the date and the mission's rules before each message."
+    - >-
+      Human approval, to tick in the card, suspends the turn before a network tool is
+      called and shows you the exact request, which is only sent if you allow it (human
+      in the loop).
+  - >-
+    Compare with the “Time and date” tool: for the same need, the tool lets the model
+    choose to ask for the time, the hook gives it the time at every turn, whether it needs
+    it or not. Two architectures, two costs in tokens.

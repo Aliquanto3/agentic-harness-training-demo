@@ -1,0 +1,20 @@
+# English translation of content/labels/segment_kinds.yaml (languages 3/5, AD-19): the
+# same keys, one per SegmentKind, in the gauge's stacking order.
+kinds:
+  system_prompt: System prompt
+  global_memory: Global memory
+  tool_catalog: Tool descriptions
+  skill_catalog: Skill descriptions
+  skill_body: Loaded skill
+  history: History
+  rag_excerpt: RAG excerpts
+  tool_result: Tool results
+  subagent_result: Sub-agent result
+  hook_injection: Hook addition
+  user_message: User message
+  assistant_turn: Model output in the turn
+  template: Chat template
+
+# Gauge groups that bring several kinds together.
+groups:
+  message: Message and template

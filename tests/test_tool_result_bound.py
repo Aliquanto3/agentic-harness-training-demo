@@ -164,7 +164,7 @@ def test_a_long_tool_error_is_never_bounded(loop, mcp_web):  # noqa: F811
 
     (ended,) = _run(session, "Cherche")["tool_ended"]
 
-    assert ended["status"] == "error" and long.strip() in ended["error_fr"]
+    assert ended["status"] == "error" and long.strip() in ended["error_text"]
     assert ended["result"] is None and "truncated" not in ended
     session.close()
 
@@ -354,7 +354,7 @@ def _overflow(session: AppSession, **tokens: int) -> str:
         {"used": 4000, "usable": 3584, "window": 4096, "reserve": 512, "segments": segments}
     )
     (event,) = [e for e in get_journal().events_since(mark) if e.kind == "context_overflow"]
-    return event.payload["message_fr"]
+    return event.payload["message_text"]
 
 
 def _session(**kwargs) -> AppSession:

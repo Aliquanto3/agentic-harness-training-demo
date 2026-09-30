@@ -1,0 +1,11 @@
+# English translation of content/bricks/system_prompt.yaml (languages 3/5, AD-19): same
+# fields, same number of paragraphs.
+label_text: System prompt
+category_text: prompt engineering
+hosting_text: Local
+explanation_text:
+  - >-
+    The system prompt is an instruction the harness places before the conversation: role,
+    tone, language, rules to follow. The user does not see it in the thread, but the model
+    rereads it at every call.
+  - "Edit it to see the answer change for the same message."

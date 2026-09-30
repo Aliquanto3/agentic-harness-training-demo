@@ -5,7 +5,7 @@ catalog_intro: >-
   a request matches one of them, call the load_skill tool with its name, then
   follow the instructions you receive.
 load_skill:
-  label_fr: Skill loading
+  label_text: Skill loading
   description: >-
     Loads, by its name, the full instructions of a skill from the "Available
     skills" list (for example meeting_minutes). It is not an MCP tool.

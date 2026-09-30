@@ -476,9 +476,9 @@ def _parent_off_cards(r: Run, lazy_on: httpx.Response) -> None:
     )
     for brick_id in ("mcp", "tools", "skills", "hooks"):
         card = cards[brick_id]
-        label = card["label_fr"]
+        label = card["label_text"]
         expected = (
-            card["reason_fr"] or f"La brique {label} est indisponible."
+            card["reason_text"] or f"La brique {label} est indisponible."
             if not card["available"]
             else f"Activez la brique {label} pour régler cette option."
         )
@@ -499,7 +499,7 @@ def _parent_off_cards(r: Run, lazy_on: httpx.Response) -> None:
         if brick_id == "mcp":
             lazy = r.card(label).locator('input[data-focus-key="option:mcp:lazy"]')
             r.check(
-                lazy.is_disabled() and card["lazy_label_fr"] not in seen["summary"],
+                lazy.is_disabled() and card["lazy_label_text"] not in seen["summary"],
                 "MCP éteint : « Lazy loading » désactivé, le résumé ne le montre plus actif",
                 f"mode {card['mode']} · {seen['summary']}",
             )
@@ -844,7 +844,7 @@ def s_malformed(r: Run) -> None:
     r.check(
         bool(bad),
         "outil inconnu refusé par le harnais",
-        bad[0]["payload"]["detail_fr"] if bad else "",
+        bad[0]["payload"]["detail_text"] if bad else "",
     )
     seq = r.ev.mark()
     ended = r.send("Bonjour [tool_use_failed]")
@@ -852,7 +852,7 @@ def s_malformed(r: Run) -> None:
     r.check(
         bool(bad),
         "tool_use_failed (400 du fournisseur) suit le chemin mal formé",
-        bad[0]["payload"]["detail_fr"][:200] if bad else ended["payload"]["status"],
+        bad[0]["payload"]["detail_text"][:200] if bad else ended["payload"]["status"],
     )
 
 
@@ -891,7 +891,7 @@ def s_provider_errors(r: Run) -> None:
     ]:
         seq = r.ev.mark()
         ended = r.send(f"Bonjour {trigger}")
-        errors = [e["payload"]["message_fr"] for e in r.ev.since(seq, "harness_error")]
+        errors = [e["payload"]["message_text"] for e in r.ev.since(seq, "harness_error")]
         r.check(
             ended["payload"]["status"] == "error",
             f"{trigger} : tour en erreur",
@@ -936,9 +936,9 @@ def s_network_tools(r: Run) -> None:
         r.check(bool(outbound), f"{tool} : la requête sortante est tracée", str(outbound)[:200])
         res = results[-1] if results else {}
         r.check(
-            res.get("status") == "error" and "Service injoignable" in (res.get("error_fr") or ""),
+            res.get("status") == "error" and "Service injoignable" in (res.get("error_text") or ""),
             f"{tool} : échec réseau expliqué (réseau sortant coupé par le lanceur)",
-            (res.get("error_fr") or str(res))[:300],
+            (res.get("error_text") or str(res))[:300],
         )
         r.check(
             ended["payload"]["status"] == "completed",
@@ -1596,7 +1596,7 @@ def _bar_fits(r: Run) -> tuple[bool, str]:
         ".map(e => '#' + e.id)"
     )
     cut = {c: why for c in controls if (why := _fully_visible(r, c))}
-    ok = "#reset-button" in controls and "#theme-picker-box" in controls and not cut
+    ok = "#reset-button" in controls and "#display-menu" in controls and not cut
     return ok, f"{controls} ; {cut}"
 
 
@@ -1666,35 +1666,69 @@ def _top_bar_problems(r: Run, chip) -> list[str]:
     return problems
 
 
-def _compact_picker(r: Run) -> str:
-    """'' when the compact theme picker shows only its face (the symbol of the choice and a
-    chevron), the native list lies whole over it, transparent, and the keyboard changes the
-    theme through it; else what is wrong. Back to « Système » after."""
+def _display_menu_picker(r: Run, words: str = "◐ Système") -> str:
+    """Languages (2/5): '' when « Affichage ▾ » shows the theme's symbol, opens on its three
+    controls, each whole in the window, the theme picker with its words, and the keyboard
+    changes the theme through it (the face following); else what is wrong. Back to
+    « Système » after, the menu closed."""
     page = r.page
-    state = page.evaluate(
-        "() => { const face = document.querySelector('.theme-picker-face');"
-        " const pick = document.getElementById('theme-picker');"
-        " const f = face.getBoundingClientRect(), s = pick.getBoundingClientRect();"
-        " return { face: face.checkVisibility() ? face.textContent : null,"
-        " opacity: getComputedStyle(pick).opacity,"
-        " covers: Math.abs(f.left - s.left) <= 1 && Math.abs(f.right - s.right) <= 1"
-        " && Math.abs(f.top - s.top) <= 1 && Math.abs(f.bottom - s.bottom) <= 1 }; }"
-    )
     problems = []
-    if state["face"] != "◐▾":
-        problems.append(f"face « {state['face']} »")
-    if state["opacity"] != "0" or not state["covers"]:
-        problems.append(f"liste native : opacité {state['opacity']}, couvre {state['covers']}")
+    if (face := page.text_content(".display-menu-symbol")) != "◐":
+        problems.append(f"face « {face} »")
+    _open_display(page)
+    cut = page.evaluate(
+        "() => ['#theme-picker', '#language-picker', '#projection-toggle'].filter(q => {"
+        " const e = document.querySelector(q), b = e.getBoundingClientRect();"
+        " return !e.checkVisibility() || b.left < 0 || b.right > innerWidth"
+        " || b.bottom > innerHeight || e.scrollWidth > e.clientWidth + 1; })"
+    )
+    if cut:
+        problems.append(f"coupés ou hors de la fenêtre : {cut}")
     picker = page.locator("#theme-picker")
+    shown = picker.evaluate("(s) => s.options[s.selectedIndex].textContent.trim()")
+    if shown != words:
+        problems.append(f"sélecteur « {shown} »")
     picker.focus()
     page.keyboard.press("ArrowDown")
     time.sleep(0.2)
-    moved = (picker.input_value(), _theme_attr(r), page.text_content(".theme-picker-face"))
-    if moved != ("light", "light", "☀▾"):
+    moved = (picker.input_value(), _theme_attr(r), page.text_content(".display-menu-symbol"))
+    if moved != ("light", "light", "☀"):
         problems.append(f"au clavier : {moved}")
     picker.select_option("system")
-    picker.blur()
+    _close_display(page)
     return " ; ".join(problems)
+
+
+# ---------- languages (2/5): « Affichage ▾ », the theme, the language and the projection ----------
+
+
+def _open_display(page: Page) -> None:
+    """The theme, the language and the projection mode are in « Affichage ▾ » (decision of
+    2026-09-30): the menu is opened first. A page without it (/diagnostic, /llm…) as is."""
+    if not page.locator("#display-menu-toggle").count():
+        return
+    if page.locator("#display-menu-panel").is_hidden():
+        page.locator("#display-menu-toggle").click()
+        expect(page.locator("#display-menu-panel")).to_be_visible(timeout=5000)
+
+
+def _close_display(page: Page) -> None:
+    panel = page.locator("#display-menu-panel")
+    if panel.count() and panel.is_visible():
+        page.locator("#display-menu-toggle").click()
+        expect(page.locator("#display-menu-panel")).to_be_hidden(timeout=5000)
+
+
+def _pick_theme(page: Page, theme: str) -> None:
+    _open_display(page)
+    page.locator("#theme-picker").select_option(theme)
+    _close_display(page)
+
+
+def _toggle_projection(page: Page) -> None:
+    _open_display(page)
+    page.locator("#projection-toggle").click()
+    _close_display(page)
 
 
 def _theme_attr(r: Run) -> str | None:
@@ -1726,9 +1760,8 @@ def s_themes(r: Run) -> None:
         page.emulate_media(color_scheme="light")
         if not page.url.startswith(r.stack.app_url) or "/static" in page.url:
             r.goto_app()
-        picker = page.locator("#theme-picker")
-        if picker.count():
-            picker.select_option("system")
+        if page.locator("#theme-picker").count():
+            _pick_theme(page, "system")
 
 
 def _themes(r: Run, errors: list[str]) -> None:
@@ -1762,37 +1795,40 @@ def _themes(r: Run, errors: list[str]) -> None:
     )
     cut = {c: why for c in controls if (why := _fully_visible(r, c))}
     r.check(
-        "#theme-picker-box" in controls and not cut,
+        "#display-menu" in controls and not cut,
         "1600 × 1000 : chaque commande de la barre haute entière, sur une ligne",
         f"{controls} ; {cut}",
     )
+    closed = page.locator("#display-menu-panel").is_hidden()
+    menu = _display_menu_picker(r)
     r.check(
-        not page.locator(".theme-picker-face").is_visible(),
-        "1600 × 1000 : le sélecteur de thème montre ses mots, sans la face compacte",
+        closed and not menu,
+        "1600 × 1000 : « Affichage ▾ » fermé, puis ouvert sur le thème avec ses mots",
+        menu,
     )
-    # Between 1401 and 1599 px the picker keeps its words: the bar still fits.
     page.set_viewport_size({"width": 1440, "height": 900})
     time.sleep(0.3)
     fits, detail = _bar_fits(r)
     r.check(fits, "1440 × 900 : barre haute sur une ligne, « Réinitialiser » entier", detail)
-    # Under 1400 px, the symbol and a chevron only; the native list, transparent on top of
-    # them, still works with the keyboard. In projection mode too.
+    # At 1280 px, « Affichage ▾ » in the bar, its menu whole and working with the keyboard.
+    # In projection mode too.
     page.set_viewport_size({"width": 1280, "height": 720})
     time.sleep(0.3)
     for projection in (False, True):
         mode = "mode projection" if projection else "mode normal"
         if projection:
-            page.locator("#projection-toggle").click()
+            _toggle_projection(page)
             time.sleep(0.3)
         fits, detail = _bar_fits(r)
-        compact = _compact_picker(r)
+        menu = _display_menu_picker(r)
         r.check(
-            fits and not compact,
-            f"1280 × 720, {mode} : sélecteur compact (symbole et chevron), barre sur une ligne",
-            f"{detail} ; {compact}",
+            fits and not menu,
+            f"1280 × 720, {mode} : « Affichage ▾ » entier, son menu au clavier, barre sur une "
+            "ligne",
+            f"{detail} ; {menu}",
         )
         if projection:
-            page.locator("#projection-toggle").click()
+            _toggle_projection(page)
             time.sleep(0.3)
     page.set_viewport_size({"width": 1600, "height": 1000})
     time.sleep(0.3)
@@ -1821,7 +1857,7 @@ def _themes(r: Run, errors: list[str]) -> None:
     )
 
     # « Sombre » chosen on a light workstation.
-    picker.select_option("dark")
+    _pick_theme(page, "dark")
     time.sleep(0.3)
     r.check(
         _theme_attr(r) == "dark" and _stored_theme(r) == "dark",
@@ -1939,7 +1975,7 @@ def _themes(r: Run, errors: list[str]) -> None:
         r.shot(shot, full_page=True)
     # « Clair » on the diagnostic wins over a dark workstation, back in the workshop.
     page.goto(f"{r.stack.app_url}/diagnostic")
-    page.locator("#theme-picker").select_option("light")
+    _pick_theme(page, "light")
     page.emulate_media(color_scheme="dark")
     r.goto_app()
     r.check(
@@ -1951,19 +1987,19 @@ def _themes(r: Run, errors: list[str]) -> None:
 
     # Lot K (A4): « Sombre » in the workshop, « Clair » at the diagnostic, then « Back »: the
     # workshop's picker says « Clair » (the browser's form restoration no longer wins).
-    page.locator("#theme-picker").select_option("dark")
+    _pick_theme(page, "dark")
     time.sleep(0.2)
     page.goto(f"{r.stack.app_url}/diagnostic")
     expect(page.locator("#theme-picker")).to_have_value("dark", timeout=10_000)
-    page.locator("#theme-picker").select_option("light")
+    _pick_theme(page, "light")
     time.sleep(0.2)
     page.go_back()
     r.wait_replayed()
     time.sleep(0.3)
     picked = page.locator("#theme-picker").input_value()
-    face = page.text_content(".theme-picker-face")
+    face = page.text_content(".display-menu-symbol")
     r.check(
-        picked == "light" and _theme_attr(r) == "light" and face == "☀▾",
+        picked == "light" and _theme_attr(r) == "light" and face == "☀",
         "« Sombre », /diagnostic, « Clair », « Précédent » : atelier clair, sélecteur sur "
         "« Clair »",
         f"sélecteur {picked}, data-theme {_theme_attr(r)}, face « {face} »",
@@ -1994,7 +2030,7 @@ def _themes(r: Run, errors: list[str]) -> None:
         blocked.goto(f"{r.stack.app_url}/")
         expect(blocked.locator("body[data-journal-replayed]")).to_be_attached(timeout=30_000)
         start = blocked.evaluate("() => document.documentElement.getAttribute('data-theme')")
-        blocked.locator("#theme-picker").select_option("dark")
+        _pick_theme(blocked, "dark")
         time.sleep(0.3)
         chosen = blocked.evaluate("() => document.documentElement.getAttribute('data-theme')")
         kept = blocked.locator("#theme-picker").input_value()
@@ -2015,7 +2051,7 @@ def _themes(r: Run, errors: list[str]) -> None:
         context.close()
 
     # The light theme, for comparison.
-    page.locator("#theme-picker").select_option("system")
+    _pick_theme(page, "system")
     time.sleep(0.3)
     r.shot("51-theme-clair-atelier", full_page=True)
 
@@ -2092,9 +2128,10 @@ def s_linked_view(r: Run) -> None:
         f"{lit_segments} segments, étape {_is_linked(tool_step)}, opacité {memory_opacity}",
     )
     r.shot("35-vue-liee-survol", keep_pointer=True)
-    page.locator(".top-bar-title").hover()
+    # Languages (2/5): the title leaves the bar under 1 700 px; « Réinitialiser » links nothing.
+    page.locator("#reset-button").hover()
     time.sleep(0.2)
-    r.check(not _linking(r), "pointeur sur le titre de la barre haute : plus d'éclairage")
+    r.check(not _linking(r), "pointeur sur « Réinitialiser » : plus d'éclairage")
 
     # Hover: a gauge segment, the model's plate, the model's calls.
     page.locator('.gauge-seg[data-discipline="harness"]').first.hover()
@@ -2353,7 +2390,7 @@ def s_linked_view(r: Run) -> None:
 
     # Projection mode: every text larger, remembered, kept by the reset.
     toggle = page.locator("#projection-toggle")
-    toggle.click()
+    _toggle_projection(page)
     time.sleep(0.3)
 
     def projection() -> tuple[bool, str, str]:
@@ -2389,7 +2426,7 @@ def s_linked_view(r: Run) -> None:
     chip = page.locator("#pane-chips .pane-chip", has_text="Contexte LLM")
     for projection_on in (True, False):
         if not projection_on:
-            toggle.click()
+            _toggle_projection(page)
         mode = "mode projection" if projection_on else "mode normal"
         for width, height in ((1280, 720), (1366, 768), (1440, 900), (1600, 1000)):
             page.set_viewport_size({"width": width, "height": height})
@@ -2398,8 +2435,6 @@ def s_linked_view(r: Run) -> None:
                 node("Calculatrice").click()
                 time.sleep(0.3)
             problems = _top_bar_problems(r, chip)
-            if "Aa" in page.inner_text("#projection-toggle"):
-                problems.append("bouton de projection réduit à « Aa »")
             r.check(
                 not problems,
                 f"{width} × {height} en {mode} : barre sur une ligne, « Réinitialiser » entier, "
@@ -2409,7 +2444,7 @@ def s_linked_view(r: Run) -> None:
         # Lot K, suite (K1): 1280 and 1366 px zoomed to 150 % (853 and 911 CSS px; a real
         # Edge window's frame leaves a little less, 840), the chip linked but free to give
         # way: the bar on one line, « Réinitialiser » in the window, no horizontal scroll, the
-        # « Fenêtre » panel open whole in the window, the projection button saying « Aa ».
+        # « Fenêtre » panel open whole in the window.
         for width, height in ((840, 433), (853, 433), (911, 512)):
             page.set_viewport_size({"width": width, "height": height})
             time.sleep(0.3)
@@ -2421,8 +2456,6 @@ def s_linked_view(r: Run) -> None:
                 problems.append(f"puce « {chip.inner_text()} » sans « · lié »")
             if cut := _fully_visible(r, "#reset-button"):
                 problems.append(f"« Réinitialiser » {cut}")
-            if (label := page.inner_text("#projection-toggle").strip()) != "Aa":
-                problems.append(f"bouton de projection « {label} » au lieu de « Aa »")
             scroll = page.evaluate(
                 "() => { const s = document.scrollingElement;"
                 " return s.scrollWidth - s.clientWidth; }"
@@ -2459,7 +2492,7 @@ def s_linked_view(r: Run) -> None:
             "visible et dégagée",
             "; ".join(problems),
         )
-    toggle.click()
+    _toggle_projection(page)
     time.sleep(0.3)
     page.keyboard.press("Escape")
     chip.click()
@@ -2467,7 +2500,7 @@ def s_linked_view(r: Run) -> None:
     # to the left: its panel, anchored under it, stays whole in the window.
     for projection_on in (True, False):
         if not projection_on:
-            toggle.click()
+            _toggle_projection(page)
         mode = "mode projection" if projection_on else "mode normal"
         for width, height in ((840, 433), (853, 433), (911, 512)):
             page.set_viewport_size({"width": width, "height": height})
@@ -2480,7 +2513,7 @@ def s_linked_view(r: Run) -> None:
                 "« Fenêtre » entier dans la fenêtre",
                 outside or f"{chips} puce(s) de volet masqué",
             )
-    toggle.click()
+    _toggle_projection(page)
     time.sleep(0.3)
     page.set_viewport_size({"width": 1600, "height": 1000})
     time.sleep(0.3)
@@ -2500,7 +2533,7 @@ def s_linked_view(r: Run) -> None:
         "après Réinitialiser : le bilan dit qu'aucun tour n'est affiché",
         page.inner_text("#schema-outbound"),
     )
-    toggle.click()
+    _toggle_projection(page)
     time.sleep(0.3)
     on, size, pressed = projection()
     r.check(
@@ -2562,7 +2595,7 @@ def s_h5(r: Run) -> None:
     r.check(
         bool(results) and results[-1]["status"] == "error",
         "autorisé : l'échec réseau est expliqué",
-        (results[-1].get("error_fr") or "")[:200] if results else "",
+        (results[-1].get("error_text") or "")[:200] if results else "",
     )
     # A reload while the turn waits: the card comes back (AD-1); « Arrêter » cancels it.
     asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
@@ -2614,9 +2647,9 @@ def s_mcp_full(r: Run) -> None:
     )
     dg = ends.get("datagouv", {})
     r.check(
-        dg.get("status") == "error" and bool(dg.get("error_fr")),
+        dg.get("status") == "error" and bool(dg.get("error_text")),
         "data.gouv.fr injoignable : échec expliqué",
-        (dg.get("error_fr") or str(dg))[:300],
+        (dg.get("error_text") or str(dg))[:300],
     )
     gauge = r.page.locator("#gauge-figures").inner_text()
     seq = r.ev.mark()
@@ -3261,7 +3294,7 @@ def s_programme(r: Run) -> None:
     a module launched directly has the previous modules' bricks (CAP-40)."""
     content = _scenarios_yaml()
     expected = [
-        [f"Module {i} · {m['title_fr']} · {m['duration_min']} min", m["scenarios"]]
+        [f"Module {i} · {m['title_text']} · {m['duration_min']} min", m["scenarios"]]
         for i, m in enumerate(content["program"], start=1)
     ] + [["Transverses et métier", content["transverse"]]]
     read = (
@@ -3454,16 +3487,16 @@ def _public_server_offline(r: Run, server: str, label: str, seq: int | None = No
         ends = {e["payload"]["server"]: e["payload"] for e in r.ev.since(0, "mcp_connect_ended")}
         ended = ends.get(server, {})
     r.check(
-        ended.get("status") == "error" and bool(ended.get("error_fr")),
+        ended.get("status") == "error" and bool(ended.get("error_text")),
         f"{label} injoignable sans réseau : échec expliqué",
-        (ended.get("error_fr") or str(ended))[:200],
+        (ended.get("error_text") or str(ended))[:200],
     )
     arch = r.state()["architecture_changed"]
     drawn = next((n for n in arch["nodes"] if n["id"] == f"mcp.{server}"), {})
     r.check(
         drawn.get("hosting") == "network" and drawn.get("available") is False,
         f"schéma : {label} dessiné dans la zone Réseau, indisponible",
-        str({k: drawn.get(k) for k in ("hosting", "available", "reason_fr")})[:200],
+        str({k: drawn.get(k) for k in ("hosting", "available", "reason_text")})[:200],
     )
     zone = r.page.locator("#schema .arch-zone-network")
     r.check(label in zone.inner_text(), f"le nœud {label} est dans la zone Réseau du schéma")
@@ -3860,10 +3893,10 @@ def s_rag(r: Run) -> None:
     row = card.locator("label.brick-option:has(input[data-focus-key='option:rag:rerank'])")
     r.check(
         rerank.is_disabled()
-        and row.get_attribute("title") == rag["reason_fr"]
-        and rerank.get_attribute("aria-description") == rag["reason_fr"],
+        and row.get_attribute("title") == rag["reason_text"]
+        and rerank.get_attribute("aria-description") == rag["reason_text"],
         "RAG voulue mais indisponible : « Reranking » désactivé, raison de la brique au survol",
-        f"« {row.get_attribute('title')} » · raison « {rag['reason_fr']} »",
+        f"« {row.get_attribute('title')} » · raison « {rag['reason_text']} »",
     )
 
     # The file is not served yet: the download fails, explained on the card.
@@ -3872,7 +3905,7 @@ def s_rag(r: Run) -> None:
     r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
     error = r.ev.wait("harness_error", seq, timeout=20)
     r.ev.wait("session_state", seq, lambda p: p["state"] == "idle", 20)
-    effect = error["payload"].get("effect_fr") or ""
+    effect = error["payload"].get("effect_text") or ""
     r.check(
         "copiez le fichier à la main dans" in effect and error.get("brick") == "rag",
         "échec du téléchargement : harness_error, avec le dossier où copier le fichier",
@@ -3933,9 +3966,9 @@ def s_rag(r: Run) -> None:
     nodes = {n["id"]: n for n in r.state()["architecture_changed"]["nodes"]}
     index = nodes.get("file.rag_index") or {}
     r.check(
-        index.get("kind") == "file" and f"{chunks} extraits" in (index.get("detail_fr") or ""),
+        index.get("kind") == "file" and f"{chunks} extraits" in (index.get("detail_text") or ""),
         "schéma : le fichier d'index, local, avec son nombre d'extraits",
-        str(index.get("detail_fr"))[:200],
+        str(index.get("detail_text"))[:200],
     )
     chip = r.page.locator('#schema .arch-chip[data-component="rag.retriever"]')
     r.check(
@@ -4080,9 +4113,9 @@ def s_rag_rerank(r: Run) -> None:
         s for m in program["modules"] for s in m["scenarios"] if s["id"] == "rag_rerank"
     )
     r.check(
-        scenario["prompts"][0] == RERANK_QUESTION and "{" not in scenario["description_fr"],
+        scenario["prompts"][0] == RERANK_QUESTION and "{" not in scenario["description_text"],
         "le premier prompt du scénario est celui que le parcours joue ; consigne chiffrée",
-        scenario["description_fr"][:160],
+        scenario["description_text"][:160],
     )
     card = r.card("RAG")
     toggle = card.locator('input[data-focus-key="option:rag:rerank"]')
@@ -4285,7 +4318,7 @@ def s_compression(r: Run) -> None:
         "compression : RAG non voulu, la consigne donne le préréglage de secours (story 27)",
     )
     brick = r.bricks()["compression"]
-    reason = brick.get("reason_fr") or ""
+    reason = brick.get("reason_text") or ""
     if not brick["available"] and "uv sync --extra compression" in reason:
         # headroom-ai absent (the `compression` extra, or `--no-headroom`): a clean skip.
         text = r.card("Compression").inner_text()
@@ -4364,7 +4397,7 @@ def s_compression(r: Run) -> None:
         and tool_items[0]["changed"]
         and error_line in tool_items[0]["text_after"],
         "le résultat de read_file est compressé, l'erreur gardée",
-        str([(i["source_fr"], i["tokens_before"], i["tokens_after"]) for i in tool_items]),
+        str([(i["source_text"], i["tokens_before"], i["tokens_after"]) for i in tool_items]),
     )
     rag_items = [i for e in done for i in e["payload"]["items"] if i["kind"] == "rag_excerpt"]
     r.check(not rag_items, "aucun extrait RAG parmi les candidats", f"{len(rag_items)} extraits")
@@ -4478,7 +4511,7 @@ def s_compression(r: Run) -> None:
     r.check(
         ended["payload"]["status"] == "completed" and bool(prose) and not prose[0]["changed"],
         "de la prose (le guide du harnais) passe inchangée : la limite de Headroom",
-        str([(i["source_fr"], i["tokens_before"], i["changed"]) for i in prose])[:200],
+        str([(i["source_text"], i["tokens_before"], i["changed"]) for i in prose])[:200],
     )
     r.show_forced(False)
 
@@ -4664,6 +4697,7 @@ def _html_lang(r: Run) -> str:
 def _pick_language(r: Run, language: str) -> None:
     """Choose `language` in the picker: the intention is accepted, then the page reloads."""
     seq = r.ev.mark()
+    _open_display(r.page)  # languages (2/5): the picker is in « Affichage ▾ »
     with r.page.expect_navigation(timeout=15_000):
         r.page.select_option("#language-picker", language)
     r.ev.wait("language_changed", seq, lambda p: p["language"] == language, timeout=15)
@@ -4794,6 +4828,738 @@ def _language(r: Run) -> None:
         system[:120],
     )
     _clear_conversation(r)
+
+
+# ---------- languages (2/5): the main screen in English and in German ----------
+
+_UI_VAR = re.compile(r"\{\w+\}")
+
+
+def _ui_leaves(tree: dict[str, Any], prefix: str = "") -> dict[str, str]:
+    found: dict[str, str] = {}
+    for key, value in tree.items():
+        if isinstance(value, dict):
+            found |= _ui_leaves(value, f"{prefix}{key}.")
+        else:
+            found[prefix + key] = value
+    return found
+
+
+def _ui_catalogue(lang: str) -> dict[str, str]:
+    import yaml
+
+    rel = "content/ui.yaml" if lang == "fr" else f"content/i18n/{lang}/ui.yaml"
+    return _ui_leaves(yaml.safe_load((REPO / rel).read_text(encoding="utf-8")))
+
+
+def _french_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
+    """The French values of `common` and `main` whose `lang` value differs: a text without
+    variable as itself, a text with variables as a pattern (each variable any text), kept
+    only when its fixed words say something (six letters at least)."""
+    french, translated = _ui_catalogue("fr"), _ui_catalogue(lang)
+    patterns = []
+    for key, value in french.items():
+        if translated.get(key) == value:
+            continue  # « Tokens », « RAG », « Skills »… : the same in both languages
+        fixed = _UI_VAR.sub("", value)
+        if len(re.findall(r"[^\W\d_]", fixed)) < 6:
+            continue
+        parts = [re.escape(part) for part in _UI_VAR.split(value)]
+        patterns.append((key, re.compile(".+?".join(parts), re.S)))
+    return patterns
+
+
+def _backend_strings(r: Run) -> set[str]:
+    """Every text the session sent (its `*_text` fields stay French until stories 3 and 5):
+    the state and the events seen, as whole strings."""
+    found: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            found.add(value.strip())
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(r.state())
+    walk([e.get("payload") for e in r.ev.items])
+    return found
+
+
+_VISIBLE_TEXTS_JS = """() => {
+  const texts = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n.data.trim();
+    if (text && n.parentElement.checkVisibility()) texts.push(['texte', text]);
+  }
+  for (const e of document.querySelectorAll('[title], [aria-label], [placeholder]')) {
+    if (!e.checkVisibility() && !e.closest('.top-bar')) continue;
+    for (const a of ['title', 'aria-label', 'placeholder']) {
+      const v = e.getAttribute(a);
+      if (v && v.trim()) texts.push([a, v.trim()]);
+    }
+  }
+  return texts;
+}"""
+
+
+def _french_left(r: Run, lang: str) -> list[str]:
+    """The texts of the page that are a French value of the catalogue (whole texts), what
+    the session sent aside."""
+    backend = _backend_strings(r)
+    # A text that quotes what the session sent (« Sous-agent brick ») is read without it.
+    quoted = sorted((b for b in backend if len(b) >= 4), key=len, reverse=True)
+    patterns = _french_patterns(lang)
+    found = []
+    for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
+        if text in backend:
+            continue
+        for part in quoted:
+            if part in text:
+                text = text.replace(part, "§")
+        for key, pattern in patterns:
+            if pattern.fullmatch(text):
+                found.append(f"{where} « {text[:80]} » ({key})")
+                break
+    return sorted(set(found))
+
+
+def _switch_language(r: Run, lang: str) -> None:
+    r.wait_idle()
+    # The open page would reload itself on `language_changed`, racing `goto_app`: left first.
+    r.page.goto("about:blank")
+    cleared = r.api("POST", "/api/intentions/clear_conversation", {})
+    changed = r.api("POST", "/api/intentions/language", {"language": lang})
+    if cleared.status_code != 200 or changed.status_code != 200:
+        raise RuntimeError(f"langue {lang} : {cleared.status_code} {changed.text[:160]}")
+    r.goto_app()
+    r.wait_idle()
+
+
+def s_ui_language(r: Run) -> None:
+    """Languages (2/5): the main screen in `fr`, `en` then `de`, after a turn. In `en` and
+    `de`: no French text of the catalogue (texts and attributes), `<html lang>`, numbers in
+    the language's format, `t()`'s plurals. In each language, at 1280 and 1600 px, normal and
+    projection mode: the top bar whole on one line, its names readable (about six characters
+    of the scenario, the model's hosting and name, the model picker); captures in German. In
+    German, `/api/ui_texts` unreachable: the HTML's French, `t()` gives its keys. Always ends in
+    French, at rest."""
+    page = r.page
+    try:
+        _ui_language(r)
+    finally:
+        page.unroute("**/api/ui_texts")
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        if page.evaluate("() => document.documentElement.classList.contains('projection')"):
+            _toggle_projection(page)
+        if r.state().get("language") != "fr":
+            r.wait_idle()
+            _switch_language(r, "fr")
+        r.check(r.state()["language"] == "fr", "nettoyage : retour au français")
+
+
+_THOUSANDS = {"en": r"\d,\d{3}", "de": r"\d\.\d{3}"}
+
+# The names of the top bar: the part of each that shows, against its first six characters
+# and « … » in its own font (its globe too, for the hosting chip), or its whole text when
+# shorter. A native list loses its arrow's width (1.25 em) besides its padding.
+_READABLE_NAMES_JS = """() => {
+  const ctx = document.createElement('canvas').getContext('2d');
+  const problems = [];
+  const names = {
+    'sélecteur de scénario': document.getElementById('scenario-picker'),
+    'hébergement du modèle': document.querySelector('#model-indicator > :first-child'),
+    'nom du modèle': document.querySelector('#model-indicator .model-indicator-name'),
+    'sélecteur de modèle': document.getElementById('model-picker'),
+  };
+  for (const [name, e] of Object.entries(names)) {
+    if (!e || !e.checkVisibility()) { problems.push(`${name} absent`); continue; }
+    const cs = getComputedStyle(e);
+    ctx.font = cs.font;
+    const em = parseFloat(cs.fontSize);
+    const padding = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    let shown = e.clientWidth - padding;
+    let text, full;
+    if (e.tagName === 'SELECT') {
+      text = e.options[e.selectedIndex]?.text ?? '';
+      full = ctx.measureText(text).width;
+      shown -= 1.25 * em;
+    } else {
+      text = e.innerText;
+      full = e.scrollWidth - padding;
+    }
+    const before = getComputedStyle(e, '::before').content;
+    const prefix = before && before !== 'none' && before !== 'normal' ? JSON.parse(before) : '';
+    const need = Math.min(full, ctx.measureText(prefix + text.trim().slice(0, 6) + '…').width);
+    if (shown + 1 < need) {
+      const say = `${Math.round(shown)} px visibles sur ${Math.round(need)}`;
+      problems.push(`${name} « ${text.trim()} » : ${say}`);
+    }
+  }
+  // The gauge's figures, whole (not six characters: a figure cut says nothing).
+  const figures = document.getElementById('gauge-figures');
+  if (figures.scrollWidth > figures.clientWidth + 1) {
+    const missing = figures.scrollWidth - figures.clientWidth;
+    problems.push(`chiffres de la jauge « ${figures.textContent} » coupés de ${missing} px`);
+  }
+  return problems;
+}"""
+
+
+def _readable_bar(r: Run, lang: str) -> None:
+    """At 1280 and 1600 px, normal and projection mode: the bar whole, its names readable, the
+    « Affichage ▾ » menu whole; captures in German."""
+    page = r.page
+    system = _ui_catalogue(lang)["common.theme.system"]
+    for width, height in ((1280, 720), (1600, 1000)):
+        page.set_viewport_size({"width": width, "height": height})
+        for projection in (False, True):
+            if projection:
+                _toggle_projection(page)
+            time.sleep(0.4)
+            mode = "projection" if projection else "normal"
+            fits, detail = _bar_fits(r)
+            names = page.evaluate(_READABLE_NAMES_JS)
+            menu = _display_menu_picker(r, system)
+            if not fits or names:  # what each control of the bar takes, to see who to trim
+                detail += " ; " + page.evaluate(
+                    "() => [...document.querySelectorAll('.top-bar > *')]"
+                    ".filter(e => e.checkVisibility())"
+                    ".map(e => `${e.id || e.className} ${Math.round(e.offsetWidth)}`).join(', ')"
+                )
+            r.check(
+                fits and not names and not menu,
+                f"{lang}, {width} × {height}, mode {mode} : barre haute entière sur une ligne, "
+                "scénario, hébergement et nom du modèle, sélecteur de modèle lisibles "
+                "(≈ 6 caractères), chiffres de la jauge entiers",
+                f"{detail} ; {names} {menu}",
+            )
+            if lang == "de":
+                r.shot(f"ui-language-de-{width}-{mode}")
+            if projection:
+                _toggle_projection(page)
+    page.set_viewport_size({"width": 1600, "height": 1000})
+
+
+def _ui_plurals(r: Run, lang: str) -> None:
+    """Matrix « Pluriel »: `t()` of the page's `i18n.js`, `count` 1 then 2, on a `.one` /
+    `.other` key: the two forms of the catalogue."""
+    forms = r.page.evaluate(
+        "async () => { const m = await import('/static/i18n.js'); await m.ready;"
+        " return [1, 2].map((count) => m.t('common.count.token', { count })); }"
+    )
+    catalogue = _ui_catalogue(lang)
+    expected = [
+        catalogue["common.count.token.one"].replace("{count}", "1"),
+        catalogue["common.count.token.other"].replace("{count}", "2"),
+    ]
+    r.check(
+        forms == expected and forms[0] != forms[1],
+        f"{lang} : t() choisit .one pour 1 et .other pour 2 (Intl.PluralRules)",
+        f"{forms} / attendu {expected}",
+    )
+
+
+def _ui_route_down(r: Run) -> None:
+    """Matrix « Route injoignable »: `/api/ui_texts` aborted, the page reloaded: the HTML keeps
+    its French, `t()` gives the key and says so in the console. Then the route back."""
+    page = r.page
+    warnings: list[str] = []
+
+    def listener(message: Any) -> None:
+        if message.type == "warning":
+            warnings.append(message.text)
+
+    page.route("**/api/ui_texts", lambda route: route.abort())
+    page.on("console", listener)
+    try:
+        r.reload_app()
+        time.sleep(0.5)
+        send = page.inner_text("#composer-send")
+        french = _ui_catalogue("fr")["main.composer.send"]
+        key = page.evaluate("async () => (await import('/static/i18n.js')).t('main.composer.send')")
+        said = [w for w in warnings if w.startswith("i18n :")]
+        r.check(
+            send == french and key == "main.composer.send" and _html_lang(r) == "fr" and said,
+            "route /api/ui_texts injoignable : le HTML garde son français, t() rend la clé, "
+            "la console le signale",
+            f"« {send} » · t() = {key} · lang={_html_lang(r)} · {said[:2]}",
+        )
+    finally:
+        page.remove_listener("console", listener)
+        page.unroute("**/api/ui_texts")
+        r.reload_app()
+    r.check(
+        page.inner_text("#composer-send") == _ui_catalogue("de")["main.composer.send"],
+        "route rétablie : la page revient en allemand",
+    )
+
+
+def _ui_language(r: Run) -> None:
+    page = r.page
+    for lang in ("fr", "en", "de"):
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        _switch_language(r, lang)
+        r.launch("native_tools")
+        r.send({"fr": "Bonjour", "en": "Hello", "de": "Hallo"}[lang])
+        r.wait_idle()
+        time.sleep(0.5)
+        if lang != "fr":
+            _open_display(page)
+            left = _french_left(r, lang)
+            _close_display(page)
+            figures = page.inner_text("#gauge-figures")
+            r.check(
+                not left,
+                f"{lang} : aucun texte français du catalogue à l'écran (textes, title, "
+                "aria-label, placeholder), après un tour",
+                "; ".join(left[:12]),
+            )
+            r.check(
+                _html_lang(r) == lang and re.search(_THOUSANDS[lang], figures) is not None,
+                f"{lang} : <html lang={lang}>, nombres au format de la langue",
+                f"lang={_html_lang(r)} · {figures}",
+            )
+            _ui_plurals(r, lang)
+        _readable_bar(r, lang)
+    r.shot_element("ui-language-de-barre", ".top-bar")
+    _ui_route_down(r)
+
+
+def _content(lang: str, rel: str) -> Any:
+    """`content/{rel}` in `lang` (its translation, else the French file)."""
+    import yaml
+
+    translated = REPO / "content" / "i18n" / lang / rel
+    path = translated if lang != "fr" and translated.is_file() else REPO / "content" / rel
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _demo_text(lang: str, rel: str) -> str:
+    translated = REPO / "content" / "i18n" / lang / "demo_files" / rel
+    path = (
+        translated
+        if lang != "fr" and translated.is_file()
+        else REPO / "content" / "demo_files" / rel
+    )
+    return path.read_text(encoding="utf-8")
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _paragraphs(brick: dict[str, Any]) -> list[str]:
+    """A brick's explanation, each paragraph and each bullet, as the page shows them."""
+    return [
+        _flat(item)
+        for block in brick["explanation_text"]
+        for item in (block if isinstance(block, list) else [block])
+    ]
+
+
+def s_content_language(r: Run) -> None:
+    """Languages (3/5): in `en` then `de`, `native_tools` launched: its title, instructions and
+    prompts, the Tools brick's explanation, all of the language and no French value of the
+    scope that differs; a forced `read_file` (preset) reads the translated demonstration file,
+    shown in Orchestration; in German, H1 refuses `confidentiel/`. Captures in German at 1280
+    and 1600 px, normal and projection mode. Always ends in French, at rest."""
+    page = r.page
+    try:
+        for lang in ("en", "de"):
+            _content_language(r, lang)
+    finally:
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        if page.evaluate("() => document.documentElement.classList.contains('projection')"):
+            _toggle_projection(page)
+        # What the slice turned on, turned off again; a failure here never masks its result.
+        try:
+            r.wait_idle()
+            r.api("POST", "/api/intentions/brick", {"brick": "hooks", "wanted": False})
+        except Exception as exc:  # noqa: BLE001 - cleaning up only
+            print(f"  nettoyage : brique Hooks non éteinte ({exc})")
+        try:
+            r.show_forced(False)
+        except Exception as exc:  # noqa: BLE001 - cleaning up only
+            print(f"  nettoyage : actions forcées non masquées ({exc})")
+        if r.state().get("language") != "fr":
+            r.wait_idle()
+            _switch_language(r, "fr")
+        r.check(r.state()["language"] == "fr", "nettoyage : retour au français")
+
+
+def _content_language(r: Run, lang: str) -> None:
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    _switch_language(r, lang)
+    r.launch("native_tools")
+    time.sleep(0.5)
+    scenario = _content(lang, "scenarios.yaml")["scenarios"]["native_tools"]
+    french = _content("fr", "scenarios.yaml")["scenarios"]["native_tools"]
+    brick, french_brick = _content(lang, "bricks/tools.yaml"), _content("fr", "bricks/tools.yaml")
+
+    # The scenario: its title in the picker, its instructions, its prompts.
+    title = page.locator("#scenario-picker option:checked").inner_text()
+    guide = _flat(page.locator("#scenario-guide-text").text_content() or "")
+    prompts = page.locator("#suggested-prompts button").all_inner_texts()
+    r.check(
+        scenario["title_text"] in title
+        and guide.endswith(_flat(scenario["description_text"]))
+        and [_flat(p) for p in prompts] == [_flat(p) for p in scenario["prompts"]],
+        f"{lang} : titre, consigne et prompts suggérés de native_tools dans la langue",
+        f"« {title} » · « {guide[:80]} » · {prompts}",
+    )
+
+    # The Tools brick's explanation, opened from its « ? ».
+    r.card(brick["label_text"]).locator(".brick-help").click()
+    explain = page.locator("#explain-tools")
+    expect(explain).to_be_visible(timeout=5000)
+    shown = _flat(explain.inner_text())
+    missing = [p[:60] for p in _paragraphs(brick) if p not in shown]
+    r.check(
+        not missing,
+        f"{lang} : l'aide de la brique {brick['label_text']} est celle de la langue",
+        f"absents : {missing}",
+    )
+    if lang == "de":
+        for width, height in ((1280, 720), (1600, 1000)):
+            page.set_viewport_size({"width": width, "height": height})
+            for projection in (False, True):
+                if projection:
+                    _toggle_projection(page)
+                    r.card(brick["label_text"]).locator(".brick-help").click()
+                    expect(explain).to_be_visible(timeout=5000)
+                time.sleep(0.4)
+                mode = "projection" if projection else "normal"
+                r.shot(f"content-language-de-{width}-{mode}")
+                if projection:
+                    page.keyboard.press("Escape")
+                    _toggle_projection(page)
+        page.set_viewport_size({"width": 1600, "height": 1000})
+    page.keyboard.press("Escape")
+
+    # No French value of the scope that differs from its translation.
+    body = _flat(page.locator("body").inner_text())
+    french_values = [french["title_text"], french["description_text"], *french["prompts"]]
+    french_values += _paragraphs(french_brick) + [french_brick["label_text"]]
+    translated = {
+        _flat(v) for v in [*scenario.values(), *scenario["prompts"]] if isinstance(v, str)
+    }
+    translated |= set(_paragraphs(brick)) | {brick["label_text"]}
+    left = [
+        _flat(v)[:60]
+        for v in french_values
+        if _flat(v) not in translated
+        and (_flat(v) in body if len(_flat(v)) > 12 else f" {_flat(v)} " in f" {body} ")
+    ]
+    r.check(not left, f"{lang} : aucune valeur française du périmètre à l'écran", f"{left}")
+
+    # A forced `read_file` on a preset: the translated demonstration file, in Orchestration.
+    tools = _content(lang, "tools.yaml")["tools"]["read_file"]
+    notes = next(p for p in tools["presets"] if p["args"]["path"] == "notes_reunion.txt")
+    ended = _forced_read(r, brick["label_text"], notes["label_text"], lang)
+    expected = _demo_text(lang, "notes_reunion.txt")
+    first = next(line for line in expected.splitlines() if line.strip())
+    step = page.locator("#orch-scroll .turn-step").filter(
+        has_text=re.compile(f"read_file|{re.escape(tools['label_text'])}")
+    )
+    if not step.last.locator(".turn-step-body").count():
+        step.last.locator(".turn-step-line").click()
+    time.sleep(0.3)
+    orch = _flat(step.last.text_content() or "")
+    r.check(
+        bool(ended)
+        and ended[-1]["status"] == "ok"
+        and ended[-1]["result"].strip() == expected.strip()
+        and expected != _demo_text("fr", "notes_reunion.txt"),
+        f"{lang} : read_file forcé (préréglage « {notes['label_text']} ») lit le fichier traduit",
+        str(ended[-1] if ended else None)[:200],
+    )
+    r.check(
+        _flat(first) in orch,
+        f"{lang} : Orchestration montre le contenu traduit",
+        "" if _flat(first) in orch else f"« {first[:60]} » absent",
+    )
+
+    # German: H1 refuses `confidentiel/`, as in French.
+    if lang == "de":
+        seq = r.ev.mark()
+        r.api("POST", "/api/intentions/brick", {"brick": "hooks", "wanted": True})
+        r.ev.wait("bricks_changed", seq, timeout=10)
+        secret = next(
+            p for p in tools["presets"] if p["args"]["path"] == "confidentiel/budget_projet.txt"
+        )
+        seq = r.ev.mark()
+        _forced_read(r, brick["label_text"], secret["label_text"], lang)
+        decided = [e["payload"] for e in r.ev.since(seq, "hook_decided")]
+        r.check(
+            any(d["hook"] == "h1" and d["decision"] == "block" for d in decided)
+            and not r.ev.since(seq, "tool_ended"),
+            "de : H1 refuse confidentiel/budget_projet.txt (préréglage "
+            f"« {secret['label_text']} »)",
+            str([(d["hook"], d["decision"]) for d in decided]),
+        )
+
+
+def _forced_read(r: Run, tools_card: str, preset: str, lang: str) -> list[dict[str, Any]]:
+    """Arms `read_file` with `preset` (its button and the form's « Armer » found by their
+    role, whatever the language), sends a prompt; returns this turn's `tool_ended`."""
+    page = r.page
+    r.show_forced(True)
+    r.open_options(tools_card)
+    seq = r.ev.mark()
+    button = page.locator('[data-focus-key="force:tools:read_file"]')
+    if button.get_attribute("aria-expanded") != "true":
+        button.click()
+    form = page.locator(".force-form")
+    expect(form).to_be_visible(timeout=5000)
+    form.locator("select").first.select_option(label=preset)
+    form.locator("button.force-arm").click()
+    r.ev.wait("armed_actions_changed", seq, lambda p: bool(p["actions"]), timeout=10)
+    seq = r.ev.mark()
+    r.send({"en": "Read this file.", "de": "Lies diese Datei."}[lang])
+    r.wait_idle()
+    time.sleep(0.5)
+    return [e["payload"] for e in r.ev.since(seq, "tool_ended")]
+
+
+# ---------- languages (4/5): the workshops, the annex pages and the RAG in the language ----------
+
+ANNEX_PAGES = ("llm", "rag", "diagnostic", "models")
+ANNEX_QUESTIONS = {
+    "en": "How many characters must a password have at least at Exemplia?",
+    "de": "Wie viele Zeichen muss ein Passwort bei Exemplia mindestens haben?",
+}
+
+
+def _yaml_leaves(tree: Any, prefix: str = "") -> dict[str, str]:
+    """The texts of a YAML tree, by dotted key (numbers and lists aside)."""
+    found: dict[str, str] = {}
+    if isinstance(tree, dict):
+        for key, value in tree.items():
+            found |= _yaml_leaves(value, f"{prefix}{key}.")
+    elif isinstance(tree, str):
+        found[prefix.rstrip(".")] = " ".join(tree.split())
+    return found
+
+
+def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
+    """The French values of the story's scope whose `lang` value differs: the sections
+    `common`, `llm`, `rag`, `diagnostic` and `models` of `ui.yaml`, and the workshops'
+    `llm_lab.yaml` and `rag_lab.yaml`. As `_french_patterns`: a variable is any text, and
+    only fixed words of six letters at least say something."""
+    french, translated = {}, {}
+    for key, value in _ui_catalogue("fr").items():
+        if key.split(".")[0] in ("common", *ANNEX_PAGES):
+            french[f"ui.{key}"] = " ".join(value.split())
+    for key, value in _ui_catalogue(lang).items():
+        translated[f"ui.{key}"] = " ".join(value.split())
+    for rel in ("llm_lab.yaml", "rag_lab.yaml"):
+        french |= {f"{rel}:{k}": v for k, v in _yaml_leaves(_content("fr", rel)).items()}
+        translated |= {f"{rel}:{k}": v for k, v in _yaml_leaves(_content(lang, rel)).items()}
+    patterns = []
+    for key, value in french.items():
+        if translated.get(key) == value:
+            continue
+        if len(re.findall(r"[^\W\d_]", _UI_VAR.sub("", value))) < 6:
+            continue
+        parts = [re.escape(part) for part in _UI_VAR.split(value)]
+        patterns.append((key, re.compile(".+?".join(parts), re.S)))
+    return patterns
+
+
+def _annex_backend(r: Run) -> set[str]:
+    """What the session sent, as whole strings (its messages stay French until story 5):
+    the state, the events, and the pages' own routes."""
+    found = _backend_strings(r)
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            found.add(" ".join(value.split()))
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    for route in ("/api/llm_lab", "/api/rag_lab", "/api/diagnostic"):
+        walk(r.api("GET", route).json())
+    return found
+
+
+def _annex_french_left(r: Run, lang: str) -> list[str]:
+    backend = _annex_backend(r)
+    quoted = sorted((b for b in backend if len(b) >= 4), key=len, reverse=True)
+    patterns = _annex_patterns(lang)
+    found = []
+    for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
+        text = " ".join(text.split())
+        if text in backend:
+            continue
+        for part in quoted:
+            if part in text:
+                text = text.replace(part, "§")
+        for key, pattern in patterns:
+            if pattern.fullmatch(text):
+                found.append(f"{where} « {text[:80]} » ({key})")
+                break
+    return sorted(set(found))
+
+
+def _goto_annex(r: Run, name: str) -> None:
+    """An annex page, once it rendered in the session's language."""
+    page = r.page
+    if name == "llm":
+        _goto_lab(r)
+    elif name == "rag":
+        _goto_rag_lab(r)
+    elif name == "diagnostic":
+        page.goto(f"{r.stack.app_url}/diagnostic")
+        expect(page.locator("#cloud-models li").first).to_be_visible(timeout=20_000)
+    else:
+        page.goto(f"{r.stack.app_url}/models")
+        expect(page.locator("#models-table tbody").first).to_be_attached(timeout=20_000)
+    time.sleep(0.5)
+
+
+def _annex_page(r: Run, lang: str, name: str) -> None:
+    _goto_annex(r, name)
+    left = _annex_french_left(r, lang)
+    r.check(
+        not left and _html_lang(r) == lang,
+        f"{lang} : /{name} sans texte français du catalogue (ui.yaml, ateliers), "
+        f"<html lang={lang}>",
+        f"lang={_html_lang(r)} · " + "; ".join(left[:10]),
+    )
+
+
+def _titles(lang: str) -> set[str]:
+    return {d["title_text"] for d in _content(lang, "rag.yaml")["documents"]}
+
+
+def _annex_rag_turn(r: Run) -> None:
+    """German: the index built from the card (the fake embedding model, the shipped index
+    being Granite's), then a RAG turn whose excerpts are German, titles included."""
+    lang = "de"
+    rag_texts = _content(lang, "rag.yaml")
+    brick = _content(lang, "bricks/rag.yaml")["label_text"]
+    r.launch("rag")
+    rag = r.bricks()["rag"]
+    if rag.get("download") is not None:  # alone: the fake model's file, served first
+        httpx.post(f"{r.stack.fake_url}/_e2e/model_ready", timeout=5, trust_env=False)
+        seq = r.ev.mark()
+        r.api("POST", "/api/intentions/download_model", {"target": rag["download"]["target"]})
+        r.ev.wait(
+            "bricks_changed",
+            seq,
+            lambda p: (
+                next(b for b in p["bricks"] if b["id"] == "rag").get("build_index") is not None
+            ),
+            30,
+        )
+        r.wait_idle()
+    card = r.card(brick)
+    build = card.get_by_role("button", name=rag_texts["build_label_text"])
+    expect(build).to_be_visible(timeout=10_000)
+    target = r.stack.data_dir / "rag_index.de.sqlite"
+    r.check(
+        not target.exists() and "rag_index.de.sqlite" in card.inner_text(),
+        "de : index allemand absent, « Construire l'index » proposé dans la langue",
+        card.inner_text()[:200],
+    )
+    seq = r.ev.mark()
+    build.click()
+    r.ev.wait(
+        "bricks_changed",
+        seq,
+        lambda p: next(b for b in p["bricks"] if b["id"] == "rag")["available"],
+        60,
+    )
+    r.check(target.is_file(), "de : la carte construit data/rag_index.de.sqlite", str(target))
+    r.wait_idle()
+    seq = r.ev.mark()
+    ended = r.send(ANNEX_QUESTIONS[lang])
+    searched = r.ev.since(seq, "rag_search_ended")
+    body = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
+    first = re.search(r"Auszug 1 — ([^:\n]+):", body)
+    french = sorted(t for t in _titles("fr") if t in body)
+    r.check(
+        ended["payload"]["status"] == "completed"
+        and len(searched) == 1
+        and first is not None
+        and first.group(1) in _titles(lang)
+        and not french,
+        "de : tour RAG, « Auszug 1 — » et un titre allemand dans le corps envoyé, aucun titre "
+        "français",
+        f"{first.group(0) if first else None} · titres français : {french}",
+    )
+
+
+def _annex_rag_lab(r: Run) -> None:
+    """German: a run of the RAG workshop, its excerpts and their titles German."""
+    lang = "de"
+    _goto_rag_lab(r)
+    question = _content(lang, "rag_lab.yaml")["default_question_text"]
+    ended, seq = _rag_lab_run(r, question)
+    items = [
+        item
+        for e in r.ev.since(seq, "rag_lab_stage_ended")
+        for item in e["payload"].get("items") or []
+    ]
+    titles = {item["title_text"] for item in items}
+    r.check(
+        ended["payload"]["status"] != "error"
+        and bool(items)
+        and titles <= _titles(lang)
+        and not titles & _titles("fr"),
+        "de : une chaîne de l'atelier RAG, ses extraits et leurs titres allemands",
+        f"{ended['payload']['status']} · {sorted(titles)}",
+    )
+    time.sleep(0.5)
+
+
+def s_annex_language(r: Run) -> None:
+    """Languages (4/5): in `en` then `de`, « LLM nu », the RAG workshop, the diagnostic and
+    the models page: no French text of the story's catalogue (ui.yaml's sections, the
+    workshops' files), `<html lang>`. In German: the index built from the RAG card, a RAG
+    turn sending German excerpts and titles, a workshop run; captures at 1280 and 1600 px
+    (no projection mode outside `/`). Always ends in French, at rest, the RAG brick off."""
+    page = r.page
+    try:
+        for lang in ("en", "de"):
+            page.set_viewport_size({"width": 1600, "height": 1000})
+            r.goto_app()  # an annex page does not replay the journal
+            _switch_language(r, lang)
+            if lang == "de":
+                _annex_rag_turn(r)
+                _annex_rag_lab(r)
+            for name in ANNEX_PAGES:
+                _annex_page(r, lang, name)
+                if lang == "de":
+                    for width, height in ((1280, 720), (1600, 1000)):
+                        page.set_viewport_size({"width": width, "height": height})
+                        time.sleep(0.4)
+                        r.shot(f"annex-language-de-{name}-{width}")
+                    page.set_viewport_size({"width": 1600, "height": 1000})
+    finally:
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        try:
+            r.goto_app()
+            r.wait_idle()
+            r.api("POST", "/api/intentions/brick", {"brick": "rag", "wanted": False})
+        except Exception as exc:  # noqa: BLE001 - cleaning up only
+            print(f"  nettoyage : brique RAG non éteinte ({exc})")
+        if r.state().get("language") != "fr":
+            _switch_language(r, "fr")
+        r.check(
+            r.state()["language"] == "fr" and not r.bricks()["rag"]["wanted"],
+            "nettoyage : retour au français, brique RAG éteinte",
+        )
 
 
 def _first_turn_after(r: Run, gesture: str, turn_id: str) -> None:
@@ -5012,9 +5778,9 @@ def s_model_switch(r: Run) -> None:
     ended = r.ev.wait("model_load_ended", seq, timeout=30)["payload"]
     r.check(
         ended["status"] == "cancelled"
-        and ended["reason_fr"] == "Chargement arrêté : wavestack-fake est de nouveau actif.",
+        and ended["reason_text"] == "Chargement arrêté : wavestack-fake est de nouveau actif.",
         "« Arrêter » : chargement arrêté, le modèle précédent est de nouveau actif",
-        f"{ended['status']} · {ended['reason_fr']}",
+        f"{ended['status']} · {ended['reason_text']}",
     )
     ok = True
     try:
@@ -5105,10 +5871,10 @@ def _slow_probe_stopped(r: Run) -> None:
         )
         r.check(
             ended["status"] == "cancelled"
-            and ended["reason_fr"] == "Chargement arrêté : wavestack-fake est de nouveau actif."
+            and ended["reason_text"] == "Chargement arrêté : wavestack-fake est de nouveau actif."
             and elapsed < 3,
             "« Arrêter » pendant la sonde : arrêt en moins de 3 s, modèle précédent rétabli",
-            f"{ended['status']} · {ended['reason_fr']} · {elapsed:.1f} s",
+            f"{ended['status']} · {ended['reason_text']} · {elapsed:.1f} s",
         )
         active = r.state()["active_model"] or {}
         r.check(active.get("ref") == MODEL_ENTRY_ID, "le modèle précédent est actif", str(active))
@@ -6105,7 +6871,7 @@ def _session_footprint(r: Run, what: str) -> None:
             page.set_viewport_size({"width": width, "height": height})
             for projection in (False, True):
                 if projection:
-                    toggle.click()
+                    _toggle_projection(page)
                 time.sleep(0.3)
                 ok, detail = _bar_fits(r)
                 mode = "mode projection" if projection else "mode normal"
@@ -6118,10 +6884,10 @@ def _session_footprint(r: Run, what: str) -> None:
                     detail,
                 )
                 if projection:
-                    toggle.click()
+                    _toggle_projection(page)
     finally:
         if toggle.get_attribute("aria-pressed") == "true":  # never left in projection mode
-            toggle.click()
+            _toggle_projection(page)
         page.set_viewport_size({"width": 1600, "height": 1000})
         time.sleep(0.3)
     if not spend.get("calls"):  # the footprint alone: it fits the widest bar
@@ -6180,7 +6946,7 @@ def _local_footprint(r: Run, calls: list[dict]) -> None:
             "« · » en tête)",
             f"{label!r} · {amounts!r}",
         )
-    notes = [c.get("impact_note_fr") or "" for c in calls]
+    notes = [c.get("impact_note_text") or "" for c in calls]
     text, title = _footprint_line(r)
     if installed:
         r.check(
@@ -6346,9 +7112,8 @@ def s_llm_screen(r: Run) -> None:
     finally:
         if page.url.rstrip("/").endswith("/llm") or not page.url.startswith(r.stack.app_url):
             r.goto_app()
-        picker = page.locator("#theme-picker")
-        if picker.count():
-            picker.select_option("system")
+        if page.locator("#theme-picker").count():
+            _pick_theme(page, "system")
         if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
             _pick_model(r, A_LABEL)
 
@@ -6358,7 +7123,11 @@ def _llm_screen(r: Run) -> None:
     # (1) The link, whole in the top bar, which stays on one line.
     link = page.locator("#llm-link")
     r.check(
-        link.is_visible() and link.inner_text() == "LLM nu" and not _fully_visible(r, "#llm-link"),
+        link.is_visible()
+        # Languages (2/5): « LLM » under 1 700 px, its accessible name whole.
+        and link.inner_text() in ("LLM nu", "LLM")
+        and link.get_attribute("aria-label") == "LLM nu"
+        and not _fully_visible(r, "#llm-link"),
         "barre haute : lien « LLM nu » visible et entier",
         _fully_visible(r, "#llm-link"),
     )
@@ -6366,7 +7135,7 @@ def _llm_screen(r: Run) -> None:
     r.check(ok, "barre haute : toutes les commandes entières, sur une ligne, à 1600 × 1000", detail)
 
     # (2) The workshop's theme applies on /llm.
-    page.select_option("#theme-picker", "dark")
+    _pick_theme(page, "dark")
     link.click()
     page.wait_for_url("**/llm")
     expect(page.locator("body[data-lab-ready]")).to_be_attached(timeout=10_000)
@@ -6398,7 +7167,7 @@ def _llm_screen(r: Run) -> None:
         f"{info} · {counts}",
     )
     dark = _contrast_sweep(r, ["main"])
-    page.select_option("#theme-picker", "system")
+    _pick_theme(page, "system")
 
     # (3b) A workshop turn running: « Générer » disabled with the reason, a direct call 409.
     seq = r.ev.mark()
@@ -6722,9 +7491,8 @@ def s_rag_lab(r: Run) -> None:
         _rag_lab(r, errors)
     finally:
         page.remove_listener("pageerror", listener)
-        picker = page.locator("#theme-picker")
-        if picker.count():
-            picker.select_option("system")
+        if page.locator("#theme-picker").count():
+            _pick_theme(page, "system")
         r.goto_app()
 
 
@@ -6736,7 +7504,9 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     link = page.locator("#rag-link")
     r.check(
         link.is_visible()
-        and link.inner_text() == "Atelier RAG"
+        # Languages (2/5): « RAG » under 1 700 px, its accessible name whole.
+        and link.inner_text() in ("Atelier RAG", "RAG")
+        and link.get_attribute("aria-label") == "Atelier RAG"
         and link.get_attribute("href") == "/rag"
         and not _fully_visible(r, "#rag-link"),
         "barre haute : lien « Atelier RAG » visible, entier, vers /rag",
@@ -6777,16 +7547,25 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         r.css(generation, "background-color"),
     )
     light = _contrast_sweep(r, ["main", "nav.page-tabs"])
-    page.select_option("#theme-picker", "dark")
+    _pick_theme(page, "dark")
     dark = _contrast_sweep(r, ["main", "nav.page-tabs"])
-    page.select_option("#theme-picker", "system")
+    _pick_theme(page, "system")
     r.check(not light and not dark, "/rag : contrastes AA en clair et en sombre", str(light + dark))
     r.shot("55-atelier-rag-chaine", full_page=True)
 
     # (3) A run on the question: each stage, its excerpts, its duration and its memory.
     page.evaluate(_WATCH_STATUSES_JS)
     ended, seq = _rag_lab_run(r)
-    r.check(ended["payload"]["status"] == "ok", "exécution de la chaîne livrée terminée")
+    failed = [
+        (e["payload"].get("kind"), e["payload"].get("error_text"))
+        for e in r.ev.since(seq, "rag_lab_stage_ended")
+        if e["payload"].get("status") not in ("ok", None)
+    ]
+    r.check(
+        ended["payload"]["status"] == "ok",
+        "exécution de la chaîne livrée terminée",
+        f"{ended['payload'].get('status')} {failed}",
+    )
     started = {e["payload"]["kind"] for e in r.ev.since(seq, "rag_lab_stage_started")}
     r.check(
         started == set(RAG_LAB_STAGES_KINDS[:-1]),
@@ -7020,7 +7799,7 @@ def _rag_lab_alt(r: Run) -> None:
     same = [(i["rank"], i["chunk_id"]) for i in contexts[0]] == [
         (i["rank"], i["chunk_id"]) for i in contexts[1]
     ]
-    facts = {f["label_fr"]: f["value_fr"] for f in first.get("facts", [])}
+    facts = {f["label_text"]: f["value_text"] for f in first.get("facts", [])}
     card = _result_card(r, "vector_store", "b").inner_text()
     r.check(
         status == "ok" and same and len(contexts[0]) == 3,
@@ -7028,12 +7807,12 @@ def _rag_lab_alt(r: Run) -> None:
         str([(i["rank"], i["doc_id"]) for i in contexts[1]]),
     )
     r.check(
-        "construit (29 vecteurs)" in first.get("output_fr", "")
-        and "relu (29 vecteurs)" in second.get("output_fr", "")
+        "construit (29 vecteurs)" in first.get("output_text", "")
+        and "relu (29 vecteurs)" in second.get("output_text", "")
         and facts.get("Import", "").startswith(("premier import : +", "déjà fait"))
         and "premier import" in card.lower(),
         "Base vectorielle de B : « construit », puis « relu », et la mémoire ajoutée à l'import",
-        f"{first.get('output_fr', '')[:80]} · {second.get('output_fr', '')[:60]} · {facts}",
+        f"{first.get('output_text', '')[:80]} · {second.get('output_text', '')[:60]} · {facts}",
     )
     page.locator("#rag-reset-chain").click()
 
@@ -7100,7 +7879,7 @@ def _rag_lab_compare(r: Run) -> None:
     r.check(
         "En commun" in summary
         and ("Écarts de rang" in summary or "Aucun écart de rang" in summary)
-        and comparison.get("summary_fr", "")[:40] in summary,
+        and comparison.get("summary_text", "")[:40] in summary,
         "la synthèse nomme les extraits communs et les écarts de rang",
         summary[:300],
     )
@@ -7116,13 +7895,25 @@ def _rag_lab_compare(r: Run) -> None:
         "relus du cache" in _result_card(r, "embedding", "b").inner_text(),
         "second run : l'Embedding de B dit « relus du cache »",
     )
-    # The chains are remembered by the browser, the comparison too.
+    # The chains are remembered by the browser, the comparison too. Languages (2/5): saved in
+    # the former format, each chain's label named `label_fr`, they are read again.
+    page.evaluate(
+        "() => { const key = 'wavestack.ragLab';"
+        " const saved = JSON.parse(localStorage.getItem(key));"
+        " saved.pipelines = saved.pipelines.map((p, i) => {"
+        " const { label_text: _, ...rest } = p;"
+        " return { label_fr: `Chaîne ${'AB'[i]}`, ...rest }; });"
+        " localStorage.setItem(key, JSON.stringify(saved)); }"
+    )
     page.reload()
     expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
     kept = page.locator('#rag-chain-b [data-kind="chunking"] input[data-param="chunk_max_chars"]')
+    lanes = [page.locator(f"{q} .rag-chain-card").count() for q in ("#rag-chain", "#rag-chain-b")]
     r.check(
-        page.locator("#rag-compare").is_checked() and kept.input_value() == "300",
-        "après rechargement, les chaînes A et B sont gardées (localStorage)",
+        page.locator("#rag-compare").is_checked() and kept.input_value() == "300" and all(lanes),
+        "après rechargement, les chaînes A et B sont gardées (localStorage), relues depuis "
+        "l'ancien format (label_fr)",
+        f"cartes {lanes}",
     )
     # Fewer candidates than excerpts kept: the session's reason on the card (increment 4
     # validates each change), « Lancer » greyed; posted anyway, the 409's reason.
@@ -7198,6 +7989,9 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
     ("language", s_language),
+    ("ui_language", s_ui_language),
+    ("content_language", s_content_language),
+    ("annex_language", s_annex_language),
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),
@@ -7273,7 +8067,7 @@ def main() -> int:
         errors = [e for e in run.earlier_events + run.ev.items if e["kind"] == "harness_error"]
         print(f"\nharness_error émis pendant la séance : {len(errors)}")
         for e in errors:
-            print(f"  - {e['payload']['message_fr'][:200]}")
+            print(f"  - {e['payload']['message_text'][:200]}")
     failed = [x for x in run.results if not x[2]]
     print(
         f"\n{len(run.results) - len(failed)} vérifications réussies, {len(failed)} en échec, "

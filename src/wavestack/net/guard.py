@@ -16,6 +16,9 @@ import sys
 from urllib.parse import urlparse
 from urllib.request import getproxies
 
+# Languages (5/5): `messages` reads `content/messages.yaml` with PyYAML, no network library.
+from wavestack.messages import KeyedError, Message
+
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 # ponytail: an IP learned for an allowed host stays accepted for the whole
@@ -23,8 +26,15 @@ _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 _resolved: set[str] = set()
 
 
-class NetworkBlocked(Exception):
-    """Raised when the network guard refuses a destination."""
+class NetworkBlocked(KeyedError):
+    """Raised when the network guard refuses a destination. Languages (5/5): keyed, placed
+    as a cause in the messages that name it (`tools.network.blocked`…), so it is rendered in
+    their language; a plain text (a test's) is kept verbatim."""
+
+    def __init__(self, text: str | Message) -> None:
+        super().__init__(
+            text if isinstance(text, Message) else Message("common.verbatim", text=text)
+        )
 
 
 def is_loopback(host: str) -> bool:
@@ -88,9 +98,9 @@ def install(allowed_hosts: list[str]) -> None:
             try:
                 host = host.decode("ascii")
             except UnicodeDecodeError:
-                raise NetworkBlocked(f"Hôte réseau non autorisé : {host!r}") from None
+                raise NetworkBlocked(Message("net.host_refused", host=repr(host))) from None
         if host is not None and not is_host_allowed(str(host), allowed_hosts):
-            raise NetworkBlocked(f"Hôte réseau non autorisé : {host}")
+            raise NetworkBlocked(Message("net.host_refused", host=str(host)))
 
     def hook(event: str, args: tuple[object, ...]) -> None:
         if event == "socket.getaddrinfo":
@@ -100,7 +110,7 @@ def install(allowed_hosts: list[str]) -> None:
             if isinstance(sock_address, tuple) and sock_address:
                 host = str(sock_address[0])
                 if host not in _resolved and not is_host_allowed(host, allowed_hosts):
-                    raise NetworkBlocked(f"Adresse réseau non autorisée : {host}")
+                    raise NetworkBlocked(Message("net.address_refused", host=host))
 
     # Module attribute, looked up at call time by `socket.create_connection`
     # and asyncio: wrapping it sees every resolution.

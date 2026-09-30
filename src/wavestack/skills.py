@@ -15,7 +15,7 @@ _FRONT_MATTER = re.compile(r"---\n(.*?)\n---\n(.*)", re.DOTALL)
 
 class SkillText(BaseModel):
     name: str = Field(min_length=1)  # the id, the one `load_skill` receives
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
     description: str = Field(min_length=1)  # seen by the model, in the catalog
     body: str = Field(min_length=1)  # seen by the model once loaded
 
@@ -23,7 +23,7 @@ class SkillText(BaseModel):
 class LoadSkillText(BaseModel):
     """The harness meta-tool of the brick (AD-25)."""
 
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
     description: str = Field(min_length=1)  # seen by the model, short and fixed
     skill: str = Field(min_length=1)  # the `skill` parameter's description
 

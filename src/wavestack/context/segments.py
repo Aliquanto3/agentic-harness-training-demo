@@ -73,7 +73,7 @@ class Segment(BaseModel):
     text: str
     tokens: int = 0
     estimated: bool = False  # chat mode: tokens estimated, then reconciled (AD-4)
-    label_fr: str | None = None  # a label of its own, else its kind's
+    label_text: str | None = None  # a label of its own, else its kind's
     compressed_from: CompressedFrom | None = None  # story 20 (AD-22)
 
 
@@ -90,7 +90,8 @@ class SegmentLabels(BaseModel):
 
 
 @cache
-def load_labels() -> SegmentLabels:
-    """Read `content/labels/segment_kinds.yaml`. Raises on an invalid file (caller traces it)."""
-    path = config.content_file("labels/segment_kinds.yaml")
+def load_labels(lang: str = config.DEFAULT_LANGUAGE) -> SegmentLabels:
+    """Read `content/labels/segment_kinds.yaml` in `lang` (languages 3/5: the session's,
+    never `settings.json`'s). Raises on an invalid file (caller traces it)."""
+    path = config.content_file("labels/segment_kinds.yaml", lang)
     return SegmentLabels.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))

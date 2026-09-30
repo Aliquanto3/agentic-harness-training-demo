@@ -1,0 +1,13 @@
+# FICTITIOUS DEMONSTRATION DOCUMENT: alerts from an imaginary SIEM, no real data.
+# 10 events from the night of 23 to 24 September 2026, times in UTC (suffix Z).
+# Format: date and time | severity | rule | detail
+2026-09-24T01:30:00Z | INFO | Start of the maintenance window | planned restarts of SRV-FIC-02 and SRV-APP-01, availability alerts muted
+2026-09-24T01:52:10Z | LOW | Out-of-hours sign-in | account j.martin, workstation PC-0412, VPN sign-in from Lyon
+2026-09-24T02:03:44Z | MEDIUM | Repeated authentication failures | account svc-sauvegarde, 12 failures in 2 minutes on SRV-FIC-02
+2026-09-24T02:14:07Z | HIGH | Sign-in from an unusual country | account adm.leroy (administrator), address 203.0.113.45, country never seen for this account
+2026-09-24T02:15:31Z | CRITICAL | Addition to a privileged group | account adm.leroy added to the “Domain Admins” group by adm.leroy
+2026-09-24T02:21:58Z | HIGH | Antivirus disabled | server SRV-FIC-02, protection service stopped by adm.leroy
+2026-09-24T02:40:12Z | MEDIUM | Unusual outbound volume | SRV-FIC-02 to 198.51.100.7, 2.3 GB in 20 minutes
+2026-09-24T03:05:26Z | LOW | Certificate about to expire | intranet.exemplia.test, expires in 12 days
+2026-09-24T05:47:39Z | INFO | Scheduled restart | SRV-APP-01, normal completion
+2026-09-24T06:58:03Z | INFO | End of the maintenance window | availability alerts re-enabled

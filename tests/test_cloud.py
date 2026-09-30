@@ -230,10 +230,10 @@ def test_provider_refusals_become_explained_errors(status, headers, error, fragm
     events = _turn(session, "Bonjour")
 
     harness = _of(events, "harness_error")[0].payload
-    assert fragment in harness["message_fr"] and harness["hints_fr"]
+    assert fragment in harness["message_text"] and harness["hints_text"]
     # Story 11b: the provider's own message ends every refusal, masked.
     masked = error.replace(SENTINEL, "•••")
-    assert harness["message_fr"].endswith(f"Message du fournisseur : {masked}")
+    assert harness["message_text"].endswith(f"Message du fournisseur : {masked}")
     assert harness["http_status"] == status and harness["quota_scope"] == scope
     if status == 429:
         assert harness["retry_after_s"] == 7
@@ -252,7 +252,7 @@ def test_redirect_is_refused_and_the_key_never_follows():
 
     events = _turn(session, "Bonjour")
 
-    assert "Redirection refusée" in _of(events, "harness_error")[0].payload["message_fr"]
+    assert "Redirection refusée" in _of(events, "harness_error")[0].payload["message_text"]
     assert [r.url.host for r in provider.requests] == ["api.groq.com"]
     assert _of(events, "turn_ended")[0].payload["status"] == "error"
 
@@ -302,7 +302,7 @@ def test_tool_use_failed_follows_the_malformed_path():
     assert malformed["raw"] == "<function=get_datetime>"
     # Story 11b: the provider's message, masked, in the detail and in the reinjected text.
     masked = said.replace(SENTINEL, "•••")
-    assert malformed["detail_fr"] == f"le fournisseur a refusé l'appel d'outil : {masked}"
+    assert malformed["detail_text"] == f"le fournisseur a refusé l'appel d'outil : {masked}"
     reinjected = json.loads(provider.requests[1].content)["messages"][-1]
     assert reinjected["role"] == "user" and masked in reinjected["content"]
     assert reinjected["content"].endswith("Corrige l'appel ou réponds sans outil.")
@@ -330,7 +330,7 @@ def test_tool_use_failed_in_the_stream_carries_the_masked_message():
     malformed = _of(events, "tool_call_malformed")[0].payload
     assert malformed["raw"] == "<function=get_datetime>"
     masked = said.replace(SENTINEL, "•••")
-    assert malformed["detail_fr"] == f"le fournisseur a refusé l'appel d'outil : {masked}"
+    assert malformed["detail_text"] == f"le fournisseur a refusé l'appel d'outil : {masked}"
     assert _of(events, "turn_ended")[0].payload["status"] == "completed"
     _no_sentinel(_journal_text())
 
@@ -342,7 +342,7 @@ def test_an_html_page_stays_out_of_the_french_message():
 
     harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
 
-    assert "Message du fournisseur" not in harness["message_fr"]
+    assert "Message du fournisseur" not in harness["message_text"]
     assert "proxy" in harness["cause"]
 
 
@@ -441,7 +441,7 @@ def test_without_key_test_and_choose_are_disabled_with_the_reason(monkeypatch):
     assert rows["gemma"]["disclosure"]["trial"] is True
     assert rows["gemini"]["disclosure"]["trial"] is False
     for model_id in rows:
-        assert rows[model_id]["key_set"] is False and "clé API" in rows[model_id]["disabled_fr"]
+        assert rows[model_id]["key_set"] is False and "clé API" in rows[model_id]["disabled_text"]
     response = client.post("/api/intentions/test_cloud_model", json={"id": "groq"}, headers=ORIGIN)
     assert response.status_code == 409
 
@@ -453,7 +453,7 @@ def test_key_saved_for_another_host_must_be_typed_again(monkeypatch):
     row = client.get("/api/diagnostic").json()["cloud"]["models"][0]
 
     assert row["key_set"] is False
-    assert row["disabled_fr"] == "Clé à ressaisir : l'adresse du fournisseur a changé."
+    assert row["disabled_text"] == "Clé à ressaisir : l'adresse du fournisseur a changé."
 
 
 def test_choose_without_confirmation_is_refused_and_nothing_is_written(monkeypatch):
@@ -486,7 +486,7 @@ def test_confirmed_choice_boots_then_a_relaunch_takes_it_back_without_request(mo
     assert config.read_settings()["selected_model"] == {"kind": "cloud", "ref": "groq"}
     state = client.get("/api/state").json()
     assert state["active_model"]["provider"] == "Groq"
-    assert state["active_model"]["hosting"] == "network" and state["active_model"]["warning_fr"]
+    assert state["active_model"]["hosting"] == "network" and state["active_model"]["warning_text"]
     model = next(n for n in state["architecture_changed"]["nodes"] if n["id"] == "core.model")
     assert model["hosting"] == "network" and model["provider"] == "Groq"
 
@@ -582,12 +582,12 @@ def test_chat_overflow_is_decided_by_the_raw_estimate_only():
 
     sent = _turn(session, "x" * 8000)  # raw ≈ 2000 ≤ 2464 < 2000 × 1.5
     rendered = _of(sent, "context_rendered")[0].payload
-    assert _of(sent, "context_overflow") == [] and rendered["uncertain_fr"]
+    assert _of(sent, "context_overflow") == [] and rendered["uncertain_text"]
     assert rendered["used"] > rendered["usable"] and not rendered["overflow"]
 
     blocked = _turn(session, "x" * 12000)  # raw ≈ 3000 > 2464
     overflow = _of(blocked, "context_overflow")[0].payload
-    assert overflow["used"] > overflow["usable"] and "≈" in overflow["message_fr"]
+    assert overflow["used"] > overflow["usable"] and "≈" in overflow["message_text"]
     assert _of(blocked, "turn_ended")[0].payload["status"] == "overflow"
 
 
@@ -616,7 +616,7 @@ def test_cli_relaunch_prepares_the_saved_cloud_model_without_request(monkeypatch
     cli._run_diagnostic_then_boot(session, app_session)
     app_session.join()
 
-    assert app_session.state == "idle" and app_session.reason_fr is None
+    assert app_session.state == "idle" and app_session.reason_text is None
     assert app_session.active_model()["provider"] == "Groq"
     assert provider.requests == []
 
@@ -640,11 +640,13 @@ def test_a_choice_after_a_model_is_loaded_is_a_hot_switch(monkeypatch, tmp_path)
     ).json()
     app_session.join()
 
-    assert body["switching"] is True and body["message_fr"] == "Chargement de openai/gpt-oss-120b…"
+    assert (
+        body["switching"] is True and body["message_text"] == "Chargement de openai/gpt-oss-120b…"
+    )
     assert app_session._cloud is not None and app_session.active_model()["ref"] == "groq"
     assert config.read_settings()["selected_model"] == {"kind": "cloud", "ref": "groq"}
     assert _row(client)["loaded"] is True and _row(client)["selected"] is True
-    assert "next_launch_fr" not in client.get("/api/diagnostic").json()
+    assert "next_launch_text" not in client.get("/api/diagnostic").json()
 
     body = client.post(
         "/api/intentions/select_model", json={"kind": "file", "ref": str(gguf)}, headers=ORIGIN
@@ -704,7 +706,9 @@ def test_check_model_warns_on_invalid_entry_and_unusable_saved_cloud(monkeypatch
     cloud = [c for c in checks if c["check"] == "cloud"]
     assert len(cloud) == 1 and cloud[0]["status"] == "warn" and not cloud[0]["blocking"]
     assert result.cloud_model is None
-    assert "n'est plus utilisable" in [c for c in checks if c["check"] == "model"][-1]["message_fr"]
+    assert (
+        "n'est plus utilisable" in [c for c in checks if c["check"] == "model"][-1]["message_text"]
+    )
 
 
 def test_api_state_gives_the_reconciled_context_after_a_cloud_turn(monkeypatch):
@@ -737,7 +741,7 @@ def test_key_from_the_environment_variable_tests_and_never_shows(monkeypatch, ca
     row = _row(client)
     response = client.post("/api/intentions/test_cloud_model", json={"id": "groq"}, headers=ORIGIN)
 
-    assert row["key_set"] is True and row["disabled_fr"] is None
+    assert row["key_set"] is True and row["disabled_text"] is None
     assert row["key_source"] == "env" and row["key_env"] == "GROQ_API_KEY"
     assert response.status_code == 200 and response.json()["ok"] is True
     assert provider.requests[0].headers["authorization"] == f"Bearer {SENTINEL}"  # stripped
@@ -765,7 +769,7 @@ def test_a_blank_variable_counts_as_no_key(monkeypatch):
     row = _row(client)
 
     assert row["key_set"] is False and row["key_source"] is None
-    assert "clé API" in row["disabled_fr"]
+    assert "clé API" in row["disabled_text"]
     response = client.post("/api/intentions/test_cloud_model", json={"id": "groq"}, headers=ORIGIN)
     assert response.status_code == 409
 
@@ -777,7 +781,7 @@ def test_a_key_for_another_host_gives_way_to_the_variable(monkeypatch):
 
     row = _row(client)
 
-    assert row["key_set"] is True and row["key_source"] == "env" and row["disabled_fr"] is None
+    assert row["key_set"] is True and row["key_source"] == "env" and row["disabled_text"] is None
     key = config.cloud_key(config.load_config().cloud_model("groq"))
     assert key is not None and key.get_secret_value() == SENTINEL
 
@@ -802,7 +806,7 @@ def test_invalid_key_ends_with_the_provider_message():
 
     harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
 
-    assert harness["message_fr"].endswith("Message du fournisseur : Invalid API Key")
+    assert harness["message_text"].endswith("Message du fournisseur : Invalid API Key")
 
 
 def test_a_long_provider_message_is_cut_at_500_characters():
@@ -811,7 +815,7 @@ def test_a_long_provider_message_is_cut_at_500_characters():
 
     harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
 
-    assert harness["message_fr"].endswith("Message du fournisseur : " + "x" * 500 + "…")
+    assert harness["message_text"].endswith("Message du fournisseur : " + "x" * 500 + "…")
 
 
 def test_an_error_in_the_stream_carries_the_provider_message():
@@ -820,7 +824,7 @@ def test_an_error_in_the_stream_carries_the_provider_message():
 
     harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
 
-    assert harness["message_fr"].endswith("Message du fournisseur : Internal overload")
+    assert harness["message_text"].endswith("Message du fournisseur : Internal overload")
 
 
 def test_per_second_quota_names_the_second_and_the_spacing():
@@ -832,8 +836,8 @@ def test_per_second_quota_names_the_second_and_the_spacing():
     harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
 
     assert harness["quota_scope"] == "second"
-    assert "quota dépassé par seconde" in harness["message_fr"]
-    assert any("min_interval_s" in hint for hint in harness["hints_fr"])
+    assert "quota dépassé par seconde" in harness["message_text"]
+    assert any("min_interval_s" in hint for hint in harness["hints_text"])
 
 
 @pytest.mark.parametrize(
@@ -861,8 +865,8 @@ def test_unknown_quota_names_the_three_scopes():
     harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
 
     assert harness["quota_scope"] == "unknown"
-    assert "quota dépassé (par seconde, par minute ou par jour)" in harness["message_fr"]
-    assert not any("min_interval_s" in hint for hint in harness["hints_fr"])
+    assert "quota dépassé (par seconde, par minute ou par jour)" in harness["message_text"]
+    assert not any("min_interval_s" in hint for hint in harness["hints_text"])
 
 
 # ---------- story 11b: spacing of the sends (min_interval_s) ----------
@@ -960,7 +964,7 @@ def test_chat_second_call_reads_the_first_one_again_and_reconciled_keeps_it():
         assert checked.sections and checked.seen_segments == reconciled.payload["seen_segments"]
     provider_section = second["sections"][-1]
     assert provider_section["end"] - provider_section["start"] == 1
-    assert provider_section["label_fr"] == second["segments"][-1]["label_fr"]
+    assert provider_section["label_text"] == second["segments"][-1]["label_text"]
 
 
 # ---------- Gemini (Google AI Studio): thought signatures and tagged reasoning ----------
@@ -1072,10 +1076,10 @@ def test_the_gemma_entry_is_the_free_open_model_on_the_gemini_host():
     assert gemma.trial and gemma.training == "no" and gemma.pricing is None
     assert gemma.impacts is not None and gemma.impacts.model == "gemma-4-26b-a4b-it"
     assert gemma.context == 262144 and gemma.tools and gemma.stream_usage
-    assert "offre gratuite" in gemma.notes_fr and "EEE" in gemma.notes_fr
-    assert "usage personnel" in gemma.notes_fr and "GEMINI_API_KEY" in gemma.notes_fr
+    assert "offre gratuite" in gemma.notes_text and "EEE" in gemma.notes_text
+    assert "usage personnel" in gemma.notes_text and "GEMINI_API_KEY" in gemma.notes_text
     # Gemini keeps « obligatoire »: Google reserves paid services to API clients in the EEA.
-    assert "obligatoire" in gemini.notes_fr and "EEE" in gemini.notes_fr
+    assert "obligatoire" in gemini.notes_text and "EEE" in gemini.notes_text
     assert gemma.reasoning is not None and not gemma.reasoning.always
     assert gemma.reasoning.tags == ("<thought>", "</thought>")
     thinking = {"google": {"thinking_config": {"include_thoughts": True}}}
@@ -1145,8 +1149,8 @@ def test_without_the_signature_the_fake_gemini_refuses():
     harness = _of(events, "harness_error")[0].payload
     assert harness["http_status"] == 400
     # Gemini's error body is an array: its own message still ends the French one.
-    assert harness["message_fr"].startswith("Requête refusée par Google AI Studio (400)")
-    assert harness["message_fr"].endswith(f"Message du fournisseur : {MISSING_SIGNATURE}")
+    assert harness["message_text"].startswith("Requête refusée par Google AI Studio (400)")
+    assert harness["message_text"].endswith(f"Message du fournisseur : {MISSING_SIGNATURE}")
 
 
 def test_gemini_reasoning_on_reads_the_thought_tags():
@@ -1274,7 +1278,7 @@ def test_gemini_key_from_its_variable_makes_it_choosable(monkeypatch):
 
     row = _row(client, "gemini")
 
-    assert row["key_set"] is True and row["disabled_fr"] is None
+    assert row["key_set"] is True and row["disabled_text"] is None
     assert row["key_source"] == "env" and row["key_env"] == "GEMINI_API_KEY"
     assert "generativelanguage.googleapis.com" in config.load_config().allowed_hosts
     _no_sentinel(client.get("/api/diagnostic").text)
@@ -1511,8 +1515,8 @@ def test_tester_counts_in_the_session_total_and_the_state_gives_it(monkeypatch):
     assert all(s.context_id == "diag" for s in spends)
     assert client.get("/api/state").json()["consumption_updated"] == spends[-1].payload
     row = _row(client, "gemini")
-    assert row["price_fr"].startswith("Prix : 0,30 $ / 2,50 $ par million de tokens")
-    assert row["price_fr"].endswith(
+    assert row["price_text"].startswith("Prix : 0,30 $ / 2,50 $ par million de tokens")
+    assert row["price_text"].endswith(
         "relevé le 29/09/2026 ; le coût de chaque appel en est une estimation"
     )
 

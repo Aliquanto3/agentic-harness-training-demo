@@ -1,0 +1,173 @@
+# German translation of content/rag_lab.yaml (languages 4/5, AD-19): same keys, same stage,
+# option and param ids, same placeholders.
+
+title_text: "RAG-Werkstatt: die RAG-Architektur zum Ausprobieren"
+intro_text: >-
+  Eine RAG-Kette, Teil für Teil: Der Korpus wird in Auszüge zerlegt, jeder Auszug wird zu
+  einem Vektor, die Vektoren werden in einer Datenbank abgelegt, dann wird die Frage mit ihnen
+  verglichen, um die nützlichen Auszüge zu finden, die ein Reranker neu ordnen kann, bevor sie
+  in den Kontext des Modells gelangen. Starten Sie die Kette mit einer Frage, um zu sehen, was
+  jeder Schritt erhält, was er erzeugt und was er kostet. Das ist eine Spielwiese: Der
+  RAG-Baustein der Werkstatt ändert sich nicht.
+back_text: "← Werkstatt"
+busy_text: "Derzeit nicht verfügbar: {raison}"
+
+chain_title_text: "Die Kette"
+chain_help_text: >-
+  Die Schritte, von links nach rechts. Zwischen der Vektordatenbank und dem Kontext lassen
+  sich Suchen, Fusion und Reranking entfernen, hinzufügen und verschieben. Die Generierung ist
+  eingezeichnet, um zu zeigen, was das Modell erhalten würde, wird hier aber nicht ausgeführt.
+
+question_label_text: "Frage"
+question_placeholder_text: "Stellen Sie eine Frage zur Dokumentation von Exemplia"
+default_question_text: "Wie viele Tage Telearbeit pro Woche?"
+run_text: "Kette starten"
+stop_text: "Stoppen"
+running_text: "Ausführung läuft…"
+
+results_title_text: "Was jeder Schritt tut"
+results_empty_text: "Starten Sie die Kette: Jeder Schritt zeigt hier, was er erhält, was er erzeugt, seine Dauer und den Speicher von WaveStack."
+generation_not_run_text: >-
+  In der RAG-Werkstatt nicht ausgeführt: Eine Antwort zu generieren ist eine Runde der
+  Werkstatt, mit ihrem Füllstand und ihren Grenzen. Das würde das Modell erhalten.
+borrowed_text: "Vom RAG-Baustein übernommen"
+loaded_text: "Für diese Ausführung geladen, am Ende geschlossen"
+input_text: "Eingabe"
+output_text: "Ausgabe"
+facts_text: "Zahlen"
+duration_text: "Dauer"
+memory_text: "Speicher von WaveStack"
+last_run_text: "Letzte Ausführung"
+compare_text: "Mit einer anderen Konfiguration vergleichen"
+reset_chain_text: "Zurück zur ausgelieferten Kette"
+chain_a_text: "Kette A"
+chain_b_text: "Kette B"
+unavailable_text: "nicht verfügbar"
+add_text: "Komponente hinzufügen"
+add_button_text: "Hinzufügen"
+move_before_text: "Nach vorn"
+move_after_text: "Nach hinten"
+remove_text: "Entfernen"
+comparison_title_text: "Vergleich der beiden Kontexte"
+common_text: "Gemeinsam"
+only_a_text: "Nur in A"
+only_b_text: "Nur in B"
+rank_changes_text: "Rangverschiebungen"
+
+status:
+  waiting_text: "wartet"
+  running_text: "läuft"
+  ok_text: "beendet"
+  error_text: "Fehler"
+  skipped_text: "übersprungen"
+  cancelled_text: "gestoppt"
+  not_run_text: "nicht ausgeführt"
+
+columns:
+  rank_text: "Rang"
+  before_text: "Vorher"
+  document_text: "Dokument"
+  score_text: "Score"
+
+# One card per stage kind: its name and what it does (2 to 3 sentences).
+stages:
+  chunking:
+    label_text: "Chunking"
+    explain_text: >-
+      Die Dokumente des Korpus werden in Auszüge zerlegt: Absätze werden zusammengefasst,
+      solange sie in die Maximalgröße passen, ein zu langer Absatz wird am Satzende getrennt.
+      Ein zu kleiner Auszug verliert seinen Kontext; ein zu großer verwässert die Information.
+  embedding:
+    label_text: "Embedding"
+    explain_text: >-
+      Ein Embedding-Modell wandelt jeden Auszug, dann die Frage, in einen Zahlenvektor um.
+      Zwei Texte mit ähnlicher Bedeutung ergeben nahe Vektoren, auch ohne gemeinsames Wort.
+  vector_store:
+    label_text: "Vektordatenbank"
+    explain_text: >-
+      Die Vektoren der Auszüge werden in einer Datenbank abgelegt, ein für alle Mal berechnet:
+      Das ist die Indexierung. Bei jeder Frage wird nur noch die Frage eingebettet.
+  vector_search:
+    label_text: "Suche"
+    explain_text: >-
+      Die Datenbank liefert die Auszüge, deren Vektor dem der Frage am nächsten liegt
+      (Kosinus-Ähnlichkeit), ohne Schwelle: die k nächsten, ob relevant oder nicht.
+  lexical_search:
+    label_text: "Lexikalische Suche BM25"
+    explain_text: >-
+      Eine Suche nach Wörtern, ohne Embedding: Auszüge, die Wörter mit der Frage teilen,
+      rücken nach vorn, wobei ein seltenes Wort mehr wiegt als ein häufiges (BM25); Akzente,
+      Umlaute und kurze französische Füllwörter (le, de, et…) werden ignoriert. Sie findet ein Kürzel, einen Code
+      oder eine exakte Zahl („HR“, „35“), die ein Embedding übersehen kann.
+  fusion:
+    label_text: "Fusion"
+    explain_text: >-
+      Zwei Suchen ergeben zwei Rankings; die Reciprocal Rank Fusion kombiniert sie: Jeder
+      Auszug erhält in jeder Liste 1 / (60 + sein Rang). Ein Auszug, den beide weit oben
+      einordnen, rückt nach vorn: Das ist die hybride Suche.
+  rerank:
+    label_text: "Reranking"
+    explain_text: >-
+      Ein Reranker liest die Frage und jeden Kandidaten zusammen und bewertet ihre Relevanz.
+      Er ist langsamer als eine Vektorsuche, sieht nur die Kandidaten, die sie behalten hat,
+      und ordnet sie dann neu.
+  context:
+    label_text: "Aufbau des Kontexts"
+    explain_text: >-
+      Nur die ersten Auszüge kommen in den Kontext, nummeriert, mit dem Titel ihres
+      Dokuments, vor der Frage. Jeder Auszug kostet Tokens im Fenster des Modells.
+  generation:
+    label_text: "Generierung"
+    explain_text: >-
+      Das Modell liest diesen Kontext und die Frage und antwortet dann gestützt auf die
+      Auszüge. Eine gute Antwort hängt davon ab, was die vorigen Schritte ihm geliefert haben.
+
+# The name of each option; those naming a declared model take its label.
+options:
+  chunking:
+    paragraphs:
+      label_text: "Nach Absätzen"
+  embedding:
+    declared:
+      label_text: "Embedding-Modell des RAG-Bausteins"
+    fastembed:
+      label_text: "fastembed (ONNX, offline)"
+  vector_store:
+    sqlite_vec:
+      label_text: "sqlite-vec"
+    memory:
+      label_text: "Vollständige Suche im Speicher"
+    faiss:
+      label_text: "FAISS"
+    lancedb:
+      label_text: "LanceDB"
+  vector_search:
+    cosine:
+      label_text: "Kosinus-Ähnlichkeit"
+  lexical_search:
+    bm25:
+      label_text: "BM25 (k1 = 1,5, b = 0,75)"
+  fusion:
+    rrf:
+      label_text: "Reciprocal Rank Fusion (k = 60)"
+  rerank:
+    declared:
+      label_text: "Reranking-Modell des RAG-Bausteins"
+  context:
+    excerpts:
+      label_text: "Nummerierte Auszüge (Format des RAG-Bausteins)"
+  generation:
+    not_run:
+      label_text: "Aktives Modell der Werkstatt"
+
+# The settings: their name and unit.
+params:
+  chunk_max_chars:
+    label_text: "Maximalgröße eines Auszugs"
+    unit_text: "Zeichen"
+  candidates:
+    label_text: "Behaltene Kandidaten"
+    unit_text: "Auszüge"
+  top_k:
+    label_text: "Auszüge im Kontext"
+    unit_text: "Auszüge"

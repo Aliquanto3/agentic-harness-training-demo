@@ -1,0 +1,9 @@
+FICTITIOUS DEMONSTRATION DOCUMENT — no real data.
+
+Provisional budget of the Hirondelle project
+- Licences: €12,000
+- Services: €48,000
+- Contingency: €5,000
+
+This file is the target of the guard hook: a harness can forbid reading a sensitive
+folder, whatever the model asks.

@@ -9,7 +9,7 @@ the network:
   without RAPL, CodeCarbon estimates the power (TDP × load): an estimate, not a measure.
 
 An estimate that fails never stops a call: the call has no footprint and says why
-(`note_fr`).
+(`note_text`).
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from wavestack.config import CloudModel
+from wavestack.messages import Lazy, Message, msg, render
 
 logger = logging.getLogger(__name__)
 
@@ -34,24 +35,25 @@ CODECARBON = "codecarbon"
 INSTALL_FR = "uv sync --extra greenops"
 COUNTRY = "FRA"  # the local mix is `[greenops] local_gco2e_per_kwh`; this only names it
 
-# EcoLogits' warnings, in French (its codes, `ecologits.status_messages`).
-_WARNINGS_FR = {
-    "model-arch-not-released": "architecture non publiée, précision moindre",
-    "model-arch-multimodal": "modèle multimodal, précision moindre",
-    "electricity-mix-adpe-world": "facteur ADPe du mix mondial par défaut, précision moindre",
-    "electricity-mix-pe-world": "facteur d'énergie primaire du mix mondial par défaut",
-    "electricity-mix-wue-world": "facteur d'eau du mix mondial par défaut",
-}
+# EcoLogits' warnings, their texts in `messages.yaml` (`greenops.warnings`, its codes with
+# `_` for `-`, `ecologits.status_messages`); an unknown code is shown as it is.
+_WARNINGS = (
+    "model-arch-not-released",
+    "model-arch-multimodal",
+    "electricity-mix-adpe-world",
+    "electricity-mix-pe-world",
+    "electricity-mix-wue-world",
+)
 
 
 @dataclass(frozen=True)
 class Impact:
     """One call's footprint: energy in Wh and emissions in g CO₂e, each as a range (min =
     max for a single value); `method` is `ecologits` or `codecarbon`. Without figures, the
-    call has no footprint and `note_fr` says why."""
+    call has no footprint and `note_text` says why."""
 
     method: str
-    note_fr: str | None = None
+    note_text: str | None = None
     energy_wh_min: float | None = None
     energy_wh_max: float | None = None
     gco2e_min: float | None = None
@@ -61,9 +63,10 @@ class Impact:
     def estimated(self) -> bool:
         return self.energy_wh_min is not None
 
-    def fields(self) -> dict[str, Any]:
+    def fields(self, lang: str = "fr") -> dict[str, Any]:
         """`model_call_ended`'s footprint fields: the figures and the method when estimated,
-        and the note (the method's limits, or why there is no footprint)."""
+        and the note (the method's limits, or why there is no footprint), in `lang` (the
+        session's; languages 5/5)."""
         out: dict[str, Any] = {}
         if self.estimated:
             out |= {
@@ -73,14 +76,22 @@ class Impact:
                 "gco2e_max": self.gco2e_max,
                 "impact_method": self.method,
             }
-        if self.note_fr:
-            out["impact_note_fr"] = self.note_fr
+        if self.note_text:
+            out["impact_note_text"] = render(self.note_text, lang)
         return out
 
 
-def _number_fr(value: float) -> str:
-    """An intensity, French comma (« 41,4 »)."""
-    return f"{value:.4g}".replace(".", ",")
+def _number_fr(value: float, lang: str = "fr") -> str:
+    """An intensity, French comma (« 41,4 »), English point (« 41.4 »)."""
+    text = f"{value:.4g}"
+    return text if lang == "en" else text.replace(".", ",")
+
+
+def _warnings(codes: list[str], lang: str) -> str:
+    return " ; ".join(
+        msg(f"greenops.warnings.{code.replace('-', '_')}", lang) if code in _WARNINGS else code
+        for code in codes
+    )
 
 
 # ---------- cloud: EcoLogits ----------
@@ -90,7 +101,7 @@ def _number_fr(value: float) -> str:
 def _llm_impacts() -> Callable[..., Any]:
     """`ecologits.tracers.utils.llm_impacts`, imported once. EcoLogits sets its own logger
     class for every logger created after its import: the previous one is put back, and its
-    warnings (said in French in `note_fr`) stay out of the console."""
+    warnings (said in French in `note_text`) stay out of the console."""
     previous = logging.getLoggerClass()
     try:
         from ecologits.tracers.utils import llm_impacts
@@ -112,11 +123,7 @@ def cloud_impacts(entry: CloudModel, output_tokens: int, latency_s: float) -> Im
     model EcoLogits does not know, no figures and the reason."""
     declared = entry.impacts
     if declared is None:
-        return Impact(
-            ECOLOGITS,
-            "Empreinte non estimée : aucune correspondance EcoLogits n'est déclarée pour ce "
-            "modèle (champ impacts de son entrée [[cloud.models]]).",
-        )
+        return Impact(ECOLOGITS, Message("greenops.cloud.not_declared"))
     try:
         result = _llm_impacts()(
             declared.provider, declared.model, output_tokens, latency_s, declared.zone
@@ -124,44 +131,44 @@ def cloud_impacts(entry: CloudModel, output_tokens: int, latency_s: float) -> Im
     except Exception as exc:  # noqa: BLE001 - an estimate never stops a call
         logger.warning("EcoLogits a échoué : %s", exc)
         return Impact(
-            ECOLOGITS,
-            f"Empreinte non estimée : EcoLogits a échoué ({type(exc).__name__} : {exc}).",
+            ECOLOGITS, Message("greenops.cloud.failed", kind=type(exc).__name__, cause=exc)
         )
     errors = {e.code for e in result.errors or []}
     if "model-not-registered" in errors:
-        why = (
-            f"EcoLogits ne connaît pas le modèle « {declared.model} » chez le fournisseur "
-            f"« {declared.provider} » (champ impacts de l'entrée)"
+        why = Message(
+            "greenops.cloud.unknown_model", model=declared.model, provider=declared.provider
         )
     elif "zone-not-registered" in errors:
-        why = f"EcoLogits ne connaît pas la zone électrique « {declared.zone} »"
+        why = Message("greenops.cloud.unknown_zone", zone=declared.zone)
     elif errors or result.energy is None or result.gwp is None:
-        why = "EcoLogits n'a pas rendu d'estimation" + (
-            f" ({', '.join(sorted(errors))})" if errors else ""
+        why = Message(
+            "greenops.cloud.no_estimate", codes=f" ({', '.join(sorted(errors))})" if errors else ""
         )
     else:
         why = None
     if why is not None:
-        return Impact(ECOLOGITS, f"Empreinte non estimée : {why}.")
+        return Impact(ECOLOGITS, Message("greenops.not_estimated", why=why))
     kwh_min, kwh_max = _bounds(result.energy.value)
     kg_min, kg_max = _bounds(result.gwp.value)
-    warnings = [_WARNINGS_FR.get(w.code, w.code) for w in result.warnings or []]
-    zone = declared.zone or "celle du fournisseur dans EcoLogits"
-    note = (
-        f"Méthode EcoLogits (hors ligne), modèle « {declared.model} » chez « "
-        f"{declared.provider} », zone électrique : {zone} ; estimation à partir des tokens de "
-        "sortie (raisonnement compris) et de la durée de l'appel, en cycle de vie : "
-        "l'électricité des serveurs et une part de leur fabrication"
+    codes = [w.code for w in result.warnings or []]
+    # What the estimate stands for (Groq through Hugging Face): the entry's own text.
+    extra = f". {declared.note_text.rstrip('.')}" if declared.note_text else ""
+    note = Message(
+        "greenops.cloud.note",
+        model=declared.model,
+        provider=declared.provider,
+        zone=declared.zone or Message("greenops.cloud.provider_zone"),
+        range=Message("greenops.cloud.range") if kwh_min != kwh_max else "",
+        warnings=Lazy(
+            lambda lang: msg("greenops.cloud.warnings", lang, list=_warnings(codes, lang))
+        )
+        if codes
+        else "",
+        extra=extra,
     )
-    if kwh_min != kwh_max:
-        note += " ; fourchette (min–max) selon les hypothèses d'EcoLogits"
-    if warnings:
-        note += " ; avertissements : " + " ; ".join(warnings)
-    if declared.note_fr:  # what the estimate stands for (Groq through Hugging Face)
-        note += f". {declared.note_fr.rstrip('.')}"
     return Impact(
         ECOLOGITS,
-        note + ".",
+        note,
         kwh_min * 1000,
         kwh_max * 1000,
         kg_min * 1000,
@@ -186,22 +193,19 @@ def _load_codecarbon() -> Any:
 
 
 def missing_fr() -> str:
-    return (
-        "Empreinte locale indisponible : CodeCarbon n'est pas installé. Installez l'extra "
-        f"GreenOps depuis le dossier de WaveStack (`{INSTALL_FR}`, ajoutez vos autres extras), "
-        "puis relancez WaveStack."
-    )
+    """Why there is no local footprint: a `Message`, rendered where it is shown."""
+    return Message("greenops.local.missing", install=INSTALL_FR)
 
 
 @dataclass
 class Measure:
     """One local call's tracker, started; `stop()` gives its footprint, once (a second call
-    gives the same). Without a tracker, `note_fr` says why."""
+    gives the same). Without a tracker, `note_text` says why."""
 
     tracker: Any
     machine: bool
     gco2e_per_kwh: float
-    note_fr: str | None = None
+    note_text: str | None = None
     _impact: Impact | None = field(default=None, init=False)
 
     def stop(self) -> Impact:
@@ -211,38 +215,24 @@ class Measure:
 
     def _stop(self) -> Impact:
         if self.tracker is None:
-            return Impact(CODECARBON, self.note_fr)
+            return Impact(CODECARBON, self.note_text)
         try:
             self.tracker.stop()  # CodeCarbon swallows its own errors: read what it kept
             data = getattr(self.tracker, "final_emissions_data", None)
             kwh = float(data.energy_consumed) - float(getattr(data, "gpu_energy", 0) or 0)
         except Exception as exc:  # noqa: BLE001 - an estimate never stops a call
             logger.warning("CodeCarbon a échoué : %s", exc)
-            return Impact(
-                CODECARBON,
-                "Empreinte non estimée : CodeCarbon n'a pas rendu de mesure "
-                f"({type(exc).__name__}).",
-            )
+            return Impact(CODECARBON, Message("greenops.local.no_measure", kind=type(exc).__name__))
         if not math.isfinite(kwh):
-            return Impact(
-                CODECARBON,
-                f"Empreinte non estimée : CodeCarbon a rendu une énergie invalide ({kwh}).",
-            )
+            return Impact(CODECARBON, Message("greenops.local.invalid_energy", kwh=kwh))
         kwh = max(0.0, kwh)  # no GPU estimate: its share, if any, is left out
-        scope = (
-            "poste entier (le modèle tourne dans un autre processus, Ollama ou llama-server)"
-            if self.machine
-            else "processus de WaveStack seul (le moteur intégré)"
+        intensity = self.gco2e_per_kwh
+        note = Message(
+            "greenops.local.note",
+            scope=Message("greenops.local.machine" if self.machine else "greenops.local.process"),
+            intensity=Lazy(lambda lang: _number_fr(intensity, lang)),
+            zero=Message("greenops.local.zero") if kwh == 0 else "",
         )
-        note = (
-            "Mesure CodeCarbon hors ligne : estimation (TDP × charge, sans droits "
-            f"administrateur), {scope} ; émissions à {_number_fr(self.gco2e_per_kwh)} g CO₂e "
-            "par kWh ([greenops] local_gco2e_per_kwh), sans le GPU. Électricité consommée "
-            "seulement : sans la part de fabrication du poste, que l'estimation cloud "
-            "(EcoLogits) compte pour les serveurs."
-        )
-        if kwh == 0:
-            note += " CodeCarbon n'a mesuré aucune énergie pour cet appel (trop court)."
         wh, grams = kwh * 1000, kwh * self.gco2e_per_kwh
         return Impact(CODECARBON, note, wh, wh, grams, grams)
 
@@ -279,14 +269,15 @@ class LocalMeter:
                 return None, missing_fr()
             refusal = self._check()
             if refusal is not None:  # asked again at the next call: the budget may change
-                return None, f"Empreinte locale indisponible : {refusal}"
+                return None, Message("greenops.local.refused", refusal=refusal)
             try:
                 module = _load_codecarbon()
             except Exception as exc:  # noqa: BLE001 - a DLL blocked, a broken install
-                self._broken = (
-                    "Empreinte locale indisponible : CodeCarbon n'a pas pu être chargé "
-                    f"({type(exc).__name__} : {exc}). Relancez `{INSTALL_FR}` depuis le "
-                    "dossier de WaveStack."
+                self._broken = Message(
+                    "greenops.local.not_loaded",
+                    kind=type(exc).__name__,
+                    cause=exc,
+                    install=INSTALL_FR,
                 )
                 return None, self._broken
             logging.getLogger("codecarbon").setLevel(logging.ERROR)
@@ -326,7 +317,7 @@ class LocalMeter:
                 None,
                 machine,
                 self.gco2e_per_kwh,
-                f"Empreinte non estimée : CodeCarbon n'a pas démarré ({type(exc).__name__}).",
+                Message("greenops.local.not_started", kind=type(exc).__name__),
             )
 
     def _start(self, machine: bool) -> Measure:
@@ -350,6 +341,6 @@ class LocalMeter:
                 None,
                 machine,
                 self.gco2e_per_kwh,
-                f"Empreinte non estimée : CodeCarbon n'a pas démarré ({type(exc).__name__}).",
+                Message("greenops.local.not_started", kind=type(exc).__name__),
             )
         return Measure(tracker, machine, self.gco2e_per_kwh)

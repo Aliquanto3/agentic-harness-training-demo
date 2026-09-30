@@ -1,0 +1,451 @@
+# English translation of content/scenarios.yaml (languages 3/5, AD-19): same programme,
+# same scenario ids, same bricks, sub-options, flags and durations; only the titles, the
+# instructions and the prompts are translated (same number of prompts, in the same order).
+# The demo files keep their French names; the labels quoted are the English interface's.
+
+program:
+  - title_text: From the bare LLM to the harness
+    duration_min: 60
+    scenarios: [bare_llm, reasoning, short_memory, system_prompt, global_memory]
+  - title_text: Tools
+    duration_min: 45
+    scenarios: [native_tools, network_tools]
+  - title_text: RAG
+    duration_min: 45
+    scenarios: [rag, rag_rerank]
+  - title_text: MCP
+    duration_min: 45
+    scenarios: [mcp_full, mcp_lazy]
+  - title_text: Skills and hooks
+    duration_min: 60
+    scenarios: [skills, caveman, hooks]
+  - title_text: Sub-agent and compression
+    duration_min: 60
+    scenarios: [subagent, compression]
+
+transverse: [data_flows, soc, iam, sovereignty]
+
+scenarios:
+  bare_llm:
+    title_text: Bare LLM
+    description_text: >-
+      All the bricks are off: the model receives only your message. Send the prompt:
+      without a tool, it cannot know the time, so it makes it up or admits it does not
+      know.
+    bricks: []
+    prompts:
+      - What time is it?
+
+  reasoning:
+    title_text: Reasoning
+    description_text: >-
+      Only the Reasoning brick is on, over the bare LLM: the model first writes its
+      reasoning, then its answer. Send the prompt and unfold the reasoning, in the Human
+      view or in LLM context; the gauge shows the output reserve raised to 1,536 tokens.
+      Then turn the brick off, replay the prompt and open “Compare”: fewer output tokens
+      and a shorter turn, but an answer that is often less reliable. If the model cannot
+      reason, the brick's card gives the reason. The following modules leave the reasoning
+      off, to keep room and short turns: turn it back on by hand to show it at work.
+    bricks: [reasoning]
+    prompts:
+      - >-
+        A train leaves Paris at 2:47 pm and travels for 2 h 38 min. It is then 25 minutes
+        late. What time does it arrive?
+
+  short_memory:
+    title_text: Short-term memory
+    description_text: >-
+      Send the two prompts one after the other: the harness reinjects the previous turns,
+      and the model remembers the first name. Turn short-term memory off and send the
+      second prompt again to see it forget.
+    bricks: [short_memory]
+    prompts:
+      - My name is Camille and I am a cybersecurity consultant.
+      - What is my name, and what do I do for a living?
+
+  system_prompt:
+    title_text: System prompt
+    description_text: >-
+      Send the prompt, then edit the system prompt from its card (for example “Always
+      answer in one sentence, like a pirate.”) and replay it: the answer changes although
+      the message is the same.
+    bricks: [short_memory, system_prompt]
+    prompts:
+      - Introduce yourself in a few sentences.
+
+  global_memory:
+    title_text: Global memory
+    description_text: >-
+      Short-term memory and the system prompt stay on, and global memory is added:
+      launching this scenario restores the demonstration memory, whose three pieces of
+      information are already in the system message. Send the first prompt: the model
+      calls remember, a tool of the harness itself (the cycle of a tool call is detailed in
+      module 2), and the harness writes the memory.json file. If it does not, force “Write
+      to memory” from the brick's card (after “Show the forced actions”) and send the
+      prompt again. Then clear the conversation and send the second prompt: the preference
+      comes back through the system message, not through the history. Finally, open “Edit
+      the memory” (or click the file in the diagram) to view, edit or erase the entries.
+      Global memory stays on in the following modules; their first scenario restores the
+      demonstration memory.
+    bricks: [short_memory, system_prompt, global_memory]
+    restore_memory: true
+    prompts:
+      - Remember that I prefer answers in three points at most.
+      - Remind me of my first name, then give me some tips for preparing a training course.
+
+  native_tools:
+    title_text: Native tools
+    description_text: >-
+      The bricks of module 1 stay on, except the reasoning (global memory goes back to its
+      demonstration), and the local tools are added. Send a prompt and follow the call
+      cycle in Orchestration: the model asks for the tool, the harness runs it and
+      reinjects its result.
+    bricks: [short_memory, system_prompt, global_memory, tools]
+    restore_memory: true
+    prompts:
+      - What time is it?
+      - What is 1234 multiplied by 5678?
+      - Read the file recette_crepes.txt and give me the list of ingredients.
+
+  network_tools:
+    title_text: Network tools
+    description_text: >-
+      The network tools are added to the local tools: their node is drawn in the network
+      zone, outside the workstation. Send a prompt, then open the outbound data in
+      Orchestration: it is the exact text that left the workstation.
+    bricks: [short_memory, system_prompt, global_memory, tools]
+    tools:
+      [get_datetime, calculator, read_file, public_holidays, wikipedia_summary, fetch_page]
+    prompts:
+      - What are the public holidays in France this year?
+      - Summarise the Wikipedia article on Mont-Saint-Michel.
+
+  rag:
+    title_text: RAG
+    description_text: >-
+      The bricks of the previous modules stay on, except the reasoning, and the RAG brick
+      is added: the corpus describes Exemplia, an imaginary organisation. First turn the
+      RAG brick off and send the first prompt: the model does not know Exemplia, so it
+      makes things up or admits it does not know. Turn the brick back on, replay the prompt
+      and open “Compare”: the RAG excerpts are in your message, and the answer relies on
+      the right document.
+      Unfold the “RAG search” step in Orchestration (query, excerpts, scores) and look at
+      the index file in the diagram. First installation: if the card offers “Download”,
+      click it, then “Build the index” when it offers it; the brick becomes available
+      without a command line.
+    bricks: [short_memory, system_prompt, global_memory, tools, rag]
+    restore_memory: true
+    prompts:
+      - What is the minimum number of characters for a password at Exemplia?
+      - What reimbursement cap applies to a hotel night in Paris at Exemplia?
+
+  rag_rerank:
+    title_text: RAG with reranking
+    description_text: >-
+      The bricks of the RAG scenario, with the “Reranking” sub-option ticked on the RAG
+      card: the harness retrieves {candidates} candidates by embedding, a second local
+      model scores them against the question, then only the top {keep} enter your message.
+      Send the first prompt and unfold the “Reranking” step in Orchestration: the order
+      before and after, the excerpts kept and discarded, and the two scores. Untick
+      “Reranking”, replay and open “Compare”: which excerpts changed? First use: if the
+      card offers “Download the reranking model”, click it first.
+    bricks: [short_memory, system_prompt, global_memory, tools, rag]
+    rag_rerank: true
+    prompts:
+      - What reimbursement cap applies to a hotel night in Paris at Exemplia?
+      - What should you do first when you lose your laptop at Exemplia?
+
+  mcp_full:
+    title_text: MCP with full documentation
+    description_text: >-
+      The bricks of the previous modules stay on, except the reasoning and the RAG, whose
+      excerpts on Exemplia would be off topic here: the local MCP server and data.gouv.fr
+      are connected, and the full documentation of every tool enters the context. Look at
+      the gauge before sending the prompt: it is already almost full. The prompt names the
+      glossary tool, local__define_term: a small local model does not always link the
+      question to the tool, a bigger (cloud) model does. If the model answers from memory,
+      click “Force the call · local__define_term” under “WaveStack glossary” in the MCP
+      card (after “Show the forced actions”), choose the preset “MCP”, “Arm”, then “Replay
+      the last prompt”: the call goes out automatically and the model answers with the
+      definition. Then move on to the “Lazy loading” scenario to see the same need fit in
+      a much lighter context. Without a network, data.gouv.fr stays drawn as unavailable:
+      carry on with the local server.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp]
+    mcp_servers: [local, datagouv]
+    restore_memory: true
+    prompts:
+      - >-
+        What does MCP mean? Look up the definition with the local__define_term tool,
+        without answering from memory.
+
+  mcp_lazy:
+    title_text: Lazy loading
+    description_text: >-
+      Same servers, with lazy loading: only one line per tool enters the context. Compare
+      the gauge with the previous scenario: the room saved could take the RAG, left off
+      because its excerpts on Exemplia do not help here. Send the first prompt and follow
+      in Orchestration the loading of the documentation, then the call of
+      local__define_term. What you observe with a small model: it stops after
+      load_tool_doc and answers from memory, sometimes writing “I searched” although
+      Orchestration shows no call of local__define_term. Why: a small model is poor at
+      chaining two calls and takes the documentation for the answer. That is the
+      demonstration: click “Force the call · local__define_term” under “WaveStack
+      glossary” in the MCP card (after “Show the forced actions”), choose the preset
+      “MCP”, “Arm”, then “Replay the last prompt”: the replay starts again from before the
+      turn, the call goes out automatically, its definition joins the model's tools and the
+      model answers with the result; the harness guarantees the call the model does not
+      make. “Load the documentation” (same card) only loads the documentation, without
+      calling the tool. The second prompt queries data.gouv.fr. Without a network,
+      data.gouv.fr stays drawn as unavailable: carry on with the local server.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp]
+    mcp_servers: [local, datagouv]
+    mcp_lazy: true
+    prompts:
+      - >-
+        What does MCP mean? Look up the definition with the local__define_term tool,
+        without answering from memory.
+      - Search data.gouv.fr for public datasets on air quality.
+
+  skills:
+    title_text: Skills
+    description_text: >-
+      The bricks of the previous modules stay on (MCP with lazy loading), without the
+      reasoning or the RAG, and the skills are added: only the name and description of each
+      skill are in the context. Send the prompt: the model calls load_skill, the full
+      content of the skill joins the context and the gauge grows. The prompt names the
+      skill and the tool, because a small local model does not always link the request to
+      the skill; a bigger model loads it from the request alone (try with a cloud model).
+      If the model does not load the skill, arm “Trigger the skill” on “Meeting minutes”
+      in the Skills card (after “Show the forced actions”), then replay the prompt.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp, skills]
+    mcp_lazy: true
+    restore_memory: true
+    prompts:
+      - >-
+        First load the meeting_minutes skill with the load_skill tool, then write the
+        minutes of this meeting from the points below, without reading any file: Paul
+        presents the budget, Julie approves the schedule, next meeting on Monday at 10 am.
+
+  caveman:
+    title_text: Caveman
+    description_text: >-
+      Send the prompt, then arm “Trigger the skill” on Caveman in the Skills card (after
+      “Show the forced actions”), replay the last prompt and open “Compare”: same
+      question, far fewer output tokens.
+    bricks: [short_memory, system_prompt, skills]
+    prompts:
+      - Explain in a few sentences what an agent harness is.
+
+  hooks:
+    title_text: Hooks
+    description_text: >-
+      Send the prompt, then look at the “Hook points” strip of the diagram: the H1 guard
+      blocks the reading; it is code, not the model, that decides. If the model does not
+      call the tool, force the read_file call with the preset “Sensitive file” (after
+      “Show the forced actions”) and replay.
+    bricks: [short_memory, system_prompt, tools, hooks]
+    tools: [get_datetime, read_file]
+    hooks: [h1, h2]
+    prompts:
+      - Read the file confidentiel/budget_projet.txt and summarise it.
+
+  subagent:
+    title_text: Sub-agent
+    description_text: >-
+      The bricks of the previous modules stay on (MCP with lazy loading), without the
+      reasoning or the RAG, to leave room for the sub-agent and keep the quizzes quick, and
+      the Sub-agent brick is added. The long document is a local file, guide_harnais.md,
+      for an offline demonstration. Send the first prompt: the model hands the reading to a
+      sub-agent, and only its summary comes back. Unfold “Delegation to the sub-agent” in
+      Orchestration: the tool results that stayed with the sub-agent against the
+      reinjected summary; that is the saving. Switch LLM context between the main context
+      (the summary alone, as “Sub-agent result”) and the sub-agent's (the whole guide). If
+      the model reads the file itself, the guide enters the main context: compare the
+      gauge, then arm “Delegate to the sub-agent” on the card (after “Show the forced
+      actions”) with the preset “Summarise the harness guide” and replay. The next three
+      questions test the summary: what it left out is lost to the main agent, which has to
+      delegate again or admit it does not know.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp, skills, hooks, subagent]
+    tools: [read_file]
+    mcp_lazy: true
+    restore_memory: true
+    prompts:
+      - >-
+        Delegate the reading of the file guide_harnais.md to your sub-agent, without
+        reading it yourself: it must read it and give you back a summary in five points.
+        Then present this summary to me.
+      - "Quiz: what bounds does the harness set on an agent's loop?"
+      - "Quiz: why does delegating to a sub-agent save the main context?"
+      - "Quiz: what happens if the sub-agent's context overflows?"
+
+  compression:
+    title_text: Context compression
+    description_text: >-
+      The bricks of the Sub-agent scenario stay on, without the sub-agent (nor the
+      reasoning or the RAG), and the Compression brick is added: Headroom shortens large
+      tool results before the model call. First turn compression off and send the first
+      prompt: the model calls read_file and the backup log enters the context in full. If
+      it does not read the log, click “Force the call” on “File reading” in the Tools card
+      (after “Show the forced actions”), choose the preset “Backup log (compression)”,
+      “Arm”, then “Replay the last prompt”, with compression still off. Turn it back on,
+      replay the prompt and open “Compare”. Unfold the “Compression (Headroom)” step in
+      Orchestration: tokens before and after, original text and short version, where the
+      error was kept. In LLM context, the tool result is marked “compressed” and the header
+      gives the total without compression. Headroom only reduces redundancy: a text without
+      redundancy, such as prose, goes through as it is; that is the tool's limit. To show
+      it, force the preset “Harness guide (prose, compression)” in the same way, replay,
+      and unfold the step: the guide goes through unchanged. Finally, ask the second
+      prompt: what Headroom cut is lost to the model. Compression reduces what goes in,
+      Caveman what comes out. If the card says Headroom is not installed, run
+      `uv sync --extra compression` then restart WaveStack.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp, skills, hooks, compression]
+    tools: [read_file]
+    mcp_lazy: true
+    hooks: [h1, h2]
+    prompts:
+      - >-
+        Call the read_file tool on journal_serveur.log, then tell me what serious error
+        last night's backup ran into.
+      - In journal_serveur.log, at what time was batch 12 copied?
+
+  data_flows:
+    title_text: Where does my data go?
+    description_text: >-
+      Everything is on at launch: the local tools and the MCP brick, with lazy loading,
+      with the local server (WaveStack glossary) and the public server data.gouv.fr. First
+      read the diagram: the tools and the local MCP server stay in the Workstation zone,
+      data.gouv.fr is drawn in the network zone, outside the workstation. Untick then tick
+      data.gouv.fr again in the MCP card: the flow that crosses the workstation boundary
+      disappears, then comes back; it is the only one. Then send the prompt and click the
+      data.gouv.fr node: Orchestration shows the exact data sent. Lazy loading leaves room
+      for the search result, which the full documentation of data.gouv.fr would not. Without
+      a network, data.gouv.fr is drawn as unavailable with its reason: the message about
+      what leaves the workstation holds without the real call.
+    bricks: [short_memory, system_prompt, tools, mcp]
+    mcp_servers: [local, datagouv]
+    mcp_lazy: true
+    prompts:
+      - Search data.gouv.fr for public datasets on air quality.
+
+  # ---------- business scenarios (story 21, FR-40): fictitious, no client data ----------
+
+  soc:
+    title_text: "Business: SOC, audit log and guard"
+    description_text: >-
+      For the SOC practice, about 20 minutes. File reading and the hooks H1 (guard) and H2
+      (audit log) are on. Send the first prompt: the model reads the alerts of a fictitious
+      SIEM (times in UTC) and must link into a single incident the four alerts of the
+      adm.leroy account, which occurred during a maintenance window when some alerts were
+      muted; H2 records each call, timestamped. The prompt gives the exact file name: if
+      the model misspells it, the harness refuses the reading and lists the available
+      files, and the model can correct itself; otherwise, force the reading with the preset
+      “SIEM alerts (SOC)” (see below). Send the second: the model searches the files
+      itself, finds the inventory of privileged accounts in the confidential folder, and H1
+      blocks its reading. The agent does not have this privilege: the harness decides, not
+      the model, and the agent must escalate to an authorised analyst, as the prompt asks
+      it to. If the model keeps searching or concludes without escalating (frequent with a
+      small model), draw the conclusion yourself: the agent does not have this privilege,
+      the decision belongs to an authorised analyst. Finally, click “Audit log” in the
+      diagram: the allowed readings and the blocked reading are there. If the model does
+      not call the tool, click “Force the call” on “File reading” in the Tools card (after
+      “Show the forced actions”), choose the preset “SIEM alerts (SOC)” for the first
+      prompt, “Privileged accounts (SOC, confidential)” for the second, “Arm”, then
+      “Replay the last prompt”. Key takeaway: the harness log traces every action of the
+      agent, the traceability that NIS2 and DORA expect from a tool acting on the
+      information system; the guard applies least privilege, and the sensitive decision
+      stays with a human.
+    bricks: [short_memory, system_prompt, tools, hooks]
+    tools: [read_file]
+    hooks: [h1, h2]
+    prompts:
+      - >-
+        Read the file alertes_siem.log (exact name, to copy as it is), group the alerts
+        that belong to the same incident and rebuild its timeline in 8 lines at most, with
+        the likely MITRE ATT&CK tactic for each step.
+      - >-
+        To qualify this incident, check the role and the holder of the adm.leroy account
+        using the available files. If a reading is refused to you, do not get round it:
+        say so and offer to pass the check on to an authorised SOC analyst, in 3 lines at
+        most.
+
+  iam:
+    title_text: "Business: IAM, Entra ID with Microsoft Learn"
+    description_text: >-
+      For the IAM practice, about 15 minutes. Only the public MCP server Microsoft Learn is
+      connected, with full documentation, along with short-term memory and the system
+      prompt: a small model does not know the recent screens of Entra ID, the official
+      documentation does. Send the first prompt: the model searches Microsoft Learn, and
+      Orchestration shows the destination and the exact data sent, before the result. The
+      prompts name the search tool, mslearn__microsoft_docs_search: a small local model
+      does not always link the question to the tool, a bigger (cloud) model searches from
+      the question alone. The diagram draws the server in the network zone: the question
+      goes to Microsoft, the model stays on the workstation. The search results are large
+      (up to 1,200 tokens kept): two do not fit together in the window, so click “Clear the
+      conversation” (Human view pane) before sending the second prompt; if the gauge
+      announces an overflow, that is the real cost of a public MCP. If the model answers
+      without searching, click “Force the call · mslearn__microsoft_docs_search” under
+      “Microsoft Learn” in the MCP card (after “Show the forced actions”), choose the
+      preset “MFA for administrators (IAM)” for the first prompt, the preset “Just-in-time
+      PIM (IAM)” for the second, “Arm”, then “Replay the last prompt”. Without a network
+      (or behind a proxy that blocks learn.microsoft.com), Microsoft Learn is drawn as
+      unavailable with its reason: untick then tick the server again in the MCP card to
+      retry. Key takeaway: a sourced answer, with Microsoft Learn links, rather than an
+      invented admin screen; in exchange, the question goes to the publisher.
+    bricks: [short_memory, system_prompt, mcp]
+    mcp_servers: [mslearn]
+    prompts:
+      - >-
+        In Microsoft Entra ID, how do you require multifactor authentication for all
+        administrators? Search with the mslearn__microsoft_docs_search tool, then answer
+        in 5 lines at most: first two Microsoft Learn links taken from the result, then the
+        explanation.
+      - >-
+        What is Privileged Identity Management in Entra ID, and what is just-in-time
+        activation of a role for? Search with the mslearn__microsoft_docs_search tool,
+        then answer in 5 lines at most: first two Microsoft Learn links taken from the
+        result, then the explanation.
+
+  sovereignty:
+    title_text: "Business: Sovereignty, where do the requests go?"
+    description_text: >-
+      For the sovereignty practice, about 15 minutes. Two public MCP servers are connected,
+      with lazy loading: data.gouv.fr, run by the French administration, and Microsoft
+      Learn, run by an American publisher. Send the two prompts and open in Orchestration
+      the outbound data of each call: the request alone reveals the subject of the mission,
+      and it goes to two operators subject to two different laws; an American publisher
+      falls under the Cloud Act, even when its servers are in Europe. Each prompt names the
+      search tool. What you observe with a small model: it stops after load_tool_doc (or
+      calls the tool without its documentation, which the harness refuses) and answers from
+      memory, sometimes writing “I searched” with invented datasets, although
+      Orchestration shows neither a call of the tool nor an outbound request. Why: a small
+      model is poor at chaining two calls and takes the documentation for the answer. That
+      is the demonstration: for the first prompt, click “Force the call ·
+      datagouv__search_datasets” under “data.gouv.fr” in the MCP card (after “Show the
+      forced actions”), choose the preset “Cybersecurity”, “Arm”, then “Replay the last
+      prompt”: the replay starts again from before the turn, the search goes out
+      automatically and the model answers with its result; the harness guarantees the call
+      the model does not make. Open the outbound data of this first call. Two search
+      results do not fit together in the window: click “Clear the conversation” (Human view
+      pane) before sending the second prompt. Its fallback: “Force the call ·
+      mslearn__microsoft_docs_search” under “Microsoft Learn”, preset “Logging of admin
+      sign-ins (Sovereignty)”, “Arm”, then “Replay the last prompt”. The diagram only shows
+      what leaves the workstation: where each MCP server runs, with which host, with which
+      certification (SecNumCloud for example), remains to be checked flow by flow, and a
+      public service is not sovereign by nature. The model, for its part, stays on the
+      workstation; with a cloud model, the whole conversation would also go to its
+      provider. Without a network (or behind a proxy that blocks these addresses), both
+      servers are drawn as unavailable with their reason: untick then tick a server again
+      in the MCP card to retry. Key takeaway: sovereignty is checked flow by flow, for the
+      harness, the data, the model and each MCP server.
+    bricks: [short_memory, system_prompt, mcp]
+    mcp_servers: [datagouv, mslearn]
+    mcp_lazy: true
+    prompts:
+      - >-
+        Search data.gouv.fr for public datasets on cybersecurity in France, with the
+        datagouv__search_datasets tool, without answering from memory. Answer in 5 lines
+        at most: three datasets at most, each with its data.gouv.fr link first.
+      - >-
+        Search Microsoft Learn for how Entra ID logs the sign-ins of administrator
+        accounts, with the mslearn__microsoft_docs_search tool, without answering from
+        memory.

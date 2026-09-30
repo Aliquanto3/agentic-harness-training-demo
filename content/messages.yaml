@@ -1,0 +1,1309 @@
+# Languages (5/5, AD-19): the texts the backend writes, read by `msg(key, lang)`
+# (`src/wavestack/messages.py`). French here; English and German in
+# `content/i18n/{en,de}/messages.yaml`, same keys and, key by key, the same variables.
+# Keys in English, `snake_case`; `{name}` variables; a plural is a `{one, other}` pair.
+
+common:
+  # A text written elsewhere (a third party's error), kept in its language.
+  verbatim: "{text}"
+  # `join`: the last two items of an enumeration, « a, b et c ».
+  and: et
+  # Units of sizes (`config.size_fr` and its kin).
+  units:
+    mb: Mo
+    gb: Go
+
+session:
+  translation_invalid:
+    message: "Un fichier traduit ({lang}) sous content/i18n/{lang}/ est invalide."
+    effect: "Le texte français de ce fichier le remplace ; le reste de WaveStack fonctionne."
+  rag:
+    index_held: "un autre programme garde l'index ouvert (un antivirus, un outil de synchronisation ou le script de construction) : fermez-le, puis cliquez de nouveau sur « Construire l'index »"
+    model_noun:
+      embedding: d'embedding
+      reranking: de reranking
+    model_mismatch: "Indisponible : le fichier {names} de {folder} n'est pas le modèle {noun} déclaré ({label}, {size} Mo attendus). Cliquez sur « Télécharger » pour le remplacer.{tail}"
+    model_absent: "Indisponible : modèle absent. Le modèle {noun} {label} ({size} Mo) n'est pas sur le poste. Cliquez sur « Télécharger », ou copiez à la main {names} dans {folder}, puis cliquez de nouveau sur « Télécharger ».{tail}"
+    works_without_reranking: " Le RAG fonctionne sans reranking."
+    section_invalid: La section [rag.embedding] est invalide.
+    declaration_invalid: La déclaration du modèle d'embedding est invalide.
+    build: Cliquez sur « Construire l'index » sur la carte RAG
+    download_then_build: Téléchargez d'abord le modèle d'embedding, puis cliquez sur « Construire l'index »
+    vec_unavailable: "Indisponible : l'extension sqlite-vec ne se charge pas dans ce Python ({why}). Le RAG ne peut pas lire son index ; les autres briques fonctionnent."
+    index_absent: "Indisponible : index absent ({path}). {build} (ou lancez uv run python {script})."
+    index_unreadable: "Indisponible : l'index {path} est illisible ({kind}). {build} pour le reconstruire."
+    built_file: ", fichier de {size} Mo"
+    other_model: "Indisponible : l'index a été construit avec le modèle d'embedding « {built_id} » ({built_dims} dimensions{built_file}), alors que [rag.embedding] déclare « {model} » ({dims} dimensions, fichier de {size} Mo). {build} pour le reconstruire."
+    stale: "Indisponible : index périmé. Le corpus (content/corpus) ou [rag] chunk_max_chars ont changé depuis sa construction ({built_at}). {build} pour le reconstruire."
+    loading: "Chargement du modèle d'embedding {label}…"
+    not_loaded: "Modèle d'embedding non chargé : désactivez puis réactivez la brique RAG."
+    detail_absent: "{path} · index absent ou illisible"
+    detail: "{path} · {chunks} extraits · modèle d'embedding {model}"
+    not_configured: Brique RAG non configurée.
+    model_missing: modèle absent
+    embedding_label: "le modèle d'embedding {label}"
+    refused_effect: "La brique « RAG » est indisponible ; rien n'est chargé. Elle se charge d'elle-même après un changement de modèle, ou en la réactivant."
+    sha256: "le fichier {path} n'est pas le modèle déclaré (sha256 différent de celui de [{section}])"
+    load_failed: Le modèle d'embedding n'a pas pu être chargé.
+    load_failed_reason: "Indisponible : le modèle d'embedding n'a pas pu être chargé ({kind}: {cause}). Vérifiez le fichier {path}, ou supprimez-le, puis désactivez et réactivez la brique RAG : elle relit ses fichiers et propose de le télécharger à nouveau."
+    close_failed: Le modèle d'embedding n'a pas pu être fermé.
+    embedder_not_loaded: le modèle d'embedding n'est pas chargé
+    index_replaced: "l'index a été remplacé pendant la séance. {reason}"
+    search_failed:
+      message: La recherche RAG a échoué.
+      effect: Le tour continue sans extraits RAG.
+      text: "La recherche a échoué ({kind}: {cause}). Le tour continue sans extraits RAG."
+  architecture:
+    harness: Harnais WaveStack
+    model: Modèle
+    model_sub: Modèle (sous-agent)
+    embedding: "Modèle d'embedding {model}, processus local"
+    reranking: "Modèle de reranking {model}, processus local"
+    compressor: "{label}, bibliothèque dans le processus du harnais, hors ligne"
+  outbound:
+    no_tool: aucun outil réseau
+  # The session's state (`session_state.reason_text`).
+  state:
+    diagnostic: Diagnostic de démarrage en cours.
+    turn: "Un tour est en cours : attendez sa fin ou arrêtez-le."
+    llm_lab: "L'écran « LLM nu » génère une réponse : attendez sa fin ou arrêtez-la."
+    rag_lab: "Atelier RAG : exécution en cours ; attendez sa fin ou arrêtez-la."
+    awaiting: "En attente de votre validation : autorisez ou refusez l'appel réseau."
+    no_model: "Envoi indisponible : aucun modèle n'est choisi. Choisissez-en un sur la page de diagnostic."
+    load_failed: "Envoi indisponible : le modèle n'a pas pu être chargé. Choisissez un autre fichier GGUF sur la page de diagnostic."
+    cloud_failed: "Envoi indisponible : le modèle cloud n'a pas pu être préparé. Choisissez un modèle sur la page de diagnostic."
+    no_turn: Aucun tour possible.
+    load_stopped: "Envoi indisponible : le chargement du modèle a été arrêté et aucun modèle n'est chargé. Choisissez un modèle sur la page de diagnostic."
+  # Story 26 (AD-9): the window panel, when the cache and the read time are not WaveStack's to measure.
+  window:
+    kv_cloud: "Cache de contexte : chez le fournisseur, aucune mémoire sur ce poste"
+    kv_no_model: "Cache de contexte : calculé au chargement d'un modèle"
+    read_cloud: "Temps de lecture : chez le fournisseur, non estimé (le temps mesuré est surtout celui du réseau)"
+    read_no_model: "Temps de lecture : pas encore mesuré, aucun modèle actif"
+    reloading: "Rechargement de {label} avec une fenêtre de {window} tokens…"
+    locked: "Réglage désactivé : fenêtre fixée par la déclaration du modèle ({model} déclare window = {window})."
+    already: "La fenêtre est déjà de {window} tokens."
+    cloud_next_turn: "Fenêtre de contexte : {window} tokens, prise en compte au prochain tour, sans rechargement{bound}."
+    saved_for_next: "Fenêtre de {window} tokens enregistrée : elle s'appliquera au prochain chargement d'un modèle."
+    unchanged: "Fenêtre de {window} tokens enregistrée ; la fenêtre effective de {label} reste de {effective} tokens{bound}, sans rechargement."
+    nothing_reloaded: Rien n'est libéré, écrit ni rechargé.
+    cost_unknown: "Fenêtre de {window} tokens refusée : le coût de {label} avec cette fenêtre est inconnu (fichier du modèle illisible depuis WaveStack). {label} reste actif avec {current} tokens."
+    kv_llama_slot: "Cache de contexte : réservé par llama-server (-c {slot}), inchangé"
+    kv_llama: "Cache de contexte : réservé par llama-server, inchangé"
+    kv: "Cache de contexte : {size}"
+    read: "Temps de lecture : {time}"
+    note:
+      no_model: "Aucun modèle actif : la fenêtre choisie s'appliquera au prochain chargement."
+      cloud: "Modèle cloud : « Appliquer » ne recharge rien, la fenêtre compte dès le prochain tour. La lecture du contexte se fait chez le fournisseur."
+      not_measured: "« Appliquer » recharge {label}, la conversation est gardée. Débit de lecture pas encore mesuré : envoyez un message, le temps de lecture de chaque fenêtre s'affichera."
+      measured: "« Appliquer » recharge {label}, la conversation est gardée. Débit de lecture mesuré : {tps} tokens/s, sur le dernier appel qui a lu au moins {min} tokens. Le temps affiché est une borne basse : le débit baisse quand le contexte s'allonge."
+    error:
+      message: Le coût des fenêtres de contexte n'a pas pu être calculé.
+      effect: Le panneau « Fenêtre » garde ses chiffres précédents.
+  # Lot A (AD-4): why a turn's first call does not extend what the engine holds in cache.
+  prefix:
+    causes:
+      system: "Le message système a changé depuis le tour précédent (prompt système, mémoire globale, descriptions d'outils, catalogue de skills ou skill chargé)."
+      history: "L'historique n'est plus rendu tel que le modèle l'a lu (mémoire courte éteinte : l'échange précédent n'est pas renvoyé ; extraits RAG retirés, documentation remplacée par son talon, texte compressé ou réponse réécrite)."
+      template: "Une brique activée ou désactivée, ou le gabarit, rend autrement une partie du contexte déjà lue."
+      reset: "La conversation a été vidée, ou un scénario ou la réinitialisation l'a remplacée : le cache du moteur contient encore l'ancienne."
+      replay: "Rejeu : le tour repart de l'état qui précédait le tour rejoué, alors que le cache du moteur contient ce tour."
+      abandoned: "Le tour précédent n'a pas abouti (arrêté, en erreur, bloqué ou dépassé) : sa sortie est dans le cache du moteur, pas dans l'historique."
+      subagent: "Le sous-agent a occupé le cache du moteur{why}."
+      llm: "L'écran « LLM nu » a occupé le cache du moteur{why}."
+    evicted:
+      stateless: " : ce moteur ne sait pas sauvegarder l'état du contexte principal"
+      failed: " : la sauvegarde ou la restauration de l'état du contexte principal a échoué"
+    in_turn: "Cet appel ne prolonge pas exactement le précédent : seuls {common} tokens sur {expected} sont réutilisés, le modèle relit le reste. Le gabarit réécrit la sortie du modèle autrement qu'elle a été produite."
+    hybrid: ", et tout le contexte ({tokens} tokens) sur un modèle hybride comme Qwen3.5, qui ne sait pas tronquer son cache."
+    in_cache: " Les {tokens} tokens du contexte sont déjà en cache, suivis d'autres ({cached} en tout) : le moteur doit recalculer au moins le dernier token{hybrid}"
+    partly: " Seuls {common} tokens sur {cached} en cache sont réutilisés : le moteur relit {again} tokens{end}"
+    all: " Le moteur relit les {again} tokens du contexte."
+  overflow:
+    message: "Le contexte compte {shown} tokens pour {usable} utilisables (fenêtre de {window} moins {reserve} réservés à la réponse). {cause}"
+    causes:
+      user_message: "Cause : le message à lui seul est trop long. Pour continuer la démo : raccourcissez le message et renvoyez-le."
+      rag_excerpt: "Cause : les extraits RAG occupent la plus grande part du contexte. Pour continuer la démo : désactivez la brique RAG ou baissez [rag] top_k dans settings.json."
+      history: "Cause : l'historique de la conversation occupe la plus grande part du contexte. Pour continuer la démo : videz la conversation ou raccourcissez le message."
+      system_prompt: "Cause : le prompt système occupe la plus grande part du contexte. Pour continuer la démo : raccourcissez le prompt système ou rétablissez le prompt par défaut."
+      tool_catalog: "Cause : les descriptions d'outils occupent la plus grande part du contexte. Pour continuer la démo : désactivez un serveur MCP (ou des outils) dans le panneau des briques, ou videz la conversation pour décharger les documentations chargées."
+      tool_result: "Cause : les résultats d'outils (fichiers lus, recherches) occupent la plus grande part du contexte. Pour continuer la démo : posez une question plus précise, pour des résultats plus courts{compression}, ou videz la conversation."
+      hook_injection: "Cause : le texte injecté par le hook H3 (injection de contexte) occupe la plus grande part du contexte. Pour continuer la démo : désactivez H3 dans la carte des hooks, ou raccourcissez son texte (injection dans content/hooks.yaml)."
+      subagent_result: "Cause : le résultat du sous-agent occupe la plus grande part du contexte. Pour continuer la démo : confiez-lui une tâche plus ciblée, ou videz la conversation."
+      global_memory: "Cause : la mémoire globale occupe la plus grande part du contexte. Pour continuer la démo : retirez des entrées depuis « Modifier la mémoire », ou désactivez la brique Mémoire globale."
+      skill_body: "Cause : les skills (leur catalogue et les skills chargés) occupent la plus grande part du contexte. Pour continuer la démo : videz la conversation pour décharger les skills chargés, ou désactivez la brique Skills."
+    compression: " ; allumez la compression, qui raccourcit les gros résultats"
+    tool_catalog_full: "Cause : les descriptions d'outils occupent la plus grande part du contexte, chaque outil y entrant avec sa documentation complète. Pour continuer la démo : passez la carte MCP en lazy loading, ou désactivez un serveur MCP (ou des outils) dans le panneau des briques."
+    strategies:
+      sliding_window: "Fenêtre glissante : ne garder que les échanges les plus récents."
+      compaction: "Compaction : résumer les anciens échanges en quelques lignes."
+      old_tool_results: Retrait des anciens résultats d'outils.
+      lazy_loading: "Lazy loading : ne charger la documentation des outils qu'à la demande."
+  # AD-6: the name of a model capability a brick requires.
+  capabilities:
+    tool_call_parser: "l'appel d'outils ({parser})"
+  limits:
+    calls: "Borne atteinte : {n} appels au modèle dans ce tour. Le harnais arrête la boucle pour éviter qu'un modèle n'appelle des outils sans fin."
+    retries: "Le modèle n'a pas pu utiliser l'outil : {n} appels refusés dans ce tour (mal formés, outil inconnu ou arguments invalides). Le harnais arrête là au lieu de relancer indéfiniment."
+    sub_retries: "Le sous-agent n'a pas pu utiliser ses outils : {n} appels refusés (mal formés, outil inconnu ou arguments invalides). Le harnais arrête le sous-agent ; le tour principal continue avec une erreur à la place du résultat."
+    sub_calls: "Borne du sous-agent atteinte : {n} appels au modèle pour cette délégation. Le harnais arrête le sous-agent ; le tour principal continue avec une erreur à la place du résultat."
+  hosting:
+    network: RÉSEAU
+    local: Local
+  bricks:
+    limits: "Bornes du tour : {calls} appels au modèle au plus, dont {retries} nouveaux essais après un appel refusé (mal formé, outil inconnu ou arguments invalides)."
+    subagent_limits:
+      one: "Sous-agent : {count} appel au modèle au plus, nouveaux essais compris ; outils : {tools}, s'ils sont activés dans la brique Outils."
+      other: "Sous-agent : {count} appels au modèle au plus, nouveaux essais compris ; outils : {tools}, s'ils sont activés dans la brique Outils."
+  load:
+    cloud: "Préparation du modèle cloud {model} chez {provider}…"
+    server: "Préparation du modèle servi par {provider}…"
+    file: "Chargement du modèle {file}…"
+    already_active: "{label} est déjà actif."
+    budget_cause: budget mémoire dépassé (AD-8)
+    nothing_released: Rien n'est libéré ni écrit.
+    loading: "Chargement de {label}…"
+    incompatible_model: Modèle incompatible.
+    no_key: aucune clé enregistrée pour cette adresse
+    incompatible: "Le fichier {file} est incompatible."
+    over_budget: Le modèle dépasse le budget mémoire une fois mesuré.
+    window_applied: "Fenêtre de contexte : {window} tokens (conversation gardée)."
+    interrupted: Le changement de modèle s'est interrompu.
+    scenario_bricks:
+      message: Les briques indisponibles du scénario n'ont pas pu être relues.
+      effect: "Le chargement se termine ; la carte de chaque brique reste juste."
+    back: "Retour au modèle précédent : {label}."
+    previous_failed: "Le modèle précédent ({label}) n'a pas pu être rechargé."
+    failed:
+      cloud: "Le modèle cloud {label} n'a pas pu être préparé."
+      server: "Le modèle {label}, servi par {provider}, n'a pas pu être préparé."
+      file: Le modèle n'a pas pu être chargé.
+      and_previous: "{message} Le modèle précédent ({label}) n'a pas pu être rechargé."
+      window: "Fenêtre de {window} tokens non appliquée ({cause}) : {label} est de nouveau actif avec {current} tokens."
+      restored: "{label} n'a pas pu être chargé ({cause}) : {previous} est de nouveau actif."
+    stopped:
+      none: "Chargement arrêté : aucun modèle n'est actif."
+      previous_failed: "Chargement arrêté ; le modèle précédent ({label}) n'a pas pu être rechargé."
+      reload: "Rechargement arrêté : {label} est de nouveau actif avec {window} tokens."
+      restored: "Chargement arrêté : {label} est de nouveau actif."
+    steps:
+      probe: "Sonde du fichier dans un processus à part : {outcome}"
+      probe_ok: il se charge.
+      probe_incompatible: incompatible.
+      ready: "Prêt : {label} est actif."
+      occupies: " : WaveStack occupe {size}"
+      nothing_to_release: "Aucun modèle à libérer{after}."
+      released: "Modèle précédent libéré ({label}){after}."
+      budget_checked: "Budget confirmé : contrôlé avant la libération du modèle précédent."
+      budget_cloud: "Budget confirmé : rien à charger sur ce poste (modèle cloud)."
+      budget_server: "Budget confirmé : {cost} déjà en mémoire chez {provider}, comptés sans refus (budget de {budget})."
+      budget_file: "Budget confirmé (contrôlé avant la libération) : environ {cost} demandés, budget de {budget}."
+      engine_cloud: Préparation, sans chargement (modèle cloud)
+      engine_server: "Connexion à {provider}"
+      engine_file: Lecture du fichier et copie des poids en mémoire vive
+    memory:
+      the_provider: le fournisseur
+      cloud: "Aucune mémoire sur ce poste : le modèle tourne chez {provider}."
+      server: "Chargé par {provider}, dans son propre processus, en RAM de ce poste : environ {cost} comptés par le budget."
+      file: "Mémoire vive (RAM) du processeur, pas de carte graphique : WaveStack est passé de {before} à {after} ; le budget compte environ {cost}. Les poids, lus en mmap, montent en RAM au premier appel."
+  refused:
+    turn: "Un tour est déjà en cours : attendez sa fin ou cliquez sur « Arrêter »."
+    no_model: "Aucun modèle n'est chargé : terminez le diagnostic de démarrage."
+    nothing_to_replay: "Aucun prompt à rejouer : envoyez d'abord un message."
+  # AD-19: a content file that cannot be read makes its brick unavailable.
+  content:
+    file_invalid: "Le fichier {file} est absent ou invalide : corrigez-le puis relancez WaveStack."
+    skills_file_invalid: "Un fichier des skills (content/skills.yaml ou content/skills/*/SKILL.md) est absent ou invalide : corrigez-le puis relancez WaveStack."
+    subagent_file_invalid: "Le fichier content/subagent.yaml ou le prompt du sous-agent (content/prompts/subagent.md) est absent ou invalide : corrigez-le puis relancez WaveStack."
+    system_prompt_file_invalid: "Le prompt système par défaut (content/prompts/system.md) est absent ou vide : corrigez-le puis relancez WaveStack."
+    explanation_invalid: "L'explication de la brique « {brick} » est invalide."
+    brick_unavailable: "La brique est indisponible ; le reste de WaveStack fonctionne."
+    ui_invalid:
+      message: Le fichier content/ui.yaml est absent ou invalide.
+      effect: "L'interface reste dans le français de sa page ; le reste de WaveStack fonctionne."
+    scenarios_invalid:
+      message: Le fichier des scénarios (content/scenarios.yaml) est absent ou invalide.
+      effect: "Le sélecteur de scénario est vide ; le reste de WaveStack fonctionne."
+    labels:
+      message: Le fichier des libellés de segments est invalide.
+      effect: Les types de segment s'affichent sous leur nom technique.
+    invalid:
+      tools: Les descriptions des outils sont invalides.
+      mcp: Les libellés des serveurs MCP sont invalides.
+      skills: Les skills sont invalides.
+      hooks: Les textes des hooks sont invalides.
+      subagent: Les textes du sous-agent sont invalides.
+      compression: Les textes de la compression sont invalides.
+      system_prompt: Le prompt système par défaut est illisible.
+      global_memory: Les textes de la mémoire globale sont invalides.
+      rag: Les textes de la brique RAG sont invalides.
+    unavailable:
+      tools: "La brique « Outils » est indisponible ; le reste de WaveStack fonctionne."
+      mcp: "La brique « MCP » est indisponible ; le reste de WaveStack fonctionne."
+      skills: "La brique « Skills » est indisponible ; le reste de WaveStack fonctionne."
+      hooks: "La brique « Hooks » est indisponible ; le reste de WaveStack fonctionne."
+      subagent: "La brique « Sous-agent » est indisponible ; le reste de WaveStack fonctionne."
+      compression: "La brique « Compression » est indisponible ; le reste fonctionne."
+      system_prompt: "La brique « Prompt système » est indisponible ; le reste fonctionne."
+      global_memory: "La brique « Mémoire globale » est indisponible ; le reste de WaveStack fonctionne."
+      rag: "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne."
+  memory:
+    file_unreadable: "Le fichier de la mémoire globale ({path}) est illisible ou invalide : corrigez-le puis relancez WaveStack, ou cliquez sur « Réinitialiser » pour restaurer la mémoire de démonstration (le fichier sera remplacé)."
+    unreadable: La mémoire globale est illisible.
+    unreadable_effect: "La brique « Mémoire globale » est indisponible ; le fichier n'est pas modifié."
+    no_parser: "Le modèle actif ne sait pas appeler d'outil : il ne peut pas écrire en mémoire lui-même, et « Écrire en mémoire » ne s'applique pas. La mémoire reste injectée dans le contexte et modifiable depuis « Modifier la mémoire »."
+    duplicate: "« {text} » est déjà en mémoire : rien n'est modifié."
+    unknown_op: "Opération inconnue : « {op} »."
+    not_written: "La mémoire globale n'a pas pu être écrite : elle reste inchangée."
+  # AD-12: why a brick is unavailable.
+  availability:
+    unknown_brick: "La brique « {brick} » n'existe pas dans cette version."
+    requires: "Nécessite la brique « {brick} » : activez-la d'abord."
+    cloud_no_tools: "Le modèle cloud « {model} » ne déclare pas l'appel d'outils (tools) : aucune action d'outil, pas même forcée. Déclarez tools = true si le modèle le gère, ou choisissez un autre modèle."
+    lacks: "Le modèle chargé n'offre pas {needs} : choisissez un autre modèle."
+    no_model: "Indisponible : aucun modèle chargé."
+    cloud_no_reasoning: "Indisponible : le modèle actif ne sait pas raisonner. Le modèle cloud « {model} » ne déclare pas de raisonnement (reasoning) : déclarez-le si le modèle le gère, ou choisissez un autre modèle."
+    no_reasoning: "Indisponible : le modèle actif ne sait pas raisonner. Son gabarit de conversation n'a pas de variable de raisonnement : choisissez un modèle qui raisonne."
+  reasoning:
+    cut: "Raisonnement coupé par le harnais à {tokens} tokens : la réflexion a atteint le budget de {budget} tokens sans se fermer. Le harnais la ferme lui-même ({tag}) et relance le modèle, qui garde {left} tokens pour la réponse."
+    always: "Toujours active pour ce modèle : {model} raisonne à chaque réponse ; ce modèle ne permet pas de l'éteindre. La réserve de sortie reste de {reserve} tokens."
+    budget: "Budget de réflexion : {budget} tokens ; au-delà, le harnais ferme la réflexion et garde {left} tokens pour la réponse."
+  skills:
+    # The header line of a loaded skill's body, in the context.
+    body_header: "Skill « {label} » ({skill}) :"
+  preview:
+    error:
+      message: L'aperçu du contexte n'a pas pu être calculé.
+      effect: La jauge reste vide jusqu'au premier tour.
+  # Story 9 (AD-3): an action armed for the next turn, or why it is not.
+  arm:
+    unknown_tool: "Outil inconnu : « {target} » n'est ni un outil de la brique Outils ni l'outil d'un serveur MCP. Rien n'est armé."
+    nothing_armed: "{why} Rien n'est armé."
+    unknown_skill: "Skill inconnu : « {target} ». Rien n'est armé."
+    unknown_mcp_tool: "Outil MCP inconnu : « {target} » n'est l'outil d'aucun serveur connecté. Rien n'est armé."
+    doc_label: "Documentation de {target}"
+    unknown_memory_action: "Action de mémoire inconnue : « {target} ». Rien n'est armé."
+    memory_label: "Écrire en mémoire ({text})"
+    not_delegation: "Action inconnue : « {target} » n'est pas la délégation au sous-agent. Rien n'est armé."
+    delegation_argument: "Argument inconnu pour la délégation : {args}. Seule la tâche (« task ») est attendue. Rien n'est armé."
+    task_not_text: "La tâche du sous-agent doit être un texte. Rien n'est armé."
+    task_empty: "La tâche du sous-agent est vide. Rien n'est armé."
+    delegation_label: "Délégation : « {task} »"
+    unknown_action: "Action inconnue : « {kind} ». Rien n'est armé."
+    not_armed: "Aucune action armée « {armed_id} » : elle a déjà été consommée ou désarmée."
+  subagent:
+    unknown_tools: "[subagent] tools nomme des outils inconnus : {tools}."
+    known_tools: "Outils de la brique Outils : {tools}."
+    ignored: "Ces noms sont ignorés : le sous-agent n'a que les outils connus et activés."
+  mcp:
+    connecting: "Connexion au serveur MCP {server}"
+    no_loop: "Connexion impossible : la boucle asyncio de WaveStack n'est pas démarrée."
+    abandoned: "Connexion abandonnée : le serveur a été désactivé."
+  language:
+    not_saved: "La langue n'a pas pu être enregistrée dans {path} ({cause}) : elle reste inchangée."
+    both_invalid:
+      message: "Un fichier traduit ({lang}) sous content/i18n/{lang}/ et son original français sont invalides."
+      effect: "Le texte lu avant le changement de langue reste utilisé ; le reste de WaveStack fonctionne."
+  # Story 15 (AD-21): the RAG's model download and index build.
+  download:
+    no_model: "La brique RAG n'a pas de modèle {noun} déclaré."
+    nothing: "Rien à télécharger : les fichiers du modèle {noun} sont déjà dans {dest}."
+    progress: "Téléchargement du modèle {noun} : {percent} % ({done} / {total} Mo)"
+    stopped: "Téléchargement du modèle {noun} arrêté."
+    failed: "Le téléchargement du modèle {noun} a échoué."
+    by_hand: "Rien n'est installé. Pour continuer, copiez le fichier à la main dans {folder} ({names}), puis cliquez de nouveau sur « Télécharger »."
+  build:
+    no_model: La brique RAG n'a pas de modèle déclaré.
+    model_missing: "Construction impossible : le modèle d'embedding n'est pas sur le poste. Cliquez d'abord sur « Télécharger »."
+    vec: sqlite-vec ne se charge pas.
+    up_to_date: "Rien à construire : l'index est à jour."
+    loading: "Construction de l'index RAG : chargement du modèle d'embedding…"
+    progress: "Construction de l'index RAG : {done} / {total} extraits"
+    stopped: Construction de l'index RAG arrêtée.
+    failed: L'index RAG n'a pas pu être construit.
+    unchanged: "L'index {path} n'est pas modifié."
+    written: "{path} · {chunks} extraits · modèle d'embedding {model} ({dims} dimensions)"
+    embedder_failed: "le modèle d'embedding n'a pas pu être chargé ({kind}: {cause})"
+  approval:
+    unknown: "Aucune validation « {approval_id} » n'est en attente : elle n'existe pas ou a déjà reçu une réponse."
+    answered: "Cette validation a déjà reçu une réponse : la première compte."
+  cause: "{kind}: {text}"
+  settings:
+    unwritable: Impossible d'écrire le fichier de réglages settings.json.
+    choice_not_saved: "{label} est actif ; choix non mémorisé pour les prochains lancements."
+    window_not_saved: "Fenêtre de {window} tokens appliquée ; choix non mémorisé pour les prochains lancements."
+  unavailable: "Indisponible : {reason}"
+  forgotten: Il est oublié.
+  rerank:
+    not_configured: "Indisponible : [rag.reranker] non configurée."
+    loading: "Chargement du modèle de reranking {label}…"
+    waits_for_rag: "Indisponible tant que la brique RAG l'est{why} : le reranker ne se charge qu'après le modèle d'embedding."
+    skipped: "Reranking demandé mais non appliqué à ce tour. {why}"
+    skipped_not_loaded: "Reranking demandé mais non appliqué à ce tour : le reranker n'est pas chargé."
+    label: "le modèle de reranking {label}"
+    refused_effect: "Le reranking est indisponible ; le RAG fonctionne sans lui. Il se charge de lui-même après un changement de modèle, ou en le réactivant."
+    load_failed: Le modèle de reranking n'a pas pu être chargé.
+    unavailable_effect: "Le reranking est indisponible ; le RAG fonctionne sans lui."
+    load_failed_reason: "Indisponible : le modèle de reranking n'a pas pu être chargé ({kind}: {cause}). Vérifiez le fichier {path}, ou supprimez-le et cliquez sur « Télécharger »."
+    close_failed: Le modèle de reranking n'a pas pu être fermé.
+    not_loaded: le modèle de reranking n'est pas chargé
+    scores: "{scores} scores pour {excerpts} extraits"
+    not_finite: "score non fini : {score}"
+    stopped: Reranking arrêté.
+    failed:
+      message: Le reranking a échoué.
+      effect: "Le tour continue avec les {keep} premiers extraits de l'embedding."
+      text: "Le reranking a échoué ({kind}: {cause}). Le tour continue avec les {keep} premiers extraits de l'embedding."
+  compression:
+    the_compressor: le compresseur
+    loading: Chargement du compresseur…
+    not_loaded: "Compresseur non chargé : désactivez puis réactivez la brique."
+    refused_effect: "La brique « Compression » est indisponible ; rien n'est chargé. Elle se charge d'elle-même après un changement de modèle, ou en la réactivant."
+    load_failed: Headroom n'a pas pu être chargé.
+    unavailable_effect: "La brique « Compression » est indisponible ; le reste de WaveStack fonctionne."
+    load_failed_reason: "Indisponible : Headroom n'a pas pu être chargé ({kind}: {cause}). Réinstallez-le avec `uv sync --extra compression`, puis relancez WaveStack."
+    close_failed: Le compresseur n'a pas pu être fermé.
+    text_failed: "{source} : la compression a échoué ({kind}: {cause})."
+    failed:
+      message: La compression d'un texte a échoué.
+      effect: "Le texte d'origine part tel quel ; le tour continue."
+  turn:
+    over: "Le tour est terminé ; WaveStack reste utilisable."
+    interrupted: Le tour s'est interrompu sur une erreur.
+    end_hooks:
+      message: Les hooks de fin de tour se sont interrompus.
+      effect: Le tour se termine sans eux.
+  # Story 9 (AD-3): why a forced action is dropped from the turn.
+  forced:
+    undeclared: "l'outil « {name} » n'est plus déclaré"
+    dropped: "Action forcée « {label} » abandonnée : {reason}. Le tour continue sans elle."
+    inactive:
+      mcp: la brique « MCP » n'est pas active dans ce tour
+      tools: la brique « Outils » n'est pas active dans ce tour
+      skills: la brique « Skills » n'est pas active dans ce tour
+      global_memory: la brique « Mémoire globale » n'est pas active dans ce tour
+      subagent: la brique « Sous-agent » n'est pas active dans ce tour
+    server_off: "le serveur de l'outil « {target} » n'est pas connecté ou est désactivé"
+    tool_unchecked: "l'outil « {tool} » est décoché"
+    skill_loaded: "le skill « {skill} » est déjà chargé"
+    skill_unchecked: "le skill « {skill} » est décoché"
+    no_parser: "le modèle actif ne sait pas appeler d'outil, et l'écriture forcée passe par l'outil remember"
+    doc_in_context: "la brique « MCP » est en documentation complète : la documentation de « {target} » est déjà dans le contexte"
+    doc_loaded: "la documentation de « {target} » est déjà chargée"
+  hooks:
+    failed:
+      message: "Le hook « {label} » a échoué."
+      effect: "Il laisse passer : le tour continue."
+    not_allowed:
+      message: "Le hook « {label} » a rendu la décision « {decision} », non permise au point « {point} »."
+      cause: Décision hors de la liste permise (AD-13).
+      effect: "Elle vaut « allow » : le tour continue."
+    audit_unwritable:
+      message: Le journal d'audit n'a pas pu être écrit.
+      effect: "Ces lignes ne sont pas écrites ; le tour continue. La journalisation les reprendra à son prochain déclenchement dans ce tour, s'il y en a un ; sinon elles sont perdues."
+  # The history's stub of a documentation or a skill loaded in an earlier turn (AD-25).
+  stubs:
+    doc: "Documentation de « {tool} » chargée."
+    skill: "Skill « {skill} » chargé."
+  call_id:
+    message: Identifiant d'appel d'outil en double dans ce tour.
+    cause: "{ref} donne {call_ref}, déjà attribué."
+    effect: "Le tour continue ; deux réponses d'outil partagent cet identifiant."
+  cloud:
+    sending_context: "Envoi du contexte à {provider} (≈ {tokens} tokens)"
+  # « {text} Détail : {detail} »: a content error, with the first line of its cause.
+  detail: "{text} Détail : {detail}"
+  # Story 29: the « LLM nu » screen.
+  llm_lab:
+    content_invalid: "Textes de l'écran « LLM nu » illisibles (content/llm_lab.yaml) : corrigez le fichier puis rechargez la page."
+    content_invalid_effect: La page « LLM nu » reste servie sans ses textes.
+    tokenizer:
+      none: "Aucun modèle actif : aucun tokenizer à montrer."
+      cloud: "Le tokenizer de {model} est chez {provider}, pas sur ce poste : WaveStack ne peut pas découper le texte comme lui. Il estime le nombre de tokens à partir des caractères, sans aucune puce."
+      llama_server: le tokenizer de llama-server (/tokenize)
+      ollama: le tokenizer du fichier GGUF qu'Ollama sert, ouvert par WaveStack
+      exact: "Découpage exact, par {how}."
+      exact_loaded: Découpage exact, par le tokenizer du modèle chargé.
+    tokenize_failed: Le découpage en tokens a échoué.
+    nothing_changed: "Rien n'a changé ; l'atelier et l'écran « LLM nu » restent utilisables."
+    no_model: aucun modèle actif
+    dimensions_cloud: "Dimensions inconnues : le modèle tourne chez {provider}, qui ne les publie pas dans son API."
+    dimensions_unknown: Ce moteur ne dit pas les dimensions du modèle.
+    dimensions_gguf: Lues dans l'en-tête GGUF du fichier du modèle.
+    sampling:
+      names:
+        temperature: température
+        top_k: top-k
+        top_p: top-p
+        min_p: min-p
+      by_provider: "Réglé par {provider} : WaveStack n'envoie aucun réglage d'échantillonnage."
+      not_settable: "{names} non réglables chez {provider}."
+      local: "Envoyés au moteur à chaque génération de l'écran ; l'atelier garde les valeurs du harnais."
+      no_api: "{label} non réglable chez {provider} : l'API compatible OpenAI ne le prévoit pas."
+      not_declared: "{label} non réglable chez {provider} : le modèle ne le déclare pas (sampling) dans la configuration ; le fournisseur garde sa valeur."
+      cloud: "Seuls les réglages que {model} déclare partent chez {provider} ; les tours de l'atelier n'en envoient aucun."
+      defaults: "Valeurs du harnais : {values}"
+    no_reasoning: "Raisonnement indisponible : {reason}"
+    cannot_reason: le modèle actif ne sait pas raisonner.
+    candidates:
+      no_model: Aucun modèle actif.
+      cloud: "Probabilités indisponibles : le modèle tourne chez {provider}, qui ne les envoie pas à WaveStack sous une forme qu'il sait vérifier."
+      server: "Probabilités indisponibles avec {provider} : WaveStack ne les lit que dans le moteur qui tourne dans son propre processus (un fichier GGUF chargé par WaveStack)."
+    reading: "Lecture du prompt ({tokens} tokens)"
+    sending: "Envoi du prompt à {provider} (≈ {tokens} tokens)"
+    too_long: "Prompt trop long : {tokens} tokens pour {usable} utilisables (fenêtre de {window} moins {reserve} réservés à la réponse). Raccourcissez-le : l'appel n'est pas envoyé."
+    interrupted: La génération de l'écran « LLM nu » s'est interrompue sur une erreur.
+    still_usable: L'écran « LLM nu » et l'atelier restent utilisables.
+    end_untraced: La fin de la génération de l'écran « LLM nu » n'a pas pu être tracée.
+    back_to_idle: "La session revient en attente ; l'atelier reste utilisable."
+    stops: "La génération de l'écran s'arrête ; WaveStack reste utilisable."
+  # Story 30: the RAG workshop.
+  rag_lab:
+    content_invalid: "Textes de l'atelier RAG illisibles (content/rag_lab.yaml) : corrigez le fichier puis rechargez la page."
+    content_invalid_effect: La page « Atelier RAG » reste servie sans eux.
+    fastembed_missing: "Indisponible : fastembed n'est pas installé (ce n'est pas une dépendance de WaveStack, seulement le repli de la story 12)."
+    fastembed_files: "Indisponible : les fichiers du modèle fastembed ne sont pas dans {folder}. Copiez-les à la main : l'atelier RAG ne télécharge rien."
+    corpus_unreadable: "Le corpus de la brique RAG (content/rag.yaml) est illisible : l'atelier RAG ne peut rien découper."
+    texts_unreadable: Textes de l'atelier RAG illisibles.
+    two_chains: "Deux chaînes au plus : A, puis B pour la comparaison."
+    lane: "Chaîne {chain} : {reason}"
+    close_failed:
+      message: Un modèle chargé par l'atelier RAG n'a pas pu être fermé.
+      effect: "Il est oublié ; son créneau mémoire est libéré."
+    no_embedding: Aucun modèle d'embedding n'est déclaré.
+    embedding_absent: "Modèle d'embedding absent ({names} dans {folder}). Téléchargez-le depuis la carte RAG de l'atelier."
+    noun:
+      embedding: modèle d'embedding
+      reranking: modèle de reranking
+    fastembed_unavailable: fastembed indisponible.
+    no_reranker: Aucun modèle de reranking n'est déclaré.
+    reranker_absent: "Modèle de reranking absent ({names} dans {folder}) : téléchargez-le depuis la carte RAG de l'atelier (sous-option « Reranking »). La construction du contexte garde l'ordre de la recherche."
+    import:
+      label: Import
+      budget_label: Budget
+      first_added: "+{size} Mo au premier import"
+      added: "+{size} Mo"
+      no_measure: mesure absente
+      already: "déjà fait dans cette session ({said}), compté à vie"
+      first: "premier import : {said} dans WaveStack"
+      budget: "{size} Mo réservés à vie (un module ne se décharge pas)"
+      refused: "Import refusé : {label} n'a pas pu être chargé ({kind} : {cause}). Une stratégie de sécurité (AppLocker, WDAC) bloque peut-être ses bibliothèques non signées ; les autres bases vectorielles restent utilisables."
+      failed: "Import en échec : {label} n'a pas pu être chargé ({kind} : {cause}). Son installation est peut-être abîmée : relancez `{install}` depuis le dossier de WaveStack ; les autres options restent utilisables."
+    interrupted: L'atelier RAG s'est interrompu sur une erreur.
+  reading_context: "Lecture du contexte ({tokens} tokens)"
+
+tools:
+  datetime:
+    # `get_datetime`: the day of the week before the ISO date, days from Monday.
+    weekdays:
+      monday: lundi
+      tuesday: mardi
+      wednesday: mercredi
+      thursday: jeudi
+      friday: vendredi
+      saturday: samedi
+      sunday: dimanche
+  # The executor (`tools/executor.py`): what the model reads of a refused or failed call.
+  phase_label: "Exécution de l'outil {label}"
+  error: "Erreur : {text}"
+  failed: "L'outil a échoué ({kind} : {cause})."
+  reject: "Erreur : {sentence} Corrige l'appel ou réponds sans outil."
+  check:
+    doc_not_loaded: 'La documentation de « {name} » n''est pas chargée : appelle d''abord load_tool_doc avec tool="{name}".'
+    none: aucun
+    unknown_tool: "L'outil « {name} » n'existe pas ou est désactivé. Outils disponibles : {available}."
+    unknown_argument: "argument inconnu « {arg} »"
+    missing_argument: "argument « {arg} » manquant"
+    wrong_type: "« {arg} » doit être {expected}"
+    invalid_arguments: "Arguments invalides pour « {name} » : {problems}."
+    types:
+      string: un texte
+      integer: un entier
+      number: un nombre
+      boolean: un booléen
+      object: un objet
+      array: une liste
+  # The parsers (`tools/parser.py`): why a model's output is a malformed call.
+  parser:
+    function_tag: "la balise <function=…>…</function> est absente ou mal fermée"
+    parameter_unclosed: "une balise <parameter=…> n'est pas fermée par </parameter>"
+    json_unreadable: "le JSON de l'appel est illisible ({cause})"
+    no_name: "l'appel n'est pas un objet JSON avec un champ « name »"
+    arguments_not_object: "le champ « arguments » n'est pas un objet JSON"
+    never_closed: "la balise <tool_call> n'est jamais fermée"
+    cut: "la sortie a été coupée à {limit} tokens au milieu de l'appel"
+  calculator:
+    power: "Puissance refusée : l'exposant {exponent} est trop grand pour la calculatrice (au plus {max}, et un résultat de taille raisonnable)."
+    division_by_zero: "Division par zéro : le calcul n'a pas de résultat."
+    overflow: "Résultat trop grand pour la calculatrice."
+    allowed: "des nombres, + - * / // % ** et des parenthèses"
+    operation: "Opération refusée : la calculatrice n'accepte que {allowed}."
+    too_long: "Expression trop longue : {max} caractères au plus."
+    unreadable: "Expression illisible : « {expression} ». Utilisez {allowed}."
+  read_file:
+    outside: "Accès refusé : « {path} » sort du dossier de démonstration. Seuls les fichiers de content/demo_files/ sont lisibles, par un chemin relatif."
+    listing: "Fichiers disponibles :\n{files}"
+    missing: "Fichier absent : « {path} ». Fichiers disponibles : {files}."
+  network:
+    blocked: "Connexion refusée par le harnais ({cause})."
+    unreachable: "Service injoignable ({kind}) : le poste n'a pas accès à {host}."
+    http_error: "Le service a répondu par une erreur HTTP {status} ({reason})."
+    year: "Année refusée : {year}. Indiquez une année entre 1900 et 2100."
+    empty_title: "Titre vide : indiquez le titre d'une page Wikipédia."
+    page_absent: "Page absente de Wikipédia : « {title} »."
+    url_refused: "Adresse refusée : « {url} ». fetch_page n'accepte que des adresses https:// vers {hosts}."
+    cut: "[Texte coupé à {limit} caractères sur {total}.]"
+  registry:
+    collision: "Deux outils portent le nom « {name} » : le second est indisponible."
+    collision_cause: "Collision de noms dans le registre d'outils (AD-14)."
+    collision_effect: "Le premier outil déclaré reste utilisable."
+  # Lot B (N3): appended to a network or MCP tool's result the harness cut, seen by the model.
+  truncated: "[Résultat tronqué par le harnais : {kept} tokens sur {total}. Réponds avec ce qui est gardé, ou relance l'outil avec une demande plus précise.]"
+
+skills:
+  already_loaded: "Le skill « {skill} » est déjà chargé."
+  unknown: "Aucun skill activé ne s'appelle « {skill} ». Skills chargeables : {loadable}."
+
+memory:
+  text:
+    not_text: "Le texte à retenir doit être du texte : rien n'est écrit."
+    empty: "Le texte à retenir est vide : rien n'est écrit."
+    too_long: "Le texte à retenir fait {length} caractères, pour {max} au plus : rien n'est écrit."
+  unreadable: "La mémoire globale est illisible : rien n'est écrit."
+  duplicate: "Déjà en mémoire : « {text} ». Rien n'est ajouté."
+  full: "La mémoire globale est pleine ({max} entrées) : rien n'est écrit. Réponds sans retenir cette information."
+  remembered: "Retenu en mémoire globale : « {text} ». Cette information sera dans le contexte des prochaines conversations."
+  not_modified: "La mémoire globale n'a pas été modifiée : rien n'est retenu."
+  not_written: "La mémoire globale n'a pas pu être écrite : rien n'est retenu."
+  error:
+    not_modified: "La mémoire globale n'a pas été modifiée."
+    not_written: "La mémoire globale n'a pas pu être écrite."
+    unchanged: "Elle reste inchangée ; le reste de WaveStack fonctionne."
+
+delegation:
+  outside_turn: "Délégation impossible hors d'un tour."
+  empty_task: "La tâche du sous-agent est vide : décris-la dans l'argument « task »."
+  interrupted: "le sous-agent s'est interrompu."
+  stopped: "délégation arrêtée."
+  hook_blocked: "le hook « {label} » a bloqué son appel au modèle."
+  overflow: "son contexte est dépassé ({used} tokens pour {usable} utilisables)."
+  cut: "sa sortie a été coupée à {reserve} tokens."
+  refused: "appel au modèle refusé."
+  no_text: "(Le sous-agent n'a rendu aucun texte.)"
+  retries: "{retries} appels d'outil refusés (mal formés, outil inconnu ou arguments invalides)."
+  calls: "il a atteint sa borne de {max} appels au modèle."
+  cancelled: "Délégation arrêtée à la demande de l'utilisateur."
+  failed: "La délégation au sous-agent a échoué : {reason} Réponds sans ce résultat, ou délègue une tâche plus simple."
+  error:
+    message: "Le sous-agent s'est interrompu sur une erreur."
+    effect: "La délégation échoue ; le tour principal continue."
+
+hooks:
+  h1:
+    blocked: "Bloqué par le hook garde-fou : « {path} » est dans le dossier confidentiel, dont la lecture est interdite."
+    allowed: "« {path} » est hors du dossier confidentiel : lecture permise."
+  # H2: the audit log's lines (`time | turn | what | detail | status`) and its decision.
+  h2:
+    model_call: appel au modèle
+    tokens: "{read} tokens lus, {made} produits"
+    tool_call: appel d'outil
+    tool_refused: appel d'outil refusé
+    refused: refusé
+    blocked_by: "appel bloqué par {hook}"
+    blocked: bloqué
+    human_validation: validation humaine
+    towards: "{tool} vers {destination}"
+    approval:
+      approved: autorisé
+      refused: refusé
+      cancelled: annulé
+    turn_end: fin du tour
+    lines:
+      one: "{count} ligne pour le journal d'audit."
+      other: "{count} lignes pour le journal d'audit."
+  h3:
+    injected: "Date du poste et règles de la mission ajoutées avant le message."
+  h5:
+    ask: "L'appel à « {name} » enverrait une requête vers {host} : le harnais demande votre accord avant tout envoi."
+    refused: "Refusé par l'utilisateur (validation humaine) : l'appel à « {name} » vers {host} n'a pas été envoyé."
+
+mcp:
+  glossary:
+    unknown_term: "Terme inconnu du glossaire : « {term} ». Termes disponibles : {known}."
+  # `load_tool_doc` (AD-25), the lazy loading's meta-tool.
+  doc:
+    already_loaded: "La documentation de « {tool} » est déjà chargée."
+    unknown: "Aucun outil MCP disponible ne s'appelle « {tool} ». Outils chargeables : {loadable}."
+  # `mcp/connection.py`: why a server could not be reached, or refused a call.
+  block_not_shown: "[bloc {type} non affiché]"
+  error:
+    timeout: "Le serveur n'a pas répondu dans le délai ({timeout} s)."
+    http: "Le serveur a répondu par une erreur HTTP {status}."
+    refused_exchange: "Le serveur a refusé l'échange MCP ({cause})."
+    closed: "La connexion au serveur est fermée : décochez puis recochez-le pour la rouvrir."
+    process: "Le processus du serveur n'a pas pu être lancé ({cause})."
+    failed: "La connexion au serveur a échoué ({kind} : {cause})."
+    call_refused: "Le serveur MCP a refusé l'appel : {cause}"
+    no_detail: "Le serveur signale une erreur, sans détail."
+
+# `config.py`: the memory budget's calculation (the diagnostic, a load's refusal) and the
+# reasons a declaration in wavestack.toml or settings.json is left out.
+config:
+  budget:
+    calc:
+      cap: "[memory] budget_mb de {size}"
+      fixed: "valeur fixe {cap} (budget_mode = « fixed »)"
+      not_measured: "plafond {cap}, RAM du poste non mesurée"
+      share: "{percent} des {available} de RAM"
+      total: ", sur {total}"
+      floored: "{share} disponibles au lancement {part}{total}, relevé au plancher de {floor} Mo"
+      ram_limited: "{share} disponibles au lancement {part}{total}, sous le plafond {cap}"
+      capped: "plafond {cap}, plus petit que {share} disponibles au lancement {part}{total}"
+    short:
+      fixed: "= valeur fixe [memory] budget_mb"
+      not_measured: "= plafond [memory] budget_mb, RAM du poste non mesurée"
+      floored: "= plancher, RAM disponible au lancement faible"
+      ram_limited: "= {percent} des {available} de RAM disponibles au lancement"
+      capped: "= plafond [memory] budget_mb"
+  cloud_rejected: "Modèle cloud « {name} » écarté : déclaration invalide ({fields}).{reasons} Corrigez wavestack.toml ou settings.json, puis relancez WaveStack."
+  cloud_quota: "Indisponible : le quota de {tpm} tokens par minute ne laisse pas de place au contexte une fois la réponse réservée ({reserve} tokens)."
+  rag_embedding:
+    absent: "La section [rag.embedding] de wavestack.toml est absente : elle nomme le modèle d'embedding. Rétablissez-la, puis relancez WaveStack (la configuration n'est lue qu'au lancement)."
+    invalid: "La section [rag.embedding] est invalide ({fields}). Corrigez wavestack.toml ou settings.json, puis relancez WaveStack (la configuration n'est lue qu'au lancement)."
+  rag_reranker:
+    absent: "Indisponible : la section [rag.reranker] de wavestack.toml est absente (elle nomme le modèle de reranking). Rétablissez-la, puis relancez WaveStack."
+    invalid: "Indisponible : la section [rag.reranker] est invalide ({fields}). Corrigez wavestack.toml ou settings.json, puis relancez WaveStack."
+  fastembed:
+    absent: "Indisponible : aucun modèle fastembed n'est déclaré. Ajoutez une section [rag_lab.fastembed] (model_name, dims, label_text) à settings.json, WaveStack arrêté."
+    invalid: "Indisponible : la section [rag_lab.fastembed] est invalide ({fields}). Corrigez-la, puis relancez WaveStack."
+
+# `greenops.py`: a call's footprint note (the method and its limits, or why there is none).
+greenops:
+  not_estimated: "Empreinte non estimée : {why}."
+  cloud:
+    not_declared: "Empreinte non estimée : aucune correspondance EcoLogits n'est déclarée pour ce modèle (champ impacts de son entrée [[cloud.models]])."
+    failed: "Empreinte non estimée : EcoLogits a échoué ({kind} : {cause})."
+    unknown_model: "EcoLogits ne connaît pas le modèle « {model} » chez le fournisseur « {provider} » (champ impacts de l'entrée)"
+    unknown_zone: "EcoLogits ne connaît pas la zone électrique « {zone} »"
+    no_estimate: "EcoLogits n'a pas rendu d'estimation{codes}"
+    provider_zone: celle du fournisseur dans EcoLogits
+    note: "Méthode EcoLogits (hors ligne), modèle « {model} » chez « {provider} », zone électrique : {zone} ; estimation à partir des tokens de sortie (raisonnement compris) et de la durée de l'appel, en cycle de vie : l'électricité des serveurs et une part de leur fabrication{range}{warnings}{extra}."
+    range: " ; fourchette (min–max) selon les hypothèses d'EcoLogits"
+    warnings: " ; avertissements : {list}"
+  # EcoLogits' warnings (`ecologits.status_messages`, `-` written `_`).
+  warnings:
+    model_arch_not_released: architecture non publiée, précision moindre
+    model_arch_multimodal: modèle multimodal, précision moindre
+    electricity_mix_adpe_world: facteur ADPe du mix mondial par défaut, précision moindre
+    electricity_mix_pe_world: facteur d'énergie primaire du mix mondial par défaut
+    electricity_mix_wue_world: facteur d'eau du mix mondial par défaut
+  local:
+    missing: "Empreinte locale indisponible : CodeCarbon n'est pas installé. Installez l'extra GreenOps depuis le dossier de WaveStack (`{install}`, ajoutez vos autres extras), puis relancez WaveStack."
+    refused: "Empreinte locale indisponible : {refusal}"
+    not_loaded: "Empreinte locale indisponible : CodeCarbon n'a pas pu être chargé ({kind} : {cause}). Relancez `{install}` depuis le dossier de WaveStack."
+    not_started: "Empreinte non estimée : CodeCarbon n'a pas démarré ({kind})."
+    no_measure: "Empreinte non estimée : CodeCarbon n'a pas rendu de mesure ({kind})."
+    invalid_energy: "Empreinte non estimée : CodeCarbon a rendu une énergie invalide ({kwh})."
+    machine: poste entier (le modèle tourne dans un autre processus, Ollama ou llama-server)
+    process: processus de WaveStack seul (le moteur intégré)
+    note: "Mesure CodeCarbon hors ligne : estimation (TDP × charge, sans droits administrateur), {scope} ; émissions à {intensity} g CO₂e par kWh ([greenops] local_gco2e_per_kwh), sans le GPU. Électricité consommée seulement : sans la part de fabrication du poste, que l'estimation cloud (EcoLogits) compte pour les serveurs.{zero}"
+    zero: " CodeCarbon n'a mesuré aucune énergie pour cet appel (trop court)."
+
+# The RAG workshop (story 30, `rag/lab.py`): its chain's refusals, its stages' texts, the
+# comparison of two chains. `{stage}`: a stage's name, read in `rag_lab.yaml`.
+rag_lab:
+  quoted: "« {text} »"
+  list_separator: " ; "
+  # Nouns after a count: « 1 extrait », « 0 extraits » (the workshop agrees 0 as plural).
+  noun:
+    extract:
+      one: extrait
+      other: extraits
+    candidate:
+      one: candidat
+      other: candidats
+    document:
+      one: document
+      other: documents
+    passage:
+      one: passage
+      other: passages
+    vector:
+      one: vecteur
+      other: vecteurs
+    score:
+      one: score
+      other: scores
+    kept_candidate:
+      one: candidat retenu
+      other: candidats retenus
+    reordered_candidate:
+      one: candidat réordonné
+      other: candidats réordonnés
+  # A rank: « 1er », « 2ᵉ » (English: 1st, 2nd, 3rd, 4th; 21st, 22nd, 23rd).
+  rank:
+    first: "1er"
+    st: "{n}ᵉ"
+    nd: "{n}ᵉ"
+    rd: "{n}ᵉ"
+    th: "{n}ᵉ"
+  size:
+    kib: "{n} Ko"
+    mib: "{n} Mo"
+  check:
+    duplicate_id: "Deux étapes de la chaîne portent le même identifiant."
+    unknown_kind: "Étape inconnue : « {kind} »."
+    once: "Étape « {stage} » : elle n'apparaît qu'une fois."
+    fixed_missing: "Étape « {stage} » : elle est fixe et ne se retire pas ({order})."
+    fixed_place: "Étape « {stage} » : elle est fixe, à sa place dans la chaîne ({order})."
+    no_search: "Étape « {stage} » : aucune recherche ne lui apporte d'extraits. Ajoutez une recherche vectorielle ou lexicale."
+    fusion_needed: "Deux recherches demandent une fusion après elles (étape « {stage} ») : ajoutez la fusion, ou retirez une recherche."
+    fusion_before: "Étape « {stage} » : elle doit venir après les deux recherches, qu'elle fusionne. Déplacez-la après elles."
+    fusion_alone: "Étape « {stage} » : la fusion demande deux recherches avant elle. Ajoutez une seconde recherche, ou retirez la fusion."
+    rerank_before: "Étape « {stage} » : le reranking réordonne les candidats d'une recherche, il doit venir après une recherche."
+    unknown_option: "Étape « {stage} » : l'option « {option} » n'existe pas."
+    unavailable: "Étape « {stage} » : {option} n'est pas utilisable. {reason}"
+    unknown_setting: "Étape « {stage} » : réglage inconnu ({names})."
+    out_of_bounds: "Étape « {stage} » : {bounds}."
+    bounds: "{setting} entre {low} et {high} {unit}"
+    too_few_candidates: "Étape « {stage} » : {kept}, moins que les {extracts} que le contexte doit garder. Retenez au moins {candidates}, ou gardez moins d'extraits."
+  not_installed: "Indisponible : {library} n'est pas installé. Depuis le dossier de WaveStack : `{command}`, puis relancez WaveStack. Sans `--extra compression`, Headroom serait retiré."
+  folder_held: "Le dossier {folder} ne peut pas être supprimé ({error} : {cause}) : un autre programme le tient peut-être ouvert. Fermez-le, ou supprimez le dossier rag_lab WaveStack arrêté."
+  load_failed: "Le {noun} {model} n'a pas pu être chargé ({error} : {cause})."
+  run:
+    phase: "{running} « {question} »"
+  stage:
+    running: "{stage} en cours…"
+    stopped: "Arrêtée par « Arrêter »."
+    failed: "L'étape a échoué ({error} : {cause})."
+    unknown: "Étape inconnue : {kind}."
+    memory: "{mo} Mo"
+    memory_during: "{memory} ({sign}{mo} Mo pendant l'étape)"
+  passed_on:
+    input: "{candidates} de la recherche."
+    output: "Ordre de la recherche gardé tel quel. {reason}"
+  fact:
+    model: Modèle
+    dimensions: Dimensions
+    passages: Passages
+    provenance: Provenance
+    file: Fichier
+    folder: Dossier
+    vectors: Vecteurs
+    metric: Métrique
+    requested: Candidats demandés (k)
+    found: Trouvés
+    pairs: Paires lues
+    constant: Constante k
+    fused: Extraits fusionnés
+    kept: Extraits gardés
+    characters: Caractères
+    placement: Placement
+  chunking:
+    source_corpus: "le corpus (content/corpus), découpé pour cette exécution"
+    source_index: "l'index de la brique RAG (découpé à sa construction)"
+    index_unreadable: "L'index de la brique RAG ne se lit pas ({error} : {cause}). Reconstruisez-le depuis la carte RAG de l'atelier."
+    no_chunks: "Le corpus ne donne aucun extrait."
+    input: "{documents} du corpus de démonstration ({declared} déclarés dans content/rag.yaml)."
+    output: "{extracts} de {size} caractères au plus, lus dans {source}."
+    max_size: Taille maximale
+    extracts: Extraits
+    mean: Longueur moyenne
+    longest: Plus long
+    characters: "{n} caractères"
+  embedding:
+    brick_passages: "Passages (titre du document, puis extrait) : {passages}, déjà vectorisés dans l'index de la brique RAG, calculés à sa construction."
+    brick_unusable: "Les passages ne sont pas vectorisés ici : l'index de la brique RAG ne peut pas servir (voir Base vectorielle)."
+    cached: "Passages relus du cache ({vectors}, dossier {key})."
+    cached_fact: "relus du cache ({n})"
+    wrong_dims: "Le modèle ne rend pas un vecteur de {dims} dimensions par passage."
+    computed: "Passages calculés ({passages}) en {duration}, puis mis en cache (dossier {key})."
+    computed_fact: "calculés ({passages})"
+    null_vector: "La question ne donne aucun vecteur exploitable (vecteur nul) : reformulez-la avec des mots du corpus."
+    input: "La question « {question} », et le découpage : {extracts}."
+    output: "Question → vecteur de {n} nombres ({shown} ; …). {passages}"
+  vector_store:
+    no_embedder: "Aucun modèle d'embedding : l'étape Embedding n'a pas abouti."
+    no_vectors: "Aucun vecteur des passages : l'étape Embedding n'a pas abouti."
+    brick_input: "{vectors} de {dims} dimensions, calculés par « {model} » le {date}."
+    brick_output: "Index sqlite-vec de la brique RAG, lu seulement ({file}) : l'atelier n'y écrit jamais."
+    cosine: cosinus
+    cosine_dot: cosinus (produit scalaire)
+    vectors: "{vectors} de {dims} dimensions"
+    input: "De l'étape Embedding : {vectors}."
+    memory_output: "Rangés en mémoire, sans index ({size} en float32) : chaque recherche compare la question à tous les vecteurs."
+    reread: relu
+    reread_count: "relu ({vectors})"
+    built: "construit ({vectors})"
+    sqlite_output: "Index sqlite-vec de l'atelier {state} (dossier {key}) : l'index de la brique n'est pas touché."
+    faiss_kind: index plat à produit scalaire (IndexFlatIP)
+    lancedb_kind: "table « chunks », métrique cosinus"
+    library_output: "Index {library} {state}, {kind}, dans le dossier {key} de l'atelier."
+    unknown: "Base vectorielle inconnue : {option}."
+  vector_search:
+    no_store: "Aucune base vectorielle : l'étape précédente n'a pas abouti."
+    input: "Le vecteur de la question, comparé à ceux de la base : {vectors}."
+    output: "Les plus proches, sans seuil : {extracts} ; score = 1 − distance cosinus, de {best} à {worst}."
+  rerank:
+    no_candidates: "Aucun candidat à réordonner."
+    failed: "Le reranking a échoué ({error} : {cause}). La construction du contexte garde l'ordre de la recherche."
+    mismatch: "{scores} pour {candidates} : l'ordre de la recherche est gardé."
+    not_a_number: "Le reranker a rendu un score qui n'est pas un nombre : l'ordre de la recherche est gardé."
+    climb: "« {title} » monte du {before} au {after} rang."
+    unchanged: "L'ordre de la recherche ne change pas."
+    input: "La question et {candidates} de la recherche, lus par paires."
+    output: "{candidates} par le reranker. {climb}"
+  lexical_search:
+    no_chunks: "Aucun extrait : le découpage n'a pas abouti."
+    no_words: aucun
+    input: "Les mots de la question ({words}), cherchés dans les {extracts}, sans embedding."
+    output: "Ceux qui partagent le plus de mots avec la question : {extracts}, pondérés par leur rareté (BM25, k1 = 1,5, b = 0,75) ; un extrait sans aucun mot commun n'est pas retenu."
+  fusion:
+    needs_two: "La fusion demande deux listes de recherche."
+    input: "Les deux listes des recherches ({sizes} extraits), avec leurs rangs."
+    found:
+      one: trouvé
+      other: trouvés
+    output: "{extracts}, dont {both} {found} par les deux recherches, classés par fusion des rangs réciproques : score = Σ 1 / ({k} + rang). Un extrait bien classé par les deux passe devant."
+  context:
+    nothing: "Aucune recherche n'a abouti : il n'y a rien à placer."
+    input: "Le classement de l'étape précédente : {extracts}."
+    empty: "Aucun extrait : le modèle ne recevrait que la question."
+    kept: "{kept} sur {total}"
+  generation:
+    question_only: "la question seule (aucun contexte construit)"
+    with_context: "le contexte construit ({extracts}), puis la question"
+    input: "Le modèle actif de l'atelier recevrait : son prompt système, {context} : « {question} »."
+  compare:
+    one_empty: "Une des deux chaînes n'a construit aucun contexte."
+    unit_excerpt:
+      one: extrait
+      other: extraits
+    unit_document:
+      one: document
+      other: documents
+    common: "En commun : {count} {unit}{names} ; seulement dans A : {only_a} ; seulement dans B : {only_b}."
+    gaps: "Écarts de rang : {moves}."
+    move: "« {title} » {rank_a} en A, {rank_b} en B"
+    no_gap: "Aucun écart de rang entre les extraits communs."
+    other_cut: "Les deux chaînes découpent le corpus autrement : comparaison par document."
+
+# The « LLM nu » screen (story 29, `session/llm_lab.py`): its figures and its diagram.
+llm_lab:
+  count:
+    billion:
+      one: "{n} milliard"
+      other: "{n} milliards"
+    million:
+      one: "{n} million"
+      other: "{n} millions"
+  dimension:
+    vocab_size: le vocabulaire
+    embedding_length: la dimension d'embedding
+    layer_count: le nombre de couches
+    head_count: le nombre de têtes d'attention
+    context_length: le contexte natif
+  unknown: "{source} Inconnus : {names}."
+  width_unknown: "Dimension d'embedding inconnue : le vecteur de chaque token existe, mais ce moteur ne dit pas sa taille."
+  vector_layers: "Chaque token devient un vecteur de {width} nombres, que {layers} couches transforment l'une après l'autre."
+  vector: "Chaque token devient un vecteur de {width} nombres, que les couches transforment."
+
+# The RAG index and its search (`rag/index.py`, `rag/retriever.py`).
+rag:
+  index:
+    in_use: "L'index est ouvert par un autre programme (WaveStack, un antivirus ou un outil de synchronisation) : il ne peut pas être remplacé."
+    empty_corpus: "corpus vide : aucun extrait à indexer"
+    wrong_vectors: "il faut un vecteur de {dims} dimensions par extrait"
+    build_cancelled: "construction de l'index arrêtée"
+  search:
+    null_vector: "la question ne donne aucun vecteur exploitable (vecteur nul)"
+    closed: "l'index est fermé"
+
+# `scripts/build_rag_index.py`: always printed in English (`msg(key, "en")`); `--lang` is
+# the index's language, never the terminal's.
+build_rag_index:
+  description: "Construit l'index RAG (sqlite-vec) du corpus de démonstration."
+  help_model: "Chemin du GGUF d'embedding (par défaut : load_path de [rag.embedding], dans le dossier des modèles). Il doit être le fichier déclaré (même taille, même sha256 s'il est renseigné)."
+  help_download: "Télécharge d'abord les fichiers manquants de [rag.embedding]."
+  help_lang: "Langue du corpus et de l'index (par défaut : fr, l'index [rag] index_path ; en et de : rag_index.en.sqlite et rag_index.de.sqlite à côté)."
+  embedding_invalid: "La section [rag.embedding] est invalide."
+  content_invalid: "Le fichier {path} est absent ou invalide : {cause}"
+  downloading: "Téléchargement de {count} fichier(s) dans {folder}…"
+  download_failed: "Téléchargement impossible : {reason}."
+  model_missing: "Modèle d'embedding introuvable : {path}. Relancez avec --download, ou copiez-le à cet endroit ({url}), ou passez --model CHEMIN."
+  wrong_size: "{path} n'est pas le modèle déclaré dans [rag.embedding] : {size} octets au lieu de {expected}. L'index porterait l'identifiant « {model} » à tort."
+  wrong_sha256: "{path} n'est pas le modèle déclaré : sha256 différent de [rag.embedding]."
+  loading: "Chargement du modèle d'embedding {model} ({path})…"
+  model_unusable: "Modèle d'embedding inutilisable : {cause}."
+  progress: "  extrait {done} / {total}"
+  from_the_card: "Construisez-le depuis la carte RAG, ou arrêtez WaveStack, puis relancez ce script."
+  not_built: "Index non construit : {cause}."
+  written: "Index écrit : {path}"
+  documents: "  documents : {count}"
+  extracts: "  extraits : {count} (au plus {max} caractères)"
+  model: "  modèle : {model}, {dims} dimensions, {size} Mo, sha256 {sha256}"
+  duration: "  durée : {seconds} s"
+  download_progress: "  {done} / {total} Mo"
+
+# `context/`: the rendering's controls (AD-4) and the context window (story 26).
+context:
+  attribution:
+    message: "Attribution approximative : le rendu d'attribution diffère du prompt envoyé."
+    cause: "Le gabarit transforme le texte des messages (contrôle 4 d'AD-4)."
+    effect: "Le prompt envoyé est inchangé ; le texte non localisé est compté dans le gabarit."
+  tokens:
+    message: "Contrôle des tokens en échec : les octets des tokens ne recomposent pas le prompt."
+    cause: "Le découpage du tokenizer ne correspond pas au texte (contrôle 6 d'AD-4)."
+    effect: "Le total de tokens reste exact ; leur répartition par segment peut être décalée."
+  neutralized: "Le texte contenait {count} marqueur(s) réservé(s) du modèle ({tokens}). Ils ont été neutralisés : un contenu ne peut pas modifier la structure de la conversation."
+  window:
+    bound:
+      native: "bornée à {n} par le contexte natif du modèle"
+      server: "bornée à {n} par {provider} (-c)"
+      tpm: "bornée à {n} par le quota du fournisseur"
+      override: "fixée à {n} par la déclaration du modèle"
+    seconds: "{s} s"
+    minutes_seconds: "{m} min {s} s"
+    minutes: "{m} min"
+    read:
+      unknown: "pas encore mesuré, envoyez un message"
+      at_least: "au moins ≈ {duration}"
+      beyond: ", au-delà des {target} s visées au premier token (NFR-1)"
+    unknown: inconnu
+
+# `session/diagnostic.py`: the launch diagnostic's checks, the model choice and the cloud
+# models (AD-3, AD-20, AD-21). `{notice}` is the reason a saved model was not taken back.
+diagnostic:
+  starting: "Diagnostic de démarrage en cours."
+  port: "Port {port} réservé pour WaveStack."
+  memory:
+    figures: "Budget mémoire de WaveStack : {size} Mo ({calc})."
+    not_measured: "RAM du poste non mesurée. {figures}"
+    fixed_action: "Le budget retenu est la valeur fixe : vérifiez qu'elle tient dans la mémoire du poste."
+    cap_action: "Le budget retenu est le plafond : relancez WaveStack si la mémoire du poste est juste."
+    ram_total: "RAM du poste : {total} Mo, dont {available} Mo disponibles au lancement. "
+    ram_available: "RAM disponible au lancement : {available} Mo. "
+    measured: "{ram}{figures}"
+    where_total: "la RAM totale du poste"
+    where_available: "la RAM disponible au lancement"
+    fixed_over: "Le budget fixe dépasse {where} : fermez des applications puis relancez WaveStack, ou baissez [memory] budget_mb."
+    ram_limited: "La RAM disponible limite le budget sous son plafond : fermez des applications puis relancez WaveStack."
+    low: "La RAM disponible est faible : fermez des applications puis relancez WaveStack."
+  network:
+    unavailable: "Accès réseau indisponible."
+    offline_action: "Les briques hors ligne restent utilisables sans réseau."
+    available: "Accès réseau disponible."
+  probe:
+    unconfirmed: "La sonde n'a pas pu confirmer ce fichier."
+    failed: "La sonde du modèle a échoué pour {path}."
+    marked_incompatible: "Le fichier est marqué incompatible."
+    incompatible: "Modèle incompatible : {reason}"
+    unmeasured: "La sonde n'a pas pu mesurer {path}."
+    unmeasured_effect: "Le fichier n'est pas utilisable pour l'instant ; rien n'est mémorisé, il sera sondé de nouveau quand vous le choisirez."
+  settings_write:
+    message: "Impossible d'écrire le fichier de réglages settings.json."
+    effect: "Le diagnostic continue ; ce réglage ne sera pas mémorisé."
+  unexpected:
+    message: "Une erreur inattendue a interrompu le diagnostic."
+    effect: "Le contrôle est marqué en échec, non bloquant."
+    check: "Le diagnostic du modèle a échoué de façon inattendue."
+    action: "Réessayez, ou signalez le problème si cela persiste."
+  model:
+    retained_file: "{notice}Modèle retenu : {name} ({path})."
+    retained_saved_cloud: "Modèle retenu : {model} chez {provider} (modèle cloud, choisi lors d'un lancement précédent)."
+    retained_server: "Modèle retenu : {name}, servi par {provider} ({url}){why}.{warning}"
+    previous_launch: " (choisi lors d'un lancement précédent)"
+    notice_cloud: "Le modèle cloud enregistré n'est plus utilisable : {reason} "
+    notice_server: "Le modèle servi enregistré n'est plus disponible : {ref} ({why}). "
+    notice_file: "Le modèle enregistré n'est plus utilisable : {path}. "
+    server_gone: "serveur arrêté, ou modèle absent."
+    several: "{notice}Plusieurs modèles trouvés : choisissez-en un."
+    several_action: "Cliquez sur « Choisir » en face d'un modèle, ou indiquez le chemin d'un fichier GGUF."
+    served_only:
+      one: "{notice}Aucun fichier GGUF, mais un serveur local sert {count} modèle : choisissez un modèle servi."
+      other: "{notice}Aucun fichier GGUF, mais un serveur local sert {count} modèles : choisissez un modèle servi."
+    served_only_action: "Cliquez sur « Choisir » en face d'un modèle servi (WaveStack ne lance ni n'arrête le serveur), ou indiquez le chemin d'un fichier GGUF."
+    # One candidate of the « none found » check: its source, its path (or URL), its reason.
+    detail: "{source} ({where}) : {reason}"
+    no_candidate: "aucun candidat trouvé dans ces emplacements"
+    searched_sources: "dossier de modèles WaveStack, Ollama, LM Studio, cache Hugging Face, serveur local"
+    none: "{notice}Aucun modèle utilisable trouvé. Emplacements recherchés : {sources}."
+    none_action: "{details}. Indiquez le chemin d'un fichier GGUF ou copiez-en un dans le dossier de modèles."
+    file_missing: "Fichier introuvable."
+    not_served: "aucun serveur local ne sert ce modèle (serveur arrêté ?)."
+    not_retained: "Modèle non retenu ({ref}) : {reason}"
+    chosen_file: "Modèle choisi : {name}. Chargement en cours.{not_saved}"
+    chosen_server: "Modèle choisi : {name}, servi par {provider}. Préparation en cours.{not_saved}"
+    not_saved_launches: " Ce choix n'a pas pu être mémorisé pour les prochains lancements."
+    none_loaded_stopped: "Aucun modèle n'est chargé : le chargement a été arrêté."
+    none_loaded: "Aucun modèle n'est chargé : le modèle retenu n'a pas pu être chargé."
+    none_loaded_switch: "Aucun modèle n'est chargé : {label} n'a pas pu être chargé, ni le modèle précédent."
+    choose_below: "Choisissez un modèle ci-dessous."
+    choose_other: "Choisissez un autre modèle ci-dessous."
+    cloud_label: "{model} chez {provider}"
+    server_label: "{name}, servi par {provider}"
+    # A hot switch that succeeded (story 17); `{warning}` starts with a space.
+    active: "Modèle actif : {label} (changé sans relance).{not_saved}{warning}"
+    switch_not_saved: " Choix non mémorisé pour les prochains lancements."
+  cloud:
+    undeclared: "le modèle cloud « {id} » n'est pas déclaré (ou est désactivé)."
+    key_again: "Clé à ressaisir."
+    no_key: "Clé absente."
+    content_invalid: "Le fichier content/cloud.yaml est absent ou invalide."
+    content_invalid_effect: "Les modèles cloud s'affichent sans leurs textes."
+    unacknowledged: "Choix refusé : avertissement non confirmé. Lisez l'avertissement, puis cliquez sur « Utiliser ce modèle »."
+    choice_refused: "Choix refusé : {reason}"
+    retained: "Modèle retenu : {label} (modèle cloud)."
+    chosen: "Modèle choisi : {label}. Préparation en cours.{not_saved}"
+    not_saved: " Ce choix n'a pas pu être mémorisé."
+    key_undeclared: "Le modèle cloud « {id} » n'est pas déclaré (ou est désactivé)."
+    key_empty: "Clé vide : collez la clé API fournie par la console du fournisseur."
+    key_not_saved: "La clé n'a pas pu être enregistrée ({path}) : {cause}."
+    key_saved: "Clé enregistrée pour {provider}. Cliquez sur « Tester »."
+    test_refused: "Test refusé : {reason}"
+    test_impossible: "Test impossible : le fichier content/cloud.yaml est invalide."
+    test_phase: "Test de {model} chez {provider}"
+    test_failed: "Test en échec : {message}"
+    test_rate: ", {tps} tokens/s"
+    test_no_tool: "{provider} répond{rate}, mais le modèle n'a pas appelé l'outil de test : l'appel d'outils risque d'échouer pendant la séance."
+    test_tool_called: " Appel d'outil reçu : {name}."
+    test_ok: "Test réussi : {provider} répond{rate}.{called}"
+
+# `cli.py`: the terminal, always in English (`msg(key, "en")`); French kept as the reference.
+cli:
+  description: "Lance WaveStack."
+  port_help: "Port d'écoute (défaut : configuration)."
+  port_taken: "Le port {port} est déjà utilisé par un autre programme. Relancez avec --port <autre_port>."
+
+# `compression/headroom_adapter.py`: why the compression brick is unavailable.
+compression:
+  install: "Installez-la depuis le dossier de WaveStack avec `{command}`"
+  missing: "Indisponible : la bibliothèque Headroom (headroom-ai {version}), dépendance optionnelle, n'est pas installée. {install}, puis relancez WaveStack. Les autres briques fonctionnent sans elle."
+  unknown_version: inconnue
+  wrong_version: "Indisponible : headroom-ai {version} est installé, alors que WaveStack a été vérifié hors ligne avec la version {pinned} seulement. {install}, puis relancez WaveStack."
+
+# `cloud.py` (FinOps): what a declared price means.
+cloud:
+  price:
+    reason: "par million de tokens (entrée / sortie), relevé le {checked} ; le coût de chaque appel en est une estimation"
+    line: "Prix : {price} {reason}"
+
+# `web/app.py`: the HTTP `detail` of a refused intention.
+web:
+  body: corps
+  invalid_intention: "Intention invalide : vérifiez {fields}."
+  busy: WaveStack est occupé.
+  refused_now: "Refusé pour l'instant : {reason}"
+  origin_refused: Origine refusée.
+  json_expected: JSON attendu.
+  model_ref_missing: "Intention invalide : indiquez le modèle choisi (ref) ou le chemin (path)."
+  audit_unreadable: "Le journal d'audit ({path}) est illisible : {cause}"
+  cloud_test:
+    label: "{model} chez {provider}"
+    reason: "Test de {label}"
+  unknown:
+    brick: Brique inconnue.
+    tool: Outil inconnu.
+    mcp_server: Serveur MCP inconnu.
+    rag: Aucune brique RAG.
+    skill: Skill inconnu.
+    hook: Hook inconnu.
+    memory_entry: Entrée de mémoire inconnue.
+    scenario: Scénario inconnu.
+    download_target: Cible de téléchargement inconnue.
+
+models:
+  # `models/openai_chat.py` (AD-16): a cloud provider's refusal, its hints, a malformed call.
+  openai_chat:
+    back_to_local: "Revenez au modèle local depuis le sélecteur de modèle de la barre haute."
+    with_provider_message: "{message} Message du fournisseur : {said}"
+    timeout: "Délai dépassé : {provider} n'a pas répondu à temps."
+    no_network: "Réseau absent : {provider} ({host}) est injoignable depuis ce poste."
+    redirect: "Redirection refusée : {provider} a répondu {status} vers {location}. La clé n'est jamais renvoyée ailleurs."
+    another_address: une autre adresse
+    quota_refused: "Le fournisseur refuse l'appel : {quota}."
+    quota:
+      second: quota dépassé par seconde
+      minute: quota dépassé par minute
+      day: quota dépassé par jour
+      unknown: quota dépassé (par seconde, par minute ou par jour)
+    too_large: La requête dépasse à elle seule le quota par minute du fournisseur.
+    context_exceeded: "Contexte dépassé : {provider} refuse un contexte plus long que sa fenêtre."
+    bad_request: "Requête refusée par {provider} ({status}) : défaut du harnais ou du préréglage."
+    key_refused: "Clé refusée par {provider} ({status}). Vérifiez-la dans le diagnostic."
+    not_found: "Modèle introuvable chez {provider} (404) : « {model} » a peut-être été retiré."
+    unavailable: "{provider} est indisponible ({status})."
+    unexpected: "Réponse inattendue de {provider} ({status})."
+    unreadable_stream: "Réponse illisible : une ligne du flux de {provider} n'est pas au format attendu (SSE)."
+    interrupted: "{provider} a interrompu la réponse sur une erreur."
+    stopped: "{provider} a arrêté la réponse ({finish})."
+    hint:
+      slow_provider: "Relancez le tour : un fournisseur chargé répond parfois lentement."
+      test_network: "Vérifiez le réseau du poste avec « Tester » au diagnostic."
+      check_connection: "Vérifiez la connexion du poste, ou le proxy."
+      allow_host: "L'hôte {host} doit être autorisé par le réseau de l'entreprise."
+      check_base_url: Vérifiez base_url dans la déclaration du modèle.
+      wait_seconds: "Attendez {seconds} s avant de relancer."
+      wait_a_bit: Attendez un peu avant de relancer.
+      min_interval: "Augmentez min_interval_s ({interval} s aujourd'hui) dans la déclaration du modèle « {model} »."
+      reduce_context: "Réduisez le contexte : lazy loading, moins d'outils, conversation vidée."
+      reduce_window: "Réduisez la fenêtre de contexte : attendre ne sert à rien."
+      clear_conversation: Videz la conversation, ou passez la brique MCP en lazy loading.
+      check_declaration: Vérifiez la déclaration du modèle (wavestack.toml ou settings.json).
+      reenter_key: "Ressaisissez la clé au diagnostic, puis « Tester »."
+      check_model_name: Vérifiez le nom du modèle dans la console du fournisseur.
+      retry_later: Réessayez dans quelques minutes.
+      retry_turn: Relancez le tour.
+      rephrase: Reformulez le message.
+    # Why a cloud model's tool calls cannot run (AD-10), read by the model.
+    call:
+      no_name: "un appel d'outil n'a pas de nom"
+      invalid_json: "les arguments de « {name} » ne sont pas du JSON valide ({cause})"
+      not_object: "les arguments de « {name} » ne sont pas un objet JSON"
+      refused_with: "le fournisseur a refusé l'appel d'outil : {said}"
+      refused: "le fournisseur a refusé l'appel d'outil mal formé"
+  # `models/servers.py` (AD-5, AD-16): an already-running local server.
+  servers:
+    unreachable: "Serveur local injoignable ({url}) : {cause}"
+    cause:
+      refused: connexion refusée (serveur arrêté ?)
+      timeout: délai dépassé
+      unreadable: "réponse illisible sur {path}"
+      unreadable_stream: "flux illisible : {line}"
+      interrupted: flux interrompu avant la fin de la réponse
+      piece_unreadable: "pièce du token {token} illisible par /detokenize"
+    reduced:
+      effect: "Le tour continue. La jauge affiche le compte du harnais, qui n'est plus exactement ce que le serveur a lu."
+      thinking: "Transparence réduite : Ollama a renvoyé un champ « thinking » en mode raw ; ce raisonnement, séparé par Ollama, n'est pas dans la sortie brute que lit le harnais."
+      thinking_cause: champ thinking reçu
+      count: "Transparence réduite : Ollama a lu {evaluated} tokens de prompt, le harnais en a compté {counted}. Ollama a tokenisé le texte à sa façon (par exemple en ajoutant un token de début)."
+      count_cause: "prompt_eval_count = {evaluated}, harnais = {counted}"
+    cache_used: "Ollama n'a relu que {evaluated} tokens sur {counted} : le début du prompt venait de son cache (préfixe identique à l'appel précédent)."
+    not_unloaded:
+      message: "Ollama n'a pas déchargé le modèle {name}."
+      effect: "WaveStack continue ; Ollama le déchargera de lui-même après son délai d'inactivité."
+    tokenizer_refused: "{lib} ne sait pas lire le tokenizer de ce modèle (certains modèles récents d'Ollama) : servez-le plutôt avec llama-server, qui tokenise lui-même."
+    # Story 29: where a served model's sizes were read.
+    dimensions:
+      names:
+        vocab_size: vocabulaire
+        embedding_length: dimension
+        layer_count: couches
+        head_count: têtes
+        context_length: contexte natif
+      served: "{names} donnés par llama-server (/v1/models)"
+      header: "{names} lus dans l'en-tête GGUF de son fichier"
+      unreadable: "le fichier du modèle, ouvert par llama-server, n'est pas lisible depuis WaveStack"
+      separator: " ; "
+      ollama: "Vocabulaire lu par le tokenizer du fichier GGUF d'Ollama ; dimensions lues dans son en-tête."
+    # Lot E (E1), lot K (A3): llama-server's context against the window chosen.
+    context_warning:
+      below: "llama-server a été lancé avec un contexte de {slot} tokens par emplacement, sous la fenêtre choisie de {window} : la fenêtre effective reste de {slot} tokens. Arrêtez-le et relancez-le avec `-np 1 -c {raw_window}`."
+      shared: " ({slot} par emplacement, {slots} emplacements)"
+      above: "llama-server a été lancé avec un contexte de {whole} tokens{shared}, alors que WaveStack n'en utilise que {window} : il réserve la mémoire de tout ce contexte. Arrêtez-le et relancez-le avec `{advice}`."
+  engine:
+    dimensions_source: Lues dans le modèle que llama.cpp a chargé, dans ce processus.
+  # `models/capabilities.py` (AD-6, AD-9, story 25): what a model can do, and why.
+  capabilities:
+    no_tool_parser: "aucun format d'appel connu pour cette famille de modèle"
+    no_template: "Ce fichier GGUF ne contient pas de gabarit de conversation (tokenizer.chat_template) : WaveStack ne peut pas construire le prompt. Choisissez un autre modèle."
+    window_too_small: "Indisponible : la fenêtre de contexte ({window} tokens) ne laisse aucune place au contexte une fois réservés les {reserve} tokens de sortie du raisonnement. Agrandissez la fenêtre dans la configuration."
+    reasoning:
+      never: jamais
+      always: toujours
+      toggle: activable
+      unknown: inconnu
+    tools:
+      unknown: inconnu
+      declared: oui (déclaré)
+      parser: "oui ({parser})"
+      "no": non
+    why:
+      not_read: capacités non lues
+      always: "raisonne à chaque réponse ; ce modèle ne permet pas de l'éteindre"
+      declared_reasoning: déclaré dans la configuration (reasoning)
+      template_variable: "variable {name} du gabarit"
+      maybe: "raisonne peut-être de lui-même, WaveStack ne sait ni l'allumer ni l'éteindre"
+      undeclared_reasoning: non déclaré dans la configuration (reasoning)
+      no_variable: "le gabarit n'a pas de variable de raisonnement"
+      undeclared_tools: non déclaré dans la configuration (tools)
+  # `models/catalog.py` (story 25): the model table.
+  catalog:
+    # Only when `publishers.yaml` is unreadable.
+    fallback:
+      legend: "Légende : « Local » ou « RÉSEAU » dit où tourne le modèle, puis vient qui le sert (fichier, Ollama, llama-server ou fournisseur cloud)."
+      file: fichier
+      local: Sur ce poste
+      network: Réseau
+      other: Autres éditeurs
+    publishers:
+      translation_invalid: "Fichier content/i18n/{lang}/models/publishers.yaml invalide ({cause}) : le texte français de ce fichier le remplace. Corrigez le fichier, puis relancez WaveStack."
+      invalid: "Fichier content/models/publishers.yaml invalide ({cause}) : tous les modèles sont rangés dans « Autres éditeurs ». Corrigez le fichier, puis relancez WaveStack."
+    # AD-9: where the window comes from.
+    window_source:
+      configured: fenêtre configurée
+      native: contexte natif du modèle
+      server: "contexte d'un emplacement du serveur"
+      override: fenêtre déclarée pour ce modèle (window)
+      tpm: moitié du quota de tokens par minute (tpm)
+    window_with_native: "{reason} ; contexte natif : {native} tokens"
+    tokens: "{n} tokens"
+    unusable: Modèle inutilisable.
+    header_unreadable: "En-tête GGUF illisible : capacités inconnues."
+    prefix_local: "Local · {served_by}"
+    prefix_network: "RÉSEAU · {provider}"
+    served_title: "{provider} sur {url}"
+    cloud_title: "{provider} : {hosting}"
+    no_price: prix non déclaré
+  # `models/load_registry.py` (AD-8, stories 24 and 26): a load refused by the budget.
+  load_registry:
+    refused: "Changement refusé : {label} demande environ {cost} ; WaveStack occupe {without} sans le modèle actif, pour un budget de {budget}.{stays} {advice}"
+    stays: " {label} reste actif."
+    window_refused: "Fenêtre de {window} tokens refusée : {label} demanderait environ {cost} ; WaveStack occupe {without} sans le modèle actif, pour un budget de {budget}. {label} reste actif avec {current} tokens. {advice}"
+    component_refused: "Mémoire insuffisante pour charger {label} : WaveStack occupe {without}, il en faut environ {cost} de plus, au-delà du budget de {budget}. {advice}"
+    advice:
+      model_ram: Choisissez un modèle plus petit, ou fermez des applications puis relancez WaveStack.
+      model: Choisissez un modèle plus petit.
+      window_ram: Choisissez une fenêtre plus petite, ou fermez des applications puis relancez WaveStack.
+      window: Choisissez une fenêtre plus petite.
+      component_ram: Désactivez une brique, ou fermez des applications puis relancez WaveStack.
+      component: Désactivez une brique ou relevez [memory] budget_mb dans settings.json.
+  # `models/download.py` (story 15): why a model file download did not complete.
+  download:
+    stopped: téléchargement arrêté
+    not_https: "adresse non https refusée : {url}"
+    write_failed: "écriture impossible de {path} ({cause})"
+    http_error: "le serveur a répondu {status} ({reason}) pour {url}"
+    too_large: "le fichier reçu dépasse la taille déclarée ({size} octets)"
+    wrong_size: "taille reçue incorrecte : {written} octets au lieu de {size}"
+    wrong_sha256: empreinte sha256 différente de celle déclarée
+    too_many_redirects: trop de redirections
+    blocked: "connexion refusée par le harnais ({cause})"
+    unreachable: "serveur injoignable ({kind}) : le poste n'a pas accès à {host}"
+  # `models/probe.py` (lot E): why a GGUF file could not be probed.
+  probe:
+    incompatible: "{lib} ne sait pas charger ce fichier (architecture non prise en charge, fichier incomplet ou abîmé). Choisissez un autre modèle, ou servez-le avec Ollama ou llama-server."
+    transient: "La sonde n'a pas pu mesurer ce fichier, faute de mémoire ou de temps (création du contexte ou lecture d'un premier prompt). Fermez des applications, puis choisissez-le de nouveau : rien n'est mémorisé."
+    not_found: Fichier introuvable.
+    not_installed: llama-cpp-python non installé.
+  # `models/discovery.py` (AD-7): why a candidate cannot be loaded.
+  discovery:
+    ollama_tensor: Format de tenseur Ollama, non chargeable en processus.
+    not_gguf: "Le fichier du modèle n'est pas un GGUF lisible."
+    blob_missing: "Fichier GGUF du modèle introuvable dans le dossier d'Ollama ({root}) : WaveStack ne peut pas lire son tokenizer."
+  # `models/embedding.py`, `models/reranker.py` (stories 15, 16, 30): a RAG model refused.
+  embedding:
+    wrong_dims: "le modèle produit des vecteurs de {found} dimensions, alors que [rag.embedding] en déclare {declared}"
+    not_pooled: "le modèle ne rend pas un vecteur par texte (pooling absent ou « none » dans ses métadonnées GGUF) : ce n'est pas un modèle d'embedding de phrases"
+    fastembed_dims: "le modèle fastembed rend des vecteurs qui n'ont pas {dims} dimensions ([rag_lab.fastembed] dims)"
+  reranker:
+    embedding_pooling: "le fichier déclare le pooling {pooling} dans ses métadonnées GGUF, pas RANK (4) : c'est un modèle d'embedding, pas un modèle de reranking"
+    no_score: "le modèle ne note pas une paire question-extrait ({kind}) : ce n'est pas un modèle de reranking en pooling RANK"
+    not_finite: "le modèle rend un score non fini pour une paire question-extrait : ce n'est pas un modèle de reranking utilisable"
+
+net:
+  # `net/guard.py`, `net/factory.py` (AD-15): a destination the harness refuses, named as the
+  # cause of the messages that report it.
+  host_refused: "Hôte réseau non autorisé : {host}"
+  address_refused: "Adresse réseau non autorisée : {host}"
+  loopback_refused: "Hôte hors boucle locale refusé : {host}"

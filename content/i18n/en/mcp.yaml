@@ -2,36 +2,36 @@
 # tool names in `call_presets`, same argument names.
 servers:
   local:
-    label_fr: WaveStack glossary
+    label_text: WaveStack glossary
   datagouv:
-    label_fr: data.gouv.fr
-    sends_fr: the search and its arguments
+    label_text: data.gouv.fr
+    sends_text: the search and its arguments
   mslearn:
-    label_fr: Microsoft Learn
-    sends_fr: the question asked
-lazy_label_fr: Lazy loading
+    label_text: Microsoft Learn
+    sends_text: the question asked
+lazy_label_text: Lazy loading
 load_tool_doc:
-  label_fr: Documentation loading
+  label_text: Documentation loading
   intro: >-
     Loads the documentation of an MCP tool, which becomes callable; does not load
     a skill. Call it before any tool of this list:
   tool: Exact name of the tool, as it appears in the list.
 call_presets:
   local__define_term:
-    - label_fr: MCP
+    - label_text: MCP
       args:
         term: MCP
   datagouv__search_datasets:
-    - label_fr: Cybersecurity
+    - label_text: Cybersecurity
       args:
         query: cybersécurité
   mslearn__microsoft_docs_search:
-    - label_fr: MFA for administrators (IAM)
+    - label_text: MFA for administrators (IAM)
       args:
         query: require multifactor authentication for all Entra ID administrators
-    - label_fr: Just-in-time PIM (IAM)
+    - label_text: Just-in-time PIM (IAM)
       args:
         query: Privileged Identity Management just-in-time activation of an Entra ID role
-    - label_fr: Logging of admin sign-ins (Sovereignty)
+    - label_text: Logging of admin sign-ins (Sovereignty)
       args:
         query: sign-in logs of Entra ID administrator accounts

@@ -19,18 +19,18 @@ class DelegateText(BaseModel):
 
 class SubagentContent(BaseModel):
     delegate: DelegateText
-    phase_label_fr: str = Field(min_length=1)  # « Appel au sous-agent »
-    force_label_fr: str = Field(min_length=1)  # « Déléguer au sous-agent »
-    task_label_fr: str = Field(min_length=1)  # the forced form's field help, for the user
+    phase_label_text: str = Field(min_length=1)  # « Appel au sous-agent »
+    force_label_text: str = Field(min_length=1)  # « Déléguer au sous-agent »
+    task_label_text: str = Field(min_length=1)  # the forced form's field help, for the user
     presets: list[ToolPreset] = []
-    overflow_cause_fr: str = Field(min_length=1)
+    overflow_cause_text: str = Field(min_length=1)
     prompt: str = Field(min_length=1)  # content/prompts/subagent.md
 
     @model_validator(mode="after")
     def _presets_fill_the_task(self) -> SubagentContent:
         for preset in self.presets:
             if set(preset.args) != {"task"} or not str(preset.args["task"]).strip():
-                raise ValueError(f"preset {preset.label_fr!r}: `task` only, not empty")
+                raise ValueError(f"preset {preset.label_text!r}: `task` only, not empty")
         return self
 
 

@@ -1,0 +1,30 @@
+# English translation of content/bricks/subagent.yaml (languages 3/5, AD-19): same fields,
+# same number of paragraphs and bullets.
+label_text: Sub-agent
+category_text: harness engineering
+hosting_text: Local
+explanation_text:
+  - >-
+    The harness can hand a large sub-task, reading a long document for example, to a
+    second agent: the sub-agent. It is the same model, called in turn, but in a clean
+    context that holds only its system prompt, the task and its tools.
+  - - "The sub-agent sees neither the history, nor the main system prompt, nor the skills."
+    - >-
+      Only its result comes back into the main context, as “Sub-agent result”: the
+      document's tokens stay in the sub-agent's context.
+    - >-
+      The model decides to delegate by calling the delegate meta-tool; “Delegate to the
+      sub-agent” forces the delegation at the next turn.
+    - >-
+      Bounds: the delegation costs the main turn the model call that requested it; the
+      sub-agent has its own calls, 4 at most, retries included. It does not reason, to
+      keep room for its document.
+  - >-
+    Savings: Orchestration compares the tool results that stayed in the sub-agent's
+    context (what the main agent would have read without delegation) with the result
+    reinjected into the main context. LLM context switches between the two contexts, and
+    the diagram draws a second Model node.
+  - >-
+    The hooks also apply to the sub-agent, before each model call and before and after
+    each tool: the guard and human approval watch over it like the main agent. Its tools
+    are the enabled ones of the Tools brick.

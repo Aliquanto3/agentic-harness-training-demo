@@ -1,80 +1,80 @@
 # Outils natifs (AD-14, AD-19).
 # `description` et les descriptions de paramètres sont envoyées au modèle, dans la
 # variable `tools` du gabarit : ce sont elles qui lui apprennent à quoi sert l'outil.
-# `label_fr` s'affiche dans le panneau des briques et le schéma.
+# `label_text` s'affiche dans le panneau des briques et le schéma.
 # `presets` (facultatif) préremplit le formulaire d'un appel forcé par l'utilisateur
-# (story 9) : `label_fr` s'affiche dans la liste, `args` n'utilise que des paramètres
+# (story 9) : `label_text` s'affiche dans la liste, `args` n'utilise que des paramètres
 # déclarés.
-# `sends_fr` (outils réseau, story 34) : ce qui quitte le poste quand l'outil s'exécute, repris
+# `sends_text` (outils réseau, story 34) : ce qui quitte le poste quand l'outil s'exécute, repris
 # par le bilan des sorties sous le schéma.
-demo_dir_label_fr: Fichiers de démonstration
+demo_dir_label_text: Fichiers de démonstration
 tools:
   get_datetime:
-    label_fr: Heure et date
+    label_text: Heure et date
     description: >-
       Donne le jour, la date et l'heure locales du poste. À utiliser dès qu'une
       question porte sur l'heure, la date ou le jour de la semaine.
     parameters: {}
   calculator:
-    label_fr: Calculatrice
+    label_text: Calculatrice
     description: >-
       Calcule exactement une expression arithmétique : nombres, + - * / // %
       ** et parenthèses. À utiliser pour tout calcul au lieu de calculer de tête.
     parameters:
       expression: Expression à calculer, par exemple 12*37 ou (3+4)**2.
     presets:
-      - label_fr: Multiplication
+      - label_text: Multiplication
         args: {expression: "12*37"}
   read_file:
-    label_fr: Lecture de fichier
+    label_text: Lecture de fichier
     description: >-
       Lit un fichier texte du dossier de démonstration. Indiquer « . » comme
       chemin pour lister les fichiers disponibles.
     parameters:
       path: Chemin relatif du fichier dans le dossier de démonstration, par exemple notes_reunion.txt.
     presets:
-      - label_fr: Fichier sensible
+      - label_text: Fichier sensible
         args: {path: confidentiel/budget_projet.txt}
-      - label_fr: Notes de réunion
+      - label_text: Notes de réunion
         args: {path: notes_reunion.txt}
-      - label_fr: Liste des fichiers
+      - label_text: Liste des fichiers
         args: {path: "."}
       # Story 21, scénario métier SOC.
-      - label_fr: Alertes SIEM (SOC)
+      - label_text: Alertes SIEM (SOC)
         args: {path: alertes_siem.log}
-      - label_fr: Comptes à privilèges (SOC, confidentiel)
+      - label_text: Comptes à privilèges (SOC, confidentiel)
         args: {path: confidentiel/comptes_privilegies.txt}
       # Story 27, scénario Compression : l'action forcée de secours (brique éteinte), puis
       # un texte sans redondance, que Headroom laisse inchangé (la limite de l'outil).
-      - label_fr: Journal de sauvegarde (compression)
+      - label_text: Journal de sauvegarde (compression)
         args: {path: journal_serveur.log}
-      - label_fr: Guide du harnais (prose, compression)
+      - label_text: Guide du harnais (prose, compression)
         args: {path: guide_harnais.md}
   public_holidays:
-    label_fr: Jours fériés
-    sends_fr: l'année demandée
+    label_text: Jours fériés
+    sends_text: l'année demandée
     description: >-
       Donne la liste des jours fériés en France métropolitaine pour une année,
       au format « date : nom ». Interroge un service public sur Internet.
     parameters:
       year: Année voulue, par exemple 2026.
     presets:
-      - label_fr: Année 2026
+      - label_text: Année 2026
         args: {year: 2026}
   wikipedia_summary:
-    label_fr: Résumé Wikipédia
-    sends_fr: le titre de l'article
+    label_text: Résumé Wikipédia
+    sends_text: le titre de l'article
     description: >-
       Donne le résumé d'une page de Wikipédia en français. Interroge Wikipédia
       sur Internet.
     parameters:
       title: Titre exact de la page, par exemple Tour Eiffel.
     presets:
-      - label_fr: Tour Eiffel
+      - label_text: Tour Eiffel
         args: {title: Tour Eiffel}
   fetch_page:
-    label_fr: Lecture de page web
-    sends_fr: l'adresse de la page
+    label_text: Lecture de page web
+    sends_text: l'adresse de la page
     description: >-
       Lit le texte d'une page web (sans balises), coupé s'il est trop long.
       Seules les adresses https:// de fr.wikipedia.org et calendrier.api.gouv.fr
@@ -82,5 +82,5 @@ tools:
     parameters:
       url: Adresse complète de la page, par exemple https://fr.wikipedia.org/wiki/Paris.
     presets:
-      - label_fr: Page Paris
+      - label_text: Page Paris
         args: {url: "https://fr.wikipedia.org/wiki/Paris"}

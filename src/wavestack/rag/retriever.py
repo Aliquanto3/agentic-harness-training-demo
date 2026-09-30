@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
 
+from wavestack.messages import Message
 from wavestack.models.embedding import Embedder
 from wavestack.rag.index import VEC_TABLE, connect, serialize_vector
 
@@ -20,7 +21,7 @@ class Excerpt:
     position: int
     chunk_id: int
     doc_id: str
-    title_fr: str
+    title_text: str
     text: str
     score: float
 
@@ -56,12 +57,13 @@ class SqliteVecRetriever:
     def search(self, query: str, k: int | None = None) -> list[Excerpt]:
         vector = self._embedder.embed_queries([query])[0]
         if not any(vector):
-            raise ValueError("la question ne donne aucun vecteur exploitable (vecteur nul)")
+            raise ValueError(Message("rag.search.null_vector"))
         with self._lock:
             if self._conn is None:
-                raise RuntimeError("l'index est fermé")
+                raise RuntimeError(Message("rag.search.closed"))
             rows = self._conn.execute(
-                f"SELECT c.id, v.distance, c.doc_id, c.title_fr, c.text FROM {VEC_TABLE} AS v "
+                "SELECT c.id, v.distance, c.doc_id, c.title_fr AS title_text, c.text "
+                f"FROM {VEC_TABLE} AS v "
                 "JOIN chunks AS c ON c.id = v.rowid WHERE v.embedding MATCH ? AND v.k = ? "
                 "ORDER BY v.distance, c.id",
                 (serialize_vector(vector), k or self._top_k),
@@ -71,11 +73,11 @@ class SqliteVecRetriever:
                 position=i,
                 chunk_id=int(rowid),
                 doc_id=doc_id,
-                title_fr=title_fr,
+                title_text=title_text,
                 text=text,
                 score=score_of(distance),
             )
-            for i, (rowid, distance, doc_id, title_fr, text) in enumerate(rows, start=1)
+            for i, (rowid, distance, doc_id, title_text, text) in enumerate(rows, start=1)
         ]
 
     def nearest(self, vector: list[float], k: int) -> list[tuple[int, float]]:
@@ -83,7 +85,7 @@ class SqliteVecRetriever:
         `(chunk id, raw cosine distance)`, nearest first."""
         with self._lock:
             if self._conn is None:
-                raise RuntimeError("l'index est fermé")
+                raise RuntimeError(Message("rag.search.closed"))
             rows = self._conn.execute(
                 f"SELECT v.rowid, v.distance FROM {VEC_TABLE} AS v "
                 "WHERE v.embedding MATCH ? AND v.k = ? ORDER BY v.distance",

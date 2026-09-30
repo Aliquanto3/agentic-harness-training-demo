@@ -31,11 +31,13 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from wavestack import config
+from wavestack.messages import KeyedError, Lazy, Message, join, msg, number, render
 from wavestack.models.embedding import Embedder
 from wavestack.models.load_registry import LoadRegistry
 from wavestack.models.reranker import RerankCancelled, Reranker
 from wavestack.rag import index as rag_index
 from wavestack.rag.corpus import Chunk, RagContent, chunk_corpus
+from wavestack.rag.index import exception_text
 from wavestack.rag.retriever import SqliteVecRetriever
 
 # The kinds of stage, in the order a chain draws them.
@@ -100,78 +102,78 @@ class _Strict(BaseModel):
 
 
 class StageText(_Strict):
-    label_fr: str = Field(min_length=1)
-    explain_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
+    explain_text: str = Field(min_length=1)
 
 
 class OptionText(_Strict):
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
 
 
 class ParamText(_Strict):
-    label_fr: str = Field(min_length=1)
-    unit_fr: str = ""
+    label_text: str = Field(min_length=1)
+    unit_text: str = ""
 
 
 class StatusTexts(_Strict):
-    waiting_fr: str
-    running_fr: str
-    ok_fr: str
-    error_fr: str
-    skipped_fr: str
-    cancelled_fr: str
-    not_run_fr: str
+    waiting_text: str
+    running_text: str
+    ok_text: str
+    error_text: str
+    skipped_text: str
+    cancelled_text: str
+    not_run_text: str
 
 
 class ColumnTexts(_Strict):
-    rank_fr: str
-    before_fr: str
-    document_fr: str
-    score_fr: str
+    rank_text: str
+    before_text: str
+    document_text: str
+    score_text: str
 
 
 class RagLabContent(_Strict):
     """`content/rag_lab.yaml`: every French text of the page, a text per kind of stage, per
     option and per setting."""
 
-    title_fr: str = Field(min_length=1)
-    intro_fr: str = Field(min_length=1)
-    back_fr: str = Field(min_length=1)
-    busy_fr: str = Field(min_length=1)
-    chain_title_fr: str = Field(min_length=1)
-    chain_help_fr: str = Field(min_length=1)
-    question_label_fr: str = Field(min_length=1)
-    question_placeholder_fr: str = Field(min_length=1)
-    default_question_fr: str = Field(min_length=1, max_length=QUESTION_MAX)
-    run_fr: str = Field(min_length=1)
-    stop_fr: str = Field(min_length=1)
-    running_fr: str = Field(min_length=1)
-    results_title_fr: str = Field(min_length=1)
-    results_empty_fr: str = Field(min_length=1)
-    generation_not_run_fr: str = Field(min_length=1)
-    borrowed_fr: str = Field(min_length=1)
-    loaded_fr: str = Field(min_length=1)
-    input_fr: str = Field(min_length=1)
-    output_fr: str = Field(min_length=1)
-    facts_fr: str = Field(min_length=1)
-    duration_fr: str = Field(min_length=1)
-    memory_fr: str = Field(min_length=1)
-    last_run_fr: str = Field(min_length=1)
-    compare_fr: str = Field(min_length=1)
-    add_fr: str = Field(min_length=1)
-    add_button_fr: str = Field(min_length=1)
-    move_before_fr: str = Field(min_length=1)
-    move_after_fr: str = Field(min_length=1)
-    remove_fr: str = Field(min_length=1)
-    reset_chain_fr: str = Field(min_length=1)
-    chain_a_fr: str = Field(min_length=1)
-    chain_b_fr: str = Field(min_length=1)
-    unavailable_fr: str = Field(min_length=1)
-    comparison_title_fr: str = Field(min_length=1)
-    common_fr: str = Field(min_length=1)
-    only_a_fr: str = Field(min_length=1)
-    only_b_fr: str = Field(min_length=1)
-    rank_changes_fr: str = Field(min_length=1)
+    title_text: str = Field(min_length=1)
+    intro_text: str = Field(min_length=1)
+    back_text: str = Field(min_length=1)
+    busy_text: str = Field(min_length=1)
+    chain_title_text: str = Field(min_length=1)
+    chain_help_text: str = Field(min_length=1)
+    question_label_text: str = Field(min_length=1)
+    question_placeholder_text: str = Field(min_length=1)
+    default_question_text: str = Field(min_length=1, max_length=QUESTION_MAX)
+    run_text: str = Field(min_length=1)
+    stop_text: str = Field(min_length=1)
+    running_text: str = Field(min_length=1)
+    results_title_text: str = Field(min_length=1)
+    results_empty_text: str = Field(min_length=1)
+    generation_not_run_text: str = Field(min_length=1)
+    borrowed_text: str = Field(min_length=1)
+    loaded_text: str = Field(min_length=1)
+    input_text: str = Field(min_length=1)
+    output_text: str = Field(min_length=1)
+    facts_text: str = Field(min_length=1)
+    duration_text: str = Field(min_length=1)
+    memory_text: str = Field(min_length=1)
+    last_run_text: str = Field(min_length=1)
+    compare_text: str = Field(min_length=1)
+    add_text: str = Field(min_length=1)
+    add_button_text: str = Field(min_length=1)
+    move_before_text: str = Field(min_length=1)
+    move_after_text: str = Field(min_length=1)
+    remove_text: str = Field(min_length=1)
+    reset_chain_text: str = Field(min_length=1)
+    chain_a_text: str = Field(min_length=1)
+    chain_b_text: str = Field(min_length=1)
+    unavailable_text: str = Field(min_length=1)
+    comparison_title_text: str = Field(min_length=1)
+    common_text: str = Field(min_length=1)
+    only_a_text: str = Field(min_length=1)
+    only_b_text: str = Field(min_length=1)
+    rank_changes_text: str = Field(min_length=1)
     status: StatusTexts
     columns: ColumnTexts
     stages: dict[str, StageText]
@@ -196,10 +198,11 @@ class RagLabContent(_Strict):
 _CONTENT: dict[str, tuple[int, RagLabContent]] = {}  # the latest read, by path
 
 
-def load_lab_content() -> RagLabContent:
-    """Read `content/rag_lab.yaml`, again once the file changed: a corrected file shows on
-    the page's reload. Raises on a missing or invalid file. Only the latest read is kept."""
-    path = config.content_file("rag_lab.yaml")
+def load_lab_content(lang: str = config.DEFAULT_LANGUAGE) -> RagLabContent:
+    """Read `content/rag_lab.yaml` in `lang` (languages 4/5: the session's, never
+    `settings.json`'s), again once the file changed: a corrected file shows on the page's
+    reload. Raises on a missing or invalid file. Only the latest read of a file is kept."""
+    path = config.content_file("rag_lab.yaml", lang)
     mtime = path.stat().st_mtime_ns
     kept = _CONTENT.get(str(path))
     if kept is not None and kept[0] == mtime:
@@ -227,7 +230,7 @@ class Stage(_Strict):
 class Pipeline(_Strict):
     """A chain: its name (« A », « B ») and its stages, in order."""
 
-    label_fr: str = Field(default="A", min_length=1, max_length=40)
+    label_text: str = Field(default="A", min_length=1, max_length=40)
     stages: list[Stage] = Field(min_length=1, max_length=12)
 
     def find(self, kind: str) -> Stage | None:
@@ -247,7 +250,7 @@ def default_pipeline(cfg: config.Config) -> Pipeline:
         ("generation", "not_run", {}),
     ]
     return Pipeline(
-        label_fr="A",
+        label_text="A",
         stages=[
             Stage(id=f"s{i}", kind=kind, option=option, params=params)
             for i, (kind, option, params) in enumerate(stages, start=1)
@@ -260,19 +263,22 @@ class OptionState:
     """What the page shows of an option: its name, whether it can be chosen (with why not),
     and a note on what a run would meet (a model missing, the brick's index stale)."""
 
-    label_fr: str
+    label_text: str
     available: bool = True
-    reason_fr: str | None = None
-    note_fr: str | None = None
+    reason_text: str | None = None
+    note_text: str | None = None
 
 
 @dataclass
 class Catalog:
-    """The kinds, options and settings the workshop offers now, and the shipped chain."""
+    """The kinds, options and settings the workshop offers now, and the shipped chain.
+    `lang`: the session's language (languages 5/5), that of `content`, in which the
+    refusals and the options' reasons (a `Message` rendered) are written."""
 
     content: RagLabContent
     default: Pipeline
     options: dict[tuple[str, str], OptionState]
+    lang: str = config.DEFAULT_LANGUAGE
 
     def bounds(self, name: str) -> tuple[int, int]:
         """A setting's bounds; the shipped value always fits (a `[rag]` outside them)."""
@@ -297,8 +303,8 @@ class Catalog:
                     params.append(
                         {
                             "name": name,
-                            "label_fr": self.content.params[name].label_fr,
-                            "unit_fr": self.content.params[name].unit_fr,
+                            "label_text": self.content.params[name].label_text,
+                            "unit_text": self.content.params[name].unit_text,
                             "min": low,
                             "max": high,
                             "default": param(Stage(id="x", kind=kind, option=option), name, self),
@@ -307,18 +313,18 @@ class Catalog:
                 options.append(
                     {
                         "id": option,
-                        "label_fr": state.label_fr,
+                        "label_text": state.label_text,
                         "available": state.available,
-                        "reason_fr": state.reason_fr,
-                        "note_fr": state.note_fr,
+                        "reason_text": _rendered(state.reason_text, self.lang),
+                        "note_text": _rendered(state.note_text, self.lang),
                         "params": params,
                     }
                 )
             stages.append(
                 {
                     "kind": kind,
-                    "label_fr": text.label_fr,
-                    "explain_fr": text.explain_fr,
+                    "label_text": text.label_text,
+                    "explain_text": text.explain_text,
                     "movable": kind in RETRIEVAL,
                     "options": options,
                 }
@@ -327,44 +333,56 @@ class Catalog:
 
     def option_label(self, kind: str, option: str) -> str:
         state = self.options.get((kind, option))
-        return state.label_fr if state else option
+        return state.label_text if state else option
 
 
-def _bounds_fr(name: str, low: int, high: int, catalog: Catalog) -> str:
+def _bounds_fr(
+    name: str, low: int, high: int, catalog: Catalog, lang: str = config.DEFAULT_LANGUAGE
+) -> str:
     text = catalog.content.params[name]
-    return f"{text.label_fr.lower()} entre {fr_int(low)} et {fr_int(high)} {text.unit_fr}".strip()
+    return _t(
+        "check.bounds",
+        lang,
+        setting=text.label_text.lower(),
+        low=lang_int(low, lang),
+        high=lang_int(high, lang),
+        unit=text.unit_text,
+    ).strip()
 
 
-def check_pipeline(pipeline: Pipeline, catalog: Catalog) -> tuple[str, str | None] | None:
-    """Why the workshop refuses this chain, in French, and the id of the stage at fault
-    (`None` when no stage is), or `None` when it runs. The chunking, the embedding and the
-    vector store open it, the context and the generation close it, in that order; between
-    them, the searches, the fusion and the reranking in any order, each once, at least one
-    search; two searches need a fusion after them, a fusion two searches before it, a
-    reranking a search before it. Then each stage's option and settings."""
-    names = {k: catalog.content.stages[k].label_fr for k in catalog.content.stages}
+def check_pipeline(
+    pipeline: Pipeline, catalog: Catalog, *, lang: str | None = None
+) -> tuple[str, str | None] | None:
+    """Why the workshop refuses this chain, in `lang` (the catalog's by default), and the id
+    of the stage at fault (`None` when no stage is), or `None` when it runs. The chunking,
+    the embedding and the vector store open it, the context and the generation close it, in
+    that order; between them, the searches, the fusion and the reranking in any order, each
+    once, at least one search; two searches need a fusion after them, a fusion two searches
+    before it, a reranking a search before it. Then each stage's option and settings."""
+    lang = lang or catalog.lang
+    names = {k: catalog.content.stages[k].label_text for k in catalog.content.stages}
+
+    def text(key: str, /, **kw: Any) -> str:
+        return _t(f"check.{key}", lang, **kw)
+
     stages = pipeline.stages
     ids = [s.id for s in stages]
     if len(set(ids)) != len(ids):
-        return "Deux étapes de la chaîne portent le même identifiant.", None
+        return text("duplicate_id"), None
     for stage in stages:
         if stage.kind not in OPTIONS:
-            return f"Étape inconnue : « {stage.kind} ».", stage.id
+            return text("unknown_kind", kind=stage.kind), stage.id
     seen: set[str] = set()
     for stage in stages:
         if stage.kind in seen:
-            return f"Étape « {names[stage.kind]} » : elle n'apparaît qu'une fois.", stage.id
+            return text("once", stage=names[stage.kind]), stage.id
         seen.add(stage.kind)
     kinds = [s.kind for s in stages]
     head, tail = list(FIXED_HEAD), list(FIXED_TAIL)
-    order = " → ".join(names[k].lower() for k in (*FIXED_HEAD, "…", *FIXED_TAIL) if k in names)
-    order = order.replace(" → … → ", " → (recherches, fusion, reranking) → ")
+    order = " → ".join(names[k].lower() for k in (*FIXED_HEAD, *FIXED_TAIL) if k in names)
     for kind in (*head, *tail):
         if kind not in kinds:
-            return (
-                f"Étape « {names[kind]} » : elle est fixe et ne se retire pas ({order}).",
-                None,
-            )
+            return text("fixed_missing", stage=names[kind], order=order), None
     if kinds[: len(head)] != head or kinds[-len(tail) :] != tail:
         wrong = next(
             s
@@ -372,86 +390,70 @@ def check_pipeline(pipeline: Pipeline, catalog: Catalog) -> tuple[str, str | Non
             if (s.kind in head and i != head.index(s.kind))
             or (s.kind in tail and i != len(stages) - len(tail) + tail.index(s.kind))
         )
-        return (
-            f"Étape « {names[wrong.kind]} » : elle est fixe, à sa place dans la chaîne ({order}).",
-            wrong.id,
-        )
+        return text("fixed_place", stage=names[wrong.kind], order=order), wrong.id
     segment = stages[len(head) : -len(tail)]
     searches = [s for s in segment if s.kind in SEARCHES]
     if not searches:
-        context = stages[-len(tail)]
-        return (
-            f"Étape « {names['context']} » : aucune recherche ne lui apporte d'extraits. "
-            "Ajoutez une recherche vectorielle ou lexicale.",
-            context.id,
-        )
+        return text("no_search", stage=names["context"]), stages[-len(tail)].id
     position = {s.id: i for i, s in enumerate(segment)}
     fusion = next((s for s in segment if s.kind == "fusion"), None)
     if len(searches) == 2:
         second = searches[1]
         if fusion is None:
-            return (
-                f"Deux recherches demandent une fusion après elles (étape « "
-                f"{names[second.kind]} ») : ajoutez la fusion, ou retirez une recherche.",
-                second.id,
-            )
+            return text("fusion_needed", stage=names[second.kind]), second.id
         if position[fusion.id] < position[second.id]:
-            return (
-                f"Étape « {names['fusion']} » : elle doit venir après les deux recherches, "
-                "qu'elle fusionne. Déplacez-la après elles.",
-                fusion.id,
-            )
+            return text("fusion_before", stage=names["fusion"]), fusion.id
     elif fusion is not None:
-        return (
-            f"Étape « {names['fusion']} » : la fusion demande deux recherches avant elle. "
-            "Ajoutez une seconde recherche, ou retirez la fusion.",
-            fusion.id,
-        )
+        return text("fusion_alone", stage=names["fusion"]), fusion.id
     rerank = next((s for s in segment if s.kind == "rerank"), None)
     if rerank is not None and position[rerank.id] < position[searches[0].id]:
-        return (
-            f"Étape « {names['rerank']} » : le reranking réordonne les candidats d'une "
-            "recherche, il doit venir après une recherche.",
-            rerank.id,
-        )
+        return text("rerank_before", stage=names["rerank"]), rerank.id
     for stage in stages:
         label = names[stage.kind]
         state = catalog.options.get((stage.kind, stage.option))
         if state is None:
-            return f"Étape « {label} » : l'option « {stage.option} » n'existe pas.", stage.id
+            return text("unknown_option", stage=label, option=stage.option), stage.id
         if not state.available:
+            reason = _rendered(state.reason_text, lang)
             return (
-                f"Étape « {label} » : {state.label_fr} n'est pas utilisable. {state.reason_fr}",
+                text("unavailable", stage=label, option=state.label_text, reason=reason),
                 stage.id,
             )
         allowed = PARAMS.get((stage.kind, stage.option), ())
         unknown = set(stage.params) - set(allowed)
         if unknown:
-            return f"Étape « {label} » : réglage inconnu ({', '.join(sorted(unknown))}).", stage.id
+            return text("unknown_setting", stage=label, names=", ".join(sorted(unknown))), stage.id
         for name in allowed:
             if name not in stage.params:
                 continue
             low, high = catalog.bounds(name)
             if not low <= stage.params[name] <= high:
-                return f"Étape « {label} » : {_bounds_fr(name, low, high, catalog)}.", stage.id
+                bounds = _bounds_fr(name, low, high, catalog, lang)
+                return text("out_of_bounds", stage=label, bounds=bounds), stage.id
     context = pipeline.find("context")
     top_k = param(context, "top_k", catalog) if context else 0
     for stage in searches:
         candidates = param(stage, "candidates", catalog)
         if candidates < top_k:
-            kept = "candidat retenu" if candidates == 1 else "candidats retenus"
             return (
-                f"Étape « {names[stage.kind]} » : {fr_int(candidates)} {kept}, moins que les "
-                f"{count_fr(top_k, 'extrait')} que le contexte doit garder. Retenez au moins "
-                f"{count_fr(top_k, 'candidat')}, ou gardez moins d'extraits.",
+                text(
+                    "too_few_candidates",
+                    stage=names[stage.kind],
+                    kept=count_text(candidates, "kept_candidate", lang),
+                    extracts=count_text(top_k, "extract", lang),
+                    candidates=count_text(top_k, "candidate", lang),
+                ),
                 stage.id,
             )
     return None
 
 
-def validate_pipeline(pipeline: Pipeline, catalog: Catalog) -> str | None:
-    """Why the workshop refuses this chain (French, naming the stage at fault), or `None`."""
-    refusal = check_pipeline(pipeline, catalog)
+def validate_pipeline(
+    pipeline: Pipeline, catalog: Catalog, *, lang: str | None = None
+) -> str | None:
+    """Why the workshop refuses this chain (in `lang`, the catalog's by default, naming the
+    stage at fault), or `None`."""
+    refusal = check_pipeline(pipeline, catalog, lang=lang)
     return refusal[0] if refusal else None
 
 
@@ -501,6 +503,77 @@ def size_fr(n: int) -> str:
     if n < _MIB:
         return f"{fr_int(max(1, round(n / 1024)))} Ko"
     return f"{n / _MIB:.1f} Mo".replace(".", ",")
+
+
+# ---------- figures and texts in the session's language (languages 5/5) ----------
+# French keeps the functions above, byte for byte; `messages.number` writes the others.
+
+
+def _t(key: str, lang: str, /, **kw: Any) -> str:
+    """`rag_lab.{key}` of `content/messages.yaml`, in `lang`."""
+    return msg(f"rag_lab.{key}", lang, **kw)
+
+
+def _french(lang: str) -> bool:
+    return config.as_language(lang) == config.DEFAULT_LANGUAGE
+
+
+def _rendered(value: Any, lang: str) -> Any:
+    """A text given by the session (a `Message`, rendered in `lang`), `None` kept."""
+    return None if value is None else render(value, lang)
+
+
+def lang_int(n: int, lang: str) -> str:
+    return fr_int(n) if _french(lang) else number(n, lang)
+
+
+def agreed(key: str, n: int, lang: str) -> str:
+    """A plural of `rag_lab`, agreed as the workshop always did: singular for 1 only."""
+    return _t(key, lang, count=1 if n == 1 else 2)
+
+
+def count_text(n: int, noun: str, lang: str) -> str:
+    """`count_fr` in `lang`: « 3 extraits », « 3 excerpts » (`rag_lab.noun.{noun}`)."""
+    return f"{lang_int(n, lang)} {agreed(f'noun.{noun}', n, lang)}"
+
+
+def score_text(value: float | None, lang: str) -> str:
+    if value is None or _french(lang):
+        return fr_score(value)
+    return number(value, lang, 3)
+
+
+def rank_text(n: int, lang: str) -> str:
+    """`fr_rank` in `lang`: « 1er », « 1st », « 1. »."""
+    if n == 1:
+        key = "first"
+    elif n % 100 in (11, 12, 13):
+        key = "th"
+    else:
+        key = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return _t(f"rank.{key}", lang, n=n)
+
+
+def ms_text(ms: int, lang: str) -> str:
+    return f"{lang_int(ms, lang)} ms"
+
+
+def mo_text(n: int, lang: str) -> str:
+    """Bytes in Mo (MB), rounded, without the unit."""
+    return _mo(n) if _french(lang) else number(round(n / _MIB), lang)
+
+
+def size_text(n: int, lang: str) -> str:
+    """`size_fr` in `lang`."""
+    if n < _MIB:
+        return _t("size.kib", lang, n=lang_int(max(1, round(n / 1024)), lang))
+    value = f"{n / _MIB:.1f}".replace(".", ",") if _french(lang) else number(n / _MIB, lang, 1)
+    return _t("size.mib", lang, n=value)
+
+
+def quoted(text: str, lang: str) -> str:
+    """« text », in `lang`'s quotation marks."""
+    return _t("quoted", lang, text=text)
 
 
 # ---------- the corpus's vectors, cached under `rag_lab_dir()` (AD-20) ----------
@@ -647,13 +720,9 @@ def installed(name: str) -> bool:
 
 
 def not_installed_fr(option: str) -> str:
-    """Why FAISS or LanceDB cannot be chosen: the extra, and the command that installs it."""
-    label = LIBRARIES[option][1]
-    return (
-        f"Indisponible : {label} n'est pas installé. Depuis le dossier de WaveStack : "
-        f"`{INSTALL_FR}`, puis relancez WaveStack. Sans `--extra compression`, Headroom serait "
-        "retiré."
-    )
+    """Why FAISS or LanceDB cannot be chosen: the extra, and the command that installs it.
+    A `Message` (French as a `str`), rendered in the catalog's language by `payload`."""
+    return Message("rag_lab.not_installed", library=LIBRARIES[option][1], command=INSTALL_FR)
 
 
 @dataclass
@@ -770,9 +839,7 @@ def _delete(folder: Path) -> None:
         shutil.rmtree(folder)
     except OSError as exc:
         raise StageFailed(
-            f"Le dossier {folder} ne peut pas être supprimé ({type(exc).__name__} : {exc}) : "
-            "un autre programme le tient peut-être ouvert. Fermez-le, ou supprimez le dossier "
-            "rag_lab WaveStack arrêté."
+            Message("rag_lab.folder_held", folder=folder, error=type(exc).__name__, cause=str(exc))
         ) from exc
 
 
@@ -794,22 +861,29 @@ class _SqliteStore:
 # ---------- a run ----------
 
 
-class StageFailed(Exception):
-    """A stage cannot do its work: its French reason. `soft`: the chain goes on (the
-    reranking), else the next stages are skipped."""
+def _keyed(text: str) -> Message:
+    """A text given to a stage's exception: a `Message` kept, any other text as it is."""
+    return text if isinstance(text, Message) else Message("common.verbatim", text=text)
 
-    def __init__(self, message_fr: str, *, soft: bool = False) -> None:
-        super().__init__(message_fr)
-        self.message_fr = message_fr
+
+class StageFailed(KeyedError):
+    """A stage cannot do its work: its reason, a `Message` (French as `str()` and
+    `message_text`, `render(lang)` in the session's) or a text kept as it is. `soft`: the
+    chain goes on (the reranking), else the next stages are skipped."""
+
+    def __init__(self, message_text: str, *, soft: bool = False) -> None:
+        super().__init__(_keyed(message_text))
+        self.message_text: str = self.message
         self.soft = soft
 
 
-class StageSkipped(Exception):
-    """A stage that does not run (the reranker is not on the workstation): why, in French."""
+class StageSkipped(KeyedError):
+    """A stage that does not run (the reranker is not on the workstation): why, as
+    `StageFailed` says it."""
 
-    def __init__(self, reason_fr: str) -> None:
-        super().__init__(reason_fr)
-        self.reason_fr = reason_fr
+    def __init__(self, reason_text: str) -> None:
+        super().__init__(_keyed(reason_text))
+        self.reason_text: str = self.message
 
 
 class LabCancelled(Exception):
@@ -823,7 +897,7 @@ class Lent:
 
     model: Any
     borrowed: bool
-    label_fr: str
+    label_text: str
 
 
 class Loans:
@@ -842,39 +916,45 @@ class Loans:
         self,
         *,
         borrowed: Any,
-        label_fr: str,
-        noun_fr: str,
-        unavailable_fr: str | None,
+        label_text: str,
+        noun_text: str,
+        unavailable_text: str | None,
         cost: int,
         slot: str,
         open_model: Callable[[], Any],
         soft: bool = False,
     ) -> Lent:
-        """`borrowed`: the brick's model, else `None`; `unavailable_fr`: why it cannot load
+        """`borrowed`: the brick's model, else `None`; `unavailable_text`: why it cannot load
         (a missing file). `soft`: its failure lets the chain go on (the reranker), and a
         missing file only skips the stage."""
         if borrowed is not None:
-            return Lent(borrowed, True, label_fr)
-        if unavailable_fr is not None:
+            return Lent(borrowed, True, label_text)
+        if unavailable_text is not None:
             if soft:
-                raise StageSkipped(unavailable_fr)
-            raise StageFailed(unavailable_fr)
-        if (slot, label_fr) in self._by_key:
-            return Lent(self._by_key[(slot, label_fr)], False, label_fr)
-        refusal = self._registry.check_component(f"{noun_fr} {label_fr}", cost, slot)
+                raise StageSkipped(unavailable_text)
+            raise StageFailed(unavailable_text)
+        if (slot, label_text) in self._by_key:
+            return Lent(self._by_key[(slot, label_text)], False, label_text)
+        refusal = self._registry.check_component(f"{noun_text} {label_text}", cost, slot)
         if refusal is not None:
             raise StageFailed(refusal, soft=soft)
         try:
             model = open_model()
         except Exception as exc:  # noqa: BLE001 - said in the stage, never a crash
             raise StageFailed(
-                f"Le {noun_fr} {label_fr} n'a pas pu être chargé ({type(exc).__name__} : {exc}).",
+                Message(
+                    "rag_lab.load_failed",
+                    noun=noun_text,
+                    model=label_text,
+                    error=type(exc).__name__,
+                    cause=str(exc),
+                ),
                 soft=soft,
             ) from exc
-        self._registry.grant(label_fr, cost, slot)
+        self._registry.grant(label_text, cost, slot)
         self._opened.append((model, slot))
-        self._by_key[(slot, label_fr)] = model
-        return Lent(model, False, label_fr)
+        self._by_key[(slot, label_text)] = model
+        return Lent(model, False, label_text)
 
     def close(self) -> list[str]:
         """Close what the run loaded, free its slots; the errors met, in French."""
@@ -912,6 +992,8 @@ class LabDeps:
     # kind, payload, step id and component of the event
     emit: Callable[[str, dict[str, Any], str, str], None]
     rss: Callable[[], int | None]
+    # Languages (4/5): the session's, the corpus's (`content` is `rag.yaml` read in it)
+    lang: str = config.DEFAULT_LANGUAGE
 
 
 @dataclass
@@ -920,7 +1002,7 @@ class Item:
 
     chunk_id: int
     doc_id: str
-    title_fr: str
+    title_text: str
     text: str
     score: float | None
     rank: int = 0
@@ -933,7 +1015,7 @@ class Item:
             "before": self.before,
             "chunk_id": self.chunk_id,
             "doc_id": self.doc_id,
-            "title_fr": self.title_fr,
+            "title_text": self.title_text,
             "text": self.text,
             "score": self.score,
             "sources": self.sources,
@@ -942,8 +1024,8 @@ class Item:
 
 @dataclass
 class _Result:
-    input_fr: str = ""
-    output_fr: str = ""
+    input_text: str = ""
+    output_text: str = ""
     facts: list[tuple[str, str]] = field(default_factory=list)
     items: list[Item] = field(default_factory=list)
     borrowed: bool = False
@@ -1000,7 +1082,25 @@ class LabRun:
         return f"{self.run_id}.{lane}.s{index}"
 
     def _label(self, stage: Stage) -> str:
-        return self.deps.texts.stages[stage.kind].label_fr
+        return self.deps.texts.stages[stage.kind].label_text
+
+    # -- texts, in the session's language (languages 5/5) --
+
+    @property
+    def _lang(self) -> str:
+        return self.deps.lang
+
+    def _text(self, key: str, /, **kw: Any) -> str:
+        return _t(key, self._lang, **kw)
+
+    def _int(self, n: int) -> str:
+        return lang_int(n, self._lang)
+
+    def _count(self, n: int, noun: str) -> str:
+        return count_text(n, noun, self._lang)
+
+    def _quoted(self, text: str) -> str:
+        return quoted(text, self._lang)
 
     # -- the run --
 
@@ -1012,14 +1112,14 @@ class LabRun:
             lanes.append(
                 {
                     "lane": lane,
-                    "label_fr": pipeline.label_fr,
+                    "label_text": pipeline.label_text,
                     "stages": [
                         {
                             "stage_id": s.id,
                             "kind": s.kind,
                             "option": s.option,
-                            "label_fr": self._label(s),
-                            "option_label_fr": self.deps.catalog.option_label(s.kind, s.option),
+                            "label_text": self._label(s),
+                            "option_label_text": self.deps.catalog.option_label(s.kind, s.option),
                             "params": s.params,
                         }
                         for s in pipeline.stages
@@ -1031,7 +1131,9 @@ class LabRun:
             {
                 "question": self.question,
                 "lanes": lanes,
-                "phase_label": f"{texts.running_fr} « {self.question[:80]} »",
+                "phase_label": self._text(
+                    "run.phase", running=texts.running_text, question=self.question[:80]
+                ),
             },
             self.run_id,
             "rag_lab",
@@ -1056,7 +1158,7 @@ class LabRun:
             if "cancelled" in statuses or "error" in statuses:
                 status = "cancelled" if "cancelled" in statuses else "error"
             if len(self.lanes) == LANES_MAX and status != "cancelled":
-                comparison = compare(self.lanes[0], self.lanes[1])
+                comparison = compare(self.lanes[0], self.lanes[1], self._lang)
         except Exception:  # noqa: BLE001 - the run ends in error, `run_ended` all the same
             status, comparison = "error", None
         finally:
@@ -1097,33 +1199,37 @@ class LabRun:
                 continue
             self._emit(
                 "rag_lab_stage_started",
-                base | {"phase_label": f"{self._label(stage)} en cours…"},
+                base | {"phase_label": self._text("stage.running", stage=self._label(stage))},
                 step_id,
                 component,
             )
             rss_before = self.deps.rss()
             started = time.monotonic()
-            status, error_fr, result = "ok", None, _Result()
+            status, error_text, result = "ok", None, _Result()
             try:
                 result = self._run_stage(lane, stage, step_id, component, base)
             except LabCancelled:
-                status, error_fr = "cancelled", "Arrêtée par « Arrêter »."
+                status, error_text = "cancelled", self._text("stage.stopped")
                 lane.status, stopped = "cancelled", True
             except StageSkipped as skipped:
-                status, error_fr = "skipped", skipped.reason_fr
-                result = self._passed_on(lane, skipped.reason_fr)
+                status, error_text = "skipped", skipped.render(self._lang)
+                result = self._passed_on(lane, error_text)
             except StageFailed as failed:
-                status, error_fr = "error", failed.message_fr
+                status, error_text = "error", failed.render(self._lang)
                 if failed.soft:
-                    result = self._passed_on(lane, failed.message_fr)
+                    result = self._passed_on(lane, error_text)
                 else:
                     lane.status, stopped = "error", True
             except Exception as exc:  # noqa: BLE001 - AD-16: a stage's failure, never a crash
                 status = "error"
-                error_fr = f"L'étape a échoué ({type(exc).__name__} : {exc})."
+                error_text = self._text(
+                    "stage.failed",
+                    error=type(exc).__name__,
+                    cause=exception_text(exc, self._lang),
+                )
                 lane.status, stopped = "error", True
             duration = _ms(time.monotonic() - started)
-            self._ended(step_id, component, base, status, result, error_fr, duration, rss_before)
+            self._ended(step_id, component, base, status, result, error_text, duration, rss_before)
 
     def _ended(
         self,
@@ -1132,32 +1238,40 @@ class LabRun:
         base: dict[str, Any],
         status: str,
         result: _Result,
-        error_fr: str | None,
+        error_text: str | None,
         duration_ms: int,
         rss_before: int | None,
     ) -> None:
         rss = self.deps.rss() if status in ("ok", "error", "cancelled") or rss_before else None
-        memory_fr = None
+        memory_text = None
         if rss is not None:
-            memory_fr = f"{_mo(rss)} Mo"
+            memory_text = self._text("stage.memory", mo=mo_text(rss, self._lang))
             if rss_before is not None:
                 delta = rss - rss_before
                 sign = "+" if delta >= 0 else "−"
-                memory_fr += f" ({sign}{_mo(abs(delta))} Mo pendant l'étape)"
+                memory_text = self._text(
+                    "stage.memory_during",
+                    memory=memory_text,
+                    sign=sign,
+                    mo=mo_text(abs(delta), self._lang),
+                )
         self._emit(
             "rag_lab_stage_ended",
             base
             | {
                 "status": status,
-                "input_fr": result.input_fr,
-                "output_fr": result.output_fr,
-                "facts": [{"label_fr": k, "value_fr": v} for k, v in result.facts],
+                "input_text": result.input_text,
+                "output_text": result.output_text,
+                "facts": [
+                    {"label_text": render(k, self._lang), "value_text": render(v, self._lang)}
+                    for k, v in result.facts
+                ],
                 "items": [i.payload() for i in result.items],
                 "borrowed": result.borrowed,
-                "error_fr": error_fr,
+                "error_text": error_text,
                 "duration_ms": duration_ms,
                 "rss_bytes": rss,
-                "memory_fr": memory_fr,
+                "memory_text": memory_text,
             },
             step_id,
             component,
@@ -1203,14 +1317,14 @@ class LabRun:
             return self._rerank(lane, stage, progress)
         if stage.kind == "context":
             return self._context(lane, stage)
-        raise StageFailed(f"Étape inconnue : {stage.kind}.")
+        raise StageFailed(Message("rag_lab.stage.unknown", kind=stage.kind))
 
-    def _passed_on(self, lane: _Lane, reason_fr: str) -> _Result:
+    def _passed_on(self, lane: _Lane, reason_text: str) -> _Result:
         """A reranking skipped or failed: the search's order goes on unchanged."""
         n = len(lane.ranked or [])
         return _Result(
-            input_fr=f"{count_fr(n, 'candidat')} de la recherche.",
-            output_fr=f"Ordre de la recherche gardé tel quel. {reason_fr}",
+            input_text=self._text("passed_on.input", candidates=self._count(n, "candidate")),
+            output_text=self._text("passed_on.output", reason=reason_text),
         )
 
     # -- the stages --
@@ -1231,7 +1345,7 @@ class LabRun:
     def _chunking(self, lane: _Lane, stage: Stage) -> _Result:
         size = param(stage, "chunk_max_chars", self.deps.catalog)
         lane.chunk_max_chars = size
-        source = "le corpus (content/corpus), découpé pour cette exécution"
+        source = self._text("chunking.source_corpus")
         chunks: list[Chunk] = []
         if self._uses_brick_index(lane) and self.deps.brick_index_error is None:
             # Its ids are the index's: never the corpus's chunks under the brick's vectors.
@@ -1239,33 +1353,43 @@ class LabRun:
                 chunks = rag_index.read_chunks(self.deps.brick_index)
             except Exception as exc:  # noqa: BLE001 - said in the stage
                 raise StageFailed(
-                    f"L'index de la brique RAG ne se lit pas ({type(exc).__name__} : {exc}). "
-                    "Reconstruisez-le depuis la carte RAG de l'atelier."
+                    Message(
+                        "rag_lab.chunking.index_unreadable",
+                        error=type(exc).__name__,
+                        cause=exception_text(exc, self._lang),
+                    )
                 ) from exc
-            source = "l'index de la brique RAG (découpé à sa construction)"
+            source = self._text("chunking.source_index")
         if not chunks:
-            chunks = chunk_corpus(self.deps.content, size)
+            chunks = chunk_corpus(self.deps.content, size, self.deps.lang)
         if not chunks:
-            raise StageFailed("Le corpus ne donne aucun extrait.")
+            raise StageFailed(Message("rag_lab.chunking.no_chunks"))
         lane.chunks = chunks
         docs = len({c.doc_id for c in chunks})
         longest = max(len(c.text) for c in chunks)
         mean = round(sum(len(c.text) for c in chunks) / len(chunks))
+        text, count = self._text, self._int
+
+        def chars(n: int) -> str:
+            return text("chunking.characters", n=count(n))
+
         return _Result(
-            input_fr=(
-                f"{count_fr(docs, 'document')} du corpus de démonstration "
-                f"({fr_int(len(self.deps.content.documents))} déclarés dans content/rag.yaml)."
+            input_text=text(
+                "chunking.input",
+                documents=self._count(docs, "document"),
+                declared=count(len(self.deps.content.documents)),
             ),
-            output_fr=(
-                f"{count_fr(len(chunks), 'extrait')} de {fr_int(size)} caractères au plus, lus "
-                "dans "
-                f"{source}."
+            output_text=text(
+                "chunking.output",
+                extracts=self._count(len(chunks), "extract"),
+                size=count(size),
+                source=source,
             ),
             facts=[
-                ("Taille maximale", f"{fr_int(size)} caractères"),
-                ("Extraits", fr_int(len(chunks))),
-                ("Longueur moyenne", f"{fr_int(mean)} caractères"),
-                ("Plus long", f"{fr_int(longest)} caractères"),
+                (text("chunking.max_size"), chars(size)),
+                (text("chunking.extracts"), count(len(chunks))),
+                (text("chunking.mean"), chars(mean)),
+                (text("chunking.longest"), chars(longest)),
             ],
         )
 
@@ -1274,23 +1398,21 @@ class LabRun:
     ) -> _Result:
         lent = self.deps.embedder(stage.option)
         embedder: Embedder = lent.model
-        lane.embedder_label = lent.label_fr
+        lane.embedder_label = lent.label_text
         self._check()
-        n = fr_int(len(lane.chunks))
-        passages_n = count_fr(len(lane.chunks), "passage")
-        vectors_n = count_fr(len(lane.chunks), "vecteur")
-        facts = [("Modèle", lent.label_fr), ("Dimensions", fr_int(embedder.dims))]
+        text = self._text
+        n = self._int(len(lane.chunks))
+        passages_n = self._count(len(lane.chunks), "passage")
+        vectors_n = self._count(len(lane.chunks), "vector")
+        facts = [
+            (text("fact.model"), lent.label_text),
+            (text("fact.dimensions"), self._int(embedder.dims)),
+        ]
         if self._uses_brick_index(lane):
             if self.deps.brick_index_error is None:
-                passages = (
-                    f"Passages (titre du document, puis extrait) : {passages_n}, déjà vectorisés "
-                    "dans l'index de la brique RAG, calculés à sa construction."
-                )
+                passages = text("embedding.brick_passages", passages=passages_n)
             else:
-                passages = (
-                    "Les passages ne sont pas vectorisés ici : l'index de la brique RAG ne peut "
-                    "pas servir (voir Base vectorielle)."
-                )
+                passages = text("embedding.brick_unusable")
         else:
             identity = self.deps.identity(stage.option)
             digest = rag_index.corpus_digest(lane.chunks)
@@ -1298,8 +1420,8 @@ class LabRun:
             folder = self.deps.lab_dir / lane.key
             vectors = read_vectors(folder, lane.chunks, embedder.dims)
             if vectors is not None:
-                passages = f"Passages relus du cache ({vectors_n}, dossier {lane.key})."
-                facts.append(("Passages", f"relus du cache ({n})"))
+                passages = text("embedding.cached", vectors=vectors_n, key=lane.key)
+                facts.append((text("fact.passages"), text("embedding.cached_fact", n=n)))
             else:
                 vectors = []
                 total = len(lane.chunks)
@@ -1310,48 +1432,50 @@ class LabRun:
                     vectors += embedder.embed_passages([rag_index.passage_text(c) for c in batch])
                     progress(min(at + EMBED_BATCH, total), total)
                 if len(vectors) != total or any(len(v) != embedder.dims for v in vectors):
-                    raise StageFailed(
-                        f"Le modèle ne rend pas un vecteur de {embedder.dims} dimensions par "
-                        "passage."
-                    )
+                    raise StageFailed(Message("rag_lab.embedding.wrong_dims", dims=embedder.dims))
                 write_vectors(folder, lane.chunks, vectors, identity)
                 seconds = time.monotonic() - started
-                passages = (
-                    f"Passages calculés ({passages_n}) en {fr_ms(_ms(seconds))}, puis mis en "
-                    f"cache (dossier {lane.key})."
+                passages = text(
+                    "embedding.computed",
+                    passages=passages_n,
+                    duration=ms_text(_ms(seconds), self._lang),
+                    key=lane.key,
                 )
-                facts.append(("Passages", f"calculés ({passages_n})"))
+                facts.append(
+                    (text("fact.passages"), text("embedding.computed_fact", passages=passages_n))
+                )
             lane.vectors = vectors
         vector = embedder.embed_queries([self.question])[0]
         if not any(vector):
-            raise StageFailed(
-                "La question ne donne aucun vecteur exploitable (vecteur nul) : reformulez-la "
-                "avec des mots du corpus."
-            )
+            raise StageFailed(Message("rag_lab.embedding.null_vector"))
         lane.embedder = embedder
         lane.query_vector = vector
-        shown = " ; ".join(fr_score(v) for v in vector[:4])
-        facts.append(("Provenance", self._provenance(lent)))
+        separator = text("list_separator")
+        shown = separator.join(score_text(v, self._lang) for v in vector[:4])
+        facts.append((text("fact.provenance"), self._provenance(lent)))
         return _Result(
-            input_fr=(
-                f"La question « {self.question} », et le découpage : "
-                f"{count_fr(len(lane.chunks), 'extrait')}."
+            input_text=text(
+                "embedding.input",
+                question=self.question,
+                extracts=self._count(len(lane.chunks), "extract"),
             ),
-            output_fr=(
-                f"Question → vecteur de {fr_int(len(vector))} nombres ({shown} ; …). {passages}"
+            output_text=text(
+                "embedding.output", n=self._int(len(vector)), shown=shown, passages=passages
             ),
             facts=facts,
             borrowed=lent.borrowed,
         )
 
     def _provenance(self, lent: Lent) -> str:
-        return self.deps.texts.borrowed_fr if lent.borrowed else self.deps.texts.loaded_fr
+        return self.deps.texts.borrowed_text if lent.borrowed else self.deps.texts.loaded_text
 
     def _vector_store(self, lane: _Lane, stage: Stage) -> _Result:
         if lane.embedder is None:
-            raise StageFailed("Aucun modèle d'embedding : l'étape Embedding n'a pas abouti.")
+            raise StageFailed(Message("rag_lab.vector_store.no_embedder"))
         n = len(lane.chunks)
         dims = lane.embedder.dims
+        text, count = self._text, self._int
+        vectors_fact, metric_fact = text("fact.vectors"), text("fact.metric")
         if self._uses_brick_index(lane):
             if self.deps.brick_index_error is not None:
                 raise StageFailed(self.deps.brick_index_error)
@@ -1359,38 +1483,37 @@ class LabRun:
             meta = rag_index.read_meta(path)
             lane.store = _SqliteStore(path, lane.embedder)
             return _Result(
-                input_fr=(
-                    f"{count_fr(meta.chunks, 'vecteur')} de {fr_int(meta.dims)} dimensions, "
-                    "calculés "
-                    f"par « {meta.embedding_model_id} » le {meta.built_at[:10]}."
+                input_text=text(
+                    "vector_store.brick_input",
+                    vectors=self._count(meta.chunks, "vector"),
+                    dims=count(meta.dims),
+                    model=meta.embedding_model_id,
+                    date=meta.built_at[:10],
                 ),
-                output_fr=(
-                    f"Index sqlite-vec de la brique RAG, lu seulement ({path.name}) : l'atelier "
-                    "n'y écrit jamais."
-                ),
+                output_text=text("vector_store.brick_output", file=path.name),
                 facts=[
-                    ("Fichier", str(path)),
-                    ("Vecteurs", fr_int(meta.chunks)),
-                    ("Métrique", "cosinus"),
+                    (text("fact.file"), str(path)),
+                    (vectors_fact, count(meta.chunks)),
+                    (metric_fact, text("vector_store.cosine")),
                 ],
             )
         if lane.vectors is None:
-            raise StageFailed("Aucun vecteur des passages : l'étape Embedding n'a pas abouti.")
-        vectors_fr = f"{count_fr(n, 'vecteur')} de {fr_int(dims)} dimensions"
+            raise StageFailed(Message("rag_lab.vector_store.no_vectors"))
+        vectors_text = text(
+            "vector_store.vectors", vectors=self._count(n, "vector"), dims=count(dims)
+        )
+        input_text = text("vector_store.input", vectors=vectors_text)
         if stage.option == "memory":
             lane.store = MemoryStore(lane.chunks, lane.vectors)
             size = n * dims * 4
             return _Result(
-                input_fr=f"De l'étape Embedding : {vectors_fr}.",
-                output_fr=(
-                    f"Rangés en mémoire, sans index ({size_fr(size)} en float32) : chaque "
-                    "recherche compare la question à tous les vecteurs."
-                ),
-                facts=[("Vecteurs", fr_int(n)), ("Métrique", "cosinus (produit scalaire)")],
+                input_text=input_text,
+                output_text=text("vector_store.memory_output", size=size_text(size, self._lang)),
+                facts=[(vectors_fact, count(n)), (metric_fact, text("vector_store.cosine_dot"))],
             )
         if stage.option == "sqlite_vec":
             path = self.deps.lab_dir / lane.key / INDEX_FILE
-            built = "relu"
+            built = text("vector_store.reread")
             try:
                 meta = rag_index.read_meta(path) if path.is_file() else None
             except Exception:  # noqa: BLE001 - rebuilt below
@@ -1412,15 +1535,16 @@ class LabRun:
                     dims=dims,
                     chunk_max_chars=lane.chunk_max_chars,
                 )
-                built = f"construit ({count_fr(n, 'vecteur')})"
+                built = text("vector_store.built", vectors=self._count(n, "vector"))
             lane.store = _SqliteStore(path, lane.embedder)
             return _Result(
-                input_fr=f"De l'étape Embedding : {vectors_fr}.",
-                output_fr=(
-                    f"Index sqlite-vec de l'atelier {built} (dossier {lane.key}) : l'index de la "
-                    "brique n'est pas touché."
-                ),
-                facts=[("Fichier", str(path)), ("Vecteurs", fr_int(n)), ("Métrique", "cosinus")],
+                input_text=input_text,
+                output_text=text("vector_store.sqlite_output", state=built, key=lane.key),
+                facts=[
+                    (text("fact.file"), str(path)),
+                    (vectors_fact, count(n)),
+                    (metric_fact, text("vector_store.cosine")),
+                ],
             )
         if stage.option in LIBRARIES:
             label = LIBRARIES[stage.option][1]
@@ -1429,74 +1553,92 @@ class LabRun:
             folder = self.deps.lab_dir / lane.key
             if stage.option == "faiss":
                 store: Any = FaissStore(imported.module, folder, lane.vectors)
-                kind = "index plat à produit scalaire (IndexFlatIP)"
+                kind = text("vector_store.faiss_kind")
             else:
                 store = LanceStore(imported.module, folder, lane.vectors)
-                kind = "table « chunks », métrique cosinus"
+                kind = text("vector_store.lancedb_kind")
             lane.store = store
-            state = (
-                f"construit ({count_fr(n, 'vecteur')})"
-                if store.built
-                else f"relu ({count_fr(n, 'vecteur')})"
+            vectors_n = self._count(n, "vector")
+            state = text(
+                "vector_store.built" if store.built else "vector_store.reread_count",
+                vectors=vectors_n,
             )
             return _Result(
-                input_fr=f"De l'étape Embedding : {vectors_fr}.",
-                output_fr=(
-                    f"Index {label} {state}, {kind}, dans le dossier {lane.key} de l'atelier."
+                input_text=input_text,
+                output_text=text(
+                    "vector_store.library_output",
+                    library=label,
+                    state=state,
+                    kind=kind,
+                    key=lane.key,
                 ),
-                facts=[("Dossier", str(store.path)), ("Vecteurs", fr_int(n)), *imported.facts],
+                facts=[
+                    (text("fact.folder"), str(store.path)),
+                    (vectors_fact, count(n)),
+                    *imported.facts,
+                ],
             )
-        raise StageFailed(f"Base vectorielle inconnue : {stage.option}.")
+        raise StageFailed(Message("rag_lab.vector_store.unknown", option=stage.option))
 
     def _vector_search(self, lane: _Lane, stage: Stage) -> _Result:
         if lane.store is None or lane.query_vector is None:
-            raise StageFailed("Aucune base vectorielle : l'étape précédente n'a pas abouti.")
+            raise StageFailed(Message("rag_lab.vector_search.no_store"))
         k = param(stage, "candidates", self.deps.catalog)
         hits = lane.store.search(lane.query_vector, k)
         items = []
         for rank, (chunk_id, score) in enumerate(hits, start=1):
             chunk = lane.chunks[chunk_id - 1]
-            items.append(Item(chunk_id, chunk.doc_id, chunk.title_fr, chunk.text, score, rank=rank))
+            items.append(
+                Item(chunk_id, chunk.doc_id, chunk.title_text, chunk.text, score, rank=rank)
+            )
         lane.lists.append(items)
         lane.list_kinds.append("vector_search")
         best = items[0].score if items else None
         worst = items[-1].score if items else None
+        text = self._text
         return _Result(
-            input_fr=(
-                "Le vecteur de la question, comparé à ceux de la base : "
-                f"{count_fr(len(lane.chunks), 'vecteur')}."
+            input_text=text("vector_search.input", vectors=self._count(len(lane.chunks), "vector")),
+            output_text=text(
+                "vector_search.output",
+                extracts=self._count(len(items), "extract"),
+                best=score_text(best, self._lang),
+                worst=score_text(worst, self._lang),
             ),
-            output_fr=(
-                f"Les plus proches, sans seuil : {count_fr(len(items), 'extrait')} ; "
-                "score = 1 − distance "
-                f"cosinus, de {fr_score(best)} à {fr_score(worst)}."
-            ),
-            facts=[("Candidats demandés (k)", fr_int(k)), ("Trouvés", fr_int(len(items)))],
+            facts=[
+                (text("fact.requested"), self._int(k)),
+                (text("fact.found"), self._int(len(items))),
+            ],
             items=items,
         )
 
     def _rerank(self, lane: _Lane, stage: Stage, progress: Callable[[int, int], None]) -> _Result:
         candidates = lane.ranked
         if not candidates:
-            raise StageSkipped("Aucun candidat à réordonner.")
+            raise StageSkipped(Message("rag_lab.rerank.no_candidates"))
         lent = self.deps.reranker(stage.option)
         reranker: Reranker = lent.model
-        passages = [f"{c.title_fr}\n{c.text}" for c in candidates]
+        passages = [f"{c.title_text}\n{c.text}" for c in candidates]
         try:
             raw = reranker.score(self.question, passages, self.deps.cancelled, progress)
         except RerankCancelled:
             raise LabCancelled() from None
         except Exception as exc:  # noqa: BLE001 - the chain goes on with the search's order
             raise StageFailed(
-                f"Le reranking a échoué ({type(exc).__name__} : {exc}). La construction du "
-                "contexte garde l'ordre de la recherche.",
+                Message(
+                    "rag_lab.rerank.failed",
+                    error=type(exc).__name__,
+                    cause=exception_text(exc, self._lang),
+                ),
                 soft=True,
             ) from exc
         if len(raw) != len(candidates):
+            scores_n, candidates_n = len(raw), len(candidates)
             raise StageFailed(
-                f"{count_fr(len(raw), 'score')} pour {count_fr(len(candidates), 'candidat')} : "
-                "l'ordre de la recherche "
-                "est gardé.",
+                Message(
+                    "rag_lab.rerank.mismatch",
+                    scores=Lazy(lambda lang: count_text(scores_n, "score", lang)),
+                    candidates=Lazy(lambda lang: count_text(candidates_n, "candidate", lang)),
+                ),
                 soft=True,
             )
         scores = []
@@ -1504,11 +1646,7 @@ class LabRun:
             try:
                 value = float(item.score)
             except (TypeError, ValueError):
-                raise StageFailed(
-                    "Le reranker a rendu un score qui n'est pas un nombre : l'ordre de la "
-                    "recherche est gardé.",
-                    soft=True,
-                ) from None
+                raise StageFailed(Message("rag_lab.rerank.not_a_number"), soft=True) from None
             scores.append(round(min(1.0, max(0.0, value)), 3))
         # Stable, as the brick's: the reranker's score, then the search's rank.
         order = sorted(range(len(candidates)), key=lambda i: (-scores[i], candidates[i].rank))
@@ -1519,7 +1657,7 @@ class LabRun:
                 Item(
                     c.chunk_id,
                     c.doc_id,
-                    c.title_fr,
+                    c.title_text,
                     c.text,
                     scores[i],
                     rank=rank,
@@ -1528,7 +1666,7 @@ class LabRun:
                     or [
                         {
                             "kind": self._made_by(lane),
-                            "label_fr": self.deps.texts.stages[self._made_by(lane)].label_fr,
+                            "label_text": self.deps.texts.stages[self._made_by(lane)].label_text,
                             "rank": c.rank,
                             "score": c.score,
                         }
@@ -1537,28 +1675,28 @@ class LabRun:
             )
         lane.lists[-1] = items
         moved = max(items, key=lambda x: (x.before or 0) - x.rank)
+        text = self._text
         climb = (
-            f"« {moved.title_fr} » monte du {fr_rank(moved.before or 0)} au "
-            f"{fr_rank(moved.rank)} rang."
+            text(
+                "rerank.climb",
+                title=moved.title_text,
+                before=rank_text(moved.before or 0, self._lang),
+                after=rank_text(moved.rank, self._lang),
+            )
             if (moved.before or 0) > moved.rank
-            else "L'ordre de la recherche ne change pas."
+            else text("rerank.unchanged")
         )
         return _Result(
-            input_fr=(
-                f"La question et {count_fr(len(candidates), 'candidat')} de la recherche, lus "
-                "par paires."
-            ),
-            output_fr=(
-                f"{count_fr(len(items), 'candidat réordonné', 'candidats réordonnés')} par le "
-                f"reranker. {climb}"
+            input_text=text("rerank.input", candidates=self._count(len(candidates), "candidate")),
+            output_text=text(
+                "rerank.output",
+                candidates=self._count(len(items), "reordered_candidate"),
+                climb=climb,
             ),
             facts=[
-                ("Modèle", lent.label_fr),
-                ("Paires lues", fr_int(len(candidates))),
-                (
-                    "Provenance",
-                    self.deps.texts.borrowed_fr if lent.borrowed else self.deps.texts.loaded_fr,
-                ),
+                (text("fact.model"), lent.label_text),
+                (text("fact.pairs"), self._int(len(candidates))),
+                (text("fact.provenance"), self._provenance(lent)),
             ],
             items=items,
             borrowed=lent.borrowed,
@@ -1570,7 +1708,7 @@ class LabRun:
 
     def _lexical_search(self, lane: _Lane, stage: Stage) -> _Result:
         if not lane.chunks:
-            raise StageFailed("Aucun extrait : le découpage n'a pas abouti.")
+            raise StageFailed(Message("rag_lab.lexical_search.no_chunks"))
         k = param(stage, "candidates", self.deps.catalog)
         scored = bm25(self.question, [rag_index.passage_text(c) for c in lane.chunks])
         found = sorted(
@@ -1581,29 +1719,31 @@ class LabRun:
         for rank, (score, chunk_id) in enumerate(found, start=1):
             chunk = lane.chunks[chunk_id - 1]
             items.append(
-                Item(chunk_id, chunk.doc_id, chunk.title_fr, chunk.text, round(score, 3), rank=rank)
+                Item(
+                    chunk_id, chunk.doc_id, chunk.title_text, chunk.text, round(score, 3), rank=rank
+                )
             )
         lane.lists.append(items)
         lane.list_kinds.append("lexical_search")
-        words = ", ".join(f"« {w} »" for w in dict.fromkeys(bm25_terms(self.question)))
+        text = self._text
+        words = ", ".join(self._quoted(w) for w in dict.fromkeys(bm25_terms(self.question)))
         return _Result(
-            input_fr=(
-                f"Les mots de la question ({words or 'aucun'}), cherchés dans les "
-                f"{count_fr(len(lane.chunks), 'extrait')}, sans embedding."
+            input_text=text(
+                "lexical_search.input",
+                words=words or text("lexical_search.no_words"),
+                extracts=self._count(len(lane.chunks), "extract"),
             ),
-            output_fr=(
-                f"Ceux qui partagent le plus de mots avec la question : "
-                f"{count_fr(len(items), 'extrait')}, "
-                f"pondérés par leur rareté (BM25, k1 = 1,5, b = 0,75) ; un extrait sans aucun "
-                "mot commun n'est pas retenu."
-            ),
-            facts=[("Candidats demandés (k)", fr_int(k)), ("Trouvés", fr_int(len(items)))],
+            output_text=text("lexical_search.output", extracts=self._count(len(items), "extract")),
+            facts=[
+                (text("fact.requested"), self._int(k)),
+                (text("fact.found"), self._int(len(items))),
+            ],
             items=items,
         )
 
     def _fusion(self, lane: _Lane, stage: Stage) -> _Result:
         if len(lane.lists) < 2:
-            raise StageFailed("La fusion demande deux listes de recherche.")
+            raise StageFailed(Message("rag_lab.fusion.needs_two"))
         kinds = lane.list_kinds[-len(lane.lists) :]
         found: dict[int, Item] = {}
         ranks: dict[str, dict[int, tuple[int, float | None]]] = {}
@@ -1618,7 +1758,7 @@ class LabRun:
             sources = [
                 {
                     "kind": kind,
-                    "label_fr": self.deps.texts.stages[kind].label_fr,
+                    "label_text": self.deps.texts.stages[kind].label_text,
                     "rank": ranks[kind].get(chunk_id, (None, None))[0],
                     "score": ranks[kind].get(chunk_id, (None, None))[1],
                 }
@@ -1628,7 +1768,7 @@ class LabRun:
                 Item(
                     chunk_id,
                     item.doc_id,
-                    item.title_fr,
+                    item.title_text,
                     item.text,
                     round(score, 4),
                     rank=rank,
@@ -1636,25 +1776,30 @@ class LabRun:
                 )
             )
         both = sum(1 for chunk_id, _ in fused if all(chunk_id in ranks[k] for k in kinds))
-        sizes = " et ".join(f"{len(r)}" for r in lane.lists)
+        text = self._text
+        sizes = join([f"{len(r)}" for r in lane.lists], self._lang)
         lane.lists = [items]
         lane.list_kinds = ["fusion"]
         return _Result(
-            input_fr=f"Les deux listes des recherches ({sizes} extraits), avec leurs rangs.",
-            output_fr=(
-                f"{count_fr(len(items), 'extrait')}, dont {fr_int(both)} "
-                f"{'trouvé' if both == 1 else 'trouvés'} par les deux recherches, classés par "
-                f"fusion des rangs réciproques : score = Σ 1 / ({RRF_K} + rang). Un extrait bien "
-                "classé par les deux passe devant."
+            input_text=text("fusion.input", sizes=sizes),
+            output_text=text(
+                "fusion.output",
+                extracts=self._count(len(items), "extract"),
+                both=self._int(both),
+                found=agreed("fusion.found", both, self._lang),
+                k=RRF_K,
             ),
-            facts=[("Constante k", str(RRF_K)), ("Extraits fusionnés", fr_int(len(items)))],
+            facts=[
+                (text("fact.constant"), str(RRF_K)),
+                (text("fact.fused"), self._int(len(items))),
+            ],
             items=items,
         )
 
     def _context(self, lane: _Lane, stage: Stage) -> _Result:
         ranked = lane.ranked
         if ranked is None:
-            raise StageFailed("Aucune recherche n'a abouti : il n'y a rien à placer.")
+            raise StageFailed(Message("rag_lab.context.nothing"))
         top_k = param(stage, "top_k", self.deps.catalog)
         kept = ranked[:top_k]
         content = self.deps.content
@@ -1662,8 +1807,8 @@ class LabRun:
             Item(
                 c.chunk_id,
                 c.doc_id,
-                c.title_fr,
-                content.excerpt(rank, c.title_fr, c.text),
+                c.title_text,
+                content.excerpt(rank, c.title_text, c.text),
                 c.score,
                 rank=rank,
                 before=c.rank,
@@ -1672,31 +1817,32 @@ class LabRun:
             for rank, c in enumerate(kept, start=1)
         ]
         lane.context = items
-        text = "\n\n".join([content.intro_fr, *(i.text for i in items)]) if items else ""
+        text = "\n\n".join([content.intro_text, *(i.text for i in items)]) if items else ""
         lane.context_text = text
+        say = self._text
         return _Result(
-            input_fr=(f"Le classement de l'étape précédente : {count_fr(len(ranked), 'extrait')}."),
-            output_fr=text or "Aucun extrait : le modèle ne recevrait que la question.",
+            input_text=say("context.input", extracts=self._count(len(ranked), "extract")),
+            output_text=text or say("context.empty"),
             facts=[
-                ("Extraits gardés", f"{fr_int(len(items))} sur {fr_int(len(ranked))}"),
-                ("Caractères", fr_int(len(text))),
-                ("Placement", content.placement_fr),
+                (
+                    say("fact.kept"),
+                    say("context.kept", kept=self._int(len(items)), total=self._int(len(ranked))),
+                ),
+                (say("fact.characters"), self._int(len(text))),
+                (say("fact.placement"), content.placement_text),
             ],
             items=items,
         )
 
     def _generation(self, lane: _Lane) -> _Result:
         if lane.status != "ok" or not lane.context_text:
-            context = "la question seule (aucun contexte construit)"
+            context = self._text("generation.question_only")
         else:
-            kept = count_fr(len(lane.context), "extrait")
-            context = f"le contexte construit ({kept}), puis la question"
+            kept = self._count(len(lane.context), "extract")
+            context = self._text("generation.with_context", extracts=kept)
         return _Result(
-            input_fr=(
-                f"Le modèle actif de l'atelier recevrait : son prompt système, {context} : "
-                f"« {self.question} »."
-            ),
-            output_fr=self.deps.texts.generation_not_run_fr,
+            input_text=self._text("generation.input", context=context, question=self.question),
+            output_text=self.deps.texts.generation_not_run_text,
         )
 
 
@@ -1767,12 +1913,13 @@ def rrf(lists: Sequence[Sequence[int]], k: int = RRF_K) -> list[tuple[int, float
 
 
 def _compared(key: str, item: Item) -> dict[str, Any]:
-    return {"key": key, "doc_id": item.doc_id, "title_fr": item.title_fr}
+    return {"key": key, "doc_id": item.doc_id, "title_text": item.title_text}
 
 
-def compare(a: _Lane, b: _Lane) -> dict[str, Any]:
+def compare(a: _Lane, b: _Lane, lang: str = config.DEFAULT_LANGUAGE) -> dict[str, Any]:
     """The two contexts, compared in Python (AD-1): excerpt by excerpt when both chains cut
-    the corpus alike, else document by document (a document's best rank)."""
+    the corpus alike, else document by document (a document's best rank). `summary_text`
+    in `lang` (languages 5/5)."""
     same_cut = a.chunk_max_chars == b.chunk_max_chars and a.chunks == b.chunks
     basis = "excerpt" if same_cut else "document"
 
@@ -1798,33 +1945,45 @@ def compare(a: _Lane, b: _Lane) -> dict[str, Any]:
     for key, (rank, item) in in_b.items():
         if key not in in_a:
             only_b.append(_compared(key, item) | {"rank_a": None, "rank_b": rank})
-    unit = "extrait" if same_cut else "document"
+    unit = _t(f"compare.unit_{basis}", lang, count=len(common))
     parts = []
     if not a.context or not b.context:
-        parts.append("Une des deux chaînes n'a construit aucun contexte.")
-    names = ", ".join(f"« {e['title_fr']} »" for e in common)
+        parts.append(_t("compare.one_empty", lang))
+    names = ", ".join(quoted(e["title_text"], lang) for e in common)
     parts.append(
-        f"En commun : {len(common)} {unit}{'s' if len(common) > 1 else ''}"
-        + (f" ({names})" if names else "")
-        + f" ; seulement dans A : {len(only_a)} ; seulement dans B : {len(only_b)}."
+        _t(
+            "compare.common",
+            lang,
+            count=len(common),
+            unit=unit,
+            names=f" ({names})" if names else "",
+            only_a=len(only_a),
+            only_b=len(only_b),
+        )
     )
     if changes:
         moves = ", ".join(
-            f"« {e['title_fr']} » {fr_rank(e['rank_a'])} en A, {fr_rank(e['rank_b'])} en B"
+            _t(
+                "compare.move",
+                lang,
+                title=e["title_text"],
+                rank_a=rank_text(e["rank_a"], lang),
+                rank_b=rank_text(e["rank_b"], lang),
+            )
             for e in changes
         )
-        parts.append(f"Écarts de rang : {moves}.")
+        parts.append(_t("compare.gaps", lang, moves=moves))
     elif common:
-        parts.append("Aucun écart de rang entre les extraits communs.")
+        parts.append(_t("compare.no_gap", lang))
     if not same_cut:
-        parts.append("Les deux chaînes découpent le corpus autrement : comparaison par document.")
+        parts.append(_t("compare.other_cut", lang))
     return {
         "basis": basis,
         "common": common,
         "only_a": only_a,
         "only_b": only_b,
         "rank_changes": changes,
-        "summary_fr": " ".join(parts),
+        "summary_text": " ".join(parts),
     }
 
 

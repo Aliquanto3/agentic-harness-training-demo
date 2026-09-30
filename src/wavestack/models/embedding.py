@@ -14,6 +14,12 @@ from typing import Any, Protocol
 
 from wavestack import config
 from wavestack.config import EmbeddingModel
+from wavestack.messages import KeyedError
+
+
+class EmbedderRefused(KeyedError, ValueError):
+    """An embedding model that cannot serve (a `ValueError`, as before): keyed (languages
+    5/5), `str()` the French, `render(lang)` the session's language."""
 
 
 class Embedder(Protocol):
@@ -63,19 +69,13 @@ class LlamaCppEmbedder:
         found = self._llm.n_embd()
         if found != model.dims:
             self.close()
-            raise ValueError(
-                f"le modèle produit des vecteurs de {found} dimensions, alors que "
-                f"[rag.embedding] en déclare {model.dims}"
-            )
+            raise EmbedderRefused("models.embedding.wrong_dims", found=found, declared=model.dims)
         # One flat vector per text: a GGUF without pooling (`none`) gives one per token.
         probe = self._llm.embed("Exemplia", normalize=False, truncate=True)
         flat = isinstance(probe, list) and all(isinstance(x, int | float) for x in probe)
         if not flat or len(probe) != model.dims:
             self.close()
-            raise ValueError(
-                "le modèle ne rend pas un vecteur par texte (pooling absent ou « none » dans "
-                "ses métadonnées GGUF) : ce n'est pas un modèle d'embedding de phrases"
-            )
+            raise EmbedderRefused("models.embedding.not_pooled")
 
     def _embed(self, texts: Sequence[str], prefix: str) -> list[list[float]]:
         return [
@@ -123,10 +123,7 @@ class FastembedEmbedder:
     def _vectors(self, rows: Any) -> list[list[float]]:
         vectors = [normalize([float(x) for x in row]) for row in rows]
         if any(len(v) != self.dims for v in vectors):
-            raise ValueError(
-                f"le modèle fastembed rend des vecteurs qui n'ont pas {self.dims} dimensions "
-                "([rag_lab.fastembed] dims)"
-            )
+            raise EmbedderRefused("models.embedding.fastembed_dims", dims=self.dims)
         return vectors
 
     def embed_queries(self, texts: Sequence[str]) -> list[list[float]]:

@@ -73,9 +73,9 @@ def test_dynamic_budget_limited_by_the_ram(monkeypatch):
     assert cfg.memory_budget.bytes == 3000 * MIB and cfg.memory_budget.ram_limited
     check = _memory_check(cfg)
     assert (check["status"], check["blocking"]) == ("warn", False)
-    assert "fermez des applications puis relancez WaveStack" in check["action_fr"]
-    assert f"Budget mémoire de WaveStack : 3{NB}000 Mo" in check["message_fr"]
-    assert f"RAM du poste : 16{NB}071 Mo, dont 5{NB}000 Mo disponibles" in check["message_fr"]
+    assert "fermez des applications puis relancez WaveStack" in check["action_text"]
+    assert f"Budget mémoire de WaveStack : 3{NB}000 Mo" in check["message_text"]
+    assert f"RAM du poste : 16{NB}071 Mo, dont 5{NB}000 Mo disponibles" in check["message_text"]
 
     registry = LoadRegistry(cfg.memory_budget, 0, rss_fn=lambda: 150 * MIB)
     refusal = registry.check("B", 3 * GIB)
@@ -99,8 +99,8 @@ def test_fixed_budget(monkeypatch):
     assert (cfg.memory_budget.bytes, cfg.memory_budget.mode) == (6144 * MIB, "fixed")
     assert cfg.memory_budget.calc_fr().startswith(f"valeur fixe [memory] budget_mb de 6{NB}144 Mo")
     check = _memory_check(cfg)
-    assert check["status"] == "ok" and check["action_fr"] is None
-    assert f"Budget mémoire de WaveStack : 6{NB}144 Mo (valeur fixe" in check["message_fr"]
+    assert check["status"] == "ok" and check["action_text"] is None
+    assert f"Budget mémoire de WaveStack : 6{NB}144 Mo (valeur fixe" in check["message_text"]
     refusal = LoadRegistry(cfg.memory_budget, 0, rss_fn=lambda: 0).check("B", 7 * GIB)
     assert "pour un budget de 6,0 Go (= valeur fixe [memory] budget_mb)." in refusal
 
@@ -109,8 +109,8 @@ def test_ram_at_the_cap_is_ok(monkeypatch):
     _ram(monkeypatch, 16071, 9600)
     check = _memory_check(_cfg())
 
-    assert (check["status"], check["action_fr"]) == ("ok", None)
-    assert f"Budget mémoire de WaveStack : 4{NB}096 Mo (plafond" in check["message_fr"]
+    assert (check["status"], check["action_text"]) == ("ok", None)
+    assert f"Budget mémoire de WaveStack : 4{NB}096 Mo (plafond" in check["message_text"]
 
 
 @pytest.mark.parametrize(
@@ -126,7 +126,7 @@ def test_fixed_budget_warns_when_the_ram_is_short(monkeypatch, available_mb, bud
     check = _memory_check(_cfg(budget_mode="fixed", budget_mb=budget_mb))
 
     assert (check["status"], check["blocking"]) == ("warn", False)
-    assert check["action_fr"].startswith(said)
+    assert check["action_text"].startswith(said)
 
 
 def test_fixed_budget_with_unreadable_ram_warns(monkeypatch):
@@ -137,7 +137,7 @@ def test_fixed_budget_with_unreadable_ram_warns(monkeypatch):
     check = _memory_check(_cfg(budget_mode="fixed", budget_mb=6144))
 
     assert (check["status"], check["blocking"]) == ("warn", False)
-    assert check["message_fr"].startswith("RAM du poste non mesurée.")
+    assert check["message_text"].startswith("RAM du poste non mesurée.")
 
 
 @pytest.mark.parametrize("available_mb", [0, -1])
@@ -198,7 +198,7 @@ def test_unreadable_ram_gives_the_cap_and_a_warning(monkeypatch):
     assert "RAM du poste non mesurée" in cfg.memory_budget.calc_fr()
     check = _memory_check(cfg)
     assert (check["status"], check["blocking"]) == ("warn", False)
-    assert "RAM du poste non mesurée" in check["message_fr"]
+    assert "RAM du poste non mesurée" in check["message_text"]
 
 
 def test_budget_computed_once_and_shared_by_diagnostic_and_session(monkeypatch):
@@ -210,7 +210,7 @@ def test_budget_computed_once_and_shared_by_diagnostic_and_session(monkeypatch):
 
     assert cfg.memory_budget.bytes == 3000 * MIB
     assert session._load_registry.budget is cfg.memory_budget
-    assert f"Budget mémoire de WaveStack : 3{NB}000 Mo" in _memory_check(cfg)["message_fr"]
+    assert f"Budget mémoire de WaveStack : 3{NB}000 Mo" in _memory_check(cfg)["message_text"]
 
 
 # ---------- the base, measured before the engine ----------
@@ -272,8 +272,8 @@ def test_session_measures_the_base_just_before_the_engine(tmp_path):
     with pytest.raises(SendRefused) as refused:
         session.switch_model(ModelChoice("file", str(b)))
 
-    assert "WaveStack occupe 150 Mo sans le modèle actif" in refused.value.reason_fr
-    assert "pour un budget de 4,0 Go (= plafond [memory] budget_mb)." in refused.value.reason_fr
+    assert "WaveStack occupe 150 Mo sans le modèle actif" in refused.value.reason_text
+    assert "pour un budget de 4,0 Go (= plafond [memory] budget_mb)." in refused.value.reason_text
 
 
 # ---------- the probe « Arrêter » kills ----------
@@ -394,7 +394,7 @@ def test_stop_during_a_slow_probe_kills_it_and_records_nothing(monkeypatch, tmp_
     events = get_journal().events_since(mark)
     assert not [e for e in events if e.kind == "harness_error"]
     ended = [e.payload for e in events if e.kind == "model_load_ended"][-1]
-    assert (ended["status"], ended["reason_fr"]) == (
+    assert (ended["status"], ended["reason_text"]) == (
         "cancelled",
         "Chargement arrêté : A est de nouveau actif.",
     )

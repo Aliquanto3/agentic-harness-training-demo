@@ -37,6 +37,7 @@ from pydantic import (
 from wavestack import config
 from wavestack.cloud import price_fr, price_reason_fr
 from wavestack.context.window import window_for
+from wavestack.messages import Message, msg, number, render
 from wavestack.models import gguf_meta
 from wavestack.models.capabilities import (
     CLOUD_FAMILY,
@@ -48,7 +49,7 @@ from wavestack.models.capabilities import (
     reasoning_mode,
     tools_summary,
 )
-from wavestack.models.discovery import ModelCandidate
+from wavestack.models.discovery import ModelCandidate, reason_message
 from wavestack.models.engine import EngineMetadata
 
 log = logging.getLogger(__name__)
@@ -69,7 +70,7 @@ class Publisher(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(pattern=r"^[a-z0-9_]+$")
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
     architectures: list[str] = []
     names: list[str] = []
     # Its names win over the architecture (a distilled model keeps its base's: DeepSeek-R1
@@ -115,10 +116,10 @@ class HostingFr(BaseModel):
 class PublishersContent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    legend_fr: str = Field(min_length=1)
-    served_by_fr: ServedByFr
-    hosting_fr: HostingFr
-    other_fr: str = Field(min_length=1)
+    legend_text: str = Field(min_length=1)
+    served_by_text: ServedByFr
+    hosting_text: HostingFr
+    other_text: str = Field(min_length=1)
     publishers: list[Publisher]
 
     @model_validator(mode="after")
@@ -133,22 +134,27 @@ class PublishersContent(BaseModel):
         return self
 
 
-# Only when `publishers.yaml` is unreadable: the table still shows every model, under
-# « Autres éditeurs », with the reason (AD-19: never a crash).
-_FALLBACK = PublishersContent(
-    legend_fr=(
-        "Légende : « Local » ou « RÉSEAU » dit où tourne le modèle, puis vient qui le sert "
-        "(fichier, Ollama, llama-server ou fournisseur cloud)."
-    ),
-    served_by_fr=ServedByFr(file="fichier", ollama="Ollama", llama_server="llama-server"),
-    hosting_fr=HostingFr(local="Sur ce poste", network="Réseau"),
-    other_fr="Autres éditeurs",
-    publishers=[],
-)
+def _fallback(lang: str) -> PublishersContent:
+    """Only when `publishers.yaml` is unreadable: the table still shows every model, under
+    « Autres éditeurs », with the reason (AD-19: never a crash); in `lang` (languages 5/5)."""
+    return PublishersContent(
+        legend_text=msg("models.catalog.fallback.legend", lang),
+        served_by_text=ServedByFr(
+            file=msg("models.catalog.fallback.file", lang),
+            ollama="Ollama",
+            llama_server="llama-server",
+        ),
+        hosting_text=HostingFr(
+            local=msg("models.catalog.fallback.local", lang),
+            network=msg("models.catalog.fallback.network", lang),
+        ),
+        other_text=msg("models.catalog.fallback.other", lang),
+        publishers=[],
+    )
 
 
-def publishers_path() -> Path:
-    return config.content_file(PUBLISHERS_FILE)
+def publishers_path(lang: str = config.DEFAULT_LANGUAGE) -> Path:
+    return config.content_file(PUBLISHERS_FILE, lang)
 
 
 def _cause(exc: Exception) -> str:
@@ -160,29 +166,40 @@ def _cause(exc: Exception) -> str:
 
 
 @cache
-def load_publishers() -> tuple[PublishersContent, str | None]:
-    """`content/models/publishers.yaml`, patterns compiled; on any error, an empty table
-    (every model in « Autres éditeurs ») and the French reason naming the file."""
-    path = publishers_path()
+def load_publishers(lang: str = config.DEFAULT_LANGUAGE) -> tuple[PublishersContent, str | None]:
+    """`content/models/publishers.yaml` in `lang` (languages 3/5: the session's, never
+    `settings.json`'s), patterns compiled. An invalid translation: the French table, and
+    the reason naming the translated file (AD-19). On any other error, an empty table
+    (every model in « Autres éditeurs ») and the reason naming the file, both in `lang`
+    (languages 5/5)."""
+    path = publishers_path(lang)
+    translated = lang != config.DEFAULT_LANGUAGE and path != publishers_path()
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         return PublishersContent.model_validate(data), None
     except (OSError, UnicodeDecodeError, yaml.YAMLError, ValidationError, ValueError) as exc:
-        log.warning("content/models/publishers.yaml invalide : %s", exc)
-        return _FALLBACK, (
-            f"Fichier content/models/publishers.yaml invalide ({_cause(exc)}) : tous les "
-            "modèles sont rangés dans « Autres éditeurs ». Corrigez le fichier, puis relancez "
-            "WaveStack."
-        )
+        where = f"i18n/{lang}/" if translated else ""
+        log.warning("content/%s%s invalide : %s", where, PUBLISHERS_FILE.as_posix(), exc)
+        if translated:
+            content, error_text = load_publishers()
+            return content, error_text or msg(
+                "models.catalog.publishers.translation_invalid", lang, lang=lang, cause=_cause(exc)
+            )
+        return _fallback(lang), msg("models.catalog.publishers.invalid", lang, cause=_cause(exc))
 
 
-def publisher_for(architectures: Iterable[str | None], names: Iterable[str | None]) -> Publisher:
+def publisher_for(
+    architectures: Iterable[str | None],
+    names: Iterable[str | None],
+    lang: str = config.DEFAULT_LANGUAGE,
+) -> Publisher:
     """The publisher of a model: first by the names of the publishers marked `names_first`,
     then by its architectures (the header's, Ollama's family, the registry's family, in that
     order; `unknown` and `openai_chat` say nothing), then by its names (`general.basename`,
     `general.name`, the name shown, a cloud `model`), each in the table's order; « Autres
-    éditeurs » otherwise."""
-    content, _ = load_publishers()
+    éditeurs » otherwise. `lang`: the language of its label (the patterns are the same in
+    every language)."""
+    content, _ = load_publishers(lang)
     names = [n for n in names if n]
     for name in names:
         for publisher in content.publishers:
@@ -199,7 +216,7 @@ def publisher_for(architectures: Iterable[str | None], names: Iterable[str | Non
         for publisher in content.publishers:
             if publisher.matches_name(name):
                 return publisher
-    return Publisher(id=OTHER_ID, label_fr=content.other_fr)
+    return Publisher(id=OTHER_ID, label_text=content.other_text)
 
 
 # ---------- sizes ----------
@@ -246,22 +263,28 @@ def _fr_int(n: int) -> str:
     return f"{n:,}".replace(",", " ")
 
 
-def params_fr(params_label: str) -> str:
-    """« 0.6B » written the French way: « 0,6 B »."""
-    return re.sub(r"(\d)\.(\d)", r"\1,\2", params_label[:-1]) + "\u00a0" + params_label[-1]
+def params_fr(params_label: str, lang: str = config.DEFAULT_LANGUAGE) -> str:
+    """« 0.6B » written the French way: « 0,6 B »; in `lang`'s way otherwise (« 0.6 B »)."""
+    point = number(0.5, lang, 1)[1]  # the decimal separator
+    return re.sub(r"(\d)\.(\d)", rf"\1{point}\2", params_label[:-1]) + "\u00a0" + params_label[-1]
 
 
-def size_fr(params_label: str | None, size_bytes: int | None) -> str:
+def size_fr(
+    params_label: str | None, size_bytes: int | None, lang: str = config.DEFAULT_LANGUAGE
+) -> str:
     """« 2 B · 1,3 Go », « 0,6 B », « 1,4 Go », « 45 Mo » (below 0,1 Go), or « — » when
-    nothing says it. 1 Go = 1024³ bytes, 1 Mo = 1024² bytes."""
+    nothing says it. 1 Go = 1024³ bytes, 1 Mo = 1024² bytes. `lang`: the units and the
+    decimal separator of that language (languages 5/5)."""
     parts = []
     if params_label:
-        parts.append(params_fr(params_label))
+        parts.append(params_fr(params_label, lang))
     if size_bytes:
         if size_bytes < GIB / 10:
-            parts.append(f"{max(1, round(size_bytes / MIB))}\u00a0Mo")
+            mb = msg("common.units.mb", lang)
+            parts.append(f"{max(1, round(size_bytes / MIB))}\u00a0{mb}")
         else:
-            parts.append(f"{size_bytes / GIB:.1f}".replace(".", ",") + "\u00a0Go")
+            gb = msg("common.units.gb", lang)
+            parts.append(number(size_bytes / GIB, lang, 1) + f"\u00a0{gb}")
     return " · ".join(parts) or "—"
 
 
@@ -330,78 +353,93 @@ class ModelEntry(BaseModel):
     kind: Literal["file", "server", "cloud"]
     ref: str
     hosting: Literal["local", "network"]
-    served_by_fr: str  # « fichier », « Ollama », « llama-server », the cloud provider
-    hosting_fr: str | None = None  # a cloud model's declared hosting
-    hosting_label_fr: str  # the table's « Hébergement »: where, then who serves it
-    prefix_fr: str  # « Local · Ollama », « RÉSEAU · Groq »
+    served_by_text: str  # « fichier », « Ollama », « llama-server », the cloud provider
+    hosting_text: str | None = None  # a cloud model's declared hosting
+    hosting_label_text: str  # the table's « Hébergement »: where, then who serves it
+    prefix_text: str  # « Local · Ollama », « RÉSEAU · Groq »
     name: str
-    label_fr: str  # prefix · name · size (parameters only)
-    title_fr: str  # the option's tooltip when usable: path, address or hosting
+    label_text: str  # prefix · name · size (parameters only)
+    title_text: str  # the option's tooltip when usable: path, address or hosting
     publisher_id: str
-    publisher_fr: str
+    publisher_text: str
     params_b: float | None = None
     params_label: str | None = None
     size_bytes: int | None = None
-    size_fr: str
+    size_text: str
     window: int | None = None
     native_context: int | None = None
-    window_fr: str
-    window_reason_fr: str | None = None  # where the window comes from (AD-9)
+    window_text: str
+    window_reason_text: str | None = None  # where the window comes from (AD-9)
     tools: bool | None = None
-    tools_fr: str
-    tools_reason_fr: str | None = None
+    tools_text: str
+    tools_reason_text: str | None = None
     reasoning: ReasoningMode
-    reasoning_fr: str
-    reason_fr: str | None = None  # why it reasons (or not) so
+    reasoning_text: str
+    reason_text: str | None = None  # why it reasons (or not) so
     usable: bool
-    disabled_fr: str | None = None
+    disabled_text: str | None = None
     # FinOps: a cloud model's declared prices, « 0,30 $ / 2,50 $ » per million tokens (input /
     # output); « — » for a local model, or a cloud one without `pricing`.
-    price_fr: str = "—"
-    price_reason_fr: str | None = None
+    price_text: str = "—"
+    price_reason_text: str | None = None
 
 
 def _capabilities(
-    caps: Capabilities | None, unknown_fr: str | None, window: int | None
+    caps: Capabilities | None,
+    unknown_text: str | None,
+    window: int | None,
+    lang: str = config.DEFAULT_LANGUAGE,
 ) -> dict[str, Any]:
     """The table's columns from `caps` (the cards' rules, `capabilities.py`, the reasoning
-    card's window rule included); `unknown_fr`: why nothing was read, when it is so."""
-    tools, tools_fr, tools_reason = tools_summary(caps)
+    card's window rule included); `unknown_text`: why nothing was read, when it is so. The
+    texts in `lang` (languages 5/5)."""
+    tools, tools_text, tools_reason = tools_summary(caps)
     mode, reason = reasoning_mode(caps, window)
-    if caps is None and unknown_fr:
-        tools_reason = reason = unknown_fr
+    if caps is None and unknown_text:
+        tools_reason = reason = unknown_text
     return {
         "tools": tools,
-        "tools_fr": tools_fr,
-        "tools_reason_fr": tools_reason,
+        "tools_text": render(tools_text, lang),
+        "tools_reason_text": None if tools_reason is None else render(tools_reason, lang),
         "reasoning": mode,
-        "reasoning_fr": REASONING_FR[mode],
-        "reason_fr": reason,
+        "reasoning_text": render(REASONING_FR[mode], lang),
+        "reason_text": None if reason is None else render(reason, lang),
     }
 
 
-# AD-9: where the window comes from (`window_for`, `config.cloud_window`).
+# AD-9: where the window comes from (`window_for`, `config.cloud_window`); `Message`s,
+# rendered in the table's language (languages 5/5).
 _WINDOW_SOURCE_FR = {
-    "configured": "fenêtre configurée",
-    "native": "contexte natif du modèle",
-    "server": "contexte d'un emplacement du serveur",
-    "override": "fenêtre déclarée pour ce modèle (window)",
-    "tpm": "moitié du quota de tokens par minute (tpm)",
+    source: Message(f"models.catalog.window_source.{source}")
+    for source in ("configured", "native", "server", "override", "tpm")
 }
 
 
-def _window(window: int | None, source: str | None, native: int | None) -> dict[str, Any]:
+def _window(
+    window: int | None,
+    source: str | None,
+    native: int | None,
+    lang: str = config.DEFAULT_LANGUAGE,
+) -> dict[str, Any]:
     reason = None
     if window:
         reason = _WINDOW_SOURCE_FR.get(source or "", source)
+        reason = None if reason is None else render(reason, lang)
         if native:
-            reason = f"{reason} ; contexte natif : {_fr_int(native)} tokens"
+            reason = msg(
+                "models.catalog.window_with_native", lang, reason=reason, native=_int(native, lang)
+            )
     return {
         "window": window,
         "native_context": native,
-        "window_fr": f"{_fr_int(window)} tokens" if window else "—",
-        "window_reason_fr": reason,
+        "window_text": msg("models.catalog.tokens", lang, n=_int(window, lang)) if window else "—",
+        "window_reason_text": reason,
     }
+
+
+def _int(n: int, lang: str) -> str:
+    """`n` in `lang`'s style; French keeps this module's own separator (`_fr_int`)."""
+    return _fr_int(n) if lang == config.DEFAULT_LANGUAGE else number(n, lang)
 
 
 def _label(prefix: str, name: str, params_label: str | None) -> str:
@@ -409,9 +447,12 @@ def _label(prefix: str, name: str, params_label: str | None) -> str:
 
 
 def _local_entry(
-    candidate: ModelCandidate, cfg: config.Config, window: int | None = None
+    candidate: ModelCandidate,
+    cfg: config.Config,
+    window: int | None = None,
+    lang: str = config.DEFAULT_LANGUAGE,
 ) -> ModelEntry:
-    content, _ = load_publishers()
+    content, _ = load_publishers(lang)
     configured = cfg.context_window if window is None else window
     served = candidate.source == "server"
     engine = candidate.engine if served else None
@@ -444,14 +485,16 @@ def _local_entry(
     incompatible = caps.incompatible_reason if caps else None
     usable = found and not incompatible
     if not found:
-        unknown_fr = candidate.reason or "Modèle inutilisable."
+        reason = reason_message(candidate.reason)
+        unknown_text = render(reason or msg("models.catalog.unusable", lang), lang)
     else:
-        unknown_fr = "En-tête GGUF illisible : capacités inconnues."
+        unknown_text = msg("models.catalog.header_unreadable", lang)
     name = candidate.name or Path(path or "").name or candidate.ref or "modèle"
     publisher = publisher_for(
         [_text(raw.get("general.architecture")), candidate.architecture, candidate.publisher_hint]
         + ([caps.family] if caps else []),
         [_text(raw.get("general.basename")), _text(raw.get("general.name")), name],
+        lang,
     )
     params_b, params_label = _first_params(
         [
@@ -468,12 +511,17 @@ def _local_entry(
             size_bytes = Path(local).stat().st_size
         except OSError:
             size_bytes = None
-    served_by = getattr(content.served_by_fr, engine) if engine else content.served_by_fr.file
-    prefix = f"Local · {served_by}"
+    served_by = getattr(content.served_by_text, engine) if engine else content.served_by_text.file
+    prefix = msg("models.catalog.prefix_local", lang, served_by=served_by)
     window, source = window_for(meta, configured) if meta is not None and usable else (None, None)
     if served:
         kind, ref = "server", candidate.ref or name
-        title = f"{candidate.provider} sur {candidate.server_url}"
+        title = msg(
+            "models.catalog.served_title",
+            lang,
+            provider=candidate.provider,
+            url=candidate.server_url,
+        )
     else:
         kind, ref = "file", candidate.path or ""
         title = candidate.path or name
@@ -482,27 +530,30 @@ def _local_entry(
         kind=kind,
         ref=ref,
         hosting="local",
-        served_by_fr=served_by,
-        hosting_label_fr=f"{content.hosting_fr.local} · {served_by}",
-        prefix_fr=prefix,
+        served_by_text=served_by,
+        hosting_label_text=f"{content.hosting_text.local} · {served_by}",
+        prefix_text=prefix,
         name=name,
-        label_fr=_label(prefix, name, params_label),
-        title_fr=title,
+        label_text=_label(prefix, name, params_label),
+        title_text=title,
         publisher_id=publisher.id,
-        publisher_fr=publisher.label_fr,
+        publisher_text=publisher.label_text,
         params_b=params_b,
         params_label=params_label,
         size_bytes=size_bytes,
-        size_fr=size_fr(params_label, size_bytes),
-        **_window(window, source, meta.native_context if meta is not None else None),
-        **_capabilities(caps, unknown_fr, window),
+        size_text=size_fr(params_label, size_bytes, lang),
+        **_window(window, source, meta.native_context if meta is not None else None, lang),
+        **_capabilities(caps, unknown_text, window, lang),
         usable=usable,
-        disabled_fr=None if usable else (incompatible or unknown_fr),
+        disabled_text=None if usable else render(incompatible or unknown_text, lang),
     )
 
 
 def local_entries(
-    candidates: Iterable[ModelCandidate], cfg: config.Config, window: int | None = None
+    candidates: Iterable[ModelCandidate],
+    cfg: config.Config,
+    window: int | None = None,
+    lang: str = config.DEFAULT_LANGUAGE,
 ) -> list[ModelEntry]:
     """Every local model the last diagnostic found: the files, once per path (a usable
     listing wins over an incompatible one), incompatible ones included (greyed, with their
@@ -517,15 +568,18 @@ def local_entries(
             candidate.path not in files or files[candidate.path].status != "found"
         ):
             files[candidate.path] = candidate
-    return [_local_entry(c, cfg, window) for c in [*files.values(), *served]]
+    return [_local_entry(c, cfg, window, lang) for c in [*files.values(), *served]]
 
 
 def cloud_entries(
-    cfg: config.Config, rows: Iterable[dict[str, Any]] = (), window: int | None = None
+    cfg: config.Config,
+    rows: Iterable[dict[str, Any]] = (),
+    window: int | None = None,
+    lang: str = config.DEFAULT_LANGUAGE,
 ) -> list[ModelEntry]:
-    """Every declared cloud model; `rows`: the diagnostic's `cloud_rows`, whose `disabled_fr`
+    """Every declared cloud model; `rows`: the diagnostic's `cloud_rows`, whose `disabled_text`
     says why one cannot be chosen now (no key…). `window` (story 26): as `local_entries`."""
-    disabled = {row.get("id"): row.get("disabled_fr") for row in rows}
+    disabled = {row.get("id"): row.get("disabled_text") for row in rows}
     entries = []
     for entry in cfg.cloud_models[0]:
         caps = cloud_capabilities(entry)
@@ -533,8 +587,8 @@ def cloud_entries(
             entry, cfg.context_window if window is None else window
         )
         params_b, params_label = _first_params([entry.model])
-        publisher = publisher_for([], [entry.model])
-        prefix = f"RÉSEAU · {entry.provider}"
+        publisher = publisher_for([], [entry.model], lang)
+        prefix = msg("models.catalog.prefix_network", lang, provider=entry.provider)
         reason = disabled.get(entry.id)
         entries.append(
             ModelEntry(
@@ -542,25 +596,31 @@ def cloud_entries(
                 kind="cloud",
                 ref=entry.id,
                 hosting="network",
-                served_by_fr=entry.provider,
-                hosting_fr=entry.hosting_fr,
-                hosting_label_fr=f"{entry.provider} · {entry.hosting_fr}",
-                prefix_fr=prefix,
+                served_by_text=entry.provider,
+                hosting_text=entry.hosting_text,
+                hosting_label_text=f"{entry.provider} · {entry.hosting_text}",
+                prefix_text=prefix,
                 name=entry.model,
-                label_fr=_label(prefix, entry.model, params_label),
-                title_fr=f"{entry.provider} : {entry.hosting_fr}",
+                label_text=_label(prefix, entry.model, params_label),
+                title_text=msg(
+                    "models.catalog.cloud_title",
+                    lang,
+                    provider=entry.provider,
+                    hosting=entry.hosting_text,
+                ),
                 publisher_id=publisher.id,
-                publisher_fr=publisher.label_fr,
+                publisher_text=publisher.label_text,
                 params_b=params_b,
                 params_label=params_label,
                 size_bytes=None,
-                size_fr=size_fr(params_label, None),
-                **_window(effective, source, entry.context),
-                **_capabilities(caps, None, effective),
+                size_text=size_fr(params_label, None, lang),
+                **_window(effective, source, entry.context, lang),
+                **_capabilities(caps, None, effective, lang),
                 usable=not reason,
-                disabled_fr=reason or None,
-                price_fr=price_fr(entry) or "—",
-                price_reason_fr=price_reason_fr(entry) or "prix non déclaré",
+                disabled_text=render(reason, lang) if reason else None,
+                price_text=price_fr(entry, lang=lang) or "—",
+                price_reason_text=price_reason_fr(entry, lang=lang)
+                or msg("models.catalog.no_price", lang),
             )
         )
     return entries
@@ -572,7 +632,7 @@ def cloud_entries(
 class ModelGroup(BaseModel):
     hosting: Literal["local", "network"]
     publisher_id: str
-    label_fr: str  # « Sur ce poste · Qwen (Alibaba) »
+    label_text: str  # « Sur ce poste · Qwen (Alibaba) »
     models: list[ModelEntry]
 
 
@@ -588,10 +648,12 @@ def sort_key(entry: ModelEntry) -> tuple[bool, float, bool, int, str]:
     )
 
 
-def group_models(entries: Iterable[ModelEntry]) -> list[ModelGroup]:
+def group_models(
+    entries: Iterable[ModelEntry], lang: str = config.DEFAULT_LANGUAGE
+) -> list[ModelGroup]:
     """Local before network; in each, the publishers in the table's order, « Autres
     éditeurs » last; empty groups left out; models by `sort_key`."""
-    content, _ = load_publishers()
+    content, _ = load_publishers(lang)
     order = {p.id: i for i, p in enumerate(content.publishers)}
     buckets: dict[tuple[str, str], list[ModelEntry]] = {}
     for entry in entries:
@@ -600,12 +662,12 @@ def group_models(entries: Iterable[ModelEntry]) -> list[ModelGroup]:
     groups = []
     for hosting, publisher_id in keys:
         models = sorted(buckets[(hosting, publisher_id)], key=sort_key)
-        where = getattr(content.hosting_fr, hosting)
+        where = getattr(content.hosting_text, hosting)
         groups.append(
             ModelGroup(
                 hosting=hosting,  # type: ignore[arg-type]
                 publisher_id=publisher_id,
-                label_fr=f"{where} · {models[0].publisher_fr}",
+                label_text=f"{where} · {models[0].publisher_text}",
                 models=models,
             )
         )
@@ -617,14 +679,18 @@ def models_payload(
     cfg: config.Config,
     cloud_rows: Iterable[dict[str, Any]] = (),
     window: int | None = None,
+    lang: str = config.DEFAULT_LANGUAGE,
 ) -> dict[str, Any]:
     """`/api/diagnostic.models`: the legend, the groups, and why the publishers' table could
     not be read, if so. One answer serves the picker and the `/models` page. `window`
-    (story 26): the window configured now (`AppSession.configured_window`)."""
-    content, error_fr = load_publishers()
-    entries = local_entries(candidates, cfg, window) + cloud_entries(cfg, cloud_rows, window)
+    (story 26): the window configured now (`AppSession.configured_window`); `lang`
+    (languages 3/5): the session's language, for the publishers' texts."""
+    content, error_text = load_publishers(lang)
+    entries = local_entries(candidates, cfg, window, lang) + cloud_entries(
+        cfg, cloud_rows, window, lang
+    )
     return {
-        "legend_fr": content.legend_fr,
-        "groups": [g.model_dump(mode="json") for g in group_models(entries)],
-        "publishers_error_fr": error_fr,
+        "legend_text": content.legend_text,
+        "groups": [g.model_dump(mode="json") for g in group_models(entries, lang)],
+        "publishers_error_text": error_text,
     }

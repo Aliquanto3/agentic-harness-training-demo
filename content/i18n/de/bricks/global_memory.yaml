@@ -1,0 +1,29 @@
+# German translation of content/bricks/global_memory.yaml (languages 3/5, AD-19): same
+# fields, same paragraphs and lists.
+label_text: Globales Gedächtnis
+category_text: Context Engineering
+hosting_text: Lokal
+explanation_text:
+  - >-
+    Das Kurzzeitgedächtnis verschwindet mit der Unterhaltung. Das globale Gedächtnis dagegen
+    bleibt: Der Harness speichert einige Informationen in einer lokalen Datei, memory.json,
+    und setzt sie zu Beginn jeder Unterhaltung in die Systemnachricht.
+  - >-
+    Das Modell erinnert sich an nichts: Es schreibt ins Gedächtnis, indem es ein Tool des
+    Harness aufruft, remember, und der Harness schreibt die Datei. Sie können auch einen
+    Schreibvorgang erzwingen oder die Einträge über „Gedächtnis bearbeiten“ ansehen, ändern
+    und löschen.
+  - - "Nutzen: Das Modell „erinnert sich“ von einer Unterhaltung zur nächsten, sogar nach einem Neustart."
+    - >-
+      Kosten: Jeder Eintrag belegt bei jedem Aufruf Kontext, ob er nützt oder nicht; eine
+      falsche oder veraltete Information wird so lange mitgelesen, bis man sie löscht.
+    - >-
+      Daten: Mit einem Cloud-Modell geht jeder Eintrag bei jedem Aufruf an den Anbieter, in
+      der Systemnachricht. Legen Sie dort nie ein Geheimnis ab.
+  - >-
+    Ein geschriebener Eintrag (vom Modell, durch einen erzwungenen Schreibvorgang oder in
+    „Gedächtnis bearbeiten“) steht sofort in der Datei, kommt aber erst in der nächsten
+    Unterhaltung in die Systemnachricht: nach „Unterhaltung leeren“ oder einem
+    Szenariowechsel. Löschen oder Ändern wirkt dagegen sofort. So bleibt die Systemnachricht
+    von Runde zu Runde gleich, und die Engine verwendet ihren Cache wieder, statt den ganzen
+    Kontext neu zu lesen. „Zurücksetzen“ stellt das Demo-Gedächtnis wieder her.

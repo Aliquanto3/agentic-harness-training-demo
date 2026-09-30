@@ -19,8 +19,8 @@ from wavestack.config import localized_path
 class Scenario(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title_fr: str = Field(min_length=1)
-    description_fr: str = Field(min_length=1)
+    title_text: str = Field(min_length=1)
+    description_text: str = Field(min_length=1)
     bricks: list[str] = []
     # Sub-options enabled; `None` (absent) keeps the launch values.
     tools: list[str] | None = None
@@ -40,7 +40,7 @@ class Scenario(BaseModel):
 class Module(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title_fr: str = Field(min_length=1)
+    title_text: str = Field(min_length=1)
     duration_min: int = Field(ge=30, le=60)
     scenarios: list[str] = Field(min_length=1)
 
@@ -61,15 +61,15 @@ class ScenariosContent(BaseModel):
             s = self.scenarios[scenario_id]
             return {
                 "id": scenario_id,
-                "title_fr": s.title_fr,
-                "description_fr": fill(s.description_fr),
+                "title_text": s.title_text,
+                "description_text": fill(s.description_text),
                 "prompts": s.prompts,
             }
 
         return {
             "modules": [
                 {
-                    "title_fr": m.title_fr,
+                    "title_text": m.title_text,
                     "duration_min": m.duration_min,
                     "scenarios": [entry(i) for i in m.scenarios],
                 }
@@ -82,10 +82,13 @@ class ScenariosContent(BaseModel):
 EMPTY_PROGRAM: dict[str, Any] = {"modules": [], "transverse": []}
 
 
-def load_scenarios(known: dict[str, set[str]]) -> ScenariosContent:
-    """`known` maps `bricks`, `tools`, `mcp_servers`, `skills` and `hooks` to their ids.
-    Raises on a missing or invalid file, or any unknown id."""
-    path = localized_path(config.content_dir(), "scenarios.yaml")
+def load_scenarios(
+    known: dict[str, set[str]], lang: str = config.DEFAULT_LANGUAGE
+) -> ScenariosContent:
+    """`known` maps `bricks`, `tools`, `mcp_servers`, `skills` and `hooks` to their ids;
+    `lang`, the session's language (languages 3/5, never `settings.json`'s). Raises on a
+    missing or invalid file, or any unknown id."""
+    path = localized_path(config.content_dir(), "scenarios.yaml", lang)
     content = ScenariosContent.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
     unknown = []
     for scenario_id, scenario in content.scenarios.items():

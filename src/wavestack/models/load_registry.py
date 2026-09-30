@@ -23,6 +23,7 @@ import psutil
 from wavestack.config import CloudModel, MemoryBudget
 from wavestack.config import mo_fr as _mo
 from wavestack.config import size_fr as _size
+from wavestack.messages import Lazy, Message, msg, number
 from wavestack.models import probe
 
 GENERATIVE = "generative"
@@ -100,6 +101,21 @@ def _tokens_fr(n: int) -> str:
     return f"{n:,}".replace(",", " ")
 
 
+def _tokens(n: int) -> Lazy:
+    """A count of tokens in the language its message is rendered in (languages 5/5)."""
+    return Lazy(lambda lang: _tokens_fr(n) if lang == "fr" else number(n, lang))
+
+
+def _in(fmt: Callable[..., str], n: int) -> Lazy:
+    """`fmt(n)` (a size) in the language its message is rendered in (languages 5/5)."""
+    return Lazy(lambda lang: fmt(n) if lang == "fr" else fmt(n, lang))
+
+
+def _mo_unit(n: int, lang: str = "fr") -> str:
+    """« 4 096 Mo »: `_mo` and its unit, in `lang`."""
+    return f"{_mo(n, lang)} {msg('common.units.mb', lang)}"
+
+
 def _file_size(path: str) -> int:
     try:
         return Path(path).stat().st_size
@@ -160,7 +176,8 @@ class LoadRegistry:
         return int(entry.get("rss_bytes") or 0) or _file_size(path)
 
     def check(self, label: str, cost_bytes: int, slot: str = GENERATIVE) -> str | None:
-        """The French refusal when loading `label` into `slot` would exceed the budget, else
+        """The refusal (a `Message`, French as a text, its figures written in the language it
+        is rendered in) when loading `label` into `slot` would exceed the budget, else
         `None`. A zero cost (a cloud model) is never refused: it only frees memory."""
         if cost_bytes <= 0:
             return None
@@ -168,20 +185,24 @@ class LoadRegistry:
         without = self._without(held)
         if without + cost_bytes <= self.budget_bytes:
             return None
-        stays = f" {held.label} reste actif." if held else ""
-        advice = (
-            "Choisissez un modèle plus petit, ou fermez des applications puis relancez WaveStack."
+        stays = Message("models.load_registry.stays", label=held.label) if held else ""
+        advice = Message(
+            "models.load_registry.advice.model_ram"
             if self._ram_limited
-            else "Choisissez un modèle plus petit."
+            else "models.load_registry.advice.model"
         )
-        return (
-            f"Changement refusé : {label} demande environ {_size(cost_bytes)} ; WaveStack "
-            f"occupe {_size(without)} sans le modèle actif, pour un budget de "
-            f"{self._budget_fr(_size)}.{stays} {advice}"
+        return Message(
+            "models.load_registry.refused",
+            label=label,
+            cost=_in(_size, cost_bytes),
+            without=_in(_size, without),
+            budget=self._budget(_size),
+            stays=stays,
+            advice=advice,
         )
 
     def check_window(self, label: str, window: int, current: int, cost_bytes: int) -> str | None:
-        """Story 26 (AD-8): the French refusal, in figures, when reloading the active model
+        """Story 26 (AD-8): the refusal (a `Message`), in figures, when reloading the active model
         `label` with a window of `window` tokens would exceed the budget, else `None`. The
         same check as `check`: the active model comes off (`_without`), and `cost_bytes` is
         the whole reload's cost, weights included. `current`: the window it keeps."""
@@ -190,29 +211,39 @@ class LoadRegistry:
         without = self._without(self._slots.get(GENERATIVE))
         if without + cost_bytes <= self.budget_bytes:
             return None
-        advice = (
-            "Choisissez une fenêtre plus petite, ou fermez des applications puis relancez "
-            "WaveStack."
+        advice = Message(
+            "models.load_registry.advice.window_ram"
             if self._ram_limited
-            else "Choisissez une fenêtre plus petite."
+            else "models.load_registry.advice.window"
         )
-        return (
-            f"Fenêtre de {_tokens_fr(window)} tokens refusée : {label} demanderait environ "
-            f"{_size(cost_bytes)} ; WaveStack occupe {_size(without)} sans le modèle actif, "
-            f"pour un budget de {self._budget_fr(_size)}. {label} reste actif avec "
-            f"{_tokens_fr(current)} tokens. {advice}"
+        return Message(
+            "models.load_registry.window_refused",
+            window=_tokens(window),
+            label=label,
+            cost=_in(_size, cost_bytes),
+            without=_in(_size, without),
+            budget=self._budget(_size),
+            current=_tokens(current),
+            advice=advice,
         )
 
     @property
     def _ram_limited(self) -> bool:
         return self.budget is not None and self.budget.ram_limited
 
-    def _budget_fr(self, fmt: Callable[[int], str]) -> str:
+    def _budget_fr(self, fmt: Callable[..., str], lang: str = "fr") -> str:
         """Story 24: the budget and, in short, how (« 4,0 Go (= plafond [memory]
-        budget_mb) »), in the unit `fmt` of the rest of the sentence; the full calculation
-        is the diagnostic's."""
-        calc = f" ({self.budget.short_fr(fmt)})" if self.budget is not None else ""
-        return f"{fmt(self.budget_bytes)}{calc}"
+        budget_mb) »), in the unit `fmt` of the rest of the sentence, in `lang` (`fmt` then
+        takes `(n, lang)`); the full calculation is the diagnostic's."""
+        if lang == "fr":
+            calc = f" ({self.budget.short_fr(fmt)})" if self.budget is not None else ""
+            return f"{fmt(self.budget_bytes)}{calc}"
+        calc = f" ({self.budget.short_fr(fmt, lang=lang)})" if self.budget is not None else ""
+        return f"{fmt(self.budget_bytes, lang)}{calc}"
+
+    def _budget(self, fmt: Callable[..., str]) -> Lazy:
+        """`_budget_fr` in the language its message is rendered in (languages 5/5)."""
+        return Lazy(lambda lang: self._budget_fr(fmt, lang))
 
     def baseline(self) -> int:
         """Story 24: WaveStack's RSS now, measured just before a model's engine is created
@@ -240,21 +271,24 @@ class LoadRegistry:
         return sum(file_sizes) + self.margin_bytes
 
     def check_component(self, label: str, cost_bytes: int, slot: str) -> str | None:
-        """The French refusal, in figures, when loading `label` (a brick's component) into
-        `slot` would exceed the budget, else `None`."""
+        """The refusal (a `Message`), in figures, when loading `label` (a brick's component)
+        into `slot` would exceed the budget, else `None`."""
         held = self._slots.get(slot)
         without = self._without(held)
         if without + cost_bytes <= self.budget_bytes:
             return None
-        advice = (
-            "Désactivez une brique, ou fermez des applications puis relancez WaveStack."
+        advice = Message(
+            "models.load_registry.advice.component_ram"
             if self._ram_limited
-            else "Désactivez une brique ou relevez [memory] budget_mb dans settings.json."
+            else "models.load_registry.advice.component"
         )
-        return (
-            f"Mémoire insuffisante pour charger {label} : WaveStack occupe {_mo(without)} Mo, "
-            f"il en faut environ {_mo(cost_bytes)} de plus, au-delà du budget de "
-            f"{self._budget_fr(lambda n: f'{_mo(n)} Mo')}. {advice}"
+        return Message(
+            "models.load_registry.component_refused",
+            label=label,
+            without=_in(_mo_unit, without),
+            cost=_in(_mo, cost_bytes),
+            budget=self._budget(_mo_unit),
+            advice=advice,
         )
 
     def grant(

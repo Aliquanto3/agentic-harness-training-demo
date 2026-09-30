@@ -74,9 +74,9 @@ def _entry(
         "stream_usage": True,
         "tools": True,
         "context": 32768,
-        "hosting_fr": "Ce poste (faux serveur de test, boucle locale)",
+        "hosting_text": "Ce poste (faux serveur de test, boucle locale)",
         "training": "no",
-        "notes_fr": "Faux modèle scripté pour les tests de bout en bout.",
+        "notes_text": "Faux modèle scripté pour les tests de bout en bout.",
         "key_env": KEY_ENV,
         # Story 29: as the Groq and Mistral presets, for the « LLM nu » screen.
         "sampling": ["temperature", "top_p"],
@@ -112,7 +112,7 @@ def rag_settings(fake_port: int, data_dir: Path) -> dict:
         "index_path": str(data_dir / "rag_index.sqlite"),
         "embedding": {
             "id": "fake-embedding",
-            "label_fr": "Faux embedding (e2e)",
+            "label_text": "Faux embedding (e2e)",
             "dims": 64,
             "load_path": EMBEDDING_FILE,
             "files": [
@@ -126,7 +126,7 @@ def rag_settings(fake_port: int, data_dir: Path) -> dict:
         # Story 16: the fake reranker, absent at first, its file served by the fake server.
         "reranker": {
             "id": "fake-reranker",
-            "label_fr": "Faux reranker (e2e)",
+            "label_text": "Faux reranker (e2e)",
             "load_path": RERANKER_FILE,
             "files": [
                 {

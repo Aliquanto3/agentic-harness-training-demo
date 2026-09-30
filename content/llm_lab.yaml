@@ -2,144 +2,144 @@
 # (wavestack.session.llm_lab.LabContent). Un fichier invalide : la page reste servie et dit
 # pourquoi. `{…}` : un nombre ou un nom que la session met en forme et que la page place.
 
-title_fr: "LLM nu : l'intérieur du modèle"
-intro_fr: >-
+title_text: "LLM nu : l'intérieur du modèle"
+intro_text: >-
   Ici, aucune brique : ni prompt système, ni historique, ni outil, ni mémoire. On regarde ce
   que fait le modèle lui-même : découper le texte en tokens, les transformer en vecteurs,
   puis produire une réponse, token par token. Cet écran travaille sur le modèle actif de
   l'atelier, sans toucher à sa conversation.
-back_fr: "← Atelier"
-change_model_fr: "Changer de modèle dans l'atelier"
-active_model_fr: "Modèle actif"
-no_model_fr: "Aucun modèle actif : choisissez-en un dans l'atelier."
-busy_fr: "Indisponible pour l'instant : {raison}"
+back_text: "← Atelier"
+change_model_text: "Changer de modèle dans l'atelier"
+active_model_text: "Modèle actif"
+no_model_text: "Aucun modèle actif : choisissez-en un dans l'atelier."
+busy_text: "Indisponible pour l'instant : {raison}"
 
 sections:
   tokenization:
-    title_fr: "Tokenisation et vectorisation"
-    intro_fr: >-
+    title_text: "Tokenisation et vectorisation"
+    intro_text: >-
       Le modèle ne lit pas des lettres : son tokenizer découpe le texte en tokens, des
       morceaux de mots pris dans un vocabulaire fixe. Chaque token a un identifiant, un
       simple numéro de ligne dans la table d'embedding, qui le transforme en vecteur de
       nombres.
   sampling:
-    title_fr: "Réglages d'échantillonnage"
-    intro_fr: >-
+    title_text: "Réglages d'échantillonnage"
+    intro_text: >-
       À chaque pas, le modèle donne une probabilité à chaque token du vocabulaire. Ces
       réglages décident comment le token suivant est tiré parmi eux. L'ordre décrit ici est
       celui de llama.cpp (moteur de WaveStack, llama-server, Ollama) : top-k, puis top-p, puis
       min-p, puis la température ; un fournisseur cloud peut appliquer les siens autrement.
   loading:
-    title_fr: "Chargement du modèle"
-    intro_fr: >-
+    title_text: "Chargement du modèle"
+    intro_text: >-
       Avant de répondre, le modèle doit être en mémoire. Voici les étapes du dernier
       chargement, leur durée et la mémoire qu'il occupe.
   reading:
-    title_fr: "Lecture du prompt"
-    intro_fr: >-
+    title_text: "Lecture du prompt"
+    intro_text: >-
       Le prompt est rendu avec le gabarit du modèle, puis lu d'un bloc : c'est le temps
       d'attente avant le premier token.
   generation:
-    title_fr: "Génération"
-    intro_fr: >-
+    title_text: "Génération"
+    intro_text: >-
       Le modèle produit sa réponse un token à la fois : chaque token tiré est relu pour
       tirer le suivant.
   reasoning:
-    title_fr: "Raisonnement"
-    intro_fr: >-
+    title_text: "Raisonnement"
+    intro_text: >-
       Un modèle qui raisonne écrit d'abord une réflexion, puis sa réponse. Les deux sont des
       tokens produits de la même façon.
 
 tokenization:
-  prompt_label_fr: "Texte à découper"
-  placeholder_fr: "Écrivez un texte, par exemple : Bonjour, comment allez-vous ?"
-  default_text_fr: "Bonjour, comment allez-vous ?"
-  button_fr: "Découper en tokens"
-  running_fr: "Découpage en cours…"
-  counts_fr: "{tokens} tokens pour {caracteres} caractères"
-  more_fr: "… et {reste} tokens de plus, non affichés (512 puces au plus)."
-  special_fr: "spécial"
-  special_help_fr: >-
+  prompt_label_text: "Texte à découper"
+  placeholder_text: "Écrivez un texte, par exemple : Bonjour, comment allez-vous ?"
+  default_text_text: "Bonjour, comment allez-vous ?"
+  button_text: "Découper en tokens"
+  running_text: "Découpage en cours…"
+  counts_text: "{tokens} tokens pour {caracteres} caractères"
+  more_text: "… et {reste} tokens de plus, non affichés (512 puces au plus)."
+  special_text: "spécial"
+  special_help_text: >-
     Token spécial : un marqueur du gabarit (début ou fin de message), lu comme un seul
     token.
-  blanks_fr: "␣ marque une espace, ↵ un retour à la ligne : ils sont des tokens comme les autres."
-  exact_fr: "Découpage exact, par le tokenizer du modèle actif."
-  estimate_fr: >-
+  blanks_text: "␣ marque une espace, ↵ un retour à la ligne : ils sont des tokens comme les autres."
+  exact_text: "Découpage exact, par le tokenizer du modèle actif."
+  estimate_text: >-
     Estimation du harnais : ≈ {estimation} tokens ({caracteres} caractères, à raison de
     {ratio} caractères par token).
-  empty_fr: "Découpez un texte : ses tokens apparaîtront ici."
+  empty_text: "Découpez un texte : ses tokens apparaîtront ici."
 
 vectorization:
-  title_fr: "Du texte au vecteur"
-  help_fr: >-
+  title_text: "Du texte au vecteur"
+  help_text: >-
     Chaque identifiant choisit une ligne de la table d'embedding. Cette ligne est un vecteur
     de nombres, que les couches du modèle transforment l'une après l'autre.
-  unknown_fr: "inconnue"
+  unknown_text: "inconnue"
   steps:
-    text_fr: "Texte"
-    tokens_fr: "Tokens"
-    ids_fr: "Identifiants"
-    table_fr: "Table d'embedding"
-    table_caption_fr: "{vocabulaire} lignes (vocabulaire) × {dimension} colonnes (dimension)"
-    params_fr: "nombres appris : {parametres}"
-    vector_fr: "Vecteur"
-    vector_caption_fr: "{dimension} nombres par token"
-    layers_fr: "Couches"
-    layers_caption_fr: "{couches} couches, {tetes} têtes d'attention"
-    layers_only_caption_fr: "{couches} couches"
+    text_text: "Texte"
+    tokens_text: "Tokens"
+    ids_text: "Identifiants"
+    table_text: "Table d'embedding"
+    table_caption_text: "{vocabulaire} lignes (vocabulaire) × {dimension} colonnes (dimension)"
+    params_text: "nombres appris : {parametres}"
+    vector_text: "Vecteur"
+    vector_caption_text: "{dimension} nombres par token"
+    layers_text: "Couches"
+    layers_caption_text: "{couches} couches, {tetes} têtes d'attention"
+    layers_only_caption_text: "{couches} couches"
 
 sampling:
-  reset_fr: "Revenir aux valeurs du harnais"
-  unsupported_fr: "Non réglable"
+  reset_text: "Revenir aux valeurs du harnais"
+  unsupported_text: "Non réglable"
   settings:
     temperature:
-      label_fr: "Température"
-      help_fr: >-
+      label_text: "Température"
+      help_text: >-
         Aplatit ou creuse les probabilités avant le tirage. À 0, le modèle prend toujours le
         token le plus probable (réponse identique à chaque fois) ; au-dessus de 1, les tokens
         peu probables ont leur chance.
     top_k:
-      label_fr: "Top-k"
-      help_fr: >-
+      label_text: "Top-k"
+      help_text: >-
         Ne garde que les k tokens les plus probables ; tous les autres sont écartés avant le
         tirage. À 0, top-k est désactivé : aucun token n'est écarté par lui.
     top_p:
-      label_fr: "Top-p"
-      help_fr: >-
+      label_text: "Top-p"
+      help_text: >-
         Garde les tokens les plus probables jusqu'à ce que leurs probabilités cumulées
         atteignent p ; 1 n'écarte rien.
     min_p:
-      label_fr: "Min-p"
-      help_fr: >-
+      label_text: "Min-p"
+      help_text: >-
         Écarte tout token dont la probabilité est inférieure à min-p fois celle du plus
         probable ; 0 n'écarte rien.
 
 reading:
-  empty_fr: "Générez une réponse : le prompt rendu par le gabarit du modèle apparaîtra ici."
-  rendered_label_fr: "Prompt rendu par le gabarit (texte exact envoyé au modèle)"
-  body_label_fr: "Corps JSON envoyé au fournisseur (le gabarit est appliqué chez lui)"
-  tokens_fr: "{tokens} tokens à lire, réserve de sortie de {reserve} tokens"
-  waiting_fr: "Lecture du prompt… {duree}"
-  first_token_fr: "Premier token après {duree}"
-  read_rate_fr: "Débit de lecture : {debit} tokens/s"
-  read_rate_unknown_fr: "Débit de lecture : non communiqué par ce moteur."
-  sampling_fr: "Échantillonnage envoyé : {reglages}"
+  empty_text: "Générez une réponse : le prompt rendu par le gabarit du modèle apparaîtra ici."
+  rendered_label_text: "Prompt rendu par le gabarit (texte exact envoyé au modèle)"
+  body_label_text: "Corps JSON envoyé au fournisseur (le gabarit est appliqué chez lui)"
+  tokens_text: "{tokens} tokens à lire, réserve de sortie de {reserve} tokens"
+  waiting_text: "Lecture du prompt… {duree}"
+  first_token_text: "Premier token après {duree}"
+  read_rate_text: "Débit de lecture : {debit} tokens/s"
+  read_rate_unknown_text: "Débit de lecture : non communiqué par ce moteur."
+  sampling_text: "Échantillonnage envoyé : {reglages}"
 
 generation:
-  button_fr: "Générer"
-  stop_fr: "Arrêter"
-  running_fr: "Génération en cours…"
-  empty_fr: "Les tokens produits apparaîtront ici, un par un."
-  count_fr: "{tokens} tokens produits"
-  fragments_fr: "{tokens} fragments reçus"
-  rate_fr: "Débit de sortie : {debit} tokens/s"
-  cloud_fr: >-
+  button_text: "Générer"
+  stop_text: "Arrêter"
+  running_text: "Génération en cours…"
+  empty_text: "Les tokens produits apparaîtront ici, un par un."
+  count_text: "{tokens} tokens produits"
+  fragments_text: "{tokens} fragments reçus"
+  rate_text: "Débit de sortie : {debit} tokens/s"
+  cloud_text: >-
     Modèle cloud : ce sont des fragments reçus du fournisseur, pas des tokens un par un. Le
     fournisseur regroupe les tokens comme il veut avant de les envoyer.
-  server_fr: >-
+  server_text: >-
     Modèle servi : ce sont les morceaux du flux du serveur, en général un token chacun, pas
     toujours. Le compte exact de tokens est celui du serveur, dans le journal des événements.
-  more_fr: "… et {reste} de plus, non affichés (512 puces au plus)."
+  more_text: "… et {reste} de plus, non affichés (512 puces au plus)."
   status:
     completed: "Réponse terminée."
     cancelled: "Génération arrêtée."
@@ -147,10 +147,10 @@ generation:
     error: "La génération a échoué."
 
 loading:
-  empty_fr: "Aucun chargement depuis le lancement de WaveStack."
-  running_fr: "Chargement en cours… {duree}"
-  total_fr: "{modele} : {statut} en {duree}"
-  local_fr: "En local : RAM du CPU, pas de GPU. Le modèle tourne sur le processeur de ce poste."
+  empty_text: "Aucun chargement depuis le lancement de WaveStack."
+  running_text: "Chargement en cours… {duree}"
+  total_text: "{modele} : {statut} en {duree}"
+  local_text: "En local : RAM du CPU, pas de GPU. Le modèle tourne sur le processeur de ce poste."
   status:
     ok: "chargé"
     restored: "échec, modèle précédent rechargé"
@@ -158,26 +158,26 @@ loading:
     error: "échec"
 
 reasoning:
-  toggle_fr: "Raisonner avant de répondre"
-  always_fr: "Toujours : ce modèle raisonne à chaque réponse."
-  thinking_fr: "Réflexion"
-  answer_fr: "Réponse"
-  empty_fr: "Rien pour l'instant."
-  count_fr: "{tokens} tokens"
-  fragments_count_fr: "{tokens} fragments"
-  reserve_fr: "Réserve de sortie : {reserve} tokens quand le modèle raisonne."
+  toggle_text: "Raisonner avant de répondre"
+  always_text: "Toujours : ce modèle raisonne à chaque réponse."
+  thinking_text: "Réflexion"
+  answer_text: "Réponse"
+  empty_text: "Rien pour l'instant."
+  count_text: "{tokens} tokens"
+  fragments_count_text: "{tokens} fragments"
+  reserve_text: "Réserve de sortie : {reserve} tokens quand le modèle raisonne."
 
 candidates:
-  toggle_fr: "Montrer les tokens candidats"
-  help_fr: >-
+  toggle_text: "Montrer les tokens candidats"
+  help_text: >-
     Pour chaque token produit, les cinq tokens que le modèle jugeait les plus probables à cet
     endroit. Survolez une puce, donnez-lui le focus ou cliquez dessus.
-  title_fr: "Candidats du token {index}"
-  probability_fr: "probabilité du modèle"
-  chance_fr: "chance d'être tiré : {chance}"
-  dropped_fr: "écarté par top-k, top-p ou min-p"
-  chosen_fr: "tiré"
-  legend_fr: >-
+  title_text: "Candidats du token {index}"
+  probability_text: "probabilité du modèle"
+  chance_text: "chance d'être tiré : {chance}"
+  dropped_text: "écarté par top-k, top-p ou min-p"
+  chosen_text: "tiré"
+  legend_text: >-
     La probabilité du modèle vient de ses logits (température 1). Dans l'ordre de llama.cpp,
     top-k, top-p et min-p écartent des candidats, puis la température redistribue la chance
     d'être tiré entre ceux qui restent.

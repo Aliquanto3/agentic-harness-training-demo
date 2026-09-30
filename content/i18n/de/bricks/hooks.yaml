@@ -1,0 +1,24 @@
+# German translation of content/bricks/hooks.yaml (languages 3/5, AD-19): same fields,
+# same paragraphs and lists.
+label_text: Hooks
+category_text: Harness Engineering
+hosting_text: Lokal
+explanation_text:
+  - >-
+    Ein Hook ist deterministischer Code, den der Harness an einem festen Punkt der Runde
+    ausführt: Eingang der Nachricht, vor dem Modellaufruf, vor und nach einem Tool, Ende der
+    Runde. Nicht das Modell entscheidet: Der Hook lässt durch, ändert, blockiert oder holt
+    die Meinung eines Menschen ein, und jede Entscheidung erscheint im Bereich Orchestrierung.
+  - - >-
+      Der Schutz sensibler Dateien verhindert das Lesen des vertraulichen Ordners, selbst
+      wenn das Modell es verlangt (Sicherheit, DLP).
+    - "Die Protokollierung schreibt ein Audit-Protokoll, das das Modell nicht sieht."
+    - "Die Kontextinjektion fügt vor jeder Nachricht das Datum und die Regeln der Mission hinzu."
+    - >-
+      Die menschliche Freigabe, auf der Karte anzukreuzen, hält die Runde vor dem Aufruf
+      eines Netzwerk-Tools an und zeigt Ihnen die genaue Anfrage, die nur gesendet wird,
+      wenn Sie sie erlauben (Human in the Loop).
+  - >-
+    Vergleichen Sie mit dem Tool „Uhrzeit und Datum“: Für denselben Bedarf lässt das Tool
+    das Modell entscheiden, ob es nach der Uhrzeit fragt; der Hook gibt sie ihm in jeder
+    Runde, ob es sie braucht oder nicht. Zwei Architekturen, zwei Token-Kosten.

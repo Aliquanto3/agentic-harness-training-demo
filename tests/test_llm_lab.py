@@ -81,17 +81,17 @@ def test_dimensions_from_a_synthetic_gguf_header(tmp_path):
     }
     payload = llm_lab.dimensions_payload(dims | {"vocab_size": 151936}, "Lues dans l'en-tête.")
     assert payload["embedding_params"] == 151936 * 2048
-    assert payload["figures_fr"]["embedding_length"] == "2 048"
-    assert payload["figures_fr"]["context_length"] is None
-    assert payload["source_fr"] == "Lues dans l'en-tête. Inconnus : le contexte natif."
-    assert payload["figures_fr"]["embedding_params"] == "311 millions"
+    assert payload["figures_text"]["embedding_length"] == "2 048"
+    assert payload["figures_text"]["context_length"] is None
+    assert payload["source_text"] == "Lues dans l'en-tête. Inconnus : le contexte natif."
+    assert payload["figures_text"]["embedding_params"] == "311 millions"
     assert "2 048 nombres" in llm_lab.dimensions_fr(payload)
     assert llm_lab.dimensions_from_header(None)["embedding_length"] is None
 
 
 def test_the_content_file_is_valid():
     content = llm_lab.load_lab_content()
-    assert content.title_fr == "LLM nu : l'intérieur du modèle"
+    assert content.title_text == "LLM nu : l'intérieur du modèle"
     sections = content.sections.model_dump()
     assert list(sections) == [
         "tokenization",
@@ -127,7 +127,7 @@ class SpecialEngine(FakeEngine):
             "layer_count": 24,
             "head_count": 16,
             "context_length": 32768,
-            "source_fr": "Lues dans le faux moteur.",
+            "source_text": "Lues dans le faux moteur.",
         }
 
 
@@ -142,12 +142,12 @@ def test_local_tokenization_is_exact_with_the_special_token_and_the_sizes():
     assert special == [{"id": 1002, "text": "<|im_end|>", "special": True}]
     assert payload["tokens"][0] == {"id": ord("B"), "text": "B", "special": False}
     assert payload["tokens"][-1]["text"] == "⟨82⟩"  # the emoji's last byte, alone
-    assert payload["figures_fr"]["token_count"] == str(payload["token_count"])
+    assert payload["figures_text"]["token_count"] == str(payload["token_count"])
     dims = payload["dimensions"]
-    assert dims["figures_fr"]["embedding_length"] == "2 048"
-    assert dims["figures_fr"]["vocab_size"] == "1 004"
+    assert dims["figures_text"]["embedding_length"] == "2 048"
+    assert dims["figures_text"]["vocab_size"] == "1 004"
     assert dims["embedding_params"] == 1004 * 2048
-    assert payload["unavailable_fr"] is None and payload["estimate"] is None
+    assert payload["unavailable_text"] is None and payload["estimate"] is None
     assert session.state == "idle"
 
 
@@ -157,15 +157,15 @@ def test_an_engine_without_dimensions_says_they_are_unknown():
     assert payload["exact"] and [t["text"] for t in payload["tokens"]] == ["a", "b", "c"]
     dims = payload["dimensions"]
     assert dims["embedding_length"] is None and dims["vocab_size"] is None
-    assert dims["source_fr"].startswith("Ce moteur ne dit pas les dimensions")
-    assert payload["dimensions_fr"].startswith("Dimension d'embedding inconnue")
+    assert dims["source_text"].startswith("Ce moteur ne dit pas les dimensions")
+    assert payload["dimensions_text"].startswith("Dimension d'embedding inconnue")
 
 
 def test_long_text_shows_512_chips_and_the_rest():
     session = booted_session(FakeEngine())
     payload = _tokenized(session, "a" * 2000)
     assert payload["token_count"] == 2000 and len(payload["tokens"]) == 512
-    assert payload["more"] == 1488 and payload["figures_fr"]["more"] == "1 488"
+    assert payload["more"] == 1488 and payload["figures_text"]["more"] == "1 488"
 
 
 def test_cloud_tokenizer_is_at_the_provider_with_the_estimate():
@@ -177,14 +177,14 @@ def test_cloud_tokenizer_is_at_the_provider_with_the_estimate():
     assert payload["estimate"] == config.estimate_tokens(
         "Bonjour tout le monde", session.cfg.chars_per_token
     )
-    assert "chez Groq" in payload["unavailable_fr"]
-    assert payload["dimensions"] is None and "Groq" in payload["dimensions_fr"]
+    assert "chez Groq" in payload["unavailable_text"]
+    assert payload["dimensions"] is None and "Groq" in payload["dimensions_text"]
     assert not provider.requests  # nothing left the workstation to cut the text
 
 
 def test_tokenization_is_refused_outside_idle():
     session = booted_session(FakeEngine())
-    session.state, session.reason_fr = "turn", "Un tour est en cours."
+    session.state, session.reason_text = "turn", "Un tour est en cours."
     with pytest.raises(SendRefused):
         session.llm_tokenize("abc")
 
@@ -211,8 +211,8 @@ def test_llama_server_sizes_and_special_token(monkeypatch):
     dims = payload["dimensions"]
     assert (dims["vocab_size"], dims["embedding_length"]) == (1004, 2048)
     assert dims["layer_count"] is None  # the server's file is not on this disk
-    assert "llama-server (/v1/models)" in dims["source_fr"]
-    assert "llama-server (/tokenize)" in payload["tokenizer_fr"]
+    assert "llama-server (/v1/models)" in dims["source_text"]
+    assert "llama-server (/tokenize)" in payload["tokenizer_text"]
     assert not server.posts("/completion")
 
 
@@ -243,7 +243,7 @@ def test_ollama_sizes_from_the_blob_header(monkeypatch, tmp_path):
     )
     dims = engine.dimensions()
     assert dims["vocab_size"] == 151936 and dims["embedding_length"] == 1024
-    assert dims.get("layer_count") is None and "en-tête" in dims["source_fr"]
+    assert dims.get("layer_count") is None and "en-tête" in dims["source_text"]
 
 
 def test_llama_server_dimensions_read_its_file_header_when_local(tmp_path, monkeypatch):
@@ -257,7 +257,7 @@ def test_llama_server_dimensions_read_its_file_header_when_local(tmp_path, monke
     engine = servers.LlamaServerEngine(LLAMA_URL)
     dims = engine.dimensions()
     assert dims["layer_count"] == 24 and dims["vocab_size"] == 1004
-    assert "en-tête GGUF" in dims["source_fr"]
+    assert "en-tête GGUF" in dims["source_text"]
 
 
 # ---------- the web routes ----------
@@ -275,8 +275,8 @@ def test_routes_answer_refuse_and_validate():
     for path in ("/llm", "/static/llm.js", "/static/llm.css"):
         assert client.get(path).status_code == 200, path
     lab = client.get("/api/llm_lab").json()
-    assert lab["content"]["title_fr"] == "LLM nu : l'intérieur du modèle"
-    assert lab["content_error_fr"] is None and lab["tokenizer"]["exact"] is True
+    assert lab["content"]["title_text"] == "LLM nu : l'intérieur du modèle"
+    assert lab["content_error_text"] is None and lab["tokenizer"]["exact"] is True
     assert lab["session_state"]["state"] == "idle" and lab["active_model"]["hosting"] == "local"
     assert lab["seq"] <= get_journal().last_seq()
 
@@ -288,7 +288,7 @@ def test_routes_answer_refuse_and_validate():
     session.join()
     assert post({"text": ""}).status_code == 422
     assert post({"text": "a" * 2001}).status_code == 422
-    session.state, session.reason_fr = "turn", "Un tour est en cours."
+    session.state, session.reason_text = "turn", "Un tour est en cours."
     busy = post({"text": "abc"})
     assert busy.status_code == 409 and busy.json()["detail"].startswith("Refusé pour l'instant")
 
@@ -296,7 +296,7 @@ def test_routes_answer_refuse_and_validate():
 def test_invalid_content_is_traced_and_the_page_stays_served(monkeypatch, tmp_path):
     content = tmp_path / "content"
     shutil.copytree(config.content_dir(), content)
-    (content / "llm_lab.yaml").write_text("title_fr: 3\n", encoding="utf-8")
+    (content / "llm_lab.yaml").write_text("title_text: 3\n", encoding="utf-8")
     monkeypatch.setattr(config, "content_dir", lambda: content)
     llm_lab.load_lab_content.cache_clear()
     try:
@@ -305,7 +305,7 @@ def test_invalid_content_is_traced_and_the_page_stays_served(monkeypatch, tmp_pa
         response = _web(session).get("/api/llm_lab")
         assert response.status_code == 200
         body = response.json()
-        assert body["content"] is None and "llm_lab.yaml" in body["content_error_fr"]
+        assert body["content"] is None and "llm_lab.yaml" in body["content_error_text"]
         errors = [e for e in get_journal().events_since(mark) if e.kind == "harness_error"]
         assert len(errors) == 1 and errors[0].context_id == "llm"
         assert _web(session).get("/llm").status_code == 200
@@ -357,7 +357,7 @@ def test_screen_generation_events_and_sampling_sent_to_the_engine():
         "top_p": 0.9,
         "min_p": 0.05,
         "source": "screen",
-        "note_fr": None,
+        "note_text": None,
     }
     ended = next(e.payload for e in events if e.kind == "llm_generation_ended")
     assert ended["status"] == "completed" and ended["answer_tokens"] == 7
@@ -407,7 +407,7 @@ def test_a_stateless_engine_says_the_screen_took_its_cache():
     session.join()
     causes = [e.payload for e in get_journal().events_since(mark) if e.kind == "prefix_not_reused"]
     assert [c["cause"] for c in causes] == ["llm"]
-    assert causes[0]["message_fr"].startswith("L'écran « LLM nu » a occupé le cache du moteur")
+    assert causes[0]["message_text"].startswith("L'écran « LLM nu » a occupé le cache du moteur")
 
 
 def test_stop_ends_the_screen_generation_cancelled():
@@ -442,7 +442,7 @@ def test_screen_refused_outside_idle_and_bounds_validated():
         bad = post({"prompt": "Bonjour", "sampling": good | {field: value}})
         assert bad.status_code == 422, field
     assert post({"prompt": "", "sampling": good}).status_code == 422
-    session.state, session.reason_fr = "turn", "Un tour est en cours."
+    session.state, session.reason_text = "turn", "Un tour est en cours."
     busy = post({"prompt": "Bonjour", "sampling": good})
     assert busy.status_code == 409 and "Un tour est déjà en cours" in busy.json()["detail"]
     lab = client.get("/api/llm_lab").json()["sampling"]
@@ -511,7 +511,7 @@ def test_cloud_screen_generation_traces_what_the_provider_takes():
     call = next(e.payload for e in events if e.kind == "model_call_started")
     assert call["sampling"]["source"] == "screen"
     assert call["sampling"]["top_k"] is None and call["sampling"]["min_p"] is None
-    assert "non réglables chez Groq" in call["sampling"]["note_fr"]
+    assert "non réglables chez Groq" in call["sampling"]["note_text"]
     fragments = [e.payload for e in events if e.kind == "llm_token"]
     assert [f["text"] for f in fragments] == ["Sa", "lut"]
     assert all(f["token_id"] is None for f in fragments)
@@ -562,14 +562,16 @@ def test_a_file_load_emits_its_steps_and_its_memory(tmp_path):
     events = _load_events(mark)
     steps = [e.payload for e in events if e.kind == "model_load_step"]
     assert [s["step"] for s in steps] == ["release", "check", "engine", "ready"]
-    assert "copie des poids en mémoire vive" in steps[2]["label_fr"]
+    assert "copie des poids en mémoire vive" in steps[2]["label_text"]
     assert all(e.turn_id is None and e.step_id is None for e in events)
     assert [s["elapsed_ms"] for s in steps] == sorted(s["elapsed_ms"] for s in steps)
     ended = events[-1].payload
     assert ended["status"] == "ok"
     memory = ended["memory"]
     assert memory["rss_before"] == 100 * 2**20 and memory["rss_after"] == 300 * 2**20
-    assert memory["where_fr"].startswith("Mémoire vive (RAM) du processeur, pas de carte graphique")
+    assert memory["where_text"].startswith(
+        "Mémoire vive (RAM) du processeur, pas de carte graphique"
+    )
     lab = session.lab_state()
     assert [e["kind"] for e in lab["last_load"]][0] == "model_load_started"
     assert lab["last_load"][-1]["kind"] == "model_load_ended"
@@ -582,19 +584,21 @@ def test_a_served_model_and_a_cloud_model_load_steps(monkeypatch):
     _booted("llama_server")
     steps = [e.payload for e in _load_events(mark) if e.kind == "model_load_step"]
     assert [s["step"] for s in steps] == ["release", "check", "engine", "ready"]
-    assert steps[2]["label_fr"] == "Connexion à llama-server"
+    assert steps[2]["label_text"] == "Connexion à llama-server"
     ended = _load_events(mark)[-1].payload
-    assert "dans son propre processus, en RAM de ce poste" in ended["memory"]["where_fr"]
+    assert "dans son propre processus, en RAM de ce poste" in ended["memory"]["where_text"]
 
     mark = get_journal().last_seq()
     provider = Provider(sse(delta(content="ok"), delta("stop")))
     _cloud_session("groq", provider)
     events = _load_events(mark)
     steps = [e.payload for e in events if e.kind == "model_load_step"]
-    assert steps[2]["label_fr"] == "Préparation, sans chargement (modèle cloud)"
+    assert steps[2]["label_text"] == "Préparation, sans chargement (modèle cloud)"
     memory = events[-1].payload["memory"]
     assert memory["cost_bytes"] == 0
-    assert memory["where_fr"].startswith("Aucune mémoire sur ce poste : le modèle tourne chez Groq")
+    assert memory["where_text"].startswith(
+        "Aucune mémoire sur ce poste : le modèle tourne chez Groq"
+    )
 
 
 QWEN_TEMPLATE = (
@@ -642,7 +646,7 @@ def test_reasoning_refused_without_it_and_forced_when_always():
     assert session.lab_state()["reasoning"]["mode"] == "never"
     with pytest.raises(SendRefused) as refused:
         session.llm_generate("Bonjour", SCREEN, reasoning=True)
-    assert "raisonn" in refused.value.reason_fr
+    assert "raisonn" in refused.value.reason_text
     assert session.state == "idle"
 
     provider = Provider(sse(delta(reasoning="Hmm."), delta(content="Oui."), delta("stop")))
@@ -721,7 +725,7 @@ def test_candidates_reach_llm_token_with_their_text():
     ]
     engine = FakeEngine(output="Sa", candidates_script=script)
     session = booted_session(engine)
-    assert session.lab_state()["candidates"] == {"available": True, "reason_fr": None, "n": 5}
+    assert session.lab_state()["candidates"] == {"available": True, "reason_text": None, "n": 5}
     events = _generate(session, candidates=True)
     tokens = [e.payload for e in events if e.kind == "llm_token"]
     assert tokens[0]["candidates"] == [
@@ -738,15 +742,15 @@ def test_candidates_unavailable_on_servers_and_the_cloud(monkeypatch):
     monkeypatch.setattr(servers, "default_transport", httpx.MockTransport(server))
     session = _booted("llama_server")
     lab = session.lab_state()["candidates"]
-    assert lab["available"] is False and "llama-server" in lab["reason_fr"]
+    assert lab["available"] is False and "llama-server" in lab["reason_text"]
     with pytest.raises(SendRefused):
         session.llm_generate("Bonjour", SCREEN, candidates=True)
     assert session.state == "idle"
     ollama = _booted("ollama").lab_state()["candidates"]
-    assert ollama["available"] is False and "Ollama" in ollama["reason_fr"]
+    assert ollama["available"] is False and "Ollama" in ollama["reason_text"]
     provider = Provider(sse(delta(content="ok"), delta("stop")))
     cloud = _cloud_session("groq", provider).lab_state()["candidates"]
-    assert cloud["available"] is False and "Groq" in cloud["reason_fr"]
+    assert cloud["available"] is False and "Groq" in cloud["reason_text"]
 
 
 @pytest.mark.model
@@ -783,11 +787,11 @@ def test_large_counts_take_their_unit_from_the_rounded_value():
 
 def test_the_screen_is_refused_like_a_turn_when_idle_carries_a_reason():
     session = booted_session(FakeEngine())
-    session.reason_fr = "Envoi indisponible : le modèle n'a pas pu être chargé."
+    session.reason_text = "Envoi indisponible : le modèle n'a pas pu être chargé."
     for ask in (lambda: session.llm_tokenize("abc"), lambda: session.llm_generate("a", SCREEN)):
         with pytest.raises(SendRefused):
             ask()
-    assert session.reason_fr.startswith("Envoi indisponible")  # never wiped
+    assert session.reason_text.startswith("Envoi indisponible")  # never wiped
 
 
 def test_the_final_fragment_of_held_text_is_no_chip_and_lanes_have_decoded_text():
@@ -805,19 +809,19 @@ def test_the_content_is_read_again_once_the_file_changed(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "content_dir", lambda: content)
     llm_lab.load_lab_content.cache_clear()
     try:
-        assert llm_lab.load_lab_content().title_fr == "LLM nu : l'intérieur du modèle"
+        assert llm_lab.load_lab_content().title_text == "LLM nu : l'intérieur du modèle"
         path = content / "llm_lab.yaml"
         path.write_text(path.read_text("utf-8").replace("l'intérieur", "le dedans"), "utf-8")
         import os
 
         stat = path.stat()
         os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
-        assert llm_lab.load_lab_content().title_fr == "LLM nu : le dedans du modèle"
+        assert llm_lab.load_lab_content().title_text == "LLM nu : le dedans du modèle"
         path.write_text("", "utf-8")
         os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 2 * 10**9))
         session = booted_session(FakeEngine())
         body = _web(session).get("/api/llm_lab")
-        assert body.status_code == 200 and body.json()["content_error_fr"]  # no IndexError
+        assert body.status_code == 200 and body.json()["content_error_text"]  # no IndexError
     finally:
         llm_lab.load_lab_content.cache_clear()
 

@@ -1,0 +1,11 @@
+# German translation of content/bricks/system_prompt.yaml (languages 3/5, AD-19): same
+# fields, same paragraphs.
+label_text: System-Prompt
+category_text: Prompt Engineering
+hosting_text: Lokal
+explanation_text:
+  - >-
+    Der System-Prompt ist eine Anweisung, die der Harness vor die Unterhaltung setzt: Rolle,
+    Ton, Sprache, einzuhaltende Regeln. Der Benutzer sieht sie nicht in der Unterhaltung,
+    aber das Modell liest sie bei jedem Aufruf erneut.
+  - "Ändern Sie sie, um die Antwort bei gleicher Nachricht wechseln zu sehen."

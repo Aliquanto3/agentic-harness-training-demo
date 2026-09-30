@@ -25,7 +25,7 @@ class CorpusDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(pattern=r"^[a-z0-9_]+$")
-    title_fr: str = Field(min_length=1)
+    title_text: str = Field(min_length=1)
     file: str = Field(min_length=1)  # relative to `content/`
 
 
@@ -34,49 +34,49 @@ class RagContent(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    notice_fr: str = Field(min_length=1)
-    intro_fr: str = Field(min_length=1)
-    excerpt_format_fr: str = Field(min_length=1)
-    placement_fr: str = Field(min_length=1)
-    phase_label_fr: str = Field(min_length=1)
-    index_label_fr: str = Field(min_length=1)
-    download_label_fr: str = Field(min_length=1)
-    build_label_fr: str = Field(min_length=1)
+    notice_text: str = Field(min_length=1)
+    intro_text: str = Field(min_length=1)
+    excerpt_format_text: str = Field(min_length=1)
+    placement_text: str = Field(min_length=1)
+    phase_label_text: str = Field(min_length=1)
+    index_label_text: str = Field(min_length=1)
+    download_label_text: str = Field(min_length=1)
+    build_label_text: str = Field(min_length=1)
     # Story 16: the reranking sub-option's texts.
-    rerank_label_fr: str = Field(min_length=1)
-    rerank_phase_label_fr: str = Field(min_length=1)
-    rerank_search_placement_fr: str = Field(min_length=1)  # {candidates}, {keep}
-    rerank_placement_fr: str = Field(min_length=1)  # {keep}
-    rerank_download_label_fr: str = Field(min_length=1)  # {size_mb}
+    rerank_label_text: str = Field(min_length=1)
+    rerank_phase_label_text: str = Field(min_length=1)
+    rerank_search_placement_text: str = Field(min_length=1)  # {candidates}, {keep}
+    rerank_placement_text: str = Field(min_length=1)  # {keep}
+    rerank_download_label_text: str = Field(min_length=1)  # {size_mb}
     documents: list[CorpusDocument] = Field(min_length=1)
 
-    @field_validator("excerpt_format_fr")
+    @field_validator("excerpt_format_text")
     @classmethod
     def _known_fields(cls, value: str) -> str:
-        value.format(position=1, title_fr="", text="")  # raises on an unknown field
+        value.format(position=1, title_text="", text="")  # raises on an unknown field
         return value
 
-    @field_validator("download_label_fr", "rerank_download_label_fr")
+    @field_validator("download_label_text", "rerank_download_label_text")
     @classmethod
     def _size_field(cls, value: str) -> str:
         value.format(size_mb=1)
         return value
 
-    @field_validator("rerank_search_placement_fr", "rerank_placement_fr")
+    @field_validator("rerank_search_placement_text", "rerank_placement_text")
     @classmethod
     def _rerank_fields(cls, value: str) -> str:
         value.format(candidates=1, keep=1)  # raises on an unknown field
         return value
 
-    def excerpt(self, position: int, title_fr: str, text: str) -> str:
-        return self.excerpt_format_fr.format(position=position, title_fr=title_fr, text=text)
+    def excerpt(self, position: int, title_text: str, text: str) -> str:
+        return self.excerpt_format_text.format(position=position, title_text=title_text, text=text)
 
 
 class Chunk(NamedTuple):
     """An excerpt of a document: its document, and its rank in it (from 1)."""
 
     doc_id: str
-    title_fr: str
+    title_text: str
     position: int
     text: str
 
@@ -126,13 +126,17 @@ def split_text(text: str, max_chars: int) -> list[str]:
     return chunks
 
 
-def chunk_corpus(content: RagContent, max_chars: int) -> list[Chunk]:
-    """Every document of the corpus, read from `content/` and chunked, in declared order."""
+def chunk_corpus(
+    content: RagContent, max_chars: int, lang: str = config.DEFAULT_LANGUAGE
+) -> list[Chunk]:
+    """Every document of the corpus, read from `content/` and chunked, in declared order.
+    Languages (4/5): each document in `lang`, its translation under
+    `content/i18n/{lang}/corpus/` when it exists, else the French file; the titles are
+    `content`'s (the caller reads `rag.yaml` in the same language)."""
     chunks: list[Chunk] = []
     for doc in content.documents:
-        # The corpus stays French whatever the language, and so does its index (story 4).
-        path = config.content_file(doc.file, config.DEFAULT_LANGUAGE)
+        path = config.content_file(doc.file, lang)
         text = _COMMENT.sub("", path.read_text(encoding="utf-8-sig"))
         for position, piece in enumerate(split_text(text, max_chars), start=1):
-            chunks.append(Chunk(doc.id, doc.title_fr, position, piece))
+            chunks.append(Chunk(doc.id, doc.title_text, position, piece))
     return chunks

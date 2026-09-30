@@ -200,14 +200,14 @@ def test_the_event_is_in_the_catalog():
         "default": 4096,
         "window": 4096,
         "window_source": "configured",
-        "read_note_fr": "…",
+        "read_note_text": "…",
         "choices": [
             {
                 "window": 4096,
                 "effective": 4096,
                 "source": "configured",
-                "kv_fr": "Cache de contexte : 448 Mo",
-                "read_fr": "Temps de lecture : pas encore mesuré, envoyez un message",
+                "kv_text": "Cache de contexte : 448 Mo",
+                "read_text": "Temps de lecture : pas encore mesuré, envoyez un message",
                 "fits": True,
                 "current": True,
             }
@@ -231,15 +231,15 @@ def test_launch_without_setting_shows_the_default_window_and_every_choice(tmp_pa
     assert [c["window"] for c in state["choices"]] == [4096, 8192, 16384]
     assert [c["current"] for c in state["choices"]] == [True, False, False]
     assert _choice(state, 8192)["kv_bytes"] == KV * 8192
-    assert _choice(state, 8192)["kv_fr"] == "Cache de contexte : 896 Mo"
-    assert all(c["fits"] and c["refusal_fr"] is None for c in state["choices"])
+    assert _choice(state, 8192)["kv_text"] == "Cache de contexte : 896 Mo"
+    assert all(c["fits"] and c["refusal_text"] is None for c in state["choices"])
     # Débit inconnu: no local call measured yet.
     assert all(
         c["read_s"] is None
-        and c["read_fr"] == "Temps de lecture : pas encore mesuré, envoyez un message"
+        and c["read_text"] == "Temps de lecture : pas encore mesuré, envoyez un message"
         for c in state["choices"]
     )
-    assert "pas encore mesuré" in state["read_note_fr"]
+    assert "pas encore mesuré" in state["read_note_text"]
     assert (state["hosting"], state["model_label"]) == ("file", "Qwen3.5-2B")
 
 
@@ -257,7 +257,7 @@ def test_local_accepted_reloads_with_the_window_and_keeps_the_conversation(tmp_p
     started = _events(mark, "model_load_started")
     ended = _events(mark, "model_load_ended")
     assert started[0]["phase_label"] == message and started[0]["window"] == 8192
-    assert (ended[0]["status"], ended[0]["reason_fr"]) == (
+    assert (ended[0]["status"], ended[0]["reason_text"]) == (
         "ok",
         "Fenêtre de contexte : 8 192 tokens (conversation gardée).",
     )
@@ -268,7 +268,7 @@ def test_local_accepted_reloads_with_the_window_and_keeps_the_conversation(tmp_p
     assert config.load_config().context_window == 8192  # taken back at the next launch
     state = _state(session)
     assert state["configured"] == 8192 and _choice(state, 8192)["current"]
-    assert session.state == "idle" and session.reason_fr is None
+    assert session.state == "idle" and session.reason_text is None
 
 
 def test_saving_keeps_the_other_keys_of_context(tmp_path):
@@ -282,20 +282,20 @@ def test_local_refused_by_the_budget_releases_writes_and_reloads_nothing(tmp_pat
     factory = Factory()
     session, _ = _booted_file(tmp_path, factory, probe_rss=3 * GIB)
     state = _state(session)
-    refusal = _choice(state, 16384)["refusal_fr"]
+    refusal = _choice(state, 16384)["refusal_text"]
     assert not _choice(state, 16384)["fits"] and _choice(state, 8192)["fits"]
     mark = get_journal().last_seq()
 
     with pytest.raises(SendRefused) as refused:
         session.set_context_window(16384)
 
-    assert refused.value.reason_fr == refusal
+    assert refused.value.reason_text == refusal
     assert refusal.startswith("Fenêtre de 16 384 tokens refusée : Qwen3.5-2B demanderait")
     assert "pour un budget de 4,0 Go (= plafond [memory] budget_mb)" in refusal
     assert "Qwen3.5-2B reste actif avec 4 096 tokens." in refusal
     assert factory.n_ctx == [4096] and session.state == "idle"
     assert _events(mark, "model_load_started") == []
-    assert _events(mark, "harness_error")[-1]["message_fr"] == refusal
+    assert _events(mark, "harness_error")[-1]["message_text"] == refusal
     assert "context" not in config.read_settings()
     assert session.configured_window == 4096 and session._window == 4096
 
@@ -338,7 +338,7 @@ def test_reload_failure_brings_the_same_model_back_with_its_window(tmp_path):
     _, status = _apply(session, 16384)
 
     assert status == "restored" and factory.n_ctx == [4096, 16384, 4096]
-    reason = _events(mark, "model_load_ended")[-1]["reason_fr"]
+    reason = _events(mark, "model_load_ended")[-1]["reason_text"]
     assert reason.startswith("Fenêtre de 16 384 tokens non appliquée (")
     assert reason.endswith(": Qwen3.5-2B est de nouveau actif avec 4 096 tokens.")
     assert "context" not in config.read_settings()
@@ -360,7 +360,7 @@ def test_stop_during_the_reload_brings_the_old_window_back(tmp_path):
     assert future.result() == "cancelled"
     assert factory.n_ctx == [4096, 16384, 4096]
     ended = _events(mark, "model_load_ended")[-1]
-    assert (ended["status"], ended["reason_fr"]) == (
+    assert (ended["status"], ended["reason_text"]) == (
         "cancelled",
         "Rechargement arrêté : Qwen3.5-2B est de nouveau actif avec 4 096 tokens.",
     )
@@ -377,10 +377,10 @@ def test_same_window_is_not_reloaded(tmp_path):
 @pytest.mark.parametrize("state", ["turn", "model_load", "awaiting_human"])
 def test_refused_outside_idle(tmp_path, state):
     session, _ = _booted_file(tmp_path)
-    session.state, session.reason_fr = state, None
+    session.state, session.reason_text = state, None
     with pytest.raises(SendRefused) as refused:
         session.set_context_window(8192)
-    assert refused.value.reason_fr == session._refusal_reason()
+    assert refused.value.reason_text == session._refusal_reason()
     assert "context" not in config.read_settings()
 
 
@@ -409,7 +409,7 @@ def test_overflow_names_the_new_window(tmp_path):
     session.join()
     [overflow] = _events(mark, "context_overflow")
     assert overflow["usable"] == 7680
-    assert "(fenêtre de 8 192 moins 512 réservés à la réponse)" in overflow["message_fr"]
+    assert "(fenêtre de 8 192 moins 512 réservés à la réponse)" in overflow["message_text"]
 
 
 def test_the_read_rate_is_measured_on_a_local_call(tmp_path):
@@ -427,8 +427,8 @@ def test_the_read_rate_is_measured_on_a_local_call(tmp_path):
     assert tps and tps > 0
     for choice in state["choices"]:
         assert choice["read_s"] == pytest.approx(choice["effective"] / tps, abs=0.06)
-        assert choice["read_fr"].startswith("Temps de lecture : au moins ≈ ")
-    assert "tokens/s" in state["read_note_fr"]
+        assert choice["read_text"].startswith("Temps de lecture : au moins ≈ ")
+    assert "tokens/s" in state["read_note_text"]
 
 
 def test_a_short_call_is_no_measure(tmp_path):
@@ -453,7 +453,7 @@ def test_shrinking_is_never_refused(tmp_path):
     session, _ = _booted_file(tmp_path, factory, probe_rss=3 * GIB, rss=5 * GIB)
     state = _state(session)
     assert _choice(state, 4096)["fits"] and not _choice(state, 16384)["fits"]
-    assert "reste actif avec 8\u202f192 tokens" in _choice(state, 16384)["refusal_fr"]
+    assert "reste actif avec 8\u202f192 tokens" in _choice(state, 16384)["refusal_text"]
     _, status = _apply(session, 4096)
     assert status == "ok" and factory.n_ctx == [8192, 4096]
 
@@ -509,7 +509,7 @@ def test_llama_server_is_never_checked_against_the_budget(fake):
     session, candidate = _llama(fake, budget_mb=512)
     candidate.served_bytes = 2 * GIB
     state = _state(session)
-    assert all(c["fits"] and c["refusal_fr"] is None for c in state["choices"])
+    assert all(c["fits"] and c["refusal_text"] is None for c in state["choices"])
     _, status = _apply(session, 16384)
     assert status == "ok" and session._window == 8192
 
@@ -525,8 +525,8 @@ def test_llama_server_bounds_the_choice_by_its_context(fake):
 
     choice = _choice(state, 16384)
     assert (choice["effective"], choice["source"]) == (8192, "server")
-    assert choice["bound_fr"] == "bornée à 8 192 par llama-server (-c)"
-    assert choice["kv_fr"] == "Cache de contexte : réservé par llama-server (-c 8 192), inchangé"
+    assert choice["bound_text"] == "bornée à 8 192 par llama-server (-c)"
+    assert choice["kv_text"] == "Cache de contexte : réservé par llama-server (-c 8 192), inchangé"
     assert choice["fits"] and choice["kv_bytes"] is None
 
     _, status = _apply(session, 16384)  # never checked against the budget: its -c fixed it
@@ -574,7 +574,7 @@ def test_ollama_reloads_at_the_new_num_ctx_and_costs_its_kv(
 
     assert session._reload_cost(choice, 8192) == size + kv * 8192 + 256 * MIB
     state = _state(session)
-    assert _choice(state, 8192)["kv_fr"] == (
+    assert _choice(state, 8192)["kv_text"] == (
         "Cache de contexte : 896 Mo" if kv else "Cache de contexte : inconnu"
     )
     _, status = _apply(session, 8192)
@@ -588,11 +588,11 @@ def test_ollama_reload_cost_unknown_is_refused(fake):
     candidate = _candidate("ollama", "blobs/sha256-abc", resident=True)
     assert session.boot_server(candidate).result() == "ok"
     assert session._reload_cost(ModelChoice.served(candidate), 8192) is None
-    refusal = _choice(_state(session), 8192)["refusal_fr"]
+    refusal = _choice(_state(session), 8192)["refusal_text"]
     assert "coût" in refusal and "inconnu" in refusal
     with pytest.raises(SendRefused) as refused:
         session.set_context_window(8192)
-    assert refused.value.reason_fr == refusal and session.configured_window == 4096
+    assert refused.value.reason_text == refusal and session.configured_window == 4096
 
 
 def test_ollama_cost_after_a_window_set_without_model(monkeypatch, tmp_path, fake):
@@ -628,7 +628,7 @@ def _cloud(**fields) -> AppSession:
             "base_url": "https://api.example.test/v1",
             "model": "modele-essai",
             "context": 32768,
-            "hosting_fr": "Ailleurs",
+            "hosting_text": "Ailleurs",
             "training": "no",
             **fields,
         }
@@ -645,7 +645,7 @@ def test_cloud_takes_the_window_at_the_next_turn_without_reloading():
     session = _cloud()
     state = _state(session)
     assert all(
-        c["kv_fr"] == "Cache de contexte : chez le fournisseur, aucune mémoire sur ce poste"
+        c["kv_text"] == "Cache de contexte : chez le fournisseur, aucune mémoire sur ce poste"
         and c["read_s"] is None
         for c in state["choices"]
     )
@@ -667,7 +667,7 @@ def test_cloud_bounded_by_its_quota():
     assert all(
         c["effective"] == 4000
         and c["source"] == "tpm"
-        and c["bound_fr"] == "bornée à 4 000 par le quota du fournisseur"
+        and c["bound_text"] == "bornée à 4 000 par le quota du fournisseur"
         for c in state["choices"]
     )
 
@@ -675,13 +675,16 @@ def test_cloud_bounded_by_its_quota():
 def test_cloud_with_a_declared_window_cannot_be_set():
     session = _cloud(window=2048)
     state = _state(session)
-    assert state["locked_fr"] and "fenêtre fixée par la déclaration du modèle" in state["locked_fr"]
+    assert (
+        state["locked_text"]
+        and "fenêtre fixée par la déclaration du modèle" in state["locked_text"]
+    )
     assert all(
-        c["bound_fr"] == "fixée à 2 048 par la déclaration du modèle" for c in state["choices"]
+        c["bound_text"] == "fixée à 2 048 par la déclaration du modèle" for c in state["choices"]
     )
     with pytest.raises(SendRefused) as refused:
         session.set_context_window(8192)
-    assert refused.value.reason_fr == state["locked_fr"]
+    assert refused.value.reason_text == state["locked_text"]
     assert "context" not in config.read_settings()
     # The route: a 409 with the same reason.
     diagnostic = DiagnosticSession(config.load_config(), port=8420)
@@ -690,7 +693,7 @@ def test_cloud_with_a_declared_window_cannot_be_set():
         base_url="http://127.0.0.1:8420",
     )
     answer = client.post("/api/intentions/context_window", json={"window": 8192}, headers=ORIGIN)
-    assert answer.status_code == 409 and answer.json()["detail"] == state["locked_fr"]
+    assert answer.status_code == 409 and answer.json()["detail"] == state["locked_text"]
 
 
 # ---------- the route ----------
@@ -727,7 +730,7 @@ def test_route_applies_refuses_and_validates(monkeypatch, tmp_path):
     assert answer.status_code == 200
     assert answer.json() == {
         "switching": True,
-        "message_fr": "Rechargement de A avec une fenêtre de 8 192 tokens…",
+        "message_text": "Rechargement de A avec une fenêtre de 8 192 tokens…",
     }
     assert app_session.configured_window == 8192
     state = client.get("/api/state").json()["context_window_state"]
@@ -741,7 +744,7 @@ def test_route_applies_refuses_and_validates(monkeypatch, tmp_path):
     invalid = post({"window": 5000})
     assert invalid.status_code == 422 and invalid.json()["detail"].startswith("Intention invalide")
 
-    app_session.state, app_session.reason_fr = "turn", "Un tour est en cours."
+    app_session.state, app_session.reason_text = "turn", "Un tour est en cours."
     busy = post({"window": 16384})
     assert busy.status_code == 409 and "Un tour est en cours." in busy.json()["detail"]
     assert app_session.configured_window == 8192
@@ -799,8 +802,8 @@ def test_hybrid_2b_probed_before_lot_k_costs_its_real_cache(tmp_path):
     state = _state(session)
     assert _choice(state, 4096)["kv_bytes"] == 48 * MIB
     assert _choice(state, 8192)["kv_bytes"] == 96 * MIB
-    assert _choice(state, 4096)["kv_fr"] == "Cache de contexte : 48 Mo"
-    assert _choice(state, 8192)["kv_fr"] == "Cache de contexte : 96 Mo"
+    assert _choice(state, 4096)["kv_text"] == "Cache de contexte : 48 Mo"
+    assert _choice(state, 8192)["kv_text"] == "Cache de contexte : 96 Mo"
 
 
 def test_hybrid_4b_at_16384_fits_a_fixed_budget_of_6144(tmp_path):
@@ -816,5 +819,5 @@ def test_hybrid_4b_at_16384_fits_a_fixed_budget_of_6144(tmp_path):
 
     choice = _choice(_state(session), 16384)
 
-    assert choice["fits"] and choice["refusal_fr"] is None
+    assert choice["fits"] and choice["refusal_text"] is None
     assert choice["kv_bytes"] == 32_768 * 16384

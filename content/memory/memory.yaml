@@ -3,7 +3,7 @@
 # démonstration, restaurée par « Réinitialiser ».
 
 # Libellé du nœud du fichier dans le schéma (bac Fichiers).
-file_label_fr: Mémoire globale
+file_label_text: Mémoire globale
 
 # Lu par le modèle, dans le message système, avant une ligne par entrée.
 intro: >-
@@ -12,7 +12,7 @@ intro: >-
 
 # Méta-outil du harnais (AD-25). `description` et `text` sont lus par le modèle.
 remember:
-  label_fr: Écriture en mémoire
+  label_text: Écriture en mémoire
   description: >-
     Retient une information durable sur l'utilisateur (préférence, prénom, contexte de
     travail) pour les prochaines conversations. Appelle cet outil quand l'utilisateur
@@ -22,13 +22,13 @@ remember:
 
 # Textes de la carte et du tiroir d'édition (EXPERIENCE.md), envoyés avec la carte.
 drawer:
-  empty_fr: >-
+  empty_text: >-
     Aucune information en mémoire globale. Le modèle peut en écrire, ou vous pouvez forcer
     une écriture.
-  empty_no_parser_fr: >-
+  empty_no_parser_text: >-
     Aucune information en mémoire globale. Le modèle actif ne sait pas appeler d'outil : il
     ne peut pas en écrire, même par une écriture forcée.
-  text_help_fr: >-
+  text_help_text: >-
     L'information à retenir, en une phrase courte ({max_chars} caractères au plus). Jamais
     de secret : elle est relue à chaque appel.
 

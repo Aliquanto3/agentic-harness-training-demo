@@ -1,0 +1,13 @@
+# FIKTIVES DEMO-DOKUMENT: Alarme eines erfundenen SIEM, keine echten Daten.
+# 10 Ereignisse in der Nacht vom 23. auf den 24. September 2026, Uhrzeiten in UTC (Suffix Z).
+# Format: Datum und Uhrzeit | Schweregrad | Regel | Detail
+2026-09-24T01:30:00Z | INFO | Beginn des Wartungsfensters | Neustarts von SRV-FIC-02 und SRV-APP-01 geplant, Verfügbarkeitsalarme stummgeschaltet
+2026-09-24T01:52:10Z | NIEDRIG | Anmeldung außerhalb der Arbeitszeit | Konto j.martin, Rechner PC-0412, VPN-Verbindung aus Lyon
+2026-09-24T02:03:44Z | MITTEL | Wiederholte Authentifizierungsfehler | Konto svc-sauvegarde, 12 Fehlversuche in 2 Minuten auf SRV-FIC-02
+2026-09-24T02:14:07Z | HOCH | Anmeldung aus einem ungewöhnlichen Land | Konto adm.leroy (Administrator), Adresse 203.0.113.45, für dieses Konto nie gesehenes Land
+2026-09-24T02:15:31Z | KRITISCH | Aufnahme in eine privilegierte Gruppe | Konto adm.leroy von adm.leroy zur Gruppe „Domänen-Admins“ hinzugefügt
+2026-09-24T02:21:58Z | HOCH | Deaktivierung des Virenschutzes | Server SRV-FIC-02, Schutzdienst von adm.leroy gestoppt
+2026-09-24T02:40:12Z | MITTEL | Ungewöhnliches ausgehendes Volumen | SRV-FIC-02 nach 198.51.100.7, 2,3 GB in 20 Minuten
+2026-09-24T03:05:26Z | NIEDRIG | Zertifikat läuft bald ab | intranet.exemplia.test, Ablauf in 12 Tagen
+2026-09-24T05:47:39Z | INFO | Geplanter Neustart | SRV-APP-01, normal beendet
+2026-09-24T06:58:03Z | INFO | Ende des Wartungsfensters | Verfügbarkeitsalarme reaktiviert

@@ -59,7 +59,7 @@ def test_local_brick_on_thinks_with_the_reasoning_reserve():
     engine, session = _qwen(["Deux étapes : 14 h 47 + 2 h 38.\n</think>\n\nIl arrive à 17 h 25."])
     session.set_brick("reasoning", True)
     session.join()
-    assert _card()["available"] and _card()["always_fr"] is None
+    assert _card()["available"] and _card()["always_text"] is None
 
     events = _run(session, "À quelle heure ?")
 
@@ -96,7 +96,7 @@ def test_local_model_without_reasoning_variable_is_unavailable_with_the_reason()
 
     card = _card(mark)
     assert card["wanted"] and not card["available"]
-    assert card["reason_fr"].startswith(NO_REASONING) and "gabarit" in card["reason_fr"]
+    assert card["reason_text"].startswith(NO_REASONING) and "gabarit" in card["reason_text"]
     events = _run(session, "Bonjour")
     assert events["context_rendered"][0]["reserve"] == 512 and engine.max_tokens == [512]
     session.close()
@@ -191,7 +191,7 @@ TEXT = sse(delta(content="Bonjour."), _usage())
 def test_cloud_declared_reasoning_sends_on_then_off():
     provider = Provider(TEXT)
     session = _cloud(_preset("mistral"), provider, "reasoning")
-    assert _card()["available"] and _card()["always_fr"] is None
+    assert _card()["available"] and _card()["always_text"] is None
 
     on = _run(session, "Bonjour")
     session.set_brick("reasoning", False)
@@ -213,7 +213,7 @@ def test_cloud_model_that_always_reasons_keeps_the_reserve_brick_off():
 
     card = _card()
     assert not card["wanted"] and card["available"]
-    assert card["always_fr"].startswith("Toujours active pour ce modèle")
+    assert card["always_text"].startswith("Toujours active pour ce modèle")
     events = _run(session, "Bonjour")
 
     body = _bodies(provider)[0]
@@ -230,8 +230,8 @@ def test_cloud_model_without_reasoning_declared_is_unavailable():
     session.join()
 
     card = _card(mark)
-    assert not card["available"] and card["reason_fr"].startswith(NO_REASONING)
-    assert "« mistral » ne déclare pas de raisonnement" in card["reason_fr"]
+    assert not card["available"] and card["reason_text"].startswith(NO_REASONING)
+    assert "« mistral » ne déclare pas de raisonnement" in card["reason_text"]
     _run(session, "Bonjour")
     body = _bodies(provider)[0]
     assert "reasoning_effort" not in body and body["max_tokens"] == 512
@@ -428,7 +428,7 @@ def test_local_tool_call_cut_names_the_reasoning_reserve():
     events = _run(session, "Combien ?")
 
     assert events["output_truncated"][0]["max_tokens"] == 1536
-    assert "1\u202f536 tokens" in events["tool_call_malformed"][0]["detail_fr"]
+    assert "1\u202f536 tokens" in events["tool_call_malformed"][0]["detail_text"]
     session.close()
 
 
@@ -453,7 +453,7 @@ def test_chat_tool_call_cut_names_the_reasoning_reserve():
 
     truncated = events["output_truncated"][0]
     assert truncated["channel"] == "tool_call" and truncated["max_tokens"] == 1536
-    assert "1\u202f536 tokens" in events["tool_call_malformed"][0]["detail_fr"]
+    assert "1\u202f536 tokens" in events["tool_call_malformed"][0]["detail_text"]
     assert _bodies(provider)[0]["max_tokens"] == 1536
     session.close()
 
@@ -513,7 +513,7 @@ def test_without_a_model_the_reason_says_so():
     mark = get_journal().last_seq()
     session.boot(None).result()
 
-    assert _card(mark)["reason_fr"] == "Indisponible : aucun modèle chargé."
+    assert _card(mark)["reason_text"] == "Indisponible : aucun modèle chargé."
     session.close()
 
 
@@ -525,7 +525,7 @@ def test_a_window_too_small_for_the_reasoning_reserve_makes_it_unavailable():
     session.join()
 
     card = _card(mark)
-    assert not card["available"] and "1\u202f536" in card["reason_fr"]
+    assert not card["available"] and "1\u202f536" in card["reason_text"]
     assert _run(session, "Bonjour")["context_rendered"][0]["reserve"] == 512
     session.close()
 
@@ -536,8 +536,10 @@ def test_a_model_that_always_reasons_draws_the_brick_and_names_the_model():
 
     card = _card()
     assert not card["wanted"]
-    assert f"{entry.model} raisonne à chaque réponse ; ce modèle ne permet pas" in card["always_fr"]
-    assert entry.provider not in card["always_fr"]
+    assert (
+        f"{entry.model} raisonne à chaque réponse ; ce modèle ne permet pas" in card["always_text"]
+    )
+    assert entry.provider not in card["always_text"]
     nodes = {n["id"] for n in _latest("architecture_changed")["nodes"]}
     assert "reasoning.mode" in nodes
     session.close()

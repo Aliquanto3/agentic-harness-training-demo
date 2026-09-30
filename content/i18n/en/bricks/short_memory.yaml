@@ -1,0 +1,13 @@
+# English translation of content/bricks/short_memory.yaml (languages 3/5, AD-19): same
+# fields, same number of paragraphs.
+label_text: Short-term memory
+category_text: context engineering
+hosting_text: Local
+explanation_text:
+  - >-
+    Without memory, the model only sees your last message: it has forgotten everything
+    about the previous turn.
+  - >-
+    The harness keeps the finished exchanges and sends them back to the model at every
+    call, in the “History” segment. The context therefore grows at every turn: that is
+    the price of memory.

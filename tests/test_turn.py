@@ -46,14 +46,14 @@ def test_bare_turn_only_message_and_template_and_sum_equals_total():
         assert segment["tokens"] == len(segment["text"].encode())
     assert engine.calls == [list(prompt.encode())]  # the prompt sent is the one displayed
     assert [s["text"] for s in ctx["segments"] if s["kind"] == "user_message"] == ["Bonjour"]
-    assert {s["kind"]: s["label_fr"] for s in ctx["segments"]} == {
+    assert {s["kind"]: s["label_text"] for s in ctx["segments"]} == {
         "user_message": "Message de l'utilisateur",
         "template": "Gabarit de conversation",
     }
     assert ctx["breakdown"] == [
         {
             "group": "message",
-            "label_fr": "Message et gabarit",
+            "label_text": "Message et gabarit",
             "tokens": ctx["used"],
             "kinds": ["user_message", "template"],
             "discipline": "neutral",
@@ -96,8 +96,8 @@ def test_overflow_is_not_sent():
     assert ctx["overflow"] and ctx["percent"] > 100
     overflow = events["context_overflow"][0]
     assert overflow["used"] == ctx["used"] and overflow["usable"] == 88
-    assert "raccourcissez le message" in overflow["message_fr"]
-    assert overflow["strategies_fr"]
+    assert "raccourcissez le message" in overflow["message_text"]
+    assert overflow["strategies_text"]
     assert "model_call_started" not in events
     assert events["turn_ended"][0]["status"] == "overflow"
 
@@ -139,7 +139,7 @@ def test_approximate_attribution_keeps_prompt_and_totals():
 
     events = _run(session, "Bonjour")
 
-    assert any("Attribution approximative" in e["message_fr"] for e in events["harness_error"])
+    assert any("Attribution approximative" in e["message_text"] for e in events["harness_error"])
     ctx = events["context_rendered"][0]
     prompt = "".join(s["text"] for s in ctx["segments"])
     assert prompt == "<|im_start|>user\nonjour<|im_end|>\n<|im_start|>assistant\n"
@@ -174,7 +174,7 @@ def test_engine_error_ends_turn_and_app_stays_usable():
 
     events = _run(session, "Bonjour")
 
-    assert events["harness_error"][0]["message_fr"].startswith("Le tour s'est interrompu")
+    assert events["harness_error"][0]["message_text"].startswith("Le tour s'est interrompu")
     assert events["model_call_ended"][0]["stop_reason"] == "error"
     assert events["turn_ended"][0]["status"] == "error"
     assert session.state == "idle"
@@ -188,7 +188,7 @@ def test_model_without_template_is_incompatible_with_reason():
 
     with pytest.raises(SendRefused) as refused:
         session.send("Bonjour")
-    assert "gabarit de conversation" in refused.value.reason_fr
+    assert "gabarit de conversation" in refused.value.reason_text
 
 
 def test_send_outside_idle_is_409_with_french_reason():
@@ -402,7 +402,7 @@ def test_boot_failure_leaves_idle_with_reason():
 
     errors = [e for e in get_journal().events_since(mark) if e.kind == "harness_error"]
     assert errors and "fichier illisible" in errors[0].payload["cause"]
-    assert session.state == "idle" and "n'a pas pu être chargé" in session.reason_fr
+    assert session.state == "idle" and "n'a pas pu être chargé" in session.reason_text
     with pytest.raises(SendRefused):
         session.send("Bonjour")
 
@@ -417,7 +417,7 @@ def test_check_6_failure_reports_and_keeps_totals_exact():
 
     events = _run(session, "Bonjour")
 
-    assert any("Contrôle des tokens" in e["message_fr"] for e in events["harness_error"])
+    assert any("Contrôle des tokens" in e["message_text"] for e in events["harness_error"])
     ctx = events["context_rendered"][0]
     assert sum(s["tokens"] for s in ctx["segments"]) == ctx["used"]
     assert ctx["used"] == len("".join(s["text"] for s in ctx["segments"]).encode())

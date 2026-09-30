@@ -1,0 +1,13 @@
+# German translation of content/bricks/short_memory.yaml (languages 3/5, AD-19): same
+# fields, same paragraphs.
+label_text: Kurzzeitgedächtnis
+category_text: Context Engineering
+hosting_text: Lokal
+explanation_text:
+  - >-
+    Ohne Gedächtnis sieht das Modell nur Ihre letzte Nachricht: Es hat alles aus der
+    vorigen Runde vergessen.
+  - >-
+    Der Harness behält die abgeschlossenen Wechsel und sendet sie bei jedem Aufruf erneut an
+    das Modell, im Segment „Verlauf“. Der Kontext wächst daher mit jeder Runde: Das ist der
+    Preis des Gedächtnisses.

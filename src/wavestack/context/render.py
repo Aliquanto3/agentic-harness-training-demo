@@ -30,6 +30,7 @@ from jinja2.ext import Extension, loopcontrols
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from wavestack.context.segments import Joined, Part, Segment, SegmentKind
+from wavestack.messages import msg
 from wavestack.models.engine import Engine
 from wavestack.trace.journal import get_journal
 
@@ -170,7 +171,7 @@ class RenderedContext:
     seen: int = 0
 
 
-def _neutralize(part: Part, special: re.Pattern[str] | None) -> Part:
+def _neutralize(part: Part, special: re.Pattern[str] | None, lang: str = "fr") -> Part:
     """Step 2: strip outer blanks and private-use chars, break special-token strings. A
     `template` part is a literal of the harness (the reasoning block of `reasoning_wrap`):
     left intact, blanks and special tokens included."""
@@ -187,10 +188,11 @@ def _neutralize(part: Part, special: re.Pattern[str] | None) -> Part:
             {
                 "segment_kind": part.kind,
                 "tokens": sorted(set(found)),
-                "message_fr": (
-                    f"Le texte contenait {len(found)} marqueur(s) réservé(s) du modèle "
-                    f"({', '.join(sorted(set(found)))}). Ils ont été neutralisés : un contenu "
-                    f"ne peut pas modifier la structure de la conversation."
+                "message_text": msg(
+                    "context.neutralized",
+                    lang,
+                    count=len(found),
+                    tokens=", ".join(sorted(set(found))),
                 ),
             },
         )
@@ -271,6 +273,7 @@ def _attribute(
     tools: Any,
     special: re.Pattern[str] | None,
     call_id: str | None,
+    lang: str = "fr",
 ) -> tuple[str, list[tuple[Segment, list[Part]]]]:
     """Steps 1 to 5 around a renderer `(messages, tools) -> str`, called twice: the text
     sent, and its ordered, disjoint segments (tokens not counted yet), each with the parts
@@ -285,7 +288,7 @@ def _attribute(
     parts: list[Part] = []
 
     def add(part: Part) -> tuple[str, str]:
-        part = _neutralize(part, special)
+        part = _neutralize(part, special, lang)
         if not part.text:
             return "", ""  # step 3: an empty text gets no sentinels and no segment
         parts.append(part)
@@ -337,11 +340,9 @@ def _attribute(
         get_journal().emit(
             "harness_error",
             {
-                "message_fr": "Attribution approximative : le rendu d'attribution diffère du "
-                "prompt envoyé.",
-                "cause": "Le gabarit transforme le texte des messages (contrôle 4 d'AD-4).",
-                "effect_fr": "Le prompt envoyé est inchangé ; le texte non localisé est compté "
-                "dans le gabarit.",
+                "message_text": msg("context.attribution.message", lang),
+                "cause": msg("context.attribution.cause", lang),
+                "effect_text": msg("context.attribution.effect", lang),
             },
         )
         pieces = _locate_in_order(prompt, parts)
@@ -372,15 +373,18 @@ def render_context(
     call_id: str | None,
     special_tokens: list[str] | tuple[str, ...] = (),
     tools: list[dict[str, Any]] | None = None,
+    lang: str = "fr",
     **template_vars: Any,
 ) -> RenderedContext:
     """Render the prompt to send through the model's template, and attribute each of its
-    tokens to one segment (steps 1 to 6)."""
+    tokens to one segment (steps 1 to 6). `lang`: the session's, that of the errors traced."""
 
     def render(plain: list[dict[str, Any]], plain_tools: Any) -> str:
         return render_template(template, plain, tools=plain_tools, **template_vars)
 
-    prompt, pairs = _attribute(render, messages, tools, _special_pattern(special_tokens), call_id)
+    prompt, pairs = _attribute(
+        render, messages, tools, _special_pattern(special_tokens), call_id, lang
+    )
     segments = [segment for segment, _ in pairs]
 
     ids = engine.tokenize(prompt)  # step 6
@@ -389,12 +393,9 @@ def render_context(
         get_journal().emit(
             "harness_error",
             {
-                "message_fr": "Contrôle des tokens en échec : les octets des tokens ne "
-                "recomposent pas le prompt.",
-                "cause": "Le découpage du tokenizer ne correspond pas au texte (contrôle 6 "
-                "d'AD-4).",
-                "effect_fr": "Le total de tokens reste exact ; leur répartition par segment "
-                "peut être décalée.",
+                "message_text": msg("context.tokens.message", lang),
+                "cause": msg("context.tokens.cause", lang),
+                "effect_text": msg("context.tokens.effect", lang),
             },
         )
     if segments:
@@ -436,7 +437,8 @@ def render_chat_body(
     fields: dict[str, Any],
     markers: list[str] | tuple[str, ...],
     estimate: Callable[[str], int],
-    provider_label_fr: str,
+    provider_label_text: str,
+    lang: str = "fr",
 ) -> RenderedChat:
     """AD-4, chat mode: `context` alone writes the whole body, serialized once, cut into
     segments by the sentinel method (the JSON syntax is `template`, 0 token). `fields`:
@@ -450,7 +452,7 @@ def render_chat_body(
         body = {**model, "messages": plain, **({"tools": plain_tools} if plain_tools else {})}
         return json.dumps({**body, **tail}, ensure_ascii=False, separators=(",", ":"))
 
-    body, pairs = _attribute(render, messages, tools, _special_pattern(markers), call_id)
+    body, pairs = _attribute(render, messages, tools, _special_pattern(markers), call_id, lang)
     estimates = [
         0
         if segment.kind == SegmentKind.TEMPLATE and not held
@@ -467,7 +469,7 @@ def render_chat_body(
             kind=SegmentKind.TEMPLATE,
             text="",
             estimated=True,
-            label_fr=provider_label_fr,
+            label_text=provider_label_text,
         )
     )
     return RenderedChat(body=body, segments=segments, estimates=estimates)

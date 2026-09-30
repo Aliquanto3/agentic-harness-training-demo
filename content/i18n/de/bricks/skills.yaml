@@ -1,0 +1,24 @@
+# German translation of content/bricks/skills.yaml (languages 3/5, AD-19): same fields,
+# same paragraphs and lists.
+label_text: Skills
+category_text: Context Engineering
+hosting_text: Lokal
+explanation_text:
+  - - >-
+      Ein Skill ist kein Tool: Er führt nichts aus, er sagt dem Modell, wie es vorgehen
+      soll, und kann ihm Tools empfehlen.
+    - "Er ist kein MCP-Server: Neben dem Harness läuft kein Programm."
+    - >-
+      Er ist auch nicht der System-Prompt: Solange das Modell ihn nicht auslöst, belegen
+      nur sein Name und seine Beschreibung Kontext, in einer Zeile der Systemnachricht.
+  - >-
+    Wenn eine Anfrage passt, ruft das Modell das Meta-Tool load_skill auf: Der Harness
+    antwortet ihm mit den vollständigen Anweisungen, die sofort gelten, und setzt sie in den
+    folgenden Runden in die Systemnachricht (der Verlauf behält davon nur einen kurzen
+    Platzhalter). Das ist das schrittweise Laden: Man bezahlt die Tokens eines Skills nur,
+    wenn er gebraucht wird. Einmal geladen, kostet er in jeder folgenden Runde, bis man ihn
+    abwählt oder auf „Unterhaltung leeren“ klickt.
+  - >-
+    Vergleichen Sie die Ausgabe-Tokens derselben Frage mit und ohne den Skill Caveman: Seine
+    Antworten im Telegrammstil erzeugen weniger davon. „Unterhaltung leeren“ entlädt alle
+    Skills.

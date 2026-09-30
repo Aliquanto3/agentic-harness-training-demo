@@ -20,21 +20,29 @@ from test_mcp import enable, loop, mcp_session, wait_for  # noqa: F401 - fixture
 from test_tools import QWEN, _segments, call
 from test_turn import _run
 
-from wavestack import config
+from wavestack import config, messages
 from wavestack import hooks as hooks_module
 from wavestack import memory as memory_file
-from wavestack.bricks.contract import load_default_system_prompt
+from wavestack.bricks.contract import load_brick_content, load_default_system_prompt
+from wavestack.cloud import load_cloud_content
+from wavestack.compression.port import load_compression_content
+from wavestack.context.segments import load_labels
 from wavestack.hooks import date_fr, date_text, load_hooks_content
 from wavestack.mcp.connection import McpConnection
 from wavestack.mcp.servers import LOCAL, McpServer, load_local_tools, load_mcp_content
+from wavestack.models.catalog import load_publishers
+from wavestack.rag import lab as rag_lab
 from wavestack.rag.corpus import load_rag_content
+from wavestack.scenarios import load_scenarios
 from wavestack.session import app_session as app_session_module
+from wavestack.session import llm_lab
 from wavestack.session.app_session import SendRefused
 from wavestack.skills import load_skills_content
 from wavestack.subagent import load_subagent_content
 from wavestack.tools.registry import load_tools_content
 from wavestack.trace.catalog import LanguageChangedPayload
 from wavestack.trace.journal import get_journal
+from wavestack.ui_texts import load_ui_texts
 from wavestack.web.app import LanguageIntention
 
 CONTENT = config.content_dir()
@@ -62,7 +70,28 @@ LLM_DEFAULTS = (
     "mcp_local/glossary.yaml",
     "mcp_local/tools.yaml",
     "rag.yaml",
+    "cloud.yaml",  # languages (3/5): the cloud test's prompt and tool
 )
+# Languages (3/5): the pedagogical content, translated with the same ids.
+BRICKS = sorted(p.stem for p in (CONTENT / "bricks").glob("*.yaml"))
+DEMO_FILES = sorted(
+    p.relative_to(CONTENT / "demo_files").as_posix()
+    for p in (CONTENT / "demo_files").rglob("*")
+    if p.is_file()
+)
+PEDAGOGICAL = (
+    *(f"bricks/{b}.yaml" for b in BRICKS),
+    "scenarios.yaml",
+    "cloud.yaml",
+    "compression.yaml",
+    "labels/segment_kinds.yaml",
+    "models/publishers.yaml",
+    *(f"demo_files/{f}" for f in DEMO_FILES),
+)
+# Languages (4/5): the workshops and the RAG corpus, translated under the same names.
+CORPUS = sorted(p.name for p in (CONTENT / "corpus").glob("*.md"))
+WORKSHOPS = ("llm_lab.yaml", "rag_lab.yaml", *(f"corpus/{c}" for c in CORPUS))
+_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?")
 PROMPTS = {
     "fr": "Tu es l'assistant de démonstration de WaveStack. Réponds en français",
     "en": "You are WaveStack's demonstration assistant. Answer in English",
@@ -98,6 +127,22 @@ def _yaml(rel: str, lang: str) -> dict:
     return yaml.safe_load(config.content_file(rel, lang).read_text(encoding="utf-8"))
 
 
+def _known_ids() -> dict[str, set[str]]:
+    """Every id the French `scenarios.yaml` names, known (its own check is test_program's)."""
+    data = _yaml("scenarios.yaml", "fr")
+    fields = ("bricks", "tools", "mcp_servers", "skills", "hooks")
+    return {f: {i for s in data["scenarios"].values() for i in s.get(f) or []} for f in fields}
+
+
+def _shape(blocks: list) -> list:
+    """A brick's explanation, as paragraphs and list lengths."""
+    return [len(b) if isinstance(b, list) else "p" for b in blocks]
+
+
+def _demo_names(text: str) -> set[str]:
+    return {f for f in DEMO_FILES if f.rsplit("/", 1)[-1] in text}
+
+
 # ---------- parity: every translated file ----------
 
 
@@ -108,6 +153,23 @@ def test_every_default_sent_to_the_model_is_translated():
     assert not (CONTENT / "i18n" / "en" / "skills" / "caveman" / "NOTICE.md").exists()
 
 
+def test_every_pedagogical_file_is_translated():
+    """Languages (3/5): the bricks, the scenarios, the cloud, compression, segment and
+    publisher texts, and the demonstration files."""
+    for lang in TRANSLATED:
+        for rel in PEDAGOGICAL:
+            assert (CONTENT / "i18n" / lang / rel).is_file(), f"{lang}: {rel} manque"
+
+
+def test_every_workshop_and_corpus_file_is_translated():
+    """Languages (4/5): the two workshops and the same set of corpus files."""
+    for lang in TRANSLATED:
+        for rel in WORKSHOPS:
+            assert (CONTENT / "i18n" / lang / rel).is_file(), f"{lang}: {rel} manque"
+        translated = sorted(p.name for p in (CONTENT / "i18n" / lang / "corpus").glob("*"))
+        assert translated == CORPUS
+
+
 @pytest.mark.parametrize(("lang", "rel"), _translations())
 def test_translated_file_mirrors_the_french_one(lang, rel):
     """Same tree and name as a French file, same template keys, validated by the French
@@ -115,7 +177,9 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     french, translated = CONTENT / rel, CONTENT / "i18n" / lang / rel
     assert french.is_file(), f"{rel} n'existe pas en français"
     assert config.content_file(rel, lang) == translated
-    assert _placeholders(translated) == _placeholders(french)
+    # Languages (2/5, 5/5): `ui.yaml` and `messages.yaml` are compared key by key.
+    if rel not in ("ui.yaml", "messages.yaml"):
+        assert _placeholders(translated) == _placeholders(french)
     assert translated.read_text(encoding="utf-8") != french.read_text(encoding="utf-8")
 
     if rel in ("prompts/system.md", "prompts/subagent.md"):
@@ -126,7 +190,7 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
         for name, text in fr.tools.items():
             assert tr.tools[name].parameters.keys() == text.parameters.keys()
             assert [p.args for p in tr.tools[name].presets] == [p.args for p in text.presets]
-            assert (tr.tools[name].sends_fr is None) == (text.sends_fr is None)
+            assert (tr.tools[name].sends_text is None) == (text.sends_text is None)
     elif rel == "hooks.yaml":
         fr, tr = load_hooks_content(HOOKS, "fr"), load_hooks_content(HOOKS, lang)
         assert (tr.hooks.keys(), tr.points.keys()) == (fr.hooks.keys(), fr.points.keys())
@@ -155,10 +219,98 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     elif rel == "mcp_local/tools.yaml":
         fr, tr = load_local_tools("fr"), load_local_tools(lang)
         assert tr.list_terms != fr.list_terms and tr.define_term != fr.define_term
-    elif rel == "rag.yaml":
+    elif rel == "ui.yaml":  # languages (2/5): its parity key by key is in test_ui_texts
+        fr, tr = load_ui_texts("fr"), load_ui_texts(lang)
+        assert tr["common"]["language"] != fr["common"]["language"]
+    elif rel == "messages.yaml":  # languages (5/5): the same keys, the same variables
+        fr, tr = messages.load_messages("fr"), messages.load_messages(lang)
+        raw = messages.flatten(_yaml(rel, lang))
+        assert raw.keys() <= fr.keys()
+        for key, text in raw.items():
+            assert messages.variables(text) == messages.variables(fr[key]), key
+        assert (
+            tr["session.translation_invalid.message"] != fr["session.translation_invalid.message"]
+        )
+    elif rel == "rag.yaml":  # languages (4/5): the same documents, their titles translated
         fr, tr = load_rag_content("fr"), load_rag_content(lang)
-        assert tr.documents == fr.documents  # the corpus and its index stay French (story 4)
-        assert tr.intro_fr != fr.intro_fr
+        assert [(d.id, d.file) for d in tr.documents] == [(d.id, d.file) for d in fr.documents]
+        assert not {d.title_text for d in tr.documents} & {d.title_text for d in fr.documents}
+        assert tr.intro_text != fr.intro_text
+        assert "French" not in tr.intro_text and "Französisch" not in tr.intro_text
+    elif rel == "llm_lab.yaml":  # languages (4/5)
+        fr, tr = llm_lab.load_lab_content("fr"), llm_lab.load_lab_content(lang)
+        assert tr.title_text != fr.title_text
+        assert tr.model_dump().keys() == fr.model_dump().keys()
+    elif rel == "rag_lab.yaml":  # languages (4/5): the same stages, options and settings
+        fr, tr = rag_lab.load_lab_content("fr"), rag_lab.load_lab_content(lang)
+        assert tr.title_text != fr.title_text
+        assert (tr.stages.keys(), tr.params.keys()) == (fr.stages.keys(), fr.params.keys())
+        assert {k: v.keys() for k, v in tr.options.items()} == {
+            k: v.keys() for k, v in fr.options.items()
+        }
+    elif rel.startswith("corpus/"):  # languages (4/5): the same sections, about as long
+        fr_text = french.read_text(encoding="utf-8")
+        tr_text = translated.read_text(encoding="utf-8")
+        headings = [x.split(" ")[0] for x in fr_text.splitlines() if x.startswith("#")]
+        assert [x.split(" ")[0] for x in tr_text.splitlines() if x.startswith("#")] == headings
+        assert tr_text.count("<!--") == fr_text.count("<!--")
+        ratio = len(tr_text) / len(fr_text)
+        assert 0.6 <= ratio <= 1.4, ratio
+    elif rel.startswith("bricks/"):  # languages (3/5)
+        brick_id = rel.removeprefix("bricks/").removesuffix(".yaml")
+        fr, tr = load_brick_content(brick_id, "fr"), load_brick_content(brick_id, lang)
+        assert _shape(tr.explanation_text) == _shape(fr.explanation_text)
+        assert (tr.outbound_text is None) == (fr.outbound_text is None)
+    elif rel == "scenarios.yaml":
+        fr = load_scenarios(_known_ids(), "fr")
+        tr = load_scenarios(_known_ids(), lang)
+        assert [(m.duration_min, m.scenarios) for m in tr.program] == [
+            (m.duration_min, m.scenarios) for m in fr.program
+        ]
+        assert tr.transverse == fr.transverse and tr.scenarios.keys() == fr.scenarios.keys()
+        texts = {"title_text", "description_text", "prompts"}
+        for scenario_id, french_scenario in fr.scenarios.items():
+            scenario = tr.scenarios[scenario_id]
+            assert scenario.model_dump(exclude=texts) == french_scenario.model_dump(exclude=texts)
+            assert len(scenario.prompts) == len(french_scenario.prompts), scenario_id
+            pairs = [
+                (french_scenario.description_text, scenario.description_text),
+                *zip(french_scenario.prompts, scenario.prompts, strict=True),
+            ]
+            for fr_text, tr_text in pairs:  # a demo file named in French is named here too
+                assert _demo_names(tr_text) >= _demo_names(fr_text), (scenario_id, tr_text)
+    elif rel == "cloud.yaml":
+        fr, tr = load_cloud_content("fr"), load_cloud_content(lang)
+        assert tr.training_text.keys() == fr.training_text.keys()
+        assert (tr.test.tool.name, tr.test.tool_reply) == (fr.test.tool.name, fr.test.tool_reply)
+        assert tr.test.prompt != fr.test.prompt
+    elif rel == "compression.yaml":
+        fr, tr = load_compression_content("fr"), load_compression_content(lang)
+        assert tr.limits_text != fr.limits_text
+    elif rel == "labels/segment_kinds.yaml":
+        fr, tr = load_labels("fr"), load_labels(lang)
+        assert (tr.kinds.keys(), tr.groups.keys()) == (fr.kinds.keys(), fr.groups.keys())
+    elif rel == "models/publishers.yaml":
+        (fr, fr_error), (tr, tr_error) = load_publishers("fr"), load_publishers(lang)
+        assert fr_error is None and tr_error is None
+        fixed = {"id", "architectures", "names", "names_first"}
+        assert [p.model_dump(include=fixed) for p in tr.publishers] == [
+            p.model_dump(include=fixed) for p in fr.publishers
+        ]
+    elif rel.startswith("demo_files/"):  # the same name, its text translated
+        fr_lines = french.read_text(encoding="utf-8").splitlines()
+        tr_lines = translated.read_text(encoding="utf-8").splitlines()
+        if rel.endswith(".log"):  # the same lines, stamps and format
+            assert len(tr_lines) == len(fr_lines)
+            for a, b in zip(fr_lines, tr_lines, strict=True):
+                assert _TIMESTAMP.findall(b) == _TIMESTAMP.findall(a), b
+                assert b.count("|") == a.count("|"), b
+        elif rel.endswith(".md"):  # the same sections
+            assert [x.split(" ")[0] for x in tr_lines if x.startswith("#")] == [
+                x.split(" ")[0] for x in fr_lines if x.startswith("#")
+            ]
+        ratio = sum(map(len, tr_lines)) / sum(map(len, fr_lines))
+        assert 0.6 < ratio < 1.6, ratio
     else:
         pytest.fail(f"{rel} : aucun contrôle de parité")
 
@@ -169,8 +321,8 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
 def test_content_file_falls_back_on_french():
     assert config.content_file("tools.yaml", "fr") == CONTENT / "tools.yaml"
     assert config.content_file("tools.yaml", "en") == CONTENT / "i18n" / "en" / "tools.yaml"
-    # Not translated (pedagogical content, story 3): French.
-    assert config.content_file("scenarios.yaml", "de") == CONTENT / "scenarios.yaml"
+    # Languages (4/5): the workshops are translated too.
+    assert config.content_file("llm_lab.yaml", "de") == CONTENT / "i18n" / "de" / "llm_lab.yaml"
     assert config.content_file("tools.yaml", "it") == CONTENT / "tools.yaml"  # unknown language
 
 
@@ -195,6 +347,14 @@ def test_the_local_mcp_server_is_started_in_the_sessions_language():
     assert connection._transport(None).args == ["-m", "wavestack.mcp.local_server", "en"]
 
 
+def test_the_demo_files_are_the_same_in_every_language():
+    """Languages (3/5): the same files under the same names, `confidentiel/` included."""
+    for lang in TRANSLATED:
+        demo = CONTENT / "i18n" / lang / "demo_files"
+        names = sorted(p.relative_to(demo).as_posix() for p in demo.rglob("*") if p.is_file())
+        assert names == DEMO_FILES, lang
+
+
 def test_every_per_language_table_has_exactly_the_languages():
     languages = set(config.LANGUAGES)
     assert set(config.LANGUAGE_LABELS) == languages
@@ -207,9 +367,10 @@ def test_every_per_language_table_has_exactly_the_languages():
     picker = re.search(r'<select id="language-picker".*?</select>', html, re.S).group(0)
     options = re.findall(r'<option value="(\w+)" lang="\w+">([^<]+)</option>', picker)
     assert options == list(config.LANGUAGE_LABELS.items())
-    js = (static / "app.js").read_text(encoding="utf-8")
-    texts = re.search(r"const LANGUAGE_TEXTS = \{(.*?)\n\};", js, re.S).group(1)
-    assert re.findall(r"^  (\w+): \{", texts, re.M) == list(config.LANGUAGES)
+    # Languages (2/5): the picker's texts, once `LANGUAGE_TEXTS` of app.js, are in
+    # `common.language` of each language's ui.yaml.
+    names = {lang: load_ui_texts(lang)["common"]["language"]["name"] for lang in config.LANGUAGES}
+    assert names == {"fr": "Langue", "en": "Language", "de": "Sprache"}
 
 
 def test_h3_speaks_the_language_of_the_file_it_read(tmp_path, monkeypatch):
@@ -301,8 +462,8 @@ def test_the_reason_is_also_in_the_current_language():
     _run(session, "Hallo")
     with pytest.raises(SendRefused) as refused:
         session.set_language("en")
-    assert "conversation vide" in refused.value.reason_fr
-    assert "leerer Unterhaltung" in refused.value.reason_fr
+    assert "conversation vide" in refused.value.reason_text
+    assert "leerer Unterhaltung" in refused.value.reason_text
     session.close()
 
 
@@ -341,10 +502,10 @@ def test_an_invalid_translation_falls_back_on_french(tmp_path, monkeypatch):
     _, session = _session(language="de")
 
     errors = [e.payload for e in get_journal().events_since(mark) if e.kind == "harness_error"]
-    assert [e["message_fr"] for e in errors] == [
-        "Un fichier traduit (de) sous content/i18n/de/ est invalide."
+    assert [e["message_text"] for e in errors] == [
+        "Eine übersetzte Datei (de) unter content/i18n/de/ ist ungültig."
     ]
-    assert session._tools_content.tools["get_datetime"].label_fr == "Heure et date"  # French
+    assert session._tools_content.tools["get_datetime"].label_text == "Heure et date"  # French
     assert session._hooks_content.points["on_turn_end"] == "Ende der Runde"  # German
     assert "tools" not in session._content_errors
     session.close()
@@ -361,7 +522,7 @@ def test_an_untranslated_file_is_read_in_french(tmp_path, monkeypatch):
     _, session = _session(language="de")
 
     assert [e for e in get_journal().events_since(mark) if e.kind == "harness_error"] == []
-    assert session._subagent_content.phase_label_fr == "Appel au sous-agent"
+    assert session._subagent_content.phase_label_text == "Appel au sous-agent"
     assert session._subagent_content.prompt.startswith("Du bist ein Sub-Agent")  # translated .md
     session.close()
 
@@ -484,7 +645,7 @@ def test_a_french_session_switched_to_german_speaks_german_everywhere():
     assert session._registry.get("load_tool_doc").description.startswith(
         "Lädt die Dokumentation eines MCP-Tools"
     )
-    assert session._rag_content.intro_fr.startswith("Auszüge aus der internen Dokumentation")
+    assert session._rag_content.intro_text.startswith("Auszüge aus der internen Dokumentation")
     assert session._subagent_content.prompt.startswith("Du bist ein Sub-Agent")
     session.close()
 
@@ -539,7 +700,7 @@ def test_a_setting_that_cannot_be_written_refuses_the_change(monkeypatch):
     assert response.status_code == 409
     assert "n'a pas pu être enregistrée" in response.json()["detail"]
     assert session._language == "fr"
-    assert session._tools_content.tools["get_datetime"].label_fr == "Heure et date"
+    assert session._tools_content.tools["get_datetime"].label_text == "Heure et date"
     session.close()
 
 

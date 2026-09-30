@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <script src="/static/theme.js"></script>
+  <script type="module" src="/static/i18n.js"></script>
   <title>WaveStack</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -13,126 +14,137 @@
 <body>
   <header class="top-bar">
     <span class="top-bar-title">WaveStack</span>
-    <select id="scenario-picker" class="scenario-picker" aria-label="Scénario"></select>
+    <select id="scenario-picker" class="scenario-picker" aria-label="Scénario" data-i18n-aria-label="main.top_bar.scenario"></select>
     <div class="gauge" id="gauge">
       <div class="gauge-stack">
-        <div class="gauge-bar" id="gauge-bar" role="group" aria-label="Jauge de contexte">
+        <div class="gauge-bar" id="gauge-bar" role="group" aria-label="Jauge de contexte" data-i18n-aria-label="main.gauge.label">
           <span class="gauge-threshold" id="gauge-threshold" hidden></span>
         </div>
-        <ul class="gauge-legend" id="gauge-legend" aria-label="Disciplines présentes dans le contexte"></ul>
+        <ul class="gauge-legend" id="gauge-legend" aria-label="Disciplines présentes dans le contexte" data-i18n-aria-label="main.gauge.legend_label"></ul>
       </div>
-      <span class="gauge-figures" id="gauge-figures">Contexte : en attente du modèle</span>
+      <span class="gauge-figures" id="gauge-figures" data-i18n="main.gauge.waiting">Contexte : en attente du modèle</span>
     </div>
     <!-- FinOps: the session's API spend (« Consommation »), from the first paid call; GreenOps:
          its footprint at the end of the second line when the bar fits, or alone (local calls). -->
-    <span class="gauge-figures number" id="consumption" role="img" hidden><span id="consumption-label">Dépense estimée</span><span id="consumption-amounts"><span id="consumption-money"></span><span id="consumption-footprint"></span></span></span>
+    <span class="gauge-figures number" id="consumption" role="img" hidden><span id="consumption-label" data-i18n="main.consumption.spend_label">Dépense estimée</span><span id="consumption-amounts"><span id="consumption-money"></span><span id="consumption-footprint"></span></span></span>
     <div class="window-picker" id="window-picker">
-      <button type="button" id="window-toggle" class="window-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="window-panel"><span class="window-toggle-long">Fenêtre</span> <span id="window-toggle-value">…</span> ▾</button>
+      <button type="button" id="window-toggle" class="window-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="window-panel"><span class="window-toggle-long" data-i18n="main.window.toggle">Fenêtre</span> <span id="window-toggle-value">…</span> ▾</button>
       <section id="window-panel" class="window-panel" role="dialog" aria-labelledby="window-panel-title" hidden>
         <div class="window-scroll">
-        <h3 id="window-panel-title" class="window-panel-title">Fenêtre de contexte</h3>
+        <h3 id="window-panel-title" class="window-panel-title" data-i18n="main.window.panel_title">Fenêtre de contexte</h3>
         <p class="window-help" id="window-help"></p>
-        <p class="window-help">Le choix appliqué est mémorisé dans settings.json, qui prend le pas sur [context] window de wavestack.toml au lancement suivant.</p>
+        <p class="window-help" data-i18n="main.window.saved_help">Le choix appliqué est mémorisé dans settings.json, qui prend le pas sur [context] window de wavestack.toml au lancement suivant.</p>
         <p class="window-current" id="window-current" hidden></p>
         <fieldset class="window-choices">
-          <legend class="window-choices-legend">Taille de la fenêtre</legend>
+          <legend class="window-choices-legend" data-i18n="main.window.size_legend">Taille de la fenêtre</legend>
           <div id="window-choices"></div>
         </fieldset>
         <p class="window-note" id="window-note"></p>
         </div>
         <p class="window-alert" id="window-alert" role="alert" hidden></p>
         <div class="window-actions">
-          <button type="button" id="window-apply" class="window-apply">Appliquer</button>
-          <button type="button" id="window-close" class="window-close">Fermer</button>
+          <button type="button" id="window-apply" class="window-apply" data-i18n="main.window.apply">Appliquer</button>
+          <button type="button" id="window-close" class="window-close" data-i18n="common.close">Fermer</button>
         </div>
       </section>
     </div>
     <div class="pane-chips" id="pane-chips"></div>
     <div class="pane-menu">
-      <button id="pane-menu-toggle" type="button" aria-haspopup="true" aria-expanded="false">
-        Volets ▾
+      <button id="pane-menu-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Volets" data-i18n-aria-label="main.panes.menu">
+        <span class="pane-menu-icon" aria-hidden="true">▤</span><span class="pane-menu-word" data-i18n="main.panes.menu">Volets</span> ▾
       </button>
       <ul id="pane-menu-list" class="pane-menu-list" hidden></ul>
     </div>
     <a class="model-indicator" id="model-indicator" href="/diagnostic" hidden></a>
-    <select id="model-picker" class="model-picker" aria-label="Changer de modèle"></select>
-    <button type="button" id="model-picker-apply" class="model-picker-apply" hidden>Charger</button>
+    <select id="model-picker" class="model-picker" aria-label="Changer de modèle" data-i18n-aria-label="main.model.picker_label"></select>
+    <button type="button" id="model-picker-apply" class="model-picker-apply" hidden data-i18n="main.model.load">Charger</button>
     <span class="top-status" id="top-status" role="status" aria-live="polite"></span>
-    <button type="button" id="projection-toggle" class="projection-toggle" aria-pressed="false" aria-label="Mode projection" title="Mode projection : agrandit tous les textes pour la salle ; le navigateur s'en souvient"><span class="projection-toggle-long">Mode projection</span><span class="projection-toggle-short" aria-hidden="true">Projection</span><span class="projection-toggle-tiny" aria-hidden="true">Aa</span></button>
-    <a id="llm-link" class="screen-link" href="/llm" aria-label="LLM nu" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)"><span class="screen-link-long">LLM nu</span><span class="screen-link-short" aria-hidden="true">LLM</span></a>
-    <a id="rag-link" class="screen-link" href="/rag" aria-label="Atelier RAG" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)"><span class="screen-link-long">Atelier RAG</span><span class="screen-link-short" aria-hidden="true">RAG</span></a>
-    <span class="theme-picker-box" id="theme-picker-box">
-      <span class="theme-picker-face" aria-hidden="true"><span class="theme-picker-symbol" data-theme-symbol>◐</span><span class="theme-picker-chevron">▾</span></span>
-      <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" title="Thème de l'interface">
-        <option value="system">◐ Système</option>
-        <option value="light">☀ Clair</option>
-        <option value="dark">☾ Sombre</option>
-      </select>
-    </span>
-    <span class="language-picker-box" id="language-picker-box">
-      <span class="language-picker-face" aria-hidden="true"><span class="language-picker-code" id="language-picker-code">FR</span><span class="language-picker-chevron">▾</span></span>
-      <select id="language-picker" class="language-picker" autocomplete="off" aria-label="Langue">
-        <option value="fr" lang="fr">Français</option>
-        <option value="en" lang="en">English</option>
-        <option value="de" lang="de">Deutsch</option>
-      </select>
-    </span>
-    <button type="button" id="reset-button" class="reset-button">⟲ Réinitialiser</button>
+    <a id="llm-link" class="screen-link" href="/llm" aria-label="LLM nu" data-i18n-aria-label="common.links.llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title"><span class="screen-link-long" data-i18n="common.links.llm">LLM nu</span><span class="screen-link-short" aria-hidden="true">LLM</span></a>
+    <a id="rag-link" class="screen-link" href="/rag" aria-label="Atelier RAG" data-i18n-aria-label="common.links.rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title"><span class="screen-link-long" data-i18n="common.links.rag">Atelier RAG</span><span class="screen-link-short" aria-hidden="true">RAG</span></a>
+    <!-- Languages (2/5): « Affichage ▾ » holds the theme, the language and the projection mode
+         (decision of 2026-09-30); its face shows the theme's symbol and the language's code. -->
+    <div class="display-menu" id="display-menu">
+      <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="main.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="main.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
+      <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="main.display.menu" hidden>
+        <label class="display-menu-row"><span class="display-menu-label" data-i18n="main.display.theme">Thème</span>
+          <span class="theme-picker-box" id="theme-picker-box">
+            <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
+              <option value="system" data-i18n="common.theme.system">◐ Système</option>
+              <option value="light" data-i18n="common.theme.light">☀ Clair</option>
+              <option value="dark" data-i18n="common.theme.dark">☾ Sombre</option>
+            </select>
+          </span>
+        </label>
+        <label class="display-menu-row"><span class="display-menu-label" data-i18n="common.language.name">Langue</span>
+          <span class="language-picker-box" id="language-picker-box">
+            <select id="language-picker" class="language-picker" autocomplete="off" aria-label="Langue" data-i18n-aria-label="common.language.name">
+              <option value="fr" lang="fr">Français</option>
+              <option value="en" lang="en">English</option>
+              <option value="de" lang="de">Deutsch</option>
+            </select>
+          </span>
+        </label>
+        <div class="display-menu-row">
+          <button type="button" id="projection-toggle" class="projection-toggle" aria-pressed="false" title="Mode projection : agrandit tous les textes pour la salle ; le navigateur s'en souvient" data-i18n-title="main.projection.title" data-i18n="main.projection.name">Mode projection</button>
+        </div>
+      </div>
+    </div>
+    <button type="button" id="reset-button" class="reset-button" aria-label="Réinitialiser" data-i18n-aria-label="main.top_bar.reset"><span aria-hidden="true">⟲</span><span class="reset-word"> <span data-i18n="main.top_bar.reset">Réinitialiser</span></span></button>
   </header>
 
   <main class="layout" id="layout">
     <section class="pane" data-pane="bricks">
       <header class="pane-header">
         <div class="pane-heading">
-          <h2 class="pane-title">Panneau des briques</h2>
-          <p class="pane-subtitle">Branchez des pièces sur le modèle</p>
+          <h2 class="pane-title" data-i18n="main.pane_titles.bricks">Panneau des briques</h2>
+          <p class="pane-subtitle" data-i18n="main.pane_subtitles.bricks">Branchez des pièces sur le modèle</p>
         </div>
         <div class="pane-actions">
-          <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
-          <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
+          <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="main.panes.focus" aria-label="Mode focus" data-i18n-aria-label="main.panes.focus">⛶</button>
+          <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="main.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="main.panes.hide_short">—</button>
         </div>
       </header>
       <div class="pane-body" id="bricks"></div>
       <aside class="edit-drawer" id="edit-drawer" hidden role="dialog" aria-modal="true" aria-labelledby="edit-drawer-title">
-        <h3 id="edit-drawer-title">Prompt système</h3>
-        <p class="drawer-help">Placé avant la conversation, relu par le modèle à chaque appel. Prend effet au prochain tour.</p>
-        <textarea id="drawer-text" aria-label="Texte du prompt système" spellcheck="false"></textarea>
+        <h3 id="edit-drawer-title" data-i18n="main.drawer.title">Prompt système</h3>
+        <p class="drawer-help" data-i18n="main.drawer.help">Placé avant la conversation, relu par le modèle à chaque appel. Prend effet au prochain tour.</p>
+        <textarea id="drawer-text" aria-label="Texte du prompt système" data-i18n-aria-label="main.drawer.text_label" spellcheck="false"></textarea>
         <p class="drawer-alert" id="drawer-alert" role="alert" hidden></p>
         <p class="drawer-status" id="drawer-status" role="status"></p>
         <div class="drawer-actions">
-          <button type="button" id="drawer-save" class="primary">Enregistrer</button>
-          <button type="button" id="drawer-reset">Rétablir le prompt par défaut</button>
-          <button type="button" id="drawer-close">Fermer</button>
+          <button type="button" id="drawer-save" class="primary" data-i18n="common.save">Enregistrer</button>
+          <button type="button" id="drawer-reset" data-i18n="main.drawer.reset">Rétablir le prompt par défaut</button>
+          <button type="button" id="drawer-close" data-i18n="common.close">Fermer</button>
         </div>
         <div class="drawer-actions" id="drawer-dirty" hidden>
-          <button type="button" id="drawer-dirty-save" class="primary">Enregistrer</button>
-          <button type="button" id="drawer-dirty-discard">Abandonner</button>
+          <button type="button" id="drawer-dirty-save" class="primary" data-i18n="common.save">Enregistrer</button>
+          <button type="button" id="drawer-dirty-discard" data-i18n="main.drawer.discard">Abandonner</button>
         </div>
       </aside>
       <aside class="edit-drawer memory-drawer" id="memory-drawer" hidden role="dialog" aria-modal="true" aria-labelledby="memory-drawer-title">
         <header class="drawer-head">
-          <h3 id="memory-drawer-title">Mémoire globale</h3>
-          <button type="button" id="memory-x" class="drawer-x" aria-label="Fermer la mémoire globale" title="Fermer la mémoire globale">×</button>
+          <h3 id="memory-drawer-title" data-i18n="main.memory.title">Mémoire globale</h3>
+          <button type="button" id="memory-x" class="drawer-x" aria-label="Fermer la mémoire globale" data-i18n-aria-label="main.memory.close" title="Fermer la mémoire globale" data-i18n-title="main.memory.close">×</button>
         </header>
         <div class="drawer-scroll" id="memory-scroll">
-          <p class="drawer-help" id="memory-help">Placée dans le message système au début de chaque conversation. Une entrée écrite ou ajoutée n'y entre qu'à la prochaine conversation (après « Vider la conversation » ou un changement de scénario) ; une suppression ou une modification s'applique aussitôt.</p>
+          <p class="drawer-help" id="memory-help" data-i18n="main.memory.help">Placée dans le message système au début de chaque conversation. Une entrée écrite ou ajoutée n'y entre qu'à la prochaine conversation (après « Vider la conversation » ou un changement de scénario) ; une suppression ou une modification s'applique aussitôt.</p>
           <p class="drawer-help memory-path" id="memory-path"></p>
           <p class="memory-empty" id="memory-empty" hidden></p>
-          <ul class="memory-list" id="memory-list" aria-label="Entrées de la mémoire globale"></ul>
+          <ul class="memory-list" id="memory-list" aria-label="Entrées de la mémoire globale" data-i18n-aria-label="main.memory.list_label"></ul>
         </div>
         <footer class="drawer-foot" id="memory-foot">
           <p class="drawer-alert" id="memory-alert" role="alert" hidden></p>
           <div class="drawer-actions" id="memory-dirty" hidden>
-            <button type="button" id="memory-dirty-save" class="primary">Enregistrer</button>
-            <button type="button" id="memory-dirty-discard">Abandonner</button>
+            <button type="button" id="memory-dirty-save" class="primary" data-i18n="common.save">Enregistrer</button>
+            <button type="button" id="memory-dirty-discard" data-i18n="main.drawer.discard">Abandonner</button>
           </div>
           <div class="drawer-actions" id="memory-confirm" hidden>
-            <button type="button" id="memory-confirm-clear" class="danger is-confirm">Oui, tout effacer</button>
-            <button type="button" id="memory-confirm-cancel">Annuler</button>
+            <button type="button" id="memory-confirm-clear" class="danger is-confirm" data-i18n="main.memory.confirm_clear">Oui, tout effacer</button>
+            <button type="button" id="memory-confirm-cancel" data-i18n="common.cancel">Annuler</button>
           </div>
           <div class="drawer-actions">
-            <button type="button" id="memory-clear" class="danger">Tout effacer</button>
-            <button type="button" id="memory-close">Fermer</button>
+            <button type="button" id="memory-clear" class="danger" data-i18n="main.memory.clear">Tout effacer</button>
+            <button type="button" id="memory-close" data-i18n="common.close">Fermer</button>
           </div>
         </footer>
       </aside>
@@ -144,18 +156,18 @@
           <header class="pane-header">
             <span class="pane-step" aria-hidden="true">1</span>
             <div class="pane-heading">
-              <h2 class="pane-title">Vue humain</h2>
-              <p class="pane-subtitle">Ce que voit l'utilisateur</p>
+              <h2 class="pane-title" data-i18n="main.pane_titles.human">Vue humain</h2>
+              <p class="pane-subtitle" data-i18n="main.pane_subtitles.human">Ce que voit l'utilisateur</p>
             </div>
             <div class="pane-actions">
-              <label class="reasoning-toggle" title="Montre ou masque le raisonnement du modèle dans cette vue ; Contexte LLM le montre toujours.">
+              <label class="reasoning-toggle" title="Montre ou masque le raisonnement du modèle dans cette vue ; Contexte LLM le montre toujours." data-i18n-title="main.chat.show_reasoning_title">
                 <input type="checkbox" id="show-reasoning" checked />
-                Afficher le raisonnement
+                <span data-i18n="main.chat.show_reasoning">Afficher le raisonnement</span>
               </label>
-              <button type="button" id="replay-last" class="pane-text-action">Rejouer le dernier prompt</button>
-              <button type="button" id="clear-conversation" class="pane-text-action">Vider la conversation</button>
-              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
-              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
+              <button type="button" id="replay-last" class="pane-text-action" data-i18n="main.chat.replay_last">Rejouer le dernier prompt</button>
+              <button type="button" id="clear-conversation" class="pane-text-action" data-i18n="main.chat.clear">Vider la conversation</button>
+              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="main.panes.focus" aria-label="Mode focus" data-i18n-aria-label="main.panes.focus">⛶</button>
+              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="main.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="main.panes.hide_short">—</button>
             </div>
           </header>
           <div class="pane-body pane-body-human">
@@ -164,16 +176,16 @@
             <p class="composer-reason" id="composer-reason" hidden></p>
             <div class="scenario-guide" id="scenario-guide" hidden>
               <p class="scenario-guide-text" id="scenario-guide-text"></p>
-              <button type="button" class="scenario-guide-more" id="scenario-guide-more" aria-expanded="false" aria-controls="scenario-guide-text" hidden>Afficher plus</button>
+              <button type="button" class="scenario-guide-more" id="scenario-guide-more" aria-expanded="false" aria-controls="scenario-guide-text" hidden data-i18n="main.scenario.more">Afficher plus</button>
             </div>
             <div class="scenario-unavailable" id="scenario-unavailable" role="status" hidden></div>
-            <div class="suggested-prompts" id="suggested-prompts" role="group" aria-label="Prompts suggérés" hidden></div>
-            <div class="armed-chips-row" id="armed-chips" role="group" aria-label="Actions armées pour le prochain tour" hidden></div>
+            <div class="suggested-prompts" id="suggested-prompts" role="group" aria-label="Prompts suggérés" data-i18n-aria-label="main.scenario.prompts_label" hidden></div>
+            <div class="armed-chips-row" id="armed-chips" role="group" aria-label="Actions armées pour le prochain tour" data-i18n-aria-label="main.force.armed_label" hidden></div>
             <form class="composer" id="composer">
               <input id="composer-input" type="text" autocomplete="off"
-                     aria-label="Message" placeholder="Écrivez un message, puis Entrée" />
-              <button type="submit" id="composer-send">Envoyer</button>
-              <button type="button" id="composer-stop" class="composer-stop" hidden>Arrêter</button>
+                     aria-label="Message" data-i18n-aria-label="main.composer.label" placeholder="Écrivez un message, puis Entrée" data-i18n-placeholder="main.composer.placeholder" />
+              <button type="submit" id="composer-send" data-i18n="main.composer.send">Envoyer</button>
+              <button type="button" id="composer-stop" class="composer-stop" hidden data-i18n="main.composer.stop">Arrêter</button>
             </form>
           </div>
         </section>
@@ -182,13 +194,13 @@
           <header class="pane-header">
             <span class="pane-step" aria-hidden="true">2</span>
             <div class="pane-heading">
-              <h2 class="pane-title">Contexte LLM</h2>
-              <p class="pane-subtitle">Ce que le modèle lit, dans l'ordre</p>
+              <h2 class="pane-title" data-i18n="main.pane_titles.ctx">Contexte LLM</h2>
+              <p class="pane-subtitle" data-i18n="main.pane_subtitles.ctx">Ce que le modèle lit, dans l'ordre</p>
             </div>
             <div class="pane-actions">
-              <button type="button" id="compare-turns" class="pane-text-action">Comparer</button>
-              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
-              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
+              <button type="button" id="compare-turns" class="pane-text-action" data-i18n="main.compare.button">Comparer</button>
+              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="main.panes.focus" aria-label="Mode focus" data-i18n-aria-label="main.panes.focus">⛶</button>
+              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="main.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="main.panes.hide_short">—</button>
             </div>
           </header>
           <div class="pane-body" id="ctx"></div>
@@ -198,26 +210,26 @@
           <header class="pane-header">
             <span class="pane-step" aria-hidden="true">3</span>
             <div class="pane-heading">
-              <h2 class="pane-title">Orchestration</h2>
-              <p class="pane-subtitle">Ce que fait le harnais, pas à pas</p>
+              <h2 class="pane-title" data-i18n="main.pane_titles.orch">Orchestration</h2>
+              <p class="pane-subtitle" data-i18n="main.pane_subtitles.orch">Ce que fait le harnais, pas à pas</p>
             </div>
             <div class="pane-actions">
               <span class="working-indicator orch-working" id="orch-working" hidden>
                 <span class="working-dot" aria-hidden="true"></span>
                 <span id="orch-working-label"></span>
               </span>
-              <button type="button" id="follow-live" class="follow-live" hidden>● Suivre le direct</button>
-              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
-              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
+              <button type="button" id="follow-live" class="follow-live" hidden data-i18n="main.orch.follow_live">● Suivre le direct</button>
+              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="main.panes.focus" aria-label="Mode focus" data-i18n-aria-label="main.panes.focus">⛶</button>
+              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="main.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="main.panes.hide_short">—</button>
             </div>
           </header>
           <div class="pane-body pane-body-orch">
             <div class="orch-scroll" id="orch-scroll"></div>
-            <section class="event-log" id="event-log" aria-label="Journal des événements">
+            <section class="event-log" id="event-log" aria-label="Journal des événements" data-i18n-aria-label="main.log.label">
               <button type="button" class="event-log-head" id="event-log-head" aria-expanded="false">
                 <span class="event-log-chevron" id="event-log-chevron" aria-hidden="true">▸</span>
                 <span class="event-log-title" id="event-log-title">Journal des événements (0)</span>
-                <span class="event-log-sub">tout ce que le harnais émet, brut</span>
+                <span class="event-log-sub" data-i18n="main.log.sub">tout ce que le harnais émet, brut</span>
               </button>
             </section>
           </div>
@@ -228,16 +240,16 @@
         <header class="pane-header">
           <span class="pane-step" aria-hidden="true">4</span>
           <div class="pane-heading">
-            <h2 class="pane-title">Schéma d'architecture</h2>
-            <p class="pane-subtitle">Où tourne chaque pièce</p>
+            <h2 class="pane-title" data-i18n="main.pane_titles.schema">Schéma d'architecture</h2>
+            <p class="pane-subtitle" data-i18n="main.pane_subtitles.schema">Où tourne chaque pièce</p>
           </div>
           <div class="pane-actions">
-            <button type="button" class="pane-focus" data-action="focus" title="Mode focus" aria-label="Mode focus">⛶</button>
-            <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" aria-label="Masquer le volet">—</button>
+            <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="main.panes.focus" aria-label="Mode focus" data-i18n-aria-label="main.panes.focus">⛶</button>
+            <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="main.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="main.panes.hide_short">—</button>
           </div>
         </header>
         <div class="pane-body pane-body-schema">
-          <div class="arch" id="schema" role="group" aria-label="Schéma d'architecture : poste de travail et réseau"></div>
+          <div class="arch" id="schema" role="group" aria-label="Schéma d'architecture : poste de travail et réseau" data-i18n-aria-label="main.schema.label"></div>
           <p class="schema-outbound" id="schema-outbound"></p>
         </div>
       </section>
@@ -245,12 +257,12 @@
   </main>
 
   <dialog class="audit-dialog" id="audit-dialog" aria-labelledby="audit-dialog-title">
-    <h3 id="audit-dialog-title">Journal d'audit</h3>
-    <p class="drawer-help">Écrit par le hook de journalisation, en lecture seule. Le modèle ne le voit pas.</p>
+    <h3 id="audit-dialog-title" data-i18n="main.audit.title">Journal d'audit</h3>
+    <p class="drawer-help" data-i18n="main.audit.help">Écrit par le hook de journalisation, en lecture seule. Le modèle ne le voit pas.</p>
     <p class="drawer-help" id="audit-path"></p>
     <pre class="audit-text" id="audit-text" tabindex="0"></pre>
     <div class="drawer-actions">
-      <button type="button" id="audit-close" class="primary">Fermer</button>
+      <button type="button" id="audit-close" class="primary" data-i18n="common.close">Fermer</button>
     </div>
   </dialog>
 

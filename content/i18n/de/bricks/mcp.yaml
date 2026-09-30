@@ -1,0 +1,29 @@
+# German translation of content/bricks/mcp.yaml (languages 3/5, AD-19): same fields, same
+# paragraphs and lists, same `{servers}` placeholder (public MCP servers, filled by the
+# session).
+label_text: MCP
+category_text: Harness Engineering
+hosting_text: Lokal
+explanation_text:
+  - >-
+    Ein MCP-Server ist ein vom Harness getrenntes Programm, auf dem Arbeitsplatz oder im
+    Internet, das eigene Tools bereitstellt. Wird ein Server aktiviert, verbindet sich der
+    Harness mit ihm, fragt die Liste seiner Tools ab und beschreibt sie dem Modell wie seine
+    eigenen Tools, unter dem Namen „server__tool“.
+  - - >-
+      Mit vollständiger Dokumentation: Die Dokumentation jedes Tools kommt in den Kontext,
+      und die Füllstandsanzeige zeigt, was sie wiegt, Server für Server.
+    - >-
+      Mit Lazy Loading: Das Modell sieht nur eine Zeile pro Tool im Meta-Tool
+      load_tool_doc, und der Harness lädt eine Dokumentation erst, wenn das Modell sie
+      anfordert. Eine geladene Dokumentation beantwortet den Aufruf während der Runde, kommt
+      ab der nächsten Runde in die Liste der Tools (der Verlauf behält davon nur einen
+      kurzen Platzhalter) und bleibt bis „Unterhaltung leeren“ geladen.
+  - >-
+    Das Ankreuzen von „Lazy Loading“ zeigt sofort in der Füllstandsanzeige den
+    Token-Unterschied zwischen beiden Modi. Ein öffentlicher Server erhält die Daten jedes
+    Aufrufs: Sie erscheinen im Bereich Orchestrierung vor dem Ergebnis.
+outbound_text: >-
+  Können den Arbeitsplatz verlassen: {servers}. Was sie erhalten (Adresse, Header, Body):
+  Bereich Orchestrierung, Block „🌐 Ausgehende Daten“ der Verbindung und jedes Aufrufs; ein
+  Klick auf ihren 🌐-Knoten im Schema führt dorthin.

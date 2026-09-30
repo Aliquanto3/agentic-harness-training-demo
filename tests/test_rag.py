@@ -47,7 +47,7 @@ def rag_values(index: Path, **embedding: object) -> dict:
         "embedding": {
             "id": MODEL_ID,
             "backend": "llama_cpp",
-            "label_fr": "Faux embedding",
+            "label_text": "Faux embedding",
             "license": "MIT",
             "dims": DIMS,
             "max_tokens": 512,
@@ -177,7 +177,7 @@ def test_chunking_merges_paragraphs_and_cuts_a_long_one_at_a_sentence_end():
 def test_corpus_is_eight_french_documents_of_250_to_450_words():
     content = load_rag_content()
     assert len(content.documents) == 8
-    assert "fictifs" in content.notice_fr
+    assert "fictifs" in content.notice_text
     for doc in content.documents:
         text = (config.content_dir() / doc.file).read_text(encoding="utf-8")
         assert "<!-- Texte fictif rédigé pour WaveStack." in text  # kept, never indexed
@@ -225,7 +225,7 @@ def test_covered_question_places_three_excerpts_between_the_hook_and_the_message
     excerpts = ended.payload["excerpts"]
     assert len(excerpts) == 3 and excerpts[0]["doc_id"] == "mots_de_passe"
     assert [e["score"] for e in excerpts] == sorted((e["score"] for e in excerpts), reverse=True)
-    assert ended.payload["placement_fr"].startswith("Dans le message de l'utilisateur")
+    assert ended.payload["placement_text"].startswith("Dans le message de l'utilisateur")
     ctx = next(e.payload for e in events if e.kind == "context_rendered")
     kinds = [s["kind"] for s in segments(ctx) if s["kind"] != "template"]
     assert kinds == ["hook_injection", *["rag_excerpt"] * 4, "user_message"]
@@ -233,7 +233,7 @@ def test_covered_question_places_three_excerpts_between_the_hook_and_the_message
     assert {(s["brick"], s["component"]) for s in rag} == {("rag", "rag.retriever")}
     assert rag[0]["text"].startswith("Extraits de la documentation interne d'Exemplia")
     assert rag[1]["text"].startswith("Extrait 1 — Politique des mots de passe :\n")
-    assert [s["label_fr"] for s in rag] == ["Extraits RAG"] * 4
+    assert [s["label_text"] for s in rag] == ["Extraits RAG"] * 4
     session.close()
 
 
@@ -257,8 +257,8 @@ def test_index_absent_makes_the_brick_unavailable_without_step_nor_segment(tmp_p
     session, embedders = rag_session(rag_config(tmp_path / "absent.sqlite"))
 
     rag = card(session)
-    assert rag["available"] is False and "index absent" in rag["reason_fr"]
-    assert "scripts/build_rag_index.py" in rag["reason_fr"]
+    assert rag["available"] is False and "index absent" in rag["reason_text"]
+    assert "scripts/build_rag_index.py" in rag["reason_text"]
     assert rag["download"] is None and embedders.made == []
     events = turn_events(COVERED, session)
     assert not [e for e in events if e.kind.startswith("rag_search")]
@@ -275,9 +275,9 @@ def test_index_of_another_model_names_both_models(tmp_path):
 
     rag = card(session)
     assert rag["available"] is False
-    assert "autre-modele" in rag["reason_fr"] and MODEL_ID in rag["reason_fr"]
-    assert "Construire l'index" in rag["reason_fr"] and rag["download"] is None
-    assert rag["build_index"] == {"label_fr": "Construire l'index"}
+    assert "autre-modele" in rag["reason_text"] and MODEL_ID in rag["reason_text"]
+    assert "Construire l'index" in rag["reason_text"] and rag["download"] is None
+    assert rag["build_index"] == {"label_text": "Construire l'index"}
     assert embedders.made == []
     session.close()
 
@@ -286,11 +286,11 @@ def test_model_absent_offers_the_download(index):
     session, embedders = rag_session(rag_config(index))  # no model file
 
     rag = card(session)
-    assert rag["available"] is False and "modèle absent" in rag["reason_fr"]
-    assert str(config.models_dir() / "embedding") in rag["reason_fr"]
+    assert rag["available"] is False and "modèle absent" in rag["reason_text"]
+    assert str(config.models_dir() / "embedding") in rag["reason_text"]
     assert rag["download"] == {
         "target": "rag_embedding",
-        "label_fr": "Télécharger le modèle d'embedding (≈ 1 Mo)",
+        "label_text": "Télécharger le modèle d'embedding (≈ 1 Mo)",
     }
     assert embedders.made == []
     session.close()
@@ -302,7 +302,7 @@ def test_budget_exceeded_refuses_in_figures_and_loads_nothing(index):
 
     rag = card(session)
     assert rag["available"] is False
-    assert rag["reason_fr"] == (
+    assert rag["reason_text"] == (
         "Indisponible : Mémoire insuffisante pour charger le modèle d'embedding Faux "
         "embedding : WaveStack occupe 200 Mo, il en faut environ 1 de plus, au-delà du budget "
         "de 100 Mo (= plafond [memory] budget_mb). Désactivez une brique ou relevez "
@@ -333,10 +333,10 @@ def test_search_failure_is_traced_and_the_turn_goes_on_without_excerpts(index):
     kinds = [e.kind for e in events]
     error = kinds.index("harness_error")
     assert kinds.index("rag_search_started") < error < kinds.index("rag_search_ended")
-    assert events[error].payload["effect_fr"] == "Le tour continue sans extraits RAG."
+    assert events[error].payload["effect_text"] == "Le tour continue sans extraits RAG."
     ended = next(e for e in events if e.kind == "rag_search_ended").payload
     assert ended["status"] == "error" and ended["excerpts"] == []
-    assert "Le tour continue sans extraits RAG" in ended["error_fr"]
+    assert "Le tour continue sans extraits RAG" in ended["error_text"]
     assert next(e for e in events if e.kind == "turn_ended").payload["status"] == "completed"
     ctx = next(e.payload for e in events if e.kind == "context_rendered")
     assert segments(ctx, "rag_excerpt") == []
@@ -375,7 +375,7 @@ def test_a_turn_sent_while_the_model_loads_runs_without_rag(index):
     session.set_brick("rag", True)
     changed = [e for e in get_journal().events_since(mark) if e.kind == "bricks_changed"]
     rag = next(b for b in changed[-1].payload["bricks"] if b["id"] == "rag")
-    assert rag["available"] is False and rag["reason_fr"].startswith("Chargement du modèle")
+    assert rag["available"] is False and rag["reason_text"].startswith("Chargement du modèle")
 
     session.send(COVERED)
     gate.set()
@@ -449,7 +449,7 @@ def test_preview_places_the_longest_excerpts_of_the_index(index):
     longest = rag_index.longest_chunks(index, 3)
     assert len(rag) == 4 and rag[0]["text"].startswith("Extraits de la documentation")
     for i, (segment, chunk) in enumerate(zip(rag[1:], longest, strict=True), start=1):
-        assert segment["text"] == f"Extrait {i} — {chunk.title_fr} :\n{chunk.text}"
+        assert segment["text"] == f"Extrait {i} — {chunk.title_text} :\n{chunk.text}"
     every = sorted((len(c.text) for c in rag_index.read_chunks(index)), reverse=True)
     assert [len(c.text) for c in longest] == every[:3]
     session.close()
@@ -463,11 +463,11 @@ def test_schema_draws_the_index_file_and_the_retriever(index):
     edges = {(e["from"], e["to"]) for e in last_edges()}
     meta = rag_index.read_meta(index)
     assert nodes["file.rag_index"]["kind"] == "file"
-    assert nodes["file.rag_index"]["label_fr"] == "Index RAG (rag_index.sqlite)"
-    detail = nodes["file.rag_index"]["detail_fr"]
+    assert nodes["file.rag_index"]["label_text"] == "Index RAG (rag_index.sqlite)"
+    detail = nodes["file.rag_index"]["detail_text"]
     assert str(index) in detail and f"{meta.chunks} extraits" in detail and MODEL_ID in detail
     assert nodes["rag.retriever"]["kind"] == "brick"
-    assert nodes["rag.retriever"]["detail_fr"] == (
+    assert nodes["rag.retriever"]["detail_text"] == (
         f"Modèle d'embedding {MODEL_ID}, processus local"
     )
     assert ("rag.retriever", "file.rag_index") in edges
@@ -487,8 +487,8 @@ def test_overflow_mostly_from_excerpts_names_the_rag_cause(index):
     events = turn_events("Mot de passe ?", session)
 
     overflow = next(e.payload for e in events if e.kind == "context_overflow")
-    assert "Cause : les extraits RAG" in overflow["message_fr"]
-    assert "baissez [rag] top_k" in overflow["message_fr"]
+    assert "Cause : les extraits RAG" in overflow["message_text"]
+    assert "baissez [rag] top_k" in overflow["message_text"]
     session.close()
 
 
@@ -496,8 +496,8 @@ def test_invalid_embedding_section_makes_the_brick_unavailable_without_crash(ind
     session, embedders = rag_session(rag_config(index, dims=0))
 
     rag = card(session)
-    assert rag["available"] is False and "[rag.embedding] est invalide" in rag["reason_fr"]
-    assert "dims" in rag["reason_fr"] and embedders.made == []
+    assert rag["available"] is False and "[rag.embedding] est invalide" in rag["reason_text"]
+    assert "dims" in rag["reason_text"] and embedders.made == []
     session.close()
 
 
@@ -514,7 +514,7 @@ def test_state_and_scenario_rag(index):
     session.join()
     state = client.get("/api/state").json()
     rag = next(b for b in state["bricks_changed"]["bricks"] if b["id"] == "rag")
-    assert rag["wanted"] and rag["available"] is False and "modèle absent" in rag["reason_fr"]
+    assert rag["wanted"] and rag["available"] is False and "modèle absent" in rag["reason_text"]
     assert rag["download"]["target"] == "rag_embedding"
 
     launched = client.post("/api/intentions/scenario", json={"scenario_id": "rag"}, headers=HEADERS)

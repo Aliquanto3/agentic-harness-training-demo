@@ -14,6 +14,7 @@ from urllib.parse import quote
 import httpx
 
 from wavestack import config
+from wavestack.messages import Message, msg
 from wavestack.net.factory import create_client
 from wavestack.net.guard import NetworkBlocked
 from wavestack.tools.registry import ToolError, ToolSpec, Unreachable
@@ -21,7 +22,7 @@ from wavestack.tools.registry import ToolError, ToolSpec, Unreachable
 
 def send(
     preview: dict[str, str],
-    not_found_fr: str | None = None,
+    not_found_text: Message | None = None,
     check: Callable[[str], None] | None = None,
 ) -> httpx.Response:
     """Send `preview` as is; the service answered (even with an error) unless `Unreachable`.
@@ -39,18 +40,20 @@ def send(
                 follow_redirects=True,  # the factory hook runs again on every hop
             )
     except NetworkBlocked as exc:
-        raise Unreachable(f"Connexion refusée par le harnais ({exc}).") from None
+        raise Unreachable("tools.network.blocked", cause=exc) from None
     except httpx.RequestError as exc:
         raise Unreachable(
-            f"Service injoignable ({type(exc).__name__}) : le poste n'a pas accès à "
-            f"{httpx.URL(preview['url']).host}."
+            "tools.network.unreachable",
+            kind=type(exc).__name__,
+            host=httpx.URL(preview["url"]).host,
         ) from None
-    if response.status_code == 404 and not_found_fr:
-        raise ToolError(not_found_fr)
+    if response.status_code == 404 and not_found_text:
+        raise ToolError(not_found_text)
     if response.status_code >= 400:
         raise ToolError(
-            f"Le service a répondu par une erreur HTTP {response.status_code} "
-            f"({response.reason_phrase})."
+            "tools.network.http_error",
+            status=response.status_code,
+            reason=response.reason_phrase,
         )
     return response
 
@@ -100,10 +103,15 @@ def html_to_text(html: str) -> str:
 # ---------- the tools, closed over the configuration ----------
 
 
-def network_tools(cfg: config.Config) -> list[ToolSpec]:
+def network_tools(
+    cfg: config.Config, language: Callable[[], str] = lambda: config.DEFAULT_LANGUAGE
+) -> list[ToolSpec]:
+    """The network tools; `language` is the session's (languages 5/5), read at each call
+    for the texts a result carries (`fetch_page`'s cut)."""
+
     def holidays_preview(year: int) -> dict[str, str]:
         if not 1900 <= year <= 2100:
-            raise ToolError(f"Année refusée : {year}. Indiquez une année entre 1900 et 2100.")
+            raise ToolError("tools.network.year", year=year)
         return _get(f"https://calendrier.api.gouv.fr/jours-feries/metropole/{year}.json")
 
     def public_holidays(year: int) -> str:
@@ -112,13 +120,13 @@ def network_tools(cfg: config.Config) -> list[ToolSpec]:
 
     def wikipedia_preview(title: str) -> dict[str, str]:
         if not title.strip():
-            raise ToolError("Titre vide : indiquez le titre d'une page Wikipédia.")
+            raise ToolError("tools.network.empty_title")
         path = quote(title.strip().replace(" ", "_"), safe="")
         return _get(f"https://fr.wikipedia.org/api/rest_v1/page/summary/{path}")
 
     def wikipedia_summary(title: str) -> str:
-        absent = f"Page absente de Wikipédia : « {title} »."
-        summary = send(wikipedia_preview(title), not_found_fr=absent).json()
+        absent = Message("tools.network.page_absent", title=title)
+        summary = send(wikipedia_preview(title), not_found_text=absent).json()
         return f"{summary.get('title') or title}\n{summary.get('extract') or ''}".strip()
 
     def check_page_url(url: str) -> None:
@@ -128,10 +136,7 @@ def network_tools(cfg: config.Config) -> list[ToolSpec]:
         except httpx.InvalidURL:
             target = None
         if target is None or target.scheme != "https" or target.host not in hosts:
-            raise ToolError(
-                f"Adresse refusée : « {url} ». fetch_page n'accepte que des adresses https:// "
-                f"vers {', '.join(hosts)}."
-            )
+            raise ToolError("tools.network.url_refused", url=url, hosts=", ".join(hosts))
 
     def page_preview(url: str) -> dict[str, str]:
         check_page_url(url)
@@ -144,7 +149,8 @@ def network_tools(cfg: config.Config) -> list[ToolSpec]:
             text = html_to_text(text)
         limit = cfg.fetch_page_max_chars
         if len(text) > limit:
-            text = f"{text[:limit]}\n[Texte coupé à {limit} caractères sur {len(text)}.]"
+            cut = msg("tools.network.cut", language(), limit=limit, total=len(text))
+            text = f"{text[:limit]}\n{cut}"
         return text
 
     def spec(name: str, run, preview, params: dict[str, str]) -> ToolSpec:

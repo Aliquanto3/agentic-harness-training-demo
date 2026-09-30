@@ -1,8 +1,8 @@
 # Brique « RAG » (AD-12, AD-19, AD-22).
-label_fr: RAG
-category_fr: context engineering
-hosting_fr: Local
-explanation_fr:
+label_text: RAG
+category_text: context engineering
+hosting_text: Local
+explanation_text:
   - >-
     Le RAG, ce n'est pas le modèle qui sait : c'est le harnais qui cherche. À chaque tour,
     avant d'appeler le modèle, le harnais cherche dans un corpus les passages les plus

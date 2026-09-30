@@ -15,7 +15,8 @@ import httpx
 from pydantic import BaseModel, Field
 
 from wavestack import config
-from wavestack.models import servers
+from wavestack.messages import Message
+from wavestack.models import probe, servers
 
 CandidateSource = Literal["explicit", "models_dir", "hf_cache", "lm_studio", "ollama", "server"]
 CandidateStatus = Literal["found", "incompatible", "server"]
@@ -45,7 +46,7 @@ class ModelCandidate(BaseModel):
     # Lot E (E1): llama-server's context (`/props`), and the French warning when it is much
     # larger than the window (memory reserved for nothing: « relancez-le avec -c … »).
     n_ctx: int | None = None
-    warning_fr: str | None = None
+    warning_text: str | None = None
     # llama-server: its memory counts its context cache (the KV read in its GGUF); `False`
     # when the file could not be read here (the figure leaves the cache out).
     context_counted: bool | None = None
@@ -158,7 +159,7 @@ def _ollama_candidates() -> list[ModelCandidate]:
                         status="incompatible",
                         path=str(blob_path),
                         name=name,
-                        reason="Format de tenseur Ollama, non chargeable en processus.",
+                        reason=Message("models.discovery.ollama_tensor"),
                     )
                 )
     return candidates
@@ -202,15 +203,12 @@ def _server_candidates(
             blob = blobs.get(model.name)
             if blob is None or not blob.path:
                 candidate.status = "incompatible"
-                candidate.reason = (
-                    f"Fichier GGUF du modèle introuvable dans le dossier d'Ollama "
-                    f"({_ollama_root()}) : WaveStack ne peut pas lire son tokenizer."
-                )
+                candidate.reason = _blob_missing()
             elif blob.status != "found":
                 candidate.status, candidate.reason = "incompatible", blob.reason
             elif not _is_gguf(blob.path):
                 candidate.status = "incompatible"
-                candidate.reason = "Le fichier du modèle n'est pas un GGUF lisible."
+                candidate.reason = Message("models.discovery.not_gguf")
             else:
                 candidate.gguf_path = blob.path
         else:  # llama-server: the file it loaded, for its size and KV cache (AD-8)
@@ -219,7 +217,7 @@ def _server_candidates(
             candidate.server_template = model.chat_template
             candidate.native_context = model.n_ctx_train
             candidate.server_context = model.slot_ctx
-            candidate.warning_fr = servers.context_warning_fr(
+            candidate.warning_text = servers.context_warning_fr(
                 model.n_ctx, cfg.context_window, model.slot_ctx
             )
             candidate.context_counted = servers.served_kv(model, model.model_path) is not None
@@ -268,7 +266,7 @@ def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
                 source="explicit",
                 status="incompatible",
                 path=str(path),
-                reason="Fichier introuvable.",
+                reason=probe.not_found_fr(),
             )
         candidates.insert(0, explicit)
 
@@ -285,3 +283,26 @@ def _file_size(path: str) -> int | None:
         return Path(path).stat().st_size
     except OSError:
         return None
+
+
+def _blob_missing() -> Message:
+    return Message("models.discovery.blob_missing", root=str(_ollama_root()))
+
+
+def reason_message(reason: str | None) -> str | None:
+    """Languages (5/5): a candidate's `reason`, the `Message` it was written from when it is
+    one of discovery's or the probe's (a reason crosses pydantic, the probe's child process
+    and settings.json as its French text), for the session to render in its language; any
+    other text (a loader's, a server's) as it is."""
+    if not reason or isinstance(reason, Message):
+        return reason
+    known = (
+        probe.not_found_fr(),
+        probe.not_installed_fr(),
+        probe.incompatible_fr(),
+        probe.transient_fr(),
+        Message("models.discovery.ollama_tensor"),
+        Message("models.discovery.not_gguf"),
+        _blob_missing(),
+    )
+    return next((message for message in known if message == reason), reason)

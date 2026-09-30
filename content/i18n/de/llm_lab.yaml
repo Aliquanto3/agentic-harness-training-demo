@@ -1,0 +1,183 @@
+# German translation of content/llm_lab.yaml (languages 4/5, AD-19): same keys, same
+# placeholders.
+
+title_text: "Nacktes LLM: das Innere des Modells"
+intro_text: >-
+  Hier gibt es keinen Baustein: keinen System-Prompt, keinen Verlauf, kein Tool, kein
+  Gedächtnis. Wir sehen, was das Modell selbst tut: den Text in Tokens zerlegen, sie in
+  Vektoren umwandeln und dann eine Antwort erzeugen, Token für Token. Diese Ansicht arbeitet
+  mit dem aktiven Modell der Werkstatt, ohne deren Unterhaltung anzutasten.
+back_text: "← Werkstatt"
+change_model_text: "Modell in der Werkstatt wechseln"
+active_model_text: "Aktives Modell"
+no_model_text: "Kein aktives Modell: Wählen Sie eines in der Werkstatt."
+busy_text: "Derzeit nicht verfügbar: {raison}"
+
+sections:
+  tokenization:
+    title_text: "Tokenisierung und Vektorisierung"
+    intro_text: >-
+      Das Modell liest keine Buchstaben: Sein Tokenizer zerlegt den Text in Tokens,
+      Wortstücke aus einem festen Vokabular. Jedes Token hat eine Kennung, schlicht eine
+      Zeilennummer in der Embedding-Tabelle, die es in einen Zahlenvektor umwandelt.
+  sampling:
+    title_text: "Sampling-Einstellungen"
+    intro_text: >-
+      Bei jedem Schritt gibt das Modell jedem Token des Vokabulars eine Wahrscheinlichkeit.
+      Diese Einstellungen entscheiden, wie das nächste Token unter ihnen gezogen wird. Die
+      hier beschriebene Reihenfolge ist die von llama.cpp (Engine von WaveStack,
+      llama-server, Ollama): Top-k, dann Top-p, dann Min-p, dann die Temperatur; ein
+      Cloud-Anbieter kann seine eigenen anders anwenden.
+  loading:
+    title_text: "Laden des Modells"
+    intro_text: >-
+      Bevor es antwortet, muss das Modell im Speicher sein. Hier sind die Schritte des
+      letzten Ladens, ihre Dauer und der Speicher, den es belegt.
+  reading:
+    title_text: "Lesen des Prompts"
+    intro_text: >-
+      Der Prompt wird mit der Vorlage des Modells gerendert und dann in einem Block gelesen:
+      Das ist die Wartezeit bis zum ersten Token.
+  generation:
+    title_text: "Generierung"
+    intro_text: >-
+      Das Modell erzeugt seine Antwort Token für Token: Jedes gezogene Token wird wieder
+      gelesen, um das nächste zu ziehen.
+  reasoning:
+    title_text: "Denkprozess"
+    intro_text: >-
+      Ein Modell mit Denkprozess schreibt zuerst eine Überlegung, dann seine Antwort. Beide
+      sind Tokens, die auf dieselbe Weise erzeugt werden.
+
+tokenization:
+  prompt_label_text: "Zu zerlegender Text"
+  placeholder_text: "Schreiben Sie einen Text, zum Beispiel: Guten Tag, wie geht es Ihnen?"
+  default_text_text: "Guten Tag, wie geht es Ihnen?"
+  button_text: "In Tokens zerlegen"
+  running_text: "Zerlegung läuft…"
+  counts_text: "{tokens} Tokens für {caracteres} Zeichen"
+  more_text: "… und {reste} weitere Tokens, nicht angezeigt (höchstens 512 Chips)."
+  special_text: "Spezial"
+  special_help_text: >-
+    Spezial-Token: eine Markierung der Vorlage (Anfang oder Ende einer Nachricht), die als
+    ein einziges Token gelesen wird.
+  blanks_text: "␣ markiert ein Leerzeichen, ↵ einen Zeilenumbruch: Sie sind Tokens wie alle anderen."
+  exact_text: "Exakte Zerlegung durch den Tokenizer des aktiven Modells."
+  estimate_text: >-
+    Schätzung des Harness: ≈ {estimation} Tokens ({caracteres} Zeichen, bei {ratio} Zeichen
+    pro Token).
+  empty_text: "Zerlegen Sie einen Text: Seine Tokens erscheinen hier."
+
+vectorization:
+  title_text: "Vom Text zum Vektor"
+  help_text: >-
+    Jede Kennung wählt eine Zeile der Embedding-Tabelle. Diese Zeile ist ein Zahlenvektor,
+    den die Schichten des Modells nacheinander umwandeln.
+  unknown_text: "unbekannt"
+  steps:
+    text_text: "Text"
+    tokens_text: "Tokens"
+    ids_text: "Kennungen"
+    table_text: "Embedding-Tabelle"
+    table_caption_text: "{vocabulaire} Zeilen (Vokabular) × {dimension} Spalten (Dimension)"
+    params_text: "gelernte Zahlen: {parametres}"
+    vector_text: "Vektor"
+    vector_caption_text: "{dimension} Zahlen pro Token"
+    layers_text: "Schichten"
+    layers_caption_text: "{couches} Schichten, {tetes} Attention-Heads"
+    layers_only_caption_text: "{couches} Schichten"
+
+sampling:
+  reset_text: "Zurück zu den Werten des Harness"
+  unsupported_text: "Nicht einstellbar"
+  settings:
+    temperature:
+      label_text: "Temperatur"
+      help_text: >-
+        Glättet oder verschärft die Wahrscheinlichkeiten vor dem Ziehen. Bei 0 nimmt das
+        Modell immer das wahrscheinlichste Token (jedes Mal dieselbe Antwort); über 1 haben
+        auch unwahrscheinliche Tokens eine Chance.
+    top_k:
+      label_text: "Top-k"
+      help_text: >-
+        Behält nur die k wahrscheinlichsten Tokens; alle anderen werden vor dem Ziehen
+        verworfen. Bei 0 ist Top-k ausgeschaltet: Es verwirft kein Token.
+    top_p:
+      label_text: "Top-p"
+      help_text: >-
+        Behält die wahrscheinlichsten Tokens, bis ihre summierten Wahrscheinlichkeiten p
+        erreichen; 1 verwirft nichts.
+    min_p:
+      label_text: "Min-p"
+      help_text: >-
+        Verwirft jedes Token, dessen Wahrscheinlichkeit unter dem Min-p-Fachen der des
+        wahrscheinlichsten liegt; 0 verwirft nichts.
+
+reading:
+  empty_text: "Generieren Sie eine Antwort: Der von der Vorlage des Modells gerenderte Prompt erscheint hier."
+  rendered_label_text: "Von der Vorlage gerenderter Prompt (exakter, an das Modell gesendeter Text)"
+  body_label_text: "An den Anbieter gesendeter JSON-Body (die Vorlage wird dort angewendet)"
+  tokens_text: "{tokens} Tokens zu lesen, Ausgabereserve von {reserve} Tokens"
+  waiting_text: "Prompt wird gelesen… {duree}"
+  first_token_text: "Erstes Token nach {duree}"
+  read_rate_text: "Lesedurchsatz: {debit} Tokens/s"
+  read_rate_unknown_text: "Lesedurchsatz: von dieser Engine nicht gemeldet."
+  sampling_text: "Gesendetes Sampling: {reglages}"
+
+generation:
+  button_text: "Generieren"
+  stop_text: "Stoppen"
+  running_text: "Generierung läuft…"
+  empty_text: "Die erzeugten Tokens erscheinen hier, eines nach dem anderen."
+  count_text: "{tokens} Tokens erzeugt"
+  fragments_text: "{tokens} Fragmente empfangen"
+  rate_text: "Ausgabedurchsatz: {debit} Tokens/s"
+  cloud_text: >-
+    Cloud-Modell: Das sind vom Anbieter empfangene Fragmente, keine einzelnen Tokens. Der
+    Anbieter bündelt die Tokens nach Belieben, bevor er sie sendet.
+  server_text: >-
+    Bereitgestelltes Modell: Das sind die Stücke des Server-Streams, meist je ein Token,
+    aber nicht immer. Die exakte Token-Zahl ist die des Servers, im Ereignisprotokoll.
+  more_text: "… und {reste} weitere, nicht angezeigt (höchstens 512 Chips)."
+  status:
+    completed: "Antwort beendet."
+    cancelled: "Generierung gestoppt."
+    limit: "Ausgabereserve erreicht: Die Antwort ist abgeschnitten."
+    error: "Die Generierung ist fehlgeschlagen."
+
+loading:
+  empty_text: "Seit dem Start von WaveStack wurde kein Modell geladen."
+  running_text: "Laden läuft… {duree}"
+  total_text: "{modele}: {statut} in {duree}"
+  local_text: "Lokal: CPU-RAM, keine GPU. Das Modell läuft auf dem Prozessor dieses Arbeitsplatzes."
+  status:
+    ok: "geladen"
+    restored: "fehlgeschlagen, voriges Modell neu geladen"
+    cancelled: "Laden gestoppt"
+    error: "fehlgeschlagen"
+
+reasoning:
+  toggle_text: "Vor dem Antworten nachdenken"
+  always_text: "Immer: Dieses Modell denkt bei jeder Antwort nach."
+  thinking_text: "Überlegung"
+  answer_text: "Antwort"
+  empty_text: "Noch nichts."
+  count_text: "{tokens} Tokens"
+  fragments_count_text: "{tokens} Fragmente"
+  reserve_text: "Ausgabereserve: {reserve} Tokens, wenn das Modell nachdenkt."
+
+candidates:
+  toggle_text: "Kandidaten-Tokens zeigen"
+  help_text: >-
+    Für jedes erzeugte Token die fünf Tokens, die das Modell an dieser Stelle für am
+    wahrscheinlichsten hielt. Zeigen Sie mit der Maus auf einen Chip, geben Sie ihm den Fokus
+    oder klicken Sie darauf.
+  title_text: "Kandidaten für Token {index}"
+  probability_text: "Wahrscheinlichkeit des Modells"
+  chance_text: "Chance, gezogen zu werden: {chance}"
+  dropped_text: "von Top-k, Top-p oder Min-p verworfen"
+  chosen_text: "gezogen"
+  legend_text: >-
+    Die Wahrscheinlichkeit des Modells stammt aus seinen Logits (Temperatur 1). In der
+    Reihenfolge von llama.cpp verwerfen Top-k, Top-p und Min-p Kandidaten, dann verteilt die
+    Temperatur die Chance, gezogen zu werden, unter den verbleibenden neu.

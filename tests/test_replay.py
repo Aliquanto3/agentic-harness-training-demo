@@ -163,7 +163,7 @@ def test_replay_outside_idle_is_refused_and_changes_nothing():
     engine.gate.set()
     session.join()
 
-    assert "Un tour est déjà en cours" in refused.value.reason_fr
+    assert "Un tour est déjà en cours" in refused.value.reason_text
     assert branch(session) == ["t1", "t2"]
 
 

@@ -1,0 +1,26 @@
+# English translation of content/bricks/compression.yaml (languages 3/5, AD-19): same
+# fields, same number of paragraphs and bullets.
+label_text: Compression
+category_text: context engineering
+hosting_text: Local
+explanation_text:
+  - >-
+    Compression reduces what goes into the context: before calling the model, the harness
+    hands large tool results and RAG excerpts to Headroom, a library that shortens them,
+    then sends the short version. Caveman, for its part, reduces what comes out.
+  - >-
+    Headroom runs here without any machine learning model: it can reduce structured text
+    (JSON, logs) while keeping the lines that matter, such as an error. Prose goes through
+    as it is: on RAG excerpts the gain is often zero, and the step shows it.
+  - - "Gain: fewer tokens read, hence a faster first token and more room in the window."
+    - >-
+      Cost: what is cut is lost to the model. Headroom writes “Retrieve more” so that an
+      agent can fetch the rest, but WaveStack does not provide that retrieval tool: a
+      limit worth showing.
+    - >-
+      Data: Headroom runs inside the harness process, offline, without telemetry; nothing
+      leaves the workstation to be compressed.
+  - >-
+    A text the model has already read is never rewritten: each tool result is compressed
+    only once, just before the call that reads it, and the history keeps the version the
+    model read.

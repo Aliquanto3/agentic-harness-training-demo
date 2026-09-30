@@ -1,8 +1,8 @@
 # Brique « Hooks » (AD-12, AD-13, AD-19).
-label_fr: Hooks
-category_fr: harness engineering
-hosting_fr: Local
-explanation_fr:
+label_text: Hooks
+category_text: harness engineering
+hosting_text: Local
+explanation_text:
   - >-
     Un hook est du code déterministe que le harnais exécute à un point fixe du tour :
     réception du message, avant l'appel au modèle, avant et après un outil, fin du

@@ -1,6 +1,6 @@
 ---
 name: working_days
-label_fr: Jours ouvrés
+label_text: Jours ouvrés
 description: Compter les jours ouvrés d'une période avec les outils get_datetime, public_holidays (réseau) et calculator. À charger quand l'utilisateur demande combien de jours ouvrés ou travaillés compte une période.
 ---
 Compte les jours ouvrés (du lundi au vendredi, hors jours fériés) d'une période, en trois étapes, dans cet ordre.

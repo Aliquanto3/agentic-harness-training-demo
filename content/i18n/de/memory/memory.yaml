@@ -1,13 +1,13 @@
 # German translation of content/memory/memory.yaml (languages 1/5, AD-19): same fields,
 # same `{max_chars}` placeholder, as many demonstration entries (fictitious, NFR-11).
-file_label_fr: Globales Gedächtnis
+file_label_text: Globales Gedächtnis
 
 intro: >-
   Globales Gedächtnis: Informationen aus früheren Unterhaltungen mit dem Benutzer.
   Berücksichtige sie, wenn sie nützlich sind, ohne sie zu wiederholen.
 
 remember:
-  label_fr: Schreiben ins Gedächtnis
+  label_text: Schreiben ins Gedächtnis
   description: >-
     Merkt sich eine dauerhafte Information über den Benutzer (Vorliebe, Vorname,
     Arbeitskontext) für die nächsten Unterhaltungen. Rufe dieses Tool auf, wenn der Benutzer
@@ -16,13 +16,13 @@ remember:
   text: Die zu merkende Information, in einem kurzen, eigenständigen Satz.
 
 drawer:
-  empty_fr: >-
+  empty_text: >-
     Keine Information im globalen Gedächtnis. Das Modell kann welche schreiben, oder Sie
     können einen Schreibvorgang erzwingen.
-  empty_no_parser_fr: >-
+  empty_no_parser_text: >-
     Keine Information im globalen Gedächtnis. Das aktive Modell kann keine Tools aufrufen:
     Es kann keine schreiben, auch nicht durch einen erzwungenen Schreibvorgang.
-  text_help_fr: >-
+  text_help_text: >-
     Die zu merkende Information, in einem kurzen Satz (höchstens {max_chars} Zeichen).
     Niemals ein Geheimnis: Sie wird bei jedem Aufruf erneut gelesen.
 

@@ -1,6 +1,6 @@
 ---
 name: working_days
-label_fr: Working days
+label_text: Working days
 description: Count the working days of a period with the get_datetime, public_holidays (network) and calculator tools. Load it when the user asks how many working or business days a period has.
 ---
 Count the working days (Monday to Friday, public holidays excluded) of a period, in three steps, in this order.

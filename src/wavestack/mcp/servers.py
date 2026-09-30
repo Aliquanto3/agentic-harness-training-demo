@@ -42,24 +42,24 @@ def mcp_servers(cfg: config.Config) -> dict[str, McpServer]:
 
 
 class ServerText(BaseModel):
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
     # Story 34, public servers: what leaves the workstation on each call.
-    sends_fr: str | None = None
+    sends_text: str | None = None
 
 
 class LoadToolDocText(BaseModel):
     """The harness meta-tool of the lazy loading mode (AD-25)."""
 
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
     intro: str = Field(min_length=1)  # seen by the model, before one line per tool
     tool: str = Field(min_length=1)  # the `tool` parameter's description
 
 
 class CallPreset(BaseModel):
     """Lot K: arguments that prefill the form of an MCP tool's forced call, shown by
-    `label_fr` (the tool's parameters come from its server, at connection)."""
+    `label_text` (the tool's parameters come from its server, at connection)."""
 
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
     args: dict[str, Any]
 
 
@@ -67,7 +67,7 @@ class McpContent(BaseModel):
     """`content/mcp.yaml`."""
 
     servers: dict[str, ServerText]
-    lazy_label_fr: str = Field(min_length=1)
+    lazy_label_text: str = Field(min_length=1)
     load_tool_doc: LoadToolDocText
     # Lot K: the presets of « Forcer l'appel », by full tool name (`{server}__{tool}`).
     call_presets: dict[str, list[CallPreset]] = {}

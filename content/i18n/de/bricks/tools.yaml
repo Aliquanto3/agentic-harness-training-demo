@@ -1,0 +1,20 @@
+# German translation of content/bricks/tools.yaml (languages 3/5, AD-19): same fields, same
+# paragraphs, same `{tools}` and `{servers}` placeholders (network tools and public MCP
+# servers, filled by the session).
+label_text: Tools
+category_text: Harness Engineering
+hosting_text: Lokal
+explanation_text:
+  - >-
+    Ein Modell schreibt nur Text: Es kennt die Uhrzeit nicht, rechnet ungefähr und liest
+    keine Datei. Der Harness beschreibt ihm Tools; das Modell antwortet mit einer
+    Aufrufanforderung, die der Harness prüft, ausführt und in den Kontext einspeist, bevor
+    er das Modell erneut aufruft.
+  - >-
+    Die fünf Schritte (Beschreibung, Anforderung, Ausführung, Einspeisung, Antwort) und
+    jeder Fehlschlag erscheinen im Bereich Orchestrierung.
+outbound_text: >-
+  Können den Arbeitsplatz verlassen: {tools}, sowie die öffentlichen MCP-Server
+  ({servers}) des Bausteins MCP. Was sie senden (Adresse, Header, Body): Bereich
+  Orchestrierung, Block „🌐 Ausgehende Daten“ ihres Schritts; ein Klick auf ihren
+  🌐-Knoten im Schema führt dorthin.

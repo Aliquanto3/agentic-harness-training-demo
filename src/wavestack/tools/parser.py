@@ -4,7 +4,8 @@
   `</function></tool_call>`, values converted according to the tool's schema;
 - `hermes`: `<tool_call>{"name": ..., "arguments": {...}}</tool_call>`.
 
-A parse never raises: it returns the calls, or what is malformed and why, in French.
+A parse never raises: it returns the calls, or what is malformed and why (a `Message`,
+French as a text, rendered in the session's language by the executor).
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import string
 from dataclasses import dataclass, field
 from typing import Any
 
+from wavestack.messages import Message
 from wavestack.models.capabilities import TOOL_CALL_TAGS
 
 OPEN, CLOSE = TOOL_CALL_TAGS
@@ -47,7 +49,7 @@ class ToolCall:
 @dataclass(frozen=True)
 class Malformed:
     fragment: str  # the faulty part of the raw output
-    detail_fr: str
+    detail_text: str
 
 
 def convert_value(value: str, kind: str | None) -> Any:
@@ -70,11 +72,11 @@ def convert_value(value: str, kind: str | None) -> Any:
 def _qwen3_coder(inner: str, schemas: dict[str, dict[str, str]]) -> ToolCall | str:
     function = _FUNCTION.fullmatch(inner)
     if function is None:
-        return "la balise <function=…>…</function> est absente ou mal fermée"
+        return Message("tools.parser.function_tag")
     name, body = function.groups()
     params = _PARAMETER.findall(body)
     if len(params) != body.count("<parameter="):
-        return "une balise <parameter=…> n'est pas fermée par </parameter>"
+        return Message("tools.parser.parameter_unclosed")
     schema = schemas.get(name, {})
     arguments = {}
     for arg, value in params:
@@ -87,17 +89,17 @@ def _hermes(inner: str, _schemas: dict[str, dict[str, str]]) -> ToolCall | str:
     try:
         data = json.loads(inner)
     except ValueError as exc:
-        return f"le JSON de l'appel est illisible ({exc})"
+        return Message("tools.parser.json_unreadable", cause=exc)
     if not isinstance(data, dict) or not isinstance(data.get("name"), str):
-        return "l'appel n'est pas un objet JSON avec un champ « name »"
+        return Message("tools.parser.no_name")
     arguments = data.get("arguments", {})
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments)
         except ValueError:
-            return "le champ « arguments » n'est pas un objet JSON"
+            return Message("tools.parser.arguments_not_object")
     if not isinstance(arguments, dict):
-        return "le champ « arguments » n'est pas un objet JSON"
+        return Message("tools.parser.arguments_not_object")
     return ToolCall(data["name"], arguments)
 
 
@@ -114,7 +116,7 @@ def parse_tool_calls(
     while (start := raw.find(OPEN, pos)) >= 0:
         end = raw.find(CLOSE, start)
         if end < 0:
-            return [], Malformed(raw[start:], "la balise <tool_call> n'est jamais fermée")
+            return [], Malformed(raw[start:], Message("tools.parser.never_closed"))
         block = raw[start : end + len(CLOSE)]
         result = parse(raw[start + len(OPEN) : end], schemas)
         if isinstance(result, str):

@@ -1,0 +1,14 @@
+# German translation of content/compression.yaml (languages 3/5, AD-19): same fields, same
+# `{tool}`, `{n}` and `{min_chars}` placeholders.
+phase_label_text: Komprimierung des Kontexts…
+step_title_text: Komprimierung (Headroom)
+tool_source_text: Ergebnis des Tools „{tool}“
+rag_source_text: RAG-Auszug Nr. {n}
+unchanged_text: >-
+  Unverändert: Headroom kürzt diesen Text nicht (Fließtext, oder bereits kurz). Er geht so
+  mit, wie er ist.
+limits_text: >-
+  Komprimiert: die Tool-Ergebnisse (nativ, Netzwerk, MCP) und die RAG-Auszüge ab
+  {min_chars} Zeichen, im Hauptkontext. Nie: der Verlauf, die Skills, das Ergebnis des
+  Sub-Agenten, eine Ablehnung durch einen Hook. Ohne Wirkung, solange weder Tools (oder
+  MCP) noch RAG aktiv sind: Dann gibt es nichts zu komprimieren.

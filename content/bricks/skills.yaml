@@ -1,8 +1,8 @@
 # Brique « Skills » (AD-12, AD-19).
-label_fr: Skills
-category_fr: context engineering
-hosting_fr: Local
-explanation_fr:
+label_text: Skills
+category_text: context engineering
+hosting_text: Local
+explanation_text:
   - - >-
       Ce n'est pas un outil : il n'exécute rien, il dit au modèle comment s'y
       prendre, et peut lui conseiller des outils.
