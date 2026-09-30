@@ -147,20 +147,20 @@ def test_api_state_returns_the_most_recent_event_of_each_kind(monkeypatch, tmp_p
                     "id": "core.harness",
                     "kind": "harness",
                     "hosting": "local",
-                    "label_fr": "Harnais",
+                    "label_text": "Harnais",
                     "wanted": True,
                     "available": True,
-                    "reason_fr": None,
+                    "reason_text": None,
                 }
             ],
             "edges": [],
         },
     )
-    journal.emit("session_state", {"state": "idle", "reason_fr": "le plus récent"})
+    journal.emit("session_state", {"state": "idle", "reason_text": "le plus récent"})
 
     body = _client(app).get("/api/state").json()
 
-    assert body["session_state"]["reason_fr"] == "le plus récent"
+    assert body["session_state"]["reason_text"] == "le plus récent"
     assert body["seq"] == journal.last_seq()
 
 
@@ -185,7 +185,7 @@ def test_select_model_emits_initial_state_so_api_state_is_populated(monkeypatch,
     body = _client(app).get("/api/state").json()
     # The fake path cannot load: idle, but sending is unavailable with the reason.
     assert body["session_state"]["state"] == "idle"
-    assert "Envoi indisponible" in body["session_state"]["reason_fr"]
+    assert "Envoi indisponible" in body["session_state"]["reason_text"]
     assert body["architecture_changed"] is not None
 
 
@@ -204,8 +204,8 @@ class _FakeRequest:
 
 def test_stream_resumes_from_last_event_id_without_duplicates():
     journal = get_journal()
-    before = journal.emit("session_state", {"state": "idle", "reason_fr": None})
-    after = journal.emit("session_state", {"state": "idle", "reason_fr": "après reprise"})
+    before = journal.emit("session_state", {"state": "idle", "reason_text": None})
+    after = journal.emit("session_state", {"state": "idle", "reason_text": "après reprise"})
 
     async def _collect() -> str:
         response = _sse_stream(_FakeRequest(str(before.seq)))
@@ -246,7 +246,7 @@ async def _read_until(
             chunks.append(await asyncio.wait_for(anext(iterator), timeout=2))
 
     await _up_to(seq)
-    sentinel = get_journal().emit("session_state", {"state": "idle", "reason_fr": "fin"}).seq
+    sentinel = get_journal().emit("session_state", {"state": "idle", "reason_text": "fin"}).seq
     await _up_to(sentinel)
     request.gone = True
     chunks.extend([chunk async for chunk in iterator])
@@ -259,14 +259,14 @@ def test_stream_keeps_an_event_emitted_during_the_replay():
     journal = get_journal()
     start = journal.last_seq()
     replayed = [
-        journal.emit("session_state", {"state": "idle", "reason_fr": str(i)}) for i in range(3)
+        journal.emit("session_state", {"state": "idle", "reason_text": str(i)}) for i in range(3)
     ]
 
     async def _collect() -> tuple[int, list[str], int]:
         request = _OpenRequest(str(start))
         iterator = _sse_stream(request).body_iterator
         chunks = [await anext(iterator), await anext(iterator)]  # instance, first replayed
-        late = journal.emit("session_state", {"state": "idle", "reason_fr": "pendant le rejeu"})
+        late = journal.emit("session_state", {"state": "idle", "reason_text": "pendant le rejeu"})
         return late.seq, *await _read_until(iterator, request, late.seq, chunks)
 
     late_seq, chunks, sentinel = asyncio.run(_collect())
@@ -279,11 +279,11 @@ def test_stream_drops_the_overlap_between_subscription_and_snapshot(monkeypatch)
     sent once, from the snapshot."""
     journal = get_journal()
     start = journal.last_seq()
-    replayed = journal.emit("session_state", {"state": "idle", "reason_fr": "avant"})
+    replayed = journal.emit("session_state", {"state": "idle", "reason_text": "avant"})
     snapshot = journal.events_since
 
     def racing_events_since(seq: int):
-        journal.emit("session_state", {"state": "idle", "reason_fr": "course"})
+        journal.emit("session_state", {"state": "idle", "reason_text": "course"})
         return snapshot(seq)
 
     monkeypatch.setattr(journal, "events_since", racing_events_since)
@@ -309,7 +309,7 @@ def test_stream_with_an_id_of_another_instance_still_sends_live_events():
         request = _OpenRequest(str(journal.last_seq() + 1000))
         iterator = _sse_stream(request).body_iterator
         chunks = [await anext(iterator)]  # the instance
-        live = journal.emit("session_state", {"state": "idle", "reason_fr": "en direct"})
+        live = journal.emit("session_state", {"state": "idle", "reason_text": "en direct"})
         return live.seq, *await _read_until(iterator, request, live.seq, chunks)
 
     live_seq, chunks, sentinel = asyncio.run(_collect())
@@ -321,7 +321,7 @@ def test_stream_unsubscribes_when_the_client_leaves_during_the_replay():
     journal = get_journal()
     start = journal.last_seq()
     for i in range(3):
-        journal.emit("session_state", {"state": "idle", "reason_fr": str(i)})
+        journal.emit("session_state", {"state": "idle", "reason_text": str(i)})
     before = len(journal._subscribers)
 
     async def _leave() -> None:
@@ -340,7 +340,7 @@ def test_stream_starts_with_the_server_instance_outside_the_envelope():
     """A1: a tab left open across a relaunch learns, on reconnecting, that the journal
     behind the stream is another one, whatever `Last-Event-ID` it sends."""
     journal = get_journal()
-    journal.emit("session_state", {"state": "idle", "reason_fr": None})
+    journal.emit("session_state", {"state": "idle", "reason_text": None})
 
     async def _collect(last_event_id: str | None) -> str:
         response = _sse_stream(_FakeRequest(last_event_id))
@@ -413,4 +413,4 @@ def test_select_model_boots_the_found_candidate_path(monkeypatch, tmp_path):
     app_session.join()
 
     assert received == ["/fake/model.gguf"]
-    assert app_session.state == "idle" and app_session.reason_fr is None
+    assert app_session.state == "idle" and app_session.reason_text is None

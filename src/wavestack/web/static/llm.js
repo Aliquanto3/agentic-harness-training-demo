@@ -7,7 +7,7 @@ const $ = (id) => document.getElementById(id);
 
 const store = {
   content: null,
-  session: { state: "diagnostic", reason_fr: null },
+  session: { state: "diagnostic", reason_text: null },
   activeModel: null,
   tokenizer: null,
   serverInstance: null,
@@ -98,9 +98,9 @@ const EMPTY_PROMPT_FR = "Écrivez d'abord un texte (2 000 caractères au plus)."
 // ---------- state of the session: what may be asked now ----------
 
 function busyReason() {
-  if (!store.activeModel) return text("no_model_fr") || "Aucun modèle actif.";
-  const { state, reason_fr: reason } = store.session;
-  if (state !== "idle") return text("busy_fr", { raison: reason || state }) || reason || state;
+  if (!store.activeModel) return text("no_model_text") || "Aucun modèle actif.";
+  const { state, reason_text: reason } = store.session;
+  if (state !== "idle") return text("busy_text", { raison: reason || state }) || reason || state;
   return null;
 }
 
@@ -110,7 +110,7 @@ function renderModel() {
   const name = $("llm-model-name");
   tag.replaceChildren();
   if (!model) {
-    name.textContent = text("no_model_fr") || "Aucun modèle actif.";
+    name.textContent = text("no_model_text") || "Aucun modèle actif.";
     return;
   }
   const network = model.hosting === "network";
@@ -143,25 +143,25 @@ function renderContent() {
     const value = text(node.dataset.text);
     if (value) node.textContent = value;
   }
-  const title = text("title_fr");
+  const title = text("title_text");
   if (title) {
     $("llm-title").textContent = title;
     document.title = `WaveStack — ${title}`;
   }
-  $("llm-intro").textContent = text("intro_fr");
-  const back = text("back_fr");
+  $("llm-intro").textContent = text("intro_text");
+  const back = text("back_text");
   if (back) $("back-link").textContent = back;
-  const change = text("change_model_fr");
+  const change = text("change_model_text");
   if (change) $("llm-change-model").textContent = change;
-  const active = text("active_model_fr");
+  const active = text("active_model_text");
   if (active) $("llm-model-label").textContent = active;
   const prompt = $("llm-prompt");
-  prompt.placeholder = text("tokenization.placeholder_fr");
+  prompt.placeholder = text("tokenization.placeholder_text");
 }
 
 function renderTokenizerInfo() {
   const info = $("token-info");
-  info.textContent = store.tokenizer?.reason_fr || "";
+  info.textContent = store.tokenizer?.reason_text || "";
 }
 
 // ---------- section 1: tokenization and vectorization ----------
@@ -177,25 +177,25 @@ function renderTokenized(p) {
   chips.replaceChildren();
   if (!p.exact) {
     // A cloud model: its tokenizer is at its provider, no chip; the harness's estimate.
-    $("token-info").textContent = p.unavailable_fr || p.tokenizer_fr;
+    $("token-info").textContent = p.unavailable_text || p.tokenizer_text;
     counts.hidden = false;
-    counts.textContent = text("tokenization.estimate_fr", {
-      estimation: p.figures_fr.estimate,
-      caracteres: p.figures_fr.char_count,
-      ratio: p.figures_fr.chars_per_token,
+    counts.textContent = text("tokenization.estimate_text", {
+      estimation: p.figures_text.estimate,
+      caracteres: p.figures_text.char_count,
+      ratio: p.figures_text.chars_per_token,
     });
     more.hidden = true;
     blanks.hidden = true;
   } else {
-    $("token-info").textContent = p.tokenizer_fr;
+    $("token-info").textContent = p.tokenizer_text;
     counts.hidden = false;
-    counts.textContent = text("tokenization.counts_fr", {
-      tokens: p.figures_fr.token_count,
-      caracteres: p.figures_fr.char_count,
+    counts.textContent = text("tokenization.counts_text", {
+      tokens: p.figures_text.token_count,
+      caracteres: p.figures_text.char_count,
     });
     p.tokens.forEach((token, index) => chips.append(tokenChip(token, index)));
     more.hidden = !p.more;
-    more.textContent = p.more ? text("tokenization.more_fr", { reste: p.figures_fr.more }) : "";
+    more.textContent = p.more ? text("tokenization.more_text", { reste: p.figures_text.more }) : "";
     blanks.hidden = !p.tokens.length;
   }
   renderDiagram(p);
@@ -208,8 +208,8 @@ function tokenChip(token, index) {
   chip.append(el("span", "token-chip-id", String(token.id)));
   if (token.special) {
     chip.classList.add("is-special");
-    chip.append(el("span", "token-chip-special", text("tokenization.special_fr") || "spécial"));
-    chip.title = text("tokenization.special_help_fr");
+    chip.append(el("span", "token-chip-special", text("tokenization.special_text") || "spécial"));
+    chip.title = text("tokenization.special_help_text");
   }
   chip.setAttribute("aria-label", `« ${token.text} », identifiant ${token.id}`);
   return chip;
@@ -232,32 +232,32 @@ function renderDiagram(p) {
   const steps = $("embedding-steps");
   steps.replaceChildren();
   figure.hidden = false;
-  const unknown = text("vectorization.unknown_fr") || "inconnue";
+  const unknown = text("vectorization.unknown_text") || "inconnue";
   const dims = p.dimensions;
-  const figures = dims?.figures_fr || {};
+  const figures = dims?.figures_text || {};
   const s = (key, values) => text(`vectorization.steps.${key}`, values);
   const sample = p.text.length > 24 ? `${p.text.slice(0, 24)}…` : p.text;
-  steps.append(diagramStep(s("text_fr"), `« ${sample} »`, null, { isText: true }));
+  steps.append(diagramStep(s("text_text"), `« ${sample} »`, null, { isText: true }));
   if (p.exact) {
     const shown = p.tokens.slice(0, 4);
     steps.append(
       diagramStep(
-        s("tokens_fr"),
-        p.figures_fr.token_count,
+        s("tokens_text"),
+        p.figures_text.token_count,
         shown.map((t) => visibleBlanks(t.text)).join(" · ") + (p.token_count > 4 ? " …" : "")
       )
     );
     steps.append(
       diagramStep(
-        s("ids_fr"),
+        s("ids_text"),
         shown.map((t) => t.id).join(", ") + (p.token_count > 4 ? ", …" : ""),
         null,
         { isText: true }
       )
     );
   } else {
-    steps.append(diagramStep(s("tokens_fr"), `≈ ${p.figures_fr.estimate}`, null));
-    steps.append(diagramStep(s("ids_fr"), unknown, null, { unknown: true }));
+    steps.append(diagramStep(s("tokens_text"), `≈ ${p.figures_text.estimate}`, null));
+    steps.append(diagramStep(s("ids_text"), unknown, null, { unknown: true }));
   }
   const vocab = figures.vocab_size || unknown;
   const width = figures.embedding_length || unknown;
@@ -269,20 +269,20 @@ function renderDiagram(p) {
     row.append(cell);
   }
   const params = figures.embedding_params
-    ? s("params_fr", { parametres: figures.embedding_params })
+    ? s("params_text", { parametres: figures.embedding_params })
     : null;
   steps.append(
     diagramStep(
-      s("table_fr"),
+      s("table_text"),
       `${vocab} × ${width}`,
-      [s("table_caption_fr", { vocabulaire: vocab, dimension: width }), params]
+      [s("table_caption_text", { vocabulaire: vocab, dimension: width }), params]
         .filter(Boolean)
         .join(" · "),
       { unknown: !dims?.vocab_size && !dims?.embedding_length, extra: row }
     )
   );
   steps.append(
-    diagramStep(s("vector_fr"), width, s("vector_caption_fr", { dimension: width }), {
+    diagramStep(s("vector_text"), width, s("vector_caption_text", { dimension: width }), {
       unknown: !dims?.embedding_length,
     })
   );
@@ -291,13 +291,13 @@ function renderDiagram(p) {
   const layersCaption = !layers
     ? null
     : heads
-      ? s("layers_caption_fr", { couches: layers, tetes: heads })
-      : s("layers_only_caption_fr", { couches: layers });
+      ? s("layers_caption_text", { couches: layers, tetes: heads })
+      : s("layers_only_caption_text", { couches: layers });
   steps.append(
-    diagramStep(s("layers_fr"), layers || unknown, layersCaption, { unknown: !layers })
+    diagramStep(s("layers_text"), layers || unknown, layersCaption, { unknown: !layers })
   );
-  $("embedding-sentence").textContent = p.dimensions_fr || "";
-  $("embedding-source").textContent = dims?.source_fr || text("vectorization.help_fr");
+  $("embedding-sentence").textContent = p.dimensions_text || "";
+  $("embedding-source").textContent = dims?.source_text || text("vectorization.help_text");
 }
 
 async function tokenize() {
@@ -309,7 +309,7 @@ async function tokenize() {
     return;
   }
   status.classList.remove("is-error");
-  status.textContent = text("tokenization.running_fr") || "…";
+  status.textContent = text("tokenization.running_text") || "…";
   $("tokenize-button").disabled = true;
   const answer = await post("/api/intentions/llm_tokenize", { text: value });
   if (!answer.ok) {
@@ -374,7 +374,7 @@ function renderSampling() {
     const row = el("div", "sampling-row");
     row.dataset.setting = name;
     const head = el("div", "sampling-row-head");
-    const label = el("label", "", text(`sampling.settings.${name}.label_fr`) || name);
+    const label = el("label", "", text(`sampling.settings.${name}.label_text`) || name);
     const number = el("input");
     number.type = "number";
     number.id = `sampling-${name}`;
@@ -407,7 +407,7 @@ function renderSampling() {
     sync(number, range);
     sync(range, number);
     head.append(label, number);
-    row.append(head, range, el("span", "sampling-row-help", text(`sampling.settings.${name}.help_fr`)));
+    row.append(head, range, el("span", "sampling-row-help", text(`sampling.settings.${name}.help_text`)));
     if (reason) {
       row.classList.add("is-unsupported");
       const why = el("span", "sampling-row-reason", reason);
@@ -418,8 +418,8 @@ function renderSampling() {
     }
     box.append(row);
   }
-  $("sampling-source").textContent = sampling.source_fr || "";
-  $("sampling-defaults").textContent = sampling.defaults_fr || "";
+  $("sampling-source").textContent = sampling.source_text || "";
+  $("sampling-defaults").textContent = sampling.defaults_text || "";
 }
 
 function resetSampling() {
@@ -448,7 +448,7 @@ function samplingFr(trace) {
     part("top-p", trace.top_p),
     part("min-p", trace.min_p),
   ].join(" · ");
-  return trace.note_fr ? `${line} (${trace.note_fr})` : line;
+  return trace.note_text ? `${line} (${trace.note_text})` : line;
 }
 
 // ---------- sections 4 and 5: the prompt's reading, the generation token by token ----------
@@ -468,7 +468,7 @@ function startStopwatch(ts) {
   const tick = () => {
     if (store.gen.first) return stopStopwatch();
     const elapsed = Math.max(Date.now() - store.gen.callTs, 0);
-    $("reading-first-token").textContent = text("reading.waiting_fr", { duree: duration(elapsed) });
+    $("reading-first-token").textContent = text("reading.waiting_text", { duree: duration(elapsed) });
   };
   tick();
   store.gen.timer = setInterval(tick, 100);
@@ -482,13 +482,13 @@ function renderGenerationStarted(p) {
   store.gen.fragments = p.unit === "fragment";
   $("reading-empty").hidden = true;
   $("reading-body").hidden = false;
-  $("reading-label").textContent = text(p.exact ? "reading.rendered_label_fr" : "reading.body_label_fr");
+  $("reading-label").textContent = text(p.exact ? "reading.rendered_label_text" : "reading.body_label_text");
   $("reading-rendered").textContent = p.rendered;
-  $("reading-tokens").textContent = text("reading.tokens_fr", {
-    tokens: p.figures_fr.prompt_tokens,
-    reserve: p.figures_fr.reserve,
+  $("reading-tokens").textContent = text("reading.tokens_text", {
+    tokens: p.figures_text.prompt_tokens,
+    reserve: p.figures_text.reserve,
   });
-  $("reading-sampling").textContent = text("reading.sampling_fr", { reglages: samplingFr(p.sampling) });
+  $("reading-sampling").textContent = text("reading.sampling_text", { reglages: samplingFr(p.sampling) });
   $("reading-first-token").textContent = "";
   $("reading-rate").textContent = "";
   $("generation-tokens").replaceChildren();
@@ -499,21 +499,21 @@ function renderGenerationStarted(p) {
   $("generation-empty").hidden = true;
   const unitNote = $("generation-cloud");
   unitNote.hidden = !store.gen.fragments;
-  unitNote.textContent = text(p.exact ? "generation.server_fr" : "generation.cloud_fr");
+  unitNote.textContent = text(p.exact ? "generation.server_text" : "generation.cloud_text");
   $("generation-more").textContent = "";
   clearLanes();
   const status = $("generate-status");
   status.classList.remove("is-error");
-  status.textContent = text("generation.running_fr");
+  status.textContent = text("generation.running_text");
 }
 
 function renderToken(p) {
   store.gen.first = true;
-  $("generation-count").textContent = text(store.gen.fragments ? "generation.fragments_fr" : "generation.count_fr", {
+  $("generation-count").textContent = text(store.gen.fragments ? "generation.fragments_text" : "generation.count_text", {
     tokens: numberFr.format(p.index + 1),
   });
   if (p.index >= CHIP_LIMIT) {
-    $("generation-more").textContent = text("generation.more_fr", {
+    $("generation-more").textContent = text("generation.more_text", {
       reste: numberFr.format(p.index + 1 - CHIP_LIMIT),
     });
     return;
@@ -535,9 +535,9 @@ function renderToken(p) {
 function renderCallEnded(p) {
   stopStopwatch();
   store.gen.first = true;
-  $("reading-first-token").textContent = text("reading.first_token_fr", { duree: duration(p.prompt_ms) });
+  $("reading-first-token").textContent = text("reading.first_token_text", { duree: duration(p.prompt_ms) });
   if (p.output_tps !== null && p.output_tps !== undefined) {
-    $("generation-rate").textContent = text("generation.rate_fr", { debit: numberFr.format(p.output_tps) });
+    $("generation-rate").textContent = text("generation.rate_text", { debit: numberFr.format(p.output_tps) });
   }
 }
 
@@ -545,19 +545,19 @@ function renderGenerationEnded(p) {
   stopStopwatch();
   const status = $("generate-status");
   status.classList.toggle("is-error", p.status === "error");
-  status.textContent = [text(`generation.status.${p.status}`), p.message_fr].filter(Boolean).join(" ");
-  $("reading-rate").textContent = p.figures_fr?.read_tps
-    ? text("reading.read_rate_fr", { debit: p.figures_fr.read_tps })
+  status.textContent = [text(`generation.status.${p.status}`), p.message_text].filter(Boolean).join(" ");
+  $("reading-rate").textContent = p.figures_text?.read_tps
+    ? text("reading.read_rate_text", { debit: p.figures_text.read_tps })
     : store.gen.cloud
       ? ""
-      : text("reading.read_rate_unknown_fr");
+      : text("reading.read_rate_unknown_text");
   if (!$("generation-tokens").children.length) $("generation-empty").hidden = false;
-  const figures = p.figures_fr || {};
-  const count = store.gen.fragments ? "reasoning.fragments_count_fr" : "reasoning.count_fr";
+  const figures = p.figures_text || {};
+  const count = store.gen.fragments ? "reasoning.fragments_count_text" : "reasoning.count_text";
   $("lane-thinking-count").textContent = text(count, { tokens: figures.reasoning_tokens ?? "0" });
   $("lane-answer-count").textContent = text(count, { tokens: figures.answer_tokens ?? "0" });
   for (const id of ["lane-thinking", "lane-answer"]) {
-    if (!$(id).textContent) $(id).textContent = text("reasoning.empty_fr");
+    if (!$(id).textContent) $(id).textContent = text("reasoning.empty_text");
   }
 }
 
@@ -569,7 +569,7 @@ async function generate() {
     return;
   }
   status.classList.remove("is-error");
-  status.textContent = text("generation.running_fr");
+  status.textContent = text("generation.running_text");
   store.pending.generate = "…";
   renderBusy();
   const answer = await post("/api/intentions/llm_generate", {
@@ -613,7 +613,7 @@ function appendLoadStep(p) {
   const item = el("li", "load-step");
   item.dataset.step = p.step;
   item.append(el("span", "load-step-name", STEP_NAMES[p.step] || p.step));
-  item.append(el("span", "", p.label_fr));
+  item.append(el("span", "", p.label_text));
   item.append(el("span", "load-step-time", `${duration(p.duration_ms)} · à ${duration(p.elapsed_ms)}`));
   $("loading-steps").append(item);
 }
@@ -622,14 +622,14 @@ function renderLoadEnded(p) {
   stopLoadTimer();
   const status = text(`loading.status.${p.status}`) || p.status;
   $("loading-total").textContent = [
-    text("loading.total_fr", { modele: p.model.label, statut: status, duree: duration(p.duration_ms) }),
-    p.reason_fr,
+    text("loading.total_text", { modele: p.model.label, statut: status, duree: duration(p.duration_ms) }),
+    p.reason_text,
   ]
     .filter(Boolean)
     .join(" ");
   const memory = $("loading-memory");
   memory.hidden = !p.memory;
-  memory.textContent = p.memory?.where_fr || "";
+  memory.textContent = p.memory?.where_text || "";
   $("loading-local").hidden = !(p.status === "ok" && p.model.hosting === "local");
 }
 
@@ -642,7 +642,7 @@ function renderLoadStarted(envelope) {
   const since = Date.parse(envelope.ts);
   const tick = () => {
     const elapsed = Math.max(Date.now() - since, 0);
-    $("loading-total").textContent = `${envelope.payload.phase_label} ${text("loading.running_fr", {
+    $("loading-total").textContent = `${envelope.payload.phase_label} ${text("loading.running_text", {
       duree: duration(elapsed),
     })}`;
   };
@@ -679,14 +679,14 @@ function renderReasoning() {
   if (!can && !always) toggle.checked = false;
   box.classList.toggle("is-disabled", !can);
   $("reasoning-reason").textContent = always
-    ? text("reasoning.always_fr")
+    ? text("reasoning.always_text")
     : can
       ? ""
-      : r.reason_fr || "";
-  toggle.title = can ? "" : r.reason_fr || "";
+      : r.reason_text || "";
+  toggle.title = can ? "" : r.reason_text || "";
   $("reasoning-budget").textContent = [
-    r.budget_fr,
-    text("reasoning.reserve_fr", { reserve: numberFr.format(r.reserve) }),
+    r.budget_text,
+    text("reasoning.reserve_text", { reserve: numberFr.format(r.reserve) }),
   ]
     .filter(Boolean)
     .join(" ");
@@ -718,8 +718,8 @@ function renderCandidatesOffer() {
   toggle.disabled = !offer.available;
   if (!offer.available) toggle.checked = false;
   $("candidates-toggle-box").classList.toggle("is-disabled", !offer.available);
-  toggle.title = offer.reason_fr || "";
-  $("candidates-reason").textContent = offer.available ? text("candidates.help_fr") : offer.reason_fr;
+  toggle.title = offer.reason_text || "";
+  $("candidates-reason").textContent = offer.available ? text("candidates.help_text") : offer.reason_text;
 }
 
 function bindCandidates(chip, p) {
@@ -753,7 +753,7 @@ function showCandidates(chip, p) {
   }
   chip.setAttribute("aria-describedby", "candidates-popover");
   chip.setAttribute("aria-expanded", "true");
-  $("candidates-title").textContent = text("candidates.title_fr", { index: p.index + 1 });
+  $("candidates-title").textContent = text("candidates.title_text", { index: p.index + 1 });
   const list = $("candidates-list");
   list.replaceChildren();
   for (const c of p.candidates) {
@@ -768,9 +768,9 @@ function showCandidates(chip, p) {
     bar.setAttribute("aria-hidden", "true");
     row.append(bar, el("span", "candidate-p", percent.format(c.p)));
     const notes = [
-      text("candidates.chance_fr", { chance: percent.format(c.p_sampled) }),
-      c.kept ? null : text("candidates.dropped_fr"),
-      c.chosen ? text("candidates.chosen_fr") : null,
+      text("candidates.chance_text", { chance: percent.format(c.p_sampled) }),
+      c.kept ? null : text("candidates.dropped_text"),
+      c.chosen ? text("candidates.chosen_text") : null,
     ].filter(Boolean);
     row.append(el("span", "candidate-note", notes.join(" · ")));
     list.append(row);
@@ -796,7 +796,7 @@ function applyEnvelope(envelope) {
   store.lastSeq = envelope.seq;
   const p = envelope.payload;
   if (envelope.kind === "session_state") {
-    store.session = { state: p.state, reason_fr: p.reason_fr };
+    store.session = { state: p.state, reason_text: p.reason_text };
     if (p.active_model !== undefined) store.activeModel = p.active_model;
     renderModel();
     renderBusy();
@@ -836,7 +836,7 @@ function applyEnvelope(envelope) {
     case "reasoning_cut": {
       const cut = $("lane-cut");
       cut.hidden = false;
-      cut.textContent = p.message_fr;
+      cut.textContent = p.message_text;
       break;
     }
     case "model_call_ended":
@@ -854,7 +854,7 @@ function applyEnvelope(envelope) {
         store.pending.tokenize = null;
         const status = $("tokenize-status");
         status.classList.add("is-error");
-        status.textContent = [p.message_fr, p.cause].filter(Boolean).join(" ");
+        status.textContent = [p.message_text, p.cause].filter(Boolean).join(" ");
         renderBusy();
       }
       break;
@@ -937,8 +937,8 @@ async function refresh() {
   store.candidates = body.candidates;
   store.lastLoad = body.last_load;
   const alert = $("llm-content-error");
-  alert.hidden = !body.content_error_fr;
-  alert.textContent = body.content_error_fr || "";
+  alert.hidden = !body.content_error_text;
+  alert.textContent = body.content_error_text || "";
   renderContent();
   renderModel();
   renderTokenizerInfo();
@@ -958,8 +958,8 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 2000));
     body = await refresh();
   }
-  $("llm-content-error").hidden = !body.content_error_fr;
-  prompt.value = loadDraft() ?? (text("tokenization.default_text_fr") || "");
+  $("llm-content-error").hidden = !body.content_error_text;
+  prompt.value = loadDraft() ?? (text("tokenization.default_text_text") || "");
   prompt.addEventListener("input", () => saveDraft(prompt.value));
   $("tokenize-button").addEventListener("click", tokenize);
   $("generate-button").addEventListener("click", generate);

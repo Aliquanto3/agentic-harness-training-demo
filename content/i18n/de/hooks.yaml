@@ -2,23 +2,23 @@
 # points, same `{date}` placeholder (H3 writes the date in German).
 hooks:
   h1:
-    label_fr: Schutz sensibler Dateien
-    description_fr: >-
+    label_text: Schutz sensibler Dateien
+    description_text: >-
       Vor der Ausführung eines Tools: blockiert jeden Lesezugriff im vertraulichen
       Ordner der Demo-Dateien.
   h2:
-    label_fr: Protokollierung
-    description_fr: >-
+    label_text: Protokollierung
+    description_text: >-
       Nach jedem Tool und am Ende der Runde: trägt die Modellaufrufe, die
       Tool-Aufrufe, die Blockierungen und das Ende der Runde ins Audit-Protokoll ein.
   h3:
-    label_fr: Kontextinjektion
-    description_fr: >-
+    label_text: Kontextinjektion
+    description_text: >-
       Beim Eingang der Nachricht: stellt ihr das Datum des Arbeitsplatzes und die
       Regeln der Mission voran.
   h5:
-    label_fr: Menschliche Freigabe
-    description_fr: >-
+    label_text: Menschliche Freigabe
+    description_text: >-
       Vor der Ausführung eines Netzwerk-Tools: hält die Runde an und zeigt Ihnen
       die genaue Anfrage, die den Arbeitsplatz verlassen würde; sie wird nur
       gesendet, wenn Sie sie erlauben.
@@ -32,4 +32,4 @@ injection: >-
   Datum und Uhrzeit des Arbeitsplatzes: {date}. Regeln der Mission: Antworte auf
   Deutsch und bleib sachlich; nutze nur die Dateien des Demo-Ordners; weise auf
   jede Anfrage hin, die vertrauliche Daten berühren würde.
-audit_label_fr: Audit-Protokoll
+audit_label_text: Audit-Protokoll

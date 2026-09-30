@@ -51,11 +51,11 @@ class StopToken(CancelToken):
 
 
 class DownloadError(Exception):
-    """A download that did not complete: `reason_fr` says why, in French."""
+    """A download that did not complete: `reason_text` says why, in French."""
 
-    def __init__(self, reason_fr: str, *, cancelled: bool = False) -> None:
-        super().__init__(reason_fr)
-        self.reason_fr = reason_fr
+    def __init__(self, reason_text: str, *, cancelled: bool = False) -> None:
+        super().__init__(reason_text)
+        self.reason_text = reason_text
         self.cancelled = cancelled
 
 

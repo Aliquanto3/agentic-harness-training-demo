@@ -82,7 +82,7 @@ def corpus_digest(chunks: Sequence[Chunk]) -> str:
 
 def passage_text(chunk: Chunk) -> str:
     """What is embedded for a chunk: its document's title, then its text."""
-    return f"{chunk.title_fr}\n{chunk.text}"
+    return f"{chunk.title_text}\n{chunk.text}"
 
 
 def file_sha256(path: Path) -> str:
@@ -203,7 +203,7 @@ def _fill(
     for i, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True), start=1):
         conn.execute(
             "INSERT INTO chunks (id, doc_id, title_fr, position, text) VALUES (?, ?, ?, ?, ?)",
-            (i, chunk.doc_id, chunk.title_fr, chunk.position, chunk.text),
+            (i, chunk.doc_id, chunk.title_text, chunk.position, chunk.text),
         )
         conn.execute(
             f"INSERT INTO {VEC_TABLE} (rowid, embedding) VALUES (?, ?)",
@@ -235,7 +235,7 @@ def read_chunks(path: Path) -> list[Chunk]:
     conn = connect(path)
     try:
         rows = conn.execute(
-            "SELECT doc_id, title_fr, position, text FROM chunks ORDER BY id"
+            "SELECT doc_id, title_fr AS title_text, position, text FROM chunks ORDER BY id"
         ).fetchall()
     finally:
         conn.close()
@@ -247,7 +247,7 @@ def longest_chunks(path: Path, n: int) -> list[Chunk]:
     conn = connect(path)
     try:
         rows = conn.execute(
-            "SELECT doc_id, title_fr, position, text FROM chunks "
+            "SELECT doc_id, title_fr AS title_text, position, text FROM chunks "
             "ORDER BY length(text) DESC, id LIMIT ?",
             (n,),
         ).fetchall()

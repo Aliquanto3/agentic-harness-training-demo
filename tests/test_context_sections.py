@@ -28,7 +28,7 @@ def seg(
     brick: str | None = "",
     component: str | None = None,
     estimated: bool = False,
-    label_fr: str | None = None,
+    label_text: str | None = None,
 ) -> Segment:
     return Segment(
         id=f"t1.main.c1.{n}",
@@ -38,7 +38,7 @@ def seg(
         text=f"{kind.value}-{n}" if text is None else text,
         tokens=tokens,
         estimated=estimated,
-        label_fr=label_fr,
+        label_text=label_text,
     )
 
 
@@ -63,7 +63,7 @@ def test_simple_sources_give_one_section_per_segment():
 
     assert _cuts(payload) == [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]
     labels = load_labels()
-    assert [s["label_fr"] for s in payload["sections"]] == [
+    assert [s["label_text"] for s in payload["sections"]] == [
         labels.kinds[k] for k in (T, SP, T, UM, T)
     ]
     assert [s["discipline"] for s in payload["sections"]] == [
@@ -111,12 +111,12 @@ def test_a_segment_with_its_own_label_stands_alone():
         seg(0, T, 0, estimated=True),
         seg(1, UM, 4, estimated=True),
         seg(2, T, 0, estimated=True),
-        seg(3, T, 12, text="", estimated=True, label_fr=provider),
+        seg(3, T, 12, text="", estimated=True, label_text=provider),
     ]
     payload = _gauge(segments)
 
     assert _cuts(payload) == [(0, 1), (1, 2), (2, 3), (3, 4)]
-    assert payload["sections"][-1]["label_fr"] == provider
+    assert payload["sections"][-1]["label_text"] == provider
     assert all(s["estimated"] for s in payload["sections"])
 
 
@@ -172,7 +172,7 @@ def test_the_seen_boundary_after_a_tool_call_always_cuts():
     for s in payload["sections"]:  # no section straddles the boundary
         assert s["end"] <= seen or s["start"] >= seen
     tool = next(s for s in payload["sections"] if s["kind"] == "tool_result")
-    assert tool["seen"] is False and tool["label_fr"] == load_labels().kinds[TR]
+    assert tool["seen"] is False and tool["label_text"] == load_labels().kinds[TR]
 
 
 def test_the_boundary_splits_what_would_otherwise_merge():

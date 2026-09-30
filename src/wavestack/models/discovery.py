@@ -45,7 +45,7 @@ class ModelCandidate(BaseModel):
     # Lot E (E1): llama-server's context (`/props`), and the French warning when it is much
     # larger than the window (memory reserved for nothing: « relancez-le avec -c … »).
     n_ctx: int | None = None
-    warning_fr: str | None = None
+    warning_text: str | None = None
     # llama-server: its memory counts its context cache (the KV read in its GGUF); `False`
     # when the file could not be read here (the figure leaves the cache out).
     context_counted: bool | None = None
@@ -219,7 +219,7 @@ def _server_candidates(
             candidate.server_template = model.chat_template
             candidate.native_context = model.n_ctx_train
             candidate.server_context = model.slot_ctx
-            candidate.warning_fr = servers.context_warning_fr(
+            candidate.warning_text = servers.context_warning_fr(
                 model.n_ctx, cfg.context_window, model.slot_ctx
             )
             candidate.context_counted = servers.served_kv(model, model.model_path) is not None

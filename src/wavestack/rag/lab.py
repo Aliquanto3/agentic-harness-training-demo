@@ -100,78 +100,78 @@ class _Strict(BaseModel):
 
 
 class StageText(_Strict):
-    label_fr: str = Field(min_length=1)
-    explain_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
+    explain_text: str = Field(min_length=1)
 
 
 class OptionText(_Strict):
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
 
 
 class ParamText(_Strict):
-    label_fr: str = Field(min_length=1)
-    unit_fr: str = ""
+    label_text: str = Field(min_length=1)
+    unit_text: str = ""
 
 
 class StatusTexts(_Strict):
-    waiting_fr: str
-    running_fr: str
-    ok_fr: str
-    error_fr: str
-    skipped_fr: str
-    cancelled_fr: str
-    not_run_fr: str
+    waiting_text: str
+    running_text: str
+    ok_text: str
+    error_text: str
+    skipped_text: str
+    cancelled_text: str
+    not_run_text: str
 
 
 class ColumnTexts(_Strict):
-    rank_fr: str
-    before_fr: str
-    document_fr: str
-    score_fr: str
+    rank_text: str
+    before_text: str
+    document_text: str
+    score_text: str
 
 
 class RagLabContent(_Strict):
     """`content/rag_lab.yaml`: every French text of the page, a text per kind of stage, per
     option and per setting."""
 
-    title_fr: str = Field(min_length=1)
-    intro_fr: str = Field(min_length=1)
-    back_fr: str = Field(min_length=1)
-    busy_fr: str = Field(min_length=1)
-    chain_title_fr: str = Field(min_length=1)
-    chain_help_fr: str = Field(min_length=1)
-    question_label_fr: str = Field(min_length=1)
-    question_placeholder_fr: str = Field(min_length=1)
-    default_question_fr: str = Field(min_length=1, max_length=QUESTION_MAX)
-    run_fr: str = Field(min_length=1)
-    stop_fr: str = Field(min_length=1)
-    running_fr: str = Field(min_length=1)
-    results_title_fr: str = Field(min_length=1)
-    results_empty_fr: str = Field(min_length=1)
-    generation_not_run_fr: str = Field(min_length=1)
-    borrowed_fr: str = Field(min_length=1)
-    loaded_fr: str = Field(min_length=1)
-    input_fr: str = Field(min_length=1)
-    output_fr: str = Field(min_length=1)
-    facts_fr: str = Field(min_length=1)
-    duration_fr: str = Field(min_length=1)
-    memory_fr: str = Field(min_length=1)
-    last_run_fr: str = Field(min_length=1)
-    compare_fr: str = Field(min_length=1)
-    add_fr: str = Field(min_length=1)
-    add_button_fr: str = Field(min_length=1)
-    move_before_fr: str = Field(min_length=1)
-    move_after_fr: str = Field(min_length=1)
-    remove_fr: str = Field(min_length=1)
-    reset_chain_fr: str = Field(min_length=1)
-    chain_a_fr: str = Field(min_length=1)
-    chain_b_fr: str = Field(min_length=1)
-    unavailable_fr: str = Field(min_length=1)
-    comparison_title_fr: str = Field(min_length=1)
-    common_fr: str = Field(min_length=1)
-    only_a_fr: str = Field(min_length=1)
-    only_b_fr: str = Field(min_length=1)
-    rank_changes_fr: str = Field(min_length=1)
+    title_text: str = Field(min_length=1)
+    intro_text: str = Field(min_length=1)
+    back_text: str = Field(min_length=1)
+    busy_text: str = Field(min_length=1)
+    chain_title_text: str = Field(min_length=1)
+    chain_help_text: str = Field(min_length=1)
+    question_label_text: str = Field(min_length=1)
+    question_placeholder_text: str = Field(min_length=1)
+    default_question_text: str = Field(min_length=1, max_length=QUESTION_MAX)
+    run_text: str = Field(min_length=1)
+    stop_text: str = Field(min_length=1)
+    running_text: str = Field(min_length=1)
+    results_title_text: str = Field(min_length=1)
+    results_empty_text: str = Field(min_length=1)
+    generation_not_run_text: str = Field(min_length=1)
+    borrowed_text: str = Field(min_length=1)
+    loaded_text: str = Field(min_length=1)
+    input_text: str = Field(min_length=1)
+    output_text: str = Field(min_length=1)
+    facts_text: str = Field(min_length=1)
+    duration_text: str = Field(min_length=1)
+    memory_text: str = Field(min_length=1)
+    last_run_text: str = Field(min_length=1)
+    compare_text: str = Field(min_length=1)
+    add_text: str = Field(min_length=1)
+    add_button_text: str = Field(min_length=1)
+    move_before_text: str = Field(min_length=1)
+    move_after_text: str = Field(min_length=1)
+    remove_text: str = Field(min_length=1)
+    reset_chain_text: str = Field(min_length=1)
+    chain_a_text: str = Field(min_length=1)
+    chain_b_text: str = Field(min_length=1)
+    unavailable_text: str = Field(min_length=1)
+    comparison_title_text: str = Field(min_length=1)
+    common_text: str = Field(min_length=1)
+    only_a_text: str = Field(min_length=1)
+    only_b_text: str = Field(min_length=1)
+    rank_changes_text: str = Field(min_length=1)
     status: StatusTexts
     columns: ColumnTexts
     stages: dict[str, StageText]
@@ -227,7 +227,7 @@ class Stage(_Strict):
 class Pipeline(_Strict):
     """A chain: its name (« A », « B ») and its stages, in order."""
 
-    label_fr: str = Field(default="A", min_length=1, max_length=40)
+    label_text: str = Field(default="A", min_length=1, max_length=40)
     stages: list[Stage] = Field(min_length=1, max_length=12)
 
     def find(self, kind: str) -> Stage | None:
@@ -247,7 +247,7 @@ def default_pipeline(cfg: config.Config) -> Pipeline:
         ("generation", "not_run", {}),
     ]
     return Pipeline(
-        label_fr="A",
+        label_text="A",
         stages=[
             Stage(id=f"s{i}", kind=kind, option=option, params=params)
             for i, (kind, option, params) in enumerate(stages, start=1)
@@ -260,10 +260,10 @@ class OptionState:
     """What the page shows of an option: its name, whether it can be chosen (with why not),
     and a note on what a run would meet (a model missing, the brick's index stale)."""
 
-    label_fr: str
+    label_text: str
     available: bool = True
-    reason_fr: str | None = None
-    note_fr: str | None = None
+    reason_text: str | None = None
+    note_text: str | None = None
 
 
 @dataclass
@@ -297,8 +297,8 @@ class Catalog:
                     params.append(
                         {
                             "name": name,
-                            "label_fr": self.content.params[name].label_fr,
-                            "unit_fr": self.content.params[name].unit_fr,
+                            "label_text": self.content.params[name].label_text,
+                            "unit_text": self.content.params[name].unit_text,
                             "min": low,
                             "max": high,
                             "default": param(Stage(id="x", kind=kind, option=option), name, self),
@@ -307,18 +307,18 @@ class Catalog:
                 options.append(
                     {
                         "id": option,
-                        "label_fr": state.label_fr,
+                        "label_text": state.label_text,
                         "available": state.available,
-                        "reason_fr": state.reason_fr,
-                        "note_fr": state.note_fr,
+                        "reason_text": state.reason_text,
+                        "note_text": state.note_text,
                         "params": params,
                     }
                 )
             stages.append(
                 {
                     "kind": kind,
-                    "label_fr": text.label_fr,
-                    "explain_fr": text.explain_fr,
+                    "label_text": text.label_text,
+                    "explain_text": text.explain_text,
                     "movable": kind in RETRIEVAL,
                     "options": options,
                 }
@@ -327,12 +327,14 @@ class Catalog:
 
     def option_label(self, kind: str, option: str) -> str:
         state = self.options.get((kind, option))
-        return state.label_fr if state else option
+        return state.label_text if state else option
 
 
 def _bounds_fr(name: str, low: int, high: int, catalog: Catalog) -> str:
     text = catalog.content.params[name]
-    return f"{text.label_fr.lower()} entre {fr_int(low)} et {fr_int(high)} {text.unit_fr}".strip()
+    return (
+        f"{text.label_text.lower()} entre {fr_int(low)} et {fr_int(high)} {text.unit_text}".strip()
+    )
 
 
 def check_pipeline(pipeline: Pipeline, catalog: Catalog) -> tuple[str, str | None] | None:
@@ -342,7 +344,7 @@ def check_pipeline(pipeline: Pipeline, catalog: Catalog) -> tuple[str, str | Non
     them, the searches, the fusion and the reranking in any order, each once, at least one
     search; two searches need a fusion after them, a fusion two searches before it, a
     reranking a search before it. Then each stage's option and settings."""
-    names = {k: catalog.content.stages[k].label_fr for k in catalog.content.stages}
+    names = {k: catalog.content.stages[k].label_text for k in catalog.content.stages}
     stages = pipeline.stages
     ids = [s.id for s in stages]
     if len(set(ids)) != len(ids):
@@ -421,7 +423,7 @@ def check_pipeline(pipeline: Pipeline, catalog: Catalog) -> tuple[str, str | Non
             return f"Étape « {label} » : l'option « {stage.option} » n'existe pas.", stage.id
         if not state.available:
             return (
-                f"Étape « {label} » : {state.label_fr} n'est pas utilisable. {state.reason_fr}",
+                f"Étape « {label} » : {state.label_text} n'est pas utilisable. {state.reason_text}",
                 stage.id,
             )
         allowed = PARAMS.get((stage.kind, stage.option), ())
@@ -798,18 +800,18 @@ class StageFailed(Exception):
     """A stage cannot do its work: its French reason. `soft`: the chain goes on (the
     reranking), else the next stages are skipped."""
 
-    def __init__(self, message_fr: str, *, soft: bool = False) -> None:
-        super().__init__(message_fr)
-        self.message_fr = message_fr
+    def __init__(self, message_text: str, *, soft: bool = False) -> None:
+        super().__init__(message_text)
+        self.message_text = message_text
         self.soft = soft
 
 
 class StageSkipped(Exception):
     """A stage that does not run (the reranker is not on the workstation): why, in French."""
 
-    def __init__(self, reason_fr: str) -> None:
-        super().__init__(reason_fr)
-        self.reason_fr = reason_fr
+    def __init__(self, reason_text: str) -> None:
+        super().__init__(reason_text)
+        self.reason_text = reason_text
 
 
 class LabCancelled(Exception):
@@ -823,7 +825,7 @@ class Lent:
 
     model: Any
     borrowed: bool
-    label_fr: str
+    label_text: str
 
 
 class Loans:
@@ -842,39 +844,40 @@ class Loans:
         self,
         *,
         borrowed: Any,
-        label_fr: str,
-        noun_fr: str,
-        unavailable_fr: str | None,
+        label_text: str,
+        noun_text: str,
+        unavailable_text: str | None,
         cost: int,
         slot: str,
         open_model: Callable[[], Any],
         soft: bool = False,
     ) -> Lent:
-        """`borrowed`: the brick's model, else `None`; `unavailable_fr`: why it cannot load
+        """`borrowed`: the brick's model, else `None`; `unavailable_text`: why it cannot load
         (a missing file). `soft`: its failure lets the chain go on (the reranker), and a
         missing file only skips the stage."""
         if borrowed is not None:
-            return Lent(borrowed, True, label_fr)
-        if unavailable_fr is not None:
+            return Lent(borrowed, True, label_text)
+        if unavailable_text is not None:
             if soft:
-                raise StageSkipped(unavailable_fr)
-            raise StageFailed(unavailable_fr)
-        if (slot, label_fr) in self._by_key:
-            return Lent(self._by_key[(slot, label_fr)], False, label_fr)
-        refusal = self._registry.check_component(f"{noun_fr} {label_fr}", cost, slot)
+                raise StageSkipped(unavailable_text)
+            raise StageFailed(unavailable_text)
+        if (slot, label_text) in self._by_key:
+            return Lent(self._by_key[(slot, label_text)], False, label_text)
+        refusal = self._registry.check_component(f"{noun_text} {label_text}", cost, slot)
         if refusal is not None:
             raise StageFailed(refusal, soft=soft)
         try:
             model = open_model()
         except Exception as exc:  # noqa: BLE001 - said in the stage, never a crash
             raise StageFailed(
-                f"Le {noun_fr} {label_fr} n'a pas pu être chargé ({type(exc).__name__} : {exc}).",
+                f"Le {noun_text} {label_text} n'a pas pu être chargé "
+                f"({type(exc).__name__} : {exc}).",
                 soft=soft,
             ) from exc
-        self._registry.grant(label_fr, cost, slot)
+        self._registry.grant(label_text, cost, slot)
         self._opened.append((model, slot))
-        self._by_key[(slot, label_fr)] = model
-        return Lent(model, False, label_fr)
+        self._by_key[(slot, label_text)] = model
+        return Lent(model, False, label_text)
 
     def close(self) -> list[str]:
         """Close what the run loaded, free its slots; the errors met, in French."""
@@ -920,7 +923,7 @@ class Item:
 
     chunk_id: int
     doc_id: str
-    title_fr: str
+    title_text: str
     text: str
     score: float | None
     rank: int = 0
@@ -933,7 +936,7 @@ class Item:
             "before": self.before,
             "chunk_id": self.chunk_id,
             "doc_id": self.doc_id,
-            "title_fr": self.title_fr,
+            "title_text": self.title_text,
             "text": self.text,
             "score": self.score,
             "sources": self.sources,
@@ -942,8 +945,8 @@ class Item:
 
 @dataclass
 class _Result:
-    input_fr: str = ""
-    output_fr: str = ""
+    input_text: str = ""
+    output_text: str = ""
     facts: list[tuple[str, str]] = field(default_factory=list)
     items: list[Item] = field(default_factory=list)
     borrowed: bool = False
@@ -1000,7 +1003,7 @@ class LabRun:
         return f"{self.run_id}.{lane}.s{index}"
 
     def _label(self, stage: Stage) -> str:
-        return self.deps.texts.stages[stage.kind].label_fr
+        return self.deps.texts.stages[stage.kind].label_text
 
     # -- the run --
 
@@ -1012,14 +1015,14 @@ class LabRun:
             lanes.append(
                 {
                     "lane": lane,
-                    "label_fr": pipeline.label_fr,
+                    "label_text": pipeline.label_text,
                     "stages": [
                         {
                             "stage_id": s.id,
                             "kind": s.kind,
                             "option": s.option,
-                            "label_fr": self._label(s),
-                            "option_label_fr": self.deps.catalog.option_label(s.kind, s.option),
+                            "label_text": self._label(s),
+                            "option_label_text": self.deps.catalog.option_label(s.kind, s.option),
                             "params": s.params,
                         }
                         for s in pipeline.stages
@@ -1031,7 +1034,7 @@ class LabRun:
             {
                 "question": self.question,
                 "lanes": lanes,
-                "phase_label": f"{texts.running_fr} « {self.question[:80]} »",
+                "phase_label": f"{texts.running_text} « {self.question[:80]} »",
             },
             self.run_id,
             "rag_lab",
@@ -1103,27 +1106,27 @@ class LabRun:
             )
             rss_before = self.deps.rss()
             started = time.monotonic()
-            status, error_fr, result = "ok", None, _Result()
+            status, error_text, result = "ok", None, _Result()
             try:
                 result = self._run_stage(lane, stage, step_id, component, base)
             except LabCancelled:
-                status, error_fr = "cancelled", "Arrêtée par « Arrêter »."
+                status, error_text = "cancelled", "Arrêtée par « Arrêter »."
                 lane.status, stopped = "cancelled", True
             except StageSkipped as skipped:
-                status, error_fr = "skipped", skipped.reason_fr
-                result = self._passed_on(lane, skipped.reason_fr)
+                status, error_text = "skipped", skipped.reason_text
+                result = self._passed_on(lane, skipped.reason_text)
             except StageFailed as failed:
-                status, error_fr = "error", failed.message_fr
+                status, error_text = "error", failed.message_text
                 if failed.soft:
-                    result = self._passed_on(lane, failed.message_fr)
+                    result = self._passed_on(lane, failed.message_text)
                 else:
                     lane.status, stopped = "error", True
             except Exception as exc:  # noqa: BLE001 - AD-16: a stage's failure, never a crash
                 status = "error"
-                error_fr = f"L'étape a échoué ({type(exc).__name__} : {exc})."
+                error_text = f"L'étape a échoué ({type(exc).__name__} : {exc})."
                 lane.status, stopped = "error", True
             duration = _ms(time.monotonic() - started)
-            self._ended(step_id, component, base, status, result, error_fr, duration, rss_before)
+            self._ended(step_id, component, base, status, result, error_text, duration, rss_before)
 
     def _ended(
         self,
@@ -1132,32 +1135,32 @@ class LabRun:
         base: dict[str, Any],
         status: str,
         result: _Result,
-        error_fr: str | None,
+        error_text: str | None,
         duration_ms: int,
         rss_before: int | None,
     ) -> None:
         rss = self.deps.rss() if status in ("ok", "error", "cancelled") or rss_before else None
-        memory_fr = None
+        memory_text = None
         if rss is not None:
-            memory_fr = f"{_mo(rss)} Mo"
+            memory_text = f"{_mo(rss)} Mo"
             if rss_before is not None:
                 delta = rss - rss_before
                 sign = "+" if delta >= 0 else "−"
-                memory_fr += f" ({sign}{_mo(abs(delta))} Mo pendant l'étape)"
+                memory_text += f" ({sign}{_mo(abs(delta))} Mo pendant l'étape)"
         self._emit(
             "rag_lab_stage_ended",
             base
             | {
                 "status": status,
-                "input_fr": result.input_fr,
-                "output_fr": result.output_fr,
-                "facts": [{"label_fr": k, "value_fr": v} for k, v in result.facts],
+                "input_text": result.input_text,
+                "output_text": result.output_text,
+                "facts": [{"label_text": k, "value_text": v} for k, v in result.facts],
                 "items": [i.payload() for i in result.items],
                 "borrowed": result.borrowed,
-                "error_fr": error_fr,
+                "error_text": error_text,
                 "duration_ms": duration_ms,
                 "rss_bytes": rss,
-                "memory_fr": memory_fr,
+                "memory_text": memory_text,
             },
             step_id,
             component,
@@ -1205,12 +1208,12 @@ class LabRun:
             return self._context(lane, stage)
         raise StageFailed(f"Étape inconnue : {stage.kind}.")
 
-    def _passed_on(self, lane: _Lane, reason_fr: str) -> _Result:
+    def _passed_on(self, lane: _Lane, reason_text: str) -> _Result:
         """A reranking skipped or failed: the search's order goes on unchanged."""
         n = len(lane.ranked or [])
         return _Result(
-            input_fr=f"{count_fr(n, 'candidat')} de la recherche.",
-            output_fr=f"Ordre de la recherche gardé tel quel. {reason_fr}",
+            input_text=f"{count_fr(n, 'candidat')} de la recherche.",
+            output_text=f"Ordre de la recherche gardé tel quel. {reason_text}",
         )
 
     # -- the stages --
@@ -1252,11 +1255,11 @@ class LabRun:
         longest = max(len(c.text) for c in chunks)
         mean = round(sum(len(c.text) for c in chunks) / len(chunks))
         return _Result(
-            input_fr=(
+            input_text=(
                 f"{count_fr(docs, 'document')} du corpus de démonstration "
                 f"({fr_int(len(self.deps.content.documents))} déclarés dans content/rag.yaml)."
             ),
-            output_fr=(
+            output_text=(
                 f"{count_fr(len(chunks), 'extrait')} de {fr_int(size)} caractères au plus, lus "
                 "dans "
                 f"{source}."
@@ -1274,12 +1277,12 @@ class LabRun:
     ) -> _Result:
         lent = self.deps.embedder(stage.option)
         embedder: Embedder = lent.model
-        lane.embedder_label = lent.label_fr
+        lane.embedder_label = lent.label_text
         self._check()
         n = fr_int(len(lane.chunks))
         passages_n = count_fr(len(lane.chunks), "passage")
         vectors_n = count_fr(len(lane.chunks), "vecteur")
-        facts = [("Modèle", lent.label_fr), ("Dimensions", fr_int(embedder.dims))]
+        facts = [("Modèle", lent.label_text), ("Dimensions", fr_int(embedder.dims))]
         if self._uses_brick_index(lane):
             if self.deps.brick_index_error is None:
                 passages = (
@@ -1333,11 +1336,11 @@ class LabRun:
         shown = " ; ".join(fr_score(v) for v in vector[:4])
         facts.append(("Provenance", self._provenance(lent)))
         return _Result(
-            input_fr=(
+            input_text=(
                 f"La question « {self.question} », et le découpage : "
                 f"{count_fr(len(lane.chunks), 'extrait')}."
             ),
-            output_fr=(
+            output_text=(
                 f"Question → vecteur de {fr_int(len(vector))} nombres ({shown} ; …). {passages}"
             ),
             facts=facts,
@@ -1345,7 +1348,7 @@ class LabRun:
         )
 
     def _provenance(self, lent: Lent) -> str:
-        return self.deps.texts.borrowed_fr if lent.borrowed else self.deps.texts.loaded_fr
+        return self.deps.texts.borrowed_text if lent.borrowed else self.deps.texts.loaded_text
 
     def _vector_store(self, lane: _Lane, stage: Stage) -> _Result:
         if lane.embedder is None:
@@ -1359,12 +1362,12 @@ class LabRun:
             meta = rag_index.read_meta(path)
             lane.store = _SqliteStore(path, lane.embedder)
             return _Result(
-                input_fr=(
+                input_text=(
                     f"{count_fr(meta.chunks, 'vecteur')} de {fr_int(meta.dims)} dimensions, "
                     "calculés "
                     f"par « {meta.embedding_model_id} » le {meta.built_at[:10]}."
                 ),
-                output_fr=(
+                output_text=(
                     f"Index sqlite-vec de la brique RAG, lu seulement ({path.name}) : l'atelier "
                     "n'y écrit jamais."
                 ),
@@ -1376,13 +1379,13 @@ class LabRun:
             )
         if lane.vectors is None:
             raise StageFailed("Aucun vecteur des passages : l'étape Embedding n'a pas abouti.")
-        vectors_fr = f"{count_fr(n, 'vecteur')} de {fr_int(dims)} dimensions"
+        vectors_text = f"{count_fr(n, 'vecteur')} de {fr_int(dims)} dimensions"
         if stage.option == "memory":
             lane.store = MemoryStore(lane.chunks, lane.vectors)
             size = n * dims * 4
             return _Result(
-                input_fr=f"De l'étape Embedding : {vectors_fr}.",
-                output_fr=(
+                input_text=f"De l'étape Embedding : {vectors_text}.",
+                output_text=(
                     f"Rangés en mémoire, sans index ({size_fr(size)} en float32) : chaque "
                     "recherche compare la question à tous les vecteurs."
                 ),
@@ -1415,8 +1418,8 @@ class LabRun:
                 built = f"construit ({count_fr(n, 'vecteur')})"
             lane.store = _SqliteStore(path, lane.embedder)
             return _Result(
-                input_fr=f"De l'étape Embedding : {vectors_fr}.",
-                output_fr=(
+                input_text=f"De l'étape Embedding : {vectors_text}.",
+                output_text=(
                     f"Index sqlite-vec de l'atelier {built} (dossier {lane.key}) : l'index de la "
                     "brique n'est pas touché."
                 ),
@@ -1440,8 +1443,8 @@ class LabRun:
                 else f"relu ({count_fr(n, 'vecteur')})"
             )
             return _Result(
-                input_fr=f"De l'étape Embedding : {vectors_fr}.",
-                output_fr=(
+                input_text=f"De l'étape Embedding : {vectors_text}.",
+                output_text=(
                     f"Index {label} {state}, {kind}, dans le dossier {lane.key} de l'atelier."
                 ),
                 facts=[("Dossier", str(store.path)), ("Vecteurs", fr_int(n)), *imported.facts],
@@ -1456,17 +1459,19 @@ class LabRun:
         items = []
         for rank, (chunk_id, score) in enumerate(hits, start=1):
             chunk = lane.chunks[chunk_id - 1]
-            items.append(Item(chunk_id, chunk.doc_id, chunk.title_fr, chunk.text, score, rank=rank))
+            items.append(
+                Item(chunk_id, chunk.doc_id, chunk.title_text, chunk.text, score, rank=rank)
+            )
         lane.lists.append(items)
         lane.list_kinds.append("vector_search")
         best = items[0].score if items else None
         worst = items[-1].score if items else None
         return _Result(
-            input_fr=(
+            input_text=(
                 "Le vecteur de la question, comparé à ceux de la base : "
                 f"{count_fr(len(lane.chunks), 'vecteur')}."
             ),
-            output_fr=(
+            output_text=(
                 f"Les plus proches, sans seuil : {count_fr(len(items), 'extrait')} ; "
                 "score = 1 − distance "
                 f"cosinus, de {fr_score(best)} à {fr_score(worst)}."
@@ -1481,7 +1486,7 @@ class LabRun:
             raise StageSkipped("Aucun candidat à réordonner.")
         lent = self.deps.reranker(stage.option)
         reranker: Reranker = lent.model
-        passages = [f"{c.title_fr}\n{c.text}" for c in candidates]
+        passages = [f"{c.title_text}\n{c.text}" for c in candidates]
         try:
             raw = reranker.score(self.question, passages, self.deps.cancelled, progress)
         except RerankCancelled:
@@ -1519,7 +1524,7 @@ class LabRun:
                 Item(
                     c.chunk_id,
                     c.doc_id,
-                    c.title_fr,
+                    c.title_text,
                     c.text,
                     scores[i],
                     rank=rank,
@@ -1528,7 +1533,7 @@ class LabRun:
                     or [
                         {
                             "kind": self._made_by(lane),
-                            "label_fr": self.deps.texts.stages[self._made_by(lane)].label_fr,
+                            "label_text": self.deps.texts.stages[self._made_by(lane)].label_text,
                             "rank": c.rank,
                             "score": c.score,
                         }
@@ -1538,26 +1543,26 @@ class LabRun:
         lane.lists[-1] = items
         moved = max(items, key=lambda x: (x.before or 0) - x.rank)
         climb = (
-            f"« {moved.title_fr} » monte du {fr_rank(moved.before or 0)} au "
+            f"« {moved.title_text} » monte du {fr_rank(moved.before or 0)} au "
             f"{fr_rank(moved.rank)} rang."
             if (moved.before or 0) > moved.rank
             else "L'ordre de la recherche ne change pas."
         )
         return _Result(
-            input_fr=(
+            input_text=(
                 f"La question et {count_fr(len(candidates), 'candidat')} de la recherche, lus "
                 "par paires."
             ),
-            output_fr=(
+            output_text=(
                 f"{count_fr(len(items), 'candidat réordonné', 'candidats réordonnés')} par le "
                 f"reranker. {climb}"
             ),
             facts=[
-                ("Modèle", lent.label_fr),
+                ("Modèle", lent.label_text),
                 ("Paires lues", fr_int(len(candidates))),
                 (
                     "Provenance",
-                    self.deps.texts.borrowed_fr if lent.borrowed else self.deps.texts.loaded_fr,
+                    self.deps.texts.borrowed_text if lent.borrowed else self.deps.texts.loaded_text,
                 ),
             ],
             items=items,
@@ -1581,17 +1586,19 @@ class LabRun:
         for rank, (score, chunk_id) in enumerate(found, start=1):
             chunk = lane.chunks[chunk_id - 1]
             items.append(
-                Item(chunk_id, chunk.doc_id, chunk.title_fr, chunk.text, round(score, 3), rank=rank)
+                Item(
+                    chunk_id, chunk.doc_id, chunk.title_text, chunk.text, round(score, 3), rank=rank
+                )
             )
         lane.lists.append(items)
         lane.list_kinds.append("lexical_search")
         words = ", ".join(f"« {w} »" for w in dict.fromkeys(bm25_terms(self.question)))
         return _Result(
-            input_fr=(
+            input_text=(
                 f"Les mots de la question ({words or 'aucun'}), cherchés dans les "
                 f"{count_fr(len(lane.chunks), 'extrait')}, sans embedding."
             ),
-            output_fr=(
+            output_text=(
                 f"Ceux qui partagent le plus de mots avec la question : "
                 f"{count_fr(len(items), 'extrait')}, "
                 f"pondérés par leur rareté (BM25, k1 = 1,5, b = 0,75) ; un extrait sans aucun "
@@ -1618,7 +1625,7 @@ class LabRun:
             sources = [
                 {
                     "kind": kind,
-                    "label_fr": self.deps.texts.stages[kind].label_fr,
+                    "label_text": self.deps.texts.stages[kind].label_text,
                     "rank": ranks[kind].get(chunk_id, (None, None))[0],
                     "score": ranks[kind].get(chunk_id, (None, None))[1],
                 }
@@ -1628,7 +1635,7 @@ class LabRun:
                 Item(
                     chunk_id,
                     item.doc_id,
-                    item.title_fr,
+                    item.title_text,
                     item.text,
                     round(score, 4),
                     rank=rank,
@@ -1640,8 +1647,8 @@ class LabRun:
         lane.lists = [items]
         lane.list_kinds = ["fusion"]
         return _Result(
-            input_fr=f"Les deux listes des recherches ({sizes} extraits), avec leurs rangs.",
-            output_fr=(
+            input_text=f"Les deux listes des recherches ({sizes} extraits), avec leurs rangs.",
+            output_text=(
                 f"{count_fr(len(items), 'extrait')}, dont {fr_int(both)} "
                 f"{'trouvé' if both == 1 else 'trouvés'} par les deux recherches, classés par "
                 f"fusion des rangs réciproques : score = Σ 1 / ({RRF_K} + rang). Un extrait bien "
@@ -1662,8 +1669,8 @@ class LabRun:
             Item(
                 c.chunk_id,
                 c.doc_id,
-                c.title_fr,
-                content.excerpt(rank, c.title_fr, c.text),
+                c.title_text,
+                content.excerpt(rank, c.title_text, c.text),
                 c.score,
                 rank=rank,
                 before=c.rank,
@@ -1672,15 +1679,17 @@ class LabRun:
             for rank, c in enumerate(kept, start=1)
         ]
         lane.context = items
-        text = "\n\n".join([content.intro_fr, *(i.text for i in items)]) if items else ""
+        text = "\n\n".join([content.intro_text, *(i.text for i in items)]) if items else ""
         lane.context_text = text
         return _Result(
-            input_fr=(f"Le classement de l'étape précédente : {count_fr(len(ranked), 'extrait')}."),
-            output_fr=text or "Aucun extrait : le modèle ne recevrait que la question.",
+            input_text=(
+                f"Le classement de l'étape précédente : {count_fr(len(ranked), 'extrait')}."
+            ),
+            output_text=text or "Aucun extrait : le modèle ne recevrait que la question.",
             facts=[
                 ("Extraits gardés", f"{fr_int(len(items))} sur {fr_int(len(ranked))}"),
                 ("Caractères", fr_int(len(text))),
-                ("Placement", content.placement_fr),
+                ("Placement", content.placement_text),
             ],
             items=items,
         )
@@ -1692,11 +1701,11 @@ class LabRun:
             kept = count_fr(len(lane.context), "extrait")
             context = f"le contexte construit ({kept}), puis la question"
         return _Result(
-            input_fr=(
+            input_text=(
                 f"Le modèle actif de l'atelier recevrait : son prompt système, {context} : "
                 f"« {self.question} »."
             ),
-            output_fr=self.deps.texts.generation_not_run_fr,
+            output_text=self.deps.texts.generation_not_run_text,
         )
 
 
@@ -1767,7 +1776,7 @@ def rrf(lists: Sequence[Sequence[int]], k: int = RRF_K) -> list[tuple[int, float
 
 
 def _compared(key: str, item: Item) -> dict[str, Any]:
-    return {"key": key, "doc_id": item.doc_id, "title_fr": item.title_fr}
+    return {"key": key, "doc_id": item.doc_id, "title_text": item.title_text}
 
 
 def compare(a: _Lane, b: _Lane) -> dict[str, Any]:
@@ -1802,7 +1811,7 @@ def compare(a: _Lane, b: _Lane) -> dict[str, Any]:
     parts = []
     if not a.context or not b.context:
         parts.append("Une des deux chaînes n'a construit aucun contexte.")
-    names = ", ".join(f"« {e['title_fr']} »" for e in common)
+    names = ", ".join(f"« {e['title_text']} »" for e in common)
     parts.append(
         f"En commun : {len(common)} {unit}{'s' if len(common) > 1 else ''}"
         + (f" ({names})" if names else "")
@@ -1810,7 +1819,7 @@ def compare(a: _Lane, b: _Lane) -> dict[str, Any]:
     )
     if changes:
         moves = ", ".join(
-            f"« {e['title_fr']} » {fr_rank(e['rank_a'])} en A, {fr_rank(e['rank_b'])} en B"
+            f"« {e['title_text']} » {fr_rank(e['rank_a'])} en A, {fr_rank(e['rank_b'])} en B"
             for e in changes
         )
         parts.append(f"Écarts de rang : {moves}.")
@@ -1824,7 +1833,7 @@ def compare(a: _Lane, b: _Lane) -> dict[str, Any]:
         "only_a": only_a,
         "only_b": only_b,
         "rank_changes": changes,
-        "summary_fr": " ".join(parts),
+        "summary_text": " ".join(parts),
     }
 
 

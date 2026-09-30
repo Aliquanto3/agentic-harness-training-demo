@@ -59,7 +59,7 @@ def rerank_config(index, *, budget_mb: int = 4096, **reranker) -> dict:
     values["rag"]["reranker"] = {
         "id": MODEL_ID,
         "backend": "llama_cpp",
-        "label_fr": "Faux reranker",
+        "label_text": "Faux reranker",
         "license": "MIT",
         "max_tokens": 512,
         "load_path": RERANK_FILE,
@@ -224,7 +224,7 @@ def test_the_sub_option_is_off_at_launch_and_available_with_its_files(index):
     session, rerankers = session_for(rerank_config(index), rerank=False)
     option = rag_card(session)["rerank"]
     assert option["enabled"] is False and option["available"] is True
-    assert option["label_fr"] == "Reranking" and option["download"] is None
+    assert option["label_text"] == "Reranking" and option["download"] is None
     assert rerankers.made == []  # loaded only once enabled
     session.close()
 
@@ -241,7 +241,7 @@ def test_reranking_turn_orders_the_candidates_and_keeps_the_first_three(index):
     search = one(events, "rag_search_started")
     found = one(events, "rag_search_ended").payload["excerpts"]
     assert search.payload["top_k"] == 8 and len(found) == 8
-    assert "Aucun directement" in one(events, "rag_search_ended").payload["placement_fr"]
+    assert "Aucun directement" in one(events, "rag_search_ended").payload["placement_text"]
     started = one(events, "rag_rerank_started")
     ended = one(events, "rag_rerank_ended")
     assert (started.step_id, started.brick, started.component) == (
@@ -264,7 +264,7 @@ def test_reranking_turn_orders_the_candidates_and_keeps_the_first_three(index):
         assert e["retrieval_score"] == by_rank[e["before"]]["score"]
         assert e["chunk_id"] == by_rank[e["before"]]["chunk_id"]
         text = texts[e["chunk_id"]]
-        assert e["score"] == round(relevance(HOTEL, f"{e['title_fr']}\n{text}"), 3)
+        assert e["score"] == round(relevance(HOTEL, f"{e['title_text']}\n{text}"), 3)
         assert e["truncated"] is False
     progress = [e for e in events if e.kind == "rag_rerank_progress"]
     assert [(e.payload["done"], e.payload["total"]) for e in progress] == [
@@ -276,7 +276,7 @@ def test_reranking_turn_orders_the_candidates_and_keeps_the_first_three(index):
     rag = segments(ctx, "rag_excerpt")
     assert len(rag) == 4 and {s["brick"] for s in rag} == {"rag"}
     for i, e in enumerate(reranked[:3], start=1):
-        head = f"Extrait {i} — {e['title_fr']} :\n{texts[e['chunk_id']][:40]}"
+        head = f"Extrait {i} — {e['title_text']} :\n{texts[e['chunk_id']][:40]}"
         assert rag[i]["text"].startswith(head)
     kinds = [s["kind"] for s in ctx["segments"]]
     assert kinds.index("hook_injection") < kinds.index("rag_excerpt") < kinds.index("user_message")
@@ -297,7 +297,7 @@ def test_switching_the_sub_option_off_closes_the_reranker_and_searches_as_before
 
     assert one(events, "rag_search_started").payload["top_k"] == 3
     assert not [e for e in events if e.kind.startswith("rag_rerank")]
-    assert "Dans le message" in one(events, "rag_search_ended").payload["placement_fr"]
+    assert "Dans le message" in one(events, "rag_search_ended").payload["placement_text"]
     session.close()
 
 
@@ -308,16 +308,16 @@ def test_a_missing_reranker_offers_its_download_and_the_rag_goes_on_without_it(i
     option = rag["rerank"]
     assert rag["available"] is True  # the brick itself stays available
     assert option["enabled"] is True and option["available"] is False
-    assert "modèle absent" in option["reason_fr"] and "sans reranking" in option["reason_fr"]
+    assert "modèle absent" in option["reason_text"] and "sans reranking" in option["reason_text"]
     assert option["download"]["target"] == "rag_reranker"
-    assert "Télécharger le modèle de reranking" in option["download"]["label_fr"]
+    assert "Télécharger le modèle de reranking" in option["download"]["label_text"]
     assert rerankers.made == []
 
     events = turn(session)
 
     assert one(events, "rag_search_started").payload["top_k"] == 3
     assert not [e for e in events if e.kind.startswith("rag_rerank")]
-    skipped = one(events, "rag_search_ended").payload["rerank_skipped_fr"]
+    skipped = one(events, "rag_search_ended").payload["rerank_skipped_text"]
     assert "non appliqué" in skipped and "modèle absent" in skipped
     assert rag_card(session)["pending"] is False  # unavailable: nothing waits for next turn
     session.close()
@@ -334,7 +334,7 @@ def test_a_budget_refusal_makes_only_the_sub_option_unavailable(index):
     assert rag["available"] is True
     option = rag["rerank"]
     assert option["available"] is False
-    assert "Mémoire insuffisante pour charger le modèle de reranking" in option["reason_fr"]
+    assert "Mémoire insuffisante pour charger le modèle de reranking" in option["reason_text"]
     assert rerankers.made == [] and session._load_registry.holder(RERANKER) is None
     errors = [e for e in get_journal().events_since(mark) if e.kind == "harness_error"]
     assert [e.component for e in errors] == ["rag.reranker"]
@@ -354,15 +354,16 @@ def test_a_failing_reranker_keeps_the_embedding_order(index):
     found = one(events, "rag_search_ended").payload["excerpts"]
     ended = one(events, "rag_rerank_ended")
     assert ended.payload["status"] == "error" and ended.payload["excerpts"] == []
-    assert "premiers extraits de l'embedding" in ended.payload["error_fr"]
+    assert "premiers extraits de l'embedding" in ended.payload["error_text"]
     error = one(events, "harness_error")
     assert (
-        error.component == "rag.reranker" and "Le reranking a échoué" in error.payload["message_fr"]
+        error.component == "rag.reranker"
+        and "Le reranking a échoué" in error.payload["message_text"]
     )
     rag = segments(one(events, "context_rendered").payload, "rag_excerpt")
     assert len(rag) == 4
     for i, e in enumerate(found[:3], start=1):
-        assert rag[i]["text"].startswith(f"Extrait {i} — {e['title_fr']}")
+        assert rag[i]["text"].startswith(f"Extrait {i} — {e['title_text']}")
     assert one(events, "turn_ended").payload["status"] == "completed"
     session.close()
 
@@ -377,7 +378,8 @@ def test_stop_between_two_excerpts_cancels_the_turn(index):
 
     ended = one(events, "rag_rerank_ended")
     assert (
-        ended.payload["status"] == "cancelled" and ended.payload["error_fr"] == "Reranking arrêté."
+        ended.payload["status"] == "cancelled"
+        and ended.payload["error_text"] == "Reranking arrêté."
     )
     assert not [e for e in events if e.kind == "harness_error"]
     assert not [e for e in events if e.kind == "model_call_started"]
@@ -441,7 +443,7 @@ def test_a_failed_reranker_download_removes_the_part(index):
 
     errors = [e for e in get_journal().events_since(mark) if e.kind == "harness_error"]
     assert len(errors) == 1 and errors[0].component == "rag.reranker"
-    assert "Le téléchargement du modèle de reranking a échoué" in errors[0].payload["message_fr"]
+    assert "Le téléchargement du modèle de reranking a échoué" in errors[0].payload["message_text"]
     assert not list((config.models_dir() / "reranker").glob("*.part"))
     assert rerankers.made == [] and rag_card(session)["rerank"]["download"] is not None
     session.close()
@@ -493,8 +495,8 @@ def test_the_schema_draws_the_reranker_while_the_sub_option_is_enabled(index):
         return {n["id"]: n for n in changed[-1].payload["nodes"]}
 
     node = nodes()["rag.reranker"]
-    assert node["label_fr"] == "Reranking" and node["available"] is True
-    assert node["detail_fr"] == f"Modèle de reranking {MODEL_ID}, processus local"
+    assert node["label_text"] == "Reranking" and node["available"] is True
+    assert node["detail_text"] == f"Modèle de reranking {MODEL_ID}, processus local"
     session.set_rag_rerank(False)
     session.join()
     assert "rag.reranker" not in nodes() and "rag.retriever" in nodes()
@@ -541,7 +543,7 @@ def test_the_reason_is_said_and_the_option_waits_while_the_reranker_loads(index)
     time.sleep(0.05)
     state = session.build_turn_state()
     assert state.rag_rerank is False
-    assert "Chargement du modèle de reranking" in (state.rag_rerank_skipped_fr or "")
+    assert "Chargement du modèle de reranking" in (state.rag_rerank_skipped_text or "")
     gate.set()
     session.join()
     option = rag_card(session)["rerank"]
@@ -570,7 +572,7 @@ def test_the_reranker_waits_for_the_embedding_model(index):
     session.join()
     option = rag_card(session)["rerank"]
     assert option["available"] is False
-    assert "Indisponible tant que la brique RAG l'est" in option["reason_fr"]
+    assert "Indisponible tant que la brique RAG l'est" in option["reason_text"]
     assert session._reranker is None and session._load_registry.holder(RERANKER) is None
     assert rerankers.made == []
     session.close()
@@ -602,7 +604,7 @@ def test_a_reranker_refused_by_the_budget_loads_after_a_model_switch(index, tmp_
     session.set_rag_rerank(True)
     session.join()
     session.join()
-    assert "Mémoire insuffisante" in rag_card(session)["rerank"]["reason_fr"]
+    assert "Mémoire insuffisante" in rag_card(session)["rerank"]["reason_text"]
     assert rerankers.made == []
 
     rss["now"] = 100 * 1024**2  # the switch frees memory
@@ -627,7 +629,7 @@ def test_the_schema_node_says_why_the_reranker_is_unavailable(index):
     place_model()
     session, _ = session_for(rerank_config(index))  # its file is missing
     node = _nodes()["rag.reranker"]
-    assert node["available"] is False and "modèle absent" in node["reason_fr"]
+    assert node["available"] is False and "modèle absent" in node["reason_text"]
     session.close()
 
 
@@ -639,8 +641,8 @@ def test_a_factory_that_raises_says_why_on_the_card(index):
     session, _ = session_for(rerank_config(index), rerankers=rerankers)
     option = rag_card(session)["rerank"]
     assert option["available"] is False
-    assert "n'a pas pu être chargé" in option["reason_fr"]
-    assert "pas un modèle de reranking" in option["reason_fr"]
+    assert "n'a pas pu être chargé" in option["reason_text"]
+    assert "pas un modèle de reranking" in option["reason_text"]
     errors = [e for e in get_journal().events_since(mark) if e.kind == "harness_error"]
     assert [e.component for e in errors] == ["rag.reranker"]
     assert session._load_registry.holder(RERANKER) is None
@@ -654,7 +656,7 @@ def test_a_declared_sha256_that_differs_refuses_the_file(index):
     values["rag"]["reranker"]["files"][0]["sha256"] = "0" * 64
     session, rerankers = session_for(values)
     option = rag_card(session)["rerank"]
-    assert option["available"] is False and "sha256" in option["reason_fr"]
+    assert option["available"] is False and "sha256" in option["reason_text"]
     assert rerankers.made == []
     session.close()
 
@@ -671,7 +673,7 @@ def test_scores_that_are_not_figures_keep_the_embedding_order(index):
     ended = one(events, "rag_rerank_ended").payload
     assert ended["status"] == "error" and ended["excerpts"] == []
     rag = segments(one(events, "context_rendered").payload, "rag_excerpt")
-    assert rag[1]["text"].startswith(f"Extrait 1 — {found[0]['title_fr']}")
+    assert rag[1]["text"].startswith(f"Extrait 1 — {found[0]['title_text']}")
     assert one(events, "turn_ended").payload["status"] == "completed"
     session.close()
 
@@ -687,7 +689,7 @@ def test_truncated_excerpts_are_said(index):
     reranked = one(events, "rag_rerank_ended").payload["excerpts"]
     found = {e["chunk_id"]: e for e in one(events, "rag_search_ended").payload["excerpts"]}
     for e in reranked:
-        long = len(f"{e['title_fr']}\n{found[e['chunk_id']]['text']}") > 400
+        long = len(f"{e['title_text']}\n{found[e['chunk_id']]['text']}") > 400
         assert e["truncated"] is long
     assert any(e["truncated"] for e in reranked)
     session.close()
@@ -759,7 +761,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 TINY = RerankerModel(
     id="tiny",
     backend="llama_cpp",
-    label_fr="Petit reranker synthétique",
+    label_text="Petit reranker synthétique",
     license="MIT",
     max_tokens=64,
     load_path="reranker/tiny.gguf",

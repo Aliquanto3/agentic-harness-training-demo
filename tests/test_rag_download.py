@@ -125,7 +125,7 @@ def test_a_failed_download_removes_the_part_and_says_what_to_copy(index, server,
     errors = [e.payload for e in get_journal().events_since(mark) if e.kind == "harness_error"]
     assert len(errors) == 1 and cause in errors[0]["cause"]
     folder = config.models_dir() / "embedding"
-    assert f"copiez le fichier à la main dans {folder}" in errors[0]["effect_fr"]
+    assert f"copiez le fichier à la main dans {folder}" in errors[0]["effect_text"]
     assert not folder.exists() or not any(folder.iterdir())  # no `.part`, no file
     assert session.state == "idle" and embedders.made == []
     assert card(session)["download"] is not None  # still offered
@@ -144,7 +144,7 @@ def test_stop_cancels_the_download(index):
     wait_download(session)
 
     errors = [e.payload for e in get_journal().events_since(mark) if e.kind == "harness_error"]
-    assert errors[0]["message_fr"] == "Téléchargement du modèle d'embedding arrêté."
+    assert errors[0]["message_text"] == "Téléchargement du modèle d'embedding arrêté."
     assert not (config.models_dir() / MODEL_FILE).exists()
     assert not (config.models_dir() / (MODEL_FILE + ".part")).exists()
     session.close()
@@ -218,7 +218,7 @@ def test_routes_unknown_target_404_and_nothing_to_download_409(index):
 
 def test_a_file_copied_by_hand_is_found_by_the_download_button(index):
     session, embedders = download_session(rag_config(index), Server())
-    assert "modèle absent" in card(session)["reason_fr"]
+    assert "modèle absent" in card(session)["reason_text"]
     place_model()  # copied by hand while WaveStack runs
 
     with pytest.raises(SendRefused, match="Rien à télécharger"):

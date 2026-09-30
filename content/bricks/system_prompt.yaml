@@ -1,8 +1,8 @@
 # Brique « Prompt système » (AD-12, AD-19).
-label_fr: Prompt système
-category_fr: prompt engineering
-hosting_fr: Local
-explanation_fr:
+label_text: Prompt système
+category_text: prompt engineering
+hosting_text: Local
+explanation_text:
   - >-
     Le prompt système est une consigne placée par le harnais avant la conversation :
     rôle, ton, langue, règles à suivre. L'utilisateur ne la voit pas dans le fil,

@@ -106,7 +106,7 @@ def reply_text(messages: Any, original: str) -> str:
 class HeadroomCompressor:
     """Loaded by the session through the `LoadRegistry` (AD-8): import, then one warm-up."""
 
-    label_fr = f"Headroom {HEADROOM_VERSION}"
+    label_text = f"Headroom {HEADROOM_VERSION}"
 
     def __init__(self) -> None:
         reason = missing_fr()

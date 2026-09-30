@@ -84,14 +84,14 @@ class ToolExecutor:
         return None
 
     def reject(
-        self, raw: str, fragment: str, detail_fr: str, reaction: Literal["retry", "stop"]
+        self, raw: str, fragment: str, detail_text: str, reaction: Literal["retry", "stop"]
     ) -> str:
         """Trace a malformed, unknown or invalid call; returns the error reinjected to the model."""
         get_journal().emit(
             "tool_call_malformed",
-            {"raw": raw, "fragment": fragment, "detail_fr": detail_fr, "reaction": reaction},
+            {"raw": raw, "fragment": fragment, "detail_text": detail_text, "reaction": reaction},
         )
-        sentence = detail_fr if detail_fr.endswith(".") else f"{detail_fr}."
+        sentence = detail_text if detail_text.endswith(".") else f"{detail_text}."
         return f"Erreur : {sentence} Corrige l'appel ou réponds sans outil."
 
     def run(
@@ -126,7 +126,7 @@ class ToolExecutor:
                 "source": spec.source,
             },
         )
-        result = error_fr = None
+        result = error_text = None
         status = "error"  # a failure's status: a failed delegation carries its own (AD-11)
         sent = spec.is_mcp  # an MCP call always reaches its server's connection
         unreachable = False
@@ -146,26 +146,26 @@ class ToolExecutor:
                 reply = reply.text
             result = reply
         except ToolError as exc:
-            error_fr = exc.message_fr
+            error_text = exc.message_text
             unreachable = isinstance(exc, Unreachable)
             status = getattr(exc, "status", "error")
         except Exception as exc:  # noqa: BLE001 - AD-16: an execution error is reinjected
-            error_fr = f"L'outil a échoué ({type(exc).__name__} : {exc})."
+            error_text = f"L'outil a échoué ({type(exc).__name__} : {exc})."
         if sent:
             self.contact[call.name] = (
-                ("unavailable", error_fr) if unreachable else ("available", None)
+                ("unavailable", error_text) if unreachable else ("available", None)
             )
         duration_ms = round((time.monotonic() - started) * 1000)
         truncated = None
-        if bound is not None and error_fr is None and result is not None:
+        if bound is not None and error_text is None and result is not None:
             result, truncated = bound(result)
         ended: dict[str, Any] = {
-            "status": "ok" if error_fr is None else status,
+            "status": "ok" if error_text is None else status,
             "result": result,
-            "error_fr": error_fr,
+            "error_text": error_text,
             "duration_ms": duration_ms,
         }
         if truncated is not None:
             ended["truncated"] = truncated
         journal.emit("tool_ended", ended)
-        return result if error_fr is None else f"Erreur : {error_fr}"
+        return result if error_text is None else f"Erreur : {error_text}"

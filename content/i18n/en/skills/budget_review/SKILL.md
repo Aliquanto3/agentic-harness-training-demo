@@ -1,6 +1,6 @@
 ---
 name: budget_review
-label_fr: Budget review
+label_text: Budget review
 description: Review the project's budget with the read_file tool (file confidentiel/budget_projet.txt) and the calculator tool, shown as a table. Load it when the user asks for the project's budget, its total or the breakdown of its items.
 ---
 Review the project's budget, in three steps, in this order.

@@ -112,7 +112,7 @@ class DiagnosticResult:
     candidates: list[discovery.ModelCandidate] = field(default_factory=list)
     model_path: str | None = None  # the file the caller must load now, if any
     saved: bool = False  # `select_model`: the choice was recorded in settings.json
-    message_fr: str | None = None  # `select_model`: the outcome, in French
+    message_text: str | None = None  # `select_model`: the outcome, in French
     cloud_model: CloudModel | None = None  # the cloud model the caller must boot now, if any
     # Story 18: the served model (`discovery.ModelCandidate`, `source = server`) the caller
     # must boot now, if any.
@@ -125,9 +125,9 @@ class DiagnosticResult:
 class Refused(Exception):
     """A diagnostic intention refused with its French reason; nothing was written."""
 
-    def __init__(self, reason_fr: str) -> None:
-        super().__init__(reason_fr)
-        self.reason_fr = reason_fr
+    def __init__(self, reason_text: str) -> None:
+        super().__init__(reason_text)
+        self.reason_text = reason_text
 
 
 CloudFactory = Callable[[CloudModel, SecretStr], OpenAIChatEngine]
@@ -170,15 +170,15 @@ class DiagnosticSession:
         )
         self._emit_state("Diagnostic de démarrage en cours.")
 
-    def _emit_state(self, reason_fr: str) -> None:
-        get_journal().emit("session_state", {"state": self.state, "reason_fr": reason_fr})
+    def _emit_state(self, reason_text: str) -> None:
+        get_journal().emit("session_state", {"state": self.state, "reason_text": reason_text})
 
     def _emit_check(
         self,
         check: str,
         status: str,
-        message_fr: str,
-        action_fr: str | None = None,
+        message_text: str,
+        action_text: str | None = None,
         *,
         blocking: bool,
     ) -> None:
@@ -187,8 +187,8 @@ class DiagnosticSession:
             {
                 "check": check,
                 "status": status,
-                "message_fr": message_fr,
-                "action_fr": action_fr,
+                "message_text": message_text,
+                "action_text": action_text,
                 "blocking": blocking,
             },
         )
@@ -303,9 +303,9 @@ class DiagnosticSession:
             get_journal().emit(
                 "harness_error",
                 {
-                    "message_fr": f"La sonde du modèle a échoué pour {candidate.path}.",
+                    "message_text": f"La sonde du modèle a échoué pour {candidate.path}.",
                     "cause": str(exc),
-                    "effect_fr": "Le fichier est marqué incompatible.",
+                    "effect_text": "Le fichier est marqué incompatible.",
                 },
             )
             candidate.status = "incompatible"
@@ -326,10 +326,10 @@ class DiagnosticSession:
         get_journal().emit(
             "harness_error",
             {
-                "message_fr": f"Modèle incompatible : {result.reason}",
+                "message_text": f"Modèle incompatible : {result.reason}",
                 # Lot E (E6): the loader's own message, as the technical detail.
                 "cause": result.detail or result.reason,
-                "effect_fr": "Le fichier est marqué incompatible.",
+                "effect_text": "Le fichier est marqué incompatible.",
             },
         )
         candidate.status = "incompatible"
@@ -341,22 +341,22 @@ class DiagnosticSession:
         )
 
     def _probe_transient(
-        self, candidate: discovery.ModelCandidate, reason_fr: str, detail: str | None
+        self, candidate: discovery.ModelCandidate, reason_text: str, detail: str | None
     ) -> None:
         """Lot E: the probe lacked memory or time. Unusable for now, never remembered: the
         file is probed again when chosen."""
         get_journal().emit(
             "harness_error",
             {
-                "message_fr": f"La sonde n'a pas pu mesurer {candidate.path}.",
-                "cause": detail or reason_fr,
-                "effect_fr": (
+                "message_text": f"La sonde n'a pas pu mesurer {candidate.path}.",
+                "cause": detail or reason_text,
+                "effect_text": (
                     "Le fichier n'est pas utilisable pour l'instant ; rien n'est mémorisé, il "
                     "sera sondé de nouveau quand vous le choisirez."
                 ),
             },
         )
-        candidate.status, candidate.reason = "incompatible", reason_fr
+        candidate.status, candidate.reason = "incompatible", reason_text
 
     def _persist(self, write: Callable[[], None]) -> bool:
         """AD-16: a settings.json write failure is traced, never fatal. True if written."""
@@ -367,9 +367,9 @@ class DiagnosticSession:
             get_journal().emit(
                 "harness_error",
                 {
-                    "message_fr": "Impossible d'écrire le fichier de réglages settings.json.",
+                    "message_text": "Impossible d'écrire le fichier de réglages settings.json.",
                     "cause": str(exc),
-                    "effect_fr": "Le diagnostic continue ; ce réglage ne sera pas mémorisé.",
+                    "effect_text": "Le diagnostic continue ; ce réglage ne sera pas mémorisé.",
                 },
             )
             return False
@@ -379,9 +379,9 @@ class DiagnosticSession:
         get_journal().emit(
             "harness_error",
             {
-                "message_fr": "Une erreur inattendue a interrompu le diagnostic.",
+                "message_text": "Une erreur inattendue a interrompu le diagnostic.",
                 "cause": str(exc),
-                "effect_fr": "Le contrôle est marqué en échec, non bloquant.",
+                "effect_text": "Le contrôle est marqué en échec, non bloquant.",
             },
         )
         self._emit_check(
@@ -437,14 +437,14 @@ class DiagnosticSession:
         self,
         chosen: discovery.ModelCandidate,
         candidates: list[discovery.ModelCandidate],
-        notice_fr: str = "",
+        notice_text: str = "",
     ) -> DiagnosticResult:
         """`chosen` is the file to load now; from here on, a choice is a hot switch."""
         self.handed_out = True
         self._emit_check(
             "model",
-            "warn" if notice_fr else "ok",
-            f"{notice_fr}Modèle retenu : {chosen.name} ({chosen.path}).",
+            "warn" if notice_text else "ok",
+            f"{notice_text}Modèle retenu : {chosen.name} ({chosen.path}).",
             blocking=False,
         )
         self.last_result = DiagnosticResult(
@@ -453,12 +453,12 @@ class DiagnosticSession:
         return self.last_result
 
     def _check_model_locked(self) -> DiagnosticResult:
-        for error_fr in self.cfg.cloud_models[1]:  # AD-20: left out, never blocking
-            self._emit_check("cloud", "warn", error_fr, blocking=False)
+        for error_text in self.cfg.cloud_models[1]:  # AD-20: left out, never blocking
+            self._emit_check("cloud", "warn", error_text, blocking=False)
         saved = self.selected_model_path
         # Lot E (E2): the saved file, about to boot, is measured again if its entry is old.
         candidates = self._discover(saved, reprobe={saved} if saved else set())
-        notice_fr = ""
+        notice_text = ""
         if self.selected_cloud:
             entry = self.cfg.cloud_model(self.selected_cloud)
             reason = self._cloud_refusal(entry, self.selected_cloud)
@@ -475,7 +475,7 @@ class DiagnosticSession:
                     ready=True, candidates=candidates, cloud_model=entry
                 )
                 return self.last_result
-            notice_fr = f"Le modèle cloud enregistré n'est plus utilisable : {reason} "
+            notice_text = f"Le modèle cloud enregistré n'est plus utilisable : {reason} "
         if self.selected_server:
             served = _served(candidates, self.selected_server)
             if served is not None:  # still served: taken back, never launched (story 18)
@@ -488,7 +488,7 @@ class DiagnosticSession:
                 if listed is not None and listed.reason
                 else "serveur arrêté, ou modèle absent."
             )
-            notice_fr = (
+            notice_text = (
                 f"Le modèle servi enregistré n'est plus disponible : {self.selected_server} "
                 f"({why.rstrip('.')}). "
             )
@@ -496,17 +496,17 @@ class DiagnosticSession:
             chosen = _usable(candidates, saved)
             if chosen:
                 return self._hand_out(chosen, candidates)
-            notice_fr = f"Le modèle enregistré n'est plus utilisable : {saved}. "
+            notice_text = f"Le modèle enregistré n'est plus utilisable : {saved}. "
 
         files = [c for c in candidates if c.status == "found" and c.path]
         distinct = {c.path for c in files}  # several Ollama tags may share one blob
         if len(distinct) == 1:
-            return self._hand_out(files[0], candidates, notice_fr)
+            return self._hand_out(files[0], candidates, notice_text)
         if len(distinct) > 1:
             self._emit_check(
                 "model",
                 "warn",
-                f"{notice_fr}Plusieurs modèles trouvés : choisissez-en un.",
+                f"{notice_text}Plusieurs modèles trouvés : choisissez-en un.",
                 "Cliquez sur « Choisir » en face d'un modèle, ou indiquez le chemin d'un "
                 "fichier GGUF.",
                 blocking=True,
@@ -521,7 +521,7 @@ class DiagnosticSession:
             self._emit_check(
                 "model",
                 "warn",
-                f"{notice_fr}Aucun fichier GGUF, mais un serveur local sert "
+                f"{notice_text}Aucun fichier GGUF, mais un serveur local sert "
                 f"{len(servers)} modèle{'s' if len(servers) > 1 else ''} : choisissez un "
                 "modèle servi.",
                 "Cliquez sur « Choisir » en face d'un modèle servi (WaveStack ne lance ni "
@@ -543,7 +543,7 @@ class DiagnosticSession:
         self._emit_check(
             "model",
             "fail",
-            f"{notice_fr}Aucun modèle utilisable trouvé. Emplacements recherchés : "
+            f"{notice_text}Aucun modèle utilisable trouvé. Emplacements recherchés : "
             f"{SEARCHED_SOURCES_FR}.",
             f"{details}. Indiquez le chemin d'un fichier GGUF ou copiez-en un dans le "
             f"dossier de modèles.",
@@ -586,7 +586,7 @@ class DiagnosticSession:
                 ready=previous.ready,
                 blocking_checks=previous.blocking_checks,
                 candidates=candidates,
-                message_fr=f"Modèle non retenu ({path}) : {reason}",
+                message_text=f"Modèle non retenu ({path}) : {reason}",
             )
             return self.last_result
         if hot:
@@ -607,7 +607,7 @@ class DiagnosticSession:
         saved = self._save_choice("file", chosen.path)
         result = self._hand_out(chosen, candidates)
         result.saved = saved
-        result.message_fr = f"Modèle choisi : {chosen.name}. Chargement en cours." + (
+        result.message_text = f"Modèle choisi : {chosen.name}. Chargement en cours." + (
             "" if saved else " Ce choix n'a pas pu être mémorisé pour les prochains lancements."
         )
         return result
@@ -616,17 +616,17 @@ class DiagnosticSession:
         self,
         chosen: discovery.ModelCandidate,
         candidates: list[discovery.ModelCandidate],
-        why_fr: str = "",
+        why_text: str = "",
     ) -> DiagnosticResult:
         """`chosen`, a served model, is the model to prepare now (story 18). Lot E (E1): a
         llama-server launched with a context much larger than the window is a warning."""
         self.handed_out = True
-        warning = f" {chosen.warning_fr}" if chosen.warning_fr else ""
+        warning = f" {chosen.warning_text}" if chosen.warning_text else ""
         self._emit_check(
             "model",
             "warn" if warning else "ok",
             f"Modèle retenu : {chosen.name}, servi par {chosen.provider} "
-            f"({chosen.server_url}){why_fr}.{warning}",
+            f"({chosen.server_url}){why_text}.{warning}",
             blocking=False,
         )
         self.last_result = DiagnosticResult(ready=True, candidates=candidates, server=chosen)
@@ -661,7 +661,7 @@ class DiagnosticSession:
                 ready=previous.ready,
                 blocking_checks=previous.blocking_checks,
                 candidates=candidates,
-                message_fr=f"Modèle non retenu ({ref}) : {reason}",
+                message_text=f"Modèle non retenu ({ref}) : {reason}",
             )
             return self.last_result
         if hot:
@@ -677,7 +677,7 @@ class DiagnosticSession:
         saved = self._save_choice("server", ref)
         result = self._hand_out_server(chosen, candidates)
         result.saved = saved
-        result.message_fr = (
+        result.message_text = (
             f"Modèle choisi : {chosen.name}, servi par {chosen.provider}. Préparation en cours."
             + ("" if saved else " Ce choix n'a pas pu être mémorisé pour les prochains lancements.")
         )
@@ -720,12 +720,12 @@ class DiagnosticSession:
             "Choisissez un modèle ci-dessous.",
         )
 
-    def _block(self, message_fr: str, action_fr: str) -> None:
+    def _block(self, message_text: str, action_text: str) -> None:
         """No model is active any more: the page offers no « Ouvrir WaveStack »."""
         with self._lock:
             if self.last_result is not None:
                 self.last_result.ready, self.last_result.blocking_checks = False, ["model"]
-        self._emit_check("model", "fail", message_fr, action_fr, blocking=True)
+        self._emit_check("model", "fail", message_text, action_text, blocking=True)
 
     def switch(self, app_session: Any, result: DiagnosticResult) -> tuple[str, bool]:
         """Story 17: the hot switch `result` asks for, on `app_session` (class b, AD-3). Raises
@@ -739,11 +739,11 @@ class DiagnosticSession:
             choice = ModelChoice.served(result.server)
         else:
             choice = ModelChoice("file", path, name=_name(result, path))
-        message_fr, future = app_session.switch_model(choice, probe=self.probe_path)
+        message_text, future = app_session.switch_model(choice, probe=self.probe_path)
         if future is not None:
             loaded = _loaded(app_session)
             future.add_done_callback(lambda f: self._switched(choice, f, loaded))
-        return message_fr, future is not None
+        return message_text, future is not None
 
     def _switched(
         self, choice: ModelChoice, future: Any, loaded: Callable[[], bool] = lambda: True
@@ -790,7 +790,7 @@ class DiagnosticSession:
             if self.last_result is not None:
                 self.last_result.ready, self.last_result.blocking_checks = True, []
         # Lot E (E1): llama-server launched with a context much larger than the window.
-        warning = getattr(choice.server, "warning_fr", None) if choice.kind == "server" else None
+        warning = getattr(choice.server, "warning_text", None) if choice.kind == "server" else None
         self._emit_check(
             "model",
             "ok" if saved and not warning else "warn",
@@ -850,8 +850,8 @@ class DiagnosticSession:
         if config.cloud_key(entry) is None:
             content = self._cloud_content()
             if config.api_key_host_changed(entry):
-                return content.host_changed_fr if content else "Clé à ressaisir."
-            return fill(content.no_key_fr, entry, content) if content else "Clé absente."
+                return content.host_changed_text if content else "Clé à ressaisir."
+            return fill(content.no_key_text, entry, content) if content else "Clé absente."
         return config.cloud_unavailable_fr(entry)
 
     def _cloud_content(self) -> CloudContent | None:
@@ -861,9 +861,9 @@ class DiagnosticSession:
             get_journal().emit(
                 "harness_error",
                 {
-                    "message_fr": "Le fichier content/cloud.yaml est absent ou invalide.",
+                    "message_text": "Le fichier content/cloud.yaml est absent ou invalide.",
                     "cause": str(exc),
-                    "effect_fr": "Les modèles cloud s'affichent sans leurs textes.",
+                    "effect_text": "Les modèles cloud s'affichent sans leurs textes.",
                 },
             )
             return None
@@ -883,8 +883,8 @@ class DiagnosticSession:
                     "model": entry.model,
                     "host": entry.host,
                     "disclosure": disclosure(entry),
-                    "training_fr": (
-                        content.training_fr.get(entry.training, entry.training)
+                    "training_text": (
+                        content.training_text.get(entry.training, entry.training)
                         if content
                         else entry.training
                     ),
@@ -892,17 +892,19 @@ class DiagnosticSession:
                     # AD-20: where the key comes from, and the variable's name, never its value.
                     "key_source": config.cloud_key_source(entry),
                     "key_env": entry.key_env,
-                    "disabled_fr": reason,
+                    "disabled_text": reason,
                     "selected": entry.id == self.selected_cloud,
                     "loaded": entry.id == active,
-                    "test_hint_fr": fill(content.test_hint_fr, entry, content) if content else "",
+                    "test_hint_text": fill(content.test_hint_text, entry, content)
+                    if content
+                    else "",
                     "warning": warning_fr(entry, content) if content else None,
                     "last_test": self._last_tests.get(entry.id),
                     # FinOps: the declared prices, `None` without them.
-                    "price_fr": price_line_fr(entry),
+                    "price_text": price_line_fr(entry),
                 }
             )
-        return {"models": rows, "key_hint_fr": content.key_hint_fr if content else ""}
+        return {"models": rows, "key_hint_text": content.key_hint_text if content else ""}
 
     def select_cloud(
         self, model_id: str, acknowledged: bool, *, hot: bool = False
@@ -946,7 +948,7 @@ class DiagnosticSession:
                 candidates=previous.candidates,
                 saved=saved,
                 cloud_model=entry,
-                message_fr=f"Modèle choisi : {label}. Préparation en cours."
+                message_text=f"Modèle choisi : {label}. Préparation en cours."
                 + ("" if saved else " Ce choix n'a pas pu être mémorisé."),
             )
             return self.last_result
@@ -970,7 +972,7 @@ class DiagnosticSession:
             ) from None
         return {
             "key_set": True,
-            "message_fr": f"Clé enregistrée pour {entry.provider}. Cliquez sur « Tester ».",
+            "message_text": f"Clé enregistrée pour {entry.provider}. Cliquez sur « Tester ».",
         }
 
     def test_cloud_model(self, model_id: str) -> dict[str, object]:
@@ -1029,7 +1031,7 @@ class DiagnosticSession:
                         fields=chat_fields(entry, entry.reserve),
                         markers=self.cfg.cloud_markers,
                         estimate=lambda t: config.estimate_tokens(t, self.cfg.chars_per_token),
-                        provider_label_fr=content.provider_segment_fr,
+                        provider_label_text=content.provider_segment_text,
                     )
                     out = run_call(
                         engine,
@@ -1065,8 +1067,10 @@ class DiagnosticSession:
                 answer = out.text or out.reasoning
                 break
         except ProviderError as error:
-            self._emit_test(entry, "fail", f"Test en échec : {error.message_fr}", error.hints_fr)
-            return {"ok": False, "message_fr": error.message_fr}
+            self._emit_test(
+                entry, "fail", f"Test en échec : {error.message_text}", error.hints_text
+            )
+            return {"ok": False, "message_text": error.message_text}
         finally:
             engine.close()
         rate = f", {tps} tokens/s" if tps is not None else ""
@@ -1081,14 +1085,14 @@ class DiagnosticSession:
             message = f"Test réussi : {entry.provider} répond{rate}.{called}"
             status = "ok"
         self._emit_test(entry, status, message, [], answer=answer, tool_call=tool_call, tps=tps)
-        return {"ok": status == "ok", "message_fr": message}
+        return {"ok": status == "ok", "message_text": message}
 
     def _emit_test(
         self,
         entry: CloudModel,
         status: str,
-        message_fr: str,
-        hints_fr: list[str],
+        message_text: str,
+        hints_text: list[str],
         *,
         answer: str | None = None,
         tool_call: dict[str, object] | None = None,
@@ -1097,8 +1101,8 @@ class DiagnosticSession:
         payload: dict[str, object] = {
             "check": "cloud_test",
             "status": status,
-            "message_fr": message_fr,
-            "action_fr": " ".join(hints_fr) or None,
+            "message_text": message_text,
+            "action_text": " ".join(hints_text) or None,
             "blocking": False,
             "model_id": entry.id,
             "answer": answer,

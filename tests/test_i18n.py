@@ -126,7 +126,7 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
         for name, text in fr.tools.items():
             assert tr.tools[name].parameters.keys() == text.parameters.keys()
             assert [p.args for p in tr.tools[name].presets] == [p.args for p in text.presets]
-            assert (tr.tools[name].sends_fr is None) == (text.sends_fr is None)
+            assert (tr.tools[name].sends_text is None) == (text.sends_text is None)
     elif rel == "hooks.yaml":
         fr, tr = load_hooks_content(HOOKS, "fr"), load_hooks_content(HOOKS, lang)
         assert (tr.hooks.keys(), tr.points.keys()) == (fr.hooks.keys(), fr.points.keys())
@@ -158,7 +158,7 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     elif rel == "rag.yaml":
         fr, tr = load_rag_content("fr"), load_rag_content(lang)
         assert tr.documents == fr.documents  # the corpus and its index stay French (story 4)
-        assert tr.intro_fr != fr.intro_fr
+        assert tr.intro_text != fr.intro_text
     else:
         pytest.fail(f"{rel} : aucun contrôle de parité")
 
@@ -301,8 +301,8 @@ def test_the_reason_is_also_in_the_current_language():
     _run(session, "Hallo")
     with pytest.raises(SendRefused) as refused:
         session.set_language("en")
-    assert "conversation vide" in refused.value.reason_fr
-    assert "leerer Unterhaltung" in refused.value.reason_fr
+    assert "conversation vide" in refused.value.reason_text
+    assert "leerer Unterhaltung" in refused.value.reason_text
     session.close()
 
 
@@ -341,10 +341,10 @@ def test_an_invalid_translation_falls_back_on_french(tmp_path, monkeypatch):
     _, session = _session(language="de")
 
     errors = [e.payload for e in get_journal().events_since(mark) if e.kind == "harness_error"]
-    assert [e["message_fr"] for e in errors] == [
+    assert [e["message_text"] for e in errors] == [
         "Un fichier traduit (de) sous content/i18n/de/ est invalide."
     ]
-    assert session._tools_content.tools["get_datetime"].label_fr == "Heure et date"  # French
+    assert session._tools_content.tools["get_datetime"].label_text == "Heure et date"  # French
     assert session._hooks_content.points["on_turn_end"] == "Ende der Runde"  # German
     assert "tools" not in session._content_errors
     session.close()
@@ -361,7 +361,7 @@ def test_an_untranslated_file_is_read_in_french(tmp_path, monkeypatch):
     _, session = _session(language="de")
 
     assert [e for e in get_journal().events_since(mark) if e.kind == "harness_error"] == []
-    assert session._subagent_content.phase_label_fr == "Appel au sous-agent"
+    assert session._subagent_content.phase_label_text == "Appel au sous-agent"
     assert session._subagent_content.prompt.startswith("Du bist ein Sub-Agent")  # translated .md
     session.close()
 
@@ -484,7 +484,7 @@ def test_a_french_session_switched_to_german_speaks_german_everywhere():
     assert session._registry.get("load_tool_doc").description.startswith(
         "Lädt die Dokumentation eines MCP-Tools"
     )
-    assert session._rag_content.intro_fr.startswith("Auszüge aus der internen Dokumentation")
+    assert session._rag_content.intro_text.startswith("Auszüge aus der internen Dokumentation")
     assert session._subagent_content.prompt.startswith("Du bist ein Sub-Agent")
     session.close()
 
@@ -539,7 +539,7 @@ def test_a_setting_that_cannot_be_written_refuses_the_change(monkeypatch):
     assert response.status_code == 409
     assert "n'a pas pu être enregistrée" in response.json()["detail"]
     assert session._language == "fr"
-    assert session._tools_content.tools["get_datetime"].label_fr == "Heure et date"
+    assert session._tools_content.tools["get_datetime"].label_text == "Heure et date"
     session.close()
 
 

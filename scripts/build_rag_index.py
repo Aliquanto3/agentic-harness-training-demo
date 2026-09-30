@@ -68,9 +68,9 @@ def main(argv: list[str] | None = None, embedder_factory=LlamaCppEmbedder) -> in
     )
     args = parser.parse_args(argv)
     cfg = config.load_config()
-    model, error_fr = cfg.rag_embedding
+    model, error_text = cfg.rag_embedding
     if model is None:
-        return _fail(error_fr or "La section [rag.embedding] est invalide.")
+        return _fail(error_text or "La section [rag.embedding] est invalide.")
     try:
         content = load_rag_content()
     except (OSError, ValueError, ValidationError) as exc:
@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None, embedder_factory=LlamaCppEmbedder) -> in
             try:
                 download.download_files(missing, config.models_dir(), CancelToken(), _dots)
             except download.DownloadError as exc:
-                return _fail(f"\nTéléchargement impossible : {exc.reason_fr}.")
+                return _fail(f"\nTéléchargement impossible : {exc.reason_text}.")
             print()
     path = args.model or model_path(model)
     if not path.is_file():
@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None, embedder_factory=LlamaCppEmbedder) -> in
     if declared.sha256 and file_sha256(path) != declared.sha256.lower():
         return _fail(f"{path} n'est pas le modèle déclaré : sha256 différent de [rag.embedding].")
     started = time.monotonic()
-    print(f"Chargement du modèle d'embedding {model.label_fr} ({path})…")
+    print(f"Chargement du modèle d'embedding {model.label_text} ({path})…")
     try:
         embedder = embedder_factory(model, path)
     except (ValueError, OSError) as exc:

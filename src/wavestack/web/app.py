@@ -243,7 +243,7 @@ def create_app(
     def _diagnostic_class_b() -> None:
         """AD-3: the diagnostic's intentions are refused outside `diagnostic` and `idle`."""
         if app_session.state not in ("idle", "diagnostic"):
-            reason = app_session.reason_fr or "WaveStack est occupé."
+            reason = app_session.reason_text or "WaveStack est occupé."
             raise HTTPException(status_code=409, detail=f"Refusé pour l'instant : {reason}")
 
     app.add_middleware(
@@ -314,7 +314,7 @@ def create_app(
             return {"request_id": app_session.llm_tokenize(intention.text)}
         except SendRefused as refused:
             raise HTTPException(
-                status_code=409, detail=f"Refusé pour l'instant : {refused.reason_fr}"
+                status_code=409, detail=f"Refusé pour l'instant : {refused.reason_text}"
             ) from None
 
     @app.post("/api/intentions/llm_generate")
@@ -332,7 +332,7 @@ def create_app(
             return {"request_id": request_id}
         except SendRefused as refused:
             raise HTTPException(
-                status_code=409, detail=f"Refusé pour l'instant : {refused.reason_fr}"
+                status_code=409, detail=f"Refusé pour l'instant : {refused.reason_text}"
             ) from None
 
     @app.get("/rag")
@@ -359,7 +359,7 @@ def create_app(
         try:
             return {"run_id": app_session.run_rag_lab(intention.question, intention.pipelines)}
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
 
     @app.get("/api/state")
     def api_state() -> dict[str, object]:
@@ -491,13 +491,13 @@ def create_app(
             try:
                 result = session.select_cloud(ref, intention.acknowledged, hot=hot)
             except Refused as refused:
-                raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+                raise HTTPException(status_code=409, detail=refused.reason_text) from None
         elif intention.kind == "server":
             result = session.select_server(ref, hot=hot)
         else:
             result = session.select_model(ref, hot=hot)
         switching = bool(result.model_path or result.cloud_model or result.server)
-        message_fr = result.message_fr
+        message_text = result.message_text
         # The model this answer loads: the page matches it with `model_load_ended.model.ref`.
         ref_loading = (
             result.cloud_model.id
@@ -508,9 +508,9 @@ def create_app(
         )
         if result.hot:
             try:
-                message_fr, switching = session.switch(app_session, result)
+                message_text, switching = session.switch(app_session, result)
             except SendRefused as refused:
-                raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+                raise HTTPException(status_code=409, detail=refused.reason_text) from None
         else:
             session.hand_to(app_session, result)
         return {
@@ -520,7 +520,7 @@ def create_app(
             "saved": result.saved,
             "switching": switching,
             "ref": ref_loading if switching else None,
-            "message_fr": message_fr,
+            "message_text": message_text,
         }
 
     @app.post("/api/intentions/context_window")
@@ -530,10 +530,10 @@ def create_app(
         next turn; without a model, it is saved for the next load (AD-9)."""
         _diagnostic_class_b()
         try:
-            message_fr, future = app_session.set_context_window(intention.window)
+            message_text, future = app_session.set_context_window(intention.window)
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
-        return {"switching": future is not None, "message_fr": message_fr}
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+        return {"switching": future is not None, "message_text": message_text}
 
     @app.post("/api/intentions/set_api_key")
     def set_api_key(intention: SetApiKeyIntention) -> dict[str, object]:
@@ -542,7 +542,7 @@ def create_app(
         try:
             return session.set_api_key(intention.id, intention.key)
         except Refused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
 
     @app.post("/api/intentions/test_cloud_model")
     def test_cloud_model(intention: CloudTestIntention) -> dict[str, object]:
@@ -555,9 +555,9 @@ def create_app(
                 "model_load", f"Test de {label}", lambda: session.test_cloud_model(intention.id)
             )
         except Refused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
 
     @app.post("/api/intentions/send")
     def send(intention: SendIntention) -> dict[str, str]:
@@ -565,7 +565,7 @@ def create_app(
         try:
             return {"turn_id": app_session.send(intention.message)}
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
 
     @app.post("/api/intentions/replay")
     def replay() -> dict[str, str]:
@@ -573,7 +573,7 @@ def create_app(
         try:
             return {"turn_id": app_session.replay()}
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
 
     @app.post("/api/intentions/stop")
     def stop() -> dict[str, bool]:
@@ -588,7 +588,7 @@ def create_app(
                 intention.approval_id, intention.approved, intention.disable_hook
             )
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
         return {"accepted": True}
 
     @app.post("/api/intentions/brick")
@@ -659,7 +659,7 @@ def create_app(
             armed_id = app_session.arm(intention.kind, intention.target, intention.args)
         except ArmRefused as refused:
             status = 404 if refused.not_found else 422
-            raise HTTPException(status_code=status, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=status, detail=refused.reason_text) from None
         return {"armed_id": armed_id}
 
     @app.post("/api/intentions/disarm")
@@ -668,7 +668,7 @@ def create_app(
         try:
             app_session.disarm(intention.armed_id)
         except ArmRefused as refused:
-            raise HTTPException(status_code=404, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=404, detail=refused.reason_text) from None
         return {"accepted": True}
 
     @app.get("/api/audit")
@@ -697,7 +697,7 @@ def create_app(
         try:
             app_session.clear_conversation()
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
         return {"cleared": True}
 
     @app.post("/api/intentions/language")
@@ -707,7 +707,7 @@ def create_app(
         try:
             app_session.set_language(intention.language)
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
         return {"language": intention.language}
 
     @app.post("/api/intentions/memory")
@@ -717,7 +717,7 @@ def create_app(
         try:
             app_session.edit_memory(intention.op, intention.entry_id, intention.text)
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
         except KeyError:
             raise HTTPException(status_code=404, detail="Entrée de mémoire inconnue.") from None
         except ValueError as exc:
@@ -734,7 +734,7 @@ def create_app(
         except KeyError:
             raise HTTPException(status_code=404, detail="Scénario inconnu.") from None
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
         return {"launched": True}
 
     @app.post("/api/intentions/download_model")
@@ -742,26 +742,26 @@ def create_app(
         """Class (b), story 15 (AD-21): unknown target: 404; outside `idle`, or nothing to
         download: 409, with the reason. « Arrêter » (`stop`) cancels it."""
         try:
-            reason_fr = app_session.download_model(intention.target)
+            reason_text = app_session.download_model(intention.target)
         except KeyError:
             raise HTTPException(
                 status_code=404, detail="Cible de téléchargement inconnue."
             ) from None
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
-        return {"started": True, "reason_fr": reason_fr}
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+        return {"started": True, "reason_text": reason_text}
 
     @app.post("/api/intentions/build_rag_index")
     def build_rag_index() -> dict[str, object]:
         """Class (b), story 15: outside `idle`, or nothing to build: 409, with the reason.
         « Arrêter » (`stop`) cancels it."""
         try:
-            reason_fr = app_session.build_rag_index()
+            reason_text = app_session.build_rag_index()
         except KeyError:
             raise HTTPException(status_code=404, detail="Aucune brique RAG.") from None
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
-        return {"started": True, "reason_fr": reason_fr}
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
+        return {"started": True, "reason_text": reason_text}
 
     @app.post("/api/intentions/reset")
     def reset() -> dict[str, bool]:
@@ -769,7 +769,7 @@ def create_app(
         try:
             app_session.reset()
         except SendRefused as refused:
-            raise HTTPException(status_code=409, detail=refused.reason_fr) from None
+            raise HTTPException(status_code=409, detail=refused.reason_text) from None
         return {"reset": True}
 
     @app.get("/api/diagnostic/stream")

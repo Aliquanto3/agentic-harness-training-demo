@@ -89,7 +89,7 @@ rerank_candidates = 8
 # modèle rend la brique indisponible jusqu'à la reconstruction de l'index.
 id = "granite-embedding-107m-multilingual-q8_0"
 backend = "llama_cpp"
-label_fr = "Granite Embedding 107M multilingue (IBM, GGUF Q8_0)"
+label_text = "Granite Embedding 107M multilingue (IBM, GGUF Q8_0)"
 license = "Apache-2.0"
 dims = 384        # carte HF : hidden_size 384, pooling CLS lu dans le GGUF
 max_tokens = 512  # carte HF : max_position_embeddings 514 (XLM-RoBERTa)
@@ -110,7 +110,7 @@ files = [
 # une paire question-extrait par passage ; le score est ramené entre 0 et 1 (sigmoïde).
 id = "bge-reranker-v2-m3-q4_k_m"
 backend = "llama_cpp"
-label_fr = "BGE Reranker v2 M3 (BAAI, GGUF Q4_K_M)"
+label_text = "BGE Reranker v2 M3 (BAAI, GGUF Q4_K_M)"
 license = "Apache-2.0"
 max_tokens = 1024  # longueur d'une paire question + extrait, en tokens (extrait tronqué au-delà)
 # Relatif au dossier des modèles (models/ dans le dossier de données).
@@ -130,7 +130,7 @@ files = [
 # présent hors ligne sous models/fastembed : WaveStack ne le télécharge jamais. Déclarez-le
 # dans settings.json, par exemple :
 #   "rag_lab": {"fastembed": {"model_name": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-#               "dims": 384, "label_fr": "MiniLM multilingue (fastembed)"}}
+#               "dims": 384, "label_text": "MiniLM multilingue (fastembed)"}}
 # FAISS et LanceDB (extra `rag-alt`) : mémoire comptée par le budget à leur premier import, à vie
 # (un module Python ne se décharge pas), en Mo. Mesuré sous Linux : +16 à 37 Mo et +104 à 121 Mo.
 faiss_cost_mb = 60
@@ -266,9 +266,9 @@ stream_usage = true
 tools = true
 context = 131072
 tpm = 8000
-hosting_fr = "États-Unis (Groq)"
+hosting_text = "États-Unis (Groq)"
 training = "no"
-notes_fr = "Aucune rétention des entrées et sorties par défaut, 30 jours au plus pour le débogage ou la lutte contre les abus. Quotas à lire dans la console Groq."
+notes_text = "Aucune rétention des entrées et sorties par défaut, 30 jours au plus pour le débogage ou la lutte contre les abus. Quotas à lire dans la console Groq."
 reasoning = { format = "field", always = true, on = { reasoning_effort = "low" }, resend = false }
 key_env = "GROQ_API_KEY"
 # Écran « LLM nu » (story 29) : les réglages d'échantillonnage que l'API compatible OpenAI
@@ -278,8 +278,8 @@ sampling = ["temperature", "top_p"]
 # FinOps : prix catalogue en dollars par million de tokens, relevés sur groq.com/pricing.
 pricing = { input_usd_per_mtok = 0.15, output_usd_per_mtok = 0.60, checked = "2026-09-29" }
 # GreenOps : EcoLogits ne connaît pas Groq ; gpt-oss-120b y figure chez Hugging Face, le plus
-# proche (centres de données aux États-Unis). note_fr est ajoutée à l'infobulle de chaque appel.
-impacts = { provider = "huggingface_hub", model = "openai/gpt-oss-120b", note_fr = "EcoLogits ne connaît pas Groq (puces LPU) : estimation par gpt-oss-120b sur GPU chez Hugging Face" }
+# proche (centres de données aux États-Unis). note_text est ajoutée à l'infobulle de chaque appel.
+impacts = { provider = "huggingface_hub", model = "openai/gpt-oss-120b", note_text = "EcoLogits ne connaît pas Groq (puces LPU) : estimation par gpt-oss-120b sur GPU chez Hugging Face" }
 
 # Préréglage Mistral : fournisseur français, plan gratuit toujours actif (décision du
 # 2026-09-25 : mistral-small-latest).
@@ -291,9 +291,9 @@ model = "mistral-small-latest"
 stream_usage = false
 tools = true
 context = 131072
-hosting_fr = "Mistral AI, France (hébergement dans l'UE plausible, non confirmé)"
+hosting_text = "Mistral AI, France (hébergement dans l'UE plausible, non confirmé)"
 training = "opt_out"
-notes_fr = "Sur le plan gratuit, les prompts servent à l'entraînement par défaut : décochez l'option dans Admin Console > Privacy. Quotas à lire dans la console Mistral. Coût réel nul sur le plan gratuit : le prix affiché est le prix catalogue."
+notes_text = "Sur le plan gratuit, les prompts servent à l'entraînement par défaut : décochez l'option dans Admin Console > Privacy. Quotas à lire dans la console Mistral. Coût réel nul sur le plan gratuit : le prix affiché est le prix catalogue."
 reasoning = { format = "content_blocks", on = { reasoning_effort = "high" }, off = { reasoning_effort = "none" } }
 key_env = "MISTRAL_API_KEY"
 # Écran « LLM nu » (story 29) : température et top-p réglables, comme chez Groq.
@@ -302,7 +302,7 @@ sampling = ["temperature", "top_p"]
 # envois à ce modèle (tour ou « Tester »). Augmentez la valeur si des 429 persistent.
 min_interval_s = 1
 # FinOps : prix catalogue de Mistral Small 4, relevés sur mistral.ai/pricing (nuls en réalité
-# sur le plan gratuit, voir notes_fr).
+# sur le plan gratuit, voir notes_text).
 pricing = { input_usd_per_mtok = 0.15, output_usd_per_mtok = 0.60, checked = "2026-09-29" }
 # GreenOps : le modèle tel qu'EcoLogits le connaît chez Mistral AI (zone du fournisseur).
 impacts = { provider = "mistralai", model = "mistral-small-latest" }
@@ -351,9 +351,9 @@ model = "gemini-3.5-flash-lite"
 stream_usage = true
 tools = true
 context = 1048576
-hosting_fr = "Google (hébergement non précisé)"
+hosting_text = "Google (hébergement non précisé)"
 training = "no"
-notes_fr = "Offre payante obligatoire (clause EEE : l'offre gratuite ne doit pas servir à des utilisateurs de l'EEE, de Suisse ou du Royaume-Uni). Sur l'offre payante, rien n'est utilisé pour l'entraînement. Prix à vérifier dans la console : hausse au 2027-01-01 pour les 3.6 à 3.8 Flash."
+notes_text = "Offre payante obligatoire (clause EEE : l'offre gratuite ne doit pas servir à des utilisateurs de l'EEE, de Suisse ou du Royaume-Uni). Sur l'offre payante, rien n'est utilisé pour l'entraînement. Prix à vérifier dans la console : hausse au 2027-01-01 pour les 3.6 à 3.8 Flash."
 key_env = "GEMINI_API_KEY"
 tool_call_extra = { extra_content = { google = { thought_signature = "skip_thought_signature_validator" } } }
 # FinOps : prix de gemini-3.5-flash-lite, relevés sur ai.google.dev/pricing (offre payante).
@@ -381,7 +381,7 @@ resend = false
 # d'entrée et de sortie en dollars par million de tokens, avec la date du relevé ; sans lui,
 # aucun coût n'est estimé ni affiché pour ce modèle) et impacts (GreenOps : provider et model
 # tels qu'EcoLogits les connaît, zone facultative, code ISO à trois lettres du mix électrique,
-# par défaut celui du fournisseur dans EcoLogits ; note_fr facultative, ajoutée à l'infobulle ;
+# par défaut celui du fournisseur dans EcoLogits ; note_text facultative, ajoutée à l'infobulle ;
 # sans lui, aucune empreinte n'est estimée).
 #
 # NVIDIA : offre d'essai, « limited trial purposes only », hors production ; les contenus
@@ -393,10 +393,10 @@ resend = false
 # model = "meta/llama-3.3-70b-instruct"
 # tools = true
 # context = 131072
-# hosting_fr = "NVIDIA (hébergement non précisé)"
+# hosting_text = "NVIDIA (hébergement non précisé)"
 # training = "yes"
 # trial = true
-# notes_fr = "Offre d'essai réservée à l'évaluation interne, pas à un usage durable. Environ 40 requêtes par minute."
+# notes_text = "Offre d'essai réservée à l'évaluation interne, pas à un usage durable. Environ 40 requêtes par minute."
 #
 # OpenRouter : le catalogue « :free » change presque chaque jour, et la politique de
 # données dépend du fournisseur vers lequel la requête est routée. 50 requêtes par jour
@@ -408,6 +408,6 @@ resend = false
 # model = "meta-llama/llama-3.3-70b-instruct:free"
 # tools = true
 # context = 131072
-# hosting_fr = "Selon le fournisseur routé par OpenRouter"
+# hosting_text = "Selon le fournisseur routé par OpenRouter"
 # training = "yes"
-# notes_fr = "Catalogue gratuit instable : vérifiez le nom du modèle avant la séance. Politique de données propre à chaque fournisseur routé. 50 requêtes par jour sans crédits."
+# notes_text = "Catalogue gratuit instable : vérifiez le nom du modèle avant la séance. Politique de données propre à chaque fournisseur routé. 50 requêtes par jour sans crédits."

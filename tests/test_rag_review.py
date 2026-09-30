@@ -83,8 +83,8 @@ def test_fresh_install_offers_download_then_build_then_searches(tmp_path):
     session, embedders = rag_session(rag_config(index))  # neither model nor index
 
     rag = card(session)
-    assert "index absent" in rag["reason_fr"] and "Téléchargez d'abord" in rag["reason_fr"]
-    assert "`" not in rag["reason_fr"]
+    assert "index absent" in rag["reason_text"] and "Téléchargez d'abord" in rag["reason_text"]
+    assert "`" not in rag["reason_text"]
     assert rag["download"]["target"] == "rag_embedding" and rag["build_index"] is None
     with pytest.raises(SendRefused, match="Cliquez d'abord sur « Télécharger »"):
         session.build_rag_index()
@@ -93,7 +93,7 @@ def test_fresh_install_offers_download_then_build_then_searches(tmp_path):
     with pytest.raises(SendRefused, match="Rien à télécharger"):
         session.download_model("rag_embedding")
     rag = card(session)
-    assert rag["download"] is None and rag["build_index"] == {"label_fr": "Construire l'index"}
+    assert rag["download"] is None and rag["build_index"] == {"label_text": "Construire l'index"}
 
     mark = get_journal().last_seq()
     assert session.build_rag_index().startswith("Construction de l'index RAG")
@@ -133,7 +133,7 @@ def test_build_can_be_stopped_and_writes_nothing(tmp_path):
     wait_idle(session)
 
     errors = since(mark, "harness_error")
-    assert errors[0].payload["message_fr"] == "Construction de l'index RAG arrêtée."
+    assert errors[0].payload["message_text"] == "Construction de l'index RAG arrêtée."
     assert not index.exists() and not index.with_name(index.name + ".tmp").exists()
     assert session._load_registry.holder(EMBEDDING) is None
     session.close()
@@ -156,8 +156,8 @@ def test_stale_index_is_unavailable_and_offers_the_build(tmp_path):
     session, embedders = rag_session(rag_config(index))
 
     rag = card(session)
-    assert rag["available"] is False and "index périmé" in rag["reason_fr"]
-    assert "chunk_max_chars" in rag["reason_fr"] and rag["build_index"] is not None
+    assert rag["available"] is False and "index périmé" in rag["reason_text"]
+    assert "chunk_max_chars" in rag["reason_text"] and rag["build_index"] is not None
     assert embedders.made == []
     session.close()
 
@@ -174,7 +174,7 @@ def test_another_file_of_the_same_dimensions_is_not_taken_for_the_model(tmp_path
     session, embedders = rag_session(rag_config(index))
 
     rag = card(session)
-    assert rag["available"] is False and "n'est pas le modèle d'embedding" in rag["reason_fr"]
+    assert rag["available"] is False and "n'est pas le modèle d'embedding" in rag["reason_text"]
     assert rag["download"] is not None and embedders.made == []
     session.close()
 
@@ -188,7 +188,7 @@ def test_an_index_built_from_another_file_is_refused(tmp_path):
     session, _ = rag_session(rag_config(index))
 
     rag = card(session)
-    assert rag["available"] is False and "fichier de" in rag["reason_fr"]
+    assert rag["available"] is False and "fichier de" in rag["reason_text"]
     assert rag["build_index"] is not None
     session.close()
 
@@ -201,7 +201,7 @@ def test_a_declared_sha256_is_checked_before_loading(tmp_path):
     session, embedders = rag_session(rag_config(index, files=files))
 
     rag = card(session)
-    assert rag["available"] is False and "sha256 différent" in rag["reason_fr"]
+    assert rag["available"] is False and "sha256 différent" in rag["reason_text"]
     assert embedders.made == [] and session._load_registry.holder(EMBEDDING) is None
     session.close()
 
@@ -233,9 +233,9 @@ def test_a_failing_factory_leaves_the_brick_unavailable_and_the_registry_free(in
     session, _ = rag_session(rag_config(index), embedders=broken)
 
     rag = card(session)
-    assert rag["available"] is False and "n'a pas pu être chargé" in rag["reason_fr"]
+    assert rag["available"] is False and "n'a pas pu être chargé" in rag["reason_text"]
     assert session._load_registry.holder(EMBEDDING) is None and not session._rag_loading
-    errors = [e for e in since(mark, "harness_error") if "embedding" in e.payload["message_fr"]]
+    errors = [e for e in since(mark, "harness_error") if "embedding" in e.payload["message_text"]]
     assert len(errors) == 1 and errors[0].brick == "rag"
     session.close()
 
@@ -249,7 +249,7 @@ def test_a_model_that_fails_then_is_deleted_is_offered_again_on_reactivation(ind
         raise RuntimeError("GGUF illisible")
 
     session, _ = rag_session(rag_config(index), embedders=broken)
-    reason = card(session)["reason_fr"]
+    reason = card(session)["reason_text"]
     assert "relancez" not in reason and "réactivez la brique RAG" in reason
 
     path.unlink()
@@ -260,7 +260,7 @@ def test_a_model_that_fails_then_is_deleted_is_offered_again_on_reactivation(ind
     session.join()
 
     rag = card(session, mark)
-    assert rag["available"] is False and "modèle absent" in rag["reason_fr"]
+    assert rag["available"] is False and "modèle absent" in rag["reason_text"]
     assert rag["download"] is not None
     session.close()
 
@@ -296,7 +296,7 @@ def test_a_budget_refusal_is_retried_after_a_model_switch(index, tmp_path):
     session._load_registry._rss = lambda: rss["now"]
     session.set_brick("rag", True)
     session.join()
-    assert "Mémoire insuffisante" in card(session)["reason_fr"] and embedders.made == []
+    assert "Mémoire insuffisante" in card(session)["reason_text"] and embedders.made == []
 
     rss["now"] = 10 * 1024**2  # the switch frees memory
     other = tmp_path / "other.gguf"
@@ -320,7 +320,7 @@ def test_sqlite_vec_that_does_not_load_makes_the_brick_unavailable(index, monkey
     session, embedders = rag_session(rag_config(index))
 
     rag = card(session)
-    assert rag["available"] is False and "sqlite-vec" in rag["reason_fr"]
+    assert rag["available"] is False and "sqlite-vec" in rag["reason_text"]
     assert rag["download"] is None and rag["build_index"] is None and embedders.made == []
     session.close()
 
@@ -332,7 +332,7 @@ def test_a_file_that_is_no_sqlite_index_is_unreadable(tmp_path):
     session, _ = rag_session(rag_config(index))
 
     rag = card(session)
-    assert rag["available"] is False and "illisible" in rag["reason_fr"]
+    assert rag["available"] is False and "illisible" in rag["reason_text"]
     assert rag["build_index"] is not None
     session.close()
 
@@ -350,9 +350,9 @@ def test_an_index_replaced_during_the_session_is_read_again(index, close_first):
     events = turn_events(COVERED, session)
 
     ended = next(e for e in events if e.kind == "rag_search_ended").payload
-    assert ended["status"] == "error" and "remplacé" in ended["error_fr"]
+    assert ended["status"] == "error" and "remplacé" in ended["error_text"]
     rag = card(session)
-    assert rag["available"] is False and "autre-modele" in rag["reason_fr"]
+    assert rag["available"] is False and "autre-modele" in rag["reason_text"]
     assert session._load_registry.holder(EMBEDDING) is None
     session.close()
 
@@ -364,7 +364,7 @@ def test_a_question_without_any_vector_fails_the_search_not_the_turn(index):
     events = turn_events("de la ?", session)  # only short words: a null vector
 
     ended = next(e for e in events if e.kind == "rag_search_ended").payload
-    assert ended["status"] == "error" and "vecteur nul" in ended["error_fr"]
+    assert ended["status"] == "error" and "vecteur nul" in ended["error_text"]
     assert next(e for e in events if e.kind == "turn_ended").payload["status"] == "completed"
     ctx = next(e.payload for e in events if e.kind == "context_rendered")
     assert segments(ctx, "rag_excerpt") == []
@@ -528,7 +528,7 @@ def test_the_card_says_another_program_holds_the_index(tmp_path, monkeypatch):
     wait_idle(session)
 
     error = next(e for e in since(mark, "harness_error") if e.component == "file.rag_index")
-    assert error.payload["message_fr"] == "L'index RAG n'a pas pu être construit."
+    assert error.payload["message_text"] == "L'index RAG n'a pas pu être construit."
     assert error.payload["cause"] == INDEX_HELD_FR
     assert "relancez ce script" not in str(error.payload)
     assert rag_index.read_meta(index).chunk_max_chars == 600  # left as it was

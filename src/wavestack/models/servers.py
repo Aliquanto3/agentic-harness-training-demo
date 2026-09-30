@@ -68,8 +68,8 @@ class ServerError(Exception):
 
     def __init__(self, url: str, cause: str) -> None:
         self.url, self.cause = url, cause
-        self.message_fr = f"Serveur local injoignable ({url}) : {cause}"
-        super().__init__(self.message_fr)
+        self.message_text = f"Serveur local injoignable ({url}) : {cause}"
+        super().__init__(self.message_text)
 
 
 class Tokenizer(Protocol):
@@ -241,13 +241,13 @@ def _file_name(path: str) -> str:
     return re.split(r"[\\/]", path.rstrip("\\/"))[-1]
 
 
-def _reduced(message_fr: str, cause: str) -> None:
+def _reduced(message_text: str, cause: str) -> None:
     get_journal().emit(
         "harness_error",
         {
-            "message_fr": message_fr,
+            "message_text": message_text,
             "cause": cause,
-            "effect_fr": (
+            "effect_text": (
                 "Le tour continue. La jauge affiche le compte du harnais, qui n'est plus "
                 "exactement ce que le serveur a lu."
             ),
@@ -347,8 +347,8 @@ class LlamaServerEngine:
             said.append(
                 "le fichier du modèle, ouvert par llama-server, n'est pas lisible depuis WaveStack"
             )
-        source_fr = " ; ".join(said)
-        return served | header | {"source_fr": source_fr[0].upper() + source_fr[1:] + "."}
+        source_text = " ; ".join(said)
+        return served | header | {"source_text": source_text[0].upper() + source_text[1:] + "."}
 
     # AD-4, AD-11: no access to the server's cache nor to its state.
 
@@ -494,7 +494,7 @@ class OllamaRawEngine:
         dims: dict[str, Any] = dict(_header_dimensions(self._gguf_path))
         dims["vocab_size"] = vocab_size() if callable(vocab_size) else None
         return dims | {
-            "source_fr": (
+            "source_text": (
                 "Vocabulaire lu par le tokenizer du fichier GGUF d'Ollama ; dimensions lues "
                 "dans son en-tête."
             )
@@ -606,7 +606,7 @@ class OllamaRawEngine:
             {
                 "prompt_tokens": counted,
                 "evaluated_tokens": evaluated,
-                "message_fr": (
+                "message_text": (
                     f"Ollama n'a relu que {evaluated} tokens sur {counted} : le début du "
                     "prompt venait de son cache (préfixe identique à l'appel précédent)."
                 ),
@@ -626,9 +626,9 @@ class OllamaRawEngine:
                     get_journal().emit(
                         "harness_error",
                         {
-                            "message_fr": f"Ollama n'a pas déchargé le modèle {self.name}.",
+                            "message_text": f"Ollama n'a pas déchargé le modèle {self.name}.",
                             "cause": error,
-                            "effect_fr": (
+                            "effect_text": (
                                 "WaveStack continue ; Ollama le déchargera de lui-même après "
                                 "son délai d'inactivité."
                             ),
@@ -640,12 +640,12 @@ class OllamaRawEngine:
 
 
 class TokenizerRefused(ValueError):
-    """Lot E (E6): llama-cpp-python refused a served model's GGUF. `reason_fr` in French,
+    """Lot E (E6): llama-cpp-python refused a served model's GGUF. `reason_text` in French,
     `detail` the loader's own message (a technical detail, never the reason)."""
 
-    def __init__(self, reason_fr: str, detail: str) -> None:
-        super().__init__(reason_fr)
-        self.reason_fr, self.detail = reason_fr, detail
+    def __init__(self, reason_text: str, detail: str) -> None:
+        super().__init__(reason_text)
+        self.reason_text, self.detail = reason_text, detail
 
 
 def _open_tokenizer(gguf_path: str | None) -> VocabTokenizer:

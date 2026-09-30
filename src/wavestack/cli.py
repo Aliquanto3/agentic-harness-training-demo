@@ -63,8 +63,8 @@ def _print_journal_event(envelope) -> None:  # noqa: ANN001
     if envelope.kind not in ("diagnostic_check", "harness_error"):
         return
     payload = envelope.payload
-    parts = [payload.get("message_fr", "")]
-    for key in ("action_fr", "cause"):
+    parts = [payload.get("message_text", "")]
+    for key in ("action_text", "cause"):
         if payload.get(key):
             parts.append(payload[key])
     print(" — ".join(parts))

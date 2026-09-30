@@ -1,13 +1,13 @@
 # English translation of content/memory/memory.yaml (languages 1/5, AD-19): same fields,
 # same `{max_chars}` placeholder, as many demonstration entries (fictitious, NFR-11).
-file_label_fr: Global memory
+file_label_text: Global memory
 
 intro: >-
   Global memory: information kept from previous conversations with the user. Take it
   into account when it is useful, without repeating it.
 
 remember:
-  label_fr: Memory write
+  label_text: Memory write
   description: >-
     Remembers a lasting piece of information about the user (preference, first name, work
     context) for the next conversations. Call this tool when the user asks you to remember
@@ -16,13 +16,13 @@ remember:
   text: The information to remember, in one short, self-contained sentence.
 
 drawer:
-  empty_fr: >-
+  empty_text: >-
     No information in the global memory. The model can write some, or you can force a
     write.
-  empty_no_parser_fr: >-
+  empty_no_parser_text: >-
     No information in the global memory. The active model cannot call tools: it cannot
     write any, not even through a forced write.
-  text_help_fr: >-
+  text_help_text: >-
     The information to remember, in one short sentence ({max_chars} characters at most).
     Never a secret: it is read again at every call.
 

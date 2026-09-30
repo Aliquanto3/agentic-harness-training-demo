@@ -68,7 +68,7 @@ const store = {
   // Story 9b: the turn comparison open in Contexte LLM, UI state only: { left, right } turn ids.
   compare: null,
   bricks: null, // last `bricks_changed` payload: cards and system prompt, as the session computed them
-  // Story 14: the last `memory_changed` ({ entries, path, error_fr }), as the session wrote it
+  // Story 14: the last `memory_changed` ({ entries, path, error_text }), as the session wrote it
   // (AD-1); the drawer's unsaved texts, by entry id (UI state only).
   memory: null,
   memoryDrafts: new Map(),
@@ -332,7 +332,7 @@ function applyEnvelope(envelope) {
       break;
     case "armed_actions_changed":
       // Every label seen stays known, so that a replayed `action_dropped` still names it.
-      for (const action of p.actions) store.armedLabels.set(action.armed_id, action.label_fr);
+      for (const action of p.actions) store.armedLabels.set(action.armed_id, action.label_text);
       // AD-1: the chips are this list, never a local computation.
       if (isLive(envelope)) store.armed = p.actions;
       break;
@@ -389,7 +389,7 @@ function applyEnvelope(envelope) {
     case "model_load_ended":
       store.modelLoad = null;
       // A load that fell back, or a choice not saved, says so in the top bar (live only).
-      if (isLive(envelope)) store.topStatus = p.reason_fr ?? null;
+      if (isLive(envelope)) store.topStatus = p.reason_text ?? null;
       scheduleModelList();
       break;
     case "turn_started":
@@ -627,14 +627,14 @@ function applyEnvelope(envelope) {
       if (turn) turn.truncated = p;
       break;
     case "special_token_neutralized":
-      if (turn) turn.notices.push(p.message_fr);
+      if (turn) turn.notices.push(p.message_text);
       break;
     case "harness_error":
       // A cloud provider's refusal carries what to try (AD-16).
-      if (turn) turn.errors.push([p.message_fr, ...(p.hints_fr ?? [])].join(" "));
+      if (turn) turn.errors.push([p.message_text, ...(p.hints_text ?? [])].join(" "));
       // Story 15: a failed download (or load) of the RAG's model, said on its card.
       else if (envelope.brick === "rag") {
-        const notice = [p.message_fr, p.cause ? `Cause : ${p.cause}.` : null, p.effect_fr].filter(Boolean).join(" ");
+        const notice = [p.message_text, p.cause ? `Cause : ${p.cause}.` : null, p.effect_text].filter(Boolean).join(" ");
         // Story 16: the reranker's, said under its switch.
         if (envelope.component === "rag.reranker") store.rerankNotice = notice;
         else store.ragNotice = notice;
@@ -752,7 +752,7 @@ function applySubEnvelope(turn, sub, envelope) {
       if (p.channel !== "tool_call") sub[p.channel] += p.text;
       break;
     case "special_token_neutralized":
-      sub.notices.push(p.message_fr);
+      sub.notices.push(p.message_text);
       break;
     case "model_call_ended":
       Object.assign(sub, { callEnded: p, text: p.text, reasoning: p.reasoning });
@@ -822,7 +822,7 @@ function applySubEnvelope(turn, sub, envelope) {
       sub.truncated = p;
       break;
     case "harness_error":
-      sub.errors.push([p.message_fr, ...(p.hints_fr ?? [])].join(" "));
+      sub.errors.push([p.message_text, ...(p.hints_text ?? [])].join(" "));
       break;
   }
 }
@@ -1172,14 +1172,14 @@ function renderBricks() {
     // From the keyboard: the card itself takes the focus, Enter or Space selects it.
     card.tabIndex = 0;
     card.dataset.focusKey = `brickcard:${brick.id}`;
-    card.setAttribute("aria-label", `Brique ${brick.label_fr}`);
+    card.setAttribute("aria-label", `Brique ${brick.label_text}`);
     card.addEventListener("keydown", (event) => {
       if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
       event.preventDefault();
       select(`brick:${brick.id}`, readLinks(card));
     });
     // Story 13: a model that always reasons keeps the reasoning brick on, whatever `wanted`.
-    const always = Boolean(brick.always_fr);
+    const always = Boolean(brick.always_text);
     // Story 22: the brick is off (or unavailable): its sub-options apply nothing, and say so.
     const parentOff = !(always || (brick.wanted && brick.available));
     const offReason = parentOff ? parentOffReason(brick) : null;
@@ -1203,11 +1203,11 @@ function renderBricks() {
       lock.setAttribute("aria-hidden", "true");
       head.appendChild(lock);
     }
-    head.appendChild(el("span", "brick-name", brick.label_fr));
+    head.appendChild(el("span", "brick-name", brick.label_text));
 
     const tags = el("div", "brick-tags");
-    tags.appendChild(el("span", "category-chip", brick.category_fr));
-    if (brick.hosting_fr) tags.appendChild(el("span", "hosting-tag-local", brick.hosting_fr));
+    tags.appendChild(el("span", "category-chip", brick.category_text));
+    if (brick.hosting_text) tags.appendChild(el("span", "hosting-tag-local", brick.hosting_text));
     // Story 33: an enabled option leaves the workstation: « 🌐 RÉSEAU » on the card itself.
     if (!parentOff && (brick.options || []).some((o) => o.enabled && o.network)) {
       tags.appendChild(el("span", "hosting-tag-network brick-network", "RÉSEAU"));
@@ -1217,28 +1217,28 @@ function renderBricks() {
     status.dataset.brick = brick.id;
     card.append(head, tags, status);
 
-    if (!brick.available && brick.reason_fr) card.appendChild(el("p", "brick-reason", brick.reason_fr));
+    if (!brick.available && brick.reason_text) card.appendChild(el("p", "brick-reason", brick.reason_text));
     if (brick.id === "rag") card.append(...downloadParts(brick), ...rerankParts(brick, offReason));
     if (always) {
-      const why = el("p", "brick-reason brick-always", brick.always_fr);
+      const why = el("p", "brick-reason brick-always", brick.always_text);
       why.id = `always-${brick.id}`;
       toggle.setAttribute("aria-describedby", why.id);
       card.appendChild(why);
     }
-    if (brick.note_fr) card.appendChild(el("p", "brick-note", brick.note_fr));
+    if (brick.note_text) card.appendChild(el("p", "brick-note", brick.note_text));
     // Story 23: what leaves the workstation and where to read it, outside the folded options.
-    if (brick.outbound_fr) card.appendChild(el("p", "brick-outbound", brick.outbound_fr));
+    if (brick.outbound_text) card.appendChild(el("p", "brick-outbound", brick.outbound_text));
     if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
     if (armed.length) card.appendChild(armedChips(armed, `card:${brick.id}`));
 
     if (brick.options?.length) card.appendChild(brickOptions(brick, offReason));
-    if (brick.limits_fr) card.appendChild(el("p", "brick-limits", brick.limits_fr));
+    if (brick.limits_text) card.appendChild(el("p", "brick-limits", brick.limits_text));
     // Story 19: a brick without sub-option forces its action from the card itself.
     if (brick.force && store.showForced) card.append(...cardForce(brick));
 
-    if (brick.explanation_fr?.length) {
+    if (brick.explanation_text?.length) {
       // ponytail: CSS anchor positioning (Chromium) has no fallback for other engines;
       // acceptable here since the demo targets a Chromium-based browser on the PC.
       const anchorName = `--brick-anchor-${brick.id}`;
@@ -1246,7 +1246,7 @@ function renderBricks() {
       const help = el("button", "brick-help", "?");
       help.type = "button";
       help.setAttribute("popovertarget", `explain-${brick.id}`);
-      help.setAttribute("aria-label", `Ce que la brique ${brick.label_fr} ajoute`);
+      help.setAttribute("aria-label", `Ce que la brique ${brick.label_text} ajoute`);
       const popover = el("div", "brick-explanation");
       popover.id = `explain-${brick.id}`;
       popover.setAttribute("popover", "");
@@ -1255,7 +1255,7 @@ function renderBricks() {
         if (event.newState === "open") store.openBrickHelp.add(brick.id);
         else store.openBrickHelp.delete(brick.id);
       });
-      for (const block of brick.explanation_fr) {
+      for (const block of brick.explanation_text) {
         if (Array.isArray(block)) {
           const list = el("ul", "brick-explanation-list");
           for (const item of block) list.appendChild(el("li", "", item));
@@ -1314,7 +1314,7 @@ function updateBrickLinks() {
 // `reserve` and `uncompressed_used`, the memory's entries, the schema's network nodes.
 // Counting a received list and the gap between two received values stay formatting.
 function brickStatus(brick) {
-  const always = Boolean(brick.always_fr);
+  const always = Boolean(brick.always_text);
   if (always) return "Imposé par ce modèle";
   if (!brick.available) return "Indisponible"; // wanted or not: it cannot be switched on
   if (!brick.wanted) return "Éteinte";
@@ -1354,8 +1354,8 @@ function updateBrickStatuses() {
 // Story 22: why a sub-option cannot be set while its brick is off: the brick's own reason when
 // it is unavailable, else how to turn it on. Said on hover (`title`) and to screen readers.
 function parentOffReason(brick) {
-  if (!brick.available) return brick.reason_fr || `La brique ${brick.label_fr} est indisponible.`;
-  return `Activez la brique ${brick.label_fr} pour régler cette option.`;
+  if (!brick.available) return brick.reason_text || `La brique ${brick.label_text} est indisponible.`;
+  return `Activez la brique ${brick.label_text} pour régler cette option.`;
 }
 
 // Story 22: a sub-option's row whose brick is off: its switch keeps its state but is greyed
@@ -1369,18 +1369,18 @@ function markParentOff(row, toggle, offReason) {
 }
 
 function sessionKey() {
-  return `${store.sessionState?.state ?? ""}|${store.sessionState?.reason_fr ?? ""}|${store.ragNotice ?? ""}|${store.rerankNotice ?? ""}`;
+  return `${store.sessionState?.state ?? ""}|${store.sessionState?.reason_text ?? ""}|${store.ragNotice ?? ""}|${store.rerankNotice ?? ""}`;
 }
 
 // Story 15 (AD-21): « Télécharger » while the model is missing, the progress and « Arrêter »
-// while it downloads; the figures come from the session (`session_state.reason_fr`).
+// while it downloads; the figures come from the session (`session_state.reason_text`).
 function downloadParts(brick) {
   // Story 15 (AD-21): « Télécharger » while the model is missing, « Construire l'index » once
   // it is there; the progress and « Arrêter » while either runs. Figures from the session.
   const state = store.sessionState?.state;
   const jobs = { download: "Arrêter le téléchargement", index_build: "Arrêter la construction" };
   if (jobs[state]) {
-    const progress = el("p", "brick-download-progress", store.sessionState.reason_fr || "En cours…");
+    const progress = el("p", "brick-download-progress", store.sessionState.reason_text || "En cours…");
     progress.setAttribute("role", "status");
     const stop = el("button", "brick-edit brick-download-stop", jobs[state]);
     stop.type = "button";
@@ -1391,9 +1391,9 @@ function downloadParts(brick) {
   let offer = null;
   if (brick.download) {
     const body = { target: brick.download.target };
-    offer = { label: brick.download.label_fr, key: "download", run: () => ragAction("/api/intentions/download_model", body) };
+    offer = { label: brick.download.label_text, key: "download", run: () => ragAction("/api/intentions/download_model", body) };
   } else if (brick.build_index) {
-    offer = { label: brick.build_index.label_fr, key: "build", run: () => ragAction("/api/intentions/build_rag_index", {}) };
+    offer = { label: brick.build_index.label_text, key: "build", run: () => ragAction("/api/intentions/build_rag_index", {}) };
   }
   // The last failure stays said while the card still offers an action (AD-1: from the event).
   const notice = store.ragNotice && !brick.available && offer ? [el("p", "force-error", store.ragNotice)] : [];
@@ -1405,7 +1405,7 @@ function downloadParts(brick) {
   button.disabled = !idle;
   const parts = [...notice, button];
   if (!idle) {
-    const why = el("p", "brick-download-why", store.sessionState?.reason_fr || "WaveStack est occupé.");
+    const why = el("p", "brick-download-why", store.sessionState?.reason_text || "WaveStack est occupé.");
     why.id = `download-why-${brick.id}`;
     button.setAttribute("aria-describedby", why.id);
     parts.push(why);
@@ -1431,10 +1431,10 @@ function rerankParts(brick, offReason = null) {
   toggle.dataset.focusKey = "option:rag:rerank";
   toggle.addEventListener("change", () => setOption("rag_rerank", null, toggle.checked));
   markParentOff(row, toggle, offReason);
-  row.append(toggle, el("span", "brick-option-name", option.label_fr), el("span", "hosting-tag-local", option.hosting_fr));
+  row.append(toggle, el("span", "brick-option-name", option.label_text), el("span", "hosting-tag-local", option.hosting_text));
   box.appendChild(row);
-  if (!option.available && option.reason_fr) {
-    const why = el("p", "brick-reason", option.reason_fr);
+  if (!option.available && option.reason_text) {
+    const why = el("p", "brick-reason", option.reason_text);
     why.id = "rerank-why";
     toggle.setAttribute("aria-describedby", why.id);
     box.appendChild(why);
@@ -1443,11 +1443,11 @@ function rerankParts(brick, offReason = null) {
   if (store.rerankNotice && !option.available) box.appendChild(el("p", "force-error", store.rerankNotice));
   if (option.download) {
     const state = store.sessionState?.state;
-    const button = el("button", "brick-edit brick-download-rerank", option.download.label_fr);
+    const button = el("button", "brick-edit brick-download-rerank", option.download.label_text);
     button.type = "button";
     button.dataset.focusKey = "download:rag:rerank";
     button.disabled = state !== "idle";
-    if (button.disabled) button.title = store.sessionState?.reason_fr || "WaveStack est occupé.";
+    if (button.disabled) button.title = store.sessionState?.reason_text || "WaveStack est occupé.";
     button.addEventListener("click", () => ragAction("/api/intentions/download_model", { target: option.download.target }));
     box.appendChild(button);
     // A refusal (409) is said here when the card's own offer does not already say it.
@@ -1484,7 +1484,7 @@ function brickOptions(brick, offReason = null) {
   const noun = { mcp: "Serveurs", skills: "Skills", hooks: "Hooks" }[brick.id] || "Outils";
   // The closed card still shows the MCP documentation mode; the brick off, that it is off
   // (story 22: a lazy loading shown while MCP is off seemed to act).
-  const mode = offReason ? " · brique éteinte" : brick.mode === "lazy" ? ` · ${brick.lazy_label_fr}` : "";
+  const mode = offReason ? " · brique éteinte" : brick.mode === "lazy" ? ` · ${brick.lazy_label_text}` : "";
   details.classList.toggle("is-parent-off", Boolean(offReason));
   details.appendChild(
     el("summary", "", `${noun} : ${on} activé${on > 1 ? "s" : ""} sur ${brick.options.length}${mode}`)
@@ -1501,8 +1501,8 @@ function brickOptions(brick, offReason = null) {
     markParentOff(row, toggle, offReason);
     row.append(
       toggle,
-      el("span", "brick-option-name", option.label_fr),
-      el("span", option.network ? "hosting-tag-network" : "hosting-tag-local", option.hosting_fr)
+      el("span", "brick-option-name", option.label_text),
+      el("span", option.network ? "hosting-tag-network" : "hosting-tag-local", option.hosting_text)
     );
     const li = el("li", "brick-option-item");
     li.appendChild(row);
@@ -1531,7 +1531,7 @@ function brickOptions(brick, offReason = null) {
     toggle.dataset.focusKey = "option:mcp:lazy";
     toggle.addEventListener("change", () => setOption("mcp_mode", null, toggle.checked));
     markParentOff(row, toggle, offReason);
-    row.append(toggle, el("span", "brick-option-name", brick.lazy_label_fr));
+    row.append(toggle, el("span", "brick-option-name", brick.lazy_label_text));
     details.appendChild(row);
   }
   return details;
@@ -1553,8 +1553,8 @@ const FORCE_LABELS = {
 function memoryForceOption(brick) {
   return {
     id: "remember",
-    label_fr: "Mémoire globale",
-    parameters: { text: brick.text_help_fr || "" },
+    label_text: "Mémoire globale",
+    parameters: { text: brick.text_help_text || "" },
     fieldLabels: { text: "Texte" },
     presets: [],
   };
@@ -1614,7 +1614,7 @@ function isFormOpen(brickId, optionId) {
 function mcpCallOption(call) {
   return {
     id: `call:${call.tool}`,
-    label_fr: call.tool,
+    label_text: call.tool,
     target: call.tool,
     call: true,
     parameters: call.parameters,
@@ -1630,8 +1630,8 @@ function forceButton(brick, option) {
   if (brick.id === "mcp" && !option.call && (brick.mode !== "lazy" || !option.tools?.length)) return null;
   const button = el("button", "force-button");
   button.type = "button";
-  button.append(handIcon(), option.call ? `${label} · ${option.label_fr}` : label);
-  button.setAttribute("aria-label", `${label} : ${option.label_fr}`);
+  button.append(handIcon(), option.call ? `${label} · ${option.label_text}` : label);
+  button.setAttribute("aria-label", `${label} : ${option.label_text}`);
   button.dataset.focusKey = `force:${brick.id}:${option.id}`;
   // A tool without parameter and a skill are armed at once; the others open their form.
   const hasParameters = Object.keys(option.parameters || {}).length > 0;
@@ -1656,8 +1656,8 @@ function forceButton(brick, option) {
 // action's target, its parameters and presets (AD-1: from `bricks_changed`).
 function cardForce(brick) {
   const force = brick.force;
-  const option = { id: force.target, label_fr: brick.label_fr, parameters: force.parameters, presets: force.presets };
-  const label = FORCE_LABELS[brick.id] || force.label_fr;
+  const option = { id: force.target, label_text: brick.label_text, parameters: force.parameters, presets: force.presets };
+  const label = FORCE_LABELS[brick.id] || force.label_text;
   const button = el("button", "force-button force-button-card");
   button.type = "button";
   button.append(handIcon(), label);
@@ -1716,7 +1716,7 @@ function forceForm(brick, option) {
         ? armAction(brick.force.kind, brick.force.target, { ...form.values }, form)
         : armAction("tool", option.id, { ...form.values }, form);
   if (brick.id === "mcp" && !option.call) {
-    box.setAttribute("aria-label", `Charger la documentation d'un outil de ${option.label_fr}`);
+    box.setAttribute("aria-label", `Charger la documentation d'un outil de ${option.label_text}`);
     const select = el("select");
     select.dataset.focusKey = `${base}:tool`;
     for (const name of option.tools) {
@@ -1732,13 +1732,13 @@ function forceForm(brick, option) {
   } else {
     box.setAttribute(
       "aria-label",
-      brick.force ? `${brick.force.label_fr} : tâche et préréglages` : `Arguments de l'appel forcé : ${option.label_fr}`
+      brick.force ? `${brick.force.label_text} : tâche et préréglages` : `Arguments de l'appel forcé : ${option.label_text}`
     );
     if (option.presets?.length) {
       const select = el("select");
       select.dataset.focusKey = `${base}:preset`;
       option.presets.forEach((preset, i) => {
-        const choice = el("option", "", preset.label_fr);
+        const choice = el("option", "", preset.label_text);
         choice.value = String(i);
         select.appendChild(choice);
       });
@@ -1853,8 +1853,8 @@ function armedChips(actions, keyPrefix) {
     chip.type = "button";
     const close = el("span", "armed-chip-close", "✕");
     close.setAttribute("aria-hidden", "true");
-    chip.append(handIcon(), `Armé : ${action.label_fr}`, close);
-    chip.setAttribute("aria-label", `Désarmer ${action.label_fr}`);
+    chip.append(handIcon(), `Armé : ${action.label_text}`, close);
+    chip.setAttribute("aria-label", `Désarmer ${action.label_text}`);
     chip.dataset.focusKey = `${keyPrefix}:${action.armed_id}`;
     chip.addEventListener("click", () => disarmAction(action.armed_id));
     row.appendChild(chip);
@@ -1989,25 +1989,25 @@ function memoryCardParts(brick) {
   // The count the last `memory_changed` gives, the forced write, then the drawer's button.
   const parts = [];
   const memory = store.memory;
-  if (memory && !memory.error_fr) {
+  if (memory && !memory.error_text) {
     const n = memory.entries.length;
     parts.push(el("p", "brick-limits", n ? `${plural(n, "entrée")} en mémoire globale.` : "Mémoire globale vide."));
   }
   if (store.showForced) {
     const option = memoryForceOption(brick);
     const force = forceButton(brick, option);
-    if (brick.note_fr) {
+    if (brick.note_text) {
       // H4: no tool parser, the forced write would be dropped: said on the button itself.
       force.disabled = true;
-      force.title = brick.note_fr;
-      force.setAttribute("aria-description", brick.note_fr);
+      force.title = brick.note_text;
+      force.setAttribute("aria-description", brick.note_text);
     }
     parts.push(force);
-    if (!brick.note_fr && isFormOpen(brick.id, option.id)) parts.push(forceForm(brick, option));
+    if (!brick.note_text && isFormOpen(brick.id, option.id)) parts.push(forceForm(brick, option));
   }
   const edit = el("button", "brick-edit", "Modifier la mémoire");
   edit.type = "button";
-  edit.disabled = !memory || Boolean(memory.error_fr);
+  edit.disabled = !memory || Boolean(memory.error_text);
   edit.id = "edit-memory";
   edit.dataset.focusKey = "edit-memory";
   edit.addEventListener("click", openMemoryDrawer);
@@ -2049,7 +2049,7 @@ function memoryDirty() {
 }
 
 function openMemoryDrawer() {
-  if (!store.memory || store.memory.error_fr) return;
+  if (!store.memory || store.memory.error_text) return;
   if (!memoryDrawer().hidden) {
     // Already open (a click on the schema's node): its drafts stay, the focus comes back.
     (document.querySelector("#memory-list textarea") || document.getElementById("memory-close")).focus();
@@ -2098,7 +2098,7 @@ function renderMemoryDrawer() {
   }
   document.getElementById("memory-path").textContent = memory ? `Fichier : ${memory.path}` : "";
   const empty = document.getElementById("memory-empty");
-  empty.textContent = memoryCard()?.empty_fr ?? "";
+  empty.textContent = memoryCard()?.empty_text ?? "";
   empty.hidden = entries.length > 0;
   document.getElementById("memory-clear").disabled =
     entries.length === 0 || !document.getElementById("memory-confirm").hidden;
@@ -2225,7 +2225,7 @@ function renderGauge() {
     seg.style.flexGrow = String(item.tokens);
     seg.dataset.discipline = item.discipline || "neutral";
     seg.dataset.group = item.group;
-    seg.title = `${item.label_fr} : ${fmt(item.tokens)} tokens · ${disciplineName(seg.dataset.discipline)}`;
+    seg.title = `${item.label_text} : ${fmt(item.tokens)} tokens · ${disciplineName(seg.dataset.discipline)}`;
     seg.setAttribute("aria-label", seg.title);
     // Story 34: the bricks and components of its segments (by `kinds`), and the call measured.
     const segments = (p.segments || []).filter((s) => item.kinds.includes(s.kind));
@@ -2249,7 +2249,7 @@ function renderGauge() {
   let text = `${approxTotal(p)}${fmt(p.used)} / ${fmt(p.usable)} tokens · ${fmt(p.percent)} %`;
   if (p.overflow) text = `⚠ ${text} · contexte dépassé`;
   else if (p.near_limit) text = `⚠ ${text} · Contexte plein à ${fmt(p.percent)} %`;
-  if (p.uncertain_fr) text += ` · ${p.uncertain_fr}`;
+  if (p.uncertain_text) text += ` · ${p.uncertain_text}`;
   if (gauge.preview) text += " · prochain tour";
   figures.textContent = text;
   figures.title = text; // story 33: cut on a narrow window, whole in the tooltip
@@ -2294,10 +2294,10 @@ function footprintText(p, label = "Empreinte estimée : ") {
 // command to install CodeCarbon included) in its tooltip; `null` for a call that says
 // nothing of it.
 function footprintNode(ended) {
-  if (ended?.energy_wh_min == null && !ended?.impact_note_fr) return null;
+  if (ended?.energy_wh_min == null && !ended?.impact_note_text) return null;
   const known = ended.energy_wh_min != null;
   const node = el("div", `token-counter footprint${known ? " number" : " is-unavailable"}`, known ? footprintText(ended) : "Empreinte estimée : indisponible");
-  if (ended.impact_note_fr) node.title = ended.impact_note_fr;
+  if (ended.impact_note_text) node.title = ended.impact_note_text;
   return node;
 }
 
@@ -2410,7 +2410,7 @@ function renderModelIndicator() {
   button.title = served
     ? `Modèle servi par ${model.provider} sur ce poste (${model.server_url}) : processus distinct ` +
       "de WaveStack ; le texte envoyé est construit par le harnais."
-    : model.warning_fr ??
+    : model.warning_text ??
       `Modèle local ${model.label}, sur ce poste. Cliquez pour ouvrir le diagnostic.`;
   button.setAttribute("aria-label", `Modèle actif : ${model.label}. ${button.title}`);
 }
@@ -2462,9 +2462,9 @@ function renderModelPicker() {
   const state = store.sessionState;
   const idle = state?.state === "idle"; // class (b): between two turns only
   picker.disabled = !idle || !store.modelList;
-  const legend = store.modelList?.models?.legend_fr;
+  const legend = store.modelList?.models?.legend_text;
   picker.title = !idle
-    ? state?.reason_fr || "Disponible hors d'un tour."
+    ? state?.reason_text || "Disponible hors d'un tour."
     : !store.modelList
       ? "Liste des modèles indisponible : nouvel essai dans quelques secondes."
       : `Changer de modèle : la conversation est conservée.${legend ? ` ${legend}` : ""}`;
@@ -2555,12 +2555,12 @@ function closeWindowPanel(returnFocus = false) {
 // Why « Appliquer » cannot act on the choice noted, else `null`.
 function windowApplyReason(ws, pick) {
   const state = store.sessionState;
-  if (state?.state !== "idle") return state?.reason_fr || "Disponible entre deux tours seulement.";
-  if (ws.locked_fr) return ws.locked_fr;
+  if (state?.state !== "idle") return state?.reason_text || "Disponible entre deux tours seulement.";
+  if (ws.locked_text) return ws.locked_text;
   if (pick === ws.configured) return `La fenêtre est déjà de ${fmt(pick)} tokens.`;
   const choice = ws.choices.find((c) => c.window === pick);
   if (!choice) return "Choisissez une fenêtre.";
-  return choice.fits ? null : choice.refusal_fr;
+  return choice.fits ? null : choice.refusal_text;
 }
 
 function renderWindowPicker() {
@@ -2573,7 +2573,7 @@ function renderWindowPicker() {
   const chosen = ws && ws.configured !== ws.window ? `, ${fmt(ws.configured)} choisi` : "";
   const title = !ws
     ? "Fenêtre de contexte : en attente de la session."
-    : `Fenêtre de contexte : ${fmt(ws.window)} tokens` + (ws.bound_fr ? `, ${ws.bound_fr}` : "") + `${chosen}.`;
+    : `Fenêtre de contexte : ${fmt(ws.window)} tokens` + (ws.bound_text ? `, ${ws.bound_text}` : "") + `${chosen}.`;
   if (toggle.title !== title) toggle.title = title;
   toggle.setAttribute("aria-label", ws ? `Fenêtre ${fmt(ws.window)} : régler la fenêtre de contexte` : "Fenêtre de contexte");
   if (!ws || windowPanel().hidden) return;
@@ -2603,7 +2603,7 @@ function renderWindowPicker() {
     if (input.checked !== checked) input.checked = checked;
     input.closest(".window-choice").classList.toggle("is-picked", checked);
   }
-  setText(document.getElementById("window-note"), ws.read_note_fr);
+  setText(document.getElementById("window-note"), ws.read_note_text);
   const apply = document.getElementById("window-apply");
   const reason = windowApplying ? "Demande en cours…" : windowApplyReason(ws, pick);
   apply.disabled = Boolean(reason);
@@ -2629,11 +2629,11 @@ function windowChoiceNode(choice) {
   figures.id = `window-choice-${choice.window}`;
   label.append(input, el("strong", "", `${fmt(choice.window)} tokens`));
   if (choice.current) label.append(el("span", "window-choice-current", " (actuelle)"));
-  figures.append(el("span", "window-choice-line", choice.kv_fr), el("span", "window-choice-line", choice.read_fr));
-  if (choice.bound_fr) figures.append(el("span", "window-choice-line window-choice-bound", choice.bound_fr));
+  figures.append(el("span", "window-choice-line", choice.kv_text), el("span", "window-choice-line", choice.read_text));
+  if (choice.bound_text) figures.append(el("span", "window-choice-line window-choice-bound", choice.bound_text));
   const verdict = choice.fits
     ? el("span", "window-choice-verdict is-fits", "✓ Tient dans le budget")
-    : el("span", "window-choice-verdict is-refused", `⚠ ${choice.refusal_fr}`);
+    : el("span", "window-choice-verdict is-refused", `⚠ ${choice.refusal_text}`);
   verdict.id = `window-choice-${choice.window}-verdict`;
   details.append(figures, verdict);
   // The figures and the verdict (a refused choice's reason) describe the radio.
@@ -2659,7 +2659,7 @@ async function applyWindow() {
     } else {
       closeWindowPanel(true);
       // A reload is followed as a model load (`model_load_*`); otherwise the answer says it.
-      store.topStatus = answer.switching ? null : answer.message_fr ?? null;
+      store.topStatus = answer.switching ? null : answer.message_text ?? null;
     }
   } catch (error) {
     store.windowError = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
@@ -2681,7 +2681,7 @@ function rebuildModelPicker(picker, active) {
   const activeKey = modelKey(active);
   const groups = models.groups.map((group) => {
     const optgroup = el("optgroup");
-    optgroup.label = group.label_fr;
+    optgroup.label = group.label_text;
     for (const m of group.models) {
       const isActive = activeKey === `${m.kind}:${m.ref}`;
       const unusable = !m.usable;
@@ -2693,16 +2693,16 @@ function rebuildModelPicker(picker, active) {
             : " (incompatible)"
           : "";
       optgroup.append(
-        pickerOption(m.value, `${m.label_fr}${suffix}`, {
+        pickerOption(m.value, `${m.label_text}${suffix}`, {
           disabled: isActive || unusable,
-          title: unusable ? m.disabled_fr ?? "" : m.title_fr,
+          title: unusable ? m.disabled_text ?? "" : m.title_text,
         })
       );
     }
     return optgroup;
   });
   const head = pickerOption("", "Changer de modèle…");
-  const legend = pickerOption(PICK_LEGEND, models.legend_fr, { disabled: true, title: models.legend_fr });
+  const legend = pickerOption(PICK_LEGEND, models.legend_text, { disabled: true, title: models.legend_text });
   picker.replaceChildren(
     head,
     legend,
@@ -2746,11 +2746,11 @@ function rebuildModelPickerByKind(picker, active) {
   network.label = "Réseau";
   for (const m of list.cloud?.models ?? []) {
     const isActive = active?.kind === "cloud" && active.ref === m.id;
-    const suffix = isActive ? " (actif)" : m.disabled_fr ? " (indisponible)" : "";
+    const suffix = isActive ? " (actif)" : m.disabled_text ? " (indisponible)" : "";
     network.append(
       pickerOption(`cloud:${m.id}`, `RÉSEAU · ${m.provider} · ${m.model}${suffix}`, {
-        disabled: isActive || Boolean(m.disabled_fr),
-        title: m.disabled_fr ?? "",
+        disabled: isActive || Boolean(m.disabled_text),
+        title: m.disabled_text ?? "",
       })
     );
   }
@@ -2795,7 +2795,7 @@ async function selectModel(body) {
     const response = await postIntention("/api/intentions/select_model", body);
     const answer = await response.json().catch(() => ({}));
     if (!response.ok) store.topStatus = answer.detail || "Changement de modèle refusé.";
-    else if (!answer.switching) store.topStatus = answer.message_fr ?? null; // « … est déjà actif. »
+    else if (!answer.switching) store.topStatus = answer.message_text ?? null; // « … est déjà actif. »
   } catch (error) {
     store.topStatus = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
   }
@@ -2818,12 +2818,12 @@ function openCloudWarning(model) {
   }
   warningModel = model;
   const w = model.warning;
-  setText(document.getElementById("cloud-warning-title"), w.title_fr);
+  setText(document.getElementById("cloud-warning-title"), w.title_text);
   document
     .getElementById("cloud-warning-points")
-    .replaceChildren(...["sent_fr", "provider_fr", "unseen_fr"].map((k) => el("li", "", w[k])));
-  setText(document.getElementById("cloud-warning-confirm"), w.confirm_fr);
-  setText(document.getElementById("cloud-warning-cancel"), w.cancel_fr);
+    .replaceChildren(...["sent_text", "provider_text", "unseen_text"].map((k) => el("li", "", w[k])));
+  setText(document.getElementById("cloud-warning-confirm"), w.confirm_text);
+  setText(document.getElementById("cloud-warning-cancel"), w.cancel_text);
   document.getElementById("cloud-warning").showModal();
   document.getElementById("cloud-warning-confirm").focus();
 }
@@ -2867,7 +2867,7 @@ function turnNote(turn) {
     case "overflow":
       return "Contexte dépassé : le modèle n'a pas été appelé.";
     case "limit":
-      if (turn.limit) return turn.limit.message_fr;
+      if (turn.limit) return turn.limit.message_text;
       if (turn.truncated?.channel === "reasoning") {
         return `Sortie coupée pendant le raisonnement : la limite de ${fmt(turn.truncated.max_tokens)} tokens a été atteinte avant toute réponse. Le raisonnement reçu reste visible dans Contexte LLM.`;
       }
@@ -3039,12 +3039,12 @@ let renderedComposerArmed = null;
 
 function renderComposer() {
   const state = store.sessionState;
-  const ready = state?.state === "idle" && !state.reason_fr;
+  const ready = state?.state === "idle" && !state.reason_text;
   document.getElementById("composer-input").disabled = !ready;
   document.getElementById("composer-send").disabled = !ready;
   const clear = document.getElementById("clear-conversation");
   clear.disabled = state?.state !== "idle"; // class (b)
-  clear.title = clear.disabled ? state?.reason_fr || "Disponible hors d'un tour." : "";
+  clear.title = clear.disabled ? state?.reason_text || "Disponible hors d'un tour." : "";
   const replay = document.getElementById("replay-last");
   replay.disabled = clear.disabled || shownTurns().length === 0; // class (b), story 9b
   replay.title = clear.disabled
@@ -3061,7 +3061,7 @@ function renderComposer() {
   stop.hidden = state?.state !== "turn" && state?.state !== "awaiting_human" && !loading;
   stop.disabled = loading ? Boolean(store.modelLoad.stopRequested) : Boolean(activeTurn()?.stopRequested);
   const reason = document.getElementById("composer-reason");
-  const text = store.composerError || (ready ? null : state?.reason_fr || "En attente du modèle…");
+  const text = store.composerError || (ready ? null : state?.reason_text || "En attente du modèle…");
   reason.hidden = !text;
   reason.textContent = text || "";
   renderScenarioControls(state);
@@ -3127,7 +3127,7 @@ function measureGuide() {
 
 function renderScenarioControls(state) {
   const idle = state?.state === "idle"; // class (b)
-  const reason = idle ? "" : state?.reason_fr || "Disponible hors d'un tour.";
+  const reason = idle ? "" : state?.reason_text || "Disponible hors d'un tour.";
   const picker = document.getElementById("scenario-picker");
   const program = store.scenarios?.program ?? null;
   if (renderedProgram !== program) {
@@ -3139,13 +3139,13 @@ function renderScenarioControls(state) {
       const node = el("optgroup");
       node.label = label;
       for (const s of scenarios) {
-        const option = el("option", "", s.title_fr);
+        const option = el("option", "", s.title_text);
         option.value = s.id;
         node.appendChild(option);
       }
       groups.push(node);
     };
-    program?.modules.forEach((m, i) => group(`Module ${i + 1} · ${m.title_fr} · ${m.duration_min} min`, m.scenarios));
+    program?.modules.forEach((m, i) => group(`Module ${i + 1} · ${m.title_text} · ${m.duration_min} min`, m.scenarios));
     // Story 21: the business scenarios (FR-40) follow the hosting one, in `transverse`.
     if (program?.transverse.length) group("Transverses et métier", program.transverse);
     picker.replaceChildren(empty, ...groups);
@@ -3177,7 +3177,7 @@ function renderScenarioControls(state) {
     setGuideExpanded(false);
     return;
   }
-  guideText.replaceChildren(el("strong", "", scenario.title_fr), ` · ${scenario.description_fr}`);
+  guideText.replaceChildren(el("strong", "", scenario.title_text), ` · ${scenario.description_text}`);
   // Story 22: folded again at each new scenario, then measured.
   if (sameScenario) measureGuide();
   else setGuideExpanded(false);
@@ -3217,7 +3217,7 @@ function renderScenarioUnavailable(unavailable) {
   const list = el("ul", "scenario-unavailable-list");
   for (const brick of unavailable) {
     const item = el("li");
-    item.append(el("strong", "", brick.label_fr), ` : ${brick.reason_fr}`);
+    item.append(el("strong", "", brick.label_text), ` : ${brick.reason_text}`);
     list.appendChild(item);
   }
   box.replaceChildren(el("strong", "", title), list);
@@ -3292,7 +3292,7 @@ function renderLanguagePicker() {
   const locked = Boolean(info.language_locked);
   if (picker.value !== info.language) picker.value = info.language;
   picker.disabled = locked || !idle || languageChanging;
-  const busy = store.sessionState?.reason_fr || "Disponible hors d'un tour.";
+  const busy = store.sessionState?.reason_text || "Disponible hors d'un tour.";
   const title = locked ? texts.locked : idle ? texts.help : busy;
   picker.title = title;
   document.getElementById("language-picker-box").title = title;
@@ -3337,7 +3337,7 @@ async function sendMessage(event) {
   const message = input.value.trim();
   // Never ignored without a word: the reason stays under the field.
   if (input.disabled) {
-    const reason = store.sessionState?.reason_fr;
+    const reason = store.sessionState?.reason_text;
     store.composerError = `Message non envoyé : ${reason || "WaveStack n'est pas prêt à recevoir un message."}`;
     render();
     return;
@@ -3470,7 +3470,7 @@ function ctxKey(shown) {
     owner === turn ? "main" : owner.contextId,
     subs.map((s) => s.contextId),
     objectId(store.bricks),
-    store.activeModel?.banner_fr ?? null,
+    store.activeModel?.banner_text ?? null,
     calls.map((c) => [c.id, c.startedAt ?? null, objectId(c.context), objectId(c.ended), objectId(c.cut)]),
     owner.steps.length,
     last && !last.ended ? [Boolean(owner.reasoning), Boolean(owner.text)] : null,
@@ -3541,7 +3541,7 @@ function renderContextBody(pane, shown) {
   if (owner === turn) {
     if (chat) {
       // Chat mode: the context is the JSON body sent to the provider (FR-43).
-      const banner = store.activeModel?.banner_fr ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
+      const banner = store.activeModel?.banner_text ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
       pane.appendChild(el("p", "ctx-banner", banner));
     }
     // AD-4: the provider's total replaces the sum of the segments, it is not added to it.
@@ -3554,7 +3554,7 @@ function renderContextBody(pane, shown) {
           `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
       )
     );
-    if (p.uncertain_fr) pane.appendChild(el("p", "bubble-note", p.uncertain_fr));
+    if (p.uncertain_text) pane.appendChild(el("p", "bubble-note", p.uncertain_text));
     if (p.uncompressed_used != null) {
       // Story 20: the session's total without compression, next to the one sent (FR-31).
       pane.appendChild(
@@ -3657,7 +3657,7 @@ function fallbackSections(p) {
     start: i,
     end: i + 1,
     kind: s.kind,
-    label_fr: s.label_fr,
+    label_text: s.label_text,
     brick: s.kind === "template" ? null : s.brick,
     discipline: s.discipline || "neutral",
     tokens: s.tokens,
@@ -3832,9 +3832,9 @@ function sectionLabel(s) {
   const count = s.end - s.start;
   const brick = s.brick ? brickName(s.brick) : "hors brique";
   // « Prompt système · Prompt système », « Extraits RAG · RAG »: the brick said once.
-  const source = s.brick && s.label_fr.toLowerCase().includes(brick.toLowerCase()) ? "" : ` · ${brick}`;
+  const source = s.brick && s.label_text.toLowerCase().includes(brick.toLowerCase()) ? "" : ` · ${brick}`;
   return (
-    `${s.label_fr}${source} · ${tokensFr(s.tokens, s.estimated)}` +
+    `${s.label_text}${source} · ${tokensFr(s.tokens, s.estimated)}` +
     (s.template_tokens ? ` dont ${fmt(s.template_tokens)} de gabarit` : "") +
     (count > 1 ? ` · ${count} segments` : "")
   );
@@ -3874,7 +3874,7 @@ function sectionRow(p, reading, row, call, turn, chat, marked) {
     if (components.length > 1) control.appendChild(el("span", "ctx-section-components", components.join(", ")));
   }
   const first = row.sections[0];
-  selectOnActivate(control, id, `${first.label_fr} · ${tokensFr(first.tokens, first.estimated)}${row.sections.length > 1 ? ` et ${row.sections.length - 1} de plus` : ""}`);
+  selectOnActivate(control, id, `${first.label_text} · ${tokensFr(first.tokens, first.estimated)}${row.sections.length > 1 ? ` et ${row.sections.length - 1} de plus` : ""}`);
   margin.appendChild(control);
   const main = el("div", "ctx-section-main");
   const pre = el("pre", "ctx-section-text");
@@ -3910,7 +3910,7 @@ function sectionRow(p, reading, row, call, turn, chat, marked) {
 function segmentSpan(segment, text) {
   const span = el("span", segment.kind === "template" ? "ctx-seg is-template" : "ctx-seg", text);
   span.dataset.segmentId = segment.id;
-  span.title = `${segment.label_fr} · ${tokensFr(segment.tokens, segment.estimated)}`;
+  span.title = `${segment.label_text} · ${tokensFr(segment.tokens, segment.estimated)}`;
   return span;
 }
 
@@ -4125,7 +4125,7 @@ function producedPart(call, owner, turn, last) {
     if (live) ctxLive.reasoning = details.querySelector(".reasoning-text");
   }
   // Lot C: the harness closed the reasoning at its budget and relaunched the same call.
-  if (call.cut) part.appendChild(el("p", "ctx-harness-note", `⚙ Le harnais : ${call.cut.message_fr}`));
+  if (call.cut) part.appendChild(el("p", "ctx-harness-note", `⚙ Le harnais : ${call.cut.message_text}`));
   if (text) {
     const block = producedBlock("is-answer", "Réponse", links);
     const pre = el("pre", "ctx-produced-text", text);
@@ -4164,7 +4164,7 @@ function betweenLine(owner, turn, call, next, nextNumber) {
   const malformed = steps.some((s) => s.type === "tool_call_malformed");
   const parts = [];
   if (names.length) parts.push(`exécute ${joinFr(names)}`);
-  if (blocked.length) parts.push(`refuse ${blocked.length > 1 ? `${blocked.length} appels d'outil` : "l'appel d'outil"} (${joinFr(blocked.map((s) => s.payload.hook_fr))})`);
+  if (blocked.length) parts.push(`refuse ${blocked.length > 1 ? `${blocked.length} appels d'outil` : "l'appel d'outil"} (${joinFr(blocked.map((s) => s.payload.hook_text))})`);
   if (malformed) parts.push("refuse l'appel d'outil mal formé et réinjecte l'erreur");
   let text;
   if (!parts.length) text = `Le harnais relance le modèle : appel ${nextNumber}.`;
@@ -4269,7 +4269,7 @@ function brickGroups(turn) {
 
 function brickName(brick) {
   if (!brick) return "Hors brique (message et gabarit)";
-  return store.bricks?.bricks?.find((b) => b.id === brick)?.label_fr ?? brick;
+  return store.bricks?.bricks?.find((b) => b.id === brick)?.label_text ?? brick;
 }
 
 const signed = (n, unit) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${unit(Math.abs(n))}`;
@@ -4292,7 +4292,7 @@ function compareCell(turn, group, other) {
   const details = el("details");
   details.append(el("summary", "", `Texte intégral (${group.segments.length} segments)`));
   for (const segment of group.segments) {
-    details.append(el("div", "ctx-segment-label", `${segment.label_fr} · ${fmt(segment.tokens)} tokens`));
+    details.append(el("div", "ctx-segment-label", `${segment.label_text} · ${fmt(segment.tokens)} tokens`));
     details.append(el("pre", "", segment.text));
   }
   cell.append(label, details);
@@ -4484,7 +4484,7 @@ function toolBody(step) {
   } else {
     nodes.push(
       el("span", "step-badge", "erreur d'exécution"),
-      el("p", "", `${ended.error_fr} L'erreur est réinjectée au modèle ; ce n'est pas un nouvel essai.`)
+      el("p", "", `${ended.error_text} L'erreur est réinjectée au modèle ; ce n'est pas un nouvel essai.`)
     );
   }
   return nodes;
@@ -4505,7 +4505,7 @@ function connectBody(step) {
     nodes.push(el("p", "label", `Outils trouvés : ${count}`));
     if (count) nodes.push(el("pre", "step-code", ended.tools.join("\n")));
   } else {
-    nodes.push(el("span", "step-badge", "serveur indisponible"), el("p", "", ended.error_fr));
+    nodes.push(el("span", "step-badge", "serveur indisponible"), el("p", "", ended.error_text));
   }
   return nodes;
 }
@@ -4515,11 +4515,11 @@ function overflowCard(overflow) {
   card.append(
     el("h3", "", "⚠ Contexte dépassé — l'appel au modèle n'a pas été envoyé"),
     el("p", "number", `${fmt(overflow.used)} / ${fmt(overflow.usable)} tokens`),
-    el("p", "", overflow.message_fr),
+    el("p", "", overflow.message_text),
     el("p", "label", "En production, un harnais pourrait")
   );
   const list = el("ul");
-  for (const strategy of overflow.strategies_fr) list.appendChild(el("li", "", strategy));
+  for (const strategy of overflow.strategies_text) list.appendChild(el("li", "", strategy));
   card.appendChild(list);
   return card;
 }
@@ -4601,12 +4601,12 @@ function ragBody(step) {
     nodes.push(running);
     return nodes;
   }
-  nodes.push(el("p", "", `Placement : ${ended.placement_fr}`));
+  nodes.push(el("p", "", `Placement : ${ended.placement_text}`));
   // Story 16: the reranking enabled, but not applied to this turn, and why.
-  if (ended.rerank_skipped_fr) nodes.push(el("p", "bubble-note", ended.rerank_skipped_fr));
+  if (ended.rerank_skipped_text) nodes.push(el("p", "bubble-note", ended.rerank_skipped_text));
   nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
   if (ended.status === "error") {
-    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_fr));
+    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_text));
     return nodes;
   }
   const list = el("ol", "rag-excerpts");
@@ -4616,7 +4616,7 @@ function ragBody(step) {
     const head = el("summary", "rag-excerpt-head");
     head.append(
       el("span", "rag-rank", `#${excerpt.position}`),
-      el("span", "rag-doc", excerpt.title_fr),
+      el("span", "rag-doc", excerpt.title_text),
       el("span", "rag-score number", scoreFormat.format(excerpt.score))
     );
     head.title = "Sélectionne le composant RAG dans le schéma ; déplie le texte de l'extrait";
@@ -4644,14 +4644,14 @@ function rerankBody(step) {
     nodes.push(running);
     return nodes;
   }
-  nodes.push(el("p", "", `Placement : ${ended.placement_fr}`));
+  nodes.push(el("p", "", `Placement : ${ended.placement_text}`));
   nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
   if (ended.status === "cancelled") {
-    nodes.push(el("span", "step-badge", "arrêté"), el("p", "", ended.error_fr));
+    nodes.push(el("span", "step-badge", "arrêté"), el("p", "", ended.error_text));
     return nodes;
   }
   if (ended.status === "error") {
-    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_fr));
+    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_text));
     return nodes;
   }
   const texts = new Map((step.search?.ended?.excerpts ?? []).map((e) => [e.chunk_id, e.text]));
@@ -4665,7 +4665,7 @@ function rerankBody(step) {
     const item = el("li", `rerank-item${kept(excerpt) ? " is-kept" : " is-dropped"}`);
     item.append(
       el("span", "rag-rank", `#${excerpt.before}`),
-      el("span", "rag-doc", excerpt.title_fr),
+      el("span", "rag-doc", excerpt.title_text),
       el("span", "rag-score number", scoreFormat.format(excerpt.retrieval_score)),
       el("span", "rerank-move", `→ #${excerpt.position}`),
       keepTag(excerpt)
@@ -4682,7 +4682,7 @@ function rerankBody(step) {
     head.append(
       el("span", "rag-rank", `#${excerpt.position}`),
       el("span", "rerank-move", move),
-      el("span", "rag-doc", excerpt.title_fr),
+      el("span", "rag-doc", excerpt.title_text),
       el("span", "rag-score number", scoreFormat.format(excerpt.score)),
       keepTag(excerpt)
     );
@@ -4735,7 +4735,7 @@ function compressionBody(step) {
       "p",
       "",
       `Décision du harnais (code) : avant l'appel au modèle, ${plural(ended.items.length, "texte")} ` +
-        `passé${many ? "s" : ""} à ${ended.compressor_fr}. Un texte déjà lu par le modèle n'est jamais réécrit.`
+        `passé${many ? "s" : ""} à ${ended.compressor_text}. Un texte déjà lu par le modèle n'est jamais réécrit.`
     ),
     el("div", "token-counter number", `Contexte réduit : ${compressionFigure(ended)} · ${seconds(ended.duration_ms)}`),
   ];
@@ -4747,7 +4747,7 @@ function compressionBody(step) {
     head.title = "Sélectionne le compresseur dans le schéma";
     const mark = approx(ended.estimated);
     head.append(
-      el("span", "compression-source", item.source_fr),
+      el("span", "compression-source", item.source_text),
       el(
         "span",
         "compression-tokens number",
@@ -4758,8 +4758,8 @@ function compressionBody(step) {
     );
     head.addEventListener("click", () => setSelection(step.component || "compression.compressor"));
     entry.appendChild(head);
-    if (item.error_fr) entry.appendChild(el("p", "bubble-note is-error", item.error_fr));
-    else if (!item.changed) entry.appendChild(el("p", "label", ended.unchanged_fr));
+    if (item.error_text) entry.appendChild(el("p", "bubble-note is-error", item.error_text));
+    else if (!item.changed) entry.appendChild(el("p", "label", ended.unchanged_text));
     const before = el("details");
     before.append(el("summary", "", `Avant (${mark}${fmt(item.tokens_before)} tokens)`), el("pre", "step-code", item.text_before));
     entry.appendChild(before);
@@ -4772,7 +4772,7 @@ function compressionBody(step) {
   }
   lines.push(list);
   const tone = ended.status === "error" ? "error" : "info";
-  return [harnessEvent(`Compression du contexte (${ended.compressor_fr})`, tone, lines)];
+  return [harnessEvent(`Compression du contexte (${ended.compressor_text})`, tone, lines)];
 }
 
 const HOOK_DECISIONS = {
@@ -4788,10 +4788,10 @@ function toolLabel(name) {
   const option = (brickId, id) =>
     store.bricks?.bricks.find((b) => b.id === brickId)?.options?.find((o) => o.id === id);
   const native = option("tools", name);
-  if (native) return native.label_fr;
+  if (native) return native.label_text;
   const at = name.indexOf("__"); // an MCP tool: `server__tool`
   const server = at > 0 ? option("mcp", name.slice(0, at)) : null;
-  return server ? `${name.slice(at + 2)} (${server.label_fr})` : name;
+  return server ? `${name.slice(at + 2)} (${server.label_text})` : name;
 }
 
 function approvalDecision(resolved) {
@@ -4877,11 +4877,11 @@ function hookCard(step) {
       ? "Validation humaine"
       : "En attente de votre validation"
     : block
-      ? `Bloqué par le hook ${p.hook_fr.toLowerCase()}`
-      : `Hook : ${p.point_fr.toLowerCase()}`;
+      ? `Bloqué par le hook ${p.hook_text.toLowerCase()}`
+      : `Hook : ${p.point_text.toLowerCase()}`;
   const lines = [
-    el("p", "", `Point d'accroche : ${p.point_fr} · Hook : ${p.hook_fr}`),
-    el("p", "", `Décision : ${HOOK_DECISIONS[p.decision]}. ${p.detail_fr}`),
+    el("p", "", `Point d'accroche : ${p.point_text} · Hook : ${p.hook_text}`),
+    el("p", "", `Décision : ${HOOK_DECISIONS[p.decision]}. ${p.detail_text}`),
   ];
   const badge = triggerBadge(hookTrigger(step)); // on a tool call: forced or the model's
   if (badge) lines.unshift(badge);
@@ -4917,7 +4917,7 @@ function malformedCard(p) {
       ? "Réaction du harnais : erreur réinjectée au modèle, nouvel essai."
       : "Réaction du harnais : arrêt du tour, le modèle n'est plus rappelé (plus d'essai possible).";
   return harnessEvent("Appel d'outil mal formé", "error", [
-    el("p", "", `Partie fautive : ${p.detail_fr}`),
+    el("p", "", `Partie fautive : ${p.detail_text}`),
     el("p", "label", "Sortie brute du modèle"),
     raw,
     el("p", "", reaction),
@@ -4954,7 +4954,7 @@ const LIMITS = {
 };
 const APPROVAL_FIGURES = { approved: "autorisé", refused: "refusé", cancelled: "annulé" };
 // Lot A: why the engine reads the context again (`prefix_not_reused.cause`); the full
-// French explanation is its `message_fr`.
+// French explanation is its `message_text`.
 const PREFIX_CAUSES = {
   in_turn: "dans le tour",
   system: "message système modifié",
@@ -5138,7 +5138,7 @@ function stepRows(turn, step, i, calls, rows) {
       rows.push({
         key,
         icon: HOOK_ICONS[p.hook] || "🪝",
-        title: step.approval ? "Validation humaine" : `Hook ${p.hook.toUpperCase()} · ${p.hook_fr}`,
+        title: step.approval ? "Validation humaine" : `Hook ${p.hook.toUpperCase()} · ${p.hook_text}`,
         actor: step.approval ? "user" : "harness",
         trigger: hookTrigger(step),
         figure,
@@ -5197,7 +5197,7 @@ function stepRows(turn, step, i, calls, rows) {
       rows.push({
         key,
         icon: "🗜️",
-        title: step.started.title_fr,
+        title: step.started.title_text,
         actor: "harness",
         figure,
         tone: failed ? "error" : null,
@@ -5219,7 +5219,7 @@ function stepRows(turn, step, i, calls, rows) {
         body: () => [
           harnessEvent("Action forcée abandonnée", "info", [
             triggerBadge("user"),
-            el("p", "", step.payload.reason_fr),
+            el("p", "", step.payload.reason_text),
             el("p", "label", "Décision du harnais (code) : la cible n'est plus disponible au moment du tour."),
           ]),
         ],
@@ -5248,7 +5248,7 @@ function stepRows(turn, step, i, calls, rows) {
         tone: retries ? "error" : "hook",
         sticky: retries,
         sig: 1,
-        body: () => [harnessEvent(title, retries ? "error" : "info", [el("p", "", step.payload.message_fr)])],
+        body: () => [harnessEvent(title, retries ? "error" : "info", [el("p", "", step.payload.message_text)])],
       });
     } else if (step.type === "prefix_not_reused") {
       const cause = PREFIX_CAUSES[step.payload.cause];
@@ -5260,7 +5260,7 @@ function stepRows(turn, step, i, calls, rows) {
         figure: `${cause ? `${cause} · ` : ""}${fmt(step.payload.common_tokens)} tokens communs`,
         tone: "hook",
         sig: 1,
-        body: () => [harnessEvent("Préfixe non réutilisé", "info", [el("p", "", step.payload.message_fr)])],
+        body: () => [harnessEvent("Préfixe non réutilisé", "info", [el("p", "", step.payload.message_text)])],
       });
     } else if (step.type === "reasoning_cut") {
       // Lot C (N4): the reasoning reached its budget; the harness closed it and relaunched.
@@ -5272,7 +5272,7 @@ function stepRows(turn, step, i, calls, rows) {
         figure: `${fmt(step.payload.reasoning_tokens)} tokens · ${fmt(step.payload.answer_reserve)} pour la réponse`,
         tone: "hook",
         sig: 1,
-        body: () => [harnessEvent("Raisonnement coupé", "info", [el("p", "", step.payload.message_fr)])],
+        body: () => [harnessEvent("Raisonnement coupé", "info", [el("p", "", step.payload.message_text)])],
       });
     }
   }
@@ -5404,7 +5404,7 @@ function showSubContext(turnId, contextId) {
 
 function mcpServerLabel(server) {
   const option = store.bricks?.bricks.find((b) => b.id === "mcp")?.options?.find((o) => o.id === server);
-  return option?.label_fr ?? server;
+  return option?.label_text ?? server;
 }
 
 // The MCP connections Orchestration shows (`renderSteps`): after the last clearing, from the
@@ -5426,7 +5426,7 @@ function connectRow(step) {
     key: `mcp:${step.seq}`,
     icon: failed ? "⊘" : "🔌",
     title: mcpServerLabel(step.started.server),
-    note: failed ? ended.error_fr : "",
+    note: failed ? ended.error_text : "",
     actor: "harness",
     figure,
     net: step.outbound?.length ? hostOf(step.outbound[0].url) : null,
@@ -6279,7 +6279,7 @@ const LAB_STATUS = {
 
 // Story 29: « T 0,7 · top-k 20 · top-p 0,8 · min-p 0 », a value not sent as « — ».
 function samplingSummary(s) {
-  if (s.source === "provider") return s.note_fr || "réglé par le fournisseur";
+  if (s.source === "provider") return s.note_text || "réglé par le fournisseur";
   const part = (label, value) => `${label} ${value === null || value === undefined ? "—" : fmt(value)}`;
   return [part("T", s.temperature), part("top-k", s.top_k), part("top-p", s.top_p), part("min-p", s.min_p)].join(" · ");
 }
@@ -6292,7 +6292,7 @@ function eventSummary(group) {
     case "model_delta":
       return group.events.map((d) => d.payload.text).join("");
     case "session_state":
-      return [SESSION_STATES[p.state] || p.state, p.reason_fr].filter(Boolean).join(" · ");
+      return [SESSION_STATES[p.state] || p.state, p.reason_text].filter(Boolean).join(" · ");
     case "architecture_changed":
       return `${plural(p.nodes.length, "nœud")}, ${plural(p.edges.length, "liaison")}`;
     case "bricks_changed":
@@ -6335,13 +6335,13 @@ function eventSummary(group) {
         .join("")
         .slice(0, 200);
     case "model_load_step":
-      return `${p.label_fr} · ${seconds(p.duration_ms)}`;
+      return `${p.label_text} · ${seconds(p.duration_ms)}`;
     case "llm_generation_ended":
-      return [LAB_STATUS[p.status] ?? p.status, seconds(p.duration_ms), p.message_fr]
+      return [LAB_STATUS[p.status] ?? p.status, seconds(p.duration_ms), p.message_text]
         .filter(Boolean)
         .join(" · ");
     case "model_load_ended":
-      return [`${p.model.label} : ${MODEL_LOAD_STATUS[p.status] ?? p.status}`, seconds(p.duration_ms), p.reason_fr]
+      return [`${p.model.label} : ${MODEL_LOAD_STATUS[p.status] ?? p.status}`, seconds(p.duration_ms), p.reason_text]
         .filter(Boolean)
         .join(" · ");
     case "model_call_ended": {
@@ -6358,24 +6358,24 @@ function eventSummary(group) {
     case "mcp_connect_ended":
       return p.status === "ok"
         ? `${mcpServerLabel(p.server)} : ${plural(p.tools.length, "outil")} · ${seconds(p.duration_ms)}`
-        : `${mcpServerLabel(p.server)} : ${p.error_fr}`;
+        : `${mcpServerLabel(p.server)} : ${p.error_text}`;
     case "hook_decided":
-      return `${p.hook.toUpperCase()} · ${p.point_fr} · ${HOOK_DECISIONS[p.decision]}`;
+      return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
       if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · « ${p.text} »`;
       if (p.effect === "model_download" || p.effect === "rag_index_write") return p.lines.join(" · ");
       if (p.effect === "audit_append") return `${plural(p.lines.length, "ligne")} au journal d'audit`;
       return p.key ?? p.id ?? p.effect;
     case "memory_changed":
-      return p.error_fr ?? `${plural(p.entries.length, "entrée")} · ${p.path}`;
+      return p.error_text ?? `${plural(p.entries.length, "entrée")} · ${p.path}`;
     case "approval_requested":
       return `${p.tool} → ${p.destination}`;
     case "approval_resolved":
       return approvalDecision(p);
     case "armed_actions_changed":
-      return p.actions.length ? p.actions.map((a) => a.label_fr).join(" · ") : "aucune action armée";
+      return p.actions.length ? p.actions.map((a) => a.label_text).join(" · ") : "aucune action armée";
     case "action_dropped":
-      return p.reason_fr;
+      return p.reason_text;
     case "subagent_started":
       return p.task;
     case "subagent_ended":
@@ -6391,37 +6391,37 @@ function eventSummary(group) {
     case "rag_rerank_ended":
       return p.status === "ok"
         ? `${plural(p.keep, "gardé")} sur ${p.excerpts.length} · ${seconds(p.duration_ms)}` +
-            (p.excerpts.length ? ` · premier : ${p.excerpts[0].title_fr} (avant : #${p.excerpts[0].before})` : "")
-        : p.error_fr;
+            (p.excerpts.length ? ` · premier : ${p.excerpts[0].title_text} (avant : #${p.excerpts[0].before})` : "")
+        : p.error_text;
     case "compression_started":
-      return `${plural(p.items, "texte")} · ${p.compressor_fr}`;
+      return `${plural(p.items, "texte")} · ${p.compressor_text}`;
     case "compression_ended":
-      return p.status === "ok" ? compressionFigure(p) : p.error_fr;
+      return p.status === "ok" ? compressionFigure(p) : p.error_text;
     case "rag_search_ended":
       return p.status === "ok"
         ? `${plural(p.excerpts.length, "extrait")} · ${seconds(p.duration_ms)}` +
-            (p.excerpts.length ? ` · meilleur : ${p.excerpts[0].title_fr} (${scoreFormat.format(p.excerpts[0].score)})` : "")
-        : p.error_fr;
+            (p.excerpts.length ? ` · meilleur : ${p.excerpts[0].title_text} (${scoreFormat.format(p.excerpts[0].score)})` : "")
+        : p.error_text;
     case "tool_call_malformed":
-      return p.detail_fr;
+      return p.detail_text;
     case "output_truncated":
       return `${fmt(p.output_tokens)} / ${fmt(p.max_tokens)} tokens`;
     case "reasoning_cut":
       return `coupé à ${fmt(p.reasoning_tokens)} tokens (budget ${fmt(p.budget)}) · ${fmt(p.answer_reserve)} pour la réponse`;
     case "diagnostic_check":
-      return `${p.check} : ${p.status} · ${p.message_fr}`;
+      return `${p.check} : ${p.status} · ${p.message_text}`;
     case "llm_tokenized":
       return p.exact
-        ? `${p.figures_fr?.token_count ?? p.token_count} tokens · ${p.model_label}`
-        : `≈ ${p.figures_fr?.estimate ?? p.estimate} tokens (estimation) · ${p.model_label}`;
+        ? `${p.figures_text?.token_count ?? p.token_count} tokens · ${p.model_label}`
+        : `≈ ${p.figures_text?.estimate ?? p.estimate} tokens (estimation) · ${p.model_label}`;
     case "conversation_cleared":
       return "les tours précédents restent dans ce journal";
     case "harness_reset":
       return "retour au LLM nu ; les événements précédents restent sur le serveur";
     case "scenario_changed":
-      return p.active ? (findScenario(p.active)?.title_fr ?? p.active) : "aucun scénario actif";
+      return p.active ? (findScenario(p.active)?.title_text ?? p.active) : "aucun scénario actif";
     default:
-      return p.message_fr ?? "";
+      return p.message_text ?? "";
   }
 }
 
@@ -6872,7 +6872,7 @@ function outboundSummary(turn) {
   for (const { request, step } of turnRequests(turn)) {
     const node = request.component ? nodes.get(request.component) : null;
     const key = node ? node.id : hostOf(request.url); // story 23 absent: the URL's host
-    const group = groups.get(key) ?? { label: node?.label_fr ?? key, sends: node?.sends_fr, count: 0, failed: 0 };
+    const group = groups.get(key) ?? { label: node?.label_text ?? key, sends: node?.sends_text, count: 0, failed: 0 };
     if (!stepFailed(step)) group.count += 1;
     else if (!failedSteps.has(`${key} ${step.stepId}`)) {
       failedSteps.add(`${key} ${step.stepId}`);
@@ -6917,7 +6917,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   frame.dataset.component = "core.harness";
   setLinks(frame, ["core.harness"]); // story 34
   frame.classList.toggle("is-selected", store.selection === "core.harness");
-  frame.title = byId["core.harness"]?.label_fr || "Harnais";
+  frame.title = byId["core.harness"]?.label_text || "Harnais";
   frame.addEventListener("click", (event) => {
     if (!event.target.closest("button:not(.arch-harness-tag)")) select("core.harness");
   });
@@ -6928,10 +6928,10 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   const chips = el("div", "arch-chips");
   for (const node of nodes.filter((n) => n.kind === "brick")) {
     const icon = COMPONENT_ICONS[node.id] || BRICK_ICONS[node.id.split(".")[0]] || "🧩";
-    const chip = schemaButton("arch-chip", node.id, `${icon} ${node.label_fr}`);
+    const chip = schemaButton("arch-chip", node.id, `${icon} ${node.label_text}`);
     chip.dataset.discipline = nodeDiscipline(node); // story 33
     chip.classList.toggle("is-unavailable", !node.available);
-    chip.title = [node.available ? node.label_fr : `${node.label_fr} : ${node.reason_fr}`, node.detail_fr]
+    chip.title = [node.available ? node.label_text : `${node.label_text} : ${node.reason_text}`, node.detail_text]
       .filter(Boolean)
       .join("\n");
     chips.appendChild(chip);
@@ -7005,12 +7005,12 @@ function hookStrip(options, byId, blocked) {
     hook.classList.toggle("is-off", off);
     hook.classList.toggle("is-blocked", isBlocked);
     hook.append(
-      el("span", "arch-hook-name", `${HOOK_ICONS[option.id] || "🪝"} ${option.label_fr}${state}`),
+      el("span", "arch-hook-name", `${HOOK_ICONS[option.id] || "🪝"} ${option.label_text}${state}`),
       el("span", "arch-hook-point", point)
     );
     hook.title = [
-      `${option.label_fr} : code du harnais, point d'accroche « ${point} »`,
-      byId[id]?.detail_fr,
+      `${option.label_text} : code du harnais, point d'accroche « ${point} »`,
+      byId[id]?.detail_text,
       off ? "Désactivé : ce hook n'agit pas." : null,
     ]
       .filter(Boolean)
@@ -7081,11 +7081,11 @@ function schemaNode(node, shape) {
   else if (loaded) pill = "✓"; // a skill's bin is narrow: « Chargé » is in its accessible name and tooltip
   if (icon) button.appendChild(el("span", "arch-node-icon", icon));
   // A network node carries its globe on the node itself, not only on its zone (FR-13).
-  button.appendChild(el("span", "arch-node-name", network ? `🌐 ${node.label_fr}` : node.label_fr));
+  button.appendChild(el("span", "arch-node-name", network ? `🌐 ${node.label_text}` : node.label_text));
   if (pill) button.appendChild(el("span", "arch-node-pill", pill));
 
-  const tooltip = [`${node.label_fr} · ${SHAPE_LABELS[shape]} · ${network ? "RÉSEAU" : "sur le poste"}`];
-  if (unavailable) tooltip.push(`Indisponible : ${node.reason_fr}`);
+  const tooltip = [`${node.label_text} · ${SHAPE_LABELS[shape]} · ${network ? "RÉSEAU" : "sur le poste"}`];
+  if (unavailable) tooltip.push(`Indisponible : ${node.reason_text}`);
   else if (notContacted) tooltip.push("Non contacté : aucune requête envoyée pour l'instant.");
   if (perTurn) {
     const state = attempted && !reached ? "tentative en échec, rien n'a atteint le service" : turnState;
@@ -7093,7 +7093,7 @@ function schemaNode(node, shape) {
   }
   if (shape === "skill") tooltip.push(loaded ? "Chargé dans la conversation." : "Non chargé.");
   if (tools.length) tooltip.push(`Outils : ${tools.join(", ")}`);
-  if (node.detail_fr) tooltip.push(node.detail_fr);
+  if (node.detail_text) tooltip.push(node.detail_text);
   // Story 23: a network tool or server leads to its outbound data, while a step shown has some
   // (a clearing or a reset leaves the node contacted, with nothing left to show).
   const leadsOut =

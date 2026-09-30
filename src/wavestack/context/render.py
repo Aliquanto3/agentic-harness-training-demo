@@ -187,7 +187,7 @@ def _neutralize(part: Part, special: re.Pattern[str] | None) -> Part:
             {
                 "segment_kind": part.kind,
                 "tokens": sorted(set(found)),
-                "message_fr": (
+                "message_text": (
                     f"Le texte contenait {len(found)} marqueur(s) réservé(s) du modèle "
                     f"({', '.join(sorted(set(found)))}). Ils ont été neutralisés : un contenu "
                     f"ne peut pas modifier la structure de la conversation."
@@ -337,10 +337,10 @@ def _attribute(
         get_journal().emit(
             "harness_error",
             {
-                "message_fr": "Attribution approximative : le rendu d'attribution diffère du "
+                "message_text": "Attribution approximative : le rendu d'attribution diffère du "
                 "prompt envoyé.",
                 "cause": "Le gabarit transforme le texte des messages (contrôle 4 d'AD-4).",
-                "effect_fr": "Le prompt envoyé est inchangé ; le texte non localisé est compté "
+                "effect_text": "Le prompt envoyé est inchangé ; le texte non localisé est compté "
                 "dans le gabarit.",
             },
         )
@@ -389,11 +389,11 @@ def render_context(
         get_journal().emit(
             "harness_error",
             {
-                "message_fr": "Contrôle des tokens en échec : les octets des tokens ne "
+                "message_text": "Contrôle des tokens en échec : les octets des tokens ne "
                 "recomposent pas le prompt.",
                 "cause": "Le découpage du tokenizer ne correspond pas au texte (contrôle 6 "
                 "d'AD-4).",
-                "effect_fr": "Le total de tokens reste exact ; leur répartition par segment "
+                "effect_text": "Le total de tokens reste exact ; leur répartition par segment "
                 "peut être décalée.",
             },
         )
@@ -436,7 +436,7 @@ def render_chat_body(
     fields: dict[str, Any],
     markers: list[str] | tuple[str, ...],
     estimate: Callable[[str], int],
-    provider_label_fr: str,
+    provider_label_text: str,
 ) -> RenderedChat:
     """AD-4, chat mode: `context` alone writes the whole body, serialized once, cut into
     segments by the sentinel method (the JSON syntax is `template`, 0 token). `fields`:
@@ -467,7 +467,7 @@ def render_chat_body(
             kind=SegmentKind.TEMPLATE,
             text="",
             estimated=True,
-            label_fr=provider_label_fr,
+            label_text=provider_label_text,
         )
     )
     return RenderedChat(body=body, segments=segments, estimates=estimates)

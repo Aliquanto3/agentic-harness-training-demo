@@ -1,6 +1,6 @@
 ---
 name: explain_like_ten
-label_fr: Explication pour un enfant de 10 ans
+label_text: Explication pour un enfant de 10 ans
 description: Expliquer une notion simplement, comme à un enfant de 10 ans, avec une analogie de la vie courante. À charger quand l'utilisateur demande une explication simple.
 ---
 Explique la notion demandée comme à un enfant de 10 ans.

@@ -69,7 +69,7 @@ class Publisher(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(pattern=r"^[a-z0-9_]+$")
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
     architectures: list[str] = []
     names: list[str] = []
     # Its names win over the architecture (a distilled model keeps its base's: DeepSeek-R1
@@ -115,10 +115,10 @@ class HostingFr(BaseModel):
 class PublishersContent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    legend_fr: str = Field(min_length=1)
-    served_by_fr: ServedByFr
-    hosting_fr: HostingFr
-    other_fr: str = Field(min_length=1)
+    legend_text: str = Field(min_length=1)
+    served_by_text: ServedByFr
+    hosting_text: HostingFr
+    other_text: str = Field(min_length=1)
     publishers: list[Publisher]
 
     @model_validator(mode="after")
@@ -136,13 +136,13 @@ class PublishersContent(BaseModel):
 # Only when `publishers.yaml` is unreadable: the table still shows every model, under
 # « Autres éditeurs », with the reason (AD-19: never a crash).
 _FALLBACK = PublishersContent(
-    legend_fr=(
+    legend_text=(
         "Légende : « Local » ou « RÉSEAU » dit où tourne le modèle, puis vient qui le sert "
         "(fichier, Ollama, llama-server ou fournisseur cloud)."
     ),
-    served_by_fr=ServedByFr(file="fichier", ollama="Ollama", llama_server="llama-server"),
-    hosting_fr=HostingFr(local="Sur ce poste", network="Réseau"),
-    other_fr="Autres éditeurs",
+    served_by_text=ServedByFr(file="fichier", ollama="Ollama", llama_server="llama-server"),
+    hosting_text=HostingFr(local="Sur ce poste", network="Réseau"),
+    other_text="Autres éditeurs",
     publishers=[],
 )
 
@@ -199,7 +199,7 @@ def publisher_for(architectures: Iterable[str | None], names: Iterable[str | Non
         for publisher in content.publishers:
             if publisher.matches_name(name):
                 return publisher
-    return Publisher(id=OTHER_ID, label_fr=content.other_fr)
+    return Publisher(id=OTHER_ID, label_text=content.other_text)
 
 
 # ---------- sizes ----------
@@ -330,53 +330,53 @@ class ModelEntry(BaseModel):
     kind: Literal["file", "server", "cloud"]
     ref: str
     hosting: Literal["local", "network"]
-    served_by_fr: str  # « fichier », « Ollama », « llama-server », the cloud provider
-    hosting_fr: str | None = None  # a cloud model's declared hosting
-    hosting_label_fr: str  # the table's « Hébergement »: where, then who serves it
-    prefix_fr: str  # « Local · Ollama », « RÉSEAU · Groq »
+    served_by_text: str  # « fichier », « Ollama », « llama-server », the cloud provider
+    hosting_text: str | None = None  # a cloud model's declared hosting
+    hosting_label_text: str  # the table's « Hébergement »: where, then who serves it
+    prefix_text: str  # « Local · Ollama », « RÉSEAU · Groq »
     name: str
-    label_fr: str  # prefix · name · size (parameters only)
-    title_fr: str  # the option's tooltip when usable: path, address or hosting
+    label_text: str  # prefix · name · size (parameters only)
+    title_text: str  # the option's tooltip when usable: path, address or hosting
     publisher_id: str
-    publisher_fr: str
+    publisher_text: str
     params_b: float | None = None
     params_label: str | None = None
     size_bytes: int | None = None
-    size_fr: str
+    size_text: str
     window: int | None = None
     native_context: int | None = None
-    window_fr: str
-    window_reason_fr: str | None = None  # where the window comes from (AD-9)
+    window_text: str
+    window_reason_text: str | None = None  # where the window comes from (AD-9)
     tools: bool | None = None
-    tools_fr: str
-    tools_reason_fr: str | None = None
+    tools_text: str
+    tools_reason_text: str | None = None
     reasoning: ReasoningMode
-    reasoning_fr: str
-    reason_fr: str | None = None  # why it reasons (or not) so
+    reasoning_text: str
+    reason_text: str | None = None  # why it reasons (or not) so
     usable: bool
-    disabled_fr: str | None = None
+    disabled_text: str | None = None
     # FinOps: a cloud model's declared prices, « 0,30 $ / 2,50 $ » per million tokens (input /
     # output); « — » for a local model, or a cloud one without `pricing`.
-    price_fr: str = "—"
-    price_reason_fr: str | None = None
+    price_text: str = "—"
+    price_reason_text: str | None = None
 
 
 def _capabilities(
-    caps: Capabilities | None, unknown_fr: str | None, window: int | None
+    caps: Capabilities | None, unknown_text: str | None, window: int | None
 ) -> dict[str, Any]:
     """The table's columns from `caps` (the cards' rules, `capabilities.py`, the reasoning
-    card's window rule included); `unknown_fr`: why nothing was read, when it is so."""
-    tools, tools_fr, tools_reason = tools_summary(caps)
+    card's window rule included); `unknown_text`: why nothing was read, when it is so."""
+    tools, tools_text, tools_reason = tools_summary(caps)
     mode, reason = reasoning_mode(caps, window)
-    if caps is None and unknown_fr:
-        tools_reason = reason = unknown_fr
+    if caps is None and unknown_text:
+        tools_reason = reason = unknown_text
     return {
         "tools": tools,
-        "tools_fr": tools_fr,
-        "tools_reason_fr": tools_reason,
+        "tools_text": tools_text,
+        "tools_reason_text": tools_reason,
         "reasoning": mode,
-        "reasoning_fr": REASONING_FR[mode],
-        "reason_fr": reason,
+        "reasoning_text": REASONING_FR[mode],
+        "reason_text": reason,
     }
 
 
@@ -399,8 +399,8 @@ def _window(window: int | None, source: str | None, native: int | None) -> dict[
     return {
         "window": window,
         "native_context": native,
-        "window_fr": f"{_fr_int(window)} tokens" if window else "—",
-        "window_reason_fr": reason,
+        "window_text": f"{_fr_int(window)} tokens" if window else "—",
+        "window_reason_text": reason,
     }
 
 
@@ -444,9 +444,9 @@ def _local_entry(
     incompatible = caps.incompatible_reason if caps else None
     usable = found and not incompatible
     if not found:
-        unknown_fr = candidate.reason or "Modèle inutilisable."
+        unknown_text = candidate.reason or "Modèle inutilisable."
     else:
-        unknown_fr = "En-tête GGUF illisible : capacités inconnues."
+        unknown_text = "En-tête GGUF illisible : capacités inconnues."
     name = candidate.name or Path(path or "").name or candidate.ref or "modèle"
     publisher = publisher_for(
         [_text(raw.get("general.architecture")), candidate.architecture, candidate.publisher_hint]
@@ -468,7 +468,7 @@ def _local_entry(
             size_bytes = Path(local).stat().st_size
         except OSError:
             size_bytes = None
-    served_by = getattr(content.served_by_fr, engine) if engine else content.served_by_fr.file
+    served_by = getattr(content.served_by_text, engine) if engine else content.served_by_text.file
     prefix = f"Local · {served_by}"
     window, source = window_for(meta, configured) if meta is not None and usable else (None, None)
     if served:
@@ -482,22 +482,22 @@ def _local_entry(
         kind=kind,
         ref=ref,
         hosting="local",
-        served_by_fr=served_by,
-        hosting_label_fr=f"{content.hosting_fr.local} · {served_by}",
-        prefix_fr=prefix,
+        served_by_text=served_by,
+        hosting_label_text=f"{content.hosting_text.local} · {served_by}",
+        prefix_text=prefix,
         name=name,
-        label_fr=_label(prefix, name, params_label),
-        title_fr=title,
+        label_text=_label(prefix, name, params_label),
+        title_text=title,
         publisher_id=publisher.id,
-        publisher_fr=publisher.label_fr,
+        publisher_text=publisher.label_text,
         params_b=params_b,
         params_label=params_label,
         size_bytes=size_bytes,
-        size_fr=size_fr(params_label, size_bytes),
+        size_text=size_fr(params_label, size_bytes),
         **_window(window, source, meta.native_context if meta is not None else None),
-        **_capabilities(caps, unknown_fr, window),
+        **_capabilities(caps, unknown_text, window),
         usable=usable,
-        disabled_fr=None if usable else (incompatible or unknown_fr),
+        disabled_text=None if usable else (incompatible or unknown_text),
     )
 
 
@@ -523,9 +523,9 @@ def local_entries(
 def cloud_entries(
     cfg: config.Config, rows: Iterable[dict[str, Any]] = (), window: int | None = None
 ) -> list[ModelEntry]:
-    """Every declared cloud model; `rows`: the diagnostic's `cloud_rows`, whose `disabled_fr`
+    """Every declared cloud model; `rows`: the diagnostic's `cloud_rows`, whose `disabled_text`
     says why one cannot be chosen now (no key…). `window` (story 26): as `local_entries`."""
-    disabled = {row.get("id"): row.get("disabled_fr") for row in rows}
+    disabled = {row.get("id"): row.get("disabled_text") for row in rows}
     entries = []
     for entry in cfg.cloud_models[0]:
         caps = cloud_capabilities(entry)
@@ -542,25 +542,25 @@ def cloud_entries(
                 kind="cloud",
                 ref=entry.id,
                 hosting="network",
-                served_by_fr=entry.provider,
-                hosting_fr=entry.hosting_fr,
-                hosting_label_fr=f"{entry.provider} · {entry.hosting_fr}",
-                prefix_fr=prefix,
+                served_by_text=entry.provider,
+                hosting_text=entry.hosting_text,
+                hosting_label_text=f"{entry.provider} · {entry.hosting_text}",
+                prefix_text=prefix,
                 name=entry.model,
-                label_fr=_label(prefix, entry.model, params_label),
-                title_fr=f"{entry.provider} : {entry.hosting_fr}",
+                label_text=_label(prefix, entry.model, params_label),
+                title_text=f"{entry.provider} : {entry.hosting_text}",
                 publisher_id=publisher.id,
-                publisher_fr=publisher.label_fr,
+                publisher_text=publisher.label_text,
                 params_b=params_b,
                 params_label=params_label,
                 size_bytes=None,
-                size_fr=size_fr(params_label, None),
+                size_text=size_fr(params_label, None),
                 **_window(effective, source, entry.context),
                 **_capabilities(caps, None, effective),
                 usable=not reason,
-                disabled_fr=reason or None,
-                price_fr=price_fr(entry) or "—",
-                price_reason_fr=price_reason_fr(entry) or "prix non déclaré",
+                disabled_text=reason or None,
+                price_text=price_fr(entry) or "—",
+                price_reason_text=price_reason_fr(entry) or "prix non déclaré",
             )
         )
     return entries
@@ -572,7 +572,7 @@ def cloud_entries(
 class ModelGroup(BaseModel):
     hosting: Literal["local", "network"]
     publisher_id: str
-    label_fr: str  # « Sur ce poste · Qwen (Alibaba) »
+    label_text: str  # « Sur ce poste · Qwen (Alibaba) »
     models: list[ModelEntry]
 
 
@@ -600,12 +600,12 @@ def group_models(entries: Iterable[ModelEntry]) -> list[ModelGroup]:
     groups = []
     for hosting, publisher_id in keys:
         models = sorted(buckets[(hosting, publisher_id)], key=sort_key)
-        where = getattr(content.hosting_fr, hosting)
+        where = getattr(content.hosting_text, hosting)
         groups.append(
             ModelGroup(
                 hosting=hosting,  # type: ignore[arg-type]
                 publisher_id=publisher_id,
-                label_fr=f"{where} · {models[0].publisher_fr}",
+                label_text=f"{where} · {models[0].publisher_text}",
                 models=models,
             )
         )
@@ -621,10 +621,10 @@ def models_payload(
     """`/api/diagnostic.models`: the legend, the groups, and why the publishers' table could
     not be read, if so. One answer serves the picker and the `/models` page. `window`
     (story 26): the window configured now (`AppSession.configured_window`)."""
-    content, error_fr = load_publishers()
+    content, error_text = load_publishers()
     entries = local_entries(candidates, cfg, window) + cloud_entries(cfg, cloud_rows, window)
     return {
-        "legend_fr": content.legend_fr,
+        "legend_text": content.legend_text,
         "groups": [g.model_dump(mode="json") for g in group_models(entries)],
-        "publishers_error_fr": error_fr,
+        "publishers_error_text": error_text,
     }

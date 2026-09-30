@@ -207,9 +207,9 @@ def test_a_replay_reads_the_memory_snapshot_of_its_conversation():
     assert memory_texts(of(replayed, "context_rendered")[0]) == before
     assert f"- {PREFERENCE}" not in before
     (reread,) = of(replayed, "prefix_not_reused")
-    assert reread["cause"] == "replay" and "Rejeu" in reread["message_fr"]
+    assert reread["cause"] == "replay" and "Rejeu" in reread["message_text"]
     # The replayed prompt is t1's again: all in cache, but cut before t1's output.
-    message = reread["message_fr"]
+    message = reread["message_text"]
     assert "sont déjà en cache" in message and "recalculer au moins le dernier token" in message
     assert "relit 0" not in message
     session.close()
@@ -256,12 +256,12 @@ def test_a_system_prompt_changed_between_turns_is_named():
 
     (reread,) = of(second, "prefix_not_reused")
     assert reread["cause"] == "system"
-    assert reread["message_fr"].startswith("Le message système a changé")
+    assert reread["message_text"].startswith("Le message système a changé")
     cached = len(engine.calls[0]) + len("Bonjour.")
     again = len(engine.calls[1]) - reread["common_tokens"]
-    assert f"sur {cached} en cache" in reread["message_fr"].replace(" ", "")
-    assert f"relit {again} tokens" in reread["message_fr"].replace(" ", "")
-    assert reread["message_fr"].count("modèle hybride") == 1  # the cost on Qwen3.5: everything
+    assert f"sur {cached} en cache" in reread["message_text"].replace(" ", "")
+    assert f"relit {again} tokens" in reread["message_text"].replace(" ", "")
+    assert reread["message_text"].count("modèle hybride") == 1  # the cost on Qwen3.5: everything
     assert engine.evaluated[1] == len(engine.calls[1])
     exact(second)
     session.close()
@@ -273,7 +273,7 @@ def test_short_memory_off_resends_no_exchange_it_is_the_history():
 
     (reread,) = of(run(session, "Ça va ?"), "prefix_not_reused")
 
-    assert reread["cause"] == "history" and "mémoire courte éteinte" in reread["message_fr"]
+    assert reread["cause"] == "history" and "mémoire courte éteinte" in reread["message_text"]
     session.close()
 
 
@@ -286,7 +286,7 @@ def test_a_brick_switched_off_that_changes_the_template_text_is_template():
     (reread,) = of(run(session, "Ça va ?"), "prefix_not_reused")
 
     assert reread["cause"] == "template"
-    assert reread["message_fr"].startswith("Une brique activée ou désactivée")
+    assert reread["message_text"].startswith("Une brique activée ou désactivée")
     session.close()
 
 
@@ -328,7 +328,7 @@ def test_a_cleared_conversation_is_a_reset():
 
     (reread,) = of(run(session, "Ça va ?"), "prefix_not_reused")
 
-    assert reread["cause"] == "reset" and "vidée" in reread["message_fr"]
+    assert reread["cause"] == "reset" and "vidée" in reread["message_text"]
     session.close()
 
 
@@ -355,7 +355,7 @@ def test_a_failed_previous_turn_is_abandoned():
 
     (reread,) = of(run(session, "Ça va ?"), "prefix_not_reused")
 
-    assert reread["cause"] == "abandoned" and "n'a pas abouti" in reread["message_fr"]
+    assert reread["cause"] == "abandoned" and "n'a pas abouti" in reread["message_text"]
     session.close()
 
 
@@ -369,7 +369,7 @@ def test_a_history_rewritten_without_the_rag_excerpts_is_named(index):  # noqa: 
 
     (reread,) = of(second, "prefix_not_reused")
     assert reread["cause"] == "history"
-    assert reread["message_fr"].startswith("L'historique n'est plus rendu")
+    assert reread["message_text"].startswith("L'historique n'est plus rendu")
     exact(second)
     session.close()
 
@@ -426,7 +426,7 @@ def test_a_delegation_with_a_stateless_engine_traces_the_reading():
     assert ended["state_saved_bytes"] is None and ended["state_restore_ms"] is None
     (reread,) = of(events, "prefix_not_reused")
     assert reread["cause"] == "subagent"
-    assert "ne sait pas sauvegarder" in reread["message_fr"]
+    assert "ne sait pas sauvegarder" in reread["message_text"]
     assert engine.evaluated[3] == len(engine.calls[3])  # the main context read again
     assert of(events, "turn_ended")[0]["status"] == "completed"
     session.close()
@@ -448,7 +448,7 @@ def test_a_failed_restore_goes_on_and_traces_the_reading():
     (ended,) = of(events, "subagent_ended", None)
     assert ended["state_saved_bytes"] > 0 and ended["state_restore_ms"] is None
     (reread,) = of(events, "prefix_not_reused")
-    assert reread["cause"] == "subagent" and "a échoué" in reread["message_fr"]
+    assert reread["cause"] == "subagent" and "a échoué" in reread["message_text"]
     assert of(events, "turn_ended")[0]["status"] == "completed"
     assert of(events, "harness_error", None) == []  # never a fatal error
     session.close()
@@ -461,7 +461,7 @@ def test_a_failed_save_goes_on_and_traces_the_reading():
     _, engine, session, events = delegated({"snapshot": broken})
 
     (reread,) = of(events, "prefix_not_reused")
-    assert reread["cause"] == "subagent" and "a échoué" in reread["message_fr"]
+    assert reread["cause"] == "subagent" and "a échoué" in reread["message_text"]
     assert of(events, "subagent_ended", None)[0]["state_saved_bytes"] is None
     assert of(events, "turn_ended")[0]["status"] == "completed"
     session.close()

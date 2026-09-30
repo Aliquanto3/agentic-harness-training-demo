@@ -63,7 +63,7 @@ def test_full_cycle_calculator():
     assert {s["brick"] for s in catalog} == {"tools"}
     assert "Calcule exactement" in catalog[1]["text"]
     group = next(g for g in first["breakdown"] if g["group"] == "tool_catalog")
-    assert group["label_fr"] == "Descriptions d'outils" and group["tokens"] > 0
+    assert group["label_text"] == "Descriptions d'outils" and group["tokens"] > 0
     for ctx in (first, second):  # the sum equals the total; the prompt sent is the one shown
         assert sum(s["tokens"] for s in ctx["segments"]) == ctx["used"]
     assert [list(_prompt(c).encode()) for c in (first, second)] == engine.calls
@@ -103,12 +103,12 @@ def test_malformed_call_retries_then_stops_at_the_third_failure():
     malformed = events["tool_call_malformed"]
     assert [m["reaction"] for m in malformed] == ["retry", "retry", "stop"]
     assert malformed[0]["fragment"].startswith("<tool_call>") and malformed[0]["raw"]
-    assert "<function=" in malformed[0]["detail_fr"]
+    assert "<function=" in malformed[0]["detail_text"]
     assert len(engine.calls) == 3
     second = events["context_rendered"][1]  # the error is reinjected as a tool response
     assert _segments(second, "tool_result")[0]["text"].startswith("Erreur :")
     assert events["limit_reached"] == [
-        {"limit": "retries", "message_fr": events["limit_reached"][0]["message_fr"]}
+        {"limit": "retries", "message_text": events["limit_reached"][0]["message_text"]}
     ]
     assert events["turn_ended"][0]["status"] == "limit"
     assert "tool_started" not in events
@@ -124,7 +124,7 @@ def test_unknown_or_disabled_tool_names_the_available_ones(disable):
 
     events = _run(session, "Combien font 1 + 1 ?")
 
-    detail = events["tool_call_malformed"][0]["detail_fr"]
+    detail = events["tool_call_malformed"][0]["detail_text"]
     assert f"« {name} »" in detail and "get_datetime" in detail and "read_file" in detail
     assert ("calculator" in detail.split("disponibles")[1]) is not disable
     assert events["tool_call_malformed"][0]["reaction"] == "retry"
@@ -156,7 +156,7 @@ def test_escape_is_refused_and_reinjected(path):
 
     ended = events["tool_ended"][0]
     assert ended["status"] == "error" and ended["result"] is None
-    assert "Accès refusé" in ended["error_fr"]
+    assert "Accès refusé" in ended["error_text"]
     tool_result = _segments(events["context_rendered"][1], "tool_result")[0]["text"]
     assert tool_result.startswith("Erreur : Accès refusé") and "[project]" not in tool_result
     assert events["turn_ended"][0]["status"] == "completed"
@@ -174,9 +174,9 @@ def test_execution_errors_are_reinjected_and_not_retries():
     events = _run(session, "Essaie")
 
     assert [e["status"] for e in events["tool_ended"]] == ["error"] * 3
-    assert "Fichier absent" in events["tool_ended"][0]["error_fr"]
-    assert "notes_reunion.txt" in events["tool_ended"][0]["error_fr"]
-    assert "Division par zéro" in events["tool_ended"][1]["error_fr"]
+    assert "Fichier absent" in events["tool_ended"][0]["error_text"]
+    assert "notes_reunion.txt" in events["tool_ended"][0]["error_text"]
+    assert "Division par zéro" in events["tool_ended"][1]["error_text"]
     assert "limit_reached" not in events and "tool_call_malformed" not in events
     assert events["turn_ended"][0]["status"] == "completed" and len(engine.calls) == 4
 
@@ -217,7 +217,7 @@ def test_output_cut_inside_a_tool_call_takes_the_malformed_path():
 
     assert events["output_truncated"][0]["channel"] == "tool_call"
     malformed = events["tool_call_malformed"][0]
-    assert "coupée" in malformed["detail_fr"] and malformed["reaction"] == "retry"
+    assert "coupée" in malformed["detail_text"] and malformed["reaction"] == "retry"
     assert events["turn_ended"][0]["status"] == "completed"
 
 
@@ -228,7 +228,7 @@ def test_text_after_the_call_breaks_the_prefix_and_is_traced():
 
     reused = events["prefix_not_reused"][0]
     assert 0 < reused["common_tokens"] < events["context_rendered"][1]["used"]
-    assert "relit" in reused["message_fr"]
+    assert "relit" in reused["message_text"]
 
 
 def test_completed_turn_enters_history_with_its_calls_and_results():
@@ -257,7 +257,7 @@ def test_tool_sub_options_are_cards_nodes_and_pending():
         ("wikipedia_summary", False, True),
         ("fetch_page", False, True),
     ]
-    assert "6 appels" in card["limits_fr"] and "2 nouveaux essais" in card["limits_fr"]
+    assert "6 appels" in card["limits_text"] and "2 nouveaux essais" in card["limits_text"]
     nodes = {n["id"]: n for n in _architecture(session)["nodes"]}
     assert nodes["tools.read_file"]["kind"] == "tool" and nodes["file.demo_dir"]["kind"] == "file"
     assert {"from": "tools.read_file", "to": "file.demo_dir", "crosses_boundary": False} in (
@@ -313,9 +313,9 @@ def test_parser_qwen3_coder_converts_per_schema():
     _, unclosed = parse_tool_calls(
         "<tool_call>\n<function=f>\n<parameter=n>\n1\n</function>\n</tool_call>", "qwen3_coder", {}
     )
-    assert unclosed is not None and "</parameter>" in unclosed.detail_fr
+    assert unclosed is not None and "</parameter>" in unclosed.detail_text
     _, open_only = parse_tool_calls("<tool_call>\n<function=f>", "qwen3_coder", {})
-    assert open_only is not None and "jamais fermée" in open_only.detail_fr
+    assert open_only is not None and "jamais fermée" in open_only.detail_text
     assert parse_tool_calls("Pas d'appel.", "qwen3_coder", {}) == ([], None)
 
 
@@ -328,7 +328,7 @@ def test_parser_hermes():
     as_string = '<tool_call>{"name": "f", "arguments": "{\\"a\\": 1}"}</tool_call>'
     assert parse_tool_calls(as_string, "hermes", {})[0] == [ToolCall("f", {"a": 1})]
     _, bad = parse_tool_calls("<tool_call>{name: f}</tool_call>", "hermes", {})
-    assert bad is not None and "JSON" in bad.detail_fr and bad.fragment.startswith("<tool_call>")
+    assert bad is not None and "JSON" in bad.detail_text and bad.fragment.startswith("<tool_call>")
 
 
 def test_splitter_tool_call_channel():
@@ -356,7 +356,7 @@ def test_calculator_whitelist_and_bounds():
     ):
         with pytest.raises(ToolError) as refused:
             calculator(dangerous)
-        assert refused.value.message_fr[0].isupper()  # a French sentence, never a traceback
+        assert refused.value.message_text[0].isupper()  # a French sentence, never a traceback
     with pytest.raises(ToolError, match="Division par zéro"):
         calculator("1/0")
 
@@ -426,7 +426,7 @@ def test_configured_bounds_apply_and_show_on_the_card():
 
     assert len(engine.calls) == 2 and events["limit_reached"][0]["limit"] == "calls"
     card = next(b for b in events["bricks_changed"][-1]["bricks"] if b["id"] == "tools")
-    assert "2 appels" in card["limits_fr"] and "0 nouveaux essais" in card["limits_fr"]
+    assert "2 appels" in card["limits_text"] and "0 nouveaux essais" in card["limits_text"]
 
 
 def test_bounds_below_the_minimum_are_clamped():
@@ -540,12 +540,12 @@ def test_wikipedia_summary_and_absent_page(web):
     assert str(sent[0].url) == "https://fr.wikipedia.org/api/rest_v1/page/summary/Tour_Eiffel"
     ok, absent = events["tool_ended"]
     assert ok["status"] == "ok" and ok["result"] == "Tour Eiffel\nTour de fer."
-    assert absent["status"] == "error" and "Page absente" in absent["error_fr"]
+    assert absent["status"] == "error" and "Page absente" in absent["error_text"]
     node = _node(session, "tools.wikipedia_summary")
     assert node["contact"] == "available" and node["available"]  # the service did answer
     # Story 34: a network node says what leaves the workstation (AD-19); a local one does not.
-    assert node["sends_fr"] == "le titre de l'article"
-    assert _node(session, "tools.calculator").get("sends_fr") is None
+    assert node["sends_text"] == "le titre de l'article"
+    assert _node(session, "tools.calculator").get("sends_text") is None
 
 
 def test_fetch_page_converts_html_to_text_and_cuts_it(web):
@@ -576,7 +576,7 @@ def test_fetch_page_refuses_before_sending_and_leaves_the_state(web, url):
     events = _run(session, "Lis cette page")
 
     ended = events["tool_ended"][0]
-    assert ended["status"] == "error" and "Adresse refusée" in ended["error_fr"]
+    assert ended["status"] == "error" and "Adresse refusée" in ended["error_text"]
     assert sent == [] and "outbound_request" not in events
     assert _node(session, "tools.fetch_page")["contact"] == "not_contacted"
     assert events["turn_ended"][0]["status"] == "completed"
@@ -593,10 +593,10 @@ def test_redirect_outside_the_list_is_refused_and_the_node_unavailable(web):
         "https://fr.wikipedia.org/api/rest_v1/page/summary/Paris"
     ]
     ended = events["tool_ended"][0]
-    assert ended["status"] == "error" and "example.com" in ended["error_fr"]
+    assert ended["status"] == "error" and "example.com" in ended["error_text"]
     node = _node(session, "tools.wikipedia_summary")
     assert node["contact"] == "unavailable" and not node["available"]
-    assert node["reason_fr"] == ended["error_fr"]
+    assert node["reason_text"] == ended["error_text"]
 
 
 def test_offline_error_is_reinjected_and_local_tools_still_work(web):
@@ -610,12 +610,12 @@ def test_offline_error_is_reinjected_and_local_tools_still_work(web):
     events = _run(session, "Prochain jour férié ?")
 
     network_end, local_end = events["tool_ended"]
-    assert network_end["status"] == "error" and "injoignable" in network_end["error_fr"]
+    assert network_end["status"] == "error" and "injoignable" in network_end["error_text"]
     tool_result = _segments(events["context_rendered"][1], "tool_result")[0]["text"]
     assert tool_result.startswith("Erreur : Service injoignable")
     assert local_end["status"] == "ok"
     node = _node(session, "tools.public_holidays")
-    assert node["contact"] == "unavailable" and "injoignable" in node["reason_fr"]
+    assert node["contact"] == "unavailable" and "injoignable" in node["reason_text"]
     assert events["turn_ended"][0]["status"] == "completed"
 
 
@@ -632,8 +632,8 @@ def test_fetch_page_redirect_is_checked_again_on_every_hop(web):
     assert [str(r.url) for r in sent] == ["https://fr.wikipedia.org/wiki/Paris"]
     assert [o["url"] for o in events["outbound_request"]] == [str(sent[0].url)]
     ended = events["tool_ended"][0]
-    assert ended["status"] == "error" and "Adresse refusée" in ended["error_fr"]
-    assert "http://fr.wikipedia.org" in ended["error_fr"]
+    assert ended["status"] == "error" and "Adresse refusée" in ended["error_text"]
+    assert "http://fr.wikipedia.org" in ended["error_text"]
 
 
 def test_html_to_text_breaks_blocks_and_skips_page_chrome():
@@ -676,7 +676,7 @@ def test_contact_state_follows_the_last_sent_call(web):
         ("available", True),
         ("available", True),
     ]
-    assert states[1]["reason_fr"] is None and states[2]["reason_fr"] is None
+    assert states[1]["reason_text"] is None and states[2]["reason_text"] is None
     assert events["tool_ended"][2]["status"] == "error"  # the refused fetch_page
     assert _node(session, "tools.fetch_page")["contact"] == "not_contacted"
 
@@ -705,8 +705,8 @@ def test_configured_fetch_page_hosts_and_cut_apply(web):
 
     accepted, refused = events["tool_ended"]
     assert accepted["result"] == "y" * 30 + "\n[Texte coupé à 30 caractères sur 100.]"
-    assert refused["status"] == "error" and "Adresse refusée" in refused["error_fr"]
-    assert "calendrier.api.gouv.fr" in refused["error_fr"]
+    assert refused["status"] == "error" and "Adresse refusée" in refused["error_text"]
+    assert "calendrier.api.gouv.fr" in refused["error_text"]
 
 
 def test_fetch_page_max_chars_below_the_minimum_is_clamped():
@@ -719,13 +719,13 @@ def test_fetch_page_max_chars_below_the_minimum_is_clamped():
 @pytest.mark.parametrize("name", [spec.name for spec in network.network_tools(config.Config())])
 def test_every_network_tool_says_what_it_sends(name):
     text = load_tools_content().tools[name]
-    assert text.sends_fr and text.sends_fr.strip()
+    assert text.sends_text and text.sends_text.strip()
 
 
 def test_no_local_tool_declares_what_it_sends():
     remote = {spec.name for spec in network.network_tools(config.Config())}
     local = {n: t for n, t in load_tools_content().tools.items() if n not in remote}
-    assert local and all(t.sends_fr is None for t in local.values())
+    assert local and all(t.sends_text is None for t in local.values())
 
 
 # ---------- story 32: sections and « déjà lu », computed by the session ----------

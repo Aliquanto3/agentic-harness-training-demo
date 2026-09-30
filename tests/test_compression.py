@@ -45,7 +45,7 @@ class FakeCompressor:
     """As Headroom without Kompress: a log (INFO lines, more than 5) keeps its WARN and ERROR
     lines and says how many it left out; prose comes back as it was. `fail`: raises."""
 
-    label_fr = "Faux compresseur"
+    label_text = "Faux compresseur"
 
     def __init__(self, *, fail: bool = False, prose: bool = False) -> None:
         self.fail, self.prose = fail, prose
@@ -149,10 +149,10 @@ def test_big_tool_result_is_compressed_once_before_the_next_call():
     first, second = events["context_rendered"]
     assert "compressed_from" not in json.dumps(first)  # nothing to compress before call 1
     started, ended = events["compression_started"][0], events["compression_ended"][0]
-    assert started["items"] == 1 and started["compressor_fr"] == "Faux compresseur"
-    assert ended["status"] == "ok" and ended["error_fr"] is None
+    assert started["items"] == 1 and started["compressor_text"] == "Faux compresseur"
+    assert ended["status"] == "ok" and ended["error_text"] is None
     item = ended["items"][0]
-    assert item["source_fr"] == "Résultat de l'outil « read_file »"
+    assert item["source_text"] == "Résultat de l'outil « read_file »"
     assert (item["kind"], item["brick"], item["component"]) == (
         "tool_result",
         "tools",
@@ -234,7 +234,7 @@ def test_forced_action_is_compressed_before_the_first_call():
     [result] = _kind(ctx, "tool_result")
     assert _text_before(events, result["compressed_from"]) == ORIGINAL
     assert ERROR_LINE in result["text"]
-    assert events["compression_ended"][0]["items"][0]["source_fr"].endswith("« read_file »")
+    assert events["compression_ended"][0]["items"][0]["source_text"].endswith("« read_file »")
 
 
 def rag_compression_session(tmp_path, compressors: Compressors, outputs=None):  # noqa: ANN001
@@ -272,7 +272,7 @@ def test_rag_excerpts_are_candidates_but_prose_passes_unchanged(tmp_path):
     assert 1 <= len(ended["items"]) <= 3  # the excerpts long enough, never the intro
     assert all(len(i["text_before"]) >= 300 and i["text_before"] != intro for i in ended["items"])
     assert {i["kind"] for i in ended["items"]} == {"rag_excerpt"}
-    assert ended["items"][0]["source_fr"].startswith("Extrait RAG n° ")
+    assert ended["items"][0]["source_text"].startswith("Extrait RAG n° ")
     assert all(not i["changed"] and i["text_after"] is None for i in ended["items"])
     assert ended["saved_tokens"] == 0 and ended["status"] == "ok"
     assert all("compressed_from" not in s for s in excerpts) and "uncompressed_used" not in ctx
@@ -333,7 +333,7 @@ def test_network_and_mcp_outputs_are_compressed(web):  # noqa: F811
     events = _run(session, "Lis la page Paris")
 
     [item] = events["compression_ended"][0]["items"]
-    assert item["source_fr"] == "Résultat de l'outil « fetch_page »" and item["changed"]
+    assert item["source_text"] == "Résultat de l'outil « fetch_page »" and item["changed"]
     assert (item["brick"], item["component"]) == ("tools", "tools.fetch_page")
     assert "page introuvable" in item["text_after"]
 
@@ -366,7 +366,7 @@ def test_headroom_missing_or_another_version_makes_the_brick_unavailable(monkeyp
     session.set_brick("compression", True)
     compression = card(session)
     assert compression["wanted"] and not compression["available"]
-    assert compression["reason_fr"] == reason
+    assert compression["reason_text"] == reason
     assert _run(session, "Bonjour")["turn_ended"][0]["status"] == "completed"
 
     monkeypatch.setattr(headroom_adapter, "_find_spec", lambda name: object())
@@ -382,8 +382,8 @@ def test_budget_refusal_loads_nothing():
     )
 
     compression = card(session)
-    assert not compression["available"] and "Mémoire insuffisante" in compression["reason_fr"]
-    assert "environ 110 de plus" in compression["reason_fr"] and compressors.made == []
+    assert not compression["available"] and "Mémoire insuffisante" in compression["reason_text"]
+    assert "environ 110 de plus" in compression["reason_text"] and compressors.made == []
     assert session._load_registry.holder(COMPRESSOR) is None
 
 
@@ -397,9 +397,9 @@ def test_compressor_failure_keeps_the_original_and_the_turn_ends():
 
     assert events["turn_ended"][0]["status"] == "completed"
     ended = events["compression_ended"][0]
-    assert ended["status"] == "error" and "ValueError" in ended["error_fr"]
+    assert ended["status"] == "error" and "ValueError" in ended["error_text"]
     assert not ended["items"][0]["changed"] and ended["saved_tokens"] == 0
-    assert any("compression" in e["message_fr"] for e in events["harness_error"])
+    assert any("compression" in e["message_text"] for e in events["harness_error"])
     [result] = _kind(events["context_rendered"][1], "tool_result")
     assert result["text"] == ORIGINAL and "compressed_from" not in result
     assert ended["items"][0]["text_after"] is None
@@ -523,24 +523,24 @@ def test_invalid_content_makes_the_brick_unavailable_with_the_file(monkeypatch):
     session, compressors, _ = session_with(["OK"], bricks=("compression",))
 
     compression = card(session)
-    assert not compression["available"] and "content/compression.yaml" in compression["reason_fr"]
+    assert not compression["available"] and "content/compression.yaml" in compression["reason_text"]
     assert compressors.made == []
 
 
 def test_templates_with_an_unknown_placeholder_are_refused():
     good = {
-        "phase_label_fr": "Compression…",
-        "step_title_fr": "Compression",
-        "tool_source_fr": "Outil {tool}",
-        "rag_source_fr": "Extrait {n}",
-        "unchanged_fr": "Inchangé.",
-        "limits_fr": "Au moins {min_chars} caractères.",
+        "phase_label_text": "Compression…",
+        "step_title_text": "Compression",
+        "tool_source_text": "Outil {tool}",
+        "rag_source_text": "Extrait {n}",
+        "unchanged_text": "Inchangé.",
+        "limits_text": "Au moins {min_chars} caractères.",
     }
     CompressionContent.model_validate(good)
-    with pytest.raises(ValueError, match="tool_source_fr"):
-        CompressionContent.model_validate(good | {"tool_source_fr": "Outil {outil}"})
-    with pytest.raises(ValueError, match="limits_fr"):
-        CompressionContent.model_validate(good | {"limits_fr": "Seuil {"})
+    with pytest.raises(ValueError, match="tool_source_text"):
+        CompressionContent.model_validate(good | {"tool_source_text": "Outil {outil}"})
+    with pytest.raises(ValueError, match="limits_text"):
+        CompressionContent.model_validate(good | {"limits_text": "Seuil {"})
 
 
 def test_switching_on_again_counts_the_library_once():
@@ -583,7 +583,7 @@ def test_a_budget_refusal_is_retried_after_a_model_switch(tmp_path):
     session, compressors, _ = session_with(
         ["OK"], bricks=("compression",), rss_fn=lambda: rss["now"]
     )
-    assert "Mémoire insuffisante" in card(session)["reason_fr"] and compressors.made == []
+    assert "Mémoire insuffisante" in card(session)["reason_text"] and compressors.made == []
 
     rss["now"] = 100 * 1024**2  # the switch frees memory
     other = tmp_path / "other.gguf"
@@ -610,11 +610,11 @@ def test_loading_then_release_through_the_registry():
         for b in e.payload["bricks"]
         if b["id"] == "compression"
     ][-1]
-    assert not loading["available"] and loading["reason_fr"] == "Chargement du compresseur…"
+    assert not loading["available"] and loading["reason_text"] == "Chargement du compresseur…"
     gate.set()
     compression = card(session)
-    assert compression["available"] and compression["reason_fr"] is None
-    assert "300 caractères" in compression["limits_fr"]
+    assert compression["available"] and compression["reason_text"] is None
+    assert "300 caractères" in compression["limits_text"]
     assert session._load_registry.holder(COMPRESSOR) == "Faux compresseur"
 
     session.set_brick("compression", False)
@@ -628,7 +628,7 @@ def test_schema_draws_the_compressor_in_the_harness_process():
     nodes = [e for e in get_journal().all_events() if e.kind == "architecture_changed"]
     node = next(n for n in nodes[-1].payload["nodes"] if n["id"] == "compression.compressor")
     # The loaded compressor's own label, not the Headroom class's.
-    assert node["hosting"] == "local" and "Faux compresseur" in node["detail_fr"]
+    assert node["hosting"] == "local" and "Faux compresseur" in node["detail_text"]
 
 
 # ---------- chat mode ----------

@@ -217,7 +217,7 @@ def test_local_server_lifecycle_call_and_shutdown(loop):
 
     (started,) = [e.payload for e in since(mark, "mcp_connect_started")]
     assert started["server"] == "local" and "Glossaire" in started["phase_label"]
-    assert ended["status"] == "ok" and ended["error_fr"] is None
+    assert ended["status"] == "ok" and ended["error_text"] is None
     assert ended["tools"] == ["local__list_terms", "local__define_term"]
     assert since(mark, "outbound_request") == []
     assert local_servers()  # the venv launcher may add a second process
@@ -229,7 +229,7 @@ def test_local_server_lifecycle_call_and_shutdown(loop):
         True,
     )
     assert local["tools"] == ended["tools"]
-    assert local.get("sends_fr") is None  # story 34: nothing leaves the workstation
+    assert local.get("sends_text") is None  # story 34: nothing leaves the workstation
     assert node(session, "mcp.datagouv") is None  # drawn only once its sub-option is on
     preview = since(mark, "context_preview")[-1].payload
     catalog = _segments(preview, "tool_catalog")
@@ -241,7 +241,7 @@ def test_local_server_lifecycle_call_and_shutdown(loop):
     assert [e["source"] for e in events["tool_started"]] == ["mcp_local"] * 2
     ok, unknown = events["tool_ended"]
     assert ok["status"] == "ok" and "Model Context Protocol" in ok["result"]
-    assert unknown["status"] == "error" and "Terme inconnu" in unknown["error_fr"]
+    assert unknown["status"] == "error" and "Terme inconnu" in unknown["error_text"]
     assert "outbound_request" not in events
     results = _segments(events["context_rendered"][-1], "tool_result")
     assert results[0]["component"] == "mcp.local" and results[0]["brick"] == "mcp"
@@ -298,7 +298,7 @@ def test_public_server_discovery_is_traced_and_weighs_in_the_gauge(loop, web):
     assert {s["component"] for s in catalog} == {"mcp.mslearn"} and len(catalog) == 3
     assert after["used"] - before["used"] >= sum(s["tokens"] for s in catalog)
     card = next(b for b in since(mark, "bricks_changed")[-1].payload["bricks"] if b["id"] == "mcp")
-    assert [(o["id"], o["enabled"], o["hosting_fr"]) for o in card["options"]] == [
+    assert [(o["id"], o["enabled"], o["hosting_text"]) for o in card["options"]] == [
         ("local", False, "Local"),
         ("datagouv", False, "RÉSEAU"),
         ("mslearn", True, "RÉSEAU"),
@@ -347,10 +347,10 @@ def test_public_call_sends_the_exact_body_then_a_delay_makes_it_unavailable(loop
     assert _segments(events["context_rendered"][1], "tool_result")[0]["text"].startswith(
         "Résultat pour"
     )
-    assert late["status"] == "error" and "délai" in late["error_fr"]
+    assert late["status"] == "error" and "délai" in late["error_text"]
     mslearn = node(session, "mcp.mslearn")
     assert mslearn["contact"] == "unavailable" and not mslearn["available"]
-    assert "délai" in mslearn["reason_fr"]
+    assert "délai" in mslearn["reason_text"]
     assert events["turn_ended"][0]["status"] == "completed"
     assert session.build_turn_state().tools == ()  # an unavailable server lends no tool
     session.close()
@@ -365,10 +365,10 @@ def test_offline_server_is_unavailable_others_work_and_rechecking_retries(loop, 
 
     ended = enable(session, "mslearn")
 
-    assert ended["status"] == "error" and "injoignable" in ended["error_fr"]
+    assert ended["status"] == "error" and "injoignable" in ended["error_text"]
     mslearn = node(session, "mcp.mslearn")
     assert (mslearn["contact"], mslearn["available"]) == ("unavailable", False)
-    assert mslearn["reason_fr"] == ended["error_fr"]
+    assert mslearn["reason_text"] == ended["error_text"]
     events = _run(session, "Quelle heure est-il ?")  # native tools still work
     assert events["tool_ended"][0]["status"] == "ok"
 
@@ -391,8 +391,8 @@ def test_host_outside_the_list_is_refused_before_anything_is_sent(loop, web):
 
     ended = enable(session, "mslearn")
 
-    assert ended["status"] == "error" and "refusée par le harnais" in ended["error_fr"]
-    assert "mcp.example.test" in ended["error_fr"]
+    assert ended["status"] == "error" and "refusée par le harnais" in ended["error_text"]
+    assert "mcp.example.test" in ended["error_text"]
     assert server.sent == [] and since(mark, "outbound_request") == []
     assert node(session, "mcp.mslearn")["contact"] == "unavailable"
     session.close()
@@ -436,13 +436,13 @@ def test_datagouv_overflows_the_default_window_and_names_the_descriptions(loop, 
     session.set_mcp_server("local", False)
     enable(session, "datagouv")
     # Story 34: a public server's node says what leaves the workstation (AD-19).
-    assert node(session, "mcp.datagouv")["sends_fr"] == "la recherche et ses arguments"
+    assert node(session, "mcp.datagouv")["sends_text"] == "la recherche et ses arguments"
 
     events = _run(session, "Bonjour")
 
     (overflow,) = events["context_overflow"]
-    assert "descriptions d'outils" in overflow["message_fr"]
-    assert "serveur MCP" in overflow["message_fr"]
+    assert "descriptions d'outils" in overflow["message_text"]
+    assert "serveur MCP" in overflow["message_text"]
     assert "model_call_started" not in events  # the call is not sent
     session.close()
 
@@ -457,7 +457,7 @@ def test_colliding_tool_names_leave_the_second_unavailable(loop, web):
 
     assert ended["tools"] == ["mslearn__microsoft_docs_search"]
     (error,) = [e.payload for e in since(mark, "harness_error")]
-    assert "mslearn__microsoft_docs_search" in error["message_fr"]
+    assert "mslearn__microsoft_docs_search" in error["message_text"]
     definition = session._registry.definition("mslearn__microsoft_docs_search")
     assert definition["function"]["description"] == MSLEARN_TOOLS[0]["description"]
     session.close()
@@ -509,10 +509,10 @@ def test_local_server_that_cannot_start_is_unavailable_with_its_reason(loop, mon
 
     ended = enable(session)
 
-    assert ended["status"] == "error" and "processus du serveur" in ended["error_fr"], ended
+    assert ended["status"] == "error" and "processus du serveur" in ended["error_text"], ended
     local = node(session, "mcp.local")
     assert (local["contact"], local["available"]) == ("unavailable", False)
-    assert local["reason_fr"] == ended["error_fr"]
+    assert local["reason_text"] == ended["error_text"]
     assert session.build_turn_state().tools == ()
     session.close()
 
@@ -576,7 +576,7 @@ def test_invalid_call_with_the_mcp_brick_alone_belongs_to_mcp(loop):
     events = _run(session, "Que veut dire MCP ?")
 
     (malformed,) = since(mark, "tool_call_malformed")
-    assert malformed.brick == "mcp" and "manquant" in malformed.payload["detail_fr"]
+    assert malformed.brick == "mcp" and "manquant" in malformed.payload["detail_text"]
     (result,) = _segments(events["context_rendered"][1], "tool_result")
     assert result["brick"] == "mcp"
     session.close()
@@ -594,7 +594,7 @@ def test_connect_timeout_makes_the_server_unavailable(loop, web):
 
     ended = wait_for(session, "mcp_connect_ended", mark)[-1]
 
-    assert ended["status"] == "error" and "délai" in ended["error_fr"]
+    assert ended["status"] == "error" and "délai" in ended["error_text"]
     assert node(session, "mcp.mslearn")["contact"] == "unavailable"
     assert conn._task.done()
     session.close()
@@ -622,7 +622,7 @@ def test_json_rpc_error_answer_is_a_tool_error_and_the_server_stays(loop, web):
     events = _run(session, "Cherche")
 
     (ended,) = events["tool_ended"]
-    assert ended["status"] == "error" and "Invalid params: query" in ended["error_fr"]
+    assert ended["status"] == "error" and "Invalid params: query" in ended["error_text"]
     mslearn = node(session, "mcp.mslearn")
     assert mslearn["contact"] == "available" and mslearn["available"]
     assert len(session.build_turn_state().tools) == 3
@@ -660,6 +660,6 @@ def test_disabling_a_server_during_a_call_ends_the_call_at_once(loop, web):
 def test_public_servers_say_what_they_receive_and_local_ones_do_not(server):
     text = load_mcp_content().servers[server.id]
     if server.network:
-        assert text.sends_fr and text.sends_fr.strip()
+        assert text.sends_text and text.sends_text.strip()
     else:
-        assert text.sends_fr is None
+        assert text.sends_text is None

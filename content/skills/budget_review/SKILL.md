@@ -1,6 +1,6 @@
 ---
 name: budget_review
-label_fr: Point budget
+label_text: Point budget
 description: Faire le point sur le budget du projet avec les outils read_file (fichier confidentiel/budget_projet.txt) et calculator, rendu en tableau. À charger quand l'utilisateur demande le budget du projet, son total ou la répartition de ses postes.
 ---
 Fais le point sur le budget du projet, en trois étapes, dans cet ordre.

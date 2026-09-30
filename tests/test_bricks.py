@@ -207,9 +207,9 @@ def test_invalid_brick_content_makes_it_unavailable(monkeypatch):
     session = booted_session(FakeEngine())
     session.set_brick("short_memory", True)
 
-    assert any("short_memory" in e.payload["message_fr"] for e in _harness_errors(mark))
+    assert any("short_memory" in e.payload["message_text"] for e in _harness_errors(mark))
     card = {b["id"]: b for b in _latest("bricks_changed", mark)["bricks"]}["short_memory"]
-    assert card["wanted"] and not card["available"] and "short_memory.yaml" in card["reason_fr"]
+    assert card["wanted"] and not card["available"] and "short_memory.yaml" in card["reason_text"]
     _run(session, "Bonjour")
     events = _run(session, "Encore")
     assert "history" not in _kinds(events["context_rendered"][0])
@@ -226,7 +226,7 @@ def test_invalid_default_prompt_makes_system_prompt_unavailable(monkeypatch):
     session.set_brick("system_prompt", True)
 
     card = {b["id"]: b for b in _latest("bricks_changed", mark)["bricks"]}["system_prompt"]
-    assert not card["available"] and "system.md" in card["reason_fr"]
+    assert not card["available"] and "system.md" in card["reason_text"]
     assert _harness_errors(mark)
     assert "system_prompt" not in _kinds(_run(session, "Bonjour")["context_rendered"][0])
 
@@ -251,7 +251,7 @@ def _fake(brick_id: str, requires: list[str] | None = None) -> BrickDeclaration:
 
 def test_missing_dependency_is_unavailable_with_reason(monkeypatch):
     content = BrickContent(
-        label_fr="Parent", category_fr="x", hosting_fr="Local", explanation_fr=["x"]
+        label_text="Parent", category_text="x", hosting_text="Local", explanation_text=["x"]
     )
     monkeypatch.setattr(app_session_module, "load_brick_content", lambda _: content)
     session = AppSession(
@@ -296,7 +296,7 @@ def test_wanted_brick_is_drawn_linked_to_the_harness():
 
     arch = _latest("architecture_changed", mark)
     node = next(n for n in arch["nodes"] if n["id"] == "short_memory.history")
-    assert node["kind"] == "brick" and node["label_fr"] == "Mémoire courte"
+    assert node["kind"] == "brick" and node["label_text"] == "Mémoire courte"
     model = next(n for n in arch["nodes"] if n["id"] == "core.model")
     assert model["model"] == "fake"
     assert arch["edges"] == [
@@ -331,8 +331,8 @@ def test_http_intentions_and_state():
     state = client.get("/api/state").json()["bricks_changed"]
     assert state["system_prompt"] == {"text": "Sois bref.", "is_default": False}
     cards = {b["id"]: b for b in state["bricks"]}
-    assert cards["system_prompt"]["wanted"] and cards["system_prompt"]["category_fr"]
-    assert cards["short_memory"]["explanation_fr"] and cards["short_memory"]["hosting_fr"]
+    assert cards["system_prompt"]["wanted"] and cards["system_prompt"]["category_text"]
+    assert cards["short_memory"]["explanation_text"] and cards["short_memory"]["hosting_text"]
 
 
 # ---------- review follow-ups ----------
@@ -378,7 +378,9 @@ def test_toggle_without_engine_raises_no_harness_error():
 
 
 def test_missing_capability_is_unavailable_with_reason(monkeypatch):
-    content = BrickContent(label_fr="X", category_fr="x", hosting_fr="Local", explanation_fr=["x"])
+    content = BrickContent(
+        label_text="X", category_text="x", hosting_text="Local", explanation_text=["x"]
+    )
     monkeypatch.setattr(app_session_module, "load_brick_content", lambda _: content)
     brick = _fake("tools").model_copy(update={"capabilities": ["tool_call_parser"]})
     session = AppSession(
@@ -392,7 +394,7 @@ def test_missing_capability_is_unavailable_with_reason(monkeypatch):
 
 def test_edge_to_an_undrawn_node_is_dropped(monkeypatch):
     content = BrickContent(
-        label_fr="Audit", category_fr="x", hosting_fr="Local", explanation_fr=["x"]
+        label_text="Audit", category_text="x", hosting_text="Local", explanation_text=["x"]
     )
     monkeypatch.setattr(app_session_module, "load_brick_content", lambda _: content)
     component = Component(
@@ -429,7 +431,7 @@ def test_pending_only_when_the_next_turn_changes():
 def _overflow(session, message: str) -> str:
     events = _run(session, message)
     assert events["turn_ended"][0]["status"] == "overflow"
-    return events["context_overflow"][0]["message_fr"]
+    return events["context_overflow"][0]["message_text"]
 
 
 def test_overflow_cause_is_the_heaviest_segment():
@@ -517,7 +519,7 @@ def test_tools_and_mcp_cards_say_what_leaves_the_workstation_and_where_to_read_i
 
     cards = {b["id"]: b for b in _latest("bricks_changed", mark)["bricks"]}
 
-    tools = cards["tools"]["outbound_fr"]
+    tools = cards["tools"]["outbound_text"]
     for label in (
         "Jours fériés",
         "Résumé Wikipédia",
@@ -529,11 +531,11 @@ def test_tools_and_mcp_cards_say_what_leaves_the_workstation_and_where_to_read_i
         assert label in tools, label
     assert "Heure et date" not in tools and "Calculatrice" not in tools  # local tools
     assert tools.index("Jours fériés") < tools.index("Résumé Wikipédia")  # registry order
-    mcp = cards["mcp"]["outbound_fr"]
+    mcp = cards["mcp"]["outbound_text"]
     assert "data.gouv.fr" in mcp and "Microsoft Learn" in mcp and "Données sortantes" in mcp
     assert "Glossaire WaveStack" not in mcp  # the local server stays on the workstation
     assert "{" not in tools + mcp
-    assert cards["skills"]["outbound_fr"] is None
+    assert cards["skills"]["outbound_text"] is None
     assert tools.startswith("Peuvent sortir du poste : ")  # disabled ones included
 
 
@@ -569,15 +571,15 @@ def test_outbound_line_without_network_tool_or_public_server():
 def test_a_bad_outbound_template_drops_the_line_not_the_cards(template, caplog):
     session = booted_session(FakeEngine())
     session._content["tools"] = session._content["tools"].model_copy(
-        update={"outbound_fr": template}
+        update={"outbound_text": template}
     )
 
     assert _outbound(session, "tools") is None
-    assert "outbound_fr of tools ignored" in caplog.text
+    assert "outbound_text of tools ignored" in caplog.text
     mark = get_journal().last_seq()
     session._emit_bricks()  # the cards still go out
     cards = {b["id"]: b for b in _latest("bricks_changed", mark)["bricks"]}
-    assert cards["tools"]["outbound_fr"] is None and cards["mcp"]["outbound_fr"]
+    assert cards["tools"]["outbound_text"] is None and cards["mcp"]["outbound_text"]
 
 
 def test_panel_groups_must_be_contiguous_reads_first():

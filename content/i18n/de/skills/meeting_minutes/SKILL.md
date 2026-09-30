@@ -1,6 +1,6 @@
 ---
 name: meeting_minutes
-label_fr: Besprechungsprotokoll
+label_text: Besprechungsprotokoll
 description: Das Protokoll einer Besprechung (Entscheidungen, Aufgaben, Verantwortliche) aus den Angaben der Nachricht verfassen. Laden, wenn der Benutzer ein Protokoll oder eine Zusammenfassung einer Besprechung verlangt.
 ---
 Verfasse ein strukturiertes Besprechungsprotokoll.

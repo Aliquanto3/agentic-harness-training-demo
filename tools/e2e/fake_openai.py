@@ -53,7 +53,7 @@ _HARNESS_ERROR = re.compile(r"^\s*Erreur\s*:")
 # What hook H3 adds before the user's message (content/hooks.yaml, `injection`): never read
 # as the user's words, or « heure » and « confidentiel » would trigger tools.
 _H3_INJECTION = re.compile(r"Date et heure du poste.*?données confidentielles\.\s*", re.S)
-# Story 15: the RAG's intro (content/rag.yaml, `intro_fr`); its excerpts follow it, and the
+# Story 15: the RAG's intro (content/rag.yaml, `intro_text`); its excerpts follow it, and the
 # user's words are the last part of the message.
 _RAG_INTRO = "Extraits de la documentation interne d'Exemplia"
 _RAG_EXCERPT = re.compile(r"Extrait (\d+) — ([^:\n]+) :")

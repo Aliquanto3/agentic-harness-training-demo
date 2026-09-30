@@ -90,8 +90,8 @@ _MONTHS = {
 
 
 class HookText(BaseModel):
-    label_fr: str = Field(min_length=1)
-    description_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
+    description_text: str = Field(min_length=1)
 
 
 class HooksContent(BaseModel):
@@ -100,7 +100,7 @@ class HooksContent(BaseModel):
     hooks: dict[str, HookText]
     points: dict[HookPoint, str]
     injection: str = Field(min_length=1)  # H3's text, `{date}` replaced at each turn
-    audit_label_fr: str = Field(min_length=1)
+    audit_label_text: str = Field(min_length=1)
     # Languages (1/5): the language the texts were asked in, set by `load_hooks_content`
     # (never in the file); H3 writes its date in it.
     language: str = config.DEFAULT_LANGUAGE
@@ -146,7 +146,7 @@ class HookContext:
 @dataclass(frozen=True)
 class HookResult:
     decision: HookDecision
-    detail_fr: str
+    detail_text: str
     effects: tuple[Effect, ...] = ()
     injection: str | None = None  # on_user_message `modify`: the text placed before it
     arguments: dict[str, Any] | None = None  # before_tool `modify`: the new arguments
@@ -230,10 +230,10 @@ def audit(ctx: HookContext) -> HookResult | None:
             lines.append(_line(event.ts, where(event), "appel d'outil", tool, p["status"]))
         elif event.kind == "tool_call_malformed":
             what = "appel d'outil refusé"
-            lines.append(_line(event.ts, where(event), what, p["detail_fr"], "refusé"))
+            lines.append(_line(event.ts, where(event), what, p["detail_text"], "refusé"))
         elif event.kind == "hook_decided" and p["decision"] == "block":
             what = f"appel bloqué par {p['hook'].upper()}"
-            lines.append(_line(event.ts, where(event), what, p["detail_fr"], "bloqué"))
+            lines.append(_line(event.ts, where(event), what, p["detail_text"], "bloqué"))
         elif event.kind == "approval_resolved":
             request = asked.get(p["approval_id"], {"tool": "?", "destination": "?"})
             detail = f"{request['tool']} vers {request['destination']}"

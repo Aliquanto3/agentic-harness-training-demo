@@ -76,18 +76,18 @@ class ProviderError(Exception):
 
     def __init__(
         self,
-        message_fr: str,
+        message_text: str,
         *,
         cause: str,
-        hints_fr: list[str],
+        hints_text: list[str],
         http_status: int | None = None,
         retry_after_s: float | None = None,
         quota_scope: str | None = None,
     ) -> None:
-        super().__init__(message_fr)
-        self.message_fr = message_fr
+        super().__init__(message_text)
+        self.message_text = message_text
         self.cause = cause
-        self.hints_fr = hints_fr
+        self.hints_text = hints_text
         self.http_status = http_status
         self.retry_after_s = retry_after_s
         self.quota_scope = quota_scope
@@ -96,13 +96,13 @@ class ProviderError(Exception):
         # GreenOps: its estimated footprint, likewise.
         self.impact: Impact | None = None
 
-    def payload(self, effect_fr: str) -> dict[str, Any]:
+    def payload(self, effect_text: str) -> dict[str, Any]:
         """The `harness_error` payload."""
         return {
-            "message_fr": self.message_fr,
+            "message_text": self.message_text,
             "cause": self.cause,
-            "effect_fr": effect_fr,
-            "hints_fr": self.hints_fr,
+            "effect_text": effect_text,
+            "hints_text": self.hints_text,
             "http_status": self.http_status,
             "retry_after_s": self.retry_after_s,
             "quota_scope": self.quota_scope,
@@ -374,21 +374,21 @@ class OpenAIChatEngine:
 
     def _error(
         self,
-        message_fr: str,
+        message_text: str,
         cause: str,
-        hints_fr: list[str],
+        hints_text: list[str],
         *,
         provider_message: str | None = None,
         **figures: Any,
     ) -> Any:
-        """A masked `ProviderError`; `message_fr` ends with the provider's own message, when
+        """A masked `ProviderError`; `message_text` ends with the provider's own message, when
         its answer carries one (AD-16)."""
         if provider_message and provider_message.strip():
-            message_fr = (
-                f"{message_fr} Message du fournisseur : {_clip(self.mask(provider_message))}"
+            message_text = (
+                f"{message_text} Message du fournisseur : {_clip(self.mask(provider_message))}"
             )
         return ProviderError(
-            self.mask(message_fr), cause=_clip(self.mask(cause)), hints_fr=hints_fr, **figures
+            self.mask(message_text), cause=_clip(self.mask(cause)), hints_text=hints_text, **figures
         )
 
     def complete(self, body: ChatBody, cancel: CancelToken) -> Iterator[tuple[str, str] | ChatEnd]:
@@ -695,7 +695,7 @@ class OpenAIChatEngine:
 @dataclass
 class ChatCall:
     """What `run_call` read. `calls`: `{id, provider_id, name, arguments, parsed}`, `id` set
-    only when every call is valid; `malformed`: `(reinjected, detail_fr)` (AD-10)."""
+    only when every call is valid; `malformed`: `(reinjected, detail_text)` (AD-10)."""
 
     text: str = ""
     reasoning: str = ""

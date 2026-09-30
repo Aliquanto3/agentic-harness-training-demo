@@ -10,7 +10,7 @@ const store = {
   catalog: null,
   defaultPipeline: null,
   unavailable: null,
-  session: { state: "diagnostic", reason_fr: null },
+  session: { state: "diagnostic", reason_text: null },
   serverInstance: null,
   lastSeq: 0,
   pending: false, // a POST sent, not answered yet
@@ -122,13 +122,19 @@ function loadChains() {
     typeof s.option === "string" &&
     (s.params === undefined || (only(s.params, Object.keys(s.params)) && Object.values(s.params).every(Number.isInteger)));
   const shaped = (p) =>
-    only(p, ["label_fr", "stages"]) &&
-    (p.label_fr === undefined || (typeof p.label_fr === "string" && p.label_fr.length >= 1 && p.label_fr.length <= 40)) &&
+    only(p, ["label_text", "stages"]) &&
+    (p.label_text === undefined || (typeof p.label_text === "string" && p.label_text.length >= 1 && p.label_text.length <= 40)) &&
     Array.isArray(p.stages) &&
     p.stages.length >= 1 &&
     p.stages.length <= 12 &&
     p.stages.every(stageShaped);
-  const pipelines = Array.isArray(saved?.pipelines) ? saved.pipelines.slice(0, 2) : [];
+  // Languages (2/5): a chain saved before names its label `label_fr`; read as `label_text`.
+  const renamed = (p) => {
+    if (p === null || typeof p !== "object" || !("label_fr" in p) || "label_text" in p) return p;
+    const { label_fr: label, ...rest } = p;
+    return { label_text: label, ...rest };
+  };
+  const pipelines = Array.isArray(saved?.pipelines) ? saved.pipelines.slice(0, 2).map(renamed) : [];
   if (!pipelines.length || !pipelines.every(shaped)) return [clone(store.defaultPipeline)];
   return pipelines;
 }
@@ -151,7 +157,7 @@ function forgetChains() {
 
 function paramInput(lane, stage, param) {
   const label = el("label", "rag-param");
-  label.append(el("span", "rag-param-name", param.label_fr));
+  label.append(el("span", "rag-param-name", param.label_text));
   const input = el("input", "rag-param-input");
   input.type = "number";
   input.min = String(param.min);
@@ -161,7 +167,7 @@ function paramInput(lane, stage, param) {
   input.dataset.lane = lane;
   input.dataset.stageId = stage.id;
   input.dataset.param = param.name;
-  input.title = `De ${fmtInt(param.min)} à ${fmtInt(param.max)} ${param.unit_fr}`.trim();
+  input.title = `De ${fmtInt(param.min)} à ${fmtInt(param.max)} ${param.unit_text}`.trim();
   input.addEventListener("change", () => {
     const value = Number(input.value);
     stage.params = { ...(stage.params || {}) };
@@ -174,20 +180,20 @@ function paramInput(lane, stage, param) {
     saveChains();
     validateChains();
   });
-  label.append(input, el("span", "rag-param-unit", param.unit_fr));
+  label.append(input, el("span", "rag-param-unit", param.unit_text));
   return label;
 }
 
 function optionSelect(lane, stage, info) {
   const select = el("select", "rag-option");
-  select.setAttribute("aria-label", `Option de l'étape ${info.label_fr}`);
+  select.setAttribute("aria-label", `Option de l'étape ${info.label_text}`);
   select.dataset.lane = lane;
   select.dataset.stageId = stage.id;
   for (const option of info.options) {
-    const item = el("option", null, option.available ? option.label_fr : `${option.label_fr} (${text("unavailable_fr")})`);
+    const item = el("option", null, option.available ? option.label_text : `${option.label_text} (${text("unavailable_text")})`);
     item.value = option.id;
     item.disabled = !option.available;
-    if (option.reason_fr) item.title = option.reason_fr;
+    if (option.reason_text) item.title = option.reason_text;
     select.append(item);
   }
   select.value = stage.option;
@@ -210,18 +216,18 @@ function chainCard(lane, stage, index) {
   card.dataset.stageId = stage.id;
   if (stage.kind === "generation") card.classList.add("is-model");
   const head = el("p", "rag-chain-head");
-  head.append(el("span", "rag-chain-number", String(index + 1)), el("span", "rag-chain-name", info?.label_fr ?? stage.kind));
+  head.append(el("span", "rag-chain-number", String(index + 1)), el("span", "rag-chain-name", info?.label_text ?? stage.kind));
   card.append(head);
-  card.append(el("p", "rag-chain-option", option?.label_fr ?? stage.option));
+  card.append(el("p", "rag-chain-option", option?.label_text ?? stage.option));
   if (info && info.options.length > 1) card.append(optionSelect(lane, stage, info));
   for (const param of option?.params ?? []) card.append(paramInput(lane, stage, param));
-  if (option?.note_fr) card.append(el("p", "rag-chain-note", option.note_fr));
+  if (option?.note_text) card.append(el("p", "rag-chain-note", option.note_text));
   for (const other of info?.options ?? []) {
-    if (!other.available && other.reason_fr) {
-      card.append(el("p", "rag-chain-unavailable", `${other.label_fr} : ${other.reason_fr}`));
+    if (!other.available && other.reason_text) {
+      card.append(el("p", "rag-chain-unavailable", `${other.label_text} : ${other.reason_text}`));
     }
   }
-  card.append(el("p", "rag-chain-explain", info?.explain_fr ?? ""));
+  card.append(el("p", "rag-chain-explain", info?.explain_text ?? ""));
   if (info?.movable) card.append(moveButtons(lane, index));
   return card;
 }
@@ -260,9 +266,9 @@ function moveButtons(lane, index) {
     (again && !again.disabled ? again : document.querySelector(`.rag-chain[data-lane="${lane}"] [data-stage-id="${stage.id}"] .rag-move-button:not(:disabled)`))?.focus();
   };
   box.append(
-    button(text("move_before_fr") || "Déplacer avant", "◀", !isMovable(stages[index - 1]), move(-1)),
-    button(text("move_after_fr") || "Déplacer après", "▶", !isMovable(stages[index + 1]), move(1)),
-    button(text("remove_fr") || "Retirer", text("remove_fr") || "Retirer", false, () => {
+    button(text("move_before_text") || "Déplacer avant", "◀", !isMovable(stages[index - 1]), move(-1)),
+    button(text("move_after_text") || "Déplacer après", "▶", !isMovable(stages[index + 1]), move(1)),
+    button(text("remove_text") || "Retirer", text("remove_text") || "Retirer", false, () => {
       stages.splice(index, 1);
       changed();
       document.querySelector(`#rag-palette-${lane} select`)?.focus();
@@ -280,15 +286,15 @@ function renderPalette(lane) {
   const absent = store.catalog.stages.filter((s) => s.movable && !present.has(s.kind));
   if (!absent.length) return;
   const label = el("label", "rag-palette-label");
-  label.append(el("span", null, text("add_fr") || "Ajouter un composant"));
+  label.append(el("span", null, text("add_text") || "Ajouter un composant"));
   const select = el("select", "rag-palette-select");
   for (const info of absent) {
-    const option = el("option", null, info.label_fr);
+    const option = el("option", null, info.label_text);
     option.value = info.kind;
     select.append(option);
   }
   label.append(select);
-  const add = el("button", "rag-button-secondary rag-palette-add", text("add_button_fr") || "Ajouter");
+  const add = el("button", "rag-button-secondary rag-palette-add", text("add_button_text") || "Ajouter");
   add.type = "button";
   add.addEventListener("click", () => {
     const info = store.catalog.stages.find((s) => s.kind === select.value);
@@ -339,7 +345,7 @@ async function askValidation() {
     validateChains();
     return;
   } else {
-    store.refusals = [{ lane: null, stage_id: null, reason_fr: refusalText(answer) }];
+    store.refusals = [{ lane: null, stage_id: null, reason_text: refusalText(answer) }];
   }
   renderRefusals();
   renderBusy();
@@ -348,7 +354,7 @@ async function askValidation() {
 // The reasons said once to a screen reader, when they change (never at each render).
 let announced = "";
 function announceRefusals() {
-  const said = store.refusals.map((r) => r.reason_fr).join(" ");
+  const said = store.refusals.map((r) => r.reason_text).join(" ");
   if (said === announced) return;
   announced = said;
   $("rag-refusal-live").textContent = said;
@@ -369,11 +375,11 @@ function renderRefusals() {
       : null;
     if (card) {
       card.classList.add("is-invalid");
-      card.querySelector(".rag-chain-head").after(el("p", "rag-chain-refusal", refusal.reason_fr));
+      card.querySelector(".rag-chain-head").after(el("p", "rag-chain-refusal", refusal.reason_text));
     } else {
       const general = $(`rag-chain-refusal-${lane}`);
       general.hidden = false;
-      general.textContent = refusal.reason_fr;
+      general.textContent = refusal.reason_text;
     }
   }
   announceRefusals();
@@ -384,8 +390,8 @@ function renderChains() {
   const compared = store.pipelines.length > 1;
   $("rag-chain-title-a").hidden = !compared;
   $("rag-chain-title-b").hidden = !compared;
-  $("rag-chain-title-a").textContent = text("chain_a_fr") || "Chaîne A";
-  $("rag-chain-title-b").textContent = text("chain_b_fr") || "Chaîne B";
+  $("rag-chain-title-a").textContent = text("chain_a_text") || "Chaîne A";
+  $("rag-chain-title-b").textContent = text("chain_b_text") || "Chaîne B";
   $("rag-chain-b").hidden = !compared;
   $("rag-compare").checked = compared;
   store.pipelines.forEach((pipeline, i) => {
@@ -405,7 +411,7 @@ function setCompare(on) {
   const [a] = store.pipelines;
   if (on) {
     const b = clone(a);
-    b.label_fr = "B";
+    b.label_text = "B";
     store.pipelines = [a, b];
   } else {
     store.pipelines = [a];
@@ -434,7 +440,7 @@ function applyEnvelope(envelope) {
   const p = envelope.payload;
   switch (envelope.kind) {
     case "session_state":
-      store.session = { state: p.state, reason_fr: p.reason_fr };
+      store.session = { state: p.state, reason_text: p.reason_text };
       if (p.state === "idle" && closeStaleRun()) renderResults();
       renderBusy();
       return;
@@ -491,13 +497,13 @@ function closeStaleRun() {
 }
 
 const STATUS_KEYS = {
-  waiting: "status.waiting_fr",
-  running: "status.running_fr",
-  ok: "status.ok_fr",
-  error: "status.error_fr",
-  skipped: "status.skipped_fr",
-  cancelled: "status.cancelled_fr",
-  not_run: "status.not_run_fr",
+  waiting: "status.waiting_text",
+  running: "status.running_text",
+  ok: "status.ok_text",
+  error: "status.error_text",
+  skipped: "status.skipped_text",
+  cancelled: "status.cancelled_text",
+  not_run: "status.not_run_text",
 };
 
 function statusLine(stage) {
@@ -514,7 +520,7 @@ function statusLine(stage) {
 function itemsTable(items) {
   const table = el("table", "rag-items");
   const head = el("tr");
-  for (const key of ["rank_fr", "before_fr", "document_fr", "score_fr"]) {
+  for (const key of ["rank_text", "before_text", "document_text", "score_text"]) {
     head.append(el("th", null, text(`columns.${key}`)));
   }
   const thead = el("thead");
@@ -530,10 +536,10 @@ function itemsTable(items) {
     if (moved) beforeCell.classList.add(item.before > item.rank ? "is-up" : "is-down");
     row.append(beforeCell);
     const doc = el("td", "rag-doc");
-    doc.append(el("span", "rag-doc-title", item.title_fr));
+    doc.append(el("span", "rag-doc-title", item.title_text));
     if (item.sources?.length) {
       // Where the excerpt stood in each list before (the fusion: both searches).
-      const said = item.sources.map((src) => `${src.label_fr} : ${fmtRank(src.rank)}${typeof src.score === "number" ? ` (${fmtScore(src.score)})` : ""}`);
+      const said = item.sources.map((src) => `${src.label_text} : ${fmtRank(src.rank)}${typeof src.score === "number" ? ` (${fmtScore(src.score)})` : ""}`);
       doc.append(el("span", "rag-doc-sources", said.join(" · ")));
     }
     doc.append(el("span", "rag-doc-text", item.text));
@@ -553,29 +559,29 @@ function stageCard(stage, index) {
   if (stage.kind === "generation") card.classList.add("is-model");
   const head = el("header", "rag-stage-head");
   const title = el("h3", "rag-stage-title");
-  title.append(el("span", "rag-chain-number", String(index + 1)), el("span", null, stage.label_fr));
+  title.append(el("span", "rag-chain-number", String(index + 1)), el("span", null, stage.label_text));
   head.append(title);
   head.append(el("span", "rag-stage-status", statusLine(stage)));
   card.append(head);
-  card.append(el("p", "rag-stage-option", stage.option_label_fr));
+  card.append(el("p", "rag-stage-option", stage.option_label_text));
   const ended = stage.ended;
   if (!ended) return card;
-  if (ended.error_fr) card.append(el("p", "rag-stage-error", ended.error_fr));
-  if (ended.borrowed) card.append(el("p", "rag-stage-borrowed", text("borrowed_fr")));
+  if (ended.error_text) card.append(el("p", "rag-stage-error", ended.error_text));
+  if (ended.borrowed) card.append(el("p", "rag-stage-borrowed", text("borrowed_text")));
   const dl = el("dl", "rag-stage-io");
-  if (ended.input_fr) dl.append(el("dt", null, text("input_fr")), el("dd", "rag-stage-input", ended.input_fr));
-  if (ended.output_fr) dl.append(el("dt", null, text("output_fr")), el("dd", "rag-stage-output", ended.output_fr));
+  if (ended.input_text) dl.append(el("dt", null, text("input_text")), el("dd", "rag-stage-input", ended.input_text));
+  if (ended.output_text) dl.append(el("dt", null, text("output_text")), el("dd", "rag-stage-output", ended.output_text));
   if (dl.childElementCount) card.append(dl);
   if (ended.facts.length) {
     const facts = el("dl", "rag-stage-facts");
-    for (const fact of ended.facts) facts.append(el("dt", null, fact.label_fr), el("dd", null, fact.value_fr));
+    for (const fact of ended.facts) facts.append(el("dt", null, fact.label_text), el("dd", null, fact.value_text));
     card.append(facts);
   }
   if (ended.items.length) card.append(itemsTable(ended.items));
-  if (ended.memory_fr || ["ok", "error", "cancelled"].includes(stage.status)) {
+  if (ended.memory_text || ["ok", "error", "cancelled"].includes(stage.status)) {
     const foot = el("p", "rag-stage-figures");
-    foot.append(el("span", "rag-stage-duration", `${text("duration_fr")} : ${fmtInt(ended.duration_ms)} ms`));
-    if (ended.memory_fr) foot.append(el("span", "rag-stage-memory", `${text("memory_fr")} : ${ended.memory_fr}`));
+    foot.append(el("span", "rag-stage-duration", `${text("duration_text")} : ${fmtInt(ended.duration_ms)} ms`));
+    if (ended.memory_text) foot.append(el("span", "rag-stage-memory", `${text("memory_text")} : ${ended.memory_text}`));
     card.append(foot);
   }
   return card;
@@ -592,14 +598,14 @@ function renderResults() {
     renderComparison(null);
     return;
   }
-  const status = run.ended ? text(STATUS_KEYS[run.ended.status === "ok" ? "ok" : run.ended.status]) : text("status.running_fr");
+  const status = run.ended ? text(STATUS_KEYS[run.ended.status === "ok" ? "ok" : run.ended.status]) : text("status.running_text");
   summary.textContent = `« ${run.question} » · ${status}${typeof run.ended?.duration_ms === "number" ? ` · ${fmtInt(run.ended.duration_ms)} ms` : ""}`;
   box.dataset.lanes = String(run.lanes.length);
   renderComparison(run.ended?.comparison ?? null);
   for (const lane of run.lanes) {
     const column = el("section", "rag-lane");
     column.dataset.lane = lane.lane;
-    if (run.lanes.length > 1) column.append(el("h3", "rag-lane-title", `Chaîne ${lane.label_fr}`));
+    if (run.lanes.length > 1) column.append(el("h3", "rag-lane-title", `Chaîne ${lane.label_text}`));
     lane.stages.forEach((stage, index) => column.append(stageCard(stage, index)));
     box.append(column);
   }
@@ -609,15 +615,15 @@ function renderComparison(comparison) {
   const section = $("rag-comparison");
   section.hidden = !comparison;
   if (!comparison) return;
-  $("rag-comparison-summary").textContent = comparison.summary_fr;
+  $("rag-comparison-summary").textContent = comparison.summary_text;
   const lists = $("rag-comparison-lists");
   lists.replaceChildren();
   const rank = (n) => (n === null || n === undefined ? "—" : `${n}${n === 1 ? "er" : "ᵉ"}`);
   const groups = [
-    ["common_fr", comparison.common, (e) => `${e.title_fr} (A : ${rank(e.rank_a)}, B : ${rank(e.rank_b)})`],
-    ["only_a_fr", comparison.only_a, (e) => `${e.title_fr} (${rank(e.rank_a)})`],
-    ["only_b_fr", comparison.only_b, (e) => `${e.title_fr} (${rank(e.rank_b)})`],
-    ["rank_changes_fr", comparison.rank_changes, (e) => `${e.title_fr} : ${rank(e.rank_a)} → ${rank(e.rank_b)}`],
+    ["common_text", comparison.common, (e) => `${e.title_text} (A : ${rank(e.rank_a)}, B : ${rank(e.rank_b)})`],
+    ["only_a_text", comparison.only_a, (e) => `${e.title_text} (${rank(e.rank_a)})`],
+    ["only_b_text", comparison.only_b, (e) => `${e.title_text} (${rank(e.rank_b)})`],
+    ["rank_changes_text", comparison.rank_changes, (e) => `${e.title_text} : ${rank(e.rank_a)} → ${rank(e.rank_b)}`],
   ];
   for (const [key, entries, line] of groups) {
     const dd = el("dd");
@@ -637,14 +643,14 @@ function renderComparison(comparison) {
 function busyReason() {
   if (!store.content) return null;
   if (store.unavailable) return store.unavailable;
-  const { state, reason_fr: reason } = store.session;
-  if (state !== "idle") return text("busy_fr", { raison: reason || state }) || reason || state;
+  const { state, reason_text: reason } = store.session;
+  if (state !== "idle") return text("busy_text", { raison: reason || state }) || reason || state;
   return null;
 }
 
 // Why « Lancer » waits: the session busy, else a chain it would refuse.
 function runBlocked() {
-  return busyReason() || store.refusals[0]?.reason_fr || null;
+  return busyReason() || store.refusals[0]?.reason_text || null;
 }
 
 function renderBusy() {
@@ -665,10 +671,10 @@ function renderContent() {
     if (value) node.textContent = value;
   }
   if (store.content) {
-    $("rag-title").textContent = store.content.title_fr;
-    $("rag-intro").textContent = store.content.intro_fr;
-    $("back-link").textContent = store.content.back_fr;
-    $("rag-question").placeholder = store.content.question_placeholder_fr;
+    $("rag-title").textContent = store.content.title_text;
+    $("rag-intro").textContent = store.content.intro_text;
+    $("back-link").textContent = store.content.back_text;
+    $("rag-question").placeholder = store.content.question_placeholder_text;
   }
 }
 
@@ -685,7 +691,7 @@ async function runChain() {
   }
   store.pending = true;
   renderBusy();
-  status.textContent = text("running_fr");
+  status.textContent = text("running_text");
   // The number fields' last values, even one typed without leaving its field.
   for (const input of document.querySelectorAll(".rag-param-input")) input.dispatchEvent(new Event("change"));
   const answer = await post("/api/intentions/rag_lab_run", { question, pipelines: store.pipelines });
@@ -774,11 +780,11 @@ async function refresh() {
   store.content = body.content;
   store.catalog = body.catalog;
   store.defaultPipeline = body.default_pipeline;
-  store.unavailable = body.unavailable_fr;
+  store.unavailable = body.unavailable_text;
   store.session = body.session_state;
   const alert = $("rag-content-error");
-  alert.hidden = !body.content_error_fr;
-  alert.textContent = body.content_error_fr || "";
+  alert.hidden = !body.content_error_text;
+  alert.textContent = body.content_error_text || "";
   renderContent();
   if (!store.pipelines.length && store.defaultPipeline) store.pipelines = loadChains();
   renderChains();
@@ -800,7 +806,7 @@ async function main() {
     body = await refresh();
   }
   const question = $("rag-question");
-  question.value = loadQuestion() ?? (text("default_question_fr") || "");
+  question.value = loadQuestion() ?? (text("default_question_text") || "");
   question.addEventListener("input", () => saveQuestion(question.value));
   question.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !$("rag-run").disabled) runChain();

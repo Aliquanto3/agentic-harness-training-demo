@@ -1,6 +1,6 @@
 ---
 name: budget_review
-label_fr: Budgetübersicht
+label_text: Budgetübersicht
 description: Das Budget des Projekts mit den Tools read_file (Datei confidentiel/budget_projet.txt) und calculator prüfen, als Tabelle dargestellt. Laden, wenn der Benutzer nach dem Budget des Projekts, seiner Summe oder der Aufteilung seiner Posten fragt.
 ---
 Prüfe das Budget des Projekts in drei Schritten, in dieser Reihenfolge.

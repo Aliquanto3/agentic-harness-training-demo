@@ -1,48 +1,48 @@
 # German translation of content/tools.yaml (languages 1/5, AD-19): same ids, same
 # parameters, same preset arguments (the demo files keep their French names).
-demo_dir_label_fr: Demo-Dateien
+demo_dir_label_text: Demo-Dateien
 tools:
   get_datetime:
-    label_fr: Uhrzeit und Datum
+    label_text: Uhrzeit und Datum
     description: >-
       Gibt den Wochentag, das Datum und die Ortszeit des Arbeitsplatzes an. Immer
       verwenden, wenn eine Frage die Uhrzeit, das Datum oder den Wochentag betrifft.
     parameters: {}
   calculator:
-    label_fr: Taschenrechner
+    label_text: Taschenrechner
     description: >-
       Berechnet einen arithmetischen Ausdruck exakt: Zahlen, + - * / // % ** und
       Klammern. Für jede Rechnung verwenden, statt im Kopf zu rechnen.
     parameters:
       expression: Zu berechnender Ausdruck, zum Beispiel 12*37 oder (3+4)**2.
     presets:
-      - label_fr: Multiplikation
+      - label_text: Multiplikation
         args: {expression: "12*37"}
   read_file:
-    label_fr: Datei lesen
+    label_text: Datei lesen
     description: >-
       Liest eine Textdatei aus dem Demo-Ordner. „.“ als Pfad angeben, um die
       verfügbaren Dateien aufzulisten.
     parameters:
       path: Relativer Pfad der Datei im Demo-Ordner, zum Beispiel notes_reunion.txt.
     presets:
-      - label_fr: Sensible Datei
+      - label_text: Sensible Datei
         args: {path: confidentiel/budget_projet.txt}
-      - label_fr: Besprechungsnotizen
+      - label_text: Besprechungsnotizen
         args: {path: notes_reunion.txt}
-      - label_fr: Liste der Dateien
+      - label_text: Liste der Dateien
         args: {path: "."}
-      - label_fr: SIEM-Alarme (SOC)
+      - label_text: SIEM-Alarme (SOC)
         args: {path: alertes_siem.log}
-      - label_fr: Privilegierte Konten (SOC, vertraulich)
+      - label_text: Privilegierte Konten (SOC, vertraulich)
         args: {path: confidentiel/comptes_privilegies.txt}
-      - label_fr: Sicherungsprotokoll (Komprimierung)
+      - label_text: Sicherungsprotokoll (Komprimierung)
         args: {path: journal_serveur.log}
-      - label_fr: Harness-Leitfaden (Fließtext, Komprimierung)
+      - label_text: Harness-Leitfaden (Fließtext, Komprimierung)
         args: {path: guide_harnais.md}
   public_holidays:
-    label_fr: Feiertage
-    sends_fr: das angefragte Jahr
+    label_text: Feiertage
+    sends_text: das angefragte Jahr
     description: >-
       Gibt die Liste der gesetzlichen Feiertage im französischen Mutterland für ein
       Jahr an, eine Zeile „Datum : Name“ pro Feiertag (Namen auf Französisch).
@@ -50,22 +50,22 @@ tools:
     parameters:
       year: Gewünschtes Jahr, zum Beispiel 2026.
     presets:
-      - label_fr: Jahr 2026
+      - label_text: Jahr 2026
         args: {year: 2026}
   wikipedia_summary:
-    label_fr: Wikipedia-Zusammenfassung
-    sends_fr: den Titel des Artikels
+    label_text: Wikipedia-Zusammenfassung
+    sends_text: den Titel des Artikels
     description: >-
       Gibt die Zusammenfassung einer Seite der französischsprachigen Wikipedia an.
       Fragt Wikipedia im Internet ab.
     parameters:
       title: Genauer Titel der Seite in der französischsprachigen Wikipedia, zum Beispiel Tour Eiffel.
     presets:
-      - label_fr: Eiffelturm
+      - label_text: Eiffelturm
         args: {title: Tour Eiffel}
   fetch_page:
-    label_fr: Webseite lesen
-    sends_fr: die Adresse der Seite
+    label_text: Webseite lesen
+    sends_text: die Adresse der Seite
     description: >-
       Liest den Text einer Webseite (ohne Tags), gekürzt, wenn er zu lang ist. Nur
       https://-Adressen von fr.wikipedia.org und calendrier.api.gouv.fr werden
@@ -73,5 +73,5 @@ tools:
     parameters:
       url: Vollständige Adresse der Seite, zum Beispiel https://fr.wikipedia.org/wiki/Paris.
     presets:
-      - label_fr: Seite Paris
+      - label_text: Seite Paris
         args: {url: "https://fr.wikipedia.org/wiki/Paris"}

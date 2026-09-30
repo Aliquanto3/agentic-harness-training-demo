@@ -15,12 +15,12 @@ from wavestack.models.engine import Sampling
 
 
 class WarningText(BaseModel):
-    title_fr: str
-    sent_fr: str
-    provider_fr: str
-    unseen_fr: str
-    confirm_fr: str
-    cancel_fr: str
+    title_text: str
+    sent_text: str
+    provider_text: str
+    unseen_text: str
+    confirm_text: str
+    cancel_text: str
 
 
 class CloudTestTool(BaseModel):
@@ -36,15 +36,15 @@ class CloudTestText(BaseModel):
 
 class CloudContent(BaseModel):
     warning: WarningText
-    training_fr: dict[str, str]
-    trial_fr: str
-    key_hint_fr: str
-    no_key_fr: str
-    host_changed_fr: str
-    test_hint_fr: str
-    banner_fr: str
-    provider_segment_fr: str
-    uncertain_fr: str
+    training_text: dict[str, str]
+    trial_text: str
+    key_hint_text: str
+    no_key_text: str
+    host_changed_text: str
+    test_hint_text: str
+    banner_text: str
+    provider_segment_text: str
+    uncertain_text: str
     test: CloudTestText
 
 
@@ -58,9 +58,9 @@ def load_cloud_content() -> CloudContent:
 def fill(text: str, entry: CloudModel, content: CloudContent) -> str:
     return text.format(
         fournisseur=entry.provider,
-        hebergement=entry.hosting_fr,
-        entrainement=content.training_fr.get(entry.training, entry.training),
-        essai=content.trial_fr if entry.trial else "",
+        hebergement=entry.hosting_text,
+        entrainement=content.training_text.get(entry.training, entry.training),
+        essai=content.trial_text if entry.trial else "",
         modele=entry.model,
     )
 
@@ -68,16 +68,16 @@ def fill(text: str, entry: CloudModel, content: CloudContent) -> str:
 def warning_fr(entry: CloudModel, content: CloudContent) -> dict[str, str]:
     """The `cloud-warning` of EXPERIENCE.md: common text, provider part from the entry."""
     w = content.warning
-    points = [fill(t, entry, content) for t in (w.sent_fr, w.provider_fr, w.unseen_fr)]
-    if entry.notes_fr:
-        points[1] += f" {entry.notes_fr}"
+    points = [fill(t, entry, content) for t in (w.sent_text, w.provider_text, w.unseen_text)]
+    if entry.notes_text:
+        points[1] += f" {entry.notes_text}"
     return {
-        "title_fr": w.title_fr,
-        "sent_fr": points[0],
-        "provider_fr": points[1],
-        "unseen_fr": points[2],
-        "confirm_fr": w.confirm_fr,
-        "cancel_fr": w.cancel_fr,
+        "title_text": w.title_text,
+        "sent_text": points[0],
+        "provider_text": points[1],
+        "unseen_text": points[2],
+        "confirm_text": w.confirm_text,
+        "cancel_text": w.cancel_text,
     }
 
 
@@ -140,10 +140,10 @@ def price_line_fr(entry: CloudModel) -> str | None:
 def disclosure(entry: CloudModel) -> dict[str, Any]:
     """AD-20: `active_model.disclosure` of a cloud model."""
     return {
-        "hosting_fr": entry.hosting_fr,
+        "hosting_text": entry.hosting_text,
         "training": entry.training,
         "trial": entry.trial,
-        "notes_fr": entry.notes_fr,
+        "notes_text": entry.notes_text,
     }
 
 
@@ -162,15 +162,15 @@ def active_model(entry: CloudModel) -> dict[str, Any]:
         "ref": entry.id,
         "provider": entry.provider,
         "disclosure": disclosure(entry),
-        "warning_fr": (
+        "warning_text": (
             " ".join(
                 [
-                    warning["title_fr"] + ".",
-                    *(warning[k] for k in ("sent_fr", "provider_fr", "unseen_fr")),
+                    warning["title_text"] + ".",
+                    *(warning[k] for k in ("sent_text", "provider_text", "unseen_text")),
                 ]
             )
             if warning
             else None
         ),
-        "banner_fr": fill(content.banner_fr, entry, content) if content else None,
+        "banner_text": fill(content.banner_text, entry, content) if content else None,
     }

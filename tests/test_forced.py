@@ -141,7 +141,9 @@ def test_a_target_no_longer_available_is_dropped_and_the_turn_goes_on():
 
     (dropped,) = of(events, "action_dropped")
     assert dropped.payload["armed_id"] == armed_id
-    assert "décoché" in dropped.payload["reason_fr"] and "Caveman" in dropped.payload["reason_fr"]
+    assert (
+        "décoché" in dropped.payload["reason_text"] and "Caveman" in dropped.payload["reason_text"]
+    )
     assert of(events, "tool_started") == []
     assert of(events, "turn_ended")[0].payload["status"] == "completed"
     assert armed() == []  # taken by the turn: removed at its end
@@ -269,7 +271,7 @@ def test_arm_disarm_and_the_state_after_a_reload():
             "brick": "tools",
             "target": "read_file",
             "args": {"path": SECRET},
-            "label_fr": f"Lecture de fichier ({SECRET})",
+            "label_text": f"Lecture de fichier ({SECRET})",
         }
     ]
     body = {"armed_id": armed_id}
@@ -287,7 +289,7 @@ def test_tool_options_carry_parameters_and_presets():
 
     assert list(tools["read_file"]["parameters"]) == ["path"]
     assert "Chemin relatif" in tools["read_file"]["parameters"]["path"]
-    sensitive = {"label_fr": "Fichier sensible", "args": {"path": SECRET}}
+    sensitive = {"label_text": "Fichier sensible", "args": {"path": SECRET}}
     assert sensitive in tools["read_file"]["presets"]
     assert tools["get_datetime"]["parameters"] == {} and tools["get_datetime"]["presets"] == []
     session.close()
@@ -313,7 +315,7 @@ def test_form_text_is_converted_to_the_tool_schema():
 def assert_dropped(events: list, armed_id: str, reason: str) -> None:
     (dropped,) = of(events, "action_dropped")
     assert dropped.payload["armed_id"] == armed_id
-    assert reason in dropped.payload["reason_fr"]
+    assert reason in dropped.payload["reason_text"]
     assert of(events, "turn_ended")[0].payload["status"] == "completed"
 
 
@@ -525,7 +527,7 @@ def test_mcp_option_gives_each_tool_its_forced_call_form_and_presets(loop):  # n
     calls = {c["tool"]: c for c in local["calls"]}
     assert list(calls) == list(LOCAL)
     assert list(calls[DEFINE]["parameters"]) == ["term"]
-    assert calls[DEFINE]["presets"] == [{"label_fr": "MCP", "args": {"term": "MCP"}}]
+    assert calls[DEFINE]["presets"] == [{"label_text": "MCP", "args": {"term": "MCP"}}]
     assert calls["local__list_terms"] == {
         "tool": "local__list_terms",
         "parameters": {},
@@ -547,10 +549,10 @@ def test_a_preset_with_an_undeclared_argument_is_invalid():
     with pytest.raises(ValidationError):
         ToolText.model_validate(
             {
-                "label_fr": "Lecture",
+                "label_text": "Lecture",
                 "description": "Lit un fichier.",
                 "parameters": {"path": "Chemin."},
-                "presets": [{"label_fr": "Faux", "args": {"chemin": "a.txt"}}],
+                "presets": [{"label_text": "Faux", "args": {"chemin": "a.txt"}}],
             }
         )
 

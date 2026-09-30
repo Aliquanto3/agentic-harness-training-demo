@@ -93,16 +93,16 @@ def test_activation_enables_three_hooks_of_four_and_draws_them_with_the_audit_lo
     assert card["available"] and card["category"] == "harness"
     # Q1 (8b): H5 starts disabled, « Hooks : 3 activés sur 4 ».
     assert [(o["id"], o["enabled"]) for o in card["options"]] == [(h, h != "h5") for h in HOOKS]
-    assert card["options"][3]["label_fr"] == "Validation humaine"
-    assert card["options"][0]["label_fr"] == "Garde-fou fichier sensible"
+    assert card["options"][3]["label_text"] == "Validation humaine"
+    assert card["options"][0]["label_text"] == "Garde-fou fichier sensible"
     arch = since(mark, "architecture_changed")[-1].payload
     nodes = {n["id"]: n for n in arch["nodes"]}
     assert [n for n in nodes if n.startswith("hooks.")] == ["hooks.h1", "hooks.h2", "hooks.h3"]
     assert {nodes[f"hooks.{h}"]["kind"] for h in ("h1", "h2", "h3")} == {"hook"}
-    assert nodes["hooks.h1"]["detail_fr"].startswith("Avant l'exécution d'un outil")
+    assert nodes["hooks.h1"]["detail_text"].startswith("Avant l'exécution d'un outil")
     audit = nodes["file.audit"]
-    assert audit["label_fr"] == "Journal d'audit" and audit["kind"] == "file"
-    assert audit["detail_fr"] == str(config.audit_path())
+    assert audit["label_text"] == "Journal d'audit" and audit["kind"] == "file"
+    assert audit["detail_text"] == str(config.audit_path())
     assert {"from": "hooks.h2", "to": "file.audit", "crosses_boundary": False} in arch["edges"]
     preview = since(mark, "context_preview")[-1].payload  # the gauge counts H3's text too
     (injection,) = _segments(preview, "hook_injection")
@@ -121,8 +121,8 @@ def test_h1_blocks_the_confidential_file_and_the_turn_goes_on():
         e for e in since(mark, "hook_decided") if e.payload["decision"] == "block"
     )  # the harness decided, on a step of its own
     assert (blocked.actor, blocked.brick, blocked.component) == ("harness", "hooks", "hooks.h1")
-    assert blocked.payload["detail_fr"].startswith(BLOCKED)
-    assert blocked.payload["point_fr"] == "Avant l'exécution d'un outil"
+    assert blocked.payload["detail_text"].startswith(BLOCKED)
+    assert blocked.payload["point_text"] == "Avant l'exécution d'un outil"
     assert "tool_started" not in events and "tool_ended" not in events
     (refusal,) = _segments(events["context_rendered"][1], "tool_result")
     assert refusal["text"].startswith(BLOCKED)
@@ -186,7 +186,7 @@ def test_h1_off_the_confidential_file_is_read_confinement_stays():
     assert all(hook != "h1" for hook, _, _ in decisions(events))
     first, second = events["tool_ended"][:2]
     assert first["status"] == "ok" and first["result"]
-    assert second["status"] == "error" and "sort du dossier" in second["error_fr"]  # AD-14
+    assert second["status"] == "error" and "sort du dossier" in second["error_text"]  # AD-14
     session.close()
 
 
@@ -243,7 +243,7 @@ def test_h2_write_failure_is_traced_and_the_turn_goes_on():
     events = _run(session, "Bonjour")
 
     (error,) = [e.payload for e in since(mark, "harness_error")]
-    assert "journal d'audit" in error["message_fr"]
+    assert "journal d'audit" in error["message_text"]
     assert "effect_applied" not in events
     assert events["turn_ended"][0]["status"] == "completed"
     session.close()
@@ -308,7 +308,7 @@ def test_decision_not_allowed_at_a_point_is_traced_and_counts_as_allow():
     events = _run(session, "Combien font 2 + 2 ?")
 
     (error,) = [e.payload for e in since(mark, "harness_error")]
-    assert "« block »" in error["message_fr"] and "after_tool" in error["message_fr"]
+    assert "« block »" in error["message_text"] and "after_tool" in error["message_text"]
     assert ("h2", "after_tool", "allow") in decisions(events)
     assert events["turn_ended"][0]["status"] == "completed"
     session.close()
@@ -339,7 +339,7 @@ def test_a_failing_hook_is_traced_and_the_turn_goes_on():
     events = _run(session, "Bonjour")
 
     (error,) = [e.payload for e in since(mark, "harness_error")]
-    assert "a échoué" in error["message_fr"] and "hook en panne" in error["cause"]
+    assert "a échoué" in error["message_text"] and "hook en panne" in error["cause"]
     assert events["turn_ended"][0]["status"] == "completed"
     session.close()
 
@@ -365,7 +365,7 @@ def test_invalid_hooks_content_makes_the_brick_unavailable(tmp_path, monkeypatch
         b for b in since(mark, "bricks_changed")[-1].payload["bricks"] if b["id"] == "hooks"
     )
     assert card["wanted"] and not card["available"]
-    assert "content/hooks.yaml" in card["reason_fr"]
+    assert "content/hooks.yaml" in card["reason_text"]
     session.close()
 
 
@@ -689,7 +689,7 @@ def test_h5_host_outside_the_list_is_left_to_the_executor(web):  # noqa: F811
     assert "approval_requested" not in events and sent == []
     assert all(hook != "h5" for hook, _, _ in decisions(events))
     assert events["tool_ended"][0]["status"] == "error"
-    assert "Adresse refusée" in events["tool_ended"][0]["error_fr"]
+    assert "Adresse refusée" in events["tool_ended"][0]["error_text"]
     check(events, mark)
     session.close()
 

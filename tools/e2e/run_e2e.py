@@ -476,9 +476,9 @@ def _parent_off_cards(r: Run, lazy_on: httpx.Response) -> None:
     )
     for brick_id in ("mcp", "tools", "skills", "hooks"):
         card = cards[brick_id]
-        label = card["label_fr"]
+        label = card["label_text"]
         expected = (
-            card["reason_fr"] or f"La brique {label} est indisponible."
+            card["reason_text"] or f"La brique {label} est indisponible."
             if not card["available"]
             else f"Activez la brique {label} pour régler cette option."
         )
@@ -499,7 +499,7 @@ def _parent_off_cards(r: Run, lazy_on: httpx.Response) -> None:
         if brick_id == "mcp":
             lazy = r.card(label).locator('input[data-focus-key="option:mcp:lazy"]')
             r.check(
-                lazy.is_disabled() and card["lazy_label_fr"] not in seen["summary"],
+                lazy.is_disabled() and card["lazy_label_text"] not in seen["summary"],
                 "MCP éteint : « Lazy loading » désactivé, le résumé ne le montre plus actif",
                 f"mode {card['mode']} · {seen['summary']}",
             )
@@ -844,7 +844,7 @@ def s_malformed(r: Run) -> None:
     r.check(
         bool(bad),
         "outil inconnu refusé par le harnais",
-        bad[0]["payload"]["detail_fr"] if bad else "",
+        bad[0]["payload"]["detail_text"] if bad else "",
     )
     seq = r.ev.mark()
     ended = r.send("Bonjour [tool_use_failed]")
@@ -852,7 +852,7 @@ def s_malformed(r: Run) -> None:
     r.check(
         bool(bad),
         "tool_use_failed (400 du fournisseur) suit le chemin mal formé",
-        bad[0]["payload"]["detail_fr"][:200] if bad else ended["payload"]["status"],
+        bad[0]["payload"]["detail_text"][:200] if bad else ended["payload"]["status"],
     )
 
 
@@ -891,7 +891,7 @@ def s_provider_errors(r: Run) -> None:
     ]:
         seq = r.ev.mark()
         ended = r.send(f"Bonjour {trigger}")
-        errors = [e["payload"]["message_fr"] for e in r.ev.since(seq, "harness_error")]
+        errors = [e["payload"]["message_text"] for e in r.ev.since(seq, "harness_error")]
         r.check(
             ended["payload"]["status"] == "error",
             f"{trigger} : tour en erreur",
@@ -936,9 +936,9 @@ def s_network_tools(r: Run) -> None:
         r.check(bool(outbound), f"{tool} : la requête sortante est tracée", str(outbound)[:200])
         res = results[-1] if results else {}
         r.check(
-            res.get("status") == "error" and "Service injoignable" in (res.get("error_fr") or ""),
+            res.get("status") == "error" and "Service injoignable" in (res.get("error_text") or ""),
             f"{tool} : échec réseau expliqué (réseau sortant coupé par le lanceur)",
-            (res.get("error_fr") or str(res))[:300],
+            (res.get("error_text") or str(res))[:300],
         )
         r.check(
             ended["payload"]["status"] == "completed",
@@ -2562,7 +2562,7 @@ def s_h5(r: Run) -> None:
     r.check(
         bool(results) and results[-1]["status"] == "error",
         "autorisé : l'échec réseau est expliqué",
-        (results[-1].get("error_fr") or "")[:200] if results else "",
+        (results[-1].get("error_text") or "")[:200] if results else "",
     )
     # A reload while the turn waits: the card comes back (AD-1); « Arrêter » cancels it.
     asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
@@ -2614,9 +2614,9 @@ def s_mcp_full(r: Run) -> None:
     )
     dg = ends.get("datagouv", {})
     r.check(
-        dg.get("status") == "error" and bool(dg.get("error_fr")),
+        dg.get("status") == "error" and bool(dg.get("error_text")),
         "data.gouv.fr injoignable : échec expliqué",
-        (dg.get("error_fr") or str(dg))[:300],
+        (dg.get("error_text") or str(dg))[:300],
     )
     gauge = r.page.locator("#gauge-figures").inner_text()
     seq = r.ev.mark()
@@ -3261,7 +3261,7 @@ def s_programme(r: Run) -> None:
     a module launched directly has the previous modules' bricks (CAP-40)."""
     content = _scenarios_yaml()
     expected = [
-        [f"Module {i} · {m['title_fr']} · {m['duration_min']} min", m["scenarios"]]
+        [f"Module {i} · {m['title_text']} · {m['duration_min']} min", m["scenarios"]]
         for i, m in enumerate(content["program"], start=1)
     ] + [["Transverses et métier", content["transverse"]]]
     read = (
@@ -3454,16 +3454,16 @@ def _public_server_offline(r: Run, server: str, label: str, seq: int | None = No
         ends = {e["payload"]["server"]: e["payload"] for e in r.ev.since(0, "mcp_connect_ended")}
         ended = ends.get(server, {})
     r.check(
-        ended.get("status") == "error" and bool(ended.get("error_fr")),
+        ended.get("status") == "error" and bool(ended.get("error_text")),
         f"{label} injoignable sans réseau : échec expliqué",
-        (ended.get("error_fr") or str(ended))[:200],
+        (ended.get("error_text") or str(ended))[:200],
     )
     arch = r.state()["architecture_changed"]
     drawn = next((n for n in arch["nodes"] if n["id"] == f"mcp.{server}"), {})
     r.check(
         drawn.get("hosting") == "network" and drawn.get("available") is False,
         f"schéma : {label} dessiné dans la zone Réseau, indisponible",
-        str({k: drawn.get(k) for k in ("hosting", "available", "reason_fr")})[:200],
+        str({k: drawn.get(k) for k in ("hosting", "available", "reason_text")})[:200],
     )
     zone = r.page.locator("#schema .arch-zone-network")
     r.check(label in zone.inner_text(), f"le nœud {label} est dans la zone Réseau du schéma")
@@ -3860,10 +3860,10 @@ def s_rag(r: Run) -> None:
     row = card.locator("label.brick-option:has(input[data-focus-key='option:rag:rerank'])")
     r.check(
         rerank.is_disabled()
-        and row.get_attribute("title") == rag["reason_fr"]
-        and rerank.get_attribute("aria-description") == rag["reason_fr"],
+        and row.get_attribute("title") == rag["reason_text"]
+        and rerank.get_attribute("aria-description") == rag["reason_text"],
         "RAG voulue mais indisponible : « Reranking » désactivé, raison de la brique au survol",
-        f"« {row.get_attribute('title')} » · raison « {rag['reason_fr']} »",
+        f"« {row.get_attribute('title')} » · raison « {rag['reason_text']} »",
     )
 
     # The file is not served yet: the download fails, explained on the card.
@@ -3872,7 +3872,7 @@ def s_rag(r: Run) -> None:
     r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
     error = r.ev.wait("harness_error", seq, timeout=20)
     r.ev.wait("session_state", seq, lambda p: p["state"] == "idle", 20)
-    effect = error["payload"].get("effect_fr") or ""
+    effect = error["payload"].get("effect_text") or ""
     r.check(
         "copiez le fichier à la main dans" in effect and error.get("brick") == "rag",
         "échec du téléchargement : harness_error, avec le dossier où copier le fichier",
@@ -3933,9 +3933,9 @@ def s_rag(r: Run) -> None:
     nodes = {n["id"]: n for n in r.state()["architecture_changed"]["nodes"]}
     index = nodes.get("file.rag_index") or {}
     r.check(
-        index.get("kind") == "file" and f"{chunks} extraits" in (index.get("detail_fr") or ""),
+        index.get("kind") == "file" and f"{chunks} extraits" in (index.get("detail_text") or ""),
         "schéma : le fichier d'index, local, avec son nombre d'extraits",
-        str(index.get("detail_fr"))[:200],
+        str(index.get("detail_text"))[:200],
     )
     chip = r.page.locator('#schema .arch-chip[data-component="rag.retriever"]')
     r.check(
@@ -4080,9 +4080,9 @@ def s_rag_rerank(r: Run) -> None:
         s for m in program["modules"] for s in m["scenarios"] if s["id"] == "rag_rerank"
     )
     r.check(
-        scenario["prompts"][0] == RERANK_QUESTION and "{" not in scenario["description_fr"],
+        scenario["prompts"][0] == RERANK_QUESTION and "{" not in scenario["description_text"],
         "le premier prompt du scénario est celui que le parcours joue ; consigne chiffrée",
-        scenario["description_fr"][:160],
+        scenario["description_text"][:160],
     )
     card = r.card("RAG")
     toggle = card.locator('input[data-focus-key="option:rag:rerank"]')
@@ -4285,7 +4285,7 @@ def s_compression(r: Run) -> None:
         "compression : RAG non voulu, la consigne donne le préréglage de secours (story 27)",
     )
     brick = r.bricks()["compression"]
-    reason = brick.get("reason_fr") or ""
+    reason = brick.get("reason_text") or ""
     if not brick["available"] and "uv sync --extra compression" in reason:
         # headroom-ai absent (the `compression` extra, or `--no-headroom`): a clean skip.
         text = r.card("Compression").inner_text()
@@ -4364,7 +4364,7 @@ def s_compression(r: Run) -> None:
         and tool_items[0]["changed"]
         and error_line in tool_items[0]["text_after"],
         "le résultat de read_file est compressé, l'erreur gardée",
-        str([(i["source_fr"], i["tokens_before"], i["tokens_after"]) for i in tool_items]),
+        str([(i["source_text"], i["tokens_before"], i["tokens_after"]) for i in tool_items]),
     )
     rag_items = [i for e in done for i in e["payload"]["items"] if i["kind"] == "rag_excerpt"]
     r.check(not rag_items, "aucun extrait RAG parmi les candidats", f"{len(rag_items)} extraits")
@@ -4478,7 +4478,7 @@ def s_compression(r: Run) -> None:
     r.check(
         ended["payload"]["status"] == "completed" and bool(prose) and not prose[0]["changed"],
         "de la prose (le guide du harnais) passe inchangée : la limite de Headroom",
-        str([(i["source_fr"], i["tokens_before"], i["changed"]) for i in prose])[:200],
+        str([(i["source_text"], i["tokens_before"], i["changed"]) for i in prose])[:200],
     )
     r.show_forced(False)
 
@@ -5012,9 +5012,9 @@ def s_model_switch(r: Run) -> None:
     ended = r.ev.wait("model_load_ended", seq, timeout=30)["payload"]
     r.check(
         ended["status"] == "cancelled"
-        and ended["reason_fr"] == "Chargement arrêté : wavestack-fake est de nouveau actif.",
+        and ended["reason_text"] == "Chargement arrêté : wavestack-fake est de nouveau actif.",
         "« Arrêter » : chargement arrêté, le modèle précédent est de nouveau actif",
-        f"{ended['status']} · {ended['reason_fr']}",
+        f"{ended['status']} · {ended['reason_text']}",
     )
     ok = True
     try:
@@ -5105,10 +5105,10 @@ def _slow_probe_stopped(r: Run) -> None:
         )
         r.check(
             ended["status"] == "cancelled"
-            and ended["reason_fr"] == "Chargement arrêté : wavestack-fake est de nouveau actif."
+            and ended["reason_text"] == "Chargement arrêté : wavestack-fake est de nouveau actif."
             and elapsed < 3,
             "« Arrêter » pendant la sonde : arrêt en moins de 3 s, modèle précédent rétabli",
-            f"{ended['status']} · {ended['reason_fr']} · {elapsed:.1f} s",
+            f"{ended['status']} · {ended['reason_text']} · {elapsed:.1f} s",
         )
         active = r.state()["active_model"] or {}
         r.check(active.get("ref") == MODEL_ENTRY_ID, "le modèle précédent est actif", str(active))
@@ -6165,7 +6165,7 @@ def _local_footprint(r: Run, calls: list[dict]) -> None:
             "« · » en tête)",
             f"{label!r} · {amounts!r}",
         )
-    notes = [c.get("impact_note_fr") or "" for c in calls]
+    notes = [c.get("impact_note_text") or "" for c in calls]
     text, title = _footprint_line(r)
     if installed:
         r.check(
@@ -7005,7 +7005,7 @@ def _rag_lab_alt(r: Run) -> None:
     same = [(i["rank"], i["chunk_id"]) for i in contexts[0]] == [
         (i["rank"], i["chunk_id"]) for i in contexts[1]
     ]
-    facts = {f["label_fr"]: f["value_fr"] for f in first.get("facts", [])}
+    facts = {f["label_text"]: f["value_text"] for f in first.get("facts", [])}
     card = _result_card(r, "vector_store", "b").inner_text()
     r.check(
         status == "ok" and same and len(contexts[0]) == 3,
@@ -7013,12 +7013,12 @@ def _rag_lab_alt(r: Run) -> None:
         str([(i["rank"], i["doc_id"]) for i in contexts[1]]),
     )
     r.check(
-        "construit (29 vecteurs)" in first.get("output_fr", "")
-        and "relu (29 vecteurs)" in second.get("output_fr", "")
+        "construit (29 vecteurs)" in first.get("output_text", "")
+        and "relu (29 vecteurs)" in second.get("output_text", "")
         and facts.get("Import", "").startswith(("premier import : +", "déjà fait"))
         and "premier import" in card.lower(),
         "Base vectorielle de B : « construit », puis « relu », et la mémoire ajoutée à l'import",
-        f"{first.get('output_fr', '')[:80]} · {second.get('output_fr', '')[:60]} · {facts}",
+        f"{first.get('output_text', '')[:80]} · {second.get('output_text', '')[:60]} · {facts}",
     )
     page.locator("#rag-reset-chain").click()
 
@@ -7085,7 +7085,7 @@ def _rag_lab_compare(r: Run) -> None:
     r.check(
         "En commun" in summary
         and ("Écarts de rang" in summary or "Aucun écart de rang" in summary)
-        and comparison.get("summary_fr", "")[:40] in summary,
+        and comparison.get("summary_text", "")[:40] in summary,
         "la synthèse nomme les extraits communs et les écarts de rang",
         summary[:300],
     )
@@ -7258,7 +7258,7 @@ def main() -> int:
         errors = [e for e in run.earlier_events + run.ev.items if e["kind"] == "harness_error"]
         print(f"\nharness_error émis pendant la séance : {len(errors)}")
         for e in errors:
-            print(f"  - {e['payload']['message_fr'][:200]}")
+            print(f"  - {e['payload']['message_text'][:200]}")
     failed = [x for x in run.results if not x[2]]
     print(
         f"\n{len(run.results) - len(failed)} vérifications réussies, {len(failed)} en échec, "

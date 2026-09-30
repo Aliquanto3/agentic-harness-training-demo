@@ -164,7 +164,9 @@ def test_the_model_writes_then_the_next_conversation_reads_it():
 def test_forced_write_runs_before_the_first_call_by_the_user():
     engine, session = memory_session(["Noté."])
     session.arm("memory", "remember", {"text": f"  {PREFERENCE}  "})
-    assert last("armed_actions_changed")["actions"][0]["label_fr"].startswith("Écrire en mémoire (")
+    assert last("armed_actions_changed")["actions"][0]["label_text"].startswith(
+        "Écrire en mémoire ("
+    )
 
     events = run(session, "Bonjour")
 
@@ -191,7 +193,7 @@ def test_refusals_are_reinjected_without_effect(text, error):
     events = run(session, "Retiens ceci.")
 
     (ended,) = of(events, "tool_ended")
-    assert ended.payload["status"] == "error" and error in ended.payload["error_fr"]
+    assert ended.payload["status"] == "error" and error in ended.payload["error_text"]
     second = of(events, "context_rendered")[1].payload
     assert any(error in s["text"] for s in _segments(second, "tool_result"))
     assert of(events, "effect_applied") == [] and of(events, "memory_changed") == []
@@ -218,7 +220,7 @@ def test_forced_write_is_dropped_when_the_brick_is_off():
     events = run(session, "Bonjour")
 
     (dropped,) = of(events, "action_dropped")
-    assert "« Mémoire globale » n'est pas active" in dropped.payload["reason_fr"]
+    assert "« Mémoire globale » n'est pas active" in dropped.payload["reason_text"]
     assert of(events, "tool_started") == [] and not config.memory_path().exists()
     assert memory_texts(of(events, "context_rendered")[0].payload) == []
     session.close()
@@ -228,13 +230,13 @@ def test_without_parser_injection_and_drawer_stay_forced_write_is_dropped():
     engine, session = memory_session(["Bonjour."], qwen=False, skills=False)
     mark = get_journal().last_seq()
 
-    assert card()["available"] and "ne sait pas appeler d'outil" in card()["note_fr"]
+    assert card()["available"] and "ne sait pas appeler d'outil" in card()["note_text"]
     assert "remember" not in session.build_turn_state().tools
     session.arm("memory", "remember", {"text": PREFERENCE})
     events = run(session, "Bonjour")
 
     (dropped,) = of(events, "action_dropped")
-    assert "remember" in dropped.payload["reason_fr"]
+    assert "remember" in dropped.payload["reason_text"]
     assert of(events, "tool_started") == []
     ctx = of(events, "context_rendered")[0].payload
     assert memory_texts(ctx)[1:] == [f"- {text}" for text in DEMO]
@@ -307,11 +309,11 @@ def test_write_failure_is_an_error_and_the_memory_is_unchanged(tmp_path, monkeyp
     events = run(session, "Retiens ceci.")
 
     (error,) = of(events, "harness_error")
-    assert error.payload["message_fr"] == "La mémoire globale n'a pas pu être écrite."
+    assert error.payload["message_text"] == "La mémoire globale n'a pas pu être écrite."
     assert of(events, "effect_applied") == [] and of(events, "memory_changed") == []
     (ended,) = of(events, "tool_ended")  # the trace never shows a write that did not happen
     assert ended.payload["status"] == "error" and ended.seq > error.seq
-    assert "n'a pas pu être écrite" in ended.payload["error_fr"]
+    assert "n'a pas pu être écrite" in ended.payload["error_text"]
     second = of(events, "context_rendered")[1].payload
     replies = [s["text"] for s in _segments(second, "tool_result")]
     assert any("n'a pas pu être écrite" in text for text in replies)
@@ -334,10 +336,10 @@ def test_invalid_file_makes_the_brick_unavailable_then_the_reset_restores_it():
     _, session = memory_session()
 
     assert "La mémoire globale est illisible." in [
-        p["message_fr"] for p in since(mark, "harness_error")
+        p["message_text"] for p in since(mark, "harness_error")
     ]
-    assert not card()["available"] and "Réinitialiser" in card()["reason_fr"]
-    assert last("memory_changed")["error_fr"] and last("memory_changed")["entries"] == []
+    assert not card()["available"] and "Réinitialiser" in card()["reason_text"]
+    assert last("memory_changed")["error_text"] and last("memory_changed")["entries"] == []
     assert "global_memory" not in session.build_turn_state().effective
     busy = _client(session).post("/api/intentions/memory", json={"op": "clear"}, headers=HEADERS)
     assert busy.status_code == 409
@@ -349,7 +351,7 @@ def test_invalid_file_makes_the_brick_unavailable_then_the_reset_restores_it():
     assert [e["text"] for e in saved()] == DEMO
     assert {e["source"] for e in saved()} == {"demo"}
     assert [e["id"] for e in saved()] == ["demo1", "demo2", "demo3"]
-    assert card()["available"] and last("memory_changed")["error_fr"] is None
+    assert card()["available"] and last("memory_changed")["error_text"] is None
     session.close()
 
 
@@ -414,17 +416,17 @@ def test_schema_draws_the_memory_file_linked_to_the_harness():
     architecture = last("architecture_changed")
     nodes = {n["id"]: n for n in architecture["nodes"]}
     memory = nodes["file.memory"]
-    assert (memory["kind"], memory["hosting"], memory["label_fr"]) == (
+    assert (memory["kind"], memory["hosting"], memory["label_text"]) == (
         "file",
         "local",
         "Mémoire globale",
     )
-    assert memory["detail_fr"] == str(config.memory_path())
+    assert memory["detail_text"] == str(config.memory_path())
     edges = {(e["from"], e["to"]) for e in architecture["edges"]}
     assert ("global_memory.memory", "core.harness") in edges
     assert ("global_memory.memory", "file.memory") in edges
     assert nodes["global_memory.memory"]["kind"] == "brick"
-    assert card()["category"] == "context" and card()["note_fr"] is None
+    assert card()["category"] == "context" and card()["note_text"] is None
     session.close()
 
 
@@ -489,7 +491,7 @@ def test_invalid_call_with_the_memory_brick_alone_belongs_to_it():
     events = run(session, "Retiens ceci.")
 
     (malformed,) = [e for e in get_journal().events_since(mark) if e.kind == "tool_call_malformed"]
-    assert malformed.brick == "global_memory" and "manquant" in malformed.payload["detail_fr"]
+    assert malformed.brick == "global_memory" and "manquant" in malformed.payload["detail_text"]
     (result,) = _segments(of(events, "context_rendered")[1].payload, "tool_result")
     assert result["brick"] == "global_memory"
     session.close()
@@ -505,12 +507,12 @@ def test_invalid_memory_content_makes_the_brick_and_the_drawer_unavailable(tmp_p
     _, session = memory_session(["Bonjour."], skills=False)
 
     assert "Les textes de la mémoire globale sont invalides." in [
-        p["message_fr"] for p in since(mark, "harness_error")
+        p["message_text"] for p in since(mark, "harness_error")
     ]
     assert card()["wanted"] and not card()["available"]
-    assert "content/memory/memory.yaml" in card()["reason_fr"]
+    assert "content/memory/memory.yaml" in card()["reason_text"]
     changed = last("memory_changed")
-    assert changed["entries"] == [] and "content/memory/memory.yaml" in changed["error_fr"]
+    assert changed["entries"] == [] and "content/memory/memory.yaml" in changed["error_text"]
     busy = _client(session).post("/api/intentions/memory", json={"op": "clear"}, headers=HEADERS)
     assert busy.status_code == 409 and "memory.yaml" in busy.json()["detail"]
     events = run(session, "Bonjour")
@@ -541,7 +543,7 @@ def test_a_file_beyond_the_limits_is_unreadable(entries):
 
     _, session = memory_session(skills=False)
 
-    assert not card()["available"] and last("memory_changed")["error_fr"]
+    assert not card()["available"] and last("memory_changed")["error_text"]
     assert json.loads(path.read_text(encoding="utf-8")) == entries  # never rewritten
     session.close()
 
@@ -661,11 +663,11 @@ def test_no_drawer_write_during_a_turn(monkeypatch):
 
 def test_the_card_says_what_the_drawer_and_the_force_need():
     _, session = memory_session()
-    assert card()["empty_fr"].startswith("Aucune information en mémoire globale. Le modèle peut")
-    assert f"{memory_file.MAX_CHARS} caractères au plus" in card()["text_help_fr"]
+    assert card()["empty_text"].startswith("Aucune information en mémoire globale. Le modèle peut")
+    assert f"{memory_file.MAX_CHARS} caractères au plus" in card()["text_help_text"]
     changed = last("memory_changed")
     assert (changed["max_entries"], changed["max_chars"]) == (20, memory_file.MAX_CHARS)
     session.close()
     _, session = memory_session(qwen=False, skills=False)
-    assert "même par une écriture forcée" in card()["empty_fr"]
+    assert "même par une écriture forcée" in card()["empty_text"]
     session.close()

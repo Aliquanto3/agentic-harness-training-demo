@@ -47,7 +47,7 @@ class ToolCall:
 @dataclass(frozen=True)
 class Malformed:
     fragment: str  # the faulty part of the raw output
-    detail_fr: str
+    detail_text: str
 
 
 def convert_value(value: str, kind: str | None) -> Any:

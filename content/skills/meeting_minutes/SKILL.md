@@ -1,6 +1,6 @@
 ---
 name: meeting_minutes
-label_fr: Compte rendu de réunion
+label_text: Compte rendu de réunion
 description: Rédiger le compte rendu d'une réunion (décisions, actions, responsables) à partir des éléments que donne le message. À charger quand l'utilisateur demande un compte rendu ou une synthèse de réunion.
 ---
 Rédige un compte rendu de réunion structuré.

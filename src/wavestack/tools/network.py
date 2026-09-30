@@ -21,7 +21,7 @@ from wavestack.tools.registry import ToolError, ToolSpec, Unreachable
 
 def send(
     preview: dict[str, str],
-    not_found_fr: str | None = None,
+    not_found_text: str | None = None,
     check: Callable[[str], None] | None = None,
 ) -> httpx.Response:
     """Send `preview` as is; the service answered (even with an error) unless `Unreachable`.
@@ -45,8 +45,8 @@ def send(
             f"Service injoignable ({type(exc).__name__}) : le poste n'a pas accès à "
             f"{httpx.URL(preview['url']).host}."
         ) from None
-    if response.status_code == 404 and not_found_fr:
-        raise ToolError(not_found_fr)
+    if response.status_code == 404 and not_found_text:
+        raise ToolError(not_found_text)
     if response.status_code >= 400:
         raise ToolError(
             f"Le service a répondu par une erreur HTTP {response.status_code} "
@@ -118,7 +118,7 @@ def network_tools(cfg: config.Config) -> list[ToolSpec]:
 
     def wikipedia_summary(title: str) -> str:
         absent = f"Page absente de Wikipédia : « {title} »."
-        summary = send(wikipedia_preview(title), not_found_fr=absent).json()
+        summary = send(wikipedia_preview(title), not_found_text=absent).json()
         return f"{summary.get('title') or title}\n{summary.get('extract') or ''}".strip()
 
     def check_page_url(url: str) -> None:

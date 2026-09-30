@@ -92,8 +92,8 @@ def test_activation_puts_one_catalog_line_per_skill_and_load_skill():
     skill_nodes = [n for n in nodes().values() if n["kind"] == "skill"]
     assert [n["id"] for n in skill_nodes] == [f"skills.{s}" for s in SKILLS]
     caveman = nodes()["skills.caveman"]
-    assert caveman["label_fr"] == "Caveman" and caveman["loaded"] is False
-    assert caveman["detail_fr"].startswith("Répondre en style")
+    assert caveman["label_text"] == "Caveman" and caveman["loaded"] is False
+    assert caveman["detail_text"].startswith("Répondre en style")
     assert caveman["hosting"] == "local"
     session.close()
 
@@ -167,9 +167,9 @@ def test_loading_twice_or_an_unknown_or_disabled_name():
     assert again["result"] in [s["text"] for s in _segments(last, "tool_result")]
     assert len(_segments(last, "skill_body")) == 1
     for error, name in ((unknown, "nope"), (disabled, "caveman")):
-        assert error["status"] == "error" and f"« {name} »" in error["error_fr"]
-        assert "meeting_minutes, explain_like_ten" in error["error_fr"]
-        assert "caveman," not in error["error_fr"] and "pirate" not in error["error_fr"]
+        assert error["status"] == "error" and f"« {name} »" in error["error_text"]
+        assert "meeting_minutes, explain_like_ten" in error["error_text"]
+        assert "caveman," not in error["error_text"] and "pirate" not in error["error_text"]
     for ctx in events["context_rendered"]:
         check(ctx, mark)
     session.close()
@@ -254,7 +254,7 @@ def test_an_invalid_skill_makes_the_brick_unavailable(tmp_path, monkeypatch, bro
     (error,) = since(mark, "harness_error")
     assert "pirate" in error["cause"] and cause in error["cause"]
     assert card()["wanted"] and not card()["available"]
-    assert "content/skills" in card()["reason_fr"]
+    assert "content/skills" in card()["reason_text"]
     events = _run(session, "Bonjour")
     assert events["turn_ended"][0]["status"] == "completed"
     kinds = {s["kind"] for s in events["context_rendered"][0]["segments"]}
@@ -313,7 +313,7 @@ def test_refused_calls_with_the_skills_brick_alone_belong_to_skills():
 
     malformed = [e for e in get_journal().events_since(mark) if e.kind == "tool_call_malformed"]
     assert [e.brick for e in malformed] == ["skills", "skills"]
-    assert "manquant" in malformed[1].payload["detail_fr"]
+    assert "manquant" in malformed[1].payload["detail_text"]
     results = _segments(events["context_rendered"][2], "tool_result")
     assert [s["brick"] for s in results] == ["skills", "skills"]
     session.close()
@@ -327,7 +327,7 @@ def test_load_skill_without_argument_stays_skills_with_the_tools_brick_on():
     events = _run(session, "Mode caveman")
 
     (malformed,) = [e for e in get_journal().events_since(mark) if e.kind == "tool_call_malformed"]
-    assert malformed.brick == "skills" and "manquant" in malformed.payload["detail_fr"]
+    assert malformed.brick == "skills" and "manquant" in malformed.payload["detail_text"]
     (result,) = _segments(events["context_rendered"][1], "tool_result")
     assert result["brick"] == "skills"
     session.close()

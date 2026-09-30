@@ -136,7 +136,7 @@ class Engine(Protocol):
 
     def dimensions(self) -> dict[str, Any] | None:
         """The model's sizes: `vocab_size`, `embedding_length`, `layer_count`, `head_count`,
-        `context_length` (`None` when unknown) and `source_fr`, where they were read."""
+        `context_length` (`None` when unknown) and `source_text`, where they were read."""
         ...
 
 
@@ -317,7 +317,7 @@ class LlamaCppEngine:
             "layer_count": size(lib.llama_model_n_layer(model.model)),
             "head_count": size(lib.llama_model_n_head(model.model)),
             "context_length": size(model.n_ctx_train()),
-            "source_fr": "Lues dans le modèle que llama.cpp a chargé, dans ce processus.",
+            "source_text": "Lues dans le modèle que llama.cpp a chargé, dans ce processus.",
         }
 
     def tokenize(self, text: str) -> list[int]:

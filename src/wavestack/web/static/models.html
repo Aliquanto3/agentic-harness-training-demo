@@ -172,7 +172,7 @@
       const network = m.hosting === "network";
       const model = node("td");
       model.append(
-        node("span", network ? "hosting-tag-network" : "hosting-tag-local", m.prefix_fr),
+        node("span", network ? "hosting-tag-network" : "hosting-tag-local", m.prefix_text),
         node("strong", "model-name", m.name)
       );
       const active = loaded && loaded.kind === m.kind && loaded.ref === m.ref;
@@ -180,17 +180,17 @@
         ? node("td", "state-active", "actif")
         : m.usable
           ? node("td", "", "disponible")
-          : withReason(network ? "indisponible" : "incompatible", m.disabled_fr);
+          : withReason(network ? "indisponible" : "incompatible", m.disabled_text);
       tr.append(
         model,
-        node("td", "", m.publisher_fr),
-        node("td", "figures", m.size_fr),
-        node("td", "", m.hosting_label_fr),
-        withReason(m.window_fr, m.window_reason_fr, "figures"),
-        withReason(m.tools_fr, m.tools_reason_fr),
-        withReason(m.reasoning_fr, m.reason_fr),
+        node("td", "", m.publisher_text),
+        node("td", "figures", m.size_text),
+        node("td", "", m.hosting_label_text),
+        withReason(m.window_text, m.window_reason_text, "figures"),
+        withReason(m.tools_text, m.tools_reason_text),
+        withReason(m.reasoning_text, m.reason_text),
         // FinOps: the declared prices per million tokens (input / output), « — » when local.
-        withReason(m.price_fr, m.price_reason_fr, "figures"),
+        withReason(m.price_text, m.price_reason_text, "figures"),
         state
       );
       return tr;
@@ -212,14 +212,14 @@
         return;
       }
       document.getElementById("open-link").hidden = !body.ready;
-      document.getElementById("models-legend").textContent = models.legend_fr;
+      document.getElementById("models-legend").textContent = models.legend_text;
       const error = document.getElementById("publishers-error");
-      error.hidden = !models.publishers_error_fr;
-      error.textContent = models.publishers_error_fr ?? "";
+      error.hidden = !models.publishers_error_text;
+      error.textContent = models.publishers_error_text ?? "";
       for (const group of models.groups) {
         const tbody = node("tbody");
         const head = node("tr");
-        const th = node("th", "", group.label_fr);
+        const th = node("th", "", group.label_text);
         th.scope = "rowgroup";
         th.colSpan = 9;
         head.append(th);

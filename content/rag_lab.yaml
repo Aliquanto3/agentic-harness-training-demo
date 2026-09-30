@@ -2,123 +2,123 @@
 # (wavestack.rag.lab.RagLabContent). Un fichier invalide : la page reste servie et dit
 # pourquoi. `{…}` : une valeur que la session ou la page place.
 
-title_fr: "Atelier RAG : l'architecture RAG à manipuler"
-intro_fr: >-
+title_text: "Atelier RAG : l'architecture RAG à manipuler"
+intro_text: >-
   Une chaîne RAG, pièce par pièce : le corpus est découpé en extraits, chaque extrait devient
   un vecteur, les vecteurs sont rangés dans une base, puis la question est comparée à eux pour
   retrouver les extraits utiles, qu'un reranker peut réordonner avant qu'ils n'entrent dans le
   contexte du modèle. Lancez la chaîne sur une question pour voir ce que chaque étape reçoit,
   produit, et ce qu'elle coûte. C'est un bac à sable : la brique RAG de l'atelier ne change pas.
-back_fr: "← Atelier"
-busy_fr: "Indisponible pour l'instant : {raison}"
+back_text: "← Atelier"
+busy_text: "Indisponible pour l'instant : {raison}"
 
-chain_title_fr: "La chaîne"
-chain_help_fr: >-
+chain_title_text: "La chaîne"
+chain_help_text: >-
   Les étapes, de gauche à droite. Entre la base vectorielle et le contexte, les recherches, la
   fusion et le reranking se retirent, s'ajoutent et se déplacent. La génération est dessinée
   pour montrer ce que le modèle recevrait, mais elle ne s'exécute pas ici.
 
-question_label_fr: "Question"
-question_placeholder_fr: "Posez une question sur la documentation d'Exemplia"
-default_question_fr: "Combien de jours de télétravail par semaine ?"
-run_fr: "Lancer la chaîne"
-stop_fr: "Arrêter"
-running_fr: "Exécution en cours…"
+question_label_text: "Question"
+question_placeholder_text: "Posez une question sur la documentation d'Exemplia"
+default_question_text: "Combien de jours de télétravail par semaine ?"
+run_text: "Lancer la chaîne"
+stop_text: "Arrêter"
+running_text: "Exécution en cours…"
 
-results_title_fr: "Ce que fait chaque étape"
-results_empty_fr: "Lancez la chaîne : chaque étape affichera ici ce qu'elle reçoit, ce qu'elle produit, sa durée et la mémoire de WaveStack."
-generation_not_run_fr: >-
+results_title_text: "Ce que fait chaque étape"
+results_empty_text: "Lancez la chaîne : chaque étape affichera ici ce qu'elle reçoit, ce qu'elle produit, sa durée et la mémoire de WaveStack."
+generation_not_run_text: >-
   Non exécutée dans l'atelier RAG : générer une réponse, c'est un tour de l'atelier, avec sa
   jauge et ses bornes. Voici ce que le modèle recevrait.
-borrowed_fr: "Emprunté à la brique RAG"
-loaded_fr: "Chargé pour cette exécution, fermé à la fin"
-input_fr: "Entrée"
-output_fr: "Sortie"
-facts_fr: "Chiffres"
-duration_fr: "Durée"
-memory_fr: "Mémoire de WaveStack"
-last_run_fr: "Dernière exécution"
-compare_fr: "Comparer avec une autre configuration"
-reset_chain_fr: "Revenir à la chaîne livrée"
-chain_a_fr: "Chaîne A"
-chain_b_fr: "Chaîne B"
-unavailable_fr: "indisponible"
-add_fr: "Ajouter un composant"
-add_button_fr: "Ajouter"
-move_before_fr: "Déplacer avant"
-move_after_fr: "Déplacer après"
-remove_fr: "Retirer"
-comparison_title_fr: "Comparaison des deux contextes"
-common_fr: "En commun"
-only_a_fr: "Seulement dans A"
-only_b_fr: "Seulement dans B"
-rank_changes_fr: "Écarts de rang"
+borrowed_text: "Emprunté à la brique RAG"
+loaded_text: "Chargé pour cette exécution, fermé à la fin"
+input_text: "Entrée"
+output_text: "Sortie"
+facts_text: "Chiffres"
+duration_text: "Durée"
+memory_text: "Mémoire de WaveStack"
+last_run_text: "Dernière exécution"
+compare_text: "Comparer avec une autre configuration"
+reset_chain_text: "Revenir à la chaîne livrée"
+chain_a_text: "Chaîne A"
+chain_b_text: "Chaîne B"
+unavailable_text: "indisponible"
+add_text: "Ajouter un composant"
+add_button_text: "Ajouter"
+move_before_text: "Déplacer avant"
+move_after_text: "Déplacer après"
+remove_text: "Retirer"
+comparison_title_text: "Comparaison des deux contextes"
+common_text: "En commun"
+only_a_text: "Seulement dans A"
+only_b_text: "Seulement dans B"
+rank_changes_text: "Écarts de rang"
 
 status:
-  waiting_fr: "en attente"
-  running_fr: "en cours"
-  ok_fr: "terminée"
-  error_fr: "en erreur"
-  skipped_fr: "sautée"
-  cancelled_fr: "arrêtée"
-  not_run_fr: "non exécutée"
+  waiting_text: "en attente"
+  running_text: "en cours"
+  ok_text: "terminée"
+  error_text: "en erreur"
+  skipped_text: "sautée"
+  cancelled_text: "arrêtée"
+  not_run_text: "non exécutée"
 
 columns:
-  rank_fr: "Rang"
-  before_fr: "Avant"
-  document_fr: "Document"
-  score_fr: "Score"
+  rank_text: "Rang"
+  before_text: "Avant"
+  document_text: "Document"
+  score_text: "Score"
 
 # Une carte par type d'étape : son nom et ce qu'elle fait (2 à 3 phrases).
 stages:
   chunking:
-    label_fr: "Découpage"
-    explain_fr: >-
+    label_text: "Découpage"
+    explain_text: >-
       Les documents du corpus sont coupés en extraits : les paragraphes sont regroupés tant
       qu'ils tiennent dans la taille maximale, un paragraphe trop long est coupé en fin de
       phrase. Un extrait trop petit perd son contexte ; trop grand, il noie l'information.
   embedding:
-    label_fr: "Embedding"
-    explain_fr: >-
+    label_text: "Embedding"
+    explain_text: >-
       Un modèle d'embedding transforme chaque extrait, puis la question, en un vecteur de
       nombres. Deux textes au sens proche donnent des vecteurs proches, même sans mot commun.
   vector_store:
-    label_fr: "Base vectorielle"
-    explain_fr: >-
+    label_text: "Base vectorielle"
+    explain_text: >-
       Les vecteurs des extraits sont rangés dans une base, calculée une fois pour toutes :
       c'est l'indexation. À chaque question, on n'embedde plus que la question.
   vector_search:
-    label_fr: "Recherche"
-    explain_fr: >-
+    label_text: "Recherche"
+    explain_text: >-
       La base rend les extraits dont le vecteur est le plus proche de celui de la question
       (similarité cosinus), sans seuil : les k plus proches, pertinents ou non.
   lexical_search:
-    label_fr: "Recherche lexicale BM25"
-    explain_fr: >-
+    label_text: "Recherche lexicale BM25"
+    explain_text: >-
       Une recherche par mots, sans embedding : les extraits qui partagent des mots avec la
       question passent devant, un mot rare pesant plus qu'un mot courant (BM25) ; les accents et
       les petits mots (le, de, et…) sont ignorés. Elle retrouve un sigle, un code ou un nombre
       exact (« RH », « 35 ») qu'un embedding peut manquer.
   fusion:
-    label_fr: "Fusion"
-    explain_fr: >-
+    label_text: "Fusion"
+    explain_text: >-
       Deux recherches donnent deux classements ; la fusion des rangs réciproques les combine :
       chaque extrait gagne 1 / (60 + son rang) dans chaque liste. Un extrait bien classé par les
       deux passe devant : c'est la recherche hybride.
   rerank:
-    label_fr: "Reranking"
-    explain_fr: >-
+    label_text: "Reranking"
+    explain_text: >-
       Un reranker relit la question et chaque candidat ensemble, et note leur pertinence. Plus
       lent qu'une recherche vectorielle, il ne voit que les candidats qu'elle a retenus, puis
       les réordonne.
   context:
-    label_fr: "Construction du contexte"
-    explain_fr: >-
+    label_text: "Construction du contexte"
+    explain_text: >-
       Seuls les premiers extraits entrent dans le contexte, numérotés, avec le titre de leur
       document, avant la question. Chaque extrait coûte des tokens dans la fenêtre du modèle.
   generation:
-    label_fr: "Génération"
-    explain_fr: >-
+    label_text: "Génération"
+    explain_text: >-
       Le modèle lit ce contexte et la question, puis répond en s'appuyant sur les extraits.
       Une bonne réponse dépend de ce que les étapes précédentes lui ont apporté.
 
@@ -126,48 +126,48 @@ stages:
 options:
   chunking:
     paragraphs:
-      label_fr: "Par paragraphes"
+      label_text: "Par paragraphes"
   embedding:
     declared:
-      label_fr: "Modèle d'embedding de la brique RAG"
+      label_text: "Modèle d'embedding de la brique RAG"
     fastembed:
-      label_fr: "fastembed (ONNX, hors ligne)"
+      label_text: "fastembed (ONNX, hors ligne)"
   vector_store:
     sqlite_vec:
-      label_fr: "sqlite-vec"
+      label_text: "sqlite-vec"
     memory:
-      label_fr: "Recherche exhaustive en mémoire"
+      label_text: "Recherche exhaustive en mémoire"
     faiss:
-      label_fr: "FAISS"
+      label_text: "FAISS"
     lancedb:
-      label_fr: "LanceDB"
+      label_text: "LanceDB"
   vector_search:
     cosine:
-      label_fr: "Similarité cosinus"
+      label_text: "Similarité cosinus"
   lexical_search:
     bm25:
-      label_fr: "BM25 (k1 = 1,5, b = 0,75)"
+      label_text: "BM25 (k1 = 1,5, b = 0,75)"
   fusion:
     rrf:
-      label_fr: "Fusion des rangs réciproques (k = 60)"
+      label_text: "Fusion des rangs réciproques (k = 60)"
   rerank:
     declared:
-      label_fr: "Modèle de reranking de la brique RAG"
+      label_text: "Modèle de reranking de la brique RAG"
   context:
     excerpts:
-      label_fr: "Extraits numérotés (format de la brique RAG)"
+      label_text: "Extraits numérotés (format de la brique RAG)"
   generation:
     not_run:
-      label_fr: "Modèle actif de l'atelier"
+      label_text: "Modèle actif de l'atelier"
 
 # Les réglages : leur nom et leur unité.
 params:
   chunk_max_chars:
-    label_fr: "Taille maximale d'un extrait"
-    unit_fr: "caractères"
+    label_text: "Taille maximale d'un extrait"
+    unit_text: "caractères"
   candidates:
-    label_fr: "Candidats retenus"
-    unit_fr: "extraits"
+    label_text: "Candidats retenus"
+    unit_text: "extraits"
   top_k:
-    label_fr: "Extraits dans le contexte"
-    unit_fr: "extraits"
+    label_text: "Extraits dans le contexte"
+    unit_text: "extraits"

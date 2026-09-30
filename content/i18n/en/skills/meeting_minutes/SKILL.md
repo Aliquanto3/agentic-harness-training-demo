@@ -1,6 +1,6 @@
 ---
 name: meeting_minutes
-label_fr: Meeting minutes
+label_text: Meeting minutes
 description: Write the minutes of a meeting (decisions, actions, owners) from the elements the message gives. Load it when the user asks for minutes or a summary of a meeting.
 ---
 Write structured meeting minutes.

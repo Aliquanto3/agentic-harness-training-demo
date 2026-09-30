@@ -23,6 +23,7 @@ from urllib.parse import urlsplit
 # ponytail: pydantic is imported before the network guard (cli imports config first); it
 # opens no connection at import, so the guard still precedes any network access.
 from pydantic import (
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -64,6 +65,33 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+# Languages (2/5): the text fields a settings.json may hold were named `*_fr` before; that
+# name is still read, `*_text` is the one written.
+_LEGACY_TEXT_KEYS = ("hosting", "notes", "note", "label")
+
+
+def _text_alias(name: str) -> AliasChoices:
+    return AliasChoices(f"{name}_text", f"{name}_fr")
+
+
+def _legacy_text_keys(value: Any) -> Any:
+    """`value` with each former `{name}_fr` key of `_LEGACY_TEXT_KEYS` named `{name}_text`,
+    at any depth; a dict holding both keeps `{name}_text`."""
+    if isinstance(value, list):
+        return [_legacy_text_keys(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    renamed: dict[str, Any] = {}
+    for key, item in value.items():
+        base = key.removesuffix("_fr") if isinstance(key, str) else key
+        if base in _LEGACY_TEXT_KEYS and key != base:
+            if f"{base}_text" in value:
+                continue
+            key = f"{base}_text"
+        renamed[key] = _legacy_text_keys(item)
+    return renamed
 
 
 # Story 23: the only request headers `net` traces in clear, lower-cased (AD-15). A closed
@@ -128,13 +156,13 @@ class CloudPricing(_Strict):
 class CloudImpacts(_Strict):
     """GreenOps: the names EcoLogits knows a cloud model by (`provider`, `model`, as in its
     model repository) and the electricity mix of the estimate (`zone`, ISO 3166-1 alpha-3, or
-    `WOR`); without `zone`, the provider's own in EcoLogits. `note_fr`: what the estimate
+    `WOR`); without `zone`, the provider's own in EcoLogits. `note_text`: what the estimate
     stands for, added to each call's note (a model estimated through another one)."""
 
     provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
     zone: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
-    note_fr: str | None = None
+    note_text: str | None = Field(default=None, validation_alias=_text_alias("note"))
 
 
 def _is_loopback(host: str) -> bool:
@@ -185,10 +213,10 @@ class CloudModel(_Strict):
     context: int = Field(gt=0)
     tpm: int | None = Field(default=None, gt=0)
     window: int | None = Field(default=None, gt=0)
-    hosting_fr: str = Field(min_length=1)
+    hosting_text: str = Field(min_length=1, validation_alias=_text_alias("hosting"))
     training: Literal["yes", "no", "opt_out"]
     trial: bool = False
-    notes_fr: str = ""
+    notes_text: str = Field(default="", validation_alias=_text_alias("notes"))
     enabled: bool = True
     key_env: str | None = Field(default=None, pattern=r"^[A-Z_][A-Z0-9_]*$")
     min_interval_s: float | None = Field(default=None, gt=0, le=60)
@@ -286,7 +314,7 @@ class LocalModelSpec(_Strict):
 
     id: str = Field(min_length=1)
     backend: Literal["llama_cpp"]
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1, validation_alias=_text_alias("label"))
     license: str = Field(min_length=1)
     max_tokens: int = Field(gt=0)
     load_path: str = Field(min_length=1)
@@ -333,7 +361,7 @@ class FastembedModel(_Strict):
 
     model_name: str = Field(min_length=1)
     dims: int = Field(gt=0)
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1, validation_alias=_text_alias("label"))
     # The model's own folder under `models/fastembed`, as fastembed's cache names it; by
     # default `models--{model_name, « / » as « -- »}`.
     folder: str | None = Field(default=None, min_length=1)
@@ -766,7 +794,7 @@ class Config:
         if raw is None:
             return None, (
                 "Indisponible : aucun modèle fastembed n'est déclaré. Ajoutez une section "
-                "[rag_lab.fastembed] (model_name, dims, label_fr) à settings.json, WaveStack "
+                "[rag_lab.fastembed] (model_name, dims, label_text) à settings.json, WaveStack "
                 "arrêté."
             )
         try:
@@ -970,7 +998,7 @@ def load_config() -> Config:
         except tomllib.TOMLDecodeError:
             defaults = {}
 
-    settings = read_settings()
+    settings = _legacy_text_keys(read_settings())
     values = _deep_merge(defaults, settings)
     models = _merge_cloud_models(_cloud_list(defaults), _cloud_list(settings))
     if models:  # AD-20: merged by `id`, where `_deep_merge` replaces lists

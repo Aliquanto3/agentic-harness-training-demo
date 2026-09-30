@@ -73,8 +73,8 @@ def test_a_reasoning_longer_than_the_budget_is_closed_and_the_model_answers():
         "reasoning_tokens": 768,
         "answer_reserve": LEFT,
     }
-    assert f"garde {LEFT} tokens" in cut["message_fr"]
-    assert cut["message_fr"].startswith("Raisonnement coupé par le harnais à 768 tokens")
+    assert f"garde {LEFT} tokens" in cut["message_text"]
+    assert cut["message_text"].startswith("Raisonnement coupé par le harnais à 768 tokens")
     # The relaunch: the ids in the engine's cache, then the template's closure.
     first, relaunch = engine.calls
     assert relaunch == first + list((CUT + CLOSURE).encode("utf-8"))
@@ -177,7 +177,7 @@ def test_chat_mode_is_unchanged():
     )
     session = _cloud(_preset("groq"), provider)
 
-    assert _card()["limits_fr"] is None  # the provider manages its reasoning effort
+    assert _card()["limits_text"] is None  # the provider manages its reasoning effort
     events = _run(session, "Bonjour")
 
     assert "reasoning_cut" not in events and len(provider.requests) == 1
@@ -241,7 +241,7 @@ def test_the_budget_setting_is_bounded(value, expected):
 def test_the_card_gives_the_budget_and_the_answer_reserve():
     _, session = _session(["ok"], values={"reasoning": {"budget_tokens": 1000}})
 
-    assert _card()["limits_fr"] == (
+    assert _card()["limits_text"] == (
         "Budget de réflexion : 1 000 tokens ; au-delà, le harnais ferme la réflexion et "
         "garde 536 tokens pour la réponse."
     )

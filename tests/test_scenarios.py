@@ -216,25 +216,25 @@ def test_launch_connects_mcp_servers_on_the_difference_only():
 
 _UNKNOWN_BRICK = (
     "program:\n"
-    "  - title_fr: Module\n"
+    "  - title_text: Module\n"
     "    duration_min: 45\n"
     "    scenarios: [rag]\n"
     "scenarios:\n"
     "  rag:\n"
-    "    title_fr: RAG\n"
-    "    description_fr: Pas encore construit.\n"
+    "    title_text: RAG\n"
+    "    description_text: Pas encore construit.\n"
     "    bricks: [reranking]\n"
     "    prompts: [Bonjour]\n"
 )
 _MISSING_ENTRY = (
     "program:\n"
-    "  - title_fr: Module\n"
+    "  - title_text: Module\n"
     "    duration_min: 45\n"
     "    scenarios: [rag, missing]\n"
     "scenarios:\n"
     "  rag:\n"
-    "    title_fr: RAG\n"
-    "    description_fr: Rien.\n"
+    "    title_text: RAG\n"
+    "    description_text: Rien.\n"
     "    prompts: [Bonjour]\n"
 )
 
@@ -250,7 +250,7 @@ def test_invalid_content_gives_an_error_and_an_empty_programme(tmp_path, monkeyp
     session = booted_session(FakeEngine())
 
     errors = [p for p in (e.payload for e in _since(mark) if e.kind == "harness_error")]
-    assert any("scenarios.yaml" in p["message_fr"] and cause in p["cause"] for p in errors)
+    assert any("scenarios.yaml" in p["message_text"] and cause in p["cause"] for p in errors)
     assert _latest("scenario_changed", mark)["program"] == {"modules": [], "transverse": []}
     assert session.model_loaded and session.state == "idle"
     with pytest.raises(KeyError):
@@ -273,12 +273,12 @@ def test_scenario_with_a_model_without_tool_calls_says_which_bricks_are_unavaila
     changed = _latest("scenario_changed", mark)
     assert changed["active"] == "native_tools" and changed["refresh"] is False
     [tools] = changed["unavailable"]
-    assert (tools["brick"], tools["label_fr"]) == ("tools", session._label("tools"))
+    assert (tools["brick"], tools["label_text"]) == ("tools", session._label("tools"))
     assert (
-        "l'appel d'outils" in tools["reason_fr"]
-        and "choisissez un autre modèle" in (tools["reason_fr"])
+        "l'appel d'outils" in tools["reason_text"]
+        and "choisissez un autre modèle" in (tools["reason_text"])
     )
-    assert tools["reason_fr"] == session._availability("tools")[1]
+    assert tools["reason_text"] == session._availability("tools")[1]
     session.close()
 
 

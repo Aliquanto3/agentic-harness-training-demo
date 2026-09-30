@@ -88,7 +88,7 @@ def context_sections(
             "start": start,
             "end": start + 1,
             "kind": first.kind.value,
-            "label_fr": first.label_fr or labels.kinds[first.kind],
+            "label_text": first.label_text or labels.kinds[first.kind],
             "brick": None if is_template else first.brick,
             "discipline": NEUTRAL if is_template else discipline_of(first, categories),
             "tokens": first.tokens,
@@ -106,7 +106,7 @@ def context_sections(
             section["template_tokens"] += segment.tokens
 
     def own(index: int) -> bool:
-        return segments[index].label_fr is not None
+        return segments[index].label_text is not None
 
     def crosses(start: int, index: int) -> bool:
         return start < seen <= index  # joining would straddle the `seen` boundary
@@ -261,7 +261,7 @@ def gauge(
         if group not in groups:
             groups[group] = {
                 "group": group,
-                "label_fr": label,
+                "label_text": label,
                 "tokens": 0,
                 "kinds": [],
                 "discipline": _group_discipline(segments, group, categories),
@@ -273,7 +273,7 @@ def gauge(
         "segments": [
             {
                 **s.model_dump(mode="json", exclude={"compressed_from"}),
-                "label_fr": s.label_fr or labels.kinds[s.kind],
+                "label_text": s.label_text or labels.kinds[s.kind],
                 "discipline": discipline_of(s, categories),
             }
             | ({"compressed_from": s.compressed_from.model_dump()} if s.compressed_from else {})

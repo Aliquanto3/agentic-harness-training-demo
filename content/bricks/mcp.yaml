@@ -1,8 +1,8 @@
 # Brique « MCP » (AD-12, AD-19).
-label_fr: MCP
-category_fr: harness engineering
-hosting_fr: Local
-explanation_fr:
+label_text: MCP
+category_text: harness engineering
+hosting_text: Local
+explanation_text:
   - >-
     Un serveur MCP est un programme séparé du harnais, sur le poste ou sur Internet,
     qui expose ses propres outils. À l'activation d'un serveur, le harnais s'y
@@ -24,7 +24,7 @@ explanation_fr:
     s'affichent dans le volet Orchestration avant le résultat.
 # Story 23 : ce qui sort du poste et où le lire. La session remplit {servers}
 # (serveurs MCP publics).
-outbound_fr: >-
+outbound_text: >-
   Peuvent sortir du poste : {servers}. Ce qu'ils reçoivent (adresse, en-têtes, corps) :
   volet Orchestration, bloc « 🌐 Données sortantes » de la connexion et de chaque
   appel ; un clic sur leur nœud 🌐 du schéma y mène.

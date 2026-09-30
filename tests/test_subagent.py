@@ -181,7 +181,7 @@ def test_arming_refuses_an_empty_task_or_another_target(kind, target, args, code
     _, session = sub_session(["Voilà."])
     with pytest.raises(ArmRefused) as refused:
         session.arm(kind, target, args)
-    assert reason in refused.value.reason_fr and "Rien n'est armé." in refused.value.reason_fr
+    assert reason in refused.value.reason_text and "Rien n'est armé." in refused.value.reason_text
     assert refused.value.not_found is (code == 404)
     with _client(session) as client:
         response = client.post(
@@ -197,7 +197,7 @@ def test_arming_refuses_an_empty_task_or_another_target(kind, target, args, code
         )
         assert armed.status_code == 200
     (action,) = session._armed
-    assert action.label_fr == f"Délégation : « {'x' * 40}… »" and action.brick == "subagent"
+    assert action.label_text == f"Délégation : « {'x' * 40}… »" and action.brick == "subagent"
     session.close()
 
 
@@ -209,7 +209,7 @@ def test_brick_off_after_arming_drops_the_action_and_the_turn_goes_on():
     events = run(session, "Bonjour")
 
     (dropped,) = of(events, "action_dropped")
-    assert "Sous-agent" in dropped.payload["reason_fr"] and dropped.trigger == "user"
+    assert "Sous-agent" in dropped.payload["reason_text"] and dropped.trigger == "user"
     assert of(events, "subagent_started") == [] and len(engine.calls) == 1
     assert status(events) == "completed"
     session.close()
@@ -225,11 +225,12 @@ def test_sub_agent_overflow_fails_the_delegation_not_the_turn():
 
     (overflow,) = of(events, "context_overflow")
     assert (
-        overflow.context_id == "sub1" and "contexte du sous-agent" in overflow.payload["message_fr"]
+        overflow.context_id == "sub1"
+        and "contexte du sous-agent" in overflow.payload["message_text"]
     )
     (ended,) = of(events, "tool_ended", "main")
     assert ended.payload["status"] == "overflow"
-    assert "La délégation au sous-agent a échoué" in ended.payload["error_fr"]
+    assert "La délégation au sous-agent a échoué" in ended.payload["error_text"]
     ended_sub = of(events, "subagent_ended")[0].payload
     assert ended_sub["status"] == "overflow" and ended_sub["saved_tokens"] == 0
     second = of(events, "context_rendered", "main")[-1].payload
@@ -267,7 +268,7 @@ def test_sub_agent_retries_count_in_its_calls():
     ]
     (limit,) = of(events, "limit_reached", "sub1")
     assert limit.payload["limit"] == "sub_retries"
-    assert "le tour principal continue" in limit.payload["message_fr"]
+    assert "le tour principal continue" in limit.payload["message_text"]
     assert of(events, "tool_ended", "main")[0].payload["status"] == "limit"
     assert status(events) == "completed"
     session.close()
@@ -312,7 +313,7 @@ def test_sub_agent_provider_refusal_is_traced_in_its_context_and_the_turn_goes_o
     events = get_journal().events_since(mark)
 
     (error,) = of(events, "harness_error")
-    assert error.context_id == "sub1" and "délégation échoue" in error.payload["effect_fr"]
+    assert error.context_id == "sub1" and "délégation échoue" in error.payload["effect_text"]
     (ended,) = of(events, "tool_ended", "main")
     assert ended.payload["status"] == "error"
     assert of(events, "subagent_ended")[0].payload["estimated"] is True
@@ -369,7 +370,7 @@ def test_before_model_call_hooks_apply_inside_the_sub_agent():
     assert [e.context_id for e in blocked] == ["sub1", "main"]
     assert blocked[0].step_id.startswith("t1.sub1.h")
     (ended,) = of(events, "tool_ended", "main")
-    assert ended.payload["status"] == "error" and "a bloqué" in ended.payload["error_fr"]
+    assert ended.payload["status"] == "error" and "a bloqué" in ended.payload["error_text"]
     assert engine.calls == [] and status(events) == "blocked"
     session.close()
 
@@ -390,7 +391,7 @@ def test_stop_during_the_sub_agent_cancels_the_turn_without_another_call():
     assert of(events, "subagent_ended")[0].payload["status"] == "cancelled"
     (ended,) = of(events, "tool_ended", "main")
     assert ended.payload["status"] == "cancelled"
-    assert "Délégation arrêtée" in ended.payload["error_fr"]
+    assert "Délégation arrêtée" in ended.payload["error_text"]
     assert status(events) == "cancelled" and len(engine.calls) == 2
     session.close()
 
@@ -457,7 +458,7 @@ def test_the_schema_draws_a_second_model_and_the_card_its_force():
     arch = of(get_journal().events_since(mark), "architecture_changed")[-1].payload
     nodes = {n["id"]: n for n in arch["nodes"]}
     sub = nodes["core.model_sub"]
-    assert (sub["kind"], sub["hosting"], sub["label_fr"]) == (
+    assert (sub["kind"], sub["hosting"], sub["label_text"]) == (
         "model",
         "local",
         "Modèle (sous-agent)",
@@ -467,11 +468,11 @@ def test_the_schema_draws_a_second_model_and_the_card_its_force():
     assert all(e["to"] != "core.model_sub" for e in arch["edges"])
     cards = of(get_journal().events_since(mark), "bricks_changed")[-1].payload["bricks"]
     card = next(b for b in cards if b["id"] == "subagent")
-    assert card["force"]["label_fr"] == "Déléguer au sous-agent"
+    assert card["force"]["label_text"] == "Déléguer au sous-agent"
     assert card["force"]["kind"] == "delegate" and card["force"]["target"] == "delegate"
     assert list(card["force"]["parameters"]) == ["task"] and card["force"]["presets"]
-    assert card["limits_fr"].startswith("Sous-agent : 4 appels au modèle au plus")
-    assert "Lecture de fichier" in card["limits_fr"]
+    assert card["limits_text"].startswith("Sous-agent : 4 appels au modèle au plus")
+    assert "Lecture de fichier" in card["limits_text"]
     session.set_brick("subagent", False)
     arch = of(get_journal().events_since(mark), "architecture_changed")[-1].payload
     assert "core.model_sub" not in {n["id"] for n in arch["nodes"]}
@@ -695,7 +696,7 @@ def test_an_exception_in_the_sub_agent_fails_the_delegation_only(monkeypatch):
     assert of(events, "subagent_ended")[0].payload["status"] == "error"
     (ended,) = of(events, "tool_ended", "main")
     assert ended.payload["status"] == "error"
-    assert ended.payload["error_fr"].startswith("La délégation au sous-agent a échoué")
+    assert ended.payload["error_text"].startswith("La délégation au sous-agent a échoué")
     assert status(events) == "completed"
     session.close()
 
@@ -782,7 +783,7 @@ def test_an_unknown_tool_in_the_subagent_section_is_traced_at_load():
     mark = get_journal().last_seq()
     session = AppSession(config.Config(values={"subagent": {"tools": ["read_file", "lire_tout"]}}))
     (error,) = of(get_journal().events_since(mark), "harness_error")
-    assert "lire_tout" in error.payload["message_fr"]
+    assert "lire_tout" in error.payload["message_text"]
     session.close()
 
 

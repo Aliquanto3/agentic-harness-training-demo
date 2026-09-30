@@ -2,23 +2,23 @@
 # points, same `{date}` placeholder (H3 writes the date in English).
 hooks:
   h1:
-    label_fr: Sensitive file guard
-    description_fr: >-
+    label_text: Sensitive file guard
+    description_text: >-
       Before a tool runs: blocks any read in the confidential folder of the demo
       files.
   h2:
-    label_fr: Logging
-    description_fr: >-
+    label_text: Logging
+    description_text: >-
       After each tool and at the end of the turn: adds the model calls, the tool
       calls, the blocks and the end of the turn to the audit log.
   h3:
-    label_fr: Context injection
-    description_fr: >-
+    label_text: Context injection
+    description_text: >-
       When the message arrives: adds the workstation's date and the mission's
       rules before it.
   h5:
-    label_fr: Human approval
-    description_fr: >-
+    label_text: Human approval
+    description_text: >-
       Before a network tool runs: pauses the turn and shows you the exact request
       that would leave the workstation; it is only sent if you allow it.
 points:
@@ -31,4 +31,4 @@ injection: >-
   Workstation date and time: {date}. Mission rules: answer in English, sticking
   to the facts; only use the files of the demo folder; flag any request that
   would touch confidential data.
-audit_label_fr: Audit log
+audit_label_text: Audit log

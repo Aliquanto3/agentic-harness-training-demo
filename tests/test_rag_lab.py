@@ -95,8 +95,8 @@ def test_the_shipped_chain_runs_each_stage(index):
     assert started == KINDS  # one pair per stage run, none for the generation
     for kind in KINDS:
         stage = ended(events, kind)
-        assert stage["status"] == "ok", (kind, stage["error_fr"])
-        assert stage["duration_ms"] >= 0 and stage["rss_bytes"] and "Mo" in stage["memory_fr"]
+        assert stage["status"] == "ok", (kind, stage["error_text"])
+        assert stage["duration_ms"] >= 0 and stage["rss_bytes"] and "Mo" in stage["memory_text"]
     # Scope (AD-2): no turn, the workshop's context, its own components.
     first = next(e for e in events if e.kind == "rag_lab_stage_started")
     assert first.turn_id is None and first.step_id == "lab1.a.s1"
@@ -104,7 +104,7 @@ def test_the_shipped_chain_runs_each_stage(index):
     assert (first.actor, first.trigger) == ("harness", "user")
 
     chunking = ended(events, "chunking")
-    assert "29 extraits" in chunking["output_fr"]
+    assert "29 extraits" in chunking["output_text"]
     search = ended(events, "vector_search")
     assert [i["rank"] for i in search["items"]] == list(range(1, 9))  # rerank_candidates
     assert all(i["before"] is None for i in search["items"])
@@ -123,13 +123,13 @@ def test_the_shipped_chain_runs_each_stage(index):
     kept = rerank["items"][:3]
     assert [i["chunk_id"] for i in context["items"]] == [i["chunk_id"] for i in kept]
     for position, item in enumerate(context["items"], start=1):
-        assert item["text"].startswith(f"Extrait {position} — {item['title_fr']} :\n")
-    assert context["output_fr"].startswith(content.intro_fr)
+        assert item["text"].startswith(f"Extrait {position} — {item['title_text']} :\n")
+    assert context["output_text"].startswith(content.intro_text)
 
     generation = ended(events, "generation")
     assert generation["status"] == "not_run" and generation["rss_bytes"] is None
-    assert "Non exécutée dans l'atelier RAG" in generation["output_fr"]
-    assert "3 extraits" in generation["input_fr"]
+    assert "Non exécutée dans l'atelier RAG" in generation["output_text"]
+    assert "3 extraits" in generation["input_text"]
     assert run_status(events) == "ok" and session.state == "idle"
     assert rerankers.made and rerankers.made[0].calls[0][0] == QUESTION
 
@@ -173,7 +173,7 @@ def test_busy_session_refuses_the_run_and_emits_nothing(index):
     mark = get_journal().last_seq()
     with pytest.raises(SendRefused) as refused:
         session.run_rag_lab(QUESTION)
-    assert "tour" in refused.value.reason_fr
+    assert "tour" in refused.value.reason_text
     assert not [e for e in get_journal().events_since(mark) if e.kind.startswith("rag_lab")]
 
 
@@ -182,7 +182,7 @@ def test_a_reason_in_idle_does_not_prevent_the_run_and_comes_back(index):
     session._set_state("idle", "Aucun modèle n'est chargé.")
     events = run(session)
     assert run_status(events) == "ok"
-    assert (session.state, session.reason_fr) == ("idle", "Aucun modèle n'est chargé.")
+    assert (session.state, session.reason_text) == ("idle", "Aucun modèle n'est chargé.")
 
 
 def test_the_workshop_state_while_running_refuses_the_workshop(index):
@@ -190,10 +190,10 @@ def test_the_workshop_state_while_running_refuses_the_workshop(index):
     gate = threading.Event()
     rerankers.gate = gate  # holds the reranker's load: the run stays in `rag_lab`
     session.run_rag_lab(QUESTION)
-    assert session.state == "rag_lab" and "Atelier RAG : exécution en cours" in session.reason_fr
+    assert session.state == "rag_lab" and "Atelier RAG : exécution en cours" in session.reason_text
     with pytest.raises(SendRefused) as refused:
         session.send("Bonjour")
-    assert "Atelier RAG : exécution en cours" in refused.value.reason_fr
+    assert "Atelier RAG : exécution en cours" in refused.value.reason_text
     gate.set()
     wait_idle(session)
 
@@ -203,7 +203,7 @@ def test_index_absent_the_store_fails_with_the_bricks_reason(index):
     index.unlink()
     events = run(session)
     store = ended(events, "vector_store")
-    assert store["status"] == "error" and "index absent" in store["error_fr"]
+    assert store["status"] == "error" and "index absent" in store["error_text"]
     for kind in ("vector_search", "rerank", "context", "generation"):
         assert ended(events, kind)["status"] == "skipped"
     assert run_status(events) == "error" and session.state == "idle"
@@ -215,7 +215,7 @@ def test_embedding_model_absent(index):
     events = run(session)
     embedding = ended(events, "embedding")
     assert embedding["status"] == "error"
-    assert "Téléchargez-le depuis la carte RAG de l'atelier" in embedding["error_fr"]
+    assert "Téléchargez-le depuis la carte RAG de l'atelier" in embedding["error_text"]
     assert ended(events, "vector_store")["status"] == "skipped"
     assert run_status(events) == "error"
 
@@ -225,7 +225,7 @@ def test_reranker_absent_the_stage_is_skipped_and_the_search_order_kept(index):
     session, _ = lab_session(rerank_config(index))
     events = run(session)
     rerank = ended(events, "rerank")
-    assert rerank["status"] == "skipped" and "carte RAG" in rerank["error_fr"]
+    assert rerank["status"] == "skipped" and "carte RAG" in rerank["error_text"]
     search = ended(events, "vector_search")
     context = ended(events, "context")
     assert [i["chunk_id"] for i in context["items"]] == [i["chunk_id"] for i in search["items"][:3]]
@@ -238,7 +238,7 @@ def test_reranker_failing_the_stage_errs_and_the_run_goes_on(index):
     session, _ = lab_session(rerank_config(index), rerankers=Rerankers(fail=True))
     events = run(session)
     rerank = ended(events, "rerank")
-    assert rerank["status"] == "error" and "reranking a échoué" in rerank["error_fr"]
+    assert rerank["status"] == "error" and "reranking a échoué" in rerank["error_text"]
     search = ended(events, "vector_search")
     assert [i["chunk_id"] for i in ended(events, "context")["items"]] == [
         i["chunk_id"] for i in search["items"][:3]
@@ -253,8 +253,8 @@ def test_budget_refusal_nothing_is_loaded(index):
     embedders = session._embedder_factory
     events = run(session)
     embedding = ended(events, "embedding")
-    assert embedding["status"] == "error" and "Mémoire insuffisante" in embedding["error_fr"]
-    assert "Mo" in embedding["error_fr"] and embedders.made == []
+    assert embedding["status"] == "error" and "Mémoire insuffisante" in embedding["error_text"]
+    assert "Mo" in embedding["error_text"] and embedders.made == []
     assert session._load_registry.holder(EMBEDDING) is None
 
 
@@ -312,7 +312,7 @@ def chains(session: AppSession) -> tuple[rag_lab.Catalog, rag_lab.Pipeline, rag_
     """The catalog, the shipped chain A, and a copy B to change."""
     catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
     b = catalog.default.model_copy(deep=True)
-    b.label_fr = "B"
+    b.label_text = "B"
     return catalog, catalog.default, b
 
 
@@ -342,7 +342,7 @@ def test_bounds_and_refusals_name_the_stage(index, kind, change, said):
     for key, value in change.items():
         setattr(target, key, value)
     reason = (rag_lab.validate_pipeline(b, catalog) or "").replace("\u202f", " ")
-    label = catalog.content.stages[kind].label_fr
+    label = catalog.content.stages[kind].label_text
     assert f"« {label} »" in reason and said in reason, reason
     mark = get_journal().last_seq()
     with pytest.raises(SendRefused):
@@ -437,7 +437,7 @@ def test_rules_of_the_chain_each_refusal_names_the_stage(index):
     mark = get_journal().last_seq()
     with pytest.raises(SendRefused) as refused:
         session.run_rag_lab(QUESTION, [fused])
-    assert "« Fusion »" in refused.value.reason_fr
+    assert "« Fusion »" in refused.value.reason_text
     assert not [e for e in get_journal().events_since(mark) if e.kind.startswith("rag_lab")]
 
 
@@ -532,7 +532,7 @@ def test_the_vectors_cache_is_read_again_and_rebuilt_when_the_size_changes(index
     stage(b, "context").params["top_k"] = 2
     first = run(session, QUESTION, [a, b])
     embedding = ended(first, "embedding", "b")
-    assert "calculés (77 passages)" in embedding["output_fr"]
+    assert "calculés (77 passages)" in embedding["output_text"]
     progress = [
         e for e in first if e.kind == "rag_lab_stage_progress" and e.payload["kind"] == "embedding"
     ]
@@ -542,16 +542,16 @@ def test_the_vectors_cache_is_read_again_and_rebuilt_when_the_size_changes(index
     assert len(folders) == 1
     assert {p.name for p in folders[0].iterdir()} == {"chunks.json", "vectors.f32"}
     second = run(session, QUESTION, [a, b])
-    assert "relus du cache" in ended(second, "embedding", "b")["output_fr"]
+    assert "relus du cache" in ended(second, "embedding", "b")["output_text"]
     assert (
         ended(second, "vector_search", "b")["items"] == ended(first, "vector_search", "b")["items"]
     )
     stage(b, "chunking").params["chunk_max_chars"] = 1200
     third = run(session, QUESTION, [a, b])
-    assert "calculés (16 passages)" in ended(third, "embedding", "b")["output_fr"]
+    assert "calculés (16 passages)" in ended(third, "embedding", "b")["output_text"]
     assert len(list(config.rag_lab_dir().iterdir())) == 2
     comparison = next(e for e in third if e.kind == "rag_lab_run_ended").payload["comparison"]
-    assert comparison["basis"] == "document" and "par document" in comparison["summary_fr"]
+    assert comparison["basis"] == "document" and "par document" in comparison["summary_text"]
 
 
 def test_sqlite_vec_of_another_size_is_built_in_the_workshops_folder(index):
@@ -561,9 +561,9 @@ def test_sqlite_vec_of_another_size_is_built_in_the_workshops_folder(index):
     stage(a, "chunking").params["chunk_max_chars"] = 300
     first = run(session, QUESTION, [a])
     store = ended(first, "vector_store")
-    assert store["status"] == "ok" and "construit (77 vecteurs)" in store["output_fr"]
+    assert store["status"] == "ok" and "construit (77 vecteurs)" in store["output_text"]
     second = run(session, QUESTION, [a])
-    assert "relu" in ended(second, "vector_store")["output_fr"]
+    assert "relu" in ended(second, "vector_store")["output_text"]
     assert index.stat().st_mtime_ns == before  # the brick's index is never written
     built = list(config.rag_lab_dir().glob("*/index.sqlite"))
     assert len(built) == 1
@@ -632,7 +632,7 @@ def test_fastembed_unavailable_without_the_package_then_available(index, monkeyp
         for o in s["options"]
     }
     fastembed = options[("embedding", "fastembed")]
-    assert not fastembed["available"] and "pas installé" in fastembed["reason_fr"]
+    assert not fastembed["available"] and "pas installé" in fastembed["reason_text"]
 
     module = types.ModuleType("fastembed")
     module.__spec__ = importlib.machinery.ModuleSpec("fastembed", None)
@@ -641,7 +641,9 @@ def test_fastembed_unavailable_without_the_package_then_available(index, monkeyp
     reason = session._rag_lab_fastembed()[1]
     assert "[rag_lab.fastembed]" in reason  # installed, not declared
     values = rerank_config(index)
-    values["rag_lab"] = {"fastembed": {"model_name": "fake/minilm", "dims": 64, "label_fr": "Fast"}}
+    values["rag_lab"] = {
+        "fastembed": {"model_name": "fake/minilm", "dims": 64, "label_text": "Fast"}
+    }
     session.cfg = config.Config(values=values)
     assert "ne sont pas dans" in session._rag_lab_fastembed()[1]  # no file
     folder = config.models_dir() / "fastembed" / "models--fake--minilm"
@@ -650,11 +652,11 @@ def test_fastembed_unavailable_without_the_package_then_available(index, monkeyp
     assert session._rag_lab_fastembed() == (session.cfg.rag_lab_fastembed[0], None)
 
     catalog, a, b = chains(session)
-    assert catalog.options[("embedding", "fastembed")].label_fr == "Fast"
+    assert catalog.options[("embedding", "fastembed")].label_text == "Fast"
     stage(b, "embedding").option = "fastembed"
     events = run(session, QUESTION, [a, b])
     embedding = ended(events, "embedding", "b")
-    assert embedding["status"] == "ok" and "calculés (29 passages)" in embedding["output_fr"]
+    assert embedding["status"] == "ok" and "calculés (29 passages)" in embedding["output_text"]
     assert FakeTextEmbedding.opened[-1]["local_files_only"] is True
     assert ended(events, "vector_store", "b")["status"] == "ok"  # its own sqlite-vec index
     assert session._load_registry.holder("rag_lab.embedding") is None
@@ -665,7 +667,7 @@ def test_fastembed_unavailable_without_the_package_then_available(index, monkeyp
 def test_fastembed_invalid_section_says_why(index):
     session, _ = ready(index)
     values = rerank_config(index)
-    values["rag_lab"] = {"fastembed": {"model_name": "fake/minilm", "dims": 0, "label_fr": "F"}}
+    values["rag_lab"] = {"fastembed": {"model_name": "fake/minilm", "dims": 0, "label_text": "F"}}
     session.cfg = config.Config(values=values)
     model, reason = session.cfg.rag_lab_fastembed
     assert model is None and "[rag_lab.fastembed] est invalide (dims)" in reason
@@ -681,7 +683,7 @@ def test_fastembed_checks_the_declared_models_own_folder(index, monkeypatch):
     monkeypatch.setitem(sys.modules, "fastembed", module)
     session, _ = ready(index)
     values = rerank_config(index)
-    values["rag_lab"] = {"fastembed": {"model_name": "fake/minilm", "dims": 64, "label_fr": "F"}}
+    values["rag_lab"] = {"fastembed": {"model_name": "fake/minilm", "dims": 64, "label_text": "F"}}
     session.cfg = config.Config(values=values)
     other = config.models_dir() / "fastembed" / "models--other--model"
     other.mkdir(parents=True)
@@ -704,7 +706,7 @@ def test_settings_omitted_are_the_bricks_own_rag_values(index):
         s.params = {}  # every setting left to the catalog's values ([rag])
     assert rag_lab.validate_pipeline(bare, catalog) is None
     events = run(session, QUESTION, [bare])
-    assert "700 caractères" in ended(events, "chunking")["output_fr"]
+    assert "700 caractères" in ended(events, "chunking")["output_text"]
     assert len(ended(events, "vector_search")["items"]) == 10
     assert len(ended(events, "context")["items"]) == 4
 
@@ -794,7 +796,7 @@ def test_the_bricks_index_unreadable_fails_the_chunking(index, monkeypatch):
     monkeypatch.setattr(rag_lab.rag_index, "read_chunks", broken)
     events = run(session)
     chunking = ended(events, "chunking")
-    assert chunking["status"] == "error" and "ne se lit pas" in chunking["error_fr"]
+    assert chunking["status"] == "error" and "ne se lit pas" in chunking["error_text"]
     assert ended(events, "embedding")["status"] == "skipped"
 
 
@@ -817,20 +819,20 @@ def test_a_nan_score_counts_as_zero_and_counts_agree():
 def test_state_catalog_default_chain_and_last_run(index):
     session, _ = ready(index)
     state = session.rag_lab_state()
-    assert state["content"]["title_fr"] and state["content_error_fr"] is None
+    assert state["content"]["title_text"] and state["content_error_text"] is None
     stages = state["catalog"]["stages"]
     assert [s["kind"] for s in stages] == list(rag_lab.KINDS)
     assert state["catalog"]["insert_before"] == "context"
     movable = {s["kind"] for s in stages if s["movable"]}
     assert movable == {"vector_search", "lexical_search", "fusion", "rerank"}
     options = {s["kind"]: s["options"][0] for s in stages}
-    assert options["embedding"]["label_fr"] == "Faux embedding"
-    assert options["rerank"]["label_fr"] == "Faux reranker"
-    assert options["vector_store"]["label_fr"] == "sqlite-vec"
-    assert options["chunking"]["params"][0] | {"label_fr": ""} == {
+    assert options["embedding"]["label_text"] == "Faux embedding"
+    assert options["rerank"]["label_text"] == "Faux reranker"
+    assert options["vector_store"]["label_text"] == "sqlite-vec"
+    assert options["chunking"]["params"][0] | {"label_text": ""} == {
         "name": "chunk_max_chars",
-        "label_fr": "",
-        "unit_fr": "caractères",
+        "label_text": "",
+        "unit_text": "caractères",
         "min": 200,
         "max": 1500,
         "default": 700,
@@ -850,9 +852,9 @@ def test_catalog_notes_say_what_a_run_would_meet(index):
     session, _ = lab_session(rerank_config(index))  # no model file, no reranker file
     index.unlink()
     options = {s["kind"]: s["options"][0] for s in session.rag_lab_state()["catalog"]["stages"]}
-    assert "modèle absent" in options["embedding"]["note_fr"]
-    assert "index absent" in options["vector_store"]["note_fr"]
-    assert "modèle absent" in options["rerank"]["note_fr"]
+    assert "modèle absent" in options["embedding"]["note_text"]
+    assert "index absent" in options["vector_store"]["note_text"]
+    assert "modèle absent" in options["rerank"]["note_text"]
     assert all(o["available"] for o in options.values())
 
 
@@ -865,7 +867,7 @@ def test_invalid_content_is_said_and_refuses_the_run(index, monkeypatch):
     broken.cache_clear = lambda: None  # type: ignore[attr-defined]
     monkeypatch.setattr(rag_lab, "load_lab_content", broken)
     state = session.rag_lab_state()
-    assert state["content"] is None and "content/rag_lab.yaml" in state["content_error_fr"]
+    assert state["content"] is None and "content/rag_lab.yaml" in state["content_error_text"]
     assert state["catalog"] is None
     with pytest.raises(SendRefused):
         session.run_rag_lab(QUESTION)
@@ -874,7 +876,7 @@ def test_invalid_content_is_said_and_refuses_the_run(index, monkeypatch):
 def test_content_file_is_valid_and_names_every_kind():
     content = rag_lab.load_lab_content()
     assert set(content.stages) == set(rag_lab.KINDS)
-    assert content.default_question_fr == QUESTION
+    assert content.default_question_text == QUESTION
 
 
 _SKIP = {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", "screenshots"}
@@ -962,7 +964,7 @@ def test_web_validate_is_read_only_and_names_the_stage(index):
     shipped = body["default_pipeline"]
     ok = client.post("/api/rag_lab/validate", json={"pipelines": [shipped]}, headers=HEADERS)
     assert ok.status_code == 200 and ok.json() == {"valid": True, "refusals": []}
-    chain = {"label_fr": "B", "stages": [dict(s) for s in shipped["stages"]]}
+    chain = {"label_text": "B", "stages": [dict(s) for s in shipped["stages"]]}
     chain["stages"][4] = {"id": "s9", "kind": "fusion", "option": "rrf", "params": {}}
     mark = get_journal().last_seq()
     answer = client.post(
@@ -970,9 +972,9 @@ def test_web_validate_is_read_only_and_names_the_stage(index):
     ).json()
     assert not answer["valid"]
     assert answer["refusals"] == [
-        {"lane": "b", "stage_id": "s9", "reason_fr": answer["refusals"][0]["reason_fr"]}
+        {"lane": "b", "stage_id": "s9", "reason_text": answer["refusals"][0]["reason_text"]}
     ]
-    assert "« Fusion »" in answer["refusals"][0]["reason_fr"]
+    assert "« Fusion »" in answer["refusals"][0]["reason_text"]
     assert get_journal().last_seq() == mark  # nothing emitted
     refused = client.post(
         "/api/intentions/rag_lab_run",

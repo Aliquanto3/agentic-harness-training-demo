@@ -9,7 +9,7 @@ the network:
   without RAPL, CodeCarbon estimates the power (TDP × load): an estimate, not a measure.
 
 An estimate that fails never stops a call: the call has no footprint and says why
-(`note_fr`).
+(`note_text`).
 """
 
 from __future__ import annotations
@@ -48,10 +48,10 @@ _WARNINGS_FR = {
 class Impact:
     """One call's footprint: energy in Wh and emissions in g CO₂e, each as a range (min =
     max for a single value); `method` is `ecologits` or `codecarbon`. Without figures, the
-    call has no footprint and `note_fr` says why."""
+    call has no footprint and `note_text` says why."""
 
     method: str
-    note_fr: str | None = None
+    note_text: str | None = None
     energy_wh_min: float | None = None
     energy_wh_max: float | None = None
     gco2e_min: float | None = None
@@ -73,8 +73,8 @@ class Impact:
                 "gco2e_max": self.gco2e_max,
                 "impact_method": self.method,
             }
-        if self.note_fr:
-            out["impact_note_fr"] = self.note_fr
+        if self.note_text:
+            out["impact_note_text"] = self.note_text
         return out
 
 
@@ -90,7 +90,7 @@ def _number_fr(value: float) -> str:
 def _llm_impacts() -> Callable[..., Any]:
     """`ecologits.tracers.utils.llm_impacts`, imported once. EcoLogits sets its own logger
     class for every logger created after its import: the previous one is put back, and its
-    warnings (said in French in `note_fr`) stay out of the console."""
+    warnings (said in French in `note_text`) stay out of the console."""
     previous = logging.getLoggerClass()
     try:
         from ecologits.tracers.utils import llm_impacts
@@ -157,8 +157,8 @@ def cloud_impacts(entry: CloudModel, output_tokens: int, latency_s: float) -> Im
         note += " ; fourchette (min–max) selon les hypothèses d'EcoLogits"
     if warnings:
         note += " ; avertissements : " + " ; ".join(warnings)
-    if declared.note_fr:  # what the estimate stands for (Groq through Hugging Face)
-        note += f". {declared.note_fr.rstrip('.')}"
+    if declared.note_text:  # what the estimate stands for (Groq through Hugging Face)
+        note += f". {declared.note_text.rstrip('.')}"
     return Impact(
         ECOLOGITS,
         note + ".",
@@ -196,12 +196,12 @@ def missing_fr() -> str:
 @dataclass
 class Measure:
     """One local call's tracker, started; `stop()` gives its footprint, once (a second call
-    gives the same). Without a tracker, `note_fr` says why."""
+    gives the same). Without a tracker, `note_text` says why."""
 
     tracker: Any
     machine: bool
     gco2e_per_kwh: float
-    note_fr: str | None = None
+    note_text: str | None = None
     _impact: Impact | None = field(default=None, init=False)
 
     def stop(self) -> Impact:
@@ -211,7 +211,7 @@ class Measure:
 
     def _stop(self) -> Impact:
         if self.tracker is None:
-            return Impact(CODECARBON, self.note_fr)
+            return Impact(CODECARBON, self.note_text)
         try:
             self.tracker.stop()  # CodeCarbon swallows its own errors: read what it kept
             data = getattr(self.tracker, "final_emissions_data", None)

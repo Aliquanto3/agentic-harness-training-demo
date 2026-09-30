@@ -376,7 +376,7 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   vectorielle peut être l'index sqlite-vec ou une **recherche exhaustive en mémoire** (Python pur,
   sans index) ; l'embedding peut être un modèle **fastembed** (ONNX), proposé seulement s'il est
   installé, déclaré dans `settings.json` (`"rag_lab": {"fastembed": {"model_name": …, "dims": …,
-  "label_fr": …}}`, `"folder"` en option) et copié à la main sous `models/fastembed/<son
+  "label_text": …}}`, `"folder"` en option) et copié à la main sous `models/fastembed/<son
   dossier>` du dossier de données (par défaut `models--<model_name>`, « / » devenant « -- ») :
   l'atelier ne
   télécharge jamais rien. Une chaîne refusée dit pourquoi, en nommant l'étape.
@@ -766,9 +766,9 @@ entrée nouvelle doit être complète :
         "model": "meta-llama/llama-3.3-70b-instruct:free",
         "tools": true,
         "context": 131072,
-        "hosting_fr": "Selon le fournisseur routé par OpenRouter",
+        "hosting_text": "Selon le fournisseur routé par OpenRouter",
         "training": "yes",
-        "notes_fr": "Catalogue gratuit instable : vérifiez le nom du modèle avant la séance."
+        "notes_text": "Catalogue gratuit instable : vérifiez le nom du modèle avant la séance."
       }
     ]
   }
@@ -848,7 +848,7 @@ seul : aucun SDK n'est instrumenté) estime l'impact d'un appel à partir de ses
 le mix électrique (code ISO à trois lettres ; par défaut celui du fournisseur dans EcoLogits).
 Préréglages : Groq → `huggingface_hub` / `openai/gpt-oss-120b` (EcoLogits ne connaît pas Groq ;
 gpt-oss y figure chez Hugging Face, sur GPU), Mistral → `mistralai` / `mistral-small-latest`,
-Gemini → `google_genai` / `gemini-3.5-flash-lite`. Le champ facultatif `note_fr` de `impacts`
+Gemini → `google_genai` / `gemini-3.5-flash-lite`. Le champ facultatif `note_text` de `impacts`
 s'ajoute à l'infobulle de chaque appel : celui de Groq dit que l'estimation passe par un autre
 hébergeur. Quand EcoLogits donne une fourchette (architecture non
 publiée, comme Gemini), elle est gardée : « 0,066–0,45 Wh ». Ses avertissements (architecture non

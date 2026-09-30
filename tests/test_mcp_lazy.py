@@ -74,7 +74,7 @@ def test_toggle_swaps_the_documentation_for_one_line_per_tool(loop):  # noqa: F8
     assert since(mark, "harness_error") == []
     assert since(mark, "mcp_connect_started") == []  # the switch contacts no server
     mcp = card("mcp")
-    assert mcp["mode"] == "lazy" and mcp["pending"] and mcp["lazy_label_fr"] == "Lazy loading"
+    assert mcp["mode"] == "lazy" and mcp["pending"] and mcp["lazy_label_text"] == "Lazy loading"
     session.close()
 
 
@@ -174,7 +174,7 @@ def test_undocumented_call_is_refused_before_sending_and_counts_as_a_retry(loop)
     assert (
         "La documentation de « local__list_terms » n'est pas chargée : appelle d'abord "
         'load_tool_doc avec tool="local__list_terms".'
-    ) in malformed[0]["detail_fr"]
+    ) in malformed[0]["detail_text"]
     assert events["limit_reached"][0]["limit"] == "retries"
     result = _segments(events["context_rendered"][1], "tool_result")[0]
     assert "n'est pas chargée" in result["text"]
@@ -194,7 +194,7 @@ def test_loading_twice_or_an_unknown_name(loop):  # noqa: F811
     docs = [s for s in _segments(last, "tool_catalog") if s["text"].startswith('{"type"')]
     assert len(docs) == 1
     assert unknown["status"] == "error"
-    assert "« nope »" in unknown["error_fr"] and "local__list_terms" in unknown["error_fr"]
+    assert "« nope »" in unknown["error_text"] and "local__list_terms" in unknown["error_text"]
     session.close()
 
 
@@ -250,7 +250,7 @@ def test_datagouv_overflow_names_lazy_loading_which_avoids_it(loop, web):  # noq
     events = _run(session, "Bonjour")
 
     (overflow,) = events["context_overflow"]
-    assert "lazy loading" in overflow["message_fr"] and "serveur MCP" in overflow["message_fr"]
+    assert "lazy loading" in overflow["message_text"] and "serveur MCP" in overflow["message_text"]
     assert "model_call_started" not in events
 
     session.set_mcp_mode(True)
@@ -276,8 +276,8 @@ def test_lazy_overflow_suggests_unloading_not_lazy_loading(loop, web):  # noqa: 
     events = _run(session, "Bonjour")
 
     (overflow,) = events["context_overflow"]
-    assert "passez la carte MCP en lazy loading" not in overflow["message_fr"]
-    assert "décharger les documentations" in overflow["message_fr"]
+    assert "passez la carte MCP en lazy loading" not in overflow["message_text"]
+    assert "décharger les documentations" in overflow["message_text"]
     session.close()
 
 

@@ -223,19 +223,19 @@ _CORE_HARNESS = {
     "id": "core.harness",
     "kind": "harness",
     "hosting": "local",
-    "label_fr": "Harnais WaveStack",
+    "label_text": "Harnais WaveStack",
     "wanted": True,
     "available": True,
-    "reason_fr": None,
+    "reason_text": None,
 }
 _CORE_MODEL = {
     "id": "core.model",
     "kind": "model",
     "hosting": "local",
-    "label_fr": "Modèle",
+    "label_text": "Modèle",
     "wanted": True,
     "available": True,
-    "reason_fr": None,
+    "reason_text": None,
 }
 
 _TURN_FR = "Un tour est en cours : attendez sa fin ou arrêtez-le."
@@ -514,7 +514,7 @@ class _ModelOutput:
     # Chat mode: the call's `context_reconciled` payload once `usage` came back (AD-4); a
     # provider's refusal: its French message (for a failed delegation, AD-11).
     reconciled: dict[str, Any] | None = None
-    message_fr: str = ""
+    message_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -528,7 +528,7 @@ class ArmedAction:
     brick: str
     target: str
     args: dict[str, Any]
-    label_fr: str
+    label_text: str
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -537,16 +537,16 @@ class ArmedAction:
             "brick": self.brick,
             "target": self.target,
             "args": self.args,
-            "label_fr": self.label_fr,
+            "label_text": self.label_text,
         }
 
 
 class ArmRefused(Exception):
     """An arming the session refuses: unknown target (`not_found`) or invalid arguments."""
 
-    def __init__(self, reason_fr: str, *, not_found: bool = False) -> None:
-        super().__init__(reason_fr)
-        self.reason_fr = reason_fr
+    def __init__(self, reason_text: str, *, not_found: bool = False) -> None:
+        super().__init__(reason_text)
+        self.reason_text = reason_text
         self.not_found = not_found
 
 
@@ -578,7 +578,7 @@ class TurnState:
     rag_rerank: bool = False
     # Story 16: the sub-option enabled, but no reranker at the turn's start: why (the RAG
     # step says it), else `None`.
-    rag_rerank_skipped_fr: str | None = None
+    rag_rerank_skipped_text: str | None = None
     # Story 20 (AD-22): what each of `rag_excerpts` was before the compressor (same order).
     rag_compressed: tuple[CompressedFrom | None, ...] = ()
     # Story 19 (AD-11): the sub-agent's tools, `[subagent] tools` among the enabled ones.
@@ -598,11 +598,11 @@ class _SubContext:
 
 @dataclass
 class _SubOutcome:
-    """How a sub-agent's loop ended; `message_fr` is the error reinjected on a failure."""
+    """How a sub-agent's loop ended; `message_text` is the error reinjected on a failure."""
 
     status: str  # completed | limit | overflow | error | cancelled
     result: str = ""
-    message_fr: str = ""
+    message_text: str = ""
 
 
 def _with_loaded(state: TurnState, loaded_in_turn: list[str]) -> TurnState:
@@ -633,9 +633,9 @@ class _Approval:
 
 
 class SendRefused(Exception):
-    def __init__(self, reason_fr: str) -> None:
-        super().__init__(reason_fr)
-        self.reason_fr = reason_fr
+    def __init__(self, reason_text: str) -> None:
+        super().__init__(reason_text)
+        self.reason_text = reason_text
 
 
 # AD-7, story 24: a hot switch's probe of a GGUF (`DiagnosticSession.probe_path`): `None`
@@ -648,19 +648,19 @@ class _LoadCancelled(Exception):
 
 
 class _LoadFailed(Exception):
-    """A load refused for a known reason (probe, incompatible template): `message_fr` for
-    `harness_error`, `reason_fr` its cause, `idle_fr` the reason left in `idle` when no
+    """A load refused for a known reason (probe, incompatible template): `message_text` for
+    `harness_error`, `reason_text` its cause, `idle_text` the reason left in `idle` when no
     model is active afterwards."""
 
     def __init__(
         self,
-        message_fr: str,
-        reason_fr: str,
-        idle_fr: str | None = None,
+        message_text: str,
+        reason_text: str,
+        idle_text: str | None = None,
         detail: str | None = None,
     ) -> None:
-        super().__init__(reason_fr)
-        self.message_fr, self.reason_fr, self.idle_fr = message_fr, reason_fr, idle_fr
+        super().__init__(reason_text)
+        self.message_text, self.reason_text, self.idle_text = message_text, reason_text, idle_text
         self.detail = detail  # lot E (E6): the loader's own message, `harness_error.cause`
 
 
@@ -718,7 +718,7 @@ def _stamp(path: Path) -> tuple[int, int] | None:
     return stat.st_mtime_ns, stat.st_size
 
 
-def _missing_model_fr(noun: str, label_fr: str, missing: list[ModelFile], tail: str = "") -> str:
+def _missing_model_fr(noun: str, label_text: str, missing: list[ModelFile], tail: str = "") -> str:
     """Stories 15 and 16: « modèle absent » (or another file there) for the embedding or the
     reranking model, with what to download or copy by hand, and where. Reads the disk: called
     when the files are read again, never at each emission."""
@@ -728,11 +728,11 @@ def _missing_model_fr(noun: str, label_fr: str, missing: list[ModelFile], tail: 
     if any((config.models_dir() / f.path).is_file() for f in missing):
         return (
             f"Indisponible : le fichier {names} de {folder} n'est pas le modèle {noun} déclaré "
-            f"({label_fr}, {size} Mo attendus). Cliquez sur « Télécharger » pour le "
+            f"({label_text}, {size} Mo attendus). Cliquez sur « Télécharger » pour le "
             f"remplacer.{tail}"
         )
     return (
-        f"Indisponible : modèle absent. Le modèle {noun} {label_fr} ({size} Mo) n'est pas sur "
+        f"Indisponible : modèle absent. Le modèle {noun} {label_text} ({size} Mo) n'est pas sur "
         f"le poste. Cliquez sur « Télécharger », ou copiez à la main {names} dans {folder}, "
         f"puis cliquez de nouveau sur « Télécharger ».{tail}"
     )
@@ -803,7 +803,7 @@ class AppSession:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="wavestack-worker")
         self._lock = threading.Lock()
         self.state = "diagnostic"
-        self.reason_fr: str | None = "Diagnostic de démarrage en cours."
+        self.reason_text: str | None = "Diagnostic de démarrage en cours."
         self._engine: Engine | None = None
         self._model_name: str | None = None  # file stem of the loaded GGUF, shown in the schema
         self._caps: Capabilities | None = None
@@ -866,7 +866,7 @@ class AppSession:
         self._rag_stamp: tuple[int, int] | None = None  # the index file read: mtime, size
         self._rag_chunks = 0
         self._rag_missing: list[ModelFile] = []
-        self._rag_missing_fr: str | None = None  # its reason, read with the files
+        self._rag_missing_text: str | None = None  # its reason, read with the files
         self._rag_longest: list[Chunk] = []  # the preview's excerpts (AD-9)
         self._embedder: Embedder | None = None
         self._rag_retriever: SqliteVecRetriever | None = None  # its index connection
@@ -881,7 +881,7 @@ class AppSession:
         self._rerank_model: RerankerModel | None = None
         self._rerank_config_error: str | None = None
         self._rerank_missing: list[ModelFile] = []
-        self._rerank_missing_fr: str | None = None  # its reason, read with the files
+        self._rerank_missing_text: str | None = None  # its reason, read with the files
         self._reranker: Reranker | None = None
         self._rerank_loading = False
         self._rerank_load_error: str | None = None
@@ -927,7 +927,7 @@ class AppSession:
         self._mcp_servers = mcp_servers(self.cfg)
         self._mcp_enabled: set[str]
         self._mcp_conns: dict[str, McpConnection] = {}
-        self._mcp_state: dict[str, tuple[str, str | None]] = {}  # contact, reason_fr
+        self._mcp_state: dict[str, tuple[str, str | None]] = {}  # contact, reason_text
         # Story 6b: documentation complète by default; the documentations loaded belong to
         # the conversation (AD-17), and wait while their server is off.
         self._mcp_lazy: bool
@@ -1039,9 +1039,9 @@ class AppSession:
 
     # ---------- state ----------
 
-    def _set_state(self, state: str, reason_fr: str | None = None) -> None:
+    def _set_state(self, state: str, reason_text: str | None = None) -> None:
         with self._lock:
-            self.state, self.reason_fr = state, reason_fr
+            self.state, self.reason_text = state, reason_text
         self._emit_state()
 
     def active_model(self) -> dict[str, Any] | None:
@@ -1063,13 +1063,13 @@ class AppSession:
 
     def _emit_state(self) -> None:
         with self._lock:
-            state, reason_fr = self.state, self.reason_fr
+            state, reason_text = self.state, self.reason_text
             language, locked = self._language, self._conversation_started()
         get_journal().emit(
             "session_state",
             {
                 "state": state,
-                "reason_fr": reason_fr,
+                "reason_text": reason_text,
                 "active_model": self.active_model(),
                 "language": language,
                 "language_locked": locked,
@@ -1102,7 +1102,7 @@ class AppSession:
 
     def _mcp_label(self, server_id: str) -> str:
         text = self._mcp_content.servers.get(server_id) if self._mcp_content else None
-        return text.label_fr if text else server_id
+        return text.label_text if text else server_id
 
     def _hook_ids(self) -> list[str]:
         """The declared hooks, in the registry's order, which is their call order."""
@@ -1111,7 +1111,7 @@ class AppSession:
 
     def _hook_label(self, hook_id: str) -> str:
         text = self._hooks_content.hooks.get(hook_id) if self._hooks_content else None
-        return text.label_fr if text else hook_id
+        return text.label_text if text else hook_id
 
     def _skill_ids(self) -> list[str]:
         """The declared skills, in the registry's order."""
@@ -1123,7 +1123,7 @@ class AppSession:
 
     def _skill_label(self, skill_id: str) -> str:
         text = self._skill_text(skill_id)
-        return text.label_fr if text else skill_id
+        return text.label_text if text else skill_id
 
     def _mcp_tools(self, server_id: str) -> list[str]:
         """The names the registry exposes for `server_id`'s tools."""
@@ -1136,14 +1136,14 @@ class AppSession:
         text = self._mcp_content.servers.get(server_id) if self._mcp_content else None
         node.update(
             kind="mcp_server",
-            label_fr=self._mcp_label(server_id),
+            label_text=self._mcp_label(server_id),
             contact=contact,
             tools=self._mcp_tools(server_id) if contact == "available" else [],
         )
         if node["hosting"] == "network" and text is not None:  # story 34, AD-19
-            node["sends_fr"] = text.sends_fr
+            node["sends_text"] = text.sends_text
         if node["available"] and contact == "unavailable":
-            node["available"], node["reason_fr"] = False, why
+            node["available"], node["reason_text"] = False, why
 
     def _emit_architecture(self) -> None:
         """AD-12: a component is drawn as soon as its brick is `wanted`, even unavailable."""
@@ -1172,13 +1172,13 @@ class AppSession:
             edges.append({"from": "core.harness", "to": "core.model", "crosses_boundary": False})
         nodes: list[dict[str, Any]] = [_CORE_HARNESS, model]
         if any(b.id == "subagent" for b in wanted):  # AD-11: the same model, a second context
-            available, reason_fr = self._availability("subagent")
+            available, reason_text = self._availability("subagent")
             sub_model = {
                 **model,
                 "id": "core.model_sub",
-                "label_fr": "Modèle (sous-agent)",
+                "label_text": "Modèle (sous-agent)",
                 "available": available,
-                "reason_fr": reason_fr,
+                "reason_text": reason_text,
             }
             nodes.append(sub_model)
             if self._cloud is not None:  # as `core.model`: an edge only across the boundary
@@ -1192,44 +1192,44 @@ class AppSession:
         files = {
             "file.demo_dir": (
                 "tools",
-                self._tools_content.demo_dir_label_fr if self._tools_content else "demo_files",
+                self._tools_content.demo_dir_label_text if self._tools_content else "demo_files",
                 None,
             ),
             AUDIT: (
                 "hooks",
-                self._hooks_content.audit_label_fr if self._hooks_content else "audit.log",
+                self._hooks_content.audit_label_text if self._hooks_content else "audit.log",
                 str(config.audit_path()),
             ),
             MEMORY: (
                 "global_memory",
-                self._memory_content.file_label_fr if self._memory_content else "memory.json",
+                self._memory_content.file_label_text if self._memory_content else "memory.json",
                 str(config.memory_path()),
             ),
             RAG_INDEX: (
                 "rag",
-                self._rag_content.index_label_fr if self._rag_content else "rag_index.sqlite",
+                self._rag_content.index_label_text if self._rag_content else "rag_index.sqlite",
                 self._rag_index_detail(),
             ),
         }
-        for file_id, (brick_id, label, detail_fr) in files.items():
+        for file_id, (brick_id, label, detail_text) in files.items():
             if file_id not in targets or brick_id not in self._bricks:
                 continue
-            available, reason_fr = self._availability(brick_id)
+            available, reason_text = self._availability(brick_id)
             nodes.append(
                 {
                     "id": file_id,
                     "kind": "file",
                     "hosting": "local",
-                    "label_fr": label,
+                    "label_text": label,
                     "wanted": True,
                     "available": available,
-                    "reason_fr": reason_fr,
-                    "detail_fr": detail_fr,
+                    "reason_text": reason_text,
+                    "detail_text": detail_text,
                 }
             )
         drawn = {n["id"] for n in nodes} | {c.id for cs in components.values() for c in cs}
         for brick in wanted:
-            available, reason_fr = self._availability(brick.id)
+            available, reason_text = self._availability(brick.id)
             for component in components[brick.id]:
                 hosting = "network" if component.hosting == "network_service" else "local"
                 is_tool = component.kind == "tool"
@@ -1239,7 +1239,7 @@ class AppSession:
                     "id": component.id,
                     "kind": component.kind if is_tool or is_skill or is_hook else "brick",
                     "hosting": hosting,
-                    "label_fr": (
+                    "label_text": (
                         self._registry.label(component.id.removeprefix("tools."))
                         if is_tool
                         else self._skill_label(component.id.removeprefix("skills."))
@@ -1250,15 +1250,15 @@ class AppSession:
                     ),
                     "wanted": True,
                     "available": available,
-                    "reason_fr": reason_fr,
+                    "reason_text": reason_text,
                 }
                 if is_tool and hosting == "network":
                     name = component.id.removeprefix("tools.")
                     contact, why = self._tool_executor.contact.get(name, ("not_contacted", None))
                     node["contact"] = contact
-                    node["sends_fr"] = self._registry.sends(name)  # story 34, AD-19
+                    node["sends_text"] = self._registry.sends(name)  # story 34, AD-19
                     if available and contact == "unavailable":
-                        node["available"], node["reason_fr"] = False, why
+                        node["available"], node["reason_text"] = False, why
                 if component.kind == "mcp_server":
                     self._mcp_node(node, component.id.removeprefix("mcp."))
                 if is_skill:  # its tooltip gives its description and state (FR-3)
@@ -1266,24 +1266,26 @@ class AppSession:
                     text = self._skill_text(skill_id)
                     with self._lock:
                         node["loaded"] = skill_id in self._loaded_skills
-                    node["detail_fr"] = text.description if text else None
+                    node["detail_text"] = text.description if text else None
                 if is_hook and self._hooks_content:  # its tooltip says when it acts
                     hook = self._hooks_content.hooks.get(component.id.removeprefix("hooks."))
-                    node["detail_fr"] = hook.description_fr if hook else None
+                    node["detail_text"] = hook.description_text if hook else None
                 if component.id == "rag.retriever" and self._rag_model is not None:
-                    node["detail_fr"] = f"Modèle d'embedding {self._rag_model.id}, processus local"
+                    node["detail_text"] = (
+                        f"Modèle d'embedding {self._rag_model.id}, processus local"
+                    )
                 if component.id == RAG_RERANKER:  # story 16: its label, model and own reason
                     if self._rag_content is not None:
-                        node["label_fr"] = self._rag_content.rerank_label_fr
+                        node["label_text"] = self._rag_content.rerank_label_text
                     if self._rerank_model is not None:
-                        node["detail_fr"] = (
+                        node["detail_text"] = (
                             f"Modèle de reranking {self._rerank_model.id}, processus local"
                         )
                     ok, why = self._rerank_availability()
                     if node["available"] and not ok:
-                        node["available"], node["reason_fr"] = False, why
+                        node["available"], node["reason_text"] = False, why
                 if component.id == "compression.compressor":
-                    node["detail_fr"] = (
+                    node["detail_text"] = (
                         f"{self._compressor_label()}, bibliothèque dans le processus du "
                         "harnais, hors ligne"
                     )
@@ -1333,9 +1335,9 @@ class AppSession:
         return [
             {
                 "id": server.id,
-                "label_fr": self._mcp_label(server.id),
+                "label_text": self._mcp_label(server.id),
                 "enabled": server.id in enabled,
-                "hosting_fr": "RÉSEAU" if server.network else "Local",
+                "hosting_text": "RÉSEAU" if server.network else "Local",
                 "network": server.network,
                 # Story 9: the tools whose documentation « Charger la documentation » loads.
                 "tools": tools.get(server.id, []),
@@ -1361,7 +1363,7 @@ class AppSession:
             parameters[arg] = text if arg in required else f"{text} (facultatif)"
         content = self._mcp_content.call_presets.get(name, []) if self._mcp_content else []
         presets = [
-            {"label_fr": p.label_fr, "args": {k: v for k, v in p.args.items() if k in params}}
+            {"label_text": p.label_text, "args": {k: v for k, v in p.args.items() if k in params}}
             for p in content
         ]
         return {"tool": name, "parameters": parameters, "presets": presets}
@@ -1372,9 +1374,9 @@ class AppSession:
         return [
             {
                 "id": skill_id,
-                "label_fr": self._skill_label(skill_id),
+                "label_text": self._skill_label(skill_id),
                 "enabled": skill_id in enabled,
-                "hosting_fr": "Local",
+                "hosting_text": "Local",
                 "network": False,
             }
             for skill_id in self._skill_ids()
@@ -1386,9 +1388,9 @@ class AppSession:
         return [
             {
                 "id": hook_id,
-                "label_fr": self._hook_label(hook_id),
+                "label_text": self._hook_label(hook_id),
                 "enabled": hook_id in enabled,
-                "hosting_fr": "Local",
+                "hosting_text": "Local",
                 "network": False,
             }
             for hook_id in self._hook_ids()
@@ -1407,9 +1409,9 @@ class AppSession:
             options.append(
                 {
                     "id": name,
-                    "label_fr": self._registry.label(name),
+                    "label_text": self._registry.label(name),
                     "enabled": name in enabled,
-                    "hosting_fr": "RÉSEAU" if spec.network else "Local",
+                    "hosting_text": "RÉSEAU" if spec.network else "Local",
                     "network": spec.network,
                     # Story 9: the form of a forced call, one field per parameter.
                     "parameters": {
@@ -1435,11 +1437,11 @@ class AppSession:
             "force": {
                 "kind": "delegate",
                 "target": DELEGATE,
-                "label_fr": text.force_label_fr,
-                "parameters": {"task": text.task_label_fr},
+                "label_text": text.force_label_text,
+                "parameters": {"task": text.task_label_text},
                 "presets": [p.model_dump() for p in text.presets],
             },
-            "limits_fr": (
+            "limits_text": (
                 f"Sous-agent : {n} appel{'s' if n > 1 else ''} au modèle au plus, nouveaux essais "
                 f"compris ; outils : {tools}, s'ils sont activés dans la brique Outils."
             ),
@@ -1449,24 +1451,24 @@ class AppSession:
         """Story 23: the card's « what leaves the workstation, and where to read it », built
         from `content/bricks/*.yaml` (AD-19): the network tools, in the registry's order, and
         the public MCP servers. None for a brick with nothing that can leave."""
-        if content is None or content.outbound_fr is None or brick_id not in ("tools", "mcp"):
+        if content is None or content.outbound_text is None or brick_id not in ("tools", "mcp"):
             return None
         servers = [self._mcp_label(s.id) for s in self._mcp_servers.values() if s.network]
         tools: list[str] = []
         if brick_id == "tools":
-            tools = [o["label_fr"] for o in self._tool_options() if o["network"]]
+            tools = [o["label_text"] for o in self._tool_options() if o["network"]]
             if not tools and not servers:
                 return None
         elif not servers:
             return None
         try:
-            return content.outbound_fr.format(
+            return content.outbound_text.format(
                 tools=_join_fr(tools) or "aucun outil réseau", servers=_join_fr(servers) or "aucun"
             )
         except (KeyError, IndexError, ValueError, AttributeError, TypeError) as exc:
             # A placeholder the session does not fill (`{x}`, `{tools.x}`, `{0}`): no line,
             # but the cards still go out.
-            _log.warning("outbound_fr of %s ignored: %s: %s", brick_id, type(exc).__name__, exc)
+            _log.warning("outbound_text of %s ignored: %s: %s", brick_id, type(exc).__name__, exc)
             return None
 
     def _emit_bricks(self) -> None:
@@ -1477,20 +1479,20 @@ class AppSession:
             lazy = self._mcp_lazy
         bricks = []
         for brick in self._bricks.values():
-            available, reason_fr = self._availability(brick.id)
+            available, reason_text = self._availability(brick.id)
             content = self._content.get(brick.id)
             bricks.append(
                 {
                     "id": brick.id,
-                    "label_fr": self._label(brick.id),
+                    "label_text": self._label(brick.id),
                     "category": brick.category,
                     "group": brick.group,
-                    "category_fr": content.category_fr if content else brick.category,
-                    "hosting_fr": content.hosting_fr if content else "",
-                    "explanation_fr": self._explanation(content),
+                    "category_text": content.category_text if content else brick.category,
+                    "hosting_text": content.hosting_text if content else "",
+                    "explanation_text": self._explanation(content),
                     "wanted": brick.id in wanted,
                     "available": available,
-                    "reason_fr": reason_fr,
+                    "reason_text": reason_text,
                     "pending": brick.id in pending,
                     "options": (
                         self._tool_options()
@@ -1503,13 +1505,13 @@ class AppSession:
                         if brick.id == "hooks"
                         else []
                     ),
-                    "limits_fr": self._limits_fr() if brick.id == "tools" else None,
-                    "outbound_fr": self._outbound_fr(brick.id, content),
+                    "limits_text": self._limits_fr() if brick.id == "tools" else None,
+                    "outbound_text": self._outbound_fr(brick.id, content),
                 }
             )
             if brick.id == "reasoning":
-                bricks[-1]["always_fr"] = self._always_fr()
-                bricks[-1]["limits_fr"] = self._reasoning_budget_fr()
+                bricks[-1]["always_text"] = self._always_fr()
+                bricks[-1]["limits_text"] = self._reasoning_budget_fr()
             if brick.id == "global_memory":
                 bricks[-1] |= self._memory_card()
             if brick.id == "subagent" and self._subagent_content is not None:
@@ -1517,14 +1519,14 @@ class AppSession:
             if brick.id == "rag":
                 bricks[-1] |= self._rag_offers() | {"rerank": self._rerank_card()}
             if brick.id == "compression" and self._compression_content is not None:
-                bricks[-1]["limits_fr"] = self._compression_content.limits_fr.format(
+                bricks[-1]["limits_text"] = self._compression_content.limits_text.format(
                     min_chars=self.cfg.compression_min_chars
                 )
             if brick.id == "mcp":
                 bricks[-1] |= {
                     "mode": "lazy" if lazy else "full",
-                    "lazy_label_fr": (
-                        self._mcp_content.lazy_label_fr if self._mcp_content else "Lazy loading"
+                    "lazy_label_text": (
+                        self._mcp_content.lazy_label_text if self._mcp_content else "Lazy loading"
                     ),
                 }
         text = custom if custom is not None else self._default_prompt
@@ -1536,10 +1538,11 @@ class AppSession:
             },
         )
 
-    def _error(self, message_fr: str, exc: BaseException | str, effect_fr: str) -> None:
+    def _error(self, message_text: str, exc: BaseException | str, effect_text: str) -> None:
         cause = exc if isinstance(exc, str) else f"{type(exc).__name__}: {exc}"
         get_journal().emit(
-            "harness_error", {"message_fr": message_fr, "cause": cause, "effect_fr": effect_fr}
+            "harness_error",
+            {"message_text": message_text, "cause": cause, "effect_text": effect_text},
         )
 
     def _localized(self, load: Callable[..., Any], *args: Any) -> Any:
@@ -1730,7 +1733,7 @@ class AppSession:
             return "error"
         with self._lock:
             previous = self._active
-            self.state, self.reason_fr = "model_load", self._load_reason(choice)
+            self.state, self.reason_text = "model_load", self._load_reason(choice)
             self._load_cancel = CancelToken()
         self._emit_state()
         return self._load(choice, previous, None, save=False)
@@ -1755,7 +1758,7 @@ class AppSession:
                 self._load_registry.check(choice.label, cost) if self._checked(choice) else None
             )
             if refusal is None:  # switched under the lock: a second choice racing it is refused
-                self.state, self.reason_fr = "model_load", self._load_reason(choice)
+                self.state, self.reason_text = "model_load", self._load_reason(choice)
                 self._load_cancel = CancelToken()  # lot E (E4): « Arrêter » from now on
         if refusal is not None:
             self._error(refusal, "budget mémoire dépassé (AD-8)", "Rien n'est libéré ni écrit.")
@@ -1796,14 +1799,14 @@ class AppSession:
                 {"model": model, "phase_label": phase_label}
                 | ({"window": window} if window is not None else {}),
             )
-        status, reason_fr, idle_fr = "error", None, _LOAD_FAILED_FR
+        status, reason_text, idle_text = "error", None, _LOAD_FAILED_FR
         with self._lock:
             cancel = self._load_cancel
         # Story 29: each step passed, with WaveStack's RSS, for the « LLM nu » screen.
         rss_before = self._rss_now()
         last_step = started
 
-        def step(name: str, label_fr: str) -> None:
+        def step(name: str, label_text: str) -> None:
             nonlocal last_step
             now = time.monotonic()
             with scoped(**off_turn):
@@ -1812,7 +1815,7 @@ class AppSession:
                     {
                         "model": model,
                         "step": name,
-                        "label_fr": label_fr,
+                        "label_text": label_text,
                         "elapsed_ms": _ms(now - started),
                         "duration_ms": _ms(now - last_step),
                         "rss_bytes": self._rss_now(),
@@ -1843,31 +1846,31 @@ class AppSession:
                     # AD-8: the probe's measure replaces the file size of the first check.
                     refusal = self._load_registry.check(choice.label, self._cost(choice))
                     if refusal is not None:
-                        over_fr = "Le modèle dépasse le budget mémoire une fois mesuré."
-                        raise _LoadFailed(over_fr, refusal)
+                        over_text = "Le modèle dépasse le budget mémoire une fois mesuré."
+                        raise _LoadFailed(over_text, refusal)
                 step("check", self._check_fr(choice, window))
                 self._install(choice, window)
                 step("engine", self._engine_fr(choice))
                 self._last_checkpoint(cancel)
                 step("ready", f"Prêt : {choice.label} est actif.")
-                status, idle_fr = "ok", None
+                status, idle_text = "ok", None
             except _LoadCancelled:
                 self._last_checkpoint(None)
-                reason_fr, idle_fr, status = self._load_cancelled(previous, window is not None)
+                reason_text, idle_text, status = self._load_cancelled(previous, window is not None)
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._last_checkpoint(None)  # « Arrêter » cannot stop the way back
-                reason_fr, idle_fr, status = self._load_failed(choice, previous, exc, window)
+                reason_text, idle_text, status = self._load_failed(choice, previous, exc, window)
             if status == "ok" and save:
-                reason_fr = self._save_choice(choice)
+                reason_text = self._save_choice(choice)
             if status == "ok" and window is not None:  # story 26: applied, then saved
                 with self._lock:
                     self._configured_window = window
-                reason_fr = self._save_window(window) or (
+                reason_text = self._save_window(window) or (
                     f"Fenêtre de contexte : {_fr(window)} tokens (conversation gardée)."
                 )
         except Exception as exc:  # noqa: BLE001 - AD-16: never let the worker die silently
             self._error("Le changement de modèle s'est interrompu.", exc, _NO_TURN_FR)
-            status, reason_fr, idle_fr = "error", str(exc), _LOAD_FAILED_FR
+            status, reason_text, idle_text = "error", str(exc), _LOAD_FAILED_FR
         finally:
             with self._lock:  # « Arrêter » acts on this load no longer
                 self._load_cancel = None
@@ -1889,11 +1892,11 @@ class AppSession:
                         "model": model,
                         "status": status,
                         "duration_ms": _ms(time.monotonic() - started),
-                        "reason_fr": reason_fr,
+                        "reason_text": reason_text,
                     }
                     | ({"memory": memory} if memory is not None else {}),
                 )
-            self._set_state("idle", idle_fr)
+            self._set_state("idle", idle_text)
             # AD-6, AD-9, AD-12: capabilities, window and model changed with the load.
             self._emit_architecture()
             self._emit_bricks()
@@ -1972,16 +1975,16 @@ class AppSession:
         rss_after = self._rss_now()
         if choice.kind == "cloud":
             provider = choice.entry.provider if choice.entry is not None else "le fournisseur"
-            where_fr = f"Aucune mémoire sur ce poste : le modèle tourne chez {provider}."
+            where_text = f"Aucune mémoire sur ce poste : le modèle tourne chez {provider}."
         elif choice.kind == "server":
-            where_fr = (
+            where_text = (
                 f"Chargé par {choice.provider}, dans son propre processus, en RAM de ce poste : "
                 f"environ {config.size_fr(cost)} comptés par le budget."
             )
         else:
             before = config.size_fr(rss_before) if rss_before else "?"
             after = config.size_fr(rss_after) if rss_after else "?"
-            where_fr = (
+            where_text = (
                 "Mémoire vive (RAM) du processeur, pas de carte graphique : WaveStack est passé "
                 f"de {before} à {after} ; le budget compte environ {config.size_fr(cost)}. Les "
                 "poids, lus en mmap, montent en RAM au premier appel."
@@ -1990,7 +1993,7 @@ class AppSession:
             "rss_before": rss_before,
             "rss_after": rss_after,
             "cost_bytes": cost,
-            "where_fr": where_fr,
+            "where_text": where_text,
         }
 
     def _load_failed(
@@ -2006,28 +2009,28 @@ class AppSession:
         cause: BaseException | str = exc
         reason: str | None = None  # lot E (E6): the French reason, when the cause is not
         if isinstance(exc, _LoadFailed):
-            message_fr, reason, idle_fr = exc.message_fr, exc.reason_fr, exc.idle_fr
-            cause = exc.detail or exc.reason_fr  # lot E (E6): the raw message, a detail
+            message_text, reason, idle_text = exc.message_text, exc.reason_text, exc.idle_text
+            cause = exc.detail or exc.reason_text  # lot E (E6): the raw message, a detail
         elif choice.entry is not None:
-            message_fr = f"Le modèle cloud {choice.label} n'a pas pu être préparé."
-            idle_fr = _CLOUD_FAILED_FR
+            message_text = f"Le modèle cloud {choice.label} n'a pas pu être préparé."
+            idle_text = _CLOUD_FAILED_FR
         elif choice.kind == "server":
-            message_fr = (
+            message_text = (
                 f"Le modèle {choice.label}, servi par {choice.provider}, n'a pas pu être préparé."
             )
-            idle_fr = None
+            idle_text = None
             if isinstance(exc, ServerError):
-                cause = exc.message_fr
+                cause = exc.message_text
             elif isinstance(exc, TokenizerRefused):  # the loader's message, a detail
-                cause, reason = exc.detail, exc.reason_fr
+                cause, reason = exc.detail, exc.reason_text
         else:
-            message_fr, idle_fr = "Le modèle n'a pas pu être chargé.", None
-        cause_fr = reason or (cause if isinstance(cause, str) else str(cause))
+            message_text, idle_text = "Le modèle n'a pas pu être chargé.", None
+        cause_text = reason or (cause if isinstance(cause, str) else str(cause))
         self._release()  # whatever the failed load left
         if previous is None:
-            self._error(message_fr, cause, _NO_TURN_FR)
-            return cause_fr, idle_fr or _LOAD_FAILED_FR, "error"
-        self._error(message_fr, cause, f"Retour au modèle précédent : {previous.label}.")
+            self._error(message_text, cause, _NO_TURN_FR)
+            return cause_text, idle_text or _LOAD_FAILED_FR, "error"
+        self._error(message_text, cause, f"Retour au modèle précédent : {previous.label}.")
         try:
             self._install(previous)
         except Exception as back:  # noqa: BLE001 - AD-16
@@ -2038,20 +2041,20 @@ class AppSession:
                 _NO_TURN_FR,
             )
             return (
-                f"{message_fr} Le modèle précédent ({previous.label}) n'a pas pu être rechargé.",
+                f"{message_text} Le modèle précédent ({previous.label}) n'a pas pu être rechargé.",
                 _LOAD_FAILED_FR,
                 "error",
             )
         if window is not None:
             return (
-                f"Fenêtre de {_fr(window)} tokens non appliquée ({cause_fr}) : "
+                f"Fenêtre de {_fr(window)} tokens non appliquée ({cause_text}) : "
                 f"{previous.label} est de nouveau actif avec {_fr(self._window)} "
                 "tokens.",
                 None,
                 "restored",
             )
         return (
-            f"{choice.label} n'a pas pu être chargé ({cause_fr}) : {previous.label} est de "
+            f"{choice.label} n'a pas pu être chargé ({cause_text}) : {previous.label} est de "
             "nouveau actif.",
             None,
             "restored",
@@ -2300,7 +2303,7 @@ class AppSession:
             if self.state != "idle" or self._active is not active:
                 raise SendRefused(self._refusal_reason())
             if refusal is None:  # switched under the lock: a second intention is refused
-                self.state, self.reason_fr = "model_load", self._reload_reason(active, window)
+                self.state, self.reason_text = "model_load", self._reload_reason(active, window)
                 self._load_cancel = CancelToken()  # « Arrêter » from now on
         if refusal is not None:
             self._error(
@@ -2391,27 +2394,27 @@ class AppSession:
         row: dict[str, Any] = {
             "window": window,
             "current": current,
-            "bound_fr": None,
+            "bound_text": None,
             "kv_bytes": None,
             "read_s": None,
             "fits": True,
-            "refusal_fr": None,
+            "refusal_text": None,
         }
         if active is None:
             return row | {
                 "effective": window,
                 "source": "configured",
-                "kv_fr": _KV_NO_MODEL_FR,
-                "read_fr": _READ_NO_MODEL_FR,
+                "kv_text": _KV_NO_MODEL_FR,
+                "read_text": _READ_NO_MODEL_FR,
             }
         if active.entry is not None:
             effective, source = config.cloud_window(active.entry, window)
             return row | {
                 "effective": effective,
                 "source": source,
-                "bound_fr": bound_fr(source, effective),
-                "kv_fr": _KV_CLOUD_FR,
-                "read_fr": _READ_CLOUD_FR,
+                "bound_text": bound_fr(source, effective),
+                "kv_text": _KV_CLOUD_FR,
+                "read_text": _READ_CLOUD_FR,
             }
         effective, source = window_for(meta, window) if meta else (window, "configured")
         llama = active.kind == "server" and active.provider == "llama-server"
@@ -2429,13 +2432,13 @@ class AppSession:
         return row | {
             "effective": effective,
             "source": source,
-            "bound_fr": bound_fr(source, effective, active.provider),
+            "bound_text": bound_fr(source, effective, active.provider),
             "kv_bytes": kv_bytes,
-            "kv_fr": kv_text,
+            "kv_text": kv_text,
             "read_s": round(read_s, 1) if read_s is not None else None,
-            "read_fr": f"Temps de lecture : {read_time_fr(effective, tps)}",
+            "read_text": f"Temps de lecture : {read_time_fr(effective, tps)}",
             "fits": refusal is None,
-            "refusal_fr": refusal,
+            "refusal_text": refusal,
         }
 
     def _window_state(self) -> dict[str, Any]:
@@ -2475,12 +2478,12 @@ class AppSession:
             "default": DEFAULT_WINDOW,
             "window": effective,
             "window_source": source,
-            "bound_fr": bound_fr(source, effective, active.provider if active else None),
+            "bound_text": bound_fr(source, effective, active.provider if active else None),
             "model_label": active.label if active else None,
             "hosting": active.kind if active else None,
             "read_tps": round(tps, 1) if tps else None,
-            "read_note_fr": note,
-            "locked_fr": self._locked_fr(active.entry if active else None),
+            "read_note_text": note,
+            "locked_text": self._locked_fr(active.entry if active else None),
             "choices": [
                 self._window_choice(n, active, meta, configured, tps, kv_per_token, effective)
                 for n in WINDOW_CHOICES
@@ -2501,21 +2504,21 @@ class AppSession:
         with scoped(turn_id=None, step_id=None, call_id=None, context_id=None):
             get_journal().emit("context_window_state", payload)
 
-    def hold(self, state: str, reason_fr: str, run: Callable[[], Any]) -> Any:
+    def hold(self, state: str, reason_text: str, run: Callable[[], Any]) -> Any:
         """AD-3: runs `run` holding the operation lock in `state` (`test_cloud_model`:
         `model_load`), then gives the previous state back. Refused (`SendRefused`) outside
         `idle` and `diagnostic`."""
         with self._lock:
             if self.state not in ("idle", "diagnostic"):
                 raise SendRefused(self._refusal_reason())
-            previous = (self.state, self.reason_fr)
-            self.state, self.reason_fr = state, reason_fr
+            previous = (self.state, self.reason_text)
+            self.state, self.reason_text = state, reason_text
         self._emit_state()
         try:
             return run()
         finally:
             with self._lock:  # a boot may have moved the session meanwhile: leave it there
-                mine = (self.state, self.reason_fr) == (state, reason_fr)
+                mine = (self.state, self.reason_text) == (state, reason_text)
             if mine:
                 self._set_state(*previous)
 
@@ -2699,13 +2702,13 @@ class AppSession:
                 "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
             )
             return
-        model, error_fr = self.cfg.rag_embedding
+        model, error_text = self.cfg.rag_embedding
         if model is None:
-            self._content_errors["rag"] = error_fr or "La section [rag.embedding] est invalide."
+            self._content_errors["rag"] = error_text or "La section [rag.embedding] est invalide."
             if self.cfg.get("rag", "embedding") is not None:  # absent: said by the card only
                 self._error(
                     "La déclaration du modèle d'embedding est invalide.",
-                    error_fr or "",
+                    error_text or "",
                     "La brique « RAG » est indisponible ; le reste de WaveStack fonctionne.",
                 )
             return
@@ -2723,13 +2726,13 @@ class AppSession:
         if model is None or content is None:
             return
         path = self.cfg.rag_index_path()
-        kind, reason, chunks, longest, missing, missing_fr = self._rag_index_state(model, content)
+        kind, reason, chunks, longest, missing, missing_text = self._rag_index_state(model, content)
         with self._lock:
             self._rag_index_kind, self._rag_index_error = kind, reason
             self._rag_chunks = chunks
             self._rag_stamp = _stamp(path)
             self._rag_longest, self._rag_missing = longest, missing
-            self._rag_missing_fr = missing_fr
+            self._rag_missing_text = missing_text
 
     def _rag_index_state(
         self, model: EmbeddingModel, content: RagContent
@@ -2778,19 +2781,21 @@ class AppSession:
             else:
                 chunks = meta.chunks
                 kind, reason = self._rag_index_mismatch(meta, model, content, build)
-        missing_fr = _missing_model_fr("d'embedding", model.label_fr, missing) if missing else None
-        return kind, reason, chunks, longest, missing, missing_fr
+        missing_text = (
+            _missing_model_fr("d'embedding", model.label_text, missing) if missing else None
+        )
+        return kind, reason, chunks, longest, missing, missing_text
 
     def _rerank_refresh(self) -> None:
         """Story 16: the reranker's files read again, and the reason they give."""
         model = self._rerank_model
         missing = download_module.missing_files(model.files, config.models_dir()) if model else []
-        missing_fr = None
+        missing_text = None
         if model is not None and missing:
             tail = " Le RAG fonctionne sans reranking."
-            missing_fr = _missing_model_fr("de reranking", model.label_fr, missing, tail)
+            missing_text = _missing_model_fr("de reranking", model.label_text, missing, tail)
         with self._lock:
-            self._rerank_missing, self._rerank_missing_fr = missing, missing_fr
+            self._rerank_missing, self._rerank_missing_text = missing, missing_text
 
     def _rag_index_mismatch(
         self, meta: rag_index.IndexMeta, model: EmbeddingModel, content: RagContent, build: str
@@ -2829,7 +2834,7 @@ class AppSession:
         then, once wanted, loading (6) and a refused or failed load (7)."""
         model = self._rag_model
         with self._lock:
-            index_error, missing_fr = self._rag_index_error, self._rag_missing_fr
+            index_error, missing_text = self._rag_index_error, self._rag_missing_text
             wanted = "rag" in self._wanted
             loading, load_error, loaded = (
                 self._rag_loading,
@@ -2838,12 +2843,12 @@ class AppSession:
             )
         if index_error is not None:
             return index_error
-        if missing_fr is not None:
-            return missing_fr
+        if missing_text is not None:
+            return missing_text
         if not wanted or loaded:
             return None
         if loading:
-            return f"Chargement du modèle d'embedding {model.label_fr if model else ''}…"
+            return f"Chargement du modèle d'embedding {model.label_text if model else ''}…"
         return load_error or (
             "Modèle d'embedding non chargé : désactivez puis réactivez la brique RAG."
         )
@@ -2862,10 +2867,10 @@ class AppSession:
             return none
         if missing:
             size_mb = max(1, round(sum(f.size for f in missing) / 1_000_000))
-            label = content.download_label_fr.format(size_mb=size_mb)
-            return none | {"download": {"target": RAG_TARGET, "label_fr": label}}
+            label = content.download_label_text.format(size_mb=size_mb)
+            return none | {"download": {"target": RAG_TARGET, "label_text": label}}
         if kind is not None:
-            return none | {"build_index": {"label_fr": content.build_label_fr}}
+            return none | {"build_index": {"label_text": content.build_label_text}}
         return none
 
     def _rag_index_detail(self) -> str:
@@ -2954,7 +2959,7 @@ class AppSession:
     ) -> tuple[Embedder | None, SqliteVecRetriever | None, str | None]:
         """The budget first (a refusal in figures, nothing loaded), then the file's identity
         (its declared sha256), then the load and the index's connection."""
-        label = f"le modèle d'embedding {model.label_fr}"
+        label = f"le modèle d'embedding {model.label_text}"
         cost = self._load_registry.component_cost(
             model.measured_rss_mb, [f.size for f in model.files]
         )
@@ -2997,7 +3002,7 @@ class AppSession:
                     "fichiers et propose de le télécharger à nouveau."
                 ),
             )
-        self._load_registry.grant(model.label_fr, cost, EMBEDDING)
+        self._load_registry.grant(model.label_text, cost, EMBEDDING)
         return embedder, retriever, None
 
     def _close_embedder(
@@ -3025,7 +3030,7 @@ class AppSession:
         if self._rerank_model is None:
             return self._rerank_config_error or "Indisponible : [rag.reranker] non configurée."
         with self._lock:
-            return self._rerank_missing_fr
+            return self._rerank_missing_text
 
     def _rerank_availability(self) -> tuple[bool, str | None]:
         """The sub-option's own availability, in order: its declaration, its files, then,
@@ -3043,7 +3048,7 @@ class AppSession:
         if not wanted or loaded:
             return True, None
         if loading:
-            return False, f"Chargement du modèle de reranking {model.label_fr if model else ''}…"
+            return False, f"Chargement du modèle de reranking {model.label_text if model else ''}…"
         if error is not None:
             return False, error
         if not embedder:  # the reranker loads after the embedding model, never alone
@@ -3070,20 +3075,20 @@ class AppSession:
             return None
         with self._lock:
             enabled, missing = self._rag_rerank, list(self._rerank_missing)
-        available, reason_fr = self._rerank_availability()
+        available, reason_text = self._rerank_availability()
         download = None
         if model is not None and missing:
             size_mb = max(1, round(sum(f.size for f in missing) / 1_000_000))
             download = {
                 "target": RERANK_TARGET,
-                "label_fr": content.rerank_download_label_fr.format(size_mb=size_mb),
+                "label_text": content.rerank_download_label_text.format(size_mb=size_mb),
             }
         return {
-            "label_fr": content.rerank_label_fr,
+            "label_text": content.rerank_label_text,
             "enabled": enabled,
             "available": available,
-            "reason_fr": reason_fr,
-            "hosting_fr": "Local",
+            "reason_text": reason_text,
+            "hosting_text": "Local",
             "download": download,
         }
 
@@ -3137,7 +3142,7 @@ class AppSession:
     def _load_reranker(self, model: RerankerModel) -> tuple[Reranker | None, str | None]:
         """The budget first (a refusal in figures, nothing loaded), then the file's declared
         sha256, then the load."""
-        label = f"le modèle de reranking {model.label_fr}"
+        label = f"le modèle de reranking {model.label_text}"
         cost = self._load_registry.component_cost(
             model.measured_rss_mb, [f.size for f in model.files]
         )
@@ -3174,7 +3179,7 @@ class AppSession:
                 f"({type(exc).__name__}: {exc}). Vérifiez le fichier {path}, ou supprimez-le "
                 "et cliquez sur « Télécharger »."
             )
-        self._load_registry.grant(model.label_fr, cost, RERANKER)
+        self._load_registry.grant(model.label_text, cost, RERANKER)
         return reranker, None
 
     def _close_reranker(self, reranker: Reranker | None) -> None:
@@ -3196,8 +3201,8 @@ class AppSession:
         with self._lock:
             compressor = self._compressor
         if compressor is not None:
-            return compressor.label_fr
-        return str(getattr(self._compressor_factory, "label_fr", "le compresseur"))
+            return compressor.label_text
+        return str(getattr(self._compressor_factory, "label_text", "le compresseur"))
 
     def _compression_unavailable(self) -> str | None:
         """Story 20: Headroom not installed (or another version), then, once wanted, loading
@@ -3211,7 +3216,7 @@ class AppSession:
         if not wanted or loaded:
             return None
         if loading:
-            named = getattr(self._compressor_factory, "label_fr", None)
+            named = getattr(self._compressor_factory, "label_text", None)
             return f"Chargement de {named}…" if named else "Chargement du compresseur…"
         return error or "Compresseur non chargé : désactivez puis réactivez la brique."
 
@@ -3289,7 +3294,7 @@ class AppSession:
                 "Réinstallez-le avec `uv sync --extra compression`, puis relancez WaveStack."
             )
         self._compressor_imported = True
-        self._load_registry.grant(compressor.label_fr, cost, COMPRESSOR)
+        self._load_registry.grant(compressor.label_text, cost, COMPRESSOR)
         return compressor, None
 
     def _close_compressor(self, compressor: Compressor | None) -> None:
@@ -3309,15 +3314,15 @@ class AppSession:
         """AD-1: the drawer and the card project the last `memory_changed`."""
         if "global_memory" not in self._bricks:
             return
-        error_fr = self._memory_unavailable_fr()
+        error_text = self._memory_unavailable_fr()
         with self._lock:
-            entries = [e.model_dump() for e in self._memory] if error_fr is None else []
+            entries = [e.model_dump() for e in self._memory] if error_text is None else []
         get_journal().emit(
             "memory_changed",
             {
                 "entries": entries,
                 "path": str(config.memory_path()),
-                "error_fr": error_fr,
+                "error_text": error_text,
                 "max_entries": memory_file.MAX_ENTRIES,
                 "max_chars": memory_file.MAX_CHARS,
             },
@@ -3327,7 +3332,7 @@ class AppSession:
 
     def _label(self, brick_id: str) -> str:
         content = self._content.get(brick_id)
-        return content.label_fr if content else brick_id
+        return content.label_text if content else brick_id
 
     def _availability(self, brick_id: str) -> tuple[bool, str | None]:
         """The single point computing `available` and its French reason (AD-12)."""
@@ -3345,9 +3350,9 @@ class AppSession:
             return False, self._content_errors[brick_id]
         if brick_id == "global_memory":
             with self._lock:
-                error_fr = self._memory_error
-            if error_fr is not None:
-                return False, error_fr
+                error_text = self._memory_error
+            if error_text is not None:
+                return False, error_text
         if brick_id == "rag" and (reason := self._rag_unavailable()) is not None:
             return False, reason
         if brick_id == "compression" and (reason := self._compression_unavailable()) is not None:
@@ -3396,15 +3401,17 @@ class AppSession:
     def _memory_card(self) -> dict[str, Any]:
         """What the memory card and its drawer say (AD-19): the note without a tool parser
         (H4), the empty drawer's text, the forced write's field help."""
-        note_fr = self._memory_note_fr()
+        note_text = self._memory_note_fr()
         content = self._memory_content
         if content is None:
-            return {"note_fr": note_fr}
+            return {"note_text": note_text}
         drawer = content.drawer
         return {
-            "note_fr": note_fr,
-            "empty_fr": drawer.empty_no_parser_fr if note_fr else drawer.empty_fr,
-            "text_help_fr": drawer.text_help_fr.replace("{max_chars}", str(memory_file.MAX_CHARS)),
+            "note_text": note_text,
+            "empty_text": drawer.empty_no_parser_text if note_text else drawer.empty_text,
+            "text_help_text": drawer.text_help_text.replace(
+                "{max_chars}", str(memory_file.MAX_CHARS)
+            ),
         }
 
     def _memory_note_fr(self) -> str | None:
@@ -3552,7 +3559,7 @@ class AppSession:
             memory=memory,
             subagent_tools=tuple(sub_tools),
             rag_rerank=rerank,
-            rag_rerank_skipped_fr=skipped,
+            rag_rerank_skipped_text=skipped,
         )
 
     # ---------- rendering ----------
@@ -3743,7 +3750,7 @@ class AppSession:
             parts.append(Joined((intro, *lines), sep="\n"))
         for s in state.skills:  # each body named by a header line, so they stay apart
             text = content.skills[s]
-            body = f"Skill « {text.label_fr} » ({s}) :\n{text.body}"
+            body = f"Skill « {text.label_text} » ({s}) :\n{text.body}"
             parts.append(Part(SegmentKind.SKILL_BODY, body, "skills", f"skills.{s}"))
         return parts
 
@@ -3958,7 +3965,7 @@ class AppSession:
             fields=chat_fields(entry, reserve, reasoning=self._reasoning_on(state)),
             markers=self.cfg.cloud_markers,
             estimate=lambda text: config.estimate_tokens(text, self.cfg.chars_per_token),
-            provider_label_fr=content.provider_segment_fr,
+            provider_label_text=content.provider_segment_text,
         )
         rendered.seen = seen_prefix(read_before, rendered.segments)
         payload = self._chat_gauge(
@@ -3968,7 +3975,7 @@ class AppSession:
             reserve,
         )
         if not payload["overflow"] and payload["used"] > payload["usable"]:
-            payload["uncertain_fr"] = content.uncertain_fr
+            payload["uncertain_text"] = content.uncertain_text
         return rendered, payload
 
     @staticmethod
@@ -4011,7 +4018,7 @@ class AppSession:
             state = replace(
                 state,
                 rag_excerpts=self._rag_texts(
-                    [(i, c.title_fr, c.text) for i, c in enumerate(longest, start=1)]
+                    [(i, c.title_text, c.text) for i, c in enumerate(longest, start=1)]
                 ),
             )
         try:
@@ -4026,11 +4033,11 @@ class AppSession:
         get_journal().emit("context_preview", payload)
 
     def _rag_texts(self, excerpts: list[tuple[int, str, str]]) -> tuple[str, ...]:
-        """The intro, then each `(position, title_fr, text)` in `excerpt_format_fr`."""
+        """The intro, then each `(position, title_text, text)` in `excerpt_format_text`."""
         content = self._rag_content
         if content is None or not excerpts:
             return ()
-        return (content.intro_fr, *(content.excerpt(*excerpt) for excerpt in excerpts))
+        return (content.intro_text, *(content.excerpt(*excerpt) for excerpt in excerpts))
 
     def _preview_injection(self, state: TurnState) -> str:
         """What the active `on_user_message` hooks would add, for the gauge only: no
@@ -4062,7 +4069,7 @@ class AppSession:
         """Starts a turn: `message`, or the replay of the last turn when `None`."""
         replay_of = None
         with self._memory_lock, self._lock:  # never while a drawer write or a reset runs
-            if self.state != "idle" or self._engine is None or self.reason_fr:
+            if self.state != "idle" or self._engine is None or self.reason_text:
                 raise SendRefused(self._refusal_reason())
             if message is None:
                 if self._last is None:
@@ -4076,7 +4083,7 @@ class AppSession:
             turn_id = f"t{self._turns}"
             cancel = self._cancel = CancelToken()
             # Switched under the lock, so a second `send` racing this one is refused.
-            self.state, self.reason_fr = "turn", _TURN_FR
+            self.state, self.reason_text = "turn", _TURN_FR
             # AD-3: the armed actions this turn takes; one armed from now waits for the next.
             armed = tuple(self._armed)
             self._last = (
@@ -4224,11 +4231,11 @@ class AppSession:
             brick = spec.brick or spec.component.split(".")[0]
             shown = ", ".join(str(value) for value in args.values())
             label = self._registry.label(target)
-            label_fr = f"{label} ({shown})" if shown else label
+            label_text = f"{label} ({shown})" if shown else label
         elif kind == "skill":
             if self._skills_content is None or target not in self._skill_ids():
                 raise ArmRefused(f"Skill inconnu : « {target} ». Rien n'est armé.", not_found=True)
-            args, brick, label_fr = {}, "skills", self._skill_label(target)
+            args, brick, label_text = {}, "skills", self._skill_label(target)
         elif kind == "tool_doc":
             spec = self._registry.get(target)
             if self._mcp_content is None or spec is None or not spec.is_mcp:
@@ -4237,7 +4244,7 @@ class AppSession:
                     "Rien n'est armé.",
                     not_found=True,
                 )
-            args, brick, label_fr = {}, "mcp", f"Documentation de {target}"
+            args, brick, label_text = {}, "mcp", f"Documentation de {target}"
         elif kind == "memory":
             if self._memory_content is None or target != REMEMBER:
                 raise ArmRefused(
@@ -4248,7 +4255,11 @@ class AppSession:
             except ValueError as exc:
                 raise ArmRefused(f"{exc} Rien n'est armé.") from None
             shown = text if len(text) <= 40 else f"{text[:40].rstrip()}…"
-            args, brick, label_fr = {"text": text}, "global_memory", f"Écrire en mémoire ({shown})"
+            args, brick, label_text = (
+                {"text": text},
+                "global_memory",
+                f"Écrire en mémoire ({shown})",
+            )
         elif kind == "delegate":  # story 19: the card's action, its target fixed
             if self._subagent_content is None or target != DELEGATE:
                 raise ArmRefused(
@@ -4269,12 +4280,12 @@ class AppSession:
             if not task:
                 raise ArmRefused("La tâche du sous-agent est vide. Rien n'est armé.")
             shown = task if len(task) <= 40 else f"{task[:40].rstrip()}…"
-            args, brick, label_fr = {"task": task}, "subagent", f"Délégation : « {shown} »"
+            args, brick, label_text = {"task": task}, "subagent", f"Délégation : « {shown} »"
         else:
             raise ArmRefused(f"Action inconnue : « {kind} ». Rien n'est armé.", not_found=True)
         with self._lock:
             self._arms += 1
-            action = ArmedAction(f"arm{self._arms}", kind, brick, target, args, label_fr)
+            action = ArmedAction(f"arm{self._arms}", kind, brick, target, args, label_text)
             self._armed.append(action)
         self._emit_armed()
         return action.armed_id
@@ -4339,7 +4350,7 @@ class AppSession:
                     component="core.harness",
                     source="harness",
                     brick="skills",
-                    label_fr=text.label_fr,
+                    label_text=text.label_text,
                     description=text.description,  # the catalog is in the system message
                     schema={
                         "type": "object",
@@ -4359,7 +4370,7 @@ class AppSession:
                     component="core.harness",
                     source="harness",
                     brick="global_memory",
-                    label_fr=text.label_fr,
+                    label_text=text.label_text,
                     description=text.description,
                     schema={
                         "type": "object",
@@ -4379,7 +4390,7 @@ class AppSession:
                     component="subagent.agent",
                     source="harness",
                     brick="subagent",
-                    label_fr=text.phase_label_fr,  # the working indicator's phase (EXPERIENCE)
+                    label_text=text.phase_label_text,  # the working indicator's phase (EXPERIENCE)
                     description=text.delegate.description,
                     schema={
                         "type": "object",
@@ -4415,7 +4426,7 @@ class AppSession:
         started = time.monotonic()
         # `estimated`: chat mode, the context's figures not reconciled by `usage` (AD-4).
         figures = {"calls": 0, "context_tokens": 0, "kept_tokens": 0, "estimated": 0}
-        outcome = _SubOutcome("error", message_fr="le sous-agent s'est interrompu.")
+        outcome = _SubOutcome("error", message_text="le sous-agent s'est interrompu.")
         saved = self._save_main_state()  # AD-11 (N2): the main context's cache, kept
         # AD-11: every event of the sub-agent hangs on the step of `delegate`; the trigger
         # (model or user) is inherited.
@@ -4429,7 +4440,7 @@ class AppSession:
         ):
             journal.emit(
                 "subagent_started",
-                {"task": task, "tools": list(sub.tools), "phase_label": text.phase_label_fr},
+                {"task": task, "tools": list(sub.tools), "phase_label": text.phase_label_text},
             )
             try:
                 outcome = self._run_subagent(sub, state, cancel, figures)
@@ -4445,7 +4456,7 @@ class AppSession:
                 failure = None if done else self._delegation_failure(outcome)
                 # What the main context reads: the result, or the error the executor
                 # reinjects in its place (« Erreur : … »).
-                result = outcome.result if done else f"Erreur : {failure.message_fr}"
+                result = outcome.result if done else f"Erreur : {failure.message_text}"
                 result_tokens, estimated = self._count_tokens(result)
                 # The saving: what the main context would have read (every tool reply that
                 # stayed in the sub-agent, errors and refusals included) against the result it
@@ -4515,7 +4526,7 @@ class AppSession:
             )
         status = outcome.status if outcome.status in ("limit", "overflow") else "error"
         return DelegationFailed(
-            f"La délégation au sous-agent a échoué : {outcome.message_fr} Réponds sans ce "
+            f"La délégation au sous-agent a échoué : {outcome.message_text} Réponds sans ce "
             "résultat, ou délègue une tâche plus simple.",
             status,
         )
@@ -4571,7 +4582,7 @@ class AppSession:
         steps: list[dict[str, Any]] = []
         previous: tuple[list[int], str] | None = None
         read_before: list[Segment] | None = None  # story 32: its previous call's segments
-        stopped = _SubOutcome("cancelled", message_fr="délégation arrêtée.")
+        stopped = _SubOutcome("cancelled", message_text="délégation arrêtée.")
         for n in range(1, max_calls + 1):
             call_id = f"{turn_id}.{cid}.c{n}"
             with scoped(call_id=call_id):
@@ -4579,7 +4590,7 @@ class AppSession:
             if decided is not None and decided[1].decision == "block":
                 label = self._hook_label(decided[0])
                 return _SubOutcome(
-                    "error", message_fr=f"le hook « {label} » a bloqué son appel au modèle."
+                    "error", message_text=f"le hook « {label} » a bloqué son appel au modèle."
                 )
             step += 1
             with scoped(call_id=call_id, step_id=f"{turn_id}.{cid}.s{step}"):
@@ -4595,8 +4606,8 @@ class AppSession:
                     self._emit_overflow(payload, getattr(rendered, "raw_total", None))
                     return _SubOutcome(
                         "overflow",
-                        message_fr=f"son contexte est dépassé ({_fr(payload['used'])} tokens pour "
-                        f"{_fr(payload['usable'])} utilisables).",
+                        message_text=f"son contexte est dépassé ({_fr(payload['used'])} "
+                        f"tokens pour {_fr(payload['usable'])} utilisables).",
                     )
                 figures["calls"] += 1
                 out = self._call_model(
@@ -4611,10 +4622,12 @@ class AppSession:
             if out.status == "limit":  # `output_truncated` emitted in `sub{n}` (AD-9)
                 return _SubOutcome(
                     "limit",
-                    message_fr=f"sa sortie a été coupée à {_fr(payload['reserve'])} tokens.",
+                    message_text=f"sa sortie a été coupée à {_fr(payload['reserve'])} tokens.",
                 )
             if out.status != "completed":  # a provider's refusal, traced in `sub{n}` (AD-16)
-                return _SubOutcome("error", message_fr=out.message_fr or "appel au modèle refusé.")
+                return _SubOutcome(
+                    "error", message_text=out.message_text or "appel au modèle refusé."
+                )
             if not out.calls and out.malformed is None:
                 return _SubOutcome("completed", result=out.text.strip() or _NO_SUB_TEXT_FR)
             if isinstance(rendered, RenderedContext):
@@ -4628,7 +4641,7 @@ class AppSession:
                     step += 1
                     with scoped(step_id=f"{turn_id}.{cid}.s{step}"):
                         error = self._tool_executor.reject(
-                            out.raw, out.malformed.fragment, out.malformed.detail_fr, reaction
+                            out.raw, out.malformed.fragment, out.malformed.detail_text, reaction
                         )
                     steps.append(
                         {
@@ -4681,14 +4694,14 @@ class AppSession:
                     self._emit_limit("sub_retries", retries)
                     return _SubOutcome(
                         "limit",
-                        message_fr=f"{retries} appels d'outil refusés (mal formés, outil inconnu "
+                        message_text=f"{retries} appels d'outil refusés (mal formés, outil inconnu "
                         "ou arguments invalides).",
                     )
             if cancel.cancelled:
                 return stopped
         self._emit_limit("sub_calls", max_calls)
         return _SubOutcome(
-            "limit", message_fr=f"il a atteint sa borne de {max_calls} appels au modèle."
+            "limit", message_text=f"il a atteint sa borne de {max_calls} appels au modèle."
         )
 
     @staticmethod
@@ -4758,7 +4771,7 @@ class AppSession:
             component="core.harness",
             source="harness",
             brick="mcp",
-            label_fr=text.label_fr,
+            label_text=text.label_text,
             description=text.intro,  # the lines of the loadable tools follow, per turn
             schema={
                 "type": "object",
@@ -4934,8 +4947,8 @@ class AppSession:
         demo = self._memory_content.demo
         with self._memory_lock:
             with self._lock:
-                entries, error_fr = list(self._memory), self._memory_error
-            if error_fr is None and memory_file.is_demo(entries, demo):
+                entries, error_text = list(self._memory), self._memory_error
+            if error_text is None and memory_file.is_demo(entries, demo):
                 return
             writes = [MemoryWrite(op="delete", entry_id=e.id, text=e.text) for e in entries]
             writes += [
@@ -5032,19 +5045,19 @@ class AppSession:
         with self._lock:
             current_conn = self._mcp_conns.get(server_id)
         names: list[str] = []
-        error_fr = None
+        error_text = None
         if error is not None:
-            error_fr = (
+            error_text = (
                 str(error)
                 if conn is None
                 else describe_error(error, self.cfg.mcp_connect_timeout_s)
             )
         if conn is not current_conn:  # disabled or closed meanwhile: nothing to apply
-            error_fr = "Connexion abandonnée : le serveur a été désactivé."
-        elif error_fr is not None:
+            error_text = "Connexion abandonnée : le serveur a été désactivé."
+        elif error_text is not None:
             with self._lock:
                 self._mcp_conns.pop(server_id, None)
-                self._mcp_state[server_id] = ("unavailable", error_fr)
+                self._mcp_state[server_id] = ("unavailable", error_text)
         else:
             specs = [self._mcp_spec(server, conn, tool) for tool in tools]
             self._registry.remove(f"{server_id}__")
@@ -5056,9 +5069,9 @@ class AppSession:
                 "mcp_connect_ended",
                 {
                     "server": server_id,
-                    "status": "ok" if error_fr is None else "error",
+                    "status": "ok" if error_text is None else "error",
                     "tools": names,
-                    "error_fr": error_fr,
+                    "error_text": error_text,
                     "duration_ms": _ms(ended - started),
                 },
             )
@@ -5109,13 +5122,13 @@ class AppSession:
             conn.close(wait=False)
         self._executor.submit(self._registry.remove, f"{server_id}__")
 
-    def _mcp_failed(self, server_id: str, reason_fr: str | None) -> None:
+    def _mcp_failed(self, server_id: str, reason_text: str | None) -> None:
         """On the worker: a call could not reach its server, which becomes `unavailable`."""
         with self._lock:
             conn = self._mcp_conns.pop(server_id, None)
             if conn is None:  # disabled during the call: it stays « non contacté »
                 return
-            self._mcp_state[server_id] = ("unavailable", reason_fr)
+            self._mcp_state[server_id] = ("unavailable", reason_text)
         conn.close(wait=False)
         self._registry.remove(f"{server_id}__")
 
@@ -5265,8 +5278,8 @@ class AppSession:
         if old_demo is None or content is None or content.demo == old_demo:
             return
         with self._lock:
-            entries, error_fr = list(self._memory), self._memory_error
-        if error_fr is not None or not memory_file.is_demo(entries, old_demo):
+            entries, error_text = list(self._memory), self._memory_error
+        if error_text is not None or not memory_file.is_demo(entries, old_demo):
             return
         if config.memory_path().exists():
             self._restore_memory()  # the file is written again, as by « Réinitialiser »
@@ -5311,7 +5324,7 @@ class AppSession:
             return []
         return [
             [self._fill(t) for t in block] if isinstance(block, list) else self._fill(block)
-            for block in content.explanation_fr
+            for block in content.explanation_text
         ]
 
     def _emit_scenario(self, *, refresh: bool = False) -> None:
@@ -5344,7 +5357,7 @@ class AppSession:
             reason = self._capability_reason(brick_id)
             if reason is not None:
                 unavailable.append(
-                    {"brick": brick_id, "label_fr": self._label(brick_id), "reason_fr": reason}
+                    {"brick": brick_id, "label_text": self._label(brick_id), "reason_text": reason}
                 )
         return unavailable
 
@@ -5415,8 +5428,8 @@ class AppSession:
     def _refusal_reason(self) -> str:
         if self.state == "turn":
             return "Un tour est déjà en cours : attendez sa fin ou cliquez sur « Arrêter »."
-        if self.reason_fr:
-            return self.reason_fr
+        if self.reason_text:
+            return self.reason_text
         return "Aucun modèle n'est chargé : terminez le diagnostic de démarrage."
 
     def stop(self) -> bool:
@@ -5482,14 +5495,14 @@ class AppSession:
         ).start()
         return self._download_fr(0, total, noun)
 
-    def _enter_rag_job(self, state: str, reason_fr: str, cancel: CancelToken) -> str | None:
+    def _enter_rag_job(self, state: str, reason_text: str, cancel: CancelToken) -> str | None:
         """`download` or `index_build`, switched under the lock from `idle` (class b). Returns
         the reason `idle` had (e.g. no model loaded), given back afterwards."""
         with self._lock:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
-            previous = self.reason_fr
-            self.state, self.reason_fr = state, reason_fr
+            previous = self.reason_text
+            self.state, self.reason_text = state, reason_text
             self._download_cancel = cancel
         self._emit_state()
         return previous
@@ -5508,7 +5521,7 @@ class AppSession:
         return f"Téléchargement du modèle {noun} : {percent} % ({_mo(done)} / {_mo(total)} Mo)"
 
     def _throttled(self, state: str, text: Callable[[int, int], str]) -> Callable[[int, int], None]:
-        """A progress callback: `session_state.reason_fr` at most once a second."""
+        """A progress callback: `session_state.reason_text` at most once a second."""
         last = time.monotonic()
 
         def progress(done: int, total: int) -> None:
@@ -5519,7 +5532,7 @@ class AppSession:
             with self._lock:
                 if self.state != state:
                     return
-                self.reason_fr = text(done, total)
+                self.reason_text = text(done, total)
             self._emit_state()
 
         return progress
@@ -5550,7 +5563,7 @@ class AppSession:
                     transport=self._download_transport,
                 )
         except download_module.DownloadError as exc:
-            failed, stopped = exc.reason_fr, exc.cancelled
+            failed, stopped = exc.reason_text, exc.cancelled
         except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
             failed = f"{type(exc).__name__}: {exc}"
         with self._lock:
@@ -5688,7 +5701,7 @@ class AppSession:
 
     def _build_embedder(self, model: EmbeddingModel) -> tuple[Embedder | None, str | None]:
         """The build's embedding model, loaded as the brick's is (budget, then load)."""
-        label = f"le modèle d'embedding {model.label_fr}"
+        label = f"le modèle d'embedding {model.label_text}"
         cost = self._load_registry.component_cost(
             model.measured_rss_mb, [f.size for f in model.files]
         )
@@ -5701,7 +5714,7 @@ class AppSession:
             return None, (
                 f"le modèle d'embedding n'a pas pu être chargé ({type(exc).__name__}: {exc})"
             )
-        self._load_registry.grant(model.label_fr, cost, EMBEDDING)
+        self._load_registry.grant(model.label_text, cost, EMBEDDING)
         return embedder, None
 
     def answer_approval(self, approval_id: str, approved: bool, disable_hook: bool) -> None:
@@ -5761,7 +5774,7 @@ class AppSession:
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error(
                     # Story 18: a local server stopped while the prompt was tokenized.
-                    exc.message_fr
+                    exc.message_text
                     if isinstance(exc, ServerError)
                     else "Le tour s'est interrompu sur une erreur.",
                     exc,
@@ -5829,12 +5842,12 @@ class AppSession:
         if "rag" in state.effective:  # story 15: once per turn, main context, before any call
             step += 1
             excerpts = self._rag_search(
-                turn_id, step, message, state.rag_rerank, state.rag_rerank_skipped_fr
+                turn_id, step, message, state.rag_rerank, state.rag_rerank_skipped_text
             )
             if state.rag_rerank and excerpts and not cancel.cancelled:  # story 16: its own step
                 step += 1
                 excerpts = self._rag_rerank_step(turn_id, step, message, excerpts, cancel)
-            texts = [(e.position, e.title_fr, e.text) for e in excerpts[: self.cfg.rag_top_k]]
+            texts = [(e.position, e.title_text, e.text) for e in excerpts[: self.cfg.rag_top_k]]
             state = replace(state, rag_excerpts=self._rag_texts(texts))
             if cancel.cancelled:
                 return "cancelled", "", ""
@@ -5904,7 +5917,7 @@ class AppSession:
                     step += 1
                     with scoped(step_id=f"{turn_id}.main.s{step}"):
                         error = self._tool_executor.reject(
-                            out.raw, out.malformed.fragment, out.malformed.detail_fr, reaction
+                            out.raw, out.malformed.fragment, out.malformed.detail_text, reaction
                         )
                     # The output without its reasoning, the reasoning apart (AD-4); in chat
                     # mode, the raw output AD-10 reinjects.
@@ -6000,19 +6013,19 @@ class AppSession:
         if compressor is None or content is None:
             return step, state  # unloaded meanwhile: the turn goes on uncompressed
         minimum = self.cfg.compression_min_chars
-        # (source_fr, kind, brick, component, text, where: ("step" | "rag", index))
+        # (source_text, kind, brick, component, text, where: ("step" | "rag", index))
         candidates: list[tuple[str, SegmentKind, str | None, str | None, str, tuple]] = []
         if first:
             for i, text in enumerate(state.rag_excerpts):
                 if i > 0 and len(text.strip()) >= minimum:  # 0: the excerpts' intro
-                    source = content.rag_source_fr.format(n=i)
+                    source = content.rag_source_text.format(n=i)
                     candidates.append(
                         (source, SegmentKind.RAG_EXCERPT, "rag", "rag.retriever", text, ("rag", i))
                     )
         for i in range(sent, len(steps)):
             reply = steps[i]
             if self._compressible(reply):
-                source = content.tool_source_fr.format(tool=reply.get("name"))
+                source = content.tool_source_text.format(tool=reply.get("name"))
                 candidates.append(
                     (
                         source,
@@ -6044,10 +6057,10 @@ class AppSession:
             journal.emit(
                 "compression_started",
                 {
-                    "phase_label": content.phase_label_fr,
-                    "title_fr": content.step_title_fr,
+                    "phase_label": content.phase_label_text,
+                    "title_text": content.step_title_text,
                     "items": len(candidates),
-                    "compressor_fr": compressor.label_fr,
+                    "compressor_text": compressor.label_text,
                 },
             )
             started = time.monotonic()
@@ -6081,14 +6094,14 @@ class AppSession:
                     "compression_ended",
                     {
                         "status": "error" if errors else "ok",
-                        "compressor_fr": compressor.label_fr,
+                        "compressor_text": compressor.label_text,
                         "items": items,
                         "tokens_before": total_before,
                         "tokens_after": total_after,
                         "saved_tokens": max(0, total_before - total_after),
                         "estimated": estimated,
-                        "unchanged_fr": content.unchanged_fr,
-                        "error_fr": " ".join(errors) or None,
+                        "unchanged_text": content.unchanged_text,
+                        "error_text": " ".join(errors) or None,
                         "duration_ms": _ms(time.monotonic() - started),
                     },
                 )
@@ -6109,24 +6122,24 @@ class AppSession:
         `text_after` is then left out of the trace (the original is already there)."""
         original = text.strip()
         before, estimated = self._count_tokens(original)
-        after_text, transforms, error_fr = original, (), None
+        after_text, transforms, error_text = original, (), None
         try:
             result = compressor.compress(text)
             after_text = (result.text or "").strip()
             transforms = tuple(str(t) for t in (result.transforms or ()))
         except Exception as exc:  # noqa: BLE001 - AD-16: the original goes on
-            error_fr = f"{source} : la compression a échoué ({type(exc).__name__}: {exc})."
-            errors.append(error_fr)
+            error_text = f"{source} : la compression a échoué ({type(exc).__name__}: {exc})."
+            errors.append(error_text)
             self._error(
                 "La compression d'un texte a échoué.",
                 exc,
                 "Le texte d'origine part tel quel ; le tour continue.",
             )
         after, estimate_after = self._count_tokens(after_text) if after_text else (0, False)
-        changed = error_fr is None and bool(after_text) and after_text != original
+        changed = error_text is None and bool(after_text) and after_text != original
         changed = changed and after < before
         return {
-            "source_fr": source,
+            "source_text": source,
             "kind": kind.value,
             "tokens_before": before,
             "tokens_after": after if changed else before,
@@ -6134,7 +6147,7 @@ class AppSession:
             "text_after": after_text if changed else None,
             "changed": changed,
             "transforms": list(transforms),
-            "error_fr": error_fr,
+            "error_text": error_text,
             "estimated": estimated or estimate_after,
         }
 
@@ -6171,19 +6184,19 @@ class AppSession:
         step: int,
         message: str,
         rerank: bool = False,
-        rerank_skipped_fr: str | None = None,
+        rerank_skipped_text: str | None = None,
     ) -> list[Excerpt]:
         """Story 15 (AD-2, AD-22): the search, a step of the harness with its pair of events.
         Returns the excerpts found; a failure is traced and the turn goes on without excerpts
         (as a failing hook lets the turn through). Story 16: with `rerank`, the reranker's
-        candidates, none of which goes to the context directly; `rerank_skipped_fr`: why the
+        candidates, none of which goes to the context directly; `rerank_skipped_text`: why the
         reranking enabled does not apply to this turn, said by the step."""
         content = self._rag_content
         assert content is not None  # the brick is unavailable without it
         top_k = self.cfg.rag_top_k
-        placement_fr = content.placement_fr
+        placement_text = content.placement_text
         if rerank:
-            placement_fr = content.rerank_search_placement_fr.format(
+            placement_text = content.rerank_search_placement_text.format(
                 candidates=self.cfg.rag_rerank_candidates, keep=top_k
             )
             top_k = self.cfg.rag_rerank_candidates
@@ -6198,7 +6211,7 @@ class AppSession:
         with scoped(**scope):
             journal.emit(
                 "rag_search_started",
-                {"query": message, "top_k": top_k, "phase_label": content.phase_label_fr},
+                {"query": message, "top_k": top_k, "phase_label": content.phase_label_text},
             )
             started = time.monotonic()
             try:
@@ -6212,13 +6225,13 @@ class AppSession:
                     {
                         "status": "error",
                         "excerpts": [],
-                        "placement_fr": placement_fr,
-                        "error_fr": (
+                        "placement_text": placement_text,
+                        "error_text": (
                             f"La recherche a échoué ({type(exc).__name__}: {exc}). Le tour "
                             "continue sans extraits RAG."
                         ),
                         "duration_ms": _ms(time.monotonic() - started),
-                        "rerank_skipped_fr": rerank_skipped_fr,
+                        "rerank_skipped_text": rerank_skipped_text,
                     },
                 )
                 return []
@@ -6227,10 +6240,10 @@ class AppSession:
                 {
                     "status": "ok",
                     "excerpts": [e.payload() for e in excerpts],
-                    "placement_fr": placement_fr,
-                    "error_fr": None,
+                    "placement_text": placement_text,
+                    "error_text": None,
                     "duration_ms": _ms(time.monotonic() - started),
-                    "rerank_skipped_fr": rerank_skipped_fr,
+                    "rerank_skipped_text": rerank_skipped_text,
                 },
             )
         return excerpts
@@ -6252,7 +6265,7 @@ class AppSession:
         content = self._rag_content
         assert content is not None  # the brick is unavailable without it
         keep = min(self.cfg.rag_top_k, len(candidates))
-        placement_fr = content.rerank_placement_fr.format(candidates=len(candidates), keep=keep)
+        placement_text = content.rerank_placement_text.format(candidates=len(candidates), keep=keep)
         journal = get_journal()
         scope = {
             "step_id": f"{turn_id}.main.s{step}",
@@ -6273,7 +6286,7 @@ class AppSession:
                     "query": message,
                     "candidates": len(candidates),
                     "keep": keep,
-                    "phase_label": content.rerank_phase_label_fr,
+                    "phase_label": content.rerank_phase_label_text,
                 },
             )
             started = time.monotonic()
@@ -6283,7 +6296,7 @@ class AppSession:
                 if reranker is None:
                     raise RuntimeError("le modèle de reranking n'est pas chargé")
                 # As the index embeds them: each excerpt with its document's title.
-                passages = [f"{c.title_fr}\n{c.text}" for c in candidates]
+                passages = [f"{c.title_text}\n{c.text}" for c in candidates]
                 raw = reranker.score(message, passages, lambda: cancel.cancelled, progress)
                 if len(raw) != len(candidates):
                     raise ValueError(f"{len(raw)} scores pour {len(candidates)} extraits")
@@ -6308,8 +6321,8 @@ class AppSession:
                         "status": "cancelled" if stopped else "error",
                         "excerpts": [],
                         "keep": keep,
-                        "placement_fr": placement_fr,
-                        "error_fr": (
+                        "placement_text": placement_text,
+                        "error_text": (
                             "Reranking arrêté."
                             if stopped
                             else f"Le reranking a échoué ({type(exc).__name__}: {exc}). Le tour "
@@ -6329,7 +6342,7 @@ class AppSession:
                     "before": candidates[i].position,
                     "chunk_id": candidates[i].chunk_id,
                     "doc_id": candidates[i].doc_id,
-                    "title_fr": candidates[i].title_fr,
+                    "title_text": candidates[i].title_text,
                     "score": scores[i],
                     "retrieval_score": candidates[i].score,
                     "truncated": truncated[i],
@@ -6342,8 +6355,8 @@ class AppSession:
                     "status": "ok",
                     "excerpts": reranked,
                     "keep": keep,
-                    "placement_fr": placement_fr,
-                    "error_fr": None,
+                    "placement_text": placement_text,
+                    "error_text": None,
                     "duration_ms": _ms(time.monotonic() - started),
                 },
             )
@@ -6369,7 +6382,7 @@ class AppSession:
         if decided is not None:
             hook_id, result = decided
             if result.decision == "block":  # not a new attempt (AD-10)
-                return result.detail_fr, hook_id
+                return result.detail_text, hook_id
             if result.arguments is not None:
                 call = replace(call, arguments=result.arguments)
             if result.decision == "ask_human" and result.preview is not None:
@@ -6487,8 +6500,8 @@ class AppSession:
                         "action_dropped",
                         {
                             "armed_id": action.armed_id,
-                            "reason_fr": (
-                                f"Action forcée « {action.label_fr} » abandonnée : "
+                            "reason_text": (
+                                f"Action forcée « {action.label_text} » abandonnée : "
                                 f"{(reason or '').rstrip('.')}. Le tour continue sans elle."
                             ),
                         },
@@ -6620,7 +6633,7 @@ class AppSession:
                 self._approval = approval
                 waiting = self._cancel is None or not self._cancel.cancelled
                 if waiting:
-                    self.state, self.reason_fr = "awaiting_human", _AWAITING_FR
+                    self.state, self.reason_text = "awaiting_human", _AWAITING_FR
                 else:  # stopped just before
                     approval.decision = "cancelled"
             journal.emit(
@@ -6713,9 +6726,9 @@ class AppSession:
                         "hook": hook.id,
                         "point": point,
                         "decision": result.decision,
-                        "detail_fr": result.detail_fr,
-                        "hook_fr": label,
-                        "point_fr": texts.points[point] if texts else point,
+                        "detail_text": result.detail_text,
+                        "hook_text": label,
+                        "point_text": texts.points[point] if texts else point,
                     },
                 )
                 for effect in result.effects:  # AD-23: the session alone writes
@@ -6801,7 +6814,7 @@ class AppSession:
 
     def _emit_limit(self, limit: str, n: int) -> None:
         get_journal().emit(
-            "limit_reached", {"limit": limit, "message_fr": _LIMITS_FR[limit].format(n=n)}
+            "limit_reached", {"limit": limit, "message_text": _LIMITS_FR[limit].format(n=n)}
         )
 
     def _check_prefix(self, previous_ids: list[int], raw: str, ids: list[int]) -> None:
@@ -6815,7 +6828,7 @@ class AppSession:
                 {
                     "common_tokens": common,
                     "cause": "in_turn",
-                    "message_fr": (
+                    "message_text": (
                         f"Cet appel ne prolonge pas exactement le précédent : seuls "
                         f"{_fr(common)} tokens sur {_fr(len(expected))} sont réutilisés, le "
                         "modèle relit le reste. Le gabarit réécrit la sortie du modèle "
@@ -6886,7 +6899,7 @@ class AppSession:
             tail = f" Le moteur relit les {_fr(again)} tokens du contexte."
         get_journal().emit(
             "prefix_not_reused",
-            {"common_tokens": common, "cause": cause, "message_fr": why + tail},
+            {"common_tokens": common, "cause": cause, "message_text": why + tail},
         )
 
     def _diverging_cause(self, rendered: RenderedContext, common: int) -> str:
@@ -6933,18 +6946,18 @@ class AppSession:
         if heaviest == SegmentKind.TOOL_RESULT:
             cause = cause.format(compression=self._compression_hint_fr())
         if self._ratio_key() == "sub" and self._subagent_content is not None:
-            cause = self._subagent_content.overflow_cause_fr  # AD-11: the sub-agent's context
+            cause = self._subagent_content.overflow_cause_text  # AD-11: the sub-agent's context
         get_journal().emit(
             "context_overflow",
             {
                 "used": used if raw_used is None else raw_used,
                 "usable": usable,
-                "message_fr": (
+                "message_text": (
                     f"Le contexte compte {shown} tokens pour {_fr(usable)} utilisables "
                     f"(fenêtre de {_fr(payload['window'])} moins {_fr(payload['reserve'])} "
                     f"réservés à la réponse). {cause}"
                 ),
-                "strategies_fr": _OVERFLOW_STRATEGIES_FR,
+                "strategies_text": _OVERFLOW_STRATEGIES_FR,
             },
         )
 
@@ -7165,7 +7178,7 @@ class AppSession:
                         "budget": budget,
                         "reasoning_tokens": reasoning_tokens,
                         "answer_reserve": left,
-                        "message_fr": (
+                        "message_text": (
                             f"Raisonnement coupé par le harnais à {_fr(reasoning_tokens)} "
                             f"tokens : la réflexion a atteint le budget de {_fr(budget)} tokens "
                             f"sans se fermer. Le harnais la ferme lui-même ({tags[1]}) et "
@@ -7183,7 +7196,7 @@ class AppSession:
             flush()
             end("error")
             self._error(
-                error.message_fr, error.cause, "Le tour est terminé ; WaveStack reste utilisable."
+                error.message_text, error.cause, "Le tour est terminé ; WaveStack reste utilisable."
             )
             return _ModelOutput("error")
         except Exception:
@@ -7338,13 +7351,13 @@ class AppSession:
                 self._turn_costs.append(error.cost)
             if error.impact is not None and error.impact.estimated:  # GreenOps, likewise
                 self._turn_impacts.append(error.impact)
-            effect_fr = (
+            effect_text = (
                 "La délégation échoue ; le tour principal continue."
                 if in_sub
                 else "Le tour est terminé ; WaveStack reste utilisable."
             )
-            journal.emit("harness_error", error.payload(effect_fr))
-            return _ModelOutput("error", message_fr=error.message_fr)
+            journal.emit("harness_error", error.payload(effect_text))
+            return _ModelOutput("error", message_text=error.message_text)
         if call.cost is not None:
             self._turn_costs.append(call.cost)
         if call.impact is not None and call.impact.estimated:  # GreenOps
@@ -7421,7 +7434,7 @@ class AppSession:
         try:
             return llm_lab.load_lab_content(), None
         except Exception as exc:  # noqa: BLE001 - AD-16: an invalid file never breaks the page
-            error_fr = (
+            error_text = (
                 "Textes de l'écran « LLM nu » illisibles (content/llm_lab.yaml) : corrigez le "
                 "fichier puis rechargez la page."
             )
@@ -7429,21 +7442,26 @@ class AppSession:
             if self._lab_error_traced != cause:
                 self._lab_error_traced = cause
                 with scoped(**self._lab_scope("llm")):
-                    self._error(error_fr, cause, "La page « LLM nu » reste servie sans ses textes.")
+                    self._error(
+                        error_text, cause, "La page « LLM nu » reste servie sans ses textes."
+                    )
             llm_lab.load_lab_content.cache_clear()  # corrected, the file is read again
             detail = (str(exc).splitlines() or [type(exc).__name__])[0][:200]
-            return None, f"{error_fr} Détail : {detail}"
+            return None, f"{error_text} Détail : {detail}"
 
     def _tokenizer_state(self) -> dict[str, Any]:
         """Whether the active model's tokenizer cuts exactly here, and why in French."""
         with self._lock:
             engine, cloud, active = self._engine, self._cloud, self._active
         if engine is None:
-            return {"exact": False, "reason_fr": "Aucun modèle actif : aucun tokenizer à montrer."}
+            return {
+                "exact": False,
+                "reason_text": "Aucun modèle actif : aucun tokenizer à montrer.",
+            }
         if cloud is not None:
             return {
                 "exact": False,
-                "reason_fr": (
+                "reason_text": (
                     f"Le tokenizer de {cloud.model} est chez {cloud.provider}, pas sur ce poste : "
                     "WaveStack ne peut pas découper le texte comme lui. Il estime le nombre de "
                     "tokens à partir des caractères, sans aucune puce."
@@ -7455,22 +7473,22 @@ class AppSession:
                 if active.provider == "llama-server"
                 else "le tokenizer du fichier GGUF qu'Ollama sert, ouvert par WaveStack"
             )
-            return {"exact": True, "reason_fr": f"Découpage exact, par {how}."}
-        return {"exact": True, "reason_fr": "Découpage exact, par le tokenizer du modèle chargé."}
+            return {"exact": True, "reason_text": f"Découpage exact, par {how}."}
+        return {"exact": True, "reason_text": "Découpage exact, par le tokenizer du modèle chargé."}
 
     def lab_state(self) -> dict[str, Any]:
         """`GET /api/llm_lab` (story 29, AD-1): what the page needs before the stream, from
         `seq` on: its texts (or why not), the active model, the session's state and the
         tokenizer's exactness."""
         tip = get_journal().last_seq()
-        content, error_fr = self._lab_content()
+        content, error_text = self._lab_content()
         with self._lock:
-            state, reason_fr = self.state, self.reason_fr
+            state, reason_text = self.state, self.reason_text
         return {
             "content": content.model_dump() if content is not None else None,
-            "content_error_fr": error_fr,
+            "content_error_text": error_text,
             "active_model": self.active_model(),
-            "session_state": {"state": state, "reason_fr": reason_fr},
+            "session_state": {"state": state, "reason_text": reason_text},
             "tokenizer": self._tokenizer_state(),
             "sampling": self._lab_sampling(),
             "last_load": self._last_load(tip),
@@ -7482,7 +7500,7 @@ class AppSession:
     def _lab_request(self) -> str:
         """A screen request's id, `llm{n}`: accepted in `idle` with a model only (AD-3)."""
         with self._lock:
-            if self.state != "idle" or self._engine is None or self.reason_fr:
+            if self.state != "idle" or self._engine is None or self.reason_text:
                 raise SendRefused(self._refusal_reason())
             self._labs += 1
             return f"llm{self._labs}"
@@ -7502,7 +7520,7 @@ class AppSession:
                 get_journal().emit("llm_tokenized", payload.model_dump(mode="json"))
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error(
-                    exc.message_fr
+                    exc.message_text
                     if isinstance(exc, ServerError)
                     else "Le découpage en tokens a échoué.",
                     exc,
@@ -7519,8 +7537,8 @@ class AppSession:
             "char_count": len(text),
             "model_label": model.get("label") or "",
             "hosting": model.get("hosting") or "local",
-            "tokenizer_fr": self._tokenizer_state()["reason_fr"],
-            "figures_fr": {"char_count": llm_lab.fr_int(len(text))},
+            "tokenizer_text": self._tokenizer_state()["reason_text"],
+            "figures_text": {"char_count": llm_lab.fr_int(len(text))},
         }
         if engine is None:
             raise RuntimeError("aucun modèle actif")
@@ -7533,11 +7551,11 @@ class AppSession:
                 "token_count": None,
                 "estimate": estimate,
                 "chars_per_token": self.cfg.chars_per_token,
-                "figures_fr": base["figures_fr"]
+                "figures_text": base["figures_text"]
                 | {"estimate": llm_lab.fr_int(estimate), "chars_per_token": ratio},
-                "unavailable_fr": base["tokenizer_fr"],
+                "unavailable_text": base["tokenizer_text"],
                 "dimensions": None,
-                "dimensions_fr": (
+                "dimensions_text": (
                     f"Dimensions inconnues : le modèle tourne chez {cloud.provider}, qui ne les "
                     "publie pas dans son API."
                 ),
@@ -7553,16 +7571,16 @@ class AppSession:
             "tokens": rows,
             "token_count": len(ids),
             "more": more,
-            "figures_fr": base["figures_fr"]
+            "figures_text": base["figures_text"]
             | {"token_count": llm_lab.fr_int(len(ids)), "more": llm_lab.fr_int(more)},
             "dimensions": dimensions,
-            "dimensions_fr": llm_lab.dimensions_fr(dimensions),
+            "dimensions_text": llm_lab.dimensions_fr(dimensions),
         }
 
     def _lab_dimensions(self, engine: Any) -> dict[str, Any]:
         """The model's sizes (story 29): the engine's own answer when it has `dimensions`,
         else the GGUF header of the file loaded; tolerated absent or failing (AD-16)."""
-        source_fr = "Ce moteur ne dit pas les dimensions du modèle."
+        source_text = "Ce moteur ne dit pas les dimensions du modèle."
         dims: dict[str, Any] | None = None
         read = getattr(engine, "dimensions", None)
         if read is not None:
@@ -7571,7 +7589,7 @@ class AppSession:
             except Exception:  # noqa: BLE001 - unknown sizes, never a failure
                 dims = None
         if dims:
-            source_fr = str(dims.get("source_fr") or source_fr)
+            source_text = str(dims.get("source_text") or source_text)
         else:
             with self._lock:
                 active = self._active
@@ -7579,8 +7597,8 @@ class AppSession:
                 header = gguf_meta.try_read_metadata(active.ref)
                 if header:
                     dims = gguf_meta.dimensions_from_header(header)
-                    source_fr = "Lues dans l'en-tête GGUF du fichier du modèle."
-        return llm_lab.dimensions_payload(dims, source_fr)
+                    source_text = "Lues dans l'en-tête GGUF du fichier du modèle."
+        return llm_lab.dimensions_payload(dims, source_text)
 
     # ---------- story 29, increment 2: sampling, prompt reading, token by token ----------
 
@@ -7605,7 +7623,7 @@ class AppSession:
                 "top_p": chosen.top_p,
                 "min_p": chosen.min_p,
                 "source": "screen" if sampling is not None else "harness",
-                "note_fr": None,
+                "note_text": None,
             }
         sent = list(cloud.sampling) if sampling is not None else []
         values = {
@@ -7615,7 +7633,7 @@ class AppSession:
         if not sent:
             return values | {
                 "source": "provider",
-                "note_fr": (
+                "note_text": (
                     f"Réglé par {cloud.provider} : WaveStack n'envoie aucun réglage "
                     "d'échantillonnage."
                 ),
@@ -7623,7 +7641,7 @@ class AppSession:
         missing = [self._SAMPLING_NAMES_FR[n] for n in self._SAMPLING_NAMES_FR if n not in sent]
         return values | {
             "source": "screen",
-            "note_fr": f"{_join_fr(missing).capitalize()} non réglables chez {cloud.provider}.",
+            "note_text": f"{_join_fr(missing).capitalize()} non réglables chez {cloud.provider}.",
         }
 
     @staticmethod
@@ -7645,7 +7663,7 @@ class AppSession:
             cloud = self._cloud
         supported: dict[str, str | None] = dict.fromkeys(self._SAMPLING_NAMES_FR)
         if cloud is None:
-            source_fr = (
+            source_text = (
                 "Envoyés au moteur à chaque génération de l'écran ; l'atelier garde les valeurs "
                 "du harnais."
             )
@@ -7661,16 +7679,16 @@ class AppSession:
                     else f"{label} non réglable chez {cloud.provider} : le modèle ne le déclare "
                     "pas (sampling) dans la configuration ; le fournisseur garde sa valeur."
                 )
-            source_fr = (
+            source_text = (
                 f"Seuls les réglages que {cloud.model} déclare partent chez {cloud.provider} ; "
                 "les tours de l'atelier n'en envoient aucun."
             )
         return {
             "defaults": asdict(DEFAULT_SAMPLING),
-            "defaults_fr": f"Valeurs du harnais : {self._sampling_fr(DEFAULT_SAMPLING)}",
+            "defaults_text": f"Valeurs du harnais : {self._sampling_fr(DEFAULT_SAMPLING)}",
             "bounds": {name: list(b) for name, b in SAMPLING_BOUNDS.items()},
             "supported": supported,
-            "source_fr": source_fr,
+            "source_text": source_text,
         }
 
     @staticmethod
@@ -7697,13 +7715,13 @@ class AppSession:
     def _reasoning_info(
         self, caps: Capabilities | None, cloud: CloudModel | None, window: int
     ) -> dict[str, Any]:
-        mode, reason_fr = reasoning_mode(caps, window if caps is not None else None)
+        mode, reason_text = reasoning_mode(caps, window if caps is not None else None)
         local = cloud is None and caps is not None and caps.reasoning_tags is not None
         return {
             "mode": mode,
-            "reason_fr": reason_fr,
+            "reason_text": reason_text,
             "budget": self.cfg.reasoning_budget_tokens if local else None,
-            "budget_fr": self._reasoning_budget_fr(),
+            "budget_text": self._reasoning_budget_fr(),
             "reserve": MAX_RESERVE,
         }
 
@@ -7719,22 +7737,22 @@ class AppSession:
         (class c). `reasoning`: refused when the model cannot reason (mode `never` or
         `unknown`), forced when it always does. Returns the request's id."""
         with self._memory_lock, self._lock:
-            if self.state != "idle" or self._engine is None or self.reason_fr:
+            if self.state != "idle" or self._engine is None or self.reason_text:
                 raise SendRefused(self._refusal_reason())
             # Checked under the lock: no model switch can come in between.
             lab = self._reasoning_info(self._caps, self._cloud, self._window)
             if reasoning and lab["mode"] in ("never", "unknown"):
                 raise SendRefused(
                     "Raisonnement indisponible : "
-                    + (lab["reason_fr"] or "le modèle actif ne sait pas raisonner.")
+                    + (lab["reason_text"] or "le modèle actif ne sait pas raisonner.")
                 )
             offer = self._candidates_info(self._active, self._cloud, self._engine)
             if candidates and not offer["available"]:
-                raise SendRefused(offer["reason_fr"])
+                raise SendRefused(offer["reason_text"])
             self._labs += 1
             request_id = f"llm{self._labs}"
             cancel = self._cancel = CancelToken()
-            self.state, self.reason_fr = "llm_lab", _LAB_FR
+            self.state, self.reason_text = "llm_lab", _LAB_FR
         self._emit_state()
         self._executor.submit(
             self._run_lab, request_id, prompt, sampling, reasoning, cancel, candidates
@@ -7766,7 +7784,7 @@ class AppSession:
                 "dans le moteur qui tourne dans son propre processus (un fichier GGUF chargé par "
                 "WaveStack)."
             )
-        return {"available": reason is None, "reason_fr": reason, "n": CANDIDATES}
+        return {"available": reason is None, "reason_text": reason, "n": CANDIDATES}
 
     def _run_lab(
         self,
@@ -7858,7 +7876,7 @@ class AppSession:
                         fields=chat_fields(cloud, reserve, reasons, sampling),
                         markers=self.cfg.cloud_markers,
                         estimate=lambda t: config.estimate_tokens(t, self.cfg.chars_per_token),
-                        provider_label_fr=content.provider_segment_fr,
+                        provider_label_text=content.provider_segment_text,
                     )
                     text, tokens, exact = rendered.body, rendered.raw_total, False
                     unit = "fragment"
@@ -7876,11 +7894,11 @@ class AppSession:
                     reasoning=reasons,
                     phase_label=phase,
                     unit=unit,
-                    figures_fr=figures | {"reserve": _fr(reserve), "usable": _fr(usable)},
+                    figures_text=figures | {"reserve": _fr(reserve), "usable": _fr(usable)},
                 )
                 journal.emit("llm_generation_started", started_payload.model_dump(mode="json"))
                 if tokens > usable:
-                    ended["message_fr"] = (
+                    ended["message_text"] = (
                         f"Prompt trop long : {figures['prompt_tokens']} tokens pour "
                         f"{_fr(usable)} utilisables (fenêtre de {_fr(window)} moins "
                         f"{_fr(reserve)} réservés à la réponse). Raccourcissez-le : l'appel "
@@ -7920,13 +7938,13 @@ class AppSession:
                     ended["read_tps"] = round(evaluated / (prompt_ms / 1000), 1)
             except Exception as exc:  # noqa: BLE001 - AD-16: the screen's call never breaks
                 ended["status"] = "error"
-                ended["message_fr"] = (
-                    exc.message_fr
+                ended["message_text"] = (
+                    exc.message_text
                     if isinstance(exc, ServerError)
                     else "La génération de l'écran « LLM nu » s'est interrompue sur une erreur."
                 )
                 self._error(
-                    ended["message_fr"],
+                    ended["message_text"],
                     exc,
                     "L'écran « LLM nu » et l'atelier restent utilisables.",
                 )
@@ -7938,7 +7956,7 @@ class AppSession:
                     ended["answer_tokens"] = counts["text"] + counts.get("tool_call", 0)
                     ended["duration_ms"] = _ms(time.monotonic() - started)
                     approx = "≈ " if cloud_used else ""
-                    ended["figures_fr"] = {
+                    ended["figures_text"] = {
                         "reasoning_tokens": approx + _fr(ended["reasoning_tokens"]),
                         "answer_tokens": approx + _fr(ended["answer_tokens"]),
                     } | (
@@ -7998,7 +8016,7 @@ class AppSession:
                 "harness_error",
                 error.payload("La génération de l'écran s'arrête ; WaveStack reste utilisable."),
             )
-            ended["message_fr"] = error.message_fr
+            ended["message_text"] = error.message_text
             return "error"
         return {"stop": "completed", "cancelled": "cancelled", "length": "limit"}.get(
             call.stop_reason, "error"
@@ -8042,7 +8060,7 @@ class AppSession:
         try:
             return rag_lab.load_lab_content(), None
         except Exception as exc:  # noqa: BLE001 - AD-16: an invalid file never breaks the page
-            error_fr = (
+            error_text = (
                 "Textes de l'atelier RAG illisibles (content/rag_lab.yaml) : corrigez le fichier "
                 "puis rechargez la page."
             )
@@ -8050,10 +8068,10 @@ class AppSession:
             if self._rag_lab_error_traced != cause:
                 self._rag_lab_error_traced = cause
                 with scoped(**self._rag_lab_scope("rag_lab", None, brick=None)):
-                    self._error(error_fr, cause, "La page « Atelier RAG » reste servie sans eux.")
+                    self._error(error_text, cause, "La page « Atelier RAG » reste servie sans eux.")
             rag_lab.load_lab_content.cache_clear()  # corrected, the file is read again
             detail = (str(exc).splitlines() or [type(exc).__name__])[0][:200]
-            return None, f"{error_fr} Détail : {detail}"
+            return None, f"{error_text} Détail : {detail}"
 
     def _rag_lab_catalog(self, texts: rag_lab.RagLabContent) -> rag_lab.Catalog:
         """The options the workshop offers, named after the brick's models, with what a run
@@ -8063,31 +8081,31 @@ class AppSession:
         options: dict[tuple[str, str], rag_lab.OptionState] = {}
         for kind, names in rag_lab.OPTIONS.items():
             for name in names:
-                options[(kind, name)] = rag_lab.OptionState(texts.options[kind][name].label_fr)
+                options[(kind, name)] = rag_lab.OptionState(texts.options[kind][name].label_text)
         embedding = options[("embedding", "declared")]
         store = options[("vector_store", "sqlite_vec")]
         if model is None or content is None:
-            embedding.note_fr = self._content_errors.get("rag") or "Brique RAG non configurée."
+            embedding.note_text = self._content_errors.get("rag") or "Brique RAG non configurée."
         else:
-            embedding.label_fr = model.label_fr
-            _, index_error, _, _, _, missing_fr = self._rag_index_state(model, content)
-            embedding.note_fr = missing_fr
-            store.note_fr = index_error
+            embedding.label_text = model.label_text
+            _, index_error, _, _, _, missing_text = self._rag_index_state(model, content)
+            embedding.note_text = missing_text
+            store.note_text = index_error
         rerank = options[("rerank", "declared")]
         if self._rerank_model is not None:
-            rerank.label_fr = self._rerank_model.label_fr
-        rerank.note_fr = self._rerank_static_reason()
+            rerank.label_text = self._rerank_model.label_text
+        rerank.note_text = self._rerank_static_reason()
         fastembed = options[("embedding", "fastembed")]
         declared, reason = self._rag_lab_fastembed()
         if declared is not None:
-            fastembed.label_fr = declared.label_fr
-        fastembed.available, fastembed.reason_fr = declared is not None, reason
+            fastembed.label_text = declared.label_text
+        fastembed.available, fastembed.reason_text = declared is not None, reason
         for option, (module, _) in rag_lab.LIBRARIES.items():
             state = options[("vector_store", option)]
             if option in self._rag_lab_import_errors:
-                state.available, state.reason_fr = False, self._rag_lab_import_errors[option]
+                state.available, state.reason_text = False, self._rag_lab_import_errors[option]
             elif option not in self._rag_lab_imported and not rag_lab.installed(module):
-                state.available, state.reason_fr = False, rag_lab.not_installed_fr(option)
+                state.available, state.reason_text = False, rag_lab.not_installed_fr(option)
         return rag_lab.Catalog(texts, rag_lab.default_pipeline(self.cfg), options)
 
     def _rag_lab_fastembed(self) -> tuple[config.FastembedModel | None, str | None]:
@@ -8117,19 +8135,19 @@ class AppSession:
         read in the journal and the session's state."""
         journal = get_journal()
         tip = journal.last_seq()
-        texts, error_fr = self._rag_lab_content()
+        texts, error_text = self._rag_lab_content()
         catalog = self._rag_lab_catalog(texts) if texts is not None else None
         with self._lock:
-            state, reason_fr = self.state, self.reason_fr
+            state, reason_text = self.state, self.reason_text
         events = [e for e in journal.all_events() if e.seq <= tip]
         return {
             "catalog": catalog.payload() if catalog is not None else None,
             "default_pipeline": rag_lab.default_pipeline(self.cfg).model_dump(),
             "content": texts.model_dump() if texts is not None else None,
-            "content_error_fr": error_fr,
-            "unavailable_fr": self._rag_lab_unavailable(),
+            "content_error_text": error_text,
+            "unavailable_text": self._rag_lab_unavailable(),
             "last_run": rag_lab.last_run(events),
-            "session_state": {"state": state, "reason_fr": reason_fr},
+            "session_state": {"state": state, "reason_text": reason_text},
             "seq": tip,
         }
 
@@ -8148,9 +8166,9 @@ class AppSession:
         `rag_lab` under the lock in this call, then run on the worker; « Arrêter » (class c)
         stops it between two stages, passages or candidates. A chain the workshop refuses:
         `SendRefused` with the reason, nothing emitted. Returns the run's id, `lab{n}`."""
-        texts, error_fr = self._rag_lab_content()
+        texts, error_text = self._rag_lab_content()
         if texts is None:
-            raise SendRefused(error_fr or "Textes de l'atelier RAG illisibles.")
+            raise SendRefused(error_text or "Textes de l'atelier RAG illisibles.")
         unavailable = self._rag_lab_unavailable()
         if unavailable is not None:
             raise SendRefused(unavailable)
@@ -8161,16 +8179,16 @@ class AppSession:
         for chain in chains:
             reason = rag_lab.validate_pipeline(chain, catalog)
             if reason is not None:
-                lane = f"Chaîne {chain.label_fr} : " if len(chains) > 1 else ""
+                lane = f"Chaîne {chain.label_text} : " if len(chains) > 1 else ""
                 raise SendRefused(lane + reason)
         with self._lock:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
-            previous = self.reason_fr
+            previous = self.reason_text
             self._rag_labs += 1
             run_id = f"lab{self._rag_labs}"
             cancel = self._cancel = CancelToken()
-            self.state, self.reason_fr = "rag_lab", _RAG_LAB_FR
+            self.state, self.reason_text = "rag_lab", _RAG_LAB_FR
         self._emit_state()
         self._executor.submit(
             self._run_rag_lab, run_id, question, chains, texts, catalog, cancel, previous
@@ -8193,19 +8211,19 @@ class AppSession:
         """`POST /api/rag_lab/validate` (story 30, increment 4), read only: the reason each
         chain would be refused for, and the stage at fault, so that the page says it on the
         stage's card before « Lancer » (AD-1: the rules are the session's)."""
-        texts, error_fr = self._rag_lab_content()
+        texts, error_text = self._rag_lab_content()
         if texts is None:
-            reason = error_fr or "Textes de l'atelier RAG illisibles."
+            reason = error_text or "Textes de l'atelier RAG illisibles."
             return {
                 "valid": False,
-                "refusals": [{"lane": None, "stage_id": None, "reason_fr": reason}],
+                "refusals": [{"lane": None, "stage_id": None, "reason_text": reason}],
             }
         catalog = self._rag_lab_recent_catalog(texts)
         refusals = []
         for lane, chain in zip("ab", pipelines, strict=False):
             refusal = rag_lab.check_pipeline(chain, catalog)
             if refusal is not None:
-                refusals.append({"lane": lane, "stage_id": refusal[1], "reason_fr": refusal[0]})
+                refusals.append({"lane": lane, "stage_id": refusal[1], "reason_text": refusal[0]})
         return {"valid": not refusals, "refusals": refusals}
 
     def _run_rag_lab(
@@ -8314,9 +8332,9 @@ class AppSession:
 
         return loans.lend(
             borrowed=borrowed,
-            label_fr=model.label_fr,
-            noun_fr="modèle d'embedding",
-            unavailable_fr=unavailable,
+            label_text=model.label_text,
+            noun_text="modèle d'embedding",
+            unavailable_text=unavailable,
             cost=self._load_registry.component_cost(
                 model.measured_rss_mb, [f.size for f in model.files]
             ),
@@ -8335,9 +8353,9 @@ class AppSession:
         sizes = [p.stat().st_size for p in folder.rglob("*") if p.is_file()]
         return loans.lend(
             borrowed=None,
-            label_fr=model.label_fr,
-            noun_fr="modèle d'embedding",
-            unavailable_fr=None,
+            label_text=model.label_text,
+            noun_text="modèle d'embedding",
+            unavailable_text=None,
             cost=self._load_registry.component_cost(None, sizes),
             slot=RAG_LAB_EMBEDDING,
             open_model=lambda: embedding_module.FastembedEmbedder(model.model_name, model.dims),
@@ -8453,9 +8471,9 @@ class AppSession:
 
         return loans.lend(
             borrowed=borrowed,
-            label_fr=model.label_fr,
-            noun_fr="modèle de reranking",
-            unavailable_fr=unavailable,
+            label_text=model.label_text,
+            noun_text="modèle de reranking",
+            unavailable_text=unavailable,
             cost=self._load_registry.component_cost(
                 model.measured_rss_mb, [f.size for f in model.files]
             ),

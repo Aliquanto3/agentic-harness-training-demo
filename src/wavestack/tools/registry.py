@@ -20,9 +20,9 @@ Hosting = Literal["local_process", "local_file", "network_service"]
 class ToolError(Exception):
     """A refusal or failure the tool explains in French; reinjected to the model."""
 
-    def __init__(self, message_fr: str) -> None:
-        super().__init__(message_fr)
-        self.message_fr = message_fr
+    def __init__(self, message_text: str) -> None:
+        super().__init__(message_text)
+        self.message_text = message_text
 
 
 class Unreachable(ToolError):
@@ -34,9 +34,9 @@ class DelegationFailed(ToolError):
     `tool_ended` status, the French message what the main model reads."""
 
     def __init__(
-        self, message_fr: str, status: Literal["limit", "overflow", "error", "cancelled"]
+        self, message_text: str, status: Literal["limit", "overflow", "error", "cancelled"]
     ) -> None:
-        super().__init__(message_fr)
+        super().__init__(message_text)
         self.status = status
 
 
@@ -61,7 +61,7 @@ class ToolSpec:
     # Harness tools (AD-25): the brick they belong to when it is not the component's own
     # (`load_tool_doc`: brick `mcp`, component `core.harness`), and their French label.
     brick: str | None = None
-    label_fr: str | None = None
+    label_text: str | None = None
 
     @property
     def is_mcp(self) -> bool:
@@ -69,19 +69,19 @@ class ToolSpec:
 
 
 class ToolPreset(BaseModel):
-    """Arguments that prefill the form of a forced call (story 9), shown by `label_fr`."""
+    """Arguments that prefill the form of a forced call (story 9), shown by `label_text`."""
 
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
     args: dict[str, Any]
 
 
 class ToolText(BaseModel):
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
     description: str = Field(min_length=1)  # seen by the model
     parameters: dict[str, str] = {}
     presets: list[ToolPreset] = []
     # Story 34, network tools: what leaves the workstation when the tool runs.
-    sends_fr: str | None = None
+    sends_text: str | None = None
 
     @model_validator(mode="after")
     def _presets_use_declared_parameters(self) -> ToolText:
@@ -89,7 +89,7 @@ class ToolText(BaseModel):
             unknown = sorted(set(preset.args) - set(self.parameters))
             if unknown:
                 raise ValueError(
-                    f"preset {preset.label_fr!r}: arguments {unknown} are not declared parameters"
+                    f"preset {preset.label_text!r}: arguments {unknown} are not declared parameters"
                 )
         return self
 
@@ -97,7 +97,7 @@ class ToolText(BaseModel):
 class ToolsContent(BaseModel):
     """`content/tools.yaml` (AD-19)."""
 
-    demo_dir_label_fr: str = Field(min_length=1)
+    demo_dir_label_text: str = Field(min_length=1)
     tools: dict[str, ToolText]
 
 
@@ -134,10 +134,10 @@ class ToolRegistry:
                 get_journal().emit(
                     "harness_error",
                     {
-                        "message_fr": f"Deux outils portent le nom « {name} » : le second est "
+                        "message_text": f"Deux outils portent le nom « {name} » : le second est "
                         "indisponible.",
                         "cause": "Collision de noms dans le registre d'outils (AD-14).",
-                        "effect_fr": "Le premier outil déclaré reste utilisable.",
+                        "effect_text": "Le premier outil déclaré reste utilisable.",
                     },
                 )
                 continue
@@ -170,15 +170,15 @@ class ToolRegistry:
 
     def label(self, name: str) -> str:
         spec = self._by_name.get(name)
-        if spec is not None and spec.label_fr:
-            return spec.label_fr
+        if spec is not None and spec.label_text:
+            return spec.label_text
         text = self.content.tools.get(name) if self.content else None
-        return text.label_fr if text else name
+        return text.label_text if text else name
 
     def sends(self, name: str) -> str | None:
         """Story 34: what a tool sends out of the workstation, from `content/tools.yaml`."""
         text = self.content.tools.get(name) if self.content else None
-        return text.sends_fr if text else None
+        return text.sends_text if text else None
 
     def definition(self, name: str) -> dict[str, Any]:
         """The JSON definition for the template's `tools` variable.
@@ -198,7 +198,9 @@ class ToolRegistry:
                 },
             }
         text = (
-            self.content.tools[name] if self.content else ToolText(label_fr=name, description=name)
+            self.content.tools[name]
+            if self.content
+            else ToolText(label_text=name, description=name)
         )
         return {
             "type": "function",

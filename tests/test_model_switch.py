@@ -209,12 +209,12 @@ def test_probe_or_load_failure_restores_the_previous_model(tmp_path, failure):
 
     assert status == "restored"
     assert tracker.log[-1] == "open A" and tracker.open == {"A"}
-    assert session.state == "idle" and session.reason_fr is None
+    assert session.state == "idle" and session.reason_text is None
     assert session.active_model()["ref"] == paths["A"]
     ended = _events(mark, "model_load_ended")[-1]
-    assert ended["status"] == "restored" and "A est de nouveau actif" in ended["reason_fr"]
+    assert ended["status"] == "restored" and "A est de nouveau actif" in ended["reason_text"]
     error = _events(mark, "harness_error")[-1]
-    assert "Retour au modèle précédent : A." in error["effect_fr"]
+    assert "Retour au modèle précédent : A." in error["effect_text"]
     assert ("Architecture inconnue." if failure == "probe" else "chargement impossible") in (
         error["cause"]
     )
@@ -229,7 +229,7 @@ def test_previous_model_failing_too_leaves_idle_with_the_reason(tmp_path):
     _, status = _switch(session, ModelChoice("file", paths["B"]))
 
     assert status == "error" and not session.model_loaded and tracker.open == set()
-    assert session.state == "idle" and session.reason_fr == _LOAD_FAILED_FR
+    assert session.state == "idle" and session.reason_text == _LOAD_FAILED_FR
     assert _events(mark, "model_load_ended")[-1]["status"] == "error"
     assert session.active_model() is None
 
@@ -247,13 +247,13 @@ def test_budget_exceeded_refuses_before_any_release(tmp_path):
     with pytest.raises(SendRefused) as refused:
         session.switch_model(ModelChoice("file", paths["Qwen3.5-4B"]))
 
-    assert refused.value.reason_fr == (
+    assert refused.value.reason_text == (
         "Changement refusé : Qwen3.5-4B demande environ 3,1 Go ; WaveStack occupe 1,9 Go sans "
         "le modèle actif, pour un budget de 4,0 Go (= plafond [memory] budget_mb). Qwen3.5-2B "
         "reste actif. Choisissez un modèle plus petit."
     )
     assert tracker.open == {"Qwen3.5-2B"} and session.state == "idle"
-    assert _events(mark, "harness_error")[-1]["message_fr"] == refused.value.reason_fr
+    assert _events(mark, "harness_error")[-1]["message_text"] == refused.value.reason_text
     assert _events(mark, "model_load_started") == []
     assert "selected_model" not in config.read_settings()
 
@@ -310,7 +310,7 @@ def test_cloud_to_local_keeps_the_cloud_ratio(tmp_path):
 @pytest.mark.parametrize("state", ["turn", "awaiting_human", "model_load"])
 def test_switch_refused_outside_idle(tmp_path, state):
     session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()})
-    session.state, session.reason_fr = state, "Occupé pour le test."
+    session.state, session.reason_text = state, "Occupé pour le test."
 
     with pytest.raises(SendRefused):
         session.switch_model(ModelChoice("file", paths["B"]))
@@ -383,7 +383,7 @@ def test_unwritable_settings_keeps_the_switch(monkeypatch, tmp_path):
 
     assert status == "ok" and session.active_model()["ref"] == paths["B"]
     ended = _events(mark, "model_load_ended")[-1]
-    assert "choix non mémorisé pour les prochains lancements" in ended["reason_fr"]
+    assert "choix non mémorisé pour les prochains lancements" in ended["reason_text"]
     assert any("lecture seule" in e["cause"] for e in _events(mark, "harness_error"))
 
 
@@ -462,17 +462,17 @@ def test_web_switch_answers_then_loads_and_diagnostic_reads_the_session(monkeypa
 
     body = answer.json()
     assert answer.status_code == 200 and body["switching"] is True
-    assert body["message_fr"] == "Chargement de B…" and "next_launch" not in body
+    assert body["message_text"] == "Chargement de B…" and "next_launch" not in body
     diagnostic = client.get("/api/diagnostic").json()
     assert diagnostic["loaded_model"] == b and diagnostic["selected_model"] == b
-    assert "next_launch_fr" not in diagnostic
+    assert "next_launch_text" not in diagnostic
     state = client.get("/api/state").json()
     assert (state["active_model"]["kind"], state["active_model"]["ref"]) == ("file", b)
 
 
 def test_web_switch_refused_during_a_turn(monkeypatch, tmp_path):
     _, app_session, client, _ = _web(monkeypatch, tmp_path)
-    app_session.state, app_session.reason_fr = "turn", "Un tour est en cours."
+    app_session.state, app_session.reason_text = "turn", "Un tour est en cours."
 
     answer = client.post(
         "/api/intentions/select_model",
@@ -530,7 +530,7 @@ def test_web_refusal_reaches_the_session_lock(monkeypatch, tmp_path):
     """`_diagnostic_class_b` lets `diagnostic` through; the switch itself refuses it."""
     session, app_session, client, _ = _web(monkeypatch, tmp_path)
     assert session.handed_out
-    app_session.state, app_session.reason_fr = "diagnostic", "Diagnostic de démarrage en cours."
+    app_session.state, app_session.reason_text = "diagnostic", "Diagnostic de démarrage en cours."
 
     answer = client.post(
         "/api/intentions/select_model",
@@ -740,7 +740,7 @@ def test_unsaved_switch_is_not_shown_as_the_saved_choice(monkeypatch, tmp_path):
     diagnostic = client.get("/api/diagnostic").json()
     assert diagnostic["loaded_model"] == b and diagnostic["selected_model"] == a
     check = [c for c in _events(mark, "diagnostic_check") if c["check"] == "model"][-1]
-    assert check["status"] == "warn" and "non mémorisé" in check["message_fr"]
+    assert check["status"] == "warn" and "non mémorisé" in check["message_text"]
 
 
 def test_ollama_blob_is_named_by_its_tag(tmp_path):
@@ -784,7 +784,7 @@ def test_budget_checked_again_with_the_probe_measure(tmp_path):
 
     assert status == "restored" and "open B" not in tracker.log
     ended = _events(mark, "model_load_ended")[-1]
-    assert "Changement refusé : B demande environ 5,0 Go" in ended["reason_fr"]
+    assert "Changement refusé : B demande environ 5,0 Go" in ended["reason_text"]
     assert session.active_model()["label"] == "A"
 
 
@@ -856,8 +856,8 @@ def test_4b_estimate_after_the_new_probe_exceeds_the_budget(tmp_path):
         session.switch_model(ModelChoice("file", paths["Qwen3.5-4B"]))
 
     assert cost == round(4.05 * GIB) + 256 * MIB > 4096 * MIB  # no KV counted twice
-    assert "Qwen3.5-4B demande environ 4,3 Go" in refused.value.reason_fr
-    assert "WaveStack occupe 210 Mo sans le modèle actif" in refused.value.reason_fr
+    assert "Qwen3.5-4B demande environ 4,3 Go" in refused.value.reason_text
+    assert "WaveStack occupe 210 Mo sans le modèle actif" in refused.value.reason_text
     assert tracker.open == {"Qwen3.5-2B"}
 
 
@@ -893,11 +893,11 @@ def test_stop_during_a_slow_load_brings_the_previous_model_back(tmp_path):
     assert tracker.log[-3:] == ["open B", "close B", "open A"] and tracker.open == {"A"}
     assert not tracker.overlap
     ended = _events(mark, "model_load_ended")[-1]
-    assert (ended["status"], ended["reason_fr"]) == (
+    assert (ended["status"], ended["reason_text"]) == (
         "cancelled",
         "Chargement arrêté : A est de nouveau actif.",
     )
-    assert session.state == "idle" and session.reason_fr is None
+    assert session.state == "idle" and session.reason_text is None
     assert session.active_model()["label"] == "A" and session._load_registry.holder() == "A"
     assert "selected_model" not in config.read_settings()  # never saved
     assert session.stop() is False  # nothing left to stop
@@ -934,9 +934,9 @@ def test_stop_without_a_previous_model_leaves_none_with_the_reason(tmp_path):
 
     assert future.result() == "cancelled"
     assert not session.model_loaded and tracker.open == set()
-    assert session.state == "idle" and session.reason_fr == _LOAD_STOPPED_FR
+    assert session.state == "idle" and session.reason_text == _LOAD_STOPPED_FR
     ended = _events(mark, "model_load_ended")[-1]
-    assert (ended["status"], ended["reason_fr"]) == (
+    assert (ended["status"], ended["reason_text"]) == (
         "cancelled",
         "Chargement arrêté : aucun modèle n'est actif.",
     )
@@ -981,8 +981,8 @@ def test_llama_cpp_refusal_at_the_load_is_said_in_french(tmp_path, error):
 
     assert status == "restored"
     ended = _events(mark, "model_load_ended")[-1]
-    assert "ne sait pas charger ce fichier" in ended["reason_fr"]
-    assert str(error) not in ended["reason_fr"]
+    assert "ne sait pas charger ce fichier" in ended["reason_text"]
+    assert str(error) not in ended["reason_text"]
     assert _events(mark, "harness_error")[-1]["cause"] == str(error)
 
 
@@ -1004,7 +1004,7 @@ def test_refusal_with_a_local_model_active_gives_the_real_remainder(tmp_path):
     with pytest.raises(SendRefused) as refused:
         session.switch_model(ModelChoice("file", paths["B"]))
 
-    assert "WaveStack occupe 210 Mo sans le modèle actif" in refused.value.reason_fr
+    assert "WaveStack occupe 210 Mo sans le modèle actif" in refused.value.reason_text
 
 
 def test_stop_whose_previous_model_fails_to_come_back_is_an_error(tmp_path):
@@ -1020,9 +1020,9 @@ def test_stop_whose_previous_model_fails_to_come_back_is_an_error(tmp_path):
 
     assert future.result() == "error"
     assert not session.model_loaded and tracker.open == set()
-    assert session.reason_fr == _LOAD_FAILED_FR
+    assert session.reason_text == _LOAD_FAILED_FR
     ended = _events(mark, "model_load_ended")[-1]
-    assert (ended["status"], ended["reason_fr"]) == (
+    assert (ended["status"], ended["reason_text"]) == (
         "error",
         "Chargement arrêté ; le modèle précédent (A) n'a pas pu être rechargé.",
     )
@@ -1067,7 +1067,7 @@ def test_web_hot_switch_stopped_with_no_model_blocks_the_diagnostic(monkeypatch,
     diagnostic = client.get("/api/diagnostic").json()
     assert diagnostic["ready"] is False and diagnostic["blocking_checks"] == ["model"]
     check = [c for c in _events(mark, "diagnostic_check") if c["check"] == "model"][-1]
-    assert check["blocking"] and "le chargement a été arrêté" in check["message_fr"]
+    assert check["blocking"] and "le chargement a été arrêté" in check["message_text"]
 
 
 def test_launch_boot_stopped_blocks_the_diagnostic(monkeypatch, tmp_path):

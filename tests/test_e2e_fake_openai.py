@@ -165,7 +165,7 @@ def _entry() -> CloudModel:
         stream_usage=True,
         tools=True,
         context=32768,
-        hosting_fr="Ce poste",
+        hosting_text="Ce poste",
         training="no",
     )
 

@@ -81,7 +81,7 @@ _ENTRIES = TypeAdapter(list[MemoryEntry])
 class RememberText(BaseModel):
     """The harness meta-tool of the brick (AD-25)."""
 
-    label_fr: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
     description: str = Field(min_length=1)  # seen by the model
     text: str = Field(min_length=1)  # the `text` parameter's description
 
@@ -89,15 +89,15 @@ class RememberText(BaseModel):
 class DrawerText(BaseModel):
     """What the card and the drawer say, sent with the card (AD-19)."""
 
-    empty_fr: str = Field(min_length=1)
-    empty_no_parser_fr: str = Field(min_length=1)
-    text_help_fr: str = Field(min_length=1)  # `{max_chars}` is replaced
+    empty_text: str = Field(min_length=1)
+    empty_no_parser_text: str = Field(min_length=1)
+    text_help_text: str = Field(min_length=1)  # `{max_chars}` is replaced
 
 
 class MemoryContent(BaseModel):
     """`content/memory/memory.yaml`."""
 
-    file_label_fr: str = Field(min_length=1)  # the `file.memory` node of the schema
+    file_label_text: str = Field(min_length=1)  # the `file.memory` node of the schema
     intro: str = Field(min_length=1)  # seen by the model, before the entries
     remember: RememberText
     drawer: DrawerText

@@ -20,7 +20,7 @@ class Excerpt:
     position: int
     chunk_id: int
     doc_id: str
-    title_fr: str
+    title_text: str
     text: str
     score: float
 
@@ -61,7 +61,8 @@ class SqliteVecRetriever:
             if self._conn is None:
                 raise RuntimeError("l'index est fermé")
             rows = self._conn.execute(
-                f"SELECT c.id, v.distance, c.doc_id, c.title_fr, c.text FROM {VEC_TABLE} AS v "
+                "SELECT c.id, v.distance, c.doc_id, c.title_fr AS title_text, c.text "
+                f"FROM {VEC_TABLE} AS v "
                 "JOIN chunks AS c ON c.id = v.rowid WHERE v.embedding MATCH ? AND v.k = ? "
                 "ORDER BY v.distance, c.id",
                 (serialize_vector(vector), k or self._top_k),
@@ -71,11 +72,11 @@ class SqliteVecRetriever:
                 position=i,
                 chunk_id=int(rowid),
                 doc_id=doc_id,
-                title_fr=title_fr,
+                title_text=title_text,
                 text=text,
                 score=score_of(distance),
             )
-            for i, (rowid, distance, doc_id, title_fr, text) in enumerate(rows, start=1)
+            for i, (rowid, distance, doc_id, title_text, text) in enumerate(rows, start=1)
         ]
 
     def nearest(self, vector: list[float], k: int) -> list[tuple[int, float]]:

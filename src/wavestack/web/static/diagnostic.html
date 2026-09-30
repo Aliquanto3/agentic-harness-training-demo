@@ -186,7 +186,7 @@
         renderCloud();
         return;
       }
-      const key = payload.check === "cloud" ? `cloud:${payload.message_fr}` : payload.check;
+      const key = payload.check === "cloud" ? `cloud:${payload.message_text}` : payload.check;
       let li = items.get(key);
       if (!li) {
         li = document.createElement("li");
@@ -194,14 +194,14 @@
         checksEl.appendChild(li);
       }
       li.className = payload.status;
-      fillLine(li, payload.check, payload.message_fr, payload.action_fr);
+      fillLine(li, payload.check, payload.message_text, payload.action_text);
       if (payload.check === "model" && live) loadDiagnostic();
     }
 
     function renderHarnessError(payload) {
       const li = document.createElement("li");
       li.className = "fail";
-      fillLine(li, "erreur", payload.message_fr, payload.cause);
+      fillLine(li, "erreur", payload.message_text, payload.cause);
       checksEl.appendChild(li);
     }
 
@@ -289,12 +289,12 @@
         size.textContent = `Mémoire du modèle servi : ${go}${cache}, ${where} (processus distinct de WaveStack)`;
         li.appendChild(size);
       }
-      if (c.warning_fr) {
+      if (c.warning_text) {
         // Lot E (E1): llama-server launched with a context much larger than the window.
         li.classList.add("warn");
         const warning = document.createElement("div");
         warning.className = "served served-warning";
-        warning.textContent = c.warning_fr;
+        warning.textContent = c.warning_text;
         li.appendChild(warning);
       }
       if (c.status === "incompatible") {
@@ -315,7 +315,7 @@
     // over the row's `last_test`
     const testResults = new Map();
     const cloudStatus = new Map(); // model id -> the last intention's message
-    let cloud = { models: [], key_hint_fr: "" };
+    let cloud = { models: [], key_hint_text: "" };
     let warningFor = null;
     let warningOpener = null; // the « Choisir » button that opened the warning
 
@@ -339,18 +339,18 @@
         const li = node("li", "cloud");
         const d = m.disclosure;
         li.title = [
-          `Hébergement : ${d.hosting_fr}`,
-          `Entraînement : ${m.training_fr}`,
+          `Hébergement : ${d.hosting_text}`,
+          `Entraînement : ${m.training_text}`,
           d.trial ? "Offre d'essai" : null,
-          d.notes_fr,
+          d.notes_text,
         ].filter(Boolean).join("\n");
         li.append(node("span", "hosting-tag-network", "RÉSEAU"), node("strong", "", `${m.provider} · ${m.model}`));
         for (const [on, text] of [[m.loaded, "actif"], [m.selected && !m.loaded, "choix enregistré"]]) {
           if (on) li.appendChild(node("span", "saved-mark", text));
         }
-        li.appendChild(node("div", "action", `Hébergement : ${d.hosting_fr} · Entraînement : ${m.training_fr}${d.trial ? " · offre d'essai" : ""}`));
+        li.appendChild(node("div", "action", `Hébergement : ${d.hosting_text} · Entraînement : ${m.training_text}${d.trial ? " · offre d'essai" : ""}`));
         // FinOps: the declared prices, as the session wrote them (none without `pricing`).
-        if (m.price_fr) li.appendChild(node("div", "action", m.price_fr));
+        if (m.price_text) li.appendChild(node("div", "action", m.price_text));
         const keyRow = node("div", "cloud-key");
         const input = node("input");
         input.type = "password";
@@ -372,28 +372,28 @@
         else if (m.key_env && !m.key_set) {
           li.appendChild(node("div", "action", `Ou définissez la variable ${m.key_env}, puis ouvrez un nouveau terminal.`));
         }
-        li.append(keyRow, node("div", "action", cloud.key_hint_fr));
+        li.append(keyRow, node("div", "action", cloud.key_hint_text));
         const test = node("button", "choose", "Tester");
         const choose = node("button", "choose", "Choisir");
         for (const button of [test, choose]) {
           button.type = "button";
-          button.disabled = busy || Boolean(m.disabled_fr);
-          if (m.disabled_fr) {
-            button.title = m.disabled_fr;
+          button.disabled = busy || Boolean(m.disabled_text);
+          if (m.disabled_text) {
+            button.title = m.disabled_text;
             button.dataset.blocked = "true"; // `setBusy(false)` leaves it disabled
           }
         }
         test.addEventListener("click", () => testCloud(currentModel(m)));
         choose.addEventListener("click", () => openWarning(currentModel(m), choose));
         li.append(test, " ", choose);
-        if (m.disabled_fr) li.appendChild(node("div", "action", m.disabled_fr));
-        li.appendChild(node("div", "action", m.test_hint_fr));
+        if (m.disabled_text) li.appendChild(node("div", "action", m.disabled_text));
+        li.appendChild(node("div", "action", m.test_hint_text));
         const result = testResults.has(m.id) ? testResults.get(m.id) : m.last_test;
         if (result) {
-          const parts = [result.message_fr];
+          const parts = [result.message_text];
           if (result.answer) parts.push(`Réponse : « ${result.answer} »`);
           if (result.tool_call) parts.push(`Appel d'outil reçu : ${result.tool_call.name} ${result.tool_call.arguments ?? ""}`);
-          if (result.action_fr) parts.push(result.action_fr);
+          if (result.action_text) parts.push(result.action_text);
           li.appendChild(node("div", `cloud-result ${result.status}`, parts.join(" · ")));
         }
         if (cloudStatus.has(m.id)) li.appendChild(node("div", "cloud-result", cloudStatus.get(m.id)));
@@ -420,7 +420,7 @@
       renderCloud();
       try {
         const { body } = await post(path, payload);
-        const message = body.message_fr || body.detail || "";
+        const message = body.message_text || body.detail || "";
         if (mine) answerSwitch(mine, body, message);
         else cloudStatus.set(m.id, message);
       } catch (error) {
@@ -453,11 +453,11 @@
       }
       warningFor = m;
       warningOpener = opener;
-      document.getElementById("cloud-warning-title").textContent = m.warning.title_fr;
+      document.getElementById("cloud-warning-title").textContent = m.warning.title_text;
       const points = document.getElementById("cloud-warning-points");
-      points.replaceChildren(...["sent_fr", "provider_fr", "unseen_fr"].map((k) => node("li", "", m.warning[k])));
-      document.getElementById("cloud-warning-confirm").textContent = m.warning.confirm_fr;
-      document.getElementById("cloud-warning-cancel").textContent = m.warning.cancel_fr;
+      points.replaceChildren(...["sent_text", "provider_text", "unseen_text"].map((k) => node("li", "", m.warning[k])));
+      document.getElementById("cloud-warning-confirm").textContent = m.warning.confirm_text;
+      document.getElementById("cloud-warning-cancel").textContent = m.warning.cancel_text;
       // In the page, never a browser dialog (EXPERIENCE.md cloud-warning); modal, so Échap
       // closes it and the rows behind wait.
       warningEl.showModal();
@@ -557,8 +557,8 @@
       if (!live) return; // an earlier load: the lists already show where it led
       if (switching) {
         const text = payload.status === "ok"
-          ? [`${payload.model.label} est actif.`, payload.reason_fr].filter(Boolean).join(" ")
-          : payload.reason_fr || `${payload.model.label} n'a pas pu être chargé.`;
+          ? [`${payload.model.label} est actif.`, payload.reason_text].filter(Boolean).join(" ")
+          : payload.reason_text || `${payload.model.label} n'a pas pu être chargé.`;
         const ref = payload.model.ref;
         if (!switching.answered) switching.outcomes.set(ref, text); // matched by the answer
         else if (ref === switching.ref) finishSwitch(text); // another model's load: ignored
@@ -587,7 +587,7 @@
           body: JSON.stringify(model),
         });
         const body = await response.json();
-        answerSwitch(mine, body, body.message_fr || body.detail ||
+        answerSwitch(mine, body, body.message_text || body.detail ||
           (body.ready ? "Modèle prêt." : "Voir ci-dessus."));
       } catch (error) {
         if (switching === mine) finishSwitch();

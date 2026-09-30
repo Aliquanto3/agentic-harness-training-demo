@@ -1,8 +1,8 @@
 # Brique « Mémoire globale » (AD-12, AD-19, AD-20).
-label_fr: Mémoire globale
-category_fr: context engineering
-hosting_fr: Local
-explanation_fr:
+label_text: Mémoire globale
+category_text: context engineering
+hosting_text: Local
+explanation_text:
   - >-
     La mémoire courte s'efface avec la conversation. La mémoire globale, elle, survit :
     le harnais garde quelques informations dans un fichier local, memory.json, et les

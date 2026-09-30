@@ -1,8 +1,8 @@
 # Brique « Raisonnement » (AD-6, AD-12, AD-19).
-label_fr: Raisonnement
-category_fr: prompt engineering
-hosting_fr: Local
-explanation_fr:
+label_text: Raisonnement
+category_text: prompt engineering
+hosting_text: Local
+explanation_text:
   - >-
     Certains modèles savent « réfléchir à voix haute » avant de répondre : ils écrivent
     d'abord un raisonnement, puis la réponse. Le harnais allume ce mode en local par une
