@@ -16,7 +16,7 @@ import pytest
 import yaml
 from fake_embedder import FakeEmbedder
 from test_rag import COVERED, card, place_model, rag_config, rag_session, turn_events
-from test_rag_lab import lab_session, run, wait_idle
+from test_rag_lab import chains, lab_session, run, stage, wait_idle
 from test_rag_rerank import place_reranker, rerank_config
 from test_rag_review import _script, fake_factory
 
@@ -230,12 +230,16 @@ def test_a_change_of_language_reopens_the_new_languages_index(marked, tmp_path):
     session, embedders = rag_session(_values(index, "fr"))
     assert card(session)["available"] is True and len(embedders.made) == 1
 
+    mark = get_journal().last_seq()
     session.set_language("de")
     session.join()
     session.join()
 
     assert embedders.made[0].closed and len(embedders.made) == 2
     assert card(session)["available"] is True
+    schemas = [e for e in get_journal().events_since(mark) if e.kind == "architecture_changed"]
+    nodes = {n["id"]: n for n in schemas[-1].payload["nodes"]}
+    assert "rag_index.de.sqlite" in nodes["file.rag_index"]["detail_text"]
     excerpts = _excerpts(turn_events(COVERED, session))
     assert excerpts[0].startswith("Extrait 1 — [de] Politique des mots de passe :\n[de] ")
     session.close()
@@ -311,7 +315,9 @@ def test_the_rag_workshop_chunks_the_languages_corpus_without_the_brick_index(ma
     place_reranker()
     values = rerank_config(tmp_path / "rag_index.sqlite") | {"language": "de"}
     session, _ = lab_session(values)
-    events = run(session)
+    _, chain, _ = chains(session)
+    stage(chain, "vector_store").option = "memory"  # the brick's index is absent
+    events = run(session, pipelines=[chain])
     chunking = next(
         e.payload
         for e in events
@@ -319,6 +325,14 @@ def test_the_rag_workshop_chunks_the_languages_corpus_without_the_brick_index(ma
     )
     assert chunking["status"] == "ok", chunking["error_text"]
     assert session._rag_index_path() == tmp_path / "rag_index.de.sqlite"
+    context = next(
+        e.payload
+        for e in events
+        if e.kind == "rag_lab_stage_ended" and e.payload["kind"] == "context"
+    )
+    assert context["status"] == "ok" and context["items"]
+    for item in context["items"]:  # the German corpus's chunks, not the French ones
+        assert item["text"].split("\n", 1)[1].startswith(_mark("de")), item["text"][:80]
     session.close()
 
 
@@ -394,7 +408,10 @@ QUESTIONS = {
 
 def test_the_french_index_is_the_one_the_story_found():
     path = config.repo_root() / "data" / "rag_index.sqlite"
-    assert rag_index.file_sha256(path) == FRENCH_INDEX_SHA256
+    assert rag_index.file_sha256(path) == FRENCH_INDEX_SHA256, (
+        "data/rag_index.sqlite a changé : s'il a été reconstruit exprès, mettez à jour "
+        "FRENCH_INDEX_SHA256"
+    )
 
 
 @pytest.mark.parametrize("lang", TRANSLATED)

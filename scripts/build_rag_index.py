@@ -83,7 +83,8 @@ def main(argv: list[str] | None = None, embedder_factory=LlamaCppEmbedder) -> in
     try:
         content = load_rag_content(args.lang)
     except (OSError, ValueError, ValidationError) as exc:
-        return _fail(f"Le fichier content/rag.yaml est absent ou invalide : {exc}")
+        rel = config.content_file("rag.yaml", args.lang).relative_to(config.repo_root())
+        return _fail(f"Le fichier {rel.as_posix()} est absent ou invalide : {exc}")
     if args.download:
         missing = download.missing_files(model.files, config.models_dir())
         if missing:

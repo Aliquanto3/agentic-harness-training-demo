@@ -632,6 +632,9 @@ dans `content/i18n/{en,de}/rag.yaml`. Chaque langue a son index, à côté du fr
 `.{langue}` inséré avant l'extension). Les trois index sont livrés avec le dépôt : la brique
 RAG et l'atelier RAG ouvrent celui de la langue de la session, titres des extraits compris.
 Après un changement de langue, un index absent se construit depuis la carte, comme ci-dessus.
+Après un changement de `[rag.embedding]` ou de `[rag] chunk_max_chars`, reconstruisez les trois
+index ensemble, un par un : `uv run python scripts/build_rag_index.py --lang fr`, puis
+`--lang en`, puis `--lang de`.
 
 Le script fait la même chose, pour une langue à la fois (`fr` par défaut, jamais lue dans
 `settings.json`), et peut committer l'index avec le dépôt :

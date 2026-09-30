@@ -553,7 +553,12 @@ function itemsTable(items) {
     doc.append(el("span", "rag-doc-title", item.title_text));
     if (item.sources?.length) {
       // Where the excerpt stood in each list before (the fusion: both searches).
-      const said = item.sources.map((src) => `${src.label_text} : ${fmtRank(src.rank)}${typeof src.score === "number" ? ` (${fmtScore(src.score)})` : ""}`);
+      const said = item.sources.map((src) =>
+        t("common.format.label_value", {
+          label: src.label_text,
+          value: `${fmtRank(src.rank)}${typeof src.score === "number" ? ` (${fmtScore(src.score)})` : ""}`,
+        })
+      );
       doc.append(el("span", "rag-doc-sources", said.join(" · ")));
     }
     doc.append(el("span", "rag-doc-text", item.text));
