@@ -1,0 +1,102 @@
+- id: "1"
+  title: "R0 : /api/health avec dossier et commit, CLI « déjà lancée depuis … »"
+  description: >-
+    /api/health rend le dossier du projet et le commit, et le CLI qui réutilise une instance
+    saine le dit (CAP-1 de SPEC.md).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Petite story. Commit lu sans dépendance (git rev-parse si git est là, sinon absent, jamais
+    d'erreur ; une archive zip n'a pas de .git). Le message du CLI passe par msg() (terminal
+    en anglais selon la story Langues 5) et nomme le dossier et le commit ; s'ils diffèrent
+    du dossier courant, le dire. Tests dans test_web_app.py et test_cli (ou équivalent).
+    Exécution sur ce PC (16 Go) : pytest en quarts l'un après l'autre, jamais deux suites.
+- id: "2"
+  title: "Barre de navigation commune et barre basse de l'atelier"
+  description: >-
+    Une barre de navigation identique en tête des pages, la barre de l'atelier déplacée en
+    bas et les titres de volets réduits, sans troncature en de à 1 280 et 1 600 px (CAP-2,
+    ecrans-lots-2-a-4.md).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Lire i18n-conventions.md et ecrans-lots-2-a-4.md. Libellés dans ui.yaml (common.nav) en
+    fr, en et de. Garder le menu « Affichage ▾ » et les identifiants #theme-picker,
+    #language-picker, #projection-toggle. Suivre les paliers de app.css qui visent .top-bar,
+    _bar_fits et le panneau « Fenêtre ». Mettre à jour DESIGN.md et EXPERIENCE.md. E2E : les
+    scénarios qui cliquent #llm-link, #rag-link ou .page-tabs suivent ; tranches des écrans
+    touchés (themes, ui_language, annex_language, llm_screen, rag_lab, model_catalog).
+- id: "3"
+  title: "Pages Diagnostic et Modèles : tableau triable et filtrable, progression"
+  description: >-
+    Refondre les pages Diagnostic et Modèles avec les tokens, rendre le tableau des modèles
+    triable et filtrable, et afficher la progression de la recherche des modèles (CAP-3,
+    ecrans-lots-2-a-4.md).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Sans dépendance JS. Tri au clic et au clavier, aria-sort ; filtres hébergement, éditeur,
+    outils, raisonnement, texte libre ; compteur « n sur N » par t() avec pluriels.
+    Progression : événement émis par _discover (n sondés sur N), ajouté au contrat
+    d'événements. Mettre à jour DESIGN.md et EXPERIENCE.md. Textes en fr, en, de.
+    Tranches E2E diagnostic, model_catalog, annex_language.
+- id: "4"
+  title: "Constats différés : rag_rerank sous charge, table cl100k_base hors ligne"
+  description: >-
+    Rendre rag_rerank stable dans sa tranche E2E et faire compter Headroom hors ligne dans un
+    .venv neuf (CAP-4).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Voir les deux entrées de deferred-work.md (rag_rerank : attente de bricks_changed de 30 s
+    expirée au chargement du reranker ; cl100k_base absente de litellm 1.102.1 neuf).
+    rag_rerank : trouver la cause (délai, file encombrée) avant d'allonger une attente.
+    cl100k_base : livrer le fichier de cache tiktoken (licence MIT, vérifier le sha256) et
+    pointer TIKTOKEN_CACHE_DIR dessus avant l'import de Headroom, sans réseau. Fermer les
+    deux entrées de deferred-work.md. Tranche E2E rag, rag_rerank, rag_lab trois fois.
+- id: "5"
+  title: "LLM nu pédagogique : distribution vivante, comparaison A/B, schémas"
+  description: >-
+    Faire de la section 2 du LLM nu une distribution de candidats recalculée à chaque
+    réglage, avec une comparaison A/B de deux réglages, et enrichir les autres sections de
+    schémas (CAP-5, ecrans-lots-2-a-4.md).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Grande story : s'arrêter à un incrément livrable si besoin (minimum : la distribution
+    vivante). Recalcul côté page à partir des logits déjà rendus quand c'est possible ;
+    A/B séquentiel en local (session llm_lab exclusive), parallèle seulement pour un modèle
+    cloud. Textes dans llm_lab.yaml / ui.yaml en fr, en, de. Mettre à jour DESIGN.md et
+    EXPERIENCE.md. Tranche E2E llm_screen (et bare_llm).
+- id: "6"
+  title: "Atelier MCP (/mcp) : le protocole à manipuler"
+  description: >-
+    Nouvelle page /mcp : serveurs, poignée de main JSON-RPC, documentation des outils et son
+    poids, appel d'outil et erreurs, ce que le modèle voit (CAP-6, atelier-mcp.md).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Grande story : s'arrêter à un incrément livrable si besoin (minimum : sections 1 à 3).
+    Naît en *_text et en trois langues (content/mcp_lab.yaml et surcouches, ui.yaml section
+    mcp). Messages JSON-RPC bruts : hook de transport si possible, sinon reconstruction dite
+    « reconstitué » dans la page. Ajouter « Atelier MCP » à la barre commune de la story 2 et
+    un lien depuis la carte de la brique MCP. Mettre à jour DESIGN.md, EXPERIENCE.md,
+    ARCHITECTURE-SPINE (routes, intentions, événements) et README. Tests : test_mcp_lab.py
+    (doublure stdio), E2E s_mcp_lab (captures 61 et 62), tranches mcp_full, mcp_lazy.
+- id: "7"
+  title: "Traductions restantes : messages du backend et textes de la nuit"
+  description: >-
+    Terminer la story Langues 5 (messages.yaml en/de complets, parité stricte, tests
+    paramétrés, tranche E2E backend_language, docs) et traduire tout texte des stories 1 à 6
+    manquant en en ou de (CAP-7).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    En dernier, après tout ajout fonctionnel. Reprendre la note d'étape « arrêt après le
+    commit 3 » de _bmad-output/specs/spec-langues/stories/5-messages-produits-par-le-backend.md
+    (commits 4 et 5 : 1 002 clés, anglais à 126, allemand à 12 ; common.units, config.budget.*,
+    common.language.help, ordinaux allemands de rag_lab.rank.*). Deux sous-agents de
+    traduction, un par langue ; l'allemand vouvoie. Relevé mécanique ensuite : clés de
+    content/ et ui.yaml absentes de content/i18n/{en,de}/ et chaînes en dur signalées par
+    test_i18n. Docs : README, ARCHITECTURE-SPINE (AD-19), i18n-conventions.md,
+    deferred-work.md.
