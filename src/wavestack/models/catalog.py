@@ -35,6 +35,7 @@ from pydantic import (
 )
 
 from wavestack import config
+from wavestack.cloud import price_fr, price_reason_fr
 from wavestack.context.window import window_for
 from wavestack.models import gguf_meta
 from wavestack.models.capabilities import (
@@ -354,6 +355,10 @@ class ModelEntry(BaseModel):
     reason_fr: str | None = None  # why it reasons (or not) so
     usable: bool
     disabled_fr: str | None = None
+    # FinOps: a cloud model's declared prices, « 0,30 $ / 2,50 $ » per million tokens (input /
+    # output); « — » for a local model, or a cloud one without `pricing`.
+    price_fr: str = "—"
+    price_reason_fr: str | None = None
 
 
 def _capabilities(
@@ -554,6 +559,8 @@ def cloud_entries(
                 **_capabilities(caps, None, effective),
                 usable=not reason,
                 disabled_fr=reason or None,
+                price_fr=price_fr(entry) or "—",
+                price_reason_fr=price_reason_fr(entry) or "prix non déclaré",
             )
         )
     return entries

@@ -404,6 +404,8 @@ def create_app(
             "scenario_changed": scenario.payload if scenario else None,
             "memory_changed": memory.payload if memory else None,
             "context_window_state": window.payload if window else None,
+            # FinOps: the session's API spend, from the session (never reset by a reset).
+            "consumption_updated": app_session.consumption(),
             "seq": seq,
         }
 

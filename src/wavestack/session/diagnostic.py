@@ -36,6 +36,7 @@ from wavestack.cloud import (
     disclosure,
     fill,
     load_cloud_content,
+    price_line_fr,
     warning_fr,
 )
 from wavestack.config import CloudModel
@@ -897,6 +898,8 @@ class DiagnosticSession:
                     "test_hint_fr": fill(content.test_hint_fr, entry, content) if content else "",
                     "warning": warning_fr(entry, content) if content else None,
                     "last_test": self._last_tests.get(entry.id),
+                    # FinOps: the declared prices, `None` without them.
+                    "price_fr": price_line_fr(entry),
                 }
             )
         return {"models": rows, "key_hint_fr": content.key_hint_fr if content else ""}
@@ -1036,6 +1039,7 @@ class DiagnosticSession:
                         estimated_prompt=rendered.raw_total,
                         chars_per_token=self.cfg.chars_per_token,
                         call_id=lambda i, s=step_id: tool_call_id(s, i),
+                        eur_per_usd=self.cfg.eur_per_usd,
                     )
                 tps = out.output_tps if out.output_tps is not None else tps
                 if k == 1 and out.calls and all("id" in c for c in out.calls):

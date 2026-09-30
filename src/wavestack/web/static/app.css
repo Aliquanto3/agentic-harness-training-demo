@@ -4771,6 +4771,28 @@ body .arch .arch-robots .robot.is-selection-linked {
   text-overflow: clip;
 }
 
+/* FinOps: the session's API spend, after the gauge: a compact block of two lines, « Dépense
+   estimée » over « entrée $ + sortie $ », never cut (the whole sentence, euros included, in its
+   tooltip and its accessible name); the gauge's figures give way before it. */
+.top-bar > #consumption {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: visible;
+  font-size: var(--typography-label-font-size);
+}
+
+.top-bar > #consumption[hidden] {
+  display: none;
+}
+
+#consumption > :first-child {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-on-ink-soft);
+}
+
 /* Up to 1600 px the names give way further (at 1440 px, the words of « Fenêtre » and the theme
    picker come back and take the room of « · lié »). In projection mode, the bar of under
    1400 px applies up to 1600 px: short labels, and the theme picker compact. */

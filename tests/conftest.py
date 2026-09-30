@@ -122,8 +122,10 @@ def _fresh_pacing():
     from wavestack.models import openai_chat
 
     openai_chat._last_start.clear()
+    openai_chat.reset_spend()  # FinOps: the session's spend starts at zero in each test
     yield
     openai_chat._last_start.clear()
+    openai_chat.reset_spend()
 
 
 @pytest.fixture(autouse=True)

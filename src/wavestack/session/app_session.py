@@ -134,11 +134,13 @@ from wavestack.models.load_registry import (
     process_rss,
 )
 from wavestack.models.openai_chat import (
+    CallCost,
     ChatBody,
     OpenAIChatEngine,
     ProviderError,
     output_tps,
     run_call,
+    session_spend,
 )
 from wavestack.models.reranker import RerankCancelled, Reranker
 from wavestack.models.servers import (
@@ -931,6 +933,8 @@ class AppSession:
         self._cache_evicted: str | None = None
         self._last_status: str | None = None
         self._turn_called = False  # the running turn made a main call (`abandoned`)
+        # FinOps: the running turn's cloud calls' costs (main and sub-agent), for `turn_ended`.
+        self._turn_costs: list[CallCost] = []
         self._save_failed = False  # the last `_save_main_state` failed (not unavailable)
         # Configuration frozen by the last `send`: `pending` is measured against it.
         self._sent: tuple[
@@ -5517,6 +5521,7 @@ class AppSession:
         self._hook_steps = 0
         self._approvals = 0
         self._turn_called = False  # lot A: set by `_keep_cache`
+        self._turn_costs = []
         self._hooks_off.clear()
         self._call_ids.clear()
         steps: list[dict[str, Any]] = []
@@ -5568,7 +5573,8 @@ class AppSession:
                 self._apply_arm_consumed([ArmConsumed(armed_id=a.armed_id) for a in state.armed])
                 journal.emit(
                     "turn_ended",
-                    {"status": status, "duration_ms": _ms(time.monotonic() - started)},
+                    {"status": status, "duration_ms": _ms(time.monotonic() - started)}
+                    | self._turn_cost(),
                 )
                 with self._lock:
                     self._cancel = None
@@ -7007,6 +7013,23 @@ class AppSession:
                 pass
         return list(prompt_ids) + self._engine.tokenize(produced + closure)
 
+    def _turn_cost(self) -> dict[str, Any]:
+        """FinOps: `turn_ended`'s cost fields, the sums of the turn's cloud calls (sub-agent
+        included); none when no call of the turn had a price."""
+        costs = self._turn_costs
+        if not costs:
+            return {}
+        return {
+            "cost_in_usd": sum(c.input_usd for c in costs),
+            "cost_out_usd": sum(c.output_usd for c in costs),
+            "cost_source": "estimate" if any(c.source == "estimate" for c in costs) else "api",
+        }
+
+    def consumption(self) -> dict[str, Any] | None:
+        """FinOps, `/api/state`: the session's API spend as the last `consumption_updated`
+        says it, for a reloaded page; `None` before the first paid call."""
+        return session_spend(self.cfg.eur_per_usd)
+
     def _call_model_chat(
         self, rendered: RenderedChat, cancel: CancelToken, reserve: int
     ) -> _ModelOutput:
@@ -7030,8 +7053,11 @@ class AppSession:
                     chars_per_token=self.cfg.chars_per_token,
                     call_id=lambda index: self._new_call_id(step_id, index),
                     sampling_trace=self._sampling_trace(None),
+                    eur_per_usd=self.cfg.eur_per_usd,
                 )
         except ProviderError as error:
+            if error.cost is not None:  # FinOps: an output had come, the call is billed
+                self._turn_costs.append(error.cost)
             effect_fr = (
                 "La délégation échoue ; le tour principal continue."
                 if in_sub
@@ -7039,6 +7065,8 @@ class AppSession:
             )
             journal.emit("harness_error", error.payload(effect_fr))
             return _ModelOutput("error", message_fr=error.message_fr)
+        if call.cost is not None:
+            self._turn_costs.append(call.cost)
         prompt_tokens = int((call.usage or {}).get("prompt_tokens") or 0)
         if prompt_tokens:  # AD-4: `usage` is the total; the ratio learns from real calls only
             payload = self._chat_gauge(rendered, prompt_tokens, "api", reserve)
@@ -7681,6 +7709,7 @@ class AppSession:
                 chars_per_token=self.cfg.chars_per_token,
                 call_id=lambda index: f"{request_id}.{index}",
                 sampling_trace=trace,
+                eur_per_usd=self.cfg.eur_per_usd,
             )
         except ProviderError as error:
             get_journal().emit(

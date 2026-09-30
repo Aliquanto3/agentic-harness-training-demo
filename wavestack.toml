@@ -197,6 +197,18 @@ call_timeout_s = 30
 datagouv = "https://mcp.data.gouv.fr/mcp"
 mslearn = "https://learn.microsoft.com/api/mcp"
 
+[finops]
+# Estimateur FinOps : le coût de chaque appel cloud se calcule à partir des prix déclarés par
+# l'entrée [[cloud.models]] (pricing), en dollars, la devise de facturation. Le total de la
+# séance est aussi converti en euros à ce taux (euros pour un dollar ; 0,86 par défaut, borné
+# de 0,5 à 2 ; une valeur illisible, nan ou inf, vaut 0,86). Taux relevé le 2026-09-30, à
+# mettre à jour avec les prix.
+# Un appel arrêté (« Arrêter ») compte son entrée telle qu'envoyée, et la sortie reçue avant
+# l'arrêt. L'estimation suit le prix catalogue : remises sur l'entrée en cache, prix par palier
+# ou pour les longs contextes, prix du traitement par lots (batch) et offres gratuites ne sont
+# pas pris en compte.
+eur_per_usd = 0.86
+
 [cloud]
 # Modèles cloud compatibles OpenAI (story 11, AD-4, AD-5, AD-20). Aucune clé ici : la clé
 # se saisit au diagnostic et reste dans api_keys.json, dans le dossier de données, ou vient
@@ -237,6 +249,8 @@ key_env = "GROQ_API_KEY"
 # accepte ; top-k et min-p ne sont jamais envoyés à un fournisseur. Les tours de l'atelier
 # n'en envoient aucun (réglés par le fournisseur).
 sampling = ["temperature", "top_p"]
+# FinOps : prix catalogue en dollars par million de tokens, relevés sur groq.com/pricing.
+pricing = { input_usd_per_mtok = 0.15, output_usd_per_mtok = 0.60, checked = "2026-09-29" }
 
 # Préréglage Mistral : fournisseur français, plan gratuit toujours actif (décision du
 # 2026-09-25 : mistral-small-latest).
@@ -250,7 +264,7 @@ tools = true
 context = 131072
 hosting_fr = "Mistral AI, France (hébergement dans l'UE plausible, non confirmé)"
 training = "opt_out"
-notes_fr = "Sur le plan gratuit, les prompts servent à l'entraînement par défaut : décochez l'option dans Admin Console > Privacy. Quotas à lire dans la console Mistral."
+notes_fr = "Sur le plan gratuit, les prompts servent à l'entraînement par défaut : décochez l'option dans Admin Console > Privacy. Quotas à lire dans la console Mistral. Coût réel nul sur le plan gratuit : le prix affiché est le prix catalogue."
 reasoning = { format = "content_blocks", on = { reasoning_effort = "high" }, off = { reasoning_effort = "none" } }
 key_env = "MISTRAL_API_KEY"
 # Écran « LLM nu » (story 29) : température et top-p réglables, comme chez Groq.
@@ -258,6 +272,9 @@ sampling = ["temperature", "top_p"]
 # Le plan gratuit refuse (429) deux requêtes à moins d'une seconde : au moins 1 s entre deux
 # envois à ce modèle (tour ou « Tester »). Augmentez la valeur si des 429 persistent.
 min_interval_s = 1
+# FinOps : prix catalogue de Mistral Small 4, relevés sur mistral.ai/pricing (nuls en réalité
+# sur le plan gratuit, voir notes_fr).
+pricing = { input_usd_per_mtok = 0.15, output_usd_per_mtok = 0.60, checked = "2026-09-29" }
 
 # Préréglage Gemini (Google AI Studio, API compatible OpenAI ; vérifié sur ai.google.dev le
 # 2026-09-29). Offre payante obligatoire, clause EEE : « You may use only Paid Services when
@@ -308,6 +325,9 @@ training = "no"
 notes_fr = "Offre payante obligatoire (clause EEE : l'offre gratuite ne doit pas servir à des utilisateurs de l'EEE, de Suisse ou du Royaume-Uni). Sur l'offre payante, rien n'est utilisé pour l'entraînement. Prix à vérifier dans la console : hausse au 2027-01-01 pour les 3.6 à 3.8 Flash."
 key_env = "GEMINI_API_KEY"
 tool_call_extra = { extra_content = { google = { thought_signature = "skip_thought_signature_validator" } } }
+# FinOps : prix de gemini-3.5-flash-lite, relevés sur ai.google.dev/pricing (offre payante).
+# Les tokens de réflexion sont facturés comme sortie.
+pricing = { input_usd_per_mtok = 0.30, output_usd_per_mtok = 2.50, checked = "2026-09-29" }
 
 [cloud.models.reasoning]
 format = "think_tags"
@@ -324,7 +344,9 @@ resend = false
 # deux envois au même modèle, de 0 exclu à 60), sampling (story 29 : les réglages que
 # l'écran « LLM nu » peut envoyer, parmi "temperature" et "top_p" ; vide par défaut, réglés
 # par le fournisseur) et tool_call_extra (ce qu'ajoute à chaque appel d'outil fabriqué par
-# le harnais un fournisseur qui l'exige, comme Gemini ci-dessus).
+# le harnais un fournisseur qui l'exige, comme Gemini ci-dessus) et pricing (FinOps : prix
+# d'entrée et de sortie en dollars par million de tokens, avec la date du relevé ; sans lui,
+# aucun coût n'est estimé ni affiché pour ce modèle).
 #
 # NVIDIA : offre d'essai, « limited trial purposes only », hors production ; les contenus
 # sont collectés (§3.3 des conditions).
