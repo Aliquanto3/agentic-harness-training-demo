@@ -1,0 +1,9 @@
+Fiktives Protokoll — Teambesprechung am Montag
+
+Anwesend: Alice, Bruno, Chloé.
+
+1. Der WaveStack-Demonstrator wird am Donnerstag um 14 Uhr im Raum Rivoli vorgestellt.
+2. Bruno bereitet drei Demo-Fragen zu den Tools vor.
+3. Chloé prüft, dass der Arbeitsplatz ohne Netzwerk funktioniert.
+
+Nächste Besprechung: nächsten Montag, gleiche Uhrzeit.

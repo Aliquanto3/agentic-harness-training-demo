@@ -1,0 +1,9 @@
+Fictitious minutes — Monday team meeting
+
+Attendees: Alice, Bruno, Chloé.
+
+1. The WaveStack demonstrator will be presented on Thursday at 2 pm in the Rivoli room.
+2. Bruno prepares three demonstration questions on the tools.
+3. Chloé checks that the workstation works without a network.
+
+Next meeting: next Monday, same time.

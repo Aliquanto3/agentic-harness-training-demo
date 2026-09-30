@@ -1,0 +1,31 @@
+# German translation of content/bricks/subagent.yaml (languages 3/5, AD-19): same fields,
+# same paragraphs and lists.
+label_text: Sub-Agent
+category_text: Harness Engineering
+hosting_text: Lokal
+explanation_text:
+  - >-
+    Der Harness kann eine umfangreiche Teilaufgabe, zum Beispiel das Lesen eines langen
+    Dokuments, einem zweiten Agenten übertragen: dem Sub-Agenten. Es ist dasselbe Modell,
+    danach aufgerufen, aber in einem eigenen Kontext, der nur seinen System-Prompt, die
+    Aufgabe und seine Tools enthält.
+  - - "Der Sub-Agent sieht weder den Verlauf noch den Haupt-System-Prompt noch die Skills."
+    - >-
+      Nur sein Ergebnis kommt in den Hauptkontext zurück, als „Ergebnis des Sub-Agenten“:
+      Die Tokens des Dokuments bleiben im Kontext des Sub-Agenten.
+    - >-
+      Das Modell entscheidet zu delegieren, indem es das Meta-Tool delegate aufruft; „An
+      den Sub-Agenten delegieren“ erzwingt die Delegation in der nächsten Runde.
+    - >-
+      Grenzen: Die Delegation kostet die Hauptrunde den Modellaufruf, der sie angefordert
+      hat; der Sub-Agent hat eigene Aufrufe, höchstens 4, neue Versuche eingeschlossen. Er
+      hat keinen Denkprozess, damit Platz für sein Dokument bleibt.
+  - >-
+    Ersparnis: Orchestrierung vergleicht die im Kontext des Sub-Agenten gebliebenen
+    Tool-Ergebnisse (was der Haupt-Agent ohne Delegation gelesen hätte) mit dem in den
+    Hauptkontext eingespeisten Ergebnis. LLM-Kontext schaltet zwischen den beiden Kontexten
+    um, und das Schema zeichnet einen zweiten Modell-Knoten.
+  - >-
+    Die Hooks gelten auch für den Sub-Agenten, vor jedem Modellaufruf und vor und nach
+    jedem Tool: Der Schutz sensibler Dateien und die menschliche Freigabe überwachen ihn wie
+    den Haupt-Agenten. Seine Tools sind die aktivierten Tools des Bausteins Tools.

@@ -1,0 +1,487 @@
+# German translation of content/scenarios.yaml (languages 3/5, AD-19): same programme, same
+# scenario ids, same configuration fields and values, same number of prompts in the same
+# order; only `title_text`, `description_text` and `prompts` are translated. Quoted labels
+# are those of the German interface (content/i18n/de/); the demo files, tools and skills keep
+# their names.
+
+program:
+  - title_text: Vom nackten LLM zum Harness
+    duration_min: 60
+    scenarios: [bare_llm, reasoning, short_memory, system_prompt, global_memory]
+  - title_text: Tools
+    duration_min: 45
+    scenarios: [native_tools, network_tools]
+  - title_text: RAG
+    duration_min: 45
+    scenarios: [rag, rag_rerank]
+  - title_text: MCP
+    duration_min: 45
+    scenarios: [mcp_full, mcp_lazy]
+  - title_text: Skills und Hooks
+    duration_min: 60
+    scenarios: [skills, caveman, hooks]
+  - title_text: Sub-Agent und Kompression
+    duration_min: 60
+    scenarios: [subagent, compression]
+
+transverse: [data_flows, soc, iam, sovereignty]
+
+scenarios:
+  bare_llm:
+    title_text: Nacktes LLM
+    description_text: >-
+      Alle Bausteine sind ausgeschaltet: Das Modell erhält nur Ihre Nachricht. Senden Sie
+      den Prompt: Ohne Tool kann es die Uhrzeit nicht kennen; es erfindet sie oder gibt zu,
+      sie nicht zu wissen.
+    bricks: []
+    prompts:
+      - Wie spät ist es?
+
+  reasoning:
+    title_text: Denkprozess
+    description_text: >-
+      Nur der Baustein Denkprozess ist aktiv, auf dem nackten LLM: Das Modell schreibt
+      zuerst seinen Denkprozess, dann seine Antwort. Senden Sie den Prompt und klappen Sie
+      den Denkprozess auf, in der Nutzeransicht oder im LLM-Kontext; die Füllstandsanzeige
+      zeigt die auf 1.536 Tokens erhöhte Ausgabereserve. Schalten Sie dann den Baustein aus,
+      wiederholen Sie den Prompt und öffnen Sie „Vergleichen“: weniger Ausgabe-Tokens und
+      eine kürzere Runde, aber eine oft weniger sichere Antwort. Beherrscht das Modell
+      keinen Denkprozess, nennt die Karte des Bausteins den Grund. Die folgenden Module
+      lassen den Denkprozess ausgeschaltet, um Platz zu sparen und die Runden kurz zu
+      halten: Schalten Sie ihn von Hand wieder ein, um ihn in Aktion zu zeigen.
+    bricks: [reasoning]
+    prompts:
+      - >-
+        Ein Zug fährt um 14:47 Uhr in Paris ab und ist 2 Stunden 38 Minuten unterwegs.
+        Danach hat er 25 Minuten Verspätung. Um wie viel Uhr kommt er an?
+
+  short_memory:
+    title_text: Kurzzeitgedächtnis
+    description_text: >-
+      Senden Sie die beiden Prompts nacheinander: Der Harness speist die vorigen Runden
+      wieder ein, das Modell erinnert sich an den Vornamen. Schalten Sie das
+      Kurzzeitgedächtnis aus und senden Sie den zweiten Prompt erneut, um das Vergessen zu
+      sehen.
+    bricks: [short_memory]
+    prompts:
+      - Ich heiße Camille und bin Beraterin für Cybersicherheit.
+      - Wie heiße ich, und was ist mein Beruf?
+
+  system_prompt:
+    title_text: System-Prompt
+    description_text: >-
+      Senden Sie den Prompt, ändern Sie dann den System-Prompt über seine Karte (zum
+      Beispiel „Antworte immer in einem Satz, wie ein Pirat.“) und wiederholen Sie den
+      Prompt: Die Antwort ändert sich, obwohl die Nachricht dieselbe ist.
+    bricks: [short_memory, system_prompt]
+    prompts:
+      - Stell dich in ein paar Sätzen vor.
+
+  global_memory:
+    title_text: Globales Gedächtnis
+    description_text: >-
+      Das Kurzzeitgedächtnis und der System-Prompt bleiben aktiv, und das globale Gedächtnis
+      kommt hinzu: Der Start dieses Szenarios stellt das Demo-Gedächtnis wieder her, dessen
+      drei Informationen bereits in der Systemnachricht stehen. Senden Sie den ersten
+      Prompt: Das Modell ruft remember auf, ein Tool des Harness selbst (der Ablauf eines
+      Tool-Aufrufs wird in Modul 2 erklärt), und der Harness schreibt die Datei memory.json.
+      Tut es das nicht, erzwingen Sie „Ins Gedächtnis schreiben“ über die Karte des
+      Bausteins (nach „Erzwungene Aktionen anzeigen“) und senden Sie den Prompt erneut.
+      Leeren Sie dann die Unterhaltung und senden Sie den zweiten Prompt: Die Vorliebe kommt
+      über die Systemnachricht zurück, nicht über den Verlauf. Öffnen Sie schließlich
+      „Gedächtnis bearbeiten“ (oder klicken Sie auf die Datei im Schema), um die Einträge
+      anzusehen, zu ändern oder zu löschen. Das globale Gedächtnis bleibt in den folgenden
+      Modulen aktiv; ihr erstes Szenario stellt das Demo-Gedächtnis wieder her.
+    bricks: [short_memory, system_prompt, global_memory]
+    restore_memory: true
+    prompts:
+      - Merk dir, dass ich Antworten mit höchstens drei Punkten bevorzuge.
+      - Erinnere mich an meinen Vornamen und gib mir dann Tipps, wie ich eine Schulung vorbereite.
+
+  native_tools:
+    title_text: Native Tools
+    description_text: >-
+      Die Bausteine aus Modul 1 bleiben aktiv, außer dem Denkprozess (das globale Gedächtnis
+      kehrt zu seiner Demo zurück), und die lokalen Tools kommen hinzu. Senden Sie einen
+      Prompt und verfolgen Sie in Orchestrierung den Ablauf des Aufrufs: Das Modell fordert
+      das Tool an, der Harness führt es aus und speist sein Ergebnis wieder ein.
+    bricks: [short_memory, system_prompt, global_memory, tools]
+    restore_memory: true
+    prompts:
+      - Wie spät ist es?
+      - Wie viel ist 1234 mal 5678?
+      - Lies die Datei recette_crepes.txt und gib mir die Liste der Zutaten.
+
+  network_tools:
+    title_text: Netzwerk-Tools
+    description_text: >-
+      Die Netzwerk-Tools kommen zu den lokalen Tools hinzu: Ihr Knoten ist in der Zone
+      Netzwerk gezeichnet. Senden Sie einen Prompt und öffnen Sie dann in Orchestrierung die
+      ausgehenden Daten: Das ist der genaue Text, der den Arbeitsplatz verlassen hat.
+    bricks: [short_memory, system_prompt, global_memory, tools]
+    tools:
+      [get_datetime, calculator, read_file, public_holidays, wikipedia_summary, fetch_page]
+    prompts:
+      - Welche Feiertage gibt es dieses Jahr in Frankreich?
+      - Fasse den Wikipedia-Artikel über den Mont-Saint-Michel zusammen.
+
+  rag:
+    title_text: RAG
+    description_text: >-
+      Die Bausteine der vorigen Module bleiben aktiv, außer dem Denkprozess, und der
+      Baustein RAG kommt hinzu: Der Korpus beschreibt Exemplia, eine erfundene Organisation.
+      Schalten Sie zuerst den Baustein RAG aus und senden Sie den ersten Prompt: Das Modell
+      kennt Exemplia nicht, es erfindet oder gibt zu, es nicht zu wissen. Schalten Sie den
+      Baustein wieder ein, wiederholen Sie den Prompt und öffnen Sie „Vergleichen“: Die
+      RAG-Auszüge stehen in Ihrer Nachricht, und die Antwort stützt sich auf das richtige
+      Dokument.
+      Klappen Sie den Schritt „RAG-Suche“ in Orchestrierung auf (Suchanfrage, Auszüge,
+      Scores) und sehen Sie sich die Indexdatei im Schema an. Erstinstallation: Bietet die
+      Karte „Embedding-Modell herunterladen“ an, klicken Sie darauf, dann auf „Index
+      erstellen“, sobald sie es anbietet; der Baustein wird ohne Kommandozeile verfügbar.
+    bricks: [short_memory, system_prompt, global_memory, tools, rag]
+    restore_memory: true
+    prompts:
+      - Wie viele Zeichen muss ein Passwort bei Exemplia mindestens haben?
+      - Welche Erstattungsobergrenze gilt bei Exemplia für eine Hotelübernachtung in Paris?
+
+  rag_rerank:
+    title_text: RAG mit Reranking
+    description_text: >-
+      Die Bausteine des Szenarios RAG, mit der auf der Karte RAG angekreuzten Unteroption
+      „Reranking“: Der Harness behält {candidates} Kandidaten per Embedding, ein zweites
+      lokales Modell bewertet sie zusammen mit der Frage, dann kommen nur die ersten {keep}
+      in Ihre Nachricht. Senden Sie den ersten Prompt und klappen Sie den Schritt
+      „Reranking“ in Orchestrierung auf: die Reihenfolge vorher und nachher, die behaltenen
+      und verworfenen Auszüge und die beiden Scores. Wählen Sie „Reranking“ ab, wiederholen
+      Sie und öffnen Sie „Vergleichen“: Welche Auszüge haben sich geändert? Erste Nutzung:
+      Bietet die Karte „Reranking-Modell herunterladen“ an, klicken Sie zuerst darauf.
+    bricks: [short_memory, system_prompt, global_memory, tools, rag]
+    rag_rerank: true
+    prompts:
+      - Welche Erstattungsobergrenze gilt bei Exemplia für eine Hotelübernachtung in Paris?
+      - Was ist bei Exemplia als Erstes zu tun, wenn man seinen Laptop verliert?
+
+  mcp_full:
+    title_text: MCP mit vollständiger Dokumentation
+    description_text: >-
+      Die Bausteine der vorigen Module bleiben aktiv, außer dem Denkprozess und RAG, dessen
+      Auszüge über Exemplia hier nicht zum Thema passen würden: Der lokale MCP-Server und
+      data.gouv.fr sind verbunden, und die vollständige Dokumentation jedes Tools kommt in
+      den Kontext. Sehen Sie sich die Füllstandsanzeige an, bevor Sie den Prompt senden: Sie
+      ist schon fast voll. Der Prompt nennt das Tool des Glossars, local__define_term: Ein
+      kleines lokales Modell stellt nicht immer die Verbindung zwischen Frage und Tool her,
+      ein größeres (Cloud-)Modell schon. Antwortet das Modell aus dem Kopf, klicken Sie
+      „Aufruf erzwingen · local__define_term“ unter „WaveStack-Glossar“ auf der Karte MCP
+      (nach „Erzwungene Aktionen anzeigen“), wählen Sie die Voreinstellung „MCP“, „Scharf
+      schalten“, dann „Letzten Prompt wiederholen“: Der Aufruf erfolgt automatisch, und das
+      Modell antwortet mit der Definition. Wechseln Sie dann zum Szenario „Lazy Loading“, um
+      zu sehen, wie derselbe Bedarf in einem viel leichteren Kontext Platz findet. Ohne
+      Netzwerk bleibt data.gouv.fr als nicht verfügbar gezeichnet: Machen Sie mit dem
+      lokalen Server weiter.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp]
+    mcp_servers: [local, datagouv]
+    restore_memory: true
+    prompts:
+      - >-
+        Was bedeutet MCP? Suche die Definition mit dem Tool local__define_term, ohne aus dem
+        Kopf zu antworten.
+
+  mcp_lazy:
+    title_text: Lazy Loading
+    description_text: >-
+      Dieselben Server, mit Lazy Loading: Nur eine Zeile pro Tool kommt in den Kontext.
+      Vergleichen Sie die Füllstandsanzeige mit dem vorigen Szenario: Der gewonnene Platz
+      könnte RAG aufnehmen, das ausgeschaltet bleibt, weil seine Auszüge über Exemplia hier
+      nicht helfen. Senden Sie den ersten Prompt und verfolgen Sie in Orchestrierung das
+      Laden der Dokumentation, dann den Aufruf von local__define_term. Was man mit einem
+      kleinen Modell beobachtet: Es hört nach load_tool_doc auf und antwortet aus dem Kopf,
+      manchmal mit „ich habe gesucht“, obwohl Orchestrierung keinen Aufruf von
+      local__define_term zeigt. Warum: Ein kleines Modell verkettet zwei Aufrufe schlecht
+      und hält die Dokumentation für die Antwort. Das ist die Demonstration: Klicken Sie
+      „Aufruf erzwingen · local__define_term“ unter „WaveStack-Glossar“ auf der Karte MCP
+      (nach „Erzwungene Aktionen anzeigen“), wählen Sie die Voreinstellung „MCP“, „Scharf
+      schalten“, dann „Letzten Prompt wiederholen“: Die Wiederholung setzt vor der Runde
+      an, der Aufruf erfolgt automatisch, seine Definition kommt zu den Tools des Modells,
+      und das Modell antwortet mit dem Ergebnis; der Harness garantiert den Aufruf, den das
+      Modell nicht macht. „Dokumentation laden“ (gleiche Karte) lädt nur die Dokumentation,
+      ohne das Tool aufzurufen. Der zweite Prompt fragt
+      data.gouv.fr ab. Ohne Netzwerk bleibt data.gouv.fr als nicht verfügbar gezeichnet:
+      Machen Sie mit dem lokalen Server weiter.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp]
+    mcp_servers: [local, datagouv]
+    mcp_lazy: true
+    prompts:
+      - >-
+        Was bedeutet MCP? Suche die Definition mit dem Tool local__define_term, ohne aus dem
+        Kopf zu antworten.
+      - Suche auf data.gouv.fr nach öffentlichen Datensätzen zur Luftqualität.
+
+  skills:
+    title_text: Skills
+    description_text: >-
+      Die Bausteine der vorigen Module bleiben aktiv (MCP mit Lazy Loading), ohne
+      Denkprozess und RAG, und die Skills kommen hinzu: Nur Name und Beschreibung jedes
+      Skills stehen im Kontext. Senden Sie den Prompt: Das Modell ruft load_skill auf, der
+      vollständige Inhalt des Skills kommt in den Kontext, und die Füllstandsanzeige wächst.
+      Der Prompt nennt den Skill und das Tool, weil ein kleines lokales Modell nicht immer
+      die Verbindung zwischen Anfrage und Skill herstellt; ein größeres Modell lädt ihn
+      allein auf die Anfrage hin (probieren Sie es mit einem Cloud-Modell). Lädt das Modell
+      den Skill nicht, schalten Sie „Skill auslösen“ auf „Besprechungsprotokoll“ auf der
+      Karte Skills scharf (nach „Erzwungene Aktionen anzeigen“) und wiederholen Sie dann
+      den Prompt.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp, skills]
+    mcp_lazy: true
+    restore_memory: true
+    prompts:
+      - >-
+        Lade zuerst den Skill meeting_minutes mit dem Tool load_skill und verfasse dann das
+        Protokoll dieser Besprechung aus den folgenden Angaben, ohne eine Datei zu lesen:
+        Paul stellt das Budget vor, Julie bestätigt den Zeitplan, nächste Besprechung am
+        Montag um 10 Uhr.
+
+  caveman:
+    title_text: Caveman
+    description_text: >-
+      Senden Sie den Prompt, schalten Sie dann „Skill auslösen“ auf Caveman auf der Karte
+      Skills scharf (nach „Erzwungene Aktionen anzeigen“), wiederholen Sie den letzten
+      Prompt und öffnen Sie „Vergleichen“: dieselbe Frage, deutlich weniger Ausgabe-Tokens.
+    bricks: [short_memory, system_prompt, skills]
+    prompts:
+      - Erkläre in ein paar Sätzen, was ein Agent-Harness ist.
+
+  hooks:
+    title_text: Hooks
+    description_text: >-
+      Senden Sie den Prompt und sehen Sie sich dann das Band „Einhängepunkte“ im Schema an:
+      Der Schutz H1 blockiert das Lesen; es entscheidet Code, nicht das Modell. Ruft das
+      Modell das Tool nicht auf, erzwingen Sie den Aufruf von read_file mit der
+      Voreinstellung „Sensible Datei“ (nach „Erzwungene Aktionen anzeigen“) und wiederholen
+      Sie.
+    bricks: [short_memory, system_prompt, tools, hooks]
+    tools: [get_datetime, read_file]
+    hooks: [h1, h2]
+    prompts:
+      - Lies die Datei confidentiel/budget_projet.txt und fasse sie zusammen.
+
+  subagent:
+    title_text: Sub-Agent
+    description_text: >-
+      Die Bausteine der vorigen Module bleiben aktiv (MCP mit Lazy Loading), ohne
+      Denkprozess und RAG, um dem Sub-Agenten Platz zu lassen und die Quizfragen schnell zu
+      halten, und der Baustein Sub-Agent kommt hinzu. Das lange Dokument ist eine lokale
+      Datei, guide_harnais.md, für eine Demonstration ohne Netzwerk. Senden Sie den ersten
+      Prompt: Das Modell überträgt das Lesen einem Sub-Agenten, und nur dessen
+      Zusammenfassung kommt zurück. Klappen Sie „Delegation an den Sub-Agenten“ in
+      Orchestrierung auf: die beim Sub-Agenten gebliebenen Tool-Ergebnisse gegenüber der
+      eingespeisten Zusammenfassung, das ist die Ersparnis. Schalten Sie LLM-Kontext
+      zwischen dem Hauptkontext (nur die Zusammenfassung, als „Ergebnis des Sub-Agenten“)
+      und dem des Sub-Agenten (der ganze Leitfaden) um. Liest das Modell die Datei selbst,
+      kommt der Leitfaden in den Hauptkontext: Vergleichen Sie die Füllstandsanzeige und
+      schalten Sie dann „An den Sub-Agenten delegieren“ auf der Karte scharf (nach
+      „Erzwungene Aktionen anzeigen“), mit der Voreinstellung „Harness-Leitfaden
+      zusammenfassen“, und wiederholen Sie. Die drei folgenden Fragen testen die
+      Zusammenfassung: Was sie weggelassen hat, ist für den Haupt-Agenten verloren, der
+      erneut delegieren oder zugeben muss, dass er es nicht weiß.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp, skills, hooks, subagent]
+    tools: [read_file]
+    mcp_lazy: true
+    restore_memory: true
+    prompts:
+      - >-
+        Übertrage deinem Sub-Agenten das Lesen der Datei guide_harnais.md, ohne sie selbst
+        zu lesen: Er soll sie lesen und dir eine Zusammenfassung in fünf Punkten liefern.
+        Stell mir dann diese Zusammenfassung vor.
+      - "Quiz: Welche Grenzen setzt der Harness der Schleife eines Agenten?"
+      - "Quiz: Warum spart die Delegation an einen Sub-Agenten Platz im Hauptkontext?"
+      - "Quiz: Was passiert, wenn der Kontext des Sub-Agenten überläuft?"
+
+  compression:
+    title_text: Komprimierung des Kontexts
+    description_text: >-
+      Die Bausteine des Szenarios Sub-Agent bleiben aktiv, ohne den Sub-Agenten (und ohne
+      Denkprozess und RAG), und der Baustein Kompression kommt hinzu: Headroom kürzt große
+      Tool-Ergebnisse vor dem Modellaufruf. Schalten Sie zuerst die Kompression aus und
+      senden Sie den ersten Prompt: Das Modell ruft read_file auf, und das
+      Sicherungsprotokoll kommt vollständig in den Kontext. Liest es das Protokoll nicht,
+      klicken Sie „Aufruf erzwingen“ bei „Datei lesen“ auf der Karte Tools (nach
+      „Erzwungene Aktionen anzeigen“), wählen Sie die Voreinstellung „Sicherungsprotokoll
+      (Komprimierung)“, „Scharf schalten“, dann „Letzten Prompt wiederholen“, die Kompression
+      weiterhin ausgeschaltet. Schalten Sie sie wieder ein, wiederholen Sie den
+      Prompt und öffnen Sie „Vergleichen“. Klappen Sie den Schritt „Komprimierung des
+      Kontexts“ in Orchestrierung auf: Tokens vorher und nachher, Originaltext und
+      Kurzfassung, wo der Fehler geblieben ist. Im LLM-Kontext ist das Tool-Ergebnis mit
+      „komprimiert“ markiert, und die Kopfzeile nennt die Summe ohne Komprimierung. Headroom
+      verringert nur Redundanz: Ein Text ohne Redundanz, etwa Fließtext, geht unverändert
+      durch; das ist die Grenze des Tools. Um das zu zeigen, erzwingen Sie auf dieselbe
+      Weise die Voreinstellung „Harness-Leitfaden (Fließtext, Komprimierung)“, wiederholen
+      Sie und klappen Sie den Schritt auf: Der Leitfaden geht unverändert durch.
+      Stellen Sie schließlich den zweiten Prompt: Was Headroom abgeschnitten hat, ist für
+      das Modell verloren. Die Kompression verkleinert, was hineingeht, Caveman, was
+      herauskommt. Meldet die Karte, dass Headroom nicht installiert ist, führen Sie
+      `uv sync --extra compression` aus und starten Sie WaveStack neu.
+    bricks: [short_memory, system_prompt, global_memory, tools, mcp, skills, hooks, compression]
+    tools: [read_file]
+    mcp_lazy: true
+    hooks: [h1, h2]
+    prompts:
+      - >-
+        Rufe das Tool read_file für journal_serveur.log auf und sag mir dann, auf welchen
+        schweren Fehler die Sicherung heute Nacht gestoßen ist.
+      - Um wie viel Uhr wurde laut journal_serveur.log das Paket 12 kopiert?
+
+  data_flows:
+    title_text: Wohin gehen meine Daten?
+    description_text: >-
+      Beim Start ist alles aktiv: die lokalen Tools und der Baustein MCP, mit Lazy Loading,
+      mit dem lokalen Server (WaveStack-Glossar) und dem öffentlichen Server data.gouv.fr.
+      Lesen Sie zuerst das Schema: Die Tools und der lokale MCP-Server bleiben in der Zone
+      Arbeitsplatz, data.gouv.fr ist in der Zone Netzwerk gezeichnet. Wählen Sie
+      data.gouv.fr auf der Karte MCP ab und wieder an: Der Fluss, der die Grenze des
+      Arbeitsplatzes überschreitet, verschwindet und kommt zurück; es ist der einzige.
+      Senden Sie dann den Prompt und klicken Sie auf den Knoten data.gouv.fr: Orchestrierung
+      zeigt die genauen gesendeten Daten. Das Lazy Loading lässt Platz für das Suchergebnis,
+      den die vollständige Dokumentation von data.gouv.fr nicht ließe. Ohne Netzwerk ist
+      data.gouv.fr als nicht verfügbar gezeichnet, mit seinem Grund: Die Botschaft darüber,
+      was den Arbeitsplatz verlässt, trägt auch ohne den echten Aufruf.
+    bricks: [short_memory, system_prompt, tools, mcp]
+    mcp_servers: [local, datagouv]
+    mcp_lazy: true
+    prompts:
+      - Suche auf data.gouv.fr nach öffentlichen Datensätzen zur Luftqualität.
+
+  # ---------- business scenarios (story 21, FR-40): fictitious, no client data ----------
+
+  soc:
+    title_text: "Fachbereich SOC: Audit-Protokoll und Dateischutz"
+    description_text: >-
+      Für die SOC-Practice, etwa 20 Minuten. Das Lesen von Dateien und die Hooks H1 (Schutz
+      sensibler Dateien) und H2 (Audit-Protokoll) sind aktiv. Senden Sie den ersten Prompt:
+      Das Modell liest die Alarme eines fiktiven SIEM (Uhrzeiten in UTC) und muss die vier
+      Alarme des Kontos adm.leroy zu einem einzigen Vorfall verbinden; sie fielen in ein
+      Wartungsfenster, in dem Alarme stummgeschaltet waren; H2 protokolliert jeden Aufruf
+      mit Zeitstempel. Der Prompt nennt den genauen Dateinamen: Schreibt das Modell ihn
+      falsch, verweigert der Harness das Lesen und listet die verfügbaren Dateien auf, und
+      das Modell kann sich korrigieren; andernfalls erzwingen Sie das Lesen mit der
+      Voreinstellung „SIEM-Alarme (SOC)“ (siehe unten). Senden Sie den zweiten: Das Modell
+      sucht selbst in den Dateien, findet das Inventar der privilegierten Konten im
+      vertraulichen Ordner, und H1 blockiert das Lesen. Der Agent hat dieses Privileg nicht:
+      Der Harness entscheidet, nicht das Modell, und der Agent muss an einen befugten
+      Analysten eskalieren, wie der Prompt es verlangt. Sucht das Modell weiter oder schließt
+      es ohne Eskalation ab (häufig bei einem kleinen Modell), ziehen Sie selbst den Schluss:
+      Der Agent hat dieses Privileg nicht, die Entscheidung liegt bei einem befugten
+      Analysten. Klicken Sie schließlich auf „Audit-Protokoll“ im Schema: Die erlaubten
+      Lesevorgänge und der blockierte stehen darin. Ruft das Modell das Tool nicht auf,
+      klicken Sie „Aufruf erzwingen“ bei „Datei lesen“ auf der Karte Tools (nach
+      „Erzwungene Aktionen anzeigen“), wählen Sie beim ersten Prompt die Voreinstellung
+      „SIEM-Alarme (SOC)“, beim zweiten „Privilegierte Konten (SOC, vertraulich)“, „Scharf
+      schalten“, dann „Letzten Prompt wiederholen“. Merken Sie sich: Das Protokoll des
+      Harness zeichnet jede Aktion des Agenten auf, die Nachvollziehbarkeit, die NIS2 und
+      DORA von einem Werkzeug verlangen, das auf das Informationssystem einwirkt; der Schutz
+      setzt das Prinzip der minimalen Rechte durch, und die sensible Entscheidung bleibt bei
+      einem Menschen.
+    bricks: [short_memory, system_prompt, tools, hooks]
+    tools: [read_file]
+    hooks: [h1, h2]
+    prompts:
+      - >-
+        Lies die Datei alertes_siem.log (genauer Name, unverändert abzuschreiben), fasse die
+        Alarme zusammen, die zu demselben Vorfall gehören, und rekonstruiere seinen Ablauf
+        in höchstens 8 Zeilen, mit der wahrscheinlichen MITRE-ATT&CK-Taktik für jeden
+        Schritt.
+      - >-
+        Um diesen Vorfall einzuordnen, prüfe die Rolle und den Inhaber des Kontos adm.leroy
+        anhand der verfügbaren Dateien. Wird dir ein Lesezugriff verweigert, umgehe ihn
+        nicht: Sag es und schlage vor, die Prüfung an einen befugten SOC-Analysten
+        weiterzugeben, in höchstens 3 Zeilen.
+
+  iam:
+    title_text: "Fachbereich IAM: Entra ID mit Microsoft Learn"
+    description_text: >-
+      Für die IAM-Practice, etwa 15 Minuten. Nur der öffentliche MCP-Server Microsoft Learn
+      ist verbunden, mit vollständiger Dokumentation, zusammen mit dem Kurzzeitgedächtnis
+      und dem System-Prompt: Ein kleines Modell kennt die neuen Oberflächen von Entra ID
+      nicht, die offizielle Dokumentation schon. Senden Sie den ersten Prompt: Das Modell
+      sucht in Microsoft Learn, und Orchestrierung zeigt das Ziel und die genau gesendeten
+      Daten, vor dem Ergebnis. Die Prompts nennen das Such-Tool,
+      mslearn__microsoft_docs_search: Ein kleines lokales Modell stellt nicht immer die
+      Verbindung zwischen Frage und Tool her, ein größeres (Cloud-)Modell sucht allein auf
+      die Frage hin. Das Schema zeichnet den Server in der Zone Netzwerk: Die Frage geht an
+      Microsoft, das Modell bleibt auf dem Arbeitsplatz. Die Suchergebnisse sind umfangreich
+      (bis zu 1.200 behaltene Tokens): Zwei passen nicht zusammen ins Fenster, klicken Sie
+      also auf „Unterhaltung leeren“ (Bereich Nutzeransicht), bevor Sie den zweiten Prompt
+      senden; meldet die Füllstandsanzeige eine Überschreitung, sind das die echten Kosten
+      eines öffentlichen MCP. Antwortet das Modell, ohne zu suchen, klicken Sie „Aufruf
+      erzwingen · mslearn__microsoft_docs_search“ unter „Microsoft Learn“ auf der Karte MCP
+      (nach „Erzwungene Aktionen anzeigen“), wählen Sie beim ersten Prompt die
+      Voreinstellung „MFA für Administratoren (IAM)“, beim zweiten die Voreinstellung
+      „Just-in-Time-PIM (IAM)“,
+      „Scharf schalten“, dann „Letzten Prompt wiederholen“. Ohne Netzwerk (oder
+      hinter einem Proxy, der learn.microsoft.com blockiert) ist Microsoft Learn als nicht
+      verfügbar gezeichnet, mit seinem Grund: Wählen Sie den Server auf der Karte MCP ab und
+      wieder an, um es erneut zu versuchen. Merken Sie sich: eine Antwort mit Quellen, mit
+      den Links von Microsoft Learn, statt einer erfundenen Verwaltungsoberfläche; im
+      Gegenzug geht die Frage an den Hersteller.
+    bricks: [short_memory, system_prompt, mcp]
+    mcp_servers: [mslearn]
+    prompts:
+      - >-
+        Wie erzwingt man in Microsoft Entra ID die Multi-Faktor-Authentifizierung für alle
+        Administratoren? Suche mit dem Tool mslearn__microsoft_docs_search und antworte
+        dann in höchstens 5 Zeilen: zuerst zwei Links zu Microsoft Learn aus dem Ergebnis,
+        dann die Erklärung.
+      - >-
+        Was ist Privileged Identity Management in Entra ID, und wozu dient die
+        Just-in-Time-Aktivierung einer Rolle? Suche mit dem Tool
+        mslearn__microsoft_docs_search und antworte dann in höchstens 5 Zeilen: zuerst zwei
+        Links zu Microsoft Learn aus dem Ergebnis, dann die Erklärung.
+
+  sovereignty:
+    title_text: "Fachbereich Souveränität: Wohin gehen die Anfragen?"
+    description_text: >-
+      Für die Practice Souveränität, etwa 15 Minuten. Zwei öffentliche MCP-Server sind
+      verbunden, mit Lazy Loading: data.gouv.fr, betrieben von der französischen
+      Verwaltung, und Microsoft Learn, betrieben von einem amerikanischen Hersteller. Senden
+      Sie die beiden Prompts und öffnen Sie in Orchestrierung die ausgehenden Daten jedes
+      Aufrufs: Die Suchanfrage allein verrät das Thema der Mission, und sie geht an zwei
+      Betreiber, die zwei verschiedenen Rechtsordnungen unterliegen; ein amerikanischer
+      Hersteller fällt unter den Cloud Act, selbst wenn seine Server in Europa stehen. Jeder
+      Prompt nennt das Such-Tool. Was man mit einem kleinen Modell beobachtet: Es hört nach
+      load_tool_doc auf (oder ruft das Tool ohne seine Dokumentation auf, was der Harness
+      ablehnt) und antwortet aus dem Kopf, manchmal mit „ich habe gesucht“ und erfundenen
+      Datensätzen, obwohl Orchestrierung weder einen Aufruf des Tools noch eine ausgehende
+      Anfrage zeigt. Warum: Ein kleines Modell verkettet zwei Aufrufe schlecht und hält die
+      Dokumentation für die Antwort. Das ist die Demonstration: Klicken Sie beim ersten
+      Prompt „Aufruf erzwingen · datagouv__search_datasets“ unter „data.gouv.fr“ auf der
+      Karte MCP (nach „Erzwungene Aktionen anzeigen“), wählen Sie die Voreinstellung
+      „Cybersicherheit“, „Scharf schalten“, dann „Letzten Prompt wiederholen“: Die
+      Wiederholung setzt vor der Runde an, die Suche erfolgt automatisch, und das Modell
+      antwortet mit ihrem Ergebnis; der Harness garantiert den Aufruf, den das Modell nicht
+      macht. Öffnen Sie die ausgehenden Daten
+      dieses ersten Aufrufs. Zwei Suchergebnisse passen nicht zusammen ins Fenster: Klicken
+      Sie auf „Unterhaltung leeren“ (Bereich Nutzeransicht), bevor Sie den zweiten Prompt
+      senden. Die Ausweichlösung dafür: „Aufruf erzwingen · mslearn__microsoft_docs_search“
+      unter „Microsoft Learn“, Voreinstellung „Protokollierung der Admin-Anmeldungen
+      (Souveränität)“, „Scharf schalten“, dann „Letzten Prompt wiederholen“. Das Schema
+      zeigt nur, was den Arbeitsplatz verlässt: Wo jeder MCP-Server läuft, bei welchem
+      Hoster, mit welcher Qualifizierung (zum Beispiel SecNumCloud), bleibt Fluss für Fluss
+      zu prüfen, und ein öffentlicher Dienst ist nicht von Natur aus souverän. Das Modell
+      dagegen bleibt auf dem Arbeitsplatz; mit einem Cloud-Modell ginge auch die ganze
+      Unterhaltung an seinen Anbieter. Ohne Netzwerk (oder hinter einem Proxy, der diese
+      Adressen blockiert) sind beide Server als nicht verfügbar gezeichnet, mit ihrem
+      Grund: Wählen Sie einen Server auf der Karte MCP ab und wieder an, um es erneut zu
+      versuchen. Merken Sie sich: Souveränität prüft man Fluss für Fluss, für den Harness,
+      die Daten, das Modell und jeden MCP-Server.
+    bricks: [short_memory, system_prompt, mcp]
+    mcp_servers: [datagouv, mslearn]
+    mcp_lazy: true
+    prompts:
+      - >-
+        Suche auf data.gouv.fr nach öffentlichen Datensätzen zur Cybersicherheit in
+        Frankreich, mit dem Tool datagouv__search_datasets, ohne aus dem Kopf zu antworten.
+        Antworte in höchstens 5 Zeilen: höchstens drei Datensätze, jeder zuerst mit seinem
+        Link auf data.gouv.fr.
+      - >-
+        Suche in Microsoft Learn, wie Entra ID die Anmeldungen der Administratorkonten
+        protokolliert, mit dem Tool mslearn__microsoft_docs_search, ohne aus dem Kopf zu
+        antworten.

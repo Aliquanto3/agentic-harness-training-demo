@@ -4,6 +4,7 @@ translated demonstration file, file by file, confined to the French folder."""
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -334,3 +335,233 @@ def test_the_diagnostic_gives_the_sessions_language_to_the_catalog_and_cloud(mar
         for row in rows.values()
     )
     session.close()
+
+
+# ---------- the shipped translations (languages 3/5, commit 2) ----------
+
+BRICK_NAMES = {
+    "en": {
+        "reasoning": "Reasoning",
+        "short_memory": "Short-term memory",
+        "system_prompt": "System prompt",
+        "global_memory": "Global memory",
+        "tools": "Tools",
+        "rag": "RAG",
+        "mcp": "MCP",
+        "skills": "Skills",
+        "hooks": "Hooks",
+        "subagent": "Sub-agent",
+        "compression": "Compression",
+    },
+    "de": {
+        "reasoning": "Denkprozess",
+        "short_memory": "Kurzzeitgedächtnis",
+        "system_prompt": "System-Prompt",
+        "global_memory": "Globales Gedächtnis",
+        "tools": "Tools",
+        "rag": "RAG",
+        "mcp": "MCP",
+        "skills": "Skills",
+        "hooks": "Hooks",
+        "subagent": "Sub-Agent",
+        "compression": "Kompression",
+    },
+}
+# The quotation marks of each language: « … », “…”, „…“.
+MARKS = {"fr": ("«", "»"), "en": ("“", "”"), "de": ("„", "“")}
+QUOTED = {
+    lang: rf"{re.escape(opening)}\s*(.*?)\s*{re.escape(closing)}"
+    for lang, (opening, closing) in MARKS.items()
+}
+# The catalogues whose labels an instruction may cite, besides the bricks' and skills' names.
+CATALOGUES = (
+    "ui.yaml",
+    "tools.yaml",
+    "subagent.yaml",
+    "mcp.yaml",
+    "skills.yaml",
+    "hooks.yaml",
+    "rag.yaml",
+    "compression.yaml",
+    "labels/segment_kinds.yaml",
+)
+SKILL_IDS = sorted(p.name for p in (CONTENT / "skills").iterdir() if (p / "SKILL.md").is_file())
+_HEAD = re.compile(r"\s*\(?≈?\s*\{")
+
+
+def _q(text: str, lang: str) -> str:
+    opening, closing = MARKS[lang]
+    return f"{opening}{text}{closing}"
+
+
+def _leaves(data: object) -> list[str]:
+    if isinstance(data, dict):
+        return [v for x in data.values() for v in _leaves(x)]
+    if isinstance(data, list):
+        return [v for x in data for v in _leaves(x)]
+    return [data] if isinstance(data, str) else []
+
+
+def _catalogue_values(lang: str) -> list[str]:
+    from wavestack.skills import load_skills_content
+
+    values = [v for rel in CATALOGUES for v in _leaves(_load(config.content_file(rel, lang)))]
+    values += [load_brick_content(b, lang).label_text for b in BRICK_NAMES["en"]]
+    values += [s.label_text for s in load_skills_content(SKILL_IDS, lang).skills.values()]
+    return [" ".join(v.split()) for v in values]
+
+
+def _is_label(quote: str, values: list[str]) -> bool:
+    """A label of the catalogues: a value, a value's text before its variable, or the start of
+    one at a word boundary; « <Forcer l'appel> · <tool> » is the button of a forced call."""
+    base = quote.split(" · ")[0]
+    for value in values:
+        head = _HEAD.split(value)[0].rstrip(" ,:(≈")
+        at_boundary = head.startswith(base) and not head[len(base) : len(base) + 1].isalnum()
+        if base == value or at_boundary:
+            return True
+    return False
+
+
+def _quoted(text: str, lang: str) -> list[str]:
+    return [" ".join(q.split()) for q in re.findall(QUOTED[lang], text, re.S)]
+
+
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_the_bricks_have_their_names(lang):
+    names = {b: load_brick_content(b, lang).label_text for b in BRICK_NAMES[lang]}
+    assert names == BRICK_NAMES[lang]
+
+
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_the_skills_name_the_tools_brick_by_its_label(lang):
+    """Story 1's skills cite the Tools brick by the name of `bricks/tools.yaml` of their
+    language (a reprise of languages 1/5)."""
+    label = load_brick_content("tools", lang).label_text
+    cited = {"en": r'"([^"]+)" brick', "de": "Baustein „([^“]+)“"}[lang]
+    names = []
+    for skill in SKILL_IDS:
+        text = config.content_file(f"skills/{skill}/SKILL.md", lang).read_text(encoding="utf-8")
+        names += re.findall(cited, text)
+    assert names and set(names) == {label}
+
+
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_every_label_an_instruction_cites_is_one_of_its_language(lang):
+    """A label quoted in an `en` or `de` instruction is a label of that language's catalogues,
+    as many as the French instruction quotes; its quotation marks are the language's."""
+    french_values, values = _catalogue_values("fr"), _catalogue_values(lang)
+    french = load_scenarios(_known(), "fr").scenarios
+    for scenario_id, scenario in load_scenarios(_known(), lang).scenarios.items():
+        text, french_text = scenario.description_text, french[scenario_id].description_text
+        assert "«" not in text and "»" not in text, scenario_id
+        quotes, french_quotes = _quoted(text, lang), _quoted(french_text, "fr")
+        assert len(quotes) == len(french_quotes), (scenario_id, quotes)
+        labels = [q for q in quotes if _is_label(q, values)]
+        french_labels = [q for q in french_quotes if _is_label(q, french_values)]
+        assert len(labels) == len(french_labels), (
+            scenario_id,
+            [q for q in quotes if q not in labels],
+            [q for q in french_quotes if q not in french_labels],
+        )
+
+
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_the_fallbacks_cite_the_labels_of_their_language(lang):
+    """`test_program`'s checks of the forced actions (story 27, lot K), in `en` and `de`:
+    each instruction cites the button, the preset and the replay of its language."""
+    from wavestack.mcp.servers import load_mcp_content
+    from wavestack.skills import load_skills_content
+    from wavestack.tools.registry import load_tools_content
+    from wavestack.ui_texts import load_ui_texts
+
+    ui = load_ui_texts(lang)["main"]
+    force, replay, clear = ui["force"]["labels"], ui["chat"]["replay_last"], ui["chat"]["clear"]
+    scenario = load_scenarios(_known(), lang).scenarios
+    mcp, french_mcp = load_mcp_content(lang).call_presets, load_mcp_content("fr").call_presets
+    tools = load_tools_content(lang).tools["read_file"]
+    french_tools = load_tools_content("fr").tools["read_file"]
+
+    def preset(french_label: str) -> str:
+        index = [p.label_text for p in french_tools.presets].index(french_label)
+        return tools.presets[index].label_text
+
+    for scenario_id, tool, index in (
+        ("mcp_full", "local__define_term", 0),
+        ("mcp_lazy", "local__define_term", 0),
+        ("iam", "mslearn__microsoft_docs_search", 0),
+        ("iam", "mslearn__microsoft_docs_search", 1),
+        ("sovereignty", "datagouv__search_datasets", 0),
+        ("sovereignty", "mslearn__microsoft_docs_search", 2),
+    ):
+        text = scenario[scenario_id].description_text
+        assert mcp[tool][index].args.keys() == french_mcp[tool][index].args.keys()
+        assert _q(f"{force['tools']} · {tool}", lang) in text, (scenario_id, tool)
+        assert _q(mcp[tool][index].label_text, lang) in text, (scenario_id, index)
+        assert _q(replay, lang) in text, scenario_id
+    text = scenario["sovereignty"].description_text
+    assert (
+        text.index(_q(f"{force['tools']} · datagouv__search_datasets", lang))
+        < text.index(_q(clear, lang))
+        < text.index(_q(f"{force['tools']} · mslearn__microsoft_docs_search", lang))
+    )
+    assert _q(force["mcp"], lang) in scenario["mcp_lazy"].description_text
+    skills = scenario["skills"]
+    label = load_skills_content(["meeting_minutes"], lang).skills["meeting_minutes"].label_text
+    assert _q(force["skills"], lang) in skills.description_text
+    assert _q(label, lang) in skills.description_text
+    assert "meeting_minutes" in skills.prompts[0] and "load_skill" in skills.prompts[0]
+    for scenario_id, presets in (
+        (
+            "compression",
+            ("Journal de sauvegarde (compression)", "Guide du harnais (prose, compression)"),
+        ),
+        ("soc", ("Alertes SIEM (SOC)", "Comptes à privilèges (SOC, confidentiel)")),
+    ):
+        text = scenario[scenario_id].description_text
+        assert _q(force["tools"], lang) in text and _q(tools.label_text, lang) in text
+        for french_label in presets:  # test_program's :216, in the language
+            assert _q(preset(french_label), lang) in text, (scenario_id, french_label)
+    assert "confidentiel" not in scenario["soc"].prompts[1]
+    assert "alertes_siem.log" in scenario["soc"].prompts[0]
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_a_scenario_is_played_in_the_sessions_language(lang):
+    """Matrix « Scénario en allemand » (and in `en`, `fr`): title, instructions and prompts
+    of the language's file, the Tools brick's explanation of its language."""
+    session = _session(lang, ["Voilà."])
+    mark = get_journal().last_seq()
+    session.launch_scenario("native_tools")
+    session.join()
+    expected = _load(config.content_file("scenarios.yaml", lang))["scenarios"]["native_tools"]
+    payload = _scenario_payloads(mark)[-1]
+    assert payload["active"] == "native_tools"
+    shown = {s["id"]: s for m in payload["program"]["modules"] for s in m["scenarios"]}
+    entry = shown["native_tools"]
+    assert entry["title_text"] == expected["title_text"]
+    assert entry["prompts"] == expected["prompts"]
+    assert " ".join(entry["description_text"].split()) == " ".join(
+        expected["description_text"].split()
+    )
+    bricks = [e.payload for e in get_journal().events_since(mark) if e.kind == "bricks_changed"]
+    card = next(b for b in bricks[-1]["bricks"] if b["id"] == "tools")
+    assert card["explanation_text"] == load_brick_content("tools", lang).explanation_text
+    assert card["label_text"] == BRICK_NAMES.get(lang, {"tools": "Outils"})["tools"]
+    if lang != "fr":
+        assert entry["title_text"] != "Outils natifs"
+        assert card["explanation_text"] != load_brick_content("tools", "fr").explanation_text
+    session.close()
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_read_file_reads_the_shipped_translation(lang):
+    """Matrix « Lecture traduite » and « Français inchangé »: each demonstration file of the
+    language; in French, the French files as before."""
+    for french in (CONTENT / "demo_files").rglob("*"):
+        if french.is_file():
+            rel = french.relative_to(CONTENT / "demo_files").as_posix()
+            path = french if lang == "fr" else CONTENT / "i18n" / lang / "demo_files" / rel
+            assert read_file(rel, lang) == path.read_text(encoding="utf-8"), rel
+            if lang != "fr":
+                assert read_file(rel, lang) != french.read_text(encoding="utf-8"), rel

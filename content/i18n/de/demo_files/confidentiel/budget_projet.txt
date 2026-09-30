@@ -1,0 +1,9 @@
+FIKTIVES DEMO-DOKUMENT — keine echten Daten.
+
+Voraussichtliches Budget des Projekts Hirondelle
+- Lizenzen: 12.000 €
+- Dienstleistungen: 48.000 €
+- Reserve: 5.000 €
+
+Diese Datei dient als Ziel für den Schutz-Hook: Ein Harness kann das Lesen eines
+sensiblen Ordners verbieten, was auch immer das Modell verlangt.

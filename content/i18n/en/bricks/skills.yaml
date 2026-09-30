@@ -1,0 +1,24 @@
+# English translation of content/bricks/skills.yaml (languages 3/5, AD-19): same fields,
+# same number of paragraphs and bullets.
+label_text: Skills
+category_text: context engineering
+hosting_text: Local
+explanation_text:
+  - - >-
+      It is not a tool: it runs nothing, it tells the model how to go about a task, and
+      may recommend tools to it.
+    - "It is not an MCP server: no program runs alongside the harness."
+    - >-
+      Nor is it the system prompt: as long as the model does not trigger it, only its
+      name and description take up context, on one line of the system message.
+  - >-
+    When a request calls for it, the model calls the load_skill meta-tool: the harness
+    answers with the full instructions, which apply at once, then places them in the
+    system message at the following turns (the history keeps only a short stub of them).
+    This is progressive loading: you pay for a skill's tokens only when it is used. Once
+    loaded, it is paid for at every following turn, until it is unticked or you click
+    “Clear the conversation”.
+  - >-
+    Compare the output tokens of the same question with and without the Caveman skill:
+    its telegraphic answers produce fewer. “Clear the conversation” unloads all the
+    skills.

@@ -1,0 +1,46 @@
+# English translation of content/bricks/rag.yaml (languages 3/5, AD-19): same fields,
+# same number of paragraphs and bullets, same placeholders.
+label_text: RAG
+category_text: context engineering
+hosting_text: Local
+explanation_text:
+  - >-
+    With RAG, it is not the model that knows: it is the harness that searches. At every
+    turn, before calling the model, the harness searches a corpus for the passages closest
+    to your question, then places them in your message, just before the question.
+  - >-
+    The search is semantic: a small local embedding model turns the question into a
+    vector, and the index (rag_index.sqlite) returns the excerpts whose vector is closest.
+    The score ranges from 0 to 1 (1 minus the cosine distance, brought back to 0 when the
+    vectors point in opposite directions); no threshold is applied: the excerpts are sent
+    even when they do not answer.
+  - - "Gain: the model answers from documents it never saw during training."
+    - >-
+      Cost: the excerpts take up context at every turn, and an embedding model is loaded
+      in memory alongside the main model.
+    - >-
+      Data: the index and the embedding model stay on the workstation; with a cloud model,
+      the excerpts go to the provider in your message.
+  - >-
+    The demonstration corpus describes Exemplia, an imaginary organisation: eight
+    fictitious texts written for WaveStack (passwords, remote work, expense claims…). The
+    excerpts do not stay in the history: each turn searches again.
+  - >-
+    A limit of simple RAG: the query is your message as it is. A follow-up question
+    (“What about Lyon?”) searches without the context of the previous turns, and often
+    finds poorly; an advanced RAG rephrases the question first.
+  - >-
+    “Reranking” sub-option: the embedding compares vectors computed separately for the
+    question and for each excerpt; it is fast, but approximate. The reranker, a second
+    local model, reads the question and an excerpt together and scores their relevance
+    from 0 to 1. The harness first retrieves more candidates ({candidates}, [rag]
+    rerank_candidates), has them scored one by one, then keeps only the top {keep}
+    ([rag] top_k): the “Reranking” step in Orchestration shows the order before and after.
+    The two scores cannot be compared with each other.
+  - - "Gain: the excerpts kept answer the question more often."
+    - >-
+      Cost: one reranker pass per candidate before the first model call (the first token
+      arrives later), and one more model in memory.
+  - >-
+    First installation: “Download” fetches the embedding model, then “Build the index”
+    splits the corpus and indexes it on the workstation, without a command line.

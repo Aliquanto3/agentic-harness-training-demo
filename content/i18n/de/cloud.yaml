@@ -1,0 +1,47 @@
+# German translation of content/cloud.yaml (languages 3/5, AD-19): same fields, same
+# `{fournisseur}`, `{hebergement}`, `{entrainement}`, `{essai}` and `{modele}` placeholders,
+# same `training_text` keys; `test.tool.name` and `test.tool_reply` are the French file's.
+
+# Warning shown on the diagnostic's "Choisir" button, repeated in the indicator's tooltip.
+warning:
+  title_text: Dieses Modell läuft außerhalb Ihres Arbeitsplatzes
+  sent_text: >-
+    Was hinausgeht: Jeder Aufruf sendet den gesamten Kontext (Nachrichten, System-Prompt,
+    Tool-Ergebnisse, Gedächtnis) an {fournisseur}, {hebergement}.
+  provider_text: "Was der Anbieter damit macht: Training – {entrainement}.{essai}"
+  unseen_text: >-
+    Was der Harness nicht mehr sieht: Die Vorlage und die Auswertung der Tool-Aufrufe
+    werden beim Anbieter angewendet, und die Tokens pro Segment sind geschätzt.
+  confirm_text: Dieses Modell verwenden
+  cancel_text: Abbrechen
+
+# Values of `training`, and the mention of a trial offer.
+training_text:
+  "yes": "ja, die Prompts dienen dem Training seiner Modelle"
+  "no": "nein"
+  opt_out: "standardmäßig ja, abschaltbar in der Konsole des Anbieters"
+trial_text: " Testangebot: nicht für eine dauerhafte Nutzung gedacht."
+
+key_hint_text: Auf diesem Arbeitsplatz gespeichert, nie angezeigt oder protokolliert.
+no_key_text: "Deaktiviert: Geben Sie zuerst den API-Schlüssel von {fournisseur} ein."
+host_changed_text: "Schlüssel neu eingeben: Die Adresse des Anbieters hat sich geändert."
+test_hint_text: >-
+  Sendet eine feste Eingabe, ohne Ihre Daten. Der Schlüssel und die Adresse des
+  Arbeitsplatzes gehen an {fournisseur}.
+
+# Banner of the LLM context pane when the active model is a cloud one.
+banner_text: >-
+  Cloud-Modell: Dieser Kontext ist der an {fournisseur} gesendete JSON-Body. Die Vorlage
+  wird außerhalb des Arbeitsplatzes angewendet; die Tokens pro Segment sind geschätzt (≈).
+provider_segment_text: Beim Anbieter angewendete Vorlage (geschätzt)
+uncertain_text: "Unsichere Schätzung: Der Anbieter entscheidet."
+
+# Cloud model test (the diagnostic's "Tester" button): fixed prompt, tool and reply, no user data.
+test:
+  prompt: >-
+    Verbindungstest von WaveStack. Rufe das Tool get_datetime auf und antworte dann in einem
+    kurzen Satz mit dem erhaltenen Datum.
+  tool:
+    name: get_datetime
+    description: Gibt das aktuelle Datum und die aktuelle Uhrzeit an.
+  tool_reply: "2026-01-01T09:00:00+01:00"

@@ -1,0 +1,20 @@
+# English translation of content/bricks/tools.yaml (languages 3/5, AD-19): same fields,
+# same number of paragraphs, same placeholders.
+label_text: Tools
+category_text: harness engineering
+hosting_text: Local
+explanation_text:
+  - >-
+    A model only writes text: it does not know the time, calculates approximately and
+    reads no file. The harness describes tools to it; the model answers with a call
+    request, which the harness checks, runs, then reinjects into the context before
+    calling the model again.
+  - >-
+    The five steps (description, request, execution, reinjection, answer) and every
+    failure are shown in the Orchestration pane.
+# Story 23: what leaves the workstation and where to read it. The session fills {tools}
+# (declared network tools) and {servers} (public MCP servers).
+outbound_text: >-
+  May leave the workstation: {tools}, as well as the public MCP servers ({servers}) of the
+  MCP brick. What they send (address, headers, body): Orchestration pane, “🌐 Outbound
+  data” block of their step; a click on their 🌐 node in the diagram leads there.
