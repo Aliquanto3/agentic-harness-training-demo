@@ -3,6 +3,8 @@ translations, produced by `msg(key, lang)` in the session's language."""
 
 from __future__ import annotations
 
+import ast
+import re
 import shutil
 from datetime import datetime
 
@@ -179,3 +181,76 @@ def test_an_invalid_translated_catalogue_is_traced_once_in_french(tmp_path, monk
     ]
     assert msg("tools.datetime.weekdays.monday", "en") == "lundi"
     session.close()
+
+
+# ---------- the static check: no French literal left in the perimeter ----------
+
+SRC = config.repo_root() / "src" / "wavestack"
+_FRENCH = re.compile(r"[àâçéèêëîïôûùüÿœÀÂÇÉÈÊËÎÏÔÛÙÜŸŒ«»]")
+# The modules whose texts reach the model or the user (commit by commit).
+PERIMETER = (
+    "tools/executor.py",
+    "tools/parser.py",
+    "tools/native.py",
+    "tools/network.py",
+    "tools/registry.py",
+    "mcp/connection.py",
+    "mcp/local_server.py",
+    "hooks.py",
+    "memory.py",
+    "messages.py",
+    "ui_texts.py",
+)
+# Literals kept on purpose, by module: `(module, a piece of the literal)`, each justified.
+EXCEPTIONS = {
+    # H3's date, written by `date_fr` in the content's language (story 1).
+    ("hooks.py", "février"),
+    ("hooks.py", "août"),
+    ("hooks.py", "décembre"),
+    # An internal exception, mapped to `mcp.error.closed` by `describe_error`.
+    ("mcp/connection.py", "connexion fermée"),
+    # Validation of `memory.json` and `memory.yaml`: file validation, never translated.
+    ("memory.py", "entrée"),
+    ("memory.py", "caractères au plus"),
+    # Validation of `ui.yaml` and `messages.yaml`: file validation, never translated.
+    ("ui_texts.py", "clé"),
+    ("ui_texts.py", "texte non vide"),
+    ("ui_texts.py", "même forme"),
+    ("messages.py", "même forme"),
+    ("messages.py", "mêmes variables"),
+}
+
+
+def _skipped(tree: ast.AST) -> set[int]:
+    """The docstrings and the `log.*` calls' strings: never translated."""
+    skipped = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            first = body[0] if body else None
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                skipped.add(id(first.value))
+        func = getattr(node, "func", None)
+        if isinstance(node, ast.Call) and isinstance(func, ast.Attribute):
+            if isinstance(func.value, ast.Name) and func.value.id in ("log", "logger"):
+                skipped |= {id(n) for n in ast.walk(node)}
+    return skipped
+
+
+def _french_literals(module: str) -> list[str]:
+    tree = ast.parse((SRC / module).read_text(encoding="utf-8"))
+    skipped = _skipped(tree)
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in skipped
+        and _FRENCH.search(node.value)
+        and not any(m == module and piece in node.value for m, piece in EXCEPTIONS)
+    ]
+
+
+@pytest.mark.parametrize("module", PERIMETER)
+def test_no_french_literal_is_left_in_the_perimeter(module):
+    assert _french_literals(module) == []

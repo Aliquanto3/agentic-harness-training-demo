@@ -18,6 +18,7 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 from wavestack import config
+from wavestack.messages import msg
 from wavestack.session.effects import AuditAppend, Effect
 from wavestack.tools.native import demo_relative, weekday
 from wavestack.tools.parser import ToolCall
@@ -50,7 +51,6 @@ _MONTHS_FR = (
     "novembre",
     "décembre",
 )
-_APPROVAL_FR = {"approved": "autorisé", "refused": "refusé", "cancelled": "annulé"}
 # Languages (1/5): H3's date in English and German, days from Monday.
 _WEEKDAYS = {
     "en": ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"),
@@ -140,6 +140,9 @@ class HookContext:
     context_id: str = "main"  # `main` or a sub-agent's `sub{n}` (AD-11)
     content: HooksContent | None = None
     now: datetime = field(default_factory=lambda: datetime.now().astimezone())
+    # Languages (5/5): the session's language, that of every text a hook writes (refusal,
+    # audit line, decision), never `settings.json`'s.
+    language: str = config.DEFAULT_LANGUAGE
 
 
 @dataclass(frozen=True)
@@ -177,12 +180,8 @@ def guard(ctx: HookContext) -> HookResult | None:
         return None  # outside the demo folder: `read_file`'s confinement refuses it (AD-14)
     # Case-folded: on a case-insensitive filesystem, `CONFIDENTIEL/` is the same folder.
     if rel.parts and rel.parts[0].casefold() == CONFIDENTIAL:
-        return HookResult(
-            "block",
-            f"Bloqué par le hook garde-fou : « {path} » est dans le dossier confidentiel, "
-            "dont la lecture est interdite.",
-        )
-    return HookResult("allow", f"« {path} » est hors du dossier confidentiel : lecture permise.")
+        return HookResult("block", msg("hooks.h1.blocked", ctx.language, path=path))
+    return HookResult("allow", msg("hooks.h1.allowed", ctx.language, path=path))
 
 
 # ---------- H2: audit log ----------
@@ -197,7 +196,7 @@ def _line(ts: datetime, turn_id: str, what: str, detail: str, status: str) -> st
 def audit(ctx: HookContext) -> HookResult | None:
     """Stateless: logs the turn's events after its last write (`effect_applied` on
     `file.audit`), so the file stays in order though it writes at two points."""
-    events = ctx.events
+    events, lang = ctx.events, ctx.language
     last = max(
         (i for i, e in enumerate(events) if e.kind == "effect_applied" and e.component == AUDIT),
         default=-1,
@@ -223,30 +222,36 @@ def audit(ctx: HookContext) -> HookResult | None:
         p = event.payload
         if event.kind == "model_call_ended":
             read, made = p["prompt_tokens"], p["output_tokens"]
-            detail = f"{read} tokens lus, {made} produits"
-            lines.append(_line(event.ts, where(event), "appel au modèle", detail, p["stop_reason"]))
+            detail = msg("hooks.h2.tokens", lang, read=read, made=made)
+            what = msg("hooks.h2.model_call", lang)
+            lines.append(_line(event.ts, where(event), what, detail, p["stop_reason"]))
         elif event.kind == "tool_ended":
             tool = started.get(event.step_id, "?")
-            lines.append(_line(event.ts, where(event), "appel d'outil", tool, p["status"]))
+            what = msg("hooks.h2.tool_call", lang)
+            lines.append(_line(event.ts, where(event), what, tool, p["status"]))
         elif event.kind == "tool_call_malformed":
-            what = "appel d'outil refusé"
-            lines.append(_line(event.ts, where(event), what, p["detail_text"], "refusé"))
+            what, status = msg("hooks.h2.tool_refused", lang), msg("hooks.h2.refused", lang)
+            lines.append(_line(event.ts, where(event), what, p["detail_text"], status))
         elif event.kind == "hook_decided" and p["decision"] == "block":
-            what = f"appel bloqué par {p['hook'].upper()}"
-            lines.append(_line(event.ts, where(event), what, p["detail_text"], "bloqué"))
+            what = msg("hooks.h2.blocked_by", lang, hook=p["hook"].upper())
+            status = msg("hooks.h2.blocked", lang)
+            lines.append(_line(event.ts, where(event), what, p["detail_text"], status))
         elif event.kind == "approval_resolved":
             request = asked.get(p["approval_id"], {"tool": "?", "destination": "?"})
-            detail = f"{request['tool']} vers {request['destination']}"
-            status = _APPROVAL_FR[p["decision"]]
-            lines.append(_line(event.ts, where(event), "validation humaine", detail, status))
+            detail = msg(
+                "hooks.h2.towards", lang, tool=request["tool"], destination=request["destination"]
+            )
+            status = msg(f"hooks.h2.approval.{p['decision']}", lang)
+            what = msg("hooks.h2.human_validation", lang)
+            lines.append(_line(event.ts, where(event), what, detail, status))
     if ctx.point == "on_turn_end":
-        lines.append(_line(ctx.now, ctx.turn_id, "fin du tour", "", ctx.status or "?"))
+        what = msg("hooks.h2.turn_end", lang)
+        lines.append(_line(ctx.now, ctx.turn_id, what, "", ctx.status or "?"))
     if not lines:
         return None
-    s = "s" if len(lines) > 1 else ""
     return HookResult(
         "allow",
-        f"{len(lines)} ligne{s} pour le journal d'audit.",
+        msg("hooks.h2.lines", lang, count=len(lines)),
         effects=(AuditAppend(lines=lines),),
     )
 
@@ -277,9 +282,7 @@ def inject(ctx: HookContext) -> HookResult | None:
     if ctx.content is None:
         return None
     text = ctx.content.injection.replace("{date}", date_text(ctx.now, ctx.content.language))
-    return HookResult(
-        "modify", "Date du poste et règles de la mission ajoutées avant le message.", injection=text
-    )
+    return HookResult("modify", msg("hooks.h3.injected", ctx.language), injection=text)
 
 
 # ---------- H5: human validation ----------
@@ -297,8 +300,7 @@ def ask(ctx: HookContext) -> HookResult | None:
         return None
     return HookResult(
         "ask_human",
-        f"L'appel à « {call.name} » enverrait une requête vers {host(preview['url'])} : le "
-        "harnais demande votre accord avant tout envoi.",
+        msg("hooks.h5.ask", ctx.language, name=call.name, host=host(preview["url"])),
         preview=preview,
     )
 

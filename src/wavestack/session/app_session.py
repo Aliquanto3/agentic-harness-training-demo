@@ -96,7 +96,7 @@ from wavestack.hooks import (
 )
 from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
-from wavestack.messages import load_messages, msg
+from wavestack.messages import KeyedError, Message, load_messages, msg, render
 from wavestack.models import download as download_module
 from wavestack.models import embedding as embedding_module
 from wavestack.models import gguf_meta
@@ -209,7 +209,6 @@ LOAD_SKILL = "load_skill"  # the harness meta-tool of the skills brick (AD-25)
 REMEMBER = "remember"  # the harness meta-tool of the global memory brick (AD-25)
 MEMORY = "file.memory"  # the schema node of `memory.json` (AD-12, AD-23)
 DELEGATE = "delegate"  # the harness meta-tool of the subagent brick (AD-11, AD-25)
-_NO_SUB_TEXT_FR = "(Le sous-agent n'a rendu aucun texte.)"
 RAG_INDEX = "file.rag_index"  # the schema node of the RAG index (story 15, AD-12)
 # Lot G: the card's reason when another program keeps the index open (Windows).
 INDEX_HELD_FR = (
@@ -444,11 +443,6 @@ _LIMITS_FR = {
         "résultat."
     ),
 }
-# Lot B (N3): appended to a network or MCP tool's result the harness cut, seen by the model.
-_TRUNCATED_FR = (
-    "\n\n[Résultat tronqué par le harnais : {kept} tokens sur {total}. Réponds avec ce qui "
-    "est gardé, ou relance l'outil avec une demande plus précise.]"
-)
 _OVERFLOW_STRATEGIES_FR = [
     "Fenêtre glissante : ne garder que les échanges les plus récents.",
     "Compaction : résumer les anciens échanges en quelques lignes.",
@@ -921,10 +915,14 @@ class AppSession:
         self._rag_lab_catalog_kept: tuple[float, Any, rag_lab.Catalog] | None = None
         self._load_content()
         self._registry = ToolRegistry(
-            self._native_tools() + network_tools(self.cfg) + self._harness_tools(),
+            self._native_tools()
+            + network_tools(self.cfg, lambda: self._language)
+            + self._harness_tools(),
             self._tools_content,
+            lambda: self._language,
         )
-        self._tool_executor = ToolExecutor(self._registry)
+        # Languages (5/5): what the executor writes, in the session's language at each call.
+        self._tool_executor = ToolExecutor(self._registry, lambda: self._language)
         self._check_subagent_tools()
         self._tools_enabled: set[str]  # sub-options: see `_apply_launch_config`
         # MCP servers (story 6): the local one starts enabled, the public ones disabled. A
@@ -1149,7 +1147,7 @@ class AppSession:
         if node["hosting"] == "network" and text is not None:  # story 34, AD-19
             node["sends_text"] = text.sends_text
         if node["available"] and contact == "unavailable":
-            node["available"], node["reason_text"] = False, why
+            node["available"], node["reason_text"] = False, self._text(why)
 
     def _emit_architecture(self) -> None:
         """AD-12: a component is drawn as soon as its brick is `wanted`, even unavailable."""
@@ -1264,7 +1262,7 @@ class AppSession:
                     node["contact"] = contact
                     node["sends_text"] = self._registry.sends(name)  # story 34, AD-19
                     if available and contact == "unavailable":
-                        node["available"], node["reason_text"] = False, why
+                        node["available"], node["reason_text"] = False, self._text(why)
                 if component.kind == "mcp_server":
                     self._mcp_node(node, component.id.removeprefix("mcp."))
                 if is_skill:  # its tooltip gives its description and state (FR-3)
@@ -1289,7 +1287,7 @@ class AppSession:
                         )
                     ok, why = self._rerank_availability()
                     if node["available"] and not ok:
-                        node["available"], node["reason_text"] = False, why
+                        node["available"], node["reason_text"] = False, self._text(why)
                 if component.id == "compression.compressor":
                     node["detail_text"] = (
                         f"{self._compressor_label()}, bibliothèque dans le processus du "
@@ -1544,11 +1542,28 @@ class AppSession:
             },
         )
 
+    def _t(self, key: str, /, **kw: Any) -> str:
+        """Languages (5/5): the message `key` of `messages.yaml` in the session's language."""
+        return msg(key, self._language, **kw)
+
+    def _text(self, value: Any) -> Any:
+        """Languages (5/5): a `Message` or a `KeyedError` written in the session's language
+        where it is placed (an event, the state, the context); anything else as it is."""
+        return render(value, self._language) if isinstance(value, Message | KeyedError) else value
+
     def _error(self, message_text: str, exc: BaseException | str, effect_text: str) -> None:
-        cause = exc if isinstance(exc, str) else f"{type(exc).__name__}: {exc}"
+        """A `harness_error`: its texts (`Message`s, or a keyed exception as the cause) in
+        the session's language; a third party's exception text stays as it is."""
+        cause = (
+            self._text(exc) if isinstance(exc, str) else f"{type(exc).__name__}: {self._text(exc)}"
+        )
         get_journal().emit(
             "harness_error",
-            {"message_text": message_text, "cause": cause, "effect_text": effect_text},
+            {
+                "message_text": self._text(message_text),
+                "cause": cause,
+                "effect_text": self._text(effect_text),
+            },
         )
 
     def _localized(self, load: Callable[..., Any], *args: Any) -> Any:
@@ -4082,7 +4097,14 @@ class AppSession:
             if hook.id not in state.hooks or "on_user_message" not in hook.points:
                 continue
             try:
-                result = hook.fn(HookContext("on_user_message", "", content=self._hooks_content))
+                result = hook.fn(
+                    HookContext(
+                        "on_user_message",
+                        "",
+                        content=self._hooks_content,
+                        language=self._language,
+                    )
+                )
             except Exception:  # noqa: BLE001, S112 - the turn traces it, not the preview
                 continue
             if result is not None and result.decision == "modify" and result.injection:
@@ -4460,12 +4482,10 @@ class AppSession:
         status, and the main turn goes on."""
         ctx, text = self._turn_ctx, self._subagent_content
         if ctx is None or text is None:
-            raise DelegationFailed("Délégation impossible hors d'un tour.", "error")
+            raise DelegationFailed("delegation.outside_turn", "error")
         task = task.strip()
         if not task:
-            raise DelegationFailed(
-                "La tâche du sous-agent est vide : décris-la dans l'argument « task ».", "error"
-            )
+            raise DelegationFailed("delegation.empty_task", "error")
         state, cancel = ctx
         self._subs += 1
         sub = _SubContext(f"sub{self._subs}", task, text.prompt, state.subagent_tools)
@@ -4473,7 +4493,7 @@ class AppSession:
         started = time.monotonic()
         # `estimated`: chat mode, the context's figures not reconciled by `usage` (AD-4).
         figures = {"calls": 0, "context_tokens": 0, "kept_tokens": 0, "estimated": 0}
-        outcome = _SubOutcome("error", message_text="le sous-agent s'est interrompu.")
+        outcome = _SubOutcome("error", message_text=Message("delegation.interrupted"))
         saved = self._save_main_state()  # AD-11 (N2): the main context's cache, kept
         # AD-11: every event of the sub-agent hangs on the step of `delegate`; the trigger
         # (model or user) is inherited.
@@ -4493,9 +4513,7 @@ class AppSession:
                 outcome = self._run_subagent(sub, state, cancel, figures)
             except Exception as exc:  # noqa: BLE001 - AD-16: the delegation fails, not the turn
                 self._error(
-                    "Le sous-agent s'est interrompu sur une erreur.",
-                    exc,
-                    "La délégation échoue ; le tour principal continue.",
+                    Message("delegation.error.message"), exc, Message("delegation.error.effect")
                 )
             finally:
                 restore_ms = self._restore_main_state(saved, figures["calls"])
@@ -4503,7 +4521,9 @@ class AppSession:
                 failure = None if done else self._delegation_failure(outcome)
                 # What the main context reads: the result, or the error the executor
                 # reinjects in its place (« Erreur : … »).
-                result = outcome.result if done else f"Erreur : {failure.message_text}"
+                result = (
+                    outcome.result if done else self._t("tools.error", text=self._text(failure))
+                )
                 result_tokens, estimated = self._count_tokens(result)
                 # The saving: what the main context would have read (every tool reply that
                 # stayed in the sub-agent, errors and refusals included) against the result it
@@ -4568,15 +4588,9 @@ class AppSession:
     def _delegation_failure(outcome: _SubOutcome) -> DelegationFailed:
         """The error a failed delegation reinjects (AD-11), with `delegate`'s status."""
         if outcome.status == "cancelled":
-            return DelegationFailed(
-                "Délégation arrêtée à la demande de l'utilisateur.", "cancelled"
-            )
+            return DelegationFailed("delegation.cancelled", "cancelled")
         status = outcome.status if outcome.status in ("limit", "overflow") else "error"
-        return DelegationFailed(
-            f"La délégation au sous-agent a échoué : {outcome.message_text} Réponds sans ce "
-            "résultat, ou délègue une tâche plus simple.",
-            status,
-        )
+        return DelegationFailed("delegation.failed", status, reason=outcome.message_text)
 
     def _check_subagent_tools(self) -> None:
         """AD-19: a name of `[subagent] tools` that no tool of the tools brick bears is
@@ -4629,7 +4643,7 @@ class AppSession:
         steps: list[dict[str, Any]] = []
         previous: tuple[list[int], str] | None = None
         read_before: list[Segment] | None = None  # story 32: its previous call's segments
-        stopped = _SubOutcome("cancelled", message_text="délégation arrêtée.")
+        stopped = _SubOutcome("cancelled", message_text=Message("delegation.stopped"))
         for n in range(1, max_calls + 1):
             call_id = f"{turn_id}.{cid}.c{n}"
             with scoped(call_id=call_id):
@@ -4637,7 +4651,7 @@ class AppSession:
             if decided is not None and decided[1].decision == "block":
                 label = self._hook_label(decided[0])
                 return _SubOutcome(
-                    "error", message_text=f"le hook « {label} » a bloqué son appel au modèle."
+                    "error", message_text=Message("delegation.hook_blocked", label=label)
                 )
             step += 1
             with scoped(call_id=call_id, step_id=f"{turn_id}.{cid}.s{step}"):
@@ -4653,8 +4667,11 @@ class AppSession:
                     self._emit_overflow(payload, getattr(rendered, "raw_total", None))
                     return _SubOutcome(
                         "overflow",
-                        message_text=f"son contexte est dépassé ({_fr(payload['used'])} "
-                        f"tokens pour {_fr(payload['usable'])} utilisables).",
+                        message_text=Message(
+                            "delegation.overflow",
+                            used=_fr(payload["used"]),
+                            usable=_fr(payload["usable"]),
+                        ),
                     )
                 figures["calls"] += 1
                 out = self._call_model(
@@ -4669,14 +4686,15 @@ class AppSession:
             if out.status == "limit":  # `output_truncated` emitted in `sub{n}` (AD-9)
                 return _SubOutcome(
                     "limit",
-                    message_text=f"sa sortie a été coupée à {_fr(payload['reserve'])} tokens.",
+                    message_text=Message("delegation.cut", reserve=_fr(payload["reserve"])),
                 )
             if out.status != "completed":  # a provider's refusal, traced in `sub{n}` (AD-16)
                 return _SubOutcome(
-                    "error", message_text=out.message_text or "appel au modèle refusé."
+                    "error", message_text=out.message_text or Message("delegation.refused")
                 )
             if not out.calls and out.malformed is None:
-                return _SubOutcome("completed", result=out.text.strip() or _NO_SUB_TEXT_FR)
+                no_text = self._t("delegation.no_text")
+                return _SubOutcome("completed", result=out.text.strip() or no_text)
             if isinstance(rendered, RenderedContext):
                 previous = (rendered.ids, out.raw)
 
@@ -4740,16 +4758,12 @@ class AppSession:
                 if retries > max_retries:
                     self._emit_limit("sub_retries", retries)
                     return _SubOutcome(
-                        "limit",
-                        message_text=f"{retries} appels d'outil refusés (mal formés, outil inconnu "
-                        "ou arguments invalides).",
+                        "limit", message_text=Message("delegation.retries", retries=retries)
                     )
             if cancel.cancelled:
                 return stopped
         self._emit_limit("sub_calls", max_calls)
-        return _SubOutcome(
-            "limit", message_text=f"il a atteint sa borne de {max_calls} appels au modèle."
-        )
+        return _SubOutcome("limit", message_text=Message("delegation.calls", max=max_calls))
 
     @staticmethod
     def _assistant_step(out: _ModelOutput) -> dict[str, Any]:
@@ -4834,12 +4848,11 @@ class AppSession:
         with self._lock:
             loaded = set(self._loaded_docs)
         if tool in available and tool in loaded:
-            return f"La documentation de « {tool} » est déjà chargée."
+            return self._t("mcp.doc.already_loaded", tool=tool)
         if tool not in available:
-            loadable = ", ".join(n for n in available if n not in loaded) or "aucun"
+            loadable = ", ".join(n for n in available if n not in loaded)
             raise ToolError(
-                f"Aucun outil MCP disponible ne s'appelle « {tool} ». Outils chargeables : "
-                f"{loadable}."
+                "mcp.doc.unknown", tool=tool, loadable=loadable or Message("tools.check.none")
             )
         definition = json.dumps(self._registry.definition(tool), ensure_ascii=False)
         return ToolReply(definition, (ToolDocLoaded(tool=tool),))
@@ -4849,13 +4862,14 @@ class AppSession:
         with self._lock:
             enabled, loaded = set(self._skills_enabled), set(self._loaded_skills)
         if skill in enabled and skill in loaded:
-            return f"Le skill « {skill} » est déjà chargé."
+            return self._t("skills.already_loaded", skill=skill)
         text = self._skill_text(skill)
         if skill not in enabled or text is None:
             loadable = [s for s in self._skill_ids() if s in enabled and s not in loaded]
             raise ToolError(
-                f"Aucun skill activé ne s'appelle « {skill} ». Skills chargeables : "
-                f"{', '.join(loadable) or 'aucun'}."
+                "skills.unknown",
+                skill=skill,
+                loadable=", ".join(loadable) or Message("tools.check.none"),
             )
         return ToolReply(text.body, (SkillLoaded(skill_id=skill),))
 
@@ -4870,25 +4884,18 @@ class AppSession:
         A refusal (empty, too long, full) is reinjected; a duplicate adds nothing."""
         try:
             text = memory_file.check_text(text)
-        except ValueError as exc:
-            raise ToolError(str(exc)) from None
+        except memory_file.TextRefused as exc:
+            raise ToolError(exc.message) from None
         if self._memory_unavailable_fr() is not None:  # the brick is unavailable then
-            raise ToolError("La mémoire globale est illisible : rien n'est écrit.")
+            raise ToolError("memory.unreadable")
         with self._lock:
             entries = list(self._memory)
         if any(memory_file.same_text(e.text, text) for e in entries):
-            return f"Déjà en mémoire : « {text} ». Rien n'est ajouté."
+            return self._t("memory.duplicate", text=text)
         if len(entries) >= memory_file.MAX_ENTRIES:
-            raise ToolError(
-                f"La mémoire globale est pleine ({memory_file.MAX_ENTRIES} entrées) : rien "
-                "n'est écrit. Réponds sans retenir cette information."
-            )
+            raise ToolError("memory.full", max=memory_file.MAX_ENTRIES)
         write = MemoryWrite(op="add", entry_id=memory_file.new_entry_id(), text=text)
-        return ToolReply(
-            f"Retenu en mémoire globale : « {text} ». Cette information sera dans le "
-            "contexte des prochaines conversations.",
-            (write,),
-        )
+        return ToolReply(self._t("memory.remembered", text=text), (write,))
 
     def _apply_now(self, effects: tuple[Effect, ...]) -> tuple[tuple[Effect, ...], str | None]:
         """The effects the executor applies before `tool_ended` (AD-23), so the trace never
@@ -4913,20 +4920,16 @@ class AppSession:
                 updated = memory_file.apply_writes(entries, writes, source, memory_file.now())
             except (KeyError, ValueError) as exc:  # changed meanwhile, or beyond its limits
                 self._error(
-                    "La mémoire globale n'a pas été modifiée.",
-                    exc,
-                    "Elle reste inchangée ; le reste de WaveStack fonctionne.",
+                    Message("memory.error.not_modified"), exc, Message("memory.error.unchanged")
                 )
-                return "La mémoire globale n'a pas été modifiée : rien n'est retenu."
+                return self._t("memory.not_modified")
             try:
                 memory_file.write_memory(config.memory_path(), updated)
             except OSError as exc:
                 self._error(
-                    "La mémoire globale n'a pas pu être écrite.",
-                    exc,
-                    "Elle reste inchangée ; le reste de WaveStack fonctionne.",
+                    Message("memory.error.not_written"), exc, Message("memory.error.unchanged")
                 )
-                return "La mémoire globale n'a pas pu être écrite : rien n'est retenu."
+                return self._t("memory.not_written")
             with self._lock:
                 self._memory = updated
                 self._memory_error = None  # written: readable again (reset, H5)
@@ -5148,7 +5151,7 @@ class AppSession:
 
         return ToolSpec(
             name=name,
-            run=lambda **arguments: conn.call(name, arguments),
+            run=lambda **arguments: conn.call(name, arguments, self._language),
             preview=preview if server.network else None,
             params=params,
             component=server.component,
@@ -6498,8 +6501,9 @@ class AppSession:
                     return None
                 if answer == "refused":  # nothing sent; not a new attempt either
                     return (
-                        "Refusé par l'utilisateur (validation humaine) : l'appel à "
-                        f"« {call.name} » vers {host(result.preview['url'])} n'a pas été envoyé.",
+                        self._t(
+                            "hooks.h5.refused", name=call.name, host=host(result.preview["url"])
+                        ),
                         hook_id,
                     )
         bounded = (spec.network or spec.is_mcp) and spec.name != DELEGATE
@@ -6536,12 +6540,17 @@ class AppSession:
         if total <= limit:
             return text, None
 
+        # Lot B (N3): the mention appended to the cut result, seen by the model, in the
+        # session's language (languages 5/5): its length counts in the bound.
+        def mention(kept: int) -> str:
+            return "\n\n" + self._t("tools.truncated", kept=kept, total=total)
+
         def cut(prefix: str) -> tuple[str, int, bool]:
             kept, rough = count(prefix)
-            return prefix + _TRUNCATED_FR.format(kept=kept, total=total), kept, rough
+            return prefix + mention(kept), kept, rough
 
         # The mention at its widest (as many digits kept as in total): one count per step.
-        widest = _TRUNCATED_FR.format(kept=total, total=total)
+        widest = mention(total)
         low, high = 0, len(text) - 1  # the longest fitting prefix is in [low, high]
         while low < high:
             middle = (low + high + 1) // 2
@@ -6802,6 +6811,7 @@ class AppSession:
                 events=events,
                 content=texts,
                 context_id=current().context_id or "main",
+                language=self._language,
                 **ctx,
             )
             self._hook_steps += 1
@@ -7345,10 +7355,7 @@ class AppSession:
             out.calls, out.ids, out.malformed = (
                 [],
                 [],
-                Malformed(
-                    fragment,
-                    f"la sortie a été coupée à {_fr(limit)} tokens au milieu de l'appel",
-                ),
+                Malformed(fragment, Message("tools.parser.cut", limit=_fr(limit))),
             )
         return out
 
@@ -7512,10 +7519,7 @@ class AppSession:
             if call.channel != "tool_call":  # the reconciled figures stay (AD-4)
                 return _ModelOutput("limit", reconciled=out.reconciled)
             out.calls, out.ids, out.arguments, out.extras = [], [], [], []
-            out.malformed = Malformed(
-                out.raw,
-                f"la sortie a été coupée à {_fr(reserve)} tokens au milieu de l'appel",
-            )
+            out.malformed = Malformed(out.raw, Message("tools.parser.cut", limit=_fr(reserve)))
         return out
 
     # ---------- story 29: the « LLM nu » screen (context `llm`, no turn) ----------

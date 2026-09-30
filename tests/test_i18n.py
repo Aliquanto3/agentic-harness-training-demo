@@ -177,7 +177,8 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     french, translated = CONTENT / rel, CONTENT / "i18n" / lang / rel
     assert french.is_file(), f"{rel} n'existe pas en français"
     assert config.content_file(rel, lang) == translated
-    if rel != "ui.yaml":  # languages (2/5): compared key by key (test_ui_texts)
+    # Languages (2/5, 5/5): `ui.yaml` and `messages.yaml` are compared key by key.
+    if rel not in ("ui.yaml", "messages.yaml"):
         assert _placeholders(translated) == _placeholders(french)
     assert translated.read_text(encoding="utf-8") != french.read_text(encoding="utf-8")
 

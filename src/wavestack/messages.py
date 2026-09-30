@@ -122,32 +122,36 @@ def msg(key: str, lang: str, /, **kw: Any) -> str:
     return _VARIABLE.sub(value, text)
 
 
-class Message:
-    """A text not yet rendered: its key and variables. `render(lang)` writes it in `lang`;
-    `str()` in French (logs, tests). A variable that is itself a `Message` is rendered in
-    the same language."""
+class Message(str):
+    """A text with its key and variables: a `str` whose value is the French text (logs,
+    tests, any code that reads it as a text), and `render(lang)` the text in `lang`, for
+    the session to call where it places it in an event, a state or the context. A variable
+    that is itself a `Message` (or a `KeyedError`) is rendered in the same language."""
 
-    __slots__ = ("key", "kw")
+    key: str
+    kw: dict[str, Any]
 
-    def __init__(self, key: str, /, **kw: Any) -> None:
-        self.key = key
-        self.kw = kw
+    def __new__(cls, key: str, /, **kw: Any) -> Message:
+        self = super().__new__(cls, msg(key, config.DEFAULT_LANGUAGE, **_all(kw, "fr")))
+        self.key, self.kw = key, kw
+        return self
 
     def render(self, lang: str) -> str:
-        kw = {k: _rendered(v, lang) for k, v in self.kw.items()}
-        return msg(self.key, lang, **kw)
-
-    def __str__(self) -> str:
-        return self.render(config.DEFAULT_LANGUAGE)
+        return msg(self.key, lang, **_all(self.kw, lang))
 
     def __repr__(self) -> str:
         return f"Message({self.key!r}, **{self.kw!r})"
 
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, Message) and (self.key, self.kw) == (other.key, other.kw)
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (_rebuild, (self.key, self.kw))
 
-    def __hash__(self) -> int:
-        return hash(self.key)
+
+def _rebuild(key: str, kw: dict[str, Any]) -> Message:
+    return Message(key, **kw)
+
+
+def _all(kw: dict[str, Any], lang: str) -> dict[str, Any]:
+    return {k: _rendered(v, lang) for k, v in kw.items()}
 
 
 class KeyedError(Exception):

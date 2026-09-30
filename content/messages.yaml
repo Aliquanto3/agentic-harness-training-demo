@@ -23,7 +23,145 @@ tools:
       friday: vendredi
       saturday: samedi
       sunday: dimanche
+  # The executor (`tools/executor.py`): what the model reads of a refused or failed call.
+  phase_label: "Exécution de l'outil {label}"
+  error: "Erreur : {text}"
+  failed: "L'outil a échoué ({kind} : {cause})."
+  reject: "Erreur : {sentence} Corrige l'appel ou réponds sans outil."
+  check:
+    doc_not_loaded: 'La documentation de « {name} » n''est pas chargée : appelle d''abord load_tool_doc avec tool="{name}".'
+    none: aucun
+    unknown_tool: "L'outil « {name} » n'existe pas ou est désactivé. Outils disponibles : {available}."
+    unknown_argument: "argument inconnu « {arg} »"
+    missing_argument: "argument « {arg} » manquant"
+    wrong_type: "« {arg} » doit être {expected}"
+    invalid_arguments: "Arguments invalides pour « {name} » : {problems}."
+    types:
+      string: un texte
+      integer: un entier
+      number: un nombre
+      boolean: un booléen
+      object: un objet
+      array: une liste
+  # The parsers (`tools/parser.py`): why a model's output is a malformed call.
+  parser:
+    function_tag: "la balise <function=…>…</function> est absente ou mal fermée"
+    parameter_unclosed: "une balise <parameter=…> n'est pas fermée par </parameter>"
+    json_unreadable: "le JSON de l'appel est illisible ({cause})"
+    no_name: "l'appel n'est pas un objet JSON avec un champ « name »"
+    arguments_not_object: "le champ « arguments » n'est pas un objet JSON"
+    never_closed: "la balise <tool_call> n'est jamais fermée"
+    cut: "la sortie a été coupée à {limit} tokens au milieu de l'appel"
+  calculator:
+    power: "Puissance refusée : l'exposant {exponent} est trop grand pour la calculatrice (au plus {max}, et un résultat de taille raisonnable)."
+    division_by_zero: "Division par zéro : le calcul n'a pas de résultat."
+    overflow: "Résultat trop grand pour la calculatrice."
+    allowed: "des nombres, + - * / // % ** et des parenthèses"
+    operation: "Opération refusée : la calculatrice n'accepte que {allowed}."
+    too_long: "Expression trop longue : {max} caractères au plus."
+    unreadable: "Expression illisible : « {expression} ». Utilisez {allowed}."
+  read_file:
+    outside: "Accès refusé : « {path} » sort du dossier de démonstration. Seuls les fichiers de content/demo_files/ sont lisibles, par un chemin relatif."
+    listing: "Fichiers disponibles :\n{files}"
+    missing: "Fichier absent : « {path} ». Fichiers disponibles : {files}."
+  network:
+    blocked: "Connexion refusée par le harnais ({cause})."
+    unreachable: "Service injoignable ({kind}) : le poste n'a pas accès à {host}."
+    http_error: "Le service a répondu par une erreur HTTP {status} ({reason})."
+    year: "Année refusée : {year}. Indiquez une année entre 1900 et 2100."
+    empty_title: "Titre vide : indiquez le titre d'une page Wikipédia."
+    page_absent: "Page absente de Wikipédia : « {title} »."
+    url_refused: "Adresse refusée : « {url} ». fetch_page n'accepte que des adresses https:// vers {hosts}."
+    cut: "[Texte coupé à {limit} caractères sur {total}.]"
+  registry:
+    collision: "Deux outils portent le nom « {name} » : le second est indisponible."
+    collision_cause: "Collision de noms dans le registre d'outils (AD-14)."
+    collision_effect: "Le premier outil déclaré reste utilisable."
+  # Lot B (N3): appended to a network or MCP tool's result the harness cut, seen by the model.
+  truncated: "[Résultat tronqué par le harnais : {kept} tokens sur {total}. Réponds avec ce qui est gardé, ou relance l'outil avec une demande plus précise.]"
+
+skills:
+  already_loaded: "Le skill « {skill} » est déjà chargé."
+  unknown: "Aucun skill activé ne s'appelle « {skill} ». Skills chargeables : {loadable}."
+
+memory:
+  text:
+    not_text: "Le texte à retenir doit être du texte : rien n'est écrit."
+    empty: "Le texte à retenir est vide : rien n'est écrit."
+    too_long: "Le texte à retenir fait {length} caractères, pour {max} au plus : rien n'est écrit."
+  unreadable: "La mémoire globale est illisible : rien n'est écrit."
+  duplicate: "Déjà en mémoire : « {text} ». Rien n'est ajouté."
+  full: "La mémoire globale est pleine ({max} entrées) : rien n'est écrit. Réponds sans retenir cette information."
+  remembered: "Retenu en mémoire globale : « {text} ». Cette information sera dans le contexte des prochaines conversations."
+  not_modified: "La mémoire globale n'a pas été modifiée : rien n'est retenu."
+  not_written: "La mémoire globale n'a pas pu être écrite : rien n'est retenu."
+  error:
+    not_modified: "La mémoire globale n'a pas été modifiée."
+    not_written: "La mémoire globale n'a pas pu être écrite."
+    unchanged: "Elle reste inchangée ; le reste de WaveStack fonctionne."
+
+delegation:
+  outside_turn: "Délégation impossible hors d'un tour."
+  empty_task: "La tâche du sous-agent est vide : décris-la dans l'argument « task »."
+  interrupted: "le sous-agent s'est interrompu."
+  stopped: "délégation arrêtée."
+  hook_blocked: "le hook « {label} » a bloqué son appel au modèle."
+  overflow: "son contexte est dépassé ({used} tokens pour {usable} utilisables)."
+  cut: "sa sortie a été coupée à {reserve} tokens."
+  refused: "appel au modèle refusé."
+  no_text: "(Le sous-agent n'a rendu aucun texte.)"
+  retries: "{retries} appels d'outil refusés (mal formés, outil inconnu ou arguments invalides)."
+  calls: "il a atteint sa borne de {max} appels au modèle."
+  cancelled: "Délégation arrêtée à la demande de l'utilisateur."
+  failed: "La délégation au sous-agent a échoué : {reason} Réponds sans ce résultat, ou délègue une tâche plus simple."
+  error:
+    message: "Le sous-agent s'est interrompu sur une erreur."
+    effect: "La délégation échoue ; le tour principal continue."
+
+hooks:
+  h1:
+    blocked: "Bloqué par le hook garde-fou : « {path} » est dans le dossier confidentiel, dont la lecture est interdite."
+    allowed: "« {path} » est hors du dossier confidentiel : lecture permise."
+  # H2: the audit log's lines (`time | turn | what | detail | status`) and its decision.
+  h2:
+    model_call: appel au modèle
+    tokens: "{read} tokens lus, {made} produits"
+    tool_call: appel d'outil
+    tool_refused: appel d'outil refusé
+    refused: refusé
+    blocked_by: "appel bloqué par {hook}"
+    blocked: bloqué
+    human_validation: validation humaine
+    towards: "{tool} vers {destination}"
+    approval:
+      approved: autorisé
+      refused: refusé
+      cancelled: annulé
+    turn_end: fin du tour
+    lines:
+      one: "{count} ligne pour le journal d'audit."
+      other: "{count} lignes pour le journal d'audit."
+  h3:
+    injected: "Date du poste et règles de la mission ajoutées avant le message."
+  h5:
+    ask: "L'appel à « {name} » enverrait une requête vers {host} : le harnais demande votre accord avant tout envoi."
+    refused: "Refusé par l'utilisateur (validation humaine) : l'appel à « {name} » vers {host} n'a pas été envoyé."
 
 mcp:
   glossary:
     unknown_term: "Terme inconnu du glossaire : « {term} ». Termes disponibles : {known}."
+  # `load_tool_doc` (AD-25), the lazy loading's meta-tool.
+  doc:
+    already_loaded: "La documentation de « {tool} » est déjà chargée."
+    unknown: "Aucun outil MCP disponible ne s'appelle « {tool} ». Outils chargeables : {loadable}."
+  # `mcp/connection.py`: why a server could not be reached, or refused a call.
+  block_not_shown: "[bloc {type} non affiché]"
+  error:
+    timeout: "Le serveur n'a pas répondu dans le délai ({timeout} s)."
+    http: "Le serveur a répondu par une erreur HTTP {status}."
+    refused_exchange: "Le serveur a refusé l'échange MCP ({cause})."
+    closed: "La connexion au serveur est fermée : décochez puis recochez-le pour la rouvrir."
+    process: "Le processus du serveur n'a pas pu être lancé ({cause})."
+    failed: "La connexion au serveur a échoué ({kind} : {cause})."
+    call_refused: "Le serveur MCP a refusé l'appel : {cause}"
+    no_detail: "Le serveur signale une erreur, sans détail."

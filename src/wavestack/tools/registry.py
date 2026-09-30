@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 from wavestack import config
+from wavestack.messages import KeyedError, Message, msg
 from wavestack.session.effects import ToolReply
 from wavestack.trace.journal import get_journal
 
@@ -17,12 +18,14 @@ Source = Literal["native", "harness", "mcp_local", "mcp_public"]
 Hosting = Literal["local_process", "local_file", "network_service"]
 
 
-class ToolError(Exception):
-    """A refusal or failure the tool explains in French; reinjected to the model."""
+class ToolError(KeyedError):
+    """A refusal or failure the tool explains, reinjected to the model: a key of
+    `messages.yaml` and its variables (languages 5/5), rendered in the session's language
+    by the executor; `message_text` and `str()` give the French."""
 
-    def __init__(self, message_text: str) -> None:
-        super().__init__(message_text)
-        self.message_text = message_text
+    @property
+    def message_text(self) -> str:
+        return str(self)
 
 
 class Unreachable(ToolError):
@@ -34,9 +37,13 @@ class DelegationFailed(ToolError):
     `tool_ended` status, the French message what the main model reads."""
 
     def __init__(
-        self, message_text: str, status: Literal["limit", "overflow", "error", "cancelled"]
+        self,
+        key: str | Message,
+        status: Literal["limit", "overflow", "error", "cancelled"],
+        /,
+        **kw: object,
     ) -> None:
-        super().__init__(message_text)
+        super().__init__(key, **kw)
         self.status = status
 
 
@@ -113,6 +120,8 @@ class ToolRegistry:
 
     specs: list[ToolSpec]
     content: ToolsContent | None = None
+    # Languages (5/5): the session's language, that of the errors the registry traces.
+    language: Callable[[], str] = lambda: config.DEFAULT_LANGUAGE
     _by_name: dict[str, ToolSpec] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
@@ -131,13 +140,13 @@ class ToolRegistry:
         for spec in specs:
             name = self.exposed_name(spec)
             if name in self._by_name:
+                lang = self.language()
                 get_journal().emit(
                     "harness_error",
                     {
-                        "message_text": f"Deux outils portent le nom « {name} » : le second est "
-                        "indisponible.",
-                        "cause": "Collision de noms dans le registre d'outils (AD-14).",
-                        "effect_text": "Le premier outil déclaré reste utilisable.",
+                        "message_text": msg("tools.registry.collision", lang, name=name),
+                        "cause": msg("tools.registry.collision_cause", lang),
+                        "effect_text": msg("tools.registry.collision_effect", lang),
                     },
                 )
                 continue

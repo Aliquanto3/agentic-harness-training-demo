@@ -26,6 +26,7 @@ from mcp_types import CallToolResult, TextContent, Tool
 from mcp_types.jsonrpc import CONNECTION_CLOSED
 
 from wavestack.mcp.servers import McpServer
+from wavestack.messages import Message, msg
 from wavestack.net.factory import create_async_client
 from wavestack.net.guard import find_blocked
 from wavestack.tools.registry import ToolError, Unreachable
@@ -40,33 +41,35 @@ def _leaf(exc: BaseException) -> BaseException:
     return exc
 
 
-def describe_error(exc: BaseException, timeout: float) -> str:
-    """AD-16: why a server could not be reached, in French."""
+def describe_error(exc: BaseException, timeout: float) -> Message:
+    """AD-16: why a server could not be reached, a `Message` (French as a text), rendered
+    in the session's language where it is shown or reinjected (languages 5/5)."""
     if (blocked := find_blocked(exc)) is not None:
-        return f"Connexion refusée par le harnais ({blocked})."
+        return Message("tools.network.blocked", cause=blocked)
     leaf = _leaf(exc)
     if isinstance(leaf, TimeoutError | httpx2.TimeoutException):
-        return f"Le serveur n'a pas répondu dans le délai ({timeout:g} s)."
+        return Message("mcp.error.timeout", timeout=f"{timeout:g}")
     if isinstance(leaf, httpx2.HTTPStatusError):
-        return f"Le serveur a répondu par une erreur HTTP {leaf.response.status_code}."
+        return Message("mcp.error.http", status=leaf.response.status_code)
     if isinstance(leaf, httpx2.RequestError):
-        return (
-            f"Service injoignable ({type(leaf).__name__}) : le poste n'a pas accès à "
-            f"{leaf.request.url.host}."
+        return Message(
+            "tools.network.unreachable", kind=type(leaf).__name__, host=leaf.request.url.host
         )
     if isinstance(leaf, MCPError):
-        return f"Le serveur a refusé l'échange MCP ({leaf})."
+        return Message("mcp.error.refused_exchange", cause=leaf)
     if isinstance(leaf, ConnectionError):  # raised here when the connection is gone
-        return "La connexion au serveur est fermée : décochez puis recochez-le pour la rouvrir."
+        return Message("mcp.error.closed")
     if isinstance(leaf, OSError):
-        return f"Le processus du serveur n'a pas pu être lancé ({leaf})."
-    return f"La connexion au serveur a échoué ({type(leaf).__name__} : {leaf})."
+        return Message("mcp.error.process", cause=leaf)
+    return Message("mcp.error.failed", kind=type(leaf).__name__, cause=leaf)
 
 
-def result_text(result: CallToolResult) -> str:
-    """The text blocks' text; any other block is only named."""
+def result_text(result: CallToolResult, lang: str = "fr") -> str:
+    """The text blocks' text; any other block is only named, in `lang` (the session's)."""
     parts = [
-        block.text if isinstance(block, TextContent) else f"[bloc {block.type} non affiché]"
+        block.text
+        if isinstance(block, TextContent)
+        else msg("mcp.block_not_shown", lang, type=block.type)
         for block in result.content
     ]
     return "\n".join(parts)
@@ -182,9 +185,9 @@ class McpConnection:
 
     # ---------- from any other thread ----------
 
-    def call(self, name: str, arguments: dict[str, Any]) -> str:
+    def call(self, name: str, arguments: dict[str, Any], lang: str = "fr") -> str:
         """Call `name` on the worker thread. `is_error` → `ToolError`; transport or delay →
-        `Unreachable`, both in French."""
+        `Unreachable`, both keyed; `lang` (the session's) writes what the result adds."""
         submitted = asyncio.run_coroutine_threadsafe(
             self._submit(name, arguments, current()), self.loop
         )
@@ -194,13 +197,16 @@ class McpConnection:
             if exc.code == CONNECTION_CLOSED:
                 raise Unreachable(describe_error(exc, self.call_timeout)) from None
             # A JSON-RPC error answer (invalid arguments, unknown tool): the server is there.
-            raise ToolError(f"Le serveur MCP a refusé l'appel : {exc.message}") from None
+            raise ToolError("mcp.error.call_refused", cause=exc.message) from None
         except Exception as exc:  # noqa: BLE001 - AD-16
             submitted.cancel()
             raise Unreachable(describe_error(exc, self.call_timeout)) from None
         if result.is_error:
-            raise ToolError(result_text(result) or "Le serveur signale une erreur, sans détail.")
-        return result_text(result)
+            text = result_text(result, lang)
+            raise ToolError(
+                Message("common.verbatim", text=text) if text else Message("mcp.error.no_detail")
+            )
+        return result_text(result, lang)
 
     def close(self, wait: bool = True) -> None:
         """Close from another thread; `wait` bounds the wait (never on the loop's own thread)."""

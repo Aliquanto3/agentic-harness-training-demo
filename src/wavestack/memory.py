@@ -18,6 +18,7 @@ import yaml
 from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
 from wavestack import config
+from wavestack.messages import KeyedError
 from wavestack.session.effects import MemoryWrite
 
 # H3 (fixed by the story's intent): a full memory, 20 entries of 300 characters, about
@@ -29,19 +30,22 @@ MAX_CHARS = 300
 Source = Literal["model", "user", "demo"]
 
 
+class TextRefused(KeyedError, ValueError):
+    """An entry's text refused (languages 5/5): keyed, French as `str()`, rendered in the
+    session's language where the model or the user reads it."""
+
+
 def check_text(text: Any) -> str:
     """The text of an entry: its blanks, line breaks included, folded into single spaces,
-    so an entry stays one line of the system message. Raises `ValueError` in French."""
+    so an entry stays one line of the system message. Raises `TextRefused` (a
+    `ValueError`)."""
     if text is not None and not isinstance(text, str):
-        raise ValueError("Le texte à retenir doit être du texte : rien n'est écrit.")
+        raise TextRefused("memory.text.not_text")
     text = " ".join((text or "").split())
     if not text:
-        raise ValueError("Le texte à retenir est vide : rien n'est écrit.")
+        raise TextRefused("memory.text.empty")
     if len(text) > MAX_CHARS:
-        raise ValueError(
-            f"Le texte à retenir fait {len(text)} caractères, pour {MAX_CHARS} au plus : "
-            "rien n'est écrit."
-        )
+        raise TextRefused("memory.text.too_long", length=len(text), max=MAX_CHARS)
     return text
 
 
