@@ -2,7 +2,7 @@
 title: 'Langues (4/5) : ateliers, pages annexes, corpus et index RAG par langue'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-progress'
+status: 'done'
 baseline_commit: 'da6748d592bf34beeac61a570932e4633e56bfa7'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -176,6 +176,33 @@ context:
 
 ## Review Triage Log
 
+Revue 1 (2026-09-30, trois relecteurs : aveugle (B), cas limites (EC), trous de vérification (VG)).
+
+| # | Constat | Verdict | Preuve | Suite |
+|---|---------|---------|--------|-------|
+| 1 | `rag.js:556` : « {source} : {rang} » écrit à la main, espace français avant les deux-points en `en`/`de` (VG, B) | low | Les deux sites voisins passent par `common.format.label_value` ; celui-ci non | patch |
+| 2 | Repli de découpage de l'atelier RAG dans la langue non vérifié : le test ne regarde que `status == "ok"` (VG, B) | low | `test_the_rag_workshop_chunks_the_languages_corpus_without_the_brick_index` passerait avec le corpus français | patch |
+| 3 | Infobulle du nœud `file.rag_index` en `de` jamais vérifiée (VG) | low | Code juste (`_rag_index_path`) ; seul `test_rag.py:467` l'affirme, en `fr` | patch (une assertion) |
+| 4 | Le script nomme `content/rag.yaml` quelle que soit `--lang` (VG, B, EC) | low | `build_rag_index.py`, message d'erreur de `load_rag_content(args.lang)` | patch (nommer `content_file("rag.yaml", lang)`) |
+| 5 | Rien ne dit que les trois index se reconstruisent ensemble après un changement de modèle ou de `chunk_max_chars` (B) | low | README : un seul exemple `--lang de` | patch (une phrase) |
+| 6 | Empreinte de l'index français figée sans explication pour une reconstruction légitime (B) | low | `test_the_french_index_is_the_one_the_story_found` : échec muet | patch (message d'assertion) |
+| 7 | Pages : clés brutes affichées si `/api/ui_texts` échoue (B) | low | Mécanisme de la story 2 (`app.js` pareil) ; cas d'un catalogue français cassé, improbable ; correction = catalogue de secours | rejeté |
+| 8 | Page annexe ouverte dans un autre onglet : ne suit pas un changement de langue (B) | low | Non-goal de `SPEC.md` (« retraduire la page sans la recharger ») | rejeté |
+| 9 | L'index n'enregistre pas sa langue ; raison « corpus changé » nommant `content/corpus` ; titres seuls modifiés non détectés (B, EC) | low | Un index d'une autre langue est bien vu périmé (texte différent) ; titres hors empreinte déjà vrai en `fr` ; texte des raisons : story 5 | rejeté |
+| 10 | E2E : `rag_index.de.sqlite` laissé dans le dossier de données (B) | low | Dossier temporaire par parcours (`stack.py`) ; les tranches suivantes jouent en `fr` ; supprimer un fichier ouvert échoue sous Windows | rejeté |
+| 11 | Seuil `checked > 8` lâche (B) | low | Chaque clé de page est déjà contrôlée par le même test | rejeté |
+| 12 | `lang` par défaut `fr` sur les aides internes (B) | low | Convention de la story 3 ; la session passe toujours la langue | rejeté |
+| 13 | Ordinal anglais « No. 2 » plutôt que « 2nd » (B) | low | Choix consigné dans les Design Notes | rejeté |
+| 14 | Deux clés pour le même texte (lien retour, replis de `rag.js`) (B) | low | Replis voulus quand le fichier d'atelier est illisible | rejeté |
+| 15 | `diagnostic.served.title` : espace initial fragile, nom trompeur (B) | low | Cosmétique ; valeur présente et testée en parité | rejeté |
+| 16 | `index_label_text` traduit nomme le fichier en dur (B) | low | Même motif que le français depuis la story 15 | rejeté |
+| 17 | Corpus : « €2.50 » et « 55 euros » (`en`), genre de CERT-Ex (`de`), « viereinhalb » en lettres, ligne longue de `de/rag_lab.yaml` (B) | low | Relu : cosmétique ; le français dit aussi « 4 heures et demie » ; corriger le corpus impose de reconstruire les index avec Granite | rejeté |
+| 18 | Mots vides BM25 français seulement en `en`/`de` (B) | low | Déjà consigné par cette story dans `deferred-work.md` | rejeté (déjà reporté) |
+| 19 | Course : un envoi entre `set_language` et `_rag_follow_language` garde l'ancien retriever (`_rag_stamp` déjà à jour) (EC) | low | Réel (`_rag_refresh` :2742), mais fenêtre de quelques ms pendant que la page se recharge ; correction non triviale | rejeté (improbable) |
+| 20 | Atelier traduit invalide : un `harness_error` par chargement de page (EC) | low | Même comportement que le français et que la revue 1 de la story 3 (#4) ; cas de développement | rejeté |
+| 21 | `_rag_refresh` lit `_language` deux fois ; `run_rag_lab` lit ses textes avant le contrôle `idle` (EC) | low | Courses avec `set_language`, qui exige `idle` et rappelle `_rag_refresh` ; improbables | rejeté |
+| 22 | Diagnostic : un clic avant la résolution de `ready` est perdu (EC) | low | Fenêtre d'un aller-retour local ; improbable | rejeté |
+
 ## Design Notes
 
 - Le chemin de l'index se déduit de la langue, et non d'une entrée de `wavestack.toml` par langue : un seul réglage, et le français reste identique.
@@ -192,3 +219,13 @@ context:
 - `uv run pytest -q` en quatre quarts des `tests/test_*.py` triés, au premier plan -- expected: tout vert
 - `$env:PYTHONUTF8=1; uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py --only …` par tranches de 4 à 6, dont `annex_language`, `content_language`, `ui_language`, `rag`, `rag_lab` et `llm_screen` -- expected: 0 FAIL
 - `git diff --stat da6748d592bf34beeac61a570932e4633e56bfa7 -- data/rag_index.sqlite content/ ':!content/i18n' ':!content/ui.yaml'` -- expected: vide
+
+## Vérification finale (2026-09-30, après la revue 1)
+
+- Rejouée par l'orchestrateur sur `2dde0fd`.
+- `ruff check` et `ruff format --check` : propres.
+- `pytest` en quatre quarts des 55 `tests/test_*.py` triés : 413, 619, 296 et 316 réussis, 0 échec. Les quarts 1 à 3 ont tourné en même temps : le premier est passé en arrière-plan après le délai de 10 minutes de l'outil. Le quatrième a tourné seul.
+- E2E en deux tranches :
+  - `language`, `ui_language`, `content_language`, `annex_language` : 67 vérifications réussies, 0 échec ;
+  - `rag`, `rag_rerank`, `rag_lab`, `llm_screen`, `model_catalog`, `themes` : 164 vérifications réussies, 0 échec. Le seul `harness_error` est l'échec volontaire du premier téléchargement dans `rag`.
+- Ni `data/rag_index.sqlite` ni un fichier français de `content/` hors `ui.yaml` n'a changé depuis `da6748d`.
