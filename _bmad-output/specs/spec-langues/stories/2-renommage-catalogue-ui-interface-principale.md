@@ -2,7 +2,7 @@
 title: 'Langues (2/5) : renommage des champs *_fr, catalogue ui.yaml et t(), interface principale'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '740fa16ce1f5364ac33096aeae6a7a7241eb3645'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -115,22 +115,22 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Commit 1, renommage : tout le dépôt, hors `_bmad-output/` sauf `ARCHITECTURE-SPINE.md` et `EXPERIENCE.md`. Il comprend l'alias de colonne SQL, les alias de `settings.json` et la relecture de `label_fr` dans `rag.js` — pour que le renommage n'efface rien de ce qui est déjà écrit.
-- [ ] `content/ui.yaml`, `src/wavestack/ui_texts.py`, `config.py`, `app_session.py`, `web/app.py` -- catalogue `common` et `main`, chargeur, route -- commit 2.
-- [ ] `src/wavestack/web/static/i18n.js` et les cinq HTML -- `t()`, `locale()`, formats, `data-i18n*`, `<html lang>` -- commit 2.
-- [ ] `index.html`, `app.js` -- tous les littéraux via `t()`, formats par `i18n.js`, pluriels, listes -- commit 2, rendu français identique.
-- [ ] `content/i18n/{en,de}/ui.yaml` -- traductions -- commit 3.
-- [ ] `index.html`, `app.css`, `app.js` -- menu « Affichage ▾ » (thème, langue, projection), avec les contrôles E2E qui les ouvrent (`_themes`, `_pick_language`, projection) -- commit 3.
-- [ ] `tests/test_ui_texts.py` (nouveau), `tests/test_i18n.py` -- commits 2 et 3 :
+- [x] Commit 1, renommage : tout le dépôt, hors `_bmad-output/` sauf `ARCHITECTURE-SPINE.md` et `EXPERIENCE.md`. Il comprend l'alias de colonne SQL, les alias de `settings.json` et la relecture de `label_fr` dans `rag.js` — pour que le renommage n'efface rien de ce qui est déjà écrit.
+- [x] `content/ui.yaml`, `src/wavestack/ui_texts.py`, `config.py`, `app_session.py`, `web/app.py` -- catalogue `common` et `main`, chargeur, route -- commit 2.
+- [x] `src/wavestack/web/static/i18n.js` et les cinq HTML -- `t()`, `locale()`, formats, `data-i18n*`, `<html lang>` -- commit 2.
+- [x] `index.html`, `app.js` -- tous les littéraux via `t()`, formats par `i18n.js`, pluriels, listes -- commit 2, rendu français identique.
+- [x] `content/i18n/{en,de}/ui.yaml` -- traductions -- commit 3.
+- [x] `index.html`, `app.css`, `app.js` -- menu « Affichage ▾ » (thème, langue, projection), avec les contrôles E2E qui les ouvrent (`_themes`, `_pick_language`, projection) -- commit 3.
+- [x] `tests/test_ui_texts.py` (nouveau), `tests/test_i18n.py` -- commits 2 et 3 :
   - la parité de `ui.yaml` : mêmes clés, mêmes variables par clé, paires `.one` et `.other` ;
   - chaque clé `data-i18n*` de `index.html` et chaque `t("…")` littéral de `app.js` existe en français, et le texte HTML égale sa valeur française ;
   - la route en `fr`, `en` et `de` ;
   - la traduction invalide et la clé absente.
-- [ ] `tools/e2e/run_e2e.py` -- scénario `ui_language` (commit 3) :
+- [x] `tools/e2e/run_e2e.py` -- scénario `ui_language` (commit 3) :
   - en `en` puis en `de`, après un tour, il compare les textes visibles et les attributs aux valeurs de `common` et `main` qui diffèrent entre les deux langues ;
   - il prend des captures `de` à 1 280 et 1 600 px, en mode normal et en projection, avec `_bar_fits` ;
   - dans son `finally`, il attend le repos puis revient en `fr`.
-- [ ] `ARCHITECTURE-SPINE.md` (AD-19, « Langue »), `deferred-work.md` (fermer « Barre haute saturée » et la part front des textes de la story 1) -- commit 3.
+- [x] `ARCHITECTURE-SPINE.md` (AD-19, « Langue »), `deferred-work.md` (fermer « Barre haute saturée » et la part front des textes de la story 1) -- commit 3.
 
 **Acceptance Criteria:**
 - Given la langue `fr`, when on joue ruff, pytest en deux moitiés et l'E2E par tranches après chaque commit, then tout passe, et le diff du commit 1 ne contient que des renommages.
@@ -149,6 +149,37 @@ context:
 
 ## Review Triage Log
 
+Revue 1 (2026-09-30, trois relecteurs : aveugle (B), cas limites (EC), trous de vérification (VG)).
+
+| # | Constat | Verdict | Preuve | Suite |
+|---|---------|---------|--------|-------|
+| 1 | « {label} : {valeur} » à la française, en dur dans une dizaine de gabarits d'`app.js` (1623, 3201, 5853, 6230, 6246-6247, 6298, 6511, 6806, 6911) : « Tool : 3 » en `en` et `de` (B) | low | Relu : infobulles, `aria-label` et lignes du journal | patch |
+| 2 | Guillemets « » restés dans trois clés de `en` et `de` (`common.language.locked`, `main.memory.help`, `hook_title`) (B) | low | `content/i18n/{en,de}/ui.yaml:7,182,817` | patch |
+| 3 | `<html lang>` en `en` ou `de` sur les pages annexes et les textes du backend encore français (B) | false | Imposé par l'intention figée (« Ces pages chargent seulement `i18n.js` pour `<html lang>` ») et par la story 1 | rejeté |
+| 4 | Route injoignable : `app.js` affiche les clés (B) | false | Ligne « Route injoignable » de la matrice : « `t()` rend les clés » | rejeté |
+| 5 | `content/ui.yaml` français cassé : un `harness_error` à chaque requête (B, VG) | low | Réel, mais le fichier français est validé par les tests ; seul un développeur qui l'édite le rencontre | rejeté (improbable) |
+| 6 | `boot()` peut attendre sans fin le catalogue (B) | false | `boot()` attendait déjà `/api/state` sans délai sur le même serveur local | rejeté |
+| 7 | Éclair de français au chargement en `en` et `de` (B) | low | Réel, quelques millisecondes en boucle locale ; le masquer demande une garde et un délai | rejeté |
+| 8 | En français, 0 tombe dans `.one` (« Seul le premier », « 1 tentative ») (B) | false | Même rendu qu'avant (`keep > 1 ?`, `g.failed > 1 ?` sur `740fa16`) | rejeté |
+| 9 | Test de couverture des clés aveugle aux clés en ternaire ou calculées (B, EC) | low | `app.js:2402,6733` : clés présentes aujourd'hui, mais une faute passerait | patch |
+| 10 | Pas de tests unitaires d'`i18n.js` (B) | low | Aucun banc JS dans le dépôt (préexistant, consigné dans `deferred-work.md`) ; E2E `ui_language` | rejeté |
+| 11 | `EXPERIENCE.md` (« Langue : interface et contenus en français ») et `DESIGN.md` (`theme-picker` seul) ignorent la langue et le menu « Affichage » (B) | low | Relu | patch |
+| 12 | Menu « Affichage » : `aria-haspopup="true"` sur un `role="group"`, nom accessible sans la langue courante (B) | low | Même motif que « Volets » ; usage lecteur d'écran improbable en projection | rejeté |
+| 13 | `/api/ui_texts` et `/api/state` lus séparément peuvent diverger (B) | low | Fenêtre d'un changement de langue entre deux requêtes du chargement ; correction = logique de rechargement | rejeté (improbable) |
+| 14 | Pas de formes `few` ou `many` possibles dans une traduction (B) | false | Non-goal : seulement `fr`, `en`, `de` | rejeté |
+| 15 | Allemand « Prompt engineering » sans majuscule ; README muet sur les alias `*_fr` de `settings.json` ; ligne du README non repliée (B) | low | Relu | patch |
+| 16 | Surcharges `notes_fr`, `note_fr`, `label_fr` d'un `settings.json` sur une valeur livrée non testées (seul `hosting` l'est) (VG) | low | Démontré par mutation de `_LEGACY_TEXT_KEYS` : 167 tests verts | patch |
+| 17 | Relecture d'une chaîne RAG sauvée en `label_fr` non testée (VG) | low | Aucun test ne sème l'ancien format | patch |
+| 18 | `ui_texts()` entre le changement de `_language` et `_reload_texts` : nouveau code, anciens textes (EC) | low | `set_language` ne vide pas `_ui_texts` ; correction d'une ligne | patch |
+| 19 | Traduction invalide : textes français mais `<html lang>` et `Intl` en `de` (EC) | low | Cas de développement, tracé par `harness_error` ; correction = remonter le repli de `_localized` | rejeté |
+| 20 | `data-i18n` sur un nœud pluriel : la clé remplace le français (EC) | false | Le test `test_every_key_of_the_page_is_in_french_and_the_html_says_it` exige une valeur texte égale au HTML | rejeté |
+| 21 | `t()` écrit « undefined » pour une variable absente (EC) | low | Même rendu que les gabarits d'avant | rejeté |
+| 22 | Heure du journal : `Intl.DateTimeFormat.format` lève sur une date invalide (EC) | low | Chaque enveloppe porte `ts` ; ajouter une garde | rejeté (improbable) |
+| 23 | Chaîne RAG portant à la fois `label_fr` et `label_text` rejetée (EC) | false | Aucune version n'écrit les deux clés | rejeté |
+| 24 | Le test des clés accepte un nœud pluriel appelé sans `count` (EC) | low | Analyse statique lourde pour un cas non rencontré | rejeté |
+| 25 | Le commit 1 contient la compatibilité, pas seulement des renommages (EC) | false | La tâche du commit 1 l'inclut explicitement (alias, colonne SQL, `rag.js`) | rejeté |
+| 26 | Barre haute `de` à 1 280 px en projection : le compteur de la jauge (« 530 / 3.584 Tokens · 14,8 % ») réduit à « 5… » depuis le commit 4 (vérification de l'orchestrateur) | medium | Capture `ui-language-de-1280-projection.jpg` ; entier au commit 3 | patch |
+
 ## Design Notes
 
 - Le serveur comble les clés manquantes : `t()` n'a jamais besoin du français à part, et la parité rend ce cas exceptionnel.
@@ -162,3 +193,11 @@ context:
 - `uv run pytest -q` sur les 26 premiers `tests/test_*.py` triés, puis sur les suivants, au premier plan -- expected: tout vert
 - `$env:PYTHONUTF8=1; uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py --only …` par tranches, dont `ui_language` et `language` -- expected: 0 FAIL
 - `git diff --stat HEAD~… -- data/rag_index.sqlite` après le commit 1 -- expected: vide
+
+## Vérification finale (2026-09-30, après la revue 1)
+
+- Rejouée par l'orchestrateur sur `ff6c194`, au premier plan, une suite à la fois.
+- `ruff check` et `ruff format --check` : propres ; `node --check` sur `app.js` et `i18n.js` : propre.
+- `pytest` en quatre quarts (une moitié dépasse désormais les 10 minutes d'un appel) : 328, 547, 286 et 312 réussis, 0 échec.
+- E2E en huit tranches de 4 à 6 scénarios : 80, 163, 80, 93, 114, 75, 114 et 92 vérifications réussies, 0 échec, dont `language`, `ui_language` et `rag_lab` (joué après `rag` et `rag_rerank`).
+- `data/rag_index.sqlite` inchangé depuis `740fa16`.
