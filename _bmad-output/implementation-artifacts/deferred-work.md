@@ -571,3 +571,13 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-endpoint-gemini-ai-studio.md`
   summary: Scénario E2E `rag_rerank` instable sous charge : quand il est joué dans une tranche de 10 scénarios, l'attente de `bricks_changed` (30 s) expire au chargement du reranker ; rejoué seul, il passe (56 sur 56). Vu deux fois (branche Gemini, puis intégration).
   evidence: Nuit du 2026-09-30, PC cible (16 Go, mémoire tendue). Piste : délai de 60 s pour ce chargement, ou préchargement du reranker avant l'attente.
+
+- source_spec: `_bmad-output/specs/spec-langues/stories/3-contenus-pedagogiques.md`
+  summary: L'avertissement et le bandeau d'un modèle cloud en `en` et `de` insèrent le `hosting_text` et le `notes_text` des déclarations `[[cloud.models]]` de `wavestack.toml`, écrits en français (« États-Unis (Groq) », « Aucune rétention… »).
+  evidence: Revue de la story Langues (3/5), 2026-09-30 : `cloud.fill()` et `warning_fr` les placent dans les textes traduits de `cloud.yaml` ; ces champs sont hors de `content/` et n'ont pas de variante par langue.
+- source_spec: `_bmad-output/specs/spec-langues/stories/3-contenus-pedagogiques.md`
+  summary: Les préfixes « Local · » et « RÉSEAU · » du sélecteur de modèles sont écrits en dur par `models/catalog.py` (:490, :561), alors que la légende traduite de `publishers.yaml` dit « NETWORK » et „NETZWERK“ ; à traduire avec les messages du backend (story 5).
+  evidence: Revue de la story Langues (3/5), 2026-09-30 : en `de`, un groupe « Netzwerk · … » coiffe des entrées « RÉSEAU · Groq … ».
+- source_spec: `_bmad-output/specs/spec-langues/stories/3-contenus-pedagogiques.md`
+  summary: Le contrôle E2E « GreenOps : « Empreinte estimée : a–b Wh · c–d g CO₂e » dans le corps de l'appel » de `gemini_shape` échoue par intermittence : `_footprint_line` ne trouve pas le corps de l'étape « Appelle le modèle » (texte et infobulle vides).
+  evidence: Vérification finale de la story Langues (3/5), 2026-09-30 : un échec sur deux passages sur `d7c87cf` (avant la story) comme sur `ef9e7d6` ; toutes les autres vérifications de la tranche passent. Probable course entre le dépliage de l'étape et l'arrivée de l'empreinte.

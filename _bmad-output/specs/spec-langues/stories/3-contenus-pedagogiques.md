@@ -2,7 +2,7 @@
 title: 'Langues (3/5) : contenus pédagogiques'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-progress'
+status: 'done'
 baseline_commit: 'd7c87cfb77a75c458e29fbc7bb5f1db4229c8410'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -109,6 +109,31 @@ context:
 
 ## Review Triage Log
 
+Revue 1 (2026-09-30, trois relecteurs : aveugle (B), cas limites (EC), trous de vérification (VG)).
+
+| # | Constat | Verdict | Preuve | Suite |
+|---|---------|---------|--------|-------|
+| 1 | Langue des entrées locales du catalogue (`served_by_text`, `hosting_label_text`, groupe local) jamais testée hors `fr` (VG) | low | Les deux tests passent `[]` ou un diagnostic vide : aucune entrée locale | patch |
+| 2 | Repli d'un `cloud.yaml` traduit invalide non testé (`active_model`, `DiagnosticSession._cloud_content`) ; test `active_model` en `en` qui ne vérifie que « non vide » (VG, B) | low | Aucun test n'écrit un `cloud.yaml` traduit invalide ; `test_the_active_model_of_a_cloud_choice_is_in_the_language` passerait si `lang` était ignoré | patch |
+| 3 | Charge `model_load_*` d'un modèle cloud non testée en `en`/`de` (VG) | low | Code correct (`app_session.py:1701`) ; charge transitoire, relayée par `active_model()` testé | rejeté |
+| 4 | `cloud.yaml` traduit invalide : un `harness_error` par appel de `_cloud_content`, soit 1 + N par `/api/diagnostic` (VG, EC, B) | low | Réel, même comportement que la branche française préexistante ; cas de développement ; correction = état de mémorisation | rejeté (improbable) |
+| 5 | Fichier de démonstration traduit illisible (UTF-8) : erreur brute sans repli français (EC) | low | Fichiers livrés validés par la parité ; cas de développement ; correction = garde et trace | rejeté (improbable) |
+| 6 | Ratio de longueur du test de parité : division par zéro sur un fichier français vide (EC) | low | Aucun fichier de démonstration vide | rejeté |
+| 7 | E2E : `StopIteration` si un préréglage manque, clic d'étape qui expire et masque le vrai contrôle (EC) | low | Préréglages présents et figés par la parité ; robustesse du banc seulement | rejeté |
+| 8 | E2E `content_language` : le `finally` ne rend ni la brique Hooks ni « Afficher les actions forcées » (EC, B) | low | `run_e2e.py`, `_content_language` : `/api/intentions/brick` hooks et `r.show_forced(True)` jamais défaits ; peut fuir vers la tranche suivante | patch |
+| 9 | AD-19 (spine) : « défaut `fr` » faux pour `load_brick_content` et `load_compression_content` (`lang=None`) (EC, B) | low | `bricks/contract.py:60`, `compression/port.py:58` ; la session passe toujours la langue | patch (reformuler le spine) |
+| 10 | Critère « aucun fichier français de `content/` n'a changé » contredit par `content/ui.yaml` (EC) | false | L'infobulle française est une tâche de la spec ; la commande de vérification exclut `content/ui.yaml` ; correction = éditer la spec | rejeté |
+| 11 | Avertissement cloud en `en`/`de` : `hosting_text` et `notes_text` des déclarations de `wavestack.toml` restent français (B) | medium | `wavestack.toml:269-296` ; insérés par `cloud.fill()` dans les textes traduits ; préexistant, hors `content/` | defer |
+| 12 | Légende des éditeurs traduite (« NETWORK », „NETZWERK“) mais préfixes `Local ·` / `RÉSEAU ·` écrits en dur par `catalog.py:490,561` (B) | low | Texte produit par le Python : story 5 | defer |
+| 13 | `publishers.yaml` traduit invalide : pas de `harness_error` ; l'avertissement du journal Python affiche désormais le chemin absolu (B) | low | Pas de `harness_error` : même contrat que le français (raison affichée par la page) ; chemin absolu réel (`catalog.py:183`) | patch (chemin relatif) |
+| 14 | Messages de `read_file` et refus de H1 français dans le contexte en `en`/`de`, absents de `deferred-work.md` (B) | false | Nommés par CAP-5 de `SPEC.md` (erreurs de `native.py`, refus de H1) | rejeté |
+| 15 | Règles de `publishers.yaml` recopiées dans chaque traduction (B) | low | Choix de la spec (textes seuls traduits, champs figés par la parité) | rejeté |
+| 16 | Allemand : « Kompression » (brique) et « Komprimierung » (étape, scénario, interface) ; « in Orchestrierung » sans article (11 fois) (B) | low | Nom de la brique figé par l'intention ; « in Orchestrierung » relu dans `scenarios.yaml`, `hooks.yaml`, `subagent.yaml` de `de` | patch (« im Bereich Orchestrierung ») ; Kompression/Komprimierung rejeté |
+| 17 | `journal_serveur.log` : processus « sauvegarde » gardé en `de`, traduit en `en` (B) | low | Relu | patch |
+| 18 | `test_every_default_sent_to_the_model_is_translated` exige aussi les contenus pédagogiques (B) | low | Nom trompeur | patch (test séparé) |
+| 19 | `provider_text` anglais : « training no. » (B) | low | `content/i18n/en/cloud.yaml:11` | patch |
+| 20 | Infobulle de langue incomplète (cloud, sélecteur, libellés) et « RAG » cité (B) | low | Ces textes relèvent de « l'interface » ; RAG y était avant la story | rejeté |
+
 ## Design Notes
 
 - `read_file` résout comme `localized_path` mais fichier par fichier, sous `content/i18n/{lang}/demo_files/`. Le confinement se juge sur le chemin relatif demandé, par rapport au dossier français, puis la traduction le remplace s'il existe. H1 compare aussi le chemin relatif : `confidentiel/...` est refusé quelle que soit la racine résolue.
@@ -122,3 +147,11 @@ context:
 - `uv run pytest -q` en quatre quarts des `tests/test_*.py` triés, au premier plan -- expected: tout vert
 - `$env:PYTHONUTF8=1; uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py --only …` par tranches de 4 à 6, dont `content_language`, `ui_language`, `language` -- expected: 0 FAIL
 - `git diff --stat d7c87cfb77a75c458e29fbc7bb5f1db4229c8410 -- content/ ':!content/i18n' ':!content/ui.yaml'` -- expected: vide
+
+## Vérification finale (2026-09-30, après la revue 1)
+
+- Rejouée par l'orchestrateur sur `ef9e7d6`, au premier plan, une suite à la fois.
+- `ruff check` et `ruff format --check` : propres.
+- `pytest` en quatre quarts des 54 `tests/test_*.py` triés : 386, 616, 275 et 302 réussis, 0 échec.
+- E2E en huit tranches de 4 à 6 scénarios (les 43) : 80, 163, 41, 97, 98, 101, 88 et 155 vérifications réussies ; un seul échec, `gemini_shape` (« Empreinte estimée … dans le corps de l'appel »), intermittent et préexistant : il échoue aussi une fois sur deux sur `d7c87cf`, et passe au rejeu sur `ef9e7d6` (consigné dans `deferred-work.md`). `content_language`, `ui_language` et `language` passent.
+- Aucun fichier français de `content/` changé hors `content/ui.yaml` depuis `d7c87cf`.
