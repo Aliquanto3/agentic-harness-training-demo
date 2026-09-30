@@ -555,6 +555,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-i18n-1-socle-et-defauts-du-llm.md`
   summary: Textes du nouveau code de langue restés en français dans toutes les langues (repli « Disponible hors d'un tour. », « Changement de langue refusé. », refus d'enregistrement, texte du `harness_error` de `_localized`), et champs `*_fr` qui portent désormais de l'anglais ou de l'allemand (`label_fr`, `description_fr`, `intro_fr`…) : à traduire et à renommer (`*_text`) avec les stories 2 et 5.
   evidence: Revue de la story Langues (1/5), 2026-09-30.
+  resolution: en partie fermé par la story Langues (2/5), 2026-09-30 — champs `*_fr` renommés `*_text` (commit de renommage pur, alias de lecture pour `settings.json`, la colonne SQL et les chaînes sauvées de l'atelier RAG) ; textes du front traduits par `content/ui.yaml` et `t()` (repli « Disponible hors d'un tour. », « Changement de langue refusé. », refus d'enregistrement, infobulle du sélecteur). Reste le texte du `harness_error` de `_localized`, produit par le backend (story 5).
 - source_spec: `_bmad-output/implementation-artifacts/spec-estimateur-finops-api.md`
   summary: Le « ≈ » d'un coût estimé (fournisseur sans `usage`, Mistral) n'est vérifié nulle part dans l'interface (ligne de l'appel, en-tête du tour, barre haute). Moyenne, non vérifiée.
   evidence: L'E2E n'a aucun faux fournisseur tarifé sans `usage` ; seuls les champs `cost_source` et `approx` sont testés en Python. À régler par une entrée E2E tarifée sans `stream_usage`, puis un contrôle du texte rendu.
@@ -564,6 +565,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-i18n-1-socle-et-defauts-du-llm.md`
   summary: Barre haute saturée à 1 600 px quand la dépense (FinOps et GreenOps) et le sélecteur de langue sont affichés : le sélecteur de scénario se réduit à « Mé… », celui des modèles à « Cl… », l'indicateur de modèle à « L… ». Le texte complet reste dans les infobulles et la vérification E2E de la barre passe, mais la lecture est difficile en projection. Moyenne pour une démo.
   evidence: Capture `45-fenetre-contexte-reglage.jpg` de l'E2E d'intégration (nuit du 2026-09-30, commit ddc63e4). Pistes : déplacer la dépense et la langue dans un second rang ou dans le menu « Volets », ou masquer le titre « WaveStack » dès 1 600 px.
+  closed: story Langues (2/5), 2026-09-30 — le thème, la langue et le mode projection passent dans le menu « Affichage ▾ » (décision d'Anaël) ; la barre tient en allemand à 1 280 et 1 600 px, normal et projection, sans sélecteur réduit à deux lettres (tranche E2E `ui_language`, captures `ui-language-de-*`).
 - source_spec: `_bmad-output/implementation-artifacts/spec-endpoint-gemini-ai-studio.md`
   summary: Scénario E2E `rag_rerank` instable sous charge : quand il est joué dans une tranche de 10 scénarios, l'attente de `bricks_changed` (30 s) expire au chargement du reranker ; rejoué seul, il passe (56 sur 56). Vu deux fois (branche Gemini, puis intégration).
   evidence: Nuit du 2026-09-30, PC cible (16 Go, mémoire tendue). Piste : délai de 60 s pour ce chargement, ou préchargement du reranker avant l'attente.

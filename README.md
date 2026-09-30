@@ -270,8 +270,9 @@ la main dans `[context] window` reste lue, mais n'est pas proposée par le panne
 
 ## Langue
 
-Le sélecteur de langue de la barre haute (« FR ▾ », juste avant « Réinitialiser ») propose
-**Français**, **English** et **Deutsch**. Il ne s'ouvre que sur une conversation vide : après un
+Le sélecteur de langue est dans le menu « Affichage ▾ » de la barre haute (juste avant
+« Réinitialiser », avec le thème et le mode projection ; sa face montre le code de la langue,
+« FR ») et propose **Français**, **English** et **Deutsch**. Il ne s'ouvre que sur une conversation vide : après un
 échange, il est grisé et son infobulle demande de cliquer d'abord sur « Vider la conversation »
 ou « Réinitialiser ». Le choix est enregistré dans `settings.json` (`"language": "en"`), repris
 au lancement suivant, et la page se recharge dans la langue choisie.
@@ -287,10 +288,11 @@ Pour l'instant, la langue change :
   (Orchestration), noms des skills, libellés des serveurs MCP et de leurs préréglages, bouton,
   phase et préréglages du sous-agent, textes du tiroir de la mémoire, boutons et phases de la
   carte RAG ;
-- le nom et l'infobulle du sélecteur de langue.
+- **l'écran principal** : boutons, volets, menus, infobulles, jauge, Orchestration, schéma et
+  messages de l'interface elle-même, avec les nombres, montants et heures au format de la
+  langue (« 1 234 », « 1,234 », « 1.234 »). Ses textes sont dans `content/ui.yaml`.
 
-Restent en français : le reste de l'interface (boutons, volets, messages), les noms et
-explications des briques, les scénarios et leurs consignes, les messages produits par le
+Restent en français : les noms et explications des briques, les scénarios et leurs consignes, les messages produits par le
 harnais (erreurs, raisons d'indisponibilité, erreurs d'outils, résultat de `get_datetime`), les
 écrans « LLM nu » et « Atelier RAG », le corpus RAG et les titres de ses documents.
 Une mémoire globale que vous avez modifiée est gardée telle quelle ; la mémoire de

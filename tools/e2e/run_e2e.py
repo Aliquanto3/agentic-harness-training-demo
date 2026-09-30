@@ -1596,7 +1596,7 @@ def _bar_fits(r: Run) -> tuple[bool, str]:
         ".map(e => '#' + e.id)"
     )
     cut = {c: why for c in controls if (why := _fully_visible(r, c))}
-    ok = "#reset-button" in controls and "#theme-picker-box" in controls and not cut
+    ok = "#reset-button" in controls and "#display-menu" in controls and not cut
     return ok, f"{controls} ; {cut}"
 
 
@@ -1666,35 +1666,69 @@ def _top_bar_problems(r: Run, chip) -> list[str]:
     return problems
 
 
-def _compact_picker(r: Run) -> str:
-    """'' when the compact theme picker shows only its face (the symbol of the choice and a
-    chevron), the native list lies whole over it, transparent, and the keyboard changes the
-    theme through it; else what is wrong. Back to « Système » after."""
+def _display_menu_picker(r: Run, words: str = "◐ Système") -> str:
+    """Languages (2/5): '' when « Affichage ▾ » shows the theme's symbol, opens on its three
+    controls, each whole in the window, the theme picker with its words, and the keyboard
+    changes the theme through it (the face following); else what is wrong. Back to
+    « Système » after, the menu closed."""
     page = r.page
-    state = page.evaluate(
-        "() => { const face = document.querySelector('.theme-picker-face');"
-        " const pick = document.getElementById('theme-picker');"
-        " const f = face.getBoundingClientRect(), s = pick.getBoundingClientRect();"
-        " return { face: face.checkVisibility() ? face.textContent : null,"
-        " opacity: getComputedStyle(pick).opacity,"
-        " covers: Math.abs(f.left - s.left) <= 1 && Math.abs(f.right - s.right) <= 1"
-        " && Math.abs(f.top - s.top) <= 1 && Math.abs(f.bottom - s.bottom) <= 1 }; }"
-    )
     problems = []
-    if state["face"] != "◐▾":
-        problems.append(f"face « {state['face']} »")
-    if state["opacity"] != "0" or not state["covers"]:
-        problems.append(f"liste native : opacité {state['opacity']}, couvre {state['covers']}")
+    if (face := page.text_content(".display-menu-symbol")) != "◐":
+        problems.append(f"face « {face} »")
+    _open_display(page)
+    cut = page.evaluate(
+        "() => ['#theme-picker', '#language-picker', '#projection-toggle'].filter(q => {"
+        " const e = document.querySelector(q), b = e.getBoundingClientRect();"
+        " return !e.checkVisibility() || b.left < 0 || b.right > innerWidth"
+        " || b.bottom > innerHeight || e.scrollWidth > e.clientWidth + 1; })"
+    )
+    if cut:
+        problems.append(f"coupés ou hors de la fenêtre : {cut}")
     picker = page.locator("#theme-picker")
+    shown = picker.evaluate("(s) => s.options[s.selectedIndex].textContent.trim()")
+    if shown != words:
+        problems.append(f"sélecteur « {shown} »")
     picker.focus()
     page.keyboard.press("ArrowDown")
     time.sleep(0.2)
-    moved = (picker.input_value(), _theme_attr(r), page.text_content(".theme-picker-face"))
-    if moved != ("light", "light", "☀▾"):
+    moved = (picker.input_value(), _theme_attr(r), page.text_content(".display-menu-symbol"))
+    if moved != ("light", "light", "☀"):
         problems.append(f"au clavier : {moved}")
     picker.select_option("system")
-    picker.blur()
+    _close_display(page)
     return " ; ".join(problems)
+
+
+# ---------- languages (2/5): « Affichage ▾ », the theme, the language and the projection ----------
+
+
+def _open_display(page: Page) -> None:
+    """The theme, the language and the projection mode are in « Affichage ▾ » (decision of
+    2026-09-30): the menu is opened first. A page without it (/diagnostic, /llm…) as is."""
+    if not page.locator("#display-menu-toggle").count():
+        return
+    if page.locator("#display-menu-panel").is_hidden():
+        page.locator("#display-menu-toggle").click()
+        expect(page.locator("#display-menu-panel")).to_be_visible(timeout=5000)
+
+
+def _close_display(page: Page) -> None:
+    panel = page.locator("#display-menu-panel")
+    if panel.count() and panel.is_visible():
+        page.locator("#display-menu-toggle").click()
+        expect(page.locator("#display-menu-panel")).to_be_hidden(timeout=5000)
+
+
+def _pick_theme(page: Page, theme: str) -> None:
+    _open_display(page)
+    page.locator("#theme-picker").select_option(theme)
+    _close_display(page)
+
+
+def _toggle_projection(page: Page) -> None:
+    _open_display(page)
+    page.locator("#projection-toggle").click()
+    _close_display(page)
 
 
 def _theme_attr(r: Run) -> str | None:
@@ -1726,9 +1760,8 @@ def s_themes(r: Run) -> None:
         page.emulate_media(color_scheme="light")
         if not page.url.startswith(r.stack.app_url) or "/static" in page.url:
             r.goto_app()
-        picker = page.locator("#theme-picker")
-        if picker.count():
-            picker.select_option("system")
+        if page.locator("#theme-picker").count():
+            _pick_theme(page, "system")
 
 
 def _themes(r: Run, errors: list[str]) -> None:
@@ -1762,37 +1795,40 @@ def _themes(r: Run, errors: list[str]) -> None:
     )
     cut = {c: why for c in controls if (why := _fully_visible(r, c))}
     r.check(
-        "#theme-picker-box" in controls and not cut,
+        "#display-menu" in controls and not cut,
         "1600 × 1000 : chaque commande de la barre haute entière, sur une ligne",
         f"{controls} ; {cut}",
     )
+    closed = page.locator("#display-menu-panel").is_hidden()
+    menu = _display_menu_picker(r)
     r.check(
-        not page.locator(".theme-picker-face").is_visible(),
-        "1600 × 1000 : le sélecteur de thème montre ses mots, sans la face compacte",
+        closed and not menu,
+        "1600 × 1000 : « Affichage ▾ » fermé, puis ouvert sur le thème avec ses mots",
+        menu,
     )
-    # Between 1401 and 1599 px the picker keeps its words: the bar still fits.
     page.set_viewport_size({"width": 1440, "height": 900})
     time.sleep(0.3)
     fits, detail = _bar_fits(r)
     r.check(fits, "1440 × 900 : barre haute sur une ligne, « Réinitialiser » entier", detail)
-    # Under 1400 px, the symbol and a chevron only; the native list, transparent on top of
-    # them, still works with the keyboard. In projection mode too.
+    # At 1280 px, « Affichage ▾ » in the bar, its menu whole and working with the keyboard.
+    # In projection mode too.
     page.set_viewport_size({"width": 1280, "height": 720})
     time.sleep(0.3)
     for projection in (False, True):
         mode = "mode projection" if projection else "mode normal"
         if projection:
-            page.locator("#projection-toggle").click()
+            _toggle_projection(page)
             time.sleep(0.3)
         fits, detail = _bar_fits(r)
-        compact = _compact_picker(r)
+        menu = _display_menu_picker(r)
         r.check(
-            fits and not compact,
-            f"1280 × 720, {mode} : sélecteur compact (symbole et chevron), barre sur une ligne",
-            f"{detail} ; {compact}",
+            fits and not menu,
+            f"1280 × 720, {mode} : « Affichage ▾ » entier, son menu au clavier, barre sur une "
+            "ligne",
+            f"{detail} ; {menu}",
         )
         if projection:
-            page.locator("#projection-toggle").click()
+            _toggle_projection(page)
             time.sleep(0.3)
     page.set_viewport_size({"width": 1600, "height": 1000})
     time.sleep(0.3)
@@ -1821,7 +1857,7 @@ def _themes(r: Run, errors: list[str]) -> None:
     )
 
     # « Sombre » chosen on a light workstation.
-    picker.select_option("dark")
+    _pick_theme(page, "dark")
     time.sleep(0.3)
     r.check(
         _theme_attr(r) == "dark" and _stored_theme(r) == "dark",
@@ -1939,7 +1975,7 @@ def _themes(r: Run, errors: list[str]) -> None:
         r.shot(shot, full_page=True)
     # « Clair » on the diagnostic wins over a dark workstation, back in the workshop.
     page.goto(f"{r.stack.app_url}/diagnostic")
-    page.locator("#theme-picker").select_option("light")
+    _pick_theme(page, "light")
     page.emulate_media(color_scheme="dark")
     r.goto_app()
     r.check(
@@ -1951,19 +1987,19 @@ def _themes(r: Run, errors: list[str]) -> None:
 
     # Lot K (A4): « Sombre » in the workshop, « Clair » at the diagnostic, then « Back »: the
     # workshop's picker says « Clair » (the browser's form restoration no longer wins).
-    page.locator("#theme-picker").select_option("dark")
+    _pick_theme(page, "dark")
     time.sleep(0.2)
     page.goto(f"{r.stack.app_url}/diagnostic")
     expect(page.locator("#theme-picker")).to_have_value("dark", timeout=10_000)
-    page.locator("#theme-picker").select_option("light")
+    _pick_theme(page, "light")
     time.sleep(0.2)
     page.go_back()
     r.wait_replayed()
     time.sleep(0.3)
     picked = page.locator("#theme-picker").input_value()
-    face = page.text_content(".theme-picker-face")
+    face = page.text_content(".display-menu-symbol")
     r.check(
-        picked == "light" and _theme_attr(r) == "light" and face == "☀▾",
+        picked == "light" and _theme_attr(r) == "light" and face == "☀",
         "« Sombre », /diagnostic, « Clair », « Précédent » : atelier clair, sélecteur sur "
         "« Clair »",
         f"sélecteur {picked}, data-theme {_theme_attr(r)}, face « {face} »",
@@ -1994,7 +2030,7 @@ def _themes(r: Run, errors: list[str]) -> None:
         blocked.goto(f"{r.stack.app_url}/")
         expect(blocked.locator("body[data-journal-replayed]")).to_be_attached(timeout=30_000)
         start = blocked.evaluate("() => document.documentElement.getAttribute('data-theme')")
-        blocked.locator("#theme-picker").select_option("dark")
+        _pick_theme(blocked, "dark")
         time.sleep(0.3)
         chosen = blocked.evaluate("() => document.documentElement.getAttribute('data-theme')")
         kept = blocked.locator("#theme-picker").input_value()
@@ -2015,7 +2051,7 @@ def _themes(r: Run, errors: list[str]) -> None:
         context.close()
 
     # The light theme, for comparison.
-    page.locator("#theme-picker").select_option("system")
+    _pick_theme(page, "system")
     time.sleep(0.3)
     r.shot("51-theme-clair-atelier", full_page=True)
 
@@ -2353,7 +2389,7 @@ def s_linked_view(r: Run) -> None:
 
     # Projection mode: every text larger, remembered, kept by the reset.
     toggle = page.locator("#projection-toggle")
-    toggle.click()
+    _toggle_projection(page)
     time.sleep(0.3)
 
     def projection() -> tuple[bool, str, str]:
@@ -2389,7 +2425,7 @@ def s_linked_view(r: Run) -> None:
     chip = page.locator("#pane-chips .pane-chip", has_text="Contexte LLM")
     for projection_on in (True, False):
         if not projection_on:
-            toggle.click()
+            _toggle_projection(page)
         mode = "mode projection" if projection_on else "mode normal"
         for width, height in ((1280, 720), (1366, 768), (1440, 900), (1600, 1000)):
             page.set_viewport_size({"width": width, "height": height})
@@ -2398,8 +2434,6 @@ def s_linked_view(r: Run) -> None:
                 node("Calculatrice").click()
                 time.sleep(0.3)
             problems = _top_bar_problems(r, chip)
-            if "Aa" in page.inner_text("#projection-toggle"):
-                problems.append("bouton de projection réduit à « Aa »")
             r.check(
                 not problems,
                 f"{width} × {height} en {mode} : barre sur une ligne, « Réinitialiser » entier, "
@@ -2409,7 +2443,7 @@ def s_linked_view(r: Run) -> None:
         # Lot K, suite (K1): 1280 and 1366 px zoomed to 150 % (853 and 911 CSS px; a real
         # Edge window's frame leaves a little less, 840), the chip linked but free to give
         # way: the bar on one line, « Réinitialiser » in the window, no horizontal scroll, the
-        # « Fenêtre » panel open whole in the window, the projection button saying « Aa ».
+        # « Fenêtre » panel open whole in the window.
         for width, height in ((840, 433), (853, 433), (911, 512)):
             page.set_viewport_size({"width": width, "height": height})
             time.sleep(0.3)
@@ -2421,8 +2455,6 @@ def s_linked_view(r: Run) -> None:
                 problems.append(f"puce « {chip.inner_text()} » sans « · lié »")
             if cut := _fully_visible(r, "#reset-button"):
                 problems.append(f"« Réinitialiser » {cut}")
-            if (label := page.inner_text("#projection-toggle").strip()) != "Aa":
-                problems.append(f"bouton de projection « {label} » au lieu de « Aa »")
             scroll = page.evaluate(
                 "() => { const s = document.scrollingElement;"
                 " return s.scrollWidth - s.clientWidth; }"
@@ -2459,7 +2491,7 @@ def s_linked_view(r: Run) -> None:
             "visible et dégagée",
             "; ".join(problems),
         )
-    toggle.click()
+    _toggle_projection(page)
     time.sleep(0.3)
     page.keyboard.press("Escape")
     chip.click()
@@ -2467,7 +2499,7 @@ def s_linked_view(r: Run) -> None:
     # to the left: its panel, anchored under it, stays whole in the window.
     for projection_on in (True, False):
         if not projection_on:
-            toggle.click()
+            _toggle_projection(page)
         mode = "mode projection" if projection_on else "mode normal"
         for width, height in ((840, 433), (853, 433), (911, 512)):
             page.set_viewport_size({"width": width, "height": height})
@@ -2480,7 +2512,7 @@ def s_linked_view(r: Run) -> None:
                 "« Fenêtre » entier dans la fenêtre",
                 outside or f"{chips} puce(s) de volet masqué",
             )
-    toggle.click()
+    _toggle_projection(page)
     time.sleep(0.3)
     page.set_viewport_size({"width": 1600, "height": 1000})
     time.sleep(0.3)
@@ -2500,7 +2532,7 @@ def s_linked_view(r: Run) -> None:
         "après Réinitialiser : le bilan dit qu'aucun tour n'est affiché",
         page.inner_text("#schema-outbound"),
     )
-    toggle.click()
+    _toggle_projection(page)
     time.sleep(0.3)
     on, size, pressed = projection()
     r.check(
@@ -4664,6 +4696,7 @@ def _html_lang(r: Run) -> str:
 def _pick_language(r: Run, language: str) -> None:
     """Choose `language` in the picker: the intention is accepted, then the page reloads."""
     seq = r.ev.mark()
+    _open_display(r.page)  # languages (2/5): the picker is in « Affichage ▾ »
     with r.page.expect_navigation(timeout=15_000):
         r.page.select_option("#language-picker", language)
     r.ev.wait("language_changed", seq, lambda p: p["language"] == language, timeout=15)
@@ -4794,6 +4827,189 @@ def _language(r: Run) -> None:
         system[:120],
     )
     _clear_conversation(r)
+
+
+# ---------- languages (2/5): the main screen in English and in German ----------
+
+_UI_VAR = re.compile(r"\{\w+\}")
+
+
+def _ui_leaves(tree: dict[str, Any], prefix: str = "") -> dict[str, str]:
+    found: dict[str, str] = {}
+    for key, value in tree.items():
+        if isinstance(value, dict):
+            found |= _ui_leaves(value, f"{prefix}{key}.")
+        else:
+            found[prefix + key] = value
+    return found
+
+
+def _ui_catalogue(lang: str) -> dict[str, str]:
+    import yaml
+
+    rel = "content/ui.yaml" if lang == "fr" else f"content/i18n/{lang}/ui.yaml"
+    return _ui_leaves(yaml.safe_load((REPO / rel).read_text(encoding="utf-8")))
+
+
+def _french_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
+    """The French values of `common` and `main` whose `lang` value differs: a text without
+    variable as itself, a text with variables as a pattern (each variable any text), kept
+    only when its fixed words say something (six letters at least)."""
+    french, translated = _ui_catalogue("fr"), _ui_catalogue(lang)
+    patterns = []
+    for key, value in french.items():
+        if translated.get(key) == value:
+            continue  # « Tokens », « RAG », « Skills »… : the same in both languages
+        fixed = _UI_VAR.sub("", value)
+        if len(re.findall(r"[^\W\d_]", fixed)) < 6:
+            continue
+        parts = [re.escape(part) for part in _UI_VAR.split(value)]
+        patterns.append((key, re.compile(".+?".join(parts), re.S)))
+    return patterns
+
+
+def _backend_strings(r: Run) -> set[str]:
+    """Every text the session sent (its `*_text` fields stay French until stories 3 and 5):
+    the state and the events seen, as whole strings."""
+    found: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            found.add(value.strip())
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(r.state())
+    walk([e.get("payload") for e in r.ev.items])
+    return found
+
+
+_VISIBLE_TEXTS_JS = """() => {
+  const texts = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n.data.trim();
+    if (text && n.parentElement.checkVisibility()) texts.push(['texte', text]);
+  }
+  for (const e of document.querySelectorAll('[title], [aria-label], [placeholder]')) {
+    if (!e.checkVisibility() && !e.closest('.top-bar')) continue;
+    for (const a of ['title', 'aria-label', 'placeholder']) {
+      const v = e.getAttribute(a);
+      if (v && v.trim()) texts.push([a, v.trim()]);
+    }
+  }
+  return texts;
+}"""
+
+
+def _french_left(r: Run, lang: str) -> list[str]:
+    """The texts of the page that are a French value of the catalogue (whole texts), what
+    the session sent aside."""
+    backend = _backend_strings(r)
+    # A text that quotes what the session sent (« Sous-agent brick ») is read without it.
+    quoted = sorted((b for b in backend if len(b) >= 4), key=len, reverse=True)
+    patterns = _french_patterns(lang)
+    found = []
+    for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
+        if text in backend:
+            continue
+        for part in quoted:
+            if part in text:
+                text = text.replace(part, "§")
+        for key, pattern in patterns:
+            if pattern.fullmatch(text):
+                found.append(f"{where} « {text[:80]} » ({key})")
+                break
+    return sorted(set(found))
+
+
+def _switch_language(r: Run, lang: str) -> None:
+    r.wait_idle()
+    # The open page would reload itself on `language_changed`, racing `goto_app`: left first.
+    r.page.goto("about:blank")
+    cleared = r.api("POST", "/api/intentions/clear_conversation", {})
+    changed = r.api("POST", "/api/intentions/language", {"language": lang})
+    if cleared.status_code != 200 or changed.status_code != 200:
+        raise RuntimeError(f"langue {lang} : {cleared.status_code} {changed.text[:160]}")
+    r.goto_app()
+    r.wait_idle()
+
+
+def s_ui_language(r: Run) -> None:
+    """Languages (2/5): the main screen in `en` then in `de`, after a turn: no French text of
+    the catalogue (texts and attributes), `<html lang>`, numbers in the language's format;
+    captures in German at 1280 and 1600 px, normal and projection mode, the top bar whole.
+    Always ends in French, at rest."""
+    page = r.page
+    try:
+        _ui_language(r)
+    finally:
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        if page.evaluate("() => document.documentElement.classList.contains('projection')"):
+            _toggle_projection(page)
+        if r.state().get("language") != "fr":
+            r.wait_idle()
+            _switch_language(r, "fr")
+        r.check(r.state()["language"] == "fr", "nettoyage : retour au français")
+
+
+_THOUSANDS = {"en": r"\d,\d{3}", "de": r"\d\.\d{3}"}
+
+
+def _ui_language(r: Run) -> None:
+    page = r.page
+    for lang in ("en", "de"):
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        _switch_language(r, lang)
+        r.launch("native_tools")
+        r.send("Bonjour" if lang == "en" else "Hallo")
+        r.wait_idle()
+        time.sleep(0.5)
+        _open_display(page)
+        left = _french_left(r, lang)
+        _close_display(page)
+        figures = page.inner_text("#gauge-figures")
+        r.check(
+            not left,
+            f"{lang} : aucun texte français du catalogue à l'écran (textes, title, aria-label, "
+            "placeholder), après un tour",
+            "; ".join(left[:12]),
+        )
+        r.check(
+            _html_lang(r) == lang and re.search(_THOUSANDS[lang], figures) is not None,
+            f"{lang} : <html lang={lang}>, nombres au format de la langue",
+            f"lang={_html_lang(r)} · {figures}",
+        )
+        if lang != "de":
+            continue
+        for width, height in ((1280, 720), (1600, 1000)):
+            page.set_viewport_size({"width": width, "height": height})
+            for projection in (False, True):
+                if projection:
+                    _toggle_projection(page)
+                time.sleep(0.4)
+                mode = "projection" if projection else "normal"
+                fits, detail = _bar_fits(r)
+                # No picker reduced to two letters and « … » (the saturation of 2026-09-30).
+                narrow = page.evaluate(
+                    "() => [...document.querySelectorAll('.top-bar > select')]"
+                    ".filter(s => s.checkVisibility() && s.clientWidth < 64)"
+                    ".map(s => `#${s.id} ${s.clientWidth} px`)"
+                )
+                menu = _display_menu_picker(r, _ui_catalogue("de")["main.theme.system"])
+                r.check(
+                    fits and not narrow and not menu,
+                    f"de, {width} × {height}, mode {mode} : barre haute entière sur une ligne",
+                    f"{detail} {narrow} {menu}",
+                )
+                r.shot(f"ui-language-de-{width}-{mode}")
+                if projection:
+                    _toggle_projection(page)
+    r.shot_element("ui-language-de-barre", ".top-bar")
 
 
 def _first_turn_after(r: Run, gesture: str, turn_id: str) -> None:
@@ -6090,7 +6306,7 @@ def _session_footprint(r: Run, what: str) -> None:
             page.set_viewport_size({"width": width, "height": height})
             for projection in (False, True):
                 if projection:
-                    toggle.click()
+                    _toggle_projection(page)
                 time.sleep(0.3)
                 ok, detail = _bar_fits(r)
                 mode = "mode projection" if projection else "mode normal"
@@ -6103,10 +6319,10 @@ def _session_footprint(r: Run, what: str) -> None:
                     detail,
                 )
                 if projection:
-                    toggle.click()
+                    _toggle_projection(page)
     finally:
         if toggle.get_attribute("aria-pressed") == "true":  # never left in projection mode
-            toggle.click()
+            _toggle_projection(page)
         page.set_viewport_size({"width": 1600, "height": 1000})
         time.sleep(0.3)
     if not spend.get("calls"):  # the footprint alone: it fits the widest bar
@@ -6331,9 +6547,8 @@ def s_llm_screen(r: Run) -> None:
     finally:
         if page.url.rstrip("/").endswith("/llm") or not page.url.startswith(r.stack.app_url):
             r.goto_app()
-        picker = page.locator("#theme-picker")
-        if picker.count():
-            picker.select_option("system")
+        if page.locator("#theme-picker").count():
+            _pick_theme(page, "system")
         if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
             _pick_model(r, A_LABEL)
 
@@ -6351,7 +6566,7 @@ def _llm_screen(r: Run) -> None:
     r.check(ok, "barre haute : toutes les commandes entières, sur une ligne, à 1600 × 1000", detail)
 
     # (2) The workshop's theme applies on /llm.
-    page.select_option("#theme-picker", "dark")
+    _pick_theme(page, "dark")
     link.click()
     page.wait_for_url("**/llm")
     expect(page.locator("body[data-lab-ready]")).to_be_attached(timeout=10_000)
@@ -6383,7 +6598,7 @@ def _llm_screen(r: Run) -> None:
         f"{info} · {counts}",
     )
     dark = _contrast_sweep(r, ["main"])
-    page.select_option("#theme-picker", "system")
+    _pick_theme(page, "system")
 
     # (3b) A workshop turn running: « Générer » disabled with the reason, a direct call 409.
     seq = r.ev.mark()
@@ -6707,9 +6922,8 @@ def s_rag_lab(r: Run) -> None:
         _rag_lab(r, errors)
     finally:
         page.remove_listener("pageerror", listener)
-        picker = page.locator("#theme-picker")
-        if picker.count():
-            picker.select_option("system")
+        if page.locator("#theme-picker").count():
+            _pick_theme(page, "system")
         r.goto_app()
 
 
@@ -6762,9 +6976,9 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         r.css(generation, "background-color"),
     )
     light = _contrast_sweep(r, ["main", "nav.page-tabs"])
-    page.select_option("#theme-picker", "dark")
+    _pick_theme(page, "dark")
     dark = _contrast_sweep(r, ["main", "nav.page-tabs"])
-    page.select_option("#theme-picker", "system")
+    _pick_theme(page, "system")
     r.check(not light and not dark, "/rag : contrastes AA en clair et en sombre", str(light + dark))
     r.shot("55-atelier-rag-chaine", full_page=True)
 
@@ -7183,6 +7397,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
     ("language", s_language),
+    ("ui_language", s_ui_language),
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),

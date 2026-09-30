@@ -20,6 +20,9 @@ const ATTRIBUTES = [
 let lang = "fr";
 let texts = {};
 const warned = new Set();
+// A page being left (a reload, a link) aborts its requests: nothing to say about it.
+let leaving = false;
+addEventListener("pagehide", () => (leaving = true));
 const formats = new Map();
 
 export const language = () => lang;
@@ -35,7 +38,7 @@ function lookup(key) {
 }
 
 function warn(key) {
-  if (warned.has(key)) return;
+  if (leaving || warned.has(key)) return;
   warned.add(key);
   console.warn(`i18n : clé absente du catalogue : ${key}`);
 }
@@ -124,7 +127,7 @@ export const ready = (async () => {
     lang = body.language in LOCALES ? body.language : "fr";
     texts = body.texts && typeof body.texts === "object" ? body.texts : {};
   } catch (error) {
-    console.warn(`i18n : textes de l'interface indisponibles (${error.message}) : la page reste en français.`);
+    if (!leaving) console.warn(`i18n : textes de l'interface indisponibles (${error.message}) : la page reste en français.`);
   }
   document.documentElement.lang = lang;
   if (document.readyState === "loading") {

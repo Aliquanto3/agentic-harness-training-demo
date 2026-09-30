@@ -7161,6 +7161,22 @@ function closePaneMenu() {
   document.getElementById("pane-menu-toggle").setAttribute("aria-expanded", "false");
 }
 
+// Languages (2/5): « Affichage ▾ », the theme, the language and the projection mode, out of
+// the top bar (decision of 2026-09-30): it holds in German at 1 280 px, projection included.
+function setDisplayMenu(open, returnFocus = false) {
+  const panel = document.getElementById("display-menu-panel");
+  const toggle = document.getElementById("display-menu-toggle");
+  if (panel.hidden === !open) return;
+  panel.hidden = !open;
+  toggle.setAttribute("aria-expanded", String(open));
+  if (open) {
+    closePaneMenu();
+    (panel.querySelector("select:not(:disabled), button") ?? toggle).focus();
+  } else if (returnFocus) {
+    toggle.focus();
+  }
+}
+
 async function boot() {
   // Languages (2/5): the interface's texts first (`i18n.js` has set `<html lang>` and the
   // `data-i18n*` of the page); every render reads them.
@@ -7191,10 +7207,15 @@ async function boot() {
     const expanded = !list.hidden;
     list.hidden = expanded;
     document.getElementById("pane-menu-toggle").setAttribute("aria-expanded", String(!expanded));
+    if (!expanded) setDisplayMenu(false);
+  });
+  document.getElementById("display-menu-toggle").addEventListener("click", () => {
+    setDisplayMenu(document.getElementById("display-menu-panel").hidden);
   });
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".pane-menu")) closePaneMenu();
+    if (!event.target.closest(".display-menu")) setDisplayMenu(false);
     if (!event.target.closest(".window-picker")) closeWindowPanel();
   });
   bindWindowPicker();
@@ -7284,6 +7305,8 @@ async function boot() {
       closeMemoryDrawer();
     } else if (!document.getElementById("pane-menu-list").hidden) {
       closePaneMenu();
+    } else if (!document.getElementById("display-menu-panel").hidden) {
+      setDisplayMenu(false, true);
     } else if (!windowPanel().hidden) {
       closeWindowPanel(true); // story 26: the focus back on « Fenêtre ▾ »
     } else if (store.selection !== null && selectionShown()) {

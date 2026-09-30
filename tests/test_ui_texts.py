@@ -84,7 +84,7 @@ def test_translation_mirrors_the_french_catalogue(lang):
     """Parity: the same keys, the same variables per key (hence the `.one` / `.other` pairs)."""
     translated = _leaves(_read(CONTENT / "i18n" / lang / "ui.yaml"))
     french = _leaves(FRENCH)
-    assert set(translated) <= set(french), sorted(set(translated) - set(french))[:20]
+    assert set(translated) == set(french), sorted(set(translated) ^ set(french))[:20]
     for key, value in translated.items():
         assert value.strip(), key
         vars_fr, vars_tr = set(_VARIABLE.findall(french[key])), set(_VARIABLE.findall(value))

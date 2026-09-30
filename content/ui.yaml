@@ -745,7 +745,6 @@ main:
     resize_between: "Redimensionner entre {a} et {b}"
   projection:
     name: "Mode projection"
-    short: "Projection"
     title: "Mode projection : agrandit tous les textes pour la salle ; le navigateur s'en souvient"
   links:
     llm: "LLM nu"
@@ -779,7 +778,9 @@ main:
     nothing: "{at}, aucune donnée n'a quitté le poste : {where} et aucun service réseau n'a été contacté."
     to_model: "vers le modèle chez {provider} (contexte complet, {calls})"
     to_node: "vers {label} ({sends}{requests})"
-    left: "{at}, les données ont quitté le poste {count} fois : {parts}."
+    left:
+      one: "{at}, les données ont quitté le poste {count} fois : {parts}."
+      other: "{at}, les données ont quitté le poste {count} fois : {parts}."
   schema:
     label: "Schéma d'architecture : poste de travail et réseau"
     poses:
@@ -833,3 +834,6 @@ main:
     not_loaded: "Non chargé."
     tools: "Outils : {tools}"
     leads_out: "Clic : ses données sortantes dans Orchestration"
+  display:
+    menu: "Affichage"
+    theme: "Thème"

@@ -583,28 +583,15 @@ body.is-resizing-y * {
 }
 
 /* Story 34: the model picker gives way with the names (its list keeps the whole labels), and
-   under 1400 px the bar tightens its gaps and the projection button says « Projection » (its
-   accessible name stays « Mode projection »): room for that button at 1280 px. */
+   under 1400 px the bar tightens its gaps. */
 .top-bar > .model-picker {
   flex: 0 1000000 auto;
   min-width: 5rem;
 }
 
-.projection-toggle-short {
-  display: none;
-}
-
 @media (max-width: 1400px) {
   .top-bar {
     gap: var(--spacing-2);
-  }
-
-  .projection-toggle-long {
-    display: none;
-  }
-
-  .projection-toggle-short {
-    display: inline;
   }
 }
 
@@ -4145,87 +4132,21 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   cursor: pointer;
 }
 
-/* The box holds the native list and, for the compact state, its face: the symbol of the
-   choice (◐, ☀, ☾, set by theme.js) and a chevron. Above 1400 px the face is hidden. */
-.theme-picker-box {
-  position: relative;
-  display: inline-flex;
-}
-
-.theme-picker-face {
-  display: none;
-}
-
-/* Under 1400 px the bar tightens (see « Projection »): the face shows the symbol and the
-   chevron; the native list stays whole on top of it, transparent, so a click, the keyboard and
-   a screen reader still reach it (its words stay in the list, the name and the tooltip). */
-@media (max-width: 1400px) {
-  .theme-picker-face {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    min-height: var(--spacing-hit-target-min);
-    padding: 0 var(--spacing-1) 0 var(--spacing-2);
-    background: var(--color-surface-raised);
-    color: var(--color-ink);
-    border: 1px solid var(--color-on-ink-soft);
-    border-radius: var(--rounded-md);
-    font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-      var(--typography-label-line-height) var(--typography-label-font-family);
-  }
-
-  .theme-picker-chevron {
-    font-size: 0.75em;
-  }
-
-  .theme-picker-box > .theme-picker {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    min-height: 0;
-    opacity: 0;
-  }
-
-  .top-bar .theme-picker-box:has(.theme-picker:focus-visible) {
-    outline: var(--spacing-stroke-min) solid var(--color-on-ink);
-    outline-offset: 2px;
-    border-radius: var(--rounded-md);
-  }
-}
-
-/* ---------- languages (1/5): the language picker of the top bar ----------
-   Always compact, as the theme picker under 1400 px: a face with the language's code and a
-   chevron, the native list whole on top of it, transparent, so that a click, the keyboard
-   and a screen reader reach it (its name and its tooltip are in the chosen language). */
+/* ---------- languages (1/5, 2/5): the language picker, in « Affichage ▾ » ----------
+   A neutral native list, as the theme picker; its name and its tooltip in the chosen
+   language. */
+.theme-picker-box,
 .language-picker-box {
-  position: relative;
   display: inline-flex;
-}
-
-.language-picker-face {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-height: var(--spacing-hit-target-min);
-  padding: 0 var(--spacing-1) 0 var(--spacing-2);
-  background: var(--color-surface-raised);
-  color: var(--color-ink);
-  border: 1px solid var(--color-on-ink-soft);
-  border-radius: var(--rounded-md);
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-}
-
-.language-picker-chevron {
-  font-size: 0.75em;
 }
 
 .language-picker {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  min-height: 0;
-  opacity: 0;
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
     var(--typography-label-line-height) var(--typography-label-font-family);
   cursor: pointer;
@@ -4234,16 +4155,7 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 /* Locked (a conversation in progress) or outside `idle`: as the scenario picker. */
 .language-picker:disabled {
   cursor: not-allowed;
-}
-
-.language-picker-box:has(.language-picker:disabled) .language-picker-face {
   opacity: 0.6;
-}
-
-.top-bar .language-picker-box:has(.language-picker:focus-visible) {
-  outline: var(--spacing-stroke-min) solid var(--color-on-ink);
-  outline-offset: 2px;
-  border-radius: var(--rounded-md);
 }
 
 /* Vue humain: the model that plays the turns below, when it changed. */
@@ -4675,10 +4587,10 @@ body .arch .arch-robots .robot.is-selection-linked {
 }
 
 /* ---------- story 33: focus on the ink top bar ----------
-   Last in the file: wins over each control's own ring. Its drop-down lists (« Volets ▾ », « Fenêtre ») keep
-   theirs: they lie on surface-raised. */
+   Last in the file: wins over each control's own ring. Its drop-down lists (« Volets ▾ »,
+   « Fenêtre », « Affichage ▾ ») keep theirs: they lie on surface-raised. */
 
-.top-bar :focus-visible:not(.pane-menu-list *):not(.window-panel *) {
+.top-bar :focus-visible:not(.pane-menu-list *):not(.window-panel *):not(.display-menu-panel *) {
   outline: var(--spacing-stroke-min) solid var(--color-on-ink);
   outline-offset: 2px;
 }
@@ -4752,8 +4664,7 @@ body .arch .arch-robots .robot.is-selection-linked {
 
 /* ---------- story 30: a second screen link, « Atelier RAG », after « LLM nu » ----------
    Room for it on the one-line bar, the gauge's figures kept whole from 1280 to 1600 px: the
-   bar's gaps tighten, the links' padding too, and up to 1600 px the projection button says
-   « Projection » (its accessible name stays « Mode projection »). */
+   bar's gaps tighten, the links' padding too. */
 
 .top-bar {
   gap: var(--spacing-2);
@@ -4761,16 +4672,6 @@ body .arch .arch-robots .robot.is-selection-linked {
 
 .top-bar > .screen-link {
   padding: 0 var(--spacing-2);
-}
-
-@media (max-width: 1600px) {
-  .projection-toggle-long {
-    display: none;
-  }
-
-  .projection-toggle-short {
-    display: inline;
-  }
 }
 
 @media (max-width: 1400px) {
@@ -4869,13 +4770,11 @@ body .arch .arch-robots .robot.is-selection-linked {
     gap: var(--spacing-2);
   }
 
-  :root.projection .projection-toggle-long,
   :root.projection .window-toggle-long,
   :root.projection .screen-link-long {
     display: none;
   }
 
-  :root.projection .projection-toggle-short,
   :root.projection .screen-link-short {
     display: inline;
   }
@@ -4894,37 +4793,6 @@ body .arch .arch-robots .robot.is-selection-linked {
     min-width: 2.5rem;
   }
 
-  :root.projection .theme-picker-face {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    min-height: var(--spacing-hit-target-min);
-    padding: 0 var(--spacing-1) 0 var(--spacing-2);
-    background: var(--color-surface-raised);
-    color: var(--color-ink);
-    border: 1px solid var(--color-on-ink-soft);
-    border-radius: var(--rounded-md);
-    font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-      var(--typography-label-line-height) var(--typography-label-font-family);
-  }
-
-  :root.projection .theme-picker-chevron {
-    font-size: 0.75em;
-  }
-
-  :root.projection .theme-picker-box > .theme-picker {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    min-height: 0;
-    opacity: 0;
-  }
-
-  :root.projection .top-bar .theme-picker-box:has(.theme-picker:focus-visible) {
-    outline: var(--spacing-stroke-min) solid var(--color-on-ink);
-    outline-offset: 2px;
-    border-radius: var(--rounded-md);
-  }
 }
 
 /* Up to 1500 px, the screen links say « LLM » and « RAG » (their accessible names unchanged):
@@ -4984,12 +4852,7 @@ body .arch .arch-robots .robot.is-selection-linked {
    « Réinitialiser » whole and the page never scrolls sideways: the gauge's legend goes (each
    segment's tooltip names its discipline) and its bar narrows to 180 px, its figures still
    giving way (whole in their tooltip); the gaps and padding are tight already (1100 px), the
-   names go to their minimum (projection mode keeps its own, lower ones), « Mode projection » says
-   « Aa » (its accessible name and tooltip unchanged); the theme picker is compact already. */
-.projection-toggle-tiny {
-  display: none;
-}
-
+   names go to their minimum (projection mode keeps its own, lower ones). */
 @media (width < 1000px) {
   .gauge-legend {
     display: none;
@@ -5022,27 +4885,11 @@ body .arch .arch-robots .robot.is-selection-linked {
   .top-bar > .model-picker {
     min-width: 2.5rem;
   }
-
-  .projection-toggle-long,
-  .projection-toggle-short,
-  :root.projection .projection-toggle-long,
-  :root.projection .projection-toggle-short {
-    display: none;
-  }
-
-  .projection-toggle-tiny {
-    display: inline;
-  }
-
-  .projection-toggle {
-    padding: 0 var(--spacing-2);
-  }
 }
 
-/* ---------- languages (1/5): room for the language picker in the top bar ----------
-   « FR ▾ » takes about 45 px of the one-line bar that lot K tuned: from 1300 px down the title
-   goes (the page's title keeps it); under 1100 px the names give a few more pixels (their whole
-   text stays in the list and the tooltip), and the picker drops its chevron. */
+/* ---------- languages (1/5): room in the top bar ----------
+   From 1300 px down the title goes (the page's title keeps it); under 1100 px the names give a
+   few more pixels (their whole text stays in the list and the tooltip). */
 @media (max-width: 1300px) {
   .top-bar-title {
     display: none;
@@ -5069,12 +4916,109 @@ body .arch .arch-robots .robot.is-selection-linked {
   :root.projection .top-bar > .model-indicator {
     min-width: 1.5rem;
   }
+}
 
-  .language-picker-face {
-    padding: 0 var(--spacing-1);
+/* ---------- languages (2/5): « Affichage ▾ » (decision of 2026-09-30) ----------
+   The theme, the language and the projection mode leave the one-line top bar for a menu on the
+   model of « Volets ▾ »: its face says the theme's symbol and the language's code; its panel
+   lies on surface-raised, each control with its name, whole in every language. */
+.display-menu {
+  position: relative;
+}
+
+.top-bar > .display-menu > .display-menu-toggle {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  background: transparent;
+  color: var(--color-on-ink);
+  border: 1px solid var(--color-on-ink-soft);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.display-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--spacing-1));
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  width: max-content;
+  padding: var(--spacing-3);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  box-shadow: 0 var(--spacing-relief-offset-overlay) 0 var(--color-relief);
+  white-space: nowrap;
+}
+
+.display-menu-panel[hidden] {
+  display: none;
+}
+
+.display-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+}
+
+.display-menu-label {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+/* In the panel, the projection button is the list's own: ink on surface-raised, pressed in
+   primary (on the bar it was on-ink). */
+.display-menu-panel .projection-toggle {
+  flex: 1;
+  color: var(--color-ink);
+  border-color: var(--color-line);
+}
+
+.display-menu-panel .projection-toggle[aria-pressed="true"] {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary);
+}
+
+.display-menu-panel :focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1400px) {
+  .top-bar > .display-menu > .display-menu-toggle {
+    padding: 0 var(--spacing-2);
   }
+}
 
-  .language-picker-chevron {
+/* Under 1000 px (a 1280 or 1366 px window zoomed to 150 %), and in projection mode up to
+   1400 px, the face keeps the theme's symbol and the language's code only (its accessible
+   name and its menu unchanged): the scenario's name keeps its first words in German. */
+@media (width < 1000px) {
+  .display-menu-word {
     display: none;
+  }
+}
+
+@media (max-width: 1400px) {
+  :root.projection .display-menu-word {
+    display: none;
+  }
+}
+
+/* Languages (2/5): from 1100 px up, in projection mode, the two pickers of the bar keep a few
+   words of their choice (« Outils natifs », « Modell wechseln… »), never two letters and
+   « … »: the longer German labels take their room from the model picker first. */
+@media (min-width: 1100px) {
+  :root.projection .top-bar > select.scenario-picker,
+  :root.projection .top-bar > .model-picker {
+    min-width: 4.5rem;
   }
 }
