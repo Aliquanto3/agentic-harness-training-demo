@@ -639,7 +639,7 @@ def test_script_refuses_another_file_and_invalid_content(tmp_path, capsys, monke
     assert "n'est pas le modèle déclaré" in capsys.readouterr().err
     assert not (tmp_path / "script.sqlite").exists()
 
-    def invalid():
+    def invalid(lang):  # noqa: ARG001 - languages (4/5): the script passes `--lang`
         raise ValueError("documents manquants")
 
     monkeypatch.setattr(script, "load_rag_content", invalid)

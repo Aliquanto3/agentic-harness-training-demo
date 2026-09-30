@@ -203,11 +203,11 @@ def _read_lab_content(path: str, mtime_ns: int) -> LabContent:
     return LabContent.model_validate(yaml.safe_load(Path(path).read_text(encoding="utf-8")))
 
 
-def load_lab_content() -> LabContent:
-    """Read `content/llm_lab.yaml`, again once the file changed (its modification time): a
-    corrected file shows on the page's reload. Raises on an invalid file (the session traces
-    it)."""
-    path = config.content_file("llm_lab.yaml")
+def load_lab_content(lang: str = config.DEFAULT_LANGUAGE) -> LabContent:
+    """Read `content/llm_lab.yaml` in `lang` (languages 4/5: the session's, never
+    `settings.json`'s), again once the file changed (its modification time): a corrected
+    file shows on the page's reload. Raises on an invalid file (the session traces it)."""
+    path = config.content_file("llm_lab.yaml", lang)
     return _read_lab_content(str(path), path.stat().st_mtime_ns)
 
 

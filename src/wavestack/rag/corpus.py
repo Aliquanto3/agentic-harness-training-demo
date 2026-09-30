@@ -126,12 +126,16 @@ def split_text(text: str, max_chars: int) -> list[str]:
     return chunks
 
 
-def chunk_corpus(content: RagContent, max_chars: int) -> list[Chunk]:
-    """Every document of the corpus, read from `content/` and chunked, in declared order."""
+def chunk_corpus(
+    content: RagContent, max_chars: int, lang: str = config.DEFAULT_LANGUAGE
+) -> list[Chunk]:
+    """Every document of the corpus, read from `content/` and chunked, in declared order.
+    Languages (4/5): each document in `lang`, its translation under
+    `content/i18n/{lang}/corpus/` when it exists, else the French file; the titles are
+    `content`'s (the caller reads `rag.yaml` in the same language)."""
     chunks: list[Chunk] = []
     for doc in content.documents:
-        # The corpus stays French whatever the language, and so does its index (story 4).
-        path = config.content_file(doc.file, config.DEFAULT_LANGUAGE)
+        path = config.content_file(doc.file, lang)
         text = _COMMENT.sub("", path.read_text(encoding="utf-8-sig"))
         for position, piece in enumerate(split_text(text, max_chars), start=1):
             chunks.append(Chunk(doc.id, doc.title_text, position, piece))

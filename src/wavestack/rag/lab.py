@@ -196,10 +196,11 @@ class RagLabContent(_Strict):
 _CONTENT: dict[str, tuple[int, RagLabContent]] = {}  # the latest read, by path
 
 
-def load_lab_content() -> RagLabContent:
-    """Read `content/rag_lab.yaml`, again once the file changed: a corrected file shows on
-    the page's reload. Raises on a missing or invalid file. Only the latest read is kept."""
-    path = config.content_file("rag_lab.yaml")
+def load_lab_content(lang: str = config.DEFAULT_LANGUAGE) -> RagLabContent:
+    """Read `content/rag_lab.yaml` in `lang` (languages 4/5: the session's, never
+    `settings.json`'s), again once the file changed: a corrected file shows on the page's
+    reload. Raises on a missing or invalid file. Only the latest read of a file is kept."""
+    path = config.content_file("rag_lab.yaml", lang)
     mtime = path.stat().st_mtime_ns
     kept = _CONTENT.get(str(path))
     if kept is not None and kept[0] == mtime:
@@ -915,6 +916,8 @@ class LabDeps:
     # kind, payload, step id and component of the event
     emit: Callable[[str, dict[str, Any], str, str], None]
     rss: Callable[[], int | None]
+    # Languages (4/5): the session's, the corpus's (`content` is `rag.yaml` read in it)
+    lang: str = config.DEFAULT_LANGUAGE
 
 
 @dataclass
@@ -1247,7 +1250,7 @@ class LabRun:
                 ) from exc
             source = "l'index de la brique RAG (découpé à sa construction)"
         if not chunks:
-            chunks = chunk_corpus(self.deps.content, size)
+            chunks = chunk_corpus(self.deps.content, size, self.deps.lang)
         if not chunks:
             raise StageFailed("Le corpus ne donne aucun extrait.")
         lane.chunks = chunks

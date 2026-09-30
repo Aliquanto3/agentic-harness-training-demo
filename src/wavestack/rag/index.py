@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
 
+from wavestack.config import DEFAULT_LANGUAGE
 from wavestack.models.embedding import Embedder
 from wavestack.rag.corpus import Chunk, RagContent, chunk_corpus
 
@@ -265,11 +266,13 @@ def build_index(
     *,
     model_file: Path | None = None,
     cancelled: Callable[[], bool] | None = None,
+    lang: str = DEFAULT_LANGUAGE,
 ) -> IndexMeta:
     """Chunk the corpus, embed each passage (title and text) with `embedder`, write the
     index. `model_file`: the model's file, whose size and sha256 go into `meta`.
-    `cancelled()` true: `BuildCancelled`, nothing written."""
-    chunks = chunk_corpus(content, chunk_max_chars)
+    `cancelled()` true: `BuildCancelled`, nothing written. `lang`: the corpus's language
+    (languages 4/5), `content` being `rag.yaml` read in it (its titles)."""
+    chunks = chunk_corpus(content, chunk_max_chars, lang)
     if not chunks:
         raise ValueError("corpus vide : aucun extrait à indexer")
     vectors = []

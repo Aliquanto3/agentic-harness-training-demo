@@ -2719,6 +2719,11 @@ class AppSession:
         self._rag_model = model
         self._rag_refresh()
 
+    def _rag_index_path(self) -> Path:
+        """Languages (4/5): the index of the session's language (`[rag] index_path` in
+        French, `rag_index.{lang}.sqlite` otherwise)."""
+        return self.cfg.rag_index_path(self._language)
+
     def _rag_refresh(self) -> None:
         """Story 15: what the availability reads of the index (`meta`, the preview's
         excerpts) and of the model's files, at launch, before loading the model (the brick
@@ -2729,7 +2734,7 @@ class AppSession:
         content = self._rag_content
         if model is None or content is None:
             return
-        path = self.cfg.rag_index_path()
+        path = self._rag_index_path()
         kind, reason, chunks, longest, missing, missing_text = self._rag_index_state(model, content)
         with self._lock:
             self._rag_index_kind, self._rag_index_error = kind, reason
@@ -2744,8 +2749,9 @@ class AppSession:
         """What the index and the model's files are now, read without storing anything
         (story 30: the RAG workshop reads it too, and never changes the brick's state): the
         index's kind and reason, its excerpts, the preview's excerpts, the files missing and
-        their reason."""
-        path = self.cfg.rag_index_path()
+        their reason. Languages (4/5): the index and the corpus of the session's language."""
+        lang = self._language
+        path = self.cfg.rag_index_path(lang)
         kind, reason, chunks, longest = None, None, 0, []
         missing = download_module.missing_files(model.files, config.models_dir())
         build = "Cliquez sur « Construire l'index » sur la carte RAG"
@@ -2763,11 +2769,14 @@ class AppSession:
                 ),
             )
         elif not path.is_file():
+            script = "scripts/build_rag_index.py"
+            if lang != config.DEFAULT_LANGUAGE:  # languages (4/5): the script's option
+                script += f" --lang {lang}"
             kind, reason = (
                 "absent",
                 (
                     f"Indisponible : index absent ({path}). {build} (ou lancez uv run python "
-                    "scripts/build_rag_index.py)."
+                    f"{script})."
                 ),
             )
         else:
@@ -2784,7 +2793,7 @@ class AppSession:
                 )
             else:
                 chunks = meta.chunks
-                kind, reason = self._rag_index_mismatch(meta, model, content, build)
+                kind, reason = self._rag_index_mismatch(meta, model, content, build, lang)
         missing_text = (
             _missing_model_fr("d'embedding", model.label_text, missing) if missing else None
         )
@@ -2802,10 +2811,16 @@ class AppSession:
             self._rerank_missing, self._rerank_missing_text = missing, missing_text
 
     def _rag_index_mismatch(
-        self, meta: rag_index.IndexMeta, model: EmbeddingModel, content: RagContent, build: str
+        self,
+        meta: rag_index.IndexMeta,
+        model: EmbeddingModel,
+        content: RagContent,
+        build: str,
+        lang: str = config.DEFAULT_LANGUAGE,
     ) -> tuple[str | None, str | None]:
         """An index built by another model (id, dimensions, file), or from another corpus or
-        another `chunk_max_chars`: its kind and French reason, else `(None, None)`."""
+        another `chunk_max_chars`: its kind and French reason, else `(None, None)`.
+        Languages (4/5): the corpus is `lang`'s, so another language's index is stale."""
         declared = model.load_file
         other_file = (meta.model_size and meta.model_size != declared.size) or (
             meta.model_sha256
@@ -2820,7 +2835,7 @@ class AppSession:
                 f"alors que [rag.embedding] déclare « {model.id} » ({model.dims} dimensions, "
                 f"fichier de {_mo(declared.size)} Mo). {build} pour le reconstruire."
             )
-        chunks = chunk_corpus(content, self.cfg.rag_chunk_max_chars)
+        chunks = chunk_corpus(content, self.cfg.rag_chunk_max_chars, lang)
         stale = meta.chunk_max_chars != self.cfg.rag_chunk_max_chars or (
             meta.corpus_sha256 and meta.corpus_sha256 != rag_index.corpus_digest(chunks)
         )
@@ -2879,7 +2894,7 @@ class AppSession:
 
     def _rag_index_detail(self) -> str:
         """The index node's tooltip: its path, its excerpts and its embedding model."""
-        path = self.cfg.rag_index_path()
+        path = self._rag_index_path()
         with self._lock:
             chunks, error = self._rag_chunks, self._rag_index_error
         if not chunks:
@@ -2987,7 +3002,7 @@ class AppSession:
                     "celui de [rag.embedding])"
                 )
             embedder = self._embedder_factory(model)
-            retriever = SqliteVecRetriever(self.cfg.rag_index_path(), embedder, self.cfg.rag_top_k)
+            retriever = SqliteVecRetriever(self._rag_index_path(), embedder, self.cfg.rag_top_k)
         except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
             self._close_embedder(embedder, None)
             with scoped(brick="rag", component="rag.retriever"):
@@ -5258,6 +5273,8 @@ class AppSession:
                 self._ui_texts = None  # never the former language's under the new code
             config.clear_content_caches()
             self._reload_texts()
+            if "rag" in self._bricks:  # languages (4/5): the new language's index and corpus
+                self._rag_refresh()
             with self._lock:  # what the last `send` froze: the new default is no change
                 if self._sent[1] == old_default:
                     self._sent = (self._sent[0], self._default_prompt, *self._sent[2:])
@@ -5272,7 +5289,22 @@ class AppSession:
         self._load_scenarios()  # `scenario_changed`
         self._emit_memory()
         self._emit_architecture()
+        if "rag" in self._bricks:
+            self._executor.submit(self._rag_follow_language)
         self._executor.submit(self._emit_preview)
+
+    def _rag_follow_language(self) -> None:
+        """Languages (4/5), on the worker (after a load in progress, before any turn): the
+        embedding model and its connection to the former language's index are released,
+        then loaded again on the new language's index when the brick is wanted and its
+        index is there (else the card says why, and offers « Construire l'index »)."""
+        with self._lock:
+            loaded = self._embedder is not None
+        if loaded:
+            self._release_embedder()
+        self._request_rag_sync()
+        self._emit_bricks()
+        self._emit_architecture()
 
     def _reload_texts(self) -> None:
         """Every text read from `content/` at launch, read again in the new language. A
@@ -5675,7 +5707,7 @@ class AppSession:
         previous = self._enter_rag_job("index_build", self._build_fr(0, 0), cancel)
         threading.Thread(
             target=self._run_build,
-            args=(model, content, cancel, previous),
+            args=(model, content, cancel, previous, self._language),
             name="wavestack-index-build",
             daemon=True,
         ).start()
@@ -5693,10 +5725,13 @@ class AppSession:
         content: RagContent,
         cancel: CancelToken,
         previous: str | None,
+        lang: str = config.DEFAULT_LANGUAGE,
     ) -> None:
         """The build thread: its own embedding model, through the registry (AD-8), closed
-        afterwards; the index written then read again; the brick loads if wanted."""
-        path = self.cfg.rag_index_path()
+        afterwards; the index written then read again; the brick loads if wanted.
+        Languages (4/5): the index and the corpus of `lang`, the session's (no change of
+        language outside `idle`)."""
+        path = self.cfg.rag_index_path(lang)
         self._release_embedder()  # its connection to the old index closes first (Windows)
         failed: BaseException | str | None = None
         stopped = False
@@ -5714,6 +5749,7 @@ class AppSession:
                     self._throttled("index_build", self._build_fr),
                     model_file=embedding_module.model_path(model),
                     cancelled=lambda: cancel.cancelled,
+                    lang=lang,
                 )
             except rag_index.BuildCancelled as exc:
                 failed, stopped = str(exc), True
@@ -6211,7 +6247,7 @@ class AppSession:
             embedder, retriever, stamp = self._embedder, self._rag_retriever, self._rag_stamp
         if embedder is None or retriever is None:
             raise RuntimeError("le modèle d'embedding n'est pas chargé")
-        path = self.cfg.rag_index_path()
+        path = self._rag_index_path()
         if _stamp(path) == stamp:
             return retriever
         retriever.close()
@@ -7484,7 +7520,7 @@ class AppSession:
         """`content/llm_lab.yaml`, or why it cannot be read (AD-19): traced as `harness_error`
         once per message, the page staying served."""
         try:
-            return llm_lab.load_lab_content(), None
+            return self._localized(llm_lab.load_lab_content), None
         except Exception as exc:  # noqa: BLE001 - AD-16: an invalid file never breaks the page
             error_text = (
                 "Textes de l'écran « LLM nu » illisibles (content/llm_lab.yaml) : corrigez le "
@@ -8110,7 +8146,7 @@ class AppSession:
         once per message (outside the RAG brick: its card does not show it), the page staying
         served."""
         try:
-            return rag_lab.load_lab_content(), None
+            return self._localized(rag_lab.load_lab_content), None
         except Exception as exc:  # noqa: BLE001 - AD-16: an invalid file never breaks the page
             error_text = (
                 "Textes de l'atelier RAG illisibles (content/rag_lab.yaml) : corrigez le fichier "
@@ -8305,7 +8341,7 @@ class AppSession:
                 texts=texts,
                 catalog=catalog,
                 shipped_chunk_max_chars=self.cfg.rag_chunk_max_chars,
-                brick_index=self.cfg.rag_index_path(),
+                brick_index=self._rag_index_path(),
                 brick_index_error=index_error,
                 lab_dir=config.rag_lab_dir(),
                 embedder=lambda option: self._rag_lab_embedder(option, loans),
@@ -8315,6 +8351,7 @@ class AppSession:
                 cancelled=lambda: cancel.cancelled,
                 emit=self._rag_lab_emit,
                 rss=self._rss_now,
+                lang=self._language,
             )
             lab_run = rag_lab.LabRun(run_id, question, chains, deps)
             lab_run.run()

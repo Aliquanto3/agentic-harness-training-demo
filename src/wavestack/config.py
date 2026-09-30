@@ -827,10 +827,16 @@ class Config:
         `[rag_lab] lancedb_cost_mb` (104 to 121 MB measured on Linux)."""
         return max(0, self._int("rag_lab", "lancedb_cost_mb", default=180)) * 1024 * 1024
 
-    def rag_index_path(self) -> Path:
-        """Story 15: the sqlite-vec index; a relative path is from the repository root."""
+    def rag_index_path(self, lang: str = "fr") -> Path:
+        """Story 15: the sqlite-vec index; a relative path is from the repository root.
+        Languages (4/5): `[rag] index_path` as it is in French; in another language, its
+        own index, `.{lang}` inserted before the extension (`rag_index.de.sqlite`)."""
         path = Path(str(self.get("rag", "index_path", default="data/rag_index.sqlite")))
-        return path if path.is_absolute() else repo_root() / path
+        path = path if path.is_absolute() else repo_root() / path
+        lang = as_language(lang)
+        if lang == DEFAULT_LANGUAGE:
+            return path
+        return path.with_name(f"{path.stem}.{lang}{path.suffix}")
 
     @property
     def near_limit_ratio(self) -> float:

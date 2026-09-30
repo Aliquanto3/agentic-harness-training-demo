@@ -1,8 +1,10 @@
 """Builds the RAG index (story 15, AD-22): the corpus of `content/`, chunked and embedded
 offline with the model `[rag.embedding]` names, written into `[rag] index_path`. The RAG
-card of WaveStack does the same (« Construire l'index »).
+card of WaveStack does the same (« Construire l'index »). Languages (4/5): `--lang` (`fr` by
+default, never read from `settings.json`) picks the corpus and its titles
+(`content/i18n/{lang}/`) and the index (`rag_index.{lang}.sqlite` outside French).
 
-    uv run python scripts/build_rag_index.py [--download] [--model CHEMIN_DU_GGUF]
+    uv run python scripts/build_rag_index.py [--lang fr|en|de] [--download] [--model CHEMIN]
 
 The network guard is installed first: loopback only, or, with `--download`, the hosts of
 `[net] allowed_hosts` (huggingface.co, *.hf.co) to fetch the model's files beforehand.
@@ -66,13 +68,20 @@ def main(argv: list[str] | None = None, embedder_factory=LlamaCppEmbedder) -> in
         action="store_true",
         help="Télécharge d'abord les fichiers manquants de [rag.embedding].",
     )
+    parser.add_argument(
+        "--lang",
+        choices=config.LANGUAGES,
+        default=config.DEFAULT_LANGUAGE,
+        help="Langue du corpus et de l'index (par défaut : fr, l'index [rag] index_path ; "
+        "en et de : rag_index.en.sqlite et rag_index.de.sqlite à côté).",
+    )
     args = parser.parse_args(argv)
     cfg = config.load_config()
     model, error_text = cfg.rag_embedding
     if model is None:
         return _fail(error_text or "La section [rag.embedding] est invalide.")
     try:
-        content = load_rag_content()
+        content = load_rag_content(args.lang)
     except (OSError, ValueError, ValidationError) as exc:
         return _fail(f"Le fichier content/rag.yaml est absent ou invalide : {exc}")
     if args.download:
@@ -105,7 +114,7 @@ def main(argv: list[str] | None = None, embedder_factory=LlamaCppEmbedder) -> in
         embedder = embedder_factory(model, path)
     except (ValueError, OSError) as exc:
         return _fail(f"Modèle d'embedding inutilisable : {exc}.")
-    target = cfg.rag_index_path()
+    target = cfg.rag_index_path(args.lang)
     try:
         meta = build_index(
             content,
@@ -114,6 +123,7 @@ def main(argv: list[str] | None = None, embedder_factory=LlamaCppEmbedder) -> in
             cfg.rag_chunk_max_chars,
             on_progress=lambda i, n: print(f"\r  extrait {i} / {n}", end="", flush=True),
             model_file=path,
+            lang=args.lang,
         )
     except IndexInUse as exc:  # held open (Windows): its message, then what to do
         return _fail(f"\n{exc} {BUILD_FROM_THE_CARD_FR}", 1)
