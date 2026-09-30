@@ -100,6 +100,7 @@ def _gemini_entry(fake_port: int) -> dict:
     )
     entry["tool_call_extra"] = preset["tool_call_extra"]
     entry["pricing"] = preset["pricing"]  # FinOps: the preset's prices, for the cost lines
+    entry["impacts"] = preset["impacts"]  # GreenOps: its EcoLogits names, for the footprint
     return entry
 
 

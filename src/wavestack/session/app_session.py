@@ -80,6 +80,7 @@ from wavestack.context.window import (
     seen_prefix,
     window_for,
 )
+from wavestack.greenops import Impact, LocalMeter, Measure
 from wavestack.hooks import (
     ALLOWED,
     AUDIT,
@@ -124,6 +125,7 @@ from wavestack.models.engine import (
 from wavestack.models.load_registry import (
     COMPRESSOR,
     EMBEDDING,
+    GREENOPS_CODECARBON,
     RAG_LAB_EMBEDDING,
     RAG_LAB_FAISS,
     RAG_LAB_FASTEMBED,
@@ -139,6 +141,7 @@ from wavestack.models.openai_chat import (
     OpenAIChatEngine,
     ProviderError,
     output_tps,
+    record_spend,
     run_call,
     session_spend,
 )
@@ -935,6 +938,20 @@ class AppSession:
         self._turn_called = False  # the running turn made a main call (`abandoned`)
         # FinOps: the running turn's cloud calls' costs (main and sub-agent), for `turn_ended`.
         self._turn_costs: list[CallCost] = []
+        # GreenOps: the running turn's estimated footprints (cloud and local, sub-agent
+        # included), for `turn_ended`; CodeCarbon around each local call, counted by the
+        # memory budget at its first use.
+        self._turn_impacts: list[Impact] = []
+        self._greenops_warm_up: threading.Thread | None = None  # the last warm-up (tests)
+        self._local_meter = LocalMeter(
+            self.cfg.local_gco2e_per_kwh,
+            check=lambda: self._load_registry.check_component(
+                "CodeCarbon", self.cfg.greenops_codecarbon_cost_bytes, GREENOPS_CODECARBON
+            ),
+            grant=lambda: self._load_registry.grant(
+                "CodeCarbon", self.cfg.greenops_codecarbon_cost_bytes, GREENOPS_CODECARBON
+            ),
+        )
         self._save_failed = False  # the last `_save_main_state` failed (not unavailable)
         # Configuration frozen by the last `send`: `pending` is measured against it.
         self._sent: tuple[
@@ -2092,6 +2109,17 @@ class AppSession:
             share=share,
             base=base,
         )
+        # GreenOps: CodeCarbon imported (within the budget) and the CPU detected in the
+        # background, so that the first local call does not wait seconds for them (a call
+        # that starts meanwhile waits); nothing without the extra, nor for a cloud model.
+        if choice.entry is None:
+            self._greenops_warm_up = threading.Thread(
+                target=self._local_meter.warm_up,
+                args=(choice.kind == "server",),
+                name="greenops-warm-up",
+                daemon=True,
+            )
+            self._greenops_warm_up.start()
 
     def _install_cloud(self, entry: CloudModel, configured: int | None = None) -> None:
         key = config.cloud_key(entry)
@@ -5522,6 +5550,7 @@ class AppSession:
         self._approvals = 0
         self._turn_called = False  # lot A: set by `_keep_cache`
         self._turn_costs = []
+        self._turn_impacts = []
         self._hooks_off.clear()
         self._call_ids.clear()
         steps: list[dict[str, Any]] = []
@@ -5574,7 +5603,8 @@ class AppSession:
                 journal.emit(
                     "turn_ended",
                     {"status": status, "duration_ms": _ms(time.monotonic() - started)}
-                    | self._turn_cost(),
+                    | self._turn_cost()
+                    | self._turn_impact(),
                 )
                 with self._lock:
                     self._cancel = None
@@ -6760,6 +6790,32 @@ class AppSession:
         assert self._engine is not None and self._caps is not None
         if isinstance(rendered, RenderedChat):
             return self._call_model_chat(rendered, cancel, reserve)
+        # GreenOps: CodeCarbon started before the call, so that neither `prompt_ms` nor the
+        # read rate counts its start; the whole machine for a served model (another process).
+        # Stopped whatever happens (`stop` is idempotent: `end` stops it first).
+        active = self._active  # read once, the model loaded now (a swap waits for idle)
+        measure = self._local_meter.start(machine=active is not None and active.kind == "server")
+        try:
+            return self._call_model_local(
+                rendered, cancel, tools, reserve, reasons, sampling, on_token, candidates, measure
+            )
+        finally:
+            measure.stop()
+
+    def _call_model_local(
+        self,
+        rendered: RenderedContext,
+        cancel: CancelToken,
+        tools: tuple[str, ...],
+        reserve: int,
+        reasons: bool,
+        sampling: Sampling | None,
+        on_token: Callable[[Fragment, str, list[tuple[str, str]]], None] | None,
+        candidates: int,
+        measure: Measure,
+    ) -> _ModelOutput:
+        """`_call_model` on a local engine, under its CodeCarbon `measure`."""
+        assert self._engine is not None and self._caps is not None
         step_id = current().step_id or ""
         journal = get_journal()
         started = time.monotonic()
@@ -6823,6 +6879,9 @@ class AppSession:
             evaluated = sum(known) if known else None
             if first_at is not None:  # story 26: the read of the first generation's prompt
                 self._note_read_rate(evaluations[0], _ms(first - started))
+            impact = measure.stop()  # GreenOps: its footprint, or why it has none...
+            if reason == "error" and first_at is None:  # ...none for a call without output,
+                impact = Impact(impact.method)  # as a cloud call refused before any
             journal.emit(
                 "model_call_ended",
                 {
@@ -6839,9 +6898,11 @@ class AppSession:
                     "output_tps": output_tps(output_tokens, gen_ms),
                     "usage_source": "engine",
                     "evaluated_tokens": evaluated,
-                },
+                }
+                | impact.fields(),
                 actor="model",
             )
+            self._count_impact(impact)
 
         def generate(ids: list[int], max_tokens: int, cut_at: int | None) -> str:
             """One generation of the engine, its tokens counted after the ones before it;
@@ -7025,9 +7086,39 @@ class AppSession:
             "cost_source": "estimate" if any(c.source == "estimate" for c in costs) else "api",
         }
 
+    def _turn_impact(self) -> dict[str, Any]:
+        """GreenOps: `turn_ended`'s footprint fields, the sums of the turn's estimated
+        footprints (min and max, sub-agent included); none when no call of the turn had one."""
+        impacts = [i for i in self._turn_impacts if i.estimated]
+        if not impacts:
+            return {}
+        return {
+            "energy_wh_min": sum(i.energy_wh_min for i in impacts),
+            "energy_wh_max": sum(i.energy_wh_max for i in impacts),
+            "gco2e_min": sum(i.gco2e_min for i in impacts),
+            "gco2e_max": sum(i.gco2e_max for i in impacts),
+        }
+
+    def _count_impact(self, impact: Impact) -> None:
+        """GreenOps: a local call's estimated footprint joins the session's registry (then
+        `consumption_updated`) and, within a turn, the turn's sums; a local call costs
+        nothing."""
+        if not impact.estimated:
+            return
+        if current().turn_id is not None:  # the « LLM nu » screen has no turn
+            self._turn_impacts.append(impact)
+        journal = get_journal()
+        record_spend(
+            None,
+            self.cfg.eur_per_usd,
+            lambda spend: journal.emit("consumption_updated", spend),
+            impact=impact,
+        )
+
     def consumption(self) -> dict[str, Any] | None:
-        """FinOps, `/api/state`: the session's API spend as the last `consumption_updated`
-        says it, for a reloaded page; `None` before the first paid call."""
+        """FinOps, `/api/state`: the session's API spend (and GreenOps footprint) as the last
+        `consumption_updated` says it, for a reloaded page; `None` before the first paid call
+        or call with a footprint."""
         return session_spend(self.cfg.eur_per_usd)
 
     def _call_model_chat(
@@ -7058,6 +7149,8 @@ class AppSession:
         except ProviderError as error:
             if error.cost is not None:  # FinOps: an output had come, the call is billed
                 self._turn_costs.append(error.cost)
+            if error.impact is not None and error.impact.estimated:  # GreenOps, likewise
+                self._turn_impacts.append(error.impact)
             effect_fr = (
                 "La délégation échoue ; le tour principal continue."
                 if in_sub
@@ -7067,6 +7160,8 @@ class AppSession:
             return _ModelOutput("error", message_fr=error.message_fr)
         if call.cost is not None:
             self._turn_costs.append(call.cost)
+        if call.impact is not None and call.impact.estimated:  # GreenOps
+            self._turn_impacts.append(call.impact)
         prompt_tokens = int((call.usage or {}).get("prompt_tokens") or 0)
         if prompt_tokens:  # AD-4: `usage` is the total; the ratio learns from real calls only
             payload = self._chat_gauge(rendered, prompt_tokens, "api", reserve)

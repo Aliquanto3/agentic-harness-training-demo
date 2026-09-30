@@ -765,6 +765,8 @@ Quatre champs facultatifs :
   partent jamais chez un fournisseur.
 - `pricing` (FinOps, voir ci-dessous) : les prix du modèle, par exemple
   `"pricing": {"input_usd_per_mtok": 0.15, "output_usd_per_mtok": 0.6, "checked": "2026-09-29"}`.
+- `impacts` (GreenOps, voir plus bas) : le modèle tel qu'EcoLogits le connaît, par exemple
+  `"impacts": {"provider": "mistralai", "model": "mistral-small-latest", "zone": "FRA"}`.
 
 ## FinOps : coût estimé des appels cloud
 
@@ -803,10 +805,64 @@ conversion se règle dans `[finops] eur_per_usd` (euros pour un dollar, 0,86 par
 0,5 à 2 ; une valeur illisible, `nan` ou `inf`, vaut 0,86). Ce taux par défaut a été relevé le
 2026-09-30 : mettez-le à jour. Un prix négatif rend l'entrée invalide : elle est écartée au lancement, avec la raison.
 
+## GreenOps : empreinte estimée des appels au modèle
+
+WaveStack estime, pour chaque appel au modèle, l'énergie consommée (Wh) et les émissions (g CO₂e),
+puis les additionne par tour et par séance, sans aucun appel réseau.
+
+**Modèle cloud : méthode EcoLogits.** La bibliothèque `ecologits` (dépendance normale, son cœur
+seul : aucun SDK n'est instrumenté) estime l'impact d'un appel à partir de ses tokens de sortie
+(raisonnement compris) et de sa durée, pour le modèle que nomme le champ `impacts` de l'entrée
+`[[cloud.models]]` : `provider` et `model` tels qu'EcoLogits les connaît, et `zone`, facultative,
+le mix électrique (code ISO à trois lettres ; par défaut celui du fournisseur dans EcoLogits).
+Préréglages : Groq → `huggingface_hub` / `openai/gpt-oss-120b` (EcoLogits ne connaît pas Groq ;
+gpt-oss y figure chez Hugging Face, sur GPU), Mistral → `mistralai` / `mistral-small-latest`,
+Gemini → `google_genai` / `gemini-3.5-flash-lite`. Le champ facultatif `note_fr` de `impacts`
+s'ajoute à l'infobulle de chaque appel : celui de Groq dit que l'estimation passe par un autre
+hébergeur. Quand EcoLogits donne une fourchette (architecture non
+publiée, comme Gemini), elle est gardée : « 0,066–0,45 Wh ». Ses avertissements (architecture non
+publiée, modèle multimodal) sont repris en français dans l'infobulle. Sans `impacts`, ou pour un
+modèle qu'EcoLogits ne connaît pas, l'appel n'a pas d'empreinte, et l'infobulle dit pourquoi.
+
+**Modèle local : CodeCarbon.** Avec l'extra `greenops`, un traceur CodeCarbon hors ligne entoure
+chaque génération : le processus de WaveStack seul pour le moteur intégré, le poste entier pour
+Ollama et llama-server (processus à part). Seule son énergie est gardée ; les émissions en
+découlent à `[greenops] local_gco2e_per_kwh` (41,4 g CO₂e par kWh par défaut, le facteur du mix
+France d'EcoLogits ; RTE donne pour 2025 19,6 g en émissions directes, environ 29 g en cycle de
+vie). Sous Windows, sans RAPL ni droits administrateur, CodeCarbon estime la puissance du
+processeur à partir de son TDP et de sa charge : c'est une estimation, pas une mesure. Ni le
+GPU, ni un fichier `emissions.csv`.
+
+**Deux périmètres différents.** Le chiffre local ne compte que l'électricité consommée pendant
+l'appel (kWh × 41,4 g/kWh), sans la fabrication du poste. Le chiffre cloud d'EcoLogits est un
+cycle de vie : l'électricité des serveurs et une part de leur fabrication. Les deux s'additionnent
+dans la séance, mais ne se comparent pas terme à terme.
+
+```bash
+uv sync --extra compression --extra greenops   # gardez vos autres extras dans la commande
+```
+
+Environ 150 Mo installés : l'installation de l'extra demande le réseau (PyPI) ou un cache local
+de paquets. Dès qu'un modèle local est prêt, CodeCarbon s'importe en arrière-plan (environ 70 Mo
+en mémoire, `[greenops] codecarbon_cost_mb = 80` comptés une fois, à vie, par le budget mémoire)
+et détecte le processeur (quelques secondes, une seule fois ; un appel qui commence avant la fin
+de cette préparation l'attend). Sans l'extra, ou si le budget le
+refuse, tout le reste fonctionne : l'empreinte locale est « indisponible », et l'infobulle en
+donne la raison (la commande d'installation, ou le refus du budget). Une estimation qui échoue
+n'arrête jamais un tour : l'appel n'a pas d'empreinte, avec la raison.
+
+**Affichage.** « Empreinte estimée : 0,11 Wh · 0,046 g CO₂e » dans le détail de chaque appel
+(la méthode et ses limites dans l'infobulle), la somme du tour dans son en-tête, et l'empreinte
+de la séance dans la barre haute : en fin de deuxième ligne de « Dépense estimée »
+(« · 0,12 g CO₂e ») quand elle tient, sinon dans l'infobulle ; « Empreinte estimée » seule tant
+qu'aucun appel payant n'a eu lieu. Comme la dépense, ce total compte les tours, le sous-agent,
+« Tester » et l'écran « LLM nu », et seul un relancement le remet à zéro. L'embedding et le
+reranker du RAG ne sont pas comptés.
+
 ## Développement
 
 ```bash
-uv sync --extra compression --extra rag-alt   # Headroom, FAISS et LanceDB : leurs tests
+uv sync --extra compression --extra rag-alt --extra greenops   # leurs tests
 uv run ruff check .
 uv run ruff format .
 uv run pytest

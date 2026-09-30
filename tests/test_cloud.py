@@ -1390,7 +1390,8 @@ def test_a_call_without_usage_has_an_estimated_cost():
 
 
 def test_an_entry_without_pricing_has_no_cost_and_leaves_the_total_alone():
-    settings = {"cloud": {"models": [{"id": "groq", "pricing": None}]}}
+    # GreenOps: without `impacts` either, nothing reaches the session's registry.
+    settings = {"cloud": {"models": [{"id": "groq", "pricing": None, "impacts": None}]}}
     config.settings_path().parent.mkdir(parents=True, exist_ok=True)
     config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
     session = _cloud_session("groq", Provider(GROQ_TEXT))

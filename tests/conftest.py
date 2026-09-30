@@ -129,6 +129,15 @@ def _fresh_pacing():
 
 
 @pytest.fixture(autouse=True)
+def _no_codecarbon(monkeypatch):
+    """GreenOps: no real CodeCarbon tracker around a test's local calls (its first start takes
+    seconds): CodeCarbon plays absent; `tests/test_greenops.py` plays it installed."""
+    from wavestack import greenops
+
+    monkeypatch.setattr(greenops, "_find_spec", lambda name: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_local_model_server(monkeypatch):
     """Story 18: no real Ollama nor llama-server is ever reached from a test; a test that
     needs one passes its own `httpx.MockTransport`."""
