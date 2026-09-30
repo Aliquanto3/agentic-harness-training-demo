@@ -2,7 +2,8 @@
 title: 'Estimateur GreenOps de tous les modèles (EcoLogits pour le cloud, CodeCarbon en local)'
 type: 'feature'
 created: '2026-09-29'
-status: 'draft'
+status: 'in-review'
+baseline_commit: '950ead3b3270de378912ee544e6c97ca3eaa8618'
 route: 'dispatch'
 review_loop_iteration: 0
 context: []
@@ -99,7 +100,8 @@ La spec est approuvée par délégation, pendant la nuit, et relue le matin.
   - l'état pour le rechargement.
 - `src/wavestack/trace/catalog.py` -- ajouter les nouveaux champs facultatifs.
 - `src/wavestack/memory.py` (ou l'endroit où `faiss_cost_mb` est compté) -- ajouter le coût de CodeCarbon au premier usage.
-- `src/wavestack/web/static/app.js`, `index.html` -- ajouter la ligne « Empreinte estimée » et compléter la zone « Consommation ».
+- `src/wavestack/web/static/app.js`, `index.html`, `app.css` -- ajouter la ligne « Empreinte estimée » dans le corps de l'appel et l'en-tête du tour, et compléter le bloc `#consumption` du FinOps. Ce bloc fait deux lignes (« Dépense estimée », puis « 0,0008 $ + 0,0003 $ »), avec la phrase complète dans `title` et `aria-label`. La barre haute est déjà pleine à 1 600 px : la vérification E2E « barre haute : toutes les commandes entières » doit rester verte à 1 280, 1 440 et 1 600 px, en mode normal et en projection. L'empreinte de la séance y est visible seulement si elle tient, par exemple « · 0,12 g CO₂e » en fin de deuxième ligne ; sinon, dans la phrase de `title` et `aria-label`.
+- Le FinOps (déjà livré sur cette branche) fournit le registre de la séance (`record_spend`, `session_spend`, `consumption_updated`, sous `_spend_lock`, dans `models/openai_chat.py`), les coûts par appel (`CallCost`, `model_call_ended.cost_*`), les sommes du tour (`_turn_costs` dans `app_session.py`, `turn_ended.cost_*`) et leur affichage (`costText`, `renderConsumption` dans `app.js`). Les étendre, sans les dupliquer. Un appel local n'a pas de coût, mais il a une empreinte : le registre et l'événement doivent l'accepter.
 - `README.md` -- ajouter une section GreenOps : méthode, limites, installation de l'extra.
 - Tests :
   - `tests/test_greenops.py` (nouveau) : EcoLogits réel, hors ligne ; CodeCarbon simulé si l'extra est absent ; `importorskip` pour la mesure réelle ;
@@ -109,11 +111,11 @@ La spec est approuvée par délégation, pendant la nuit, et relue le matin.
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `pyproject.toml`, `uv.lock`, `wavestack.toml`, `src/wavestack/config.py` -- dépendances et déclarations.
-- [ ] `src/wavestack/greenops.py` -- les estimateurs, isolés.
-- [ ] `src/wavestack/models/openai_chat.py`, `src/wavestack/session/app_session.py`, `src/wavestack/trace/catalog.py`, le budget mémoire -- le branchement et les sommes.
-- [ ] `src/wavestack/web/static/*` -- l'affichage.
-- [ ] `tests/*`, `tools/e2e/*`, `README.md` -- la matrice, l'E2E et la documentation.
+- [x] `pyproject.toml`, `uv.lock`, `wavestack.toml`, `src/wavestack/config.py` -- dépendances et déclarations.
+- [x] `src/wavestack/greenops.py` -- les estimateurs, isolés.
+- [x] `src/wavestack/models/openai_chat.py`, `src/wavestack/session/app_session.py`, `src/wavestack/trace/catalog.py`, le budget mémoire -- le branchement et les sommes.
+- [x] `src/wavestack/web/static/*` -- l'affichage.
+- [x] `tests/*`, `tools/e2e/*`, `README.md` -- la matrice, l'E2E et la documentation.
 
 **Acceptance Criteria:**
 - Given un tour Gemini puis un tour du modèle local, when les deux sont finis, then chaque appel montre son empreinte (fourchette pour Gemini, mesure CodeCarbon pour le local) et la barre haute cumule les deux.
@@ -132,3 +134,32 @@ La spec est approuvée par délégation, pendant la nuit, et relue le matin.
 ## Spec Change Log
 
 ## Review Triage Log
+
+Revue 1 (2026-09-30, trois relecteurs : aveugle (B), cas limites (EC), trous de vérification (VG)).
+
+| # | Constat | Verdict | Preuve | Suite |
+|---|---------|---------|--------|-------|
+| 1 | Tracker CodeCarbon jamais arrêté si une exception survient hors des chemins `end()` (B, EC) | medium | `start()` avant le `try`, `stop()` seulement dans `end()` | patch : `try/finally` |
+| 2 | `LocalMeter.start` peut lever (`_tracker()` hors `try`), et fait alors échouer le tour local ; `_grant` avant la recherche de la classe (EC) | medium | Relu dans `greenops.py` | patch |
+| 3 | `codecarbon_cost_mb = inf` : `OverflowError` non rattrapé (EC) | low | `_int` ne rattrape que `TypeError` et `ValueError` | patch |
+| 4 | Appel local en échec avant tout token compté dans l'empreinte, contrairement au cloud (EC) | low | `end('error')` mesure toujours | patch : même règle que le cloud |
+| 5 | `energy_consumed` infini non filtré : `Infinity` dans le JSON (EC) | low | `max(0.0, kwh)` laisse passer `inf` | patch |
+| 6 | Séance seulement locale : l'empreinte n'est pas soumise au contrôle de place et peut déborder de la barre à 1 280 px ou en projection (EC) | medium | `footprintOptional = paid && green` | patch : toujours contrôler la place |
+| 7 | Décision de place figée avant le chargement des polices (EC) | low | Clé sans les polices | patch : `document.fonts.ready` |
+| 8 | Premier appel local : 5 à 7 s d'attente sans rien à l'écran (B) | medium | Import de CodeCarbon et détection du processeur sur le chemin du tour | patch : préchauffage en arrière-plan |
+| 9 | Groq estimé par un substitut (gpt-oss chez Hugging Face) sans explication dans l'interface (B) | low | L'explication n'est que dans le toml | patch : `note_fr` facultatif dans `impacts` |
+| 10 | Local (électricité du poste seulement) et cloud (cycle de vie, fabrication comprise) additionnés sans le dire ; « cohérent avec le cloud » (B) | low | README, toml, infobulle | patch : le dire |
+| 11 | Appel court affiché « 0 Wh » (B) | low | Pas de seuil d'affichage | patch : « < 0,001 Wh » |
+| 12 | 41,4 g/kWh non relié aux données d'EcoLogits (B) | low | Constante en dur | patch : test qui compare au facteur FRA d'EcoLogits |
+| 13 | Résumé du journal d'une séance seulement locale : « entrée 0 $ · sortie 0 $ · 0 appel » (B) | low | `eventSummary` | patch |
+| 14 | README : l'extra demande le réseau ou un cache local de paquets (B) | low | Non dit | patch |
+| 15 | Tests manquants : empreinte d'un appel cloud coupé après une sortie dans le tour ; empreinte visible au moins à la plus grande largeur ; libellé « Empreinte estimée » d'une séance seulement locale ; branche « sans l'extra » jamais jouée (drapeau `--no-greenops`) ; empreinte du sous-agent dans le tour ; « Tester » et « LLM nu » dans la séance (VG, B) | medium | Aucune suppression correspondante ne fait échouer un test | patch |
+| 16 | Projection laissée allumée si l'E2E échoue entre les deux clics (EC) | low | `finally` ne remet que la fenêtre | patch |
+| 17 | Empreinte estimée sans « ≈ » quand les tokens sont estimés (B) | low | Le libellé visible dit déjà « estimée » | rejeté |
+| 18 | Cache du comptage des processeurs non vérifié ; verrou d'instance unique de CodeCarbon (B) | maybe-false | Mesuré par l'implémentation (environ 50 ms après le premier appel) | rejeté |
+| 19 | Explications seulement dans les infobulles (B) | low | Même motif que le reste de l'interface | rejeté |
+| 20 | `fitFootprint` provoque deux recalculs de mise en page par rendu (B) | low | Coût modeste, mesure sous la clé | rejeté |
+| 21 | En-tête de tour long à 1 280 px (B) | low | L'en-tête passe à la ligne dans Orchestration | rejeté |
+| 22 | Import d'EcoLogits hors budget mémoire ; `Impact.method` typé `str` (B) | low | Environ 5 Mo ; cosmétique | rejeté |
+| 23 | Concurrence : classe de journalisation d'EcoLogits, budget vérifié sans le verrou du registre (EC) | low | Fenêtres étroites, premier appel seulement | rejeté |
+| 24 | Appel cloud annulé avant toute sortie avec une empreinte (EC) | low | La requête est partie et a consommé ; même règle que le coût (entrée facturée) | rejeté |

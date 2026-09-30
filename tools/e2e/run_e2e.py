@@ -12,6 +12,7 @@ logs to the data dir (printed with `--keep`). Exit code 1 when a check failed.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -5107,6 +5108,7 @@ def s_local_server(r: Run) -> None:
         "somme des segments = prompt_tokens = ids reçus par llama-server",
         str([c["prompt_tokens"] for c in calls]),
     )
+    _local_footprint(r, calls)
     # Story 32: the grouped reading of the Qwen3.5 template (the tools' JSON as trees), the
     # exact text equal to the prompt, the sections' sum equal to `prompt_tokens`.
     shown = _ctx_calls(r)
@@ -5897,6 +5899,161 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
     )
 
 
+def _footprint_line(r: Run) -> tuple[str, str]:
+    """GreenOps: the « Empreinte estimée » line of the last call's body, and its tooltip."""
+    _unfold_step(r, "Appelle le modèle")
+    line = _step(r, "Appelle le modèle").locator(".turn-step-body .footprint")
+    try:
+        line.first.wait_for(timeout=5000)
+    except Exception:  # noqa: BLE001 - said in the check's detail
+        body = _step(r, "Appelle le modèle").locator(".turn-step-body")
+        return "", " | ".join(body.all_inner_texts())
+    return line.first.inner_text(), line.first.get_attribute("title") or ""
+
+
+def _session_footprint(r: Run, what: str) -> None:
+    """GreenOps: the turn's footprint in its head, the session's in the top bar (its line when
+    it fits, always its sentence), the bar whole. Alone (no spend yet), the footprint is the
+    block's whole second line: it must show at 1600 px in normal mode."""
+    page = r.page
+    head = page.locator("#orch-scroll .turn-group .turn-group-figures").last.inner_text()
+    r.check(
+        "empreinte estimée " in head, f"GreenOps ({what}) : la somme du tour dans son en-tête", head
+    )
+    top = page.locator("#consumption")
+    expect(top).to_be_visible(timeout=5000)
+    title = top.get_attribute("title") or ""
+    spend = r.state().get("consumption_updated") or {}
+    shown = page.locator("#consumption-footprint")
+    grams = shown.inner_text() if shown.is_visible() else ""
+    r.check(
+        "Empreinte estimée de la séance : " in title
+        and " g CO₂e" in title
+        and top.get_attribute("aria-label") == title
+        and spend.get("impact_calls", 0) >= 1
+        and (not grams or grams.endswith(" g CO₂e")),
+        f"GreenOps ({what}) : l'empreinte de la séance dans la barre haute (sa phrase en "
+        "infobulle, sa ligne quand elle tient)",
+        f"{top.inner_text()!r} · {title} · {spend.get('impact_calls')}",
+    )
+    # The bar whole with the session's block, at every width of the themes' check, in normal
+    # and in projection mode (the footprint's line then hides when it does not fit).
+    toggle = page.locator("#projection-toggle")
+    visible: dict[str, bool] = {}
+    try:
+        for width, height in ((1600, 1000), (1440, 900), (1280, 720)):
+            page.set_viewport_size({"width": width, "height": height})
+            for projection in (False, True):
+                if projection:
+                    toggle.click()
+                time.sleep(0.3)
+                ok, detail = _bar_fits(r)
+                mode = "mode projection" if projection else "mode normal"
+                shown = page.locator("#consumption-footprint").is_visible()
+                visible[f"{width} {mode}"] = shown
+                r.check(
+                    ok,
+                    f"GreenOps ({what}) : barre entière avec l'empreinte, {width} × {height}, "
+                    f"{mode} (ligne d'empreinte {'visible' if shown else 'en infobulle'})",
+                    detail,
+                )
+                if projection:
+                    toggle.click()
+    finally:
+        if toggle.get_attribute("aria-pressed") == "true":  # never left in projection mode
+            toggle.click()
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        time.sleep(0.3)
+    if not spend.get("calls"):  # the footprint alone: it fits the widest bar
+        r.check(
+            visible.get("1600 mode normal") is True,
+            f"GreenOps ({what}) : l'empreinte seule visible dans la barre à 1600 px (mode normal)",
+            str(visible),
+        )
+
+
+def _gemini_footprint(r: Run, calls: list[dict]) -> None:
+    """GreenOps: EcoLogits' range on each call of the fake Gemini (the preset's `impacts`), its
+    line in the call's body, its warnings in French in the tooltip."""
+    r.check(
+        len(calls) == 2
+        and all(c.get("impact_method") == "ecologits" for c in calls)
+        and all(0 < c["energy_wh_min"] < c["energy_wh_max"] for c in calls)
+        and all(0 < c["gco2e_min"] < c["gco2e_max"] for c in calls),
+        "GreenOps : fourchette EcoLogits (Wh, g CO₂e) sur chaque appel du faux Gemini",
+        str([(c.get("energy_wh_min"), c.get("energy_wh_max")) for c in calls]),
+    )
+    text, title = _footprint_line(r)
+    r.check(
+        text.startswith("Empreinte estimée : ")
+        and any(mark in text for mark in ("–", "≤", "<"))  # a range, or under 0,001
+        and " Wh · " in text
+        and text.endswith(" g CO₂e")
+        and "architecture non publiée" in title,
+        "GreenOps : « Empreinte estimée : a–b Wh · c–d g CO₂e » dans le corps de l'appel, "
+        "avertissements d'EcoLogits en français dans l'infobulle",
+        f"{text} · {title[:160]}",
+    )
+    _session_footprint(r, "faux Gemini")
+
+
+def _local_footprint(r: Run, calls: list[dict]) -> None:
+    """GreenOps: the fake llama-server runs in another process: CodeCarbon on the whole
+    machine, « poste entier » in the tooltip; without the `greenops` extra, « indisponible »
+    and the command that installs it."""
+    # `--no-greenops`: WaveStack plays the extra absent (`wavestack_e2e.py`).
+    installed = (
+        os.environ.get("WAVESTACK_E2E_NO_GREENOPS") != "1"
+        and importlib.util.find_spec("codecarbon") is not None
+    )
+    spend = r.state().get("consumption_updated") or {}
+    if installed and not spend.get("calls"):
+        # Before any priced cloud call: « Empreinte estimée » over the footprint alone.
+        label = r.page.locator("#consumption-label").inner_text()
+        amounts = r.page.locator("#consumption-amounts").inner_text()
+        r.check(
+            label == "Empreinte estimée"
+            and amounts.endswith(" g CO₂e")
+            and "$" not in r.page.locator("#consumption").inner_text()
+            and not amounts.lstrip().startswith("·"),
+            "GreenOps : sans dépense, « Empreinte estimée » sur l'empreinte seule (ni « $ », ni "
+            "« · » en tête)",
+            f"{label!r} · {amounts!r}",
+        )
+    notes = [c.get("impact_note_fr") or "" for c in calls]
+    text, title = _footprint_line(r)
+    if installed:
+        r.check(
+            bool(calls)
+            and all(c.get("impact_method") == "codecarbon" for c in calls)
+            and all(c.get("energy_wh_min", -1) >= 0 for c in calls)
+            and all("poste entier" in n for n in notes),
+            "GreenOps : chaque appel au faux llama-server mesuré par CodeCarbon (poste entier)",
+            str([(c.get("impact_method"), c.get("energy_wh_min")) for c in calls]),
+        )
+        r.check(
+            text.startswith("Empreinte estimée : ")
+            and " Wh · " in text
+            and text.endswith(" g CO₂e")
+            and "poste entier" in title
+            and "estimation (TDP × charge, sans droits administrateur)" in title,
+            "GreenOps : « Empreinte estimée » dans le corps de l'appel local, « poste entier » et "
+            "« estimation (TDP × charge…) » dans l'infobulle",
+            f"{text} · {title[:160]}",
+        )
+        _session_footprint(r, "faux llama-server")
+    else:
+        r.check(
+            bool(calls)
+            and all("energy_wh_min" not in c for c in calls)
+            and all("uv sync --extra greenops" in n for n in notes)
+            and text == "Empreinte estimée : indisponible"
+            and "uv sync --extra greenops" in title,
+            "GreenOps sans l'extra : empreinte locale « indisponible », la commande en infobulle",
+            f"{text} · {title[:160]}",
+        )
+
+
 def s_gemini_shape(r: Run) -> None:
     """The fake Gemini (`fake_g`, the reasoning and `tool_call_extra` of the real preset): a
     tool turn with the reasoning off (`reasoning_effort: minimal`, 512), then on
@@ -5930,6 +6087,7 @@ def s_gemini_shape(r: Run) -> None:
         r.check(
             all(not c.get("reasoning") for c in calls), "raisonnement éteint : aucune réflexion"
         )
+        _gemini_footprint(r, calls)
         _gemini_costs(r, calls)
 
         r.set_brick("Raisonnement", True)
@@ -6882,8 +7040,9 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),
-    ("gemini_shape", s_gemini_shape),
+    # GreenOps: the served model before the first priced call (the footprint alone).
     ("local_server", s_local_server),
+    ("gemini_shape", s_gemini_shape),
     ("model_catalog", s_model_catalog),
     ("context_window", s_context_window),
     ("llm_screen", s_llm_screen),
@@ -6902,6 +7061,11 @@ def main() -> int:
         help="WaveStack comme sans l'extra rag-alt (FAISS et LanceDB indisponibles)",
     )
     parser.add_argument(
+        "--no-greenops",
+        action="store_true",
+        help="WaveStack comme sans l'extra greenops (empreinte locale indisponible)",
+    )
+    parser.add_argument(
         "--no-headroom",
         action="store_true",
         help="WaveStack comme sans l'extra compression (le scénario compression est sauté)",
@@ -6909,6 +7073,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.no_headroom:  # read by `wavestack_e2e.py` through the stack's environment
         os.environ["WAVESTACK_E2E_NO_HEADROOM"] = "1"
+    if args.no_greenops:  # GreenOps, likewise
+        os.environ["WAVESTACK_E2E_NO_GREENOPS"] = "1"
     if args.no_rag_alt:  # story 30, likewise
         os.environ["WAVESTACK_E2E_NO_RAG_ALT"] = "1"
     chosen = [s for s in SCENARIOS if not args.only or s[0] in args.only or s[0] == "diagnostic"]

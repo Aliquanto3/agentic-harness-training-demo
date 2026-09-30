@@ -26,6 +26,7 @@ import httpx
 from pydantic import SecretStr
 
 from wavestack.config import DEFAULT_EUR_PER_USD, CloudModel, CloudPricing, estimate_tokens
+from wavestack.greenops import Impact, cloud_impacts
 from wavestack.models.capabilities import ChannelSplitter
 from wavestack.models.engine import CancelToken, EngineSnapshot
 from wavestack.net.factory import create_client
@@ -92,6 +93,8 @@ class ProviderError(Exception):
         self.quota_scope = quota_scope
         # FinOps: what the call cost when an output had come before the error (`run_call`).
         self.cost: CallCost | None = None
+        # GreenOps: its estimated footprint, likewise.
+        self.impact: Impact | None = None
 
     def payload(self, effect_fr: str) -> dict[str, Any]:
         """The `harness_error` payload."""
@@ -241,11 +244,23 @@ def call_cost(
     )
 
 
-# The session's spend, every paid call counted (turns, sub-agent, « Tester », « LLM nu »):
-# neither « Vider la conversation » nor « Réinitialiser » resets it, only a relaunch. Never
-# written to disk.
+# The session's spend, every paid call counted (turns, sub-agent, « Tester », « LLM nu »),
+# and its footprint (GreenOps), every call with an estimated footprint counted, local ones
+# included: neither « Vider la conversation » nor « Réinitialiser » resets them, only a
+# relaunch. Never written to disk.
 _spend_lock = threading.Lock()
-_spend: dict[str, Any] = {"in": 0.0, "out": 0.0, "calls": 0, "approx": False}
+_EMPTY: dict[str, Any] = {
+    "in": 0.0,
+    "out": 0.0,
+    "calls": 0,
+    "approx": False,
+    "wh_min": 0.0,
+    "wh_max": 0.0,
+    "g_min": 0.0,
+    "g_max": 0.0,
+    "impact_calls": 0,
+}
+_spend: dict[str, Any] = dict(_EMPTY)
 
 
 def _spend_payload(eur_per_usd: float) -> dict[str, Any]:
@@ -258,20 +273,37 @@ def _spend_payload(eur_per_usd: float) -> dict[str, Any]:
         "approx": _spend["approx"],
         "eur_per_usd": eur_per_usd,
         "total_eur": total * eur_per_usd,
+        # GreenOps: the sums of the calls' ranges, `impact_calls` of them.
+        "energy_wh_min": _spend["wh_min"],
+        "energy_wh_max": _spend["wh_max"],
+        "gco2e_min": _spend["g_min"],
+        "gco2e_max": _spend["g_max"],
+        "impact_calls": _spend["impact_calls"],
     }
 
 
 def record_spend(
-    cost: CallCost, eur_per_usd: float, emit: Callable[[dict[str, Any]], Any] | None = None
+    cost: CallCost | None,
+    eur_per_usd: float,
+    emit: Callable[[dict[str, Any]], Any] | None = None,
+    impact: Impact | None = None,
 ) -> dict[str, Any]:
-    """Adds one call's cost to the session's spend; returns the `consumption_updated`
-    payload, read under the same lock. `emit` runs under that lock too: two concurrent paid
-    calls emit their totals in the order they were added."""
+    """Adds one call's cost (a cloud call with prices) and its footprint (GreenOps, when
+    estimated; a local call has one and no cost) to the session's registry; returns the
+    `consumption_updated` payload, read under the same lock. `emit` runs under that lock
+    too: two concurrent calls emit their totals in the order they were added."""
     with _spend_lock:
-        _spend["in"] += cost.input_usd
-        _spend["out"] += cost.output_usd
-        _spend["calls"] += 1
-        _spend["approx"] = _spend["approx"] or cost.source == "estimate"
+        if cost is not None:
+            _spend["in"] += cost.input_usd
+            _spend["out"] += cost.output_usd
+            _spend["calls"] += 1
+            _spend["approx"] = _spend["approx"] or cost.source == "estimate"
+        if impact is not None and impact.estimated:
+            _spend["wh_min"] += impact.energy_wh_min
+            _spend["wh_max"] += impact.energy_wh_max
+            _spend["g_min"] += impact.gco2e_min
+            _spend["g_max"] += impact.gco2e_max
+            _spend["impact_calls"] += 1
         payload = _spend_payload(eur_per_usd)
         if emit is not None:
             emit(payload)
@@ -279,15 +311,17 @@ def record_spend(
 
 
 def session_spend(eur_per_usd: float) -> dict[str, Any] | None:
-    """The session's spend as `consumption_updated` carries it; `None` before a paid call."""
+    """The session's spend and footprint as `consumption_updated` carries them; `None`
+    before a paid call or a call with a footprint."""
     with _spend_lock:
-        return _spend_payload(eur_per_usd) if _spend["calls"] else None
+        counted = _spend["calls"] or _spend["impact_calls"]
+        return _spend_payload(eur_per_usd) if counted else None
 
 
 def reset_spend() -> None:
     """Tests only: a relaunch is the one reset of the session's spend."""
     with _spend_lock:
-        _spend.update({"in": 0.0, "out": 0.0, "calls": 0, "approx": False})
+        _spend.update(_EMPTY)
 
 
 class OpenAIChatEngine:
@@ -673,6 +707,7 @@ class ChatCall:
     output_tokens: int = 0
     output_tps: int | None = None
     cost: CallCost | None = None  # FinOps: set when the entry declares its prices
+    impact: Impact | None = None  # GreenOps: its footprint, or why it has none
 
 
 def _reinjected(text: str, calls: list[dict[str, Any]]) -> str:
@@ -732,7 +767,8 @@ def run_call(
     with `stop_reason: error`. `call_id(index)` gives a valid call's session id (AD-4).
     `sampling_trace` (story 29): `model_call_started.sampling`. FinOps: an entry with
     `pricing` gets the call's cost in `model_call_ended`, added to the session's spend, then
-    `consumption_updated` (the total converted at `eur_per_usd`)."""
+    `consumption_updated` (the total converted at `eur_per_usd`). GreenOps: likewise, the
+    call's footprint as EcoLogits estimates it (`impacts`), or why it has none."""
     entry = getattr(engine, "entry", None)
     # AD-16: the spacing wait, before the call starts, so neither `prompt_ms` nor
     # `duration_ms` counts it; cancelled while waiting, nothing is sent.
@@ -797,17 +833,26 @@ def run_call(
         }
         pricing = entry.pricing if isinstance(entry, CloudModel) else None
         # FinOps: a call refused before any output (an HTTP error, the network) is not billed.
-        if pricing is not None and (stop_reason != "error" or first_at is not None):
+        produced = stop_reason != "error" or first_at is not None
+        if pricing is not None and produced:
             out.cost = call_cost(pricing, prompt_tokens, out.output_tokens, source)
             payload |= {
                 "cost_in_usd": out.cost.input_usd,
                 "cost_out_usd": out.cost.output_usd,
                 "cost_source": source,
             }
+        # GreenOps: nor has it a footprint; EcoLogits' latency is `duration_ms`.
+        if isinstance(entry, CloudModel) and produced:
+            out.impact = cloud_impacts(entry, out.output_tokens, payload["duration_ms"] / 1000)
+            payload |= out.impact.fields()
         journal.emit("model_call_ended", payload, actor="model")
-        if out.cost is not None:
+        impact = out.impact if out.impact is not None and out.impact.estimated else None
+        if out.cost is not None or impact is not None:
             record_spend(
-                out.cost, eur_per_usd, lambda spend: journal.emit("consumption_updated", spend)
+                out.cost,
+                eur_per_usd,
+                lambda spend: journal.emit("consumption_updated", spend),
+                impact=impact,
             )
 
     try:
@@ -832,7 +877,7 @@ def run_call(
         out.text, out.reasoning = "".join(channels["text"]), "".join(channels["reasoning"])
         ended("error", "")
         if isinstance(exc, ProviderError):
-            exc.cost = out.cost
+            exc.cost, exc.impact = out.cost, out.impact
         raise
     assert end is not None
     out.text, out.reasoning = "".join(channels["text"]), "".join(channels["reasoning"])

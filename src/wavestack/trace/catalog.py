@@ -174,6 +174,12 @@ class TurnEndedPayload(BaseModel):
     cost_in_usd: float | None = None
     cost_out_usd: float | None = None
     cost_source: Literal["api", "estimate"] | None = None
+    # GreenOps: the sums of the estimated footprints of the turn's calls (sub-agent
+    # included), in Wh and g CO₂e (min and max), when one of them had a footprint.
+    energy_wh_min: float | None = None
+    energy_wh_max: float | None = None
+    gco2e_min: float | None = None
+    gco2e_max: float | None = None
 
 
 class CompressedFromPayload(BaseModel):
@@ -390,12 +396,23 @@ class ModelCallEndedPayload(BaseModel):
     cost_in_usd: float | None = None
     cost_out_usd: float | None = None
     cost_source: Literal["api", "estimate"] | None = None
+    # GreenOps: the call's estimated footprint, in Wh and g CO₂e, as a range (min = max for
+    # a single value): EcoLogits for a cloud call whose entry declares `impacts`, CodeCarbon
+    # for a local one. `impact_note_fr`: the method and its limits, or why there is none.
+    energy_wh_min: float | None = None
+    energy_wh_max: float | None = None
+    gco2e_min: float | None = None
+    gco2e_max: float | None = None
+    impact_method: Literal["ecologits", "codecarbon"] | None = None
+    impact_note_fr: str | None = None
 
 
 class ConsumptionUpdatedPayload(BaseModel):
     """FinOps: the session's API spend after a paid call (turns, sub-agent, « Tester », « LLM
     nu »), in dollars; reset by a relaunch only. `approx`: one of its calls was estimated.
-    `total_eur`: the total at `eur_per_usd` (`[finops]`), computed by the session."""
+    `total_eur`: the total at `eur_per_usd` (`[finops]`), computed by the session. GreenOps:
+    also after a call with a footprint (a local one included, which costs nothing), the sums
+    of the footprints of `impact_calls` calls, in Wh and g CO₂e (min and max)."""
 
     total_in_usd: float
     total_out_usd: float
@@ -404,6 +421,11 @@ class ConsumptionUpdatedPayload(BaseModel):
     approx: bool
     eur_per_usd: float
     total_eur: float
+    energy_wh_min: float = 0.0
+    energy_wh_max: float = 0.0
+    gco2e_min: float = 0.0
+    gco2e_max: float = 0.0
+    impact_calls: int = 0
 
 
 class SpecialTokenNeutralizedPayload(BaseModel):

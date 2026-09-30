@@ -19,6 +19,7 @@ dependencies = [
     "anyio>=4.15,<5",
     "mcp-types>=2.2,<2.3",
     "sqlite-vec==0.1.9",
+    "ecologits>=0.11.2,<0.12",
 ]
 
 [project.scripts]
@@ -32,6 +33,10 @@ compression = [
 rag-alt = [
     "faiss-cpu==1.15.1",
     "lancedb==0.39.0",
+]
+# GreenOps: CodeCarbon, the energy of a local model's call (offline tracker, no GPU).
+greenops = [
+    "codecarbon==3.3.1",
 ]
 
 [dependency-groups]

@@ -174,6 +174,20 @@ const seconds = (ms) => `${numberFormat.format(Math.max(ms, 0) / 1000)} s`;
 const moneyFormat = new Intl.NumberFormat("fr-FR", { maximumSignificantDigits: 4 });
 const usd = (n) => `${moneyFormat.format(n)} $`;
 const eur = (n) => `${moneyFormat.format(n)} €`;
+// GreenOps: energy and emissions, 2 significant digits, French comma; a range « 0,035–0,23 Wh »
+// when its bounds differ once formatted. Under the display's precision (a thousandth), a
+// positive value is « < 0,001 » and a range from under it « ≤ 0,0016 »; 0 is a true 0 (its
+// note says why). Formatting only (the figures are the session's).
+const footprintFormat = new Intl.NumberFormat("fr-FR", { maximumSignificantDigits: 2 });
+const FOOTPRINT_FLOOR = 0.001;
+const tiny = (n) => n > 0 && n < FOOTPRINT_FLOOR;
+function rangeText(low, high, unit) {
+  if (tiny(high) || (tiny(low) && high === low)) return `< ${footprintFormat.format(FOOTPRINT_FLOOR)} ${unit}`;
+  const b = footprintFormat.format(high);
+  if (tiny(low)) return `≤ ${b} ${unit}`;
+  const a = footprintFormat.format(low);
+  return a === b ? `${a} ${unit}` : `${a}–${b} ${unit}`;
+}
 
 // ---------- SSE: manual parsing, because the server names each event after
 // its `kind` and EventSource cannot listen for an unknown kind generically. ----------
@@ -616,6 +630,8 @@ function applyEnvelope(envelope) {
         turn.status = p.status;
         // FinOps: the turn's cost as the session summed it, when it cost something.
         turn.cost = p.cost_in_usd != null ? p : null;
+        // GreenOps: its footprint likewise, when one of its calls had one.
+        turn.footprint = p.energy_wh_min != null ? p : null;
         announce(turn);
       }
       break;
@@ -1031,6 +1047,7 @@ function render() {
   renderOutboundSummary();
   updateBrickLinks();
   applyLinks();
+  fitFootprint(); // GreenOps: once the top bar is drawn
 }
 
 function el(tag, className, text) {
@@ -2251,6 +2268,23 @@ function costText(cost, label = "Coût estimé : ") {
   return `${label}entrée ${guess}${usd(cost.cost_in_usd)} · sortie ${guess}${usd(cost.cost_out_usd)}`;
 }
 
+// GreenOps: « Empreinte estimée : 0,11 Wh · 0,046 g CO₂e » (a call), « empreinte estimée … » (a
+// turn's head), a range when EcoLogits gives one; from the footprint fields.
+function footprintText(p, label = "Empreinte estimée : ") {
+  return `${label}${rangeText(p.energy_wh_min, p.energy_wh_max, "Wh")} · ${rangeText(p.gco2e_min, p.gco2e_max, "g CO₂e")}`;
+}
+
+// GreenOps: a call's footprint line, the method and its limits (or why there is none, the
+// command to install CodeCarbon included) in its tooltip; `null` for a call that says
+// nothing of it.
+function footprintNode(ended) {
+  if (ended?.energy_wh_min == null && !ended?.impact_note_fr) return null;
+  const known = ended.energy_wh_min != null;
+  const node = el("div", `token-counter footprint${known ? " number" : " is-unavailable"}`, known ? footprintText(ended) : "Empreinte estimée : indisponible");
+  if (ended.impact_note_fr) node.title = ended.impact_note_fr;
+  return node;
+}
+
 // FinOps, the top bar's compact amounts: 4 decimals at most (a hundredth of a cent), « < 0,0001 $ »
 // under it; the 4 significant digits stay in the tooltip. Formatting only.
 const shortMoneyFormat = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 4 });
@@ -2258,23 +2292,85 @@ const shortUsd = (n) => (n > 0 && n < 0.00005 ? "< 0,0001 $" : `${shortMoneyForm
 
 // FinOps: the session's API spend in the top bar, from the first paid call: « Dépense estimée »
 // over « entrée $ + sortie $ », the whole sentence (4 significant digits, the euros) in the
-// tooltip and the accessible name (every figure from the session, AD-1).
+// tooltip and the accessible name (every figure from the session, AD-1). GreenOps: the
+// session's footprint ends the second line (« · 0,12 g CO₂e ») when the bar still fits, else
+// it is said in the sentence only; before any paid call (local calls only), « Empreinte
+// estimée » over the footprint.
 function renderConsumption() {
   const node = document.getElementById("consumption");
   const c = store.consumption;
   node.hidden = !c;
+  footprintOptional = false;
   if (!c) return;
+  const paid = c.calls > 0;
+  const green = (c.impact_calls ?? 0) > 0;
   const guess = approx(c.approx);
-  setText(document.getElementById("consumption-amounts"), `${guess}${shortUsd(c.total_in_usd)} + ${shortUsd(c.total_out_usd)}`);
-  const sentence =
-    `Dépense API estimée de la séance : entrée ${guess}${usd(c.total_in_usd)}, sortie ${guess}${usd(c.total_out_usd)}, ` +
-    `soit ${guess}${eur(c.total_eur)} au taux de ${moneyFormat.format(c.eur_per_usd)} € pour 1 $ ` +
-    `(${plural(c.calls, "appel")} payant${c.calls > 1 ? "s" : ""}, estimation à partir des prix déclarés). ` +
-    "Seul un relancement de WaveStack remet ce total à zéro.";
+  const grams = green ? rangeText(c.gco2e_min, c.gco2e_max, "g CO₂e") : "";
+  setText(document.getElementById("consumption-label"), paid ? "Dépense estimée" : "Empreinte estimée");
+  setText(document.getElementById("consumption-money"), paid ? `${guess}${shortUsd(c.total_in_usd)} + ${shortUsd(c.total_out_usd)}` : "");
+  const footprint = document.getElementById("consumption-footprint");
+  setText(footprint, green ? `${paid ? " · " : ""}${grams}` : "");
+  const sentences = [];
+  if (paid) {
+    sentences.push(
+      `Dépense API estimée de la séance : entrée ${guess}${usd(c.total_in_usd)}, sortie ${guess}${usd(c.total_out_usd)}, ` +
+        `soit ${guess}${eur(c.total_eur)} au taux de ${moneyFormat.format(c.eur_per_usd)} € pour 1 $ ` +
+        `(${plural(c.calls, "appel")} payant${c.calls > 1 ? "s" : ""}, estimation à partir des prix déclarés).`,
+    );
+  }
+  if (green) {
+    sentences.push(
+      `Empreinte estimée de la séance : ${rangeText(c.energy_wh_min, c.energy_wh_max, "Wh")} · ${grams} ` +
+        `(${plural(c.impact_calls, "appel")}). Deux périmètres s'y additionnent : en cloud, le cycle de vie ` +
+        "d'EcoLogits (électricité des serveurs et part de leur fabrication) ; en local, l'électricité " +
+        "consommée seulement (CodeCarbon, kWh × intensité), sans la fabrication du poste.",
+    );
+  }
+  sentences.push(`Seul un relancement de WaveStack remet ${sentences.length > 1 ? "ces totaux" : "ce total"} à zéro.`);
+  const sentence = sentences.join(" ");
   if (node.title !== sentence) {
     node.title = sentence;
     node.setAttribute("aria-label", sentence);
   }
+  footprintOptional = green; // measured by `fitFootprint`, last, in every case
+}
+
+// GreenOps: the session's footprint in the bar (after the spend, or alone) only when the top
+// bar still fits (every control whole, the gauge's figures cut no further), else in the
+// tooltip only; measured at the end of `render`, once the bar's controls are drawn, and again
+// when its texts, the window's width, the projection mode or the fonts (once loaded) change.
+let footprintOptional = false;
+let footprintFitKey = null;
+function fitFootprint() {
+  const footprint = document.getElementById("consumption-footprint");
+  if (!footprintOptional) {
+    footprint.hidden = false;
+    footprintFitKey = null;
+    return;
+  }
+  const bar = footprint.closest(".top-bar");
+  const key = [innerWidth, document.documentElement.className, bar.textContent].join("|");
+  if (key === footprintFitKey) return;
+  footprintFitKey = key;
+  const figures = document.getElementById("gauge-figures");
+  const cut = () => figures.scrollWidth - figures.clientWidth;
+  footprint.hidden = true;
+  const before = cut();
+  footprint.hidden = false;
+  if (!topBarFits(bar) || cut() > Math.max(before, 0) + 1) footprint.hidden = true;
+}
+
+function topBarFits(bar) {
+  if (bar.scrollWidth > bar.clientWidth + 1) return false;
+  const box = bar.getBoundingClientRect();
+  return [...bar.children].every((e) => {
+    if (!e.id || !e.offsetParent || getComputedStyle(e).position === "absolute") return true;
+    const b = e.getBoundingClientRect();
+    if (b.width === 0) return true;
+    if (b.left < box.left - 1 || b.right > box.right + 1) return false;
+    if (b.top < box.top - 1 || b.bottom > box.bottom + 1) return false;
+    return e.scrollWidth <= e.clientWidth + 1 && e.scrollHeight <= e.clientHeight + 1;
+  });
 }
 
 // The model indicator (EXPERIENCE.md model-indicator): tag, name; tooltip = the cloud warning.
@@ -2404,6 +2500,7 @@ function bindWindowPicker() {
   });
   window.addEventListener("resize", () => {
     if (!windowPanel().hidden) placeWindowPanel();
+    fitFootprint(); // GreenOps: whether the session's footprint still fits the top bar
   });
 }
 
@@ -4252,6 +4349,9 @@ function callBody(turn, step) {
   const nodes = [el("p", "label", `Appel ${step.id ?? turn.id}`), counter];
   // FinOps: a cloud call with declared prices; never for a local model.
   if (ended?.cost_in_usd != null) nodes.push(el("div", "token-counter number", costText(ended)));
+  // GreenOps: its footprint (cloud: EcoLogits, local: CodeCarbon), or « indisponible ».
+  const footprint = footprintNode(ended);
+  if (footprint) nodes.push(footprint);
   if (ended && ended.stop_reason !== "stop") {
     const reasons = { length: "sortie coupée", cancelled: "arrêté", error: "erreur" };
     nodes.push(el("span", "step-badge", reasons[ended.stop_reason]));
@@ -5618,6 +5718,7 @@ function renderSteps() {
       duration === null ? null : seconds(duration),
       `${plural(calls, "appel")} au modèle`,
       turn.cost ? costText(turn.cost, "coût estimé ") : null,
+      turn.footprint ? footprintText(turn.footprint, "empreinte estimée ") : null,
     ];
     headParts(node, [
       ["turn-group-title", `Tour ${i + 1}`],
@@ -6119,11 +6220,19 @@ function eventSummary(group) {
         TURN_STATUS[p.status]?.[1] ?? p.status,
         p.duration_ms == null ? null : seconds(p.duration_ms),
         p.cost_in_usd != null ? costText(p, "") : null,
+        p.energy_wh_min != null ? footprintText(p, "") : null,
       ]
         .filter(Boolean)
         .join(" · ");
     case "consumption_updated":
-      return `entrée ${approx(p.approx)}${usd(p.total_in_usd)} · sortie ${approx(p.approx)}${usd(p.total_out_usd)} · ${plural(p.calls, "appel")}`;
+      return [
+        p.calls
+          ? `entrée ${approx(p.approx)}${usd(p.total_in_usd)} · sortie ${approx(p.approx)}${usd(p.total_out_usd)} · ${plural(p.calls, "appel")}`
+          : null,
+        p.impact_calls ? `empreinte ${footprintText(p, "")} (${plural(p.impact_calls, "appel")})` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
     case "model_call_started":
       return p.sampling ? `${p.phase_label} · ${samplingSummary(p.sampling)}` : p.phase_label;
     case "mcp_connect_started":
@@ -6148,7 +6257,8 @@ function eventSummary(group) {
         .join(" · ");
     case "model_call_ended": {
       const evaluated = p.evaluated_tokens != null ? ` · ${fmt(p.evaluated_tokens)} évalués` : "";
-      return `${fmt(p.prompt_tokens)} lus${evaluated} · ${fmt(p.output_tokens)} écrits · ${seconds(p.duration_ms)} · ${p.stop_reason}`;
+      const footprint = p.energy_wh_min != null ? ` · ${footprintText(p, "")}` : "";
+      return `${fmt(p.prompt_tokens)} lus${evaluated} · ${fmt(p.output_tokens)} écrits · ${seconds(p.duration_ms)} · ${p.stop_reason}${footprint}`;
     }
     case "tool_started":
       return formatCall({ name: p.tool, arguments: p.arguments });
@@ -7056,6 +7166,7 @@ function setProjection(on) {
   document.documentElement.classList.toggle("projection", on);
   document.getElementById("projection-toggle").setAttribute("aria-pressed", String(on));
   scheduleWires(); // the schema's pieces moved
+  fitFootprint(); // GreenOps: whether the session's footprint still fits the top bar
 }
 
 function loadProjection() {
@@ -7092,6 +7203,11 @@ async function boot() {
   // Remembered pane layout first, so the page does not open on the defaults then jump.
   loadPaneLayout();
   loadProjection();
+  // GreenOps: the loaded fonts change the bar's widths: the footprint's fit, measured again.
+  document.fonts?.ready.then(() => {
+    footprintFitKey = null;
+    fitFootprint();
+  });
   bindLinkedView();
   loadShowForced();
   loadShowReasoning();

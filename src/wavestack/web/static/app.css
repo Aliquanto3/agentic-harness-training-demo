@@ -4793,6 +4793,12 @@ body .arch .arch-robots .robot.is-selection-linked {
   color: var(--color-on-ink-soft);
 }
 
+/* GreenOps: the session's footprint ends the second line only when the bar still fits
+   (app.js measures it); hidden, it stays in the block's tooltip and accessible name. */
+#consumption-footprint[hidden] {
+  display: none;
+}
+
 /* Up to 1600 px the names give way further (at 1440 px, the words of « Fenêtre » and the theme
    picker come back and take the room of « · lié »). In projection mode, the bar of under
    1400 px applies up to 1600 px: short labels, and the theme picker compact. */

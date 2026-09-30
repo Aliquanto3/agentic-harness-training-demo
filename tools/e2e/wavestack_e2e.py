@@ -43,5 +43,12 @@ if os.environ.get("WAVESTACK_E2E_NO_RAG_ALT") == "1":
     _lab_find_spec = lab._find_spec
     lab._find_spec = lambda name: None if name in ("faiss", "lancedb") else _lab_find_spec(name)
 
+if os.environ.get("WAVESTACK_E2E_NO_GREENOPS") == "1":
+    # GreenOps (`run_e2e.py --no-greenops`): as a machine without the `greenops` extra.
+    from wavestack import greenops  # noqa: E402
+
+    _green_find_spec = greenops._find_spec
+    greenops._find_spec = lambda name: None if name == "codecarbon" else _green_find_spec(name)
+
 if __name__ == "__main__":
     raise SystemExit(cli.main())
