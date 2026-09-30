@@ -154,8 +154,6 @@ function renderContent() {
     document.title = `WaveStack — ${title}`;
   }
   $("llm-intro").textContent = text("intro_text");
-  const back = text("back_text");
-  if (back) $("back-link").textContent = back;
   const change = text("change_model_text");
   if (change) $("llm-change-model").textContent = change;
   const active = text("active_model_text");
@@ -969,7 +967,8 @@ async function main() {
   $("stop-button").addEventListener("click", stopGeneration);
   $("sampling-reset").addEventListener("click", resetSampling);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
+    // Story 2 (2026-09-30): an Escape that closed « Affichage ▾ » (site-nav.js) stops there.
+    if (event.key === "Escape" && !event.defaultPrevented) {
       store.pinned = null;
       hideCandidates();
     }

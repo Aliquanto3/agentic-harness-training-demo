@@ -736,7 +736,7 @@ class DiagnosticSession:
         )
 
     def _block(self, message_text: str, action_text: str) -> None:
-        """No model is active any more: the page offers no « Ouvrir WaveStack »."""
+        """No model is active any more: the diagnostic is no longer `ready`."""
         with self._lock:
             if self.last_result is not None:
                 self.last_result.ready, self.last_result.blocking_checks = False, ["model"]
@@ -765,7 +765,7 @@ class DiagnosticSession:
     ) -> None:
         """A hot switch ended. `ok`: nothing blocks any more, and the choice is the saved one
         only if settings.json holds it. `error` (no model active any more): the diagnostic
-        blocks again, so the page offers no « Ouvrir WaveStack ». `restored`: unchanged.
+        blocks again (no longer `ready`). `restored`: unchanged.
         `cancelled` (lot E, E4): unchanged, unless no model is active any more (`loaded`)."""
         try:
             status = future.result()

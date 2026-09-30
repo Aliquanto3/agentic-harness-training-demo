@@ -64,14 +64,16 @@ common:
       other: "{count} tools"
   links:
     pages: "WaveStack pages"
-    back: "← Workshop"
+    home: "Workshop"
     diagnostic: "Diagnostics"
     models: "Models"
-    open: "Open WaveStack"
     llm: "Bare LLM"
     llm_title: "Bare LLM: inside the active model (tokens, vectors, token-by-token generation)"
     rag: "RAG workshop"
     rag_title: "RAG workshop: the RAG architecture to handle (chunking, embedding, vector database, search, reranking)"
+  display:
+    menu: "Display"
+    theme: "Theme"
   theme:
     name: "Interface theme"
     system: "◐ System"
@@ -837,9 +839,6 @@ main:
     not_loaded: "Not loaded."
     tools: "Tools: {tools}"
     leads_out: "Click: its outbound data in Orchestration"
-  display:
-    menu: "Display"
-    theme: "Theme"
 
 llm:
   page_title: "WaveStack — Bare LLM"

@@ -73,14 +73,16 @@ common:
       other: "{count} outils"
   links:
     pages: "Pages de WaveStack"
-    back: "← Atelier"
+    home: "Atelier"
     diagnostic: "Diagnostic"
     models: "Modèles"
-    open: "Ouvrir WaveStack"
     llm: "LLM nu"
     llm_title: "LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)"
     rag: "Atelier RAG"
     rag_title: "Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)"
+  display:
+    menu: "Affichage"
+    theme: "Thème"
   theme:
     name: "Thème de l'interface"
     system: "◐ Système"
@@ -846,9 +848,6 @@ main:
     not_loaded: "Non chargé."
     tools: "Outils : {tools}"
     leads_out: "Clic : ses données sortantes dans Orchestration"
-  display:
-    menu: "Affichage"
-    theme: "Thème"
 
 llm:
   page_title: "WaveStack — LLM nu"

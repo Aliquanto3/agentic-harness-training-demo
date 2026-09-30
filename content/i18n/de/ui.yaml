@@ -64,14 +64,16 @@ common:
       other: "{count} Tools"
   links:
     pages: "Seiten von WaveStack"
-    back: "← Werkstatt"
+    home: "Werkstatt"
     diagnostic: "Diagnose"
     models: "Modelle"
-    open: "WaveStack öffnen"
     llm: "Nacktes LLM"
     llm_title: "Nacktes LLM: das Innere des aktiven Modells (Tokens, Vektoren, Generierung Token für Token)"
     rag: "RAG-Werkstatt"
     rag_title: "RAG-Werkstatt: die RAG-Architektur zum Ausprobieren (Chunking, Embedding, Vektordatenbank, Suche, Reranking)"
+  display:
+    menu: "Anzeige"
+    theme: "Farbschema"
   theme:
     name: "Farbschema der Oberfläche"
     system: "◐ System"
@@ -837,9 +839,6 @@ main:
     not_loaded: "Nicht geladen."
     tools: "Tools: {tools}"
     leads_out: "Klick: seine ausgehenden Daten in Orchestrierung"
-  display:
-    menu: "Anzeige"
-    theme: "Farbschema"
 
 llm:
   page_title: "WaveStack — Nacktes LLM"

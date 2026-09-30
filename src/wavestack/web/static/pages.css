@@ -1,45 +1,154 @@
-/* Story 25: what the stand-alone pages share (/diagnostic, /models), by the tokens of
-   tokens.css only: the tabs between them (EXPERIENCE.md page-tabs, DESIGN.md). */
-.page-tabs {
-  display: flex;
-  gap: var(--spacing-4);
-  margin: 0 0 var(--spacing-4);
-  border-bottom: var(--spacing-stroke-min) solid var(--color-line);
+/* Story 2 of 2026-09-30: what the five pages share, by the tokens of tokens.css only: the
+   navigation bar at their head (`nav.site-nav`, EXPERIENCE.md site-nav, DESIGN.md), and its
+   « Affichage ▾ » menu (the theme, the language and, on the main screen, the projection mode).
+   Loaded by every page, index.html included (before app.css). */
+
+/* Its height, fixed: the main screen's upward panels keep clear of it (app.css). */
+:root {
+  --site-nav-height: calc(var(--spacing-hit-target-min) + 2 * var(--spacing-1) + 2px);
 }
 
-.page-tabs a {
-  padding: var(--spacing-2) var(--spacing-1);
-  margin-bottom: calc(-1 * var(--spacing-stroke-min));
-  border-bottom: 3px solid transparent;
-  color: var(--color-ink-soft);
-  text-decoration: none;
-  font: var(--typography-label-font-weight) calc(var(--typography-label-font-size) * 1.2) /
+/* A band across the window, whatever the page's own width (/diagnostic keeps 640 px): its
+   margins reach from the page's centre to the window's edges, less a gutter. */
+.site-nav {
+  box-sizing: border-box;
+  position: relative;
+  z-index: 40; /* its menu over the page */
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+  flex: 0 0 auto;
+  height: var(--site-nav-height);
+  margin: 0 calc(50% - 50vw + var(--spacing-5)) var(--spacing-4);
+  padding: 0 var(--spacing-4);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-lg);
+  white-space: nowrap;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
     var(--typography-label-line-height) var(--typography-label-font-family);
 }
 
-.page-tabs a[hidden] {
-  display: none;
+.site-nav > a {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 var(--spacing-1);
+  border-bottom: 3px solid transparent;
+  color: var(--color-ink-soft);
+  text-decoration: none;
+  font-size: calc(var(--typography-label-font-size) * 1.2);
 }
 
-.page-tabs a[aria-current="page"] {
+.site-nav > a:hover {
+  color: var(--color-ink);
+}
+
+.site-nav > a[aria-current="page"] {
   color: var(--color-ink);
   border-bottom-color: var(--color-primary);
 }
 
-.page-tabs a:hover {
+.site-nav > a.site-nav-brand {
+  margin-right: var(--spacing-2);
   color: var(--color-ink);
+  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
 }
 
-.page-tabs a:focus-visible {
+/* A page's own rules (/diagnostic: `button { margin-top }`) never reach the bar. */
+.site-nav button,
+.site-nav select {
+  margin: 0;
+}
+
+.site-nav a:focus-visible,
+.site-nav button:focus-visible,
+.site-nav select:focus-visible {
   outline: var(--spacing-stroke-min) solid var(--color-primary);
   outline-offset: 2px;
 }
 
-/* Story 31 (DESIGN.md > theme-picker): the theme, at the right of the tabs; a native list,
-   as the model picker, its focus ring the primary one (the page is light or dark, never ink). */
-.page-tabs .theme-picker {
-  align-self: center;
+/* ---------- « Affichage ▾ » (languages 2/5), at the right of the bar ----------
+   Its face says the theme's symbol and the language's code; its panel lies on surface-raised,
+   each control with its name, whole in every language. */
+.display-menu {
+  position: relative;
   margin-left: auto;
+}
+
+.display-menu-toggle {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.display-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--spacing-1));
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  width: max-content;
+  padding: var(--spacing-3);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  box-shadow: 0 var(--spacing-relief-offset-overlay) 0 var(--color-relief);
+  white-space: nowrap;
+}
+
+.display-menu-panel[hidden] {
+  display: none;
+}
+
+.display-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+}
+
+.display-menu-label {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+/* A refused language change, said under the pickers (the reason of the 409). */
+.display-menu-alert {
+  max-width: 20rem;
+  margin: 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--color-danger-soft);
+  color: var(--color-ink);
+  border-radius: var(--rounded-md);
+  white-space: normal;
+  font-size: var(--typography-body-sm-font-size);
+}
+
+.display-menu-alert[hidden] {
+  display: none;
+}
+
+/* The theme and the language: neutral native lists, as the model picker (story 31). */
+.theme-picker-box,
+.language-picker-box {
+  display: inline-flex;
+}
+
+.theme-picker,
+.language-picker {
   min-height: var(--spacing-hit-target-min);
   padding: 0 var(--spacing-2);
   background: var(--color-surface-raised);
@@ -51,7 +160,43 @@
   cursor: pointer;
 }
 
-.page-tabs .theme-picker:focus-visible {
-  outline: var(--spacing-stroke-min) solid var(--color-primary);
-  outline-offset: 2px;
+/* Locked (a conversation in progress) or outside `idle`: as the scenario picker. */
+.language-picker:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* The main screen's projection mode (app.js), in the panel: ink on surface-raised, pressed in
+   primary. */
+.display-menu-panel .projection-toggle {
+  flex: 1;
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  background: transparent;
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.display-menu-panel .projection-toggle[aria-pressed="true"] {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary);
+}
+
+/* Under 1100 px (a 1280 px window zoomed to 125 % and narrower), the bar tightens and the
+   menu's face keeps the theme's symbol and the language's code (its accessible name and its
+   panel unchanged): the five links stay whole. */
+@media (width < 1100px) {
+  .site-nav {
+    gap: var(--spacing-3);
+    padding: 0 var(--spacing-2);
+  }
+
+  .display-menu-word {
+    display: none;
+  }
 }

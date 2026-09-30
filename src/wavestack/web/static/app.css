@@ -193,15 +193,8 @@ body {
    stand out of the ink-fill (in dark, their surface is close to it). */
 .top-bar > .scenario-picker,
 .top-bar > .model-picker,
-.top-bar > .reset-button,
-.top-bar .theme-picker {
+.top-bar > .reset-button {
   border-color: var(--color-on-ink-soft);
-}
-
-.top-bar-title {
-  font-family: var(--typography-heading-font-family);
-  font-weight: var(--typography-heading-font-weight);
-  color: var(--color-on-ink);
 }
 
 .pane-chips {
@@ -242,10 +235,15 @@ body {
   cursor: pointer;
 }
 
+/* Story 2 (2026-09-30): the bar is under the panes, its lists open upwards. */
 .pane-menu-list {
   position: absolute;
   right: 0;
-  top: calc(100% + var(--spacing-1));
+  /* Its button is centred in the bar: from its half up to the bar's top edge, then a gap. */
+  bottom: calc(50% + var(--spacing-top-bar-height) / 2 + var(--spacing-1));
+  /* Clear of the shared bar at the head (pages.css), however short the window. */
+  max-height: calc(100vh - var(--spacing-top-bar-height) - var(--site-nav-height) - 5 * var(--spacing-gutter));
+  overflow-y: auto;
   background: var(--color-surface-raised);
   border: 1px solid var(--color-line);
   border-radius: var(--rounded-md);
@@ -3602,11 +3600,12 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   cursor: pointer;
 }
 
-/* Out of the bar's flow, under its right end: the message never squeezes its neighbours
-   (e2e A4), and lets clicks through to the panes it covers for a moment. */
+/* Out of the bar's flow, over its right end (story 2: the bar is under the panes): the message
+   never squeezes its neighbours (e2e A4), and lets clicks through to the panes it covers for a
+   moment. */
 .top-status {
   position: absolute;
-  top: calc(100% + var(--spacing-1));
+  bottom: calc(100% + var(--spacing-1));
   right: var(--spacing-4);
   z-index: 20;
   max-width: min(28rem, calc(100% - 2 * var(--spacing-4)));
@@ -3887,10 +3886,13 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 .window-panel {
   position: absolute;
   left: 0;
-  top: calc(100% + var(--spacing-2));
-  z-index: 30; /* over the top bar's message */
+  /* Story 2: over the bar, under the panes; its button is centred in the bar, so from its half
+     up to the bar's top edge, then a gap. */
+  bottom: calc(50% + var(--spacing-top-bar-height) / 2 + var(--spacing-2));
+  z-index: 30; /* over the bar's status message */
   width: min(30rem, calc(100vw - 2 * var(--spacing-4)));
-  max-height: calc(100vh - var(--spacing-top-bar-height) - 4 * var(--spacing-gutter));
+  /* Story 2: clear of the shared bar at the head (pages.css) too. */
+  max-height: calc(100vh - var(--spacing-top-bar-height) - var(--site-nav-height) - 5 * var(--spacing-gutter));
   /* Lot K (A8): a column, its texts scroll, « Appliquer » and « Fermer » pinned at its foot
      (as the memory drawer's), always in view even at 1280 × 650. */
   display: flex;
@@ -4117,46 +4119,8 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   outline-offset: 2px;
 }
 
-/* ---------- story 31: the theme picker (DESIGN.md > theme-picker) ----------
-   A neutral native list, as the model picker, before « Réinitialiser »; bordered in
-   on-ink-soft to stand out of the ink-fill bar; its focus ring is the bar's on-ink one. */
-.theme-picker {
-  min-height: var(--spacing-hit-target-min);
-  padding: 0 var(--spacing-2);
-  background: var(--color-surface-raised);
-  color: var(--color-ink);
-  border: 1px solid var(--color-line);
-  border-radius: var(--rounded-md);
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-  cursor: pointer;
-}
-
-/* ---------- languages (1/5, 2/5): the language picker, in « Affichage ▾ » ----------
-   A neutral native list, as the theme picker; its name and its tooltip in the chosen
-   language. */
-.theme-picker-box,
-.language-picker-box {
-  display: inline-flex;
-}
-
-.language-picker {
-  min-height: var(--spacing-hit-target-min);
-  padding: 0 var(--spacing-2);
-  background: var(--color-surface-raised);
-  color: var(--color-ink);
-  border: 1px solid var(--color-line);
-  border-radius: var(--rounded-md);
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-  cursor: pointer;
-}
-
-/* Locked (a conversation in progress) or outside `idle`: as the scenario picker. */
-.language-picker:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
+/* Story 31 and languages (1/5, 2/5): the theme and language pickers are in « Affichage ▾ » of
+   the shared bar, styled by pages.css (story 2 of 2026-09-30). */
 
 /* Vue humain: the model that plays the turns below, when it changed. */
 .model-switch-line {
@@ -4539,7 +4503,7 @@ body .arch .arch-robots .robot.is-selection-linked {
    ramp is redefined here. The top bar grows so its controls stay on one line. */
 
 :root.projection {
-  --typography-pane-title-font-size: 24px;
+  --typography-pane-title-font-size: 23px;
   --typography-pane-subtitle-font-size: 17px;
   --typography-heading-font-size: 23px;
   --typography-chat-font-size: 21px;
@@ -4569,28 +4533,11 @@ body .arch .arch-robots .robot.is-selection-linked {
   min-width: 5rem;
 }
 
-.projection-toggle {
-  min-height: var(--spacing-hit-target-min);
-  padding: 0 var(--spacing-3);
-  background: transparent;
-  color: var(--color-on-ink);
-  border: 1px solid var(--color-on-ink-soft);
-  border-radius: var(--rounded-md);
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-  cursor: pointer;
-}
-
-.projection-toggle[aria-pressed="true"] {
-  background: var(--color-on-ink);
-  color: var(--color-ink-fill); /* story 31: the bar's colours, inverted */
-}
-
-/* ---------- story 33: focus on the ink top bar ----------
+/* ---------- story 33: focus on the ink bar of the main screen ----------
    Last in the file: wins over each control's own ring. Its drop-down lists (« Volets ▾ »,
-   « Fenêtre », « Affichage ▾ ») keep theirs: they lie on surface-raised. */
+   « Fenêtre ») keep theirs: they lie on surface-raised. */
 
-.top-bar :focus-visible:not(.pane-menu-list *):not(.window-panel *):not(.display-menu-panel *) {
+.top-bar :focus-visible:not(.pane-menu-list *):not(.window-panel *) {
   outline: var(--spacing-stroke-min) solid var(--color-on-ink);
   outline-offset: 2px;
 }
@@ -4601,46 +4548,10 @@ body .arch .arch-robots .robot.is-selection-linked {
   outline-offset: 2px;
 }
 
-/* ---------- story 29: the link to the « LLM nu » screen, on the ink top bar ---------- */
-
-.top-bar > .screen-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--spacing-hit-target-min);
-  padding: 0 var(--spacing-3);
-  color: var(--color-on-ink);
-  border: 1px solid var(--color-on-ink-soft);
-  border-radius: var(--rounded-md);
-  text-decoration: none;
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-}
-
-.top-bar > .screen-link:hover {
-  background: var(--color-on-ink);
-  color: var(--color-ink-fill);
-}
-
-.screen-link-short {
-  display: none;
-}
-
-/* Under 1400 px the link says « LLM » (its accessible name keeps « LLM nu »), and, for its
-   room, the scenario's and the model's names give way a little further: at 1280 px the gauge
-   stays whole and the chips of hidden panes keep « · lié » readable, projection mode too. */
+/* Under 1400 px the scenario's and the model's names give way a little further: at 1280 px
+   the gauge stays whole and the chips of hidden panes keep « · lié » readable, projection mode
+   too. (Story 2 of 2026-09-30: the screen links that asked for it left for the shared bar.) */
 @media (max-width: 1400px) {
-  .top-bar > .screen-link {
-    padding: 0 var(--spacing-1);
-  }
-
-  .screen-link-long {
-    display: none;
-  }
-
-  .screen-link-short {
-    display: inline;
-  }
-
   .top-bar > .scenario-picker {
     min-width: 4rem;
   }
@@ -4662,23 +4573,14 @@ body .arch .arch-robots .robot.is-selection-linked {
   }
 }
 
-/* ---------- story 30: a second screen link, « Atelier RAG », after « LLM nu » ----------
-   Room for it on the one-line bar, the gauge's figures kept whole from 1280 to 1600 px: the
-   bar's gaps tighten, the links' padding too. */
+/* ---------- story 30: the bar's gaps, tight, the gauge's figures kept whole from 1280 to
+   1600 px ---------- */
 
 .top-bar {
   gap: var(--spacing-2);
 }
 
-.top-bar > .screen-link {
-  padding: 0 var(--spacing-2);
-}
-
 @media (max-width: 1400px) {
-  .top-bar > .screen-link {
-    padding: 0 var(--spacing-1);
-  }
-
   .top-bar > .scenario-picker,
   .top-bar > .model-indicator {
     min-width: 3rem;
@@ -4753,9 +4655,9 @@ body .arch .arch-robots .robot.is-selection-linked {
   display: none;
 }
 
-/* Up to 1600 px the names give way further (at 1440 px, the words of « Fenêtre » and the theme
-   picker come back and take the room of « · lié »). In projection mode, the bar of under
-   1400 px applies up to 1600 px: short labels, and the theme picker compact. */
+/* Up to 1600 px the names give way further (at 1440 px, the word of « Fenêtre » comes back and
+   takes the room of « · lié »). In projection mode, the bar of under 1400 px applies up to
+   1600 px: short labels. */
 @media (max-width: 1600px) {
   .top-bar > .scenario-picker,
   .top-bar > .model-indicator {
@@ -4770,17 +4672,11 @@ body .arch .arch-robots .robot.is-selection-linked {
     gap: var(--spacing-2);
   }
 
-  :root.projection .window-toggle-long,
-  :root.projection .screen-link-long {
+  :root.projection .window-toggle-long {
     display: none;
   }
 
-  :root.projection .screen-link-short {
-    display: inline;
-  }
-
-  :root.projection .window-toggle,
-  :root.projection .top-bar > .screen-link {
+  :root.projection .window-toggle {
     padding: 0 var(--spacing-1);
   }
 
@@ -4793,19 +4689,6 @@ body .arch .arch-robots .robot.is-selection-linked {
     min-width: 2.5rem;
   }
 
-}
-
-/* Up to 1500 px, the screen links say « LLM » and « RAG » (their accessible names unchanged):
-   since story 30 added the second, their words at 1440 px took the room of « · lié ». At
-   1600 px they keep their words. */
-@media (max-width: 1500px) {
-  .screen-link-long {
-    display: none;
-  }
-
-  .screen-link-short {
-    display: inline;
-  }
 }
 
 /* In projection mode under 1400 px, the names give their last pixels and the gaps tighten (as
@@ -4824,14 +4707,9 @@ body .arch .arch-robots .robot.is-selection-linked {
   }
 }
 
-/* Under 1100 px (a 1280 px window zoomed to 125 %), the bar cannot hold everything: the title
-   goes (the page's title keeps it), and the linked chip gives way too, last, rather than push
-   « Réinitialiser » out of the bar. */
+/* Under 1100 px (a 1280 px window zoomed to 125 %), the bar cannot hold everything: the linked
+   chip gives way too, last, rather than push « Réinitialiser » out of the bar. */
 @media (max-width: 1100px) {
-  .top-bar-title {
-    display: none;
-  }
-
   /* Lot K, suite (review): a real 1280 px window zoomed to 125 % gives about 1010 CSS px, where
      « Réinitialiser » went 4 to 9 px out of the bar with the legend whole: the gaps and the
      bar's padding tighten from here. */
@@ -4888,14 +4766,8 @@ body .arch .arch-robots .robot.is-selection-linked {
 }
 
 /* ---------- languages (1/5): room in the top bar ----------
-   From 1300 px down the title goes (the page's title keeps it); under 1100 px the names give a
-   few more pixels (their whole text stays in the list and the tooltip). */
-@media (max-width: 1300px) {
-  .top-bar-title {
-    display: none;
-  }
-}
-
+   Under 1100 px the names give a few more pixels (their whole text stays in the list and the
+   tooltip). */
 @media (min-width: 1000px) and (max-width: 1100px) {
   .top-bar > .scenario-picker,
   .top-bar > .model-indicator {
@@ -4918,100 +4790,8 @@ body .arch .arch-robots .robot.is-selection-linked {
   }
 }
 
-/* ---------- languages (2/5): « Affichage ▾ » (decision of 2026-09-30) ----------
-   The theme, the language and the projection mode leave the one-line top bar for a menu on the
-   model of « Volets ▾ »: its face says the theme's symbol and the language's code; its panel
-   lies on surface-raised, each control with its name, whole in every language. */
-.display-menu {
-  position: relative;
-}
-
-.top-bar > .display-menu > .display-menu-toggle {
-  min-height: var(--spacing-hit-target-min);
-  padding: 0 var(--spacing-3);
-  background: transparent;
-  color: var(--color-on-ink);
-  border: 1px solid var(--color-on-ink-soft);
-  border-radius: var(--rounded-md);
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.display-menu-panel {
-  position: absolute;
-  right: 0;
-  top: calc(100% + var(--spacing-1));
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-  width: max-content;
-  padding: var(--spacing-3);
-  background: var(--color-surface-raised);
-  color: var(--color-ink);
-  border: 1px solid var(--color-line);
-  border-radius: var(--rounded-md);
-  box-shadow: 0 var(--spacing-relief-offset-overlay) 0 var(--color-relief);
-  white-space: nowrap;
-}
-
-.display-menu-panel[hidden] {
-  display: none;
-}
-
-.display-menu-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-3);
-}
-
-.display-menu-label {
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-}
-
-/* In the panel, the projection button is the list's own: ink on surface-raised, pressed in
-   primary (on the bar it was on-ink). */
-.display-menu-panel .projection-toggle {
-  flex: 1;
-  color: var(--color-ink);
-  border-color: var(--color-line);
-}
-
-.display-menu-panel .projection-toggle[aria-pressed="true"] {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  border-color: var(--color-primary);
-}
-
-.display-menu-panel :focus-visible {
-  outline: var(--spacing-stroke-min) solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-@media (max-width: 1400px) {
-  .top-bar > .display-menu > .display-menu-toggle {
-    padding: 0 var(--spacing-2);
-  }
-}
-
-/* Under 1000 px (a 1280 or 1366 px window zoomed to 150 %), and in projection mode up to
-   1400 px, the face keeps the theme's symbol and the language's code only (its accessible
-   name and its menu unchanged): the scenario's name keeps its first words in German. */
-@media (width < 1000px) {
-  .display-menu-word {
-    display: none;
-  }
-}
-
-@media (max-width: 1400px) {
-  :root.projection .display-menu-word {
-    display: none;
-  }
-}
+/* ---------- languages (2/5): « Affichage ▾ » ----------
+   Story 2 of 2026-09-30: in the shared bar at the head of the page (pages.css). */
 
 /* ---------- languages (2/5): names of the top bar readable in every language ----------
    From 1000 px up, the scenario's name, the model's hosting and name and the model picker keep
@@ -5050,27 +4830,10 @@ body .arch .arch-robots .robot.is-selection-linked {
   }
 }
 
-/* Room for them: under 1700 px the title goes (the page's title keeps it), the screen links
-   say « LLM » and « RAG », and the model's chip keeps its hosting (« RÉSEAU »), its provider
-   staying in the tooltip; under 1400 px « Affichage ▾ » keeps its symbol and code (its
-   accessible name unchanged). */
+/* Room for them: under 1700 px the model's chip keeps its hosting (« RÉSEAU »), its provider
+   staying in the tooltip. */
 @media (max-width: 1700px) {
-  .top-bar-title,
   .top-bar .model-indicator-provider {
-    display: none;
-  }
-
-  .screen-link-long {
-    display: none;
-  }
-
-  .screen-link-short {
-    display: inline;
-  }
-}
-
-@media (max-width: 1400px) {
-  .display-menu-word {
     display: none;
   }
 }
@@ -5114,4 +4877,12 @@ body .arch .arch-robots .robot.is-selection-linked {
   :root.projection .top-bar > .gauge {
     gap: var(--spacing-2);
   }
+}
+
+/* ---------- story 2 of 2026-09-30: the shared bar at the head, the controls under the panes ----------
+   The page is a column: the shared bar (pages.css), the panes, then the main screen's bar
+   (`.top-bar`, its historical name kept), whose lists and panels open upwards. The shared bar
+   spans the column as the panes do. */
+body > .site-nav {
+  margin: 0;
 }

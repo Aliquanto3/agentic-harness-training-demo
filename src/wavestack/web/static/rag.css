@@ -12,16 +12,10 @@ body.rag-page {
     var(--typography-body-line-height) var(--typography-body-font-family);
 }
 
-.rag-page .page-tabs,
 .rag-main {
   max-width: 1560px;
   margin-left: auto;
   margin-right: auto;
-}
-
-.rag-page .page-tabs a.rag-back {
-  color: var(--color-primary);
-  margin-right: var(--spacing-4);
 }
 
 .rag-header h1 {

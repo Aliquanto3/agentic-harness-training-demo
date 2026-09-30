@@ -106,10 +106,9 @@ export function section(prefix) {
 }
 
 // Languages (4/5): the links of the pages' navigation (`nav[data-i18n-links]`), named by their
-// address (`/llm` → `common.links.llm`) or their id (`open-link` → `common.links.open`): each
-// page keeps its links' HTML as it is.
-const LINK_NAMES = { "/diagnostic": "diagnostic", "/models": "models", "/llm": "llm", "/rag": "rag" };
-const LINK_IDS = { "open-link": "open" };
+// address (`/llm` → `common.links.llm`; story 2 of 2026-09-30: `/` → `common.links.home`, the
+// brand « WaveStack » aside): each page keeps its links' HTML as it is.
+const LINK_NAMES = { "/": "home", "/diagnostic": "diagnostic", "/models": "models", "/llm": "llm", "/rag": "rag" };
 
 // The `data-i18n*` attributes of `root` and below: each names the key of its text or attribute.
 // A key the catalogue lacks leaves the French of the HTML.
@@ -117,8 +116,8 @@ export function applyTexts(root = document) {
   for (const node of root.querySelectorAll("[data-i18n]")) {
     if (has(node.dataset.i18n)) node.textContent = t(node.dataset.i18n);
   }
-  for (const link of root.querySelectorAll("[data-i18n-links] a:not([data-i18n])")) {
-    const name = LINK_IDS[link.id] ?? LINK_NAMES[link.getAttribute("href")];
+  for (const link of root.querySelectorAll("[data-i18n-links] a:not([data-i18n]):not(.site-nav-brand)")) {
+    const name = LINK_NAMES[link.getAttribute("href")];
     if (name && has(`common.links.${name}`)) link.textContent = t(`common.links.${name}`);
   }
   for (const [data, attribute] of ATTRIBUTES) {

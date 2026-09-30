@@ -2,7 +2,8 @@
 title: "Barre de navigation commune et barre basse de l'atelier"
 type: 'feature'
 created: '2026-10-01'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'ba09fd6b102d33f1d10a55b8eaae026e73d224b2'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -10,7 +11,8 @@ context:
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/ecrans-lots-2-a-4.md'
   - '{project-root}/_bmad-output/specs/spec-langues/i18n-conventions.md'
 warnings: []
-deferred: []
+deferred:
+  - '`back_text` des contenus `llm_lab` et `rag_lab` gardé, inutilisé (deferred-work.md)'
 ---
 
 <intent-contract>
@@ -91,3 +93,54 @@ Chemins relatifs à `src/wavestack/web/static/` sauf mention.
 - `node --check` sur chaque fichier JS touché -- expected: aucune erreur de syntaxe.
 - `uv run pytest -q tests/test_web_app.py tests/test_ui_texts.py tests/test_web_tokens.py tests/test_i18n.py` -- expected: tout passe.
 - E2E (orchestrateur) : `--only themes disciplines linked_view`, `--only language ui_language annex_language`, `--only model_catalog llm_screen rag_lab` -- expected: 0 échec.
+
+## Spec Change Log
+
+## Review Triage Log
+
+### 2026-10-01 — Review pass
+- verdicts: 34 findings — high 0, medium 3, low 31, false 0, maybe-false 0 (dont 8 constats descriptifs de l'audit d'intention)
+- findings:
+  - `[low]` `[patch]` (verification-gap) refus de changement de langue (`#display-menu-alert`) jamais testé — étape E2E avec `page.route` en 409.
+  - `[low]` `[patch]` (verification-gap) verrou de langue des pages annexes testé seulement déverrouillé — étape E2E conversation non vide, puis vidée.
+  - `[low]` `[patch]` (verification-gap) fermeture d'« Affichage » par Échap et clic extérieur non testée — étape E2E.
+  - `[low]` `[patch]` (verification-gap, autre) message de refus jamais effacé — effacé quand le sélecteur redevient disponible et à la fermeture.
+  - `[low]` `[reject]` (intent-alignment) tenue en projection seulement sur l'atelier — la projection n'existe que sur l'atelier (story).
+  - `[medium]` `[patch]` (intent-alignment) barre commune en `de` à 1 280 px non vérifiée sur les pages annexes — `_site_nav_problems` en `de` à 1 280 et 1 600 px sur les quatre pages annexes.
+  - `[low]` `[reject]` (intent-alignment) marque en mot et non en image — lecture défendable ; aucune image de logo n'existe.
+  - `[low]` `[reject]` (intent-alignment) liens cliqués seulement pour trois pages — `href` vérifiés sur les cinq pages ; coût E2E sans gain.
+  - `[low]` `[reject]` (intent-alignment) « Ouvrir WaveStack » remplacé par un lien toujours visible — prescrit par la story.
+  - `[low]` `[reject]` (intent-alignment) changement de langue possible depuis les pages annexes — prescrit par la story (menu partout).
+  - `[low]` `[reject]` (intent-alignment) `back_text` orphelin — noté en `deferred`.
+  - `[low]` `[reject]` (intent-alignment) preuve E2E seulement en prose — l'orchestrateur rejoue les tranches.
+  - `[medium]` `[patch]` (edge-case + blind) « Fenêtre » peut passer sous la barre commune (`max-height` sans la barre commune, z-index 30 < 40) — hauteur de la barre commune soustraite ; E2E vérifie le recouvrement.
+  - `[low]` `[patch]` (edge-case) Échap sur `/llm` ferme le menu et efface aussi le candidat épinglé — `defaultPrevented` respecté.
+  - `[low]` `[patch]` (edge-case) état en cache non rafraîchi après un refus sur une page annexe — `refreshState()` après le refus.
+  - `[low]` `[patch]` (edge-case) refus périmé affiché — même correctif que ci-dessus.
+  - `[low]` `[reject]` (edge-case) réponses de `/api/state` dans le désordre — ouverture rapide répétée du menu, cas improbable ; un jeton ajoute de l'état.
+  - `[low]` `[patch]` (edge-case) sélecteur désactivé sur `/diagnostic` avant tout `session_state` — état absent traité comme repos ; le serveur tranche.
+  - `[low]` `[reject]` (edge-case + blind) langue changée dans un autre onglet non suivie par les pages annexes — cas rare ; un rechargement suffit.
+  - `[low]` `[reject]` (edge-case + blind) barre commune sans repli au zoom 150-200 % — hors des largeurs de référence de la démo.
+  - `[low]` `[patch]` (edge-case) `_bar_under_panes` passe sans volet visible — échec explicite.
+  - `[low]` `[reject]` (edge-case) `s_diagnostic` continue si le diagnostic n'est jamais prêt — l'échec suivant reste visible.
+  - `[low]` `[reject]` (edge-case, suppression) plus d'indice « prêt » sur le diagnostic — prescrit par la story ; la liste des contrôles le dit.
+  - `[medium]` `[patch]` (edge-case, affirmation) panneau dit « entier » alors que la barre commune le recouvre — même correctif que « Fenêtre ».
+  - `[low]` `[reject]` (edge-case, affirmation) `test_web_tokens` non modifié pour 18/23 — le test miroir DESIGN.md ↔ `tokens.css` couvre la valeur, modifiée des deux côtés.
+  - `[low]` `[reject]` (edge-case, affirmation) `topBarFits` ne mesure pas la barre commune — la barre commune n'a pas d'éléments à réduire dynamiquement.
+  - `[low]` `[patch]` (blind) test « await ready » satisfait par `site-nav.js` pour toutes les pages — vérifié sur le script propre de la page.
+  - `[low]` `[patch]` (blind) styles en ligne de `/diagnostic` décalent « Affichage » — règles restreintes hors de `.site-nav`.
+  - `[low]` `[reject]` (blind) barre basse exposée comme `banner` et ordre clavier — ordre prescrit par la story ; landmark à revoir (noté au rapport).
+  - `[low]` `[reject]` (blind) deux liens vers `/` (marque et Atelier) — prescrit (marque et liens).
+  - `[low]` `[reject]` (blind) `aria-haspopup="true"` du menu — préexistant (Langues 2).
+  - `[low]` `[patch]` (blind) DESIGN.md `site-nav.min-height` différent du CSS — aligné.
+  - `[low]` `[reject]` (blind) ~48 px de hauteur perdus par les volets — compromis de la décision ; capture de projection comparée, pas de régression visible.
+  - `[low]` `[patch]` (blind) libellés et commentaires E2E et docs périmés (« barre haute », « Ouvrir WaveStack ») — reformulés.
+
+## Auto Run Result
+
+- Changement : barre commune `nav.site-nav` identique en tête des cinq pages (marque, Atelier, LLM nu, Atelier RAG, Diagnostic, Modèles, menu « Affichage ▾ » avec thème et langue partout, projection sur l'atelier) ; module partagé `site-nav.js` (menu, sélecteur de langue, refus) ; barre de l'atelier déplacée sous les volets, panneaux ouverts vers le haut ; `.page-tabs`, `#llm-link`, `#rag-link`, `#back-link`, `#open-link`, `.top-bar-title` retirés ; `pane-title` 19 → 18 px (24 → 23 en projection).
+- Fichiers : `static/site-nav.js` (nouveau), les cinq HTML, `pages.css`, `app.css`, `llm.css`, `rag.css`, `tokens.css`, `app.js`, `llm.js`, `rag.js`, `i18n.js`, `session/diagnostic.py` (docstrings), `content/ui.yaml` et surcouches (`common.links.home`, `common.display`), `tests/test_web_app.py`, `tests/test_ui_texts.py`, `tests/test_i18n.py`, `tools/e2e/run_e2e.py`, DESIGN.md, EXPERIENCE.md, `deferred-work.md`.
+- Revue : 18 correctifs appliqués (3 medium, 15 low, dont des doublons regroupés), 0 reporté hors `back_text`, 16 rejetés (raisons dans le journal).
+- Revue de suivi recommandée : non. Les trois medium relèvent de deux causes : le panneau recouvert par la barre commune, et la tenue non vérifiée sur les pages annexes. Toutes deux sont corrigées et vérifiées par l'E2E.
+- Vérification : `ruff`, `node --check` OK ; 4 fichiers de tests : 206 passés ; E2E du sous-agent : `themes disciplines linked_view` 115/115, `language ui_language annex_language` 56/56, `model_catalog llm_screen` 64/64, `rag rag_rerank rag_lab` 87/87, puis `model_catalog annex_language` 61/61 après correctifs. E2E complet rejoué par l'orchestrateur après le commit.
+- Risques résiduels : barre basse encore balisée `<header>` (landmark « banner ») ; ~48 px de hauteur en moins pour les volets à 1 280 × 650 ; sur `/diagnostic`, la barre est 8 px plus bas que sur les autres pages (marge de la page, story 3).

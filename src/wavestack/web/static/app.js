@@ -5,6 +5,8 @@
 // Languages (2/5): every text of the page comes from `content/ui.yaml` through `t()`, in the
 // session's language; the formats of numbers, amounts and dates follow it.
 import { dateTimeFormat, joinList, numberFormat as intlNumber, ready as textsReady, section, t } from "./i18n.js";
+// Story 2 (2026-09-30): « Affichage ▾ » and the language picker, shared by the five pages.
+import { languageChanging, renderLanguagePicker as drawLanguagePicker, setDisplayMenu, useSessionState } from "./site-nav.js";
 
 const PANES = ["bricks", "human", "ctx", "orch", "schema"];
 const PANE_LABELS = section("main.pane_titles");
@@ -306,7 +308,7 @@ function applyEnvelope(envelope) {
     case "language_changed":
       // Another tab changed the language: this page reloads in it too. Only against a language
       // `/api/state` gave (without it, a replayed change would reload the page).
-      if (isLive(envelope) && !languageChanging && store.language && p.language !== store.language.language) {
+      if (isLive(envelope) && !languageChanging() && store.language && p.language !== store.language.language) {
         location.reload();
       }
       break;
@@ -3234,53 +3236,22 @@ function resetHarness() {
   scenarioIntention("/api/intentions/reset", {}, t("main.top_bar.reset_no_answer"));
 }
 
-// ---------- languages (1/5): the language picker of the top bar ----------
+// ---------- languages (1/5): the language picker, in « Affichage ▾ » of the shared bar ----------
 
-// Languages (2/5): the picker's texts are in `common.language` of `content/ui.yaml`, in the
-// session's language like the rest of the page.
-let languageChanging = false; // the intention is on its way: the page reloads on success
+// Story 2 (2026-09-30): the picker, its lock and its intention are site-nav.js's, shared by the
+// five pages; the main screen gives it the session's state, which its events keep current.
+useSessionState({ opened: () => closePaneMenu() });
 
 function renderLanguagePicker() {
   const info = store.language;
-  const picker = document.getElementById("language-picker");
-  if (!picker) return;
-  if (!info) {
-    picker.disabled = true; // no `/api/state`: the lock is unknown, nothing to offer
-    return;
-  }
-  const idle = store.sessionState?.state === "idle";
-  const locked = Boolean(info.language_locked);
-  if (picker.value !== info.language) picker.value = info.language;
-  picker.disabled = locked || !idle || languageChanging;
-  const busy = store.sessionState?.reason_text || t("common.unavailable_outside_turn");
-  const title = locked ? t("common.language.locked") : idle ? t("common.language.help") : busy;
-  picker.title = title;
-  document.getElementById("language-picker-box").title = title;
-  picker.setAttribute("aria-label", t("common.language.name"));
-  setText(document.getElementById("language-picker-code"), info.language.toUpperCase());
-}
-
-async function changeLanguage(event) {
-  const wanted = event.target.value;
-  const current = store.language?.language ?? "fr";
-  event.target.value = current; // the option shown follows the session until the reload
-  if (wanted === current) return;
-  languageChanging = true;
-  store.composerError = null;
-  render();
-  try {
-    const response = await postIntention("/api/intentions/language", { language: wanted });
-    if (response.ok) {
-      location.reload(); // the page comes back in the new language
-      return;
+  drawLanguagePicker(
+    info && {
+      language: info.language,
+      language_locked: info.language_locked,
+      idle: store.sessionState?.state === "idle",
+      busy_text: store.sessionState?.reason_text ?? null,
     }
-    const detail = await response.json().catch(() => ({}));
-    store.composerError = typeof detail.detail === "string" ? detail.detail : t("common.language.refused");
-  } catch {
-    store.composerError = t("common.language.failed");
-  }
-  languageChanging = false;
-  render();
+  );
 }
 
 async function postIntention(path, body) {
@@ -7161,22 +7132,6 @@ function closePaneMenu() {
   document.getElementById("pane-menu-toggle").setAttribute("aria-expanded", "false");
 }
 
-// Languages (2/5): « Affichage ▾ », the theme, the language and the projection mode, out of
-// the top bar (decision of 2026-09-30): it holds in German at 1 280 px, projection included.
-function setDisplayMenu(open, returnFocus = false) {
-  const panel = document.getElementById("display-menu-panel");
-  const toggle = document.getElementById("display-menu-toggle");
-  if (panel.hidden === !open) return;
-  panel.hidden = !open;
-  toggle.setAttribute("aria-expanded", String(open));
-  if (open) {
-    closePaneMenu();
-    (panel.querySelector("select:not(:disabled), button") ?? toggle).focus();
-  } else if (returnFocus) {
-    toggle.focus();
-  }
-}
-
 async function boot() {
   // Languages (2/5): the interface's texts first (`i18n.js` has set `<html lang>` and the
   // `data-i18n*` of the page); every render reads them.
@@ -7209,13 +7164,9 @@ async function boot() {
     document.getElementById("pane-menu-toggle").setAttribute("aria-expanded", String(!expanded));
     if (!expanded) setDisplayMenu(false);
   });
-  document.getElementById("display-menu-toggle").addEventListener("click", () => {
-    setDisplayMenu(document.getElementById("display-menu-panel").hidden);
-  });
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".pane-menu")) closePaneMenu();
-    if (!event.target.closest(".display-menu")) setDisplayMenu(false);
     if (!event.target.closest(".window-picker")) closeWindowPanel();
   });
   bindWindowPicker();
@@ -7244,7 +7195,6 @@ async function boot() {
   document.getElementById("model-picker-apply").addEventListener("click", applyPick);
   bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
-  document.getElementById("language-picker").addEventListener("change", changeLanguage);
   document.getElementById("projection-toggle").addEventListener("click", toggleProjection);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
@@ -7296,7 +7246,8 @@ async function boot() {
   }, 250);
 
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
+    // Story 2: an open « Affichage ▾ » menu is closed by site-nav.js first (`defaultPrevented`).
+    if (event.key !== "Escape" || event.defaultPrevented) return;
     if (document.getElementById("audit-dialog").open) return; // the dialog closes itself
     if (document.getElementById("cloud-warning").open) return;
     if (!drawer().hidden) {
@@ -7305,8 +7256,6 @@ async function boot() {
       closeMemoryDrawer();
     } else if (!document.getElementById("pane-menu-list").hidden) {
       closePaneMenu();
-    } else if (!document.getElementById("display-menu-panel").hidden) {
-      setDisplayMenu(false, true);
     } else if (!windowPanel().hidden) {
       closeWindowPanel(true); // story 26: the focus back on « Fenêtre ▾ »
     } else if (store.selection !== null && selectionShown()) {

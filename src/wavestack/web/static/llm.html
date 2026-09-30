@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <script src="/static/theme.js"></script>
   <script type="module" src="/static/i18n.js"></script>
+  <script type="module" src="/static/site-nav.js"></script>
   <title data-i18n="llm.page_title">WaveStack — LLM nu</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -13,17 +14,39 @@
   <link rel="stylesheet" href="/static/llm.css" />
 </head>
 <body class="llm-page">
-  <nav class="page-tabs" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
-    <a href="/" id="back-link" class="llm-back" data-i18n="common.links.back">← Atelier</a>
+  <!-- Story 2 (2026-09-30): the bar shared by the five pages, the same HTML in each but for
+       `aria-current` and, on the main screen only, the projection mode (site-nav.js). -->
+  <nav class="site-nav" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
+    <a href="/" class="site-nav-brand">WaveStack</a>
+    <a href="/">Atelier</a>
+    <a href="/llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title" aria-current="page">LLM nu</a>
+    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">Atelier RAG</a>
     <a href="/diagnostic">Diagnostic</a>
     <a href="/models">Modèles</a>
-    <a href="/llm" aria-current="page">LLM nu</a>
-    <a href="/rag">Atelier RAG</a>
-    <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
-      <option value="system" data-i18n="common.theme.system">◐ Système</option>
-      <option value="light" data-i18n="common.theme.light">☀ Clair</option>
-      <option value="dark" data-i18n="common.theme.dark">☾ Sombre</option>
-    </select>
+    <div class="display-menu" id="display-menu">
+      <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="common.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="common.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
+      <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="common.display.menu" hidden>
+        <label class="display-menu-row"><span class="display-menu-label" data-i18n="common.display.theme">Thème</span>
+          <span class="theme-picker-box" id="theme-picker-box">
+            <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
+              <option value="system" data-i18n="common.theme.system">◐ Système</option>
+              <option value="light" data-i18n="common.theme.light">☀ Clair</option>
+              <option value="dark" data-i18n="common.theme.dark">☾ Sombre</option>
+            </select>
+          </span>
+        </label>
+        <label class="display-menu-row"><span class="display-menu-label" data-i18n="common.language.name">Langue</span>
+          <span class="language-picker-box" id="language-picker-box">
+            <select id="language-picker" class="language-picker" autocomplete="off" aria-label="Langue" data-i18n-aria-label="common.language.name">
+              <option value="fr" lang="fr">Français</option>
+              <option value="en" lang="en">English</option>
+              <option value="de" lang="de">Deutsch</option>
+            </select>
+          </span>
+        </label>
+        <p class="display-menu-alert" id="display-menu-alert" role="alert" hidden></p>
+      </div>
+    </div>
   </nav>
 
   <main class="llm-main">
