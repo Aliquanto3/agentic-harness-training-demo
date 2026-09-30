@@ -113,6 +113,16 @@ context:
 
 ## Implementation Notes
 
+**2026-09-30 — arrêt après le commit 3 (demande de l'utilisateur).**
+- Faits et commités sur `feat/i18n-5` : commit 1 (`b92efc6`, mécanisme et reprises de la story 1), commit 2 (`e526742`, messages lus par le LLM), commit 3 (`6555fa5`, messages vus par l'utilisateur, terminal en anglais). `ruff` et `pytest` (en huitièmes) verts après chaque commit ; l'E2E n'a pas été rejoué.
+- Mécanisme : `msg`, `Message` (un `str` dont la valeur est le français, rendu par `render(lang)`), `KeyedError`, `Lazy` (nombres et tailles dans la langue du rendu), `Said` et `in_language` dans `messages.py`. La session rend les `Message` des charges qu'elle émet (`_journal()`), le web ceux des réponses (`shown`) ; les moteurs servis ont un attribut `language` que la session met à jour.
+- Tests existants modifiés : les trois assertions de `_localized` (commit 1), la branche de parité de `test_i18n.py` (`messages.yaml` comparé clé à clé, sous-ensemble tant que les traductions ne sont pas complètes), les 4 assertions de la sortie terminal de `build_rag_index.py` (`test_rag_review.py`).
+- Traductions partielles déjà présentes : `content/i18n/en/messages.yaml` a 126 clés sur 1002 (`common`, `session.translation_invalid`, `tools.datetime`, `mcp.glossary`, et pour la sortie terminal `diagnostic`, `cli`, `rag`, `build_rag_index`) ; `content/i18n/de/messages.yaml` a 12 clés (les reprises du commit 1 et `common`). Les autres clés prennent le français.
+- Reste à faire :
+  - commit 4 : `content/i18n/{en,de}/messages.yaml` complets (deux sous-agents, un par langue, dont `common.units`, `config.budget.*` utilisés par le terminal), parité stricte dans `test_i18n.py` (mêmes clés), `common.language.help` dans les trois `ui.yaml`, tests paramétrés de la matrice en `en`/`de` (erreur d'outil lue par le modèle, appel mal formé, refus H1/H5, troncature, carte indisponible, diagnostic et catalogue, réglage contraire) dans `test_backend_messages.py` ; les ordinaux allemands de `rag_lab.rank.*` (« {n}. »).
+  - commit 5 : tranche E2E `backend_language` et motifs `messages.yaml` dans `run_e2e.py` ; `README.md`, `ARCHITECTURE-SPINE.md` (AD-19), `i18n-conventions.md`, `deferred-work.md`.
+- Risques connus : une raison de sonde stockée en français (`probe`, `settings.json`) n'est retraduite que si elle correspond exactement à un texte connu (`discovery.reason_message`) ; quand un `publishers.yaml` traduit et le français sont invalides, l'erreur reste française.
+
 ## Spec Change Log
 
 ## Review Triage Log
