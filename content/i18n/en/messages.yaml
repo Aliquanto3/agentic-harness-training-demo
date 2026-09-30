@@ -156,3 +156,7 @@ cli:
   description: "Launches WaveStack."
   port_help: "Listening port (default: configuration)."
   port_taken: "Port {port} is already used by another program. Restart with --port <other_port>."
+  already_running: "WaveStack is already running on port {port}, from {root} ({commit}). Opening the browser."
+  already_running_no_commit: "WaveStack is already running on port {port}, from {root} (unknown commit). Opening the browser."
+  already_running_unknown: "WaveStack is already running on port {port}, from an unknown folder (an earlier version). Opening the browser."
+  other_tree: "Warning: this instance does not come from this folder ({here}). To launch this one, stop it (Ctrl+C in its terminal) or restart with --port <other_port>."

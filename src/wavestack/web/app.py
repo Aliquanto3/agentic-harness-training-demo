@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import subprocess
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -211,6 +212,29 @@ def _latest(events: list[Envelope], kind: str) -> Envelope | None:
     return next((e for e in reversed(events) if e.kind == kind), None)
 
 
+def _git_commit(root: Path) -> str | None:
+    """Story R0 (CAP-1): the short commit of `root`, read once when the app is built; `None`
+    without git, without `.git` (a zip archive), past 2 s or on an empty answer, never an
+    error."""
+    try:
+        if not (root / ".git").exists():
+            return None  # never the commit of a repository above an unzipped archive
+        done = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    commit = (done.stdout or "").strip()
+    return commit if done.returncode == 0 and commit else None
+
+
 def create_app(
     session: DiagnosticSession,
     *,
@@ -285,9 +309,13 @@ def create_app(
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+    root = config.repo_root()
+    commit = _git_commit(root)  # once, never at each request
+
     @app.get("/api/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok", "version": version}
+    def health() -> dict[str, str | None]:
+        """Story R0 (CAP-1): which folder and which commit serve the page."""
+        return {"status": "ok", "version": version, "root": str(root), "commit": commit}
 
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon() -> FileResponse:

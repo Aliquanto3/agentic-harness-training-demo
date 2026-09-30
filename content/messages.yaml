@@ -1074,6 +1074,10 @@ cli:
   description: "Lance WaveStack."
   port_help: "Port d'écoute (défaut : configuration)."
   port_taken: "Le port {port} est déjà utilisé par un autre programme. Relancez avec --port <autre_port>."
+  already_running: "WaveStack est déjà lancé sur le port {port}, depuis {root} ({commit}). Ouverture du navigateur."
+  already_running_no_commit: "WaveStack est déjà lancé sur le port {port}, depuis {root} (commit inconnu). Ouverture du navigateur."
+  already_running_unknown: "WaveStack est déjà lancé sur le port {port}, depuis un dossier inconnu (version antérieure). Ouverture du navigateur."
+  other_tree: "Attention : cette instance ne vient pas de ce dossier ({here}). Pour lancer celui-ci, arrêtez-la (Ctrl+C dans son terminal) ou relancez avec --port <autre_port>."
 
 # `compression/headroom_adapter.py`: why the compression brick is unavailable.
 compression:

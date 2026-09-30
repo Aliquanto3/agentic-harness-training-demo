@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from fake_engine import FakeEngine
 from starlette.testclient import TestClient
 
@@ -13,6 +14,7 @@ from wavestack.session import diagnostic as diagnostic_module
 from wavestack.session.app_session import AppSession
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.journal import get_journal
+from wavestack.web import app as app_module
 from wavestack.web.app import create_app
 
 
@@ -54,7 +56,62 @@ def test_health_endpoint(monkeypatch, tmp_path):
     _, app = _build(monkeypatch, tmp_path)
     response = _client(app).get("/api/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    body = response.json()
+    assert body["status"] == "ok" and body["version"] == "test"
+    assert body["root"] == str(config.repo_root())
+    assert body["commit"] is None or (isinstance(body["commit"], str) and body["commit"])
+    if (config.repo_root() / ".git").exists():
+        expected = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=config.repo_root(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if expected.returncode == 0:
+            assert body["commit"] == expected.stdout.strip()
+
+
+def test_the_commit_is_read_once_when_the_app_is_built(monkeypatch, tmp_path):
+    calls = []
+
+    def git_commit(root):
+        calls.append(root)
+        return "abc1234"
+
+    monkeypatch.setattr(app_module, "_git_commit", git_commit)
+    _, app = _build(monkeypatch, tmp_path)
+    client = _client(app)
+
+    assert [client.get("/api/health").json()["commit"] for _ in range(3)] == ["abc1234"] * 3
+    assert calls == [config.repo_root()]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        FileNotFoundError("git"),
+        subprocess.TimeoutExpired(["git"], 2),
+        subprocess.CompletedProcess(["git"], 128, "", "fatal: not a git repository"),
+        subprocess.CompletedProcess(["git"], 0, "  \n", ""),
+    ],
+)
+def test_a_failing_git_gives_no_commit(monkeypatch, tmp_path, failure):
+    def run(*args, **kwargs):
+        if isinstance(failure, BaseException):
+            raise failure
+        return failure
+
+    (tmp_path / ".git").mkdir()
+    monkeypatch.setattr(app_module.subprocess, "run", run)
+
+    assert app_module._git_commit(tmp_path) is None
+
+
+def test_a_folder_without_git_gives_no_commit_without_calling_git(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module.subprocess, "run", lambda *a, **k: pytest.fail("git called"))
+
+    assert app_module._git_commit(tmp_path) is None
 
 
 def test_no_model_found_blocks_diagnostic(monkeypatch, tmp_path):

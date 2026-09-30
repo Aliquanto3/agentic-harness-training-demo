@@ -23,3 +23,11 @@ tools:
 mcp:
   glossary:
     unknown_term: "Begriff nicht im Glossar: „{term}“. Verfügbare Begriffe: {known}."
+
+# `cli.py`: the terminal speaks English; this German `cli` section is a subset (story R0's
+# keys only) until story 7 completes the translations.
+cli:
+  already_running: "WaveStack läuft bereits auf Port {port}, gestartet aus {root} ({commit}). Der Browser wird geöffnet."
+  already_running_no_commit: "WaveStack läuft bereits auf Port {port}, gestartet aus {root} (Commit unbekannt). Der Browser wird geöffnet."
+  already_running_unknown: "WaveStack läuft bereits auf Port {port}, gestartet aus einem unbekannten Ordner (frühere Version). Der Browser wird geöffnet."
+  other_tree: "Achtung: Diese Instanz stammt nicht aus diesem Ordner ({here}). Um diesen zu starten, beenden Sie sie (Strg+C in ihrem Terminal) oder starten Sie mit --port <anderer_port> neu."
