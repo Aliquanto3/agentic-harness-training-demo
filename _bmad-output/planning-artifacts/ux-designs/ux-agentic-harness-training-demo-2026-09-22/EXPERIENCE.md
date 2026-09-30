@@ -18,7 +18,7 @@ sources:
 - **Usage principal** : le formateur est seul aux commandes, l'écran est projeté ou partagé en visio (UJ-1, UJ-4). Usage secondaire : un participant technique seul sur son poste (UJ-2, UJ-3).
 - **Système d'interface** : aucun système de composants tiers nommé. `DESIGN.md` est la référence d'identité visuelle ; ce document décrit le comportement. Le choix du framework (NiceGUI ou Streamlit, addendum) relève de l'architecture et ne change pas ce contrat.
 - **Principe directeur** : tout ce que fait le harnais est visible, rien n'est masqué pour aller plus vite (SM-C3, NFR-1). Une défaillance du modèle est un matériau pédagogique, jamais un plantage (NFR-8).
-- **Langue** : interface et contenus en français (NFR-7). Deux thèmes, clair et sombre (story 31), « Système » par défaut : l'interface suit le réglage du poste tant que le formateur ne choisit pas (`theme-picker`).
+- **Langue** : interface et contenus en français par défaut (NFR-7) ; l'écran principal est aussi en anglais et en allemand depuis la story Langues 2/5 (les briques, scénarios, ateliers et messages du harnais suivent aux stories 3 à 5). La langue, le thème et le mode projection se règlent dans le menu « Affichage ▾ » de la barre haute. Deux thèmes, clair et sombre (story 31), « Système » par défaut : l'interface suit le réglage du poste tant que le formateur ne choisit pas (`theme-picker`).
 
 ## Information Architecture
 

@@ -292,9 +292,10 @@ Pour l'instant, la langue change :
   messages de l'interface elle-même, avec les nombres, montants et heures au format de la
   langue (« 1 234 », « 1,234 », « 1.234 »). Ses textes sont dans `content/ui.yaml`.
 
-Restent en français : les noms et explications des briques, les scénarios et leurs consignes, les messages produits par le
-harnais (erreurs, raisons d'indisponibilité, erreurs d'outils, résultat de `get_datetime`), les
-écrans « LLM nu » et « Atelier RAG », le corpus RAG et les titres de ses documents.
+Restent en français : les noms et explications des briques, les scénarios et leurs
+consignes, les messages produits par le harnais (erreurs, raisons d'indisponibilité, erreurs
+d'outils, résultat de `get_datetime`), les écrans « LLM nu » et « Atelier RAG », le corpus
+RAG et les titres de ses documents.
 Une mémoire globale que vous avez modifiée est gardée telle quelle ; la mémoire de
 démonstration, elle, passe dans la nouvelle langue.
 
@@ -778,7 +779,10 @@ entrée nouvelle doit être complète :
 ```
 
 Une entrée de même `id` qu'un préréglage le modifie champ par champ (par exemple
-`{"id": "groq", "tpm": 6000}`), et `"enabled": false` le masque.
+`{"id": "groq", "tpm": 6000}`), et `"enabled": false` le masque. Un `settings.json` écrit
+avant la version multilingue reste lu : les anciennes clés `hosting_fr`, `notes_fr`, `note_fr`
+(de `impacts`) et `label_fr` (de `[rag.embedding]`, `[rag.reranker]` ou `[rag_lab.fastembed]`)
+valent `hosting_text`, `notes_text`, `note_text` et `label_text`.
 
 Quatre champs facultatifs :
 - `key_env` : nom de la variable d'environnement qui fournit la clé (lettres majuscules,

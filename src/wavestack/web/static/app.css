@@ -5082,3 +5082,36 @@ body .arch .arch-robots .robot.is-selection-linked {
     display: none;
   }
 }
+
+/* The gauge's figures stay whole at 1280 px in every language (German's are the longest):
+   under 1400 px they take the label's size, « Volets ▾ » says « ▤ ▾ » and, in projection
+   mode, « Réinitialiser » says « ⟲ » (their accessible names and tooltips unchanged). */
+.pane-menu-icon {
+  display: none;
+}
+
+@media (max-width: 1400px) {
+  .top-bar .gauge-figures {
+    font-size: var(--typography-label-font-size);
+  }
+
+  .pane-menu-icon {
+    display: inline;
+  }
+
+  .pane-menu-word {
+    display: none;
+  }
+
+  :root.projection .top-bar .reset-word {
+    display: none;
+  }
+
+  :root.projection .top-bar {
+    padding: 0 var(--spacing-2);
+  }
+
+  :root.projection .top-bar > .gauge {
+    gap: var(--spacing-2);
+  }
+}

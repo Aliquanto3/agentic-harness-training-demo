@@ -175,6 +175,8 @@ const usd = (n) => t("common.format.usd", { amount: moneyFormat().format(n) });
 const eur = (n) => t("common.format.eur", { amount: moneyFormat().format(n) });
 // What the user (or the model) wrote, quoted as the language quotes: « … », “…”, „…“.
 const quote = (text) => t("common.format.quote", { text });
+// « Outil : 3 », « Tool: 3 »: a label and its value, with the language's colon.
+const labelValue = (label, value) => t("common.format.label_value", { label, value });
 // GreenOps: energy and emissions, 2 significant digits, French comma; a range « 0,035–0,23 Wh »
 // when its bounds differ once formatted. Under the display's precision (a thousandth), a
 // positive value is « < 0,001 » and a range from under it « ≤ 0,0016 »; 0 is a true 0 (its
@@ -1620,7 +1622,7 @@ function forceButton(brick, option) {
   const button = el("button", "force-button");
   button.type = "button";
   button.append(handIcon(), option.call ? `${label} · ${option.label_text}` : label);
-  button.setAttribute("aria-label", `${label} : ${option.label_text}`);
+  button.setAttribute("aria-label", labelValue(label, option.label_text));
   button.dataset.focusKey = `force:${brick.id}:${option.id}`;
   // A tool without parameter and a skill are armed at once; the others open their form.
   const hasParameters = Object.keys(option.parameters || {}).length > 0;
@@ -3198,7 +3200,7 @@ function renderScenarioUnavailable(unavailable) {
   const list = el("ul", "scenario-unavailable-list");
   for (const brick of unavailable) {
     const item = el("li");
-    item.append(el("strong", "", brick.label_text), ` : ${brick.reason_text}`);
+    item.append(el("strong", "", brick.label_text), labelValue("", brick.reason_text));
     list.appendChild(item);
   }
   box.replaceChildren(el("strong", "", title), list);
@@ -5850,7 +5852,7 @@ function renderChips() {
         ? t("main.panes.show_linked", { pane: name })
         : t("main.panes.show", { pane: name });
     // WCAG 2.5.3: the accessible name starts with the visible text.
-    chip.setAttribute("aria-label", `${chip.textContent.replace(/^● /, "")} : ${chip.title}`);
+    chip.setAttribute("aria-label", labelValue(chip.textContent.replace(/^● /, ""), chip.title));
     chip.addEventListener("click", () => showPane(paneId));
     container.appendChild(chip);
   }
@@ -6227,7 +6229,7 @@ function eventSummary(group) {
         .filter(Boolean)
         .join(" · ");
     case "model_load_ended":
-      return [`${p.model.label} : ${MODEL_LOAD_STATUS[p.status] ?? p.status}`, seconds(p.duration_ms), p.reason_text]
+      return [labelValue(p.model.label, MODEL_LOAD_STATUS[p.status] ?? p.status), seconds(p.duration_ms), p.reason_text]
         .filter(Boolean)
         .join(" · ");
     case "model_call_ended": {
@@ -6243,8 +6245,8 @@ function eventSummary(group) {
       return `${p.method} ${p.url}`;
     case "mcp_connect_ended":
       return p.status === "ok"
-        ? `${mcpServerLabel(p.server)} : ${plural(p.tools.length, "tool")} · ${seconds(p.duration_ms)}`
-        : `${mcpServerLabel(p.server)} : ${p.error_text}`;
+        ? `${labelValue(mcpServerLabel(p.server), plural(p.tools.length, "tool"))} · ${seconds(p.duration_ms)}`
+        : labelValue(mcpServerLabel(p.server), p.error_text);
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
@@ -6295,7 +6297,7 @@ function eventSummary(group) {
     case "reasoning_cut":
       return t("main.log.reasoning_cut", { tokens: p.reasoning_tokens, budget: p.budget, reserve: p.answer_reserve });
     case "diagnostic_check":
-      return `${p.check} : ${p.status} · ${p.message_text}`;
+      return `${labelValue(p.check, p.status)} · ${p.message_text}`;
     case "llm_tokenized":
       return p.exact
         ? `${t("main.ctx.tokens", { tokens: String(p.figures_text?.token_count ?? p.token_count) })} · ${p.model_label}`
@@ -6508,7 +6510,7 @@ function robotPose(sub = false) {
 function robot(pose, modelNode, sub = false) {
   const name = modelNode?.model ?? null;
   const who = sub ? t("main.schema.sub_robot") : name ? t("main.schema.model_named", { model: name }) : t("main.schema.model");
-  const label = `${who} : ${POSE_LABELS[pose]}`;
+  const label = labelValue(who, POSE_LABELS[pose]);
   const classes = `robot${sub ? " robot-sub" : ""}${pose === "idle" ? "" : " is-active"}`;
   const button = schemaButton(classes, sub ? "core.model_sub" : "core.model");
   button.setAttribute("aria-label", label);
@@ -6803,7 +6805,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
     const chip = schemaButton("arch-chip", node.id, `${icon} ${node.label_text}`);
     chip.dataset.discipline = nodeDiscipline(node); // story 33
     chip.classList.toggle("is-unavailable", !node.available);
-    chip.title = [node.available ? node.label_text : `${node.label_text} : ${node.reason_text}`, node.detail_text]
+    chip.title = [node.available ? node.label_text : labelValue(node.label_text, node.reason_text), node.detail_text]
       .filter(Boolean)
       .join("\n");
     chips.appendChild(chip);
@@ -6908,7 +6910,7 @@ function schemaGroup(group, members) {
   const bin = el("div", `arch-group arch-group-${group.shape}`);
   bin.setAttribute("role", "group");
   const title = GROUP_TITLES[group.title];
-  bin.setAttribute("aria-label", `${title} : ${members.length}`);
+  bin.setAttribute("aria-label", labelValue(title, String(members.length)));
   const list = el("div", "arch-group-nodes");
   for (const node of members) list.append(...schemaNode(node, group.shape));
   bin.append(el("span", "arch-group-title", `${group.icon} ${title} · ${members.length}`), list);

@@ -5000,6 +5000,12 @@ _READABLE_NAMES_JS = """() => {
       problems.push(`${name} « ${text.trim()} » : ${say}`);
     }
   }
+  // The gauge's figures, whole (not six characters: a figure cut says nothing).
+  const figures = document.getElementById('gauge-figures');
+  if (figures.scrollWidth > figures.clientWidth + 1) {
+    const missing = figures.scrollWidth - figures.clientWidth;
+    problems.push(`chiffres de la jauge « ${figures.textContent} » coupés de ${missing} px`);
+  }
   return problems;
 }"""
 
@@ -5029,7 +5035,7 @@ def _readable_bar(r: Run, lang: str) -> None:
                 fits and not names and not menu,
                 f"{lang}, {width} × {height}, mode {mode} : barre haute entière sur une ligne, "
                 "scénario, hébergement et nom du modèle, sélecteur de modèle lisibles "
-                "(≈ 6 caractères)",
+                "(≈ 6 caractères), chiffres de la jauge entiers",
                 f"{detail} ; {names} {menu}",
             )
             if lang == "de":
@@ -7442,13 +7448,25 @@ def _rag_lab_compare(r: Run) -> None:
         "relus du cache" in _result_card(r, "embedding", "b").inner_text(),
         "second run : l'Embedding de B dit « relus du cache »",
     )
-    # The chains are remembered by the browser, the comparison too.
+    # The chains are remembered by the browser, the comparison too. Languages (2/5): saved in
+    # the former format, each chain's label named `label_fr`, they are read again.
+    page.evaluate(
+        "() => { const key = 'wavestack.ragLab';"
+        " const saved = JSON.parse(localStorage.getItem(key));"
+        " saved.pipelines = saved.pipelines.map((p, i) => {"
+        " const { label_text: _, ...rest } = p;"
+        " return { label_fr: `Chaîne ${'AB'[i]}`, ...rest }; });"
+        " localStorage.setItem(key, JSON.stringify(saved)); }"
+    )
     page.reload()
     expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
     kept = page.locator('#rag-chain-b [data-kind="chunking"] input[data-param="chunk_max_chars"]')
+    lanes = [page.locator(f"{q} .rag-chain-card").count() for q in ("#rag-chain", "#rag-chain-b")]
     r.check(
-        page.locator("#rag-compare").is_checked() and kept.input_value() == "300",
-        "après rechargement, les chaînes A et B sont gardées (localStorage)",
+        page.locator("#rag-compare").is_checked() and kept.input_value() == "300" and all(lanes),
+        "après rechargement, les chaînes A et B sont gardées (localStorage), relues depuis "
+        "l'ancien format (label_fr)",
+        f"cartes {lanes}",
     )
     # Fewer candidates than excerpts kept: the session's reason on the card (increment 4
     # validates each change), « Lancer » greyed; posted anyway, the 409's reason.

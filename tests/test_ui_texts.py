@@ -94,6 +94,17 @@ def test_translation_mirrors_the_french_catalogue(lang):
             assert vars_tr == vars_fr, key
 
 
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_translation_quotes_as_its_language(lang):
+    """English quotes with “…”, German with „…“: never the French « »."""
+    french_quotes = [
+        key
+        for key, value in _leaves(_read(CONTENT / "i18n" / lang / "ui.yaml")).items()
+        if "«" in value or "»" in value
+    ]
+    assert not french_quotes
+
+
 def test_german_uses_the_formal_register():
     german = " ".join(_leaves(_read(CONTENT / "i18n" / "de" / "ui.yaml")).values())
     assert not re.search(r"\b(du|dich|dir|dein\w*)\b", german, re.I)
@@ -106,6 +117,8 @@ def test_every_key_of_the_page_is_in_french_and_the_html_says_it():
     page = (STATIC / "index.html").read_text(encoding="utf-8")
     script = (STATIC / "app.js").read_text(encoding="utf-8")
     keys = set(re.findall(rf'\bt\(\s*"({_KEY})"', script))
+    # Every key written as a string, a ternary's included (`t(a ? "main.x" : "main.y")`).
+    keys |= set(re.findall(r'"((?:main|common)\.[a-z0-9_.]+)"', script))
     keys |= {f"common.count.{n}" for n in re.findall(r'plural\([^()]*?, "(\w+)"\)', script)}
     sections = set(re.findall(rf'section\("({_KEY})"\)', script))
     missing = [k for k in sorted(keys) if not isinstance(_node(FRENCH, k), (str, dict))]

@@ -18,6 +18,7 @@ common:
     usd_below: "< {amount} $"
     eur: "{amount} €"
     quote: "« {text} »"
+    label_value: "{label} : {value}"
   unavailable_outside_turn: "Disponible hors d'un tour."
   busy: "WaveStack est occupé."
   action_refused: "Action refusée."

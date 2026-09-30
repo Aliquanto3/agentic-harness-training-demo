@@ -4,7 +4,7 @@ common:
   language:
     name: "Sprache"
     help: "Sprache der Oberfläche, dessen, was an das Modell geht (System-Prompt, Tools, Skills, Hooks, Gedächtnis, Glossar, RAG), und der Namen von Tools, Hooks, Skills und MCP-Servern. Die Bausteine, die Szenarien und die Meldungen des Harness bleiben vorerst auf Französisch."
-    locked: "Leeren Sie zuerst die Unterhaltung (« Unterhaltung leeren » oder « Zurücksetzen »): Die Sprache lässt sich nur bei leerer Unterhaltung ändern."
+    locked: "Leeren Sie zuerst die Unterhaltung („Unterhaltung leeren“ oder „Zurücksetzen“): Die Sprache lässt sich nur bei leerer Unterhaltung ändern."
     failed: "WaveStack antwortet nicht: Die Sprache wurde nicht geändert."
     refused: "Sprachwechsel abgelehnt."
   format:
@@ -12,6 +12,7 @@ common:
     usd_below: "< {amount} $"
     eur: "{amount} €"
     quote: "„{text}“"
+    label_value: "{label}: {value}"
   unavailable_outside_turn: "Außerhalb einer Runde verfügbar."
   busy: "WaveStack ist beschäftigt."
   action_refused: "Aktion abgelehnt."
@@ -68,9 +69,9 @@ main:
     orch: "Orchestrierung"
     schema: "Architekturschema"
   disciplines:
-    prompt: "Prompt engineering"
-    context: "Context engineering"
-    harness: "Harness engineering"
+    prompt: "Prompt Engineering"
+    context: "Context Engineering"
+    harness: "Harness Engineering"
     neutral: "Kein Baustein"
     network: "Verlässt den Arbeitsplatz"
   hosting:
@@ -179,7 +180,7 @@ main:
     edit_refused: "Änderung abgelehnt."
     edit_no_answer: "WaveStack antwortet nicht: Das Gedächtnis wurde nicht geändert."
     close: "Globales Gedächtnis schließen"
-    help: "Steht zu Beginn jeder Unterhaltung in der Systemnachricht. Ein geschriebener oder hinzugefügter Eintrag kommt erst in der nächsten Unterhaltung hinein (nach « Unterhaltung leeren » oder einem Szenariowechsel); Löschen oder Ändern wirkt sofort."
+    help: "Steht zu Beginn jeder Unterhaltung in der Systemnachricht. Ein geschriebener oder hinzugefügter Eintrag kommt erst in der nächsten Unterhaltung hinein (nach „Unterhaltung leeren“ oder einem Szenariowechsel); Löschen oder Ändern wirkt sofort."
     list_label: "Einträge des globalen Gedächtnisses"
     confirm_clear: "Ja, alles löschen"
     clear: "Alles löschen"
@@ -814,7 +815,7 @@ main:
     hook_strip: "Einhängepunkte"
     hook_blocked: "hat blockiert"
     hook_off: "deaktiviert"
-    hook_title: "{hook}: Code des Harness, Einhängepunkt « {point} »"
+    hook_title: "{hook}: Code des Harness, Einhängepunkt „{point}“"
     hook_off_title: "Deaktiviert: Dieser Hook greift nicht ein."
     contacted: "kontaktiert"
     failed: "fehlgeschlagen"

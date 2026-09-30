@@ -5240,6 +5240,7 @@ class AppSession:
                 ) from None
             with self._lock:
                 self._language = language
+                self._ui_texts = None  # never the former language's under the new code
             config.clear_content_caches()
             self._reload_texts()
             with self._lock:  # what the last `send` froze: the new default is no change

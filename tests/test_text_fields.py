@@ -57,6 +57,34 @@ def test_a_former_fr_key_overrides_the_shipped_text_key():
     assert _cloud("groq").hosting_text == "Mon hébergement"
 
 
+def test_former_notes_and_impacts_note_override_the_shipped_ones():
+    shipped = _cloud("groq")
+    assert shipped.impacts is not None
+    _write_settings(
+        {
+            "cloud": {
+                "models": [
+                    {"id": "groq", "notes_fr": "Mes notes", "impacts": {"note_fr": "Ma note"}}
+                ]
+            }
+        }
+    )
+    model = _cloud("groq")
+    assert (shipped.notes_text, shipped.impacts.note_text) != ("Mes notes", "Ma note")
+    assert model.notes_text == "Mes notes"
+    assert model.impacts is not None and model.impacts.note_text == "Ma note"
+    assert model.impacts.model == shipped.impacts.model  # the rest of the entry, merged
+
+
+def test_a_former_embedding_label_overrides_the_shipped_one():
+    shipped, _ = config.load_config().rag_embedding
+    assert shipped is not None and shipped.label_text != "Mon embedding"
+    _write_settings({"rag": {"embedding": {"label_fr": "Mon embedding"}}})
+    model, error = config.load_config().rag_embedding
+    assert error is None and model is not None
+    assert (model.label_text, model.id) == ("Mon embedding", shipped.id)
+
+
 def test_the_text_key_wins_over_the_former_one_in_the_same_entry():
     _write_settings(
         {"cloud": {"models": [{"id": "groq", "hosting_fr": "Ancien", "hosting_text": "Nouveau"}]}}
