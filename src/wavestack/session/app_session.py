@@ -199,6 +199,7 @@ from wavestack.trace.catalog import (
 )
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import current, scoped
+from wavestack.ui_texts import UiTexts, load_ui_texts
 
 DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
 LOAD_TOOL_DOC = "load_tool_doc"  # the harness meta-tool of the lazy loading mode (AD-25)
@@ -773,6 +774,9 @@ class AppSession:
         # Languages (1/5): the language of the content sent to the model, `fr` by default;
         # changed only on an empty conversation (`set_language`).
         self._language = self.cfg.language
+        # Languages (2/5): the interface's texts, read at the first `ui_texts()` in the
+        # session's language, again after a change of language.
+        self._ui_texts: UiTexts | None = None
         self._engine_factory = engine_factory
         # Story 18: the adapter of a model an already-running local server serves
         # (`llama_server`, `ollama_raw`), a fake one in tests.
@@ -5189,6 +5193,29 @@ class AppSession:
             "language_locked": locked,
         }
 
+    def ui_texts(self) -> dict[str, Any]:
+        """`GET /api/ui_texts` (languages 2/5): the interface's texts in the session's
+        language, each key a translation lacks in French; an invalid translation is traced
+        (`harness_error`), then French answers. A French file that cannot be read gives no
+        texts, traced: the page stays in the French of its HTML."""
+        with self._lock:
+            language, texts = self._language, self._ui_texts
+        if texts is None:
+            try:
+                texts = self._localized(load_ui_texts)
+            except Exception as exc:  # noqa: BLE001 - AD-19: traced, never fatal
+                self._error(
+                    "Le fichier content/ui.yaml est absent ou invalide.",
+                    exc,
+                    "L'interface reste dans le français de sa page ; le reste de WaveStack "
+                    "fonctionne.",
+                )
+                return {"language": language, "texts": {}}
+            with self._lock:
+                if self._language == language:
+                    self._ui_texts = texts
+        return {"language": language, "texts": texts}
+
     def set_language(self, language: str) -> None:
         """Class (b): saves `language` in `settings.json`, then reads again every text sent
         to the model in it. `SendRefused` outside `idle` or once the conversation is not
@@ -5266,6 +5293,9 @@ class AppSession:
         for brick_id, (attribute, load, args) in loaders.items():
             if brick_id in self._bricks and (text := again(load, *args)) is not None:
                 setattr(self, attribute, text)
+        # Languages (2/5): the interface's texts, in the new language for the reloaded page
+        # (`None`, read again at its request, when neither file can be read).
+        self._ui_texts = again(load_ui_texts)
 
         # The same tools, described again: only values change, never the registry's names.
         self._registry.content = self._tools_content

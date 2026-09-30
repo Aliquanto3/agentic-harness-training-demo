@@ -35,6 +35,7 @@ from wavestack.subagent import load_subagent_content
 from wavestack.tools.registry import load_tools_content
 from wavestack.trace.catalog import LanguageChangedPayload
 from wavestack.trace.journal import get_journal
+from wavestack.ui_texts import load_ui_texts
 from wavestack.web.app import LanguageIntention
 
 CONTENT = config.content_dir()
@@ -115,7 +116,8 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     french, translated = CONTENT / rel, CONTENT / "i18n" / lang / rel
     assert french.is_file(), f"{rel} n'existe pas en français"
     assert config.content_file(rel, lang) == translated
-    assert _placeholders(translated) == _placeholders(french)
+    if rel != "ui.yaml":  # languages (2/5): compared key by key (test_ui_texts)
+        assert _placeholders(translated) == _placeholders(french)
     assert translated.read_text(encoding="utf-8") != french.read_text(encoding="utf-8")
 
     if rel in ("prompts/system.md", "prompts/subagent.md"):
@@ -155,6 +157,9 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     elif rel == "mcp_local/tools.yaml":
         fr, tr = load_local_tools("fr"), load_local_tools(lang)
         assert tr.list_terms != fr.list_terms and tr.define_term != fr.define_term
+    elif rel == "ui.yaml":  # languages (2/5): its parity key by key is in test_ui_texts
+        fr, tr = load_ui_texts("fr"), load_ui_texts(lang)
+        assert tr["common"]["language"] != fr["common"]["language"]
     elif rel == "rag.yaml":
         fr, tr = load_rag_content("fr"), load_rag_content(lang)
         assert tr.documents == fr.documents  # the corpus and its index stay French (story 4)
@@ -207,9 +212,10 @@ def test_every_per_language_table_has_exactly_the_languages():
     picker = re.search(r'<select id="language-picker".*?</select>', html, re.S).group(0)
     options = re.findall(r'<option value="(\w+)" lang="\w+">([^<]+)</option>', picker)
     assert options == list(config.LANGUAGE_LABELS.items())
-    js = (static / "app.js").read_text(encoding="utf-8")
-    texts = re.search(r"const LANGUAGE_TEXTS = \{(.*?)\n\};", js, re.S).group(1)
-    assert re.findall(r"^  (\w+): \{", texts, re.M) == list(config.LANGUAGES)
+    # Languages (2/5): the picker's texts, once `LANGUAGE_TEXTS` of app.js, are in
+    # `common.language` of each language's ui.yaml.
+    names = {lang: load_ui_texts(lang)["common"]["language"]["name"] for lang in config.LANGUAGES}
+    assert names == {"fr": "Langue", "en": "Language", "de": "Sprache"}
 
 
 def test_h3_speaks_the_language_of_the_file_it_read(tmp_path, monkeypatch):

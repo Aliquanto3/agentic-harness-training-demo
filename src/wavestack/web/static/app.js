@@ -2,14 +2,12 @@
 // panes or not, and only ever formats/derives (never recomputes business
 // data such as tokens or availability).
 
+// Languages (2/5): every text of the page comes from `content/ui.yaml` through `t()`, in the
+// session's language; the formats of numbers, amounts and dates follow it.
+import { dateTimeFormat, joinList, numberFormat as intlNumber, ready as textsReady, section, t } from "./i18n.js";
+
 const PANES = ["bricks", "human", "ctx", "orch", "schema"];
-const PANE_LABELS = {
-  bricks: "Panneau des briques",
-  human: "Vue humain",
-  ctx: "Contexte LLM",
-  orch: "Orchestration",
-  schema: "Schéma d'architecture",
-};
+const PANE_LABELS = section("main.pane_titles");
 
 const store = {
   sessionState: null,
@@ -143,17 +141,12 @@ const GROUP_COLORS = {
 // Story 33: the disciplines, in the order of the legends. A segment, a gauge group and a brick
 // card carry theirs from the session (`discipline`, `category`, AD-1); the colours are the
 // `--color-discipline-*` tokens, read by `[data-discipline]` in app.css.
-const DISCIPLINES = [
-  ["prompt", "Prompt engineering"],
-  ["context", "Context engineering"],
-  ["harness", "Harness engineering"],
-];
-const DISCIPLINE_NAMES = Object.fromEntries(DISCIPLINES);
+const DISCIPLINE_IDS = ["prompt", "context", "harness"];
+const DISCIPLINE_NAMES = section("main.disciplines");
+const disciplines = () => DISCIPLINE_IDS.map((d) => [d, DISCIPLINE_NAMES[d]]);
 // Neutral: no brick (message, template), an assistant turn, or a brick the table lacks; one
 // label in the legend and in the tooltips.
-const NEUTRAL_FR = "Hors brique";
-const NETWORK_FR = "Sort du poste de travail";
-const disciplineName = (d) => DISCIPLINE_NAMES[d] || NEUTRAL_FR;
+const disciplineName = (d) => (DISCIPLINE_IDS.includes(d) ? DISCIPLINE_NAMES[d] : DISCIPLINE_NAMES.neutral);
 
 // A legend: one bordered swatch and a name per discipline. `network`: the yellow never alone,
 // its swatch carries the globe (DESIGN.md > Colors).
@@ -170,25 +163,28 @@ function disciplineLegend(className, items) {
   return list;
 }
 
-const numberFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
-const fmt = (n) => numberFormat.format(n);
-const seconds = (ms) => `${numberFormat.format(Math.max(ms, 0) / 1000)} s`;
-// FinOps: amounts in dollars (or euros), 4 significant digits, French comma; formatting only.
-const moneyFormat = new Intl.NumberFormat("fr-FR", { maximumSignificantDigits: 4 });
-const usd = (n) => `${moneyFormat.format(n)} $`;
-const eur = (n) => `${moneyFormat.format(n)} €`;
+// The formats of the session's language (`i18n.js`), read at each call: never before the
+// texts are there.
+const numberFormat = () => intlNumber({ maximumFractionDigits: 1 });
+const fmt = (n) => numberFormat().format(n);
+const seconds = (ms) => `${numberFormat().format(Math.max(ms, 0) / 1000)} s`;
+// FinOps: amounts in dollars (or euros), 4 significant digits, in the language's pattern
+// (« 0,02 $ », « $0.02 »); formatting only.
+const moneyFormat = () => intlNumber({ maximumSignificantDigits: 4 });
+const usd = (n) => t("common.format.usd", { amount: moneyFormat().format(n) });
+const eur = (n) => t("common.format.eur", { amount: moneyFormat().format(n) });
 // GreenOps: energy and emissions, 2 significant digits, French comma; a range « 0,035–0,23 Wh »
 // when its bounds differ once formatted. Under the display's precision (a thousandth), a
 // positive value is « < 0,001 » and a range from under it « ≤ 0,0016 »; 0 is a true 0 (its
 // note says why). Formatting only (the figures are the session's).
-const footprintFormat = new Intl.NumberFormat("fr-FR", { maximumSignificantDigits: 2 });
+const footprintFormat = () => intlNumber({ maximumSignificantDigits: 2 });
 const FOOTPRINT_FLOOR = 0.001;
 const tiny = (n) => n > 0 && n < FOOTPRINT_FLOOR;
 function rangeText(low, high, unit) {
-  if (tiny(high) || (tiny(low) && high === low)) return `< ${footprintFormat.format(FOOTPRINT_FLOOR)} ${unit}`;
-  const b = footprintFormat.format(high);
+  if (tiny(high) || (tiny(low) && high === low)) return `< ${footprintFormat().format(FOOTPRINT_FLOOR)} ${unit}`;
+  const b = footprintFormat().format(high);
   if (tiny(low)) return `≤ ${b} ${unit}`;
-  const a = footprintFormat.format(low);
+  const a = footprintFormat().format(low);
   return a === b ? `${a} ${unit}` : `${a}–${b} ${unit}`;
 }
 
@@ -261,7 +257,7 @@ function sameServerInstance(instanceId) {
   return false;
 }
 
-const RESET_STATUS_FR = "WaveStack réinitialisé : LLM nu.";
+const resetStatusText = () => t("main.top_bar.reset_done");
 const RESET_STATUS_MS = 6000;
 let resetStatusTimer = null;
 
@@ -368,11 +364,11 @@ function applyEnvelope(envelope) {
       Object.assign(eventLog, { groups: [], processed: store.logFrom, rows: [], list: null });
       store.memoryDrafts.clear();
       if (!isLive(envelope)) break; // an earlier reset: no confirmation in the top bar
-      store.topStatus = RESET_STATUS_FR;
+      store.topStatus = resetStatusText();
       // A4: a discreet confirmation, over the panes: it leaves on its own.
       clearTimeout(resetStatusTimer);
       resetStatusTimer = setTimeout(() => {
-        if (store.topStatus !== RESET_STATUS_FR) return;
+        if (store.topStatus !== resetStatusText()) return;
         store.topStatus = null;
         render();
       }, RESET_STATUS_MS);
@@ -594,7 +590,7 @@ function applyEnvelope(envelope) {
       }
       if (turn) {
         Object.assign(turn, {
-          phaseLabel: "En attente de validation",
+          phaseLabel: t("main.chat.awaiting_approval"),
           callStartedAt: Date.parse(envelope.ts),
           firstToken: false,
         });
@@ -634,7 +630,7 @@ function applyEnvelope(envelope) {
       if (turn) turn.errors.push([p.message_text, ...(p.hints_text ?? [])].join(" "));
       // Story 15: a failed download (or load) of the RAG's model, said on its card.
       else if (envelope.brick === "rag") {
-        const notice = [p.message_text, p.cause ? `Cause : ${p.cause}.` : null, p.effect_text].filter(Boolean).join(" ");
+        const notice = [p.message_text, p.cause ? t("main.bricks.notice_cause", { cause: p.cause }) : null, p.effect_text].filter(Boolean).join(" ");
         // Story 16: the reranker's, said under its switch.
         if (envelope.component === "rag.reranker") store.rerankNotice = notice;
         else store.ragNotice = notice;
@@ -717,7 +713,7 @@ function subProjection(turn, envelope) {
 function applySubEnvelope(turn, sub, envelope) {
   const p = envelope.payload;
   const phase = (label) =>
-    Object.assign(turn, { phaseLabel: `Sous-agent · ${label}`, callStartedAt: Date.parse(envelope.ts), firstToken: false });
+    Object.assign(turn, { phaseLabel: t("main.chat.subagent_phase", { label }), callStartedAt: Date.parse(envelope.ts), firstToken: false });
   const last = (type) => sub.steps.filter((s) => s.type === type).at(-1);
   switch (envelope.kind) {
     case "subagent_started":
@@ -797,7 +793,7 @@ function applySubEnvelope(turn, sub, envelope) {
         hook.approval = p;
         hook.component ||= envelope.component;
       }
-      Object.assign(turn, { phaseLabel: "En attente de validation", callStartedAt: Date.parse(envelope.ts), firstToken: false });
+      Object.assign(turn, { phaseLabel: t("main.chat.awaiting_approval"), callStartedAt: Date.parse(envelope.ts), firstToken: false });
       break;
     }
     case "approval_resolved": {
@@ -1077,10 +1073,8 @@ function emptyNote(text) {
   return el("p", "empty-note", text);
 }
 
-const NO_TURN_FR =
-  "Aucun tour pour l'instant. Envoyez un message : le contexte envoyé au modèle apparaîtra ici.";
-const CLEARED_FR =
-  "Conversation vidée : le prochain message repart sans historique. Les tours précédents restent dans le journal des événements (replié, en bas d'Orchestration).";
+const noTurnText = () => t("main.chat.no_turn");
+const clearedText = () => t("main.chat.cleared");
 
 // The turns still shown after the last `conversation_cleared`, and whether one happened.
 const shownTurns = () => store.turns.slice(store.chatFrom);
@@ -1135,15 +1129,15 @@ function renderBricks() {
   }
   pane.innerHTML = "";
   if (!store.bricks) {
-    pane.appendChild(emptyNote("En attente du harnais…"));
+    pane.appendChild(emptyNote(t("main.bricks.waiting_harness")));
     return;
   }
   // Story 33: the four disciplines first, then the cards in their two groups.
   pane.appendChild(
-    disciplineLegend("discipline-legend brick-legend", [...DISCIPLINES, ["network", NETWORK_FR]])
+    disciplineLegend("discipline-legend brick-legend", [...disciplines(), ["network", DISCIPLINE_NAMES.network]])
   );
   // Story 34: how to read the panes together.
-  pane.appendChild(el("p", "brick-link-hint", LINK_HINT_FR));
+  pane.appendChild(el("p", "brick-link-hint", t("main.bricks.link_hint")));
   pane.appendChild(forcedToggle());
   if (store.armError) {
     const error = el("p", "force-error", store.armError);
@@ -1172,7 +1166,7 @@ function renderBricks() {
     // From the keyboard: the card itself takes the focus, Enter or Space selects it.
     card.tabIndex = 0;
     card.dataset.focusKey = `brickcard:${brick.id}`;
-    card.setAttribute("aria-label", `Brique ${brick.label_text}`);
+    card.setAttribute("aria-label", t("main.bricks.card_name", { brick: brick.label_text }));
     card.addEventListener("keydown", (event) => {
       if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
       event.preventDefault();
@@ -1199,7 +1193,7 @@ function renderBricks() {
     if (always) {
       // Story 33: the switch the model locks, said by the padlock beside it.
       const lock = el("span", "brick-lock", "🔒");
-      lock.title = "Verrouillé : imposé par ce modèle";
+      lock.title = t("main.bricks.locked_by_model");
       lock.setAttribute("aria-hidden", "true");
       head.appendChild(lock);
     }
@@ -1210,7 +1204,7 @@ function renderBricks() {
     if (brick.hosting_text) tags.appendChild(el("span", "hosting-tag-local", brick.hosting_text));
     // Story 33: an enabled option leaves the workstation: « 🌐 RÉSEAU » on the card itself.
     if (!parentOff && (brick.options || []).some((o) => o.enabled && o.network)) {
-      tags.appendChild(el("span", "hosting-tag-network brick-network", "RÉSEAU"));
+      tags.appendChild(el("span", "hosting-tag-network brick-network", t("main.hosting.network")));
     }
     // Story 33: what the brick weighs or does now, refreshed in place (`updateBrickStatuses`).
     const status = el("p", "brick-status", brickStatus(brick));
@@ -1228,7 +1222,7 @@ function renderBricks() {
     if (brick.note_text) card.appendChild(el("p", "brick-note", brick.note_text));
     // Story 23: what leaves the workstation and where to read it, outside the folded options.
     if (brick.outbound_text) card.appendChild(el("p", "brick-outbound", brick.outbound_text));
-    if (brick.pending) card.appendChild(el("p", "brick-pending", "Prend effet au prochain tour"));
+    if (brick.pending) card.appendChild(el("p", "brick-pending", t("main.bricks.pending")));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
     if (armed.length) card.appendChild(armedChips(armed, `card:${brick.id}`));
@@ -1246,7 +1240,7 @@ function renderBricks() {
       const help = el("button", "brick-help", "?");
       help.type = "button";
       help.setAttribute("popovertarget", `explain-${brick.id}`);
-      help.setAttribute("aria-label", `Ce que la brique ${brick.label_text} ajoute`);
+      help.setAttribute("aria-label", t("main.bricks.help_label", { brick: brick.label_text }));
       const popover = el("div", "brick-explanation");
       popover.id = `explain-${brick.id}`;
       popover.setAttribute("popover", "");
@@ -1269,7 +1263,7 @@ function renderBricks() {
     }
     if (brick.id === "global_memory") card.append(...memoryCardParts(brick));
     if (brick.id === "system_prompt") {
-      const edit = el("button", "brick-edit", "Modifier le prompt");
+      const edit = el("button", "brick-edit", t("main.bricks.edit_prompt"));
       edit.type = "button";
       edit.disabled = !brick.available;
       edit.id = "edit-system-prompt";
@@ -1291,8 +1285,7 @@ function renderBricks() {
   }
 }
 
-const BRICK_GROUPS = { reads: "Ce que le modèle lit", acts: "Ce que le harnais fait" };
-const LINK_HINT_FR = "Survolez une brique : elle s'éclaire dans le contexte, l'orchestration et le schéma.";
+const BRICK_GROUPS = section("main.bricks.groups");
 // What a click on a card leaves to its controls (switch and its label, options, forms, help).
 const BRICK_CONTROLS = "input, button, a, select, textarea, label, summary, details, [popover], .force-form";
 
@@ -1315,31 +1308,31 @@ function updateBrickLinks() {
 // Counting a received list and the gap between two received values stay formatting.
 function brickStatus(brick) {
   const always = Boolean(brick.always_text);
-  if (always) return "Imposé par ce modèle";
-  if (!brick.available) return "Indisponible"; // wanted or not: it cannot be switched on
-  if (!brick.wanted) return "Éteinte";
+  if (always) return t("main.bricks.status.imposed");
+  if (!brick.available) return t("main.bricks.status.unavailable"); // wanted or not: it cannot be switched on
+  if (!brick.wanted) return t("main.bricks.status.switched_off");
   const p = store.gauge?.payload;
-  if (!p) return "En attente du modèle";
-  if (brick.id === "reasoning") return `Réserve de sortie : ${plural(p.reserve, "token")}`;
+  if (!p) return t("main.bricks.status.waiting_model");
+  if (brick.id === "reasoning") return t("main.bricks.status.reserve", { tokens: t("common.count.token", { count: p.reserve }) });
   const row = (p.by_brick || []).find((b) => b.brick === brick.id);
   // Only « n tokens dans le contexte » says « ≈ » (EXPERIENCE.md > brick-card); the others count.
-  const count = plural(row?.tokens ?? 0, "token");
-  if (brick.id === "global_memory") return `${plural(store.memory?.entries?.length ?? 0, "entrée")} · ${count}`;
+  const count = t("common.count.token", { count: row?.tokens ?? 0 });
+  if (brick.id === "global_memory") return `${t("common.count.entry", { count: store.memory?.entries?.length ?? 0 })} · ${count}`;
   if (brick.id === "tools" || brick.id === "mcp") {
     const on = (brick.options || []).filter((o) => o.enabled);
-    const declared = `${fmt(on.length)} déclaré${on.length > 1 ? "s" : ""}`;
+    const declared = t("main.bricks.status.declared", { count: on.length });
     if (!on.some((o) => o.network)) return `${declared} · ${count}`;
     const contacted = (store.architecture.nodes || []).filter(
       (n) =>
         n.id.startsWith(`${brick.id}.`) && n.hosting === "network" && n.contact && n.contact !== "not_contacted"
     ).length;
-    return `${declared} · ${fmt(contacted)} contacté${contacted > 1 ? "s" : ""}`;
+    return `${declared} · ${t("main.bricks.status.contacted", { count: contacted })}`;
   }
   if (brick.id === "compression") {
     const gain = p.uncompressed_used == null ? 0 : p.uncompressed_used - p.used;
-    return gain > 0 ? `Gain : ${plural(gain, "token")}` : "Aucun gain pour l'instant";
+    return gain > 0 ? t("main.bricks.status.gain", { tokens: t("common.count.token", { count: gain }) }) : t("main.bricks.status.no_gain");
   }
-  return `${approx(Boolean(row?.estimated))}${count} dans le contexte`;
+  return t("main.bricks.status.in_context", { tokens: `${approx(Boolean(row?.estimated))}${count}` });
 }
 
 // Story 33: the status lines follow the gauge, the memory and the schema without rebuilding
@@ -1354,8 +1347,8 @@ function updateBrickStatuses() {
 // Story 22: why a sub-option cannot be set while its brick is off: the brick's own reason when
 // it is unavailable, else how to turn it on. Said on hover (`title`) and to screen readers.
 function parentOffReason(brick) {
-  if (!brick.available) return brick.reason_text || `La brique ${brick.label_text} est indisponible.`;
-  return `Activez la brique ${brick.label_text} pour régler cette option.`;
+  if (!brick.available) return brick.reason_text || t("main.bricks.parent_unavailable", { brick: brick.label_text });
+  return t("main.bricks.parent_off", { brick: brick.label_text });
 }
 
 // Story 22: a sub-option's row whose brick is off: its switch keeps its state but is greyed
@@ -1378,9 +1371,9 @@ function downloadParts(brick) {
   // Story 15 (AD-21): « Télécharger » while the model is missing, « Construire l'index » once
   // it is there; the progress and « Arrêter » while either runs. Figures from the session.
   const state = store.sessionState?.state;
-  const jobs = { download: "Arrêter le téléchargement", index_build: "Arrêter la construction" };
+  const jobs = { download: t("main.bricks.stop_download"), index_build: t("main.bricks.stop_build") };
   if (jobs[state]) {
-    const progress = el("p", "brick-download-progress", store.sessionState.reason_text || "En cours…");
+    const progress = el("p", "brick-download-progress", store.sessionState.reason_text || t("common.in_progress"));
     progress.setAttribute("role", "status");
     const stop = el("button", "brick-edit brick-download-stop", jobs[state]);
     stop.type = "button";
@@ -1405,7 +1398,7 @@ function downloadParts(brick) {
   button.disabled = !idle;
   const parts = [...notice, button];
   if (!idle) {
-    const why = el("p", "brick-download-why", store.sessionState?.reason_text || "WaveStack est occupé.");
+    const why = el("p", "brick-download-why", store.sessionState?.reason_text || t("common.busy"));
     why.id = `download-why-${brick.id}`;
     button.setAttribute("aria-describedby", why.id);
     parts.push(why);
@@ -1447,7 +1440,7 @@ function rerankParts(brick, offReason = null) {
     button.type = "button";
     button.dataset.focusKey = "download:rag:rerank";
     button.disabled = state !== "idle";
-    if (button.disabled) button.title = store.sessionState?.reason_text || "WaveStack est occupé.";
+    if (button.disabled) button.title = store.sessionState?.reason_text || t("common.busy");
     button.addEventListener("click", () => ragAction("/api/intentions/download_model", { target: option.download.target }));
     box.appendChild(button);
     // A refusal (409) is said here when the card's own offer does not already say it.
@@ -1462,10 +1455,10 @@ async function ragAction(path, body) {
     const response = await postIntention(path, body);
     if (!response.ok) {
       const answer = await response.json().catch(() => ({}));
-      store.downloadError = typeof answer.detail === "string" ? answer.detail : "Action refusée.";
+      store.downloadError = typeof answer.detail === "string" ? answer.detail : t("common.action_refused");
     }
   } catch {
-    store.downloadError = "WaveStack ne répond pas : rien n'a commencé.";
+    store.downloadError = t("main.bricks.no_answer_nothing_started");
   }
   renderedBricks = null;
   scheduleRender();
@@ -1481,13 +1474,13 @@ function brickOptions(brick, offReason = null) {
     else store.openExplanations.delete(key);
   });
   const on = brick.options.filter((o) => o.enabled).length;
-  const noun = { mcp: "Serveurs", skills: "Skills", hooks: "Hooks" }[brick.id] || "Outils";
+  const noun = section("main.bricks.option_nouns")[brick.id] || t("main.bricks.option_nouns.tools");
   // The closed card still shows the MCP documentation mode; the brick off, that it is off
   // (story 22: a lazy loading shown while MCP is off seemed to act).
-  const mode = offReason ? " · brique éteinte" : brick.mode === "lazy" ? ` · ${brick.lazy_label_text}` : "";
+  const mode = offReason ? ` · ${t("main.bricks.brick_off")}` : brick.mode === "lazy" ? ` · ${brick.lazy_label_text}` : "";
   details.classList.toggle("is-parent-off", Boolean(offReason));
   details.appendChild(
-    el("summary", "", `${noun} : ${on} activé${on > 1 ? "s" : ""} sur ${brick.options.length}${mode}`)
+    el("summary", "", t("main.bricks.options_summary", { noun, count: on, total: brick.options.length, mode }))
   );
   const list = el("ul", "brick-option-list");
   for (const option of brick.options) {
@@ -1541,21 +1534,15 @@ function brickOptions(brick, offReason = null) {
 
 const FORCED_STORAGE_KEY = "wavestack.forcedActions";
 // EXPERIENCE: force-button labels, by brick; a native tool has none there: « Forcer l'appel ».
-const FORCE_LABELS = {
-  tools: "Forcer l'appel",
-  skills: "Déclencher le skill",
-  mcp: "Charger la documentation",
-  global_memory: "Écrire en mémoire",
-  subagent: "Déléguer au sous-agent",
-};
+const FORCE_LABELS = section("main.force.labels");
 // Story 14: the memory write is forced from the card itself, a form with one field whose
 // help comes with the card (AD-19).
 function memoryForceOption(brick) {
   return {
     id: "remember",
-    label_text: "Mémoire globale",
+    label_text: t("main.memory.title"),
     parameters: { text: brick.text_help_text || "" },
-    fieldLabels: { text: "Texte" },
+    fieldLabels: { text: t("main.force.text_field") },
     presets: [],
   };
 }
@@ -1595,7 +1582,7 @@ function forcedToggle() {
     renderedBricks = null; // the Forcer buttons appear or leave
     scheduleRender();
   });
-  row.append(toggle, el("span", "", "Afficher les actions forcées"));
+  row.append(toggle, el("span", "", t("main.force.show")));
   return row;
 }
 
@@ -1716,7 +1703,7 @@ function forceForm(brick, option) {
         ? armAction(brick.force.kind, brick.force.target, { ...form.values }, form)
         : armAction("tool", option.id, { ...form.values }, form);
   if (brick.id === "mcp" && !option.call) {
-    box.setAttribute("aria-label", `Charger la documentation d'un outil de ${option.label_text}`);
+    box.setAttribute("aria-label", t("main.force.doc_form_label", { server: option.label_text }));
     const select = el("select");
     select.dataset.focusKey = `${base}:tool`;
     for (const name of option.tools) {
@@ -1728,11 +1715,11 @@ function forceForm(brick, option) {
     select.addEventListener("change", () => {
       form.values.tool = select.value;
     });
-    box.appendChild(forceField("Outil", select));
+    box.appendChild(forceField(t("main.force.tool_field"), select));
   } else {
     box.setAttribute(
       "aria-label",
-      brick.force ? `${brick.force.label_text} : tâche et préréglages` : `Arguments de l'appel forcé : ${option.label_text}`
+      brick.force ? t("main.force.task_form_label", { action: brick.force.label_text }) : t("main.force.args_form_label", { option: option.label_text })
     );
     if (option.presets?.length) {
       const select = el("select");
@@ -1742,7 +1729,7 @@ function forceForm(brick, option) {
         choice.value = String(i);
         select.appendChild(choice);
       });
-      const free = el("option", "", "Saisie libre");
+      const free = el("option", "", t("main.force.free_input"));
       free.value = "-1";
       select.appendChild(free);
       select.value = String(form.preset);
@@ -1752,7 +1739,7 @@ function forceForm(brick, option) {
         store.forceForm = { ...form, preset, values, error: null };
         forceUiChanged();
       });
-      box.appendChild(forceField("Préréglage", select));
+      box.appendChild(forceField(t("main.force.preset_field"), select));
     }
     for (const [name, description] of Object.entries(option.parameters)) {
       const input = el("input");
@@ -1781,11 +1768,11 @@ function forceForm(brick, option) {
     box.appendChild(error);
   }
   const actions = el("div", "force-actions");
-  const armButton = el("button", "force-arm", "Armer");
+  const armButton = el("button", "force-arm", t("main.force.arm"));
   armButton.type = "button";
   armButton.dataset.focusKey = `${base}:arm`;
   armButton.addEventListener("click", arm);
-  const cancel = el("button", "force-cancel", "Annuler");
+  const cancel = el("button", "force-cancel", t("common.cancel"));
   cancel.type = "button";
   cancel.dataset.focusKey = `${base}:cancel`;
   cancel.addEventListener("click", () => {
@@ -1811,10 +1798,10 @@ async function armAction(kind, target, args, form = null) {
     const response = await postIntention("/api/intentions/arm", { kind, target, args });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      error = typeof body.detail === "string" ? body.detail : "Armement refusé : vérifiez les arguments.";
+      error = typeof body.detail === "string" ? body.detail : t("main.force.arm_refused");
     }
   } catch {
-    error = "WaveStack ne répond pas : l'action n'a pas été armée.";
+    error = t("main.force.arm_no_answer");
   } finally {
     armsPending.delete(pendingKey);
   }
@@ -1853,8 +1840,8 @@ function armedChips(actions, keyPrefix) {
     chip.type = "button";
     const close = el("span", "armed-chip-close", "✕");
     close.setAttribute("aria-hidden", "true");
-    chip.append(handIcon(), `Armé : ${action.label_text}`, close);
-    chip.setAttribute("aria-label", `Désarmer ${action.label_text}`);
+    chip.append(handIcon(), t("main.force.armed_chip", { action: action.label_text }), close);
+    chip.setAttribute("aria-label", t("main.force.disarm", { action: action.label_text }));
     chip.dataset.focusKey = `${keyPrefix}:${action.armed_id}`;
     chip.addEventListener("click", () => disarmAction(action.armed_id));
     row.appendChild(chip);
@@ -1869,7 +1856,7 @@ function triggerBadge(trigger) {
   const badge = el("span", user ? "trigger-badge-user" : "trigger-badge-model");
   const icon = el("span", "", user ? "👆 " : "🤖 ");
   icon.setAttribute("aria-hidden", "true");
-  badge.append(icon, user ? "Forcé par l'utilisateur" : "Déclenché par le modèle");
+  badge.append(icon, user ? t("main.trigger.user") : t("main.trigger.model"));
   return badge;
 }
 
@@ -1951,7 +1938,7 @@ function openDrawer() {
 
 function closeDrawer(force = false) {
   if (!force && drawerText().value !== store.bricks?.system_prompt.text) {
-    drawerAlert("Modification non enregistrée. Enregistrer ou abandonner ?", true);
+    drawerAlert(t("main.drawer.unsaved"), true);
     return;
   }
   drawerAlert(null);
@@ -1970,19 +1957,19 @@ async function saveSystemPrompt(text) {
     if (store.bricks) store.bricks.system_prompt = saved;
     drawerText().value = saved.text;
     drawerAlert(null);
-    drawerStatus(text === null ? "Prompt par défaut rétabli." : "Prompt système enregistré.");
+    drawerStatus(text === null ? t("main.drawer.default_restored") : t("main.drawer.saved"));
     syncDrawerSave();
     return true;
   } catch {
     drawerStatus(null);
-    drawerAlert("Enregistrement refusé : WaveStack ne répond pas. Réessayez.");
+    drawerAlert(t("main.drawer.save_no_answer"));
     return false;
   }
 }
 
 // ---------- global memory: card and edit drawer (story 14, FR-12, AD-23) ----------
 
-const MEMORY_SOURCES = { model: "écrite par le modèle", user: "écrite par l'utilisateur", demo: "démonstration" };
+const MEMORY_SOURCES = section("main.memory.sources");
 const memoryDrawer = () => document.getElementById("memory-drawer");
 
 function memoryCardParts(brick) {
@@ -1991,7 +1978,7 @@ function memoryCardParts(brick) {
   const memory = store.memory;
   if (memory && !memory.error_text) {
     const n = memory.entries.length;
-    parts.push(el("p", "brick-limits", n ? `${plural(n, "entrée")} en mémoire globale.` : "Mémoire globale vide."));
+    parts.push(el("p", "brick-limits", n ? t("main.memory.card_count", { entries: t("common.count.entry", { count: n }) }) : t("main.memory.card_empty")));
   }
   if (store.showForced) {
     const option = memoryForceOption(brick);
@@ -2005,7 +1992,7 @@ function memoryCardParts(brick) {
     parts.push(force);
     if (!brick.note_text && isFormOpen(brick.id, option.id)) parts.push(forceForm(brick, option));
   }
-  const edit = el("button", "brick-edit", "Modifier la mémoire");
+  const edit = el("button", "brick-edit", t("main.memory.edit"));
   edit.type = "button";
   edit.disabled = !memory || Boolean(memory.error_text);
   edit.id = "edit-memory";
@@ -2031,7 +2018,7 @@ function memoryAlert(text, choice = null) {
 function askClearMemory() {
   const n = store.memory?.entries.length ?? 0;
   if (!n) return;
-  memoryAlert(`Effacer ${n > 1 ? `les ${n} entrées` : "l'entrée"} de la mémoire globale ? Le fichier est réécrit aussitôt.`, "clear");
+  memoryAlert(t("main.memory.clear_question", { count: n }), "clear");
 }
 
 async function confirmClearMemory() {
@@ -2076,7 +2063,7 @@ function openMemoryDrawer() {
 
 function closeMemoryDrawer(force = false) {
   if (!force && memoryDirty().length) {
-    memoryAlert("Modification non enregistrée. Enregistrer ou abandonner ?", "dirty");
+    memoryAlert(t("main.drawer.unsaved"), "dirty");
     return;
   }
   store.memoryDrafts.clear();
@@ -2096,7 +2083,7 @@ function renderMemoryDrawer() {
   for (const id of [...store.memoryDrafts.keys()]) {
     if (!entries.some((e) => e.id === id)) store.memoryDrafts.delete(id); // deleted meanwhile
   }
-  document.getElementById("memory-path").textContent = memory ? `Fichier : ${memory.path}` : "";
+  document.getElementById("memory-path").textContent = memory ? t("main.memory.file", { path: memory.path }) : "";
   const empty = document.getElementById("memory-empty");
   empty.textContent = memoryCard()?.empty_text ?? "";
   empty.hidden = entries.length > 0;
@@ -2105,7 +2092,7 @@ function renderMemoryDrawer() {
   list.innerHTML = "";
   entries.forEach((entry, i) => {
     const item = el("li", "memory-entry");
-    const label = `Entrée ${i + 1}`;
+    const label = t("main.memory.entry", { n: String(i + 1) });
     const head = el("div", "memory-entry-head");
     head.append(el("span", "memory-entry-name", label), el("span", "memory-entry-source", MEMORY_SOURCES[entry.source] ?? entry.source));
     const text = el("textarea", "memory-entry-text");
@@ -2113,21 +2100,21 @@ function renderMemoryDrawer() {
     if (memory?.max_chars) text.maxLength = memory.max_chars;
     text.spellcheck = false;
     text.value = store.memoryDrafts.get(entry.id) ?? entry.text;
-    text.setAttribute("aria-label", `Texte de l'entrée ${i + 1}`);
+    text.setAttribute("aria-label", t("main.memory.entry_text", { n: String(i + 1) }));
     text.dataset.focusKey = `memory:${entry.id}:text`;
-    const save = el("button", "memory-entry-save", "Enregistrer");
+    const save = el("button", "memory-entry-save", t("common.save"));
     save.type = "button";
     save.disabled = text.value === entry.text;
-    save.setAttribute("aria-label", `Enregistrer l'entrée ${i + 1}`);
+    save.setAttribute("aria-label", t("main.memory.entry_save", { n: String(i + 1) }));
     save.dataset.focusKey = `memory:${entry.id}:save`;
     text.addEventListener("input", () => {
       store.memoryDrafts.set(entry.id, text.value); // kept in place: typing never rebuilds
       save.disabled = text.value === entry.text;
     });
     save.addEventListener("click", () => saveMemoryEntries([entry.id]));
-    const remove = el("button", "memory-entry-delete", "Supprimer");
+    const remove = el("button", "memory-entry-delete", t("main.memory.delete"));
     remove.type = "button";
-    remove.setAttribute("aria-label", `Supprimer l'entrée ${i + 1}`);
+    remove.setAttribute("aria-label", t("main.memory.entry_delete", { n: String(i + 1) }));
     remove.dataset.focusKey = `memory:${entry.id}:delete`;
     remove.addEventListener("click", () => editMemory({ op: "delete", entry_id: entry.id }));
     // Story 22: compact and flat, told apart from the footer's « Tout effacer » and « Fermer ».
@@ -2148,11 +2135,11 @@ async function editMemory(body) {
     const response = await postIntention("/api/intentions/memory", body);
     if (!response.ok) {
       const answer = await response.json().catch(() => ({}));
-      memoryAlert(typeof answer.detail === "string" ? answer.detail : "Modification refusée.");
+      memoryAlert(typeof answer.detail === "string" ? answer.detail : t("main.memory.edit_refused"));
       return false;
     }
   } catch {
-    memoryAlert("WaveStack ne répond pas : la mémoire n'a pas été modifiée.");
+    memoryAlert(t("main.memory.edit_no_answer"));
     return false;
   }
   if (body.entry_id) store.memoryDrafts.delete(body.entry_id);
@@ -2175,10 +2162,10 @@ async function clearConversation() {
     const response = await postIntention("/api/intentions/clear_conversation", {});
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      store.composerError = typeof body.detail === "string" ? body.detail : "Action refusée.";
+      store.composerError = typeof body.detail === "string" ? body.detail : t("common.action_refused");
     }
   } catch {
-    store.composerError = "WaveStack ne répond pas : la conversation n'a pas été vidée.";
+    store.composerError = t("main.chat.clear_no_answer");
   }
   render();
 }
@@ -2189,10 +2176,10 @@ async function replayLast() {
     const response = await postIntention("/api/intentions/replay", {});
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      store.composerError = typeof body.detail === "string" ? body.detail : "Rejeu refusé.";
+      store.composerError = typeof body.detail === "string" ? body.detail : t("main.chat.replay_refused");
     }
   } catch {
-    store.composerError = "WaveStack ne répond pas : le rejeu n'a pas eu lieu.";
+    store.composerError = t("main.chat.replay_no_answer");
   }
   render();
 }
@@ -2213,7 +2200,7 @@ function renderGauge() {
   if (!gauge) {
     threshold.hidden = true;
     renderGaugeLegend([]);
-    figures.textContent = "Contexte : en attente du modèle";
+    figures.textContent = t("main.gauge.waiting");
     figures.title = figures.textContent;
     return;
   }
@@ -2225,7 +2212,7 @@ function renderGauge() {
     seg.style.flexGrow = String(item.tokens);
     seg.dataset.discipline = item.discipline || "neutral";
     seg.dataset.group = item.group;
-    seg.title = `${item.label_text} : ${fmt(item.tokens)} tokens · ${disciplineName(seg.dataset.discipline)}`;
+    seg.title = t("main.gauge.segment", { label: item.label_text, tokens: item.tokens, discipline: disciplineName(seg.dataset.discipline) });
     seg.setAttribute("aria-label", seg.title);
     // Story 34: the bricks and components of its segments (by `kinds`), and the call measured.
     const segments = (p.segments || []).filter((s) => item.kinds.includes(s.kind));
@@ -2240,22 +2227,20 @@ function renderGauge() {
   renderGaugeLegend(p.breakdown);
   const free = el("span", "gauge-free");
   free.style.flexGrow = String(Math.max(p.usable - p.used, 0));
-  free.title = `Espace libre : ${fmt(Math.max(p.usable - p.used, 0))} tokens`;
+  free.title = t("main.gauge.free", { tokens: Math.max(p.usable - p.used, 0) });
   bar.appendChild(free);
   threshold.hidden = p.overflow; // past 100 % the bar no longer maps to `usable`
   threshold.style.left = `${p.near_limit_ratio * 100}%`;
-  threshold.title = `Seuil d'alerte : ${fmt(p.near_limit_ratio * 100)} %`;
+  threshold.title = t("main.gauge.threshold", { percent: p.near_limit_ratio * 100 });
 
-  let text = `${approxTotal(p)}${fmt(p.used)} / ${fmt(p.usable)} tokens · ${fmt(p.percent)} %`;
-  if (p.overflow) text = `⚠ ${text} · contexte dépassé`;
-  else if (p.near_limit) text = `⚠ ${text} · Contexte plein à ${fmt(p.percent)} %`;
+  let text = t("main.gauge.figures", { approx: approxTotal(p), used: p.used, usable: p.usable, percent: p.percent });
+  if (p.overflow) text = `⚠ ${text} · ${t("main.gauge.overflow")}`;
+  else if (p.near_limit) text = `⚠ ${text} · ${t("main.gauge.near_limit", { percent: p.percent })}`;
   if (p.uncertain_text) text += ` · ${p.uncertain_text}`;
-  if (gauge.preview) text += " · prochain tour";
+  if (gauge.preview) text += ` · ${t("main.gauge.next_turn")}`;
   figures.textContent = text;
   figures.title = text; // story 33: cut on a narrow window, whole in the tooltip
-  root.title =
-    `Fenêtre de ${fmt(p.window)} tokens, dont ${fmt(p.reserve)} réservés à la réponse : ` +
-    `${fmt(p.usable)} utilisables.`;
+  root.title = t("main.gauge.title", { window: p.window, reserve: p.reserve, usable: p.usable });
 }
 
 // Story 33: the disciplines present in the gauge, prompt, context, harness, then the neutral
@@ -2263,8 +2248,8 @@ function renderGauge() {
 let renderedGaugeLegend = null;
 function renderGaugeLegend(breakdown) {
   const present = new Set(breakdown.map((item) => item.discipline || "neutral"));
-  const items = DISCIPLINES.filter(([d]) => present.has(d));
-  if (present.has("neutral")) items.push(["neutral", NEUTRAL_FR]);
+  const items = disciplines().filter(([d]) => present.has(d));
+  if (present.has("neutral")) items.push(["neutral", DISCIPLINE_NAMES.neutral]);
   const key = items.map(([d]) => d).join(",");
   if (key === renderedGaugeLegend) return;
   renderedGaugeLegend = key;
@@ -2279,14 +2264,14 @@ const approxTotal = (p) =>
 
 // FinOps: « Coût estimé : entrée … $ · sortie … $ » (a call), « coût estimé entrée … $ ·
 // sortie … $ » (a turn's head), from the cost fields; always said to be an estimate.
-function costText(cost, label = "Coût estimé : ") {
+function costText(cost, label = t("main.cost.call_label")) {
   const guess = approx(cost.cost_source === "estimate");
-  return `${label}entrée ${guess}${usd(cost.cost_in_usd)} · sortie ${guess}${usd(cost.cost_out_usd)}`;
+  return t("main.cost.text", { label, input: `${guess}${usd(cost.cost_in_usd)}`, output: `${guess}${usd(cost.cost_out_usd)}` });
 }
 
 // GreenOps: « Empreinte estimée : 0,11 Wh · 0,046 g CO₂e » (a call), « empreinte estimée … » (a
 // turn's head), a range when EcoLogits gives one; from the footprint fields.
-function footprintText(p, label = "Empreinte estimée : ") {
+function footprintText(p, label = t("main.footprint.call_label")) {
   return `${label}${rangeText(p.energy_wh_min, p.energy_wh_max, "Wh")} · ${rangeText(p.gco2e_min, p.gco2e_max, "g CO₂e")}`;
 }
 
@@ -2296,15 +2281,18 @@ function footprintText(p, label = "Empreinte estimée : ") {
 function footprintNode(ended) {
   if (ended?.energy_wh_min == null && !ended?.impact_note_text) return null;
   const known = ended.energy_wh_min != null;
-  const node = el("div", `token-counter footprint${known ? " number" : " is-unavailable"}`, known ? footprintText(ended) : "Empreinte estimée : indisponible");
+  const node = el("div", `token-counter footprint${known ? " number" : " is-unavailable"}`, known ? footprintText(ended) : t("main.footprint.unavailable"));
   if (ended.impact_note_text) node.title = ended.impact_note_text;
   return node;
 }
 
 // FinOps, the top bar's compact amounts: 4 decimals at most (a hundredth of a cent), « < 0,0001 $ »
 // under it; the 4 significant digits stay in the tooltip. Formatting only.
-const shortMoneyFormat = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 4 });
-const shortUsd = (n) => (n > 0 && n < 0.00005 ? "< 0,0001 $" : `${shortMoneyFormat.format(n)} $`);
+const shortMoneyFormat = () => intlNumber({ minimumFractionDigits: 0, maximumFractionDigits: 4 });
+const shortUsd = (n) =>
+  n > 0 && n < 0.00005
+    ? t("common.format.usd_below", { amount: shortMoneyFormat().format(0.0001) })
+    : t("common.format.usd", { amount: shortMoneyFormat().format(n) });
 
 // FinOps: the session's API spend in the top bar, from the first paid call: « Dépense estimée »
 // over « entrée $ + sortie $ », the whole sentence (4 significant digits, the euros) in the
@@ -2322,27 +2310,32 @@ function renderConsumption() {
   const green = (c.impact_calls ?? 0) > 0;
   const guess = approx(c.approx);
   const grams = green ? rangeText(c.gco2e_min, c.gco2e_max, "g CO₂e") : "";
-  setText(document.getElementById("consumption-label"), paid ? "Dépense estimée" : "Empreinte estimée");
+  setText(document.getElementById("consumption-label"), paid ? t("main.consumption.spend_label") : t("main.consumption.footprint_label"));
   setText(document.getElementById("consumption-money"), paid ? `${guess}${shortUsd(c.total_in_usd)} + ${shortUsd(c.total_out_usd)}` : "");
   const footprint = document.getElementById("consumption-footprint");
   setText(footprint, green ? `${paid ? " · " : ""}${grams}` : "");
   const sentences = [];
   if (paid) {
     sentences.push(
-      `Dépense API estimée de la séance : entrée ${guess}${usd(c.total_in_usd)}, sortie ${guess}${usd(c.total_out_usd)}, ` +
-        `soit ${guess}${eur(c.total_eur)} au taux de ${moneyFormat.format(c.eur_per_usd)} € pour 1 $ ` +
-        `(${plural(c.calls, "appel")} payant${c.calls > 1 ? "s" : ""}, estimation à partir des prix déclarés).`,
+      t("main.consumption.spend_sentence", {
+        input: `${guess}${usd(c.total_in_usd)}`,
+        output: `${guess}${usd(c.total_out_usd)}`,
+        total: `${guess}${eur(c.total_eur)}`,
+        rate: moneyFormat().format(c.eur_per_usd),
+        calls: t("main.consumption.paid_calls", { count: c.calls }),
+      }),
     );
   }
   if (green) {
     sentences.push(
-      `Empreinte estimée de la séance : ${rangeText(c.energy_wh_min, c.energy_wh_max, "Wh")} · ${grams} ` +
-        `(${plural(c.impact_calls, "appel")}). Deux périmètres s'y additionnent : en cloud, le cycle de vie ` +
-        "d'EcoLogits (électricité des serveurs et part de leur fabrication) ; en local, l'électricité " +
-        "consommée seulement (CodeCarbon, kWh × intensité), sans la fabrication du poste.",
+      t("main.consumption.footprint_sentence", {
+        energy: rangeText(c.energy_wh_min, c.energy_wh_max, "Wh"),
+        grams,
+        calls: t("common.count.call", { count: c.impact_calls }),
+      }),
     );
   }
-  sentences.push(`Seul un relancement de WaveStack remet ${sentences.length > 1 ? "ces totaux" : "ce total"} à zéro.`);
+  sentences.push(sentences.length > 1 ? t("main.consumption.reset_totals") : t("main.consumption.reset_total"));
   const sentence = sentences.join(" ");
   if (node.title !== sentence) {
     node.title = sentence;
@@ -2404,15 +2397,17 @@ function renderModelIndicator() {
   const tag = el(
     "span",
     network ? "hosting-tag-network" : "hosting-tag-local",
-    network ? `RÉSEAU · ${model.provider}` : served ? `Local · ${model.provider}` : "Local"
+    network
+      ? `${t("main.hosting.network")} · ${model.provider}`
+      : served
+        ? `${t("main.hosting.local")} · ${model.provider}`
+        : t("main.hosting.local")
   );
   button.replaceChildren(tag, el("span", "model-indicator-name", model.label));
   button.title = served
-    ? `Modèle servi par ${model.provider} sur ce poste (${model.server_url}) : processus distinct ` +
-      "de WaveStack ; le texte envoyé est construit par le harnais."
-    : model.warning_text ??
-      `Modèle local ${model.label}, sur ce poste. Cliquez pour ouvrir le diagnostic.`;
-  button.setAttribute("aria-label", `Modèle actif : ${model.label}. ${button.title}`);
+    ? t("main.model.served_title", { provider: model.provider, url: model.server_url })
+    : model.warning_text ?? t("main.model.local_title", { model: model.label });
+  button.setAttribute("aria-label", t("main.model.active_label", { model: model.label, title: button.title }));
 }
 
 // ---------- story 17: model picker (EXPERIENCE.md model-picker), hot switch ----------
@@ -2464,10 +2459,10 @@ function renderModelPicker() {
   picker.disabled = !idle || !store.modelList;
   const legend = store.modelList?.models?.legend_text;
   picker.title = !idle
-    ? state?.reason_text || "Disponible hors d'un tour."
+    ? state?.reason_text || t("common.unavailable_outside_turn")
     : !store.modelList
-      ? "Liste des modèles indisponible : nouvel essai dans quelques secondes."
-      : `Changer de modèle : la conversation est conservée.${legend ? ` ${legend}` : ""}`;
+      ? t("main.model.list_unavailable")
+      : `${t("main.model.picker_title")}${legend ? ` ${legend}` : ""}`;
   if (!idle) store.pickerPending = "";
   const active = store.activeModel;
   const key = JSON.stringify([store.modelList, modelKey(active)]);
@@ -2484,12 +2479,12 @@ function renderModelPicker() {
   setText(
     apply,
     pending === PICK_OTHER
-      ? "Ouvrir le diagnostic"
+      ? t("main.model.open_diagnostic")
       : pending === PICK_MODELS
-        ? "Ouvrir le tableau"
+        ? t("main.model.open_table")
         : pending.startsWith("cloud:")
-          ? "Choisir…"
-          : "Charger"
+          ? t("main.model.choose")
+          : t("main.model.load")
   );
 }
 
@@ -2555,11 +2550,11 @@ function closeWindowPanel(returnFocus = false) {
 // Why « Appliquer » cannot act on the choice noted, else `null`.
 function windowApplyReason(ws, pick) {
   const state = store.sessionState;
-  if (state?.state !== "idle") return state?.reason_text || "Disponible entre deux tours seulement.";
+  if (state?.state !== "idle") return state?.reason_text || t("main.window.between_turns");
   if (ws.locked_text) return ws.locked_text;
-  if (pick === ws.configured) return `La fenêtre est déjà de ${fmt(pick)} tokens.`;
+  if (pick === ws.configured) return t("main.window.already", { window: pick });
   const choice = ws.choices.find((c) => c.window === pick);
-  if (!choice) return "Choisissez une fenêtre.";
+  if (!choice) return t("main.window.choose");
   return choice.fits ? null : choice.refusal_text;
 }
 
@@ -2570,25 +2565,24 @@ function renderWindowPicker() {
   toggle.disabled = !ws;
   // Lot K (A3): the button shows the effective window; the one chosen, when it differs
   // (llama-server's `-c`, the native context…), is in its tooltip.
-  const chosen = ws && ws.configured !== ws.window ? `, ${fmt(ws.configured)} choisi` : "";
+  const chosen = ws && ws.configured !== ws.window ? t("main.window.chosen", { window: ws.configured }) : "";
   const title = !ws
-    ? "Fenêtre de contexte : en attente de la session."
-    : `Fenêtre de contexte : ${fmt(ws.window)} tokens` + (ws.bound_text ? `, ${ws.bound_text}` : "") + `${chosen}.`;
+    ? t("main.window.waiting")
+    : t("main.window.toggle_title", { window: ws.window, bound: ws.bound_text ? `, ${ws.bound_text}` : "", chosen });
   if (toggle.title !== title) toggle.title = title;
-  toggle.setAttribute("aria-label", ws ? `Fenêtre ${fmt(ws.window)} : régler la fenêtre de contexte` : "Fenêtre de contexte");
+  toggle.setAttribute("aria-label", ws ? t("main.window.toggle_label", { window: ws.window }) : t("main.window.panel_title"));
   if (!ws || windowPanel().hidden) return;
   const pick = store.windowPick ?? ws.configured;
   const list = document.getElementById("window-choices");
   setText(
     document.getElementById("window-help"),
-    `Les scénarios sont conçus pour ${fmt(ws.default)} tokens. Une fenêtre plus grande coûte ` +
-      "de la mémoire et du temps de lecture."
+    t("main.window.help", { window: ws.default })
   );
   // A value set by hand outside the choices: said, no choice marked « (actuelle) ».
   const offList = !ws.choices.some((c) => c.current);
   const currentLine = document.getElementById("window-current");
   currentLine.hidden = !offList;
-  setText(currentLine, offList ? `Fenêtre actuelle : ${fmt(ws.configured)} (valeur de configuration)` : "");
+  setText(currentLine, offList ? t("main.window.current_off_list", { window: ws.configured }) : "");
   // Rebuilt only when the session's figures change: an arrow key moving the choice keeps
   // its focus (the choice noted is set in place below); a rebuild gives it back.
   const key = JSON.stringify(ws);
@@ -2605,9 +2599,9 @@ function renderWindowPicker() {
   }
   setText(document.getElementById("window-note"), ws.read_note_text);
   const apply = document.getElementById("window-apply");
-  const reason = windowApplying ? "Demande en cours…" : windowApplyReason(ws, pick);
+  const reason = windowApplying ? t("main.window.request_pending") : windowApplyReason(ws, pick);
   apply.disabled = Boolean(reason);
-  const applyTitle = reason ?? `Appliquer une fenêtre de ${fmt(pick)} tokens.`;
+  const applyTitle = reason ?? t("main.window.apply_title", { window: pick });
   if (apply.title !== applyTitle) apply.title = applyTitle;
   const alert = document.getElementById("window-alert");
   alert.hidden = !store.windowError;
@@ -2627,12 +2621,12 @@ function windowChoiceNode(choice) {
   const details = el("div", "window-choice-details");
   const figures = el("span", "window-choice-figures");
   figures.id = `window-choice-${choice.window}`;
-  label.append(input, el("strong", "", `${fmt(choice.window)} tokens`));
-  if (choice.current) label.append(el("span", "window-choice-current", " (actuelle)"));
+  label.append(input, el("strong", "", t("main.window.choice", { window: choice.window })));
+  if (choice.current) label.append(el("span", "window-choice-current", ` ${t("main.window.current")}`));
   figures.append(el("span", "window-choice-line", choice.kv_text), el("span", "window-choice-line", choice.read_text));
   if (choice.bound_text) figures.append(el("span", "window-choice-line window-choice-bound", choice.bound_text));
   const verdict = choice.fits
-    ? el("span", "window-choice-verdict is-fits", "✓ Tient dans le budget")
+    ? el("span", "window-choice-verdict is-fits", `✓ ${t("main.window.fits")}`)
     : el("span", "window-choice-verdict is-refused", `⚠ ${choice.refusal_text}`);
   verdict.id = `window-choice-${choice.window}-verdict`;
   details.append(figures, verdict);
@@ -2653,7 +2647,7 @@ async function applyWindow() {
     const response = await postIntention("/api/intentions/context_window", { window: pick });
     const answer = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const detail = typeof answer.detail === "string" ? answer.detail : "Fenêtre refusée.";
+      const detail = typeof answer.detail === "string" ? answer.detail : t("main.window.refused");
       store.windowError = detail; // in the panel and in the top bar
       store.topStatus = detail;
     } else {
@@ -2662,7 +2656,7 @@ async function applyWindow() {
       store.topStatus = answer.switching ? null : answer.message_text ?? null;
     }
   } catch (error) {
-    store.windowError = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
+    store.windowError = t("main.request_failed", { error: error.message });
   } finally {
     windowApplying = false;
   }
@@ -2686,11 +2680,11 @@ function rebuildModelPicker(picker, active) {
       const isActive = activeKey === `${m.kind}:${m.ref}`;
       const unusable = !m.usable;
       const suffix = isActive
-        ? " (actif)"
+        ? ` ${t("main.model.suffix_active")}`
         : unusable
           ? m.hosting === "network"
-            ? " (indisponible)"
-            : " (incompatible)"
+            ? ` ${t("main.model.suffix_unavailable")}`
+            : ` ${t("main.model.suffix_incompatible")}`
           : "";
       optgroup.append(
         pickerOption(m.value, `${m.label_text}${suffix}`, {
@@ -2701,32 +2695,32 @@ function rebuildModelPicker(picker, active) {
     }
     return optgroup;
   });
-  const head = pickerOption("", "Changer de modèle…");
+  const head = pickerOption("", t("main.model.picker_head"));
   const legend = pickerOption(PICK_LEGEND, models.legend_text, { disabled: true, title: models.legend_text });
   picker.replaceChildren(
     head,
     legend,
     ...groups.filter((g) => g.children.length),
-    pickerOption(PICK_MODELS, "Tableau des modèles et de leurs capacités…"),
-    pickerOption(PICK_OTHER, "Autre fichier ou clé API…")
+    pickerOption(PICK_MODELS, t("main.model.picker_table")),
+    pickerOption(PICK_OTHER, t("main.model.picker_other"))
   );
 }
 
 function rebuildModelPickerByKind(picker, active) {
   const list = store.modelList ?? { candidates: [], cloud: { models: [] } };
   const local = el("optgroup");
-  local.label = "Sur ce poste";
+  local.label = t("main.model.group_local");
   const seen = new Set();
   for (const c of list.candidates ?? []) {
     if (c.source === "server") {
       // Story 18: a model an already-running local server serves, chosen like a file.
       const isActive = active?.kind === "server" && active.ref === c.ref;
       const unusable = c.status !== "server";
-      const suffix = isActive ? " (actif)" : unusable ? " (incompatible)" : "";
+      const suffix = isActive ? ` ${t("main.model.suffix_active")}` : unusable ? ` ${t("main.model.suffix_incompatible")}` : "";
       local.append(
-        pickerOption(`server:${c.ref}`, `Local · ${c.provider} · ${c.name}${suffix}`, {
+        pickerOption(`server:${c.ref}`, `${t("main.hosting.local")} · ${c.provider} · ${c.name}${suffix}`, {
           disabled: isActive || unusable,
-          title: unusable ? c.reason ?? "" : `${c.provider} sur ${c.server_url}`,
+          title: unusable ? c.reason ?? "" : t("main.model.served_at", { provider: c.provider, url: c.server_url }),
         })
       );
       continue;
@@ -2736,27 +2730,27 @@ function rebuildModelPickerByKind(picker, active) {
     const isActive = active?.kind === "file" && active.ref === c.path;
     const size = c.size_label ? ` · ${c.size_label}` : "";
     local.append(
-      pickerOption(`file:${c.path}`, `${c.name}${size}${isActive ? " (actif)" : ""}`, {
+      pickerOption(`file:${c.path}`, `${c.name}${size}${isActive ? ` ${t("main.model.suffix_active")}` : ""}`, {
         disabled: isActive,
         title: c.path,
       })
     );
   }
   const network = el("optgroup");
-  network.label = "Réseau";
+  network.label = t("main.model.group_network");
   for (const m of list.cloud?.models ?? []) {
     const isActive = active?.kind === "cloud" && active.ref === m.id;
-    const suffix = isActive ? " (actif)" : m.disabled_text ? " (indisponible)" : "";
+    const suffix = isActive ? ` ${t("main.model.suffix_active")}` : m.disabled_text ? ` ${t("main.model.suffix_unavailable")}` : "";
     network.append(
-      pickerOption(`cloud:${m.id}`, `RÉSEAU · ${m.provider} · ${m.model}${suffix}`, {
+      pickerOption(`cloud:${m.id}`, `${t("main.hosting.network")} · ${m.provider} · ${m.model}${suffix}`, {
         disabled: isActive || Boolean(m.disabled_text),
         title: m.disabled_text ?? "",
       })
     );
   }
-  const head = pickerOption("", "Changer de modèle…");
+  const head = pickerOption("", t("main.model.picker_head"));
   const groups = [local, network].filter((g) => g.children.length);
-  picker.replaceChildren(head, ...groups, pickerOption(PICK_OTHER, "Autre fichier ou clé API…"));
+  picker.replaceChildren(head, ...groups, pickerOption(PICK_OTHER, t("main.model.picker_other")));
 }
 
 // `change` only notes the choice: « Charger » (or « Choisir… », « Ouvrir le diagnostic »)
@@ -2794,10 +2788,10 @@ async function selectModel(body) {
   try {
     const response = await postIntention("/api/intentions/select_model", body);
     const answer = await response.json().catch(() => ({}));
-    if (!response.ok) store.topStatus = answer.detail || "Changement de modèle refusé.";
+    if (!response.ok) store.topStatus = answer.detail || t("main.model.switch_refused");
     else if (!answer.switching) store.topStatus = answer.message_text ?? null; // « … est déjà actif. »
   } catch (error) {
-    store.topStatus = `La demande n'a pas abouti : ${error.message}. Réessayez.`;
+    store.topStatus = t("main.request_failed", { error: error.message });
   }
   render();
 }
@@ -2809,10 +2803,7 @@ let warningModel = null;
 function openCloudWarning(model) {
   if (!model?.warning) {
     // Without its warning text, a cloud model cannot be confirmed, hence not chosen (AD-21).
-    store.topStatus = model
-      ? "L'avertissement de ce modèle cloud est indisponible (fichier content/cloud.yaml " +
-        "absent ou invalide) : il ne peut pas être choisi tant que le fichier n'est pas corrigé."
-      : "Ce modèle n'est plus dans la liste : rouvrez le sélecteur.";
+    store.topStatus = model ? t("main.model.warning_unavailable") : t("main.model.gone");
     render();
     return;
   }
@@ -2848,16 +2839,14 @@ function modelLoadText() {
   if (!load) return null;
   // Lot E (E4), story 24: the probe stops at once, an in-process load at the end of its step;
   // the front cannot tell which, so it only says the stop was asked.
-  const stopping = load.stopRequested ? "Arrêt demandé · " : "";
-  const what = load.phaseLabel ?? `Chargement du modèle ${load.model.label}…`;
+  const stopping = load.stopRequested ? `${t("main.model.stop_requested")} · ` : "";
+  const what = load.phaseLabel ?? t("main.model.loading", { model: load.model.label });
   return `${stopping}${what} ${seconds(Date.now() - load.startedAt)}`;
 }
 
 // Story 24: why « Arrêt demandé » may last, in the top bar's tooltip; `undefined` otherwise.
-const STOP_EXPLAINED_FR =
-  "Un chargement du moteur en cours se termine avant l'arrêt ; une sonde est interrompue tout de suite.";
 function modelLoadTitle() {
-  return store.modelLoad?.stopRequested ? STOP_EXPLAINED_FR : undefined;
+  return store.modelLoad?.stopRequested ? t("main.model.stop_explained") : undefined;
 }
 
 // ---------- human view: bubbles, working indicator, composer ----------
@@ -2865,17 +2854,17 @@ function modelLoadTitle() {
 function turnNote(turn) {
   switch (turn.status) {
     case "overflow":
-      return "Contexte dépassé : le modèle n'a pas été appelé.";
+      return t("main.chat.note.overflow");
     case "limit":
       if (turn.limit) return turn.limit.message_text;
       if (turn.truncated?.channel === "reasoning") {
-        return `Sortie coupée pendant le raisonnement : la limite de ${fmt(turn.truncated.max_tokens)} tokens a été atteinte avant toute réponse. Le raisonnement reçu reste visible dans Contexte LLM.`;
+        return t("main.chat.note.cut_reasoning", { tokens: turn.truncated.max_tokens });
       }
-      return `Sortie coupée : la réponse a atteint la limite de ${fmt(turn.truncated?.max_tokens ?? 0)} tokens. Le texte reçu est conservé.`;
+      return t("main.chat.note.cut", { tokens: turn.truncated?.max_tokens ?? 0 });
     case "cancelled":
-      return "Arrêté à votre demande : le texte déjà reçu est conservé.";
+      return t("main.chat.note.cancelled");
     case "error":
-      return `Erreur : ${turn.errors.join(" ") || "le tour s'est interrompu."} WaveStack reste utilisable.`;
+      return t("main.chat.note.error", { errors: turn.errors.join(" ") || t("main.chat.note.interrupted") });
     default:
       return null;
   }
@@ -2939,22 +2928,22 @@ function renderChat() {
   const nodes = [];
   const cards = new Map();
   const turns = shownTurns();
-  if (turns.length === 0) nodes.push(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
+  if (turns.length === 0) nodes.push(emptyNote(cleared() ? clearedText() : noTurnText()));
   let shownBefore = null;
   for (const turn of turns) {
     // Story 17: « Modèle : … » above the first turn shown, then above each turn played by
     // another model than the turn shown before it.
     if (turn.model && modelKey(shownBefore?.model) !== modelKey(turn.model)) {
-      nodes.push(el("div", "model-switch-line", `Modèle : ${turn.model.label}`));
+      nodes.push(el("div", "model-switch-line", t("main.chat.model_line", { model: turn.model.label })));
     }
     shownBefore = turn;
     const user = el("div", "bubble bubble-user", turn.message);
     const origin = turn.replayOf && store.turns.find((t) => t.id === turn.replayOf);
     if (origin) {
       // Story 9b: the replayed turn opens the comparison with its origin.
-      const badge = el("button", "replay-badge", "Rejeu");
+      const badge = el("button", "replay-badge", t("main.chat.replay_badge"));
       badge.type = "button";
-      badge.setAttribute("aria-label", `Rejeu du ${turnName(origin).toLowerCase()} : comparer`);
+      badge.setAttribute("aria-label", t("main.chat.replay_label", { turn: turnNameLower(origin) }));
       badge.dataset.focusKey = `replay:${turn.id}`;
       badge.addEventListener("click", () => openCompare(origin.id, turn.id));
       user.prepend(badge);
@@ -2965,20 +2954,18 @@ function renderChat() {
     const reasonings = [...turn.pastReasoning, ...(turn.reasoning ? [turn.reasoning] : [])];
     if (store.showReasoning) {
       reasonings.forEach((text, i) => {
-        const title = reasonings.length > 1 ? `Raisonnement (appel ${i + 1})` : "Raisonnement";
+        const title = reasonings.length > 1 ? t("main.chat.reasoning_call", { n: String(i + 1) }) : t("main.chat.reasoning");
         answer.appendChild(reasoningBlock(text, `chat:${turn.id}:${i}`, title));
       });
     } else if (turn.status === null && turn.firstToken && turn.reasoning && !turn.text) {
       // The reasoning is hidden: the bubble still says the model is working.
       const since = turn.callStartedAt ?? turn.startedAt;
-      answer.appendChild(el("div", "working-indicator", `Le modèle raisonne… ${seconds(Date.now() - since)}`));
+      answer.appendChild(el("div", "working-indicator", `${t("main.chat.reasoning_now")} ${seconds(Date.now() - since)}`));
     }
     if (turn.text) answer.appendChild(el("div", "bubble-text", turn.text));
     if (turn.status === null && !turn.firstToken) {
       const since = turn.callStartedAt ?? turn.startedAt;
-      const label = turn.stopRequested
-        ? "Arrêt demandé : il prend effet dès le premier token"
-        : turn.phaseLabel || "Préparation du contexte";
+      const label = turn.stopRequested ? t("main.chat.stop_requested") : turn.phaseLabel || t("main.chat.preparing");
       answer.appendChild(el("div", "working-indicator", `${label}… ${seconds(Date.now() - since)}`));
     }
     for (const notice of turn.notices) answer.appendChild(el("div", "bubble-note", notice));
@@ -2989,7 +2976,7 @@ function renderChat() {
     const note = turnNote(turn);
     if (note) answer.appendChild(el("div", `bubble-note is-${turn.status}`, note));
     if (turn.status === "completed" && !turn.text) {
-      answer.appendChild(el("div", "bubble-note", "(réponse vide)"));
+      answer.appendChild(el("div", "bubble-note", t("main.chat.empty_answer")));
     }
     nodes.push(answer);
     // H5: the validation is the user's to give, in the thread of its turn, under the answer;
@@ -3044,24 +3031,20 @@ function renderComposer() {
   document.getElementById("composer-send").disabled = !ready;
   const clear = document.getElementById("clear-conversation");
   clear.disabled = state?.state !== "idle"; // class (b)
-  clear.title = clear.disabled ? state?.reason_text || "Disponible hors d'un tour." : "";
+  clear.title = clear.disabled ? state?.reason_text || t("common.unavailable_outside_turn") : "";
   const replay = document.getElementById("replay-last");
   replay.disabled = clear.disabled || shownTurns().length === 0; // class (b), story 9b
-  replay.title = clear.disabled
-    ? clear.title
-    : replay.disabled
-      ? "Aucun prompt à rejouer : envoyez d'abord un message."
-      : "";
+  replay.title = clear.disabled ? clear.title : replay.disabled ? t("main.chat.nothing_to_replay") : "";
   const compare = document.getElementById("compare-turns");
   compare.disabled = shownTurns().length < 2;
-  compare.title = compare.disabled ? "Il faut au moins deux tours pour comparer." : "";
+  compare.title = compare.disabled ? t("main.chat.compare_needs_two") : "";
   const stop = document.getElementById("composer-stop");
   // Lot E (E4): « Arrêter » also stops a model load (the previous model comes back).
   const loading = state?.state === "model_load" && Boolean(store.modelLoad);
   stop.hidden = state?.state !== "turn" && state?.state !== "awaiting_human" && !loading;
   stop.disabled = loading ? Boolean(store.modelLoad.stopRequested) : Boolean(activeTurn()?.stopRequested);
   const reason = document.getElementById("composer-reason");
-  const text = store.composerError || (ready ? null : state?.reason_text || "En attente du modèle…");
+  const text = store.composerError || (ready ? null : state?.reason_text || t("main.chat.waiting_model"));
   reason.hidden = !text;
   reason.textContent = text || "";
   renderScenarioControls(state);
@@ -3105,7 +3088,7 @@ function setGuideExpanded(expanded) {
   const more = document.getElementById("scenario-guide-more");
   document.getElementById("scenario-guide").classList.toggle("is-expanded", expanded);
   more.setAttribute("aria-expanded", String(expanded));
-  more.textContent = expanded ? "Réduire" : "Afficher plus";
+  more.textContent = expanded ? t("main.scenario.less") : t("main.scenario.more");
   measureGuide();
 }
 
@@ -3127,12 +3110,12 @@ function measureGuide() {
 
 function renderScenarioControls(state) {
   const idle = state?.state === "idle"; // class (b)
-  const reason = idle ? "" : state?.reason_text || "Disponible hors d'un tour.";
+  const reason = idle ? "" : state?.reason_text || t("common.unavailable_outside_turn");
   const picker = document.getElementById("scenario-picker");
   const program = store.scenarios?.program ?? null;
   if (renderedProgram !== program) {
     renderedProgram = program;
-    const empty = el("option", "", "Choisir un scénario");
+    const empty = el("option", "", t("main.scenario.choose"));
     empty.value = "";
     const groups = [];
     const group = (label, scenarios) => {
@@ -3145,9 +3128,11 @@ function renderScenarioControls(state) {
       }
       groups.push(node);
     };
-    program?.modules.forEach((m, i) => group(`Module ${i + 1} · ${m.title_text} · ${m.duration_min} min`, m.scenarios));
+    program?.modules.forEach((m, i) =>
+      group(t("main.scenario.module", { n: String(i + 1), title: m.title_text, minutes: m.duration_min }), m.scenarios)
+    );
     // Story 21: the business scenarios (FR-40) follow the hosting one, in `transverse`.
-    if (program?.transverse.length) group("Transverses et métier", program.transverse);
+    if (program?.transverse.length) group(t("main.scenario.transverse"), program.transverse);
     picker.replaceChildren(empty, ...groups);
   }
   const active = store.scenarios?.active ?? "";
@@ -3156,7 +3141,7 @@ function renderScenarioControls(state) {
   picker.title = reason;
   const reset = document.getElementById("reset-button");
   reset.disabled = !idle;
-  reset.title = reason || "Retour au LLM nu, conversation vide.";
+  reset.title = reason || t("main.top_bar.reset_title");
   const topText = modelLoadText() ?? store.topStatus ?? "";
   setTopStatus(topText, modelLoadTitle() ?? topText);
 
@@ -3185,7 +3170,7 @@ function renderScenarioControls(state) {
     ...scenario.prompts.map((prompt) => {
       const chip = el("button", "suggested-prompt", prompt);
       chip.type = "button";
-      chip.setAttribute("aria-label", `Remplir le champ : ${prompt}`);
+      chip.setAttribute("aria-label", t("main.scenario.fill", { prompt }));
       chip.addEventListener("click", () => {
         // Fills the field without sending: the trainer can comment or edit first (UJ-2).
         const input = document.getElementById("composer-input");
@@ -3211,9 +3196,7 @@ function renderScenarioUnavailable(unavailable) {
     box.replaceChildren();
     return;
   }
-  const title = unavailable.length > 1
-    ? "Briques du scénario indisponibles avec ce modèle :"
-    : "Brique du scénario indisponible avec ce modèle :";
+  const title = t("main.scenario.unavailable", { count: unavailable.length });
   const list = el("ul", "scenario-unavailable-list");
   for (const brick of unavailable) {
     const item = el("li");
@@ -3229,7 +3212,7 @@ async function scenarioIntention(path, body, failure) {
     const response = await postIntention(path, body);
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));
-      store.composerError = typeof detail.detail === "string" ? detail.detail : "Action refusée.";
+      store.composerError = typeof detail.detail === "string" ? detail.detail : t("common.action_refused");
     }
   } catch {
     store.composerError = failure;
@@ -3241,43 +3224,21 @@ function launchScenario(event) {
   const id = event.target.value;
   event.target.value = store.scenarios?.active ?? ""; // the option shown follows `active`
   if (!id) return;
-  scenarioIntention("/api/intentions/scenario", { scenario_id: id }, "WaveStack ne répond pas : le scénario n'a pas été lancé.");
+  scenarioIntention("/api/intentions/scenario", { scenario_id: id }, t("main.scenario.no_answer"));
 }
 
 function resetHarness() {
   store.openExplanations.clear();
   store.openBrickHelp.clear();
   for (const popover of document.querySelectorAll(".brick-explanation:popover-open")) popover.hidePopover();
-  scenarioIntention("/api/intentions/reset", {}, "WaveStack ne répond pas : rien n'a été réinitialisé.");
+  scenarioIntention("/api/intentions/reset", {}, t("main.top_bar.reset_no_answer"));
 }
 
 // ---------- languages (1/5): the language picker of the top bar ----------
 
-// Only the picker and its tooltip speak the chosen language for now: the rest of the
-// interface stays French until it is translated (languages, story 2).
-const LANGUAGE_TEXTS = {
-  fr: {
-    name: "Langue",
-    help: "Langue de ce qui part vers le modèle (prompt système, outils, skills, hooks, mémoire, glossaire, RAG) et des noms d'outils, de hooks, de skills et de serveurs MCP. Le reste de l'interface, les briques, les scénarios et les messages du harnais restent en français pour l'instant.",
-    locked: "Videz d'abord la conversation (« Vider la conversation » ou « Réinitialiser ») : la langue ne se change que sur une conversation vide.",
-    failed: "WaveStack ne répond pas : la langue n'a pas changé.",
-  },
-  en: {
-    name: "Language",
-    help: "Language of what is sent to the model (system prompt, tools, skills, hooks, memory, glossary, RAG) and of the names of tools, hooks, skills and MCP servers. The rest of the interface, the bricks, the scenarios and the harness's messages stay in French for now.",
-    locked: "Clear the conversation first (« Vider la conversation » or « Réinitialiser »): the language can only change on an empty conversation.",
-    failed: "WaveStack does not answer: the language did not change.",
-  },
-  de: {
-    name: "Sprache",
-    help: "Sprache dessen, was an das Modell geht (System-Prompt, Tools, Skills, Hooks, Gedächtnis, Glossar, RAG), und der Namen von Tools, Hooks, Skills und MCP-Servern. Der Rest der Oberfläche, die Bausteine, die Szenarien und die Meldungen des Harness bleiben vorerst auf Französisch.",
-    locked: "Leeren Sie zuerst die Unterhaltung (« Vider la conversation » oder « Réinitialiser »): Die Sprache lässt sich nur bei leerer Unterhaltung ändern.",
-    failed: "WaveStack antwortet nicht: Die Sprache wurde nicht geändert.",
-  },
-};
+// Languages (2/5): the picker's texts are in `common.language` of `content/ui.yaml`, in the
+// session's language like the rest of the page.
 let languageChanging = false; // the intention is on its way: the page reloads on success
-
-const languageTexts = () => LANGUAGE_TEXTS[store.language?.language] ?? LANGUAGE_TEXTS.fr;
 
 function renderLanguagePicker() {
   const info = store.language;
@@ -3287,16 +3248,15 @@ function renderLanguagePicker() {
     picker.disabled = true; // no `/api/state`: the lock is unknown, nothing to offer
     return;
   }
-  const texts = languageTexts();
   const idle = store.sessionState?.state === "idle";
   const locked = Boolean(info.language_locked);
   if (picker.value !== info.language) picker.value = info.language;
   picker.disabled = locked || !idle || languageChanging;
-  const busy = store.sessionState?.reason_text || "Disponible hors d'un tour.";
-  const title = locked ? texts.locked : idle ? texts.help : busy;
+  const busy = store.sessionState?.reason_text || t("common.unavailable_outside_turn");
+  const title = locked ? t("common.language.locked") : idle ? t("common.language.help") : busy;
   picker.title = title;
   document.getElementById("language-picker-box").title = title;
-  picker.setAttribute("aria-label", texts.name);
+  picker.setAttribute("aria-label", t("common.language.name"));
   setText(document.getElementById("language-picker-code"), info.language.toUpperCase());
 }
 
@@ -3315,9 +3275,9 @@ async function changeLanguage(event) {
       return;
     }
     const detail = await response.json().catch(() => ({}));
-    store.composerError = typeof detail.detail === "string" ? detail.detail : "Changement de langue refusé.";
+    store.composerError = typeof detail.detail === "string" ? detail.detail : t("common.language.refused");
   } catch {
-    store.composerError = languageTexts().failed;
+    store.composerError = t("common.language.failed");
   }
   languageChanging = false;
   render();
@@ -3338,12 +3298,12 @@ async function sendMessage(event) {
   // Never ignored without a word: the reason stays under the field.
   if (input.disabled) {
     const reason = store.sessionState?.reason_text;
-    store.composerError = `Message non envoyé : ${reason || "WaveStack n'est pas prêt à recevoir un message."}`;
+    store.composerError = t("main.composer.not_sent", { reason: reason || t("main.composer.not_ready") });
     render();
     return;
   }
   if (!message) {
-    store.composerError = "Écrivez un message avant d'envoyer.";
+    store.composerError = t("main.composer.empty");
     render();
     return;
   }
@@ -3354,10 +3314,10 @@ async function sendMessage(event) {
       input.value = "";
     } else {
       const body = await response.json().catch(() => ({}));
-      store.composerError = typeof body.detail === "string" ? body.detail : "Envoi refusé.";
+      store.composerError = typeof body.detail === "string" ? body.detail : t("main.composer.refused");
     }
   } catch {
-    store.composerError = "WaveStack ne répond pas : l'envoi n'a pas eu lieu.";
+    store.composerError = t("main.composer.no_answer");
   }
   render();
 }
@@ -3385,9 +3345,9 @@ async function stopTurn() {
 
 const CTX_MODE_STORAGE_KEY = "wavestack.ctxMode";
 const CTX_MODES = [
-  ["grouped", "Lecture groupée"],
-  ["exact", "Texte exact"],
-  ["body", "Corps JSON"], // chat mode only
+  ["grouped", () => t("main.ctx.modes.grouped")],
+  ["exact", () => t("main.ctx.modes.exact")],
+  ["body", () => t("main.ctx.modes.body")], // chat mode only
 ];
 
 function loadCtxMode() {
@@ -3521,7 +3481,7 @@ function renderContext() {
 function renderContextBody(pane, shown) {
   pane.innerHTML = "";
   if (!shown) {
-    pane.appendChild(emptyNote(cleared() ? CLEARED_FR : NO_TURN_FR));
+    pane.appendChild(emptyNote(cleared() ? clearedText() : noTurnText()));
     return;
   }
   const { turn, subs, owner, chat } = shown;
@@ -3541,17 +3501,23 @@ function renderContextBody(pane, shown) {
   if (owner === turn) {
     if (chat) {
       // Chat mode: the context is the JSON body sent to the provider (FR-43).
-      const banner = store.activeModel?.banner_text ?? "Modèle cloud : ce contexte est le corps JSON envoyé au fournisseur.";
+      const banner = store.activeModel?.banner_text ?? t("main.ctx.cloud_banner");
       pane.appendChild(el("p", "ctx-banner", banner));
     }
     // AD-4: the provider's total replaces the sum of the segments, it is not added to it.
-    const source = p.usage_source === "api" ? "total renvoyé par le fournisseur" : "somme des segments";
+    const source = p.usage_source === "api" ? t("main.ctx.source_api") : t("main.ctx.source_sum");
     pane.appendChild(
       el(
         "p",
         "ctx-total",
-        `${turnName(turn)} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (${source}) · ` +
-          `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
+        t("main.ctx.total", {
+          owner: turnName(turn),
+          approx: approxTotal(p),
+          used: p.used,
+          source,
+          window: p.window,
+          reserve: p.reserve,
+        })
       )
     );
     if (p.uncertain_text) pane.appendChild(el("p", "bubble-note", p.uncertain_text));
@@ -3561,7 +3527,7 @@ function renderContextBody(pane, shown) {
         el(
           "p",
           "ctx-compressed-total",
-          `🗜️ Sans compression : ≈ ${fmt(p.uncompressed_used)} tokens ; envoyés : ${approxTotal(p)}${fmt(p.used)}.`
+          `🗜️ ${t("main.ctx.without_compression", { uncompressed: p.uncompressed_used, sent: `${approxTotal(p)}${fmt(p.used)}` })}`
         )
       );
     }
@@ -3570,12 +3536,18 @@ function renderContextBody(pane, shown) {
       el(
         "p",
         "ctx-total",
-        `Sous-agent ${owner.contextId} · ${approxTotal(p)}${fmt(p.used)} tokens envoyés (somme des segments) · ` +
-          `fenêtre ${fmt(p.window)}, réserve ${fmt(p.reserve)}`
+        t("main.ctx.total", {
+          owner: t("main.ctx.subagent", { id: owner.contextId }),
+          approx: approxTotal(p),
+          used: p.used,
+          source: t("main.ctx.source_sum"),
+          window: p.window,
+          reserve: p.reserve,
+        })
       )
     );
     if (owner.ended) {
-      pane.appendChild(el("p", "subagent-saving", `Ce contexte reste dans le sous-agent. ${subSaving(owner.ended)}`));
+      pane.appendChild(el("p", "subagent-saving", `${t("main.ctx.stays_in_subagent")} ${subSaving(owner.ended)}`));
     }
   }
   pane.appendChild(renderCalls(owner, turn, chat));
@@ -3588,11 +3560,11 @@ function renderContextBody(pane, shown) {
 function ctxModeSwitch(chat) {
   const group = el("div", "ctx-view-mode");
   group.setAttribute("role", "group");
-  group.setAttribute("aria-label", "Affichage du contexte");
+  group.setAttribute("aria-label", t("main.ctx.mode_label"));
   const current = ctxMode(chat);
   for (const [id, label] of CTX_MODES) {
     if (id === "body" && !chat) continue;
-    const button = el("button", "ctx-mode-button", label);
+    const button = el("button", "ctx-mode-button", label());
     button.type = "button";
     button.setAttribute("aria-pressed", String(current === id));
     button.dataset.focusKey = `ctxmode:${id}`;
@@ -3612,7 +3584,7 @@ function renderCalls(owner, turn, chat) {
     const last = i === calls.length - 1;
     const section = el("section", "ctx-call");
     section.dataset.callId = call.id;
-    section.setAttribute("aria-label", `Appel ${i + 1} sur ${calls.length}`);
+    section.setAttribute("aria-label", t("main.ctx.call_of", { n: String(i + 1), total: String(calls.length) }));
     section.appendChild(callHead(call, i, calls.length, owner, turn, last));
     if (mode === "exact") {
       section.append(...exactParts(call, owner, last, turn));
@@ -3630,20 +3602,27 @@ function renderCalls(owner, turn, chat) {
 // evaluated by the engine (« non communiqué » when it cannot say), produced.
 function callHead(call, i, n, owner, turn, last) {
   const head = el("header", "ctx-call-head");
-  head.appendChild(el("h3", "ctx-call-title", `Appel ${i + 1} sur ${n}`));
+  head.appendChild(el("h3", "ctx-call-title", t("main.ctx.call_of", { n: String(i + 1), total: String(n) })));
   const ended = call.ended;
   const p = call.context;
   let figures;
   if (ended) {
     const guess = approx(ended.usage_source === "estimate");
-    const evaluated = ended.evaluated_tokens == null ? "non communiqué" : fmt(ended.evaluated_tokens);
-    figures =
-      `Lu : ${guess}${fmt(ended.prompt_tokens)} tokens · évalués : ${evaluated} · ` +
-      `produits : ${guess}${fmt(ended.output_tokens)}`;
+    const evaluated = ended.evaluated_tokens == null ? t("main.ctx.not_reported") : fmt(ended.evaluated_tokens);
+    figures = t("main.ctx.call_figures", {
+      read: `${guess}${fmt(ended.prompt_tokens)}`,
+      evaluated,
+      produced: `${guess}${fmt(ended.output_tokens)}`,
+    });
   } else {
     const running = last && turn.status === null && !owner.ended && !owner.overflow;
-    const state = last && owner.overflow ? "non envoyé : contexte dépassé" : running ? "en cours" : "sans réponse";
-    figures = `Lu : ${approxTotal(p)}${fmt(p.used)} tokens · ${state}`;
+    const state =
+      last && owner.overflow
+        ? t("main.ctx.call_state.not_sent")
+        : running
+          ? t("main.ctx.call_state.running")
+          : t("main.ctx.call_state.no_answer");
+    figures = t("main.ctx.call_read", { read: `${approxTotal(p)}${fmt(p.used)}`, state });
   }
   head.appendChild(el("p", "ctx-call-figures", figures));
   return head;
@@ -3790,7 +3769,7 @@ function readingRows(p, chat) {
 function readPart(call, turn, chat) {
   const p = call.context;
   const part = el("div", "ctx-read");
-  part.appendChild(el("h4", "ctx-part-title", "Lu par le modèle"));
+  part.appendChild(el("h4", "ctx-part-title", t("main.ctx.read_title")));
   const reading = readingRows(p, chat);
   const seen = p.seen_segments ?? 0;
   if (seen > 0) {
@@ -3800,11 +3779,7 @@ function readPart(call, turn, chat) {
     details.open = store.openSeen.has(key);
     const seenRows = reading.rows.filter((r) => r.seen);
     const k = seenRows.length; // the rows shown inside the fold, JSON merges included
-    const summary = el(
-      "summary",
-      "",
-      `Déjà lu à l'appel précédent · ${fmt(k)} ${k > 1 ? "sections" : "section"} · ${fmt(p.seen_tokens)} tokens`
-    );
+    const summary = el("summary", "", t("main.ctx.seen", { count: k, tokens: p.seen_tokens }));
     summary.dataset.focusKey = key;
     details.appendChild(summary);
     details.addEventListener("toggle", () => {
@@ -3826,17 +3801,17 @@ function kindColor(p, kind) {
   return GROUP_COLORS[group] || "--color-muted";
 }
 
-const tokensFr = (n, estimated) => `${approx(estimated)}${fmt(n)} ${n > 1 ? "tokens" : "token"}`;
+const tokensFr = (n, estimated) => `${approx(estimated)}${t("common.count.token", { count: n })}`;
 
 function sectionLabel(s) {
   const count = s.end - s.start;
-  const brick = s.brick ? brickName(s.brick) : "hors brique";
+  const brick = s.brick ? brickName(s.brick) : t("main.ctx.no_brick");
   // « Prompt système · Prompt système », « Extraits RAG · RAG »: the brick said once.
   const source = s.brick && s.label_text.toLowerCase().includes(brick.toLowerCase()) ? "" : ` · ${brick}`;
   return (
     `${s.label_text}${source} · ${tokensFr(s.tokens, s.estimated)}` +
-    (s.template_tokens ? ` dont ${fmt(s.template_tokens)} de gabarit` : "") +
-    (count > 1 ? ` · ${count} segments` : "")
+    (s.template_tokens ? ` ${t("main.ctx.of_template", { tokens: s.template_tokens })}` : "") +
+    (count > 1 ? ` · ${t("common.count.segment", { count })}` : "")
   );
 }
 
@@ -3855,7 +3830,7 @@ function sectionRow(p, reading, row, call, turn, chat, marked) {
   const margin = el("div", "ctx-section-margin");
   if (marked) {
     node.classList.add("is-new");
-    margin.appendChild(el("span", "ctx-new-badge", "Nouveau"));
+    margin.appendChild(el("span", "ctx-new-badge", t("main.ctx.new")));
   }
   const control = el("button", "ctx-section-select");
   control.type = "button";
@@ -3874,7 +3849,7 @@ function sectionRow(p, reading, row, call, turn, chat, marked) {
     if (components.length > 1) control.appendChild(el("span", "ctx-section-components", components.join(", ")));
   }
   const first = row.sections[0];
-  selectOnActivate(control, id, `${first.label_text} · ${tokensFr(first.tokens, first.estimated)}${row.sections.length > 1 ? ` et ${row.sections.length - 1} de plus` : ""}`);
+  selectOnActivate(control, id, `${first.label_text} · ${tokensFr(first.tokens, first.estimated)}${row.sections.length > 1 ? ` ${t("main.ctx.and_more", { more: row.sections.length - 1 })}` : ""}`);
   margin.appendChild(control);
   const main = el("div", "ctx-section-main");
   const pre = el("pre", "ctx-section-text");
@@ -3885,9 +3860,9 @@ function sectionRow(p, reading, row, call, turn, chat, marked) {
     if (!segment.compressed_from) continue;
     // Story 20: a compressed segment, and what it was before (AD-22).
     const was = segment.compressed_from;
-    const tokens = `${approx(was.estimated)}${fmt(was.tokens_before)} tokens`;
+    const tokens = `${approx(was.estimated)}${t("main.ctx.tokens", { tokens: was.tokens_before })}`;
     node.classList.add("ctx-compressed");
-    margin.appendChild(el("span", "ctx-compressed-badge", `🗜️ compressé, ${tokens} avant`));
+    margin.appendChild(el("span", "ctx-compressed-badge", `🗜️ ${t("main.ctx.compressed_badge", { tokens })}`));
     const text = textBefore(turn, was);
     if (text !== null) {
       const key = `before:${call.id}:${segment.id}`; // its unfolding kept like the other folds
@@ -3897,7 +3872,7 @@ function sectionRow(p, reading, row, call, turn, chat, marked) {
         if (before.open) store.openExact.add(key);
         else store.openExact.delete(key);
       });
-      const summary = el("summary", "", `Texte avant compression (${tokens})`);
+      const summary = el("summary", "", t("main.ctx.before_compression", { tokens }));
       summary.dataset.focusKey = key;
       before.append(summary, el("pre", "", text));
       main.appendChild(before);
@@ -3962,7 +3937,7 @@ function jsonBlock(value, exact, key) {
   const block = el("span", "ctx-json");
   const exactKey = `jsonexact:${key}`;
   const shown = store.openExact.has(exactKey);
-  const toggle = el("button", "ctx-json-exact-toggle", "Texte exact");
+  const toggle = el("button", "ctx-json-exact-toggle", t("main.ctx.modes.exact"));
   toggle.type = "button";
   toggle.dataset.focusKey = exactKey;
   toggle.setAttribute("aria-pressed", String(shown));
@@ -4009,8 +3984,8 @@ function jsonNode(value, name, path, last) {
     const summary = el("summary", "json-summary");
     summary.dataset.focusKey = path;
     const count = entries.length;
-    const noun = isArray ? (count > 1 ? "éléments" : "élément") : count > 1 ? "clés" : "clé";
-    summary.append(...head, el("span", "json-punct", open), el("span", "json-folded", ` … ${close} ${fmt(count)} ${noun}`));
+    const noun = isArray ? t("main.ctx.json_items", { count }) : t("main.ctx.json_keys", { count });
+    summary.append(...head, el("span", "json-punct", open), el("span", "json-folded", ` … ${close} ${noun}`));
     const children = el("span", "json-children");
     entries.forEach(([k, v], i) => {
       children.appendChild(jsonNode(v, isArray ? undefined : k, `${path}/${encodeURIComponent(k)}`, i === count - 1));
@@ -4029,7 +4004,7 @@ function jsonNode(value, name, path, last) {
 // « Corps JSON » (chat mode): the body sent, as a tree.
 function bodyPart(call) {
   const part = el("div", "ctx-read ctx-body");
-  part.appendChild(el("h4", "ctx-part-title", "Corps JSON envoyé"));
+  part.appendChild(el("h4", "ctx-part-title", t("main.ctx.body_sent")));
   const value = parseJson(call.context.body ?? "");
   part.appendChild(value === undefined ? el("pre", "ctx-exact", call.context.body ?? "") : jsonTree(value, `body:${call.id}`));
   return part;
@@ -4042,12 +4017,12 @@ function exactParts(call, owner, last, turn) {
   const exact = el("pre", "ctx-exact", isChat(p) ? p.body : p.segments.map((s) => s.text).join(""));
   const nodes = [];
   if (last) {
-    nodes.push(el("h4", "ctx-part-title", "Texte lu, exact"), exact);
+    nodes.push(el("h4", "ctx-part-title", t("main.ctx.exact_read")), exact);
   } else {
     const key = `exact:${call.id}`;
     const details = el("details", "ctx-exact-fold");
     details.open = store.openExact.has(key);
-    const summary = el("summary", "", `Texte lu à cet appel, exact · ${approxTotal(p)}${fmt(p.used)} tokens`);
+    const summary = el("summary", "", t("main.ctx.exact_read_fold", { tokens: `${approxTotal(p)}${fmt(p.used)}` }));
     summary.dataset.focusKey = key;
     details.addEventListener("toggle", () => {
       if (details.open) store.openExact.add(key);
@@ -4056,10 +4031,10 @@ function exactParts(call, owner, last, turn) {
     details.append(summary, exact);
     nodes.push(details);
   }
-  nodes.push(el("h4", "ctx-part-title", "Sortie brute du modèle"));
+  nodes.push(el("h4", "ctx-part-title", t("main.ctx.raw_title")));
   let raw;
   if (call.ended) raw = el("pre", "ctx-raw", call.ended.raw_output);
-  else if (last && owner.overflow) raw = el("pre", "ctx-raw", "Aucun appel : contexte dépassé.");
+  else if (last && owner.overflow) raw = el("pre", "ctx-raw", t("main.ctx.no_call_overflow"));
   else if (last && call.startedAt != null) {
     // Only once its `model_call_started` came: before, the deltas are the previous call's.
     raw = el("pre", "ctx-raw", owner.reasoning + owner.text || "…");
@@ -4076,7 +4051,7 @@ function producedBlock(className, kind, links) {
   block.dataset.discipline = "model";
   setLinks(block, links);
   const head = el("div", "ctx-produced-head");
-  head.append(el("span", "ctx-produced-tag", "Produit par le modèle"), el("span", "ctx-produced-kind", kind));
+  head.append(el("span", "ctx-produced-tag", t("main.ctx.produced.tag")), el("span", "ctx-produced-kind", kind));
   block.appendChild(head);
   return block;
 }
@@ -4098,7 +4073,7 @@ function producedPart(call, owner, turn, last) {
   const part = el("div", "ctx-produced-list");
   const ended = call.ended;
   if (!ended && last && owner.overflow) {
-    part.appendChild(el("p", "ctx-produced-none", "Aucun appel : contexte dépassé."));
+    part.appendChild(el("p", "ctx-produced-none", t("main.ctx.no_call_overflow")));
     return part;
   }
   // The running call: the live deltas, patched in place by `renderContext`; only once its
@@ -4108,7 +4083,7 @@ function producedPart(call, owner, turn, last) {
   if (!ended && !live) {
     // Not sent yet: a note while it waits, nothing once the turn stopped.
     if (last && ctxRunning(owner, turn)) {
-      part.appendChild(el("p", "ctx-produced-none", "En attente de l'envoi au modèle…"));
+      part.appendChild(el("p", "ctx-produced-none", t("main.ctx.produced.waiting_send")));
     }
     return part;
   }
@@ -4118,35 +4093,35 @@ function producedPart(call, owner, turn, last) {
   const links = [`call:${call.id}`];
   if (reasoning) {
     // FR-9: always here, whatever the Vue humain option says; folded by default.
-    const block = producedBlock("is-reasoning", "Réflexion", [...links, "reasoning"]);
-    const details = reasoningBlock(reasoning, `ctx:${call.id}`, "Afficher le raisonnement de cet appel");
+    const block = producedBlock("is-reasoning", t("main.ctx.produced.reflection"), [...links, "reasoning"]);
+    const details = reasoningBlock(reasoning, `ctx:${call.id}`, t("main.ctx.produced.show_reasoning"));
     block.appendChild(details);
     part.appendChild(block);
     if (live) ctxLive.reasoning = details.querySelector(".reasoning-text");
   }
   // Lot C: the harness closed the reasoning at its budget and relaunched the same call.
-  if (call.cut) part.appendChild(el("p", "ctx-harness-note", `⚙ Le harnais : ${call.cut.message_text}`));
+  if (call.cut) part.appendChild(el("p", "ctx-harness-note", `⚙ ${t("main.ctx.produced.harness_note", { message: call.cut.message_text })}`));
   if (text) {
-    const block = producedBlock("is-answer", "Réponse", links);
+    const block = producedBlock("is-answer", t("main.ctx.produced.answer"), links);
     const pre = el("pre", "ctx-produced-text", text);
     block.appendChild(pre);
     part.appendChild(block);
     if (live) ctxLive.answer = pre;
   }
   (ended?.tool_calls ?? []).forEach((toolCall, i) => {
-    const block = producedBlock("is-tool-call", "Appel d'outil", links);
+    const block = producedBlock("is-tool-call", t("main.ctx.produced.tool_call"), links);
     block.appendChild(jsonTree({ name: toolCall.name, arguments: decodeArguments(toolCall.arguments) }, `tool:${call.id}:${i}`));
     part.appendChild(block);
   });
   // A malformed tool call reaches no `tool_calls`: its raw output is what the model produced.
   const malformed = stepsAfter(owner, call).some((s) => s.type === "tool_call_malformed");
   if (ended?.raw_output && (malformed || !part.childElementCount)) {
-    const block = producedBlock("is-answer is-raw", malformed ? "Sortie brute (appel d'outil mal formé)" : "Sortie brute", links);
+    const block = producedBlock("is-answer is-raw", malformed ? t("main.ctx.produced.raw_malformed") : t("main.ctx.produced.raw"), links);
     block.appendChild(el("pre", "ctx-produced-text", ended.raw_output));
     part.appendChild(block);
   }
   if (!part.childElementCount) {
-    part.appendChild(el("p", "ctx-produced-none", live && ctxRunning(owner, turn) ? "En attente de la sortie du modèle…" : "Aucune sortie reçue."));
+    part.appendChild(el("p", "ctx-produced-none", live && ctxRunning(owner, turn) ? t("main.ctx.produced.waiting_output") : t("main.ctx.produced.none")));
   }
   return part;
 }
@@ -4158,23 +4133,27 @@ function betweenLine(owner, turn, call, next, nextNumber) {
   const steps = stepsAfter(owner, call);
   const tools = steps.filter((s) => s.type === "tool");
   const names = [
-    ...new Set(tools.map((s) => (s.started.tool === "delegate" ? "la délégation au sous-agent" : toolLabel(s.started.tool)))),
+    ...new Set(tools.map((s) => (s.started.tool === "delegate" ? t("main.ctx.between.delegation") : toolLabel(s.started.tool)))),
   ];
   const blocked = steps.filter((s) => s.type === "hook" && s.payload.decision === "block");
   const malformed = steps.some((s) => s.type === "tool_call_malformed");
   const parts = [];
-  if (names.length) parts.push(`exécute ${joinFr(names)}`);
-  if (blocked.length) parts.push(`refuse ${blocked.length > 1 ? `${blocked.length} appels d'outil` : "l'appel d'outil"} (${joinFr(blocked.map((s) => s.payload.hook_text))})`);
-  if (malformed) parts.push("refuse l'appel d'outil mal formé et réinjecte l'erreur");
+  if (names.length) parts.push(t("main.ctx.between.runs", { tools: joinList(names) }));
+  if (blocked.length) {
+    parts.push(t("main.ctx.between.refuses", { count: blocked.length, hooks: joinList(blocked.map((s) => s.payload.hook_text)) }));
+  }
+  if (malformed) parts.push(t("main.ctx.between.refuses_malformed"));
+  const nextCall = String(nextNumber);
   let text;
-  if (!parts.length) text = `Le harnais relance le modèle : appel ${nextNumber}.`;
-  else if (names.length && parts.length === 1) text = `Le harnais ${parts[0]} ; le résultat est lu à l'appel ${nextNumber}.`;
-  else text = `Le harnais ${joinFr(parts)} ; ${names.length ? "résultats et refus sont lus" : "le refus est lu"} à l'appel ${nextNumber}.`;
+  if (!parts.length) text = t("main.ctx.between.relaunch", { call: nextCall });
+  else if (names.length && parts.length === 1) text = t("main.ctx.between.result_read", { action: parts[0], call: nextCall });
+  else if (names.length) text = t("main.ctx.between.results_read", { actions: joinList(parts), call: nextCall });
+  else text = t("main.ctx.between.refusal_read", { actions: joinList(parts), call: nextCall });
   const line = el("div", "ctx-between");
   line.appendChild(el("p", "", `⚙ ${text}`));
   if (owner === turn) {
     for (const step of tools.filter((s) => s.sub?.context)) {
-      const show = el("button", "subagent-show", `Voir le contexte du sous-agent ${step.sub.contextId}`);
+      const show = el("button", "subagent-show", t("main.ctx.between.show_subagent", { id: step.sub.contextId }));
       show.type = "button";
       show.dataset.focusKey = `ctxsub:${step.sub.contextId}`;
       show.addEventListener("click", () => showSubContext(turn.id, step.sub.contextId));
@@ -4195,7 +4174,7 @@ function textBefore(turn, was) {
 function ctxViewSwitch(turn, subs, view) {
   const bar = el("div", "ctx-view-switch");
   bar.setAttribute("role", "tablist");
-  bar.setAttribute("aria-label", "Contexte affiché");
+  bar.setAttribute("aria-label", t("main.ctx.view_label"));
   const button = (label, target, pressed) => {
     const b = el("button", "ctx-view-button", label);
     b.type = "button";
@@ -4210,8 +4189,8 @@ function ctxViewSwitch(turn, subs, view) {
     });
     return b;
   };
-  bar.appendChild(button("Agent principal", null, !view));
-  for (const sub of subs) bar.appendChild(button(`Sous-agent ${sub.contextId}`, sub.contextId, view === sub));
+  bar.appendChild(button(t("main.ctx.main_agent"), null, !view));
+  for (const sub of subs) bar.appendChild(button(t("main.ctx.subagent", { id: sub.contextId }), sub.contextId, view === sub));
   return bar;
 }
 
@@ -4223,8 +4202,10 @@ const turnNumber = (turn) => {
   const i = shownTurns().indexOf(turn);
   return i < 0 ? null : i + 1;
 };
-const turnName = (turn) => (turnNumber(turn) ? `Tour ${turnNumber(turn)}` : turn.id);
-const turnIdTitle = (turn) => `Identifiant du tour dans le journal : ${turn.id}`;
+const turnName = (turn) => (turnNumber(turn) ? t("main.turn.name", { n: String(turnNumber(turn)) }) : turn.id);
+// Inside a sentence (« Rejeu du tour 2 »).
+const turnNameLower = (turn) => (turnNumber(turn) ? t("main.turn.name_inline", { n: String(turnNumber(turn)) }) : turn.id);
+const turnIdTitle = (turn) => t("main.turn.id_title", { id: turn.id });
 
 function openCompare(left, right) {
   const turns = shownTurns();
@@ -4268,7 +4249,7 @@ function brickGroups(turn) {
 }
 
 function brickName(brick) {
-  if (!brick) return "Hors brique (message et gabarit)";
+  if (!brick) return t("main.compare.no_brick");
   return store.bricks?.bricks?.find((b) => b.id === brick)?.label_text ?? brick;
 }
 
@@ -4277,8 +4258,8 @@ const signed = (n, unit) => `${n > 0 ? "+" : n < 0 ? "−" : "±"}${unit(Math.ab
 function compareCell(turn, group, other) {
   const cell = el("div", "turn-compare-cell");
   if (!group) {
-    const delta = other ? ` (${signed(-other.tokens, fmt)} tokens)` : "";
-    cell.append(el("p", "empty-note", `${turnName(turn)} : absent de ce contexte${delta}.`));
+    const delta = other ? ` (${t("main.ctx.tokens", { tokens: signed(-other.tokens, fmt) })})` : "";
+    cell.append(el("p", "empty-note", t("main.compare.absent", { turn: turnName(turn), delta })));
     return cell;
   }
   const first = group.segments[0];
@@ -4287,12 +4268,12 @@ function compareCell(turn, group, other) {
   cell.dataset.discipline = first.discipline || "neutral"; // story 33
   cell.classList.add("ctx-segment");
   const label = el("div", "ctx-segment-label");
-  const delta = other === undefined ? "" : ` (${signed(group.tokens - (other?.tokens ?? 0), fmt)} tokens)`;
-  label.append(el("span", "swatch"), `${turnName(turn)} · ${fmt(group.tokens)} tokens${delta}`);
+  const delta = other === undefined ? "" : ` (${t("main.ctx.tokens", { tokens: signed(group.tokens - (other?.tokens ?? 0), fmt) })})`;
+  label.append(el("span", "swatch"), `${turnName(turn)} · ${t("main.ctx.tokens", { tokens: group.tokens })}${delta}`);
   const details = el("details");
-  details.append(el("summary", "", `Texte intégral (${group.segments.length} segments)`));
+  details.append(el("summary", "", t("main.compare.full_text", { segments: String(group.segments.length) })));
   for (const segment of group.segments) {
-    details.append(el("div", "ctx-segment-label", `${segment.label_text} · ${fmt(segment.tokens)} tokens`));
+    details.append(el("div", "ctx-segment-label", `${segment.label_text} · ${t("main.ctx.tokens", { tokens: segment.tokens })}`));
     details.append(el("pre", "", segment.text));
   }
   cell.append(label, details);
@@ -4312,13 +4293,13 @@ function renderCompare(pane) {
   const focusKey = pane.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
   pane.innerHTML = "";
   const head = el("div", "turn-compare-head");
-  head.append(el("h3", "ctx-heading", "Comparaison de tours"));
-  for (const [side, label] of [["left", "Tour de gauche"], ["right", "Tour de droite"]]) {
+  head.append(el("h3", "ctx-heading", t("main.compare.title")));
+  for (const [side, label] of [["left", t("main.compare.left")], ["right", t("main.compare.right")]]) {
     const select = el("select");
     select.setAttribute("aria-label", label);
     select.dataset.focusKey = `compare:${side}`;
     for (const turn of turns) {
-      const option = el("option", "", `${turnName(turn)}${turn.replayOf ? " (rejeu)" : ""} · « ${turn.message} »`);
+      const option = el("option", "", `${turnName(turn)}${turn.replayOf ? ` ${t("main.compare.replay_suffix")}` : ""} · « ${turn.message} »`);
       option.value = turn.id;
       option.selected = turn.id === store.compare[side];
       select.append(option);
@@ -4329,7 +4310,7 @@ function renderCompare(pane) {
     });
     head.append(select);
   }
-  const close = el("button", "pane-text-action", "Fermer");
+  const close = el("button", "pane-text-action", t("common.close"));
   close.type = "button";
   close.dataset.focusKey = "compare:close";
   close.addEventListener("click", closeCompare);
@@ -4341,17 +4322,17 @@ function renderCompare(pane) {
   // A running turn has no measured time yet: « en cours », and no time difference.
   if (left.status === null) a.duration = null;
   if (right.status === null) b.duration = null;
-  const time = (ms) => (ms === null ? "en cours" : seconds(ms));
+  const time = (ms) => (ms === null ? t("main.ctx.call_state.running") : seconds(ms));
   for (const [turn, figures, other] of [[left, a, null], [right, b, a]]) {
     const card = el("div", "turn-compare-figures");
-    card.append(el("div", "turn-group-title", `${turnName(turn)}${turn.replayOf ? " · Rejeu" : ""}`));
-    card.append(el("div", "turn-compare-model", `Modèle : ${turn.model?.label ?? "inconnu"}`));
+    card.append(el("div", "turn-group-title", `${turnName(turn)}${turn.replayOf ? ` · ${t("main.chat.replay_badge")}` : ""}`));
+    card.append(el("div", "turn-compare-model", t("main.chat.model_line", { model: turn.model?.label ?? t("main.compare.unknown_model") })));
     const diff = (key, unit) =>
       other && figures[key] !== null && other[key] !== null ? ` (${signed(figures[key] - other[key], unit)})` : "";
     card.append(
-      el("div", "number", `Entrée : ${fmt(figures.input)} tokens${diff("input", fmt)}`),
-      el("div", "number", `Sortie : ${fmt(figures.output)} tokens${diff("output", fmt)}`),
-      el("div", "number", `Temps : ${time(figures.duration)}${diff("duration", seconds)}`)
+      el("div", "number", t("main.compare.input", { tokens: figures.input, diff: diff("input", fmt) })),
+      el("div", "number", t("main.compare.output", { tokens: figures.output, diff: diff("output", fmt) })),
+      el("div", "number", t("main.compare.time", { time: time(figures.duration), diff: diff("duration", seconds) }))
     );
     grid.append(card);
   }
@@ -4360,7 +4341,7 @@ function renderCompare(pane) {
     grid.append(el("h4", "turn-compare-brick", brickName(brick)));
     grid.append(compareCell(left, ga.get(brick)), compareCell(right, gb.get(brick), ga.get(brick) ?? null));
   }
-  if (!ga.size && !gb.size) grid.append(el("p", "empty-note", "Aucun contexte rendu pour ces tours."));
+  if (!ga.size && !gb.size) grid.append(el("p", "empty-note", t("main.compare.no_context")));
   pane.append(grid);
   if (focusKey) pane.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`)?.focus();
 }
@@ -4416,8 +4397,7 @@ function hostOf(url) {
 
 function catalogBody(context, tokens) {
   const count = context.segments.filter((s) => s.kind === "tool_catalog").length;
-  const plural = count > 1 ? "s" : "";
-  return [el("p", "", `${count} outil${plural} décrit${plural} au modèle dans le contexte : ${fmt(tokens)} tokens.`)];
+  return [el("p", "", t("main.orch.catalog", { count, tokens }))];
 }
 
 function callBody(turn, step) {
@@ -4427,22 +4407,27 @@ function callBody(turn, step) {
   if (ended) {
     // FR-30, FR-43: the rate (tokens/s) from the session; « ≈ » on what was estimated.
     const guess = approx(ended.usage_source === "estimate");
-    const rate = ended.output_tps != null ? ` · Débit : ${fmt(ended.output_tps)} tokens/s` : "";
-    counter.textContent = `Entrée : ${guess}${fmt(ended.prompt_tokens)} tokens · Sortie : ${guess}${fmt(ended.output_tokens)} tokens · Temps : ${seconds(ended.duration_ms)}${rate}`;
+    const rate = ended.output_tps != null ? ` · ${t("main.orch.call.rate", { tps: ended.output_tps })}` : "";
+    counter.textContent = t("main.orch.call.ended", {
+      input: `${guess}${fmt(ended.prompt_tokens)}`,
+      output: `${guess}${fmt(ended.output_tokens)}`,
+      time: seconds(ended.duration_ms),
+      rate,
+    });
   } else if (step.startedAt) {
-    counter.append(`Entrée : ${context ? approxTotal(context) : ""}${fmt(context?.used ?? 0)} tokens · Sortie : … · Temps : `, tick(step.startedAt), " (en cours)");
+    const input = `${context ? approxTotal(context) : ""}${fmt(context?.used ?? 0)}`;
+    counter.append(`${t("main.orch.call.running", { input })} `, tick(step.startedAt), ` ${t("main.orch.call.running_suffix")}`);
   } else {
-    counter.textContent = `Entrée : ${context ? approxTotal(context) : ""}${fmt(context?.used ?? 0)} tokens`;
+    counter.textContent = t("main.orch.call.input", { input: `${context ? approxTotal(context) : ""}${fmt(context?.used ?? 0)}` });
   }
-  const nodes = [el("p", "label", `Appel ${step.id ?? turn.id}`), counter];
+  const nodes = [el("p", "label", t("main.orch.call.label", { id: step.id ?? turn.id })), counter];
   // FinOps: a cloud call with declared prices; never for a local model.
   if (ended?.cost_in_usd != null) nodes.push(el("div", "token-counter number", costText(ended)));
   // GreenOps: its footprint (cloud: EcoLogits, local: CodeCarbon), or « indisponible ».
   const footprint = footprintNode(ended);
   if (footprint) nodes.push(footprint);
   if (ended && ended.stop_reason !== "stop") {
-    const reasons = { length: "sortie coupée", cancelled: "arrêté", error: "erreur" };
-    nodes.push(el("span", "step-badge", reasons[ended.stop_reason]));
+    nodes.push(el("span", "step-badge", section("main.orch.call.stop_reasons")[ended.stop_reason]));
   }
   return nodes;
 }
@@ -4454,8 +4439,8 @@ function toolBody(step) {
   if (step.started.source?.startsWith("mcp") || (harness && step.brick === "mcp")) {
     nodes.push(el("span", "step-badge is-mcp", "MCP"));
   }
-  if (step.brick === "skills") nodes.push(el("span", "step-badge is-skill", "Skill"));
-  if (step.brick === "global_memory") nodes.push(el("span", "step-badge is-memory", "Mémoire globale"));
+  if (step.brick === "skills") nodes.push(el("span", "step-badge is-skill", t("main.orch.skill_badge")));
+  if (step.brick === "global_memory") nodes.push(el("span", "step-badge is-memory", t("main.memory.title")));
   // EXPERIENCE: trigger badge, read from the envelope's `trigger` (story 9).
   const badge = triggerBadge(step.trigger);
   if (badge) nodes.push(badge);
@@ -4463,28 +4448,28 @@ function toolBody(step) {
   nodes.push(el("pre", "step-code", formatCall(asked)));
   for (const request of step.outbound || []) nodes.push(outboundPayload(request));
   if (!ended) {
-    const running = el("div", "token-counter number", "En cours… ");
+    const running = el("div", "token-counter number", `${t("common.in_progress")} `);
     running.appendChild(tick(step.startedAt));
     nodes.push(running);
     return nodes;
   }
-  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  nodes.push(el("div", "token-counter number", t("main.orch.time", { time: seconds(ended.duration_ms) })));
   if (ended.status === "ok") {
     const cut = ended.truncated;
     if (cut) {
       // Lot B (N3): the harness cut a network or MCP result before the model read it.
       const approx = cut.estimated ? "≈ " : "";
-      nodes.push(el("p", "", `Résultat tronqué par le harnais : ${approx}${fmt(cut.tokens)} tokens sur ${approx}${fmt(cut.total_tokens)} (borne [tools] result_max_tokens)`));
+      nodes.push(el("p", "", t("main.orch.tool.truncated", { tokens: `${approx}${fmt(cut.tokens)}`, total: `${approx}${fmt(cut.total_tokens)}` })));
     }
-    nodes.push(el("p", "label", "Résultat"), el("pre", "step-code", ended.result));
+    nodes.push(el("p", "label", t("main.orch.tool.result")), el("pre", "step-code", ended.result));
     for (const write of step.memoryWrites || []) {
       // Story 14: what the harness wrote in memory.json, the model having only asked.
-      nodes.push(el("p", "label", "Entrée écrite dans memory.json par le harnais"), el("pre", "step-code", write.text));
+      nodes.push(el("p", "label", t("main.orch.tool.memory_written")), el("pre", "step-code", write.text));
     }
   } else {
     nodes.push(
-      el("span", "step-badge", "erreur d'exécution"),
-      el("p", "", `${ended.error_text} L'erreur est réinjectée au modèle ; ce n'est pas un nouvel essai.`)
+      el("span", "step-badge", t("main.orch.tool.error_badge")),
+      el("p", "", t("main.orch.tool.error", { error: ended.error_text }))
     );
   }
   return nodes;
@@ -4496,16 +4481,16 @@ function connectBody(step) {
   const nodes = [el("span", "step-badge is-mcp", "MCP"), el("p", "", step.started.phase_label)];
   for (const request of step.outbound || []) nodes.push(outboundPayload(request));
   if (!ended) {
-    nodes.push(el("div", "token-counter number", "Connexion en cours…"));
+    nodes.push(el("div", "token-counter number", t("main.orch.connect.running")));
     return nodes;
   }
-  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  nodes.push(el("div", "token-counter number", t("main.orch.time", { time: seconds(ended.duration_ms) })));
   if (ended.status === "ok") {
     const count = ended.tools.length;
-    nodes.push(el("p", "label", `Outils trouvés : ${count}`));
+    nodes.push(el("p", "label", t("main.orch.connect.found", { count: String(count) })));
     if (count) nodes.push(el("pre", "step-code", ended.tools.join("\n")));
   } else {
-    nodes.push(el("span", "step-badge", "serveur indisponible"), el("p", "", ended.error_text));
+    nodes.push(el("span", "step-badge", t("main.orch.connect.unavailable")), el("p", "", ended.error_text));
   }
   return nodes;
 }
@@ -4513,10 +4498,10 @@ function connectBody(step) {
 function overflowCard(overflow) {
   const card = el("div", "overflow-card");
   card.append(
-    el("h3", "", "⚠ Contexte dépassé — l'appel au modèle n'a pas été envoyé"),
-    el("p", "number", `${fmt(overflow.used)} / ${fmt(overflow.usable)} tokens`),
+    el("h3", "", `⚠ ${t("main.orch.overflow.title")}`),
+    el("p", "number", t("main.orch.overflow.figures", { used: overflow.used, usable: overflow.usable })),
     el("p", "", overflow.message_text),
-    el("p", "label", "En production, un harnais pourrait")
+    el("p", "label", t("main.orch.overflow.strategies"))
   );
   const list = el("ul");
   for (const strategy of overflow.strategies_text) list.appendChild(el("li", "", strategy));
@@ -4524,11 +4509,6 @@ function overflowCard(overflow) {
   return card;
 }
 
-const OUTBOUND_MASKED_FR = "Valeur masquée par le harnais : jamais écrite dans le journal";
-const OUTBOUND_MASKED_NOTE_FR =
-  "[masqué] : valeur secrète ou propre à la session (clé, cookie, identifiant de session…), remplacée par le harnais avant le journal. Le nom de l'en-tête reste visible.";
-const OUTBOUND_HEADERS_AT_SEND_FR =
-  "Posés par le client HTTP à l'envoi (User-Agent, Accept…) : si l'appel est accepté, ils seront visibles dans les données sortantes de l'étape de l'outil.";
 
 function outboundPayload(request, openSet = null) {
   // DESIGN.md outbound-payload: exactly what leaves the workstation, open by default in the
@@ -4545,17 +4525,17 @@ function outboundPayload(request, openSet = null) {
   // Story 23: « Données sortantes », the name the user looks for and the event log's.
   const head = el("summary", "outbound-head");
   head.append(
-    el("span", "outbound-tag", "🌐 RÉSEAU"),
+    el("span", "outbound-tag", `🌐 ${t("main.hosting.network")}`),
     " · ",
-    el("span", "outbound-label", "Données sortantes"),
+    el("span", "outbound-label", t("main.outbound.label")),
     " ",
     el("span", "outbound-address", `${request.method} ${request.url}`)
   );
   const body = el("div", "outbound-body");
   body.append(
-    el("p", "outbound-section", "Requête"),
+    el("p", "outbound-section", t("main.outbound.request")),
     el("pre", "step-code", `${request.method} ${request.url}`),
-    el("p", "outbound-section", "En-têtes")
+    el("p", "outbound-section", t("main.outbound.headers"))
   );
   if (Array.isArray(request.headers)) {
     // As the session traced them (AD-2): a value outside its allow-list arrives masked.
@@ -4565,48 +4545,48 @@ function outboundPayload(request, openSet = null) {
       lines.append(`${header.name}: `);
       if (header.masked) {
         const masked = el("span", "outbound-masked", header.value);
-        masked.title = OUTBOUND_MASKED_FR;
+        masked.title = t("main.outbound.masked");
         lines.append(masked);
       } else {
         lines.append(header.value);
       }
     });
     // An event traced before story 23 carries none: nothing says what was sent.
-    if (!request.headers.length) lines.textContent = "En-têtes non tracés pour cet événement.";
+    if (!request.headers.length) lines.textContent = t("main.outbound.headers_not_traced");
     body.append(lines);
-    if (request.headers.some((header) => header.masked)) body.append(el("p", "outbound-note", OUTBOUND_MASKED_NOTE_FR));
+    if (request.headers.some((header) => header.masked)) body.append(el("p", "outbound-note", t("main.outbound.masked_note")));
   } else {
     // The H5 preview: headers are set by the HTTP client when sending, after the decision.
-    body.append(el("p", "outbound-note", OUTBOUND_HEADERS_AT_SEND_FR));
+    body.append(el("p", "outbound-note", t("main.outbound.headers_at_send")));
   }
   body.append(
-    el("p", "outbound-section", "Corps"),
-    el("pre", "step-code", request.body || "Aucun corps : seule l'adresse sort du poste.")
+    el("p", "outbound-section", t("main.outbound.body")),
+    el("pre", "step-code", request.body || t("main.outbound.no_body"))
   );
   details.append(head, body);
   return details;
 }
 
-// Story 15: a score with two decimals, French style (« 0,82 »).
-const scoreFormat = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Story 15: a score with two decimals, in the language's style (« 0,82 », « 0.82 »).
+const scoreFormat = () => intlNumber({ minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function ragBody(step) {
   // The query, where the excerpts go, then rank, document, score and foldable text; a click on
   // an excerpt selects the retriever in the schema (CAP-4).
   const ended = step.ended;
-  const nodes = [el("p", "label", "Requête"), el("pre", "step-code", step.started.query)];
+  const nodes = [el("p", "label", t("main.orch.rag.query")), el("pre", "step-code", step.started.query)];
   if (!ended) {
     const running = el("div", "token-counter number", `${step.started.phase_label} `);
     running.appendChild(tick(step.startedAt));
     nodes.push(running);
     return nodes;
   }
-  nodes.push(el("p", "", `Placement : ${ended.placement_text}`));
+  nodes.push(el("p", "", t("main.orch.rag.placement", { placement: ended.placement_text })));
   // Story 16: the reranking enabled, but not applied to this turn, and why.
   if (ended.rerank_skipped_text) nodes.push(el("p", "bubble-note", ended.rerank_skipped_text));
-  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  nodes.push(el("div", "token-counter number", t("main.orch.time", { time: seconds(ended.duration_ms) })));
   if (ended.status === "error") {
-    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_text));
+    nodes.push(el("span", "step-badge", t("main.orch.error")), el("p", "", ended.error_text));
     return nodes;
   }
   const list = el("ol", "rag-excerpts");
@@ -4617,26 +4597,26 @@ function ragBody(step) {
     head.append(
       el("span", "rag-rank", `#${excerpt.position}`),
       el("span", "rag-doc", excerpt.title_text),
-      el("span", "rag-score number", scoreFormat.format(excerpt.score))
+      el("span", "rag-score number", scoreFormat().format(excerpt.score))
     );
-    head.title = "Sélectionne le composant RAG dans le schéma ; déplie le texte de l'extrait";
+    head.title = t("main.orch.rag.excerpt_title");
     head.addEventListener("click", () => setSelection(step.component || "rag.retriever"));
     details.append(head, el("pre", "step-code", excerpt.text));
     item.appendChild(details);
     list.appendChild(item);
   }
-  nodes.push(el("p", "label", "Extraits (rang · document · score)"), list);
+  nodes.push(el("p", "label", t("main.orch.rag.excerpts")), list);
   return nodes;
 }
 
 // Story 16: the order before and after reranking, side by side; the kept ones first.
 function rerankKept(keep) {
-  return keep > 1 ? `Seuls les ${keep} premiers après reranking entrent` : "Seul le premier après reranking entre";
+  return t("main.orch.rerank.kept", { count: keep });
 }
 
 function rerankBody(step) {
   const ended = step.ended;
-  const nodes = [el("p", "label", "Requête"), el("pre", "step-code", step.started.query)];
+  const nodes = [el("p", "label", t("main.orch.rag.query")), el("pre", "step-code", step.started.query)];
   if (!ended) {
     const done = step.progress ? ` ${step.progress.done} / ${step.progress.total} ` : " ";
     const running = el("div", "token-counter number", `${step.started.phase_label}${done}`);
@@ -4644,20 +4624,20 @@ function rerankBody(step) {
     nodes.push(running);
     return nodes;
   }
-  nodes.push(el("p", "", `Placement : ${ended.placement_text}`));
-  nodes.push(el("div", "token-counter number", `Temps : ${seconds(ended.duration_ms)}`));
+  nodes.push(el("p", "", t("main.orch.rag.placement", { placement: ended.placement_text })));
+  nodes.push(el("div", "token-counter number", t("main.orch.time", { time: seconds(ended.duration_ms) })));
   if (ended.status === "cancelled") {
-    nodes.push(el("span", "step-badge", "arrêté"), el("p", "", ended.error_text));
+    nodes.push(el("span", "step-badge", t("main.orch.stopped")), el("p", "", ended.error_text));
     return nodes;
   }
   if (ended.status === "error") {
-    nodes.push(el("span", "step-badge", "erreur"), el("p", "", ended.error_text));
+    nodes.push(el("span", "step-badge", t("main.orch.error")), el("p", "", ended.error_text));
     return nodes;
   }
   const texts = new Map((step.search?.ended?.excerpts ?? []).map((e) => [e.chunk_id, e.text]));
   const select = () => setSelection(step.component || "rag.reranker");
   const kept = (excerpt) => excerpt.position <= ended.keep;
-  const keepTag = (excerpt) => el("span", "rerank-keep", kept(excerpt) ? "gardé" : "écarté");
+  const keepTag = (excerpt) => el("span", "rerank-keep", kept(excerpt) ? t("main.orch.rerank.kept_tag") : t("main.orch.rerank.dropped_tag"));
   const before = [...ended.excerpts].sort((a, b) => a.before - b.before);
   const columns = el("div", "rerank-columns");
   const beforeList = el("ol", "rerank-list rerank-before");
@@ -4666,7 +4646,7 @@ function rerankBody(step) {
     item.append(
       el("span", "rag-rank", `#${excerpt.before}`),
       el("span", "rag-doc", excerpt.title_text),
-      el("span", "rag-score number", scoreFormat.format(excerpt.retrieval_score)),
+      el("span", "rag-score number", scoreFormat().format(excerpt.retrieval_score)),
       el("span", "rerank-move", `→ #${excerpt.position}`),
       keepTag(excerpt)
     );
@@ -4683,11 +4663,11 @@ function rerankBody(step) {
       el("span", "rag-rank", `#${excerpt.position}`),
       el("span", "rerank-move", move),
       el("span", "rag-doc", excerpt.title_text),
-      el("span", "rag-score number", scoreFormat.format(excerpt.score)),
+      el("span", "rag-score number", scoreFormat().format(excerpt.score)),
       keepTag(excerpt)
     );
-    if (excerpt.truncated) head.append(el("span", "rerank-cut", "coupé"));
-    head.title = `Rang ${excerpt.before} avant le reranking. Sélectionne le reranker dans le schéma ; déplie le texte`;
+    if (excerpt.truncated) head.append(el("span", "rerank-cut", t("main.orch.rerank.cut_tag")));
+    head.title = t("main.orch.rerank.item_title", { rank: String(excerpt.before) });
     head.addEventListener("click", select);
     details.append(head, el("pre", "step-code", texts.get(excerpt.chunk_id) ?? ""));
     item.appendChild(details);
@@ -4699,16 +4679,12 @@ function rerankBody(step) {
     return box;
   };
   columns.append(
-    col("Avant (embedding) · rang · document · score · rang après", beforeList),
-    col("Après (reranker) · rang · écart · document · score", afterList)
+    col(t("main.orch.rerank.before_column"), beforeList),
+    col(t("main.orch.rerank.after_column"), afterList)
   );
   const cut = ended.excerpts.filter((e) => e.truncated).length;
-  const notes = [`${rerankKept(ended.keep)} dans le contexte ; les deux scores ne se comparent pas.`];
-  if (cut) {
-    notes.push(
-      `${plural(cut, "extrait")} coupé${cut > 1 ? "s" : ""} pour tenir dans la paire question + extrait du reranker ([rag.reranker] max_tokens) : noté${cut > 1 ? "s" : ""} sur son début.`
-    );
-  }
+  const notes = [t("main.orch.rerank.kept_note", { kept: rerankKept(ended.keep) })];
+  if (cut) notes.push(t("main.orch.rerank.cut_note", { count: cut }));
   nodes.push(columns, ...notes.map((note) => el("p", "rerank-note", note)));
   return nodes;
 }
@@ -4717,7 +4693,7 @@ function rerankBody(step) {
 function compressionFigure(p) {
   const percent = p.tokens_before ? Math.round((100 * p.saved_tokens) / p.tokens_before) : 0;
   const mark = approx(p.estimated);
-  return `${mark}${fmt(p.tokens_before)} → ${mark}${fmt(p.tokens_after)} tokens (−${percent} %)`;
+  return t("main.orch.compression.figure", { before: `${mark}${fmt(p.tokens_before)}`, after: `${mark}${fmt(p.tokens_after)}`, percent: String(percent) });
 }
 
 function compressionBody(step) {
@@ -4729,22 +4705,16 @@ function compressionBody(step) {
     running.appendChild(tick(step.startedAt));
     return [running];
   }
-  const many = ended.items.length > 1;
   const lines = [
-    el(
-      "p",
-      "",
-      `Décision du harnais (code) : avant l'appel au modèle, ${plural(ended.items.length, "texte")} ` +
-        `passé${many ? "s" : ""} à ${ended.compressor_text}. Un texte déjà lu par le modèle n'est jamais réécrit.`
-    ),
-    el("div", "token-counter number", `Contexte réduit : ${compressionFigure(ended)} · ${seconds(ended.duration_ms)}`),
+    el("p", "", t("main.orch.compression.decision", { count: ended.items.length, compressor: ended.compressor_text })),
+    el("div", "token-counter number", t("main.orch.compression.reduced", { figure: compressionFigure(ended), time: seconds(ended.duration_ms) })),
   ];
   const list = el("ol", "compression-items"); // each error once, under its own text
   for (const item of ended.items) {
     const entry = el("li", "compression-item");
     const head = el("button", "compression-item-head");
     head.type = "button";
-    head.title = "Sélectionne le compresseur dans le schéma";
+    head.title = t("main.orch.compression.item_title");
     const mark = approx(ended.estimated);
     head.append(
       el("span", "compression-source", item.source_text),
@@ -4752,8 +4722,8 @@ function compressionBody(step) {
         "span",
         "compression-tokens number",
         item.changed
-          ? `${mark}${fmt(item.tokens_before)} → ${mark}${fmt(item.tokens_after)} tokens`
-          : `${mark}${fmt(item.tokens_before)} tokens · inchangé`
+          ? t("main.orch.compression.item_changed", { before: `${mark}${fmt(item.tokens_before)}`, after: `${mark}${fmt(item.tokens_after)}` })
+          : t("main.orch.compression.item_unchanged", { before: `${mark}${fmt(item.tokens_before)}` })
       )
     );
     head.addEventListener("click", () => setSelection(step.component || "compression.compressor"));
@@ -4761,27 +4731,22 @@ function compressionBody(step) {
     if (item.error_text) entry.appendChild(el("p", "bubble-note is-error", item.error_text));
     else if (!item.changed) entry.appendChild(el("p", "label", ended.unchanged_text));
     const before = el("details");
-    before.append(el("summary", "", `Avant (${mark}${fmt(item.tokens_before)} tokens)`), el("pre", "step-code", item.text_before));
+    before.append(el("summary", "", t("main.orch.compression.before", { tokens: `${mark}${fmt(item.tokens_before)}` })), el("pre", "step-code", item.text_before));
     entry.appendChild(before);
     if (item.changed) {
       const after = el("details");
-      after.append(el("summary", "", `Après (${mark}${fmt(item.tokens_after)} tokens)`), el("pre", "step-code", item.text_after));
+      after.append(el("summary", "", t("main.orch.compression.after", { tokens: `${mark}${fmt(item.tokens_after)}` })), el("pre", "step-code", item.text_after));
       entry.appendChild(after);
     }
     list.appendChild(entry);
   }
   lines.push(list);
   const tone = ended.status === "error" ? "error" : "info";
-  return [harnessEvent(`Compression du contexte (${ended.compressor_text})`, tone, lines)];
+  return [harnessEvent(t("main.orch.compression.title", { compressor: ended.compressor_text }), tone, lines)];
 }
 
-const HOOK_DECISIONS = {
-  allow: "laissé passer",
-  modify: "modifié",
-  block: "bloqué",
-  ask_human: "validation humaine demandée",
-};
-const APPROVAL_DECISIONS = { approved: "Autorisé", refused: "Refusé", cancelled: "Annulé : tour arrêté" };
+const HOOK_DECISIONS = section("main.orch.hook_decisions");
+const APPROVAL_DECISIONS = section("main.orch.approval_decisions");
 
 function toolLabel(name) {
   // Formatting only (AD-1): the label the bricks panel already shows for this tool.
@@ -4795,7 +4760,7 @@ function toolLabel(name) {
 }
 
 function approvalDecision(resolved) {
-  return `${APPROVAL_DECISIONS[resolved.decision]}${resolved.hook_disabled ? " · H5 désactivé" : ""}`;
+  return `${APPROVAL_DECISIONS[resolved.decision]}${resolved.hook_disabled ? ` · ${t("main.orch.approval.h5_disabled")}` : ""}`;
 }
 
 function approvalCard(step) {
@@ -4803,11 +4768,11 @@ function approvalCard(step) {
   // buttons while it waits, or the decision once answered (EXPERIENCE: human validation).
   const a = step.approval;
   const lines = [
-    el("p", "", `Outil : ${toolLabel(a.tool)} · Destination : ${a.destination}`),
+    el("p", "", t("main.orch.approval.tool_destination", { tool: toolLabel(a.tool), destination: a.destination })),
     outboundPayload({ ...a.preview, seq: a.approval_id }, store.openApprovalPayloads),
   ];
   if (step.resolved) {
-    lines.push(el("p", "", `Décision : ${approvalDecision(step.resolved)}`));
+    lines.push(el("p", "", t("main.orch.approval.decision", { decision: approvalDecision(step.resolved) })));
   } else {
     const actions = el("div", "drawer-actions approval-actions");
     const answer = async (approved, disableHook) => {
@@ -4822,20 +4787,20 @@ function approvalCard(step) {
         });
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
-          store.composerError = typeof body.detail === "string" ? body.detail : "Réponse refusée.";
+          store.composerError = typeof body.detail === "string" ? body.detail : t("main.orch.approval.answer_refused");
           step.answering = false;
         }
       } catch {
-        store.composerError = "WaveStack ne répond pas : la réponse n'a pas été transmise.";
+        store.composerError = t("main.orch.approval.answer_no_answer");
         step.answering = false;
       }
       render();
     };
     const waiting = store.sessionState?.state === "awaiting_human";
     for (const [label, approved, disableHook, primary, key] of [
-      ["Autoriser", true, false, true, "allow"],
-      ["Refuser", false, false, false, "refuse"],
-      ["Autoriser et ne plus demander", true, true, false, "allow-always"],
+      [t("main.orch.approval.allow"), true, false, true, "allow"],
+      [t("main.orch.approval.refuse"), false, false, false, "refuse"],
+      [t("main.orch.approval.allow_always"), true, true, false, "allow-always"],
     ]) {
       const button = el("button", primary ? "primary" : "", label);
       button.type = "button";
@@ -4846,7 +4811,7 @@ function approvalCard(step) {
     }
     lines.push(actions);
   }
-  const title = step.resolved ? "Validation humaine" : "En attente de votre validation";
+  const title = step.resolved ? t("main.orch.approval.title") : t("main.orch.approval.waiting");
   const card = harnessEvent(title, "info", lines);
   card.classList.add("approval-card");
   card.tabIndex = -1; // receives the focus of its buttons once they are disabled or gone
@@ -4860,11 +4825,11 @@ function approvalTrace(step) {
   const label = toolLabel(a.tool);
   const decision = step.resolved
     ? approvalDecision(step.resolved)
-    : "En attente de votre réponse dans la Vue humain";
+    : t("main.orch.approval.waiting_answer");
   return [
-    el("p", "", `Outil : ${label}${label === a.tool ? "" : ` (${a.tool})`} · Destination : ${a.destination}`),
+    el("p", "", t("main.orch.approval.tool_destination", { tool: `${label}${label === a.tool ? "" : ` (${a.tool})`}`, destination: a.destination })),
     outboundPayload({ ...a.preview, seq: a.approval_id }),
-    el("p", "", `Décision : ${decision}`),
+    el("p", "", t("main.orch.approval.decision", { decision })),
   ];
 }
 
@@ -4874,31 +4839,29 @@ function hookCard(step) {
   const block = p.decision === "block";
   const title = step.approval
     ? step.resolved
-      ? "Validation humaine"
-      : "En attente de votre validation"
+      ? t("main.orch.approval.title")
+      : t("main.orch.approval.waiting")
     : block
-      ? `Bloqué par le hook ${p.hook_text.toLowerCase()}`
-      : `Hook : ${p.point_text.toLowerCase()}`;
+      ? t("main.orch.hook.blocked_by", { hook: p.hook_text.toLowerCase() })
+      : t("main.orch.hook.title", { point: p.point_text.toLowerCase() });
   const lines = [
-    el("p", "", `Point d'accroche : ${p.point_text} · Hook : ${p.hook_text}`),
-    el("p", "", `Décision : ${HOOK_DECISIONS[p.decision]}. ${p.detail_text}`),
+    el("p", "", t("main.orch.hook.point", { point: p.point_text, hook: p.hook_text })),
+    el("p", "", t("main.orch.hook.decision", { decision: HOOK_DECISIONS[p.decision], detail: p.detail_text })),
   ];
   const badge = triggerBadge(hookTrigger(step)); // on a tool call: forced or the model's
   if (badge) lines.unshift(badge);
   if (block) {
     const effect =
       p.point === "before_tool"
-        ? "Effet sur le tour : l'outil ne s'exécute pas ; le refus est réinjecté au modèle, qui reprend la main (ce n'est pas un nouvel essai)."
-        : "Effet sur le tour : le tour s'arrête ici.";
+        ? t("main.orch.hook.effect_tool")
+        : t("main.orch.hook.effect_turn");
     lines.push(el("p", "", effect));
   }
   if (step.approval) lines.push(...approvalTrace(step));
   if (step.lines.length) {
-    lines.push(el("p", "label", "Lignes ajoutées au journal d'audit"), el("pre", "step-code", step.lines.join("\n")));
+    lines.push(el("p", "label", t("main.orch.hook.audit_lines")), el("pre", "step-code", step.lines.join("\n")));
   }
-  const origin = step.approval
-    ? "Décision demandée par le harnais (code), pas par le modèle"
-    : "Décision du harnais (code), pas du modèle";
+  const origin = step.approval ? t("main.orch.decision_asked_by_harness") : t("main.orch.decision_by_harness");
   lines.push(el("p", "label", origin));
   return harnessEvent(title, block ? "error" : "info", lines);
 }
@@ -4914,60 +4877,48 @@ function malformedCard(p) {
   }
   const reaction =
     p.reaction === "retry"
-      ? "Réaction du harnais : erreur réinjectée au modèle, nouvel essai."
-      : "Réaction du harnais : arrêt du tour, le modèle n'est plus rappelé (plus d'essai possible).";
-  return harnessEvent("Appel d'outil mal formé", "error", [
-    el("p", "", `Partie fautive : ${p.detail_text}`),
-    el("p", "label", "Sortie brute du modèle"),
+      ? t("main.orch.malformed.retry")
+      : t("main.orch.malformed.stop");
+  return harnessEvent(t("main.orch.malformed.title"), "error", [
+    el("p", "", t("main.orch.malformed.fault", { detail: p.detail_text })),
+    el("p", "label", t("main.ctx.raw_title")),
     raw,
     el("p", "", reaction),
-    el("p", "label", "Décision du harnais (code), pas du modèle"),
+    el("p", "label", t("main.orch.decision_by_harness")),
   ]);
 }
 
 // ---------- orchestration rail (EXPERIENCE: turn-rail, turn-group, turn-step, harness-prep) ----------
 
-const ACTORS = {
-  model: ["is-model", "🤖 modèle"],
-  harness: ["is-harness", "⚙ harnais"],
-  user: ["is-user", "👤 vous"],
-};
-// The trigger badge of a line (story 9): class, icon, label.
-const TRIGGERS = {
-  user: ["trigger-badge-user", "👆 ", "Forcé par l'utilisateur"],
-  model: ["trigger-badge-model", "🤖 ", "Déclenché par le modèle"],
-};
+// Each actor's class and icon; its name in `main.orch.actors`.
+const ACTOR_STYLES = { model: ["is-model", "🤖"], harness: ["is-harness", "⚙"], user: ["is-user", "👤"] };
+const ACTOR_NAMES = section("main.orch.actors");
+const actorOf = (id) => [ACTOR_STYLES[id][0], `${ACTOR_STYLES[id][1]} ${ACTOR_NAMES[id]}`];
+// The trigger badge of a line (story 9): class, icon, label (`main.trigger`).
+const TRIGGER_STYLES = { user: ["trigger-badge-user", "👆 "], model: ["trigger-badge-model", "🤖 "] };
+const TRIGGER_NAMES = section("main.trigger");
+const triggerOf = (id) => (TRIGGER_STYLES[id] ? [...TRIGGER_STYLES[id], TRIGGER_NAMES[id]] : null);
 const HOOK_ICONS = { h1: "🛡", h2: "📝", h3: "💉", h5: "✋" };
-const TURN_STATUS = {
-  completed: ["is-done", "terminé"],
-  cancelled: ["is-done", "arrêté"],
-  overflow: ["is-failed", "contexte dépassé"],
-  limit: ["is-failed", "limite atteinte"],
-  blocked: ["is-failed", "bloqué"],
-  error: ["is-failed", "erreur"],
+// A turn's status: its class, and its name in `main.orch.turn_status`.
+const TURN_STATUS_CLASSES = {
+  completed: "is-done",
+  cancelled: "is-done",
+  overflow: "is-failed",
+  limit: "is-failed",
+  blocked: "is-failed",
+  error: "is-failed",
 };
-const LIMITS = {
-  calls: "limite d'appels",
-  retries: "limite d'essais",
-  sub_calls: "limite de sous-appels",
-  sub_retries: "limite d'essais du sous-agent",
-};
-const APPROVAL_FIGURES = { approved: "autorisé", refused: "refusé", cancelled: "annulé" };
+const TURN_STATUS_NAMES = section("main.orch.turn_status");
+const turnStatusOf = (status) => (TURN_STATUS_CLASSES[status] ? [TURN_STATUS_CLASSES[status], TURN_STATUS_NAMES[status]] : undefined);
+const LIMITS = section("main.orch.limits");
+const APPROVAL_FIGURES = section("main.orch.approval_figures");
 // Lot A: why the engine reads the context again (`prefix_not_reused.cause`); the full
-// French explanation is its `message_text`.
-const PREFIX_CAUSES = {
-  in_turn: "dans le tour",
-  system: "message système modifié",
-  history: "historique réécrit",
-  template: "gabarit",
-  reset: "conversation vidée",
-  replay: "rejeu",
-  abandoned: "tour précédent abandonné",
-  subagent: "sous-agent",
-};
+// explanation is its `message_text`.
+const PREFIX_CAUSES = section("main.orch.prefix_causes");
 
-function plural(count, word) {
-  return `${fmt(count)} ${word}${count > 1 ? "s" : ""}`;
+// « 3 appels », « 1 appel »: `noun` names a pair of `common.count` (`call`, `tool`…).
+function plural(count, noun) {
+  return t(`common.count.${noun}`, { count });
 }
 
 // One line per step (DESIGN.md turn-step). A row: key (stable across renders), icon, title,
@@ -4990,11 +4941,11 @@ function turnRows(turn) {
     rows.push({
       key: `${turn.id}:overflow`,
       icon: "✖",
-      title: turn.contextId ? "Contexte du sous-agent dépassé" : "Contexte dépassé",
+      title: turn.contextId ? t("main.orch.rows.sub_overflow") : t("main.orch.rows.overflow"),
       actor: "harness",
       discipline: "harness",
       links: ["core.harness"],
-      figure: `${fmt(turn.overflow.used)} / ${fmt(turn.overflow.usable)} tokens`,
+      figure: t("main.orch.overflow.figures", { used: turn.overflow.used, usable: turn.overflow.usable }),
       tone: "error",
       sticky: true,
       sig: 1,
@@ -5039,10 +4990,10 @@ function stepRows(turn, step, i, calls, rows) {
         rows.push({
           key: `${key}:catalog`,
           icon: "🧰",
-          title: "Décrit les outils",
+          title: t("main.orch.rows.catalog"),
           actor: "harness",
           links: segmentLinks(context, "tool_catalog"),
-          figure: `${fmt(catalog)} tokens`,
+          figure: t("main.ctx.tokens", { tokens: catalog }),
           sig: catalog,
           body: () => catalogBody(context, catalog),
         });
@@ -5051,24 +5002,30 @@ function stepRows(turn, step, i, calls, rows) {
         rows.push({
           key: `${key}:reinject`,
           icon: "↩",
-          title: "Réinjecte le résultat",
+          title: t("main.orch.rows.reinject"),
           actor: "harness",
           links: segmentLinks(context, "tool_result"),
-          figure: `+${fmt(results)} tokens`,
+          figure: `+${t("main.ctx.tokens", { tokens: results })}`,
           sig: results,
-          body: () => [el("p", "", `Résultats d'outils ajoutés au contexte de cet appel : ${fmt(results)} tokens.`)],
+          body: () => [el("p", "", t("main.orch.rows.reinject_body", { tokens: results }))],
         });
       }
       const ended = step.ended;
       const last = index === calls.length - 1;
       const isFinal = catalog && ended && !ended.tool_calls.length && last && turn.status === "completed";
-      let figure = `${fmt(context?.used ?? 0)} lus`;
+      let figure = t("main.orch.rows.read", { tokens: fmt(context?.used ?? 0) });
       if (ended) {
         const guess = approx(ended.usage_source === "estimate");
-        figure = `${guess}${fmt(ended.prompt_tokens)} lus · ${guess}${fmt(ended.output_tokens)} écrits · ${seconds(ended.duration_ms)}`;
+        figure = t("main.orch.rows.call_figure", {
+          read: `${guess}${fmt(ended.prompt_tokens)}`,
+          written: `${guess}${fmt(ended.output_tokens)}`,
+          time: seconds(ended.duration_ms),
+        });
         // Lot A: what the engine really evaluated, the tokens reused from its cache excluded.
-        if (ended.evaluated_tokens != null) figure += ` · ${fmt(ended.evaluated_tokens)} tokens évalués`;
-        const stopped = { length: "sortie coupée", cancelled: "arrêté" }[ended.stop_reason];
+        if (ended.evaluated_tokens != null) figure += ` · ${t("main.orch.rows.evaluated", { tokens: ended.evaluated_tokens })}`;
+        const stopped = ["length", "cancelled"].includes(ended.stop_reason)
+          ? section("main.orch.call.stop_reasons")[ended.stop_reason]
+          : null;
         if (stopped) figure += ` · ${stopped}`;
       } else if (step.startedAt) {
         figure += ` · ${seconds(Date.now() - step.startedAt)}`;
@@ -5076,7 +5033,7 @@ function stepRows(turn, step, i, calls, rows) {
       rows.push({
         key: `${key}:call`,
         icon: isFinal ? "💬" : "🤖",
-        title: isFinal ? "Répond" : "Appelle le modèle",
+        title: isFinal ? t("main.orch.rows.answers") : t("main.orch.rows.calls_model"),
         actor: "model",
         // Story 34: a model out of the workstation: the call crosses the boundary.
         via: turn.model?.hosting === "network",
@@ -5093,11 +5050,11 @@ function stepRows(turn, step, i, calls, rows) {
         rows.push({
           key: `${key}:ask`,
           icon: "🗨",
-          title: "Demande un outil",
+          title: t("main.orch.rows.asks_tool"),
           actor: "model",
           discipline: "model",
           links: [`call:${step.id}`],
-          figure: asked.length > 1 ? plural(asked.length, "outil") : asked[0].name,
+          figure: asked.length > 1 ? plural(asked.length, "tool") : asked[0].name,
           sig: asked.length,
           body: () => asked.map((call) => el("pre", "step-code", formatCall(call))),
         });
@@ -5109,15 +5066,18 @@ function stepRows(turn, step, i, calls, rows) {
     } else if (step.type === "tool") {
       const ended = step.ended;
       const harness = step.started.source === "harness";
-      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
-      if (ended) figure = `${ended.status === "ok" ? (ended.truncated ? "OK · tronqué" : "OK") : "erreur"} · ${seconds(ended.duration_ms)}`;
+      let figure = `${t("main.orch.running")} · ${seconds(Date.now() - step.startedAt)}`;
+      if (ended) {
+        const outcome = ended.status === "ok" ? (ended.truncated ? `OK · ${t("main.orch.rows.truncated")}` : "OK") : t("main.orch.error");
+        figure = `${outcome} · ${seconds(ended.duration_ms)}`;
+      }
       const forced = step.trigger === "user";
       const net = step.outbound?.length ? hostOf(step.outbound[0].url) : null;
       rows.push({
         key,
         icon: harness ? { skills: "📘", global_memory: "💾" }[step.brick] || "📖" : "🔧",
         // Story 34: a verb; the tool's label follows, as a note.
-        title: harness ? step.started.phase_label : net ? "Exécute l'outil hors du poste" : "Exécute l'outil",
+        title: harness ? step.started.phase_label : net ? t("main.orch.rows.runs_tool_out") : t("main.orch.rows.runs_tool"),
         note: harness ? "" : toolLabel(step.started.tool),
         actor: forced ? "user" : harness ? "model" : "harness",
         trigger: step.trigger,
@@ -5134,11 +5094,11 @@ function stepRows(turn, step, i, calls, rows) {
       const block = p.decision === "block";
       const pending = Boolean(step.approval && !step.resolved);
       let figure = HOOK_DECISIONS[p.decision];
-      if (step.approval) figure = step.resolved ? APPROVAL_FIGURES[step.resolved.decision] : "en attente";
+      if (step.approval) figure = step.resolved ? APPROVAL_FIGURES[step.resolved.decision] : t("main.orch.rows.pending");
       rows.push({
         key,
         icon: HOOK_ICONS[p.hook] || "🪝",
-        title: step.approval ? "Validation humaine" : `Hook ${p.hook.toUpperCase()} · ${p.hook_text}`,
+        title: step.approval ? t("main.orch.approval.title") : `Hook ${p.hook.toUpperCase()} · ${p.hook_text}`,
         actor: step.approval ? "user" : "harness",
         trigger: hookTrigger(step),
         figure,
@@ -5151,12 +5111,12 @@ function stepRows(turn, step, i, calls, rows) {
     } else if (step.type === "rag") {
       const ended = step.ended;
       const failed = ended?.status === "error";
-      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
-      if (ended) figure = failed ? "erreur" : `${plural(ended.excerpts.length, "extrait")} · ${seconds(ended.duration_ms)}`;
+      let figure = `${t("main.orch.running")} · ${seconds(Date.now() - step.startedAt)}`;
+      if (ended) figure = failed ? t("main.orch.error") : `${plural(ended.excerpts.length, "excerpt")} · ${seconds(ended.duration_ms)}`;
       rows.push({
         key,
         icon: "📚",
-        title: "Recherche RAG",
+        title: t("main.orch.rows.rag_search"),
         actor: "harness",
         figure,
         tone: failed ? "error" : null,
@@ -5170,18 +5130,18 @@ function stepRows(turn, step, i, calls, rows) {
       const failed = ended?.status === "error";
       const stopped = ended?.status === "cancelled";
       const done = step.progress ? `${step.progress.done} / ${step.progress.total} · ` : "";
-      let figure = `en cours · ${done}${seconds(Date.now() - step.startedAt)}`;
+      let figure = `${t("main.orch.running")} · ${done}${seconds(Date.now() - step.startedAt)}`;
       if (ended) {
         figure = stopped
-          ? "arrêté"
+          ? t("main.orch.stopped")
           : failed
-            ? "erreur"
-            : `${plural(ended.keep, "gardé")} sur ${ended.excerpts.length} · ${seconds(ended.duration_ms)}`;
+            ? t("main.orch.error")
+            : `${t("main.orch.rows.kept_of", { kept: plural(ended.keep, "kept"), total: String(ended.excerpts.length) })} · ${seconds(ended.duration_ms)}`;
       }
       rows.push({
         key,
         icon: "↕️",
-        title: "Reranking",
+        title: t("main.orch.rows.rerank"),
         actor: "harness",
         figure,
         tone: failed ? "error" : null,
@@ -5192,7 +5152,7 @@ function stepRows(turn, step, i, calls, rows) {
     } else if (step.type === "compression") {
       const ended = step.ended;
       const failed = ended?.status === "error";
-      let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+      let figure = `${t("main.orch.running")} · ${seconds(Date.now() - step.startedAt)}`;
       if (ended) figure = compressionFigure(ended);
       rows.push({
         key,
@@ -5206,21 +5166,21 @@ function stepRows(turn, step, i, calls, rows) {
         body: () => compressionBody(step),
       });
     } else if (step.type === "action_dropped") {
-      const label = step.label || "action forcée";
+      const label = step.label || t("main.orch.rows.forced_action");
       rows.push({
         key,
         icon: "⊘",
-        title: `Action forcée abandonnée · ${label}`,
+        title: `${t("main.orch.rows.dropped_title")} · ${label}`,
         actor: "harness",
         trigger: "user",
-        figure: "abandonnée",
+        figure: t("main.orch.rows.dropped"),
         tone: "unavailable",
         sig: 1,
         body: () => [
-          harnessEvent("Action forcée abandonnée", "info", [
+          harnessEvent(t("main.orch.rows.dropped_title"), "info", [
             triggerBadge("user"),
             el("p", "", step.payload.reason_text),
-            el("p", "label", "Décision du harnais (code) : la cible n'est plus disponible au moment du tour."),
+            el("p", "label", t("main.orch.rows.dropped_decision")),
           ]),
         ],
       });
@@ -5228,9 +5188,14 @@ function stepRows(turn, step, i, calls, rows) {
       rows.push({
         key,
         icon: "✖",
-        title: "Appel d'outil mal formé",
+        title: t("main.orch.malformed.title"),
         actor: "harness",
-        figure: step.payload.reaction === "retry" ? "nouvel essai" : turn.contextId ? "délégation arrêtée" : "tour arrêté",
+        figure:
+          step.payload.reaction === "retry"
+            ? t("main.orch.rows.retry")
+            : turn.contextId
+              ? t("main.orch.rows.delegation_stopped")
+              : t("main.orch.rows.turn_stopped"),
         tone: "error",
         sticky: true,
         sig: 1,
@@ -5238,7 +5203,7 @@ function stepRows(turn, step, i, calls, rows) {
       });
     } else if (step.type === "limit_reached") {
       const retries = step.payload.limit.endsWith("retries");
-      const title = turn.contextId ? "Borne du sous-agent atteinte" : "Borne du tour atteinte";
+      const title = turn.contextId ? t("main.orch.rows.sub_limit") : t("main.orch.rows.turn_limit");
       rows.push({
         key,
         icon: retries ? "✖" : "⏹",
@@ -5255,24 +5220,24 @@ function stepRows(turn, step, i, calls, rows) {
       rows.push({
         key,
         icon: "ℹ",
-        title: "Préfixe non réutilisé",
+        title: t("main.orch.rows.prefix"),
         actor: "harness",
-        figure: `${cause ? `${cause} · ` : ""}${fmt(step.payload.common_tokens)} tokens communs`,
+        figure: `${cause ? `${cause} · ` : ""}${t("main.orch.rows.common_tokens", { tokens: step.payload.common_tokens })}`,
         tone: "hook",
         sig: 1,
-        body: () => [harnessEvent("Préfixe non réutilisé", "info", [el("p", "", step.payload.message_text)])],
+        body: () => [harnessEvent(t("main.orch.rows.prefix"), "info", [el("p", "", step.payload.message_text)])],
       });
     } else if (step.type === "reasoning_cut") {
       // Lot C (N4): the reasoning reached its budget; the harness closed it and relaunched.
       rows.push({
         key,
         icon: "✂",
-        title: "Raisonnement coupé",
+        title: t("main.orch.rows.reasoning_cut"),
         actor: "harness",
-        figure: `${fmt(step.payload.reasoning_tokens)} tokens · ${fmt(step.payload.answer_reserve)} pour la réponse`,
+        figure: t("main.orch.rows.reasoning_cut_figure", { tokens: step.payload.reasoning_tokens, reserve: step.payload.answer_reserve }),
         tone: "hook",
         sig: 1,
-        body: () => [harnessEvent("Raisonnement coupé", "info", [el("p", "", step.payload.message_text)])],
+        body: () => [harnessEvent(t("main.orch.rows.reasoning_cut"), "info", [el("p", "", step.payload.message_text)])],
       });
     }
   }
@@ -5283,22 +5248,22 @@ function stepRows(turn, step, i, calls, rows) {
 function delegateRow(turn, step, key) {
   const ended = step.ended;
   const done = step.sub?.ended;
-  let figure = `en cours · ${seconds(Date.now() - step.startedAt)}`;
+  let figure = `${t("main.orch.running")} · ${seconds(Date.now() - step.startedAt)}`;
   if (done?.status === "completed") {
     figure = subFigure(done);
   } else if (done?.status === "cancelled") {
-    figure = "Délégation arrêtée";
+    figure = t("main.orch.sub.stopped_title");
   } else if (done) {
     figure = `${SUB_STATUS[done.status] ?? done.status} · ${seconds(done.duration_ms)}`;
   } else if (ended) {
-    figure = `${ended.status === "cancelled" ? "arrêtée" : "refusée"} · ${seconds(ended.duration_ms)}`;
+    figure = `${ended.status === "cancelled" ? t("main.orch.sub.stopped") : t("main.orch.sub.refused")} · ${seconds(ended.duration_ms)}`;
   }
   if (done && subState(done)) figure += ` · ${subState(done)}`;
   const failed = Boolean(ended && !["ok", "cancelled"].includes(ended.status));
   return {
     key,
     icon: "👥",
-    title: "Délégation au sous-agent",
+    title: t("main.orch.sub.title"),
     actor: step.trigger === "user" ? "user" : "model",
     trigger: step.trigger,
     figure,
@@ -5309,46 +5274,38 @@ function delegateRow(turn, step, key) {
   };
 }
 
-const SUB_STATUS = {
-  completed: "Terminé",
-  limit: "Borne atteinte",
-  overflow: "Contexte du sous-agent dépassé",
-  error: "Échec",
-  cancelled: "Arrêté",
-};
+const SUB_STATUS = section("main.orch.sub.status");
 
 // The saving of a finished delegation, in words (AD-1: the figures are the session's).
 // `kept_tokens` counts every tool reply that stayed in the sub-agent: results, errors, refusals.
 function subSaving(done) {
-  if (done.status === "cancelled") return "Délégation arrêtée : rien n'entre dans le contexte principal.";
+  if (done.status === "cancelled") return t("main.orch.sub.saving_cancelled");
   const guess = approx(done.estimated);
-  const result = `${guess}${fmt(done.result_tokens)} tokens`;
-  if (done.status !== "completed") {
-    return `Délégation sans résultat : l'erreur (${result}) entre dans le contexte principal à sa place, aucune économie.`;
-  }
-  const kept = `${approx(done.context_estimated)}${fmt(done.kept_tokens ?? 0)} tokens`;
-  const figures =
-    `Réponses d'outils restées dans le contexte du sous-agent (ce que l'agent principal aurait lu sans délégation) : ${kept}. ` +
-    `Résultat réinjecté dans le contexte principal : ${result}.`;
-  if ((done.kept_tokens ?? 0) <= done.result_tokens) {
-    return `${figures} Aucune économie : le résultat pèse autant ou plus que ce qu'il remplace (déléguer n'est pas gratuit).`;
-  }
-  return `${figures} Économie pour le contexte principal : ${guess}${fmt(done.saved_tokens)} tokens.`;
+  const result = `${guess}${fmt(done.result_tokens)}`;
+  if (done.status !== "completed") return t("main.orch.sub.saving_failed", { result });
+  const kept = `${approx(done.context_estimated)}${fmt(done.kept_tokens ?? 0)}`;
+  const figures = t("main.orch.sub.saving_figures", { kept, result });
+  if ((done.kept_tokens ?? 0) <= done.result_tokens) return `${figures} ${t("main.orch.sub.saving_none")}`;
+  return `${figures} ${t("main.orch.sub.saving", { saved: `${guess}${fmt(done.saved_tokens)}` })}`;
 }
 
 // Lot A (AD-11): the main context's state saved around the delegation, when it was.
 function subState(done) {
   if (done.state_saved_bytes == null) return "";
-  const size = (done.state_saved_bytes / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
-  const restored = done.state_restore_ms != null ? `, restauré en ${seconds(done.state_restore_ms)}` : ", non restauré";
-  return `état sauvegardé : ${size} Mo${restored}`;
+  const size = intlNumber({ maximumFractionDigits: 1 }).format(done.state_saved_bytes / 1e6);
+  const restored =
+    done.state_restore_ms != null
+      ? t("main.orch.sub.restored", { time: seconds(done.state_restore_ms) })
+      : t("main.orch.sub.not_restored");
+  return t("main.orch.sub.state_saved", { size, restored });
 }
 
 // The delegation line's key figure once the sub-agent is done.
 function subFigure(done) {
   const guess = approx(done.estimated);
-  const saving = done.saved_tokens > 0 ? `${guess}${fmt(done.saved_tokens)} économisés` : "aucune économie";
-  return `${guess}${fmt(done.result_tokens)} tokens réinjectés · ${saving}`;
+  const saving =
+    done.saved_tokens > 0 ? t("main.orch.sub.saved", { tokens: `${guess}${fmt(done.saved_tokens)}` }) : t("main.orch.sub.no_saving");
+  return `${t("main.orch.sub.reinjected", { tokens: `${guess}${fmt(done.result_tokens)}` })} · ${saving}`;
 }
 
 function delegateBody(turn, step) {
@@ -5357,13 +5314,13 @@ function delegateBody(turn, step) {
   const nodes = [];
   const badge = triggerBadge(step.trigger);
   if (badge) nodes.push(badge);
-  nodes.push(el("p", "label", "Tâche confiée au sous-agent"), el("pre", "step-code", step.started.arguments.task ?? ""));
+  nodes.push(el("p", "label", t("main.orch.sub.task")), el("pre", "step-code", step.started.arguments.task ?? ""));
   if (sub?.started) {
-    const tools = sub.started.tools.length ? sub.started.tools.map(toolLabel).join(", ") : "aucun";
-    nodes.push(el("p", "", `Outils du sous-agent : ${tools}. Contexte propre : son prompt système, la tâche et ces outils, rien du contexte principal.`));
+    const tools = sub.started.tools.length ? sub.started.tools.map(toolLabel).join(", ") : t("main.orch.sub.no_tool");
+    nodes.push(el("p", "", t("main.orch.sub.tools", { tools })));
   }
   if (!done) {
-    const running = el("div", "token-counter number", "En cours… ");
+    const running = el("div", "token-counter number", `${t("common.in_progress")} `);
     running.appendChild(tick(step.startedAt));
     nodes.push(running);
     return nodes;
@@ -5374,18 +5331,18 @@ function delegateBody(turn, step) {
     el(
       "div",
       "token-counter number",
-      `${plural(done.calls, "appel")} au modèle · Temps : ${seconds(done.duration_ms)} · ${SUB_STATUS[done.status] ?? done.status}`
+      `${t("main.orch.sub.calls", { calls: plural(done.calls, "call") })} · ${t("main.orch.time", { time: seconds(done.duration_ms) })} · ${SUB_STATUS[done.status] ?? done.status}`
     ),
-    el("p", "subagent-saving", `${subSaving(done)} Contexte complet du sous-agent : ${context} tokens.`)
+    el("p", "subagent-saving", `${subSaving(done)} ${t("main.orch.sub.full_context", { tokens: context })}`)
   );
   if (!cancelled) {
     nodes.push(
-      el("p", "label", done.status === "completed" ? "Résultat (seul à revenir dans le contexte principal)" : "Erreur réinjectée à la place du résultat"),
+      el("p", "label", done.status === "completed" ? t("main.orch.sub.result") : t("main.orch.sub.error_instead")),
       el("pre", "step-code", step.ended?.status === "ok" ? step.ended.result : done.result)
     );
   }
   if (sub.context) {  // no call rendered (e.g. blocked first): nothing to show
-    const show = el("button", "subagent-show", "Voir le contexte du sous-agent");
+    const show = el("button", "subagent-show", t("main.orch.sub.show_context"));
     show.type = "button";
     show.addEventListener("click", () => showSubContext(turn.id, sub.contextId));
     nodes.push(show);
@@ -5420,8 +5377,8 @@ function connectRow(step) {
   // The same line in the harness preparation and between two turns (EXPERIENCE: harness-prep).
   const ended = step.ended;
   const failed = ended?.status === "error";
-  let figure = "connexion…";
-  if (ended) figure = failed ? "indisponible" : `connecté · ${plural(ended.tools.length, "outil")}`;
+  let figure = t("main.orch.connect.connecting");
+  if (ended) figure = failed ? t("main.orch.connect.down") : `${t("main.orch.connect.connected")} · ${plural(ended.tools.length, "tool")}`;
   return {
     key: `mcp:${step.seq}`,
     icon: failed ? "⊘" : "🔌",
@@ -5476,8 +5433,8 @@ function stepNode(row, open, flags) {
     Object.assign(parts, {
       trigger: el("span", "turn-step-trigger"),
       actor: el("span", "turn-step-actor"),
-      via: el("span", "turn-step-via", " · via le réseau"),
-      netMark: el("span", "net-mark", "🌐 RÉSEAU →"),
+      via: el("span", "turn-step-via", ` · ${t("main.orch.via_network")}`),
+      netMark: el("span", "net-mark", `🌐 ${t("main.hosting.network")} →`),
       netHost: el("span", "net-host"),
     });
     // « 🌐 RÉSEAU → host » wraps as one piece; only its host shrinks (story 8d).
@@ -5514,13 +5471,13 @@ function stepNode(row, open, flags) {
   setText(node.name, row.title);
   setText(node.note, row.note ? ` · ${row.note}` : "");
   node.note.hidden = !row.note;
-  const trigger = TRIGGERS[row.trigger] || null;
+  const trigger = triggerOf(row.trigger);
   node.trigger.hidden = !trigger;
   const triggerClass = `turn-step-trigger ${trigger ? trigger[0] : ""}`;
   if (node.trigger.className !== triggerClass) node.trigger.className = triggerClass;
   setText(node.triggerIcon, trigger ? trigger[1] : "");
   setText(node.triggerLabel, trigger ? trigger[2] : "");
-  const [actorClass, actorLabel] = ACTORS[row.actor];
+  const [actorClass, actorLabel] = actorOf(row.actor);
   node.actor.className = `turn-step-actor ${actorClass}`;
   setText(node.actor, actorLabel);
   node.via.hidden = !row.via;
@@ -5530,7 +5487,15 @@ function stepNode(row, open, flags) {
   setText(node.figure, row.figure);
   setText(node.chevron, open ? "▾" : "▸");
   // The whole title in the tooltip: the line truncates it first (A10).
-  const tooltip = [row.title, row.note, trigger?.[2], actorLabel, row.via ? "via le réseau" : "", row.net ? `RÉSEAU → ${row.net}` : "", row.figure]
+  const tooltip = [
+    row.title,
+    row.note,
+    trigger?.[2],
+    actorLabel,
+    row.via ? t("main.orch.via_network") : "",
+    row.net ? `${t("main.hosting.network")} → ${row.net}` : "",
+    row.figure,
+  ]
     .filter(Boolean)
     .join(" · ");
   if (node.line.title !== tooltip) node.line.title = tooltip;
@@ -5723,9 +5688,9 @@ function renderOrchWorking() {
   const turn = activeTurn();
   box.hidden = !turn;
   if (!turn) return;
-  let label = turn.phaseLabel || "Préparation du contexte";
-  if (turn.stopRequested) label = "Arrêt demandé";
-  else if (turn.firstToken) label = "Génération de la réponse";
+  let label = turn.phaseLabel || t("main.chat.preparing");
+  if (turn.stopRequested) label = t("main.model.stop_requested");
+  else if (turn.firstToken) label = t("main.orch.generating");
   const since = turn.callStartedAt ?? turn.startedAt;
   setText(document.getElementById("orch-working-label"), `${label}… ${seconds(Date.now() - since)}`);
 }
@@ -5770,8 +5735,8 @@ function renderSteps() {
     });
     const down = prep.filter((s) => s.ended?.status === "error").length;
     headParts(node, [
-      ["turn-group-title", "Préparation du harnais"],
-      ["turn-group-summary", `${plural(prep.length, "connexion")} MCP${down ? ` · ${down} indisponible${down > 1 ? "s" : ""}` : ""}`],
+      ["turn-group-title", t("main.orch.prep")],
+      ["turn-group-summary", `${t("main.orch.prep_connections", { count: prep.length })}${down ? ` · ${t("main.orch.prep_down", { count: down })}` : ""}`],
     ]);
     fillGroup(node, o.prepGroupOpen, connectNodes(prep));
     top.push(node.root);
@@ -5780,7 +5745,7 @@ function renderSteps() {
     orchEmptyNote ||= emptyNote("");
     setText(
       orchEmptyNote,
-      cleared() ? CLEARED_FR : "Aucun tour pour l'instant. Envoyez un message : les étapes du harnais apparaîtront ici."
+      cleared() ? clearedText() : t("main.orch.no_turn")
     );
     top.push(orchEmptyNote);
   }
@@ -5799,19 +5764,19 @@ function renderSteps() {
     const open = o.turnOpen.has(turn.id) ? o.turnOpen.get(turn.id) : isLast;
     const node = groupNode(turn.id, "turn-group", () => toggleTurn(turn.id, node.head.getAttribute("aria-expanded") === "true"));
     node.root.classList.toggle("is-live", turn.status === null);
-    const [statusClass, statusLabel] = TURN_STATUS[turn.status] || ["is-running", "en cours"];
+    const [statusClass, statusLabel] = turnStatusOf(turn.status) || ["is-running", t("main.orch.running")];
     const calls = turn.steps.filter((s) => s.type === "call" && s.startedAt).length;
     const duration = turnDuration(turn);
     const figures = [
       duration === null ? null : seconds(duration),
-      `${plural(calls, "appel")} au modèle`,
-      turn.cost ? costText(turn.cost, "coût estimé ") : null,
-      turn.footprint ? footprintText(turn.footprint, "empreinte estimée ") : null,
+      t("main.orch.sub.calls", { calls: plural(calls, "call") }),
+      turn.cost ? costText(turn.cost, t("main.cost.turn_label")) : null,
+      turn.footprint ? footprintText(turn.footprint, t("main.footprint.turn_label")) : null,
     ];
     headParts(node, [
-      ["turn-group-title", `Tour ${i + 1}`],
+      ["turn-group-title", t("main.turn.name", { n: String(i + 1) })],
       [`turn-group-status ${statusClass}`, statusLabel],
-      ["turn-group-replay", turn.replayOf ? "Rejeu" : null],
+      ["turn-group-replay", turn.replayOf ? t("main.chat.replay_badge") : null],
       ["turn-group-figures", figures.filter(Boolean).join(" · ")],
       ["turn-group-message", `« ${turn.message} »`],
     ]);
@@ -5874,7 +5839,7 @@ function renderChips() {
     chip.type = "button";
     chip.className = "pane-chip";
     const name = PANE_LABELS[paneId];
-    chip.textContent = `+ ${name}${linked ? " · lié" : ""}`;
+    chip.textContent = `+ ${name}${linked ? ` · ${t("main.panes.linked")}` : ""}`;
     if (awaiting || linked) {
       chip.classList.add("is-linked");
       const dot = el("span", "pane-chip-dot", "● ");
@@ -5882,10 +5847,10 @@ function renderChips() {
       chip.prepend(dot);
     }
     chip.title = awaiting
-      ? "Une validation humaine attend votre réponse : réafficher le volet Vue humain"
+      ? t("main.panes.awaiting")
       : linked
-        ? `Réafficher le volet ${name} : il contient un élément lié à la sélection`
-        : `Réafficher le volet ${name}`;
+        ? t("main.panes.show_linked", { pane: name })
+        : t("main.panes.show", { pane: name });
     // WCAG 2.5.3: the accessible name starts with the visible text.
     chip.setAttribute("aria-label", `${chip.textContent.replace(/^● /, "")} : ${chip.title}`);
     chip.addEventListener("click", () => showPane(paneId));
@@ -5905,7 +5870,7 @@ function renderMenu() {
     checkbox.type = "checkbox";
     checkbox.checked = visible;
     checkbox.disabled = visible && lastVisible;
-    if (checkbox.disabled) checkbox.title = "Au moins un volet reste visible.";
+    if (checkbox.disabled) checkbox.title = t("main.panes.one_visible");
     checkbox.addEventListener("change", () => togglePane(paneId));
     label.appendChild(checkbox);
     label.append(PANE_LABELS[paneId]);
@@ -5921,7 +5886,7 @@ function renderMenu() {
   const link = document.createElement("a");
   link.href = "/diagnostic";
   link.className = "pane-menu-link";
-  link.textContent = "Diagnostic";
+  link.textContent = t("main.panes.diagnostic");
   item.appendChild(link);
   list.appendChild(item);
 }
@@ -5937,9 +5902,7 @@ function renderPaneVisibility() {
     const hideButton = section.querySelector('[data-action="hide"]');
     const disable = !hidden && lastVisible;
     hideButton.disabled = disable;
-    hideButton.title = disable
-      ? "Au moins un volet reste visible."
-      : `Masquer le volet ${PANE_LABELS[paneId]}`;
+    hideButton.title = disable ? t("main.panes.one_visible") : t("main.panes.hide", { pane: PANE_LABELS[paneId] });
     hideButton.setAttribute("aria-label", hideButton.title);
   }
   // A handle only stands between two visible neighbours, never in focus mode.
@@ -5984,7 +5947,7 @@ function handleNeighbours(handleId) {
     return {
       before: paneSection("bricks"),
       after: document.querySelector(".right"),
-      label: `Redimensionner entre ${PANE_LABELS.bricks} et les autres volets`,
+      label: t("main.panes.resize_bricks", { pane: PANE_LABELS.bricks }),
     };
   }
   if (handleId === "schema") {
@@ -5994,7 +5957,7 @@ function handleNeighbours(handleId) {
     return {
       before: document.querySelector(".top-row"),
       after: paneSection("schema"),
-      label: `Redimensionner entre la rangée du haut (${names}) et ${PANE_LABELS.schema}`,
+      label: t("main.panes.resize_schema", { names, pane: PANE_LABELS.schema }),
     };
   }
   const next = TOP_ROW.slice(TOP_ROW.indexOf(handleId) + 1).find(isPaneVisible);
@@ -6004,7 +5967,7 @@ function handleNeighbours(handleId) {
     after: paneSection(next),
     beforeId: handleId,
     afterId: next,
-    label: `Redimensionner entre ${PANE_LABELS[handleId]} et ${PANE_LABELS[next]}`,
+    label: t("main.panes.resize_between", { a: PANE_LABELS[handleId], b: PANE_LABELS[next] }),
   };
 }
 
@@ -6194,92 +6157,17 @@ function createResizeHandles() {
 
 // ---------- event log: every event the harness emits, folded at the bottom of Orchestration ----------
 
-const KIND_LABELS = {
-  diagnostic_check: "Vérification du diagnostic",
-  outbound_request: "Données sortantes",
-  harness_error: "Erreur du harnais",
-  session_state: "État de la session",
-  architecture_changed: "Schéma mis à jour",
-  turn_started: "Tour commencé",
-  turn_ended: "Tour terminé",
-  context_rendered: "Contexte rendu",
-  context_preview: "Aperçu du contexte",
-  context_overflow: "Contexte dépassé",
-  output_truncated: "Sortie coupée",
-  reasoning_cut: "Raisonnement coupé",
-  model_call_started: "Appel au modèle commencé",
-  model_first_token: "Premier token",
-  model_delta: "Morceau de réponse",
-  model_call_ended: "Appel au modèle terminé",
-  special_token_neutralized: "Token spécial neutralisé",
-  bricks_changed: "Briques modifiées",
-  conversation_cleared: "Conversation vidée",
-  scenario_changed: "Scénario",
-  harness_reset: "Réinitialisation",
-  language_changed: "Langue changée",
-  tool_started: "Outil lancé",
-  tool_ended: "Outil terminé",
-  tool_call_malformed: "Appel d'outil mal formé",
-  limit_reached: "Borne du tour atteinte",
-  prefix_not_reused: "Préfixe non réutilisé",
-  server_cache_used: "Cache du serveur local",
-  mcp_connect_started: "Connexion MCP commencée",
-  mcp_connect_ended: "Connexion MCP terminée",
-  hook_decided: "Décision d'un hook",
-  effect_applied: "Effet appliqué",
-  approval_requested: "Validation demandée",
-  approval_resolved: "Validation résolue",
-  armed_actions_changed: "Actions armées",
-  action_dropped: "Action forcée abandonnée",
-  memory_changed: "Mémoire globale modifiée",
-  model_load_started: "Chargement du modèle commencé",
-  model_load_ended: "Chargement du modèle terminé",
-  subagent_started: "Sous-agent lancé",
-  subagent_ended: "Sous-agent terminé",
-  rag_search_started: "Recherche RAG commencée",
-  rag_search_ended: "Recherche RAG terminée",
-  rag_rerank_started: "Reranking commencé",
-  rag_rerank_progress: "Reranking en cours",
-  rag_rerank_ended: "Reranking terminé",
-  compression_started: "Compression commencée",
-  compression_ended: "Compression terminée",
-  llm_tokenized: "LLM nu : texte découpé en tokens",
-  model_load_step: "Étape du chargement du modèle",
-  llm_generation_started: "LLM nu : génération commencée",
-  llm_token: "LLM nu : token produit",
-  llm_generation_ended: "LLM nu : génération terminée",
-};
-const MODEL_LOAD_STATUS = {
-  ok: "chargé",
-  restored: "retour au modèle précédent",
-  cancelled: "chargement arrêté",
-  error: "échec",
-};
-const MEMORY_OPS = { add: "Ajout en mémoire", replace: "Modification en mémoire", delete: "Suppression en mémoire" };
-const SESSION_STATES = {
-  idle: "prête",
-  turn: "tour en cours",
-  awaiting_human: "attente de validation",
-  model_load: "chargement du modèle",
-  download: "téléchargement",
-  index_build: "construction de l'index RAG",
-  reset: "réinitialisation",
-  diagnostic: "diagnostic",
-  llm_lab: "écran LLM nu", // story 29
-  rag_lab: "atelier RAG", // story 30
-};
+const KIND_LABELS = section("main.log.kinds");
+const MODEL_LOAD_STATUS = section("main.log.model_load_status");
+const MEMORY_OPS = section("main.log.memory_ops");
+const SESSION_STATES = section("main.log.session_states");
 
 // Story 29: how a generation of the « LLM nu » screen ended.
-const LAB_STATUS = {
-  completed: "terminée",
-  cancelled: "arrêtée",
-  limit: "réserve de sortie atteinte",
-  error: "en échec",
-};
+const LAB_STATUS = section("main.log.lab_status");
 
 // Story 29: « T 0,7 · top-k 20 · top-p 0,8 · min-p 0 », a value not sent as « — ».
 function samplingSummary(s) {
-  if (s.source === "provider") return s.note_text || "réglé par le fournisseur";
+  if (s.source === "provider") return s.note_text || t("main.log.sampling_provider");
   const part = (label, value) => `${label} ${value === null || value === undefined ? "—" : fmt(value)}`;
   return [part("T", s.temperature), part("top-k", s.top_k), part("top-p", s.top_p), part("min-p", s.min_p)].join(" · ");
 }
@@ -6294,19 +6182,19 @@ function eventSummary(group) {
     case "session_state":
       return [SESSION_STATES[p.state] || p.state, p.reason_text].filter(Boolean).join(" · ");
     case "architecture_changed":
-      return `${plural(p.nodes.length, "nœud")}, ${plural(p.edges.length, "liaison")}`;
+      return `${plural(p.nodes.length, "node")}, ${plural(p.edges.length, "edge")}`;
     case "bricks_changed":
-      return `${p.bricks.filter((b) => b.wanted).length} sur ${p.bricks.length} briques voulues`;
+      return t("main.log.bricks_wanted", { wanted: String(p.bricks.filter((b) => b.wanted).length), total: String(p.bricks.length) });
     case "context_rendered":
     case "context_preview":
-      return `${fmt(p.used)} / ${fmt(p.usable)} tokens · ${plural(p.segments.length, "segment")}`;
+      return `${t("main.orch.overflow.figures", { used: p.used, usable: p.usable })} · ${plural(p.segments.length, "segment")}`;
     case "context_overflow":
-      return `${fmt(p.used)} / ${fmt(p.usable)} tokens`;
+      return t("main.orch.overflow.figures", { used: p.used, usable: p.usable });
     case "turn_started":
       return `« ${p.message} »`;
     case "turn_ended":
       return [
-        TURN_STATUS[p.status]?.[1] ?? p.status,
+        turnStatusOf(p.status)?.[1] ?? p.status,
         p.duration_ms == null ? null : seconds(p.duration_ms),
         p.cost_in_usd != null ? costText(p, "") : null,
         p.energy_wh_min != null ? footprintText(p, "") : null,
@@ -6316,9 +6204,9 @@ function eventSummary(group) {
     case "consumption_updated":
       return [
         p.calls
-          ? `entrée ${approx(p.approx)}${usd(p.total_in_usd)} · sortie ${approx(p.approx)}${usd(p.total_out_usd)} · ${plural(p.calls, "appel")}`
+          ? `${t("main.cost.text", { label: "", input: `${approx(p.approx)}${usd(p.total_in_usd)}`, output: `${approx(p.approx)}${usd(p.total_out_usd)}` })} · ${plural(p.calls, "call")}`
           : null,
-        p.impact_calls ? `empreinte ${footprintText(p, "")} (${plural(p.impact_calls, "appel")})` : null,
+        p.impact_calls ? t("main.log.footprint", { footprint: footprintText(p, ""), calls: plural(p.impact_calls, "call") }) : null,
       ]
         .filter(Boolean)
         .join(" · ");
@@ -6345,35 +6233,35 @@ function eventSummary(group) {
         .filter(Boolean)
         .join(" · ");
     case "model_call_ended": {
-      const evaluated = p.evaluated_tokens != null ? ` · ${fmt(p.evaluated_tokens)} évalués` : "";
+      const evaluated = p.evaluated_tokens != null ? ` · ${t("main.log.evaluated", { tokens: p.evaluated_tokens })}` : "";
       const footprint = p.energy_wh_min != null ? ` · ${footprintText(p, "")}` : "";
-      return `${fmt(p.prompt_tokens)} lus${evaluated} · ${fmt(p.output_tokens)} écrits · ${seconds(p.duration_ms)} · ${p.stop_reason}${footprint}`;
+      return `${t("main.orch.rows.read", { tokens: fmt(p.prompt_tokens) })}${evaluated} · ${t("main.log.written", { tokens: p.output_tokens })} · ${seconds(p.duration_ms)} · ${p.stop_reason}${footprint}`;
     }
     case "tool_started":
       return formatCall({ name: p.tool, arguments: p.arguments });
     case "tool_ended":
-      return `${p.status}${p.truncated ? " · tronqué" : ""} · ${seconds(p.duration_ms)}`;
+      return `${p.status}${p.truncated ? ` · ${t("main.orch.rows.truncated")}` : ""} · ${seconds(p.duration_ms)}`;
     case "outbound_request":
       return `${p.method} ${p.url}`;
     case "mcp_connect_ended":
       return p.status === "ok"
-        ? `${mcpServerLabel(p.server)} : ${plural(p.tools.length, "outil")} · ${seconds(p.duration_ms)}`
+        ? `${mcpServerLabel(p.server)} : ${plural(p.tools.length, "tool")} · ${seconds(p.duration_ms)}`
         : `${mcpServerLabel(p.server)} : ${p.error_text}`;
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
       if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · « ${p.text} »`;
       if (p.effect === "model_download" || p.effect === "rag_index_write") return p.lines.join(" · ");
-      if (p.effect === "audit_append") return `${plural(p.lines.length, "ligne")} au journal d'audit`;
+      if (p.effect === "audit_append") return t("main.log.audit_lines", { lines: plural(p.lines.length, "line") });
       return p.key ?? p.id ?? p.effect;
     case "memory_changed":
-      return p.error_text ?? `${plural(p.entries.length, "entrée")} · ${p.path}`;
+      return p.error_text ?? `${plural(p.entries.length, "entry")} · ${p.path}`;
     case "approval_requested":
       return `${p.tool} → ${p.destination}`;
     case "approval_resolved":
       return approvalDecision(p);
     case "armed_actions_changed":
-      return p.actions.length ? p.actions.map((a) => a.label_text).join(" · ") : "aucune action armée";
+      return p.actions.length ? p.actions.map((a) => a.label_text).join(" · ") : t("main.log.no_armed");
     case "action_dropped":
       return p.reason_text;
     case "subagent_started":
@@ -6383,43 +6271,43 @@ function eventSummary(group) {
         .filter(Boolean)
         .join(" · ");
     case "rag_search_started":
-      return `« ${p.query} » · ${fmt(p.top_k)} au plus`;
+      return `« ${p.query} » · ${t("main.log.at_most", { count: p.top_k })}`;
     case "rag_rerank_started":
-      return `« ${p.query} » · ${plural(p.candidates, "candidat")}, ${plural(p.keep, "gardé")}`;
+      return `« ${p.query} » · ${plural(p.candidates, "candidate")}, ${plural(p.keep, "kept")}`;
     case "rag_rerank_progress":
-      return `${fmt(p.done)} / ${fmt(p.total)} extraits notés`;
+      return t("main.log.rerank_progress", { done: p.done, total: p.total });
     case "rag_rerank_ended":
       return p.status === "ok"
-        ? `${plural(p.keep, "gardé")} sur ${p.excerpts.length} · ${seconds(p.duration_ms)}` +
-            (p.excerpts.length ? ` · premier : ${p.excerpts[0].title_text} (avant : #${p.excerpts[0].before})` : "")
+        ? `${t("main.orch.rows.kept_of", { kept: plural(p.keep, "kept"), total: String(p.excerpts.length) })} · ${seconds(p.duration_ms)}` +
+            (p.excerpts.length ? ` · ${t("main.log.rerank_first", { title: p.excerpts[0].title_text, before: String(p.excerpts[0].before) })}` : "")
         : p.error_text;
     case "compression_started":
-      return `${plural(p.items, "texte")} · ${p.compressor_text}`;
+      return `${plural(p.items, "text")} · ${p.compressor_text}`;
     case "compression_ended":
       return p.status === "ok" ? compressionFigure(p) : p.error_text;
     case "rag_search_ended":
       return p.status === "ok"
-        ? `${plural(p.excerpts.length, "extrait")} · ${seconds(p.duration_ms)}` +
-            (p.excerpts.length ? ` · meilleur : ${p.excerpts[0].title_text} (${scoreFormat.format(p.excerpts[0].score)})` : "")
+        ? `${plural(p.excerpts.length, "excerpt")} · ${seconds(p.duration_ms)}` +
+            (p.excerpts.length ? ` · ${t("main.log.search_best", { title: p.excerpts[0].title_text, score: scoreFormat().format(p.excerpts[0].score) })}` : "")
         : p.error_text;
     case "tool_call_malformed":
       return p.detail_text;
     case "output_truncated":
-      return `${fmt(p.output_tokens)} / ${fmt(p.max_tokens)} tokens`;
+      return t("main.orch.overflow.figures", { used: p.output_tokens, usable: p.max_tokens });
     case "reasoning_cut":
-      return `coupé à ${fmt(p.reasoning_tokens)} tokens (budget ${fmt(p.budget)}) · ${fmt(p.answer_reserve)} pour la réponse`;
+      return t("main.log.reasoning_cut", { tokens: p.reasoning_tokens, budget: p.budget, reserve: p.answer_reserve });
     case "diagnostic_check":
       return `${p.check} : ${p.status} · ${p.message_text}`;
     case "llm_tokenized":
       return p.exact
-        ? `${p.figures_text?.token_count ?? p.token_count} tokens · ${p.model_label}`
-        : `≈ ${p.figures_text?.estimate ?? p.estimate} tokens (estimation) · ${p.model_label}`;
+        ? `${t("main.ctx.tokens", { tokens: String(p.figures_text?.token_count ?? p.token_count) })} · ${p.model_label}`
+        : `≈ ${t("main.log.estimate", { tokens: String(p.figures_text?.estimate ?? p.estimate) })} · ${p.model_label}`;
     case "conversation_cleared":
-      return "les tours précédents restent dans ce journal";
+      return t("main.log.cleared");
     case "harness_reset":
-      return "retour au LLM nu ; les événements précédents restent sur le serveur";
+      return t("main.log.reset");
     case "scenario_changed":
-      return p.active ? (findScenario(p.active)?.title_text ?? p.active) : "aucun scénario actif";
+      return p.active ? (findScenario(p.active)?.title_text ?? p.active) : t("main.log.no_scenario");
     default:
       return p.message_text ?? "";
   }
@@ -6475,7 +6363,7 @@ function logRow(i) {
       logRow(i);
     });
     li.appendChild(line);
-    setText(parts.time, new Date(group.events[0].ts).toLocaleTimeString("fr-FR"));
+    setText(parts.time, dateTimeFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(group.events[0].ts)));
     row = { li, line, ...parts, json: null, count: 0 };
     eventLog.rows[i] = row;
   }
@@ -6487,9 +6375,9 @@ function logRow(i) {
     setText(
       row.name,
       merged
-        ? `Morceaux de réponse × ${fmt(count)}`
+        ? t("main.log.deltas", { count: fmt(count) })
         : tokens
-          ? `LLM nu : tokens produits × ${fmt(tokens)}`
+          ? t("main.log.lab_tokens", { count: fmt(tokens) })
           : KIND_LABELS[group.kind] || group.kind
     );
     const summary = eventSummary(group);
@@ -6522,7 +6410,7 @@ function renderJournal() {
   setText(document.getElementById("event-log-chevron"), o.logOpen ? "▾" : "▸");
   setText(
     document.getElementById("event-log-title"),
-    `Journal des événements (${fmt(store.journal.length - store.logFrom)})`
+    t("main.log.title", { count: fmt(store.journal.length - store.logFrom) })
   );
   head.setAttribute("aria-expanded", String(o.logOpen));
   if (!o.logOpen) {
@@ -6532,7 +6420,7 @@ function renderJournal() {
   if (!eventLog.list) {
     eventLog.list = el("ol", "event-log-list");
     eventLog.list.id = "event-log-list";
-    eventLog.empty = el("li", "empty-note", "Aucun événement pour l'instant.");
+    eventLog.empty = el("li", "empty-note", t("main.log.empty"));
   }
   const list = eventLog.list;
   const atBottom = !list.isConnected || list.scrollHeight - list.scrollTop - list.clientHeight < 30;
@@ -6577,15 +6465,11 @@ const BRICK_ICONS = {
 };
 // A component with its own icon in the harness frame (story 16: the reranker).
 const COMPONENT_ICONS = { "rag.reranker": "↕️" };
-const POSE_LABELS = { idle: "au repos", thinking: "réfléchit", tool: "utilise un outil" };
+const POSE_LABELS = section("main.schema.poses");
 // Hook id -> its point of attachment, in the order the strip lists them (formatting only, like
 // HOOK_ICONS): the order of a turn, from the user's message to its end.
-const HOOK_POINTS = {
-  h3: "réception du message",
-  h1: "avant un outil",
-  h5: "avant un outil réseau",
-  h2: "après un outil · fin du tour",
-};
+const HOOK_POINT_ORDER = ["h3", "h1", "h5", "h2"];
+const HOOK_POINTS = section("main.schema.hook_points");
 // Tool name -> icon of its round tile (formatting only); any other tool gets the wrench.
 const TOOL_ICONS = {
   get_datetime: "🕐",
@@ -6599,19 +6483,15 @@ const TOOL_ICONS = {
 // (AD-12), each in a column of its zone: [Outils], [Serveurs MCP, Fichiers], [Skills] on the
 // workstation, [Outils réseau, Serveurs MCP publics] on the network side.
 const ARCH_GROUPS = [
-  { zone: "local", col: 0, kind: "tool", hosting: "local", shape: "tool", icon: "🔧", title: "Outils" },
-  { zone: "local", col: 1, kind: "mcp_server", hosting: "local", shape: "mcp", icon: "🔌", title: "Serveurs MCP" },
-  { zone: "local", col: 1, kind: "file", shape: "file", icon: "📄", title: "Fichiers" },
-  { zone: "local", col: 2, kind: "skill", shape: "skill", icon: "📘", title: "Skills" },
-  { zone: "network", col: 0, kind: "tool", hosting: "network", shape: "tool", icon: "🔧", title: "Outils réseau" },
-  { zone: "network", col: 0, kind: "mcp_server", hosting: "network", shape: "mcp", icon: "🔌", title: "Serveurs MCP publics" },
+  { zone: "local", col: 0, kind: "tool", hosting: "local", shape: "tool", icon: "🔧", title: "tools" },
+  { zone: "local", col: 1, kind: "mcp_server", hosting: "local", shape: "mcp", icon: "🔌", title: "mcp_servers" },
+  { zone: "local", col: 1, kind: "file", shape: "file", icon: "📄", title: "files" },
+  { zone: "local", col: 2, kind: "skill", shape: "skill", icon: "📘", title: "skills" },
+  { zone: "network", col: 0, kind: "tool", hosting: "network", shape: "tool", icon: "🔧", title: "network_tools" },
+  { zone: "network", col: 0, kind: "mcp_server", hosting: "network", shape: "mcp", icon: "🔌", title: "public_mcp_servers" },
 ];
-const SHAPE_LABELS = {
-  tool: "outil",
-  mcp: "serveur MCP (processus distinct du harnais)",
-  skill: "skill (fichier local)",
-  file: "fichier local",
-};
+const GROUP_TITLES = section("main.schema.groups");
+const SHAPE_LABELS = section("main.schema.shapes");
 
 // The robot's pose, derived from the turn's events only (AD-1); `sub`: the sub-agent's robot,
 // from the running sub-agent of the active turn (story 19).
@@ -6629,7 +6509,7 @@ function robotPose(sub = false) {
 // in HTML under it.
 function robot(pose, modelNode, sub = false) {
   const name = modelNode?.model ?? null;
-  const who = sub ? "Sous-agent : même modèle, second contexte" : `Modèle${name ? ` ${name}` : ""}`;
+  const who = sub ? t("main.schema.sub_robot") : name ? t("main.schema.model_named", { model: name }) : t("main.schema.model");
   const label = `${who} : ${POSE_LABELS[pose]}`;
   const classes = `robot${sub ? " robot-sub" : ""}${pose === "idle" ? "" : " is-active"}`;
   const button = schemaButton(classes, sub ? "core.model_sub" : "core.model");
@@ -6669,7 +6549,7 @@ function robot(pose, modelNode, sub = false) {
     icon.textContent = "🔧";
     svg.append(svgEl("circle", { class: "robot-badge", cx: cx + 26, cy: 72, r: 9 }), icon);
   }
-  button.append(svg, el("span", "robot-label", sub ? "Sous-agent" : "Modèle"));
+  button.append(svg, el("span", "robot-label", sub ? t("main.schema.subagent") : t("main.schema.model")));
   // The frame is narrow: a long file name is cut by the style, the tooltip keeps it whole.
   if (name && !sub) button.appendChild(el("span", "robot-model", name));
   if (modelNode && !modelNode.available) button.classList.add("is-unavailable");
@@ -6845,23 +6725,17 @@ function renderSchema() {
 
 // ---------- story 34: what left the workstation during the last turn shown ----------
 
-const NO_TURN_OUTBOUND_FR = "Aucun tour affiché : rien n'a quitté le poste pendant un tour.";
-
-// « a », « a et b », « a, b et c ».
-function joinFr(items) {
-  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} et ${items.at(-1)}`;
-}
 
 // The sentence under the schema (AD-1: counted from the turn's events only). The model's
 // calls when it runs out of the workstation (the E2E fake cloud, on the loopback, is not
 // traced: its calls are counted from `model_call_started`), then the requests of its tool
 // steps, by destination in the order of first contact, with what the node says it sends.
 function outboundSummary(turn) {
-  if (!turn) return NO_TURN_OUTBOUND_FR;
-  const at = `Au tour ${turnNumber(turn)}${turn.status === null ? " (en cours)" : ""}`;
+  if (!turn) return t("main.outbound_summary.no_turn");
+  const at = t(turn.status === null ? "main.outbound_summary.at_turn_running" : "main.outbound_summary.at_turn", { n: String(turnNumber(turn)) });
   const model = turn.model;
   const cloud = model?.hosting === "network";
-  const provider = model?.provider ?? (cloud ? "le fournisseur" : null);
+  const provider = model?.provider ?? (cloud ? t("main.outbound_summary.the_provider") : null);
   const calls = cloud ? allSteps(turn).filter((s) => s.type === "call" && s.startedAt).length : 0;
   const nodes = new Map((store.architecture.nodes || []).map((n) => [n.id, n]));
   // Destination -> { label, sends, count (requests that left), failed (failed steps) }: a
@@ -6884,22 +6758,22 @@ function outboundSummary(turn) {
   const left = [...groups.values()].filter((g) => g.count);
   const failed = [...groups.values()]
     .filter((g) => g.failed)
-    .map((g) => `${g.failed > 1 ? `${fmt(g.failed)} tentatives` : "1 tentative"} en échec vers ${g.label}${what(g)}`);
+    .map((g) => t("main.outbound_summary.failed", { count: g.failed, target: `${g.label}${what(g)}` }));
   const times = calls + left.reduce((sum, g) => sum + g.count, 0);
   if (!times) {
     const where =
       model?.kind === "server"
-        ? `le modèle est servi sur ce poste${provider ? ` (${provider})` : ""}`
+        ? t("main.outbound_summary.served", { provider: provider ? ` (${provider})` : "" })
         : cloud
-          ? `aucun appel au modèle n'est parti vers ${provider}`
-          : "le modèle tourne sur ce poste";
-    if (failed.length) return `${at}, aucune donnée n'a quitté le poste : ${where}, et ${joinFr(failed)}.`;
-    return `${at}, aucune donnée n'a quitté le poste : ${where} et aucun service réseau n'a été contacté.`;
+          ? t("main.outbound_summary.no_call", { provider })
+          : t("main.outbound_summary.local");
+    if (failed.length) return t("main.outbound_summary.nothing_failed", { at, where, failed: joinList(failed) });
+    return t("main.outbound_summary.nothing", { at, where });
   }
   const parts = [];
-  if (calls) parts.push(`vers le modèle chez ${provider} (contexte complet, ${plural(calls, "appel")})`);
-  for (const g of left) parts.push(`vers ${g.label} (${g.sends ? `${g.sends}, ` : ""}${plural(g.count, "requête")})`);
-  return `${at}, les données ont quitté le poste ${fmt(times)} fois : ${joinFr([...parts, ...failed])}.`;
+  if (calls) parts.push(t("main.outbound_summary.to_model", { provider, calls: plural(calls, "call") }));
+  for (const g of left) parts.push(t("main.outbound_summary.to_node", { label: g.label, sends: g.sends ? `${g.sends}, ` : "", requests: plural(g.count, "request") }));
+  return t("main.outbound_summary.left", { at, count: times, parts: joinList([...parts, ...failed]) });
 }
 
 function renderOutboundSummary() {
@@ -6917,11 +6791,11 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   frame.dataset.component = "core.harness";
   setLinks(frame, ["core.harness"]); // story 34
   frame.classList.toggle("is-selected", store.selection === "core.harness");
-  frame.title = byId["core.harness"]?.label_text || "Harnais";
+  frame.title = byId["core.harness"]?.label_text || t("main.schema.harness");
   frame.addEventListener("click", (event) => {
     if (!event.target.closest("button:not(.arch-harness-tag)")) select("core.harness");
   });
-  const tag = el("button", "arch-harness-tag", "Harnais"); // its click reaches the frame
+  const tag = el("button", "arch-harness-tag", t("main.schema.harness")); // its click reaches the frame
   tag.type = "button";
   tag.dataset.focusKey = "core.harness";
   const core = el("div", "arch-core");
@@ -6936,7 +6810,7 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
       .join("\n");
     chips.appendChild(chip);
   }
-  if (!anyBrick) chips.appendChild(el("p", "arch-harness-empty", "Aucune brique : LLM nu"));
+  if (!anyBrick) chips.appendChild(el("p", "arch-harness-empty", t("main.schema.no_brick")));
   // AD-12: a cloud model is drawn in the network zone, with its provider; a served model
   // (story 18) out of the harness frame, on the workstation, as the process it is.
   const model = byId["core.model"];
@@ -6955,30 +6829,28 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   if (served) {
     const address = (model.server_url || "").replace(/^https?:\/\//, "");
     const box = el("div", "arch-server-model");
-    box.title =
-      `${model.provider} · processus local distinct du harnais, sur ce poste (${address}) : ` +
-      "l'appel reste sur la boucle locale, le texte envoyé est construit par le harnais.";
+    box.title = t("main.schema.served_title", { provider: model.provider, address });
     box.append(robotRow, el("span", "arch-node-name", `🖥 ${model.provider} · ${address}`));
     localRow.appendChild(box);
   }
   localRow.append(...schemaColumns("local", nodes));
-  local.append(el("span", "arch-zone-label", "🖥 Poste de travail"), localRow);
+  local.append(el("span", "arch-zone-label", `🖥 ${t("main.schema.workstation")}`), localRow);
 
   const boundary = el("div", "arch-boundary");
-  boundary.appendChild(el("span", "arch-boundary-label", "frontière du poste"));
+  boundary.appendChild(el("span", "arch-boundary-label", t("main.schema.boundary")));
 
   const network = el("div", "arch-zone arch-zone-network");
   const networkRow = el("div", "arch-zone-row");
   const networkCols = schemaColumns("network", nodes);
   if (cloud) {
     const box = el("div", "arch-cloud-model");
-    box.title = `${model.provider} · service réseau : chaque appel franchit la frontière du poste.`;
+    box.title = t("main.schema.cloud_title", { provider: model.provider });
     box.append(robotRow, el("span", "arch-node-name", `🌐 ${model.provider}`));
     networkCols.unshift(box);
   }
   if (networkCols.length) networkRow.append(...networkCols);
-  else networkRow.appendChild(el("p", "arch-zone-empty", "Aucun composant réseau : rien ne sort du poste."));
-  network.append(el("span", "arch-zone-label", "🌐 RÉSEAU · hors du poste"), networkRow);
+  else networkRow.appendChild(el("p", "arch-zone-empty", t("main.schema.no_network")));
+  network.append(el("span", "arch-zone-label", `🌐 ${t("main.hosting.network")} · ${t("main.schema.off_workstation")}`), networkRow);
 
   // The trunk, the rails and the path, drawn over the pieces once they are laid out.
   const wires = svgEl("svg", { class: "arch-wires" });
@@ -6991,15 +6863,15 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
 // switched off (unchecked, or H5 after « Autoriser et ne plus demander ») stays, dashed grey.
 function hookStrip(options, byId, blocked) {
   const strip = el("div", "arch-hook-strip");
-  strip.appendChild(el("span", "arch-hook-strip-tag", "🪝 Points d'accroche"));
-  const order = Object.keys(HOOK_POINTS);
+  strip.appendChild(el("span", "arch-hook-strip-tag", `🪝 ${t("main.schema.hook_strip")}`));
+  const order = HOOK_POINT_ORDER;
   const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
   for (const option of [...options].sort((a, b) => rank(a.id) - rank(b.id))) {
     const id = `hooks.${option.id}`;
     const off = !byId[id]; // enabled hooks only are in `architecture_changed`
     const isBlocked = !off && blocked.includes(id);
     const point = HOOK_POINTS[option.id] || "";
-    const state = isBlocked ? " · ✖ a bloqué" : off ? " · désactivé" : "";
+    const state = isBlocked ? ` · ✖ ${t("main.schema.hook_blocked")}` : off ? ` · ${t("main.schema.hook_off")}` : "";
     const hook = schemaButton("arch-hook", id);
     hook.dataset.discipline = brickCategory("hooks") ?? "harness"; // story 33
     hook.classList.toggle("is-off", off);
@@ -7009,9 +6881,9 @@ function hookStrip(options, byId, blocked) {
       el("span", "arch-hook-point", point)
     );
     hook.title = [
-      `${option.label_text} : code du harnais, point d'accroche « ${point} »`,
+      t("main.schema.hook_title", { hook: option.label_text, point }),
       byId[id]?.detail_text,
-      off ? "Désactivé : ce hook n'agit pas." : null,
+      off ? t("main.schema.hook_off_title") : null,
     ]
       .filter(Boolean)
       .join("\n");
@@ -7037,10 +6909,11 @@ function schemaColumns(zone, nodes) {
 function schemaGroup(group, members) {
   const bin = el("div", `arch-group arch-group-${group.shape}`);
   bin.setAttribute("role", "group");
-  bin.setAttribute("aria-label", `${group.title} : ${members.length}`);
+  const title = GROUP_TITLES[group.title];
+  bin.setAttribute("aria-label", `${title} : ${members.length}`);
   const list = el("div", "arch-group-nodes");
   for (const node of members) list.append(...schemaNode(node, group.shape));
-  bin.append(el("span", "arch-group-title", `${group.icon} ${group.title} · ${members.length}`), list);
+  bin.append(el("span", "arch-group-title", `${group.icon} ${title} · ${members.length}`), list);
   return bin;
 }
 
@@ -7072,33 +6945,33 @@ function schemaNode(node, shape) {
   const perTurn = network && (shape === "tool" || shape === "mcp") && schemaTurn !== null;
   const reached = perTurn && schemaTurn.contacted.has(node.id);
   const attempted = perTurn && schemaTurn.failed.has(node.id);
-  const turnState = reached ? "contacté" : attempted ? "en échec" : "non contacté";
+  const turnState = reached ? t("main.schema.contacted") : attempted ? t("main.schema.failed") : t("main.schema.not_contacted");
   let pill = null;
-  if (unavailable) pill = "indisponible";
+  if (unavailable) pill = t("main.schema.unavailable");
   else if (perTurn) pill = turnState;
-  else if (shape === "mcp") pill = notContacted ? "non contacté" : plural(tools.length, "outil");
-  else if (notContacted) pill = "non contacté";
+  else if (shape === "mcp") pill = notContacted ? t("main.schema.not_contacted") : plural(tools.length, "tool");
+  else if (notContacted) pill = t("main.schema.not_contacted");
   else if (loaded) pill = "✓"; // a skill's bin is narrow: « Chargé » is in its accessible name and tooltip
   if (icon) button.appendChild(el("span", "arch-node-icon", icon));
   // A network node carries its globe on the node itself, not only on its zone (FR-13).
   button.appendChild(el("span", "arch-node-name", network ? `🌐 ${node.label_text}` : node.label_text));
   if (pill) button.appendChild(el("span", "arch-node-pill", pill));
 
-  const tooltip = [`${node.label_text} · ${SHAPE_LABELS[shape]} · ${network ? "RÉSEAU" : "sur le poste"}`];
-  if (unavailable) tooltip.push(`Indisponible : ${node.reason_text}`);
-  else if (notContacted) tooltip.push("Non contacté : aucune requête envoyée pour l'instant.");
+  const tooltip = [`${node.label_text} · ${SHAPE_LABELS[shape]} · ${network ? t("main.hosting.network") : t("main.schema.on_workstation")}`];
+  if (unavailable) tooltip.push(t("main.schema.unavailable_reason", { reason: node.reason_text }));
+  else if (notContacted) tooltip.push(t("main.schema.not_contacted_title"));
   if (perTurn) {
-    const state = attempted && !reached ? "tentative en échec, rien n'a atteint le service" : turnState;
-    tooltip.push(`Au tour ${schemaTurn.number} : ${state}.`);
+    const state = attempted && !reached ? t("main.schema.attempt_failed") : turnState;
+    tooltip.push(t("main.schema.at_turn", { n: String(schemaTurn.number), state }));
   }
-  if (shape === "skill") tooltip.push(loaded ? "Chargé dans la conversation." : "Non chargé.");
-  if (tools.length) tooltip.push(`Outils : ${tools.join(", ")}`);
+  if (shape === "skill") tooltip.push(loaded ? t("main.schema.loaded") : t("main.schema.not_loaded"));
+  if (tools.length) tooltip.push(t("main.schema.tools", { tools: tools.join(", ") }));
   if (node.detail_text) tooltip.push(node.detail_text);
   // Story 23: a network tool or server leads to its outbound data, while a step shown has some
   // (a clearing or a reset leaves the node contacted, with nothing left to show).
   const leadsOut =
     network && (shape === "tool" || shape === "mcp") && Boolean(outboundShown?.has(node.id));
-  if (leadsOut) tooltip.push("Clic : ses données sortantes dans Orchestration");
+  if (leadsOut) tooltip.push(t("main.schema.leads_out"));
   button.title = tooltip.join("\n");
   button.setAttribute("aria-label", tooltip.join(". "));
   if (node.id === "file.audit") button.addEventListener("click", openAudit); // the whole log
@@ -7229,19 +7102,19 @@ async function openAudit() {
   const dialog = document.getElementById("audit-dialog");
   const text = document.getElementById("audit-text");
   document.getElementById("audit-path").textContent = "";
-  text.textContent = "Lecture du journal…";
+  text.textContent = t("main.audit.reading");
   if (!dialog.open) dialog.showModal();
   try {
     const response = await fetch("/api/audit");
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      text.textContent = `Lecture impossible : ${body.detail || response.status}.`;
+      text.textContent = t("main.audit.failed", { cause: String(body.detail || response.status) });
       return;
     }
-    document.getElementById("audit-path").textContent = `Fichier : ${body.path}`;
-    text.textContent = body.text || "Journal vide";
+    document.getElementById("audit-path").textContent = t("main.memory.file", { path: body.path });
+    text.textContent = body.text || t("main.audit.empty");
   } catch {
-    text.textContent = "Lecture impossible : WaveStack ne répond pas.";
+    text.textContent = t("main.audit.no_answer");
   }
 }
 
@@ -7289,6 +7162,9 @@ function closePaneMenu() {
 }
 
 async function boot() {
+  // Languages (2/5): the interface's texts first (`i18n.js` has set `<html lang>` and the
+  // `data-i18n*` of the page); every render reads them.
+  await textsReady;
   // Remembered pane layout first, so the page does not open on the defaults then jump.
   loadPaneLayout();
   loadProjection();
@@ -7443,7 +7319,7 @@ async function boot() {
         languages: body.languages ?? [],
         language_locked: Boolean(body.language_locked),
       };
-      document.documentElement.lang = body.language; // languages (1/5): `<html lang>`
+      document.documentElement.lang = body.language; // languages (1/5): `<html lang>`, as i18n.js
     }
     const preview = body.context_preview;
     const rendered = body.context_rendered;

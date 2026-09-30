@@ -1,0 +1,9 @@
+# Interface texts in English (languages 2/5): the keys and variables of content/ui.yaml.
+
+common:
+  language:
+    name: "Language"
+    help: "Language of the interface, of what is sent to the model (system prompt, tools, skills, hooks, memory, glossary, RAG) and of the names of tools, hooks, skills and MCP servers. The bricks, the scenarios and the harness's messages stay in French for now."
+    locked: "Clear the conversation first (« Clear the conversation » or « Reset »): the language can only change on an empty conversation."
+    failed: "WaveStack does not answer: the language did not change."
+    refused: "Language change refused."

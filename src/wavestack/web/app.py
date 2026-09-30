@@ -301,6 +301,12 @@ def create_app(
         """Story 29: the « LLM nu » screen, the inside of the active model."""
         return FileResponse(STATIC_DIR / "llm.html")
 
+    @app.get("/api/ui_texts")
+    def api_ui_texts() -> dict[str, object]:
+        """Languages (2/5): the interface's texts (`content/ui.yaml`) in the session's
+        language, `{language, texts}`, read by `i18n.js` before the page's first render."""
+        return app_session.ui_texts()
+
     @app.get("/api/llm_lab")
     def api_llm_lab() -> dict[str, object]:
         """Story 29 (AD-1): the screen's texts, the active model, the session's state and the
