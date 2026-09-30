@@ -18,7 +18,7 @@ français.
   (matrice des cas, critères d'acceptation, « Design Notes »).
 - Entrée livrée (`wavestack.toml`, `[[cloud.models]]` `id = "gemini"`) : `gemini-3.5-flash-lite`,
   clé par `GEMINI_API_KEY`. Raisonnement `think_tags`, balises `<thought>` / `</thought>` ;
-  allumé : `extra_body.google.thinking_config = {thinking_level: "low", include_thoughts: true}` ;
+  allumé : `extra_body.google.thinking_config = {thinking_level: "medium", include_thoughts: true}` ;
   éteint : `reasoning_effort: "minimal"`. `tool_call_extra` : la signature de contournement
   `skip_thought_signature_validator`, pour les seuls appels fabriqués par le harnais (actions
   forcées).
