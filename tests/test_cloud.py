@@ -376,7 +376,7 @@ def test_cloud_models_merge_by_id_and_invalid_entries_are_left_out():
     cfg = config.load_config()
     valid, errors = cfg.cloud_models
 
-    assert [m.id for m in valid] == ["groq", "gemini"]
+    assert [m.id for m in valid] == ["groq", "gemini", "gemma"]
     assert valid[0].tpm == 6000 and valid[0].model == "openai/gpt-oss-120b"
     assert len(errors) == 1 and "Bad-Id" in errors[0]
     assert "api.groq.com" in cfg.allowed_hosts and "api.mistral.ai" not in cfg.allowed_hosts
@@ -436,7 +436,10 @@ def test_without_key_test_and_choose_are_disabled_with_the_reason(monkeypatch):
 
     rows = {r["id"]: r for r in client.get("/api/diagnostic").json()["cloud"]["models"]}
 
-    assert set(rows) == {"groq", "mistral", "gemini"}
+    assert set(rows) == {"groq", "mistral", "gemini", "gemma"}
+    # The first preset on a free tier only: the diagnostic says « offre d'essai ».
+    assert rows["gemma"]["disclosure"]["trial"] is True
+    assert rows["gemini"]["disclosure"]["trial"] is False
     for model_id in rows:
         assert rows[model_id]["key_set"] is False and "clé API" in rows[model_id]["disabled_fr"]
     response = client.post("/api/intentions/test_cloud_model", json={"id": "groq"}, headers=ORIGIN)
@@ -1055,6 +1058,68 @@ def test_gemini_replays_the_thought_signature_with_reasoning_off(caplog):
         assert request.content == ctx.payload["body"].encode("utf-8")
         assert "".join(s["text"] for s in ctx.payload["segments"]) == ctx.payload["body"]
     _no_sentinel(_journal_text(), caplog.text)
+
+
+def test_the_gemma_entry_is_the_free_open_model_on_the_gemini_host():
+    """Lot 1 of 2026-09-30: Gemma 4 shares Gemini's host, key and signature workaround; free
+    tier only (trial, no price); `training = "no"` by the EEA clause (terms of 2026-09-30)."""
+    cfg = config.load_config()
+    gemma, gemini = cfg.cloud_model("gemma"), cfg.cloud_model("gemini")
+
+    assert gemma.model == "gemma-4-26b-a4b-it" and gemma.host == gemini.host
+    assert gemma.key_env == gemini.key_env == "GEMINI_API_KEY"
+    assert gemma.tool_call_extra == gemini.tool_call_extra
+    assert gemma.trial and gemma.training == "no" and gemma.pricing is None
+    assert gemma.impacts is not None and gemma.impacts.model == "gemma-4-26b-a4b-it"
+    assert gemma.context == 262144 and gemma.tools and gemma.stream_usage
+    assert "offre gratuite" in gemma.notes_fr and "EEE" in gemma.notes_fr
+    assert "usage personnel" in gemma.notes_fr and "GEMINI_API_KEY" in gemma.notes_fr
+    # Gemini keeps « obligatoire »: Google reserves paid services to API clients in the EEA.
+    assert "obligatoire" in gemini.notes_fr and "EEE" in gemini.notes_fr
+    assert gemma.reasoning is not None and not gemma.reasoning.always
+    assert gemma.reasoning.tags == ("<thought>", "</thought>")
+    thinking = {"google": {"thinking_config": {"include_thoughts": True}}}
+    assert gemma.reasoning.on == {"extra_body": thinking}
+    assert gemma.reasoning.off == {"reasoning_effort": "minimal"}
+
+
+def test_gemma_reasoning_on_only_asks_to_see_the_thoughts_and_replays_the_signature():
+    """Gemma 4 refuses `thinking_level`, `thinking_budget` and every `reasoning_effort` but
+    `minimal` (probe of 2026-09-30): brick on, the body carries `include_thoughts` alone. Its
+    tool calls are signed as Gemini's, and replayed the same way."""
+    provider = GeminiProvider(GEMINI_TOOL, GEMINI_TEXT)
+    session = _cloud_session("gemma", provider, bricks=("tools", "reasoning"))
+
+    events = _turn(session, "Quelle heure est-il ?")
+
+    assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    assert _of(events, "harness_error") == [] and len(provider.requests) == 2
+    first = json.loads(provider.requests[0].content)
+    assert first["model"] == "gemma-4-26b-a4b-it" and first["max_tokens"] == 1536
+    assert first["extra_body"] == {"google": {"thinking_config": {"include_thoughts": True}}}
+    assert "reasoning_effort" not in first
+    assert "thinking_level" not in json.dumps(first) and "thinking_budget" not in json.dumps(first)
+    assert provider.requests[0].url.host == "generativelanguage.googleapis.com"
+    second = json.loads(provider.requests[1].content)
+    assistant = next(m for m in second["messages"] if m.get("tool_calls"))
+    assert assistant["tool_calls"][0]["extra_content"] == SIGNATURE
+
+
+def test_gemma_reasoning_off_sends_minimal_and_no_extra_body():
+    """The nominal case: `minimal` is what stops Gemma 4 from thinking by default."""
+    provider = GeminiProvider(GEMINI_TOOL, GEMINI_TEXT)
+    session = _cloud_session("gemma", provider, bricks=("tools",))
+
+    events = _turn(session, "Quelle heure est-il ?")
+
+    assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    assert len(provider.requests) == 2
+    first = json.loads(provider.requests[0].content)
+    assert first["model"] == "gemma-4-26b-a4b-it" and first["max_tokens"] == 512
+    assert first["reasoning_effort"] == "minimal" and "extra_body" not in first
+    second = json.loads(provider.requests[1].content)
+    assistant = next(m for m in second["messages"] if m.get("tool_calls"))
+    assert assistant["tool_calls"][0]["extra_content"] == SIGNATURE
 
 
 def test_without_the_signature_the_fake_gemini_refuses():

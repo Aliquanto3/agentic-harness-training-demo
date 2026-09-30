@@ -5438,10 +5438,12 @@ def s_model_catalog(r: Run) -> None:
     groups = _picker_groups(r)
     labels = [g["label"] for g in groups]
     # Three fake cloud models have no known publisher; the fourth is named as Gemini, with
-    # the Gemini preset; the presets of wavestack.toml (Gemini, Mistral, Groq's gpt-oss),
+    # the Gemini preset; the presets of wavestack.toml (Gemma, Gemini, Mistral, Groq's
+    # gpt-oss),
     # declared without a key, come in the table's order before.
     expected = [
         "Sur ce poste · Qwen (Alibaba)",
+        "Réseau · Gemma (Google)",
         "Réseau · Gemini (Google)",
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
@@ -5528,6 +5530,19 @@ def s_model_catalog(r: Run) -> None:
         "tableau : préréglage Gemini, éditeur « Gemini (Google) », raisonnement « activable », "
         "indisponible sans clé, avec la raison, prix « 0,30 $ / 2,50 $ » par million de tokens",
         str(gemini),
+    )
+    gemma = _models_row(r, "cloud:gemma")
+    r.check(
+        gemma.get("model") == "RÉSEAU · Google AI Studio"
+        and gemma.get("model_why") == "gemma-4-26b-a4b-it"
+        and gemma.get("publisher") == "Gemma (Google)"
+        and gemma.get("reasoning") == "activable"
+        and gemma.get("size") == "26 B"
+        and gemma.get("state") == "indisponible"
+        and gemma.get("price") == "—",
+        "tableau : préréglage Gemma, éditeur « Gemma (Google) », raisonnement « activable », "
+        "« 26 B » lu dans le nom, indisponible sans clé, prix « — » (gratuit, sans pricing)",
+        str(gemma),
     )
     fake_a = _models_row(r, f"cloud:{MODEL_ENTRY_ID}")
     r.check(fake_a.get("reasoning") == "jamais", "tableau : wavestack-fake « jamais »")
