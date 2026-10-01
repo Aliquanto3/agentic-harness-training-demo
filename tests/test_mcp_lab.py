@@ -467,12 +467,13 @@ def _call_sent(mark: int) -> bool:
     )
 
 
-def _hang_the_local_server(session: AppSession) -> tuple[list[psutil.Process], int]:
+def _hang_the_local_server(session: AppSession, children: list[psutil.Process]) -> int:
     """The workshop connected to the glossary, its process suspended (it reads no request
-    any more), then a call sent: the session waits for an answer that never comes. The
-    processes suspended, and the journal's mark before the call."""
+    any more), then a call sent: the session waits for an answer that never comes.
+    `children`: filled with the suspended processes before anything can fail, so that the
+    caller's `finally` resumes them. The journal's mark before the call."""
     connect(session)
-    children = local_servers()  # the workshop's only: the brick is off
+    children += local_servers()  # the workshop's only: the brick is off
     assert children
     for child in children:
         child.suspend()
@@ -483,7 +484,7 @@ def _hang_the_local_server(session: AppSession) -> tuple[list[psutil.Process], i
         assert time.monotonic() < deadline, "tools/call never left"
         time.sleep(0.02)
     assert session.state == "mcp_lab"
-    return children, mark
+    return mark
 
 
 def _resume(children: list[psutil.Process]) -> None:
@@ -501,7 +502,7 @@ def test_stop_during_a_call_to_the_local_glossary_closes_its_process(loop):
     session = mcp_session(loop)
     children: list[psutil.Process] = []
     try:
-        children, mark = _hang_the_local_server(session)
+        mark = _hang_the_local_server(session, children)
         assert session.stop() is True
         wait_idle(session, timeout=30)
         (ended,) = [e.payload for e in lab_events(mark) if e.kind == "mcp_lab_call_ended"]
@@ -538,9 +539,13 @@ def test_the_main_screens_intentions_are_refused_during_a_workshop_exchange(loop
         "rag_lab_run": {"question": "Combien de jours de télétravail ?"},
         "mcp_lab_connect": {"server": "local"},
         "mcp_lab_call": {"server": "local", "tool": "list_terms", "args": {}},
+        "set_api_key": {"id": "groq", "key": "gsk-e2e-not-a-key"},
+        "test_cloud_model": {"id": "groq"},
+        "reset": {},
     }
+    # `download_model` and `build_rag_index` answer 404 first here: the RAG brick is off.
     try:
-        children, _ = _hang_the_local_server(session)
+        _hang_the_local_server(session, children)
         mark = get_journal().last_seq()
         refused = {}
         for name, body in intentions.items():
@@ -549,13 +554,8 @@ def test_the_main_screens_intentions_are_refused_during_a_workshop_exchange(loop
         assert {n: code for n, (code, _) in refused.items()} == dict.fromkeys(intentions, 409)
         for name, (_, detail) in refused.items():
             assert "Atelier MCP" in detail, (name, detail)
-        started = [
-            e.kind
-            for e in get_journal().events_since(mark)
-            if e.kind in ("turn_started", "llm_generation_started", "rag_lab_run_started")
-            or e.kind.startswith("mcp_lab")
-            or (e.kind == "session_state" and e.payload.get("state") != "idle")
-        ]
+        # Nothing at all is emitted by the refusals: no event since the mark.
+        started = [(e.kind, e.payload) for e in get_journal().events_since(mark)]
         assert started == [], started
         assert session.state == "mcp_lab" and session.language == "fr"
         assert session.stop() is True

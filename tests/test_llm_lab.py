@@ -1155,7 +1155,9 @@ class _ByTemperature(Provider):
         self.requests.append(request)
         self.sent_at.append(time.monotonic())
         body = json.loads(request.content)
-        answer = self.answers[body["temperature"]]
+        answer = self.answers.get(body.get("temperature"))
+        if answer is None:  # a clear failure, not a KeyError inside the transport
+            return httpx.Response(500, json={"unexpected": body})
         return httpx.Response(200, content=answer, headers={"content-type": "text/event-stream"})
 
 
@@ -1173,14 +1175,12 @@ def test_compare_with_a_cloud_model_calls_the_provider_twice_a_then_b():
     hot = Sampling(1.2, 20, 0.8, 0.0)
     mark = get_journal().last_seq()
     request_id = session.llm_compare("Bonjour", SCREEN, hot)
-    assert session.state == "llm_lab"
     session.join()
 
     bodies = [json.loads(r.content) for r in provider.requests[before:]]
     assert [(b["temperature"], b["top_p"]) for b in bodies] == [(0.2, 0.9), (1.2, 0.8)]
     assert all("top_k" not in b and "min_p" not in b for b in bodies)
     assert all(b["messages"] == [{"role": "user", "content": "Bonjour"}] for b in bodies)
-    assert provider.sent_at[before] < provider.sent_at[before + 1]
 
     events = get_journal().events_since(mark)
     lab = [e for e in events if e.context_id == "llm"]

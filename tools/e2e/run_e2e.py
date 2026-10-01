@@ -4640,6 +4640,64 @@ def _mcp_messages(r: Run) -> list[tuple[str | None, str | None]]:
     )
 
 
+def _mcp_busy_checks(r: Run, busy, connect) -> None:  # noqa: ANN001
+    """A turn of the workshop running: « Occupé », « Se connecter » disabled, a direct call
+    refused, « Arrêter » of the MCP workshop greyed (it stops the workshop's exchanges)."""
+    page = r.page
+    expect(busy).to_be_visible(timeout=10_000)
+    refused = r.api("POST", "/api/intentions/mcp_lab_connect", {"server": "local"})
+    r.check(
+        "Un tour est en cours" in busy.inner_text()
+        and connect.is_disabled()
+        and "Un tour est en cours" in (connect.get_attribute("title") or "")
+        and page.locator("#mcp-stop").is_disabled()
+        and refused.status_code == 409,
+        "tour de l'atelier en cours : bandeau « Occupé » avec la raison, « Se connecter » "
+        "désactivé, appel direct 409, « Arrêter » de l'atelier MCP grisé",
+        f"{busy.inner_text()} · {refused.status_code}",
+    )
+
+
+def _mcp_stop_during_handshake(r: Run, connect) -> bool:  # noqa: ANN001
+    """« Connecter » then « Arrêter » as soon as it is enabled, at most three times (the
+    handshake can win the race); whether the stop was seen, checked either way."""
+    page = r.page
+    stopped, attempts, missed = None, 0, []
+    while stopped is None and attempts < 3:
+        attempts += 1
+        seq = r.ev.mark()
+        connect.click()
+        try:
+            page.locator("#mcp-stop").click(timeout=5000)
+        except Exception as exc:  # noqa: BLE001 - the handshake ended first: greyed again
+            missed.append(type(exc).__name__)
+        ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
+        if ended["status"] == "error":
+            stopped = ended
+    if stopped is None:
+        r.check(
+            False,
+            "« Arrêter » pressé pendant la poignée de main",
+            f"la poignée de main a gagné la course {attempts} fois ({missed})",
+        )
+        return False
+    summary = page.locator("#mcp-connect-summary")
+    expect(summary).to_have_attribute("data-status", "error", timeout=10_000)
+    expect(page.locator("#mcp-stop")).to_be_disabled(timeout=10_000)
+    state = r.api("GET", "/api/mcp_lab").json()
+    r.check(
+        "Échange arrêté" in (stopped.get("error_text") or "")
+        and "Échange arrêté" in summary.inner_text()
+        and state["open_server"] is None
+        and state["session_state"]["state"] == "idle"
+        and page.locator(".mcp-badge-open").count() == 0,
+        "« Arrêter » pressé pendant la poignée de main : connexion arrêtée et dite, aucune "
+        "connexion ouverte, session en idle",
+        f"{attempts} essai(s) · {summary.inner_text()[:160]}",
+    )
+    return True
+
+
 def _mcp_lab_page(r: Run, errors: list[str]) -> None:
     page = r.page
     r.goto_app()
@@ -4668,56 +4726,22 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
     r.api("POST", "/api/intentions/send", {"message": "Explique le harnais [lent] [long]"})
     r.ev.wait("model_first_token", seq, timeout=20)
     busy = page.locator("#mcp-busy")
-    expect(busy).to_be_visible(timeout=10_000)
     connect = page.locator('button[data-connect="local"]')
-    refused = r.api("POST", "/api/intentions/mcp_lab_connect", {"server": "local"})
-    r.check(
-        "Un tour est en cours" in busy.inner_text()
-        and connect.is_disabled()
-        and "Un tour est en cours" in (connect.get_attribute("title") or "")
-        and page.locator("#mcp-stop").is_disabled()
-        and refused.status_code == 409,
-        "tour de l'atelier en cours : bandeau « Occupé » avec la raison, « Se connecter » "
-        "désactivé, appel direct 409, « Arrêter » de l'atelier MCP grisé",
-        f"{busy.inner_text()} · {refused.status_code}",
-    )
-    r.api("POST", "/api/intentions/stop")
-    r.ev.wait("turn_ended", seq, timeout=30)
+    try:
+        _mcp_busy_checks(r, busy, connect)
+    finally:  # the turn never outlives this step, even when a check raised
+        r.api("POST", "/api/intentions/stop")
+        r.ev.wait("turn_ended", seq, timeout=30)
     expect(busy).to_be_hidden(timeout=10_000)
     expect(connect).to_be_enabled(timeout=10_000)
 
     # (3) « Arrêter » pressed during the handshake (the glossary's process starting): the
     # handshake may win the race on a fast workstation, then the gesture is played again.
-    stopped, attempts = None, 0
-    while stopped is None and attempts < 3:
-        attempts += 1
-        seq = r.ev.mark()
-        connect.click()
-        stop = page.locator("#mcp-stop")
-        try:
-            stop.click(timeout=5000)
-        except Exception:  # noqa: BLE001 - the handshake ended first: the button greyed again
-            pass
-        ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
-        if ended["status"] == "error":
-            stopped = ended
-    summary = page.locator("#mcp-connect-summary")
-    expect(summary).to_have_attribute("data-status", "error", timeout=10_000)
-    expect(page.locator("#mcp-stop")).to_be_disabled(timeout=10_000)
-    state = r.api("GET", "/api/mcp_lab").json()
-    r.check(
-        stopped is not None
-        and "Échange arrêté" in (stopped.get("error_text") or "")
-        and "Échange arrêté" in summary.inner_text()
-        and state["open_server"] is None
-        and state["session_state"]["state"] == "idle"
-        and page.locator(".mcp-badge-open").count() == 0,
-        "« Arrêter » pressé pendant la poignée de main : connexion arrêtée et dite, aucune "
-        "connexion ouverte, session en idle",
-        f"{attempts} essai(s) · {summary.inner_text()[:160]}",
-    )
+    if not _mcp_stop_during_handshake(r, connect):
+        return
 
     # (4) The glossary: a preset, a call; the page reloaded replays `last_session`.
+    summary = page.locator("#mcp-connect-summary")
     seq = r.ev.mark()
     connect.click()
     ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
@@ -4898,6 +4922,12 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
     lazy = json.dumps({"type": "function", "function": {"name": "load_tool_doc"}})
     rpc = lambda method, n: json.dumps({"jsonrpc": "2.0", "id": n, "method": method})  # noqa: E731
     answer = lambda n: json.dumps({"jsonrpc": "2.0", "id": n, "result": {}})  # noqa: E731
+    served = {
+        "name": "search_datasets",
+        "description": "Search datasets on data.gouv.fr (served, e2e).",
+        "inputSchema": _DATAGOUV_SCHEMA,
+    }
+    listed = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"tools": [served]}})
     events = [
         (
             "mcp90",
@@ -4935,7 +4965,7 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
             {
                 "direction": "from_server",
                 "method": "tools/list",
-                "jsonrpc": answer(1),
+                "jsonrpc": listed,
                 "elapsed_ms": 30,
             },
         ),
@@ -9044,7 +9074,7 @@ def _llm_live(r: Run, live: _LiveLab, errors: list[str]) -> None:
     )
     shares = _window_shares(r)
     r.check(
-        abs(shares["prompt"] - 0.25) < 0.005 and abs(shares["output"] - 1 / 500) < 0.002,
+        abs(shares["prompt"] - 0.25) < 0.005 and abs(shares["output"] - 1 / 500) < 0.0005,
         "schéma de la fenêtre : prompt à 250/1 000 de sa part, réponse à 1/500 de la réserve",
         str(shares),
     )
@@ -9098,7 +9128,7 @@ def _llm_live(r: Run, live: _LiveLab, errors: list[str]) -> None:
     shares = _window_shares(r)
     label = _plain(page.inner_text("#window-reserve-label"))
     r.check(
-        abs(shares["output"] - 3 / 500) < 0.002
+        abs(shares["output"] - 3 / 500) < 0.0005
         and shares["output"] > output_before
         and "Réponse : 3 tokens" in label,
         "schéma de la fenêtre : la part de la réponse croît, 3/500 de la réserve",

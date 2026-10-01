@@ -1854,20 +1854,20 @@ def _ms(seconds: float) -> int:
 
 
 # Short words that say nothing of a subject, by language, accents folded (BM25 skips them;
-# the corpus and the question are in the session's language). « it » and « us » are kept in
-# English: « IT », « US » are acronyms a lexical search must find.
-STOP_WORDS: dict[str, frozenset[str]] = {
+# the corpus, read from the session's language's index, and the question are in it). Words that
+# may be acronyms or times are kept: « it », « us », « who » (IT, US, WHO), « am » (9 am).
+STOP_WORDS_BY_LANG: dict[str, frozenset[str]] = {
     "fr": frozenset(
         "au aux avec ce ces cette dans de des du elle elles en est et il ils la le les leur "
         "leurs lui mais me ne nous on ou par pas pour qu que qui sa se ses si son sont sur ta "
         "te tes ton tu un une vos votre vous".split()
     ),
     "en": frozenset(
-        "a about after all also am an and any are as at be been before being but by can "
+        "a about after all also an and any are as at be been before being but by can "
         "could did do does for from had has have he her here him his how if in into is its "
         "me more most my no not of on or other our out over she should so some such than "
         "that the their them then there these they this those to too under up was we were "
-        "what when where which while who whom why will with would you your".split()
+        "what when where which while whom why will with would you your".split()
     ),
     "de": frozenset(
         "aber alle als am an auch auf aus bei bin bis bist da damit dann das dass dem den "
@@ -1888,7 +1888,9 @@ def fold(text: str) -> str:
 def bm25_terms(text: str, lang: str = config.DEFAULT_LANGUAGE) -> list[str]:
     """BM25's words: `\\w+` in lower case, accents folded, two characters or more (« IA »,
     « RH », « 35 » kept), the short stop words of `lang` (the session's) left out."""
-    stop = STOP_WORDS.get(config.as_language(lang), STOP_WORDS[config.DEFAULT_LANGUAGE])
+    stop = STOP_WORDS_BY_LANG.get(
+        config.as_language(lang), STOP_WORDS_BY_LANG[config.DEFAULT_LANGUAGE]
+    )
     return [w for w in _WORD.findall(fold(text)) if len(w) >= 2 and w not in stop]
 
 
