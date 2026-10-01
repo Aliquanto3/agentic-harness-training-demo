@@ -403,9 +403,11 @@ def test_kind_tool_refuses_a_meta_tool_only(loop):  # noqa: F811
 # ---------- lot K: an MCP tool's call, forced (decision of 2026-09-29) ----------
 
 
-def test_forced_mcp_call_in_lazy_loading_adds_its_definition_to_tools(loop):  # noqa: F811
-    """The call runs before c1 (`trigger = user`, brick `mcp`), and its definition joins
-    `tools` at once and for the conversation, out of `load_tool_doc`'s catalog."""
+def test_forced_mcp_call_in_lazy_loading_leaves_tools_unchanged_locally(loop):  # noqa: F811
+    """The call runs before c1 (`trigger = user`, brick `mcp`) and is rendered with its
+    result. D16-c (story 4 of the deferred leftovers): locally, its definition does not join
+    `tools` (the prefix stays append only) and the tool stays to load; the definition joins
+    `tools` in chat mode only."""
     engine = None
     session = lazy_session(loop, ["MCP signifie Model Context Protocol."])
     engine = session._engine
@@ -418,13 +420,49 @@ def test_forced_mcp_call_in_lazy_loading_adds_its_definition_to_tools(loop):  # 
     assert before_first_call(events, started)
     assert [e.payload["status"] for e in of(events, "tool_ended")] == ["ok"]
     ctx = of(events, "context_rendered")[0].payload
-    assert definition_names(ctx) == [DEFINE, "load_tool_doc"]
+    assert definition_names(ctx) == ["load_tool_doc"]
     lines = [s["text"] for s in _segments(ctx, "tool_catalog") if s["text"].startswith("- ")]
-    assert not any(DEFINE in line for line in lines)  # no longer offered to load
+    assert any(line.startswith(f"- {DEFINE}") for line in lines)  # still offered to load
     result = [s for s in _segments(ctx, "tool_result") if s["brick"] == "mcp"]
     assert result and "Model Context Protocol" in "".join(s["text"] for s in result)
     exact(ctx)
     assert len(engine.calls) == 1  # the forced call costs no model call
+    assert DEFINE not in session._loaded_docs
+    state = session.build_turn_state()
+    assert DEFINE not in state.tools and DEFINE in state.loadable and state.documented == ()
+    session.close()
+
+
+def test_forced_mcp_call_in_lazy_loading_adds_its_definition_to_tools_in_chat_mode(loop):  # noqa: F811
+    """Lot K, kept in chat mode (D16-c): the forced call's definition joins `tools` at once
+    and for the conversation, since a provider refuses a call to a tool its `tools` lacks."""
+    import json
+
+    from pydantic import SecretStr
+    from test_cloud import SENTINEL, Provider, delta, sse
+    from test_mcp import enable
+
+    from wavestack import config
+    from wavestack.session.app_session import AppSession
+
+    provider = Provider(sse(delta(content="MCP signifie Model Context Protocol."), delta("stop")))
+    cfg = config.load_config()
+    entry = cfg.cloud_model("groq")
+    config.write_api_key(entry.id, entry.host, SecretStr(SENTINEL))
+    session = AppSession(cfg, cloud_factory=provider.factory)
+    session.boot_cloud(entry).result()
+    session.attach_loop(loop)
+    enable(session)
+    session.set_mcp_mode(True)
+    session.join()
+    session.arm("tool", DEFINE, {"term": "MCP"})
+
+    session.send("Que veut dire MCP ?")
+    session.join()
+
+    body = json.loads(provider.requests[0].content)
+    names = [t["function"]["name"] for t in body["tools"]]
+    assert DEFINE in names and "load_tool_doc" in names
     assert DEFINE in session._loaded_docs
     state = session.build_turn_state()
     assert DEFINE in state.tools and DEFINE not in state.loadable

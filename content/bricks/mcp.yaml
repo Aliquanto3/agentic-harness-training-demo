@@ -15,9 +15,11 @@ explanation_text:
       En lazy loading : le modèle ne voit qu'une ligne par outil dans le
       méta-outil load_tool_doc, et le harnais ne charge une documentation que
       lorsque le modèle la demande. Une documentation chargée répond à l'appel
-      pendant le tour, puis rejoint la liste des outils au tour suivant
-      (l'historique n'en garde qu'un court talon), et reste chargée jusqu'à
-      « Vider la conversation ».
+      pendant le tour. Avec un modèle local, elle reste ensuite dans
+      l'historique, comme tout résultat d'outil, pour que le moteur réutilise son
+      cache ; avec un modèle cloud, elle rejoint la liste des outils dès l'appel
+      suivant (l'historique n'en garde qu'un court talon). Elle reste chargée
+      jusqu'à « Vider la conversation ».
   - >-
     Cocher « Lazy loading » montre aussitôt dans la jauge l'écart de tokens entre
     les deux modes. Un serveur public reçoit les données de chaque appel : elles

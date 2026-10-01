@@ -105,7 +105,7 @@ session:
   prefix:
     causes:
       system: "Le message système a changé depuis le tour précédent (prompt système, mémoire globale, descriptions d'outils, catalogue de skills ou skill chargé)."
-      history: "L'historique n'est plus rendu tel que le modèle l'a lu (mémoire courte éteinte : l'échange précédent n'est pas renvoyé ; extraits RAG retirés, documentation remplacée par son talon, texte compressé ou réponse réécrite)."
+      history: "L'historique n'est plus rendu tel que le modèle l'a lu (mémoire courte éteinte : l'échange précédent n'est pas renvoyé ; extraits RAG retirés, texte compressé ou réponse réécrite)."
       template: "Une brique activée ou désactivée, ou le gabarit, rend autrement une partie du contexte déjà lue."
       reset: "La conversation a été vidée, ou un scénario ou la réinitialisation l'a remplacée : le cache du moteur contient encore l'ancienne."
       replay: "Rejeu : le tour repart de l'état qui précédait le tour rejoué, alors que le cache du moteur contient ce tour."
@@ -281,6 +281,14 @@ session:
     error:
       message: L'aperçu du contexte n'a pas pu être calculé.
       effect: La jauge reste vide jusqu'au premier tour.
+  # Story 4 of the deferred leftovers (E122): the first turn's context evaluated at the
+  # scenario's launch, while the instructions are read (journal only).
+  prefill:
+    phase: "Préremplissage du cache ({tokens} tokens)"
+    started: "Préremplissage du cache : le moteur lit les {tokens} tokens du contexte du premier tour (message système, outils, mémoire) pendant la lecture de la consigne."
+    completed: "Préremplissage terminé : {evaluated} tokens évalués en {seconds} s. Le premier message ne fera relire que ce qui le suit."
+    abandoned: "Préremplissage abandonné après {evaluated} tokens sur {tokens} (un tour, un chargement, un atelier, un réglage ou un autre scénario est arrivé) : la partie évaluée reste réutilisable."
+    error: "Préremplissage interrompu par une erreur après {evaluated} tokens sur {tokens} : {cause}. Le premier tour lira le contexte normalement."
   # Story 9 (AD-3): an action armed for the next turn, or why it is not.
   arm:
     unknown_tool: "Outil inconnu : « {target} » n'est ni un outil de la brique Outils ni l'outil d'un serveur MCP. Rien n'est armé."

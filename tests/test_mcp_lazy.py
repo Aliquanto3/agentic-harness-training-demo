@@ -79,7 +79,13 @@ def test_toggle_swaps_the_documentation_for_one_line_per_tool(loop):  # noqa: F8
 
 
 def test_load_then_call_in_the_same_turn_then_the_next_turn(loop):  # noqa: F811
-    outputs = [load(DEFINE), call(DEFINE, term="MCP"), "Voilà.", "Encore."]
+    outputs = [
+        load(DEFINE),
+        call(DEFINE, term="MCP"),
+        "Voilà.",
+        call(DEFINE, term="MCP"),
+        "Encore.",
+    ]
     session = lazy_session(loop, outputs)
     mark = get_journal().last_seq()
 
@@ -107,14 +113,21 @@ def test_load_then_call_in_the_same_turn_then_the_next_turn(loop):  # noqa: F811
 
     after = _run(session, "Et encore ?")
 
+    # D16 (local mode): `tools` is unchanged (the meta-tool alone, every catalog line), the
+    # documentation is read whole in the history, the tool is callable, no rereading.
     ctx = after["context_rendered"][0]
-    assert definition_names(ctx) == [DEFINE, "load_tool_doc"]
+    assert definition_names(ctx) == ["load_tool_doc"]
     lines = [s["text"] for s in _segments(ctx, "tool_catalog") if s["text"].startswith("- ")]
-    assert lines == [lines[0]] and lines[0].startswith("- local__list_terms")
+    assert [line.split(" : ")[0] for line in lines] == [f"- {name}" for name in LOCAL]
     history = [s["text"] for s in _segments(ctx, "history")]
-    assert "Documentation de « local__define_term » chargée." in history
-    assert not any(t.startswith('{"type"') for t in history)
-    exact(ctx)
+    assert any(t.startswith('{"type"') and f'"name": "{DEFINE}"' in t for t in history)
+    assert not any("chargée." in t for t in history)  # no stub in local mode
+    assert session.build_turn_state().documented == (DEFINE,)
+    assert "prefix_not_reused" not in after and "tool_call_malformed" not in after
+    (ran,) = after["tool_ended"]
+    assert ran["status"] == "ok" and "Model Context Protocol" in ran["result"]
+    for ctx in after["context_rendered"]:
+        exact(ctx)
     session.close()
 
 
@@ -198,18 +211,22 @@ def test_loading_twice_or_an_unknown_name(loop):  # noqa: F811
     session.close()
 
 
-def test_everything_loaded_removes_the_meta_tool_then_clearing_unloads(loop):  # noqa: F811
+def test_everything_loaded_keeps_the_meta_tool_then_clearing_unloads(loop):  # noqa: F811
+    """D16-a (local mode): `tools` and the catalog never change with a loading; the tools
+    documented are read in the history, until « Vider la conversation »."""
     session = lazy_session(loop, [load(LOCAL[0]), load(LOCAL[1]), "Voilà."])
     _run(session, "Charge tout")
 
-    assert session.build_turn_state().tools == LOCAL
-    assert session.build_turn_state().loadable == ()
+    state = session.build_turn_state()
+    assert state.tools == ("load_tool_doc",) and state.loadable == LOCAL
+    assert state.documented == LOCAL
     mark = get_journal().last_seq()
 
     session.clear_conversation()
     session.join()
 
-    assert session.build_turn_state().tools == ("load_tool_doc",)
+    state = session.build_turn_state()
+    assert state.tools == ("load_tool_doc",) and state.documented == ()
     after = since(mark, "context_preview")[-1].payload
     assert definition_names(after) == ["load_tool_doc"]
     session.close()
@@ -218,16 +235,45 @@ def test_everything_loaded_removes_the_meta_tool_then_clearing_unloads(loop):  #
 def test_a_loaded_documentation_waits_while_its_server_is_off(loop):  # noqa: F811
     session = lazy_session(loop, [load(DEFINE), "Voilà."])
     _run(session, "Que veut dire MCP ?")
-    assert session.build_turn_state().tools == (DEFINE, "load_tool_doc")
+    assert session.build_turn_state().documented == (DEFINE,)
 
     session.set_mcp_server("local", False)
     session.join()
-    assert session.build_turn_state().tools == ()
+    state = session.build_turn_state()
+    assert state.tools == () and state.documented == ()
 
     mark = get_journal().last_seq()
     session.set_mcp_server("local", True)
     wait_for(session, "mcp_connect_ended", mark)
-    assert session.build_turn_state().tools == (DEFINE, "load_tool_doc")
+    state = session.build_turn_state()
+    assert state.tools == ("load_tool_doc",) and state.documented == (DEFINE,)
+    session.close()
+
+
+def test_short_memory_off_reads_no_documentation_and_gives_it_again(loop):  # noqa: F811
+    """D16-b: without the short memory, the history (the documentation with it) is not
+    sent: the tool is not held documented, and `load_tool_doc` gives the documentation again
+    instead of « déjà chargée »."""
+    outputs = [load(DEFINE), load(DEFINE), "Voilà.", load(DEFINE), "Encore."]
+    session = lazy_session(loop, outputs)
+    session.set_brick("short_memory", False)
+    session.join()
+    first = _run(session, "Que veut dire MCP ?")
+    doc, again = first["tool_ended"]  # loaded in this turn: read in its own steps
+    assert json.loads(doc["result"])["function"]["name"] == DEFINE
+    assert again["result"] == "La documentation de « local__define_term » est déjà chargée."
+    assert DEFINE in session._loaded_docs
+    assert session.build_turn_state().documented == ()
+
+    events = _run(session, "Et encore ?")
+
+    (loaded,) = events["tool_ended"]
+    assert json.loads(loaded["result"])["function"]["name"] == DEFINE
+    ctx = events["context_rendered"][-1]
+    assert "history" not in {s["kind"] for s in ctx["segments"]}
+    docs = [s for s in _segments(ctx, "tool_catalog") if s["text"].startswith('{"type"')]
+    assert len(docs) == 1 and docs[0]["component"] == "mcp.local"
+    exact(ctx)
     session.close()
 
 
@@ -365,6 +411,7 @@ def test_chat_mode_documented_tool_enters_tools_at_the_next_call(loop):  # noqa:
         calling("load_tool_doc", json.dumps({"tool": "local__list_terms"})),
         calling("local__list_terms", "{}"),
         sse(delta(content="Le glossaire contient MCP."), delta("stop")),
+        sse(delta(content="Encore."), delta("stop")),
     )
     cfg = config.load_config()
     entry = cfg.cloud_model("groq")
@@ -372,6 +419,7 @@ def test_chat_mode_documented_tool_enters_tools_at_the_next_call(loop):  # noqa:
     session = AppSession(cfg, cloud_factory=provider.factory)
     session.boot_cloud(entry).result()
     session.attach_loop(loop)
+    session.set_brick("short_memory", True)  # the next turn sends the history (its stub)
     enable(session)
     session.set_mcp_mode(True)
     session.join()
@@ -392,6 +440,15 @@ def test_chat_mode_documented_tool_enters_tools_at_the_next_call(loop):  # noqa:
     assert since(mark, "turn_ended")[0].payload["status"] == "completed"
     # The next turn starts from `build_turn_state`, where the documentation is loaded.
     assert session.build_turn_state().tools == ("local__list_terms", "load_tool_doc")
+
+    session.send("Et encore ?")
+    session.join()
+
+    # Chat mode keeps the stub in the history (the documentation is in `tools`).
+    body = json.loads(provider.requests[3].content)
+    replies = [m["content"] for m in body["messages"] if m["role"] == "tool"]
+    assert "Documentation de « local__list_terms » chargée." in replies
+    assert not any(r.startswith('{"type"') for r in replies)
     session.close()
 
 

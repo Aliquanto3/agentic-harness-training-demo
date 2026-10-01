@@ -102,7 +102,7 @@ session:
   prefix:
     causes:
       system: "The system message has changed since the previous turn (system prompt, global memory, tool descriptions, skills catalogue or loaded skill)."
-      history: "The history is no longer rendered as the model read it (short-term memory off: the previous exchange is not sent again; RAG excerpts removed, documentation replaced by its stub, compressed text or rewritten answer)."
+      history: "The history is no longer rendered as the model read it (short-term memory off: the previous exchange is not sent again; RAG excerpts removed, compressed text or rewritten answer)."
       template: "A brick switched on or off, or the template, renders part of the context already read differently."
       reset: "The conversation was cleared, or a scenario or the reset replaced it: the engine's cache still holds the old one."
       replay: "Replay: the turn starts again from the state before the replayed turn, whereas the engine's cache holds that turn."
@@ -278,6 +278,14 @@ session:
     error:
       message: The context preview could not be computed.
       effect: The gauge stays empty until the first turn.
+  # Story 4 of the deferred leftovers (E122): the first turn's context evaluated at the
+  # scenario's launch, while the instructions are read (journal only).
+  prefill:
+    phase: "Cache prefill ({tokens} tokens)"
+    started: "Cache prefill: the engine reads the {tokens} tokens of the first turn's context (system message, tools, memory) while the instructions are read."
+    completed: "Prefill finished: {evaluated} tokens evaluated in {seconds} s. The first message will only make it read what follows them."
+    abandoned: "Prefill abandoned after {evaluated} tokens out of {tokens} (a turn, a load, a workshop, a setting or another scenario came first): the part evaluated stays reusable."
+    error: "Prefill interrupted by an error after {evaluated} tokens out of {tokens}: {cause}. The first turn will read the context as usual."
   # Story 9 (AD-3): an action armed for the next turn, or why it is not.
   arm:
     unknown_tool: "Unknown tool: “{target}” is neither a tool of the Tools brick nor the tool of an MCP server. Nothing is armed."

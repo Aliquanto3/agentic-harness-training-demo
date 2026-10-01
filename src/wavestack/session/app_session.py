@@ -145,6 +145,7 @@ from wavestack.models.engine import (
     Fragment,
     LlamaCppEngine,
     Sampling,
+    common_prefix_len,
 )
 from wavestack.models.load_registry import (
     COMPRESSOR,
@@ -498,6 +499,11 @@ class TurnState:
     tools: tuple[str, ...] = ()  # enabled tools of the effective tools and mcp bricks
     # Lazy loading (AD-25): the available MCP tools whose documentation is not loaded yet.
     loadable: tuple[str, ...] = ()
+    # D16 (story 4 of the deferred leftovers), local mode: the MCP tools whose documentation
+    # the model reads in the history (loaded in an earlier turn, short memory effective):
+    # callable, though out of `tools`; `loadable` then keeps every MCP tool, so `tools` never
+    # changes with a loading. Empty in chat mode, where a loaded documentation joins `tools`.
+    documented: tuple[str, ...] = ()
     # Skills (AD-25), in the registry's order: loaded and enabled, then enabled not loaded.
     skills: tuple[str, ...] = ()
     skill_catalog: tuple[str, ...] = ()
@@ -557,6 +563,30 @@ def _with_loaded(state: TurnState, loaded_in_turn: list[str]) -> TurnState:
     if not loadable and LOAD_TOOL_DOC in tools:
         tools.remove(LOAD_TOOL_DOC)
     return replace(state, tools=tuple(tools), loadable=loadable)
+
+
+def _callable(state: TurnState, loaded_in_turn: list[str]) -> tuple[str, ...]:
+    """AD-25: the tools the model may call in this turn: `tools`, the documentations it
+    reads in the history (D16, local mode) and those loaded in this turn."""
+    return state.tools + state.documented + tuple(loaded_in_turn)
+
+
+# E122: the stand-in message the prefill renders the first turn with (never evaluated: the
+# ids are cut before it; non-empty so that its segment exists to cut at).
+_PREFILL_MESSAGE = "?"
+
+
+class _PrefillToken(CancelToken):
+    """E122-b: the prefill's stop token. Cancelled by hand (a setting changed, another
+    scenario), or as soon as the session leaves `idle` (a turn, a load, a workshop)."""
+
+    def __init__(self, session: AppSession) -> None:
+        super().__init__()
+        self._session = session
+
+    @property
+    def cancelled(self) -> bool:
+        return super().cancelled or self._session.state != "idle"
 
 
 @dataclass
@@ -805,6 +835,10 @@ class AppSession:
         # running turn's frozen state and stop token, for `delegate`.
         self._subs = 0
         self._turn_ctx: tuple[TurnState, CancelToken] | None = None
+        # E122 (story 4 of the deferred leftovers): the running prefill's stop token, and
+        # the scenario whose prefill waits for its MCP connections to end.
+        self._prefill_cancel: _PrefillToken | None = None
+        self._prefill_pending: str | None = None
         self._hook_steps = 0  # hook steps of the running turn, for their step ids
         self._turn_seq = 0  # seq of the running turn's `turn_started`: its events follow it
         # Story 15 (AD-8, AD-22): the RAG's texts and model, what was read of its index and
@@ -3633,9 +3667,18 @@ class AppSession:
             hooks_enabled = set(self._hooks_enabled)
         tools = [n for n in self._registry.names if n in enabled] if "tools" in effective else []
         loadable: list[str] = []
+        documented: list[str] = []
         if "mcp" in effective:
             mcp = self._mcp_tool_names()
-            if lazy:  # AD-25: loaded documentations only, the others through `load_tool_doc`
+            if lazy and self._cloud is None:
+                # D16-a (local mode): `tools` does not depend on the documentations loaded.
+                # Every MCP tool stays in `load_tool_doc`'s catalog, and one loaded earlier
+                # is read in the history, when the short memory sends it (D16-b).
+                loadable = mcp
+                if "short_memory" in effective:
+                    documented = [n for n in mcp if n in loaded]
+                tools += [LOAD_TOOL_DOC] if mcp else []
+            elif lazy:  # AD-25, chat mode: loaded ones in `tools`, the others to load
                 loadable = [n for n in mcp if n not in loaded]
                 tools += [n for n in mcp if n in loaded] + ([LOAD_TOOL_DOC] if loadable else [])
             else:
@@ -3681,6 +3724,7 @@ class AppSession:
             effective=effective,
             tools=tuple(tools),
             loadable=tuple(loadable),
+            documented=tuple(documented),
             skills=tuple(skills),
             skill_catalog=tuple(catalog),
             hooks=tuple(hooks),
@@ -3727,7 +3771,11 @@ class AppSession:
                         step["component"],
                     )
                 )
-                text = step.get("stub", step["content"]) if history else step["content"]
+                # D16-b (local mode): a documentation loaded in an earlier turn stays whole
+                # in the history, where the model reads it (the prefix stays append only);
+                # the stub serves chat mode, where the documentation joined `tools`.
+                stub = history and (chat or step.get("kind") != SegmentKind.TOOL_CATALOG)
+                text = step.get("stub", step["content"]) if stub else step["content"]
                 # Story 20: in the turn, a compressed reply carries what it was (AD-22).
                 was = None if history else step.get("compressed_from")
                 content = [Part(kind, text, brick, component, compressed_from=was)]
@@ -4186,6 +4234,143 @@ class AppSession:
             return
         self._journal().emit("context_preview", payload)
 
+    def _refresh_preview(self) -> None:
+        """Class (a) settings: a change of configuration abandons the prefill (E122-b: what
+        it reads is no longer the next turn's context) and renders the preview again."""
+        self._abandon_prefill()
+        self._executor.submit(self._emit_preview)
+
+    # ---------- E122: the first turn's context prefilled at a scenario's launch ----------
+
+    def _abandon_prefill(self) -> None:
+        """Stop the prefill running or waiting (a setting changed, another scenario). Never
+        under `_lock`."""
+        with self._lock:
+            token, self._prefill_cancel, self._prefill_pending = self._prefill_cancel, None, None
+        if token is not None:
+            token.cancel()
+
+    def _maybe_prefill(self) -> None:
+        """E122-c: the prefill a scenario asked for starts once no MCP server it enabled is
+        still `not_contacted` (its `tools` would be incomplete): from the launch, or from
+        `_mcp_apply` on the worker. Never under `_lock`."""
+        with self._lock:
+            scenario_id = self._prefill_pending
+            if scenario_id is None:
+                return
+            if "mcp" in self._wanted and any(
+                self._mcp_state.get(s, ("",))[0] == "not_contacted" for s in self._mcp_enabled
+            ):
+                return
+            self._prefill_pending = None
+            token = self._prefill_cancel = _PrefillToken(self)
+        self._executor.submit(self._run_prefill, scenario_id, token)
+
+    def _release_prefill(self, token: _PrefillToken) -> None:
+        with self._lock:
+            if self._prefill_cancel is token:
+                self._prefill_cancel = None
+
+    def _run_prefill(self, scenario_id: str, token: _PrefillToken) -> None:
+        """E122, on the worker: evaluate into the engine's cache the part of the first
+        turn's context that does not depend on the message (system message, tools,
+        memory), rendered as the turn will render it and cut before the message
+        (`_prefix_ids`); `context_prefill_started` then `context_prefill_ended` in the
+        journal. Local mode and in-process engine only; the gauge, the context sent and the
+        turn's `_cache_cause` do not change; `_main_cache`, when it held a previous
+        conversation, follows the engine's cache once the prefill ends (the first call
+        extends it: no false `reset`), and stays `None` when it was (E122-a). Nothing is
+        emitted when there is nothing to evaluate (empty prefix, overflow) or when the
+        preparation fails (the preview reports a render failure); no exception leaves
+        (status `error`)."""
+        engine = self._engine
+        prefill = getattr(engine, "prefill", None)
+        with self._lock:
+            live = (
+                self._prefill_cancel is token
+                and self._active_scenario == scenario_id
+                and self.state == "idle"
+                and not self._history  # a conversation started meanwhile: its cache is live
+                and self._cloud is None
+                and self._active is not None
+                and self._active.kind == "file"
+            )
+        if not live or engine is None or prefill is None or _engine_cached_ids(engine) is None:
+            self._release_prefill(token)
+            return
+        try:
+            state = self.build_turn_state()
+            state = replace(state, injection=self._preview_injection(state))
+            rendered, payload = self._render(state, _PREFILL_MESSAGE, None)
+            ids = self._prefix_ids(rendered) if isinstance(rendered, RenderedContext) else []
+        except Exception:  # noqa: BLE001 - AD-16: the preview says it; nothing to pair here
+            self._release_prefill(token)
+            return
+        if not ids or payload["overflow"]:  # nothing to evaluate, or ids the turn never sends
+            self._release_prefill(token)
+            return
+        journal = self._journal()
+        started = time.monotonic()
+        asked = len(ids)
+        journal.emit(
+            "context_prefill_started",
+            {
+                "tokens": asked,
+                "phase_label": self._t("session.prefill.phase", tokens=self._n(asked)),
+                "message_text": self._t("session.prefill.started", tokens=self._n(asked)),
+            },
+        )
+        evaluated = 0
+        status, cause = "error", ""
+        try:
+            evaluated = prefill(ids, token) or 0
+            cached = _engine_cached_ids(engine) or []
+            status = "completed" if cached[:asked] == ids else "abandoned"
+        except Exception as exc:  # noqa: BLE001 - AD-16: the first turn reads it itself
+            cause = str(exc) or type(exc).__name__
+            evaluated = common_prefix_len(_engine_cached_ids(engine) or [], ids)  # what sits
+        finally:
+            self._release_prefill(token)
+        if self._main_cache is not None:  # a previous conversation's ids: the engine's now
+            self._main_cache = _engine_cached_ids(engine)
+        duration = _ms(time.monotonic() - started)
+        kw: dict[str, Any] = {"evaluated": self._n(evaluated), "tokens": self._n(asked)}
+        if status == "completed":
+            kw["seconds"] = self._decimal(f"{duration / 1000:.1f}")
+        if status == "error":
+            kw["cause"] = cause
+        journal.emit(
+            "context_prefill_ended",
+            {
+                "status": status,
+                "tokens": asked,
+                "evaluated_tokens": evaluated,
+                "duration_ms": duration,
+                "message_text": self._t(f"session.prefill.{status}", **kw),
+            },
+        )
+
+    def _prefix_ids(self, rendered: RenderedContext) -> list[int]:
+        """E122: the ids of the rendering whose bytes end before the first byte of the last
+        `user_message` segment, minus the last one (a token could straddle the boundary):
+        what the first turn's ids start with as long as the configuration holds."""
+        assert self._engine is not None
+        segments = rendered.segments
+        last = max(
+            (i for i, s in enumerate(segments) if s.kind == SegmentKind.USER_MESSAGE),
+            default=None,
+        )
+        if last is None:
+            return []
+        boundary = sum(len(s.text.encode("utf-8")) for s in segments[:last])
+        end = kept = 0
+        for piece in self._engine.token_pieces(rendered.ids):
+            end += len(piece)
+            if end > boundary:
+                break
+            kept += 1
+        return list(rendered.ids[: max(kept - 1, 0)])
+
     def _rag_texts(self, excerpts: list[tuple[int, str, str]]) -> tuple[str, ...]:
         """The intro, then each `(position, title_text, text)` in `excerpt_format_text`."""
         content = self._rag_content
@@ -4256,6 +4441,7 @@ class AppSession:
                 self._memory_snapshot,
             )
         self._emit_state()
+        self._abandon_prefill()  # E122: none runs nor starts over a conversation's cache
         # N1: the conversation's memory, taken at its first turn with the brick effective
         # (no write can run meanwhile: the state is `turn`).
         if "global_memory" in self._effective():
@@ -4310,7 +4496,7 @@ class AppSession:
             self._request_compression_sync()
         self._emit_bricks()
         self._emit_architecture()
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
 
     def set_tool(self, name: str, enabled: bool) -> None:
         """Class (a): a tool sub-option, effective from the next turn. `KeyError` if unknown."""
@@ -4326,7 +4512,7 @@ class AppSession:
                 self._tools_enabled.discard(name)
         self._emit_bricks()
         self._emit_architecture()
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
 
     def set_skill(self, skill_id: str, enabled: bool) -> None:
         """Class (a): a skill sub-option, effective from the next turn. `KeyError` if unknown.
@@ -4342,7 +4528,7 @@ class AppSession:
                 self._skills_enabled.discard(skill_id)
         self._emit_bricks()
         self._emit_architecture()
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
 
     def set_hook(self, hook_id: str, enabled: bool) -> None:
         """Class (a): a hook sub-option, effective from the next turn. `KeyError` if unknown."""
@@ -4357,7 +4543,7 @@ class AppSession:
                 self._hooks_enabled.discard(hook_id)
         self._emit_bricks()
         self._emit_architecture()
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
 
     # ---------- forced actions (story 9, AD-3, AD-25) ----------
 
@@ -4488,7 +4674,7 @@ class AppSession:
                 return
             self._mcp_lazy = lazy
         self._emit_bricks()
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
 
     def _native_tools(self) -> list[ToolSpec]:
         """The native tools, `read_file` bound to the session's language (languages 3/5): it
@@ -4948,7 +5134,15 @@ class AppSession:
         available = self._mcp_tool_names()
         with self._lock:
             loaded = set(self._loaded_docs)
-        if tool in available and tool in loaded:
+            ctx = self._turn_ctx
+            before = self._last[4] if self._last is not None else frozenset()  # at the start
+        # D16-b: « déjà chargée » only when the model reads the documentation: in chat mode
+        # it is in `tools`; locally it is in the history, sent when the short memory is
+        # effective for this turn, or in this turn's own steps when loaded during it.
+        # Otherwise the documentation is given again.
+        read = self._cloud is not None or (ctx is not None and "short_memory" in ctx[0].effective)
+        read = read or (tool in loaded and tool not in before)
+        if tool in available and tool in loaded and read:
             return self._t("mcp.doc.already_loaded", tool=tool)
         if tool not in available:
             loadable = ", ".join(n for n in available if n not in loaded)
@@ -5084,7 +5278,7 @@ class AppSession:
             with scoped(trigger="user"):
                 if self._apply_memory(writes, "user") is not None:
                     raise OSError(self._t("session.memory.not_written"))
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
 
     def _restore_memory(self) -> None:
         """FR-39 (CAP-41, H6): one `delete` per entry, then one `add` per demonstration
@@ -5131,7 +5325,7 @@ class AppSession:
                 self._mcp_disconnect(server_id)
         self._emit_bricks()
         self._emit_architecture()
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
 
     def _mcp_connect(self, server_id: str) -> None:
         """Start contacting `server_id` on the loop; `_mcp_connected` applies the outcome."""
@@ -5237,6 +5431,7 @@ class AppSession:
         self._emit_architecture()
         self._emit_bricks()
         self._emit_preview()
+        self._maybe_prefill()  # E122-c: a scenario's prefill waits for its connections
 
     def _mcp_snapshot_drift(self, server, tools) -> mcp_snapshot.Drift | None:  # noqa: ANN001
         """AD-9 (E089): a public server whose `tools/list` drifts from its snapshot beyond
@@ -5363,7 +5558,7 @@ class AppSession:
         with self._lock:
             self._custom_prompt = text
         self._emit_bricks()
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
         saved = text if text is not None else self._default_prompt
         return {"text": saved, "is_default": saved == self._default_prompt}
 
@@ -5380,7 +5575,7 @@ class AppSession:
             self._cache_cause = "reset"
         self._journal().emit("conversation_cleared", {})
         self._emit_architecture()
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
 
     # ---------- languages (1/5, AD-19) ----------
 
@@ -5486,7 +5681,7 @@ class AppSession:
         self._emit_architecture()
         if "rag" in self._bricks:
             self._executor.submit(self._rag_follow_language)
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
 
     def _rag_follow_language(self) -> None:
         """Languages (4/5), on the worker (after a load in progress, before any turn): the
@@ -5669,7 +5864,10 @@ class AppSession:
     ) -> None:
         """One `bricks_changed`, one `architecture_changed`, one preview; MCP servers
         connect or close on the difference only (AD-15). The reset, and a scenario that
-        declares `restore_memory` (story 21), restore the demonstration memory."""
+        declares `restore_memory` (story 21), restore the demonstration memory. E122: a
+        prefill of the former configuration stops; a scenario asks for its own, started
+        once its MCP connections ended (`_maybe_prefill`)."""
+        self._abandon_prefill()
         with self._memory_lock:  # no turn starts before the memory is restored
             with self._lock:
                 if self.state != "idle":
@@ -5700,7 +5898,11 @@ class AppSession:
         self._request_compression_sync()  # story 20: the same for Headroom
         self._emit_bricks()
         self._emit_architecture()
-        self._executor.submit(self._emit_preview)
+        self._executor.submit(self._emit_preview)  # the scenario's preview, before its prefill
+        if scenario_id is not None:
+            with self._lock:
+                self._prefill_pending = scenario_id
+            self._maybe_prefill()
 
     def _refusal_reason(self) -> str:
         if self.state == "turn":
@@ -5792,7 +5994,7 @@ class AppSession:
         self._request_rag_sync()
         self._emit_bricks()
         self._emit_architecture()
-        self._executor.submit(self._emit_preview)
+        self._refresh_preview()
 
     @staticmethod
     def _download_fr(done: int, total: int, noun: str | None = None) -> str:
@@ -6118,9 +6320,10 @@ class AppSession:
         previous: tuple[list[int], str] | None = None  # last call's ids and raw output
         # Story 32: the last call's segments, whose common prefix the next call read already.
         read_before: list[Segment] | None = None
-        # AD-25: documentations loaded in this turn are callable at once. Locally, they enter
-        # `tools` only from the next turn (the prefix stays append only); in chat mode, from
-        # the next call, since a provider refuses a call to a tool its `tools` lacks.
+        # AD-25: documentations loaded in this turn are callable at once. Locally, they never
+        # enter `tools` (D16): the history carries them from the next turn (`documented`),
+        # so the prefix stays append only; in chat mode, they enter `tools` from the next
+        # call, since a provider refuses a call to a tool its `tools` lacks.
         loaded_in_turn: list[str] = []
         # AD-3: the armed actions, after `on_user_message` and before the first call, outside
         # the call budget (AD-10). Lot K: the MCP tools they called join `tools` at once.
@@ -6173,7 +6376,7 @@ class AppSession:
                     done = out = self._call_model(
                         rendered,
                         cancel,
-                        state.tools + tuple(loaded_in_turn),
+                        _callable(state, loaded_in_turn),
                         payload["reserve"],
                         self._reasoning_on(state),
                     )
@@ -6229,7 +6432,7 @@ class AppSession:
                     for call, call_ref in zip(out.calls, out.ids, strict=True):
                         step += 1
                         detail = self._tool_executor.check(
-                            call, state.tools + tuple(loaded_in_turn), state.loadable
+                            call, _callable(state, loaded_in_turn), state.loadable
                         )
                         named = self._registry.get(call.name)
                         spec = named if detail is None else None
@@ -6787,9 +6990,11 @@ class AppSession:
         error) is reinjected, never a new attempt; an unavailable target is dropped with its
         reason. Returns whether the turn was stopped, and the steps numbered so far.
 
-        Lot K: a forced call of an MCP tool whose documentation is not loaded (lazy loading)
-        adds its definition to `tools` (AD-25), for the conversation: its name joins
-        `defined`, and the caller moves it out of `loadable` for this turn's calls."""
+        Lot K: in chat mode, a forced call of an MCP tool whose documentation is not loaded
+        (lazy loading) adds its definition to `tools` (AD-25), for the conversation: its
+        name joins `defined`, and the caller moves it out of `loadable` for this turn's
+        calls. Locally (D16-c), the call is rendered with its result and the tool stays to
+        load: `tools` never changes within a conversation."""
         step = 0
         for action in state.armed:
             if cancel.cancelled:
@@ -6815,7 +7020,12 @@ class AppSession:
                         },
                     )
                 continue
-            if action.kind == "tool" and spec.is_mcp and call.name in state.loadable:
+            if (
+                action.kind == "tool"
+                and spec.is_mcp
+                and call.name in state.loadable
+                and self._cloud is not None  # D16-c: chat mode only
+            ):
                 with self._lock:
                     self._loaded_docs.add(call.name)
                 if call.name not in defined:
@@ -6918,8 +7128,8 @@ class AppSession:
             lazy = self._sent[4]  # the mode frozen for this turn by `send`
         if not lazy and target in state.tools:
             return why("doc_in_context", target=target)
-        if target in loaded_in_turn or target in state.tools:
-            return why("doc_loaded", target=target)
+        if target in loaded_in_turn or target in state.tools or target in state.documented:
+            return why("doc_loaded", target=target)  # D16: read in the history too
         if target not in state.loadable:
             return why("server_off", target=target)
         return None
@@ -7076,7 +7286,8 @@ class AppSession:
     def _apply_doc_loaded(self, tool: str, loaded_in_turn: list[str]) -> dict[str, Any]:
         """`ToolDocLoaded`: the documentation is loaded for the conversation and callable now.
         Returns what its reply step becomes: documentation of its server's tool (AD-4), and a
-        stub in the history of the next turns."""
+        stub in the history of the next turns in chat mode (locally the documentation stays
+        whole there, D16-b: `_step_messages`)."""
         with self._lock:
             self._loaded_docs.add(tool)
         if tool not in loaded_in_turn:

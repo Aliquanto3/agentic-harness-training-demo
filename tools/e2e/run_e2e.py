@@ -2826,11 +2826,27 @@ def s_mcp_lazy(r: Run) -> None:
         str(body_tools),
     )
     r.check(ended["payload"]["status"] == "completed", "tour lazy terminé")
+    seq = r.ev.mark()
     ended = r.send(second)
     r.check(
         ended["payload"]["status"] == "completed",
         "qualité de l'air sans data.gouv.fr : réponse sans outil",
         r.last_answer()[:160],
+    )
+    # D16 (story 4 of the deferred leftovers, 2026-10-02): the documentation loaded at the
+    # first prompt stays in the history, so the second turn rewrites no system message.
+    # The E2E stack runs the fake OpenAI provider (chat mode, no prefix control): this check
+    # holds trivially here; the local-mode proof is `tests/test_mcp_lazy.py`, and no prefill
+    # check is possible without an in-process engine.
+    rereads = [
+        e["payload"]
+        for e in r.ev.since(seq, "prefix_not_reused")
+        if e["payload"].get("cause") == "system"
+    ]
+    r.check(
+        not rereads,
+        "D16 : aucune relecture `system` au tour qui suit load_tool_doc",
+        str(rereads)[:200],
     )
     # Story 9: force an MCP documentation. D3 (2026-10-01): the switch unfolds the MCP list.
     r.show_forced(False)

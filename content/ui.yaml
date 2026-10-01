@@ -682,6 +682,8 @@ main:
       tool_call_malformed: "Appel d'outil mal formé"
       limit_reached: "Borne du tour atteinte"
       prefix_not_reused: "Préfixe non réutilisé"
+      context_prefill_started: "Préremplissage du cache commencé"
+      context_prefill_ended: "Préremplissage du cache terminé"
       server_cache_used: "Cache du serveur local"
       mcp_connect_started: "Connexion MCP commencée"
       mcp_connect_ended: "Connexion MCP terminée"

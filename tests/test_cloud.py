@@ -1726,3 +1726,21 @@ def test_a_priced_call_cut_by_an_error_after_its_output_is_billed_to_the_turn():
     assert turn_ended["status"] == "error" and turn_ended["cost_source"] == "estimate"
     assert turn_ended["cost_in_usd"] == ended["cost_in_usd"]
     assert turn_ended["cost_out_usd"] == ended["cost_out_usd"]
+
+
+# ---------- story 4 of the deferred leftovers (E122): no prefill in chat mode ----------
+
+
+def test_a_scenario_launched_in_chat_mode_prefills_nothing():
+    """Nothing can be evaluated ahead at a provider: the launch renders its preview and
+    emits no `context_prefill_*`."""
+    session = _cloud_session("groq", Provider(GROQ_TEXT))
+    mark = get_journal().last_seq()
+
+    session.launch_scenario("system_prompt")
+    session.join()
+
+    kinds = [e.kind for e in get_journal().events_since(mark)]
+    assert "context_prefill_started" not in kinds and "context_prefill_ended" not in kinds
+    assert "context_preview" in kinds
+    session.close()
