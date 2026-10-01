@@ -286,6 +286,89 @@ def test_guard_connect_filter(body: str) -> None:
     _run_guarded(body)
 
 
+# Restes différés, story 1 (E013): the other resolutions and the UDP send. Each event is
+# raised before any lookup or datagram; off the list, a hook added after the guard stops
+# the call there, so nothing leaves the machine even if the guard lets it through. An
+# allowed host goes through `sys.audit` only.
+_REFUSAL_HELPERS = """
+class ReachedEvent(Exception):
+    pass
+
+def stop_at(*names):
+    def hook(event, args):
+        if event in names:
+            raise ReachedEvent(event)
+    sys.addaudithook(hook)
+
+def refused_with(key, fn, *args):
+    try:
+        fn(*args)
+    except NetworkBlocked as exc:
+        assert exc.message.key == key, exc.message.key  # the same refusal as the others
+        return True
+    except ReachedEvent:
+        return False
+    return False
+"""
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            """
+            stop_at("socket.gethostbyname")
+            assert refused_with("net.host_refused", socket.gethostbyname, "example.org")
+            assert refused_with("net.host_refused", socket.gethostbyname_ex, "example.org")
+            assert refused_with("net.host_refused", socket.gethostbyname, "198.51.100.7")
+            """,
+            id="gethostbyname-off-list",
+        ),
+        pytest.param(
+            """
+            assert not refused(sys.audit, "socket.gethostbyname", "fr.wikipedia.org")
+            assert not refused(sys.audit, "socket.gethostbyname", "cdn-lfs.hf.co")
+            assert socket.gethostbyname("localhost") and socket.gethostbyname_ex("localhost")
+            """,
+            id="gethostbyname-allowed-and-loopback",
+        ),
+        pytest.param(
+            """
+            # IPs only: a name given to `sendto` is resolved in C before the event.
+            stop_at("socket.sendto", "socket.sendmsg")
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+                assert refused_with("net.address_refused", udp.sendto, b"x", ("203.0.113.5", 53))
+                assert refused_with(
+                    "net.address_refused", udp.sendto, b"x", 0, ("203.0.113.5", 53)
+                )
+            assert refused_with("net.address_refused", sys.audit, "socket.sendto", None,
+                                ("example.org", 53))
+            # `sendmsg` (POSIX only): its address, or None on a connected socket.
+            assert refused_with("net.address_refused", sys.audit, "socket.sendmsg", None,
+                                ("203.0.113.5", 53))
+            assert not refused_with("net.address_refused", sys.audit, "socket.sendmsg", None, None)
+            """,
+            id="sendto-off-list",
+        ),
+        pytest.param(
+            """
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
+                receiver.bind(("127.0.0.1", 0))
+                receiver.settimeout(5)
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+                    udp.sendto(b"ping", receiver.getsockname())
+                assert receiver.recv(16) == b"ping"
+            socket.getaddrinfo("fr.wikipedia.org", 443)
+            assert not refused(sys.audit, "socket.sendto", None, ("185.15.58.224", 53))
+            """,
+            id="sendto-loopback-and-resolved",
+        ),
+    ],
+)
+def test_guard_resolution_and_udp_filter(body: str) -> None:
+    _run_guarded(_REFUSAL_HELPERS + textwrap.dedent(body))
+
+
 def test_guard_accepts_resolved_proxy_addresses() -> None:
     _run_guarded(
         """

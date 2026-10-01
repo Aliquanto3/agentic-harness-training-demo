@@ -392,6 +392,18 @@ def test_missing_capability_is_unavailable_with_reason(monkeypatch):
     assert available is False and "l'appel d'outils" in reason
 
 
+@pytest.mark.parametrize("brick_id", ["tools", "mcp", "skills", "subagent"])
+def test_real_tool_bricks_are_unavailable_without_a_tool_call_parser(brick_id):
+    """Restes différés, story 1 (E022): the real declarations of `bricks/registry.py`."""
+    assert next(b for b in BRICKS if b.id == brick_id).requires == []  # the reason is ours
+    session = booted_session(FakeEngine())  # architecture « fake »: no tool-call parser
+
+    available, reason = session._availability(brick_id)
+
+    assert available is False and "l'appel d'outils" in reason
+    session.close()
+
+
 def test_edge_to_an_undrawn_node_is_dropped(monkeypatch):
     content = BrickContent(
         label_text="Audit", category_text="x", hosting_text="Local", explanation_text=["x"]

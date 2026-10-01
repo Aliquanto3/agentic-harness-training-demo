@@ -13,6 +13,8 @@ import pytest
 from fake_engine import CHATML, FakeEngine
 from pydantic import SecretStr
 from starlette.testclient import TestClient
+from test_reasoning import NO_REASONING
+from test_tools import QWEN
 
 from wavestack import config
 from wavestack.models import discovery, probe
@@ -341,6 +343,36 @@ def test_lost_capability_leaves_wanted_and_comes_back(tmp_path):
 
     _switch(session, ModelChoice("file", paths["A"]))
     assert session._availability("tools") == (True, None)
+
+
+def test_wanted_reasoning_waits_for_a_model_that_reasons_without_a_new_click(tmp_path):
+    """Restes différés, story 1 (E056, E066): story 13's third criterion, as the tools rule
+    above. A's template has no `enable_thinking`; B's (Qwen3.5) has."""
+    engines = {
+        "A": FakeEngine(),
+        "B": FakeEngine(template=QWEN.decode("utf-8"), architecture="qwen35"),
+    }
+    session, _, paths = _booted(tmp_path, engines)
+    mark = get_journal().last_seq()
+    session.set_brick("reasoning", True)
+    session.join()
+
+    available, reason = session._availability("reasoning")
+    assert not available and str(reason).startswith(NO_REASONING)
+    card = next(b for b in _events(mark, "bricks_changed")[-1]["bricks"] if b["id"] == "reasoning")
+    assert card["wanted"] is True and card["available"] is False
+    # Wanted, not effective: the plain reserve, not the reasoning one.
+    assert _events(mark, "context_preview")[-1]["reserve"] == config.output_reserve(False)
+
+    mark = get_journal().last_seq()
+    _switch(session, ModelChoice("file", paths["B"]))  # no click on the brick in between
+
+    assert session._availability("reasoning") == (True, None)
+    card = next(b for b in _events(mark, "bricks_changed")[-1]["bricks"] if b["id"] == "reasoning")
+    assert card["wanted"] is True and card["available"] is True
+    reserve = _events(mark, "context_preview")[-1]["reserve"]
+    assert reserve == config.output_reserve(True) > config.output_reserve(False)  # effective
+    session.close()
 
 
 def test_conversation_is_kept_and_replay_plays_the_new_model(tmp_path):
