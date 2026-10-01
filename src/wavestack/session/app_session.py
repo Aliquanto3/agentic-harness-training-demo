@@ -113,6 +113,7 @@ from wavestack.models import embedding as embedding_module
 from wavestack.models import gguf_meta
 from wavestack.models import probe as probe_module
 from wavestack.models import reranker as reranker_module
+from wavestack.models.candidates import distribution
 from wavestack.models.capabilities import (
     NO_TOOL_PARSER_FR,
     TOOL_CALL_TAGS,
@@ -561,6 +562,14 @@ class SendRefused(Exception):
         self.reason_text = reason_text
 
 
+class DistributionMissing(Exception):
+    """Story 5 of 2026-09-30: no candidates kept in memory for the token asked (404)."""
+
+    def __init__(self, reason_text: str) -> None:
+        super().__init__(reason_text)
+        self.reason_text = reason_text
+
+
 # AD-7, story 24: a hot switch's probe of a GGUF (`DiagnosticSession.probe_path`): `None`
 # when it loads or when « Arrêter » (the load's token) killed it, else why, in French.
 ProbeFn = Callable[[str, CancelToken | None], str | None]
@@ -831,6 +840,10 @@ class AppSession:
         # (`llm{n}`), and the content error already traced (once per message).
         self._labs = 0
         self._lab_error_traced: str | None = None
+        # Story 5 of 2026-09-30: the last generation's most probable tokens by token index,
+        # `{token_text, p, texts, tail}`, with the engine that read them (a switch of model
+        # makes them stale); in memory only, never in the journal. `None`: nothing kept.
+        self._lab_top: tuple[Any, dict[int, dict[str, Any]]] | None = None
         # Story 30 (the RAG workshop): its runs, numbered over the session's life (`lab{n}`),
         # and its content error already traced (once per message).
         self._rag_labs = 0
@@ -7617,6 +7630,7 @@ class AppSession:
             "last_load": self._last_load(tip),
             "reasoning": self._lab_reasoning(),
             "candidates": self._lab_candidates(),
+            "distribution": {"tokens": self._lab_top_tokens()},
             "seq": tip,
         }
 
@@ -7870,29 +7884,160 @@ class AppSession:
         (class c). `reasoning`: refused when the model cannot reason (mode `never` or
         `unknown`), forced when it always does. Returns the request's id."""
         with self._memory_lock, self._lock:
-            if self.state != "idle" or self._engine is None or self.reason_text:
-                raise SendRefused(self._refusal_reason())
-            # Checked under the lock: no model switch can come in between.
-            lab = self._reasoning_info(self._caps, self._cloud, self._window)
-            if reasoning and lab["mode"] in ("never", "unknown"):
-                raise SendRefused(
-                    Message(
-                        "session.llm_lab.no_reasoning",
-                        reason=lab["reason_text"] or Message("session.llm_lab.cannot_reason"),
-                    )
-                )
-            offer = self._candidates_info(self._active, self._cloud, self._engine)
-            if candidates and not offer["available"]:
-                raise SendRefused(offer["reason_text"])
-            self._labs += 1
-            request_id = f"llm{self._labs}"
-            cancel = self._cancel = CancelToken()
-            self.state, self.reason_text = "llm_lab", _LAB_FR
+            request_id, cancel, memory = self._lab_begin(reasoning, candidates)
         self._emit_state()
         self._executor.submit(
-            self._run_lab, request_id, prompt, sampling, reasoning, cancel, candidates
+            self._run_lab, request_id, prompt, sampling, reasoning, cancel, candidates, memory
         )
         return request_id
+
+    def _lab_begin(
+        self, reasoning: bool, candidates: bool
+    ) -> tuple[str, CancelToken, dict[int, dict[str, Any]] | None]:
+        """Under `_memory_lock` and `_lock`: refused outside `idle` (`SendRefused`), else the
+        session switched to `llm_lab`, the request's id `llm{n}`, its `CancelToken`, and the
+        memory of the most probable tokens (story 5 of 2026-09-30), emptied: a new generation
+        erases the last one's (`None` without candidates)."""
+        if self.state != "idle" or self._engine is None or self.reason_text:
+            raise SendRefused(self._refusal_reason())
+        # Checked under the lock: no model switch can come in between.
+        lab = self._reasoning_info(self._caps, self._cloud, self._window)
+        if reasoning and lab["mode"] in ("never", "unknown"):
+            raise SendRefused(
+                Message(
+                    "session.llm_lab.no_reasoning",
+                    reason=lab["reason_text"] or Message("session.llm_lab.cannot_reason"),
+                )
+            )
+        offer = self._candidates_info(self._active, self._cloud, self._engine)
+        if candidates and not offer["available"]:
+            raise SendRefused(offer["reason_text"])
+        self._labs += 1
+        request_id = f"llm{self._labs}"
+        cancel = self._cancel = CancelToken()
+        self.state, self.reason_text = "llm_lab", _LAB_FR
+        memory: dict[int, dict[str, Any]] | None = {} if candidates else None
+        self._lab_top = (self._engine, memory) if memory is not None else None
+        return request_id, cancel, memory
+
+    def llm_compare(
+        self,
+        prompt: str,
+        sampling_a: Sampling,
+        sampling_b: Sampling,
+        reasoning: bool = False,
+        candidates: bool = False,
+    ) -> str:
+        """Intention `llm_compare` (story 5 of 2026-09-30, class b): the same prompt generated
+        with two samplings, `llm{n}.a` then `llm{n}.b`, one after the other (never in
+        parallel, local engine as cloud model), under one `llm_lab` state held from A's start
+        to B's end; accepted in `idle` only, as `llm_generate`. « Arrêter » stops the whole
+        comparison. The live distribution is A's. Returns `llm{n}`."""
+        with self._memory_lock, self._lock:
+            request_id, cancel, memory = self._lab_begin(reasoning, candidates)
+        self._emit_state()
+        self._executor.submit(
+            self._run_compare,
+            request_id,
+            prompt,
+            (sampling_a, sampling_b),
+            reasoning,
+            cancel,
+            candidates,
+            memory,
+        )
+        return request_id
+
+    def _run_compare(
+        self,
+        request_id: str,
+        prompt: str,
+        samplings: tuple[Sampling, Sampling],
+        reasoning: bool,
+        cancel: CancelToken,
+        candidates: bool,
+        memory: dict[int, dict[str, Any]] | None,
+    ) -> None:
+        """A, then B unless « Arrêter » came: then B ends `cancelled` without starting (the
+        page's column B says so). The session goes back to `idle` once, after both."""
+        first, second = f"{request_id}.a", f"{request_id}.b"
+        try:
+            self._run_lab(
+                first, prompt, samplings[0], reasoning, cancel, candidates, memory, release=False
+            )
+            if not cancel.cancelled:
+                self._run_lab(
+                    second, prompt, samplings[1], reasoning, cancel, candidates, release=False
+                )
+                return
+            with scoped(**self._lab_scope(second)):
+                zero = self._n(0)
+                payload = LlmGenerationEndedPayload.model_validate(
+                    {
+                        "request_id": second,
+                        "status": "cancelled",
+                        "duration_ms": 0,
+                        "figures_text": {"reasoning_tokens": zero, "answer_tokens": zero},
+                    }
+                )
+                self._journal().emit("llm_generation_ended", payload.model_dump(mode="json"))
+        except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
+            self._error(
+                Message("session.llm_lab.end_untraced"),
+                exc,
+                Message("session.llm_lab.back_to_idle"),
+            )
+        finally:
+            self._lab_release(request_id)
+
+    def _lab_release(self, request_id: str) -> None:
+        """The screen's request is over: no `CancelToken`, the session back to `idle`."""
+        with self._lock:
+            self._cancel = None
+        # Out of the lab's scope: the workshop's projections read it (context `None`, as
+        # every session state out of a turn).
+        with scoped(**self._lab_scope(request_id) | {"context_id": None, "step_id": None}):
+            self._set_state("idle")
+
+    def _lab_top_tokens(self) -> int:
+        """The tokens of the last generation whose most probable tokens are kept (0: none,
+        or read by an engine no longer active)."""
+        with self._lock:
+            kept = self._lab_top
+            if kept is None or kept[0] is not self._engine:
+                return 0
+            return len(kept[1])
+
+    def llm_distribution(self, index: int, sampling: Sampling) -> dict[str, Any]:
+        """`POST /api/llm_lab/distribution` (story 5 of 2026-09-30), read only, in any state:
+        the candidates of the last generation's token `index` (its `llm_token.index`) drawn
+        again with `sampling` (`candidates.distribution`: AD-1, the server computes, never the
+        page). Raises `DistributionMissing` when nothing is kept for it."""
+        with self._lock:
+            kept = self._lab_top
+            if kept is None or kept[0] is not self._engine or not kept[1]:
+                raise DistributionMissing(Message("session.llm_lab.distribution.none"))
+            entry, count = kept[1].get(index), len(kept[1])
+        if entry is None:
+            raise DistributionMissing(
+                Message(
+                    "session.llm_lab.distribution.out_of_range",
+                    index=self._n(index + 1),
+                    count=self._n(count),
+                )
+            )
+        rows = distribution(entry["p"], entry["tail"], sampling)
+        return {
+            "index": index,
+            "token_text": entry["token_text"],
+            "candidates": [
+                {"text": text} | row for text, row in zip(entry["texts"], rows, strict=True)
+            ],
+            "tail": entry["tail"],
+            "sampling": asdict(sampling),
+            "kept_count": sum(1 for row in rows if row["kept"]),
+            "tokens": count,
+        }
 
     def _lab_candidates(self) -> dict[str, Any]:
         """`lab_state().candidates` (story 29, increment 4): the candidates' probabilities are
@@ -7922,12 +8067,16 @@ class AppSession:
         reasoning: bool,
         cancel: CancelToken,
         candidates: bool = False,
+        memory: dict[int, dict[str, Any]] | None = None,
+        release: bool = True,
     ) -> None:
         """One user message rendered by the model's template (AD-4), no brick, no history;
         the local call through `_call_model` (one `llm_token` per token), the cloud call
         through `run_call` directly (no `context_reconciled`, no `_ratio`). The main
         context's engine state is saved around it, else the next turn says why it reads
-        again (`llm`). The workshop's conversation is never touched."""
+        again (`llm`). The workshop's conversation is never touched. Story 5 of 2026-09-30:
+        `memory` receives each token's most probable tokens (the live distribution);
+        `release=False` leaves the session in `llm_lab` (A and B of a comparison)."""
         started = time.monotonic()
         journal = self._journal()
         ended: dict[str, Any] = {"request_id": request_id, "status": "error"}
@@ -7942,10 +8091,15 @@ class AppSession:
             channel: str,
             read: Any = None,
             parts: list[tuple[str, str]] | None = None,
+            top: dict[str, Any] | None = None,
         ) -> None:
             """One `llm_token`: `text` for its chip (its bytes when they are part of a
-            character), `parts` the decoded text by channel, tags dropped (the lanes)."""
+            character), `parts` the decoded text by channel, tags dropped (the lanes); `top`
+            kept in `memory` under its index before the event (the page may ask at once)."""
             nonlocal index
+            if top is not None and memory is not None:
+                with self._lock:
+                    memory[index] = {"token_text": text} | top
             counts[channel] = counts.get(channel, 0) + 1
             payload = LlmTokenPayload(
                 request_id=request_id,
@@ -7962,7 +8116,7 @@ class AppSession:
 
         def local_token(fragment: Fragment, channel: str, parts: list[tuple[str, str]]) -> None:
             text = llm_lab.piece_text(fragment.piece) if fragment.piece else fragment.text
-            token(text, fragment.token_id, channel, fragment.candidates, parts)
+            token(text, fragment.token_id, channel, fragment.candidates, parts, fragment.top)
 
         with scoped(**self._lab_scope(request_id, call=True), origin="model", trigger="user"):
             try:
@@ -8023,10 +8177,16 @@ class AppSession:
                     exact=exact,
                     sampling=trace,  # type: ignore[arg-type]
                     reserve=reserve,
+                    usable=usable,
                     reasoning=reasons,
                     phase_label=phase,
                     unit=unit,
-                    figures_text=figures | {"reserve": self._n(reserve), "usable": self._n(usable)},
+                    figures_text=figures
+                    | {
+                        "reserve": self._n(reserve),
+                        "usable": self._n(usable),
+                        "window": self._n(window),
+                    },
                 )
                 journal.emit("llm_generation_started", started_payload.model_dump(mode="json"))
                 if tokens > usable:
@@ -8108,14 +8268,8 @@ class AppSession:
                         Message("session.llm_lab.back_to_idle"),
                     )
                 finally:
-                    with self._lock:
-                        self._cancel = None
-                    # Out of the lab's scope: the workshop's projections read it (context
-                    # `None`, as every session state out of a turn).
-                    with scoped(
-                        **self._lab_scope(request_id) | {"context_id": None, "step_id": None}
-                    ):
-                        self._set_state("idle")
+                    if release:
+                        self._lab_release(request_id)
 
     def _lab_cloud_call(
         self,

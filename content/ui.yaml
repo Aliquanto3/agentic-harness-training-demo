@@ -878,6 +878,9 @@ llm:
     ready: "Prêt"
   step_time: "{duration} · à {elapsed}"
   unavailable: "Écran indisponible ({cause}) : rechargez la page."
+  # Story 5 (2026-09-30): the questions of each section, the live distribution.
+  questions_title: "Les questions que vous vous posez"
+  distribution_list: "Candidats du token choisi"
 
 rag:
   page_title: "WaveStack — Atelier RAG"

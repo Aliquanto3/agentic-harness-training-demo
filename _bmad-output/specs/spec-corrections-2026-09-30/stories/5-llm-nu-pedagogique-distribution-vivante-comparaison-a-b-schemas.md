@@ -2,7 +2,8 @@
 title: 'LLM nu pédagogique : distribution vivante, comparaison A/B, schémas'
 type: 'feature'
 created: '2026-10-01'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '14353f65b9a95215aed95bf221698c0a57beb683'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -10,7 +11,8 @@ context:
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/ecrans-lots-2-a-4.md'
   - '{project-root}/_bmad-output/specs/spec-langues/i18n-conventions.md'
 warnings: []
-deferred: []
+deferred:
+  - 'E2E : redessin des barres au curseur avec un moteur en processus factice (logits scriptés) ; la pile E2E ne sait pas substituer LlamaCppEngine comme FakeReranker, couvert par tests/test_llm_lab.py (route, oracle, matrice).'
 ---
 
 <intent-contract>
@@ -94,3 +96,16 @@ deferred: []
 - `node --check src/wavestack/web/static/llm.js` -- expected: aucune erreur.
 - `uv run pytest -q tests/test_llm_lab.py tests/test_i18n.py tests/test_ui_texts.py tests/test_web_tokens.py tests/test_annex_language.py` -- expected: tout passe.
 - E2E (orchestrateur) : `--only llm_screen bare_llm annex_language` -- expected: 0 échec.
+
+## Spec Change Log
+
+- 2026-10-01, implémentation (agent, non vérifiée : ni pytest ni E2E lancés, PC partagé ; seuls `ruff`, `node --check` et un import ont tourné). Décisions prises sans question :
+  - **Un seul commit** pour les trois incréments, à la demande de l'orchestrateur (la spec en demandait un par incrément). Reprise d'un premier passage interrompu (c577c47) : backend, contenus et HTML venaient de lui ; front (`llm.js`, `llm.css`), tests, E2E et documents ajoutés ensuite.
+  - **Pénalités** : vérifié dans `llama_cpp` 0.3.35 installé, `Llama.generate` a `repeat_penalty` 1, `frequency_penalty` et `presence_penalty` 0 et `typical_p` 1 par défaut, et `LlamaCppEngine.complete` ne passe que température, top-k, top-p et min-p : les candidats bruts sont justes, rien à dire dans la page (noté dans `models/candidates.py`).
+  - **Top-k au-delà des 100 lus** (seulement si le vocabulaire en a moins de 100, la borne étant 100) : `distribution` le traite comme désactivé, sur tout le vocabulaire (`tail` compris).
+  - **Mémoire** : clé `index` de `llm_token`, gardée avec le moteur qui l'a lue (un changement de modèle la rend caduque, `lab_state().distribution.tokens` vaut alors 0) ; une génération sans candidats l'efface aussi. La route rend aussi `kept_count` et `tokens` ; `index` hors plage : 404 lisible (`session.llm_lab.distribution.out_of_range`).
+  - **Page, distribution** : dix barres au plus, puis « Reste du vocabulaire » ; anti-rebond de 80 ms, un ticket par requête (la dernière envoyée gagne) ; la page ne demande la distribution que si la session garde quelque chose (`distribution.tokens` ou un `llm_token` avec candidats), pour éviter un 404 dans la console ; serveur et cloud : `candidates.reason_text`. Le clic sur une puce garde l'encart des candidats (story 29) et choisit aussi le token de la section 2.
+  - **A/B** : les événements de A remplissent la colonne A et aussi les sections 4 à 6 et les puces de la section 5 (pour choisir un token de la distribution, qui est celle de A) ; ceux de B ne remplissent que la colonne B. Réglages B au premier affichage : ceux du harnais à température 1,2, gardés par le navigateur (`wavestack.llm.sampling_b`). Si « Arrêter » survient pendant A, B émet seulement `llm_generation_ended{status: cancelled}` (sans `llm_generation_started`), et la session revient en `idle` une fois.
+  - **Schéma de la fenêtre** en section 4 ; `llm_generation_started` gagne `usable` et `figures_text.window` ; largeurs posées en CSS (`flex-grow`, `calc`) à partir des valeurs reçues.
+  - **E2E** : `_distribution_unavailable` (cloud A, llama-server), `_lab_questions_and_window`, `_lab_compare` (capture `64-llm-nu-comparaison`, numéro choisi hors de 60 à 62 réservés) ; le contrôle « l'atelier refuse un envoi » est fait pendant A, en supposant que le faux llama-server laisse le temps de l'appel (risque de course si la génération est très rapide).
+  - Variables des textes en français (`{gardes}`, `{lus}`, `{reste}`, `{texte}`, `{fenetre}`, `{utilisables}`), comme le reste de `llm_lab.yaml`.

@@ -66,6 +66,7 @@
     <section class="llm-section" id="sec-tokenization" aria-labelledby="sec-tokenization-title">
       <h2 class="llm-section-title" id="sec-tokenization-title"><span class="llm-step" aria-hidden="true">1</span> <span data-text="sections.tokenization.title_text">Tokenisation et vectorisation</span></h2>
       <p class="llm-section-intro" data-text="sections.tokenization.intro_text"></p>
+      <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="tokenization"></ul></aside>
       <label class="llm-label" for="llm-prompt" data-text="tokenization.prompt_label_text">Texte à découper</label>
       <textarea id="llm-prompt" class="llm-prompt" maxlength="2000" rows="3"></textarea>
       <div class="llm-actions">
@@ -88,17 +89,36 @@
     <section class="llm-section" id="sec-sampling" aria-labelledby="sec-sampling-title">
       <h2 class="llm-section-title" id="sec-sampling-title"><span class="llm-step" aria-hidden="true">2</span> <span data-text="sections.sampling.title_text">Réglages d'échantillonnage</span></h2>
       <p class="llm-section-intro" data-text="sections.sampling.intro_text"></p>
+      <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="sampling"></ul></aside>
       <div class="sampling-controls" id="sampling-controls"></div>
       <p class="llm-note" id="sampling-source"></p>
       <div class="llm-actions">
         <span class="llm-note" id="sampling-defaults"></span>
         <button type="button" id="sampling-reset" class="llm-button-secondary" data-text="sampling.reset_text">Revenir aux valeurs du harnais</button>
       </div>
+      <!-- Story 5 (2026-09-30): the live distribution, drawn again by the session at each setting. -->
+      <figure class="distribution" id="distribution" aria-labelledby="distribution-title">
+        <figcaption class="distribution-title" id="distribution-title" data-text="distribution.title_text">Ce que les réglages font aux candidats</figcaption>
+        <p class="llm-note" data-text="distribution.intro_text"></p>
+        <p class="distribution-empty" id="distribution-empty" role="status"></p>
+        <div class="distribution-body" id="distribution-body" hidden>
+          <p class="llm-counts" id="distribution-token"></p>
+          <div class="distribution-head" aria-hidden="true">
+            <span></span>
+            <span data-text="distribution.probability_text">Probabilité du modèle</span>
+            <span data-text="distribution.chance_text">Chance d'être tiré</span>
+          </div>
+          <ol class="distribution-bars" id="distribution-bars" aria-label="Candidats du token choisi" data-i18n-aria-label="llm.distribution_list"></ol>
+          <p class="llm-note" id="distribution-kept" role="status"></p>
+          <p class="llm-note" id="distribution-tail"></p>
+        </div>
+      </figure>
     </section>
 
     <section class="llm-section" id="sec-loading" aria-labelledby="sec-loading-title">
       <h2 class="llm-section-title" id="sec-loading-title"><span class="llm-step" aria-hidden="true">3</span> <span data-text="sections.loading.title_text">Chargement du modèle</span></h2>
       <p class="llm-section-intro" data-text="sections.loading.intro_text"></p>
+      <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="loading"></ul></aside>
       <p class="llm-counts" id="loading-total" role="status"></p>
       <ol class="load-steps" id="loading-steps"></ol>
       <p class="llm-note" id="loading-empty" data-text="loading.empty_text" hidden></p>
@@ -110,11 +130,25 @@
     <section class="llm-section" id="sec-reading" aria-labelledby="sec-reading-title">
       <h2 class="llm-section-title" id="sec-reading-title"><span class="llm-step" aria-hidden="true">4</span> <span data-text="sections.reading.title_text">Lecture du prompt</span></h2>
       <p class="llm-section-intro" data-text="sections.reading.intro_text"></p>
+      <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="reading"></ul></aside>
       <p class="llm-note" id="reading-empty" data-text="reading.empty_text"></p>
       <div id="reading-body" hidden>
         <p class="llm-label" id="reading-label"></p>
         <pre class="rendered-prompt" id="reading-rendered"></pre>
         <p class="llm-counts" id="reading-tokens"></p>
+        <!-- Story 5 (2026-09-30): the window, from the values of `llm_generation_started`. -->
+        <figure class="window-diagram" id="window-diagram" hidden>
+          <figcaption class="embedding-title" data-text="window.title_text">La fenêtre, token après token</figcaption>
+          <div class="window-bar" id="window-bar" aria-hidden="true">
+            <span class="window-part is-usable"><span class="window-fill is-prompt"></span></span>
+            <span class="window-part is-reserve"><span class="window-fill is-output"></span></span>
+          </div>
+          <div class="window-labels">
+            <span id="window-usable-label"></span>
+            <span id="window-reserve-label"></span>
+          </div>
+          <p class="llm-note" id="window-caption"></p>
+        </figure>
         <p class="llm-note" id="reading-sampling"></p>
         <p class="llm-figure" id="reading-first-token" role="status"></p>
         <p class="llm-figure" id="reading-rate"></p>
@@ -124,6 +158,7 @@
     <section class="llm-section" id="sec-generation" aria-labelledby="sec-generation-title">
       <h2 class="llm-section-title" id="sec-generation-title"><span class="llm-step" aria-hidden="true">5</span> <span data-text="sections.generation.title_text">Génération</span></h2>
       <p class="llm-section-intro" data-text="sections.generation.intro_text"></p>
+      <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="generation"></ul></aside>
       <label class="reasoning-toggle" id="reasoning-toggle-box">
         <input type="checkbox" id="reasoning-toggle" />
         <span data-text="reasoning.toggle_text">Raisonner avant de répondre</span>
@@ -145,11 +180,38 @@
       <p class="llm-note" id="generation-empty" data-text="generation.empty_text"></p>
       <p class="llm-note" id="generation-more"></p>
       <p class="llm-figure" id="generation-rate"></p>
+      <!-- Story 5 (2026-09-30): the same prompt with two samplings, A then B, side by side. -->
+      <div class="compare" id="compare">
+        <h3 class="compare-title" data-text="compare.title_text">Comparer deux réglages</h3>
+        <p class="llm-note" data-text="compare.intro_text"></p>
+        <fieldset class="compare-settings" id="compare-settings">
+          <legend data-text="compare.b_settings_text">Réglages B</legend>
+        </fieldset>
+        <div class="llm-actions">
+          <button type="button" id="compare-button" class="llm-button-secondary" data-text="compare.button_text">Comparer</button>
+          <span class="llm-status" id="compare-status" role="status" aria-live="polite"></span>
+        </div>
+        <div class="compare-lanes" id="compare-lanes" hidden>
+          <section class="compare-lane" id="compare-a" aria-labelledby="compare-a-title">
+            <h4 class="compare-lane-title" id="compare-a-title"><span class="compare-lane-name" data-text="compare.lane_a_text">A</span> <span class="compare-lane-sampling"></span></h4>
+            <p class="compare-lane-thinking"></p>
+            <p class="compare-lane-text"></p>
+            <p class="compare-lane-status" role="status"></p>
+          </section>
+          <section class="compare-lane" id="compare-b" aria-labelledby="compare-b-title">
+            <h4 class="compare-lane-title" id="compare-b-title"><span class="compare-lane-name" data-text="compare.lane_b_text">B</span> <span class="compare-lane-sampling"></span></h4>
+            <p class="compare-lane-thinking"></p>
+            <p class="compare-lane-text"></p>
+            <p class="compare-lane-status" role="status"></p>
+          </section>
+        </div>
+      </div>
     </section>
 
     <section class="llm-section" id="sec-reasoning" aria-labelledby="sec-reasoning-title">
       <h2 class="llm-section-title" id="sec-reasoning-title"><span class="llm-step" aria-hidden="true">6</span> <span data-text="sections.reasoning.title_text">Raisonnement</span></h2>
       <p class="llm-section-intro" data-text="sections.reasoning.intro_text"></p>
+      <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="reasoning"></ul></aside>
       <p class="llm-note" id="reasoning-budget"></p>
       <div class="reasoning-lanes">
         <section class="reasoning-lane is-thinking" aria-labelledby="lane-thinking-title">

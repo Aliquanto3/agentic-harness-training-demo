@@ -8,6 +8,10 @@ session:
   translation_invalid:
     message: "A translated file ({lang}) under content/i18n/{lang}/ is invalid."
     effect: "The French text of this file replaces it; the rest of WaveStack works."
+  llm_lab:
+    distribution:
+      none: "First generate a text with a local model."
+      out_of_range: "The last generation has no token {index}: it has {count} with their candidates."
 
 tools:
   datetime:

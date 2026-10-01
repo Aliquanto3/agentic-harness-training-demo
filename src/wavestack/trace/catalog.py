@@ -1074,6 +1074,9 @@ class LlmGenerationStartedPayload(BaseModel):
     exact: bool
     sampling: SamplingTrace
     reserve: int
+    # Story 5 of 2026-09-30: the window's share left to the prompt (window - reserve), for
+    # the page's diagram of the window (values received, the page computes nothing).
+    usable: int | None = None
     reasoning: bool = False
     phase_label: str
     # What one `llm_token` is: a token of the in-process engine, or a fragment of a server's
