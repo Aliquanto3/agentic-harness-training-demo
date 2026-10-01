@@ -4606,6 +4606,417 @@ def _mcp_lab(r: Run, errors: list[str]) -> None:
     )
 
 
+def s_mcp_lab_page(r: Run) -> None:
+    """Restes du 2026-10-01 (story 6, IA3, IA4, BH16): what `/mcp` does on its own side.
+    The state unreachable (`page.route`), then back; « Occupé » during a real turn of the
+    workshop; « Arrêter » pressed during the glossary's handshake; a preset, a call, the
+    page reloaded (`last_session` replayed); data.gouv.fr cut by the stack (its outbound
+    request shown); then a `last_session` served by `page.route` (a public server, a tool
+    with an object, an integer and a boolean parameter, a bounded call): the fields, an
+    invalid JSON said without a request, the arguments sent, the bound's note, « servi non
+    traduit ». Back to `/`."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    try:
+        _mcp_lab_page(r, errors)
+    finally:
+        page.remove_listener("pageerror", listener)
+        for pattern in ("**/api/mcp_lab", "**/api/intentions/mcp_lab_call"):
+            page.unroute(pattern)
+        r.goto_app()
+
+
+def _goto_mcp(r: Run) -> None:
+    r.page.goto(f"{r.stack.app_url}/mcp")
+    expect(r.page.locator("body[data-mcp-ready]")).to_be_attached(timeout=15_000)
+
+
+def _mcp_messages(r: Run) -> list[tuple[str | None, str | None]]:
+    return r.page.locator("#mcp-messages .mcp-message").evaluate_all(
+        "items => items.map(i => [i.dataset.direction, i.dataset.method ?? null])"
+    )
+
+
+def _mcp_lab_page(r: Run, errors: list[str]) -> None:
+    page = r.page
+    r.goto_app()
+    r.wait_idle()
+    if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+        _pick_model(r, A_LABEL)
+
+    # (1) The workshop's state unreachable: said, then the page comes back by itself.
+    page.route("**/api/mcp_lab", lambda route: route.abort())
+    page.goto(f"{r.stack.app_url}/mcp")
+    alert = page.locator("#mcp-content-error")
+    expect(alert).to_be_visible(timeout=10_000)
+    said = alert.inner_text()
+    ready_meanwhile = page.locator("body[data-mcp-ready]").count()
+    page.unroute("**/api/mcp_lab")
+    expect(page.locator("body[data-mcp-ready]")).to_be_attached(timeout=15_000)
+    r.check(
+        said.startswith("Atelier MCP indisponible (") and not ready_meanwhile and alert.is_hidden(),
+        "/mcp injoignable : l'alerte le dit, la page se rétablit seule (nouvel essai)",
+        said,
+    )
+
+    # (2) A real turn of the workshop: « Occupé », « Se connecter » disabled, a direct call
+    # refused, « Arrêter » of the MCP workshop greyed (it stops the workshop's exchanges).
+    seq = r.ev.mark()
+    r.api("POST", "/api/intentions/send", {"message": "Explique le harnais [lent] [long]"})
+    r.ev.wait("model_first_token", seq, timeout=20)
+    busy = page.locator("#mcp-busy")
+    expect(busy).to_be_visible(timeout=10_000)
+    connect = page.locator('button[data-connect="local"]')
+    refused = r.api("POST", "/api/intentions/mcp_lab_connect", {"server": "local"})
+    r.check(
+        "Un tour est en cours" in busy.inner_text()
+        and connect.is_disabled()
+        and "Un tour est en cours" in (connect.get_attribute("title") or "")
+        and page.locator("#mcp-stop").is_disabled()
+        and refused.status_code == 409,
+        "tour de l'atelier en cours : bandeau « Occupé » avec la raison, « Se connecter » "
+        "désactivé, appel direct 409, « Arrêter » de l'atelier MCP grisé",
+        f"{busy.inner_text()} · {refused.status_code}",
+    )
+    r.api("POST", "/api/intentions/stop")
+    r.ev.wait("turn_ended", seq, timeout=30)
+    expect(busy).to_be_hidden(timeout=10_000)
+    expect(connect).to_be_enabled(timeout=10_000)
+
+    # (3) « Arrêter » pressed during the handshake (the glossary's process starting): the
+    # handshake may win the race on a fast workstation, then the gesture is played again.
+    stopped, attempts = None, 0
+    while stopped is None and attempts < 3:
+        attempts += 1
+        seq = r.ev.mark()
+        connect.click()
+        stop = page.locator("#mcp-stop")
+        try:
+            stop.click(timeout=5000)
+        except Exception:  # noqa: BLE001 - the handshake ended first: the button greyed again
+            pass
+        ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
+        if ended["status"] == "error":
+            stopped = ended
+    summary = page.locator("#mcp-connect-summary")
+    expect(summary).to_have_attribute("data-status", "error", timeout=10_000)
+    expect(page.locator("#mcp-stop")).to_be_disabled(timeout=10_000)
+    state = r.api("GET", "/api/mcp_lab").json()
+    r.check(
+        stopped is not None
+        and "Échange arrêté" in (stopped.get("error_text") or "")
+        and "Échange arrêté" in summary.inner_text()
+        and state["open_server"] is None
+        and state["session_state"]["state"] == "idle"
+        and page.locator(".mcp-badge-open").count() == 0,
+        "« Arrêter » pressé pendant la poignée de main : connexion arrêtée et dite, aucune "
+        "connexion ouverte, session en idle",
+        f"{attempts} essai(s) · {summary.inner_text()[:160]}",
+    )
+
+    # (4) The glossary: a preset, a call; the page reloaded replays `last_session`.
+    seq = r.ev.mark()
+    connect.click()
+    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
+    expect(summary).to_have_attribute("data-status", "ok", timeout=10_000)
+    page.locator("#mcp-call-tool").select_option("local__define_term")
+    presets = page.locator("#mcp-call-preset option").all_inner_texts()
+    page.locator("#mcp-call-preset").select_option("0")
+    term = page.locator('#mcp-call-fields input[name="term"]').input_value()
+    r.check(
+        ended["status"] == "ok" and presets == ["Aucun", "MCP"] and term == "MCP",
+        "préréglage « MCP » de define_term : le champ term rempli",
+        f"{presets} · {term!r}",
+    )
+    seq = r.ev.mark()
+    page.locator("#mcp-call-run").click()
+    call = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
+    expect(page.locator("#mcp-call-summary")).to_have_attribute("data-status", "ok", timeout=10_000)
+    shown = {
+        "messages": _mcp_messages(r),
+        "summary": page.inner_text("#mcp-connect-summary"),
+        "tools": page.locator("#mcp-tools .mcp-tool").count(),
+        "call": page.inner_text("#mcp-call-summary"),
+        "reinjected": page.inner_text(".mcp-call-text pre"),
+    }
+    r.check(
+        call["status"] == "ok"
+        and "Model Context Protocol" in shown["reinjected"]
+        and page.locator(".mcp-served").count() == 0,
+        "appel avec le préréglage : texte réinjecté ; glossaire local, pas de note « servi non "
+        "traduit »",
+        shown["reinjected"][:120],
+    )
+    _goto_mcp(r)
+    expect(page.locator("#mcp-call-summary")).to_have_attribute("data-status", "ok", timeout=10_000)
+    replayed = {
+        "messages": _mcp_messages(r),
+        "summary": page.inner_text("#mcp-connect-summary"),
+        "tools": page.locator("#mcp-tools .mcp-tool").count(),
+        "call": page.inner_text("#mcp-call-summary"),
+        "reinjected": page.inner_text(".mcp-call-text pre"),
+    }
+    r.check(
+        replayed == shown
+        and page.locator('.mcp-server[data-server="local"] .mcp-badge-open').count() == 1,
+        "page rechargée : last_session rejoué, mêmes messages, mêmes outils, même appel, "
+        "connexion ouverte au glossaire",
+        str({k: (shown[k] == replayed[k]) for k in shown}),
+    )
+
+    # (5) data.gouv.fr, the network cut by the stack: the request leaves through the guard,
+    # shown, and fails; the page stays readable.
+    seq = r.ev.mark()
+    page.locator('button[data-connect="datagouv"]').click()
+    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=90)["payload"]
+    expect(summary).to_have_attribute("data-status", "error", timeout=10_000)
+    outbound = page.locator("#mcp-messages .mcp-outbound")
+    first = outbound.first.inner_text() if outbound.count() else ""
+    r.check(
+        ended["status"] == "error"
+        and "connexion impossible" in summary.inner_text()
+        and outbound.count() >= 1
+        and "POST https://mcp.data.gouv.fr/mcp" in first
+        and page.locator("#mcp-call-form").is_hidden()
+        and page.locator("#mcp-tools-empty").is_visible(),
+        "data.gouv.fr hors réseau : requête sortante POST affichée, connexion en erreur "
+        "dite, ni outil ni appel proposés",
+        f"{summary.inner_text()[:160]} · {first[:120]!r}",
+    )
+    r.shot("66-atelier-mcp-serveur-public-hors-reseau", full_page=True)
+
+    # (6) A public server's tools, served by `page.route` (no network here).
+    calls: list[dict[str, Any]] = []
+
+    def state(route) -> None:  # noqa: ANN001
+        response = route.fetch()
+        body = response.json()
+        body["last_session"] = _mcp_fake_session(body["seq"])
+        body["open_server"] = "datagouv"
+        route.fulfill(response=response, json=body)
+
+    def intercepted(route) -> None:  # noqa: ANN001
+        calls.append(route.request.post_data_json)
+        route.fulfill(status=409, json={"detail": "Appel intercepté (e2e)."})
+
+    page.route("**/api/mcp_lab", state)
+    page.route("**/api/intentions/mcp_lab_call", intercepted)
+    _goto_mcp(r)
+    served = page.locator('.mcp-tool[data-tool="datagouv__search_datasets"] .mcp-served')
+    kinds = page.locator("#mcp-call-fields [data-kind]").evaluate_all(
+        "fields => fields.map(f => [f.name, f.dataset.kind, f.type ?? f.tagName])"
+    )
+    r.check(
+        served.count() == 1
+        and "non traduite" in served.inner_text()
+        and kinds
+        == [
+            ["query", "text", "text"],
+            ["page_size", "number", "number"],
+            ["filters", "json", "textarea"],
+            ["strict", "boolean", "checkbox"],
+        ],
+        "serveur public : « servi non traduit » ; un champ par paramètre : texte, nombre, "
+        "JSON, case",
+        str(kinds),
+    )
+    note = _plain(page.inner_text(".mcp-call-text"))
+    outbound = page.locator(".mcp-call-outbound .mcp-outbound")
+    r.check(
+        "Borné : 512 tokens gardés sur 2 048." in note
+        and outbound.count() == 1
+        and "POST https://mcp.data.gouv.fr/mcp" in outbound.inner_text(),
+        "appel tronqué : la note « Borné » sous le texte réinjecté, sa requête sortante",
+        note[-160:],
+    )
+    page.locator("#mcp-call-preset").select_option("0")
+    query = page.locator('#mcp-call-fields input[name="query"]').input_value()
+    page.locator('#mcp-call-fields input[name="page_size"]').fill("20")
+    page.locator('#mcp-call-fields textarea[name="filters"]').fill("{oops")
+    page.locator('#mcp-call-fields input[name="strict"]').check()
+    page.locator("#mcp-call-run").click()
+    status = page.locator("#mcp-call-status")
+    expect(status).to_have_text("Valeur JSON invalide pour filters.", timeout=5000)
+    r.check(
+        query == "cybersécurité" and not calls,
+        "JSON invalide : dit sous le formulaire, aucune requête envoyée",
+        f"{query!r} · {status.inner_text()}",
+    )
+    page.locator('#mcp-call-fields textarea[name="filters"]').fill('{"organization": "anssi"}')
+    page.locator("#mcp-call-run").click()
+    expect(status).to_have_text("Appel intercepté (e2e).", timeout=5000)
+    r.check(
+        calls
+        == [
+            {
+                "server": "datagouv",
+                "tool": "search_datasets",
+                "args": {
+                    "query": "cybersécurité",
+                    "page_size": 20,
+                    "filters": {"organization": "anssi"},
+                    "strict": True,
+                },
+            }
+        ],
+        "arguments envoyés : texte, entier, objet JSON, booléen, convertis par la page",
+        str(calls),
+    )
+    page.unroute("**/api/mcp_lab")
+    page.unroute("**/api/intentions/mcp_lab_call")
+    r.check(not errors, "/mcp : aucune erreur JavaScript", str(errors)[:300])
+
+
+_DATAGOUV_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "Mots cherchés (e2e)"},
+        "page_size": {"type": "integer"},
+        "filters": {"type": "object"},
+        "strict": {"type": "boolean"},
+    },
+    "required": ["query"],
+}
+
+
+def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
+    """A `last_session` with a public server's connection and a bounded call, validated by
+    the journal's `Envelope` (its payload models)."""
+    definition = json.dumps(
+        {
+            "type": "function",
+            "function": {
+                "name": "datagouv__search_datasets",
+                "description": "Search datasets on data.gouv.fr (served, e2e).",
+                "parameters": _DATAGOUV_SCHEMA,
+            },
+        }
+    )
+    lazy = json.dumps({"type": "function", "function": {"name": "load_tool_doc"}})
+    rpc = lambda method, n: json.dumps({"jsonrpc": "2.0", "id": n, "method": method})  # noqa: E731
+    answer = lambda n: json.dumps({"jsonrpc": "2.0", "id": n, "result": {}})  # noqa: E731
+    events = [
+        (
+            "mcp90",
+            "mcp_lab_message",
+            {
+                "direction": "to_server",
+                "method": "initialize",
+                "jsonrpc": rpc("initialize", 0),
+                "elapsed_ms": 0,
+            },
+        ),
+        (
+            "mcp90",
+            "mcp_lab_message",
+            {
+                "direction": "from_server",
+                "method": "initialize",
+                "jsonrpc": answer(0),
+                "elapsed_ms": 40,
+            },
+        ),
+        (
+            "mcp90",
+            "mcp_lab_message",
+            {
+                "direction": "to_server",
+                "method": "tools/list",
+                "jsonrpc": rpc("tools/list", 1),
+                "elapsed_ms": 45,
+            },
+        ),
+        (
+            "mcp90",
+            "mcp_lab_message",
+            {
+                "direction": "from_server",
+                "method": "tools/list",
+                "jsonrpc": answer(1),
+                "elapsed_ms": 30,
+            },
+        ),
+        (
+            "mcp90",
+            "mcp_lab_connect_ended",
+            {
+                "server": "datagouv",
+                "status": "ok",
+                "tools": [
+                    {
+                        "name": "datagouv__search_datasets",
+                        "tool": "search_datasets",
+                        "description": "Search datasets on data.gouv.fr (served, e2e).",
+                        "schema": _DATAGOUV_SCHEMA,
+                        "definition_text": definition,
+                        "doc_tokens": 120,
+                        "line_text": "- datagouv__search_datasets: Search datasets",
+                        "line_tokens": 12,
+                    }
+                ],
+                "full_tokens": 120,
+                "lazy_tokens": 60,
+                "load_tool_doc_tokens": 48,
+                "lazy_definition_text": lazy,
+                "duration_ms": 80,
+            },
+        ),
+        (
+            "mcp91",
+            "mcp_lab_message",
+            {
+                "direction": "to_server",
+                "method": "tools/call",
+                "jsonrpc": rpc("tools/call", 2),
+                "elapsed_ms": 0,
+            },
+        ),
+        (
+            "mcp91",
+            "outbound_request",
+            {
+                "origin": "brick",
+                "method": "POST",
+                "url": "https://mcp.data.gouv.fr/mcp",
+                "body": rpc("tools/call", 2),
+            },
+        ),
+        (
+            "mcp91",
+            "mcp_lab_call_ended",
+            {
+                "server": "datagouv",
+                "tool": "search_datasets",
+                "status": "ok",
+                "raw": answer(2),
+                "text": "Jeux de données (e2e) : " + "cybersécurité " * 40,
+                "truncated": {"tokens": 512, "total_tokens": 2048, "estimated": False},
+                "duration_ms": 120,
+            },
+        ),
+    ]
+    envelopes = []
+    for offset, (step, kind, payload) in enumerate(events, start=1):
+        envelope = Envelope(
+            seq=seq - len(events) + offset,
+            ts=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+            session_epoch=0,
+            context_id="mcp_lab",
+            step_id=step,
+            kind=kind,
+            actor="harness",
+            trigger="user",
+            brick="mcp",
+            component="mcp_lab.datagouv",
+            payload=payload,
+        )
+        envelopes.append(json.loads(envelope.model_dump_json()))
+    return envelopes
+
+
 def s_compression(r: Run) -> None:
     """Story 20: a turn without then with the compression (Headroom, the real library), the
     step with the tokens before and after, the compressed segment and the total without
@@ -9271,6 +9682,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("rag_rerank", s_rag_rerank),
     ("rag_lab", s_rag_lab),
     ("mcp_lab", s_mcp_lab),  # story 6 (2026-09-30): captures 61 and 62
+    ("mcp_lab_page", s_mcp_lab_page),  # restes du 2026-10-01: /mcp on its own side
     ("compression", s_compression),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
