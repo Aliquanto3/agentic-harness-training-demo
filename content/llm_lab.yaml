@@ -219,7 +219,7 @@ distribution:
   empty_text: >-
     Générez une réponse avec « Montrer les tokens candidats » coché (section 5) : les
     candidats de son premier token apparaîtront ici.
-  token_text: "Token {index} de la dernière génération : {texte}. Cliquez sur une autre puce de la section 5 pour la choisir."
+  token_text: "Token {index} de la dernière génération (A pour une comparaison) : {texte}. Cliquez sur une autre puce de la section 5 pour la choisir."
   probability_text: "Probabilité du modèle"
   chance_text: "Chance d'être tiré"
   dropped_text: "écarté"

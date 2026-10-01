@@ -270,7 +270,7 @@ class LoadRegistry:
             return measured_rss_mb * _MIB
         return sum(file_sizes) + self.margin_bytes
 
-    def check_component(self, label: str, cost_bytes: int, slot: str) -> str | None:
+    def check_component(self, label: Any, cost_bytes: int, slot: str) -> str | None:
         """The refusal (a `Message`), in figures, when loading `label` (a brick's component)
         into `slot` would exceed the budget, else `None`."""
         held = self._slots.get(slot)

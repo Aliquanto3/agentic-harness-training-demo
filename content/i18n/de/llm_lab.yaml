@@ -220,7 +220,7 @@ distribution:
   empty_text: >-
     Erzeugen Sie eine Antwort mit aktiviertem „Kandidaten-Tokens zeigen“ (Abschnitt 5):
     Die Kandidaten ihres ersten Tokens erscheinen hier.
-  token_text: "Token {index} der letzten Generierung: {texte}. Klicken Sie auf einen anderen Chip in Abschnitt 5, um ihn zu wählen."
+  token_text: "Token {index} der letzten Generierung (A bei einem Vergleich): {texte}. Klicken Sie auf einen anderen Chip in Abschnitt 5, um ihn zu wählen."
   probability_text: "Wahrscheinlichkeit des Modells"
   chance_text: "Chance, gezogen zu werden"
   dropped_text: "verworfen"

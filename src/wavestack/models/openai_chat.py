@@ -791,6 +791,7 @@ def run_call(
     call_id: Callable[[int], str],
     sampling_trace: dict[str, Any] | None = None,
     eur_per_usd: float = DEFAULT_EUR_PER_USD,
+    lang: str = "fr",
 ) -> ChatCall:
     """One streamed call under the caller's scope: `model_call_started`, `model_first_token`,
     `model_delta` (grouped), `model_call_ended`. Raises `ProviderError` after ending the call
@@ -798,7 +799,8 @@ def run_call(
     `sampling_trace` (story 29): `model_call_started.sampling`. FinOps: an entry with
     `pricing` gets the call's cost in `model_call_ended`, added to the session's spend, then
     `consumption_updated` (the total converted at `eur_per_usd`). GreenOps: likewise, the
-    call's footprint as EcoLogits estimates it (`impacts`), or why it has none."""
+    call's footprint as EcoLogits estimates it (`impacts`), or why it has none, its note in
+    `lang` (the session's)."""
     entry = getattr(engine, "entry", None)
     # AD-16: the spacing wait, before the call starts, so neither `prompt_ms` nor
     # `duration_ms` counts it; cancelled while waiting, nothing is sent.
@@ -874,7 +876,7 @@ def run_call(
         # GreenOps: nor has it a footprint; EcoLogits' latency is `duration_ms`.
         if isinstance(entry, CloudModel) and produced:
             out.impact = cloud_impacts(entry, out.output_tokens, payload["duration_ms"] / 1000)
-            payload |= out.impact.fields()
+            payload |= out.impact.fields(lang)
         journal.emit("model_call_ended", payload, actor="model")
         impact = out.impact if out.impact is not None and out.impact.estimated else None
         if out.cost is not None or impact is not None:

@@ -7262,7 +7262,7 @@ class AppSession:
                     "usage_source": "engine",
                     "evaluated_tokens": evaluated,
                 }
-                | impact.fields(),
+                | impact.fields(self._language),
                 actor="model",
             )
             self._count_impact(impact)
@@ -7510,6 +7510,7 @@ class AppSession:
                     estimated_prompt=total,
                     chars_per_token=self.cfg.chars_per_token,
                     call_id=lambda index: self._new_call_id(step_id, index),
+                    lang=self._language,
                     sampling_trace=self._sampling_trace(None),
                     eur_per_usd=self.cfg.eur_per_usd,
                 )
@@ -8324,6 +8325,7 @@ class AppSession:
                 chars_per_token=self.cfg.chars_per_token,
                 call_id=lambda index: f"{request_id}.{index}",
                 sampling_trace=trace,
+                lang=self._language,
                 eur_per_usd=self.cfg.eur_per_usd,
             )
         except ProviderError as error:
@@ -8982,6 +8984,13 @@ class AppSession:
                 payload = {"server": server_id, "status": "ok"} | self._mcp_lab_weights(
                     server, conn, tools
                 )
+                if cancel.cancelled:  # « Arrêter » while the weights were counted
+                    self._mcp_lab_drop(conn, wait=True)
+                    payload = {
+                        "server": server_id,
+                        "status": "error",
+                        "error_text": Message("session.mcp_lab.stopped"),
+                    }
             payload["duration_ms"] = _ms(time.monotonic() - started)
             self._mcp_lab_emit("mcp_lab_connect_ended", payload, step_id, server_id)
         except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
@@ -9166,8 +9175,9 @@ class AppSession:
         with self._lock:
             if self.state != "mcp_lab":
                 return False
-            if self._cancel is not None:
-                self._cancel.cancel()
+            if self._cancel is None:  # the exchange is over, its state about to go: the
+                return True  # connection it leaves open stays so
+            self._cancel.cancel()
             conn = self._mcp_lab_conn
         if conn is not None:
             conn.close(wait=False)

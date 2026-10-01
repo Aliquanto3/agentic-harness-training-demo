@@ -216,7 +216,7 @@ distribution:
   empty_text: >-
     Generate an answer with “Show the candidate tokens” ticked (section 5): the candidates
     of its first token will appear here.
-  token_text: "Token {index} of the last generation: {texte}. Click another chip in section 5 to choose it."
+  token_text: "Token {index} of the last generation (A for a comparison): {texte}. Click another chip in section 5 to choose it."
   probability_text: "Model probability"
   chance_text: "Chance of being drawn"
   dropped_text: "discarded"

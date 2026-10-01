@@ -5,7 +5,7 @@ created: '2026-10-01'
 status: 'done'
 baseline_revision: '14353f65b9a95215aed95bf221698c0a57beb683'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/SPEC.md'
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/ecrans-lots-2-a-4.md'
@@ -164,6 +164,14 @@ deferred:
   - `[low]` `[patch]` EC5 : « Générer » après une comparaison laissait les colonnes A/B — masquées au `llm_generation_started` d'une génération hors comparaison.
   - `[low]` `[reject]` EC6 : course E2E si le faux llama-server finit A et B avant l'envoi — le prompt de 230 caractères donne ~70 morceaux à 20 ms par génération (≈ 3 s pour A et B), l'envoi part dès le début de A ; risque faible, garde non justifiée.
   - `[false]` `[reject]` EC7 : une génération sans candidats efface la mémoire — voulu par la spec (« une nouvelle efface l'ancienne ») et dit par `distribution.empty_text`.
+
+### 2026-10-01 — Follow-up review pass
+- verdicts: 3 findings — high 0, medium 0, low 3, false 0, maybe-false 0
+- findings:
+  - `[low]` `[patch]` 404 possible pendant un chargement de modèle ou entre le début d'une génération et son `llm_generation_started` (`store.dist.tokens` encore positif, la session ayant déjà lâché la mémoire) : erreur réseau dans la console — `llm.js` remet `store.dist.tokens` à 0 et affiche le repos sur `model_load_started` et sur un `session_state` `llm_lab` ou `model_load`.
+  - `[low]` `[patch]` « Token {index} de la dernière génération » faux après une comparaison (la mémoire est celle de A) — `distribution.token_text` dit « (A pour une comparaison) » en fr, en, de.
+  - `[low]` `[patch]` Schéma de la fenêtre sur serveur ou cloud : la barre de sortie se remplissait en fragments rapportés à une réserve comptée en tokens (sous-estimée d'un facteur 2 à 5) — barre laissée vide quand `store.gen.fragments`, seul le nombre de fragments est dit.
+- Revue de suivi : convergée (aucun `high`), `followup_review_recommended: false`. Vérifié : `pytest tests/test_llm_lab.py` 60 passés ; E2E rejoué (voir l'état de la nuit).
 
 ## Auto Run Result
 

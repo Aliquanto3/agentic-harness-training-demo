@@ -53,3 +53,21 @@ deferred: []
 - **Vérification** : `ruff check`, `ruff format --check` OK ; `pytest tests/test_i18n.py tests/test_backend_messages.py tests/test_ui_texts.py` : 3 295 passés. **Non lancé** (accord d'Anaël requis) : E2E `--only backend_language annex_language` (les tranches `ui_language` et `annex_language` deviennent plus strictes : elles ne mettent plus de côté les textes du backend).
 - **Revue** : pas encore faite (story de contenu ; revue de suivi recommandée sur les choix ci-dessus et sur la tranche E2E jamais jouée).
 - **Vérification avec processus** (2026-10-01, accord d'Anaël) : E2E `backend_language` 16/16 (après un correctif : retour à l'atelier avant chaque langue), `ui_language` sans échec, `annex_language` 29/29 après deux correctifs : un `Said` (texte rendu qui garde son `Message`, ceux du diagnostic de démarrage) est rendu de nouveau dans la langue demandée par `in_language` ; l'E2E met de côté les seuls textes des événements émis avant le dernier changement de langue (historique du journal : étapes du dernier chargement, contrôles du diagnostic de démarrage). `content_language language` 34/34. Six tests des stories Langues 3 et 4 attendaient encore du français en `en`/`de` : attentes passées au catalogue de la langue.
+
+## Review Triage Log
+
+### 2026-10-01 — Follow-up review pass
+- verdicts: 9 findings — high 0, medium 3, low 6, false 0, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` `de` `models.openai_chat.another_address` inséré après « nach » (datif) : « nach eine andere Adresse » — « einer anderen Adresse ».
+  - `[medium]` `[patch]` `rag/lab.py` : le libellé du refus de budget de l'atelier RAG figeait `noun_text` (un `Message`) en français par une f-string (« Not enough memory to load modèle d'embedding X ») — `Lazy` rendu dans la langue du message ; vérifié en `de` (« Embedding-Modell X »).
+  - `[medium]` `[patch]` E2E : la mise de côté de l'historique portait sur tout texte émis avant le changement de langue, y compris une raison de carte ou un état restés français — limitée aux événements que les pages rejouent comme historique (`model_load_*`, `diagnostic_check`).
+  - `[low]` `[patch]` `en` `models.openai_chat.hint.min_interval` : « today » pour « aujourd'hui » au sens de « actuellement » — « (currently {interval} s) ».
+  - `[low]` `[patch]` `en` `diagnostic.starting` : « Startup diagnostic » — « Start-up diagnostics », comme `ui.yaml` et `session.state.diagnostic`.
+  - `[low]` `[patch]` `de` `session.forgotten` : « Es wird verworfen. » ne s'accorde pas avec « der Kompressor » — « Die Instanz wird verworfen. ».
+  - `[low]` `[reject]` `de` `session.compression.the_compressor` au nominatif dans un refus de budget (« um der Kompressor zu laden ») — chemin jamais pris : la fabrique Headroom donne toujours son `label_text` ; la corriger demanderait un second libellé.
+  - `[low]` `[patch]` `de` `session.hooks.failed.effect` : « Er lässt durch » sans complément — « Er lässt den Aufruf durch ».
+  - `[low]` `[patch]` `de` `hooks.h2.towards` : « {tool} zu {destination} » — « {tool} an {destination} », comme H5.
+- Trouvé ensuite par l'E2E `ui_language`, une fois la mise de côté de l'historique resserrée : la note GreenOps d'un appel (`greenops.not_estimated`, infobulle de l'empreinte) restait française en `en` et `de`, `Impact.fields()` étant appelé sans langue (appel local, `run_call` cloud et test du diagnostic) — `run_call` reçoit la langue de la session (`lang`), et les trois sites la passent. `ui_language` 28/28 ensuite.
+- Vérifié sans défaut (relecteur) : les 1 020 clés relues, les fragments listés dans la spec assemblés dans leurs messages, le registre Sie/du, la typographie, les libellés cités ; le `Said` rendu de nouveau (terminal toujours en anglais, texte tiers inchangé).
+- Revue de suivi : convergée (aucun `high`), `followup_review_recommended: false`. Vérifié : `pytest tests/test_rag_lab.py tests/test_i18n.py tests/test_ui_texts.py` 224 passés, `test_backend_messages` (hors rendu clé par clé) 61 passés ; E2E de langue rejoués.

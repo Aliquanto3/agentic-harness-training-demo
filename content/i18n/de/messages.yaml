@@ -333,7 +333,7 @@ session:
     choice_not_saved: "{label} ist aktiv; Wahl für die nächsten Starts nicht gespeichert."
     window_not_saved: "Fenster von {window} Tokens angewendet; Wahl für die nächsten Starts nicht gespeichert."
   unavailable: "Nicht verfügbar: {reason}"
-  forgotten: Es wird verworfen.
+  forgotten: Die Instanz wird verworfen.
   rerank:
     not_configured: "Nicht verfügbar: [rag.reranker] nicht konfiguriert."
     loading: "Reranking-Modell {label} wird geladen…"
@@ -393,7 +393,7 @@ session:
   hooks:
     failed:
       message: "Der Hook „{label}“ ist fehlgeschlagen."
-      effect: "Er lässt durch: Die Runde geht weiter."
+      effect: "Er lässt den Aufruf durch: Die Runde geht weiter."
     not_allowed:
       message: "Der Hook „{label}“ hat die Entscheidung „{decision}“ getroffen, die am Punkt „{point}“ nicht erlaubt ist."
       cause: Entscheidung außerhalb der erlaubten Liste (AD-13).
@@ -627,7 +627,7 @@ hooks:
     blocked_by: "Aufruf von {hook} blockiert"
     blocked: blockiert
     human_validation: menschliche Freigabe
-    towards: "{tool} zu {destination}"
+    towards: "{tool} an {destination}"
     approval:
       approved: erlaubt
       refused: abgelehnt
@@ -1141,7 +1141,7 @@ models:
     timeout: "Zeitüberschreitung: {provider} hat nicht rechtzeitig geantwortet."
     no_network: "Kein Netzwerk: {provider} ({host}) ist von diesem Arbeitsplatz aus nicht erreichbar."
     redirect: "Umleitung abgelehnt: {provider} hat mit {status} nach {location} geantwortet. Der Schlüssel wird nie an eine andere Stelle gesendet."
-    another_address: eine andere Adresse
+    another_address: einer anderen Adresse
     quota_refused: "Der Anbieter lehnt den Aufruf ab: {quota}."
     quota:
       second: Kontingent pro Sekunde überschritten

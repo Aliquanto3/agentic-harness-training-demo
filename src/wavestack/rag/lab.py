@@ -935,7 +935,8 @@ class Loans:
             raise StageFailed(unavailable_text)
         if (slot, label_text) in self._by_key:
             return Lent(self._by_key[(slot, label_text)], False, label_text)
-        refusal = self._registry.check_component(f"{noun_text} {label_text}", cost, slot)
+        named = Lazy(lambda lang: f"{render(noun_text, lang)} {label_text}")
+        refusal = self._registry.check_component(named, cost, slot)
         if refusal is not None:
             raise StageFailed(refusal, soft=soft)
         try:

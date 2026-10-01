@@ -987,7 +987,7 @@ context:
 # `session/diagnostic.py`: the launch diagnostic's checks, the model choice and the cloud
 # models (AD-3, AD-20, AD-21). `{notice}` is the reason a saved model was not taken back.
 diagnostic:
-  starting: "Startup diagnostic in progress."
+  starting: "Start-up diagnostics in progress."
   port: "Port {port} reserved for WaveStack."
   memory:
     figures: "WaveStack memory budget: {size} MB ({calc})."
@@ -1164,7 +1164,7 @@ models:
       check_base_url: Check base_url in the model's declaration.
       wait_seconds: "Wait {seconds} s before trying again."
       wait_a_bit: Wait a little before trying again.
-      min_interval: "Increase min_interval_s ({interval} s today) in the declaration of the model “{model}”."
+      min_interval: "Increase min_interval_s (currently {interval} s) in the declaration of the model “{model}”."
       reduce_context: "Reduce the context: lazy loading, fewer tools, conversation cleared."
       reduce_window: "Reduce the context window: waiting is no use."
       clear_conversation: Clear the conversation, or switch the MCP brick to lazy loading.

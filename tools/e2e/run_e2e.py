@@ -5214,9 +5214,10 @@ _VISIBLE_TEXTS_JS = """() => {
 
 
 def _history_strings(r: Run) -> set[str]:
-    """The texts of the events emitted before the last change of language: the journal keeps
-    them as they were said (the last model load's steps, in the language of the time). Every
-    other text the session sends is in the current language (languages 5/5)."""
+    """The texts of the history the pages replay from the journal, emitted before the last
+    change of language: the last model load's steps and the startup diagnostic's checks, kept
+    as they were said. Every other text the session sends is in the current language
+    (languages 5/5): a card's reason or a state is never set aside."""
     with r.ev._lock:
         items = list(r.ev.items)
     changes = [e["seq"] for e in items if e["kind"] == "language_changed"]
@@ -5234,7 +5235,8 @@ def _history_strings(r: Run) -> set[str]:
             for item in value:
                 walk(item)
 
-    walk([e.get("payload") for e in items if e["seq"] < changes[-1]])
+    history = ("model_load_started", "model_load_step", "model_load_ended", "diagnostic_check")
+    walk([e.get("payload") for e in items if e["seq"] < changes[-1] and e["kind"] in history])
     return found
 
 

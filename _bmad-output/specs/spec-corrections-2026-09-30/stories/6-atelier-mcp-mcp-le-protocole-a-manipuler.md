@@ -5,7 +5,7 @@ created: '2026-10-01'
 status: 'done'
 baseline_revision: '1bc25bfcc85f6761ca38f9356bc315c4aad1f2a0'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/SPEC.md'
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/atelier-mcp.md'
@@ -179,6 +179,13 @@ Implémentation livrée en entier (incréments 1 et 2, sections 1 à 5), **non v
   - `[low]` `[reject]` EC12 : = BH15, même raison.
   - `[low]` `[reject]` EC13 : texte non numérique dans un champ nombre — le navigateur le marque invalide ; l'obligatoire est dit « manquant », assez pour corriger.
   - `[medium]` `[patch]` EC14 : = EC1, même correctif.
+
+### 2026-10-01 — Follow-up review pass
+- verdicts: 1 finding — high 0, medium 0, low 1, false 0, maybe-false 0
+- findings:
+  - `[low]` `[patch]` « Arrêter » à la toute fin d'un échange fermait la connexion sans le dire : pendant le compte des poids (la page recevait `connect_ended{ok}` d'une connexion fermée) ou entre `self._cancel = None` et `idle` (connexion saine fermée sans événement) — `_mcp_lab_stop` ne ferme rien quand l'échange n'a plus de jeton ; `_run_mcp_lab_connect` revérifie l'arrêt après le compte des poids et rend alors `error`/« arrêté », connexion fermée.
+- Vérifié sans défaut (relecteur) : les quatre moments d'arrêt du démarrage, la branche `MCPError`, le texte d'`is_error`, l'ordre par `seq`, la borne `_mcp_lab_since`, la sortie de `mcp_lab` et l'absence d'interblocage.
+- Revue de suivi : convergée (aucun `high`), `followup_review_recommended: false`. Vérifié : `pytest tests/test_mcp_lab.py tests/test_mcp.py` passés ; E2E `mcp_lab` rejoué.
 
 ## Auto Run Result
 

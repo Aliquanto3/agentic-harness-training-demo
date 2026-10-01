@@ -768,7 +768,11 @@ function renderWindow(p) {
 function windowToken(p) {
   const fill = document.querySelector("#window-diagram .window-fill.is-output");
   if (!fill || $("window-diagram").hidden) return;
-  fill.style.width = `min(100%, calc(100% * ${p.index + 1} / ${store.win.reserve}))`;
+  // A server or a cloud model sends fragments of several tokens: no share of the reserve
+  // drawn from their count, only the count said.
+  fill.style.width = store.gen.fragments
+    ? "0"
+    : `min(100%, calc(100% * ${p.index + 1} / ${store.win.reserve}))`;
   const output = store.gen.fragments ? "window.output_fragments_text" : "window.output_text";
   $("window-reserve-label").textContent = `${store.win.reserveText} · ${text(output, {
     tokens: decimals().format(p.index + 1),
@@ -1134,12 +1138,20 @@ function applyEnvelope(envelope) {
   if (envelope.kind === "session_state") {
     store.session = { state: p.state, reason_text: p.reason_text };
     if (p.active_model !== undefined) store.activeModel = p.active_model;
+    if (p.state === "llm_lab" || p.state === "model_load") {
+      // Story 5 (2026-09-30): the session has just let go of the last generation's
+      // candidates (a new one, or the engine released): nothing to ask until it says.
+      store.dist.tokens = 0;
+      renderDistributionIdle();
+    }
     renderModel();
     renderBusy();
     return;
   }
   if (envelope.kind === "model_load_started") {
     renderLoadStarted(envelope);
+    store.dist.tokens = 0; // the engine that read the candidates is being released
+    renderDistributionIdle();
     return;
   }
   if (envelope.kind === "model_load_step") {
