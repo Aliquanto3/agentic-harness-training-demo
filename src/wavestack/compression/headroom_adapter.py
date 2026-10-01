@@ -27,15 +27,17 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from wavestack.compression import env as compression_env
 from wavestack.compression.env import apply_offline_env
 from wavestack.compression.port import Compressed
 from wavestack.messages import Message
 
 HEADROOM_VERSION = "0.38.0"
 # Headroom counts its own tokens with this model's tiktoken table: only its internal decisions
-# use them, WaveStack counts its own (AD-1). `gpt-4` reads `cl100k_base`, which every copy of
-# litellm ships (`TIKTOKEN_CACHE_DIR`, see `env`); `gpt-4o` read `o200k_base`, missing from the
-# target PC's cache (2026-09-27), so tiktoken tried to download it (AD-15). Lot F.
+# use them, WaveStack counts its own (AD-1). `gpt-4` reads `cl100k_base`, which WaveStack ships
+# (`CUSTOM_TIKTOKEN_CACHE_DIR`, see `env`; story 4: litellm's copy has CRLF line endings);
+# `gpt-4o` read `o200k_base`, missing from the target PC's cache (2026-09-27), so tiktoken tried
+# to download it (AD-15). Lot F.
 COUNTING_MODEL = "gpt-4"
 _INSTALL = "uv sync --extra compression"
 # A short JSON array: the warm-up call pays the lazy imports once, at load time.
@@ -48,7 +50,7 @@ _version = importlib.metadata.version
 def missing_fr() -> str | None:
     """Why Headroom cannot be used, with the command to run: a `Message` (French as a
     text), rendered in the session's language where it is shown; `None` when the pinned
-    version is installed."""
+    version is installed and the tiktoken table WaveStack ships is intact."""
     install = Message("compression.install", command=_INSTALL)
     if _find_spec("headroom") is None:
         return Message("compression.missing", version=HEADROOM_VERSION, install=install)
@@ -63,6 +65,14 @@ def missing_fr() -> str | None:
             pinned=HEADROOM_VERSION,
             install=install,
         )
+    # Story 4: without the shipped table (or with an altered one), tiktoken would go to the
+    # network at Headroom's import; the brick says why instead.
+    problem = compression_env.tiktoken_table_problem()
+    if problem is not None:
+        path = compression_env.tiktoken_cache_dir() / compression_env.CL100K_BASE_FILE
+        if problem == "missing":
+            return Message("compression.tiktoken_missing", path=str(path))
+        return Message("compression.tiktoken_altered", path=str(path))
     return None
 
 

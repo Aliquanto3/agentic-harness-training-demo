@@ -2,7 +2,8 @@
 title: 'Constats différés : rag_rerank sous charge, table cl100k_base hors ligne'
 type: 'bugfix'
 created: '2026-10-01'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: 'f06e34b77a7d1c595f35d935bf2ff56e2aa1a9fe'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
