@@ -21,6 +21,7 @@ from test_rag_rerank import place_reranker, rerank_config
 from test_rag_review import _script, fake_factory
 
 from wavestack import config
+from wavestack.messages import msg
 from wavestack.rag import index as rag_index
 from wavestack.rag import lab as rag_lab
 from wavestack.rag.corpus import chunk_corpus, load_rag_content
@@ -203,7 +204,9 @@ def test_a_missing_index_of_the_language_offers_its_build(marked, tmp_path):
 
     rag = card(session)
     target = tmp_path / "rag_index.en.sqlite"
-    assert rag["available"] is False and "index absent" in rag["reason_text"]
+    # Story 7 of 2026-09-30: the reason in the session's language.
+    absent = msg("session.rag.index_absent", "en", path="", build="", script="").split("(")[0]
+    assert rag["available"] is False and rag["reason_text"].startswith(absent)
     assert str(target) in rag["reason_text"] and "--lang en" in rag["reason_text"]
     assert rag["build_index"] == {"label_text": load_rag_content("en").build_label_text}
 
@@ -270,7 +273,8 @@ def test_an_index_of_another_language_is_stale(marked, tmp_path):
     session, embedders = rag_session(_values(index, "de"))
 
     rag = card(session)
-    assert rag["available"] is False and "index périmé" in rag["reason_text"]
+    stale = msg("session.rag.stale", "de", built_at="", build="").split(".")[0]
+    assert rag["available"] is False and rag["reason_text"].startswith(stale)
     assert rag["build_index"] is not None and embedders.made == []
     session.close()
 
