@@ -368,17 +368,12 @@ def s_diagnostic(r: Run) -> None:
 
 def s_bare_llm(r: Run) -> None:
     r.launch("bare_llm")
-    guide = r.page.locator("#scenario-guide")
-    r.check(guide.is_visible() and "LLM nu" in guide.inner_text(), "consigne affichée")
-    overflow, more = r.page.evaluate(
-        "() => { const t = document.getElementById('scenario-guide-text');"
-        " return [t.scrollHeight > t.clientHeight + 1,"
-        " !document.getElementById('scenario-guide-more').hidden]; }"
-    )
+    guide = r.page.locator("#scenario-info-popover")
     r.check(
-        overflow == more,
-        "« Afficher plus » seulement si la consigne dépasse 3 lignes",
-        f"déborde : {overflow} · bouton : {more}",
+        r.page.locator("#scenario-info").is_visible()
+        and not guide.is_visible()
+        and "LLM nu" in guide.text_content(),
+        "consigne derrière le « i » de la Vue humain, fermée au lancement",
     )
     _parent_off_at_launch(r)
     before = len(r.fake_calls())
@@ -2783,7 +2778,7 @@ def s_mcp_full(r: Run) -> None:
 def s_mcp_lazy(r: Run) -> None:
     first, second = _prompts("mcp_lazy")
     r.launch("mcp_lazy")
-    guide = r.page.locator("#scenario-guide").inner_text()
+    guide = r.page.locator("#scenario-info-popover").text_content()
     r.check(
         not r.bricks()["rag"]["wanted"] and "le RAG, laissé éteint" in guide,
         "lazy loading : RAG non voulu (story 27), la consigne le dit",
@@ -2860,7 +2855,7 @@ def s_mcp_lazy(r: Run) -> None:
 
 def s_skills(r: Run) -> None:
     r.launch("skills")
-    guide = r.page.locator("#scenario-guide").inner_text()
+    guide = r.page.locator("#scenario-info-popover").text_content()
     r.check(
         "« Déclencher le skill » sur « Compte rendu de réunion »" in guide
         and not r.bricks()["rag"]["wanted"],
@@ -2973,7 +2968,8 @@ def s_subagent(r: Run) -> None:
     r.launch("subagent")
     r.check(
         not r.bricks()["rag"]["wanted"]
-        and "sans le raisonnement ni le RAG" in page.locator("#scenario-guide").inner_text(),
+        and "sans le raisonnement ni le RAG"
+        in page.locator("#scenario-info-popover").text_content(),
         "sous-agent : RAG non voulu, la consigne le dit (story 27, D5)",
     )
     # The scenario's own prompt; « [lent] » slows the fake model down to see the robot work.
@@ -3237,7 +3233,8 @@ def s_data_flows(r: Run) -> None:
         f"{enabled} · {mode}",
     )
     r.check(
-        "Décochez puis recochez data.gouv.fr" in r.page.locator("#scenario-guide").inner_text(),
+        "Décochez puis recochez data.gouv.fr"
+        in r.page.locator("#scenario-info-popover").text_content(),
         "consigne : tout est actif, décocher puis recocher data.gouv.fr",
     )
     _public_server_offline(r, "datagouv", "data.gouv.fr", seq)
@@ -3428,14 +3425,15 @@ def s_programme(r: Run) -> None:
         "le RAG",
         str(sorted(wanted)),
     )
-    guide = r.page.locator("#scenario-guide")
+    guide = r.page.locator("#scenario-info-popover")
     r.check(
-        "sans le raisonnement ni le RAG" in guide.inner_text(),
+        "sans le raisonnement ni le RAG" in guide.text_content(),
         "la consigne dit que le raisonnement et le RAG restent éteints",
     )
     r.launch("mcp_full")
     r.check(
-        not r.bricks()["rag"]["wanted"] and "sauf le raisonnement et le RAG" in guide.inner_text(),
+        not r.bricks()["rag"]["wanted"]
+        and "sauf le raisonnement et le RAG" in guide.text_content(),
         "« MCP en documentation complète » : RAG éteint, la consigne le dit",
     )
 
@@ -3445,14 +3443,14 @@ def s_soc(r: Run) -> None:
     itself and H1 blocks it; the audit log opens from the schema."""
     first, second = _prompts("soc")
     r.launch("soc")
-    guide = r.page.locator("#scenario-guide")
+    guide = r.page.locator("#scenario-info-popover").text_content()
     r.check(
-        "Métier SOC" in guide.inner_text() and "analyste habilité" in guide.inner_text(),
+        "Métier SOC" in guide and "analyste habilité" in guide,
         "consigne du scénario SOC affichée, qui cite l'analyste habilité",
     )
     seq = r.ev.mark()
     ended = r.send(first)
-    _folded_guide(r)
+    _scenario_info(r)
     reads = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
     r.check(
         bool(reads) and reads[0]["status"] == "ok",
@@ -3510,38 +3508,43 @@ def s_soc(r: Run) -> None:
     r.shot("26-metier-soc-journal-audit")
     r.page.click("#audit-close")
 
-    # Story 22: left unfolded, the guide folds again when another scenario is launched.
-    more = r.page.locator("#scenario-guide-more")
-    more.click()
-    expect(more).to_have_attribute("aria-expanded", "true", timeout=5000)
+    # Left open, the instructions follow the scenario launched next.
+    info = r.page.locator("#scenario-info")
+    info.click()
+    popover = r.page.locator("#scenario-info-popover")
+    expect(popover).to_be_visible(timeout=5000)
     r.launch("reasoning")
-    folded = r.page.evaluate(
-        "() => [document.getElementById('scenario-guide-more').getAttribute('aria-expanded'),"
-        " document.getElementById('scenario-guide').classList.contains('is-expanded')]"
-    )
+    title = _content("fr", "scenarios.yaml")["scenarios"]["reasoning"]["title_text"]
     r.check(
-        folded == ["false", False],
-        "nouveau scénario : la consigne dépliée se replie",
-        str(folded),
+        title in (popover.text_content() or "") and "Métier SOC" not in popover.text_content(),
+        "nouveau scénario : la consigne ouverte montre le nouveau",
+        (popover.text_content() or "")[:120],
     )
+    r.page.keyboard.press("Escape")
 
 
-def _folded_guide(r: Run) -> None:
-    """Story 22 (C1): a long scenario guide holds 3 lines, « Afficher plus » unfolds it; the
-    field and the last bubble stay in view."""
-    text = r.page.locator("#scenario-guide-text")
-    more = r.page.locator("#scenario-guide-more")
-    measure = (
-        "e => { const s = getComputedStyle(e);"
-        " return [e.getBoundingClientRect().height, parseFloat(s.lineHeight)]; }"
-    )
-    height, line = text.evaluate(measure)
+def _scenario_info(r: Run) -> None:
+    """The scenario's instructions sit behind the « i » of the Vue humain title: a toggletip
+    (click, Escape) previewed on hover; open, the field and the last bubble stay in view."""
+    info = r.page.locator("#scenario-info")
+    popover = r.page.locator("#scenario-info-popover")
+    open_ = "e => e.matches(':popover-open')"
     r.check(
-        height <= 3 * line + 1
-        and more.is_visible()
-        and more.get_attribute("aria-expanded") == "false",
-        "consigne longue : 3 lignes au plus, « Afficher plus » visible",
-        f"{height:.1f} px pour des lignes de {line:.1f} px",
+        info.is_visible() and "Métier SOC" in (info.get_attribute("aria-label") or ""),
+        "« i » visible, nommé d'après le scénario",
+        info.get_attribute("aria-label") or "",
+    )
+    info.click()
+    r.check(popover.evaluate(open_), "clic sur le « i » : la consigne s'ouvre")
+    box, view = popover.bounding_box(), r.page.viewport_size
+    r.check(
+        bool(box and view)
+        and box["x"] >= 0
+        and box["y"] >= 0
+        and box["x"] + box["width"] <= view["width"]
+        and box["y"] + box["height"] <= view["height"],
+        "consigne longue : entière dans la fenêtre (elle défile au besoin)",
+        str(box),
     )
 
     def in_view() -> str:
@@ -3559,27 +3562,23 @@ def _folded_guide(r: Run) -> None:
         return "" if fits and shown >= 20 else f"champ {field} · bulle {bubble} · fil {chat}"
 
     missing = in_view()
-    r.check(
-        not missing, "consigne repliée : le champ et la dernière bulle restent visibles", missing
-    )
-    more.click()
-    unfolded = text.evaluate(measure)[0]
-    r.check(
-        more.get_attribute("aria-expanded") == "true"
-        and more.inner_text() == "Réduire"
-        and unfolded > height,
-        "« Afficher plus » : le texte entier, « Réduire »",
-        f"{height:.1f} puis {unfolded:.1f} px",
-    )
-    missing = in_view()
-    r.check(
-        not missing, "consigne dépliée : le champ et la dernière bulle restent visibles", missing
-    )
-    more.click()
-    r.check(
-        more.get_attribute("aria-expanded") == "false" and more.inner_text() == "Afficher plus",
-        "« Réduire » replie la consigne",
-    )
+    r.check(not missing, "la consigne ne prend pas de place au fil ni au champ", missing)
+    r.page.keyboard.press("Escape")
+    r.check(not popover.evaluate(open_), "Échap ferme la consigne")
+    r.page.mouse.move(0, 0)  # the pointer must enter the « i » again
+    info.hover()
+    ok, took = r.poll(lambda: popover.evaluate(open_), 3)
+    r.check(ok, "survol du « i » : la consigne s'ouvre en infobulle", f"au bout de {took:.1f} s")
+    info.click()
+    r.page.mouse.move(0, 0)
+    time.sleep(0.6)
+    r.check(popover.evaluate(open_), "un clic pendant le survol la garde ouverte")
+    r.page.keyboard.press("Escape")
+    info.hover()
+    r.poll(lambda: popover.evaluate(open_), 3)
+    r.page.mouse.move(0, 0)
+    ok, took = r.poll(lambda: not popover.evaluate(open_), 3)
+    r.check(ok, "ouverte au survol, elle se ferme quand la souris s'en va", f"{took:.1f} s")
 
 
 def _public_server_offline(r: Run, server: str, label: str, seq: int | None = None) -> None:
@@ -4449,7 +4448,7 @@ def s_compression(r: Run) -> None:
     r.check(
         not r.bricks()["rag"]["wanted"]
         and "« Journal de sauvegarde (compression) »"
-        in r.page.locator("#scenario-guide").inner_text(),
+        in r.page.locator("#scenario-info-popover").text_content(),
         "compression : RAG non voulu, la consigne donne le préréglage de secours (story 27)",
     )
     brick = r.bricks()["compression"]
@@ -4754,7 +4753,7 @@ def s_reload_and_reset(r: Run) -> None:
     r.check(ok, "après rechargement : sélecteur sur « Hooks »", f"au bout de {took:.1f} s")
     ok, took = r.poll(lambda: r.page.locator("#suggested-prompts button").count() == 1)
     r.check(
-        ok and r.page.locator("#scenario-guide").is_visible(),
+        ok and r.page.locator("#scenario-info").is_visible(),
         "après rechargement : consigne et prompt suggéré",
         f"au bout de {took:.1f} s",
     )
@@ -5342,7 +5341,7 @@ def _content_language(r: Run, lang: str) -> None:
 
     # The scenario: its title in the picker, its instructions, its prompts.
     title = page.locator("#scenario-picker option:checked").inner_text()
-    guide = _flat(page.locator("#scenario-guide-text").text_content() or "")
+    guide = _flat(page.locator("#scenario-info-popover .scenario-info-text").text_content() or "")
     prompts = page.locator("#suggested-prompts button").all_inner_texts()
     r.check(
         scenario["title_text"] in title

@@ -248,8 +248,7 @@ main:
     choose: "Choose a scenario"
     module: "Module {n} · {title} · {minutes} min"
     transverse: "Cross-cutting and business"
-    more: "Show more"
-    less: "Show less"
+    info_label: "Instructions for the scenario “{scenario}”"
     fill: "Fill in the field: {prompt}"
     unavailable:
       one: "Scenario brick unavailable with this model:"

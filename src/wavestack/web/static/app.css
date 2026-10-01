@@ -3651,55 +3651,102 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   outline-offset: 2px;
 }
 
-.scenario-guide {
-  margin: 0;
-  font-size: var(--typography-body-sm-font-size);
-  color: var(--color-ink-soft);
+/* The scenario's instructions: an « i » next to the Vue humain title (hidden without a
+   scenario) and its native popover, anchored under it (Chromium; see .brick-explanation). */
+.pane-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
 }
 
-/* Story 22 (C1): three lines, then « Afficher plus »; unfolded, the whole text. */
-.scenario-guide-text {
-  margin: 0;
-  line-height: var(--typography-body-sm-line-height);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  overflow: hidden;
-}
-
-/* Unfolded, it still leaves the conversation its room: past 12 lines, it scrolls. */
-.scenario-guide.is-expanded .scenario-guide-text {
-  display: block;
-  -webkit-line-clamp: none;
-  line-clamp: none;
-  max-height: calc(12 * var(--typography-body-sm-line-height) * 1em);
-  overflow-y: auto;
-}
-
-.scenario-guide-more {
-  min-height: var(--spacing-hit-target-min);
+.scenario-info {
+  anchor-name: --scenario-info;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 1.5em;
+  height: 1.5em;
   padding: 0;
-  border: none;
-  background: none;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--rounded-full);
+  background: var(--color-surface-raised);
   color: var(--color-primary);
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-  text-decoration: underline;
-  cursor: pointer;
+  font: italic 700 var(--typography-label-font-size) / 1 Georgia, "Times New Roman", serif;
+  cursor: help;
+  position: relative;
 }
 
-.scenario-guide-more[hidden] {
+/* The hit area reaches the minimum target size without enlarging the drawn disc. */
+.scenario-info::after {
+  content: "";
+  position: absolute;
+  inset: calc((1.5em - var(--spacing-hit-target-min)) / 2);
+}
+
+.scenario-info[hidden] {
   display: none;
 }
 
-.scenario-guide-more:focus-visible {
+.scenario-info:hover,
+.pane-title-row:has(.scenario-info-popover:popover-open) .scenario-info {
+  background: var(--color-primary);
+  color: var(--color-surface-raised);
+}
+
+.scenario-info:focus-visible {
   outline: var(--spacing-stroke-min) solid var(--color-primary);
   outline-offset: 2px;
 }
 
-.scenario-guide strong {
+.scenario-info.is-new {
+  animation: scenario-info-glow 1.2s ease-out 2;
+}
+
+@keyframes scenario-info-glow {
+  from {
+    box-shadow: 0 0 0 0 var(--color-primary);
+  }
+  to {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scenario-info.is-new {
+    animation: none;
+  }
+}
+
+.scenario-info-popover {
+  position: fixed;
+  position-anchor: --scenario-info;
+  position-area: block-end span-inline-end;
+  position-try-fallbacks: flip-inline, flip-block;
+  margin: var(--spacing-1) 0 0 0;
+  max-width: min(420px, calc(100vw - 2 * var(--spacing-2)));
+  max-height: min(70vh, 32em);
+  overflow-y: auto;
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  background: var(--color-surface-raised);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
+  color: var(--color-ink-soft);
+  font-size: var(--typography-body-sm-font-size);
+  line-height: var(--typography-body-sm-line-height);
+}
+
+.scenario-info-popover p {
+  margin: 0;
+}
+
+.scenario-info-popover p + p {
+  margin-top: var(--spacing-1);
+}
+
+.scenario-info-title {
   color: var(--color-primary-deep);
+  font-weight: 700;
 }
 
 .suggested-prompts {
@@ -3709,7 +3756,6 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .suggested-prompts[hidden],
-.scenario-guide[hidden],
 .scenario-unavailable[hidden] {
   display: none;
 }

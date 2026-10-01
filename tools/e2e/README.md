@@ -198,15 +198,16 @@ Vérifications ajoutées aux scénarios existants :
 
 - `bare_llm` : « Raisonnement » en tête du panneau ; MCP (passé en lazy loading par l'API,
   brique éteinte), Outils, Skills et Hooks éteints : sous-options désactivées, raison au
-  survol, « · brique éteinte » dans le résumé ; « Afficher plus » seulement si la consigne
-  dépasse 3 lignes.
+  survol, « · brique éteinte » dans le résumé ; la consigne derrière le « i » de la Vue humain,
+  fermée au lancement.
 - `system_prompt` : « Enregistrer » désactivé tant que le texte est inchangé, puis
   « Prompt système enregistré. » (`role=status`), effacé à la saisie suivante.
 - `subagent` : onglets « Agent principal » / « Sous-agent subN » (`role=tablist`), retour à
   « Agent principal » au tour suivant ; « Annuler » et un second clic sur « Déléguer au
   sous-agent » ferment le formulaire.
-- `soc` : consigne de 1 276 caractères sur 3 lignes, « Afficher plus » / « Réduire », champ
-  et dernière bulle visibles ; laissée dépliée, repliée au lancement d'un autre scénario.
+- `soc` : consigne de 1 276 caractères derrière le « i » : clic, Échap, aperçu au survol qu'un
+  clic garde ouvert ; entière dans la fenêtre, champ et dernière bulle visibles ; laissée
+  ouverte, elle suit le scénario lancé ensuite.
 - `global_memory` : 6 entrées ; croix, « Tout effacer » (danger) et « Fermer » visibles sans
   défiler ; la croix ferme le tiroir.
 - `rag_rerank` : « Reranking » coché, brique RAG éteinte : grisé, désactivé, raison au

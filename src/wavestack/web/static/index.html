@@ -116,7 +116,11 @@
           <header class="pane-header">
             <span class="pane-step" aria-hidden="true">1</span>
             <div class="pane-heading">
-              <h2 class="pane-title" data-i18n="main.pane_titles.human">Vue humain</h2>
+              <div class="pane-title-row">
+                <h2 class="pane-title" data-i18n="main.pane_titles.human">Vue humain</h2>
+                <button type="button" class="scenario-info" id="scenario-info" popovertarget="scenario-info-popover" hidden>i</button>
+                <div class="scenario-info-popover" id="scenario-info-popover" popover></div>
+              </div>
               <p class="pane-subtitle" data-i18n="main.pane_subtitles.human">Ce que voit l'utilisateur</p>
             </div>
             <div class="pane-actions">
@@ -134,10 +138,6 @@
             <div class="chat" id="chat"></div>
             <div class="sr-only" id="chat-live" aria-live="polite"></div>
             <p class="composer-reason" id="composer-reason" hidden></p>
-            <div class="scenario-guide" id="scenario-guide" hidden>
-              <p class="scenario-guide-text" id="scenario-guide-text"></p>
-              <button type="button" class="scenario-guide-more" id="scenario-guide-more" aria-expanded="false" aria-controls="scenario-guide-text" hidden data-i18n="main.scenario.more">Afficher plus</button>
-            </div>
             <div class="scenario-unavailable" id="scenario-unavailable" role="status" hidden></div>
             <div class="suggested-prompts" id="suggested-prompts" role="group" aria-label="Prompts suggérés" data-i18n-aria-label="main.scenario.prompts_label" hidden></div>
             <div class="armed-chips-row" id="armed-chips" role="group" aria-label="Actions armées pour le prochain tour" data-i18n-aria-label="main.force.armed_label" hidden></div>
