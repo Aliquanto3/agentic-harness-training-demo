@@ -9,7 +9,7 @@ context:
   - '{project-root}/_bmad-output/specs/spec-wavestack-v2/decision-model-candidates.md'
 ---
 
-> Seule story que la contrainte « Déclenchement » permet avant le pilote, sur décision d'Anaël. Elle ne livre aucune fonction.
+> Seule story que la contrainte « Déclenchement » permet avant le pilote, sur décision d'Anaël, donnée le 2026-10-01. Elle ne livre aucune fonction.
 
 ## Intent
 

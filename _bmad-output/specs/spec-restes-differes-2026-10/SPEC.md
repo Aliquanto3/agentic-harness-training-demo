@@ -30,8 +30,8 @@ sources:
   - **intent:** Chaque décision prise sur D1 à D19 (sauf D16) est appliquée ou l'entrée correspondante fermée avec la décision.
   - **success:** Pour chaque Dn tranché, `deferred-work.md` porte la décision ; les « oui » ont leur test ou contrôle E2E ; aucune entrée C ne reste sans `closed:` ou `resolution:`.
 - **CAP-4** Premier tour moins lent sur CPU (story 4)
-  - **intent:** Le premier tour d'un scénario chargé ne relit pas un contexte que le harnais pouvait évaluer pendant la lecture de la consigne, et charger une documentation en lazy loading ne force plus la relecture du contexte (si D16 = oui).
-  - **success:** Avec le faux moteur, le premier appel du premier tour d'un scénario réutilise les tokens préremplis (`evaluated_tokens` réduit d'autant, aucun `prefix_not_reused`) ; si D16 = oui, aucun `prefix_not_reused{cause: system}` après `load_tool_doc` ; sur PC, `prompt_ms` du premier tour de `mcp_lazy` et de `subagent` mesuré avant et après.
+  - **intent:** Le premier tour d'un scénario chargé ne relit pas un contexte que le harnais pouvait évaluer pendant la lecture de la consigne, et charger une documentation en lazy loading ne force plus la relecture du contexte (D16 = oui).
+  - **success:** Avec le faux moteur, le premier appel du premier tour d'un scénario réutilise les tokens préremplis (`evaluated_tokens` réduit d'autant, aucun `prefix_not_reused`) ; aucun `prefix_not_reused{cause: system}` après `load_tool_doc` ; sur PC, `prompt_ms` du premier tour de `mcp_lazy` et de `subagent` mesuré avant et après.
 - **CAP-5** Front de l'atelier sous E2E (stories 5 et 6)
   - **intent:** Les interrupteurs, cartes, schéma, rail, volets et cas d'erreur listés par les entrées B « aucun test front » sont vérifiés par le parcours E2E.
   - **success:** Chaque comportement listé dans les stories 5 et 6 a un contrôle E2E nommé, qui échoue si on retire la ligne de `app.js` qui le produit ; `gemini_shape` passe cinq fois de suite dans sa tranche.
@@ -52,7 +52,7 @@ sources:
 ## Non-goals
 
 - Un banc de test JS (`node:test`, `node:vm`) : les pistes des entrées sont remplacées par des contrôles E2E.
-- Les entrées que le triage recommande de fermer sans suite (D1, D2, D8, D10, D12, D13, D14) : rien à construire si Anaël suit la recommandation.
+- Les entrées que le triage recommande de fermer sans suite (D1, D2, D8, D10, D12, D13, D14) : rien à construire, Anaël a suivi la recommandation le 2026-10-01.
 - Changer de version de llama-cpp-python, ou un analyseur d'appels d'outils pour Llama.
 - Un budget de raisonnement adaptatif à la longueur du message (D17 recommande une consigne).
 
@@ -64,7 +64,9 @@ sources:
 
 Chaque décision ferme une entrée C (`triage.md`). « Fermer » = noter la décision dans l'entrée, sans code.
 
-| D | Entrée | Question | Recommandation |
+**Tranchées le 2026-10-01 : Anaël suit les dix-neuf recommandations, D16 = oui compris.** La colonne « Décision » fait foi pour les stories 3 et 4.
+
+| D | Entrée | Question | Décision (recommandation suivie le 2026-10-01) |
 |---|---|---|---|
 | D1 | E007 | Ajouter la grille détaillée de la jauge (`context-gauge-detail`) dans Contexte LLM ? | **Non**, fermer : la jauge empilée et son survol suffisent (décision du 24/09, reconduite par la story 32). |
 | D2 | E010 | Repli hors ligne de `fetch_page` (fichier long de `demo_files/`, « contenu de remplacement ») ? | **Non**, fermer : aucun scénario ne s'en sert ; l'échec expliqué est lui-même pédagogique. |

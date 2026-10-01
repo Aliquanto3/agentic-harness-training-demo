@@ -77,7 +77,7 @@ Repères : **[V1]** marque une base existante, **[neuf]** ce qui manque. Le dét
   1. La V1 tient au pilote : SM-1 et SM-3 à leur cible, SM-6 sans repli forcé.
   2. Il y a une demande : *N* profils techniques ou gouvernance demandent un approfondissement, ou une practice ou un client demande un module.
   3. Avant toute présentation client : validation Wavestone de l'usage en clientèle.
-  Aucune story de fonction ne part avant (1) et (2). Le banc de CAP-6 n'est pas une fonction : il peut partir avant, sur décision d'Anaël.
+  Aucune story de fonction ne part avant (1) et (2). Le banc de CAP-6 n'est pas une fonction : il peut partir avant, sur décision d'Anaël (donnée le 2026-10-01).
 - **Diagnostiquer dans le contexte, pas dans la réponse.** Mesures d'avant génération. La qualité de la réponse reste secondaire (SM-C1). On garde le SLM sur CPU et le budget de 4 Go (NFR-2).
 - **Jamais deux modèles génératifs chargés.** Classifieurs et encodeurs passent par le `LoadRegistry`, dans le budget, comme l'embedding et le reranker de la V1. Un modèle gardien génératif (Llama-Guard, Qwen3Guard) tombe sous la règle d'un seul modèle génératif.
 - **Le jeu de questions reste une démonstration.** Chaque question sert un scénario. L'interface n'affiche aucune métrique agrégée (rappel, MRR, score de réponse) : ce n'est pas un banc d'essai.
@@ -121,6 +121,8 @@ Dans une session d'essai avec des profils techniques, le formateur joue les cas 
 - Ouvert jusqu'au pilote : la valeur de *N* et les seuils de la condition 2, les cibles de SM-2 à SM-7, la remise d'un zip au client (selon SM-5), l'exercice de restitution « votre message à la direction en 3 phrases », l'ordre des modules V2, macOS et Linux (NFR-6).
 
 ## Questions ouvertes pour Anaël
+
+**Tranchées le 2026-10-01 : Anaël suit les cinq recommandations.** Avant le pilote, seuls la story 6 et la question du questionnaire partent ; 9 questions écrites par l'agent de la story 1 et relues par Anaël ; réponse attendue affichée sans score ; coût contrefactuel contre les seuls modèles cloud déclarés avec un prix ; slides récap hors du dépôt. La spec reste non déclenchée pour les stories 1 à 5.
 
 1. **Que préparer avant le pilote ?** Recommandation : seulement le test préalable (story 6, un banc hors produit qu'il faut de toute façon refaire, Decision 1.0 évoluant vite) et la question du questionnaire. Les stories 1 à 5 attendent les conditions 1 et 2.
 2. **Qui écrit le jeu de questions, et combien ?** Recommandation : 9 questions françaises (trois par cas d'échec), rédigées par l'agent de la story 1 à partir des 10 requêtes de `tools/bench/story12_bench.py`, relues par toi, puis traduites.

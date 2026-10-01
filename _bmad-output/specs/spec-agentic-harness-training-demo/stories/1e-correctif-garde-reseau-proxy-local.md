@@ -2,7 +2,7 @@
 title: 'Correctif 1e : un proxy en boucle locale ne doit pas ouvrir la garde réseau'
 type: 'bugfix'
 created: '2026-09-25'
-status: 'draft'
+status: 'ready-for-dev'
 route: ''
 review_loop_iteration: 0
 context: []
@@ -154,6 +154,8 @@ Les lignes du bloc gelé valent toujours. Pour la ligne « Client hors fabrique 
 
 ## Décisions à prendre par Anaël
 
+**Tranchées le 2026-10-01 : Anaël suit les quatre recommandations.** 1 = pistes 2 + 3 ; 2 = oui, le proxy distant est confisqué aussi ; 3 = A, exemption nommée ; 4 = non, pas de ligne au diagnostic dans cette story.
+
 1. **Approche : confiscation du proxy et test statique (pistes 2 + 3), avec AD-15 amendé, plutôt que la documentation seule (piste 3) ?** Recommandation : **oui**. C'est la seule option qui rend une seconde ligne de défense réelle, y compris sous Proactor et pour le SDK MCP, pour un coût moyen.
 2. **Confisquer aussi un proxy distant (`proxy.corp.test:8080`), et lire la ligne gelée « Proxy distant : comportement actuel inchangé » comme « la fabrique sort toujours par lui » ?** Recommandation : **oui**. La faille est la même : un client hors fabrique ouvre un tunnel `CONNECT` vers un hôte de proxy accepté. Une règle unique est aussi plus simple à expliquer en formation. Si la réponse est non, la confiscation se limite aux proxys en boucle locale, et la ligne gelée garde son sens littéral.
 3. **Les deux `urlopen` de `cli.py` vers `127.0.0.1` : (A) exemption nommée dans le test statique, ou (B) passage à `create_loopback_client` ?** Recommandation : **A**. Ils ne visent que la boucle locale et ne trouveront plus de proxy après la confiscation. B touche le démarrage pour un gain nul en sécurité.
@@ -162,6 +164,7 @@ Les lignes du bloc gelé valent toujours. Pour la ligne « Client hors fabrique 
 ## Spec Change Log
 
 - 2026-10-01 -- Spec complétée hors du bloc gelé : relevé de l'existant, approche recommandée (pistes 2 + 3), compléments de contraintes et de matrice, Code Map, tâches, vérification et quatre décisions à prendre. Statut laissé à `draft` en attendant les réponses d'Anaël.
+- 2026-10-01 -- Décisions 1 à 4 tranchées par Anaël (recommandations suivies). Statut passé à `ready-for-dev`.
 
 ## Verification
 
