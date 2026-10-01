@@ -2474,6 +2474,18 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   color: var(--color-ink);
 }
 
+/* Story 6 (2026-09-30): the MCP card's link to the MCP workshop (`/mcp`). */
+.brick-workshop-link {
+  align-self: flex-start;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-primary);
+}
+
+.brick-workshop-link:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .brick-options summary {
   cursor: pointer;
   font-size: var(--typography-body-sm-font-size);

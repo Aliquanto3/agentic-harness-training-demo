@@ -28,6 +28,7 @@ from wavestack.cloud import load_cloud_content
 from wavestack.compression.port import load_compression_content
 from wavestack.context.segments import load_labels
 from wavestack.hooks import date_fr, date_text, load_hooks_content
+from wavestack.mcp import lab as mcp_lab
 from wavestack.mcp.connection import McpConnection
 from wavestack.mcp.servers import LOCAL, McpServer, load_local_tools, load_mcp_content
 from wavestack.models.catalog import load_publishers
@@ -90,7 +91,8 @@ PEDAGOGICAL = (
 )
 # Languages (4/5): the workshops and the RAG corpus, translated under the same names.
 CORPUS = sorted(p.name for p in (CONTENT / "corpus").glob("*.md"))
-WORKSHOPS = ("llm_lab.yaml", "rag_lab.yaml", *(f"corpus/{c}" for c in CORPUS))
+# Story 6 (2026-09-30): the MCP workshop too.
+WORKSHOPS = ("llm_lab.yaml", "rag_lab.yaml", "mcp_lab.yaml", *(f"corpus/{c}" for c in CORPUS))
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?")
 PROMPTS = {
     "fr": "Tu es l'assistant de démonstration de WaveStack. Réponds en français",
@@ -248,6 +250,14 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
         assert {k: v.keys() for k, v in tr.options.items()} == {
             k: v.keys() for k, v in fr.options.items()
         }
+    elif rel == "mcp_lab.yaml":  # story 6 (2026-09-30): the same transports and methods
+        fr, tr = mcp_lab.load_lab_content("fr"), mcp_lab.load_lab_content(lang)
+        assert tr.title_text != fr.title_text and tr.intro_text != fr.intro_text
+        assert tr.model_dump().keys() == fr.model_dump().keys()
+        assert (tr.transports.keys(), tr.methods.keys()) == (
+            fr.transports.keys(),
+            fr.methods.keys(),
+        )
     elif rel.startswith("corpus/"):  # languages (4/5): the same sections, about as long
         fr_text = french.read_text(encoding="utf-8")
         tr_text = translated.read_text(encoding="utf-8")

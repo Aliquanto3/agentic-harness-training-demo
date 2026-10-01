@@ -12,6 +12,19 @@ session:
     distribution:
       none: "Erzeugen Sie zuerst einen Text mit einem lokalen Modell."
       out_of_range: "Die letzte Generierung hat kein Token {index}: Sie umfasst {count} mit ihren Kandidaten."
+  # Story 6 of 2026-09-30: the MCP workshop.
+  state:
+    mcp_lab: "MCP-Werkstatt: Austausch läuft; warten Sie sein Ende ab oder stoppen Sie ihn."
+  mcp_lab:
+    content_invalid: "Die Texte der MCP-Werkstatt sind unlesbar (content/mcp_lab.yaml): Korrigieren Sie die Datei und laden Sie die Seite neu."
+    content_invalid_effect: Die Seite „MCP-Werkstatt“ wird ohne sie weiter ausgeliefert.
+    texts_unreadable: Die Texte der MCP-Werkstatt sind unlesbar.
+    not_connected: "Verbinden Sie sich zuerst mit {server}: Der Aufruf läuft über die Verbindung der MCP-Werkstatt."
+    unknown_tool: "{server} hat kein Tool „{tool}“ aufgelistet."
+    stopped: "Austausch gestoppt: Die Verbindung der MCP-Werkstatt ist geschlossen."
+    closed: "Die Verbindung der MCP-Werkstatt ist geschlossen: Verbinden Sie sich erneut mit dem Server."
+    is_error: "Der Server hat mit is_error geantwortet: Das Tool meldet einen Fehler, den der Harness unverändert an das Modell zurückgeben würde."
+    interrupted: Die MCP-Werkstatt wurde durch einen Fehler unterbrochen.
 
 tools:
   datetime:
@@ -27,6 +40,17 @@ tools:
 mcp:
   glossary:
     unknown_term: "Begriff nicht im Glossar: „{term}“. Verfügbare Begriffe: {known}."
+  # `mcp/connection.py` (story 6 of 2026-09-30: shown by the MCP workshop).
+  block_not_shown: "[Block {type} nicht angezeigt]"
+  error:
+    timeout: "Der Server hat nicht rechtzeitig geantwortet ({timeout} s)."
+    http: "Der Server hat mit einem HTTP-Fehler {status} geantwortet."
+    refused_exchange: "Der Server hat den MCP-Austausch abgelehnt ({cause})."
+    closed: "Die Verbindung zum Server ist geschlossen: Deaktivieren und aktivieren Sie ihn erneut, um sie wieder zu öffnen."
+    process: "Der Prozess des Servers konnte nicht gestartet werden ({cause})."
+    failed: "Die Verbindung zum Server ist fehlgeschlagen ({kind}: {cause})."
+    call_refused: "Der MCP-Server hat den Aufruf abgelehnt: {cause}"
+    no_detail: "Der Server meldet einen Fehler, ohne Details."
 
 # `cli.py`: the terminal speaks English; this German `cli` section is a subset (story R0's
 # keys only) until story 7 completes the translations.

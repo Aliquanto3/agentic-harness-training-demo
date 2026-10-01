@@ -68,6 +68,7 @@ session:
     turn: "Un tour est en cours : attendez sa fin ou arrêtez-le."
     llm_lab: "L'écran « LLM nu » génère une réponse : attendez sa fin ou arrêtez-la."
     rag_lab: "Atelier RAG : exécution en cours ; attendez sa fin ou arrêtez-la."
+    mcp_lab: "Atelier MCP : échange en cours ; attendez sa fin ou arrêtez-le."
     awaiting: "En attente de votre validation : autorisez ou refusez l'appel réseau."
     no_model: "Envoi indisponible : aucun modèle n'est choisi. Choisissez-en un sur la page de diagnostic."
     load_failed: "Envoi indisponible : le modèle n'a pas pu être chargé. Choisissez un autre fichier GGUF sur la page de diagnostic."
@@ -494,6 +495,17 @@ session:
       refused: "Import refusé : {label} n'a pas pu être chargé ({kind} : {cause}). Une stratégie de sécurité (AppLocker, WDAC) bloque peut-être ses bibliothèques non signées ; les autres bases vectorielles restent utilisables."
       failed: "Import en échec : {label} n'a pas pu être chargé ({kind} : {cause}). Son installation est peut-être abîmée : relancez `{install}` depuis le dossier de WaveStack ; les autres options restent utilisables."
     interrupted: L'atelier RAG s'est interrompu sur une erreur.
+  # Story 6 of 2026-09-30: the MCP workshop (`/mcp`), its own connections, never the brick's.
+  mcp_lab:
+    content_invalid: "Textes de l'atelier MCP illisibles (content/mcp_lab.yaml) : corrigez le fichier puis rechargez la page."
+    content_invalid_effect: La page « Atelier MCP » reste servie sans eux.
+    texts_unreadable: Textes de l'atelier MCP illisibles.
+    not_connected: "Connectez-vous d'abord à {server} : l'appel passe par la connexion de l'atelier MCP."
+    unknown_tool: "{server} n'a pas listé d'outil « {tool} »."
+    stopped: "Échange arrêté : la connexion de l'atelier MCP est fermée."
+    closed: "La connexion de l'atelier MCP est fermée : reconnectez-vous au serveur."
+    is_error: "Le serveur a répondu avec is_error : l'outil signale une erreur, que le harnais réinjecterait telle quelle au modèle."
+    interrupted: L'atelier MCP s'est interrompu sur une erreur.
   reading_context: "Lecture du contexte ({tokens} tokens)"
 
 tools:
