@@ -871,6 +871,7 @@ class AppSession:
         # it listed, and its content error already traced.
         self._mcp_labs = 0
         self._mcp_lab_first = 0
+        self._mcp_lab_since = 0  # the journal's `seq` before the last connection
         self._mcp_lab_conn: mcp_lab.LabConnection | None = None
         self._mcp_lab_tools: dict[str, Any] = {}
         self._mcp_lab_error_traced: str | None = None
@@ -8867,7 +8868,9 @@ class AppSession:
         with self._lock:
             state, reason_text = self.state, self.reason_text
             conn, first = self._mcp_lab_conn, self._mcp_lab_first
-        events = [e for e in journal.all_events() if e.seq <= tip]
+            since = self._mcp_lab_since
+        # From the last connection on: an older `mcp{n}` of the same journal never comes back.
+        events = [e for e in journal.all_events() if since < e.seq <= tip]
         presets = self._mcp_content.call_presets if self._mcp_content else {}
         return {
             "servers": self._mcp_lab_servers(),
@@ -8903,9 +8906,11 @@ class AppSession:
         texts, error_text = self._mcp_lab_content()
         if texts is None:
             raise SendRefused(error_text or Message("session.mcp_lab.texts_unreadable"))
+        since = self._journal().last_seq()  # the connection's events come after it
         with self._lock:
             step_id, cancel, previous = self._mcp_lab_begin()
             self._mcp_lab_first = self._mcp_labs
+            self._mcp_lab_since = since
         self._emit_state()
         self._executor.submit(self._run_mcp_lab_connect, step_id, server_id, cancel, previous)
         return step_id

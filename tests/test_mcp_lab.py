@@ -459,8 +459,9 @@ def test_stop_during_the_handshake(loop, web):
 
 def test_a_server_gone_during_a_call_closes_the_workshops_connection(loop):
     session = mcp_session(loop)
+    before = {p.pid for p in local_servers()}  # the brick's own local server, if any
     connect(session)
-    (child,) = local_servers()
+    (child,) = [p for p in local_servers() if p.pid not in before]
     child.kill()
     child.wait(5)
 
@@ -566,7 +567,7 @@ def test_routes_page_snapshot_refusals(loop):
     mark = get_journal().last_seq()
     session._set_state("turn", "Un tour est en cours.")
     busy = client.post("/api/intentions/mcp_lab_connect", json={"server": "local"}, headers=HEADERS)
-    assert busy.status_code == 409 and "Un tour est en cours" in busy.json()["detail"]
+    assert busy.status_code == 409 and "Un tour est déjà en cours" in busy.json()["detail"]
     assert lab_events(mark) == []  # nothing started
     session._set_state("idle")
 
