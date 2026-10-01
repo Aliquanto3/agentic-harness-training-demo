@@ -16,11 +16,15 @@ the event hook (proxy credentials, HTTP/2 pseudo-headers) is neither traced nor
 shown.
 
 Two clients share this setup: a synchronous `httpx.Client` and an
-`httpx2.AsyncClient` (MCP Streamable HTTP).
+`httpx2.AsyncClient` (MCP Streamable HTTP). Both reach the outside through the
+workstation's proxy, confiscated by the guard (story 1e): `trust_env=False`, and
+explicit proxy mounts built from `guard.office_proxies()`, since no other client
+of the process can find that proxy any more.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import ssl
 from collections.abc import Callable
 
@@ -30,7 +34,7 @@ import truststore
 
 from wavestack.config import PUBLIC_HEADERS, load_config
 from wavestack.messages import Message
-from wavestack.net.guard import NetworkBlocked, is_host_allowed, is_loopback
+from wavestack.net.guard import NetworkBlocked, is_host_allowed, is_loopback, office_proxies
 from wavestack.trace.journal import get_journal
 from wavestack.trace.scope import TraceScope, current
 
@@ -97,21 +101,81 @@ def _ssl_context() -> ssl.SSLContext:
     return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 
+# Story 1e: the loopback never goes through the proxy, whatever NO_PROXY says.
+_LOOPBACK_PATTERNS = ("all://127.0.0.1", "all://localhost", "all://[::1]")
+
+
+def _is_ip(host: str, version: int) -> bool:
+    try:
+        return ipaddress.ip_address(host.split("/")[0]).version == version
+    except ValueError:
+        return False
+
+
+def _proxy_map() -> dict[str, str | None]:
+    """URL pattern -> proxy URL (`None`: direct), from the confiscated proxy.
+
+    The rule of httpx 0.28 (`httpx._utils.get_environment_proxies`, private, hence copied):
+    schemes `http`, `https`, `all`; a URL without a scheme gets `http://`; `NO_PROXY`
+    (`*` = no proxy at all, IPv4, IPv6, `localhost`, a domain and its subdomains).
+    Plus the loopback, always direct.
+    """
+    proxies = office_proxies()
+    mounts: dict[str, str | None] = {}
+    for scheme in ("http", "https", "all"):
+        if url := proxies.get(scheme):
+            mounts[f"{scheme}://"] = url if "://" in url else f"http://{url}"
+    if not mounts:
+        return {}
+    for host in (h.strip() for h in proxies.get("no", "").split(",")):
+        if host == "*":
+            return {}
+        if not host:
+            continue
+        if "://" in host:
+            mounts[host] = None
+        elif _is_ip(host, 4) or host.lower() == "localhost":
+            mounts[f"all://{host}"] = None
+        elif _is_ip(host, 6):  # a subnet stays outside the brackets (`[fe80::]/10`)
+            address, slash, subnet = host.partition("/")
+            mounts[f"all://[{address}]{slash}{subnet}"] = None
+        else:
+            mounts[f"all://*{host}"] = None
+    for pattern in _LOOPBACK_PATTERNS:
+        mounts[pattern] = None
+    return mounts
+
+
+def _proxy_mounts[T](transport: Callable[[str], T]) -> dict[str, T | None]:
+    """The mounts of a factory client: one proxy `transport(url)` per scheme, `None` for a
+    destination reached directly (the client's own transport)."""
+    return {
+        pattern: None if url is None else transport(url) for pattern, url in _proxy_map().items()
+    }
+
+
 def create_client(
     *, timeout: float | httpx.Timeout = 5.0, transport: httpx.BaseTransport | None = None
 ) -> httpx.Client:
-    """Synchronous httpx client: truststore certs, env proxy, traced requests.
+    """Synchronous httpx client: truststore certs, the workstation's proxy (confiscated by
+    the guard, story 1e), traced requests.
 
     Redirects are never followed (AD-15): a caller that accepts one re-checks it by hand,
     and a 3xx from a cloud model is an error, so its key never reaches another host.
-    `transport` is for tests only (`httpx.MockTransport`): nothing leaves the machine.
+    `transport` is for tests only (`httpx.MockTransport`): nothing leaves the machine, and
+    no proxy is mounted (as httpx does with an injected transport).
     """
+    verify = _ssl_context()
+    mounts = None
+    if transport is None:
+        mounts = _proxy_mounts(lambda url: httpx.HTTPTransport(proxy=url, verify=verify))
     return httpx.Client(
-        verify=_ssl_context(),
+        verify=verify,
         timeout=timeout,
         follow_redirects=False,
-        trust_env=True,
+        trust_env=False,
         transport=transport,
+        mounts=mounts,
         headers={"User-Agent": user_agent()},
         event_hooks={"request": [_trace_request]},
     )
@@ -158,11 +222,16 @@ def create_async_client(
     async def trace(request: httpx2.Request) -> None:
         _check_and_trace(request, scope())
 
+    verify = _ssl_context()
+    mounts = None
+    if transport is None:
+        mounts = _proxy_mounts(lambda url: httpx2.AsyncHTTPTransport(proxy=url, verify=verify))
     return httpx2.AsyncClient(
-        verify=_ssl_context(),
+        verify=verify,
         timeout=httpx2.Timeout(timeout, read=300.0),
-        trust_env=True,
+        trust_env=False,
         transport=transport,
+        mounts=mounts,
         headers={"User-Agent": user_agent()},
         event_hooks={"request": [trace]},
     )

@@ -659,3 +659,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-restes-2026-10-01.md`
   summary: Refus de budget de l'atelier RAG sans article (« pour charger modèle d'embedding X », « um Embedding-Modell X zu laden »), fr, en, de. Basse.
   evidence: Revue du lot des restes (BH8) : `rag/lab.py:938` compose le libellé ; même phrase que le compresseur, autre libellé.
+
+- source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1e-correctif-garde-reseau-proxy-local.md`
+  summary: `test_the_test_session_holds_no_proxy` ne prouve l'ordre de `conftest.py` (proxy retiré avant la collecte) que sur un poste qui a un proxy.
+  evidence: Remettre le retrait dans la fixture de session ne fait échouer aucun test sur un poste sans proxy ; il faudrait un pytest imbriqué lancé avec un faux `HTTPS_PROXY`.

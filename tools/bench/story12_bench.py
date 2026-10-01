@@ -569,10 +569,18 @@ def _record_and_guard(
 
         urllib.request.getproxies_registry = lambda: {}  # Windows registry proxy (story 1e)
     try:
-        from wavestack.net.guard import install
+        from wavestack.net.guard import install, office_proxies
     except ImportError:
         return attempts, "absente (lancer depuis le dépôt avec uv run)"
     install(allowed_hosts=allowed_hosts)
+    if not strip_proxy:
+        # Story 1e: the guard confiscates the proxy for WaveStack's factory alone; this
+        # bench downloads with `huggingface_hub` and `fastembed` directly, so it hands the
+        # copy back to the environment, knowingly reopening the 1e hole for its own
+        # downloads: behind a loopback proxy the guard sees 127.0.0.1 only, never the host
+        # the tunnel reaches. A developer's tool, never WaveStack itself (AD-15).
+        for scheme, url in office_proxies().items():
+            os.environ[f"{scheme}_proxy"] = url
     return attempts, "wavestack.net.guard"
 
 

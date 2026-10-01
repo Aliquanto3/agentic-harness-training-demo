@@ -843,7 +843,9 @@ def record(event, args):
 sys.addaudithook(record)
 import urllib.request
 
-urllib.request.getproxies_registry = lambda: {}
+for lookup in ("getproxies_registry", "getproxies_macosx_sysconf"):  # the system's proxy
+    if hasattr(urllib.request, lookup):
+        setattr(urllib.request, lookup, lambda: {})
 from wavestack.net.guard import install
 
 install(allowed_hosts=[])
@@ -908,7 +910,7 @@ def _run_offline_child(tmp_path, model: str | None = None) -> dict:  # noqa: ANN
     env = {
         var: value
         for var, value in os.environ.items()
-        if var.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")
+        if not var.lower().endswith("_proxy")
         and var not in (*compression_env.OFFLINE_ENV, *_TIKTOKEN_ENV, "HF_HUB_OFFLINE")
     }
     env["PYTHONIOENCODING"] = "utf-8"
