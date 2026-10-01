@@ -227,7 +227,8 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     elif rel == "messages.yaml":  # languages (5/5): the same keys, the same variables
         fr, tr = messages.load_messages("fr"), messages.load_messages(lang)
         raw = messages.flatten(_yaml(rel, lang))
-        assert raw.keys() <= fr.keys()
+        # Story 7 of 2026-09-30: complete, every key of the French catalogue translated.
+        assert raw.keys() == fr.keys(), sorted(fr.keys() ^ raw.keys())[:20]
         for key, text in raw.items():
             assert messages.variables(text) == messages.variables(fr[key]), key
         assert (

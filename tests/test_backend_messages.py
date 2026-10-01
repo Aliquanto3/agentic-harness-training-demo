@@ -4,13 +4,14 @@ translations, produced by `msg(key, lang)` in the session's language."""
 from __future__ import annotations
 
 import ast
+import json
 import re
 import shutil
 from datetime import datetime
 
 import pytest
 from fake_engine import FakeEngine, booted_session
-from test_tools import QWEN, call
+from test_tools import QWEN, _segments, call
 from test_turn import _run
 
 from wavestack import config, messages
@@ -194,6 +195,91 @@ def test_an_invalid_translated_catalogue_is_traced_once_in_french(tmp_path, monk
         "Un fichier traduit (en) sous content/i18n/en/ est invalide."
     ]
     assert msg("tools.datetime.weekdays.monday", "en") == "lundi"
+    session.close()
+
+
+# ---------- the matrix in English and German (story 7 of 2026-09-30) ----------
+
+TRANSLATED = [lang for lang in LANGS if lang != config.DEFAULT_LANGUAGE]
+
+
+def _prefix(key: str, lang: str) -> str:
+    """The text of `key` up to its first variable: what a rendered message starts with."""
+    text = messages.load_messages(lang)[key]
+    return messages._VARIABLE.split(text)[0]
+
+
+@fresh
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_a_tool_error_reaches_the_model_in_the_sessions_language(lang):
+    """Matrix « Erreur d'outil lue par le modèle »: `read_file` on a missing file, its error
+    prefix included, in the session's language (`settings.json` holding another)."""
+    session = _session(lang, [call("read_file", path="absent.txt"), "Done."])
+    session.set_brick("tools", True)
+    events = _run(session, "Read absent.txt")
+    (result,) = _segments(events["context_rendered"][1], "tool_result")
+    assert result["text"].startswith(_prefix("tools.error", lang))
+    _no_french(result["text"])
+    session.close()
+
+
+@fresh
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_a_malformed_call_is_refused_in_the_sessions_language(lang):
+    """Matrix « Appel mal formé »: an unknown argument, « Error: … Fix the call or answer
+    without a tool. » in English."""
+    session = _session(lang, [call("calculator", expression="1+1", oops=1), "Done."])
+    session.set_brick("tools", True)
+    events = _run(session, "1 + 1?")
+    (result,) = _segments(events["context_rendered"][1], "tool_result")
+    reject = messages.load_messages(lang)["tools.reject"]
+    head, tail = messages._VARIABLE.split(reject)[0], messages._VARIABLE.split(reject)[-1]
+    assert result["text"].startswith(head) and result["text"].endswith(tail.rstrip())
+    assert "oops" in result["text"]
+    _no_french(result["text"])
+    session.close()
+
+
+@fresh
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_the_truncation_mark_is_in_the_sessions_language(lang):
+    """Matrix « Troncature »: the mark the model reads, in the session's language, the
+    bound holding with its length."""
+    session = _session(lang, ["Done."])
+    text = "\n".join(f"line {i:04d} " + "x" * 40 for i in range(400))
+    bounded, cut = session._bound_result(text)
+    assert cut is not None
+    assert _prefix("tools.truncated", lang) in bounded
+    assert session._count_tokens(bounded)[0] <= session.cfg.tool_result_max_tokens
+    _no_french(bounded)
+    session.close()
+
+
+@fresh
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_h1_refuses_in_the_sessions_language(lang):
+    """Matrix « Refus H1 »: the confidential file refused in the context, in German."""
+    session = _session(lang, [call("read_file", path="confidentiel/budget_projet.txt"), "Ok."])
+    session.set_brick("tools", True)
+    session.set_brick("hooks", True)
+    events = _run(session, "Budget?")
+    (refusal,) = _segments(events["context_rendered"][1], "tool_result")
+    assert (refusal["brick"], refusal["component"]) == ("hooks", "hooks.h1")
+    _no_french(refusal["text"])
+    session.close()
+
+
+@fresh
+@pytest.mark.parametrize("lang", TRANSLATED)
+def test_the_cards_reasons_are_in_the_sessions_language(lang):
+    """Matrix « Carte indisponible »: every brick's reason and status, in the session's
+    language (the RAG without its index, the cloud without a key…)."""
+    mark = get_journal().last_seq()
+    session = _session(lang, ["Done."])
+    cards = [e.payload for e in get_journal().events_since(mark) if e.kind == "bricks_changed"]
+    assert cards
+    assert any(brick.get("reason_text") for brick in cards[-1]["bricks"])
+    _no_french(json.dumps(cards[-1], ensure_ascii=False))
     session.close()
 
 

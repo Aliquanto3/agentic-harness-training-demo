@@ -277,7 +277,7 @@ Le sélecteur de langue est dans le menu « Affichage ▾ » de la barre haute (
 ou « Réinitialiser ». Le choix est enregistré dans `settings.json` (`"language": "en"`), repris
 au lancement suivant, et la page se recharge dans la langue choisie.
 
-Pour l'instant, la langue change :
+La langue change :
 - **ce qui part vers le modèle** : prompt système par défaut, prompt du sous-agent,
   descriptions des outils et de leurs paramètres (outils natifs, serveur MCP local,
   méta-outils `load_skill`, `load_tool_doc`, `remember`, `delegate`), skills, texte et date
@@ -292,10 +292,14 @@ Pour l'instant, la langue change :
   messages de l'interface elle-même, avec les nombres, montants et heures au format de la
   langue (« 1 234 », « 1,234 », « 1.234 »). Ses textes sont dans `content/ui.yaml`.
 
-Restent en français : les noms et explications des briques, les scénarios et leurs
-consignes, les messages produits par le harnais (erreurs, raisons d'indisponibilité, erreurs
-d'outils, résultat de `get_datetime`), les écrans « LLM nu » et « Atelier RAG », le corpus
-RAG et les titres de ses documents.
+- **le reste** : les noms et explications des briques, les scénarios et leurs consignes,
+  les ateliers (« LLM nu », « Atelier RAG », « Atelier MCP ») et les pages « Diagnostic » et
+  « Modèles », le corpus RAG et les titres de ses documents, et les messages produits par le
+  harnais (erreurs, raisons d'indisponibilité, erreurs d'outils lues par le modèle, marque de
+  troncature, refus des hooks, résultat de `get_datetime`), tirés de `content/messages.yaml`.
+
+Seule la sortie du terminal (`wavestack diagnostic`, `scripts/build_rag_index.py`) reste en
+anglais, quelle que soit la langue choisie.
 Une mémoire globale que vous avez modifiée est gardée telle quelle ; la mémoire de
 démonstration, elle, passe dans la nouvelle langue.
 

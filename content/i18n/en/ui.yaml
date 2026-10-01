@@ -3,7 +3,7 @@
 common:
   language:
     name: "Language"
-    help: "Language of the interface, of the bricks and the scenarios, of the workshops and the other pages, of what is sent to the model (system prompt, tools, demonstration files, skills, hooks, memory, glossary, RAG and its corpus) and of the names of tools, hooks, skills and MCP servers. Only the harness's messages stay in French for now."
+    help: "Language of the interface, of the bricks and the scenarios, of the workshops and the other pages, of what is sent to the model (system prompt, tools, demonstration files, skills, hooks, memory, glossary, RAG and its corpus) and of the names of tools, hooks, skills and MCP servers."
     locked: "Clear the conversation first (“Clear the conversation” or “Reset”): the language can only change on an empty conversation."
     failed: "WaveStack does not answer: the language did not change."
     refused: "Language change refused."

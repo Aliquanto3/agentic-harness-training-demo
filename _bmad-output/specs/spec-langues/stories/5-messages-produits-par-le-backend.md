@@ -2,7 +2,7 @@
 title: 'Langues (5/5) : messages produits par le backend'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: 'd1c98b17b2577dca4801061ddec044fd6f005209'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -121,6 +121,7 @@ context:
 - Reste à faire :
   - commit 4 : `content/i18n/{en,de}/messages.yaml` complets (deux sous-agents, un par langue, dont `common.units`, `config.budget.*` utilisés par le terminal), parité stricte dans `test_i18n.py` (mêmes clés), `common.language.help` dans les trois `ui.yaml`, tests paramétrés de la matrice en `en`/`de` (erreur d'outil lue par le modèle, appel mal formé, refus H1/H5, troncature, carte indisponible, diagnostic et catalogue, réglage contraire) dans `test_backend_messages.py` ; les ordinaux allemands de `rag_lab.rank.*` (« {n}. »).
   - commit 5 : tranche E2E `backend_language` et motifs `messages.yaml` dans `run_e2e.py` ; `README.md`, `ARCHITECTURE-SPINE.md` (AD-19), `i18n-conventions.md`, `deferred-work.md`.
+- **2026-10-01, commits 4 et 5 faits par la story 7 des corrections du 2026-09-30** (`_bmad-output/specs/spec-corrections-2026-09-30/stories/7-traductions-restantes-messages-du-backend-et-textes-de-la-nuit.md`) : `content/i18n/{en,de}/messages.yaml` complets (1 020 clés, deux sous-agents ; l'allemand vouvoie l'utilisateur et tutoie le modèle comme le prompt système), parité stricte, `common.language.help` à jour, tests paramétrés `en`/`de` de la matrice, tranche E2E `backend_language` et motifs `messages.yaml` (écrits, pas encore joués), docs.
 - Risques connus : une raison de sonde stockée en français (`probe`, `settings.json`) n'est retraduite que si elle correspond exactement à un texte connu (`discovery.reason_message`) ; quand un `publishers.yaml` traduit et le français sont invalides, l'erreur reste française.
 
 ## Spec Change Log

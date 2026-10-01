@@ -2,7 +2,7 @@
 title: 'Traductions restantes : messages du backend et textes de la nuit'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '27abdfd'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -45,3 +45,10 @@ deferred: []
 - `uv run ruff check .` et `uv run ruff format --check .` -- expected: aucun écart.
 - `uv run pytest -q tests/test_i18n.py tests/test_backend_messages.py tests/test_ui_texts.py` -- expected: tout passe.
 - E2E (avec accord) : `--only backend_language annex_language` -- expected: 0 échec.
+
+## Auto Run Result
+
+- **Changement** : `content/i18n/en/messages.yaml` et `content/i18n/de/messages.yaml` complets (1 020 clés chacun, mêmes clés, même ordre, mêmes variables ; deux sous-agents, un par langue) ; parité stricte dans `tests/test_i18n.py` ; `common.language.help` (fr, en, de) sans la mention « messages du harnais restent en français » ; cinq tests paramétrés `en`/`de` dans `tests/test_backend_messages.py` (erreur d'outil lue par le modèle, appel mal formé, troncature, refus H1, cartes ; chacun avec `settings.json` contraire) ; tranche E2E `backend_language` et motifs `messages.yaml` dans `_french_patterns` et `_annex_patterns`, exclusions des textes du backend retirées ; README, ARCHITECTURE-SPINE (AD-19), `i18n-conventions.md`, `deferred-work.md`, note de clôture de la story Langues 5.
+- **Choix de traduction à relire** (rapports des sous-agents) : anglais britannique (-ise), « workstation » pour « poste » mais « computer RAM » dans `config.budget.*` (déjà employé par le diagnostic) ; allemand : « Sie » pour l'utilisateur, « du » pour le modèle (prompt système), y compris là où le français vouvoie le modèle (`calculator.unreadable`, `network.year`) ; « Télécharger » rendu par „{noun}-Modell herunterladen“ (pas de libellé court en `de`) ; fragments réécrits pour la déclinaison (`session.load.memory.the_provider`, `llm_lab.tokenizer.*`, `rag_lab.chunking.source_*`, `config.budget.calc.*`) ; rangs „{n}.“ un peu raides dans `rag_lab.rerank.climb` et `compare.move`.
+- **Vérification** : `ruff check`, `ruff format --check` OK ; `pytest tests/test_i18n.py tests/test_backend_messages.py tests/test_ui_texts.py` : 3 295 passés. **Non lancé** (accord d'Anaël requis) : E2E `--only backend_language annex_language` (les tranches `ui_language` et `annex_language` deviennent plus strictes : elles ne mettent plus de côté les textes du backend).
+- **Revue** : pas encore faite (story de contenu ; revue de suivi recommandée sur les choix ci-dessus et sur la tranche E2E jamais jouée).

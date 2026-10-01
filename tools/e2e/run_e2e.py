@@ -5133,12 +5133,38 @@ def _ui_catalogue(lang: str) -> dict[str, str]:
     return _ui_leaves(yaml.safe_load((REPO / rel).read_text(encoding="utf-8")))
 
 
+def _message_catalogue(lang: str) -> dict[str, str]:
+    """`content/messages.yaml` in `lang`, flattened, both forms of a plural kept apart."""
+    import yaml
+
+    rel = "content/messages.yaml" if lang == "fr" else f"content/i18n/{lang}/messages.yaml"
+    tree = yaml.safe_load((REPO / rel).read_text(encoding="utf-8"))
+    return {f"messages:{k}": " ".join(str(v).split()) for k, v in _ui_leaves(tree).items()}
+
+
+def _value_patterns(
+    french: dict[str, str], translated: dict[str, str]
+) -> list[tuple[str, re.Pattern[str]]]:
+    """A French value whose translation differs: as itself, or with each variable any text,
+    kept only when its fixed words say something (six letters at least)."""
+    patterns = []
+    for key, value in french.items():
+        if translated.get(key) == value:
+            continue
+        if len(re.findall(r"[^\W\d_]", _UI_VAR.sub("", value))) < 6:
+            continue
+        parts = [re.escape(part) for part in _UI_VAR.split(value)]
+        patterns.append((key, re.compile(".+?".join(parts), re.S)))
+    return patterns
+
+
 def _french_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
     """The French values of `common` and `main` whose `lang` value differs: a text without
     variable as itself, a text with variables as a pattern (each variable any text), kept
-    only when its fixed words say something (six letters at least)."""
+    only when its fixed words say something (six letters at least). Languages 5/5 (story 7
+    of 2026-09-30): the backend's messages too (`messages.yaml`)."""
     french, translated = _ui_catalogue("fr"), _ui_catalogue(lang)
-    patterns = []
+    patterns = _value_patterns(_message_catalogue("fr"), _message_catalogue(lang))
     for key, value in french.items():
         if translated.get(key) == value:
             continue  # « Tokens », « RAG », « Skills »… : the same in both languages
@@ -5148,26 +5174,6 @@ def _french_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
         parts = [re.escape(part) for part in _UI_VAR.split(value)]
         patterns.append((key, re.compile(".+?".join(parts), re.S)))
     return patterns
-
-
-def _backend_strings(r: Run) -> set[str]:
-    """Every text the session sent (its `*_text` fields stay French until stories 3 and 5):
-    the state and the events seen, as whole strings."""
-    found: set[str] = set()
-
-    def walk(value: Any) -> None:
-        if isinstance(value, str):
-            found.add(value.strip())
-        elif isinstance(value, dict):
-            for item in value.values():
-                walk(item)
-        elif isinstance(value, list):
-            for item in value:
-                walk(item)
-
-    walk(r.state())
-    walk([e.get("payload") for e in r.ev.items])
-    return found
 
 
 _VISIBLE_TEXTS_JS = """() => {
@@ -5190,18 +5196,10 @@ _VISIBLE_TEXTS_JS = """() => {
 
 def _french_left(r: Run, lang: str) -> list[str]:
     """The texts of the page that are a French value of the catalogue (whole texts), what
-    the session sent aside."""
-    backend = _backend_strings(r)
-    # A text that quotes what the session sent (« Sous-agent brick ») is read without it.
-    quoted = sorted((b for b in backend if len(b) >= 4), key=len, reverse=True)
+    the session sent included (languages 5/5: its messages are translated)."""
     patterns = _french_patterns(lang)
     found = []
     for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
-        if text in backend:
-            continue
-        for part in quoted:
-            if part in text:
-                text = text.replace(part, "§")
         for key, pattern in patterns:
             if pattern.fullmatch(text):
                 found.append(f"{where} « {text[:80]} » ({key})")
@@ -5642,52 +5640,22 @@ def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
             french[f"ui.{key}"] = " ".join(value.split())
     for key, value in _ui_catalogue(lang).items():
         translated[f"ui.{key}"] = " ".join(value.split())
-    for rel in ("llm_lab.yaml", "rag_lab.yaml"):
+    for rel in ("llm_lab.yaml", "rag_lab.yaml", "mcp_lab.yaml"):
         french |= {f"{rel}:{k}": v for k, v in _yaml_leaves(_content("fr", rel)).items()}
         translated |= {f"{rel}:{k}": v for k, v in _yaml_leaves(_content(lang, rel)).items()}
-    patterns = []
-    for key, value in french.items():
-        if translated.get(key) == value:
-            continue
-        if len(re.findall(r"[^\W\d_]", _UI_VAR.sub("", value))) < 6:
-            continue
-        parts = [re.escape(part) for part in _UI_VAR.split(value)]
-        patterns.append((key, re.compile(".+?".join(parts), re.S)))
-    return patterns
-
-
-def _annex_backend(r: Run) -> set[str]:
-    """What the session sent, as whole strings (its messages stay French until story 5):
-    the state, the events, and the pages' own routes."""
-    found = _backend_strings(r)
-
-    def walk(value: Any) -> None:
-        if isinstance(value, str):
-            found.add(" ".join(value.split()))
-        elif isinstance(value, dict):
-            for item in value.values():
-                walk(item)
-        elif isinstance(value, list):
-            for item in value:
-                walk(item)
-
-    for route in ("/api/llm_lab", "/api/rag_lab", "/api/diagnostic"):
-        walk(r.api("GET", route).json())
-    return found
+    # Languages 5/5 (story 7 of 2026-09-30): the backend's messages too.
+    french |= _message_catalogue("fr")
+    translated |= _message_catalogue(lang)
+    return _value_patterns(french, translated)
 
 
 def _annex_french_left(r: Run, lang: str) -> list[str]:
-    backend = _annex_backend(r)
-    quoted = sorted((b for b in backend if len(b) >= 4), key=len, reverse=True)
+    """As `_french_left`, on an annex page, with the annex catalogue (languages 5/5: what
+    the session sent is no longer set aside)."""
     patterns = _annex_patterns(lang)
     found = []
     for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
         text = " ".join(text.split())
-        if text in backend:
-            continue
-        for part in quoted:
-            if part in text:
-                text = text.replace(part, "§")
         for key, pattern in patterns:
             if pattern.fullmatch(text):
                 found.append(f"{where} « {text[:80]} » ({key})")
@@ -5805,6 +5773,86 @@ def _annex_rag_lab(r: Run) -> None:
         f"{ended['payload']['status']} · {sorted(titles)}",
     )
     time.sleep(0.5)
+
+
+def _french_message_values(lang: str) -> list[str]:
+    """The French values of `messages.yaml` whose `lang` value differs, `{…}` cut out, the
+    pieces of twelve characters at least: none may reach the model in `lang`."""
+    french, translated = _message_catalogue("fr"), _message_catalogue(lang)
+    pieces = set()
+    for key, value in french.items():
+        if translated.get(key) != value:
+            pieces |= {p.strip() for p in _UI_VAR.split(value) if len(p.strip()) >= 12}
+    return sorted(pieces)
+
+
+def _backend_tool_error(r: Run, lang: str) -> None:
+    """A call to a tool that does not exist: the refusal the model reads (the tool message
+    of the fake's last request) in `lang`, without a French value of the catalogue."""
+    r.api("POST", "/api/intentions/brick", {"brick": "tools", "wanted": True})
+    r.send("[outil-inconnu] test")
+    r.wait_idle()
+    tool_messages = [
+        m.get("content") or ""
+        for call in r.fake_calls()
+        for m in call.get("messages") or []
+        if m.get("role") == "tool"
+    ]
+    last = tool_messages[-1] if tool_messages else ""
+    tail = _UI_VAR.split(_message_catalogue(lang)["messages:tools.reject"])[-1].strip()
+    left = [v for v in _french_message_values(lang) if v in last]
+    r.check(
+        bool(last) and tail in last and not left,
+        f"{lang} : le refus d'un outil inconnu lu par le modèle est dans la langue",
+        f"{last[:160]!r} · {left[:3]}",
+    )
+    _clear_conversation(r)
+
+
+def s_backend_language(r: Run) -> None:
+    """Languages (5/5), story 7 of 2026-09-30: in `en` then `de`, the backend's messages.
+    The refusal of an unknown tool as the model reads it; the main screen (cards, their
+    reasons, the log) and the diagnostic and models pages without a French value of
+    `messages.yaml` or `ui.yaml`; captures in German at 1280 and 1600 px, normal and
+    projection mode, on the main screen. Always ends in French, at rest."""
+    page = r.page
+    try:
+        for lang in ("en", "de"):
+            page.set_viewport_size({"width": 1600, "height": 1000})
+            _switch_language(r, lang)
+            _backend_tool_error(r, lang)
+            r.goto_app()
+            r.wait_idle()
+            left = _french_left(r, lang)
+            r.check(
+                not left,
+                f"{lang} : écran principal sans message français du backend",
+                "; ".join(left[:10]),
+            )
+            for name in ("diagnostic", "models"):
+                _annex_page(r, lang, name)
+            if lang == "de":
+                r.goto_app()
+                r.wait_idle()
+                for projection in (False, True):
+                    if projection:
+                        _toggle_projection(page)
+                    for width, height in ((1280, 720), (1600, 1000)):
+                        page.set_viewport_size({"width": width, "height": height})
+                        time.sleep(0.4)
+                        mode = "projection" if projection else "normal"
+                        r.shot(f"backend-language-de-{mode}-{width}")
+                    if projection:
+                        _toggle_projection(page)
+                page.set_viewport_size({"width": 1600, "height": 1000})
+    finally:
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        if page.evaluate("() => document.documentElement.classList.contains('projection')"):
+            _toggle_projection(page)
+        if r.state().get("language") != "fr":
+            r.wait_idle()
+            _switch_language(r, "fr")
+        r.check(r.state()["language"] == "fr", "nettoyage : retour au français")
 
 
 def s_annex_language(r: Run) -> None:
@@ -8765,6 +8813,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("ui_language", s_ui_language),
     ("content_language", s_content_language),
     ("annex_language", s_annex_language),
+    ("backend_language", s_backend_language),  # story 7 of 2026-09-30 (languages 5/5)
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),
