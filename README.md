@@ -693,6 +693,11 @@ uv run wavestack
   `files.pythonhosted.org`) : environ 40 paquets, 285 Mo sur disque. Ensuite, Headroom tourne
   hors ligne, sans télémétrie ni modèle d'apprentissage automatique (variables posées par
   WaveStack au lancement).
+- **Table de comptage.** WaveStack livre la table `cl100k_base` de tiktoken (1,6 Mo, licence
+  MIT, `src/wavestack/compression/tiktoken/`) : celle de litellm arrive en fins de ligne CRLF
+  et tiktoken la supprime au premier usage. Si la carte dit la table absente ou altérée,
+  restaurez-la : `git checkout -- src/wavestack/compression/tiktoken`, ou reprenez-la depuis
+  l'archive (un outil qui convertit les fins de ligne l'altère).
 - **Poste verrouillé.** headroom-ai apporte deux binaires natifs non signés (`_core.pyd` et
   l'exécutable `ast-grep`) : AppLocker ou WDAC peuvent les bloquer. La carte de la brique dit
   alors pourquoi elle est indisponible ; le reste de WaveStack fonctionne.

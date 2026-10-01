@@ -73,14 +73,16 @@ common:
       other: "{count} outils"
   links:
     pages: "Pages de WaveStack"
-    back: "← Atelier"
+    home: "Atelier"
     diagnostic: "Diagnostic"
     models: "Modèles"
-    open: "Ouvrir WaveStack"
     llm: "LLM nu"
     llm_title: "LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)"
     rag: "Atelier RAG"
     rag_title: "Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)"
+  display:
+    menu: "Affichage"
+    theme: "Thème"
   theme:
     name: "Thème de l'interface"
     system: "◐ Système"
@@ -255,8 +257,7 @@ main:
     choose: "Choisir un scénario"
     module: "Module {n} · {title} · {minutes} min"
     transverse: "Transverses et métier"
-    more: "Afficher plus"
-    less: "Réduire"
+    info_label: "Consignes du scénario « {scenario} »"
     fill: "Remplir le champ : {prompt}"
     unavailable:
       one: "Brique du scénario indisponible avec ce modèle :"
@@ -646,6 +647,7 @@ main:
   log:
     kinds:
       diagnostic_check: "Vérification du diagnostic"
+      diagnostic_progress: "Recherche des modèles"
       outbound_request: "Données sortantes"
       harness_error: "Erreur du harnais"
       session_state: "État de la session"
@@ -738,6 +740,10 @@ main:
     no_armed: "aucune action armée"
     at_most: "{count} au plus"
     rerank_progress: "{done} / {total} extraits notés"
+    diagnostic_progress:
+      one: "{count} modèle testé sur {total}"
+      other: "{count} modèles testés sur {total}"
+    diagnostic_nothing_to_probe: "Aucun modèle à tester"
     rerank_first: "premier : {title} (avant : #{before})"
     search_best: "meilleur : {title} ({score})"
     reasoning_cut: "coupé à {tokens} tokens (budget {budget}) · {reserve} pour la réponse"
@@ -846,9 +852,6 @@ main:
     not_loaded: "Non chargé."
     tools: "Outils : {tools}"
     leads_out: "Clic : ses données sortantes dans Orchestration"
-  display:
-    menu: "Affichage"
-    theme: "Thème"
 
 llm:
   page_title: "WaveStack — LLM nu"
@@ -911,6 +914,11 @@ diagnostic:
   path_button: "Choisir ce fichier"
   error: "erreur"
   no_candidate: "Aucun candidat trouvé."
+  checks_title: "Contrôles"
+  searching: "Recherche et test des modèles en cours…"
+  progress:
+    one: "{count} modèle testé sur {total}"
+    other: "{count} modèles testés sur {total}"
   architecture: "architecture {name}"
   loaded: "chargé"
   saved_choice: "choix enregistré"
@@ -983,3 +991,25 @@ models:
     one: "{count} modèle au dernier diagnostic."
     other: "{count} modèles au dernier diagnostic."
   none: "Aucun modèle trouvé au dernier diagnostic."
+  count_filtered:
+    one: "{count} modèle sur {total}"
+    other: "{count} modèles sur {total}"
+  filters:
+    name: "Filtrer les modèles"
+    hosting: "Hébergement"
+    publisher: "Éditeur"
+    tools: "Appel d'outils"
+    reasoning: "Raisonnement"
+    text: "Nom ou éditeur"
+    text_placeholder: "gemma, qwen…"
+    all: "Tous"
+    local: "Local"
+    network: "Réseau"
+    answer_yes: "Oui"
+    answer_no: "Non"
+    answer_no_or_unknown: "Non ou inconnu"
+    answer_unknown: "Inconnu"
+    reset: "Réinitialiser les filtres"
+    none: "Aucun modèle ne correspond à ces filtres."
+  sort:
+    title: "Trier par « {column} » (un second clic inverse l'ordre)"

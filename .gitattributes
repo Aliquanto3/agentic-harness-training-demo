@@ -1,2 +1,4 @@
 # Byte-exact reference fixtures (AD-4 render test): never convert line endings.
 tests/fixtures/** -text
+# tiktoken's cl100k_base table, checked by sha256: never convert line endings.
+src/wavestack/compression/tiktoken/9b5ad71b2ce5302211f9c61530b329a4922fc6a4 -text

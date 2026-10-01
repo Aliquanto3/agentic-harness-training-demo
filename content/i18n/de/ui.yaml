@@ -64,14 +64,16 @@ common:
       other: "{count} Tools"
   links:
     pages: "Seiten von WaveStack"
-    back: "← Werkstatt"
+    home: "Werkstatt"
     diagnostic: "Diagnose"
     models: "Modelle"
-    open: "WaveStack öffnen"
     llm: "Nacktes LLM"
     llm_title: "Nacktes LLM: das Innere des aktiven Modells (Tokens, Vektoren, Generierung Token für Token)"
     rag: "RAG-Werkstatt"
     rag_title: "RAG-Werkstatt: die RAG-Architektur zum Ausprobieren (Chunking, Embedding, Vektordatenbank, Suche, Reranking)"
+  display:
+    menu: "Anzeige"
+    theme: "Farbschema"
   theme:
     name: "Farbschema der Oberfläche"
     system: "◐ System"
@@ -246,8 +248,7 @@ main:
     choose: "Szenario wählen"
     module: "Modul {n} · {title} · {minutes} Min."
     transverse: "Übergreifend und fachlich"
-    more: "Mehr anzeigen"
-    less: "Weniger anzeigen"
+    info_label: "Anleitung zum Szenario „{scenario}“"
     fill: "Feld ausfüllen: {prompt}"
     unavailable:
       one: "Baustein des Szenarios mit diesem Modell nicht verfügbar:"
@@ -637,6 +638,7 @@ main:
   log:
     kinds:
       diagnostic_check: "Diagnoseprüfung"
+      diagnostic_progress: "Modellsuche"
       outbound_request: "Ausgehende Daten"
       harness_error: "Fehler des Harness"
       session_state: "Sitzungszustand"
@@ -729,6 +731,10 @@ main:
     no_armed: "keine scharf geschaltete Aktion"
     at_most: "höchstens {count}"
     rerank_progress: "{done} / {total} Auszüge bewertet"
+    diagnostic_progress:
+      one: "{count} von {total} Modell getestet"
+      other: "{count} von {total} Modellen getestet"
+    diagnostic_nothing_to_probe: "Kein Modell zu testen"
     rerank_first: "erster: {title} (vorher: #{before})"
     search_best: "bester: {title} ({score})"
     reasoning_cut: "abgeschnitten bei {tokens} Tokens (Budget {budget}) · {reserve} für die Antwort"
@@ -837,9 +843,6 @@ main:
     not_loaded: "Nicht geladen."
     tools: "Tools: {tools}"
     leads_out: "Klick: seine ausgehenden Daten in Orchestrierung"
-  display:
-    menu: "Anzeige"
-    theme: "Farbschema"
 
 llm:
   page_title: "WaveStack — Nacktes LLM"
@@ -902,6 +905,11 @@ diagnostic:
   path_button: "Diese Datei wählen"
   error: "Fehler"
   no_candidate: "Kein Kandidat gefunden."
+  checks_title: "Prüfungen"
+  searching: "Modelle werden gesucht und getestet…"
+  progress:
+    one: "{count} von {total} Modellen getestet"
+    other: "{count} von {total} Modellen getestet"
   architecture: "Architektur {name}"
   loaded: "geladen"
   saved_choice: "gespeicherte Wahl"
@@ -974,3 +982,25 @@ models:
     one: "{count} Modell bei der letzten Diagnose."
     other: "{count} Modelle bei der letzten Diagnose."
   none: "Bei der letzten Diagnose wurde kein Modell gefunden."
+  count_filtered:
+    one: "{count} Modell von {total}"
+    other: "{count} Modelle von {total}"
+  filters:
+    name: "Modelle filtern"
+    hosting: "Hosting"
+    publisher: "Anbieter"
+    tools: "Tool-Aufruf"
+    reasoning: "Denkprozess"
+    text: "Name oder Anbieter"
+    text_placeholder: "gemma, qwen…"
+    all: "Alle"
+    local: "Lokal"
+    network: "Netzwerk"
+    answer_yes: "Ja"
+    answer_no: "Nein"
+    answer_no_or_unknown: "Nein oder unbekannt"
+    answer_unknown: "Unbekannt"
+    reset: "Filter zurücksetzen"
+    none: "Kein Modell entspricht diesen Filtern."
+  sort:
+    title: "Nach „{column}“ sortieren (ein zweiter Klick kehrt die Reihenfolge um)"

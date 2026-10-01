@@ -25,12 +25,13 @@ _KEY = r"[a-z0-9_.]+"
 # Languages (4/5): a section per page, and `common` for the shared texts.
 SECTIONS = {"common", "main", "llm", "rag", "diagnostic", "models"}
 # Each page and its scripts (its inline `<script type="module">` included).
+# Story 2 (2026-09-30): each loads site-nav.js, the shared bar's menu.
 PAGES = {
-    "index.html": ("main", ("app.js",)),
-    "llm.html": ("llm", ("llm.js",)),
-    "rag.html": ("rag", ("rag.js",)),
-    "diagnostic.html": ("diagnostic", ()),
-    "models.html": ("models", ()),
+    "index.html": ("main", ("app.js", "site-nav.js")),
+    "llm.html": ("llm", ("llm.js", "site-nav.js")),
+    "rag.html": ("rag", ("rag.js", "site-nav.js")),
+    "diagnostic.html": ("diagnostic", ("site-nav.js",)),
+    "models.html": ("models", ("site-nav.js",)),
 }
 
 
@@ -187,29 +188,79 @@ def test_no_page_formats_numbers_in_french_by_hand(name):
     assert '.replace(".", ",")' not in script
 
 
-@pytest.mark.parametrize("name", [n for n in sorted(PAGES) if n != "index.html"])
-def test_each_annex_page_awaits_the_texts_and_shares_the_navigation(name):
+@pytest.mark.parametrize("name", sorted(PAGES))
+def test_each_page_awaits_the_texts_and_shares_the_navigation(name):
+    """Story 2 (2026-09-30): the shared bar of every page, its links named by their address
+    (`applyTexts`), their French the catalogue's, the brand aside; its menu's keys in
+    `common`."""
     page = (STATIC / name).read_text(encoding="utf-8")
-    script = _script(page, PAGES[name][1])
+    # The page's own script (site-nav.js waits for the texts on every page).
+    script = _script(page, tuple(f for f in PAGES[name][1] if f != "site-nav.js"))
     assert re.search(r"await (textsReady|ready);", script), name
-    nav = page[page.index("<nav") : page.index("</nav>")]
+    nav = page[page.index('<nav class="site-nav"') : page.index("</nav>")]
+    assert page.index('<nav class="site-nav"') == page.index("<nav"), name
     assert 'data-i18n-aria-label="common.links.pages" data-i18n-links>' in nav
     assert 'data-i18n-aria-label="common.theme.name"' in nav
-    # The links, named by their address by `applyTexts`: their French is the catalogue's.
-    links = dict(re.findall(r'<a href="/(\w+)"[^>]*>([^<]+)</a>', nav))
-    assert set(links) == {"diagnostic", "models", "llm", "rag"}, name
-    for link, text in links.items():
+    assert 'data-i18n="common.display.menu"' in nav and 'data-i18n="common.display.theme"' in nav
+    links = re.findall(r'<a href="/(\w*)"( class="site-nav-brand")?[^>]*>([^<]+)</a>', nav)
+    assert [(href, text) for href, brand, text in links if brand] == [("", "WaveStack")], name
+    named = [(href or "home", text) for href, brand, text in links if not brand]
+    assert [href for href, _ in named] == ["home", "llm", "rag", "diagnostic", "models"], name
+    for link, text in named:
         assert FRENCH["common"]["links"][link] == text, (name, link)
-    opened = re.search(r'<a href="/" id="open-link" hidden>([^<]+)</a>', nav)
-    assert opened is None or opened.group(1) == FRENCH["common"]["links"]["open"]
+
+
+def test_i18n_names_the_links_by_their_address_the_brand_aside():
+    script = (STATIC / "i18n.js").read_text(encoding="utf-8")
+    names = re.search(r"const LINK_NAMES = \{([^}]*)\}", script).group(1)
+    assert dict(re.findall(r'"(/\w*)": "(\w+)"', names)) == {
+        "/": "home",
+        "/diagnostic": "diagnostic",
+        "/models": "models",
+        "/llm": "llm",
+        "/rag": "rag",
+    }
+    assert ":not(.site-nav-brand)" in script
+    homes = {
+        lang: _read(CONTENT / "i18n" / lang / "ui.yaml")["common"]["links"]["home"]
+        for lang in TRANSLATED
+    }
+    assert (FRENCH["common"]["links"]["home"], homes) == (
+        "Atelier",
+        {"en": "Workshop", "de": "Werkstatt"},
+    )
 
 
 def test_the_models_table_headers_are_the_catalogues_in_order():
     page = (STATIC / "models.html").read_text(encoding="utf-8")
-    order = re.search(r"const COLUMN_ORDER = \[([^\]]+)\]", page).group(1)
-    columns = [FRENCH["models"]["columns"][k] for k in re.findall(r'"(\w+)"', order)]
+    order = re.findall(r'"(\w+)"', re.search(r"const COLUMN_ORDER = \[([^\]]+)\]", page).group(1))
+    columns = [FRENCH["models"]["columns"][k] for k in order]
     head = page[page.index("<thead>") : page.index("</thead>")]
-    assert re.findall(r'<th scope="col">([^<]+)</th>', head) == columns
+    # Story 3 of 2026-09-30: a header's name is its `.sort-label`, in the button of every
+    # sortable column (all but the price: no number served), whose `data-sort` is its key.
+    headers = re.findall(r'<th scope="col"([^>]*)>(.*?)</th>', head)
+    labels = [re.search(r'<span class="sort-label">([^<]+)</span>', c).group(1) for _, c in headers]
+    assert labels == columns
+    for (attributes, cell), key in zip(headers, order, strict=True):
+        sortable = key != "price"
+        assert ('<button type="button" class="sort-button">' in cell) is sortable, key
+        assert (f'data-sort="{key}"' in attributes) is sortable, key
+
+
+def test_the_models_filters_and_sort_keys_exist_in_every_language():
+    """Story 3 of 2026-09-30: the filters, the sort and the filtered count, in the three
+    languages (the parity test checks their variables)."""
+    for lang in ("fr", *TRANSLATED):
+        catalogue = FRENCH if lang == "fr" else _read(CONTENT / "i18n" / lang / "ui.yaml")
+        models, diagnostic = catalogue["models"], catalogue["diagnostic"]
+        assert set(models["count_filtered"]) == {"one", "other"}, lang
+        assert "{total}" in models["count_filtered"]["other"], lang
+        assert {"reset", "none", "hosting", "publisher", "tools", "reasoning", "text"} <= set(
+            models["filters"]
+        ), lang
+        assert "{column}" in models["sort"]["title"], lang
+        assert diagnostic["searching"] and set(diagnostic["progress"]) == {"one", "other"}, lang
+        assert catalogue["main"]["log"]["kinds"]["diagnostic_progress"], lang
 
 
 # ---------- the loader ----------

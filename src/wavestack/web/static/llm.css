@@ -19,16 +19,10 @@ body.llm-page {
     var(--typography-body-line-height) var(--typography-body-font-family);
 }
 
-.llm-page .page-tabs,
 .llm-main {
   max-width: 1500px;
   margin-left: auto;
   margin-right: auto;
-}
-
-.llm-page .page-tabs a.llm-back {
-  color: var(--color-primary);
-  margin-right: var(--spacing-4);
 }
 
 .llm-header h1 {

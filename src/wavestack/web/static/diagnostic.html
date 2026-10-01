@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <script src="/static/theme.js"></script>
   <script type="module" src="/static/i18n.js"></script>
+  <script type="module" src="/static/site-nav.js"></script>
   <title data-i18n="diagnostic.page_title">WaveStack — Diagnostic de démarrage</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -12,96 +13,200 @@
   <link rel="stylesheet" href="/static/pages.css" />
   <style>
     /* Story 31: colours by the tokens of tokens.css only, in both themes (DESIGN.md >
-       diagnostic-row): a row's background says its state, a result its left rule. */
-    body {
-      font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem;
-      background: var(--color-surface); color: var(--color-ink);
+       diagnostic-row): a row's background says its state, a result its left rule. Story 3 of
+       2026-09-30: sizes by the tokens too; the page, the badges, the buttons and the fields
+       in pages.css. */
+    main { max-width: 960px; margin-left: auto; margin-right: auto; }
+    .diagnostic-section { margin-top: var(--spacing-5); }
+    .diagnostic-help { margin: 0 0 var(--spacing-2); color: var(--color-ink-soft); }
+    .diagnostic-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-2);
+      margin: 0;
+      padding: 0;
+      list-style: none;
     }
-    h1 { font-size: 1.4rem; }
-    ul { list-style: none; padding: 0; }
-    li { padding: 0.6rem; border-radius: 6px; margin-bottom: 0.5rem; }
-    li.ok { background: var(--color-accent-soft); }
-    li.warn { background: var(--color-warning-soft); }
-    li.fail, li.incompatible { background: var(--color-danger-soft); }
-    li.found, li.server { background: var(--color-accent-soft); }
-    li.server.warn { background: var(--color-warning-soft); }
-    .served { font-size: 0.9rem; color: var(--color-ink-soft); }
+    .diagnostic-list > li {
+      padding: var(--spacing-3);
+      background: var(--color-surface-raised);
+      border: 1px solid var(--color-line);
+      border-radius: var(--rounded-md);
+      overflow-wrap: anywhere;
+    }
+    .diagnostic-list > li.ok { background: var(--color-accent-soft); }
+    .diagnostic-list > li.warn { background: var(--color-warning-soft); }
+    .diagnostic-list > li.fail, .diagnostic-list > li.incompatible { background: var(--color-danger-soft); }
+    .diagnostic-list > li.found, .diagnostic-list > li.server { background: var(--color-accent-soft); }
+    .diagnostic-list > li.server.warn { background: var(--color-warning-soft); }
+    .served, .action {
+      margin-top: var(--spacing-1);
+      color: var(--color-ink-soft);
+      font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+        var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+    }
     .served-warning, .cloud-result.ok, .cloud-result.warn, .cloud-result.fail {
-      color: var(--color-ink); border-left: 4px solid transparent; padding-left: 0.4rem;
+      color: var(--color-ink);
+      border-left: var(--spacing-1) solid transparent;
+      padding-left: var(--spacing-2);
     }
     .served-warning, .cloud-result.warn { border-left-color: var(--color-warning); }
     .cloud-result.ok { border-left-color: var(--color-state-ok); }
     .cloud-result.fail { border-left-color: var(--color-state-error); }
-    .action { font-size: 0.9rem; color: var(--color-ink-soft); }
-    #select-model { margin-top: 1.5rem; }
-    .saved-mark { font-size: 0.85rem; font-weight: bold; margin-left: 0.5rem; }
-    input[type="text"] { width: 100%; padding: 0.4rem; box-sizing: border-box; }
-    button { margin-top: 0.5rem; padding: 0.4rem 1rem; }
-    #select-model-status { font-size: 0.9rem; }
-    h2 { font-size: 1.1rem; margin-top: 1.5rem; }
-    li.cloud {
+    .saved-mark {
+      margin-left: var(--spacing-2);
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+        var(--typography-label-line-height) var(--typography-label-font-family);
+    }
+    .row-actions, .cloud-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--spacing-2);
+      margin-top: var(--spacing-2);
+    }
+    /* The search for the models (story 3 of 2026-09-30): until the `model` check, what it
+       does, then how many probes are done, a bar the width of the list. */
+    .search-status {
+      padding: var(--spacing-3);
+      background: var(--color-surface-raised);
+      border: 1px dashed var(--color-ink-soft);
+      border-radius: var(--rounded-md);
+    }
+    .search-status[hidden], .search-count[hidden], .search-bar[hidden] { display: none; }
+    .search-status p { margin: 0; }
+    .search-count {
+      margin-top: var(--spacing-1);
+      font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+        var(--typography-number-line-height) var(--typography-number-font-family);
+    }
+    .search-bar {
+      display: block;
+      width: 100%;
+      height: var(--spacing-2);
+      margin-top: var(--spacing-2);
+      accent-color: var(--color-primary);
+    }
+    #select-model { margin-top: var(--spacing-3); }
+    #select-model p { margin: 0 0 var(--spacing-1); }
+    .path-row { display: flex; flex-wrap: wrap; gap: var(--spacing-2); }
+    .path-row .field-input { flex: 1 1 60%; }
+    #select-model-status { margin: var(--spacing-2) 0 0; }
+    /* A cloud model: a card on the network ground, its provider and model as its title, then
+       hosting and training, the price, the key, the actions. */
+    .diagnostic-list > li.cloud {
       background: var(--color-discipline-network-soft);
-      border: 2px dashed var(--color-hosting-boundary);
+      border: var(--spacing-stroke-min) dashed var(--color-hosting-boundary);
     }
-    .hosting-tag-network, .hosting-tag-local {
-      display: inline-block; font-size: 0.75rem; font-weight: bold; padding: 0 0.4rem;
-      border-radius: 4px; margin-right: 0.4rem;
+    .cloud-title {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: var(--spacing-1);
+      margin: 0 0 var(--spacing-1);
+      font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+        var(--typography-heading-line-height) var(--typography-heading-font-family);
     }
-    .hosting-tag-network {
-      background: var(--color-hosting-network); color: var(--color-on-vivid);
-      border: 1px dashed var(--color-ink);
+    .cloud-key-block {
+      margin-top: var(--spacing-2);
+      padding-top: var(--spacing-2);
+      border-top: 1px solid var(--color-line);
     }
-    .hosting-tag-network::before { content: "🌐 "; }
-    .hosting-tag-local {
-      background: var(--color-surface-raised); color: var(--color-ink);
-      border: 1px solid var(--color-ink-soft);
-    }
-    .cloud-key { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.4rem; }
-    .cloud-key input { flex: 1; padding: 0.4rem; }
-    .cloud-result { font-size: 0.9rem; margin-top: 0.3rem; }
+    .cloud-key { display: flex; flex-wrap: wrap; gap: var(--spacing-2); align-items: center; }
+    .cloud-key .field-input { flex: 1 1 50%; }
+    .cloud-result { margin-top: var(--spacing-1); }
     dialog#cloud-warning {
-      max-width: 560px; border: 2px solid var(--color-ink); border-radius: 8px;
-      background: var(--color-surface-raised); color: var(--color-ink);
+      max-width: 560px;
+      padding: var(--spacing-4);
+      border: var(--spacing-stroke-min) solid var(--color-ink);
+      border-radius: var(--rounded-lg);
+      background: var(--color-surface-raised);
+      color: var(--color-ink);
+    }
+    dialog#cloud-warning h3 {
+      margin-top: 0;
+      font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
+        var(--typography-heading-line-height) var(--typography-heading-font-family);
     }
   </style>
 </head>
-<body>
-  <nav class="page-tabs" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
+<body class="annex-page">
+  <!-- Story 2 (2026-09-30): the bar shared by the five pages, the same HTML in each but for
+       `aria-current` and, on the main screen only, the projection mode (site-nav.js). -->
+  <nav class="site-nav" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
+    <a href="/" class="site-nav-brand">WaveStack</a>
+    <a href="/">Atelier</a>
+    <a href="/llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM nu</a>
+    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">Atelier RAG</a>
     <a href="/diagnostic" aria-current="page">Diagnostic</a>
     <a href="/models">Modèles</a>
-    <a href="/llm">LLM nu</a>
-    <a href="/rag">Atelier RAG</a>
-    <!-- Shown once the diagnostic is ready (`body.ready`), as the former link. -->
-    <a href="/" id="open-link" hidden>Ouvrir WaveStack</a>
-    <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
-      <option value="system" data-i18n="common.theme.system">◐ Système</option>
-      <option value="light" data-i18n="common.theme.light">☀ Clair</option>
-      <option value="dark" data-i18n="common.theme.dark">☾ Sombre</option>
-    </select>
+    <div class="display-menu" id="display-menu">
+      <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="common.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="common.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
+      <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="common.display.menu" hidden>
+        <label class="display-menu-row"><span class="display-menu-label" data-i18n="common.display.theme">Thème</span>
+          <span class="theme-picker-box" id="theme-picker-box">
+            <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
+              <option value="system" data-i18n="common.theme.system">◐ Système</option>
+              <option value="light" data-i18n="common.theme.light">☀ Clair</option>
+              <option value="dark" data-i18n="common.theme.dark">☾ Sombre</option>
+            </select>
+          </span>
+        </label>
+        <label class="display-menu-row"><span class="display-menu-label" data-i18n="common.language.name">Langue</span>
+          <span class="language-picker-box" id="language-picker-box">
+            <select id="language-picker" class="language-picker" autocomplete="off" aria-label="Langue" data-i18n-aria-label="common.language.name">
+              <option value="fr" lang="fr">Français</option>
+              <option value="en" lang="en">English</option>
+              <option value="de" lang="de">Deutsch</option>
+            </select>
+          </span>
+        </label>
+        <p class="display-menu-alert" id="display-menu-alert" role="alert" hidden></p>
+      </div>
+    </div>
   </nav>
-  <h1 data-i18n="diagnostic.title">Diagnostic de démarrage WaveStack</h1>
-  <ul id="checks"></ul>
+  <main>
+    <h1 data-i18n="diagnostic.title">Diagnostic de démarrage WaveStack</h1>
 
-  <h2 data-i18n="diagnostic.candidates_title">Modèles détectés</h2>
-  <ul id="candidates"></ul>
+    <section class="diagnostic-section" aria-labelledby="checks-title">
+      <h2 id="checks-title" data-i18n="diagnostic.checks_title">Contrôles</h2>
+      <ul id="checks" class="diagnostic-list"></ul>
+    </section>
 
-  <h2 data-i18n="diagnostic.cloud_title">Modèles cloud</h2>
-  <p class="action" data-i18n="diagnostic.cloud_help">Hors du poste : chaque appel envoie tout le contexte au fournisseur.</p>
-  <ul id="cloud-models"></ul>
+    <section class="diagnostic-section" aria-labelledby="candidates-title">
+      <h2 id="candidates-title" data-i18n="diagnostic.candidates_title">Modèles détectés</h2>
+      <!-- Story 3 of 2026-09-30: until the `model` check, the search and its probes, never
+           « Aucun candidat trouvé. » -->
+      <div id="candidates-search" class="search-status" role="status" hidden>
+        <p data-i18n="diagnostic.searching">Recherche et test des modèles en cours…</p>
+        <p id="candidates-progress-text" class="search-count" hidden></p>
+        <progress id="candidates-progress" class="search-bar" max="1" value="0" aria-labelledby="candidates-progress-text" hidden></progress>
+      </div>
+      <ul id="candidates" class="diagnostic-list"></ul>
+      <div id="select-model">
+        <p id="model-path-label" data-i18n="diagnostic.path_label">Ou indiquez le chemin d'un fichier GGUF :</p>
+        <div class="path-row">
+          <input type="text" id="model-path" class="field-input" aria-labelledby="model-path-label" placeholder="C:\chemin\vers\modele.gguf" data-i18n-placeholder="diagnostic.path_placeholder" />
+          <button id="submit-path" class="choose button-primary" data-i18n="diagnostic.path_button">Choisir ce fichier</button>
+        </div>
+        <p id="select-model-status" role="status"></p>
+      </div>
+    </section>
+
+    <section class="diagnostic-section" aria-labelledby="cloud-title">
+      <h2 id="cloud-title" data-i18n="diagnostic.cloud_title">Modèles cloud</h2>
+      <p class="diagnostic-help" data-i18n="diagnostic.cloud_help">Hors du poste : chaque appel envoie tout le contexte au fournisseur.</p>
+      <ul id="cloud-models" class="diagnostic-list"></ul>
+    </section>
+  </main>
 
   <dialog id="cloud-warning" aria-labelledby="cloud-warning-title">
     <h3 id="cloud-warning-title"></h3>
     <ul id="cloud-warning-points"></ul>
-    <button type="button" id="cloud-warning-confirm"></button>
-    <button type="button" id="cloud-warning-cancel"></button>
+    <div class="row-actions">
+      <button type="button" id="cloud-warning-confirm" class="button-primary"></button>
+      <button type="button" id="cloud-warning-cancel" class="button-secondary"></button>
+    </div>
   </dialog>
-
-  <div id="select-model">
-    <p data-i18n="diagnostic.path_label">Ou indiquez le chemin d'un fichier GGUF :</p>
-    <input type="text" id="model-path" placeholder="C:\chemin\vers\modele.gguf" data-i18n-placeholder="diagnostic.path_placeholder" />
-    <button id="submit-path" class="choose" data-i18n="diagnostic.path_button">Choisir ce fichier</button>
-    <p id="select-model-status"></p>
-  </div>
 
   <script type="module">
     // Languages (4/5): the page's texts come from `content/ui.yaml` (section `diagnostic`)
@@ -112,6 +217,13 @@
     const checksEl = document.getElementById("checks");
     const candidatesEl = document.getElementById("candidates");
     const selectStatusEl = document.getElementById("select-model-status");
+    const searchEl = document.getElementById("candidates-search");
+    const searchTextEl = document.getElementById("candidates-progress-text");
+    const searchBarEl = document.getElementById("candidates-progress");
+    // Story 3 of 2026-09-30: `/api/diagnostic.searching` until the `model` check's first
+    // result, and the last `diagnostic_progress{done, total}` (probes done on probes needed).
+    let searching = false;
+    let progress = null;
     const items = new Map();
     // `{kind, ref}` of the saved choice and of the loaded model, whatever their kind (story 18).
     let selectedModel = null;
@@ -211,7 +323,32 @@
       checksEl.appendChild(li);
     }
 
+    // While the search runs: what it does and, once probes are needed, how many are done.
+    // Everything already in the probe cache (`total` 0): the message alone, without a count.
+    function renderSearch() {
+      searchEl.hidden = !searching;
+      const counted = searching && progress && progress.total > 0;
+      searchTextEl.hidden = searchBarEl.hidden = !counted;
+      if (!counted) return;
+      const done = Math.min(progress.done, progress.total);
+      searchTextEl.textContent = t("diagnostic.progress", { count: done, total: String(progress.total) });
+      searchBarEl.max = progress.total;
+      searchBarEl.value = done;
+    }
+
+    // Live `diagnostic_progress` during the search: its latest word. The history is not
+    // replayed: /api/diagnostic already gave the latest one (`progress`).
+    function onProgress(payload, live) {
+      if (!searching || !live) return;
+      progress = payload;
+      renderSearch();
+    }
+
     function renderCandidates(candidates) {
+      if (!candidates.length && searching) {
+        patchList(candidatesEl, []); // not « Aucun candidat trouvé. »: the search runs
+        return;
+      }
       if (!candidates.length) {
         const li = document.createElement("li");
         li.textContent = t("diagnostic.no_candidate");
@@ -260,11 +397,15 @@
 
     function chooseButton(model) {
       const button = document.createElement("button");
-      button.className = "choose";
+      button.type = "button";
+      button.className = "choose button-primary";
       button.disabled = busy;
       button.textContent = t("diagnostic.choose");
       button.addEventListener("click", () => chooseModel(model));
-      return button;
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
+      actions.appendChild(button);
+      return actions;
     }
 
     // Story 18: a model an already-running local server serves. « Local », `provider · nom`,
@@ -353,16 +494,21 @@
           d.trial ? t("diagnostic.trial") : null,
           d.notes_text,
         ].filter(Boolean).join("\n");
-        li.append(node("span", "hosting-tag-network", t("diagnostic.network")), node("strong", "", `${m.provider} · ${m.model}`));
+        // Its title: the provider and the model, after the network badge, then its marks.
+        const title = node("div", "cloud-title");
+        title.append(node("span", "hosting-tag-network", t("diagnostic.network")), node("strong", "", `${m.provider} · ${m.model}`));
         for (const [on, text] of [[m.loaded, t("diagnostic.active")], [m.selected && !m.loaded, t("diagnostic.saved_choice")]]) {
-          if (on) li.appendChild(node("span", "saved-mark", text));
+          if (on) title.appendChild(node("span", "saved-mark", text));
         }
+        li.appendChild(title);
         const line = d.trial ? "diagnostic.cloud_line_trial" : "diagnostic.cloud_line";
         li.appendChild(node("div", "action", t(line, { hosting: d.hosting_text, training: m.training_text })));
         // FinOps: the declared prices, as the session wrote them (none without `pricing`).
         if (m.price_text) li.appendChild(node("div", "action", m.price_text));
+        // The key: its field and « Enregistrer la clé », where it comes from, the hint.
+        const keyBlock = node("div", "cloud-key-block");
         const keyRow = node("div", "cloud-key");
-        const input = node("input");
+        const input = node("input", "field-input");
         input.type = "password";
         input.autocomplete = "off";
         // AD-20: the variable's name only, never its value; a key typed here comes first.
@@ -371,20 +517,22 @@
           ? t("diagnostic.key.from_env", { env: m.key_env })
           : m.key_set ? t("diagnostic.key.saved") : t("diagnostic.key.placeholder");
         input.setAttribute("aria-label", t("diagnostic.key.label", { provider: m.provider }));
-        const save = node("button", "choose", t("diagnostic.key.save"));
+        const save = node("button", "choose button-secondary", t("diagnostic.key.save"));
         save.type = "button";
         save.disabled = busy;
         save.addEventListener("click", () => {
           if (input.value.trim()) setApiKey(currentModel(m), input.value);
         });
         keyRow.append(input, save);
-        if (fromEnv) li.appendChild(node("div", "action", t("diagnostic.key.env_source", { env: m.key_env })));
+        if (fromEnv) keyBlock.appendChild(node("div", "action", t("diagnostic.key.env_source", { env: m.key_env })));
         else if (m.key_env && !m.key_set) {
-          li.appendChild(node("div", "action", t("diagnostic.key.env_hint", { env: m.key_env })));
+          keyBlock.appendChild(node("div", "action", t("diagnostic.key.env_hint", { env: m.key_env })));
         }
-        li.append(keyRow, node("div", "action", cloud.key_hint_text));
-        const test = node("button", "choose", t("diagnostic.test"));
-        const choose = node("button", "choose", t("diagnostic.choose"));
+        keyBlock.append(keyRow, node("div", "action", cloud.key_hint_text));
+        li.appendChild(keyBlock);
+        // The actions: « Tester » (secondary), « Choisir » (primary), then their notes.
+        const test = node("button", "choose button-secondary", t("diagnostic.test"));
+        const choose = node("button", "choose button-primary", t("diagnostic.choose"));
         for (const button of [test, choose]) {
           button.type = "button";
           button.disabled = busy || Boolean(m.disabled_text);
@@ -395,7 +543,9 @@
         }
         test.addEventListener("click", () => testCloud(currentModel(m)));
         choose.addEventListener("click", () => openWarning(currentModel(m), choose));
-        li.append(test, " ", choose);
+        const actions = node("div", "cloud-actions");
+        actions.append(test, choose);
+        li.appendChild(actions);
         if (m.disabled_text) li.appendChild(node("div", "action", m.disabled_text));
         li.appendChild(node("div", "action", m.test_hint_text));
         const result = testResults.has(m.id) ? testResults.get(m.id) : m.last_test;
@@ -531,9 +681,11 @@
       selectedModel = body.selected;
       loadedModel = body.loaded;
       cloud = body.cloud || cloud;
+      searching = Boolean(body.searching);
+      progress = searching ? (body.progress ?? progress) : null;
+      renderSearch();
       renderCloud();
       renderCandidates(body.candidates || []);
-      document.getElementById("open-link").hidden = !body.ready;
       // An outcome missed by the stream (a reconnection): the loaded model says it.
       const mine = switching;
       const active = body.loaded?.ref;
@@ -560,6 +712,7 @@
       source.addEventListener("diagnostic_check", (event) => onEnvelope(event, renderCheck));
       source.addEventListener("harness_error", (event) => onEnvelope(event, renderHarnessError));
       source.addEventListener("model_load_ended", (event) => onEnvelope(event, onModelLoadEnded));
+      source.addEventListener("diagnostic_progress", (event) => onEnvelope(event, onProgress));
     }
     await ready; // the page's texts and formats in the session's language (languages 4/5)
     loadDiagnostic().then(openStream);

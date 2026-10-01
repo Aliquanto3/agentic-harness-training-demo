@@ -4,7 +4,9 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from fake_engine import FakeEngine
+from pydantic import ValidationError
 from starlette.testclient import TestClient
 
 from wavestack import config
@@ -12,7 +14,9 @@ from wavestack.models import discovery, probe
 from wavestack.session import diagnostic as diagnostic_module
 from wavestack.session.app_session import AppSession
 from wavestack.session.diagnostic import DiagnosticSession
+from wavestack.trace.catalog import PAYLOAD_MODELS
 from wavestack.trace.journal import get_journal
+from wavestack.web import app as app_module
 from wavestack.web.app import create_app
 
 
@@ -54,7 +58,62 @@ def test_health_endpoint(monkeypatch, tmp_path):
     _, app = _build(monkeypatch, tmp_path)
     response = _client(app).get("/api/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    body = response.json()
+    assert body["status"] == "ok" and body["version"] == "test"
+    assert body["root"] == str(config.repo_root())
+    assert body["commit"] is None or (isinstance(body["commit"], str) and body["commit"])
+    if (config.repo_root() / ".git").exists():
+        expected = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=config.repo_root(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if expected.returncode == 0:
+            assert body["commit"] == expected.stdout.strip()
+
+
+def test_the_commit_is_read_once_when_the_app_is_built(monkeypatch, tmp_path):
+    calls = []
+
+    def git_commit(root):
+        calls.append(root)
+        return "abc1234"
+
+    monkeypatch.setattr(app_module, "_git_commit", git_commit)
+    _, app = _build(monkeypatch, tmp_path)
+    client = _client(app)
+
+    assert [client.get("/api/health").json()["commit"] for _ in range(3)] == ["abc1234"] * 3
+    assert calls == [config.repo_root()]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        FileNotFoundError("git"),
+        subprocess.TimeoutExpired(["git"], 2),
+        subprocess.CompletedProcess(["git"], 128, "", "fatal: not a git repository"),
+        subprocess.CompletedProcess(["git"], 0, "  \n", ""),
+    ],
+)
+def test_a_failing_git_gives_no_commit(monkeypatch, tmp_path, failure):
+    def run(*args, **kwargs):
+        if isinstance(failure, BaseException):
+            raise failure
+        return failure
+
+    (tmp_path / ".git").mkdir()
+    monkeypatch.setattr(app_module.subprocess, "run", run)
+
+    assert app_module._git_commit(tmp_path) is None
+
+
+def test_a_folder_without_git_gives_no_commit_without_calling_git(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module.subprocess, "run", lambda *a, **k: pytest.fail("git called"))
+
+    assert app_module._git_commit(tmp_path) is None
 
 
 def test_no_model_found_blocks_diagnostic(monkeypatch, tmp_path):
@@ -292,6 +351,128 @@ def test_full_run_emits_all_checks(monkeypatch, tmp_path):
         if e.kind == "diagnostic_check"
     }
     assert kinds_checked == {"memory", "model", "port"}
+
+
+# ---------- story 3 (corrections 2026-09-30): the model search's progress ----------
+
+
+def _progress(before: int) -> list[tuple[int, int]]:
+    return [
+        (e.payload["done"], e.payload["total"])
+        for e in get_journal().events_since(before)
+        if e.kind == "diagnostic_progress"
+    ]
+
+
+def test_discovery_emits_its_progress_zero_first_then_once_per_probe(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf", "c.gguf"))
+    probed = []
+    monkeypatch.setattr(
+        session, "_probe_candidate", lambda candidate, cancel=None: probed.append(candidate.name)
+    )
+
+    before = get_journal().last_seq()
+    session.check_model()
+
+    assert len(probed) == 3
+    assert _progress(before) == [(0, 3), (1, 3), (2, 3), (3, 3)]
+
+
+def test_discovery_counts_only_the_probes_it_needs(monkeypatch, tmp_path):
+    """A file already in the probe cache costs nothing: it is not in `total`."""
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"))
+    calls = _fake_probe_ok(monkeypatch, session)
+    session.check_model()  # both probed, then cached
+    assert len(calls) == 2
+    (config.models_dir() / "c.gguf").write_bytes(b"placeholder")
+
+    before = get_journal().last_seq()
+    session.check_model()
+
+    assert calls[2:] == [str(config.models_dir() / "c.gguf")]
+    assert _progress(before) == [(0, 1), (1, 1)]
+
+
+def test_discovery_with_everything_cached_emits_a_single_zero_progress(monkeypatch, tmp_path):
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf",))
+    _fake_probe_ok(monkeypatch, session)
+    session.check_model()
+
+    before = get_journal().last_seq()
+    session.check_model()
+
+    assert _progress(before) == [(0, 0)]
+
+
+def test_ollama_tags_sharing_one_blob_are_probed_once(monkeypatch, tmp_path):
+    """Review of story 3: the probes run after the loop, so a blob listed under two tags
+    must still cost one probe, and both tags take its outcome."""
+    session, _ = _build(monkeypatch, tmp_path)
+    blob = _ollama_blob(tmp_path, "9b", "latest")
+    calls = _fake_probe_ok(monkeypatch, session)
+
+    before = get_journal().last_seq()
+    result = session.check_model()
+
+    assert calls == [str(blob)]
+    assert _progress(before) == [(0, 1), (1, 1)]
+    assert {c.architecture for c in result.candidates if c.path == str(blob)} == {"qwen35"}
+
+
+def test_choosing_a_file_after_the_search_emits_no_progress(monkeypatch, tmp_path):
+    """The progress is the launch search's: a later choice (`select_model`) is silent."""
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"))
+    _fake_probe_ok(monkeypatch, session)
+    session.check_model()
+
+    before = get_journal().last_seq()
+    session.select_model(str(config.models_dir() / "b.gguf"))
+
+    assert _progress(before) == []
+
+
+def test_diagnostic_progress_payload_is_validated_by_the_catalog():
+    model = PAYLOAD_MODELS["diagnostic_progress"]
+    assert model.model_validate({"done": 0, "total": 0}).model_dump() == {"done": 0, "total": 0}
+    for bad in ({"done": -1, "total": 3}, {"done": 1}, {"done": 1, "total": -2}):
+        with pytest.raises(ValidationError):
+            model.model_validate(bad)
+
+
+def test_diagnostic_says_searching_and_progress_until_the_model_check(monkeypatch, tmp_path):
+    session, app = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"))
+    client = _client(app)
+    seen = []
+
+    def probe_and_look(candidate, cancel=None):
+        body = client.get("/api/diagnostic").json()
+        seen.append((body["searching"], body["progress"], body["candidates"]))
+
+    monkeypatch.setattr(session, "_probe_candidate", probe_and_look)
+    get_journal().emit("diagnostic_progress", {"done": 7, "total": 9})  # an older search
+    body = client.get("/api/diagnostic").json()
+    assert body["searching"] is True
+    assert body["progress"] == {"done": 7, "total": 9}  # the journal's last, whatever it is
+
+    session.check_model()
+
+    assert seen == [
+        (True, {"done": 0, "total": 2}, []),
+        (True, {"done": 1, "total": 2}, []),
+    ]
+    body = client.get("/api/diagnostic").json()
+    assert body["searching"] is False and body["progress"] is None
+    assert len(body["candidates"]) == 2
+
+
+def test_diagnostic_before_any_progress_searches_without_a_count(monkeypatch, tmp_path):
+    _, app = _build(monkeypatch, tmp_path)
+    monkeypatch.setattr(get_journal(), "all_events", lambda: [])
+
+    body = _client(app).get("/api/diagnostic").json()
+
+    assert body["searching"] is True and body["progress"] is None
+    assert body["candidates"] == []
 
 
 # ---------- story 1b: model choice at the diagnostic ----------

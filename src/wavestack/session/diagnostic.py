@@ -420,14 +420,22 @@ class DiagnosticSession:
         explicit_path: str | None,
         probe_only: set[str] | None = None,
         reprobe: frozenset[str] | set[str] = frozenset(),
+        report_progress: bool = False,
     ) -> list[discovery.ModelCandidate]:
         """Every candidate, architecture from the probe cache. Unprobed files are probed in a
         child process, all of them or only those in `probe_only`. Lot E (E2): a file whose
         entry is an older probe's or incomplete (`probe.measured`) is probed again only when
         in `reprobe` (the model about to boot, nothing loaded yet); the others are measured
         again when chosen (`AppSession._load`, after the release). A remembered failure of
-        the current probe wins over an older success: no endless reprobe."""
+        the current probe wins over an older success: no endless reprobe.
+
+        Story 3 (corrections): with `report_progress` (the launch search only), one
+        `diagnostic_progress{done: 0, total}` once the cache has been read (`total` = the
+        probes actually needed), then one after each probe. Several Ollama tags sharing one
+        blob are probed once; the others take its outcome."""
         candidates = discovery.discover(explicit_path)
+        to_probe: list[discovery.ModelCandidate] = []
+        siblings: dict[str, list[discovery.ModelCandidate]] = {}
         for candidate in candidates:
             if candidate.status != "found" or not candidate.path:
                 continue
@@ -441,11 +449,30 @@ class DiagnosticSession:
                 # Remembered failure: no reprobe, same reason.
                 candidate.status, candidate.reason = "incompatible", failed.get("reason")
             elif probing and (entry is None or path in reprobe):
-                self._probe_candidate(candidate)
+                if path in siblings:
+                    siblings[path].append(candidate)
+                else:
+                    siblings[path] = []
+                    to_probe.append(candidate)
             elif entry is not None:
                 candidate.architecture = entry.get("architecture")
                 candidate.size_label = entry.get("size_label")
+        total = len(to_probe)
+        self._emit_progress(0, total, report_progress)
+        for done, candidate in enumerate(to_probe, start=1):
+            self._probe_candidate(candidate)
+            for sibling in siblings[candidate.path]:
+                sibling.architecture, sibling.size_label = (
+                    candidate.architecture,
+                    candidate.size_label,
+                )
+                sibling.status, sibling.reason = candidate.status, candidate.reason
+            self._emit_progress(done, total, report_progress)
         return candidates
+
+    def _emit_progress(self, done: int, total: int, report: bool) -> None:
+        if report:
+            get_journal().emit("diagnostic_progress", {"done": done, "total": total})
 
     def _hand_out(
         self,
@@ -471,7 +498,9 @@ class DiagnosticSession:
             self._emit_check("cloud", "warn", self._rendered(error_text), blocking=False)
         saved = self.selected_model_path
         # Lot E (E2): the saved file, about to boot, is measured again if its entry is old.
-        candidates = self._discover(saved, reprobe={saved} if saved else set())
+        candidates = self._discover(
+            saved, reprobe={saved} if saved else set(), report_progress=True
+        )
         notice_text: str | Message = ""
         if self.selected_cloud:
             entry = self.cfg.cloud_model(self.selected_cloud)
@@ -736,7 +765,7 @@ class DiagnosticSession:
         )
 
     def _block(self, message_text: str, action_text: str) -> None:
-        """No model is active any more: the page offers no « Ouvrir WaveStack »."""
+        """No model is active any more: the diagnostic is no longer `ready`."""
         with self._lock:
             if self.last_result is not None:
                 self.last_result.ready, self.last_result.blocking_checks = False, ["model"]
@@ -765,7 +794,7 @@ class DiagnosticSession:
     ) -> None:
         """A hot switch ended. `ok`: nothing blocks any more, and the choice is the saved one
         only if settings.json holds it. `error` (no model active any more): the diagnostic
-        blocks again, so the page offers no « Ouvrir WaveStack ». `restored`: unchanged.
+        blocks again (no longer `ready`). `restored`: unchanged.
         `cancelled` (lot E, E4): unchanged, unless no model is active any more (`loaded`)."""
         try:
             status = future.result()

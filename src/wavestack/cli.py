@@ -8,6 +8,7 @@ are imported and used at module load time, ahead of everything else.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import logging
 import os
@@ -100,12 +101,48 @@ def _try_reserve_port(port: int) -> socket.socket | None:
         return None
 
 
-def _existing_instance_healthy(port: int) -> bool:
+def _existing_instance_health(port: int) -> dict | None:
+    """Story R0 (CAP-1): the body of the running instance's `GET /api/health`; `{}` when it
+    answers 200 with no readable JSON object (an older or foreign instance), `None` when
+    nothing healthy answers."""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as resp:
-            return resp.status == 200
-    except (urllib.error.URLError, OSError):
+            if resp.status != 200:
+                return None
+            raw = resp.read(65536)  # a foreign responder never makes the CLI buffer forever
+    except (urllib.error.URLError, OSError, http.client.HTTPException):
+        return None
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _same_folder(a: str, b: str) -> bool:
+    """Two folders compared once resolved, case-insensitive on Windows (`normcase`)."""
+    try:
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+    except (OSError, ValueError):
         return False
+
+
+def _say_already_running(health: dict, port: int, lang: str) -> None:
+    """Story R0 (CAP-1): where the reused instance was launched from, and a warning when it
+    is not this folder (or it does not say: an instance from before)."""
+    root = health.get("root")
+    commit = health.get("commit")
+    here = str(_config.repo_root())
+    if not isinstance(root, str) or not root:
+        print(msg("cli.already_running_unknown", lang, port=port))
+        print(msg("cli.other_tree", lang, here=here))
+        return
+    if isinstance(commit, str) and commit:
+        print(msg("cli.already_running", lang, port=port, root=root, commit=commit))
+    else:
+        print(msg("cli.already_running_no_commit", lang, port=port, root=root))
+    if not _same_folder(root, here):
+        print(msg("cli.other_tree", lang, here=here))
 
 
 def _existing_instance_ready(port: int) -> bool:
@@ -117,7 +154,14 @@ def _existing_instance_ready(port: int) -> bool:
         result = DiagnosticResult(
             ready=bool(body.get("ready")), blocking_checks=list(body.get("blocking_checks") or [])
         )
-    except (urllib.error.URLError, OSError, ValueError, AttributeError, TypeError):
+    except (
+        urllib.error.URLError,
+        OSError,
+        http.client.HTTPException,
+        ValueError,
+        AttributeError,
+        TypeError,
+    ):
         return False
     return launch_page(result) == "/"
 
@@ -165,7 +209,9 @@ def main(argv: list[str] | None = None) -> int:
 
     reserved = _try_reserve_port(args.port)
     if reserved is None:
-        if _existing_instance_healthy(args.port):
+        health = _existing_instance_health(args.port)
+        if health is not None:
+            _say_already_running(health, args.port, lang)
             page = "/" if _existing_instance_ready(args.port) else "/diagnostic"
             webbrowser.open(f"http://127.0.0.1:{args.port}{page}")
             return 0

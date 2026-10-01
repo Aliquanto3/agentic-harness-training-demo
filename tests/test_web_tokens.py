@@ -642,3 +642,34 @@ def test_projection_sizes_match_the_design_table():
             seen.add(name)
     font_sizes = {n for n in projection if n.endswith("-font-size")}
     assert font_sizes <= seen, f"missing from the DESIGN.md table: {sorted(font_sizes - seen)}"
+
+
+# ---------- story 3 of 2026-09-30: /diagnostic and /models sized by the tokens ----------
+
+_FONT_DECLARATION = re.compile(r"\b(font(?:-size)?)\s*:\s*([^;}]+)")
+
+
+def test_diagnostic_and_models_pages_size_their_text_by_the_tokens():
+    """No `rem` nor `em` left (the old diagnostic's 1.4rem, 0.9rem…), every font and font
+    size from the type ramp; their shared styles (table, badges, buttons, fields) in
+    pages.css, scoped to the annex pages."""
+    offenders = []
+    for name in ("diagnostic.html", "models.html"):
+        page = (STATIC_DIR / name).read_text(encoding="utf-8")
+        assert '<body class="annex-page">' in page, name
+        css = _COMMENTS[".css"].sub("", "\n".join(re.findall(r"<style>(.*?)</style>", page, re.S)))
+        offenders += [f"{name}: {m.group(0)}" for m in re.finditer(r"\d(?:\.\d+)?r?em\b", css)]
+        for prop, value in _FONT_DECLARATION.findall(css):
+            if "var(--typography-" not in value and value.strip() not in {"inherit"}:
+                offenders.append(f"{name}: {prop}: {value.strip()}")
+    assert not offenders, offenders
+    shared = (STATIC_DIR / "pages.css").read_text(encoding="utf-8")
+    for rule in (
+        ".annex-page .model-table {",
+        ".annex-page .hosting-tag-network {",
+        ".annex-page .button-primary {",
+        ".annex-page .button-secondary {",
+        ".annex-page .field-input {",
+        ".annex-page .sort-button {",
+    ):
+        assert rule in shared, rule

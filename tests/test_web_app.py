@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import threading
 
 from fake_engine import FakeEngine, booted_session
 from starlette.testclient import TestClient
@@ -46,37 +48,77 @@ def test_diagnostic_route_still_works(monkeypatch, tmp_path):
     assert response.status_code == 200
 
 
-def test_models_page_and_tabs_shared_with_the_diagnostic(monkeypatch, tmp_path):
-    """Story 25: `/models` answers, and both pages carry the same tabs, each marking itself."""
+# Story 2 (2026-09-30): the bar shared by the five pages, in a fixed order.
+SITE_PAGES = ("/", "/llm", "/rag", "/diagnostic", "/models")
+
+
+def _site_nav(page: str) -> str:
+    start = page.index('<nav class="site-nav"')
+    return page[start : page.index("</nav>", start) + len("</nav>")]
+
+
+def _projection_row(nav: str) -> str:
+    """The lines of « Mode projection », the main screen's only (app.js applies it)."""
+    start = nav.rfind('<div class="display-menu-row">', 0, nav.index('id="projection-toggle"'))
+    start = nav.rfind("\n", 0, start) + 1
+    return nav[start : nav.index("\n", nav.index("</div>", start)) + 1]
+
+
+def test_every_page_opens_on_the_same_shared_bar(monkeypatch, tmp_path):
+    """Story 2 (2026-09-30): the same `nav.site-nav` at the head of the five pages, but for
+    `aria-current` (one, on the page's own link) and the projection mode (the main screen's):
+    the brand, then the five pages in a fixed order, then « Affichage ▾ » with the theme and
+    the language. No `.page-tabs`, « ← Atelier » nor « Ouvrir WaveStack » left."""
     client = _client(_build(monkeypatch, tmp_path))
-    models = client.get("/models")
-    assert models.status_code == 200 and "text/html" in models.headers["content-type"]
-    assert '<a href="/models" aria-current="page">Modèles</a>' in models.text
-    diagnostic = client.get("/diagnostic").text
-    assert '<a href="/diagnostic" aria-current="page">Diagnostic</a>' in diagnostic
-    assert '<a href="/models">Modèles</a>' in diagnostic
-    for page in (models.text, diagnostic):  # story 29: the « LLM nu » tab
-        assert '<a href="/llm">LLM nu</a>' in page
-    llm = client.get("/llm").text
-    assert '<a href="/llm" aria-current="page">LLM nu</a>' in llm
-    assert '<a href="/models">Modèles</a>' in llm
-    for page in (models.text, diagnostic, llm):  # story 30: the « Atelier RAG » tab
-        tabs = page[page.index('<nav class="page-tabs"') : page.index("</nav>")]
-        assert '<a href="/rag">Atelier RAG</a>' in tabs
-    index = client.get("/").text  # the top bar's link, before the theme picker
-    assert index.index('id="llm-link"') < index.index('id="theme-picker"')
-    # Story 30: « Atelier RAG » next to it, in the same group, and its page's tabs.
-    assert index.index('id="llm-link"') < index.index('id="rag-link"')
-    assert index.index('id="rag-link"') < index.index('id="theme-picker"')
-    assert 'href="/rag"' in index
-    rag = client.get("/rag").text
-    assert '<a href="/rag" aria-current="page">Atelier RAG</a>' in rag
-    tabs = ['href="/"', 'href="/llm"', 'href="/rag"', 'href="/diagnostic"', 'href="/models"']
-    nav = rag[rag.index("<nav") : rag.index("</nav>")]
-    assert [nav.index(t) for t in tabs] == sorted(nav.index(t) for t in tabs)
-    for page in (models.text, diagnostic):  # one stylesheet; « Ouvrir » gated by `ready`
-        assert '<link rel="stylesheet" href="/static/pages.css" />' in page
-        assert '<a href="/" id="open-link" hidden>Ouvrir WaveStack</a>' in page
+    navs = {}
+    for path in SITE_PAGES:
+        response = client.get(path)
+        assert response.status_code == 200 and "text/html" in response.headers["content-type"]
+        page = response.text
+        assert page.count('<nav class="site-nav"') == 1, path
+        body = page[page.index("<body") :]
+        # At the head of the page: the first element of `<body>` (comments aside).
+        first = re.sub(r"<!--.*?-->", "", body[body.index(">") + 1 :], flags=re.S).lstrip()
+        assert first.startswith('<nav class="site-nav"'), path
+        for gone in ('class="page-tabs"', 'id="back-link"', 'id="open-link"', 'id="llm-link"'):
+            assert gone not in page, (path, gone)
+        assert 'id="rag-link"' not in page and 'class="top-bar-title"' not in page, path
+        nav = _site_nav(page)
+        assert nav.count('aria-current="page"') == 1, path
+        current = nav[: nav.index('aria-current="page"')]
+        assert current[current.rindex("<a ") :].startswith(f'<a href="{path}"'), path
+        assert "site-nav-brand" not in current[current.rindex("<a ") :], path
+        hrefs = re.findall(r'<a href="([^"]*)"', nav)
+        assert hrefs == ["/", *SITE_PAGES], (path, hrefs)
+        assert '<a href="/" class="site-nav-brand">WaveStack</a>' in nav
+        assert 'data-i18n-aria-label="common.links.pages" data-i18n-links>' in nav
+        for control in ('id="display-menu"', 'id="theme-picker"', 'id="language-picker"'):
+            assert control in nav, (path, control)
+        assert nav.index("/models") < nav.index('id="display-menu"'), path
+        assert ('id="projection-toggle"' in page) == (path == "/"), path
+        if path == "/":
+            nav = nav.replace(_projection_row(nav), "")
+        navs[path] = nav.replace(' aria-current="page"', "")
+    assert len(set(navs.values())) == 1, "the five copies of the bar differ"
+
+
+def test_the_main_screen_bar_is_under_the_panes(monkeypatch, tmp_path):
+    """Story 2 (2026-09-30): `header.top-bar` after the panes, without the title, the screen
+    links nor « Affichage ▾ », « Réinitialiser » still in it; pages.css shared."""
+    client = _client(_build(monkeypatch, tmp_path))
+    index = client.get("/").text
+    bar = index[
+        index.index('<header class="top-bar">') : index.index(
+            "</header>", index.index('<header class="top-bar">')
+        )
+    ]
+    assert index.index("</main>") < index.index('<header class="top-bar">')
+    assert 'id="reset-button"' in bar and 'id="scenario-picker"' in bar
+    assert 'id="display-menu"' not in bar and "screen-link" not in bar
+    for path in SITE_PAGES:
+        page = client.get(path).text
+        assert '<link rel="stylesheet" href="/static/pages.css" />' in page, path
+        assert page.index('src="/static/i18n.js"') < page.index('src="/static/site-nav.js"'), path
 
 
 def test_api_diagnostic_contains_a_model_table_failure(monkeypatch, tmp_path):
@@ -300,6 +342,45 @@ def test_stream_drops_the_overlap_between_subscription_and_snapshot(monkeypatch)
     assert _seqs(chunks) == [replayed.seq, racing_seq, sentinel]
 
 
+def test_stream_keeps_two_events_emitted_at_once_by_two_threads():
+    """Story 4 (E2E `rag_rerank`): the download thread and the worker emit at once. The
+    journal notifies in `seq` order, so the stream, which drops an event whose `seq` is not
+    above the last it sent, loses neither (the card « available » used to be dropped)."""
+    journal = get_journal()
+    other_emitted = threading.Event()
+    other: list[int] = []
+
+    def emit_other() -> None:
+        other.append(journal.emit("session_state", {"state": "idle", "reason_text": "B"}).seq)
+        other_emitted.set()
+
+    def slow_first(envelope) -> None:  # noqa: ANN001 - notified before the stream
+        if envelope.payload.get("reason_text") == "A":  # another thread emits meanwhile
+            threading.Thread(target=emit_other).start()
+            other_emitted.wait(timeout=0.5)
+
+    journal.subscribe(slow_first)
+    try:
+
+        async def _collect() -> tuple[int, list[str], int]:
+            request = _OpenRequest(str(journal.last_seq()))
+            iterator = _sse_stream(request).body_iterator
+            chunks = [await anext(iterator)]  # the instance; the stream is subscribed now
+            live = asyncio.ensure_future(anext(iterator))  # past the replay, on the queue
+            await asyncio.sleep(0.05)
+            payload = {"state": "idle", "reason_text": "A"}
+            first = (await asyncio.to_thread(journal.emit, "session_state", payload)).seq
+            assert other_emitted.wait(timeout=5)
+            chunks.append(await asyncio.wait_for(live, timeout=2))
+            return first, *await _read_until(iterator, request, max(first, other[0]), chunks)
+
+        first_seq, chunks, sentinel = asyncio.run(_collect())
+    finally:
+        journal.unsubscribe(slow_first)
+
+    assert _seqs(chunks) == [first_seq, other[0], sentinel]
+
+
 def test_stream_with_an_id_of_another_instance_still_sends_live_events():
     """A `Last-Event-ID` beyond this journal's tip (a relaunch, tab left open) replays
     nothing, but the live events still reach the stream."""
@@ -381,7 +462,7 @@ def test_the_session_spend_is_in_the_state_and_has_its_place_in_the_top_bar(monk
     assert spend["total_eur"] == (0.001 + 0.002) * 0.86
     index = client.get("/").text
     assert index.index('id="gauge-figures"') < index.index('id="consumption"')
-    assert '<th scope="col">Prix</th>' in client.get("/models").text
+    assert '<span class="sort-label">Prix</span>' in client.get("/models").text
 
 
 def test_select_model_boots_the_found_candidate_path(monkeypatch, tmp_path):

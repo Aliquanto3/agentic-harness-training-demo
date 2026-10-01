@@ -5,6 +5,8 @@
 // Languages (2/5): every text of the page comes from `content/ui.yaml` through `t()`, in the
 // session's language; the formats of numbers, amounts and dates follow it.
 import { dateTimeFormat, joinList, numberFormat as intlNumber, ready as textsReady, section, t } from "./i18n.js";
+// Story 2 (2026-09-30): « Affichage ▾ » and the language picker, shared by the five pages.
+import { languageChanging, renderLanguagePicker as drawLanguagePicker, setDisplayMenu, useSessionState } from "./site-nav.js";
 
 const PANES = ["bricks", "human", "ctx", "orch", "schema"];
 const PANE_LABELS = section("main.pane_titles");
@@ -306,7 +308,7 @@ function applyEnvelope(envelope) {
     case "language_changed":
       // Another tab changed the language: this page reloads in it too. Only against a language
       // `/api/state` gave (without it, a replayed change would reload the page).
-      if (isLive(envelope) && !languageChanging && store.language && p.language !== store.language.language) {
+      if (isLive(envelope) && !languageChanging() && store.language && p.language !== store.language.language) {
         location.reload();
       }
       break;
@@ -3076,36 +3078,73 @@ function findScenario(id) {
 let renderedProgram = null;
 let renderedGuide = null;
 
-// Story 22 (C1): the scenario's instructions fold to 3 lines so they never hide the
-// conversation; « Afficher plus » only when the text overflows them, measured after each
-// rendering and whenever the text's box changes size (pane resized, text size). UI state
-// only, not remembered.
-let guideExpanded = false;
-const GUIDE_LINES = 3;
+// The scenario's instructions sit behind the « i » next to the Vue humain title, so they
+// never take room from the conversation. A toggletip: the native popover opens on click
+// (Escape or a click outside closes it), and a mouse resting on the « i » previews it as a
+// tooltip, which a click then keeps open. UI state only, not remembered.
+const INFO_HOVER_OPEN_MS = 300;
+const INFO_HOVER_CLOSE_MS = 200;
+let infoHoverTimer = null;
+let infoOpenedByHover = false;
 
-function setGuideExpanded(expanded) {
-  guideExpanded = expanded;
-  const more = document.getElementById("scenario-guide-more");
-  document.getElementById("scenario-guide").classList.toggle("is-expanded", expanded);
-  more.setAttribute("aria-expanded", String(expanded));
-  more.textContent = expanded ? t("main.scenario.less") : t("main.scenario.more");
-  measureGuide();
+function setupScenarioInfo() {
+  const button = document.getElementById("scenario-info");
+  const popover = document.getElementById("scenario-info-popover");
+  const isOpen = () => popover.matches(":popover-open");
+  const later = (delay, action) => {
+    clearTimeout(infoHoverTimer);
+    infoHoverTimer = setTimeout(action, delay);
+  };
+  const leave = (event) => {
+    if (event.pointerType !== "mouse") return;
+    later(INFO_HOVER_CLOSE_MS, () => {
+      if (infoOpenedByHover && isOpen()) popover.hidePopover();
+    });
+  };
+  button.addEventListener("pointerenter", (event) => {
+    if (event.pointerType !== "mouse" || button.hidden) return;
+    later(INFO_HOVER_OPEN_MS, () => {
+      if (isOpen() || button.hidden) return;
+      infoOpenedByHover = true;
+      popover.showPopover();
+    });
+  });
+  button.addEventListener("pointerleave", leave);
+  popover.addEventListener("pointerenter", () => clearTimeout(infoHoverTimer));
+  popover.addEventListener("pointerleave", leave);
+  button.addEventListener("click", (event) => {
+    clearTimeout(infoHoverTimer);
+    // Open as a preview: the click keeps it open instead of toggling it shut.
+    if (infoOpenedByHover && isOpen()) {
+      event.preventDefault();
+      infoOpenedByHover = false;
+    }
+  });
+  popover.addEventListener("toggle", (event) => {
+    if (event.newState === "closed") infoOpenedByHover = false;
+  });
 }
 
-function measureGuide() {
-  const guide = document.getElementById("scenario-guide");
-  const text = document.getElementById("scenario-guide-text");
-  const more = document.getElementById("scenario-guide-more");
-  if (guide.hidden || !text.clientHeight) {
-    more.hidden = true;
+function renderScenarioInfo(scenario) {
+  const button = document.getElementById("scenario-info");
+  const popover = document.getElementById("scenario-info-popover");
+  button.hidden = !scenario;
+  if (!scenario) {
+    if (popover.matches(":popover-open")) popover.hidePopover();
+    popover.replaceChildren();
     return;
   }
-  const line = parseFloat(getComputedStyle(text).lineHeight) || 0;
-  // Folded: the clamp cuts the text; unfolded: it is taller than the three lines.
-  const overflows = guideExpanded
-    ? text.scrollHeight > GUIDE_LINES * line + 1
-    : text.scrollHeight > text.clientHeight + 1;
-  more.hidden = !overflows;
+  // No `title`: a native tooltip would pile up on the popover the hover already shows.
+  const label = t("main.scenario.info_label", { scenario: scenario.title_text });
+  button.setAttribute("aria-label", label);
+  popover.replaceChildren(
+    el("p", "scenario-info-title", scenario.title_text),
+    el("p", "scenario-info-text", scenario.description_text)
+  );
+  // A new scenario: the « i » glows once so the eye finds where its instructions went.
+  button.classList.remove("is-new");
+  void button.offsetWidth;
+  button.classList.add("is-new");
 }
 
 function renderScenarioControls(state) {
@@ -3145,27 +3184,22 @@ function renderScenarioControls(state) {
   const topText = modelLoadText() ?? store.topStatus ?? "";
   setTopStatus(topText, modelLoadTitle() ?? topText);
 
-  // Vue humain: the active scenario's instructions, then one chip per suggested prompt.
+  // Vue humain: the active scenario's instructions behind the « i » of the header, then one
+  // chip per suggested prompt.
   const scenario = findScenario(store.scenarios?.active);
   renderScenarioUnavailable(scenario ? store.scenarios?.unavailable ?? [] : []);
   if (renderedGuide === scenario) return;
-  // A refresh of the same scenario keeps the guide as the user left it (unfolded or not).
+  // A refresh of the same scenario (same id, new object) updates the text without the glow.
   const sameScenario = Boolean(scenario) && renderedGuide?.id === scenario.id;
   renderedGuide = scenario;
-  const guide = document.getElementById("scenario-guide");
-  const guideText = document.getElementById("scenario-guide-text");
+  renderScenarioInfo(scenario);
+  if (sameScenario) document.getElementById("scenario-info").classList.remove("is-new");
   const chips = document.getElementById("suggested-prompts");
-  guide.hidden = chips.hidden = !scenario;
+  chips.hidden = !scenario;
   if (!scenario) {
-    guideText.replaceChildren();
     chips.replaceChildren();
-    setGuideExpanded(false);
     return;
   }
-  guideText.replaceChildren(el("strong", "", scenario.title_text), ` · ${scenario.description_text}`);
-  // Story 22: folded again at each new scenario, then measured.
-  if (sameScenario) measureGuide();
-  else setGuideExpanded(false);
   chips.replaceChildren(
     ...scenario.prompts.map((prompt) => {
       const chip = el("button", "suggested-prompt", prompt);
@@ -3234,53 +3268,22 @@ function resetHarness() {
   scenarioIntention("/api/intentions/reset", {}, t("main.top_bar.reset_no_answer"));
 }
 
-// ---------- languages (1/5): the language picker of the top bar ----------
+// ---------- languages (1/5): the language picker, in « Affichage ▾ » of the shared bar ----------
 
-// Languages (2/5): the picker's texts are in `common.language` of `content/ui.yaml`, in the
-// session's language like the rest of the page.
-let languageChanging = false; // the intention is on its way: the page reloads on success
+// Story 2 (2026-09-30): the picker, its lock and its intention are site-nav.js's, shared by the
+// five pages; the main screen gives it the session's state, which its events keep current.
+useSessionState({ opened: () => closePaneMenu() });
 
 function renderLanguagePicker() {
   const info = store.language;
-  const picker = document.getElementById("language-picker");
-  if (!picker) return;
-  if (!info) {
-    picker.disabled = true; // no `/api/state`: the lock is unknown, nothing to offer
-    return;
-  }
-  const idle = store.sessionState?.state === "idle";
-  const locked = Boolean(info.language_locked);
-  if (picker.value !== info.language) picker.value = info.language;
-  picker.disabled = locked || !idle || languageChanging;
-  const busy = store.sessionState?.reason_text || t("common.unavailable_outside_turn");
-  const title = locked ? t("common.language.locked") : idle ? t("common.language.help") : busy;
-  picker.title = title;
-  document.getElementById("language-picker-box").title = title;
-  picker.setAttribute("aria-label", t("common.language.name"));
-  setText(document.getElementById("language-picker-code"), info.language.toUpperCase());
-}
-
-async function changeLanguage(event) {
-  const wanted = event.target.value;
-  const current = store.language?.language ?? "fr";
-  event.target.value = current; // the option shown follows the session until the reload
-  if (wanted === current) return;
-  languageChanging = true;
-  store.composerError = null;
-  render();
-  try {
-    const response = await postIntention("/api/intentions/language", { language: wanted });
-    if (response.ok) {
-      location.reload(); // the page comes back in the new language
-      return;
+  drawLanguagePicker(
+    info && {
+      language: info.language,
+      language_locked: info.language_locked,
+      idle: store.sessionState?.state === "idle",
+      busy_text: store.sessionState?.reason_text ?? null,
     }
-    const detail = await response.json().catch(() => ({}));
-    store.composerError = typeof detail.detail === "string" ? detail.detail : t("common.language.refused");
-  } catch {
-    store.composerError = t("common.language.failed");
-  }
-  languageChanging = false;
-  render();
+  );
 }
 
 async function postIntention(path, body) {
@@ -6298,6 +6301,8 @@ function eventSummary(group) {
       return t("main.log.reasoning_cut", { tokens: p.reasoning_tokens, budget: p.budget, reserve: p.answer_reserve });
     case "diagnostic_check":
       return `${labelValue(p.check, p.status)} · ${p.message_text}`;
+    case "diagnostic_progress":
+      return p.total ? t("main.log.diagnostic_progress", { count: p.done, total: String(p.total) }) : t("main.log.diagnostic_nothing_to_probe");
     case "llm_tokenized":
       return p.exact
         ? `${t("main.ctx.tokens", { tokens: String(p.figures_text?.token_count ?? p.token_count) })} · ${p.model_label}`
@@ -7149,7 +7154,6 @@ function toggleProjection() {
   } catch {
     // No storage: the mode lasts until the page is reloaded.
   }
-  measureGuide(); // the scenario's guide may now need « Afficher plus »
 }
 
 // ---------- boot ----------
@@ -7159,22 +7163,6 @@ function closePaneMenu() {
   if (list.hidden) return;
   list.hidden = true;
   document.getElementById("pane-menu-toggle").setAttribute("aria-expanded", "false");
-}
-
-// Languages (2/5): « Affichage ▾ », the theme, the language and the projection mode, out of
-// the top bar (decision of 2026-09-30): it holds in German at 1 280 px, projection included.
-function setDisplayMenu(open, returnFocus = false) {
-  const panel = document.getElementById("display-menu-panel");
-  const toggle = document.getElementById("display-menu-toggle");
-  if (panel.hidden === !open) return;
-  panel.hidden = !open;
-  toggle.setAttribute("aria-expanded", String(open));
-  if (open) {
-    closePaneMenu();
-    (panel.querySelector("select:not(:disabled), button") ?? toggle).focus();
-  } else if (returnFocus) {
-    toggle.focus();
-  }
 }
 
 async function boot() {
@@ -7209,13 +7197,9 @@ async function boot() {
     document.getElementById("pane-menu-toggle").setAttribute("aria-expanded", String(!expanded));
     if (!expanded) setDisplayMenu(false);
   });
-  document.getElementById("display-menu-toggle").addEventListener("click", () => {
-    setDisplayMenu(document.getElementById("display-menu-panel").hidden);
-  });
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".pane-menu")) closePaneMenu();
-    if (!event.target.closest(".display-menu")) setDisplayMenu(false);
     if (!event.target.closest(".window-picker")) closeWindowPanel();
   });
   bindWindowPicker();
@@ -7235,8 +7219,7 @@ async function boot() {
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
   document.getElementById("replay-last").addEventListener("click", replayLast);
   document.getElementById("scenario-picker").addEventListener("change", launchScenario);
-  document.getElementById("scenario-guide-more").addEventListener("click", () => setGuideExpanded(!guideExpanded));
-  new ResizeObserver(measureGuide).observe(document.getElementById("scenario-guide-text"));
+  setupScenarioInfo();
   const modelPicker = document.getElementById("model-picker");
   modelPicker.addEventListener("change", notePick);
   modelPicker.addEventListener("focus", loadModelList);
@@ -7244,7 +7227,6 @@ async function boot() {
   document.getElementById("model-picker-apply").addEventListener("click", applyPick);
   bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
-  document.getElementById("language-picker").addEventListener("change", changeLanguage);
   document.getElementById("projection-toggle").addEventListener("click", toggleProjection);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
@@ -7296,7 +7278,8 @@ async function boot() {
   }, 250);
 
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
+    // Story 2: an open « Affichage ▾ » menu is closed by site-nav.js first (`defaultPrevented`).
+    if (event.key !== "Escape" || event.defaultPrevented) return;
     if (document.getElementById("audit-dialog").open) return; // the dialog closes itself
     if (document.getElementById("cloud-warning").open) return;
     if (!drawer().hidden) {
@@ -7305,8 +7288,6 @@ async function boot() {
       closeMemoryDrawer();
     } else if (!document.getElementById("pane-menu-list").hidden) {
       closePaneMenu();
-    } else if (!document.getElementById("display-menu-panel").hidden) {
-      setDisplayMenu(false, true);
     } else if (!windowPanel().hidden) {
       closeWindowPanel(true); // story 26: the focus back on « Fenêtre ▾ »
     } else if (store.selection !== null && selectionShown()) {

@@ -198,15 +198,16 @@ Vérifications ajoutées aux scénarios existants :
 
 - `bare_llm` : « Raisonnement » en tête du panneau ; MCP (passé en lazy loading par l'API,
   brique éteinte), Outils, Skills et Hooks éteints : sous-options désactivées, raison au
-  survol, « · brique éteinte » dans le résumé ; « Afficher plus » seulement si la consigne
-  dépasse 3 lignes.
+  survol, « · brique éteinte » dans le résumé ; la consigne derrière le « i » de la Vue humain,
+  fermée au lancement.
 - `system_prompt` : « Enregistrer » désactivé tant que le texte est inchangé, puis
   « Prompt système enregistré. » (`role=status`), effacé à la saisie suivante.
 - `subagent` : onglets « Agent principal » / « Sous-agent subN » (`role=tablist`), retour à
   « Agent principal » au tour suivant ; « Annuler » et un second clic sur « Déléguer au
   sous-agent » ferment le formulaire.
-- `soc` : consigne de 1 276 caractères sur 3 lignes, « Afficher plus » / « Réduire », champ
-  et dernière bulle visibles ; laissée dépliée, repliée au lancement d'un autre scénario.
+- `soc` : consigne de 1 276 caractères derrière le « i » : clic, Échap, aperçu au survol qu'un
+  clic garde ouvert ; entière dans la fenêtre, champ et dernière bulle visibles ; laissée
+  ouverte, elle suit le scénario lancé ensuite.
 - `global_memory` : 6 entrées ; croix, « Tout effacer » (danger) et « Fermer » visibles sans
   défiler ; la croix ferme le tiroir.
 - `rag_rerank` : « Reranking » coché, brique RAG éteinte : grisé, désactivé, raison au
@@ -382,6 +383,18 @@ Vérifications ajoutées aux scénarios existants :
   ligne « jamais », carte indisponible « ne déclare pas de raisonnement ». Captures
   `43-modeles-selecteur.jpg` (la liste affichée en boîte de liste : une liste native ne se
   capture pas ouverte) et `44-modeles-tableau.jpg` (page entière).
+- Story 3 du 2026-09-30, dans `model_catalog` : « Taille » cliquée deux fois, ordre décroissant
+  dans chaque groupe (octets puis paramètres, inconnues en dernier) et `aria-sort="descending"`
+  sur cet en-tête seul ; Entrée sur « Fenêtre », ordre croissant ; le prix sans tri. Filtre
+  « Réseau » + texte « gem » : les seules lignes attendues d'après `/api/diagnostic`, compteur
+  « n modèles sur N », groupes vides masqués (capture `44b-modeles-filtres.jpg`) ; « zzz » :
+  message dédié, tableau masqué, puis « Réinitialiser les filtres ». Au diagnostic, `searching`
+  faux une fois le contrôle `model` rendu ; puis, réponse et flux simulés par `page.route` (la pile
+  n'est diagnostiquée qu'au lancement) : « Recherche et test des modèles en cours… » sans compteur
+  (`0/0`), puis « 3 modèles testés sur 30 » et la barre à 3/30 par un `diagnostic_progress` en
+  direct, jamais « Aucun candidat trouvé. » (capture `49b-diagnostic-recherche.jpg`) ; la vraie
+  réponse rend ensuite la liste. Dans `annex_language`, en `de` à 1 280 px : « Fenster » puis
+  « Netzwerk », les seules lignes réseau, par fenêtre, compteur juste.
 
 ## Fenêtre de contexte réglable (story 26)
 

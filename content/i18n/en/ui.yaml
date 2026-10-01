@@ -64,14 +64,16 @@ common:
       other: "{count} tools"
   links:
     pages: "WaveStack pages"
-    back: "← Workshop"
+    home: "Workshop"
     diagnostic: "Diagnostics"
     models: "Models"
-    open: "Open WaveStack"
     llm: "Bare LLM"
     llm_title: "Bare LLM: inside the active model (tokens, vectors, token-by-token generation)"
     rag: "RAG workshop"
     rag_title: "RAG workshop: the RAG architecture to handle (chunking, embedding, vector database, search, reranking)"
+  display:
+    menu: "Display"
+    theme: "Theme"
   theme:
     name: "Interface theme"
     system: "◐ System"
@@ -246,8 +248,7 @@ main:
     choose: "Choose a scenario"
     module: "Module {n} · {title} · {minutes} min"
     transverse: "Cross-cutting and business"
-    more: "Show more"
-    less: "Show less"
+    info_label: "Instructions for the scenario “{scenario}”"
     fill: "Fill in the field: {prompt}"
     unavailable:
       one: "Scenario brick unavailable with this model:"
@@ -637,6 +638,7 @@ main:
   log:
     kinds:
       diagnostic_check: "Diagnostics check"
+      diagnostic_progress: "Model search"
       outbound_request: "Outbound data"
       harness_error: "Harness error"
       session_state: "Session state"
@@ -729,6 +731,10 @@ main:
     no_armed: "no armed action"
     at_most: "at most {count}"
     rerank_progress: "{done} / {total} excerpts scored"
+    diagnostic_progress:
+      one: "{count} of {total} model tested"
+      other: "{count} of {total} models tested"
+    diagnostic_nothing_to_probe: "No model to test"
     rerank_first: "first: {title} (before: #{before})"
     search_best: "best: {title} ({score})"
     reasoning_cut: "cut at {tokens} tokens (budget {budget}) · {reserve} for the answer"
@@ -837,9 +843,6 @@ main:
     not_loaded: "Not loaded."
     tools: "Tools: {tools}"
     leads_out: "Click: its outbound data in Orchestration"
-  display:
-    menu: "Display"
-    theme: "Theme"
 
 llm:
   page_title: "WaveStack — Bare LLM"
@@ -902,6 +905,11 @@ diagnostic:
   path_button: "Choose this file"
   error: "error"
   no_candidate: "No candidate found."
+  checks_title: "Checks"
+  searching: "Searching for and testing the models…"
+  progress:
+    one: "{count} of {total} models tested"
+    other: "{count} of {total} models tested"
   architecture: "{name} architecture"
   loaded: "loaded"
   saved_choice: "saved choice"
@@ -974,3 +982,25 @@ models:
     one: "{count} model at the last diagnostics."
     other: "{count} models at the last diagnostics."
   none: "No model found at the last diagnostics."
+  count_filtered:
+    one: "{count} model of {total}"
+    other: "{count} models of {total}"
+  filters:
+    name: "Filter the models"
+    hosting: "Hosting"
+    publisher: "Publisher"
+    tools: "Tool calling"
+    reasoning: "Reasoning"
+    text: "Name or publisher"
+    text_placeholder: "gemma, qwen…"
+    all: "All"
+    local: "Local"
+    network: "Network"
+    answer_yes: "Yes"
+    answer_no: "No"
+    answer_no_or_unknown: "No or unknown"
+    answer_unknown: "Unknown"
+    reset: "Reset the filters"
+    none: "No model matches these filters."
+  sort:
+    title: "Sort by “{column}” (click again to reverse the order)"

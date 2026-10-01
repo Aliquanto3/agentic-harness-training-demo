@@ -4,69 +4,29 @@
   <meta charset="utf-8" />
   <script src="/static/theme.js"></script>
   <script type="module" src="/static/i18n.js"></script>
+  <script type="module" src="/static/site-nav.js"></script>
   <title>WaveStack</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
   <link rel="stylesheet" href="/static/tokens.css" />
+  <link rel="stylesheet" href="/static/pages.css" />
   <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body>
-  <header class="top-bar">
-    <span class="top-bar-title">WaveStack</span>
-    <select id="scenario-picker" class="scenario-picker" aria-label="Scénario" data-i18n-aria-label="main.top_bar.scenario"></select>
-    <div class="gauge" id="gauge">
-      <div class="gauge-stack">
-        <div class="gauge-bar" id="gauge-bar" role="group" aria-label="Jauge de contexte" data-i18n-aria-label="main.gauge.label">
-          <span class="gauge-threshold" id="gauge-threshold" hidden></span>
-        </div>
-        <ul class="gauge-legend" id="gauge-legend" aria-label="Disciplines présentes dans le contexte" data-i18n-aria-label="main.gauge.legend_label"></ul>
-      </div>
-      <span class="gauge-figures" id="gauge-figures" data-i18n="main.gauge.waiting">Contexte : en attente du modèle</span>
-    </div>
-    <!-- FinOps: the session's API spend (« Consommation »), from the first paid call; GreenOps:
-         its footprint at the end of the second line when the bar fits, or alone (local calls). -->
-    <span class="gauge-figures number" id="consumption" role="img" hidden><span id="consumption-label" data-i18n="main.consumption.spend_label">Dépense estimée</span><span id="consumption-amounts"><span id="consumption-money"></span><span id="consumption-footprint"></span></span></span>
-    <div class="window-picker" id="window-picker">
-      <button type="button" id="window-toggle" class="window-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="window-panel"><span class="window-toggle-long" data-i18n="main.window.toggle">Fenêtre</span> <span id="window-toggle-value">…</span> ▾</button>
-      <section id="window-panel" class="window-panel" role="dialog" aria-labelledby="window-panel-title" hidden>
-        <div class="window-scroll">
-        <h3 id="window-panel-title" class="window-panel-title" data-i18n="main.window.panel_title">Fenêtre de contexte</h3>
-        <p class="window-help" id="window-help"></p>
-        <p class="window-help" data-i18n="main.window.saved_help">Le choix appliqué est mémorisé dans settings.json, qui prend le pas sur [context] window de wavestack.toml au lancement suivant.</p>
-        <p class="window-current" id="window-current" hidden></p>
-        <fieldset class="window-choices">
-          <legend class="window-choices-legend" data-i18n="main.window.size_legend">Taille de la fenêtre</legend>
-          <div id="window-choices"></div>
-        </fieldset>
-        <p class="window-note" id="window-note"></p>
-        </div>
-        <p class="window-alert" id="window-alert" role="alert" hidden></p>
-        <div class="window-actions">
-          <button type="button" id="window-apply" class="window-apply" data-i18n="main.window.apply">Appliquer</button>
-          <button type="button" id="window-close" class="window-close" data-i18n="common.close">Fermer</button>
-        </div>
-      </section>
-    </div>
-    <div class="pane-chips" id="pane-chips"></div>
-    <div class="pane-menu">
-      <button id="pane-menu-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Volets" data-i18n-aria-label="main.panes.menu">
-        <span class="pane-menu-icon" aria-hidden="true">▤</span><span class="pane-menu-word" data-i18n="main.panes.menu">Volets</span> ▾
-      </button>
-      <ul id="pane-menu-list" class="pane-menu-list" hidden></ul>
-    </div>
-    <a class="model-indicator" id="model-indicator" href="/diagnostic" hidden></a>
-    <select id="model-picker" class="model-picker" aria-label="Changer de modèle" data-i18n-aria-label="main.model.picker_label"></select>
-    <button type="button" id="model-picker-apply" class="model-picker-apply" hidden data-i18n="main.model.load">Charger</button>
-    <span class="top-status" id="top-status" role="status" aria-live="polite"></span>
-    <a id="llm-link" class="screen-link" href="/llm" aria-label="LLM nu" data-i18n-aria-label="common.links.llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title"><span class="screen-link-long" data-i18n="common.links.llm">LLM nu</span><span class="screen-link-short" aria-hidden="true">LLM</span></a>
-    <a id="rag-link" class="screen-link" href="/rag" aria-label="Atelier RAG" data-i18n-aria-label="common.links.rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title"><span class="screen-link-long" data-i18n="common.links.rag">Atelier RAG</span><span class="screen-link-short" aria-hidden="true">RAG</span></a>
-    <!-- Languages (2/5): « Affichage ▾ » holds the theme, the language and the projection mode
-         (decision of 2026-09-30); its face shows the theme's symbol and the language's code. -->
+  <!-- Story 2 (2026-09-30): the bar shared by the five pages, the same HTML in each but for
+       `aria-current` and, on the main screen only, the projection mode (site-nav.js). -->
+  <nav class="site-nav" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
+    <a href="/" class="site-nav-brand">WaveStack</a>
+    <a href="/" aria-current="page">Atelier</a>
+    <a href="/llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM nu</a>
+    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">Atelier RAG</a>
+    <a href="/diagnostic">Diagnostic</a>
+    <a href="/models">Modèles</a>
     <div class="display-menu" id="display-menu">
-      <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="main.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="main.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
-      <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="main.display.menu" hidden>
-        <label class="display-menu-row"><span class="display-menu-label" data-i18n="main.display.theme">Thème</span>
+      <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="common.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="common.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
+      <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="common.display.menu" hidden>
+        <label class="display-menu-row"><span class="display-menu-label" data-i18n="common.display.theme">Thème</span>
           <span class="theme-picker-box" id="theme-picker-box">
             <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
               <option value="system" data-i18n="common.theme.system">◐ Système</option>
@@ -87,10 +47,10 @@
         <div class="display-menu-row">
           <button type="button" id="projection-toggle" class="projection-toggle" aria-pressed="false" title="Mode projection : agrandit tous les textes pour la salle ; le navigateur s'en souvient" data-i18n-title="main.projection.title" data-i18n="main.projection.name">Mode projection</button>
         </div>
+        <p class="display-menu-alert" id="display-menu-alert" role="alert" hidden></p>
       </div>
     </div>
-    <button type="button" id="reset-button" class="reset-button" aria-label="Réinitialiser" data-i18n-aria-label="main.top_bar.reset"><span aria-hidden="true">⟲</span><span class="reset-word"> <span data-i18n="main.top_bar.reset">Réinitialiser</span></span></button>
-  </header>
+  </nav>
 
   <main class="layout" id="layout">
     <section class="pane" data-pane="bricks">
@@ -156,7 +116,11 @@
           <header class="pane-header">
             <span class="pane-step" aria-hidden="true">1</span>
             <div class="pane-heading">
-              <h2 class="pane-title" data-i18n="main.pane_titles.human">Vue humain</h2>
+              <div class="pane-title-row">
+                <h2 class="pane-title" data-i18n="main.pane_titles.human">Vue humain</h2>
+                <button type="button" class="scenario-info" id="scenario-info" popovertarget="scenario-info-popover" hidden>i</button>
+                <div class="scenario-info-popover" id="scenario-info-popover" popover></div>
+              </div>
               <p class="pane-subtitle" data-i18n="main.pane_subtitles.human">Ce que voit l'utilisateur</p>
             </div>
             <div class="pane-actions">
@@ -174,10 +138,6 @@
             <div class="chat" id="chat"></div>
             <div class="sr-only" id="chat-live" aria-live="polite"></div>
             <p class="composer-reason" id="composer-reason" hidden></p>
-            <div class="scenario-guide" id="scenario-guide" hidden>
-              <p class="scenario-guide-text" id="scenario-guide-text"></p>
-              <button type="button" class="scenario-guide-more" id="scenario-guide-more" aria-expanded="false" aria-controls="scenario-guide-text" hidden data-i18n="main.scenario.more">Afficher plus</button>
-            </div>
             <div class="scenario-unavailable" id="scenario-unavailable" role="status" hidden></div>
             <div class="suggested-prompts" id="suggested-prompts" role="group" aria-label="Prompts suggérés" data-i18n-aria-label="main.scenario.prompts_label" hidden></div>
             <div class="armed-chips-row" id="armed-chips" role="group" aria-label="Actions armées pour le prochain tour" data-i18n-aria-label="main.force.armed_label" hidden></div>
@@ -255,6 +215,57 @@
       </section>
     </div>
   </main>
+
+  <!-- Story 2 (2026-09-30): the main screen's controls, under the panes (its historical
+       name kept); its lists and panels open upwards. -->
+  <header class="top-bar">
+    <select id="scenario-picker" class="scenario-picker" aria-label="Scénario" data-i18n-aria-label="main.top_bar.scenario"></select>
+    <div class="gauge" id="gauge">
+      <div class="gauge-stack">
+        <div class="gauge-bar" id="gauge-bar" role="group" aria-label="Jauge de contexte" data-i18n-aria-label="main.gauge.label">
+          <span class="gauge-threshold" id="gauge-threshold" hidden></span>
+        </div>
+        <ul class="gauge-legend" id="gauge-legend" aria-label="Disciplines présentes dans le contexte" data-i18n-aria-label="main.gauge.legend_label"></ul>
+      </div>
+      <span class="gauge-figures" id="gauge-figures" data-i18n="main.gauge.waiting">Contexte : en attente du modèle</span>
+    </div>
+    <!-- FinOps: the session's API spend (« Consommation »), from the first paid call; GreenOps:
+         its footprint at the end of the second line when the bar fits, or alone (local calls). -->
+    <span class="gauge-figures number" id="consumption" role="img" hidden><span id="consumption-label" data-i18n="main.consumption.spend_label">Dépense estimée</span><span id="consumption-amounts"><span id="consumption-money"></span><span id="consumption-footprint"></span></span></span>
+    <div class="window-picker" id="window-picker">
+      <button type="button" id="window-toggle" class="window-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="window-panel"><span class="window-toggle-long" data-i18n="main.window.toggle">Fenêtre</span> <span id="window-toggle-value">…</span> ▾</button>
+      <section id="window-panel" class="window-panel" role="dialog" aria-labelledby="window-panel-title" hidden>
+        <div class="window-scroll">
+        <h3 id="window-panel-title" class="window-panel-title" data-i18n="main.window.panel_title">Fenêtre de contexte</h3>
+        <p class="window-help" id="window-help"></p>
+        <p class="window-help" data-i18n="main.window.saved_help">Le choix appliqué est mémorisé dans settings.json, qui prend le pas sur [context] window de wavestack.toml au lancement suivant.</p>
+        <p class="window-current" id="window-current" hidden></p>
+        <fieldset class="window-choices">
+          <legend class="window-choices-legend" data-i18n="main.window.size_legend">Taille de la fenêtre</legend>
+          <div id="window-choices"></div>
+        </fieldset>
+        <p class="window-note" id="window-note"></p>
+        </div>
+        <p class="window-alert" id="window-alert" role="alert" hidden></p>
+        <div class="window-actions">
+          <button type="button" id="window-apply" class="window-apply" data-i18n="main.window.apply">Appliquer</button>
+          <button type="button" id="window-close" class="window-close" data-i18n="common.close">Fermer</button>
+        </div>
+      </section>
+    </div>
+    <div class="pane-chips" id="pane-chips"></div>
+    <div class="pane-menu">
+      <button id="pane-menu-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Volets" data-i18n-aria-label="main.panes.menu">
+        <span class="pane-menu-icon" aria-hidden="true">▤</span><span class="pane-menu-word" data-i18n="main.panes.menu">Volets</span> ▾
+      </button>
+      <ul id="pane-menu-list" class="pane-menu-list" hidden></ul>
+    </div>
+    <a class="model-indicator" id="model-indicator" href="/diagnostic" hidden></a>
+    <select id="model-picker" class="model-picker" aria-label="Changer de modèle" data-i18n-aria-label="main.model.picker_label"></select>
+    <button type="button" id="model-picker-apply" class="model-picker-apply" hidden data-i18n="main.model.load">Charger</button>
+    <span class="top-status" id="top-status" role="status" aria-live="polite"></span>
+    <button type="button" id="reset-button" class="reset-button" aria-label="Réinitialiser" data-i18n-aria-label="main.top_bar.reset"><span aria-hidden="true">⟲</span><span class="reset-word"> <span data-i18n="main.top_bar.reset">Réinitialiser</span></span></button>
+  </header>
 
   <dialog class="audit-dialog" id="audit-dialog" aria-labelledby="audit-dialog-title">
     <h3 id="audit-dialog-title" data-i18n="main.audit.title">Journal d'audit</h3>

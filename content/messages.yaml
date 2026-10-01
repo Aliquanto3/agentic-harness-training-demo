@@ -1074,6 +1074,10 @@ cli:
   description: "Lance WaveStack."
   port_help: "Port d'écoute (défaut : configuration)."
   port_taken: "Le port {port} est déjà utilisé par un autre programme. Relancez avec --port <autre_port>."
+  already_running: "WaveStack est déjà lancé sur le port {port}, depuis {root} ({commit}). Ouverture du navigateur."
+  already_running_no_commit: "WaveStack est déjà lancé sur le port {port}, depuis {root} (commit inconnu). Ouverture du navigateur."
+  already_running_unknown: "WaveStack est déjà lancé sur le port {port}, depuis un dossier inconnu (version antérieure). Ouverture du navigateur."
+  other_tree: "Attention : cette instance ne vient pas de ce dossier ({here}). Pour lancer celui-ci, arrêtez-la (Ctrl+C dans son terminal) ou relancez avec --port <autre_port>."
 
 # `compression/headroom_adapter.py`: why the compression brick is unavailable.
 compression:
@@ -1081,6 +1085,8 @@ compression:
   missing: "Indisponible : la bibliothèque Headroom (headroom-ai {version}), dépendance optionnelle, n'est pas installée. {install}, puis relancez WaveStack. Les autres briques fonctionnent sans elle."
   unknown_version: inconnue
   wrong_version: "Indisponible : headroom-ai {version} est installé, alors que WaveStack a été vérifié hors ligne avec la version {pinned} seulement. {install}, puis relancez WaveStack."
+  tiktoken_missing: "Indisponible : la table de comptage de Headroom (tiktoken cl100k_base), livrée avec WaveStack, est absente ({path}). WaveStack ne la télécharge pas : restaurez ce fichier depuis le dépôt de WaveStack (git checkout -- src/wavestack/compression/tiktoken) ou son archive, puis relancez WaveStack. Les autres briques fonctionnent sans elle."
+  tiktoken_altered: "Indisponible : la table de comptage de Headroom (tiktoken cl100k_base), livrée avec WaveStack, est altérée (empreinte sha256 différente, souvent des fins de ligne converties) : {path}. WaveStack ne la télécharge pas : restaurez ce fichier depuis le dépôt de WaveStack (git checkout -- src/wavestack/compression/tiktoken) ou son archive, puis relancez WaveStack. Les autres briques fonctionnent sans elle."
 
 # `cloud.py` (FinOps): what a declared price means.
 cloud:

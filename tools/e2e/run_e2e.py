@@ -356,26 +356,24 @@ def s_diagnostic(r: Run) -> None:
     page.locator("#cloud-warning-confirm").click()
     expect(row).to_contain_text("actif", timeout=20_000)
     r.check(True, "« Utiliser ce modèle » : la ligne passe à « actif »")
-    expect(page.locator("#open-link")).to_be_visible(timeout=20_000)
-    page.goto(f"{r.stack.app_url}/")
+    # Story 2 (2026-09-30): « Ouvrir WaveStack » gave way to « Atelier » of the shared bar.
+    ok, took = r.poll(lambda: bool(r.api("GET", "/api/diagnostic").json().get("ready")), 20)
+    r.check(ok, "diagnostic prêt", f"{took:.1f} s")
+    page.locator('.site-nav > a[href="/"]:not(.site-nav-brand)').click()
+    page.wait_for_url(f"{r.stack.app_url}/", timeout=10_000)
     expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=20_000)
-    r.check(True, "l'indicateur de modèle de la barre haute montre le faux modèle")
+    r.check(True, "l'indicateur de modèle de la barre de l'atelier montre le faux modèle")
     r.wait_idle()
 
 
 def s_bare_llm(r: Run) -> None:
     r.launch("bare_llm")
-    guide = r.page.locator("#scenario-guide")
-    r.check(guide.is_visible() and "LLM nu" in guide.inner_text(), "consigne affichée")
-    overflow, more = r.page.evaluate(
-        "() => { const t = document.getElementById('scenario-guide-text');"
-        " return [t.scrollHeight > t.clientHeight + 1,"
-        " !document.getElementById('scenario-guide-more').hidden]; }"
-    )
+    guide = r.page.locator("#scenario-info-popover")
     r.check(
-        overflow == more,
-        "« Afficher plus » seulement si la consigne dépasse 3 lignes",
-        f"déborde : {overflow} · bouton : {more}",
+        r.page.locator("#scenario-info").is_visible()
+        and not guide.is_visible()
+        and "LLM nu" in guide.text_content(),
+        "consigne derrière le « i » de la Vue humain, fermée au lancement",
     )
     _parent_off_at_launch(r)
     before = len(r.fake_calls())
@@ -1152,10 +1150,11 @@ _FIGURES = re.compile(r"\d[\d\s\u202f]* / \d[\d\s\u202f]* tokens · [\d,]+ %")
 
 
 def _fully_visible(r: Run, selector: str) -> str:
-    """'' when `selector` is inside the viewport and its box, not cut by its own width."""
+    """'' when `selector` is inside the viewport and its bar (the main screen's or, story 2 of
+    2026-09-30, the shared one at the head), not cut by its own width."""
     return r.page.evaluate(
         "(q) => { const e = document.querySelector(q); if (!e) return 'absent';"
-        " const b = e.getBoundingClientRect(); const bar = e.closest('.top-bar')"
+        " const b = e.getBoundingClientRect(); const bar = e.closest('.top-bar, .site-nav')"
         "?.getBoundingClientRect() ?? {left: 0, right: innerWidth, top: 0, bottom: innerHeight};"
         " if (b.width === 0) return 'vide';"
         " if (b.left < bar.left - 1 || b.right > bar.right + 1 || b.right > innerWidth)"
@@ -1194,11 +1193,11 @@ def s_disciplines(r: Run) -> None:
     ink = r.token_color("--color-ink-fill")
     r.check(
         r.css(page.locator(".top-bar"), "background-color") == ink,
-        "barre haute : fond --color-ink-fill",
+        "barre de l'atelier : fond --color-ink-fill",
     )
     r.check(
-        r.css(page.locator(".top-bar-title"), "color") == r.token_color("--color-on-ink"),
-        "barre haute : titre en --color-on-ink",
+        r.css(page.locator(".top-bar"), "color") == r.token_color("--color-on-ink"),
+        "barre de l'atelier : texte en --color-on-ink (story 2 du 2026-09-30 : sans titre)",
     )
     legend = page.inner_text("#gauge-legend")
     r.check(
@@ -1244,7 +1243,9 @@ def s_disciplines(r: Run) -> None:
             ".filter(([, b]) => b.right > bar.right + 1 || b.bottom > bar.bottom + 1)"
             ".map(([n, b]) => `${n} (${Math.round(b.right)} > ${Math.round(bar.right)})`); }"
         )
-        r.check(not over, f"{width} × {height} : la barre haute tient dans sa largeur", str(over))
+        r.check(
+            not over, f"{width} × {height} : la barre de l'atelier tient dans sa largeur", str(over)
+        )
         cut = _fully_visible(r, "#gauge-legend")
         r.check(not cut, f"{width} × {height} : #gauge-legend entièrement visible", cut)
         cut = _fully_visible(r, "#gauge-figures")
@@ -1267,7 +1268,9 @@ def s_disciplines(r: Run) -> None:
                 "() => { const s = document.getElementById('top-status').getBoundingClientRect();"
                 " return s.left >= 0 && s.right <= innerWidth + 1; }"
             )
-            r.check(status, "1280 × 720 : le message de la barre haute tient dans la fenêtre")
+            r.check(
+                status, "1280 × 720 : le message de la barre de l'atelier tient dans la fenêtre"
+            )
             reset = page.locator("#reset-button").bounding_box() or {}
             r.check(
                 reset.get("x", 1e9) + reset.get("width", 0) <= width + 1,
@@ -1587,8 +1590,53 @@ def _design_rgb(key: str) -> str:
     return "rgb({}, {}, {})".format(*(int(value[i : i + 2], 16) for i in (0, 2, 4)))
 
 
+# Story 2 (2026-09-30): each control of the shared bar, the brand, the five links and
+# « Affichage ▾ », whole, inside the bar, on one line.
+_SITE_NAV_PROBLEMS_JS = """() => {
+  const nav = document.querySelector('nav.site-nav');
+  if (!nav) return ['barre commune absente'];
+  const box = nav.getBoundingClientRect();
+  const problems = [];
+  if (nav.scrollWidth > nav.clientWidth + 1) {
+    problems.push(`barre commune : ${nav.scrollWidth} px > ${nav.clientWidth}`);
+  }
+  if (box.left < 0 || box.right > innerWidth + 1) {
+    const span = `${Math.round(box.left)}-${Math.round(box.right)}`;
+    problems.push(`barre commune hors de la fenêtre (${span})`);
+  }
+  const items = [...nav.children].filter(e => e.checkVisibility());
+  const links = items.filter(e => e.tagName === 'A').map(e => e.getAttribute('href'));
+  const order = links.join(' ');
+  if (order !== '/ / /llm /rag /diagnostic /models') problems.push(`liens ${order}`);
+  if (!items.some(e => e.id === 'display-menu')) problems.push('« Affichage ▾ » absent');
+  for (const e of [...items, document.getElementById('display-menu-toggle')]) {
+    if (!e) continue;
+    const b = e.getBoundingClientRect();
+    const name = e.id || e.textContent.trim();
+    const out = b.left < box.left - 1 || b.right > box.right + 1
+      || b.top < box.top - 1 || b.bottom > box.bottom + 1;
+    if (b.width === 0) problems.push(`${name} vide`);
+    else if (out) problems.push(`${name} hors de la barre commune`);
+    else if (e.scrollWidth > e.clientWidth + 1) {
+      problems.push(`${name} coupé (${e.scrollWidth} > ${e.clientWidth})`);
+    }
+  }
+  return problems;
+}"""
+
+
+# The two bars and the five panes, for the contrast sweeps.
+_BARS_AND_PANES = [".site-nav", ".top-bar", *(f'.pane[data-pane="{p}"]' for p in _PANES)]
+
+
+def _site_nav_problems(r: Run) -> list[str]:
+    return r.page.evaluate(_SITE_NAV_PROBLEMS_JS)
+
+
 def _bar_fits(r: Run) -> tuple[bool, str]:
-    """Every control of the top bar whole, inside the bar, on one line; « Réinitialiser » too."""
+    """Every control of the main screen's bar whole, inside the bar, on one line;
+    « Réinitialiser » too. Story 2 (2026-09-30): the shared bar at the head likewise (its brand,
+    its five links and « Affichage ▾ »), and the main screen's bar under the panes."""
     controls = r.page.evaluate(
         "() => [...document.querySelectorAll('.top-bar > *')]"
         ".filter(e => e.id && e.offsetParent && e.getBoundingClientRect().width > 0"
@@ -1596,8 +1644,25 @@ def _bar_fits(r: Run) -> tuple[bool, str]:
         ".map(e => '#' + e.id)"
     )
     cut = {c: why for c in controls if (why := _fully_visible(r, c))}
-    ok = "#reset-button" in controls and "#display-menu" in controls and not cut
-    return ok, f"{controls} ; {cut}"
+    nav = _site_nav_problems(r)
+    under = _bar_under_panes(r)
+    ok = "#reset-button" in controls and not cut and not nav and not under
+    return ok, f"{controls} ; {cut} ; barre commune {nav} ; {under}"
+
+
+def _bar_under_panes(r: Run) -> str:
+    """'' when the main screen's bar lies under its panes, inside the window; else why."""
+    return r.page.evaluate(
+        "() => { const bar = document.querySelector('.top-bar'); if (!bar) return '';"
+        " const b = bar.getBoundingClientRect();"
+        " const panes = [...document.querySelectorAll('.pane')].filter(p => p.checkVisibility());"
+        " if (!panes.length) return 'aucun volet visible';"
+        " const low = Math.max(...panes.map(p => p.getBoundingClientRect().bottom));"
+        " if (b.top < low - 1) return `barre basse (haut ${Math.round(b.top)}) sur les volets"
+        " (bas ${Math.round(low)})`;"
+        " if (b.bottom > innerHeight + 1) return `barre basse hors de la fenêtre"
+        " (${Math.round(b.bottom)} > ${innerHeight})`; return ''; }"
+    )
 
 
 def _window_panel_outside(page: Page) -> str | None:
@@ -1607,14 +1672,50 @@ def _window_panel_outside(page: Page) -> str | None:
     panel = page.evaluate(
         "() => { const p = document.getElementById('window-panel')"
         ".getBoundingClientRect(); return [p.left, p.right, p.bottom,"
-        " innerWidth, innerHeight].map(Math.round); }"
+        " innerWidth, innerHeight, p.top].map(Math.round); }"
     )
     page.keyboard.press("Escape")
     expect(page.locator("#window-panel")).to_be_hidden(timeout=5000)
-    left, right, bottom, inner_w, inner_h = panel
-    if left < 0 or right > inner_w or bottom > inner_h:
+    left, right, bottom, inner_w, inner_h, top = panel
+    if left < 0 or right > inner_w or bottom > inner_h or top < 0:
         return f"panneau « Fenêtre » hors de la fenêtre ({panel})"
     return None
+
+
+def _bar_panels_problems(r: Run) -> list[str]:
+    """Story 2 (2026-09-30): the main screen's bar is under the panes; « Fenêtre » and
+    « Volets ▾ » open upwards, each whole in the window, above the bar and under the shared
+    bar at the head. Both closed after."""
+    page = r.page
+    problems = []
+    for toggle, panel in (
+        ("#window-toggle", "#window-panel"),
+        ("#pane-menu-toggle", "#pane-menu-list"),
+    ):
+        if page.locator(toggle).is_disabled():
+            problems.append(f"{toggle} désactivé")
+            continue
+        page.locator(toggle).click()
+        expect(page.locator(panel)).to_be_visible(timeout=5000)
+        where = page.evaluate(
+            "(q) => { const p = document.querySelector(q).getBoundingClientRect();"
+            " const bar = document.querySelector('.top-bar').getBoundingClientRect();"
+            " const out = p.left < 0 || p.top < 0 || p.right > innerWidth + 1"
+            " || p.bottom > innerHeight + 1;"
+            " if (out) return `hors de la fenêtre (${[p.left, p.top, p.right, p.bottom]"
+            ".map(Math.round)})`;"
+            " if (p.bottom > bar.top + 1) return `sur la barre (bas ${Math.round(p.bottom)}"
+            " > ${Math.round(bar.top)})`;"
+            " const nav = document.querySelector('.site-nav').getBoundingClientRect();"
+            " if (p.top < nav.bottom - 1) return `sous la barre commune (haut"
+            " ${Math.round(p.top)} < ${Math.round(nav.bottom)})`; return ''; }",
+            panel,
+        )
+        if where:
+            problems.append(f"{panel} {where}")
+        page.keyboard.press("Escape")
+        expect(page.locator(panel)).to_be_hidden(timeout=5000)
+    return problems
 
 
 def _top_bar_problems(r: Run, chip) -> list[str]:
@@ -1704,7 +1805,8 @@ def _display_menu_picker(r: Run, words: str = "◐ Système") -> str:
 
 def _open_display(page: Page) -> None:
     """The theme, the language and the projection mode are in « Affichage ▾ » (decision of
-    2026-09-30): the menu is opened first. A page without it (/diagnostic, /llm…) as is."""
+    2026-09-30), in the shared bar at the head of every page since story 2 of 2026-09-30: the
+    menu is opened first. A page without it as is."""
     if not page.locator("#display-menu-toggle").count():
         return
     if page.locator("#display-menu-panel").is_hidden():
@@ -1787,17 +1889,12 @@ def _themes(r: Run, errors: list[str]) -> None:
         f"{picker.input_value()} {options}",
     )
     r.check(_theme_attr(r) is None, "aucun choix mémorisé : pas d'attribut data-theme")
-    controls = page.evaluate(
-        "() => [...document.querySelectorAll('.top-bar > *')]"
-        ".filter(e => e.id && e.offsetParent && e.getBoundingClientRect().width > 0"
-        " && getComputedStyle(e).position !== 'absolute')"
-        ".map(e => '#' + e.id)"
-    )
-    cut = {c: why for c in controls if (why := _fully_visible(r, c))}
+    fits, detail = _bar_fits(r)
     r.check(
-        "#display-menu" in controls and not cut,
-        "1600 × 1000 : chaque commande de la barre haute entière, sur une ligne",
-        f"{controls} ; {cut}",
+        fits,
+        "1600 × 1000 : chaque commande de la barre commune et de la barre de l'atelier entière, "
+        "sur une ligne",
+        detail,
     )
     closed = page.locator("#display-menu-panel").is_hidden()
     menu = _display_menu_picker(r)
@@ -1809,8 +1906,9 @@ def _themes(r: Run, errors: list[str]) -> None:
     page.set_viewport_size({"width": 1440, "height": 900})
     time.sleep(0.3)
     fits, detail = _bar_fits(r)
-    r.check(fits, "1440 × 900 : barre haute sur une ligne, « Réinitialiser » entier", detail)
-    # At 1280 px, « Affichage ▾ » in the bar, its menu whole and working with the keyboard.
+    r.check(fits, "1440 × 900 : barre de l'atelier sur une ligne, « Réinitialiser » entier", detail)
+    # At 1280 px, « Affichage ▾ » in the shared bar, its menu whole and working with the
+    # keyboard; the main screen's bar under the panes, its panels whole above it.
     # In projection mode too.
     page.set_viewport_size({"width": 1280, "height": 720})
     time.sleep(0.3)
@@ -1821,21 +1919,22 @@ def _themes(r: Run, errors: list[str]) -> None:
             time.sleep(0.3)
         fits, detail = _bar_fits(r)
         menu = _display_menu_picker(r)
+        panels = _bar_panels_problems(r)
         r.check(
-            fits and not menu,
-            f"1280 × 720, {mode} : « Affichage ▾ » entier, son menu au clavier, barre sur une "
-            "ligne",
-            f"{detail} ; {menu}",
+            fits and not menu and not panels,
+            f"1280 × 720, {mode} : « Affichage ▾ » entier, son menu au clavier, deux barres sur "
+            "une ligne, « Fenêtre » et « Volets ▾ » entiers au-dessus de la barre de l'atelier",
+            f"{detail} ; {menu} ; {panels}",
         )
         if projection:
             _toggle_projection(page)
             time.sleep(0.3)
     page.set_viewport_size({"width": 1600, "height": 1000})
     time.sleep(0.3)
-    light_sweep = _contrast_sweep(r, [".top-bar", *(f'.pane[data-pane="{p}"]' for p in _PANES)])
+    light_sweep = _contrast_sweep(r, _BARS_AND_PANES)
     r.check(
         not light_sweep,
-        "thème clair : balayage des contrastes (barre haute et cinq volets)",
+        "thème clair : balayage des contrastes (deux barres et cinq volets)",
         "; ".join(light_sweep[:6]),
         known="clair-préexistant",
     )
@@ -1874,7 +1973,7 @@ def _themes(r: Run, errors: list[str]) -> None:
         "#schema .arch-cloud-model, #schema .arch-server-model, #schema .arch-robots"
     ).first
     fills = {
-        "barre haute": r.css(page.locator(".top-bar"), "background-color"),
+        "barre de l'atelier": r.css(page.locator(".top-bar"), "background-color"),
         "dernière bulle": r.css(bubble, "background-color"),
         "tuile de l'appel au modèle": r.css(call_tile, "background-color"),
         "plaque du modèle": r.css(plate, "background-color"),
@@ -1882,7 +1981,7 @@ def _themes(r: Run, errors: list[str]) -> None:
     wrong = {k: v for k, v in fills.items() if v != fill}
     r.check(
         not wrong,
-        "sombre : barre haute, bulle, tuile et plaque du modèle en ink-fill-dark",
+        "sombre : barre de l'atelier, bulle, tuile et plaque du modèle en ink-fill-dark",
         str(wrong),
     )
     prompt = (
@@ -1907,10 +2006,10 @@ def _themes(r: Run, errors: list[str]) -> None:
         "sombre : chaque segment de la jauge sur le jeton sombre de sa discipline",
         f"{len(segs)} segments ; écarts : {off}",
     )
-    dark_sweep = _contrast_sweep(r, [".top-bar", *(f'.pane[data-pane="{p}"]' for p in _PANES)])
+    dark_sweep = _contrast_sweep(r, _BARS_AND_PANES)
     r.check(
         not dark_sweep,
-        "sombre : aucun contraste sous AA dans la barre haute et les cinq volets",
+        "sombre : aucun contraste sous AA dans les deux barres et les cinq volets",
         "; ".join(dark_sweep[:8]),
     )
     # What opens over the panes: the « Volets ▾ » list, the « Fenêtre » panel, the drawer.
@@ -2412,7 +2511,8 @@ def s_linked_view(r: Run) -> None:
     )
     r.check(
         on and size == "18px" and pressed == "true" and not cut and not over,
-        "Mode projection : textes à 18 px, bouton pressé, barre haute sur une ligne à 1600 × 1000",
+        "Mode projection : textes à 18 px, bouton pressé, barre de l'atelier sur une ligne "
+        "à 1600 × 1000",
         f"{on} {size} {pressed} ; Réinitialiser : {cut or 'visible'} ; débordent : {over}",
     )
     r.shot("39-mode-projection")
@@ -2678,7 +2778,7 @@ def s_mcp_full(r: Run) -> None:
 def s_mcp_lazy(r: Run) -> None:
     first, second = _prompts("mcp_lazy")
     r.launch("mcp_lazy")
-    guide = r.page.locator("#scenario-guide").inner_text()
+    guide = r.page.locator("#scenario-info-popover").text_content()
     r.check(
         not r.bricks()["rag"]["wanted"] and "le RAG, laissé éteint" in guide,
         "lazy loading : RAG non voulu (story 27), la consigne le dit",
@@ -2755,7 +2855,7 @@ def s_mcp_lazy(r: Run) -> None:
 
 def s_skills(r: Run) -> None:
     r.launch("skills")
-    guide = r.page.locator("#scenario-guide").inner_text()
+    guide = r.page.locator("#scenario-info-popover").text_content()
     r.check(
         "« Déclencher le skill » sur « Compte rendu de réunion »" in guide
         and not r.bricks()["rag"]["wanted"],
@@ -2868,7 +2968,8 @@ def s_subagent(r: Run) -> None:
     r.launch("subagent")
     r.check(
         not r.bricks()["rag"]["wanted"]
-        and "sans le raisonnement ni le RAG" in page.locator("#scenario-guide").inner_text(),
+        and "sans le raisonnement ni le RAG"
+        in page.locator("#scenario-info-popover").text_content(),
         "sous-agent : RAG non voulu, la consigne le dit (story 27, D5)",
     )
     # The scenario's own prompt; « [lent] » slows the fake model down to see the robot work.
@@ -3132,7 +3233,8 @@ def s_data_flows(r: Run) -> None:
         f"{enabled} · {mode}",
     )
     r.check(
-        "Décochez puis recochez data.gouv.fr" in r.page.locator("#scenario-guide").inner_text(),
+        "Décochez puis recochez data.gouv.fr"
+        in r.page.locator("#scenario-info-popover").text_content(),
         "consigne : tout est actif, décocher puis recocher data.gouv.fr",
     )
     _public_server_offline(r, "datagouv", "data.gouv.fr", seq)
@@ -3323,14 +3425,15 @@ def s_programme(r: Run) -> None:
         "le RAG",
         str(sorted(wanted)),
     )
-    guide = r.page.locator("#scenario-guide")
+    guide = r.page.locator("#scenario-info-popover")
     r.check(
-        "sans le raisonnement ni le RAG" in guide.inner_text(),
+        "sans le raisonnement ni le RAG" in guide.text_content(),
         "la consigne dit que le raisonnement et le RAG restent éteints",
     )
     r.launch("mcp_full")
     r.check(
-        not r.bricks()["rag"]["wanted"] and "sauf le raisonnement et le RAG" in guide.inner_text(),
+        not r.bricks()["rag"]["wanted"]
+        and "sauf le raisonnement et le RAG" in guide.text_content(),
         "« MCP en documentation complète » : RAG éteint, la consigne le dit",
     )
 
@@ -3340,14 +3443,14 @@ def s_soc(r: Run) -> None:
     itself and H1 blocks it; the audit log opens from the schema."""
     first, second = _prompts("soc")
     r.launch("soc")
-    guide = r.page.locator("#scenario-guide")
+    guide = r.page.locator("#scenario-info-popover").text_content()
     r.check(
-        "Métier SOC" in guide.inner_text() and "analyste habilité" in guide.inner_text(),
+        "Métier SOC" in guide and "analyste habilité" in guide,
         "consigne du scénario SOC affichée, qui cite l'analyste habilité",
     )
     seq = r.ev.mark()
     ended = r.send(first)
-    _folded_guide(r)
+    _scenario_info(r)
     reads = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
     r.check(
         bool(reads) and reads[0]["status"] == "ok",
@@ -3405,38 +3508,43 @@ def s_soc(r: Run) -> None:
     r.shot("26-metier-soc-journal-audit")
     r.page.click("#audit-close")
 
-    # Story 22: left unfolded, the guide folds again when another scenario is launched.
-    more = r.page.locator("#scenario-guide-more")
-    more.click()
-    expect(more).to_have_attribute("aria-expanded", "true", timeout=5000)
+    # Left open, the instructions follow the scenario launched next.
+    info = r.page.locator("#scenario-info")
+    info.click()
+    popover = r.page.locator("#scenario-info-popover")
+    expect(popover).to_be_visible(timeout=5000)
     r.launch("reasoning")
-    folded = r.page.evaluate(
-        "() => [document.getElementById('scenario-guide-more').getAttribute('aria-expanded'),"
-        " document.getElementById('scenario-guide').classList.contains('is-expanded')]"
-    )
+    title = _content("fr", "scenarios.yaml")["scenarios"]["reasoning"]["title_text"]
     r.check(
-        folded == ["false", False],
-        "nouveau scénario : la consigne dépliée se replie",
-        str(folded),
+        title in (popover.text_content() or "") and "Métier SOC" not in popover.text_content(),
+        "nouveau scénario : la consigne ouverte montre le nouveau",
+        (popover.text_content() or "")[:120],
     )
+    r.page.keyboard.press("Escape")
 
 
-def _folded_guide(r: Run) -> None:
-    """Story 22 (C1): a long scenario guide holds 3 lines, « Afficher plus » unfolds it; the
-    field and the last bubble stay in view."""
-    text = r.page.locator("#scenario-guide-text")
-    more = r.page.locator("#scenario-guide-more")
-    measure = (
-        "e => { const s = getComputedStyle(e);"
-        " return [e.getBoundingClientRect().height, parseFloat(s.lineHeight)]; }"
-    )
-    height, line = text.evaluate(measure)
+def _scenario_info(r: Run) -> None:
+    """The scenario's instructions sit behind the « i » of the Vue humain title: a toggletip
+    (click, Escape) previewed on hover; open, the field and the last bubble stay in view."""
+    info = r.page.locator("#scenario-info")
+    popover = r.page.locator("#scenario-info-popover")
+    open_ = "e => e.matches(':popover-open')"
     r.check(
-        height <= 3 * line + 1
-        and more.is_visible()
-        and more.get_attribute("aria-expanded") == "false",
-        "consigne longue : 3 lignes au plus, « Afficher plus » visible",
-        f"{height:.1f} px pour des lignes de {line:.1f} px",
+        info.is_visible() and "Métier SOC" in (info.get_attribute("aria-label") or ""),
+        "« i » visible, nommé d'après le scénario",
+        info.get_attribute("aria-label") or "",
+    )
+    info.click()
+    r.check(popover.evaluate(open_), "clic sur le « i » : la consigne s'ouvre")
+    box, view = popover.bounding_box(), r.page.viewport_size
+    r.check(
+        bool(box and view)
+        and box["x"] >= 0
+        and box["y"] >= 0
+        and box["x"] + box["width"] <= view["width"]
+        and box["y"] + box["height"] <= view["height"],
+        "consigne longue : entière dans la fenêtre (elle défile au besoin)",
+        str(box),
     )
 
     def in_view() -> str:
@@ -3454,27 +3562,23 @@ def _folded_guide(r: Run) -> None:
         return "" if fits and shown >= 20 else f"champ {field} · bulle {bubble} · fil {chat}"
 
     missing = in_view()
-    r.check(
-        not missing, "consigne repliée : le champ et la dernière bulle restent visibles", missing
-    )
-    more.click()
-    unfolded = text.evaluate(measure)[0]
-    r.check(
-        more.get_attribute("aria-expanded") == "true"
-        and more.inner_text() == "Réduire"
-        and unfolded > height,
-        "« Afficher plus » : le texte entier, « Réduire »",
-        f"{height:.1f} puis {unfolded:.1f} px",
-    )
-    missing = in_view()
-    r.check(
-        not missing, "consigne dépliée : le champ et la dernière bulle restent visibles", missing
-    )
-    more.click()
-    r.check(
-        more.get_attribute("aria-expanded") == "false" and more.inner_text() == "Afficher plus",
-        "« Réduire » replie la consigne",
-    )
+    r.check(not missing, "la consigne ne prend pas de place au fil ni au champ", missing)
+    r.page.keyboard.press("Escape")
+    r.check(not popover.evaluate(open_), "Échap ferme la consigne")
+    r.page.mouse.move(0, 0)  # the pointer must enter the « i » again
+    info.hover()
+    ok, took = r.poll(lambda: popover.evaluate(open_), 3)
+    r.check(ok, "survol du « i » : la consigne s'ouvre en infobulle", f"au bout de {took:.1f} s")
+    info.click()
+    r.page.mouse.move(0, 0)
+    time.sleep(0.6)
+    r.check(popover.evaluate(open_), "un clic pendant le survol la garde ouverte")
+    r.page.keyboard.press("Escape")
+    info.hover()
+    r.poll(lambda: popover.evaluate(open_), 3)
+    r.page.mouse.move(0, 0)
+    ok, took = r.poll(lambda: not popover.evaluate(open_), 3)
+    r.check(ok, "ouverte au survol, elle se ferme quand la souris s'en va", f"{took:.1f} s")
 
 
 def _public_server_offline(r: Run, server: str, label: str, seq: int | None = None) -> None:
@@ -4102,6 +4206,26 @@ def _rerank_step(r: Run):
     return r.page.locator("#orch-scroll .turn-step", has=name).last
 
 
+def _rerank_wait_failure(r: Run, seq: int) -> str:
+    """Story 4: why the reranker is still not available after its download, on one line (the
+    run reports an exception's first line): the `rag.rerank` card's reason, the
+    `harness_error`s since `seq`, and the session states the worker went through."""
+    try:
+        rerank = r.bricks()["rag"].get("rerank") or {}
+        reason = f"rerank.available={rerank.get('available')}, raison : {rerank.get('reason_text')}"
+    except Exception as exc:  # noqa: BLE001 - the report must not hide the timeout
+        reason = f"état des briques illisible ({type(exc).__name__}: {exc})"
+    errors = [
+        f"{e['payload'].get('message_text', '')} ({e['payload'].get('cause', '')})"
+        for e in r.ev.since(seq, "harness_error")
+    ]
+    states = [e["payload"].get("state") for e in r.ev.since(seq, "session_state")]
+    text = (
+        f"{reason} · harness_error : {errors or 'aucun'} · états de session : {states or 'aucun'}"
+    )
+    return " ".join(text.split())
+
+
 def s_rag_rerank(r: Run) -> None:
     """Story 16, after `rag` (index built, embedding model there): the « Reranking »
     sub-option of the RAG card, its model absent (the RAG goes on without it), then
@@ -4155,15 +4279,25 @@ def s_rag_rerank(r: Run) -> None:
     seq = r.ev.mark()
     download.click()
     r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
-    r.ev.wait(
-        "bricks_changed",
-        seq,
-        lambda p: (
-            (next(b for b in p["bricks"] if b["id"] == "rag").get("rerank") or {}).get("available")
-            is True
-        ),
-        30,
-    )
+    try:
+        r.ev.wait(
+            "bricks_changed",
+            seq,
+            lambda p: (
+                (next(b for b in p["bricks"] if b["id"] == "rag").get("rerank") or {}).get(
+                    "available"
+                )
+                is True
+            ),
+            30,
+        )
+    except TimeoutError as exc:
+        # Story 4 (deferred work): the card's reason and the harness errors tell a budget
+        # refusal from a worker that never loaded. The cause observed was neither: the worker
+        # loaded at once, but its « available » card was lost by the stream (the journal
+        # notified two threads out of `seq` order) and the download thread's « Chargement »,
+        # built before, was emitted last; both fixed in the application. Delay unchanged.
+        raise TimeoutError(f"{exc} · {_rerank_wait_failure(r, seq)}") from None
     r.check(
         (r.stack.data_dir / "models" / "reranker" / "fake-e2e.gguf").is_file(),
         "téléchargement réussi : le fichier du reranker est dans le dossier des modèles",
@@ -4314,7 +4448,7 @@ def s_compression(r: Run) -> None:
     r.check(
         not r.bricks()["rag"]["wanted"]
         and "« Journal de sauvegarde (compression) »"
-        in r.page.locator("#scenario-guide").inner_text(),
+        in r.page.locator("#scenario-info-popover").text_content(),
         "compression : RAG non voulu, la consigne donne le préréglage de secours (story 27)",
     )
     brick = r.bricks()["compression"]
@@ -4619,7 +4753,7 @@ def s_reload_and_reset(r: Run) -> None:
     r.check(ok, "après rechargement : sélecteur sur « Hooks »", f"au bout de {took:.1f} s")
     ok, took = r.poll(lambda: r.page.locator("#suggested-prompts button").count() == 1)
     r.check(
-        ok and r.page.locator("#scenario-guide").is_visible(),
+        ok and r.page.locator("#scenario-info").is_visible(),
         "après rechargement : consigne et prompt suggéré",
         f"au bout de {took:.1f} s",
     )
@@ -4636,7 +4770,7 @@ def s_reload_and_reset(r: Run) -> None:
     after = r.page.evaluate(measure)
     r.check(
         after == before,
-        "le message de réinitialisation ne déforme pas la barre haute",
+        "le message de réinitialisation ne déforme pas la barre de l'atelier",
         f"[largeur, hauteur] de « Réinitialiser », « Volets », jauge : {before} puis {after}",
     )
     r.check(
@@ -4766,7 +4900,7 @@ def _language(r: Run) -> None:
         "l'intention est refusée (409) tant que la conversation n'est pas vide",
         f"{refused.status_code} {refused.text[:160]}",
     )
-    r.shot_element("language-01-verrouille", ".top-bar")
+    r.shot_element("language-01-verrouille", ".site-nav")
 
     seq = r.ev.mark()
     page.click("#reset-button")
@@ -4897,7 +5031,7 @@ _VISIBLE_TEXTS_JS = """() => {
     if (text && n.parentElement.checkVisibility()) texts.push(['texte', text]);
   }
   for (const e of document.querySelectorAll('[title], [aria-label], [placeholder]')) {
-    if (!e.checkVisibility() && !e.closest('.top-bar')) continue;
+    if (!e.checkVisibility() && !e.closest('.top-bar, .site-nav')) continue;
     for (const a of ['title', 'aria-label', 'placeholder']) {
       const v = e.getAttribute(a);
       if (v && v.trim()) texts.push([a, v.trim()]);
@@ -5025,6 +5159,7 @@ def _readable_bar(r: Run, lang: str) -> None:
             fits, detail = _bar_fits(r)
             names = page.evaluate(_READABLE_NAMES_JS)
             menu = _display_menu_picker(r, system)
+            panels = _bar_panels_problems(r)
             if not fits or names:  # what each control of the bar takes, to see who to trim
                 detail += " ; " + page.evaluate(
                     "() => [...document.querySelectorAll('.top-bar > *')]"
@@ -5032,11 +5167,12 @@ def _readable_bar(r: Run, lang: str) -> None:
                     ".map(e => `${e.id || e.className} ${Math.round(e.offsetWidth)}`).join(', ')"
                 )
             r.check(
-                fits and not names and not menu,
-                f"{lang}, {width} × {height}, mode {mode} : barre haute entière sur une ligne, "
-                "scénario, hébergement et nom du modèle, sélecteur de modèle lisibles "
-                "(≈ 6 caractères), chiffres de la jauge entiers",
-                f"{detail} ; {names} {menu}",
+                fits and not names and not menu and not panels,
+                f"{lang}, {width} × {height}, mode {mode} : barre commune et barre de l'atelier "
+                "entières sur une ligne, la seconde sous les volets, « Fenêtre » et « Volets ▾ » "
+                "entiers au-dessus d'elle, scénario, hébergement et nom du modèle, sélecteur de "
+                "modèle lisibles (≈ 6 caractères), chiffres de la jauge entiers",
+                f"{detail} ; {names} {menu} {panels}",
             )
             if lang == "de":
                 r.shot(f"ui-language-de-{width}-{mode}")
@@ -5127,6 +5263,7 @@ def _ui_language(r: Run) -> None:
             _ui_plurals(r, lang)
         _readable_bar(r, lang)
     r.shot_element("ui-language-de-barre", ".top-bar")
+    r.shot_element("ui-language-de-barre-commune", ".site-nav")
     _ui_route_down(r)
 
 
@@ -5204,7 +5341,7 @@ def _content_language(r: Run, lang: str) -> None:
 
     # The scenario: its title in the picker, its instructions, its prompts.
     title = page.locator("#scenario-picker option:checked").inner_text()
-    guide = _flat(page.locator("#scenario-guide-text").text_content() or "")
+    guide = _flat(page.locator("#scenario-info-popover .scenario-info-text").text_content() or "")
     prompts = page.locator("#suggested-prompts button").all_inner_texts()
     r.check(
         scenario["title_text"] in title
@@ -5544,7 +5681,16 @@ def s_annex_language(r: Run) -> None:
                     for width, height in ((1280, 720), (1600, 1000)):
                         page.set_viewport_size({"width": width, "height": height})
                         time.sleep(0.4)
+                        nav = _site_nav_problems(r)
+                        r.check(
+                            not nav,
+                            f"de, /{name}, {width} × {height} : barre commune entière, sur une "
+                            "ligne",
+                            "; ".join(nav),
+                        )
                         r.shot(f"annex-language-de-{name}-{width}")
+                        if name == "models" and width == 1280:
+                            _models_window_then_network(r)  # story 3 of 2026-09-30
                     page.set_viewport_size({"width": 1600, "height": 1000})
     finally:
         page.set_viewport_size({"width": 1600, "height": 1000})
@@ -5690,7 +5836,7 @@ def s_model_switch(r: Run) -> None:
     stopwatch = top.inner_text()
     r.check(
         re.search(r"… \d+(,\d)? s$", stopwatch) is not None,
-        "barre haute : « Chargement du modèle … » avec chronomètre",
+        "barre de l'atelier : « Chargement du modèle … » avec chronomètre",
         stopwatch,
     )
     indicator = page.locator("#chat .model-load-indicator")
@@ -5774,7 +5920,9 @@ def s_model_switch(r: Run) -> None:
     r.check(ok, "« Arrêter » visible pendant le chargement du modèle")
     stop.click()
     ok, _ = r.poll(lambda: "Arrêt demandé" in top.inner_text(), 5)
-    r.check(ok, "barre haute : « Arrêt demandé » pendant la fin de l'étape", top.inner_text())
+    r.check(
+        ok, "barre de l'atelier : « Arrêt demandé » pendant la fin de l'étape", top.inner_text()
+    )
     ended = r.ev.wait("model_load_ended", seq, timeout=30)["payload"]
     r.check(
         ended["status"] == "cancelled"
@@ -5787,7 +5935,7 @@ def s_model_switch(r: Run) -> None:
         expect(top).to_contain_text("Chargement arrêté", timeout=5000)
     except AssertionError:
         ok = False
-    r.check(ok, "barre haute : issue « Chargement arrêté »", top.inner_text())
+    r.check(ok, "barre de l'atelier : issue « Chargement arrêté »", top.inner_text())
     expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=10_000)
     active = r.state()["active_model"] or {}
     r.check(active.get("ref") == MODEL_ENTRY_ID, "le modèle précédent est actif", str(active))
@@ -5861,12 +6009,12 @@ def _slow_probe_stopped(r: Run) -> None:
         elapsed = time.monotonic() - clicked
         r.check(
             after_click.startswith("Arrêt demandé · "),
-            "barre haute : « Arrêt demandé · » après le clic",
+            "barre de l'atelier : « Arrêt demandé · » après le clic",
             after_click,
         )
         r.check(
             "une sonde est interrompue tout de suite" in tooltip,
-            "barre haute : l'infobulle explique le délai de l'arrêt",
+            "barre de l'atelier : l'infobulle explique le délai de l'arrêt",
             tooltip,
         )
         r.check(
@@ -6175,6 +6323,289 @@ def _models_row(r: Run, value: str) -> dict[str, str]:
     return row_texts
 
 
+# ---------- story 3 of 2026-09-30: sort and filters of /models, the diagnostic's search ------
+
+# Each visible group of the table, its visible rows in order: the pairs out of order for the
+# column `key` (`size`: bytes, then parameters), unknown values always last; `ranks`: the
+# rank of each text value (`reasoning`), the others unknown.
+_MODELS_ORDER_JS = """({key, descending, ranks}) => {
+  const problems = [];
+  const value = (v) =>
+    ranks ? (ranks[v] ?? null) : v === "" || v === undefined ? null : Number(v);
+  const read = (tr) => (key === "size" ? [tr.dataset.size, tr.dataset.params] : [tr.dataset[key]])
+    .map(value);
+  for (const body of document.querySelectorAll("#models-table tbody")) {
+    if (body.hidden) continue;
+    const rows = [...body.querySelectorAll("tr[data-value]")].filter((tr) => !tr.hidden);
+    for (let i = 1; i < rows.length; i++) {
+      const a = read(rows[i - 1]);
+      const b = read(rows[i]);
+      for (let j = 0; j < a.length; j++) {
+        if (a[j] === b[j]) continue;
+        const wrong = a[j] === null || (b[j] !== null && (descending ? a[j] < b[j] : a[j] > b[j]));
+        const [x, y] = [rows[i - 1].dataset.value, rows[i].dataset.value];
+        if (wrong) problems.push(`${x} (${a}) > ${y} (${b})`);
+        break;
+      }
+    }
+  }
+  return problems;
+}"""
+
+
+def _models_order_problems(
+    r: Run, key: str, descending: bool, ranks: dict[str, int] | None = None
+) -> list[str]:
+    return r.page.evaluate(_MODELS_ORDER_JS, {"key": key, "descending": descending, "ranks": ranks})
+
+
+def _models_sort_marks(r: Run) -> dict[str, str | None]:
+    """`aria-sort` of each header of the table, by its `data-sort` (the price: « price »)."""
+    return r.page.eval_on_selector_all(
+        "#models-table thead th",
+        "ths => Object.fromEntries(ths.map(th => [th.dataset.sort ?? 'price',"
+        " th.getAttribute('aria-sort')]))",
+    )
+
+
+def _models_visible_values(r: Run) -> list[str]:
+    return r.page.eval_on_selector_all(
+        "#models-table tbody:not([hidden]) tr[data-value]:not([hidden])",
+        "trs => trs.map(tr => tr.dataset.value)",
+    )
+
+
+def _folded(text: str) -> str:
+    import unicodedata
+
+    decomposed = unicodedata.normalize("NFD", text or "")
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+
+
+def _models_sort_and_filters(r: Run) -> None:
+    """Sort by size (twice: descending, `aria-sort`), by the window from the keyboard; the
+    network filter with a free text, its count; no result, then « Réinitialiser les filtres »."""
+    page = r.page
+    models = r.api("GET", "/api/diagnostic").json()["models"]
+    rows = [m for g in models["groups"] for m in g["models"]]
+    total = len(rows)
+    size = page.locator('#models-table th[data-sort="size"] .sort-button')
+    size.click()
+    size.click()
+    marks = _models_sort_marks(r)
+    problems = _models_order_problems(r, "size", descending=True)
+    r.check(
+        marks["size"] == "descending"
+        and all(v is None for k, v in marks.items() if k != "size")
+        and not problems,
+        "tableau : « Taille » deux fois, décroissant par taille dans chaque groupe, inconnues "
+        "en dernier, aria-sort=descending sur cet en-tête seul",
+        f"{marks} · " + "; ".join(problems[:4]),
+    )
+    window = page.locator('#models-table th[data-sort="window"] .sort-button')
+    window.focus()
+    page.keyboard.press("Enter")
+    marks = _models_sort_marks(r)
+    problems = _models_order_problems(r, "window", descending=False)
+    r.check(
+        marks["window"] == "ascending" and marks["size"] is None and not problems,
+        "tableau : Entrée sur « Fenêtre », croissant par fenêtre, aria-sort passé à cet en-tête",
+        f"{marks} · " + "; ".join(problems[:4]),
+    )
+    r.check(
+        page.locator("#models-table thead th", has_text="Prix").locator("button").count() == 0,
+        "tableau : le prix ne se trie pas",
+    )
+
+    page.select_option("#filter-hosting", "network")
+    page.fill("#filter-text", "gem")
+    expected = sorted(
+        m["value"]
+        for m in rows
+        if m["hosting"] == "network" and "gem" in _folded(f"{m['name']} {m['publisher_text']}")
+    )
+    shown = sorted(_models_visible_values(r))
+    status = page.inner_text("#models-status")
+    word = "modèle" if len(expected) <= 1 else "modèles"
+    local_hidden = page.eval_on_selector_all(
+        "#models-table tbody",
+        "bs => bs.every(b => b.hidden || [...b.querySelectorAll('tr[data-value]')]"
+        ".some(tr => !tr.hidden))",
+    )
+    r.check(
+        bool(expected)
+        and shown == expected
+        and status == f"{len(expected)} {word} sur {total}"
+        and local_hidden,
+        "filtres : réseau + « gem », les seules lignes réseau dont le nom ou l'éditeur contient "
+        "« gem », compteur « n modèles sur N », groupes vides masqués",
+        f"{shown} · attendu {expected} · « {status} »",
+    )
+    r.shot("44b-modeles-filtres", full_page=True)
+
+    page.fill("#filter-text", "zzz")
+    empty = page.locator("#models-empty")
+    expect(empty).to_be_visible(timeout=5000)
+    r.check(
+        page.locator("#models-table").is_hidden()
+        and "Aucun modèle ne correspond à ces filtres." in empty.inner_text()
+        and page.inner_text("#models-status") == f"0 modèle sur {total}",
+        "filtres : « zzz », aucun résultat, message dédié, tableau masqué",
+        page.inner_text("#models-status"),
+    )
+    page.locator("#models-empty-reset").click()
+    shown = _models_visible_values(r)
+    r.check(
+        empty.is_hidden()
+        and len(shown) == total
+        and page.input_value("#filter-text") == ""
+        and page.input_value("#filter-hosting") == ""
+        and page.inner_text("#models-status").startswith(f"{total} modèles"),
+        "« Réinitialiser les filtres » : toutes les lignes de nouveau, compteur entier",
+        f"{len(shown)} / {total} · {page.inner_text('#models-status')}",
+    )
+
+    reasoning = page.locator('#models-table th[data-sort="reasoning"] .sort-button')
+    reasoning.click()
+    ranks = {"always": 0, "toggle": 1, "never": 2}
+    problems = _models_order_problems(r, "reasoning", descending=False, ranks=ranks)
+    r.check(
+        _models_sort_marks(r)["reasoning"] == "ascending" and not problems,
+        "tableau : « Raisonnement », toujours < activable < jamais dans chaque groupe, "
+        "inconnus en dernier",
+        "; ".join(problems[:4]),
+    )
+
+    publisher = page.eval_on_selector_all(
+        "#filter-publisher option", "os => os.map(o => o.value).filter(Boolean)"
+    )
+    picked = publisher[0] if publisher else None
+    filters = [
+        ("#filter-tools", "no", lambda m: m["tools"] is not True, "outils « Non ou inconnu »"),
+        (
+            "#filter-reasoning",
+            "yes",
+            lambda m: m["reasoning"] in ("always", "toggle"),
+            "raisonnement « Oui » (toujours ou activable)",
+        ),
+        (
+            "#filter-publisher",
+            picked,
+            lambda m: m["publisher_id"] == picked,
+            f"éditeur « {picked} »",
+        ),
+    ]
+    for selector, option, keep, label in filters:
+        if option is not None:
+            page.select_option(selector, option)
+        expected = sorted(m["value"] for m in rows if keep(m))
+        shown = sorted(_models_visible_values(r))
+        r.check(
+            option is not None and bool(expected) and shown == expected,
+            f"filtres : {label}, ses seules lignes",
+            f"{len(shown)} affichées · attendu {len(expected)} · "
+            f"en trop {sorted(set(shown) - set(expected))[:4]} · "
+            f"manquantes {sorted(set(expected) - set(shown))[:4]}",
+        )
+        page.locator("#filters-reset").click()
+
+
+def _models_window_then_network(r: Run) -> None:
+    """German, at the width of the moment: sort by « Fenster », then the « Netzwerk » filter;
+    the network rows only, by window in their group, the count right (AC of story 3)."""
+    page = r.page
+    rows = [
+        m for g in r.api("GET", "/api/diagnostic").json()["models"]["groups"] for m in g["models"]
+    ]
+    network = sorted(m["value"] for m in rows if m["hosting"] == "network")
+    page.locator('#models-table th[data-sort="window"] .sort-button').click()
+    page.select_option("#filter-hosting", "network")
+    option = page.eval_on_selector("#filter-hosting", "s => s.selectedOptions[0].textContent")
+    shown = sorted(_models_visible_values(r))
+    problems = _models_order_problems(r, "window", descending=False)
+    status = page.inner_text("#models-status")
+    word = "Modell" if len(network) == 1 else "Modelle"
+    r.check(
+        bool(network)
+        and option == "Netzwerk"
+        and shown == network
+        and not problems
+        and status == f"{len(network)} {word} von {len(rows)}",
+        "de : « Fenster » puis « Netzwerk », les seules lignes réseau, par fenêtre dans leur "
+        "groupe, compteur juste",
+        f"{option} · {len(shown)} / {len(network)} · « {status} » · " + "; ".join(problems[:3]),
+    )
+    page.locator("#filters-reset").click()
+
+
+def _diagnostic_search_shown(r: Run) -> None:
+    """The diagnostic while the models are searched: `/api/diagnostic` and its stream
+    simulated (the E2E stack is diagnosed once, at launch): the message without a count
+    (`diagnostic_progress{0, 0}`), then « 3 modèles testés sur 30 » and the bar at 10 %
+    from a live event, never « Aucun candidat trouvé. »; the real answer then lists them."""
+    page = r.page
+    real = r.api("GET", "/api/diagnostic").json()
+    r.check(
+        real.get("searching") is False and real.get("progress") is None,
+        "/api/diagnostic : searching faux et progress nul une fois le contrôle « model » rendu",
+        f"{real.get('searching')} · {real.get('progress')}",
+    )
+    fake = {**real, "searching": True, "progress": {"done": 0, "total": 0}, "candidates": []}
+    fake["ready"] = False
+    envelope = {
+        "seq": real["seq"] + 1000,
+        "ts": "2026-10-01T00:00:00Z",
+        "session_epoch": 0,
+        "kind": "diagnostic_progress",
+        "actor": "harness",
+        "trigger": "harness",
+        "payload": {"done": 3, "total": 30},
+    }
+    stream = f"id: {envelope['seq']}\nevent: diagnostic_progress\ndata: {json.dumps(envelope)}\n\n"
+    search = page.locator("#candidates-search")
+    count = page.locator("#candidates-progress-text")
+    page.route("**/api/diagnostic", lambda route: route.fulfill(json=fake))
+    page.route("**/api/diagnostic/stream", lambda route: route.abort())
+    try:
+        page.goto(f"{r.stack.app_url}/diagnostic")
+        expect(search).to_be_visible(timeout=10_000)
+        r.check(
+            "Recherche et test des modèles en cours…" in search.inner_text()
+            and count.is_hidden()
+            and "Aucun candidat trouvé." not in page.inner_text("#candidates")
+            and page.locator("#candidates li").count() == 0,
+            "diagnostic en recherche, rien à sonder : le message sans compteur, jamais "
+            "« Aucun candidat trouvé. »",
+            search.inner_text(),
+        )
+        page.unroute("**/api/diagnostic/stream")
+        page.route(
+            "**/api/diagnostic/stream",
+            lambda route: route.fulfill(
+                status=200, headers={"Content-Type": "text/event-stream"}, body=stream
+            ),
+        )
+        page.reload()
+        expect(count).to_have_text("3 modèles testés sur 30", timeout=10_000)
+        bar = page.eval_on_selector("#candidates-progress", "p => [p.value, p.max, p.hidden]")
+        r.check(
+            bar == [3, 30, False]
+            and "Aucun candidat trouvé." not in page.inner_text("#candidates"),
+            "diagnostic en recherche : « 3 modèles testés sur 30 » en direct, barre à 10 %",
+            str(bar),
+        )
+        r.shot("49b-diagnostic-recherche")
+    finally:
+        page.unroute("**/api/diagnostic")
+        page.unroute("**/api/diagnostic/stream")
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    expect(page.locator("#candidates li").first).to_be_visible(timeout=20_000)
+    r.check(
+        search.is_hidden() and "Aucun candidat trouvé." not in page.inner_text("#candidates"),
+        "diagnostic, recherche finie : la liste des candidats, sans message de recherche",
+    )
+
+
 def _open_models_page(r: Run) -> None:
     r.page.goto(f"{r.stack.app_url}/models")
     expect(r.page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
@@ -6264,11 +6695,11 @@ def s_model_catalog(r: Run) -> None:
     apply.click()
     page.wait_for_url(f"{r.stack.app_url}/models", timeout=10_000)
     expect(page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
-    current = page.locator('.page-tabs a[aria-current="page"]')
-    r.check(current.inner_text() == "Modèles", "page /models : onglet « Modèles » courant")
+    current = page.locator('.site-nav a[aria-current="page"]')
+    r.check(current.inner_text() == "Modèles", "page /models : lien « Modèles » courant")
     r.check(
-        page.locator(".page-tabs a", has_text="Diagnostic").get_attribute("href") == "/diagnostic",
-        "page /models : l'onglet « Diagnostic » mène à /diagnostic",
+        page.locator(".site-nav a", has_text="Diagnostic").get_attribute("href") == "/diagnostic",
+        "page /models : le lien « Diagnostic » de la barre commune mène à /diagnostic",
     )
     llama = _models_row(r, f"server:llama_server/{LLAMA_FILE}")
     r.check(
@@ -6343,13 +6774,15 @@ def s_model_catalog(r: Run) -> None:
         "tableau : « Capacités lues comme au chargement… »",
     )
     r.shot("44-modeles-tableau", full_page=True)
-    page.locator(".page-tabs a", has_text="Diagnostic").click()
+    _models_sort_and_filters(r)  # story 3 of 2026-09-30
+    page.locator(".site-nav a", has_text="Diagnostic").click()
     page.wait_for_url(f"{r.stack.app_url}/diagnostic", timeout=10_000)
     r.check(
-        page.locator('.page-tabs a[aria-current="page"]').inner_text() == "Diagnostic"
-        and page.locator(".page-tabs a", has_text="Modèles").get_attribute("href") == "/models",
-        "diagnostic : mêmes onglets, « Diagnostic » courant",
+        page.locator('.site-nav a[aria-current="page"]').inner_text() == "Diagnostic"
+        and page.locator(".site-nav a", has_text="Modèles").get_attribute("href") == "/models",
+        "diagnostic : même barre commune, « Diagnostic » courant",
     )
+    _diagnostic_search_shown(r)  # story 3 of 2026-09-30
 
     # One truth: the reasoning card after the load and the table say the same.
     r.goto_app()
@@ -6380,7 +6813,101 @@ def s_model_catalog(r: Run) -> None:
         "raisonnement »",
         f"{row.get('reasoning')} · {reason}",
     )
+    _models_page_language(r)
     r.goto_app()
+
+
+def _models_page_language(r: Run) -> None:
+    """Story 2 (2026-09-30): on `/models`, the conversation empty, « English » in « Affichage ▾ »
+    of the shared bar: the page reloads in English. Back to French after."""
+    page = r.page
+    r.goto_app()
+    r.launch("bare_llm")
+    r.send("Bonjour")
+    r.wait_idle()
+    page.goto("about:blank")  # an open main screen would reload itself on `language_changed`
+    page.goto(f"{r.stack.app_url}/models")
+    expect(page.locator("#models-table tbody").first).to_be_attached(timeout=20_000)
+    try:
+        picker = page.locator("#language-picker")
+        panel = page.locator("#display-menu-panel")
+        # A conversation under way: the picker locked, its tooltip says why.
+        _open_display(page)
+        ok, took = r.poll(lambda: picker.is_disabled(), 10)
+        title = picker.get_attribute("title") or ""
+        r.check(
+            ok and "Videz d'abord la conversation" in title,
+            "/models, un tour joué : sélecteur de langue désactivé, l'infobulle dit de vider "
+            "la conversation",
+            f"{title} ({took:.1f} s)",
+        )
+        cleared = r.api("POST", "/api/intentions/clear_conversation", {})
+        _close_display(page)
+        _open_display(page)  # the state read again at each opening
+        ok, took = r.poll(lambda: picker.is_enabled(), 10)
+        r.check(
+            cleared.status_code == 200 and ok,
+            "/models, conversation vidée, menu rouvert : sélecteur de langue actif",
+            f"{cleared.status_code} · {took:.1f} s",
+        )
+        # A refusal (409): its reason in the menu, the picker offered again.
+        refusal = "Refus simulé (e2e)"
+        page.route(
+            "**/api/intentions/language",
+            lambda route: route.fulfill(
+                status=409, content_type="application/json", json={"detail": refusal}
+            ),
+        )
+        try:
+            picker.select_option("en")
+            alert = page.locator("#display-menu-alert")
+            expect(alert).to_have_text(refusal, timeout=5000)
+            ok, _ = r.poll(lambda: picker.is_enabled(), 10)
+            r.check(
+                ok and picker.input_value() == "fr" and _html_lang(r) == "fr",
+                "/models, refus (409) : la raison dans « Affichage ▾ », le sélecteur de nouveau "
+                "actif, sur « Français »",
+                f"{alert.inner_text()} · {picker.input_value()}",
+            )
+        finally:
+            page.unroute("**/api/intentions/language")
+        # Escape closes the menu, the focus back on its face; a click outside closes it too.
+        page.keyboard.press("Escape")
+        focused = page.evaluate("() => document.activeElement?.id")
+        r.check(
+            panel.is_hidden()
+            and focused == "display-menu-toggle"
+            and page.locator("#display-menu-alert").is_hidden(),
+            "/models : Échap ferme « Affichage ▾ », le focus revient sur sa face, le refus "
+            "s'efface",
+            f"focus sur {focused}",
+        )
+        _open_display(page)
+        page.locator("h1").click()
+        r.check(panel.is_hidden(), "/models : un clic hors du menu ferme « Affichage ▾ »")
+        _open_display(page)
+        ok, _ = r.poll(lambda: picker.is_enabled(), 10)
+        seq = r.ev.mark()
+        with page.expect_navigation(timeout=15_000):  # the page reloads, as on the main screen
+            picker.select_option("en")
+        r.ev.wait("language_changed", seq, lambda p: p["language"] == "en", timeout=15)
+        expect(page.locator("#models-table tbody").first).to_be_attached(timeout=20_000)
+        home = page.locator(".site-nav > a:not(.site-nav-brand)").first.inner_text()
+        current = page.locator('.site-nav a[aria-current="page"]').inner_text()
+        r.check(
+            page.url.endswith("/models")
+            and _html_lang(r) == "en"
+            and (home, current) == ("Workshop", "Models")
+            and page.locator("#language-picker-code").inner_text() == "EN",
+            "/models : « English » choisi, la page se recharge en anglais (barre commune "
+            "« Workshop », « Models » courant, « EN »)",
+            f"{page.url} · lang={_html_lang(r)} · {home} · {current}",
+        )
+    finally:
+        if r.state().get("language") != "fr":
+            r.goto_app()  # `_switch_language` starts from the main screen, at rest
+            _switch_language(r, "fr")
+        r.check(r.state()["language"] == "fr", "nettoyage : retour au français")
 
 
 A_LABEL = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
@@ -6425,7 +6952,7 @@ def s_context_window(r: Run) -> None:
         toggle = page.locator("#window-toggle")
         r.check(
             toggle.inner_text().replace(" ", " ").startswith("Fenêtre 4 096"),
-            "bouton « Fenêtre 4 096 ▾ » dans la barre haute",
+            "bouton « Fenêtre 4 096 ▾ » dans la barre de l'atelier",
             toggle.inner_text(),
         )
         r.check(
@@ -6598,7 +7125,10 @@ def s_context_window(r: Run) -> None:
         expect(page.locator("#top-status")).to_have_text(
             "Fenêtre de contexte : 4\u202f096 tokens (conversation gardée).", timeout=10_000
         )
-        r.check(True, "barre haute : « Fenêtre de contexte : 4 096 tokens (conversation gardée). »")
+        r.check(
+            True,
+            "barre de l'atelier : « Fenêtre de contexte : 4 096 tokens (conversation gardée). »",
+        )
     finally:
         # (d) Back to the fake cloud A and to 4 096: `relaunch` expects them. A failure here
         # is its own check, never a mask over the one that led here.
@@ -6807,20 +7337,23 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
         and ", sortie " in title
         and " € au taux de " in title
         and top.get_attribute("aria-label") == title,
-        "FinOps : « Dépense estimée » dans la barre haute, entrée + sortie, la phrase entière "
+        "FinOps : « Dépense estimée » dans la barre de l'atelier, entrée + sortie, la phrase "
+        "entière "
         "(euros compris) en infobulle et en nom accessible",
         f"{text!r} · {title} · {spend}",
     )
     ok, detail = _bar_fits(r)
     r.check(
-        ok, "FinOps : barre haute entière, sur une ligne, avec la dépense (1600 × 1000)", detail
+        ok,
+        "FinOps : barre de l'atelier entière, sur une ligne, avec la dépense (1600 × 1000)",
+        detail,
     )
     r.reload_app()
     again = page.locator("#consumption")
     expect(again).to_be_visible(timeout=5000)
     r.check(
         again.inner_text() == text,
-        "FinOps : après un rechargement, le même total dans la barre haute",
+        "FinOps : après un rechargement, le même total dans la barre de l'atelier",
         again.inner_text(),
     )
 
@@ -6858,7 +7391,7 @@ def _session_footprint(r: Run, what: str) -> None:
         and top.get_attribute("aria-label") == title
         and spend.get("impact_calls", 0) >= 1
         and (not grams or grams.endswith(" g CO₂e")),
-        f"GreenOps ({what}) : l'empreinte de la séance dans la barre haute (sa phrase en "
+        f"GreenOps ({what}) : l'empreinte de la séance dans la barre de l'atelier (sa phrase en "
         "infobulle, sa ligne quand elle tient)",
         f"{top.inner_text()!r} · {title} · {spend.get('impact_calls')}",
     )
@@ -7120,19 +7653,17 @@ def s_llm_screen(r: Run) -> None:
 
 def _llm_screen(r: Run) -> None:
     page = r.page
-    # (1) The link, whole in the top bar, which stays on one line.
-    link = page.locator("#llm-link")
+    # (1) The link, whole in the shared bar (story 2 of 2026-09-30), which stays on one line.
+    link = page.locator('.site-nav a[href="/llm"]')
     r.check(
-        link.is_visible()
-        # Languages (2/5): « LLM » under 1 700 px, its accessible name whole.
-        and link.inner_text() in ("LLM nu", "LLM")
-        and link.get_attribute("aria-label") == "LLM nu"
-        and not _fully_visible(r, "#llm-link"),
-        "barre haute : lien « LLM nu » visible et entier",
-        _fully_visible(r, "#llm-link"),
+        link.is_visible() and link.inner_text() == "LLM nu",
+        "barre commune : lien « LLM nu » visible et entier",
+        link.inner_text(),
     )
     ok, detail = _bar_fits(r)
-    r.check(ok, "barre haute : toutes les commandes entières, sur une ligne, à 1600 × 1000", detail)
+    r.check(
+        ok, "barre commune et barre de l'atelier entières, sur une ligne, à 1600 × 1000", detail
+    )
 
     # (2) The workshop's theme applies on /llm.
     _pick_theme(page, "dark")
@@ -7149,8 +7680,9 @@ def _llm_screen(r: Run) -> None:
     )
     r.check(
         page.locator("h1").inner_text() == "LLM nu : l'intérieur du modèle"
-        and page.locator("nav.page-tabs a[aria-current=page]").inner_text() == "LLM nu",
-        "/llm : titre et onglet « LLM nu »",
+        and page.locator("nav.site-nav a[aria-current=page]").inner_text() == "LLM nu"
+        and not _site_nav_problems(r),
+        "/llm : titre, barre commune entière, « LLM nu » courant",
     )
 
     # (3) The fake cloud A: the tokenizer is at the provider.
@@ -7500,20 +8032,17 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     page = r.page
     r.goto_app()
     r.wait_idle()
-    # (1) The link, whole in the top bar, which stays on one line.
-    link = page.locator("#rag-link")
+    # (1) The link, whole in the shared bar (story 2 of 2026-09-30), which stays on one line.
+    link = page.locator('.site-nav a[href="/rag"]')
     r.check(
-        link.is_visible()
-        # Languages (2/5): « RAG » under 1 700 px, its accessible name whole.
-        and link.inner_text() in ("Atelier RAG", "RAG")
-        and link.get_attribute("aria-label") == "Atelier RAG"
-        and link.get_attribute("href") == "/rag"
-        and not _fully_visible(r, "#rag-link"),
-        "barre haute : lien « Atelier RAG » visible, entier, vers /rag",
-        _fully_visible(r, "#rag-link"),
+        link.is_visible() and link.inner_text() == "Atelier RAG",
+        "barre commune : lien « Atelier RAG » visible, entier, vers /rag",
+        link.inner_text(),
     )
     ok, detail = _bar_fits(r)
-    r.check(ok, "barre haute : toutes les commandes entières, sur une ligne, à 1600 × 1000", detail)
+    r.check(
+        ok, "barre commune et barre de l'atelier entières, sur une ligne, à 1600 × 1000", detail
+    )
 
     # (2) The chain: seven cards in order, their shipped options, their explanations.
     link.click()
@@ -7536,9 +8065,10 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         str(options),
     )
     r.check(
-        page.locator("nav.page-tabs a[aria-current=page]").inner_text() == "Atelier RAG"
-        and page.locator("select[data-theme-picker]").count() == 1,
-        "/rag : onglet « Atelier RAG » courant, sélecteur de thème",
+        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "Atelier RAG"
+        and page.locator("select[data-theme-picker]").count() == 1
+        and not _site_nav_problems(r),
+        "/rag : barre commune entière, « Atelier RAG » courant, sélecteur de thème",
     )
     generation = page.locator('#rag-chain [data-kind="generation"]')
     r.check(
@@ -7546,9 +8076,9 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "la carte Génération repose sur l'encre (ink-fill), les autres en discipline context",
         r.css(generation, "background-color"),
     )
-    light = _contrast_sweep(r, ["main", "nav.page-tabs"])
+    light = _contrast_sweep(r, ["main", "nav.site-nav"])
     _pick_theme(page, "dark")
-    dark = _contrast_sweep(r, ["main", "nav.page-tabs"])
+    dark = _contrast_sweep(r, ["main", "nav.site-nav"])
     _pick_theme(page, "system")
     r.check(not light and not dark, "/rag : contrastes AA en clair et en sombre", str(light + dark))
     r.shot("55-atelier-rag-chaine", full_page=True)

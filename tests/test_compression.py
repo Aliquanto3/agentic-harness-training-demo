@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import inspect
 import ipaddress
 import json
 import os
@@ -683,9 +684,12 @@ def test_chat_mode_sends_the_compressed_reply_with_estimated_tokens():
 # ---------- offline variables, content, the real adapter ----------
 
 
+_TIKTOKEN_ENV = ("TIKTOKEN_CACHE_DIR", "CUSTOM_TIKTOKEN_CACHE_DIR")
+
+
 def _forget_offline_env(monkeypatch) -> None:  # noqa: ANN001
     """Unset every variable the adapter sets; monkeypatch puts them back afterwards."""
-    for name in (*compression_env.OFFLINE_ENV, "TIKTOKEN_CACHE_DIR", "HF_HUB_OFFLINE"):
+    for name in (*compression_env.OFFLINE_ENV, *_TIKTOKEN_ENV, "HF_HUB_OFFLINE"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -695,9 +699,63 @@ def test_offline_variables_are_set_and_win_over_the_environment(monkeypatch):
     compression_env.apply_offline_env()
     for name, value in compression_env.OFFLINE_ENV.items():
         assert os.environ[name] == value
-    cache = compression_env.tiktoken_cache_dir()
-    if cache is not None:
-        assert os.environ["TIKTOKEN_CACHE_DIR"] == str(cache)
+    # Story 4: litellm rewrites TIKTOKEN_CACHE_DIR at its import, never CUSTOM_TIKTOKEN_CACHE_DIR.
+    shipped = config.repo_root() / "src" / "wavestack" / "compression" / "tiktoken"
+    assert compression_env.tiktoken_cache_dir() == shipped.resolve()
+    for name in _TIKTOKEN_ENV:
+        assert os.environ[name] == str(compression_env.tiktoken_cache_dir())
+
+
+def test_shipped_cl100k_base_table_is_the_official_one():
+    """Story 4: the bytes tiktoken checks (LF line endings, `expected_hash` of
+    `tiktoken_ext/openai_public.py`), under the name of tiktoken's cache."""
+    assert compression_env.CL100K_BASE_FILE == _tiktoken_file("cl100k_base")
+    data = (compression_env.tiktoken_cache_dir() / compression_env.CL100K_BASE_FILE).read_bytes()
+    assert b"\r" not in data
+    # The hash tiktoken itself checks (it deletes a table that differs), read from its source.
+    openai_public = pytest.importorskip("tiktoken_ext.openai_public")
+    expected = re.findall(r"[0-9a-f]{64}", inspect.getsource(openai_public.cl100k_base))
+    assert hashlib.sha256(data).hexdigest() == compression_env.CL100K_BASE_SHA256 == expected[0]
+    assert compression_env.tiktoken_table_problem() is None
+    license_file = compression_env.tiktoken_cache_dir() / "LICENSE-tiktoken"
+    assert "MIT License" in license_file.read_text(encoding="utf-8")
+    attributes = (config.repo_root() / ".gitattributes").read_text(encoding="utf-8")
+    assert f"src/wavestack/compression/tiktoken/{compression_env.CL100K_BASE_FILE} -text" in (
+        attributes
+    )
+
+
+@pytest.mark.parametrize("state", ["missing", "altered"])
+def test_missing_or_altered_table_makes_the_brick_unavailable(state, tmp_path, monkeypatch):
+    """Story 4: the brick says why, and Headroom (whose import would have tiktoken download
+    the table) is never loaded."""
+    if state == "altered":  # litellm 1.102.1's copy: the same table with CRLF line endings
+        shipped = compression_env.tiktoken_cache_dir() / compression_env.CL100K_BASE_FILE
+        data = shipped.read_bytes().replace(b"\n", b"\r\n")
+        (tmp_path / compression_env.CL100K_BASE_FILE).write_bytes(data)
+    monkeypatch.setattr(compression_env, "tiktoken_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(headroom_adapter, "_find_spec", lambda name: object())
+    monkeypatch.setattr(headroom_adapter, "_version", lambda name: "0.38.0")
+    assert compression_env.tiktoken_table_problem() == state
+
+    reason = headroom_adapter.missing_fr()
+    assert reason is not None and "cl100k_base" in reason
+    assert str(tmp_path / compression_env.CL100K_BASE_FILE) in reason
+    assert ("absente" if state == "missing" else "altérée") in reason
+    loaded = []
+    monkeypatch.setattr(headroom_adapter, "HeadroomCompressor", lambda: loaded.append(1))
+
+    engine = FakeEngine(output="Bonjour")
+    session = AppSession(
+        config.Config(values={}), engine_factory=lambda path, n_ctx: engine
+    )  # the default adapter: Headroom
+    session.boot("fake.gguf").result()
+    session.set_brick("compression", True)
+    compression = card(session)
+    assert compression["wanted"] and not compression["available"]
+    assert compression["reason_text"] == reason
+    assert _run(session, "Bonjour")["turn_ended"][0]["status"] == "completed"
+    assert loaded == []
 
 
 def test_cli_sets_the_offline_variables_before_third_party_imports():
@@ -747,7 +805,7 @@ def test_headroom_adapter_compresses_the_demo_log_offline(monkeypatch):
 # argv: the log, the tiktoken cache to use in place of litellm's, optionally another counting
 # model (the negative control).
 _OFFLINE_CHILD = r"""
-import json, sys
+import json, os, sys
 from pathlib import Path
 
 attempts, phase = [], ["start"]
@@ -793,6 +851,7 @@ print(json.dumps({
     "model": headroom_adapter.COUNTING_MODEL,
     "before": len(log),
     "text": result.text,
+    "tiktoken_cache_dir": os.environ.get("TIKTOKEN_CACHE_DIR"),
 }))
 """
 
@@ -823,13 +882,11 @@ def _tiktoken_file(encoding: str) -> str:
 
 
 def _run_offline_child(tmp_path, model: str | None = None) -> dict:  # noqa: ANN001
-    """The child above, with a tiktoken cache holding `cl100k_base` only, as litellm's copy on
-    the target PC (2026-09-27)."""
+    """The child above, with a tiktoken cache reduced to what WaveStack ships (`cl100k_base`,
+    story 4), copied: the negative control must not write in the shipped folder."""
     shipped = compression_env.tiktoken_cache_dir()
-    if shipped is None:
-        pytest.skip("litellm absent")
     table = _tiktoken_file("cl100k_base")
-    assert (shipped / table).is_file(), "litellm ne livre pas cl100k_base"
+    assert (shipped / table).is_file(), "WaveStack ne livre pas cl100k_base"
     cache = tmp_path / "tiktoken"
     cache.mkdir(exist_ok=True)
     shutil.copy(shipped / table, cache / table)
@@ -837,7 +894,7 @@ def _run_offline_child(tmp_path, model: str | None = None) -> dict:  # noqa: ANN
         var: value
         for var, value in os.environ.items()
         if var.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")
-        and var not in (*compression_env.OFFLINE_ENV, "TIKTOKEN_CACHE_DIR", "HF_HUB_OFFLINE")
+        and var not in (*compression_env.OFFLINE_ENV, *_TIKTOKEN_ENV, "HF_HUB_OFFLINE")
     }
     env["PYTHONIOENCODING"] = "utf-8"
     path = config.content_dir() / "demo_files" / "journal_serveur.log"
@@ -872,6 +929,10 @@ def test_headroom_makes_no_network_attempt_at_import_nor_compression(tmp_path):
     assert public == [], f"tentatives réseau de Headroom : {public}"
     assert out["model"] == "gpt-4"
     assert ERROR_LINE in out["text"] and len(out["text"]) < out["before"]  # compressed
+    # Story 4 review: litellm left the folder WaveStack points at (CUSTOM_TIKTOKEN_CACHE_DIR),
+    # and tiktoken kept the table there (a bad sha256 would have deleted it).
+    assert out["tiktoken_cache_dir"] == str(tmp_path / "tiktoken")
+    assert (tmp_path / "tiktoken" / _tiktoken_file("cl100k_base")).is_file()
 
 
 @_NO_HEADROOM
@@ -884,11 +945,8 @@ def test_headroom_offline_check_sees_the_old_counting_model_reach_out(tmp_path):
     assert "openaipublic.blob.core.windows.net" in hosts
 
 
-@pytest.mark.skipif(
-    importlib.util.find_spec("tiktoken") is None or compression_env.tiktoken_cache_dir() is None,
-    reason="litellm ou tiktoken (extra) absent",
-)
-def test_headroom_counts_with_a_table_litellm_ships():
+@pytest.mark.skipif(importlib.util.find_spec("tiktoken") is None, reason="tiktoken (extra) absent")
+def test_headroom_counts_with_the_table_wavestack_ships():
     # `gpt-4o` (`o200k_base`) sent tiktoken to the network on the target PC (lot F).
     from tiktoken.model import encoding_name_for_model
 

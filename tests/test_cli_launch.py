@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import http.client
+import sys
 import threading
 import time
 
@@ -24,7 +26,9 @@ def test_reserve_port_then_conflict_returns_none_for_second_caller():
 def test_main_opens_browser_and_exits_zero_when_existing_instance_healthy(monkeypatch, ready, page):
     opened = []
     monkeypatch.setattr(cli, "_try_reserve_port", lambda port: None)
-    monkeypatch.setattr(cli, "_existing_instance_healthy", lambda port: True)
+    monkeypatch.setattr(
+        cli, "_existing_instance_health", lambda port: {"root": str(config.repo_root())}
+    )
     monkeypatch.setattr(cli, "_existing_instance_ready", lambda port: ready)
     monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url))
 
@@ -38,7 +42,7 @@ def test_main_reports_conflict_and_exits_nonzero_when_port_used_by_other_process
     monkeypatch, capsys
 ):
     monkeypatch.setattr(cli, "_try_reserve_port", lambda port: None)
-    monkeypatch.setattr(cli, "_existing_instance_healthy", lambda port: False)
+    monkeypatch.setattr(cli, "_existing_instance_health", lambda port: None)
 
     exit_code = cli.main(["--port", "8888"])
 
@@ -161,8 +165,9 @@ def test_the_launch_result_is_known_before_the_model_is_handed_out(monkeypatch):
 
 
 class _Answer:
-    def __init__(self, body: bytes) -> None:
+    def __init__(self, body: bytes, status: int = 200) -> None:
         self.body = body
+        self.status = status
 
     def __enter__(self):
         return self
@@ -170,8 +175,8 @@ class _Answer:
     def __exit__(self, *exc):
         return False
 
-    def read(self) -> bytes:
-        return self.body
+    def read(self, size: int = -1) -> bytes:
+        return self.body if size < 0 else self.body[:size]
 
 
 @pytest.mark.parametrize(
@@ -194,3 +199,131 @@ def test_existing_instance_ready_follows_launch_page(monkeypatch, body, ready):
 
     assert cli._existing_instance_ready(8888) is ready
     assert urls == ["http://127.0.0.1:8888/api/diagnostic"]
+
+
+# ---------- story R0 (CAP-1): which folder and which commit the reused instance runs ----------
+
+
+def _reuse(monkeypatch, health) -> list[str]:
+    """A port held by a healthy instance answering `health`; the pages the browser opened."""
+    monkeypatch.setattr(cli, "_try_reserve_port", lambda port: None)
+    monkeypatch.setattr(cli, "_existing_instance_health", lambda port: health)
+    monkeypatch.setattr(cli, "_existing_instance_ready", lambda port: True)
+    return _opened(monkeypatch)
+
+
+def _other_tree_line() -> str:
+    return cli.msg("cli.other_tree", "en", here=str(config.repo_root()))
+
+
+def test_the_same_folder_says_where_and_which_commit(monkeypatch, capsys):
+    here = str(config.repo_root())
+    opened = _reuse(monkeypatch, {"status": "ok", "root": here, "commit": "abc1234"})
+
+    assert cli.main(["--port", "8888"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.splitlines() == [
+        cli.msg("cli.already_running", "en", port=8888, root=here, commit="abc1234")
+    ]
+    assert "already running" in out and f"{here} (abc1234)" in out
+    assert opened == ["http://127.0.0.1:8888/"]
+
+
+def test_the_same_folder_spelled_otherwise_is_still_this_folder(monkeypatch, capsys):
+    here = str(config.repo_root())
+    other_spelling = here.upper() if sys.platform == "win32" else here + "/."
+    _reuse(monkeypatch, {"root": other_spelling, "commit": "abc1234"})
+
+    assert cli.main(["--port", "8888"]) == 0
+
+    assert _other_tree_line() not in capsys.readouterr().out
+
+
+def test_another_folder_adds_the_warning(monkeypatch, capsys, tmp_path):
+    elsewhere = str(tmp_path / "other-tree")
+    opened = _reuse(monkeypatch, {"root": elsewhere, "commit": "def5678"})
+
+    assert cli.main(["--port", "8888"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        cli.msg("cli.already_running", "en", port=8888, root=elsewhere, commit="def5678"),
+        _other_tree_line(),
+    ]
+    assert "--port" in _other_tree_line()
+    assert opened == ["http://127.0.0.1:8888/"]
+
+
+def test_no_commit_gives_the_variant_without_it(monkeypatch, capsys):
+    here = str(config.repo_root())
+    _reuse(monkeypatch, {"root": here, "commit": None})
+
+    assert cli.main(["--port", "8888"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        cli.msg("cli.already_running_no_commit", "en", port=8888, root=here)
+    ]
+
+
+@pytest.mark.parametrize("health", [{"status": "ok", "version": "0.1.0"}, {}])
+def test_an_older_or_unreadable_instance_is_from_an_unknown_folder(monkeypatch, capsys, health):
+    opened = _reuse(monkeypatch, health)
+
+    assert cli.main(["--port", "8888"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        cli.msg("cli.already_running_unknown", "en", port=8888),
+        _other_tree_line(),
+    ]
+    assert opened == ["http://127.0.0.1:8888/"]
+
+
+@pytest.mark.parametrize(
+    ("body", "health"),
+    [
+        (b'{"root": "C:/x", "commit": null}', {"root": "C:/x", "commit": None}),
+        (b'{"status": "ok", "version": "0.1.0"}', {"status": "ok", "version": "0.1.0"}),
+        (b"<html>pas du json</html>", {}),
+        (b"[1, 2]", {}),
+        (b"\xff\xfe", {}),
+    ],
+)
+def test_existing_instance_health_gives_the_body(monkeypatch, body, health):
+    urls = []
+
+    def urlopen(url, timeout):
+        urls.append(url)
+        return _Answer(body)
+
+    monkeypatch.setattr(cli.urllib.request, "urlopen", urlopen)
+
+    assert cli._existing_instance_health(8888) == health
+    assert urls == ["http://127.0.0.1:8888/api/health"]
+
+
+def test_nothing_answering_is_no_instance(monkeypatch):
+    def urlopen(url, timeout):
+        raise cli.urllib.error.URLError("refused")
+
+    monkeypatch.setattr(cli.urllib.request, "urlopen", urlopen)
+
+    assert cli._existing_instance_health(8888) is None
+
+
+def test_a_foreign_program_answering_no_http_is_no_instance(monkeypatch):
+    def urlopen(url, timeout):
+        raise http.client.BadStatusLine("x")
+
+    monkeypatch.setattr(cli.urllib.request, "urlopen", urlopen)
+
+    assert cli._existing_instance_health(8888) is None
+
+
+def test_a_status_other_than_200_is_no_instance(monkeypatch):
+    monkeypatch.setattr(
+        cli.urllib.request,
+        "urlopen",
+        lambda url, timeout: _Answer(b'{"root": "C:/x"}', status=204),
+    )
+
+    assert cli._existing_instance_health(8888) is None

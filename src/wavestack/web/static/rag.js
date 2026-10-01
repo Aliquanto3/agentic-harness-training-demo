@@ -694,7 +694,6 @@ function renderContent() {
   if (store.content) {
     $("rag-title").textContent = store.content.title_text;
     $("rag-intro").textContent = store.content.intro_text;
-    $("back-link").textContent = store.content.back_text;
     $("rag-question").placeholder = store.content.question_placeholder_text;
   }
 }
