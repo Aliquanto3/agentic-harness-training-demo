@@ -1,7 +1,9 @@
 The file 9b5ad71b2ce5302211f9c61530b329a4922fc6a4 in this folder is the cl100k_base
-table of tiktoken (https://github.com/openai/tiktoken), downloaded from
+table of tiktoken (https://github.com/openai/tiktoken), published by OpenAI at
 https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken and named after
-the sha1 of that URL, as tiktoken's own cache does. Its bytes are unchanged (LF line
+the sha1 of that URL, as tiktoken's own cache does. This copy was taken, without any
+download, from the one litellm redistributes (litellm_core_utils/tokenizers), which
+has the same bytes once its CRLF line endings are restored to LF. Its bytes are unchanged (LF line
 endings, sha256 223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7).
 It is shipped so that Headroom can count tokens offline. tiktoken is distributed under the
 following license:

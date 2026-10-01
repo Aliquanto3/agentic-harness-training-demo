@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import threading
 
 from fake_engine import FakeEngine, booted_session
 from starlette.testclient import TestClient
@@ -339,6 +340,45 @@ def test_stream_drops_the_overlap_between_subscription_and_snapshot(monkeypatch)
 
     # The racing event was queued too (subscribed first): sent once, from the snapshot.
     assert _seqs(chunks) == [replayed.seq, racing_seq, sentinel]
+
+
+def test_stream_keeps_two_events_emitted_at_once_by_two_threads():
+    """Story 4 (E2E `rag_rerank`): the download thread and the worker emit at once. The
+    journal notifies in `seq` order, so the stream, which drops an event whose `seq` is not
+    above the last it sent, loses neither (the card « available » used to be dropped)."""
+    journal = get_journal()
+    other_emitted = threading.Event()
+    other: list[int] = []
+
+    def emit_other() -> None:
+        other.append(journal.emit("session_state", {"state": "idle", "reason_text": "B"}).seq)
+        other_emitted.set()
+
+    def slow_first(envelope) -> None:  # noqa: ANN001 - notified before the stream
+        if envelope.payload.get("reason_text") == "A":  # another thread emits meanwhile
+            threading.Thread(target=emit_other).start()
+            other_emitted.wait(timeout=0.5)
+
+    journal.subscribe(slow_first)
+    try:
+
+        async def _collect() -> tuple[int, list[str], int]:
+            request = _OpenRequest(str(journal.last_seq()))
+            iterator = _sse_stream(request).body_iterator
+            chunks = [await anext(iterator)]  # the instance; the stream is subscribed now
+            live = asyncio.ensure_future(anext(iterator))  # past the replay, on the queue
+            await asyncio.sleep(0.05)
+            payload = {"state": "idle", "reason_text": "A"}
+            first = (await asyncio.to_thread(journal.emit, "session_state", payload)).seq
+            assert other_emitted.wait(timeout=5)
+            chunks.append(await asyncio.wait_for(live, timeout=2))
+            return first, *await _read_until(iterator, request, max(first, other[0]), chunks)
+
+        first_seq, chunks, sentinel = asyncio.run(_collect())
+    finally:
+        journal.unsubscribe(slow_first)
+
+    assert _seqs(chunks) == [first_seq, other[0], sentinel]
 
 
 def test_stream_with_an_id_of_another_instance_still_sends_live_events():

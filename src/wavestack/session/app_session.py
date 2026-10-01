@@ -725,6 +725,10 @@ class AppSession:
         self._cloud_content = None  # `content/cloud.yaml`, read when a cloud model boots
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="wavestack-worker")
         self._lock = threading.Lock()
+        # Story 4 (E2E `rag_rerank`): a card or a schema built then emitted under one lock,
+        # so the last one emitted is never one built before another thread's (the download
+        # thread's « Chargement » emitted after the worker's « loaded »).
+        self._emit_lock = threading.RLock()
         self.state = "diagnostic"
         self.reason_text: str | None = Message("session.state.diagnostic")
         self._engine: Engine | None = None
@@ -1074,6 +1078,10 @@ class AppSession:
             node["available"], node["reason_text"] = False, self._text(why)
 
     def _emit_architecture(self) -> None:
+        with self._emit_lock:
+            self._emit_architecture_now()
+
+    def _emit_architecture_now(self) -> None:
         """AD-12: a component is drawn as soon as its brick is `wanted`, even unavailable."""
         always = self._caps is not None and self._caps.reasoning_always
         with self._lock:
@@ -1404,6 +1412,10 @@ class AppSession:
             return None
 
     def _emit_bricks(self) -> None:
+        with self._emit_lock:
+            self._emit_bricks_now()
+
+    def _emit_bricks_now(self) -> None:
         pending = self._pending_ids()
         with self._lock:
             wanted = set(self._wanted)

@@ -163,5 +163,5 @@ cli:
 
 # Story 4: why the compression brick is unavailable when its tiktoken table is not usable.
 compression:
-  tiktoken_missing: "Unavailable: Headroom's counting table (tiktoken cl100k_base), shipped with WaveStack, is missing ({path}). WaveStack does not download it: take this file again from WaveStack's repository or archive, then restart WaveStack. The other bricks work without it."
-  tiktoken_altered: "Unavailable: Headroom's counting table (tiktoken cl100k_base), shipped with WaveStack, is altered (different sha256 fingerprint, often converted line endings): {path}. WaveStack does not download it: take this file again from WaveStack's repository or archive, then restart WaveStack. The other bricks work without it."
+  tiktoken_missing: "Unavailable: Headroom's counting table (tiktoken cl100k_base), shipped with WaveStack, is missing ({path}). WaveStack does not download it: restore this file from WaveStack's repository (git checkout -- src/wavestack/compression/tiktoken) or archive, then restart WaveStack. The other bricks work without it."
+  tiktoken_altered: "Unavailable: Headroom's counting table (tiktoken cl100k_base), shipped with WaveStack, is altered (different sha256 fingerprint, often converted line endings): {path}. WaveStack does not download it: restore this file from WaveStack's repository (git checkout -- src/wavestack/compression/tiktoken) or archive, then restart WaveStack. The other bricks work without it."

@@ -551,6 +551,41 @@ def test_the_reason_is_said_and_the_option_waits_while_the_reranker_loads(index)
     session.close()
 
 
+def test_the_last_card_is_never_one_built_before_the_reranker_loaded(index, monkeypatch):
+    """Story 4 (E2E `rag_rerank`): the caller's card (« Chargement ») is built, then the
+    worker loads the reranker and emits its own before the caller's is emitted. Built and
+    emitted under one lock, the last card is the newest: « available », not « Chargement »
+    for ever."""
+    place_model()
+    place_reranker()
+    gate = threading.Event()
+    session, _ = session_for(rerank_config(index), rerank=False, rerankers=Rerankers(gate=gate))
+    caller, loaded_emitted = threading.current_thread(), threading.Event()
+    card = session._rerank_card
+
+    def slow_card() -> dict | None:
+        built = card()
+        if threading.current_thread() is caller:
+            gate.set()  # the worker loads now, the caller's card still to emit
+            loaded_emitted.wait(timeout=1)
+        return built
+
+    def on_event(envelope) -> None:  # noqa: ANN001
+        if envelope.kind == "bricks_changed":
+            rag = next(b for b in envelope.payload["bricks"] if b["id"] == "rag")
+            if rag["rerank"]["available"]:
+                loaded_emitted.set()
+
+    monkeypatch.setattr(session, "_rerank_card", slow_card)
+    get_journal().subscribe(on_event)
+    try:
+        session.set_rag_rerank(True)
+        assert rag_card(session)["rerank"]["available"] is True
+    finally:
+        get_journal().unsubscribe(on_event)
+        session.close()
+
+
 def test_the_reranker_waits_for_the_embedding_model(index):
     place_model()
     place_reranker()

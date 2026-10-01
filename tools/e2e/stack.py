@@ -61,12 +61,6 @@ EMBEDDING_FILE = "embedding/fake-e2e.gguf"
 EMBEDDING_SIZE = 4096  # `fake_openai.MODEL_FILE_SIZE`
 RERANKER_FILE = "reranker/fake-e2e.gguf"
 RERANKER_SIZE = 2048  # `fake_openai.RERANKER_FILE_SIZE`
-# Story 4 (deferred work « rag_rerank instable sous charge »): the run's memory budget, fixed
-# and large. The default budget is dynamic (60 % of the RAM free at launch, 4 096 Mo at most,
-# 512 Mo at least): on a loaded PC, WaveStack's RSS plus the fake reranker's margin (256 Mo)
-# could pass it, so `check_component` refused the reranker depending on the host's free RAM.
-# Only the E2E data dir's settings.json says so; the application's own budget is unchanged.
-E2E_BUDGET_MB = 8192  # twice the default cap: never reached by the fakes
 
 
 def _entry(
@@ -149,10 +143,9 @@ def settings(fake_port: int, data_dir: Path, llama_port: int = 0, ollama_port: i
     """The `settings.json` override: four cloud models, all on the fake server (the third
     always reasons, story 33; the fourth is shaped as Gemini); the RAG's
     index and fake embedding model (story 15); the ports of the fake local servers (story
-    18); a fixed memory budget, whatever the host's free RAM (story 4)."""
+    18)."""
     values: dict = {
         "rag": rag_settings(fake_port, data_dir),
-        "memory": {"budget_mode": "fixed", "budget_mb": E2E_BUDGET_MB},
         "cloud": {
             "models": [
                 _entry(fake_port, MODEL_ENTRY_ID, "Faux fournisseur (e2e)", "wavestack-fake"),

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import inspect
 import ipaddress
 import json
 import os
@@ -711,8 +712,10 @@ def test_shipped_cl100k_base_table_is_the_official_one():
     assert compression_env.CL100K_BASE_FILE == _tiktoken_file("cl100k_base")
     data = (compression_env.tiktoken_cache_dir() / compression_env.CL100K_BASE_FILE).read_bytes()
     assert b"\r" not in data
-    sha256 = "223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7"
-    assert hashlib.sha256(data).hexdigest() == compression_env.CL100K_BASE_SHA256 == sha256
+    # The hash tiktoken itself checks (it deletes a table that differs), read from its source.
+    openai_public = pytest.importorskip("tiktoken_ext.openai_public")
+    expected = re.findall(r"[0-9a-f]{64}", inspect.getsource(openai_public.cl100k_base))
+    assert hashlib.sha256(data).hexdigest() == compression_env.CL100K_BASE_SHA256 == expected[0]
     assert compression_env.tiktoken_table_problem() is None
     license_file = compression_env.tiktoken_cache_dir() / "LICENSE-tiktoken"
     assert "MIT License" in license_file.read_text(encoding="utf-8")
@@ -802,7 +805,7 @@ def test_headroom_adapter_compresses_the_demo_log_offline(monkeypatch):
 # argv: the log, the tiktoken cache to use in place of litellm's, optionally another counting
 # model (the negative control).
 _OFFLINE_CHILD = r"""
-import json, sys
+import json, os, sys
 from pathlib import Path
 
 attempts, phase = [], ["start"]
@@ -848,6 +851,7 @@ print(json.dumps({
     "model": headroom_adapter.COUNTING_MODEL,
     "before": len(log),
     "text": result.text,
+    "tiktoken_cache_dir": os.environ.get("TIKTOKEN_CACHE_DIR"),
 }))
 """
 
@@ -925,6 +929,10 @@ def test_headroom_makes_no_network_attempt_at_import_nor_compression(tmp_path):
     assert public == [], f"tentatives réseau de Headroom : {public}"
     assert out["model"] == "gpt-4"
     assert ERROR_LINE in out["text"] and len(out["text"]) < out["before"]  # compressed
+    # Story 4 review: litellm left the folder WaveStack points at (CUSTOM_TIKTOKEN_CACHE_DIR),
+    # and tiktoken kept the table there (a bad sha256 would have deleted it).
+    assert out["tiktoken_cache_dir"] == str(tmp_path / "tiktoken")
+    assert (tmp_path / "tiktoken" / _tiktoken_file("cl100k_base")).is_file()
 
 
 @_NO_HEADROOM

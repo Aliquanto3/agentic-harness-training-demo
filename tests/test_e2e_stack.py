@@ -183,17 +183,3 @@ def test_launcher_reaches_the_loopback_whatever_the_workstation_proxy(tmp_path, 
             )
             assert running.fake_requests() == [{"path": "/_e2e/requests"}]
             assert running.local_requests(url) == [{"path": "/_e2e/requests"}]
-
-
-def test_e2e_memory_budget_is_fixed_whatever_the_free_ram(stack, tmp_path, monkeypatch):
-    """Story 4: `check_component` must never refuse the fake reranker because the host is
-    loaded; the application's own default budget stays dynamic."""
-    from wavestack import config
-
-    values = stack.settings(1, tmp_path)
-    assert values["memory"] == {"budget_mode": "fixed", "budget_mb": stack.E2E_BUDGET_MB}
-    mib = 1024 * 1024
-    monkeypatch.setattr(config, "system_memory", lambda: (16384 * mib, 300 * mib))
-    budget = config.Config(values=values).memory_budget
-    assert budget.mode == "fixed" and budget.bytes == stack.E2E_BUDGET_MB * mib
-    assert config.Config(values={}).memory_budget.mode == "dynamic"
