@@ -459,27 +459,29 @@ def test_stop_during_the_handshake(loop, web):
 
 def test_a_server_gone_during_a_call_closes_the_workshops_connection(loop):
     session = mcp_session(loop)
-    before = {p.pid for p in local_servers()}  # the brick's own local server, if any
-    connect(session)
-    (child,) = [p for p in local_servers() if p.pid not in before]
-    child.kill()
-    child.wait(5)
+    try:
+        connect(session)
+        # Every local server killed: the workshop's, and the brick's if it started meanwhile.
+        for child in local_servers():
+            child.kill()
+            child.wait(5)
 
-    try:
-        _, ended = lab_call(session, "local", "define_term", term="MCP")
-    except SendRefused:  # the connection's task saw the end first: refused before the call
-        ended = None
-    if ended is not None:
-        assert ended["status"] == "error"
-        assert "reconnectez-vous" in ended["error_text"]
-    assert session.mcp_lab_state()["open_server"] is None
-    try:
-        session.mcp_lab_call("local", "define_term", {"term": "MCP"})
-    except SendRefused as refused:
-        assert "Connectez-vous d'abord" in str(refused.reason_text)
-    else:
-        raise AssertionError("refused once the connection is gone")
-    session.close()
+        try:
+            _, ended = lab_call(session, "local", "define_term", term="MCP")
+        except SendRefused:  # the connection's task saw the end first: refused before the call
+            ended = None
+        if ended is not None:
+            assert ended["status"] == "error"
+            assert "reconnectez-vous" in ended["error_text"]
+        assert session.mcp_lab_state()["open_server"] is None
+        try:
+            session.mcp_lab_call("local", "define_term", {"term": "MCP"})
+        except SendRefused as refused:
+            assert "Connectez-vous d'abord" in str(refused.reason_text)
+        else:
+            raise AssertionError("refused once the connection is gone")
+    finally:
+        session.close()
     assert no_local_server_left()
 
 
