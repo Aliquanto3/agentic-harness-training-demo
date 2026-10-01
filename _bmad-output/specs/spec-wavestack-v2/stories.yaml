@@ -1,0 +1,74 @@
+- id: "1"
+  title: "V2 (1/6) : jeu de questions de démonstration avec réponses attendues"
+  description: >-
+    Poser le jeu de questions (réponse attendue, document et ancre du bon passage) en trois
+    langues, son chargeur validé et sa sélection dans l'interface (CAP-1). Taille M.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Brouillon non déclenché : ne lancer qu'après les conditions 1 et 2 de « Déclenchement »
+    (SPEC.md). Lire brownfield.md. Partir des 10 requêtes de tools/bench/story12_bench.py ;
+    faire relire les questions par Anaël avant de les traduire. Exécution sur ce PC (16 Go) :
+    pytest en quarts, E2E par tranches --only, au premier plan, une suite à la fois.
+- id: "2"
+  title: "V2 (2/6) : diagnostic du bon extrait dans la vue harnais"
+  description: >-
+    Pour un tour lancé depuis une question du jeu, calculer avant la génération où est le bon
+    extrait et quelle étape l'a perdu, puis l'afficher dans Orchestration et Contexte LLM
+    (CAP-2). Taille L.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Brouillon non déclenché (voir SPEC.md). Nouvel événement au catalogue (AD-2), émis avant
+    model_call_started ; le calcul de rang complet est un diagnostic, il ne change jamais le
+    contexte. Aucune lecture de la réponse du modèle. Exécution sur ce PC (16 Go) : pytest en
+    quarts, E2E par tranches --only, au premier plan, une suite à la fois.
+- id: "3"
+  title: "V2 (3/6) : diagnostic du bon extrait dans l'Atelier RAG"
+  description: >-
+    Suivre le bon extrait d'étape en étape dans l'Atelier RAG, compter les tokens de l'étape
+    contexte et nommer dans la synthèse A/B la chaîne qui le place le plus haut (CAP-3).
+    Taille M.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Brouillon non déclenché (voir SPEC.md). Réutiliser le repérage du bon extrait de la
+    story 2, sans le dupliquer. Exécution sur ce PC (16 Go) : pytest en quarts, E2E par
+    tranches --only, au premier plan, une suite à la fois.
+- id: "4"
+  title: "V2 (4/6) : module « Où naît l'erreur d'un RAG »"
+  description: >-
+    Écrire le module V2 et ses scénarios, au moins trois cas d'échec localisés à des étapes
+    différentes, rattachés aux questions du jeu, en trois langues (CAP-4). Taille S à M.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Brouillon non déclenché (voir SPEC.md). Les cas d'échec se trouvent avec les vrais modèles
+    d'embedding et de reranking, sur le PC cible : prévoir un passage manuel d'Anaël. Exécution
+    sur ce PC (16 Go) : pytest en quarts, E2E par tranches --only, au premier plan, une suite à
+    la fois.
+- id: "5"
+  title: "V2 (5/6) : coût contrefactuel d'un tour local"
+  description: >-
+    Pour un tour local, estimer ce qu'aurait coûté le même tour chez chaque modèle cloud déclaré
+    avec un prix, daté et sourcé, sans réseau (CAP-5). Taille M.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Brouillon non déclenché (voir SPEC.md). Lire _bmad-output/implementation-artifacts/
+    spec-estimateur-finops-api.md : même registre de prix, même affichage, jamais de calcul
+    côté front. Exécution sur ce PC (16 Go) : pytest en quarts, E2E par tranches --only, au
+    premier plan, une suite à la fois.
+- id: "6"
+  title: "V2 (6/6) : test préalable des modèles de décision"
+  description: >-
+    Banc hors produit qui mesure chaque candidat de decision-model-candidates.md selon les six
+    critères du test préalable et consigne un verdict par candidat (CAP-6). Taille M, plus un
+    relevé manuel sur le PC cible.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Seule story que la contrainte « Déclenchement » permet avant le pilote, sur décision
+    d'Anaël. Modèle : tools/bench/story12_bench.py. Aucune dépendance ajoutée au projet
+    (uv run --with), aucun changement sous src/wavestack. Les mesures du conteneur ne valent pas
+    verdict : le relevé sur le PC cible le fait.
