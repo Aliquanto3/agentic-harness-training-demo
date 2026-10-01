@@ -56,6 +56,16 @@ Ces seuils ont été fixés quand la mesure du RSS était fausse. Avec les pics 
 
 **Candidat retiré.** `e5small_q8` (`cstr/multilingual-e5-small-GGUF`, conversion faite pour CrispEmbed) ne se charge pas avec llama-cpp-python 0.3.35 (« Failed to load model », PC cible, 2026-09-27) : il ne fait plus partie des candidats et figure parmi les écartés d'office.
 
+## Banc de la story 6 de la V2 : modèles de décision
+
+`v2s6_decision_bench.py` mesure chaque candidat de `decision-model-candidates.md` (spec V2) à côté du SLM par défaut chargé : RAM, latence d'une décision, réseau, paquets ajoutés et licences, torch, révision épinglée. Il réutilise les aides de `story12_bench.py` (garde réseau, RSS au pic, licences) et n'ajoute, lui non plus, aucune dépendance au projet.
+
+```bash
+uv run python tools/bench/v2s6_decision_bench.py list   # candidats, commande de chacun, verdicts d'office
+```
+
+Les commandes exactes du relevé, le sens des critères et le tableau à remplir sont dans `_bmad-output/implementation-artifacts/rapport-test-prealable-modeles-de-decision.md`. L'option `--out` écrit le résultat en JSON UTF-8 : sous PowerShell 5.1, une redirection `>` l'écrirait en UTF-16.
+
 ## Limites
 
 - Les connexions ouvertes par du code natif échappent à la garde Python (plafond d'AD-15). Sous Linux, `strace` et `unshare -rn` les rendent visibles. Sous Windows, le banc ne voit que la garde Python.

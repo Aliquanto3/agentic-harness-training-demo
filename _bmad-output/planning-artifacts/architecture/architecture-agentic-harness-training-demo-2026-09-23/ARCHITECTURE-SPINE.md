@@ -839,6 +839,12 @@ wavestack/                      # racine du dépôt
   - **Déjà validé.** Le reranking par llama-cpp-python 0.3.35 est validé sur un GGUF synthétique : score lu par `llama_get_embeddings_seq`, car `Llama.embed()` ne convient pas à un reranker. Sa qualité reste à mesurer.
   - **Repli.** fastembed, avec paraphrase-multilingual-MiniLM-L12-v2 pour l’embedding et mmarco-mMiniLMv2 pour le reranking, par `add_custom_model` : le catalogue ne contient aucun reranker multilingue sous licence compatible.
   - **Banc.** `tools/bench/story12_bench.py embed --download`, avant la story 15.
+- **Test préalable du modèle de décision** (V2, story 6, CAP-6) : banc prêt le 2026-10-01, verdict **en attente du relevé sur le PC cible**. Aucune story de routage (CAP-7, CAP-8) ne part sans lui.
+  - **Banc.** `tools/bench/v2s6_decision_bench.py`, une commande par candidat de `decision-model-candidates.md` (liste : `list`). Chaque mesure se fait à côté du SLM par défaut chargé, sous la garde d'AD-15, sur vingt prompts des scénarios V1 et deux décisions : le coût, et la spécialité sur quatre critères écrits.
+  - **Critères.** RAM (pic total ≤ 4 096 Mo, SLM compris ; l'embedding et le reranker V1 sont donnés à part, pour information), latence d'une décision (médiane ≤ 1 s, maximum ≤ 3 s, seuils à valider), aucune tentative réseau, licences des paquets ajoutés, torch, commit et versions consignés sans `trust_remote_code`.
+  - **Déjà tranché sans mesure.** Llama-Guard-3-1B et Qwen3Guard-Gen-0.6B sont génératifs : jamais classifieurs coexistants (AD-8). Arch-Router-1.5B est écarté pour sa licence (NFR-10). Decision 1.0 reste écarté sans mesure tant qu'un relevé daté ne montre ni GGUF, ni ONNX, ni chemin CPU.
+  - **Repli.** Le SLM juge (critères dans le prompt, sortie contrainte par grammaire) ne charge aucun modèle de plus ; il est mesuré comme référence.
+  - **Rapport.** `_bmad-output/implementation-artifacts/rapport-test-prealable-modeles-de-decision.md` ; `decision-model-candidates.md` se met à jour ensuite, par un passage de bmad-spec.
 - **Schéma YAML des scénarios** : fixé par la première story de scénarios dans un modèle pydantic, dans le cadre d’AD-19.
 - **Bibliothèque JS éventuelle** (JS natif, ou petite bibliothèque recopiée) : première story d’interface, dans le cadre d’AD-18.
 - **Outils du serveur MCP local, second skill, corpus RAG** : stories de contenu.
