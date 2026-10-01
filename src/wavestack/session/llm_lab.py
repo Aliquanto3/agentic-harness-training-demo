@@ -34,6 +34,16 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class PluralText(_Strict):
+    """A count-bearing text (correctif nuit du 2026-10-01, restes différés) : `one` for a
+    singular count (`Intl.PluralRules`: 0 and 1 in French, 1 only in English and German),
+    `other` otherwise, chosen by `llm.js`'s `text()` the way `i18n.js`'s `t()` already does
+    for `content/ui.yaml`."""
+
+    one: str
+    other: str
+
+
 class LabSection(_Strict):
     title_text: str
     intro_text: str
@@ -56,8 +66,13 @@ class TokenizationText(_Strict):
     default_text_text: str
     button_text: str
     running_text: str
+    # Correctif nuit du 2026-10-01 (restes différés) : `token_noun` and `character_noun` are
+    # the plural noun phrases `counts_text` and `estimate_text` compose from (`{n}` tokens
+    # or characters); `more_text` is a lone count, so it is plural on its own.
+    token_noun: PluralText
+    character_noun: PluralText
     counts_text: str
-    more_text: str
+    more_text: PluralText
     special_text: str
     special_help_text: str
     blanks_text: str
@@ -109,6 +124,7 @@ class ReadingText(_Strict):
     empty_text: str
     rendered_label_text: str
     body_label_text: str
+    token_noun: PluralText  # correctif nuit du 2026-10-01 : `tokens_text` composes two of these
     tokens_text: str
     waiting_text: str
     first_token_text: str
@@ -129,8 +145,8 @@ class GenerationText(_Strict):
     stop_text: str
     running_text: str
     empty_text: str
-    count_text: str
-    fragments_text: str
+    count_text: PluralText  # correctif nuit du 2026-10-01 : « 1 tokens produits »
+    fragments_text: PluralText
     rate_text: str
     cloud_text: str
     server_text: str
@@ -159,9 +175,9 @@ class ReasoningText(_Strict):
     thinking_text: str
     answer_text: str
     empty_text: str
-    count_text: str
-    fragments_count_text: str
-    reserve_text: str
+    count_text: PluralText  # correctif nuit du 2026-10-01
+    fragments_count_text: PluralText
+    reserve_text: PluralText
 
 
 class CandidatesText(_Strict):
@@ -212,8 +228,8 @@ class WindowText(_Strict):
     prompt_text: str
     free_text: str
     reserve_text: str
-    output_text: str
-    output_fragments_text: str  # a server or a cloud model: fragments, not tokens
+    output_text: PluralText  # correctif nuit du 2026-10-01 : « Réponse : 1 tokens »
+    output_fragments_text: PluralText  # a server or a cloud model: fragments, not tokens
     caption_text: str
 
 

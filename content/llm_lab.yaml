@@ -81,8 +81,19 @@ tokenization:
   default_text_text: "Bonjour, comment allez-vous ?"
   button_text: "Découper en tokens"
   running_text: "Découpage en cours…"
-  counts_text: "{tokens} tokens pour {caracteres} caractères"
-  more_text: "… et {reste} tokens de plus, non affichés (512 puces au plus)."
+  # Correctif nuit du 2026-10-01 (restes différés) : « 1 tokens produits » n'accordait pas
+  # le singulier. `token_noun` et `character_noun` composent `counts_text` et `estimate_text`
+  # (`{n}` : le nombre déjà mis en forme dans la langue).
+  token_noun:
+    one: "{n} token"
+    other: "{n} tokens"
+  character_noun:
+    one: "{n} caractère"
+    other: "{n} caractères"
+  counts_text: "{tokens_phrase} pour {caracteres_phrase}"
+  more_text:
+    one: "… et {reste} token de plus, non affiché (512 puces au plus)."
+    other: "… et {reste} tokens de plus, non affichés (512 puces au plus)."
   special_text: "spécial"
   special_help_text: >-
     Token spécial : un marqueur du gabarit (début ou fin de message), lu comme un seul
@@ -90,8 +101,8 @@ tokenization:
   blanks_text: "␣ marque une espace, ↵ un retour à la ligne : ils sont des tokens comme les autres."
   exact_text: "Découpage exact, par le tokenizer du modèle actif."
   estimate_text: >-
-    Estimation du harnais : ≈ {estimation} tokens ({caracteres} caractères, à raison de
-    {ratio} caractères par token).
+    Estimation du harnais : ≈ {estimation_phrase} ({caracteres_phrase}, à raison de {ratio}
+    caractères par token).
   empty_text: "Découpez un texte : ses tokens apparaîtront ici."
 
 vectorization:
@@ -143,7 +154,11 @@ reading:
   empty_text: "Générez une réponse : le prompt rendu par le gabarit du modèle apparaîtra ici."
   rendered_label_text: "Prompt rendu par le gabarit (texte exact envoyé au modèle)"
   body_label_text: "Corps JSON envoyé au fournisseur (le gabarit est appliqué chez lui)"
-  tokens_text: "{tokens} tokens à lire, réserve de sortie de {reserve} tokens"
+  # Correctif nuit du 2026-10-01 : `token_noun` compose `tokens_text` deux fois.
+  token_noun:
+    one: "{n} token"
+    other: "{n} tokens"
+  tokens_text: "{tokens_phrase} à lire, réserve de sortie de {reserve_phrase}"
   waiting_text: "Lecture du prompt… {duree}"
   first_token_text: "Premier token après {duree}"
   read_rate_text: "Débit de lecture : {debit} tokens/s"
@@ -155,8 +170,13 @@ generation:
   stop_text: "Arrêter"
   running_text: "Génération en cours…"
   empty_text: "Les tokens produits apparaîtront ici, un par un."
-  count_text: "{tokens} tokens produits"
-  fragments_text: "{tokens} fragments reçus"
+  # Correctif nuit du 2026-10-01 (restes différés) : « 1 tokens produits ».
+  count_text:
+    one: "{tokens} token produit"
+    other: "{tokens} tokens produits"
+  fragments_text:
+    one: "{tokens} fragment reçu"
+    other: "{tokens} fragments reçus"
   rate_text: "Débit de sortie : {debit} tokens/s"
   cloud_text: >-
     Modèle cloud : ce sont des fragments reçus du fournisseur, pas des tokens un par un. Le
@@ -188,9 +208,16 @@ reasoning:
   thinking_text: "Réflexion"
   answer_text: "Réponse"
   empty_text: "Rien pour l'instant."
-  count_text: "{tokens} tokens"
-  fragments_count_text: "{tokens} fragments"
-  reserve_text: "Réserve de sortie : {reserve} tokens quand le modèle raisonne."
+  # Correctif nuit du 2026-10-01 (restes différés) : même accord que `generation.count_text`.
+  count_text:
+    one: "{tokens} token"
+    other: "{tokens} tokens"
+  fragments_count_text:
+    one: "{tokens} fragment"
+    other: "{tokens} fragments"
+  reserve_text:
+    one: "Réserve de sortie : {reserve} token quand le modèle raisonne."
+    other: "Réserve de sortie : {reserve} tokens quand le modèle raisonne."
 
 candidates:
   toggle_text: "Montrer les tokens candidats"
@@ -249,8 +276,13 @@ window:
   prompt_text: "Prompt : {tokens}"
   free_text: "Libre"
   reserve_text: "Réserve de sortie : {reserve}"
-  output_text: "Réponse : {tokens} tokens"
-  output_fragments_text: "Réponse : {tokens} fragments reçus"
+  # Correctif nuit du 2026-10-01 (restes différés) : « Réponse : 1 tokens ».
+  output_text:
+    one: "Réponse : {tokens} token"
+    other: "Réponse : {tokens} tokens"
+  output_fragments_text:
+    one: "Réponse : {tokens} fragment reçu"
+    other: "Réponse : {tokens} fragments reçus"
   caption_text: >-
     La fenêtre compte {fenetre} tokens : {utilisables} pour le prompt, {reserve} gardés pour
     la réponse. À chaque pas, le modèle relit toute la fenêtre remplie jusque-là (le cache lui

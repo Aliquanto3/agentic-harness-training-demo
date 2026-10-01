@@ -79,16 +79,24 @@ tokenization:
   default_text_text: "Hello, how are you?"
   button_text: "Split into tokens"
   running_text: "Splitting…"
-  counts_text: "{tokens} tokens for {caracteres} characters"
-  more_text: "… and {reste} more tokens, not shown (512 chips at most)."
+  token_noun:
+    one: "{n} token"
+    other: "{n} tokens"
+  character_noun:
+    one: "{n} character"
+    other: "{n} characters"
+  counts_text: "{tokens_phrase} for {caracteres_phrase}"
+  more_text:
+    one: "… and {reste} more token, not shown (512 chips at most)."
+    other: "… and {reste} more tokens, not shown (512 chips at most)."
   special_text: "special"
   special_help_text: >-
     Special token: a template marker (start or end of a message), read as a single token.
   blanks_text: "␣ marks a space, ↵ a line break: they are tokens like any other."
   exact_text: "Exact split, by the active model's tokenizer."
   estimate_text: >-
-    Harness estimate: ≈ {estimation} tokens ({caracteres} characters, at {ratio} characters
-    per token).
+    Harness estimate: ≈ {estimation_phrase} ({caracteres_phrase}, at {ratio} characters per
+    token).
   empty_text: "Split a text: its tokens will appear here."
 
 vectorization:
@@ -140,7 +148,10 @@ reading:
   empty_text: "Generate an answer: the prompt rendered by the model's template will appear here."
   rendered_label_text: "Prompt rendered by the template (exact text sent to the model)"
   body_label_text: "JSON body sent to the provider (the template is applied on its side)"
-  tokens_text: "{tokens} tokens to read, output reserve of {reserve} tokens"
+  token_noun:
+    one: "{n} token"
+    other: "{n} tokens"
+  tokens_text: "{tokens_phrase} to read, output reserve of {reserve_phrase}"
   waiting_text: "Reading the prompt… {duree}"
   first_token_text: "First token after {duree}"
   read_rate_text: "Reading rate: {debit} tokens/s"
@@ -152,8 +163,12 @@ generation:
   stop_text: "Stop"
   running_text: "Generating…"
   empty_text: "The tokens produced will appear here, one by one."
-  count_text: "{tokens} tokens produced"
-  fragments_text: "{tokens} fragments received"
+  count_text:
+    one: "{tokens} token produced"
+    other: "{tokens} tokens produced"
+  fragments_text:
+    one: "{tokens} fragment received"
+    other: "{tokens} fragments received"
   rate_text: "Output rate: {debit} tokens/s"
   cloud_text: >-
     Cloud model: these are fragments received from the provider, not tokens one by one. The
@@ -185,9 +200,15 @@ reasoning:
   thinking_text: "Thinking"
   answer_text: "Answer"
   empty_text: "Nothing yet."
-  count_text: "{tokens} tokens"
-  fragments_count_text: "{tokens} fragments"
-  reserve_text: "Output reserve: {reserve} tokens when the model reasons."
+  count_text:
+    one: "{tokens} token"
+    other: "{tokens} tokens"
+  fragments_count_text:
+    one: "{tokens} fragment"
+    other: "{tokens} fragments"
+  reserve_text:
+    one: "Output reserve: {reserve} token when the model reasons."
+    other: "Output reserve: {reserve} tokens when the model reasons."
 
 candidates:
   toggle_text: "Show the candidate tokens"
@@ -245,8 +266,12 @@ window:
   prompt_text: "Prompt: {tokens}"
   free_text: "Free"
   reserve_text: "Output reserve: {reserve}"
-  output_text: "Answer: {tokens} tokens"
-  output_fragments_text: "Answer: {tokens} fragments received"
+  output_text:
+    one: "Answer: {tokens} token"
+    other: "Answer: {tokens} tokens"
+  output_fragments_text:
+    one: "Answer: {tokens} fragment received"
+    other: "Answer: {tokens} fragments received"
   caption_text: >-
     The window holds {fenetre} tokens: {utilisables} for the prompt, {reserve} kept for the
     answer. At each step, the model reads the whole window filled so far again (the cache

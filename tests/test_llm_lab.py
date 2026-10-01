@@ -1217,6 +1217,30 @@ def test_every_section_asks_its_questions(lang):
         assert all(q.strip() for q in section.questions_text), name
 
 
+@pytest.mark.parametrize("lang", ["fr", "en", "de"])
+def test_token_counts_agree_in_singular_and_plural(lang):
+    """Correctif nuit du 2026-10-01 (restes différés) : « 1 tokens produits » n'accordait pas
+    le singulier (section 5), de même « Réponse : 1 tokens » (schéma de la fenêtre) et
+    `reasoning.count_text`. Every count-bearing text of `llm_lab.yaml` is now a `{one, other}`
+    pair (`llm_lab.PluralText`), present and distinct in the three languages."""
+    content = llm_lab.load_lab_content(lang)
+    plural_fields = {
+        "tokenization": ("token_noun", "character_noun", "more_text"),
+        "reading": ("token_noun",),
+        "generation": ("count_text", "fragments_text"),
+        "reasoning": ("count_text", "fragments_count_text", "reserve_text"),
+        "window": ("output_text", "output_fragments_text"),
+    }
+    for section_name, fields in plural_fields.items():
+        section = getattr(content, section_name)
+        for field in fields:
+            forms = getattr(section, field)
+            assert forms.one and forms.other, (section_name, field)
+            # German « Zeichen » (character) is invariant; every other noun agrees.
+            if (section_name, field) != ("tokenization", "character_noun") or lang != "de":
+                assert forms.one != forms.other, (section_name, field)
+
+
 def test_generation_started_carries_the_window_shares():
     session = booted_session(FakeEngine(output="ok"))
     events = _generate(session)
