@@ -386,6 +386,9 @@ class LlamaServerEngine:
     def restore(self, snapshot: EngineSnapshot) -> bool:
         return False
 
+    def prefill(self, ids: Sequence[int], cancel: CancelToken) -> int | None:
+        return None  # E122: the server's cache is out of reach
+
     @property
     def last_evaluated(self) -> int | None:
         """The prompt tokens the server says it evaluated in the last call, if it said."""
@@ -536,6 +539,9 @@ class OllamaRawEngine:
 
     def restore(self, snapshot: EngineSnapshot) -> bool:
         return False
+
+    def prefill(self, ids: Sequence[int], cancel: CancelToken) -> int | None:
+        return None  # E122: the server's cache is out of reach
 
     @property
     def last_evaluated(self) -> int | None:

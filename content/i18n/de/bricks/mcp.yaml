@@ -16,9 +16,11 @@ explanation_text:
     - >-
       Mit Lazy Loading: Das Modell sieht nur eine Zeile pro Tool im Meta-Tool
       load_tool_doc, und der Harness lädt eine Dokumentation erst, wenn das Modell sie
-      anfordert. Eine geladene Dokumentation beantwortet den Aufruf während der Runde, kommt
-      ab der nächsten Runde in die Liste der Tools (der Verlauf behält davon nur einen
-      kurzen Platzhalter) und bleibt bis „Unterhaltung leeren“ geladen.
+      anfordert. Eine geladene Dokumentation beantwortet den Aufruf während der Runde. Bei
+      einem lokalen Modell bleibt sie danach im Verlauf, wie jedes Tool-Ergebnis, damit die
+      Engine ihren Cache wiederverwendet; bei einem Cloud-Modell kommt sie ab dem nächsten
+      Aufruf in die Liste der Tools (der Verlauf behält davon nur einen kurzen Platzhalter).
+      Sie bleibt bis „Unterhaltung leeren“ geladen.
   - >-
     Das Ankreuzen von „Lazy Loading“ zeigt sofort in der Füllstandsanzeige den
     Token-Unterschied zwischen beiden Modi. Ein öffentlicher Server erhält die Daten jedes

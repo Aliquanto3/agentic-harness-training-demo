@@ -640,6 +640,30 @@ class PrefixNotReusedPayload(BaseModel):
     cause: PrefixCause = "in_turn"
 
 
+# ---------- story 4 of the deferred leftovers (E122): the first turn's context prefilled ----------
+
+
+class ContextPrefillStartedPayload(BaseModel):
+    """The engine starts reading, at a scenario's launch, the part of the first turn's
+    context that does not depend on the message (`tokens` ids), while the instructions
+    are read. Journal only, never the turn's rail."""
+
+    tokens: int
+    phase_label: str  # AD-2: every `*_started` names its phase
+    message_text: str
+
+
+class ContextPrefillEndedPayload(BaseModel):
+    """`completed`: every id is in cache; `abandoned`: a turn, a load, a setting or another
+    scenario came first (the ids evaluated stay useful); `error`: the engine failed."""
+
+    status: Literal["completed", "abandoned", "error"]
+    tokens: int
+    evaluated_tokens: int
+    duration_ms: int
+    message_text: str
+
+
 # ---------- story 6: MCP servers (AD-12, AD-15) ----------
 
 
@@ -1348,6 +1372,8 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "tool_call_malformed": ToolCallMalformedPayload,
     "limit_reached": LimitReachedPayload,
     "prefix_not_reused": PrefixNotReusedPayload,
+    "context_prefill_started": ContextPrefillStartedPayload,
+    "context_prefill_ended": ContextPrefillEndedPayload,
     "mcp_connect_started": McpConnectStartedPayload,
     "mcp_connect_ended": McpConnectEndedPayload,
     "hook_decided": HookDecidedPayload,

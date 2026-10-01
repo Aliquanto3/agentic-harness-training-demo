@@ -18,7 +18,7 @@ import json
 import re
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -378,6 +378,9 @@ class OpenAIChatEngine:
 
     def restore(self, snapshot: EngineSnapshot) -> bool:
         return False
+
+    def prefill(self, ids: Sequence[int], cancel: CancelToken) -> int | None:
+        return None  # E122: nothing to evaluate ahead at a provider
 
     @property
     def last_evaluated(self) -> int | None:

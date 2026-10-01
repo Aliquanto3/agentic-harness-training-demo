@@ -15,9 +15,10 @@ explanation_text:
     - >-
       With lazy loading: the model only sees one line per tool in the load_tool_doc
       meta-tool, and the harness loads a documentation only when the model asks for it.
-      A loaded documentation answers the call during the turn, then joins the list of
-      tools at the next turn (the history keeps only a short stub of it), and stays
-      loaded until “Clear the conversation”.
+      A loaded documentation answers the call during the turn. With a local model, it
+      then stays in the history, like any tool result, so that the engine reuses its
+      cache; with a cloud model, it joins the list of tools from the next call (the history
+      keeps only a short stub of it). It stays loaded until “Clear the conversation”.
   - >-
     Ticking “Lazy loading” shows at once in the gauge the difference in tokens between
     the two modes. A public server receives the data of each call: it is shown in the

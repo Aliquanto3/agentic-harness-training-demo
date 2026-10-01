@@ -34,6 +34,9 @@ class Sampling:
 # The harness's own values (Qwen non-thinking recommendations): every workshop call, and the
 # « LLM nu » screen until it changes them.
 DEFAULT_SAMPLING = Sampling(temperature=0.7, top_k=20, top_p=0.8, min_p=0.0)
+# E122 (story 4 of the deferred leftovers): `prefill` evaluates by batches of this many ids,
+# and tests its `CancelToken` between two (≈ 4 s each on the target CPU).
+PREFILL_BATCH = 128
 # The screen's bounds, inclusive (its intention validates them).
 SAMPLING_BOUNDS: dict[str, tuple[float, float]] = {
     "temperature": (0.0, 2.0),
@@ -138,6 +141,13 @@ class Engine(Protocol):
         """The prompt tokens the last `complete` really evaluated; `None` when unknown."""
         ...
 
+    def prefill(self, ids: Sequence[int], cancel: CancelToken) -> int | None:
+        """E122: evaluate `ids` into the cache ahead of a call, by batches of `PREFILL_BATCH`,
+        reusing the prefix already there and stopping between two batches once `cancel`
+        asks (what was evaluated stays useful). Returns how many ids this call evaluated;
+        `None` for an engine that cannot (servers, cloud)."""
+        ...
+
     # Story 29 (« LLM nu »): optional too, the session tolerates an engine without it.
 
     def dimensions(self) -> dict[str, Any] | None:
@@ -168,6 +178,16 @@ def _int(value: object) -> int:
         return int(value)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         return 0
+
+
+def common_prefix_len(a: Sequence[int], b: Sequence[int]) -> int:
+    """How many ids `a` and `b` share from their start."""
+    n = 0
+    for x, y in zip(a, b, strict=False):
+        if int(x) != int(y):
+            break
+        n += 1
+    return n
 
 
 class VocabTokenizer:
@@ -306,6 +326,38 @@ class LlamaCppEngine:
         self._llm.n_tokens = n_tokens
         self._llm._requires_eval = True
         return True
+
+    def prefill(self, ids: Sequence[int], cancel: CancelToken) -> int | None:
+        """E122: `Llama.eval` by batches of `PREFILL_BATCH`, after the cache is brought back
+        to its common prefix with `ids` (cut when the memory allows it, as `generate` does;
+        else `reset`, since a hybrid model cannot truncate its state). `eval` leaves
+        `_requires_eval` false, and the next `generate` evaluates only the ids that extend
+        what is in cache."""
+        llm = self._llm
+        wanted = [int(t) for t in ids]
+        common = common_prefix_len(llm.input_ids[: llm.n_tokens], wanted)
+        if common == len(wanted):
+            return 0  # every id asked is in cache already: nothing to cut nor to evaluate
+        if common < llm.n_tokens:  # the cache goes further: cut it, or start over
+            if common > 0 and llm._ctx.kv_cache_seq_rm(-1, common, -1):
+                llm.n_tokens = common
+            else:
+                llm.reset()
+                common = 0
+        evaluated = 0
+        try:
+            for start in range(common, len(wanted), PREFILL_BATCH):
+                if cancel.cancelled:
+                    break
+                batch = wanted[start : start + PREFILL_BATCH]
+                llm.eval(batch)
+                evaluated += len(batch)
+        finally:
+            # llama.cpp books the tokens decoded into its counters at its next
+            # synchronization (a logits read): done here, so that they are not counted as
+            # prompt tokens of the next `complete` (`last_evaluated`, AD-4).
+            self._lib.llama_synchronize(llm.ctx)
+        return evaluated
 
     def metadata(self) -> EngineMetadata:
         return self._tokenizer.metadata()

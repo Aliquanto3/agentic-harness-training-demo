@@ -104,7 +104,7 @@ session:
   prefix:
     causes:
       system: "Die Systemnachricht hat sich seit der vorigen Runde geändert (System-Prompt, globales Gedächtnis, Tool-Beschreibungen, Skill-Katalog oder geladener Skill)."
-      history: "Der Verlauf wird nicht mehr so gerendert, wie das Modell ihn gelesen hat (Kurzzeitgedächtnis ausgeschaltet: Der vorige Wechsel wird nicht erneut gesendet; RAG-Auszüge entfernt, Dokumentation durch ihre Kurzfassung ersetzt, Text komprimiert oder Antwort umgeschrieben)."
+      history: "Der Verlauf wird nicht mehr so gerendert, wie das Modell ihn gelesen hat (Kurzzeitgedächtnis ausgeschaltet: Der vorige Wechsel wird nicht erneut gesendet; RAG-Auszüge entfernt, Text komprimiert oder Antwort umgeschrieben)."
       template: "Ein aktivierter oder deaktivierter Baustein, oder die Vorlage, rendert einen bereits gelesenen Teil des Kontexts anders."
       reset: "Die Unterhaltung wurde geleert, oder ein Szenario bzw. das Zurücksetzen hat sie ersetzt: Der Cache der Engine enthält noch die alte."
       replay: "Wiederholung: Die Runde startet wieder vom Zustand vor der wiederholten Runde, während der Cache der Engine diese Runde enthält."
@@ -280,6 +280,14 @@ session:
     error:
       message: Die Kontextvorschau konnte nicht berechnet werden.
       effect: Die Füllstandsanzeige bleibt bis zur ersten Runde leer.
+  # Story 4 of the deferred leftovers (E122): the first turn's context evaluated at the
+  # scenario's launch, while the instructions are read (journal only).
+  prefill:
+    phase: "Cache-Vorbefüllung ({tokens} Tokens)"
+    started: "Cache-Vorbefüllung: Die Engine liest die {tokens} Tokens des Kontexts der ersten Runde (Systemnachricht, Tools, Gedächtnis), während die Anleitung gelesen wird."
+    completed: "Vorbefüllung abgeschlossen: {evaluated} Tokens in {seconds} s ausgewertet. Die erste Nachricht lässt nur noch lesen, was auf sie folgt."
+    abandoned: "Vorbefüllung nach {evaluated} von {tokens} Tokens abgebrochen (eine Runde, ein Ladevorgang, eine Werkstatt, eine Einstellung oder ein anderes Szenario kam zuvor): Der ausgewertete Teil bleibt wiederverwendbar."
+    error: "Vorbefüllung nach {evaluated} von {tokens} Tokens durch einen Fehler unterbrochen: {cause}. Die erste Runde liest den Kontext wie gewohnt."
   # Story 9 (AD-3): an action armed for the next turn, or why it is not.
   arm:
     unknown_tool: "Unbekanntes Tool: „{target}“ ist weder ein Tool des Bausteins Tools noch das Tool eines MCP-Servers. Nichts wird scharf geschaltet."

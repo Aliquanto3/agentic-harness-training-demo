@@ -673,6 +673,8 @@ main:
       tool_call_malformed: "Malformed tool call"
       limit_reached: "Turn bound reached"
       prefix_not_reused: "Prefix not reused"
+      context_prefill_started: "Cache prefill started"
+      context_prefill_ended: "Cache prefill ended"
       server_cache_used: "Local server cache"
       mcp_connect_started: "MCP connection started"
       mcp_connect_ended: "MCP connection ended"

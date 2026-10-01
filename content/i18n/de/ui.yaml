@@ -673,6 +673,8 @@ main:
       tool_call_malformed: "Fehlerhafter Tool-Aufruf"
       limit_reached: "Grenze der Runde erreicht"
       prefix_not_reused: "Präfix nicht wiederverwendet"
+      context_prefill_started: "Cache-Vorbefüllung begonnen"
+      context_prefill_ended: "Cache-Vorbefüllung beendet"
       server_cache_used: "Cache des lokalen Servers"
       mcp_connect_started: "MCP-Verbindung begonnen"
       mcp_connect_ended: "MCP-Verbindung beendet"
