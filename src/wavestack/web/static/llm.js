@@ -19,7 +19,7 @@ const store = {
   tokenizer: null,
   serverInstance: null,
   lastSeq: 0,
-  pending: { tokenize: null, generate: null },
+  pending: { tokenize: null, generate: null, compare: null }, // compare: `llm{n}.b`, story 5
   sampling: null, // `lab_state().sampling`: defaults, bounds, what can be set
   values: null, // the sliders' values, sent with « Générer »
   gen: { callTs: null, timer: null, first: false, cloud: false },
@@ -30,6 +30,12 @@ const store = {
   load: { timer: null },
   // The requests already answered by an event: the answer may come before the POST's own.
   answered: new Set(),
+  // Story 5 (2026-09-30): the live distribution of section 2. `index`: the token chosen in
+  // the last generation; `tokens`: how many the session keeps (`lab_state().distribution`,
+  // then the `llm_token` events); `ticket`: the last request sent (the last answer wins).
+  dist: { index: 0, tokens: 0, ticket: 0, timer: null },
+  valuesB: null, // the comparison's settings B, as `values`
+  win: { reserve: 0, reserveText: "" }, // the window diagram's output reserve (section 4)
 };
 
 // ---------- small helpers ----------
@@ -133,8 +139,9 @@ function renderBusy() {
   const busy = $("llm-busy");
   busy.hidden = !reason;
   busy.textContent = reason || "";
-  const pending = store.pending.tokenize !== null || store.pending.generate !== null;
-  for (const id of ["tokenize-button", "generate-button"]) {
+  const pending =
+    store.pending.tokenize !== null || store.pending.generate !== null || store.pending.compare !== null;
+  for (const id of ["tokenize-button", "generate-button", "compare-button"]) {
     const button = $(id);
     button.disabled = Boolean(reason) || pending;
     button.title = reason || "";
@@ -160,6 +167,18 @@ function renderContent() {
   if (active) $("llm-model-label").textContent = active;
   const prompt = $("llm-prompt");
   prompt.placeholder = text("tokenization.placeholder_text");
+  renderQuestions();
+}
+
+// Story 5 (2026-09-30): « Les questions que vous vous posez », one list per section
+// (`sections.{id}.questions_text`); a section without any hides its box.
+function renderQuestions() {
+  for (const list of document.querySelectorAll("[data-questions]")) {
+    const items = store.content?.sections?.[list.dataset.questions]?.questions_text || [];
+    list.replaceChildren(...items.map((question) => el("li", "", question)));
+    const box = list.closest(".llm-questions");
+    if (box) box.hidden = !items.length;
+  }
 }
 
 function renderTokenizerInfo() {
@@ -361,6 +380,61 @@ function clampSetting(name, value) {
   return name === "top_k" ? Math.round(clamped) : clamped;
 }
 
+// One setting's card: its label, number field and slider kept in step with `values[name]`,
+// `changed()` called at each move (`prefix`: the fields' ids, `sampling` for section 2,
+// `compare` for the comparison's settings B; `help`: the setting's explanation under it).
+function samplingRow(name, values, prefix, changed, help) {
+  const sampling = store.sampling;
+  const reason = sampling.supported[name];
+  const row = el("div", "sampling-row");
+  row.dataset.setting = name;
+  const head = el("div", "sampling-row-head");
+  const label = el("label", "", text(`sampling.settings.${name}.label_text`) || name);
+  const number = el("input");
+  number.type = "number";
+  number.id = `${prefix}-${name}`;
+  label.htmlFor = number.id;
+  const range = el("input");
+  range.type = "range";
+  range.setAttribute("aria-label", t("llm.slider", { label: label.textContent }));
+  const [low, high] = sampling.bounds[name];
+  for (const input of [number, range]) {
+    input.min = String(low);
+    input.max = String(high);
+    input.step = String(SAMPLING_STEP[name]);
+    input.value = String(values[name]);
+    input.disabled = Boolean(reason);
+  }
+  const sync = (source, other) => {
+    source.addEventListener("input", () => {
+      if (source === number && source.value === "") return;
+      values[name] = clampSetting(name, source.value);
+      other.value = String(values[name]);
+      changed();
+    });
+    source.addEventListener("change", () => {
+      // An emptied field takes back the value it had, not 0.
+      if (source.value.trim() !== "") values[name] = clampSetting(name, source.value);
+      source.value = other.value = String(values[name]);
+      changed();
+    });
+  };
+  sync(number, range);
+  sync(range, number);
+  head.append(label, number);
+  row.append(head, range);
+  if (help) row.append(el("span", "sampling-row-help", text(`sampling.settings.${name}.help_text`)));
+  if (reason) {
+    row.classList.add("is-unsupported");
+    const why = el("span", "sampling-row-reason", reason);
+    why.id = `${prefix}-${name}-reason`;
+    number.setAttribute("aria-describedby", why.id);
+    range.setAttribute("aria-describedby", why.id);
+    row.append(why);
+  }
+  return row;
+}
+
 function renderSampling() {
   const box = $("sampling-controls");
   const sampling = store.sampling;
@@ -374,73 +448,35 @@ function renderSampling() {
   }
   box.replaceChildren();
   for (const name of SAMPLING_ORDER) {
-    const reason = sampling.supported[name];
-    const row = el("div", "sampling-row");
-    row.dataset.setting = name;
-    const head = el("div", "sampling-row-head");
-    const label = el("label", "", text(`sampling.settings.${name}.label_text`) || name);
-    const number = el("input");
-    number.type = "number";
-    number.id = `sampling-${name}`;
-    label.htmlFor = number.id;
-    const range = el("input");
-    range.type = "range";
-    range.setAttribute("aria-label", t("llm.slider", { label: label.textContent }));
-    const [low, high] = sampling.bounds[name];
-    for (const input of [number, range]) {
-      input.min = String(low);
-      input.max = String(high);
-      input.step = String(SAMPLING_STEP[name]);
-      input.value = String(store.values[name]);
-      input.disabled = Boolean(reason);
-    }
-    const sync = (source, other) => {
-      source.addEventListener("input", () => {
-        if (source === number && source.value === "") return;
-        store.values[name] = clampSetting(name, source.value);
-        other.value = String(store.values[name]);
-        saveSampling();
-      });
-      source.addEventListener("change", () => {
-        // An emptied field takes back the value it had, not 0.
-        if (source.value.trim() !== "") store.values[name] = clampSetting(name, source.value);
-        source.value = other.value = String(store.values[name]);
-        saveSampling();
-      });
+    // Story 5 (2026-09-30): each move asks the session for the distribution again.
+    const changed = () => {
+      saveSampling();
+      scheduleDistribution();
     };
-    sync(number, range);
-    sync(range, number);
-    head.append(label, number);
-    row.append(head, range, el("span", "sampling-row-help", text(`sampling.settings.${name}.help_text`)));
-    if (reason) {
-      row.classList.add("is-unsupported");
-      const why = el("span", "sampling-row-reason", reason);
-      why.id = `sampling-${name}-reason`;
-      number.setAttribute("aria-describedby", why.id);
-      range.setAttribute("aria-describedby", why.id);
-      row.append(why);
-    }
-    box.append(row);
+    box.append(samplingRow(name, store.values, "sampling", changed, true));
   }
   $("sampling-source").textContent = sampling.source_text || "";
   $("sampling-defaults").textContent = sampling.defaults_text || "";
+  renderCompareSettings();
 }
 
 function resetSampling() {
   store.values = { ...store.sampling.defaults };
   saveSampling();
   renderSampling();
+  scheduleDistribution();
 }
 
 // What « Générer » sends: the settings the model takes; the others keep the harness's value.
-function samplingToSend() {
-  const values = {};
+// Story 5 (2026-09-30): `values` the comparison's settings B, or section 2's by default.
+function samplingToSend(values = store.values) {
+  const sent = {};
   for (const name of SAMPLING_ORDER) {
-    values[name] = store.sampling.supported[name]
+    sent[name] = store.sampling.supported[name]
       ? store.sampling.defaults[name]
-      : clampSetting(name, store.values[name]);
+      : clampSetting(name, values[name]);
   }
-  return values;
+  return sent;
 }
 
 // « T 0,2 · top-k 5 · top-p 0,9 · min-p 0,05 » from a `sampling` trace; `—` for what is not sent.
@@ -453,6 +489,281 @@ function samplingFr(trace) {
     part("min-p", trace.min_p),
   ].join(" · ");
   return trace.note_text ? `${line} (${trace.note_text})` : line;
+}
+
+// ---------- story 5 (2026-09-30): the live distribution of section 2 ----------
+//
+// The session keeps, for the last generation with the candidates, the most probable tokens of
+// each token; at each move of a slider the page asks it (`POST /api/llm_lab/distribution`)
+// which ones stay in the draw and their chance, for the settings shown (AD-1: the session
+// computes, the page draws bars from the values received).
+
+const DIST_ROWS = 10; // the bars shown; the others read are counted under them
+const DIST_DEBOUNCE_MS = 80;
+
+// Nothing to show: the reason the candidates are unavailable (a server, a cloud model), the
+// session's answer (`detail`), or what to do.
+function renderDistributionIdle(detail) {
+  $("distribution-body").hidden = true;
+  const offer = store.candidates;
+  const why = offer && !offer.available ? offer.reason_text : detail || text("distribution.empty_text");
+  $("distribution-empty").textContent = why || "";
+}
+
+function scheduleDistribution(delay = DIST_DEBOUNCE_MS) {
+  if (store.dist.timer) clearTimeout(store.dist.timer);
+  store.dist.timer = setTimeout(fetchDistribution, delay);
+}
+
+async function fetchDistribution() {
+  store.dist.timer = null;
+  // Asked only when the session keeps something: a 404 would be an error in the console.
+  if (!store.candidates?.available || !store.dist.tokens || !store.sampling || !store.values) {
+    renderDistributionIdle();
+    return;
+  }
+  store.dist.ticket += 1;
+  const ticket = store.dist.ticket;
+  const answer = await post("/api/llm_lab/distribution", {
+    index: store.dist.index,
+    sampling: samplingToSend(),
+  });
+  if (ticket !== store.dist.ticket) return; // a later request was sent: its answer wins
+  if (!answer.ok) {
+    renderDistributionIdle(refusalText(answer));
+    return;
+  }
+  renderDistribution(answer.body);
+}
+
+// A bar of one value in [0, 1] and its value in %, as the candidates' popover draws them.
+function distributionBar(kind, value, label) {
+  const cell = el("span", `dist-cell ${kind}`);
+  const bar = el("span", "dist-bar");
+  bar.setAttribute("aria-hidden", "true");
+  const fill = el("span");
+  fill.style.width = `${Math.max(0, Math.min(1, value)) * 100}%`;
+  bar.append(fill);
+  cell.append(bar, el("span", "dist-value", label));
+  return cell;
+}
+
+function renderDistribution(body) {
+  const rows = body.candidates || [];
+  if (!rows.length) {
+    renderDistributionIdle();
+    return;
+  }
+  $("distribution-empty").textContent = "";
+  $("distribution-body").hidden = false;
+  $("distribution-token").textContent = text("distribution.token_text", {
+    index: decimals().format(body.index + 1),
+    texte: quote(visibleBlanks(body.token_text)),
+  });
+  const list = $("distribution-bars");
+  list.replaceChildren();
+  for (const c of rows.slice(0, DIST_ROWS)) {
+    const row = el("li", "dist-row");
+    if (!c.kept) row.classList.add("is-dropped");
+    row.append(el("span", "dist-text", quote(visibleBlanks(c.text))));
+    row.append(distributionBar("is-model", c.p, percent().format(c.p)));
+    row.append(
+      distributionBar(
+        "is-chance",
+        c.p_sampled,
+        c.kept ? percent().format(c.p_sampled) : text("distribution.dropped_text")
+      )
+    );
+    list.append(row);
+  }
+  // The rest of the vocabulary: its mass at temperature 1, never drawn here (approximate).
+  const tail = el("li", "dist-row is-tail");
+  tail.append(el("span", "dist-text", text("distribution.tail_text")));
+  tail.append(distributionBar("is-model", body.tail, percent().format(body.tail)));
+  tail.append(el("span", "dist-cell is-chance"));
+  list.append(tail);
+  const more = rows.length > DIST_ROWS ? text("distribution.more_text", { reste: decimals().format(rows.length - DIST_ROWS) }) : "";
+  $("distribution-kept").textContent = [
+    text("distribution.kept_text", {
+      gardes: decimals().format(body.kept_count),
+      lus: decimals().format(rows.length),
+    }),
+    more,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  $("distribution-tail").textContent = text("distribution.tail_help_text", { reste: percent().format(body.tail) });
+  markDistributionChip();
+}
+
+// The chip of section 5 whose candidates section 2 shows.
+function markDistributionChip() {
+  for (const chip of document.querySelectorAll("#generation-tokens .token-chip.is-dist-chosen")) {
+    chip.classList.remove("is-dist-chosen");
+  }
+  const chip = document.querySelector(`#generation-tokens .token-chip[data-index="${store.dist.index}"]`);
+  if (chip?.classList.contains("has-candidates")) chip.classList.add("is-dist-chosen");
+}
+
+function chooseDistributionToken(index) {
+  store.dist.index = index;
+  markDistributionChip();
+  scheduleDistribution(0);
+}
+
+// ---------- story 5 (2026-09-30): the comparison A/B of section 5 ----------
+
+const SAMPLING_B_KEY = "wavestack.llm.sampling_b";
+const B_TEMPERATURE = 1.2; // settings B's first value: the harness's, hotter
+
+function saveSamplingB() {
+  try {
+    localStorage.setItem(SAMPLING_B_KEY, JSON.stringify(store.valuesB));
+  } catch {
+    // no storage: the settings live with the page
+  }
+}
+
+function renderCompareSettings() {
+  const box = $("compare-settings");
+  const sampling = store.sampling;
+  if (!sampling) return;
+  if (!store.valuesB) {
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(SAMPLING_B_KEY) || "null");
+    } catch {
+      saved = null;
+    }
+    const first = { ...sampling.defaults, temperature: B_TEMPERATURE };
+    store.valuesB = {};
+    for (const name of SAMPLING_ORDER) {
+      store.valuesB[name] = clampSetting(name, (saved && saved[name]) ?? first[name]);
+    }
+  }
+  for (const row of box.querySelectorAll(".sampling-row")) row.remove();
+  for (const name of SAMPLING_ORDER) {
+    box.append(samplingRow(name, store.valuesB, "compare", saveSamplingB, false));
+  }
+}
+
+// `llm{n}.a` → "a", `llm{n}.b` → "b", anything else (« Générer ») → null.
+function compareLane(requestId) {
+  const match = /\.(a|b)$/.exec(requestId || "");
+  return match ? match[1] : null;
+}
+
+function laneBox(lane) {
+  const box = $(`compare-${lane}`);
+  return {
+    sampling: box.querySelector(".compare-lane-sampling"),
+    thinking: box.querySelector(".compare-lane-thinking"),
+    text: box.querySelector(".compare-lane-text"),
+    status: box.querySelector(".compare-lane-status"),
+  };
+}
+
+function clearCompareLane(lane, sampling, status) {
+  const box = laneBox(lane);
+  box.sampling.textContent = sampling ? samplingFr(sampling) : "";
+  box.thinking.textContent = "";
+  box.text.textContent = "";
+  box.status.textContent = status;
+  box.status.classList.remove("is-error");
+}
+
+function compareEvent(lane, kind, p) {
+  const box = laneBox(lane);
+  if (kind === "llm_generation_started") {
+    $("compare-lanes").hidden = false;
+    clearCompareLane(lane, p.sampling, text("generation.running_text"));
+    if (lane === "a") clearCompareLane("b", null, text("compare.waiting_text"));
+  } else if (kind === "llm_token") {
+    for (const part of p.parts || []) {
+      (part.channel === "reasoning" ? box.thinking : box.text).textContent += part.text;
+    }
+  } else if (kind === "llm_generation_ended") {
+    box.status.classList.toggle("is-error", p.status === "error");
+    box.status.textContent = [text(`generation.status.${p.status}`), p.message_text].filter(Boolean).join(" ");
+    if (!box.text.textContent && !box.thinking.textContent) box.text.textContent = text("compare.empty_text");
+  }
+}
+
+async function compareRun() {
+  const status = $("compare-status");
+  if (!$("llm-prompt").value.trim()) {
+    status.classList.add("is-error");
+    status.textContent = t("llm.empty_prompt");
+    return;
+  }
+  status.classList.remove("is-error");
+  status.textContent = text("compare.running_text");
+  store.pending.compare = "…";
+  renderBusy();
+  const answer = await post("/api/intentions/llm_compare", {
+    prompt: $("llm-prompt").value,
+    sampling_a: samplingToSend(),
+    sampling_b: samplingToSend(store.valuesB),
+    reasoning: store.reasoning?.mode === "toggle" && $("reasoning-toggle").checked,
+    candidates: Boolean(store.candidates?.available) && $("candidates-toggle").checked,
+  });
+  if (!answer.ok) {
+    status.classList.add("is-error");
+    status.textContent = refusalText(answer);
+    store.pending.compare = null;
+    renderBusy();
+    return;
+  }
+  const last = `${answer.body.request_id}.b`;
+  store.pending.compare = store.answered.has(last) ? null : last;
+  if (!store.pending.compare) status.textContent = "";
+  renderBusy();
+}
+
+// ---------- story 5 (2026-09-30): the window diagram of section 4 ----------
+//
+// From `llm_generation_started` (`usable`, `reserve`, `prompt_tokens` and their figures): the
+// window drawn as its two shares, the prompt filling the first, each token produced the
+// second. CSS lays the widths out from the values received; the page counts nothing.
+
+function renderWindow(p) {
+  const figure = $("window-diagram");
+  if (p.usable === null || p.usable === undefined) {
+    figure.hidden = true;
+    return;
+  }
+  figure.hidden = false;
+  const figures = p.figures_text || {};
+  const [usable, reserve] = figure.querySelectorAll(".window-part");
+  const [usableLabel, reserveLabel] = [$("window-usable-label"), $("window-reserve-label")];
+  for (const [part, label, grow] of [
+    [usable, usableLabel, p.usable],
+    [reserve, reserveLabel, p.reserve],
+  ]) {
+    part.style.flexGrow = String(Math.max(grow, 1));
+    label.style.flexGrow = String(Math.max(grow, 1));
+  }
+  usable.title = text("window.free_text");
+  figure.querySelector(".window-fill.is-prompt").style.width = `min(100%, calc(100% * ${p.prompt_tokens} / ${Math.max(p.usable, 1)}))`;
+  figure.querySelector(".window-fill.is-output").style.width = "0";
+  store.win.reserve = Math.max(p.reserve, 1);
+  store.win.reserveText = text("window.reserve_text", { reserve: figures.reserve });
+  usableLabel.textContent = text("window.prompt_text", { tokens: figures.prompt_tokens });
+  reserveLabel.textContent = store.win.reserveText;
+  $("window-caption").textContent = text("window.caption_text", {
+    fenetre: figures.window,
+    utilisables: figures.usable,
+    reserve: figures.reserve,
+  });
+}
+
+function windowToken(p) {
+  const fill = document.querySelector("#window-diagram .window-fill.is-output");
+  if (!fill || $("window-diagram").hidden) return;
+  fill.style.width = `min(100%, calc(100% * ${p.index + 1} / ${store.win.reserve}))`;
+  $("window-reserve-label").textContent = `${store.win.reserveText} · ${text("window.output_text", {
+    tokens: decimals().format(p.index + 1),
+  })}`;
 }
 
 // ---------- sections 4 and 5: the prompt's reading, the generation token by token ----------
@@ -509,10 +820,23 @@ function renderGenerationStarted(p) {
   const status = $("generate-status");
   status.classList.remove("is-error");
   status.textContent = text("generation.running_text");
+  // Story 5 (2026-09-30): the window's diagram; a new generation erases the session's
+  // memory of the last one: the distribution waits for its first token.
+  renderWindow(p);
+  store.dist.index = 0;
+  store.dist.tokens = 0;
+  renderDistributionIdle();
 }
 
 function renderToken(p) {
   store.gen.first = true;
+  windowToken(p);
+  if (p.candidates?.length && store.candidates?.available) {
+    // Story 5 (2026-09-30): kept by the session before the event; the chosen token's
+    // distribution is asked as soon as it exists.
+    store.dist.tokens = p.index + 1;
+    if (p.index === store.dist.index) scheduleDistribution(0);
+  }
   $("generation-count").textContent = text(store.gen.fragments ? "generation.fragments_text" : "generation.count_text", {
     tokens: decimals().format(p.index + 1),
   });
@@ -525,6 +849,7 @@ function renderToken(p) {
   const chip = el("li", "token-chip");
   chip.dataset.parity = p.index % 2 ? "odd" : "even";
   chip.dataset.channel = p.channel;
+  chip.dataset.index = String(p.index);
   if (store.gen.fragments) chip.classList.add("is-fragment");
   chip.setAttribute(
     "aria-label",
@@ -736,6 +1061,8 @@ function bindCandidates(chip, p) {
     store.pinned = store.pinned === chip ? null : chip;
     if (store.pinned) show();
     else hideCandidates();
+    // Story 5 (2026-09-30): the token clicked is the one section 2 redraws.
+    chooseDistributionToken(p.index);
   };
   chip.addEventListener("click", toggle);
   chip.addEventListener("keydown", (event) => {
@@ -816,6 +1143,24 @@ function applyEnvelope(envelope) {
     return;
   }
   if (envelope.context_id !== "llm") return;
+  // Story 5 (2026-09-30): a comparison's events, routed by `request_id` (`llm{n}.a`,
+  // `llm{n}.b`; `step_id` for the model call's own). B fills its column only; A fills its
+  // column and the sections as « Générer » does (its tokens are the live distribution's).
+  const lane = compareLane(p.request_id || envelope.step_id);
+  if (lane) {
+    compareEvent(lane, envelope.kind, p);
+    if (lane === "b") {
+      if (envelope.kind === "llm_generation_ended") {
+        store.answered.add(p.request_id);
+        if (store.pending.compare === p.request_id) {
+          store.pending.compare = null;
+          $("compare-status").textContent = "";
+        }
+        renderBusy();
+      }
+      return;
+    }
+  }
   switch (envelope.kind) {
     case "llm_tokenized":
       store.answered.add(p.request_id);
@@ -936,6 +1281,9 @@ async function refresh() {
   store.reasoning = body.reasoning;
   store.candidates = body.candidates;
   store.lastLoad = body.last_load;
+  // Story 5 (2026-09-30): what the session keeps of the last generation (0 after a switch).
+  store.dist.tokens = body.distribution?.tokens || 0;
+  if (store.dist.index >= store.dist.tokens) store.dist.index = 0;
   const alert = $("llm-content-error");
   alert.hidden = !body.content_error_text;
   alert.textContent = body.content_error_text || "";
@@ -947,6 +1295,7 @@ async function refresh() {
   renderCandidatesOffer();
   if (!store.load.timer) renderLastLoad();
   renderBusy();
+  scheduleDistribution(0);
   return body;
 }
 
@@ -966,6 +1315,7 @@ async function main() {
   $("generate-button").addEventListener("click", generate);
   $("stop-button").addEventListener("click", stopGeneration);
   $("sampling-reset").addEventListener("click", resetSampling);
+  $("compare-button").addEventListener("click", compareRun);
   document.addEventListener("keydown", (event) => {
     // Story 2 (2026-09-30): an Escape that closed « Affichage ▾ » (site-nav.js) stops there.
     if (event.key === "Escape" && !event.defaultPrevented) {

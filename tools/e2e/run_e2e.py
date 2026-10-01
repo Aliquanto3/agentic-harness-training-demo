@@ -7434,6 +7434,7 @@ def _llm_screen(r: Run) -> None:
         "cloud A : fragments reçus du fournisseur, dits comme tels",
     )
     _candidates_unavailable(r, "Faux fournisseur (e2e)", "cloud A")
+    _distribution_unavailable(r, "Faux fournisseur (e2e)", "cloud A")
 
     # (4) The fake llama-server, chosen in the workshop's picker.
     r.goto_app()
@@ -7538,11 +7539,14 @@ def _llm_screen(r: Run) -> None:
         and r.state()["session_state"]["state"] == "idle",
         "prompt rendu par le gabarit, session revenue en idle",
     )
+    _lab_questions_and_window(r)
     light = _contrast_sweep(r, ["main"])
     r.check(not dark and not light, "/llm : contrastes AA dans les deux thèmes", str(dark + light))
     r.shot("53-llm-nu-generation", full_page=True)
 
     _candidates_unavailable(r, "llama-server", "llama-server")
+    _distribution_unavailable(r, "llama-server", "llama-server")
+    _lab_compare(r)
 
     # Increment 3: the reasoning, on the fake llama-server (Qwen3.5's template).
     toggle = page.locator("#reasoning-toggle")
@@ -7604,6 +7608,97 @@ def _candidates_unavailable(r: Run, name: str, where: str) -> None:
         f"{where} : « Montrer les tokens candidats » grisé avec sa raison, appel direct 409",
         f"{reason} · {refused.status_code}",
     )
+
+
+def _distribution_unavailable(r: Run, name: str, where: str) -> None:
+    """Story 5 (2026-09-30): no model in process, no live distribution in section 2: the
+    candidates' reason (naming `name`) instead of the bars; a direct read answers 404."""
+    page = r.page
+    expect(page.locator("#distribution-empty")).to_contain_text(name, timeout=5000)
+    read = r.api("POST", "/api/llm_lab/distribution", {"index": 0, "sampling": _LAB_SAMPLING})
+    r.check(
+        page.locator("#distribution-body").is_hidden() and read.status_code == 404,
+        f"{where} : distribution vivante indisponible, sa raison en section 2, lecture 404",
+        f"{page.inner_text('#distribution-empty')} · {read.status_code}",
+    )
+
+
+def _lab_questions_and_window(r: Run) -> None:
+    """Story 5 (2026-09-30): each section lists its questions; after a generation, section 4
+    draws the window from `llm_generation_started` (its figures, as received)."""
+    page = r.page
+    counts = page.locator(".llm-questions-list").evaluate_all(
+        "ls => ls.map(l => l.querySelectorAll('li').length)"
+    )
+    r.check(
+        len(counts) == 6 and all(counts),
+        "chaque section liste « Les questions que vous vous posez »",
+        str(counts),
+    )
+    started = r.ev.since(0, "llm_generation_started")[-1]["payload"]
+    usable = page.inner_text("#window-usable-label")
+    caption = _plain(page.inner_text("#window-caption"))
+    r.check(
+        page.locator("#window-diagram").is_visible()
+        and usable.startswith("Prompt")
+        and _plain(started["figures_text"]["window"]) in caption
+        and _plain(started["figures_text"]["reserve"]) in caption,
+        "section 4 : schéma de la fenêtre (prompt, réserve) tiré de llm_generation_started",
+        f"{usable} · {caption[:160]}",
+    )
+
+
+def _lab_compare(r: Run) -> None:
+    """Story 5 (2026-09-30), on the fake llama-server: « Comparer » with two temperatures,
+    `llm{n}.a` then `llm{n}.b`, one after the other; the workshop refused meanwhile; both
+    columns filled, side by side."""
+    page = r.page
+    page.fill("#llm-prompt", "Explique " + "très longuement " * 14)
+    field = page.locator("#compare-temperature")
+    field.fill("1.2")
+    field.dispatch_event("change")
+    expect(page.locator("#compare-button")).to_be_enabled(timeout=10_000)
+    seq = r.ev.mark()
+    page.click("#compare-button")
+    first = r.ev.wait("llm_generation_started", seq, lambda p: p["request_id"].endswith(".a"), 20)
+    refused = r.api("POST", "/api/intentions/send", {"message": "Pendant la comparaison"})
+    expect(page.locator("#generate-button")).to_be_disabled(timeout=5000)
+    last = r.ev.wait("llm_generation_ended", seq, lambda p: p["request_id"].endswith(".b"), 60)
+    expect(page.locator("#compare-button")).to_be_enabled(timeout=10_000)
+    rid = first["payload"]["request_id"][: -len(".a")]
+    started = [e for e in r.ev.since(seq, "llm_generation_started") if e["context_id"] == "llm"]
+    ended = [e for e in r.ev.since(seq, "llm_generation_ended") if e["context_id"] == "llm"]
+    ids = [e["payload"]["request_id"] for e in started]
+    r.check(
+        ids == [f"{rid}.a", f"{rid}.b"]
+        and [e["payload"]["request_id"] for e in ended] == ids
+        and ended[0]["seq"] < started[1]["seq"]
+        and started[0]["payload"]["sampling"]["temperature"] == _LAB_SAMPLING["temperature"]
+        and started[1]["payload"]["sampling"]["temperature"] == 1.2
+        and last["payload"]["status"] == "completed",
+        "comparaison : llm{n}.a puis llm{n}.b, l'un après l'autre, deux températures",
+        f"{ids} · {[e['payload']['status'] for e in ended]}",
+    )
+    r.check(
+        refused.status_code == 409,
+        "comparaison en cours : l'atelier refuse un envoi (409)",
+        f"{refused.status_code} {refused.text[:120]}",
+    )
+    lanes = page.locator("#compare-lanes")
+    a_text = page.inner_text("#compare-a .compare-lane-text")
+    b_text = page.inner_text("#compare-b .compare-lane-text")
+    boxes = [page.locator(f"#compare-{x}").bounding_box() for x in ("a", "b")]
+    side = all(boxes) and abs(boxes[0]["y"] - boxes[1]["y"]) < 4 and boxes[0]["x"] < boxes[1]["x"]
+    r.check(
+        lanes.is_visible()
+        and a_text.strip()
+        and b_text.strip()
+        and side
+        and "T 1,2" in page.inner_text("#compare-b .compare-lane-sampling"),
+        "comparaison : deux colonnes côte à côte, remplies, réglages résumés en tête",
+        f"{a_text[:40]!r} · {b_text[:40]!r} · {boxes}",
+    )
+    r.shot("64-llm-nu-comparaison", full_page=True)
 
 
 def _set_lab_sampling(r: Run) -> None:
