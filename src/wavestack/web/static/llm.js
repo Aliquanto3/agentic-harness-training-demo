@@ -504,6 +504,7 @@ const DIST_DEBOUNCE_MS = 80;
 // Nothing to show: the reason the candidates are unavailable (a server, a cloud model), the
 // session's answer (`detail`), or what to do.
 function renderDistributionIdle(detail) {
+  store.dist.ticket += 1; // an answer still in flight is stale: it draws nothing
   $("distribution-body").hidden = true;
   const offer = store.candidates;
   const why = offer && !offer.available ? offer.reason_text : detail || text("distribution.empty_text");
@@ -537,8 +538,9 @@ async function fetchDistribution() {
 }
 
 // A bar of one value in [0, 1] and its value in %, as the candidates' popover draws them.
-function distributionBar(kind, value, label) {
+function distributionBar(kind, value, label, name) {
   const cell = el("span", `dist-cell ${kind}`);
+  if (name) cell.append(el("span", "llm-sr-only", `${name} `));
   const bar = el("span", "dist-bar");
   bar.setAttribute("aria-hidden", "true");
   const fill = el("span");
@@ -566,12 +568,13 @@ function renderDistribution(body) {
     const row = el("li", "dist-row");
     if (!c.kept) row.classList.add("is-dropped");
     row.append(el("span", "dist-text", quote(visibleBlanks(c.text))));
-    row.append(distributionBar("is-model", c.p, percent().format(c.p)));
+    row.append(distributionBar("is-model", c.p, percent().format(c.p), text("distribution.probability_text")));
     row.append(
       distributionBar(
         "is-chance",
         c.p_sampled,
-        c.kept ? percent().format(c.p_sampled) : text("distribution.dropped_text")
+        c.kept ? percent().format(c.p_sampled) : text("distribution.dropped_text"),
+        text("distribution.chance_text")
       )
     );
     list.append(row);
@@ -579,7 +582,7 @@ function renderDistribution(body) {
   // The rest of the vocabulary: its mass at temperature 1, never drawn here (approximate).
   const tail = el("li", "dist-row is-tail");
   tail.append(el("span", "dist-text", text("distribution.tail_text")));
-  tail.append(distributionBar("is-model", body.tail, percent().format(body.tail)));
+  tail.append(distributionBar("is-model", body.tail, percent().format(body.tail), text("distribution.probability_text")));
   tail.append(el("span", "dist-cell is-chance"));
   list.append(tail);
   const more = rows.length > DIST_ROWS ? text("distribution.more_text", { reste: decimals().format(rows.length - DIST_ROWS) }) : "";
@@ -592,7 +595,10 @@ function renderDistribution(body) {
   ]
     .filter(Boolean)
     .join(" ");
-  $("distribution-tail").textContent = text("distribution.tail_help_text", { reste: percent().format(body.tail) });
+  $("distribution-tail").textContent = text("distribution.tail_help_text", {
+    reste: percent().format(body.tail),
+    lus: decimals().format(rows.length),
+  });
   markDistributionChip();
 }
 
@@ -744,7 +750,9 @@ function renderWindow(p) {
     label.style.flexGrow = String(Math.max(grow, 1));
   }
   usable.title = text("window.free_text");
-  figure.querySelector(".window-fill.is-prompt").style.width = `min(100%, calc(100% * ${p.prompt_tokens} / ${Math.max(p.usable, 1)}))`;
+  const promptFill = figure.querySelector(".window-fill.is-prompt");
+  promptFill.title = text("window.prompt_text", { tokens: figures.prompt_tokens });
+  promptFill.style.width = `min(100%, calc(100% * ${p.prompt_tokens} / ${Math.max(p.usable, 1)}))`;
   figure.querySelector(".window-fill.is-output").style.width = "0";
   store.win.reserve = Math.max(p.reserve, 1);
   store.win.reserveText = text("window.reserve_text", { reserve: figures.reserve });
@@ -761,7 +769,8 @@ function windowToken(p) {
   const fill = document.querySelector("#window-diagram .window-fill.is-output");
   if (!fill || $("window-diagram").hidden) return;
   fill.style.width = `min(100%, calc(100% * ${p.index + 1} / ${store.win.reserve}))`;
-  $("window-reserve-label").textContent = `${store.win.reserveText} · ${text("window.output_text", {
+  const output = store.gen.fragments ? "window.output_fragments_text" : "window.output_text";
+  $("window-reserve-label").textContent = `${store.win.reserveText} · ${text(output, {
     tokens: decimals().format(p.index + 1),
   })}`;
 }
@@ -1147,6 +1156,7 @@ function applyEnvelope(envelope) {
   // `llm{n}.b`; `step_id` for the model call's own). B fills its column only; A fills its
   // column and the sections as « Générer » does (its tokens are the live distribution's).
   const lane = compareLane(p.request_id || envelope.step_id);
+  if (!lane && envelope.kind === "llm_generation_started") $("compare-lanes").hidden = true;
   if (lane) {
     compareEvent(lane, envelope.kind, p);
     if (lane === "b") {
@@ -1170,6 +1180,7 @@ function applyEnvelope(envelope) {
       break;
     case "llm_generation_started":
       renderGenerationStarted(p);
+      if (lane === "a") $("generate-status").textContent = ""; // the comparison says it runs
       break;
     case "model_call_started":
       startStopwatch(envelope.ts);
@@ -1191,6 +1202,8 @@ function applyEnvelope(envelope) {
       store.answered.add(p.request_id);
       if (store.pending.generate === p.request_id) store.pending.generate = null;
       renderGenerationEnded(p);
+      // A comparison's A: its end is written in its column, B is still to come.
+      if (lane === "a") $("generate-status").textContent = "";
       renderBusy();
       break;
     case "harness_error":

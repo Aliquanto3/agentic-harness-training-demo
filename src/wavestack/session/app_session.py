@@ -7989,9 +7989,9 @@ class AppSession:
                 first, prompt, samplings[0], reasoning, cancel, candidates, memory, release=False
             )
             if not cancel.cancelled:
-                self._run_lab(
-                    second, prompt, samplings[1], reasoning, cancel, candidates, release=False
-                )
+                # B without the candidates: the live distribution is A's, B's would only cost
+                # a softmax over the vocabulary per token and fill the journal.
+                self._run_lab(second, prompt, samplings[1], reasoning, cancel, False, release=False)
                 return
             with scoped(**self._lab_scope(second)):
                 zero = self._n(0)

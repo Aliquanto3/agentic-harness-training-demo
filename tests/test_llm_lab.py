@@ -27,7 +27,7 @@ from wavestack.models.candidates import (
 )
 from wavestack.models.engine import EngineMetadata, Sampling
 from wavestack.session import llm_lab
-from wavestack.session.app_session import DistributionMissing, SendRefused
+from wavestack.session.app_session import CANDIDATES, DistributionMissing, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.journal import get_journal
 from wavestack.web.app import create_app
@@ -874,6 +874,25 @@ def test_distribution_agrees_with_the_candidates_oracle(sampling):
         assert again["p_sampled"] == pytest.approx(row["p_sampled"], abs=1e-9)
 
 
+def test_distribution_top_p_counts_the_tail_when_top_k_is_off():
+    """Top-k off: top-p cumulates over the whole vocabulary, the tail included (`base`). A
+    peaked head and a long flat tail: 300 tokens, the 200 past the `TOP` read weigh about
+    a fifth; at top-p 0.75 the cut falls among the 100 read, as the oracle's."""
+    logits = [6.0, 5.0, 4.0, 3.0, 2.0] + [0.0] * 295
+    sampling = Sampling(1.0, 0, 0.75, 0.0)
+    rows = candidates_from_logits(logits, sampling, chosen_id=0, n=TOP)
+    ids, probs, tail = top_from_logits(logits)
+    assert tail > 0.15
+    drawn = distribution(probs, tail, sampling)
+    kept = [r["kept"] for r in rows[:TOP]]
+    assert 5 < kept.count(True) < TOP  # the cut is among the tokens read
+    assert [r["kept"] for r in drawn] == kept
+    for row, again in zip(rows[:5], drawn[:5], strict=True):
+        assert again["p_sampled"] == pytest.approx(row["p_sampled"], abs=1e-9)
+    # Without the tail in the sum, the cut would fall among the five first.
+    assert distribution(probs, 0.0, sampling)[5]["kept"] is False
+
+
 def test_distribution_matrix_open_greedy_and_top_k():
     probs, tail = [0.5, 0.2, 0.1, 0.05, 0.05], 0.1
     # T = 1, filters open: p / (1 - tail), the tail never drawn here (the approximation).
@@ -967,6 +986,24 @@ def test_a_new_generation_erases_the_kept_distribution():
     assert session.llm_distribution(2, SCREEN)["token_text"] == "z"
 
 
+def test_a_switch_of_model_makes_the_kept_distribution_stale(tmp_path):
+    from test_model_switch import _booted, _record_probe, _switch
+
+    from wavestack.models.load_registry import ModelChoice
+
+    first = FakeEngine(output="ab", logits_script=LOGITS_SCRIPT)
+    session, tracker, paths = _booted(tmp_path, {"A": first, "B": FakeEngine()})
+    _generate(session, candidates=True)
+    assert session.lab_state()["distribution"] == {"tokens": 2}
+    _record_probe(paths["B"])
+    _, status = _switch(session, ModelChoice("file", paths["B"]), tracker.probe(paths["B"]))
+    assert status == "ok"
+    session.join()
+    assert session.lab_state()["distribution"] == {"tokens": 0}
+    with pytest.raises(DistributionMissing):
+        session.llm_distribution(0, SCREEN)
+
+
 def test_the_distribution_is_unavailable_with_the_cloud():
     provider = Provider(sse(delta(content="ok"), delta("stop")))
     cloud = _cloud_session("groq", provider)
@@ -980,6 +1017,9 @@ def test_the_distribution_is_unavailable_with_the_cloud():
 def test_compare_runs_a_then_b_under_one_state():
     engine = FakeEngine(output="Oui", logits_script=LOGITS_SCRIPT)
     session = booted_session(engine)
+    # A answers « Oui », B « Non! »: the distribution kept tells them apart.
+    engine.outputs = [engine.output] * len(engine.calls) + ["Oui", "Non!"]
+    asked = len(engine.candidates)
     hot = Sampling(1.2, 20, 0.8, 0.0)
     mark = get_journal().last_seq()
     request_id = session.llm_compare("Bonjour", SCREEN, hot, candidates=True)
@@ -999,8 +1039,15 @@ def test_compare_runs_a_then_b_under_one_state():
     idle = [e for e in events if e.kind == "session_state" and e.payload.get("state") == "idle"]
     assert len(idle) == 1 and idle[0].seq > ended[-1].seq
     assert engine.samplings[-2:] == [SCREEN, hot]
-    # The live distribution is A's.
+    # The live distribution is A's (« Oui », 3 tokens; B's « Non! » has 4), and B ran
+    # without the candidates.
     assert session.lab_state()["distribution"]["tokens"] == 3
+    assert session.llm_distribution(0, SCREEN)["token_text"] == "O"
+    assert session.llm_distribution(2, SCREEN)["token_text"] == "i"
+    assert engine.candidates[asked:] == [CANDIDATES]
+    b_tokens = [e.payload for e in lab if e.kind == "llm_token" and e.step_id == f"{request_id}.b"]
+    assert "".join(t["text"] for t in b_tokens) == "Non!"
+    assert not any(t.get("candidates") for t in b_tokens)
     assert session.state == "idle"
 
 

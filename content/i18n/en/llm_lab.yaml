@@ -220,11 +220,11 @@ distribution:
   probability_text: "Model probability"
   chance_text: "Chance of being drawn"
   dropped_text: "discarded"
-  kept_text: "{gardes} candidates kept among the {lus} most probable: the draw happens among them."
+  kept_text: "{gardes} candidates kept among the {lus} most probable read."
   more_text: "… and {reste} other candidates read, further down, not shown."
   tail_text: "Rest of the vocabulary"
   tail_help_text: >-
-    WaveStack keeps the 100 most probable candidates of each token; the rest of the
+    WaveStack keeps the {lus} most probable candidates of each token; the rest of the
     vocabulary weighs {reste} of the probability. The chance of being drawn is shared among
     the candidates kept only: an approximation, faithful as long as this rest is small.
 
@@ -247,6 +247,7 @@ window:
   free_text: "Free"
   reserve_text: "Output reserve: {reserve}"
   output_text: "Answer: {tokens} tokens"
+  output_fragments_text: "Answer: {tokens} fragments received"
   caption_text: >-
     The window holds {fenetre} tokens: {utilisables} for the prompt, {reserve} kept for the
     answer. At each step, the model reads the whole window filled so far again (the cache

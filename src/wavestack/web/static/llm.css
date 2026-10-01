@@ -880,6 +880,16 @@ body.llm-page {
     var(--typography-number-line-height) var(--typography-number-font-family);
 }
 
+/* A value's name for screen readers only (the column heads above are aria-hidden). */
+.llm-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .dist-row.is-dropped {
   color: var(--color-ink-soft);
 }

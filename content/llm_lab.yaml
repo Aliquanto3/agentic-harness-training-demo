@@ -35,7 +35,7 @@ sections:
       celui de llama.cpp (moteur de WaveStack, llama-server, Ollama) : top-k, puis top-p, puis
       min-p, puis la température ; un fournisseur cloud peut appliquer les siens autrement.
     questions_text:
-      - "Pourquoi la même invite donne-t-elle deux réponses différentes ?"
+      - "Pourquoi le même prompt donne-t-il deux réponses différentes ?"
       - "La température change-t-elle les probabilités du modèle, ou seulement le tirage ?"
       - "Quelle différence entre top-k, top-p et min-p ?"
       - "Comment obtenir toujours la même réponse ?"
@@ -223,18 +223,18 @@ distribution:
   probability_text: "Probabilité du modèle"
   chance_text: "Chance d'être tiré"
   dropped_text: "écarté"
-  kept_text: "{gardes} candidats gardés parmi les {lus} plus probables : le tirage se fait entre eux."
+  kept_text: "{gardes} candidats gardés parmi les {lus} plus probables lus."
   more_text: "… et {reste} autres candidats lus, plus bas, non affichés."
   tail_text: "Reste du vocabulaire"
   tail_help_text: >-
-    WaveStack garde les 100 candidats les plus probables de chaque token ; le reste du
+    WaveStack garde les {lus} candidats les plus probables de chaque token ; le reste du
     vocabulaire pèse {reste} de la probabilité. La chance d'être tiré est répartie entre les
     candidats gardés seulement : une approximation, fidèle tant que ce reste est petit.
 
 compare:
   title_text: "Comparer deux réglages"
   intro_text: >-
-    La même invite, générée deux fois : A avec les réglages de la section 2, B avec ceux
+    Le même prompt, généré deux fois : A avec les réglages de la section 2, B avec ceux
     ci-dessous. Un seul modèle tourne sur le processeur : B commence quand A a fini.
     « Arrêter » arrête les deux.
   b_settings_text: "Réglages B"
@@ -251,6 +251,7 @@ window:
   free_text: "Libre"
   reserve_text: "Réserve de sortie : {reserve}"
   output_text: "Réponse : {tokens} tokens"
+  output_fragments_text: "Réponse : {tokens} fragments reçus"
   caption_text: >-
     La fenêtre compte {fenetre} tokens : {utilisables} pour le prompt, {reserve} gardés pour
     la réponse. À chaque pas, le modèle relit toute la fenêtre remplie jusque-là (le cache lui

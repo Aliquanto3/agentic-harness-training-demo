@@ -213,6 +213,7 @@ class WindowText(_Strict):
     free_text: str
     reserve_text: str
     output_text: str
+    output_fragments_text: str  # a server or a cloud model: fragments, not tokens
     caption_text: str
 
 

@@ -224,11 +224,11 @@ distribution:
   probability_text: "Wahrscheinlichkeit des Modells"
   chance_text: "Chance, gezogen zu werden"
   dropped_text: "verworfen"
-  kept_text: "{gardes} Kandidaten behalten unter den {lus} wahrscheinlichsten: Unter ihnen wird gezogen."
+  kept_text: "{gardes} Kandidaten behalten unter den {lus} wahrscheinlichsten gelesenen."
   more_text: "… und {reste} weitere gelesene Kandidaten, weiter unten, nicht angezeigt."
   tail_text: "Rest des Vokabulars"
   tail_help_text: >-
-    WaveStack behält die 100 wahrscheinlichsten Kandidaten jedes Tokens; der Rest des
+    WaveStack behält die {lus} wahrscheinlichsten Kandidaten jedes Tokens; der Rest des
     Vokabulars wiegt {reste} der Wahrscheinlichkeit. Die Chance, gezogen zu werden, wird nur
     unter den behaltenen Kandidaten verteilt: eine Näherung, treu, solange dieser Rest klein
     ist.
@@ -253,6 +253,7 @@ window:
   free_text: "Frei"
   reserve_text: "Ausgabereserve: {reserve}"
   output_text: "Antwort: {tokens} Tokens"
+  output_fragments_text: "Antwort: {tokens} Fragmente empfangen"
   caption_text: >-
     Das Fenster fasst {fenetre} Tokens: {utilisables} für den Prompt, {reserve} für die
     Antwort reserviert. Bei jedem Schritt liest das Modell das ganze bisher gefüllte Fenster
