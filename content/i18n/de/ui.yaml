@@ -159,6 +159,7 @@ main:
       subagent: "An den Sub-Agenten delegieren"
     text_field: "Text"
     show: "Erzwungene Aktionen anzeigen"
+    section_title: "Erzwungene Aktionen"
     doc_form_label: "Dokumentation eines Tools von {server} laden"
     tool_field: "Tool"
     task_form_label: "{action}: Aufgabe und Voreinstellungen"
@@ -206,6 +207,7 @@ main:
     list_label: "Einträge des globalen Gedächtnisses"
     confirm_clear: "Ja, alles löschen"
     clear: "Alles löschen"
+    written_at: "Wann der Eintrag geschrieben wurde (Zeitzone des Arbeitsplatzes)"
   chat:
     awaiting_approval: "Warten auf Freigabe"
     subagent_phase: "Sub-Agent · {label}"
@@ -237,6 +239,8 @@ main:
     show_reasoning_title: "Zeigt oder verbirgt den Denkprozess des Modells in dieser Ansicht; der LLM-Kontext zeigt ihn immer."
     replay_last: "Letzten Prompt wiederholen"
     clear: "Unterhaltung leeren"
+    tools_used: "In dieser Runde abgefragte Tools:"
+    tools_used_title: "Schritt „{tool}“ in der Orchestrierung ansehen"
   composer:
     not_sent: "Nachricht nicht gesendet: {reason}"
     not_ready: "WaveStack ist nicht bereit, eine Nachricht zu empfangen."

@@ -1579,7 +1579,13 @@ function saveShowForced() {
   }
 }
 
+// D3 of 2026-10-01: a titled section with the ✋, told apart from the bricks' switches.
 function forcedToggle() {
+  const box = el("section", "force-section");
+  // Its own class: the E2E reads the two groups' titles by `.brick-group-title`.
+  const title = el("h3", "force-section-title", t("main.force.section_title"));
+  title.id = "force-section-title";
+  box.setAttribute("aria-labelledby", title.id);
   const row = el("label", "force-toggle");
   const toggle = el("input", "brick-toggle");
   toggle.type = "checkbox";
@@ -1588,7 +1594,12 @@ function forcedToggle() {
   toggle.dataset.focusKey = "force-toggle";
   toggle.addEventListener("change", () => {
     store.showForced = toggle.checked;
-    if (!store.showForced) {
+    if (store.showForced) {
+      // The Forcer buttons are in the bricks' folded option lists: unfold those lists.
+      for (const brick of store.bricks?.bricks || []) {
+        if (hasOptionForce(brick)) store.openExplanations.add(`options:${brick.id}`);
+      }
+    } else {
       store.forceForm = null;
       store.armError = null;
     }
@@ -1596,8 +1607,19 @@ function forcedToggle() {
     renderedBricks = null; // the Forcer buttons appear or leave
     scheduleRender();
   });
-  row.append(toggle, el("span", "", t("main.force.show")));
-  return row;
+  const hand = el("span", "force-toggle-icon", "✋");
+  hand.setAttribute("aria-hidden", "true"); // the label alone is read aloud
+  row.append(toggle, hand, el("span", "", t("main.force.show")));
+  box.append(title, row);
+  return box;
+}
+
+// D3: whether the brick's option list holds a Forcer button (`forceButton`'s rule, an MCP
+// tool's forced call included).
+function hasOptionForce(brick) {
+  return (brick.options || []).some(
+    (option) => optionForceLabel(brick, option) !== null || (brick.id === "mcp" && (option.calls || []).length > 0)
+  );
 }
 
 function handIcon() {
@@ -1623,12 +1645,19 @@ function mcpCallOption(call) {
   };
 }
 
-function forceButton(brick, option) {
-  // Tools, skills, and in lazy loading only, the documentation of an MCP server's tool; lot K:
-  // the call of an MCP tool (`option.call`), in both modes.
+// The label of the option's Forcer button, `null` when it has none. Tools, skills, and in lazy
+// loading only, the documentation of an MCP server's tool; lot K: the call of an MCP tool
+// (`option.call`), in both modes.
+function optionForceLabel(brick, option) {
   const label = option.call ? FORCE_LABELS.tools : FORCE_LABELS[brick.id];
   if (!label) return null;
   if (brick.id === "mcp" && !option.call && (brick.mode !== "lazy" || !option.tools?.length)) return null;
+  return label;
+}
+
+function forceButton(brick, option) {
+  const label = optionForceLabel(brick, option);
+  if (!label) return null;
   const button = el("button", "force-button");
   button.type = "button";
   button.append(handIcon(), option.call ? `${label} · ${option.label_text}` : label);
@@ -2087,6 +2116,17 @@ function closeMemoryDrawer(force = false) {
   document.getElementById("edit-memory")?.focus();
 }
 
+// D7: `created_at` (ISO 8601 with its offset, `memory.py`) as a `<time>`, its date and hour
+// short in the session's language; `null` for a missing or unreadable date.
+function memoryDate(createdAt) {
+  const date = createdAt ? new Date(createdAt) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const node = el("time", "memory-entry-date", dateTimeFormat({ dateStyle: "short", timeStyle: "short" }).format(date));
+  node.dateTime = createdAt;
+  node.title = t("main.memory.written_at");
+  return node;
+}
+
 function renderMemoryDrawer() {
   // Rebuilt from the last `memory_changed`, the texts being typed kept (AD-1).
   if (memoryDrawer().hidden) return;
@@ -2108,7 +2148,11 @@ function renderMemoryDrawer() {
     const item = el("li", "memory-entry");
     const label = t("main.memory.entry", { n: String(i + 1) });
     const head = el("div", "memory-entry-head");
-    head.append(el("span", "memory-entry-name", label), el("span", "memory-entry-source", MEMORY_SOURCES[entry.source] ?? entry.source));
+    const source = el("span", "memory-entry-source", MEMORY_SOURCES[entry.source] ?? entry.source);
+    // D7 of 2026-10-01: when it was written, short, in the workstation's time zone.
+    const written = memoryDate(entry.created_at);
+    if (written) source.append(" · ", written);
+    head.append(el("span", "memory-entry-name", label), source);
     const text = el("textarea", "memory-entry-text");
     text.rows = 3;
     if (memory?.max_chars) text.maxLength = memory.max_chars;
@@ -2988,6 +3032,8 @@ function renderChat() {
     if (turn.status === "completed" && !turn.text) {
       answer.appendChild(el("div", "bubble-note", t("main.chat.empty_answer")));
     }
+    const consulted = consultedTools(turn);
+    if (consulted.length) answer.appendChild(consultedLine(turn, consulted));
     nodes.push(answer);
     // H5: the validation is the user's to give, in the thread of its turn, under the answer;
     // a sub-agent's too (story 19), though its text never shows here.
@@ -3020,6 +3066,63 @@ function renderChat() {
     quietFocus(target);
   }
   if (followTail) chat.scrollTop = chat.scrollHeight;
+}
+
+// D5 of 2026-10-01: the tools whose result the answer could draw on, each with its step's
+// index in `turn.steps` (the key of its Orchestration line is `{turn.id}:{index}`): ended
+// `ok` only (a failed, refused or still running call brought nothing). The harness's own
+// tools (`load_skill`, `load_tool_doc`, `remember`) bring no information to cite; a
+// delegation brings the sub-agent's answer, so it counts.
+function consultedTools(turn) {
+  const found = [];
+  turn.steps.forEach((step, index) => {
+    if (step.type !== "tool" || !step.started || step.ended?.status !== "ok") return;
+    if (step.started.source === "harness" && step.started.tool !== "delegate") return;
+    found.push({ step, index });
+  });
+  return found;
+}
+
+// « Outils consultés pendant ce tour : A, B », each name a button that opens its step.
+function consultedLine(turn, consulted) {
+  const line = el("p", "answer-tools");
+  line.appendChild(el("span", "answer-tools-label", t("main.chat.tools_used")));
+  consulted.forEach(({ step, index }, n) => {
+    const name = step.started.tool === "delegate" ? t("main.orch.sub.title") : toolLabel(step.started.tool);
+    const button = el("button", "answer-tool", name);
+    button.type = "button";
+    button.title = t("main.chat.tools_used_title", { tool: name });
+    button.dataset.focusKey = `tools:${turn.id}:${index}`;
+    setLinks(button, stepLinks(step));
+    const reveal = () => revealStep(turn, `${turn.id}:${index}`, stepLinks(step));
+    // The bubble is rebuilt at every render (a turn streaming): a mouse acts on its press, as
+    // `selectOnActivate` does, before a rebuild can split the press from the release.
+    button.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" && event.button === 0) reveal();
+    });
+    button.addEventListener("click", (event) => {
+      if (event.pointerType !== "mouse") reveal(); // keyboard, touch, pen
+    });
+    line.append(n === 0 ? " " : ", ", button);
+  });
+  return line;
+}
+
+// D5: the step of a turn opened in Orchestration, as a click on it does (`toggleStep`, which
+// freezes the live view) and as `revealOutbound` brings it into view, then selected.
+function revealStep(turn, key, links) {
+  const o = store.orch;
+  if (store.hiddenPanes.has("orch")) showPane("orch");
+  if (store.focusedPane !== null && store.focusedPane !== "orch") store.focusedPane = null;
+  o.turnOpen.set(turn.id, true);
+  if (o.live) {
+    o.live = false;
+    o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+  }
+  o.userOpen.add(key);
+  o.selected = key;
+  setSelection(`step:${key}`, links); // renders: the step open, its linked elements outlined
+  railNodes.get(key)?.line.scrollIntoView({ block: "nearest" });
 }
 
 function patchChildren(parent, nodes) {

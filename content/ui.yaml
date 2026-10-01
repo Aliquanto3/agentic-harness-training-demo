@@ -168,6 +168,7 @@ main:
       subagent: "Déléguer au sous-agent"
     text_field: "Texte"
     show: "Afficher les actions forcées"
+    section_title: "Actions forcées"
     doc_form_label: "Charger la documentation d'un outil de {server}"
     tool_field: "Outil"
     task_form_label: "{action} : tâche et préréglages"
@@ -215,6 +216,7 @@ main:
     list_label: "Entrées de la mémoire globale"
     confirm_clear: "Oui, tout effacer"
     clear: "Tout effacer"
+    written_at: "Date d'écriture de l'entrée (fuseau du poste)"
   chat:
     awaiting_approval: "En attente de validation"
     subagent_phase: "Sous-agent · {label}"
@@ -246,6 +248,8 @@ main:
     show_reasoning_title: "Montre ou masque le raisonnement du modèle dans cette vue ; Contexte LLM le montre toujours."
     replay_last: "Rejouer le dernier prompt"
     clear: "Vider la conversation"
+    tools_used: "Outils consultés pendant ce tour :"
+    tools_used_title: "Voir l'étape « {tool} » dans Orchestration"
   composer:
     not_sent: "Message non envoyé : {reason}"
     not_ready: "WaveStack n'est pas prêt à recevoir un message."

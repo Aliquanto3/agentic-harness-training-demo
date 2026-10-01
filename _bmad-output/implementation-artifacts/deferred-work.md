@@ -30,6 +30,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/3-llm-nu-compteur-de-tokens-jauge.md`
   summary: Détail de la jauge (grille de cellules façon `/context`, composant DESIGN `context-gauge-detail`) dans le volet Contexte LLM, ouvert d'un clic sur la jauge.
   evidence: Différé sur décision d'Anaël (2026-09-24) : la jauge empilée de la barre haute, avec sa ventilation au survol, suffit à CAP-33 ; la grille alourdissait une story déjà au-dessus de la cible de taille.
+  resolution: décision d'Anaël du 2026-10-01 (D1) — non : la jauge empilée de la barre haute et sa ventilation au survol suffisent, pas de grille `context-gauge-detail` (décision du 24/09 reconduite par la story 32).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/3-llm-nu-compteur-de-tokens-jauge.md`
   summary: `LlamaCppEngine.complete` (arrêt sur EOG, sortie coupée à `max_tokens`, séquence d'arrêt, annulation, décodage UTF-8 incrémental) n'est testé sur aucun vrai modèle : les tests du tour passent par le moteur factice, qui réimplémente cette logique.
@@ -43,6 +44,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/5b-outils-reseau.md`
   summary: Repli hors ligne de `fetch_page` (FR-13) — sans réseau, un long fichier de `content/demo_files/` remplace la page, avec la mention « contenu de remplacement ».
   evidence: Reporté sur décision d'Anaël (2026-09-24) : ce repli sert le résultat volumineux du sous-agent (UJ-6) et de la compression (UJ-7), qu'aucune story livrée n'utilise encore ; en 5b, `fetch_page` hors ligne échoue avec une erreur claire et le nœud passe indisponible.
+  resolution: décision d'Anaël du 2026-10-01 (D2) — non : aucun scénario ne s'appuie sur ce repli ; l'échec expliqué de `fetch_page` hors ligne est lui-même pédagogique.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/5b-outils-reseau.md`
   summary: Le rendu front de la story 5b (bloc `outbound-payload` rattaché à l'étape d'outil, nœud « non contacté », étiquette RÉSEAU) n'est vérifié par aucun test automatique.
@@ -167,6 +169,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9-declenchement-force.md`
   summary: L'interrupteur « Afficher les actions forcées » et les boutons « Forcer l'appel » / « Déclencher le skill » sont difficiles à trouver : l'interrupteur ressemble aux interrupteurs des briques, et les boutons restent dans la liste repliée des options (« Outils : 3 activés sur 6 »).
   evidence: Test manuel du 2026-09-25 sur le PC cible : l'animateur n'a trouvé ni l'interrupteur ni les boutons sans aide (le comportement est conforme à la spec, vérifié dans un Edge headless : 12 boutons après activation). Pistes : distinguer visuellement l'interrupteur (titre de section, icône main), déplier la liste des options quand l'interrupteur est activé, ou afficher un indice sur la carte repliée.
+  resolution: décision d'Anaël du 2026-10-01 (D3) appliquée par la story 3 des restes différés, preuve E2E en attente — `app.js` (`forcedToggle`, `hasOptionForce`, `optionForceLabel`) : l'interrupteur est dans sa propre section, titre « Actions forcées », icône ✋ devant le libellé, cadre pointillé (`app.css`, `.force-section`) ; quand il passe à vrai, la liste d'options de chaque brique qui porte un bouton Forcer (outils, skills, MCP) se déplie ; `main.force.section_title` en fr, en, de ; EXPERIENCE.md (bouton Forcer). Contrôles E2E `_forced_section` (`s_forced_native`) et dépliement de la liste MCP (`s_mcp_lazy`), écrits, à jouer dans la batterie finale : l'entrée se ferme sur leur résultat. Choix de nuit, à confirmer par Anaël : les listes se déplient au seul passage de l'interrupteur à vrai (pas au rechargement d'une page où il était déjà allumé, ni après « Réinitialiser »).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9-declenchement-force.md`
   summary: Caveman forcé : le skill est bien chargé avant le premier appel (`load_skill`, `trigger = user`, corps attribué à skills), mais Qwen3.5-2B ne suit pas la consigne (réponses longues ou hors style, et un appel spontané à `get_datetime`). La ligne « le modèle répond en Caveman dès ce tour » de la matrice n'est donc pas démontrable avec ce modèle.
@@ -198,6 +201,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/10-scenarios-par-brique-programme-reinitialisation.md`
   summary: Le tour du scénario « MCP en documentation complète » dépasse largement le NFR-1 (temps de réponse) sur le PC cible.
   evidence: Test manuel du 2026-09-25, Qwen3.5-2B Q4_K_M (CPU) : contexte de 3 018 tokens, tour de 109,5 s pour 91 tokens de sortie. Bien au-delà des temps mesurés en story 9 pour des contextes de 560 à 1 400 tokens (voir entrée ci-dessus sur les temps de réponse). À surveiller en séance : prévenir l'auditoire, ou réduire les serveurs MCP actifs avant démonstration.
+  closed: 2026-10-01 (story 3 des restes différés, D4) — la consigne de `mcp_full` prévient l'auditoire : environ deux minutes par tour sur un poste sans GPU, parce que le modèle relit d'abord tout le long contexte, documentation complète comprise (`content/scenarios.yaml` et surcouches `en`, `de`) ; la mémoire de démonstration reste. Preuve : `tests/test_scenarios.py::test_instructions_announce_the_long_turns`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/10-scenarios-par-brique-programme-reinitialisation.md`
   summary: Risque BH1a (navigation clavier du sélecteur de scénario sous Windows) non vérifié au test manuel.
@@ -224,10 +228,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-11b-corrections-test-manuel-story-11.md`
   summary: Aucune attribution visible de la source dans les réponses : quand le modèle s'appuie sur un résultat d'outil (par exemple le glossaire du serveur MCP local), rien n'indique « d'après le glossaire ». Piste : consigne du prompt système ou mise en avant, dans la Vue humain, des résultats d'outil dont la réponse s'inspire.
   evidence: Test manuel de la story 11b, 2026-09-26, scénario « Lazy loading » avec Groq : la réponse à « Que veut dire MCP ? » paraphrase l'entrée `MCP` de `content/mcp_local/glossary.yaml` sans la nommer ; l'animateur a cru que le glossaire n'avait pas servi. « La réponse cite le glossaire » (spec 11b) voulait dire « reprend sa définition ».
+  resolution: décision d'Anaël du 2026-10-01 (D5) appliquée par la story 3 des restes différés, preuve E2E en attente — `app.js` (`consultedTools`, `consultedLine`, `revealStep`) : sous la réponse d'un tour qui a appelé des outils, « Outils consultés pendant ce tour : … », un lien par étape d'outil terminée `ok` (outils natifs, outils MCP, délégation au sous-agent ; pas `load_skill`, `load_tool_doc` ni `remember`), qui déplie et sélectionne l'étape dans Orchestration ; rien sans outil ; `main.chat.tools_used` en fr, en, de ; EXPERIENCE.md. Pas de consigne « cite tes sources ». Contrôles E2E `_consulted_tools` (`s_forced_native`), délégation nommée (`s_subagent`) et aucune ligne après un `remember` forcé (`s_global_memory`), écrits, à jouer dans la batterie finale : l'entrée se ferme sur leur résultat. Choix de nuit, à confirmer par Anaël : les outils du harnais sont exclus, un nom par étape (un outil appelé deux fois est nommé deux fois).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-11b-corrections-test-manuel-story-11.md`
   summary: Mistral répond 429 à tout appel quand l'espace de travail n'a aucun quota actif ; le texte affiché (« quota dépassé (par seconde, par minute ou par jour) » et la piste `min_interval_s`) oriente à tort vers l'espacement. Piste : reconnaître `x-ratelimit-limit-req-minute: 0` et afficher « aucun quota actif sur ce compte : vérifiez le plan dans la console du fournisseur ».
   evidence: Sonde directe du 2026-09-26 sur le PC cible : trois appels espacés de plus d'1 s, tous en 429, corps `{"message":"Rate limit exceeded","type":"rate_limited","code":"1300"}`, en-têtes `x-ratelimit-limit-req-minute: 0` et `x-ratelimit-remaining-req-minute: 0`. La spec 11b interdit de déduire quoi que ce soit des en-têtes `x-ratelimit-*` (Never) : lever cette interdiction pour un message d'explication seulement (ni attente ni nouvel essai) est une décision à prendre. À vérifier dans la console Mistral : plan « Experiment » activé et vérification par téléphone faite.
+  closed: 2026-10-01 (story 3 des restes différés, D6) — `models/openai_chat.py` (`_no_quota`, `_refused`) : un 429 avec `x-ratelimit-limit-req-minute: 0` donne « {fournisseur} refuse l'appel, aucun quota actif sur ce compte : vérifiez le plan dans la console du fournisseur », sans piste d'attente ni d'espacement, `retry_after_s` et `quota_scope` nuls, jamais réessayé ; tout autre 429 inchangé ; `models.openai_chat.no_quota` en fr, en, de ; Never de `spec-11b-corrections-test-manuel-story-11.md` amendé. Preuve : `tests/test_cloud.py` (`test_a_429_without_any_quota_says_so_and_asks_no_wait`, `test_a_429_with_a_quota_keeps_the_quota_message`, `test_a_429_without_any_quota_in_english_and_german`).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
   summary: Le front de la story 13 (option « Afficher le raisonnement », reasoning-block de la Vue humain et de Contexte LLM, carte « toujours active pour ce modèle ») n'a aucun test automatique.
@@ -262,14 +268,17 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
   summary: Le tiroir de la mémoire globale n'affiche pas la date d'écriture (`created_at`) des entrées, seulement leur origine (démonstration, modèle, utilisateur).
   evidence: Revue indépendante de la story 14. `created_at` est écrit dans memory.json et porté par `memory_changed` ; EXPERIENCE.md ne demande que consulter, modifier, supprimer et tout effacer. À ajouter si la date aide la démonstration (format court, fuseau du poste).
+  resolution: décision d'Anaël du 2026-10-01 (D7) appliquée par la story 3 des restes différés, preuve E2E en attente — `app.js` (`memoryDate`, `renderMemoryDrawer`) : chaque entrée du tiroir porte un `<time datetime="created_at">`, date et heure courtes (`Intl.DateTimeFormat` de la langue de la session, fuseau du poste), à côté de son origine ; EXPERIENCE.md (tiroir d'édition). Contrôle E2E dans `s_global_memory`, écrit, à jouer dans la batterie finale : l'entrée se ferme sur son résultat. Choix de nuit, à confirmer par Anaël : date et heure courtes (« 01/10/2026 22:41 »).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
   summary: Aucun ajout d'entrée depuis le tiroir : l'utilisateur écrit par l'action forcée « Écrire en mémoire ».
   evidence: Exclu par la spec de la story 14 (Never, hypothèse H1) ; relevé par la revue indépendante. À rouvrir seulement si le test manuel montre que le forçage est trop détourné pour ajouter une information.
+  resolution: décision d'Anaël du 2026-10-01 (D8) — non : l'action forcée « Écrire en mémoire » montre mieux le mécanisme ; pas d'ajout depuis le tiroir.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
   summary: Une mémoire globale pleine (20 entrées de 300 caractères) prend environ 1 550 tokens estimés, soit près de 60 % de l'espace utilisable d'une fenêtre de 4 096 tokens avec la réserve du raisonnement ; elle tient avec les briques du scénario (test), mais laisse peu de place au reste.
   evidence: Revue indépendante de la story 14 ; mesure de `test_a_full_memory_fits_the_smallest_window_with_the_scenario_bricks` (estimation à 4 caractères par token). La borne de 300 caractères est dans le contrat d'intention de la story (non modifiable par l'implémentation). À trancher au test manuel sur le PC cible avec Qwen : si une mémoire chargée fait déborder le scénario, abaisser `MAX_CHARS` (par exemple à 200) en amendant la spec.
+  resolution: décision d'Anaël du 2026-10-01 (D9) — garder `MAX_CHARS` à 300 ; la story 7 des restes différés mesure `mcp_full` mémoire pleine sur le PC cible et n'abaisse à 200 que s'il déborde.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/12-tests-prealables-headroom-embedding-et-reranking.md`
   summary: Le verdict embedding et reranking de la story 12 reste provisoire (granite-embedding-107m-multilingual Q8_0, bge-reranker-v2-m3 Q4_K_M) ; lancer sur le PC cible, avant la story 15, `uv run --with huggingface-hub --with fastembed python tools/bench/story12_bench.py embed --download`, puis `uv run --with headroom-ai==0.38.0 python tools/bench/story12_bench.py headroom`, et reporter les deux sorties `--json` dans la story 12.
@@ -348,14 +357,17 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
   summary: AD-13 : `transform_context` n'est pas un point d'accroche de hook. La compression agit sur les parties du tour avant l'assemblage (réponses d'outils, extraits RAG), à la place de l'étape d'AD-4, sans qu'un hook puisse l'observer ni la modifier.
   evidence: Revue indépendante de la story 20. Aucun hook de démonstration n'en a besoin en V1 ; à ouvrir si un hook doit voir le contexte compressé (ajouter le point au catalogue d'AD-13 et l'appeler depuis `_transform_context`).
+  resolution: décision d'Anaël du 2026-10-01 (D10) — non : aucun hook de démonstration n'a besoin de `transform_context` comme point d'accroche.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
   summary: H-1 de la story 20 : `transform_context` compresse chaque texte avant le premier appel qui le lit (et non seulement avant le premier appel du tour). Décision provisoire, ligne de règle d'AD-4 amendée et marquée « à valider ».
   evidence: Question posée à Anaël (memlog de la spec) ; décision attendue au test manuel. Défaut : garder H-1. Si la lecture stricte l'emporte, seuls les extraits RAG et les actions forcées seraient compressés.
+  closed: 2026-10-01 (story 3 des restes différés, D11) — H-1 validé : AD-4 d'ARCHITECTURE-SPINE dit « Décision validée par Anaël le 2026-10-01 » au lieu de « à valider » ; c'est le comportement livré et testé (story 20).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
   summary: `compress()` de Headroom n'a pas de borne de temps : un texte pathologique pourrait retenir le tour ; « Arrêter » n'agit qu'entre deux textes.
   evidence: Headroom ne s'annule pas et n'est pas sûr entre fils : l'appeler dans un fil séparé abandonné laisserait un calcul concurrent. Mesuré : 2,2 s au pire (premier appel, JSON de 6 600 tokens), 0,02 s ensuite. À rouvrir si le PC cible montre une attente gênante.
+  resolution: décision d'Anaël du 2026-10-01 (D12) — non : 2,2 s au pire mesuré, et l'annulation propre est impossible ; pas de borne de temps.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
   summary: Sur le PC cible : mémoire ajoutée par Headroom, absence de sortie réseau, AppLocker et WDAC face à `_core.pyd` et `ast-grep` ; le scénario « Compression » doit tenir dans la fenêtre sans compression, avec un vrai SLM, et le modèle ne doit pas appeler un outil « Retrieve more » inexistant.
@@ -385,10 +397,12 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
   summary: SOC : le garde-fou sur l'inventaire des comptes à privilèges reste un blocage (H1), pas une validation humaine (H5), comme le proposait la revue indépendante.
   evidence: H5 est défini pour les outils réseau (FR-27, `hooks.ask` : `spec.network` et un aperçu {méthode, adresse, corps}) ; l'appliquer à la lecture d'un fichier local change le contrat d'un hook du palier 1 et sa carte de validation. La leçon « moindre privilège, puis escalade vers un humain » passe par la consigne et la réponse attendue. À rouvrir en V2 si une variante « H1 en validation humaine » est souhaitée (nouveau hook ou option de H1, carte de validation pour un fichier local).
+  resolution: décision d'Anaël du 2026-10-01 (D13) — garder H1 : H5 reste réservé au réseau (FR-27) ; la leçon passe par la consigne.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
   summary: IAM et Souveraineté sans réseau n'ont pas de repli hors ligne enregistré (réponse enregistrée et étiquetée, comme le proposait la revue) : seul l'échec expliqué est montré.
   evidence: Les outils réseau natifs n'ont pas non plus de réponse enregistrée (vérifié : `tools/network.py` interroge le service ou échoue) ; un repli demanderait un faux serveur MCP embarqué, son nœud étiqueté « enregistré » dans le schéma et ses données de démonstration. Le README demande d'ouvrir les deux hôtes dans le proxy avant la séance.
+  resolution: décision d'Anaël du 2026-10-01 (D14) — non : le README demande d'ouvrir les deux hôtes ; un faux serveur embarqué coûte trop cher.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
   summary: AD-9 « En direct, si tools/list s'écarte de l'instantané de plus du seuil défini dans wavestack.toml, un avertissement est émis » : non réalisé ; les instantanés de `scripts/snapshot_mcp.py` ne servent qu'au test d'adéquation.
@@ -411,6 +425,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
   summary: AD-21 amendé (à valider) : sans son modèle, seule la sous-option « Reranking » est indisponible, le RAG simple continue.
   evidence: Revue indépendante de la story 16 ; la lettre d'AD-21 rendait toute la brique indisponible. Décision attendue d'Anaël au test manuel. Défaut : garder la sous-option seule indisponible.
+  closed: 2026-10-01 (story 3 des restes différés, D15) — AD-21 amendé validé : ARCHITECTURE-SPINE dit « Décision validée par Anaël le 2026-10-01 » au lieu de « à valider » ; c'est le code livré.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/16-reranking.md`
   summary: Le parcours E2E ne joue ni l'échec d'un téléchargement du reranker (notice sous l'interrupteur) ni une étape « Reranking » en erreur dans le rail.
@@ -561,6 +576,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/27-lot-h-scenarios-et-consignes-du-palier-2.md`
   summary: Avec le 2B, le raisonnement va jusqu'au budget (768 tokens, coupé par le harnais) même sur un message trivial comme « Bonjour ». Criticité faible (un tour long quand on rallume le raisonnement à la main ; hors du module 1, il reste éteint).
   evidence: Test du 2026-09-27 au soir sur le PC cible (Qwen3.5-2B Q4_K_M, CPU), relevé dans l'entrée « Comportement du 2B dans les scénarios (lot H) » ; hors du périmètre de la story 27 (contenu seulement). Pistes : budget adapté à la longueur du message, ou consigne du scénario Raisonnement qui l'annonce. Spec à écrire.
+  closed: 2026-10-01 (story 3 des restes différés, D17) — la consigne du scénario Raisonnement (fr, en, de) annonce qu'un petit modèle local réfléchit jusqu'au bout de son budget même pour « Bonjour », et que le harnais coupe alors la réflexion ; pas de budget adaptatif. Preuve : `tests/test_scenarios.py::test_instructions_announce_the_long_turns`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-lot-k-corrections-recette-pc-2026-09-29.md`
   summary: Le contrôle E2E d'`aria-expanded` des actions forcées (A8) ne protège pas le correctif du lot K, déjà juste sous Chromium avant lui.
@@ -568,6 +584,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-lot-k-corrections-recette-pc-2026-09-29.md`
   summary: Le test `fits` ne simule que l'échange précédent ; avec l'historique cumulé au pire (réponses à la réserve), `subagent` p4 déborde de 9 tokens (1 326 + 2 267 > 3 584, 2B exact). Sévérité medium, non vérifiée.
   evidence: La mémoire courte garde tous les échanges ; la recette N27-1 (29/09) passait avec des réponses courtes. À trancher : modèle de réponse réaliste dans le test, ou quiz à réponse courte, après mesure de la jauge au prompt 4 du scénario « Sous-agent » sur le PC.
+  resolution: décision d'Anaël du 2026-10-01 (D18) appliquée par la story 3 des restes différés, mode exact à jouer sur le PC (story 7) — `tests/test_program.py` : les réponses sont comptées à la taille mesurée au lot K (`MEASURED_ANSWERS = (500, 250)` : 470, puis 245, 223 et 213 tokens), plus à la réserve ; l'historique cumule tous les échanges au tokenizer du GGUF (`WAVESTACK_TEST_GGUF`, la jauge exacte où le débordement a été relevé) ; avec l'estimation à 2 caractères par token, qui compte déjà le contexte de `subagent` 40 % trop haut (1 848 contre 1 326), seul l'échange précédent est ajouté, sa réponse à la réserve comme avant (jamais moins strict) ; le commentaire « deferred » est retiré. Mode estimation vérifié (passe) ; l'entrée se ferme quand le mode exact (`WAVESTACK_TEST_GGUF` sur le 2B) passe sur le PC (story 7).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-i18n-1-socle-et-defauts-du-llm.md`
   summary: Langues (2/5), l'interface principale en anglais et en allemand : `index.html` et `app.js` (environ 540 textes), avec un utilitaire `t()` et un catalogue `content/i18n/{lang}/ui.yaml` ; les textes des charges `*_fr` que montre l'interface principale, et les formats de nombres et de dates (`Intl`) selon la langue.
@@ -622,6 +639,7 @@
 - source_spec: `_bmad-output/specs/spec-langues/stories/3-contenus-pedagogiques.md`
   summary: L'avertissement et le bandeau d'un modèle cloud en `en` et `de` insèrent le `hosting_text` et le `notes_text` des déclarations `[[cloud.models]]` de `wavestack.toml`, écrits en français (« États-Unis (Groq) », « Aucune rétention… »).
   evidence: Revue de la story Langues (3/5), 2026-09-30 : `cloud.fill()` et `warning_fr` les placent dans les textes traduits de `cloud.yaml` ; ces champs sont hors de `content/` et n'ont pas de variante par langue.
+  closed: 2026-10-01 (story 3 des restes différés, D19) — accepté et documenté : commentaire de `[cloud]` dans `wavestack.toml` et paragraphe « Ajouter un modèle » du README : `hosting_text` et `notes_text` sont saisis par l'opérateur et affichés tels quels dans toutes les langues ; pour une séance en `en` ou `de`, les redéclarer dans `settings.json`.
 - source_spec: `_bmad-output/specs/spec-langues/stories/3-contenus-pedagogiques.md`
   summary: Les préfixes « Local · » et « RÉSEAU · » du sélecteur de modèles sont écrits en dur par `models/catalog.py` (:490, :561), alors que la légende traduite de `publishers.yaml` dit « NETWORK » et „NETZWERK“ ; à traduire avec les messages du backend (story 5).
   evidence: Revue de la story Langues (3/5), 2026-09-30 : en `de`, un groupe « Netzwerk · … » coiffe des entrées « RÉSEAU · Groq … ».
@@ -663,3 +681,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1e-correctif-garde-reseau-proxy-local.md`
   summary: `test_the_test_session_holds_no_proxy` ne prouve l'ordre de `conftest.py` (proxy retiré avant la collecte) que sur un poste qui a un proxy.
   evidence: Remettre le retrait dans la fixture de session ne fait échouer aucun test sur un poste sans proxy ; il faudrait un pytest imbriqué lancé avec un faux `HTTPS_PROXY`.
+
+- source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/3-decisions-d-anael-appliquees.md`
+  summary: Le test `fits` (`tests/test_program.py`) ne cumule l'historique, à réponses mesurées (D18), qu'avec `WAVESTACK_TEST_GGUF` ; la course par défaut (2 caractères par token) n'ajoute que l'échange précédent. Medium, non vérifié.
+  evidence: Revue de la story 3 (couche écarts de vérification) : l'estimation compte le contexte de `subagent` 40 % trop haut (1 848 contre 1 326), un cumul y déborderait pour cette raison. À trancher par `WAVESTACK_TEST_GGUF=<2B> uv run pytest -s tests/test_program.py -k fits` sur le PC cible (story 7) : chaque prompt tient avec l'historique cumulé.

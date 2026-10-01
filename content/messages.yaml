@@ -1146,6 +1146,8 @@ models:
     redirect: "Redirection refusée : {provider} a répondu {status} vers {location}. La clé n'est jamais renvoyée ailleurs."
     another_address: une autre adresse
     quota_refused: "Le fournisseur refuse l'appel : {quota}."
+    # D6 (2026-10-01) : 429 avec `x-ratelimit-limit-req-minute: 0`, ni attente ni nouvel essai.
+    no_quota: "{provider} refuse l'appel. Aucun quota actif sur ce compte : vérifiez le plan dans la console du fournisseur."
     quota:
       second: quota dépassé par seconde
       minute: quota dépassé par minute

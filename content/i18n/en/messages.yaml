@@ -1143,6 +1143,7 @@ models:
     redirect: "Redirect refused: {provider} answered {status} to {location}. The key is never sent elsewhere."
     another_address: another address
     quota_refused: "The provider refuses the call: {quota}."
+    no_quota: "{provider} refuses the call. No active quota on this account: check the plan in the provider's console."
     quota:
       second: quota exceeded per second
       minute: quota exceeded per minute

@@ -75,7 +75,9 @@ scenarios:
       Vue humain ou dans Contexte LLM ; la jauge montre la réserve de sortie passée à
       1 536 tokens. Éteignez ensuite la brique, rejouez le prompt et ouvrez « Comparer » :
       moins de tokens en sortie et un tour plus court, mais une réponse souvent moins sûre.
-      Si le modèle ne sait pas raisonner, la carte de la brique en donne la raison. Les
+      Si le modèle ne sait pas raisonner, la carte de la brique en donne la raison. Un petit
+      modèle local réfléchit jusqu'au bout de son budget même pour un message simple comme
+      « Bonjour » : le harnais coupe alors la réflexion, et le tour reste long. Les
       modules suivants laissent le raisonnement éteint, pour garder de la place et des tours
       courts : rallumez-le à la main pour le montrer à l'œuvre.
     bricks: [reasoning]
@@ -193,9 +195,11 @@ scenarios:
       dont les extraits sur Exemplia seraient hors sujet ici : le serveur MCP local et
       data.gouv.fr sont connectés, et la documentation complète de chaque outil entre dans
       le contexte. Regardez la jauge avant d'envoyer le prompt : elle est déjà presque
-      pleine. Le prompt nomme l'outil du glossaire, local__define_term : un petit modèle
-      local ne fait pas toujours le lien entre la question et l'outil, un modèle plus gros
-      (cloud) si. Si le modèle répond de tête, cliquez « Forcer l'appel · local__define_term »
+      pleine. Prévenez l'auditoire : avec le modèle local, sur un poste sans GPU, le tour
+      dure environ deux minutes, parce que le modèle lit d'abord tout ce long contexte,
+      documentation complète comprise ; c'est le prix que le lazy loading évite. Le prompt
+      nomme l'outil du glossaire, local__define_term : un petit modèle local ne fait pas
+      toujours le lien entre la question et l'outil, un modèle plus gros (cloud) si. Si le modèle répond de tête, cliquez « Forcer l'appel · local__define_term »
       sous « Glossaire WaveStack » dans la carte MCP (après « Afficher les actions
       forcées »), choisissez le préréglage « MCP », « Armer », puis « Rejouer le dernier
       prompt » : l'appel part d'office et le modèle répond avec la définition.
