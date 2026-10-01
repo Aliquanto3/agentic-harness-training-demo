@@ -262,7 +262,7 @@
       publisher: (m) => [m.publisher_text],
       size: (m) => [m.size_bytes ?? null, m.params_b ?? null],
       hosting: (m) => [m.hosting_label_text],
-      window: (m) => [m.window ?? null],
+      window: (m) => [m.window || null], // 0 is shown « — », as unknown
       tools: (m) => [m.tools === true ? 0 : m.tools === false ? 1 : null],
       reasoning: (m) => [REASONING_RANK[m.reasoning] ?? null],
       state: (m, loaded) => [isActive(m, loaded) ? 0 : m.usable ? 1 : 2],
@@ -311,7 +311,7 @@
     // ---------- filters: combined, on the values shown ----------
 
     // Neither case nor accents: « Réseau » matches « reseau ».
-    const folded = (text) => (text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase(locale());
+    const folded = (text) => (text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
     function matches(tr, m, wanted) {
       if (wanted.hosting && tr.dataset.hosting !== wanted.hosting) return false;

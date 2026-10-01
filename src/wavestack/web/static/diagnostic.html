@@ -336,9 +336,10 @@
       searchBarEl.value = done;
     }
 
-    // `diagnostic_progress`, history or live: during the search, its latest word.
-    function onProgress(payload) {
-      if (!searching) return;
+    // Live `diagnostic_progress` during the search: its latest word. The history is not
+    // replayed: /api/diagnostic already gave the latest one (`progress`).
+    function onProgress(payload, live) {
+      if (!searching || !live) return;
       progress = payload;
       renderSearch();
     }

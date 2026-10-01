@@ -404,6 +404,33 @@ def test_discovery_with_everything_cached_emits_a_single_zero_progress(monkeypat
     assert _progress(before) == [(0, 0)]
 
 
+def test_ollama_tags_sharing_one_blob_are_probed_once(monkeypatch, tmp_path):
+    """Review of story 3: the probes run after the loop, so a blob listed under two tags
+    must still cost one probe, and both tags take its outcome."""
+    session, _ = _build(monkeypatch, tmp_path)
+    blob = _ollama_blob(tmp_path, "9b", "latest")
+    calls = _fake_probe_ok(monkeypatch, session)
+
+    before = get_journal().last_seq()
+    result = session.check_model()
+
+    assert calls == [str(blob)]
+    assert _progress(before) == [(0, 1), (1, 1)]
+    assert {c.architecture for c in result.candidates if c.path == str(blob)} == {"qwen35"}
+
+
+def test_choosing_a_file_after_the_search_emits_no_progress(monkeypatch, tmp_path):
+    """The progress is the launch search's: a later choice (`select_model`) is silent."""
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"))
+    _fake_probe_ok(monkeypatch, session)
+    session.check_model()
+
+    before = get_journal().last_seq()
+    session.select_model(str(config.models_dir() / "b.gguf"))
+
+    assert _progress(before) == []
+
+
 def test_diagnostic_progress_payload_is_validated_by_the_catalog():
     model = PAYLOAD_MODELS["diagnostic_progress"]
     assert model.model_validate({"done": 0, "total": 0}).model_dump() == {"done": 0, "total": 0}

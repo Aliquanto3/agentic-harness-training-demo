@@ -6270,7 +6270,7 @@ function eventSummary(group) {
     case "diagnostic_check":
       return `${labelValue(p.check, p.status)} · ${p.message_text}`;
     case "diagnostic_progress":
-      return p.total ? t("main.log.diagnostic_progress", { done: p.done, total: p.total }) : t("main.log.diagnostic_nothing_to_probe");
+      return p.total ? t("main.log.diagnostic_progress", { count: p.done, total: String(p.total) }) : t("main.log.diagnostic_nothing_to_probe");
     case "llm_tokenized":
       return p.exact
         ? `${t("main.ctx.tokens", { tokens: String(p.figures_text?.token_count ?? p.token_count) })} · ${p.model_label}`

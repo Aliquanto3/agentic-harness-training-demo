@@ -422,7 +422,7 @@ def test_the_session_spend_is_in_the_state_and_has_its_place_in_the_top_bar(monk
     assert spend["total_eur"] == (0.001 + 0.002) * 0.86
     index = client.get("/").text
     assert index.index('id="gauge-figures"') < index.index('id="consumption"')
-    assert '<th scope="col">Prix</th>' in client.get("/models").text
+    assert '<span class="sort-label">Prix</span>' in client.get("/models").text
 
 
 def test_select_model_boots_the_found_candidate_path(monkeypatch, tmp_path):

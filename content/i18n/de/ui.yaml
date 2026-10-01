@@ -732,8 +732,10 @@ main:
     no_armed: "keine scharf geschaltete Aktion"
     at_most: "höchstens {count}"
     rerank_progress: "{done} / {total} Auszüge bewertet"
-    diagnostic_progress: "{done} von {total} Modellen getestet"
-    diagnostic_nothing_to_probe: "Kein Modell zu testen, alles im Cache"
+    diagnostic_progress:
+      one: "{count} von {total} Modell getestet"
+      other: "{count} von {total} Modellen getestet"
+    diagnostic_nothing_to_probe: "Kein Modell zu testen"
     rerank_first: "erster: {title} (vorher: #{before})"
     search_best: "bester: {title} ({score})"
     reasoning_cut: "abgeschnitten bei {tokens} Tokens (Budget {budget}) · {reserve} für die Antwort"

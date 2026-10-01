@@ -1,17 +1,31 @@
-﻿---
+---
 title: 'Pages Diagnostic et Modèles : tableau triable et filtrable, progression'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'ea027d2637d93d390d4f0423d97145941195b67d'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/SPEC.md'
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/ecrans-lots-2-a-4.md'
   - '{project-root}/_bmad-output/specs/spec-langues/i18n-conventions.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      La chaîne réelle de la recherche au lancement (événements émis par une vraie sonde, flux SSE, page, puis bascule en direct vers la liste au contrôle model) n'est jouée par aucun E2E.
+    evidence: |-
+      _diagnostic_search_shown simule /api/diagnostic et /api/diagnostic/stream par page.route, puis recharge la page ; la pile E2E n'a pas de sonde lente au lancement (SLOW_PROBE est un changement à chaud qui ne sonde pas). Côté serveur, test_diagnostic_says_searching_and_progress_until_the_model_check couvre searching et progress.
+    location: >-
+      tools/e2e/run_e2e.py (_diagnostic_search_shown)
+    severity: medium
+  - summary: >-
+      Aucun contrôle automatique ne vérifie que la bande de filtres de /models et les cartes cloud de /diagnostic tiennent en de à 1 280 et 1 600 px, en normal et en projection.
+    evidence: |-
+      L'E2E ne contrôle que le tri et le filtre en de à 1 280 px et prend des captures ; à vérifier pendant la recette de la phase 3 (Edge, trois largeurs, de).
+    location: >-
+      src/wavestack/web/static/models.html, diagnostic.html
+    severity: medium (unverified)
 ---
 
 <intent-contract>
@@ -102,3 +116,57 @@ deferred: []
 - `uv run ruff check .` et `uv run ruff format --check .` -- expected: aucun écart.
 - `uv run pytest -q tests/test_cli_diagnostic.py tests/test_ui_texts.py tests/test_web_tokens.py tests/test_model_catalog.py tests/test_web_app.py tests/test_i18n.py` -- expected: tout passe.
 - E2E (orchestrateur) : `--only model_catalog themes local_server`, `--only annex_language model_switch` -- expected: 0 échec.
+
+## Review Triage Log
+
+### 2026-10-01 — Review pass
+- verdicts: 35 findings — high 0, medium 14, low 17, false 4, maybe-false 0 (doublons gardés sur leur ligne, avec la route de leur groupe)
+- findings:
+  - Intent Alignment
+    - `[medium]` `[patch]` R1 : `_discover` émet aussi depuis `select_model` et `select_server` (un `{0, 0}` « tout est en cache » à chaque choix de serveur) — `_discover(report_progress=…)`, vrai seulement depuis `_check_model_locked` ; test `test_choosing_a_file_after_the_search_emits_no_progress`.
+    - `[low]` `[reject]` R2 : `progress` = dernier événement du journal, pas celui de la recherche en cours — après le correctif R1, seule la recherche au lancement émet, et `searching` n'est vrai qu'avant son premier résultat : aucun autre émetteur ne peut s'intercaler.
+    - `[medium]` `[defer]` R7 : rien ne vérifie que tout tient en `de` à 1 280 et 1 600 px — vérification visuelle reportée à la recette de la phase 3 (frontmatter `deferred`).
+    - `[low]` `[reject]` R6 : des `px` restent (largeur maximale, bordures `1px`) — « taille » lue comme typographie, contrôlée par `test_web_tokens` ; les bordures `1px` sont la convention de `llm.css` et `rag.css`.
+    - `[medium]` `[defer]` La mise à jour en direct n'est éprouvée qu'avec un flux simulé (`page.route`) — la pile E2E n'a pas de sonde lente au lancement ; frontmatter `deferred`.
+    - `[medium]` `[defer]` La bascule « Fin » en direct (contrôle `model`, puis liste) n'est jouée nulle part — même cause, même entrée différée.
+    - `[false]` `[reject]` `deferred-work.md` se dit « vérifié » sans exécution — les vérifications ont tourné depuis : pytest des fichiers de la spec et tranche `model_catalog` (114 vérifications, 0 échec).
+  - Verification Gap
+    - `[medium]` `[patch]` Des tags Ollama qui partagent un blob sont sondés une fois chacun (les sondes passent après la boucle, le cache n'est plus écrit entre deux) — `to_probe` dédoublonné par chemin, résultat recopié sur les tags frères ; test `test_ollama_tags_sharing_one_blob_are_probed_once`.
+    - `[medium]` `[patch]` Tri et filtres de `/models` peu couverts (outils « non », raisonnement « oui », éditeur, tri à rangs) — `_models_sort_and_filters` étendu.
+    - `[low]` `[reject]` Résumé `diagnostic_progress` du journal de l'atelier non testé — texte d'affichage ; ses clés sont vérifiées par `test_ui_texts`, et le pluriel est corrigé (ci-dessous).
+    - `[medium]` `[patch]` Émission hors recherche (doublon de R1) — même correctif.
+    - `[medium]` `[defer]` Chaîne réelle au lancement non jouée de bout en bout (doublon) — même entrée différée.
+  - Edge Case Hunter
+    - `[medium]` `[patch]` Blob partagé sondé N fois (doublon) — même correctif.
+    - `[low]` `[patch]` `select_server` (`probe_only=set()`) écrit « tout est en cache » (doublon de R1) — même correctif.
+    - `[low]` `[patch]` Journal : « 1 modèles testés sur 1 » — `main.log.diagnostic_progress` en `.one`/`.other` dans les trois langues, `app.js` passe `count`.
+    - `[low]` `[patch]` Le flux rejoue l'historique : le compteur peut reculer un instant à l'ouverture — `onProgress` ignore l'historique (`live` faux) : `/api/diagnostic` a déjà donné le dernier état.
+    - `[low]` `[patch]` Une fenêtre `0` (affichée « — ») se trie en tête — clé `m.window || null`.
+    - `[low]` `[patch]` `_models_window_then_network` passe si la liste réseau est vide — `bool(network)` ajouté.
+    - `[medium]` `[defer]` Sonde lente simulée (doublon) — même entrée différée.
+  - Blind Hunter
+    - `[low]` `[patch]` Journal non pluralisé (doublon) — même correctif.
+    - `[medium]` `[patch]` Émission hors recherche (doublon) — même correctif.
+    - `[low]` `[patch]` `total = 0` toujours dit « tout est en cache », faux sans fichier ou avec des échecs mémorisés — texte neutre « Aucun modèle à tester » (fr, en, de).
+    - `[low]` `[reject]` Le tri « Éditeur » ne déplace rien (groupes par éditeur) — colonne exigée triable par l'intention ; le groupe « Autres éditeurs » mélange des noms.
+    - `[false]` `[reject]` Le tri par taille ignore `params_b` des modèles cloud — `compareValues` passe à la valeur suivante quand les deux `size_bytes` sont nuls (`x === y`), et un groupe ne mélange jamais local et réseau.
+    - `[low]` `[reject]` Pas de retour à l'ordre servi ; « Réinitialiser » garde le tri — un rechargement le rend ; un troisième état ajoute de la logique pour un besoin rare.
+    - `[low]` `[reject]` `progress` non lié à la recherche courante (doublon de R2) — même raison.
+    - `[low]` `[reject]` `done ≤ total` non imposé par le catalogue — le seul émetteur le garantit et la page borne déjà.
+    - `[medium]` `[defer]` Critère 2 non éprouvé avec de vraies sondes (doublon) — même entrée différée.
+    - `[medium]` `[patch]` Tris et filtres non testés (doublon) — même correctif E2E.
+    - `[medium]` `[defer]` Tenue en `de` à deux largeurs (doublon de R7) — recette.
+    - `[low]` `[reject]` `test_web_tokens` laisse passer des `px` (doublon de R6) — même raison.
+    - `[low]` `[reject]` Boutons copiés en trois endroits, ombre pressée du secondaire — copie conforme de `llm.css:218-222` (même état pressé) ; factoriser touche `/llm` et `/rag`, hors de la story.
+    - `[low]` `[reject]` `role="status"` annonce à chaque frappe — région polie, regroupée par les lecteurs d'écran ; un anti-rebond ajoute un minuteur pour un gain faible.
+    - `[false]` `[reject]` `deferred-work.md` « vérifié » (doublon) — même réfutation.
+    - `[false]` `[reject]` DESIGN.md dit « 4 px » alors que le jeton est `spacing.1` — `--spacing-1` vaut 4 px : la prose est juste.
+
+## Auto Run Result
+
+- **Résumé** : `/models` triable (boutons d'en-tête, `aria-sort`, tri dans chaque groupe, inconnus en dernier) et filtrable (hébergement, éditeur, outils, raisonnement, texte libre, compteur « n sur N », état vide avec réinitialisation) ; `/diagnostic` dit « Recherche et test des modèles en cours… » avec une barre `{done} sur {total}` alimentée par le nouvel événement `diagnostic_progress` et les champs `searching`/`progress` de `/api/diagnostic` ; les deux pages refaites sur les tokens (`pages.css`, `body.annex-page`), cartes cloud, boutons primaire et secondaire.
+- **Fichiers** : `trace/catalog.py` (payload), `session/diagnostic.py` (émission pendant la recherche au lancement, sondes dédoublonnées par blob), `web/app.py` (`searching`, `progress`), `static/models.html`, `static/diagnostic.html`, `static/pages.css`, `static/app.js` (résumé au journal), `content/ui.yaml` et surcouches en/de, tests (`test_cli_diagnostic`, `test_ui_texts`, `test_web_tokens`, `test_web_app`), `tools/e2e/run_e2e.py` (+ captures 44b et 49b), DESIGN.md, EXPERIENCE.md, ARCHITECTURE-SPINE, `deferred-work.md`.
+- **Revue** : 35 constats ; 9 correctifs (progression limitée à la recherche au lancement, blob Ollama sondé une fois, pluriel et texte neutre du journal, historique du flux ignoré, fenêtre 0 inconnue, E2E étendu aux filtres outils/raisonnement/éditeur et au tri à rangs, garde `bool(network)`) ; 2 entrées différées (chaîne réelle au lancement non jouée en E2E ; tenue en `de` à deux largeurs, à voir en recette) ; rejets motivés dans le journal de triage.
+- **Revue de suivi recommandée** : `true` (premier passage, trois entrées `medium` corrigées, 0 `high`). Risque nommé : la fin de la recherche en direct sur `/diagnostic` (contrôle `model` reçu, `onProgress` filtré sur le direct, rechargement de la liste) n'est éprouvée par aucun test de bout en bout.
+- **Vérification** : `ruff check` et `ruff format --check` propres ; `node --check app.js` ; pytest en quarts 3 503 (3 échecs Headroom hors ligne, sujet de la story 4, sans lien) + 603 + 309 (3 ignorés) + 331 ; E2E `model_catalog themes local_server` 114/114, `annex_language model_switch` 68/68 avant correctifs, `model_catalog` 54/54 et `annex_language model_switch local_server` 108/108 après.
+- **Risques résiduels** : la bascule en direct de la recherche vers la liste n'est vue qu'en pytest (API) et par flux simulé.

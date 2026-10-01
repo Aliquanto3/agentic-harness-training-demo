@@ -732,8 +732,10 @@ main:
     no_armed: "no armed action"
     at_most: "at most {count}"
     rerank_progress: "{done} / {total} excerpts scored"
-    diagnostic_progress: "{done} of {total} models tested"
-    diagnostic_nothing_to_probe: "No model to test, all cached"
+    diagnostic_progress:
+      one: "{count} of {total} model tested"
+      other: "{count} of {total} models tested"
+    diagnostic_nothing_to_probe: "No model to test"
     rerank_first: "first: {title} (before: #{before})"
     search_best: "best: {title} ({score})"
     reasoning_cut: "cut at {tokens} tokens (budget {budget}) · {reserve} for the answer"

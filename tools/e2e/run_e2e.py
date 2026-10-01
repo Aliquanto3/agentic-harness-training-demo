@@ -6297,11 +6297,14 @@ def _models_row(r: Run, value: str) -> dict[str, str]:
 # ---------- story 3 of 2026-09-30: sort and filters of /models, the diagnostic's search ------
 
 # Each visible group of the table, its visible rows in order: the pairs out of order for the
-# column `key` (`size`: bytes, then parameters), unknown values always last.
-_MODELS_ORDER_JS = """({key, descending}) => {
+# column `key` (`size`: bytes, then parameters), unknown values always last; `ranks`: the
+# rank of each text value (`reasoning`), the others unknown.
+_MODELS_ORDER_JS = """({key, descending, ranks}) => {
   const problems = [];
+  const value = (v) =>
+    ranks ? (ranks[v] ?? null) : v === "" || v === undefined ? null : Number(v);
   const read = (tr) => (key === "size" ? [tr.dataset.size, tr.dataset.params] : [tr.dataset[key]])
-    .map((v) => (v === "" || v === undefined ? null : Number(v)));
+    .map(value);
   for (const body of document.querySelectorAll("#models-table tbody")) {
     if (body.hidden) continue;
     const rows = [...body.querySelectorAll("tr[data-value]")].filter((tr) => !tr.hidden);
@@ -6321,8 +6324,10 @@ _MODELS_ORDER_JS = """({key, descending}) => {
 }"""
 
 
-def _models_order_problems(r: Run, key: str, descending: bool) -> list[str]:
-    return r.page.evaluate(_MODELS_ORDER_JS, {"key": key, "descending": descending})
+def _models_order_problems(
+    r: Run, key: str, descending: bool, ranks: dict[str, int] | None = None
+) -> list[str]:
+    return r.page.evaluate(_MODELS_ORDER_JS, {"key": key, "descending": descending, "ranks": ranks})
 
 
 def _models_sort_marks(r: Run) -> dict[str, str | None]:
@@ -6431,6 +6436,50 @@ def _models_sort_and_filters(r: Run) -> None:
         f"{len(shown)} / {total} · {page.inner_text('#models-status')}",
     )
 
+    reasoning = page.locator('#models-table th[data-sort="reasoning"] .sort-button')
+    reasoning.click()
+    ranks = {"always": 0, "toggle": 1, "never": 2}
+    problems = _models_order_problems(r, "reasoning", descending=False, ranks=ranks)
+    r.check(
+        _models_sort_marks(r)["reasoning"] == "ascending" and not problems,
+        "tableau : « Raisonnement », toujours < activable < jamais dans chaque groupe, "
+        "inconnus en dernier",
+        "; ".join(problems[:4]),
+    )
+
+    publisher = page.eval_on_selector_all(
+        "#filter-publisher option", "os => os.map(o => o.value).filter(Boolean)"
+    )
+    picked = publisher[0] if publisher else None
+    filters = [
+        ("#filter-tools", "no", lambda m: m["tools"] is not True, "outils « Non ou inconnu »"),
+        (
+            "#filter-reasoning",
+            "yes",
+            lambda m: m["reasoning"] in ("always", "toggle"),
+            "raisonnement « Oui » (toujours ou activable)",
+        ),
+        (
+            "#filter-publisher",
+            picked,
+            lambda m: m["publisher_id"] == picked,
+            f"éditeur « {picked} »",
+        ),
+    ]
+    for selector, option, keep, label in filters:
+        if option is not None:
+            page.select_option(selector, option)
+        expected = sorted(m["value"] for m in rows if keep(m))
+        shown = sorted(_models_visible_values(r))
+        r.check(
+            option is not None and bool(expected) and shown == expected,
+            f"filtres : {label}, ses seules lignes",
+            f"{len(shown)} affichées · attendu {len(expected)} · "
+            f"en trop {sorted(set(shown) - set(expected))[:4]} · "
+            f"manquantes {sorted(set(expected) - set(shown))[:4]}",
+        )
+        page.locator("#filters-reset").click()
+
 
 def _models_window_then_network(r: Run) -> None:
     """German, at the width of the moment: sort by « Fenster », then the « Netzwerk » filter;
@@ -6448,7 +6497,8 @@ def _models_window_then_network(r: Run) -> None:
     status = page.inner_text("#models-status")
     word = "Modell" if len(network) == 1 else "Modelle"
     r.check(
-        option == "Netzwerk"
+        bool(network)
+        and option == "Netzwerk"
         and shown == network
         and not problems
         and status == f"{len(network)} {word} von {len(rows)}",
