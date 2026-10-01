@@ -2,7 +2,7 @@
 title: 'Langues (5/5) : messages produits par le backend'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'd1c98b17b2577dca4801061ddec044fd6f005209'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -93,18 +93,18 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Commit 1 : `src/wavestack/messages.py`, `content/messages.yaml` (sections `session`, `tools.datetime`, `mcp.glossary`), `config.clear_content_caches`, `_localized`, `native.get_datetime`, `local_server.py`, `ui_texts.py` (partage de `_check` et `_filled`). Traductions `en` et `de` de ces trois clés dans le même commit, puisqu'elles sont l'objet des reprises.
-- [ ] `tests/test_backend_messages.py` (nouveau), commits 1 à 4 :
+- [x] Commit 1 : `src/wavestack/messages.py`, `content/messages.yaml` (sections `session`, `tools.datetime`, `mcp.glossary`), `config.clear_content_caches`, `_localized`, `native.get_datetime`, `local_server.py`, `ui_texts.py` (partage de `_check` et `_filled`). Traductions `en` et `de` de ces trois clés dans le même commit, puisqu'elles sont l'objet des reprises.
+- [x] `tests/test_backend_messages.py` (nouveau), commits 1 à 4 :
   - chaque clé rendue en `fr`, `en` et `de` avec des variables fictives : non vide, sans `{` restant ;
   - chaque ligne de la matrice côté Python, session `de` ou `en` et `settings.json` contraire ;
   - un contrôle statique : dans les modules du périmètre, aucun littéral avec un caractère propre au français (accent, « ») hors docstrings, `log.*` et une liste d'exceptions justifiées.
-- [ ] Commit 2 : les fichiers « LLM » du Code Map ; `ToolExecutor(registry, language)` ; le contrôle statique couvre ces modules.
-- [ ] Commit 3 : les fichiers « Utilisateur » du Code Map ; le contrôle statique couvre tout le périmètre.
-- [ ] Commit 4 : `content/i18n/{en,de}/messages.yaml` complets (deux sous-agents) ; `tests/test_i18n.py` : branche de parité de `messages.yaml` (mêmes clés, mêmes variables) ; `common.language.help` dans les trois `ui.yaml`.
-- [ ] Commit 5 : `tools/e2e/run_e2e.py` :
+- [x] Commit 2 : les fichiers « LLM » du Code Map ; `ToolExecutor(registry, language)` ; le contrôle statique couvre ces modules.
+- [x] Commit 3 : les fichiers « Utilisateur » du Code Map ; le contrôle statique couvre tout le périmètre.
+- [x] Commit 4 : `content/i18n/{en,de}/messages.yaml` complets (deux sous-agents) ; `tests/test_i18n.py` : branche de parité de `messages.yaml` (mêmes clés, mêmes variables) ; `common.language.help` dans les trois `ui.yaml`.
+- [x] Commit 5 : `tools/e2e/run_e2e.py` :
   - motifs de `messages.yaml` ajoutés à `_french_patterns` et `_annex_patterns`, exclusions `_backend_strings` et `_annex_backend` retirées ;
   - tranche `backend_language`, en `en` puis `de` : erreur d'outil lue par le modèle (corps de `r.fake_calls()` sans valeur française de `messages.yaml`), carte indisponible, diagnostic, catalogue des modèles, captures `de` à 1 280 et 1 600 px en mode normal et projection sur l'écran principal, `finally` en `fr`.
-- [ ] Commit 5 : `README.md`, `ARCHITECTURE-SPINE.md` (AD-19), `i18n-conventions.md` si le détail change, `deferred-work.md` (fermer les entrées « messages du Python »).
+- [x] Commit 5 : `README.md`, `ARCHITECTURE-SPINE.md` (AD-19), `i18n-conventions.md` si le détail change, `deferred-work.md` (fermer les entrées « messages du Python »).
 
 **Acceptance Criteria:**
 - Given la langue `fr`, when on joue ruff, pytest en quarts et l'E2E par tranches après chaque commit, then tout passe et aucune assertion existante n'a changé hors des trois de `_localized` et de la sortie en terminal.
@@ -123,6 +123,7 @@ context:
   - commit 5 : tranche E2E `backend_language` et motifs `messages.yaml` dans `run_e2e.py` ; `README.md`, `ARCHITECTURE-SPINE.md` (AD-19), `i18n-conventions.md`, `deferred-work.md`.
 - **2026-10-01, commits 4 et 5 faits par la story 7 des corrections du 2026-09-30** (`_bmad-output/specs/spec-corrections-2026-09-30/stories/7-traductions-restantes-messages-du-backend-et-textes-de-la-nuit.md`) : `content/i18n/{en,de}/messages.yaml` complets (1 020 clés, deux sous-agents ; l'allemand vouvoie l'utilisateur et tutoie le modèle comme le prompt système), parité stricte, `common.language.help` à jour, tests paramétrés `en`/`de` de la matrice, tranche E2E `backend_language` et motifs `messages.yaml` (écrits, pas encore joués), docs.
 - Risques connus : une raison de sonde stockée en français (`probe`, `settings.json`) n'est retraduite que si elle correspond exactement à un texte connu (`discovery.reason_message`) ; quand un `publishers.yaml` traduit et le français sont invalides, l'erreur reste française.
+- **2026-10-01, clôture (lot des restes, `spec-restes-2026-10-01.md`)** : story livrée en entier. Commits 1 à 3 sur `feat/i18n-5` (fusionnés par la PR #14), commits 4 et 5 par la story 7 des corrections du 2026-09-30 (PR #16, fusionnée dans `main` à `18c3978`). Vérification avec processus du 2026-10-01 (état de la nuit du 2026-09-30) : E2E `backend_language` 16/16, `annex_language` 29/29, `ui_language` sans échec, `content_language language` 34/34 ; `test_i18n`, `test_backend_messages`, `test_ui_texts` verts. Statut passé à `done`.
 
 ## Spec Change Log
 
