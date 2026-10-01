@@ -34,6 +34,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/3-llm-nu-compteur-de-tokens-jauge.md`
   summary: `LlamaCppEngine.complete` (arrêt sur EOG, sortie coupée à `max_tokens`, séquence d'arrêt, annulation, décodage UTF-8 incrémental) n'est testé sur aucun vrai modèle : les tests du tour passent par le moteur factice, qui réimplémente cette logique.
   evidence: Un décalage d'un token sur `count >= max_tokens`, ou un préfixe d'arrêt émis après coup, passerait inaperçu. À ajouter au test opt-in marqué `model` (`tests/test_render_reference.py`, `WAVESTACK_TEST_GGUF`) avec un petit GGUF.
+  closed: 2026-10-01 (story 1 des restes différés) — `tests/test_llama_engine.py` : cinq tests (EOG, `max_tokens`, séquence d'arrêt et son préfixe, annulation, caractère coupé entre deux tokens) joués sur le vrai `LlamaCppEngine.complete`, avec un `llama_cpp` scripté (`stub`, toujours lancé) et avec un vrai GGUF (`gguf`, marqué `model`, sauté sans `WAVESTACK_TEST_GGUF`, pas encore lancé sur un vrai modèle).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/5-outils-natifs.md`
   summary: Story 5b — outils réseau (`public_holidays` via calendrier.api.gouv.fr, `wikipedia_summary` via fr.wikipedia.org REST, `fetch_page` limité aux hôtes autorisés et coupé à `fetch_page_max_chars`), fabrique AD-15 complétée (`body` dans `outbound_request`, refus hors liste par `net`, redirections manuelles revérifiées, `preview_request`), `hosting-tag-network` et `outbound-payload` dans l'interface, état `not_contacted` puis `available`/`unavailable` du composant réseau selon le dernier appel.
@@ -57,6 +58,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1c-correctif-garde-reseau.md`
   summary: La garde réseau ne filtre ni `socket.gethostbyname`/`gethostbyname_ex` ni `socket.sendto` : une résolution hors liste ou un envoi UDP vers une IP quelconque lui échappent.
   evidence: AD-15 ne filtre que `socket.getaddrinfo` et `socket.connect` ; relevé par la revue de la story 1c (préexistant). À traiter avant d'adopter une dépendance qui résout par `gethostbyname` ou parle UDP, en ajoutant ces événements au hook.
+  closed: 2026-10-01 (story 1 des restes différés) — `net/guard.py` (`_RESOLVE_EVENTS`, `_SEND_EVENTS`) : `socket.gethostbyname` (que lève aussi `gethostbyname_ex`) suit la règle de `getaddrinfo`, `socket.sendto` et `socket.sendmsg` celle de `connect` ; `tests/test_net_guard.py::test_guard_resolution_and_udp_filter`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1d-correctif-cache-navigateur-et-echecs-de-sonde.md`
   summary: Permettre de forcer une nouvelle sonde d'un fichier mémorisé en échec (par exemple, un choix explicite qui contourne `failed_probes`).
@@ -98,6 +100,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/7-skills-dont-caveman.md`
   summary: Aucun test ne vérifie que les vraies briques `skills`, `tools` et `mcp` sont indisponibles sur un modèle sans `tool_call_parser`.
   evidence: Supprimer `capabilities=["tool_call_parser"]` d'une déclaration de `bricks/registry.py` ne fait échouer aucun test ; seul le mécanisme générique est testé (`tests/test_bricks.py:371`).
+  closed: 2026-10-01 (story 1 des restes différés) — `tests/test_bricks.py::test_real_tool_bricks_are_unavailable_without_a_tool_call_parser`, paramétré sur `tools`, `mcp`, `skills`, `subagent`.
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/7-skills-dont-caveman.md`
   summary: Le basculement d'un skill dans l'interface (`setOption("skills", …)` vers `/api/intentions/skill`) et l'état « chargé » du schéma n'ont aucun test front.
   evidence: Le dépôt n'a aucun banc de test JS ; seul l'endpoint serveur est testé (`tests/test_skills.py`, `test_skill_intention_http`).
@@ -110,6 +113,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8-hooks-h1-h2-h3-h5.md`
   summary: Aucun test ne vérifie que H2 reprend, à son déclenchement suivant dans le même tour, les lignes d'une écriture d'`audit.log` échouée (échec en `after_tool`, succès en `on_turn_end`).
   evidence: `test_h2_write_failure_is_traced_and_the_turn_goes_on` n'a qu'un déclenchement (`tools=False`) ; avancer le curseur de H2 même en cas d'échec perdrait des lignes sans qu'aucun test n'échoue. Il faut injecter un échec ponctuel (monkeypatch de `_apply_audit` ou de `config.audit_path`) ; chemin d'erreur secondaire, relevé par la couche verification-gap de la revue de la story 8.
+  closed: 2026-10-01 (story 1 des restes différés) — `tests/test_hooks.py::test_h2_takes_back_the_lines_of_a_failed_write_at_its_next_trigger`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8-hooks-h1-h2-h3-h5.md`
   summary: Les nœuds du schéma d'architecture (dont « Journal d'audit », seul accès au journal entier) ne sont atteignables qu'à la souris : pas de `tabindex` ni de gestion du clavier sur les `<g>` SVG.
@@ -119,6 +123,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8b-hook-h5-validation-humaine.md`
   summary: Aucun test ne vérifie qu'un hook `before_tool` qui modifie les arguments avant H5 fait porter à l'aperçu (`approval_requested.preview`) et à l'envoi (`outbound_request`) les mêmes arguments modifiés.
   evidence: `_hook` recopie les arguments modifiés dans le résultat `ask_human` ; retirer ce `replace` ferait approuver un aperçu et envoyer d'autres arguments sans qu'un test échoue. Inatteignable avec les hooks de démonstration (aucun ne modifie en `before_tool`) ; à ajouter avec le premier hook qui modifie, ou avec la story 9. Relevé par la couche verification-gap de la revue de la story 8b.
+  closed: 2026-10-01 (story 1 des restes différés) — `tests/test_hooks.py::test_h5_previews_and_sends_the_arguments_a_hook_modified_before_it`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8b-hook-h5-validation-humaine.md`
   summary: Le rendu front de la story 8b (carte « En attente de votre validation », trois boutons actifs seulement en `awaiting_human`, décision affichée après résolution, « Arrêter » visible pendant l'attente, indicateur « En attente de validation ») n'est vérifié par aucun test automatique.
@@ -244,6 +249,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
   summary: Critère d'acceptation 3 de la story 13 (brique Raisonnement voulue, indisponible avec un modèle qui ne raisonne pas, redevenue effective sans nouveau clic avec un modèle qui raisonne) non testé.
   evidence: Le changement de modèle à chaud n'existe pas encore (story 17) ; la disponibilité est bien calculée au point unique d'AD-12 et `wanted` n'est jamais modifié par un chargement. Écrire le test avec la story 17 (select_model hors diagnostic).
+  closed: 2026-10-01 (story 1 des restes différés) — `tests/test_model_switch.py::test_wanted_reasoning_waits_for_a_model_that_reasons_without_a_new_click`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
   summary: `_resend()` est lu dans la configuration courante à chaque rendu plutôt que figé dans le `TurnState`, et le raisonnement d'un tour passé repart (avec `resend = true`) même quand la brique Raisonnement est éteinte.
@@ -289,6 +295,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
   summary: Le critère d'acceptation 3 de la story 13 (brique Raisonnement redevenue effective sans nouveau clic avec un modèle qui raisonne) reste sans test dédié, bien que le changement à chaud existe maintenant.
   evidence: La story 17 teste la même règle pour la brique Outils (`test_lost_capability_leaves_wanted_and_comes_back`) : disponibilité au point unique `_availability`, `wanted` jamais modifié. Un test Raisonnement demande un faux moteur dont le gabarit porte `enable_thinking` ; à écrire avec la prochaine story qui touche au raisonnement.
+  closed: 2026-10-01 (story 1 des restes différés) — même test que l'entrée de la story 13 : `tests/test_model_switch.py::test_wanted_reasoning_waits_for_a_model_that_reasons_without_a_new_click`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/19-delegation-a-un-sous-agent.md`
   summary: Écart d'architecture (AD-11, AD-12) : `contributes_to` n'est lu que pour les outils du sous-agent (brique `tools`) et pour le raisonnement ; la composition du reste du contexte `sub{n}` (prompt du sous-agent, tâche, aucune autre brique) est écrite dans `_sub_messages`, pas dérivée des briques qui déclarent `sub`.
@@ -663,3 +670,11 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1e-correctif-garde-reseau-proxy-local.md`
   summary: `test_the_test_session_holds_no_proxy` ne prouve l'ordre de `conftest.py` (proxy retiré avant la collecte) que sur un poste qui a un proxy.
   evidence: Remettre le retrait dans la fixture de session ne fait échouer aucun test sur un poste sans proxy ; il faudrait un pytest imbriqué lancé avec un faux `HTTPS_PROXY`.
+
+- source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/1-tests-backend-manquants-et-garde-reseau.md`
+  summary: La garde réseau ne filtre ni `socket.gethostbyaddr` ni `socket.getnameinfo` : une résolution inverse d'une IP quelconque, ou la résolution directe d'un nom hors liste passé à `gethostbyaddr`, part sans refus.
+  evidence: Revue de la story 1 des restes différés (Blind Hunter, Edge Case Hunter) ; préexistant, hors des trois événements nommés par E013. CPython lève `socket.gethostbyaddr` (argument : nom ou IP) et `socket.getnameinfo` ; aucun code de `src/` ne les appelle aujourd'hui. Correctif probable : la règle de `getaddrinfo` sur leur premier argument, avec un test sous `_run_guarded`.
+
+- source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/1-tests-backend-manquants-et-garde-reseau.md`
+  summary: Un nom d'hôte passé directement à `socket.connect` ou `socket.sendto` est résolu par la couche C avant l'événement d'audit : la requête DNS d'un nom hors liste part avant que la garde refuse la connexion ou le datagramme.
+  evidence: Revue de la story 1 des restes différés ; préexistant pour `connect`, consigné dans la docstring de `net/guard.py` et AD-15. Vérifié sous Python 3.13.5 : `sock_sendto` appelle `getsockaddrarg` (résolution) avant `PySys_Audit("socket.sendto")`. Fermer demanderait d'envelopper `socket.socket.connect`/`sendto` pour vérifier le nom avant l'appel C ; les clients HTTP de WaveStack passent par `getaddrinfo`, donc pas par ce chemin.

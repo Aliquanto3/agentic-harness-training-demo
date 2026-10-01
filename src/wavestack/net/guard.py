@@ -1,9 +1,14 @@
 """Network guard: a `sys.addaudithook` blocking any host outside the allow-list (AD-15).
 
 Filters `socket.getaddrinfo` (hostnames — the only event seen on every loop,
-Windows ProactorEventLoop included) and `socket.connect` (IPs). A connect is
-accepted when its IP was returned by resolving an allowed host (or the proxy),
-so the wrapped `socket.getaddrinfo` records those addresses.
+Windows ProactorEventLoop included), `socket.gethostbyname` (hostnames too,
+raised by `gethostbyname_ex` as well), and `socket.connect`, `socket.sendto` and
+`socket.sendmsg` (IPs). A connect or a UDP send is accepted when its IP was
+returned by resolving an allowed host (or the proxy), so the wrapped
+`socket.getaddrinfo` records those addresses. A host name given to
+`connect`/`sendto` is resolved by the C layer before the event: an off-list
+name's DNS query has then left already, only the connection or the datagram is
+refused.
 Installed at the very start of `cli`, before any third-party import, and
 again in every child process (probe, local MCP server).
 
@@ -48,6 +53,14 @@ _resolved: set[str] = set()
 # case for `src/`; AD-15 states both.
 _proxies: dict[str, str] = {}
 _confiscated = False
+
+# Restes différés, story 1 (E013): the audit events filtered. A resolution passes the
+# host-name check (`gethostbyname_ex` raises `socket.gethostbyname` too); a connect or a
+# UDP send, the address check.
+# ponytail: `gethostbyname(_ex)` records no address, so a connect to the IP it gave for an
+# allowed host is refused (the safe way); wrap them as `getaddrinfo` if a client needs it.
+_RESOLVE_EVENTS = frozenset({"socket.getaddrinfo", "socket.gethostbyname"})
+_SEND_EVENTS = frozenset({"socket.connect", "socket.sendto", "socket.sendmsg"})
 
 # The system lookups `getproxies()` falls back on, blinded by the confiscation.
 _SYSTEM_PROXY_LOOKUPS = ("getproxies_registry", "getproxies_macosx_sysconf")
@@ -155,15 +168,17 @@ def install(allowed_hosts: list[str]) -> None:
         if host is not None and not is_host_allowed(str(host), allowed_hosts):
             raise NetworkBlocked(Message("net.host_refused", host=str(host)))
 
+    def check_address(sock_address: object) -> None:
+        if isinstance(sock_address, tuple) and sock_address:
+            host = str(sock_address[0])
+            if host not in _resolved and not is_host_allowed(host, allowed_hosts):
+                raise NetworkBlocked(Message("net.address_refused", host=host))
+
     def hook(event: str, args: tuple[object, ...]) -> None:
-        if event == "socket.getaddrinfo":
+        if event in _RESOLVE_EVENTS:
             check_host(args[0])
-        elif event == "socket.connect":
-            sock_address = args[1]
-            if isinstance(sock_address, tuple) and sock_address:
-                host = str(sock_address[0])
-                if host not in _resolved and not is_host_allowed(host, allowed_hosts):
-                    raise NetworkBlocked(Message("net.address_refused", host=host))
+        elif event in _SEND_EVENTS:  # (socket, address); `sendmsg` without one: None
+            check_address(args[1])
 
     # Module attribute, looked up at call time by `socket.create_connection`
     # and asyncio: wrapping it sees every resolution.
