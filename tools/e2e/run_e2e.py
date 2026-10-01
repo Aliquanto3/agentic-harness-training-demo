@@ -41,7 +41,10 @@ from stack import (  # noqa: E402
     running_stack,
 )
 
+from wavestack.models.candidates import distribution as live_distribution  # noqa: E402
+from wavestack.models.engine import Sampling  # noqa: E402
 from wavestack.rag import index as rag_index  # noqa: E402
+from wavestack.trace.envelope import Envelope  # noqa: E402
 
 SHOTS = Path(__file__).resolve().parent / "screenshots"
 REPO = Path(__file__).resolve().parents[2]
@@ -4603,6 +4606,447 @@ def _mcp_lab(r: Run, errors: list[str]) -> None:
     )
 
 
+def s_mcp_lab_page(r: Run) -> None:
+    """Restes du 2026-10-01 (story 6, IA3, IA4, BH16): what `/mcp` does on its own side.
+    The state unreachable (`page.route`), then back; « Occupé » during a real turn of the
+    workshop; « Arrêter » pressed during the glossary's handshake; a preset, a call, the
+    page reloaded (`last_session` replayed); data.gouv.fr cut by the stack (its outbound
+    request shown); then a `last_session` served by `page.route` (a public server, a tool
+    with an object, an integer and a boolean parameter, a bounded call): the fields, an
+    invalid JSON said without a request, the arguments sent, the bound's note, « servi non
+    traduit ». Back to `/`."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    try:
+        _mcp_lab_page(r, errors)
+    finally:
+        page.remove_listener("pageerror", listener)
+        for pattern in ("**/api/mcp_lab", "**/api/intentions/mcp_lab_call"):
+            page.unroute(pattern)
+        r.goto_app()
+
+
+def _goto_mcp(r: Run) -> None:
+    r.page.goto(f"{r.stack.app_url}/mcp")
+    expect(r.page.locator("body[data-mcp-ready]")).to_be_attached(timeout=15_000)
+
+
+def _mcp_messages(r: Run) -> list[tuple[str | None, str | None]]:
+    return r.page.locator("#mcp-messages .mcp-message").evaluate_all(
+        "items => items.map(i => [i.dataset.direction, i.dataset.method ?? null])"
+    )
+
+
+def _mcp_busy_checks(r: Run, busy, connect) -> None:  # noqa: ANN001
+    """A turn of the workshop running: « Occupé », « Se connecter » disabled, a direct call
+    refused, « Arrêter » of the MCP workshop greyed (it stops the workshop's exchanges)."""
+    page = r.page
+    expect(busy).to_be_visible(timeout=10_000)
+    refused = r.api("POST", "/api/intentions/mcp_lab_connect", {"server": "local"})
+    r.check(
+        "Un tour est en cours" in busy.inner_text()
+        and connect.is_disabled()
+        and "Un tour est en cours" in (connect.get_attribute("title") or "")
+        and page.locator("#mcp-stop").is_disabled()
+        and refused.status_code == 409,
+        "tour de l'atelier en cours : bandeau « Occupé » avec la raison, « Se connecter » "
+        "désactivé, appel direct 409, « Arrêter » de l'atelier MCP grisé",
+        f"{busy.inner_text()} · {refused.status_code}",
+    )
+
+
+def _mcp_stop_during_handshake(r: Run, connect) -> bool:  # noqa: ANN001
+    """« Connecter » then « Arrêter » as soon as it is enabled, at most three times (the
+    handshake can win the race); whether the stop was seen, checked either way."""
+    page = r.page
+    stopped, attempts, missed = None, 0, []
+    while stopped is None and attempts < 3:
+        attempts += 1
+        seq = r.ev.mark()
+        connect.click()
+        try:
+            page.locator("#mcp-stop").click(timeout=5000)
+        except Exception as exc:  # noqa: BLE001 - the handshake ended first: greyed again
+            missed.append(type(exc).__name__)
+        ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
+        if ended["status"] == "error":
+            stopped = ended
+    if stopped is None:
+        r.check(
+            False,
+            "« Arrêter » pressé pendant la poignée de main",
+            f"la poignée de main a gagné la course {attempts} fois ({missed})",
+        )
+        return False
+    summary = page.locator("#mcp-connect-summary")
+    expect(summary).to_have_attribute("data-status", "error", timeout=10_000)
+    expect(page.locator("#mcp-stop")).to_be_disabled(timeout=10_000)
+    state = r.api("GET", "/api/mcp_lab").json()
+    r.check(
+        "Échange arrêté" in (stopped.get("error_text") or "")
+        and "Échange arrêté" in summary.inner_text()
+        and state["open_server"] is None
+        and state["session_state"]["state"] == "idle"
+        and page.locator(".mcp-badge-open").count() == 0,
+        "« Arrêter » pressé pendant la poignée de main : connexion arrêtée et dite, aucune "
+        "connexion ouverte, session en idle",
+        f"{attempts} essai(s) · {summary.inner_text()[:160]}",
+    )
+    return True
+
+
+def _mcp_lab_page(r: Run, errors: list[str]) -> None:
+    page = r.page
+    r.goto_app()
+    r.wait_idle()
+    if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+        _pick_model(r, A_LABEL)
+
+    # (1) The workshop's state unreachable: said, then the page comes back by itself.
+    page.route("**/api/mcp_lab", lambda route: route.abort())
+    page.goto(f"{r.stack.app_url}/mcp")
+    alert = page.locator("#mcp-content-error")
+    expect(alert).to_be_visible(timeout=10_000)
+    said = alert.inner_text()
+    ready_meanwhile = page.locator("body[data-mcp-ready]").count()
+    page.unroute("**/api/mcp_lab")
+    expect(page.locator("body[data-mcp-ready]")).to_be_attached(timeout=15_000)
+    r.check(
+        said.startswith("Atelier MCP indisponible (") and not ready_meanwhile and alert.is_hidden(),
+        "/mcp injoignable : l'alerte le dit, la page se rétablit seule (nouvel essai)",
+        said,
+    )
+
+    # (2) A real turn of the workshop: « Occupé », « Se connecter » disabled, a direct call
+    # refused, « Arrêter » of the MCP workshop greyed (it stops the workshop's exchanges).
+    seq = r.ev.mark()
+    r.api("POST", "/api/intentions/send", {"message": "Explique le harnais [lent] [long]"})
+    r.ev.wait("model_first_token", seq, timeout=20)
+    busy = page.locator("#mcp-busy")
+    connect = page.locator('button[data-connect="local"]')
+    try:
+        _mcp_busy_checks(r, busy, connect)
+    finally:  # the turn never outlives this step, even when a check raised
+        r.api("POST", "/api/intentions/stop")
+        r.ev.wait("turn_ended", seq, timeout=30)
+    expect(busy).to_be_hidden(timeout=10_000)
+    expect(connect).to_be_enabled(timeout=10_000)
+
+    # (3) « Arrêter » pressed during the handshake (the glossary's process starting): the
+    # handshake may win the race on a fast workstation, then the gesture is played again.
+    if not _mcp_stop_during_handshake(r, connect):
+        return
+
+    # (4) The glossary: a preset, a call; the page reloaded replays `last_session`.
+    summary = page.locator("#mcp-connect-summary")
+    seq = r.ev.mark()
+    connect.click()
+    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
+    expect(summary).to_have_attribute("data-status", "ok", timeout=10_000)
+    page.locator("#mcp-call-tool").select_option("local__define_term")
+    presets = page.locator("#mcp-call-preset option").all_inner_texts()
+    page.locator("#mcp-call-preset").select_option("0")
+    term = page.locator('#mcp-call-fields input[name="term"]').input_value()
+    r.check(
+        ended["status"] == "ok" and presets == ["Aucun", "MCP"] and term == "MCP",
+        "préréglage « MCP » de define_term : le champ term rempli",
+        f"{presets} · {term!r}",
+    )
+    seq = r.ev.mark()
+    page.locator("#mcp-call-run").click()
+    call = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
+    expect(page.locator("#mcp-call-summary")).to_have_attribute("data-status", "ok", timeout=10_000)
+    shown = {
+        "messages": _mcp_messages(r),
+        "summary": page.inner_text("#mcp-connect-summary"),
+        "tools": page.locator("#mcp-tools .mcp-tool").count(),
+        "call": page.inner_text("#mcp-call-summary"),
+        "reinjected": page.inner_text(".mcp-call-text pre"),
+    }
+    r.check(
+        call["status"] == "ok"
+        and "Model Context Protocol" in shown["reinjected"]
+        and page.locator(".mcp-served").count() == 0,
+        "appel avec le préréglage : texte réinjecté ; glossaire local, pas de note « servi non "
+        "traduit »",
+        shown["reinjected"][:120],
+    )
+    _goto_mcp(r)
+    expect(page.locator("#mcp-call-summary")).to_have_attribute("data-status", "ok", timeout=10_000)
+    replayed = {
+        "messages": _mcp_messages(r),
+        "summary": page.inner_text("#mcp-connect-summary"),
+        "tools": page.locator("#mcp-tools .mcp-tool").count(),
+        "call": page.inner_text("#mcp-call-summary"),
+        "reinjected": page.inner_text(".mcp-call-text pre"),
+    }
+    r.check(
+        replayed == shown
+        and page.locator('.mcp-server[data-server="local"] .mcp-badge-open').count() == 1,
+        "page rechargée : last_session rejoué, mêmes messages, mêmes outils, même appel, "
+        "connexion ouverte au glossaire",
+        str({k: (shown[k] == replayed[k]) for k in shown}),
+    )
+
+    # (5) data.gouv.fr, the network cut by the stack: the request leaves through the guard,
+    # shown, and fails; the page stays readable.
+    seq = r.ev.mark()
+    page.locator('button[data-connect="datagouv"]').click()
+    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=90)["payload"]
+    expect(summary).to_have_attribute("data-status", "error", timeout=10_000)
+    outbound = page.locator("#mcp-messages .mcp-outbound")
+    first = outbound.first.inner_text() if outbound.count() else ""
+    r.check(
+        ended["status"] == "error"
+        and "connexion impossible" in summary.inner_text()
+        and outbound.count() >= 1
+        and "POST https://mcp.data.gouv.fr/mcp" in first
+        and page.locator("#mcp-call-form").is_hidden()
+        and page.locator("#mcp-tools-empty").is_visible(),
+        "data.gouv.fr hors réseau : requête sortante POST affichée, connexion en erreur "
+        "dite, ni outil ni appel proposés",
+        f"{summary.inner_text()[:160]} · {first[:120]!r}",
+    )
+    r.shot("66-atelier-mcp-serveur-public-hors-reseau", full_page=True)
+
+    # (6) A public server's tools, served by `page.route` (no network here).
+    calls: list[dict[str, Any]] = []
+
+    def state(route) -> None:  # noqa: ANN001
+        response = route.fetch()
+        body = response.json()
+        body["last_session"] = _mcp_fake_session(body["seq"])
+        body["open_server"] = "datagouv"
+        route.fulfill(response=response, json=body)
+
+    def intercepted(route) -> None:  # noqa: ANN001
+        calls.append(route.request.post_data_json)
+        route.fulfill(status=409, json={"detail": "Appel intercepté (e2e)."})
+
+    page.route("**/api/mcp_lab", state)
+    page.route("**/api/intentions/mcp_lab_call", intercepted)
+    _goto_mcp(r)
+    served = page.locator('.mcp-tool[data-tool="datagouv__search_datasets"] .mcp-served')
+    kinds = page.locator("#mcp-call-fields [data-kind]").evaluate_all(
+        "fields => fields.map(f => [f.name, f.dataset.kind, f.type ?? f.tagName])"
+    )
+    r.check(
+        served.count() == 1
+        and "non traduite" in served.inner_text()
+        and kinds
+        == [
+            ["query", "text", "text"],
+            ["page_size", "number", "number"],
+            ["filters", "json", "textarea"],
+            ["strict", "boolean", "checkbox"],
+        ],
+        "serveur public : « servi non traduit » ; un champ par paramètre : texte, nombre, "
+        "JSON, case",
+        str(kinds),
+    )
+    note = _plain(page.inner_text(".mcp-call-text"))
+    outbound = page.locator(".mcp-call-outbound .mcp-outbound")
+    r.check(
+        "Borné : 512 tokens gardés sur 2 048." in note
+        and outbound.count() == 1
+        and "POST https://mcp.data.gouv.fr/mcp" in outbound.inner_text(),
+        "appel tronqué : la note « Borné » sous le texte réinjecté, sa requête sortante",
+        note[-160:],
+    )
+    page.locator("#mcp-call-preset").select_option("0")
+    query = page.locator('#mcp-call-fields input[name="query"]').input_value()
+    page.locator('#mcp-call-fields input[name="page_size"]').fill("20")
+    page.locator('#mcp-call-fields textarea[name="filters"]').fill("{oops")
+    page.locator('#mcp-call-fields input[name="strict"]').check()
+    page.locator("#mcp-call-run").click()
+    status = page.locator("#mcp-call-status")
+    expect(status).to_have_text("Valeur JSON invalide pour filters.", timeout=5000)
+    r.check(
+        query == "cybersécurité" and not calls,
+        "JSON invalide : dit sous le formulaire, aucune requête envoyée",
+        f"{query!r} · {status.inner_text()}",
+    )
+    page.locator('#mcp-call-fields textarea[name="filters"]').fill('{"organization": "anssi"}')
+    page.locator("#mcp-call-run").click()
+    expect(status).to_have_text("Appel intercepté (e2e).", timeout=5000)
+    r.check(
+        calls
+        == [
+            {
+                "server": "datagouv",
+                "tool": "search_datasets",
+                "args": {
+                    "query": "cybersécurité",
+                    "page_size": 20,
+                    "filters": {"organization": "anssi"},
+                    "strict": True,
+                },
+            }
+        ],
+        "arguments envoyés : texte, entier, objet JSON, booléen, convertis par la page",
+        str(calls),
+    )
+    page.unroute("**/api/mcp_lab")
+    page.unroute("**/api/intentions/mcp_lab_call")
+    r.check(not errors, "/mcp : aucune erreur JavaScript", str(errors)[:300])
+
+
+_DATAGOUV_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "Mots cherchés (e2e)"},
+        "page_size": {"type": "integer"},
+        "filters": {"type": "object"},
+        "strict": {"type": "boolean"},
+    },
+    "required": ["query"],
+}
+
+
+def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
+    """A `last_session` with a public server's connection and a bounded call, validated by
+    the journal's `Envelope` (its payload models)."""
+    definition = json.dumps(
+        {
+            "type": "function",
+            "function": {
+                "name": "datagouv__search_datasets",
+                "description": "Search datasets on data.gouv.fr (served, e2e).",
+                "parameters": _DATAGOUV_SCHEMA,
+            },
+        }
+    )
+    lazy = json.dumps({"type": "function", "function": {"name": "load_tool_doc"}})
+    rpc = lambda method, n: json.dumps({"jsonrpc": "2.0", "id": n, "method": method})  # noqa: E731
+    answer = lambda n: json.dumps({"jsonrpc": "2.0", "id": n, "result": {}})  # noqa: E731
+    served = {
+        "name": "search_datasets",
+        "description": "Search datasets on data.gouv.fr (served, e2e).",
+        "inputSchema": _DATAGOUV_SCHEMA,
+    }
+    listed = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"tools": [served]}})
+    events = [
+        (
+            "mcp90",
+            "mcp_lab_message",
+            {
+                "direction": "to_server",
+                "method": "initialize",
+                "jsonrpc": rpc("initialize", 0),
+                "elapsed_ms": 0,
+            },
+        ),
+        (
+            "mcp90",
+            "mcp_lab_message",
+            {
+                "direction": "from_server",
+                "method": "initialize",
+                "jsonrpc": answer(0),
+                "elapsed_ms": 40,
+            },
+        ),
+        (
+            "mcp90",
+            "mcp_lab_message",
+            {
+                "direction": "to_server",
+                "method": "tools/list",
+                "jsonrpc": rpc("tools/list", 1),
+                "elapsed_ms": 45,
+            },
+        ),
+        (
+            "mcp90",
+            "mcp_lab_message",
+            {
+                "direction": "from_server",
+                "method": "tools/list",
+                "jsonrpc": listed,
+                "elapsed_ms": 30,
+            },
+        ),
+        (
+            "mcp90",
+            "mcp_lab_connect_ended",
+            {
+                "server": "datagouv",
+                "status": "ok",
+                "tools": [
+                    {
+                        "name": "datagouv__search_datasets",
+                        "tool": "search_datasets",
+                        "description": "Search datasets on data.gouv.fr (served, e2e).",
+                        "schema": _DATAGOUV_SCHEMA,
+                        "definition_text": definition,
+                        "doc_tokens": 120,
+                        "line_text": "- datagouv__search_datasets: Search datasets",
+                        "line_tokens": 12,
+                    }
+                ],
+                "full_tokens": 120,
+                "lazy_tokens": 60,
+                "load_tool_doc_tokens": 48,
+                "lazy_definition_text": lazy,
+                "duration_ms": 80,
+            },
+        ),
+        (
+            "mcp91",
+            "mcp_lab_message",
+            {
+                "direction": "to_server",
+                "method": "tools/call",
+                "jsonrpc": rpc("tools/call", 2),
+                "elapsed_ms": 0,
+            },
+        ),
+        (
+            "mcp91",
+            "outbound_request",
+            {
+                "origin": "brick",
+                "method": "POST",
+                "url": "https://mcp.data.gouv.fr/mcp",
+                "body": rpc("tools/call", 2),
+            },
+        ),
+        (
+            "mcp91",
+            "mcp_lab_call_ended",
+            {
+                "server": "datagouv",
+                "tool": "search_datasets",
+                "status": "ok",
+                "raw": answer(2),
+                "text": "Jeux de données (e2e) : " + "cybersécurité " * 40,
+                "truncated": {"tokens": 512, "total_tokens": 2048, "estimated": False},
+                "duration_ms": 120,
+            },
+        ),
+    ]
+    envelopes = []
+    for offset, (step, kind, payload) in enumerate(events, start=1):
+        envelope = Envelope(
+            seq=seq - len(events) + offset,
+            ts=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+            session_epoch=0,
+            context_id="mcp_lab",
+            step_id=step,
+            kind=kind,
+            actor="harness",
+            trigger="user",
+            brick="mcp",
+            component="mcp_lab.datagouv",
+            payload=payload,
+        )
+        envelopes.append(json.loads(envelope.model_dump_json()))
+    return envelopes
+
+
 def s_compression(r: Run) -> None:
     """Story 20: a turn without then with the compression (Headroom, the real library), the
     step with the tokens before and after, the compressed segment and the total without
@@ -8001,6 +8445,7 @@ def _llm_screen(r: Run) -> None:
     )
     _candidates_unavailable(r, "Faux fournisseur (e2e)", "cloud A")
     _distribution_unavailable(r, "Faux fournisseur (e2e)", "cloud A")
+    _lab_compare_stopped(r)
 
     # (4) The fake llama-server, chosen in the workshop's picker.
     r.goto_app()
@@ -8267,6 +8712,58 @@ def _lab_compare(r: Run) -> None:
     r.shot("64-llm-nu-comparaison", full_page=True)
 
 
+def _lab_compare_stopped(r: Run) -> None:
+    """Restes du 2026-10-01 (story 5, IA3): a comparison on the fake cloud A, slow
+    (« [lent] »): two requests to the provider, temperature A then B; « Arrêter » of the page
+    pressed while B runs: A completed, B cancelled and its column says so, the session back
+    to idle, the buttons enabled again."""
+    page = r.page
+    page.fill("#llm-prompt", "Bonjour [lent]")
+    field = page.locator("#compare-temperature")
+    field.fill("1.2")
+    field.dispatch_event("change")
+    expect(page.locator("#compare-button")).to_be_enabled(timeout=10_000)
+    calls = len(r.fake_calls())
+    seq = r.ev.mark()
+    page.click("#compare-button")
+    first = r.ev.wait("llm_generation_started", seq, lambda p: p["request_id"].endswith(".a"), 20)
+    rid = first["payload"]["request_id"][: -len(".a")]
+    r.ev.wait("llm_token", seq, lambda p: p["request_id"] == f"{rid}.b", 30)
+    stop = page.locator("#stop-button")
+    expect(stop).to_be_enabled(timeout=5000)
+    stop.click()
+    last = r.ev.wait("llm_generation_ended", seq, lambda p: p["request_id"] == f"{rid}.b", 30)
+    ended = {
+        e["payload"]["request_id"]: e["payload"]["status"]
+        for e in r.ev.since(seq, "llm_generation_ended")
+        if e["context_id"] == "llm"
+    }
+    bodies = r.fake_calls()[calls:]
+    r.check(
+        ended == {f"{rid}.a": "completed", f"{rid}.b": "cancelled"}
+        and [b.get("temperature") for b in bodies] == [_LAB_SAMPLING["temperature"], 1.2]
+        and all(
+            b.get("messages") == [{"role": "user", "content": "Bonjour [lent]"}] for b in bodies
+        ),
+        "comparaison cloud : deux requêtes au fournisseur, température A puis B ; « Arrêter » "
+        "pressé pendant B : A terminée, B arrêtée",
+        f"{ended} · {[b.get('temperature') for b in bodies]} · {last['payload']['status']}",
+    )
+    expect(page.locator("#compare-button")).to_be_enabled(timeout=10_000)
+    b_status = page.inner_text("#compare-b .compare-lane-status")
+    a_status = page.inner_text("#compare-a .compare-lane-status")
+    r.check(
+        "Génération arrêtée." in b_status
+        and "Réponse terminée." in a_status
+        and page.locator("#generate-button").is_enabled()
+        and page.locator("#stop-button").is_disabled()
+        and r.state()["session_state"]["state"] == "idle",
+        "comparaison arrêtée : la colonne B le dit, « Générer » et « Comparer » de nouveau "
+        "actifs, « Arrêter » grisé, session en idle",
+        f"A « {a_status} » · B « {b_status} »",
+    )
+
+
 def _set_lab_sampling(r: Run) -> None:
     """The four settings of the screen, typed in their number fields (the disabled ones
     left as they are)."""
@@ -8298,6 +8795,360 @@ def _lab_generate(r: Run, prompt: str, watch: bool = False) -> dict[str, Any]:
         grows = len({c for c in counts if c}) >= 2 and counts == sorted(counts)
         r.check(grows, "les puces apparaissent une à une", str(counts[:12]) + "…")
     return ended
+
+
+# ---------- restes du 2026-10-01: the live distribution and the window, page side ----------
+
+# The tokens of a generation that never ran: their most probable candidates (text, p at
+# temperature 1) and the rest of the vocabulary's mass, as the session keeps them.
+_LIVE_TOKENS = [
+    {
+        "text": "Bon",
+        "top": [("Bon", 0.50), ("Salut", 0.25), ("Hello", 0.12), ("Coucou", 0.06), ("Hé", 0.03)],
+        "tail": 0.04,
+    },
+    {
+        "text": "jour",
+        "top": [("jour", 0.70), ("soir", 0.20), ("ne", 0.05), ("heur", 0.02)],
+        "tail": 0.03,
+    },
+    {
+        "text": " !",
+        "top": [(" !", 0.40), (".", 0.35), (",", 0.15), (" à", 0.05)],
+        "tail": 0.05,
+    },
+]
+_LIVE_WINDOW = {"usable": 1000, "prompt_tokens": 250, "reserve": 500}
+_LIVE_ID = "llm900"
+_LIVE_SAMPLING = {"temperature": 1.0, "top_k": 0, "top_p": 1.0, "min_p": 0.0}
+
+
+def _live_rows(index: int, sampling: dict[str, float]) -> list[dict[str, Any]]:
+    """`candidates.distribution` of token `index`: what the session would answer."""
+    token = _LIVE_TOKENS[index]
+    values = [p for _, p in token["top"]]
+    return live_distribution(values, token["tail"], Sampling(**sampling))
+
+
+class _LiveLab:
+    """`page.route` handlers that stand in for an engine in process: `/api/llm_lab` (the real
+    answer, the candidates available, every setting adjustable), `/api/llm_lab/distribution`
+    (computed by the session's own `candidates.distribution`, in the shape of
+    `AppSession.llm_distribution`) and `/api/stream` (batches of envelopes, each served once
+    the test released it, an empty stream otherwise: the page reads it again a second
+    later). Every envelope is validated by the journal's `Envelope` before it is sent."""
+
+    def __init__(self) -> None:
+        self.next_seq = 0  # from the journal's real `seq` + 1000: the page takes them as new
+        self.batches: list[str] = []
+        self.released = 0
+        self.served = 0
+        self.kept = 0  # the tokens whose candidates « the session » keeps
+        self.requests: list[dict[str, Any]] = []
+
+    def lab(self, route) -> None:  # noqa: ANN001
+        response = route.fetch()
+        body = response.json()
+        self.next_seq = self.next_seq or body["seq"] + 1000
+        body["candidates"] = {**body["candidates"], "available": True, "reason_text": None}
+        body["sampling"]["supported"] = dict.fromkeys(body["sampling"]["supported"])
+        body["distribution"] = {"tokens": self.kept}
+        route.fulfill(response=response, json=body)
+
+    def distribution(self, route) -> None:  # noqa: ANN001
+        asked = route.request.post_data_json
+        self.requests.append(asked)
+        index = asked.get("index", 0)
+        if index >= self.kept:
+            route.fulfill(status=404, json={"detail": "Générez d'abord un texte (e2e)."})
+            return
+        token = _LIVE_TOKENS[index]
+        rows = _live_rows(index, asked["sampling"])
+        route.fulfill(
+            json={
+                "index": index,
+                "token_text": token["text"],
+                "candidates": [
+                    {"text": text} | row for (text, _), row in zip(token["top"], rows, strict=True)
+                ],
+                "tail": token["tail"],
+                "sampling": asked["sampling"],
+                "kept_count": sum(1 for row in rows if row["kept"]),
+                "tokens": self.kept,
+            }
+        )
+
+    def stream(self, route) -> None:  # noqa: ANN001
+        body = ""
+        if self.served < self.released:
+            body = self.batches[self.served]
+            self.served += 1
+        route.fulfill(status=200, headers={"content-type": "text/event-stream"}, body=body)
+
+    def add_batch(self, *events: tuple[str, dict[str, Any]]) -> None:
+        lines = []
+        for kind, payload in events:
+            self.next_seq += 1
+            envelope = Envelope(
+                seq=self.next_seq,
+                ts=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+                session_epoch=0,
+                context_id="llm",
+                step_id=_LIVE_ID,
+                kind=kind,
+                actor="model" if kind == "llm_token" else "harness",
+                trigger="user",
+                payload=payload,
+            )
+            data = envelope.model_dump_json()
+            lines.append(f"id: {self.next_seq}\nevent: {kind}\ndata: {data}\n\n")
+        self.batches.append("".join(lines))
+
+    def release(self) -> None:
+        self.released += 1
+
+
+def _live_token(index: int) -> dict[str, Any]:
+    token = _LIVE_TOKENS[index]
+    rows = _live_rows(index, _LIVE_SAMPLING)
+    return {
+        "request_id": _LIVE_ID,
+        "index": index,
+        "token_id": 1000 + index,
+        "text": token["text"],
+        "channel": "text",
+        "elapsed_ms": 10 * (index + 1),
+        "candidates": [
+            {"token_id": 2000 + i, "text": text, "chosen": i == 0} | row
+            for i, ((text, _), row) in enumerate(zip(token["top"], rows, strict=True))
+        ],
+        "parts": [{"channel": "text", "text": token["text"]}],
+    }
+
+
+def s_llm_live(r: Run) -> None:
+    """Restes du 2026-10-01 (story 5, IA1, IA5, VG5, BH11): the page's live distribution and
+    window diagram, without an engine in process (`_LiveLab`): bars redrawn at each move of
+    a slider (`p` fixed, the chance moving, the dropped greyed), a chip that picks the token,
+    the prompt's share filled in proportion, the reserve's growing token after token. On the
+    fake cloud A, whose `/api/llm_lab` is rewritten; back to `/` at the end."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    r.goto_app()
+    r.wait_idle()
+    if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+        _pick_model(r, A_LABEL)
+    live = _LiveLab()
+    routes = [
+        ("**/api/llm_lab", live.lab),
+        ("**/api/llm_lab/distribution", live.distribution),
+        ("**/api/stream", live.stream),
+    ]
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    for pattern, handler in routes:
+        page.route(pattern, handler)
+    try:
+        _llm_live(r, live, errors)
+    finally:
+        for pattern, _ in routes:
+            page.unroute(pattern)
+        page.remove_listener("pageerror", listener)
+        r.goto_app()
+
+
+_DIST_ROWS_JS = """rows => rows.map(row => {
+  const value = (kind) => row.querySelector(`.dist-cell.${kind} .dist-value`).textContent;
+  const width = (kind) =>
+    parseFloat(row.querySelector(`.dist-cell.${kind} .dist-bar span`).style.width);
+  return {
+    text: row.querySelector('.dist-text').textContent,
+    dropped: row.classList.contains('is-dropped'),
+    model: value('is-model'),
+    chance: value('is-chance'),
+    modelWidth: width('is-model'),
+    chanceWidth: width('is-chance'),
+  };
+})"""
+
+
+def _dist_rows(r: Run) -> list[dict[str, Any]]:
+    """The bars of section 2, as drawn: text, greyed, the two values and their widths."""
+    rows = r.page.locator("#distribution-bars .dist-row:not(.is-tail)")
+    return rows.evaluate_all(_DIST_ROWS_JS)
+
+
+def _rows_match(r: Run, index: int, sampling: dict[str, float]) -> tuple[bool, str]:
+    """Whether section 2 draws token `index` for `sampling` (polled: the page waits 80 ms
+    before it asks, then draws the answer)."""
+    want = [
+        (not row["kept"], row["p"] * 100, row["p_sampled"] * 100)
+        for row in _live_rows(index, sampling)
+    ]
+
+    def same() -> bool:
+        got = _dist_rows(r)
+        return len(got) == len(want) and all(
+            g["dropped"] == dropped
+            and abs(g["modelWidth"] - model) < 0.01
+            and abs(g["chanceWidth"] - chance) < 0.01
+            for g, (dropped, model, chance) in zip(got, want, strict=True)
+        )
+
+    ok, _ = r.poll(same, 10)
+    got = _dist_rows(r)
+    return ok, str([(g["text"], g["dropped"], g["model"], g["chance"]) for g in got])
+
+
+def _set_live(r: Run, name: str, value: float, *, slider: bool = False) -> None:
+    """A setting of section 2, by its number field or by its slider (`fill` on a range
+    input sets its value and fires `input` then `change`, as a drag does)."""
+    row = r.page.locator(f'#sampling-controls .sampling-row[data-setting="{name}"]')
+    if slider:
+        row.locator('input[type="range"]').fill(str(value))
+    else:
+        field = row.locator('input[type="number"]')
+        field.fill(str(value))
+        field.dispatch_event("change")
+
+
+_WINDOW_SHARES_JS = """() => {
+  const width = (node) => node.getBoundingClientRect().width;
+  const figure = document.getElementById('window-diagram');
+  const [usable, reserve] = figure.querySelectorAll('.window-part');
+  return {
+    prompt: width(figure.querySelector('.window-fill.is-prompt')) / width(usable),
+    output: width(figure.querySelector('.window-fill.is-output')) / width(reserve),
+  };
+}"""
+
+
+def _window_shares(r: Run) -> dict[str, float]:
+    """The window diagram's fills, as a share of their part (layout boxes, sub-pixel)."""
+    return r.page.evaluate(_WINDOW_SHARES_JS)
+
+
+def _llm_live(r: Run, live: _LiveLab, errors: list[str]) -> None:
+    page = r.page
+    _goto_lab(r)
+    expect(page.locator("#candidates-toggle")).to_be_enabled(timeout=5000)
+    for name, value in _LIVE_SAMPLING.items():
+        _set_live(r, name, value)
+    r.check(
+        page.locator("#distribution-body").is_hidden()
+        and "Générez une réponse" in page.inner_text("#distribution-empty")
+        and not live.requests,
+        "distribution vivante : rien de gardé, la section 2 dit quoi faire, rien n'est demandé",
+        f"{page.inner_text('#distribution-empty')} · {len(live.requests)} requêtes",
+    )
+
+    # (1) The generation starts, its first token comes with its candidates.
+    started = {
+        "request_id": _LIVE_ID,
+        "prompt": "Bonjour",
+        "rendered": "<|im_start|>user\nBonjour<|im_end|>\n<|im_start|>assistant\n",
+        "prompt_tokens": _LIVE_WINDOW["prompt_tokens"],
+        "exact": True,
+        "sampling": _LIVE_SAMPLING | {"source": "screen"},
+        "reserve": _LIVE_WINDOW["reserve"],
+        "usable": _LIVE_WINDOW["usable"],
+        "phase_label": "Génération (e2e)",
+        "unit": "token",
+        "figures_text": {
+            "prompt_tokens": "250",
+            "reserve": "500",
+            "window": "1 500",
+            "usable": "1 000",
+        },
+    }
+    live.add_batch(("llm_generation_started", started), ("llm_token", _live_token(0)))
+    live.kept = 1
+    live.release()
+    expect(page.locator("#generation-tokens .token-chip")).to_have_count(1, timeout=10_000)
+    ok, drawn = _rows_match(r, 0, _LIVE_SAMPLING)
+    r.check(
+        ok and page.locator("#distribution-body").is_visible(),
+        "distribution vivante : les barres du premier token, largeurs = p et chance reçues",
+        drawn,
+    )
+    shares = _window_shares(r)
+    r.check(
+        abs(shares["prompt"] - 0.25) < 0.005 and abs(shares["output"] - 1 / 500) < 0.0005,
+        "schéma de la fenêtre : prompt à 250/1 000 de sa part, réponse à 1/500 de la réserve",
+        str(shares),
+    )
+
+    # (2) The top-k slider: the bars redrawn, the model's probability fixed.
+    before = _dist_rows(r)
+    _set_live(r, "top_k", 2, slider=True)
+    ok, drawn = _rows_match(r, 0, _LIVE_SAMPLING | {"top_k": 2})
+    after = _dist_rows(r)
+    r.check(
+        ok
+        and sum(row["dropped"] for row in after) == 3
+        and [row["model"] for row in after] == [row["model"] for row in before]
+        and live.requests[-1]["sampling"]["top_k"] == 2,
+        "curseur top-k à 2 : deux candidats gardés, trois grisés « écarté », probabilité du "
+        "modèle inchangée",
+        drawn,
+    )
+    # Three quick moves: the bars of the last one (the page waits, then draws the last answer).
+    for value in (4, 1, 3):
+        _set_live(r, "top_k", value, slider=True)
+    ok, drawn = _rows_match(r, 0, _LIVE_SAMPLING | {"top_k": 3})
+    r.check(
+        ok and live.requests[-1]["sampling"]["top_k"] == 3,
+        "trois mouvements rapides du curseur : les barres du dernier réglage (top-k 3)",
+        f"{drawn} · {len(live.requests)} requêtes",
+    )
+
+    # (3) The temperature: the chance moves, the model's probability does not.
+    before = _dist_rows(r)
+    _set_live(r, "temperature", 0.3)
+    hot = _LIVE_SAMPLING | {"top_k": 3, "temperature": 0.3}
+    ok, drawn = _rows_match(r, 0, hot)
+    after = _dist_rows(r)
+    r.check(
+        ok
+        and [row["model"] for row in after] == [row["model"] for row in before]
+        and after[0]["chanceWidth"] > before[0]["chanceWidth"],
+        "température 1 → 0,3 : la chance du premier candidat monte, la probabilité du modèle "
+        "ne bouge pas",
+        drawn,
+    )
+    r.shot("65-llm-nu-distribution-vivante", full_page=True)
+
+    # (4) Two more tokens: the reserve's share grows; the chip clicked is section 2's token.
+    output_before = shares["output"]
+    live.add_batch(("llm_token", _live_token(1)), ("llm_token", _live_token(2)))
+    live.kept = 3
+    live.release()
+    expect(page.locator("#generation-tokens .token-chip")).to_have_count(3, timeout=10_000)
+    shares = _window_shares(r)
+    label = _plain(page.inner_text("#window-reserve-label"))
+    r.check(
+        abs(shares["output"] - 3 / 500) < 0.0005
+        and shares["output"] > output_before
+        and "Réponse : 3 tokens" in label,
+        "schéma de la fenêtre : la part de la réponse croît, 3/500 de la réserve",
+        f"{shares} · {label}",
+    )
+    chip = page.locator('#generation-tokens .token-chip[data-index="2"]')
+    chip.click()
+    ok, drawn = _rows_match(r, 2, hot)
+    header = _plain(page.inner_text("#distribution-token"))
+    r.check(
+        ok
+        and live.requests[-1]["index"] == 2
+        and header.startswith("Token 3 de la dernière génération")
+        and "is-dist-chosen" in (chip.get_attribute("class") or "")
+        and page.locator("#generation-tokens .token-chip.is-dist-chosen").count() == 1,
+        "clic sur la puce n° 3 : la section 2 montre ses candidats, la puce est marquée",
+        f"{header} · {drawn}",
+    )
+    page.keyboard.press("Escape")  # the candidates' popover the click pinned
+    r.check(not errors, "/llm, distribution simulée : aucune erreur JavaScript", str(errors)[:300])
 
 
 # ---------- story 30: the RAG workshop ----------
@@ -8861,6 +9712,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("rag_rerank", s_rag_rerank),
     ("rag_lab", s_rag_lab),
     ("mcp_lab", s_mcp_lab),  # story 6 (2026-09-30): captures 61 and 62
+    ("mcp_lab_page", s_mcp_lab_page),  # restes du 2026-10-01: /mcp on its own side
     ("compression", s_compression),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
@@ -8878,6 +9730,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("model_catalog", s_model_catalog),
     ("context_window", s_context_window),
     ("llm_screen", s_llm_screen),
+    ("llm_live", s_llm_live),  # restes du 2026-10-01: distribution and window, page side
     ("relaunch", s_relaunch),
 ]
 

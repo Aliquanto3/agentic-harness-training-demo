@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import time
 
+import psutil
 import test_mcp
 from starlette.testclient import TestClient
 from test_mcp import (
@@ -455,6 +456,114 @@ def test_stop_during_the_handshake(loop, web):
     assert ended["status"] == "error" and "arrêté" in ended["error_text"]
     assert session._mcp_lab_conn is None
     session.close()
+
+
+def _call_sent(mark: int) -> bool:
+    return any(
+        e.kind == "mcp_lab_message"
+        and e.payload["direction"] == "to_server"
+        and e.payload["method"] == "tools/call"
+        for e in lab_events(mark)
+    )
+
+
+def _hang_the_local_server(session: AppSession, children: list[psutil.Process]) -> int:
+    """The workshop connected to the glossary, its process suspended (it reads no request
+    any more), then a call sent: the session waits for an answer that never comes.
+    `children`: filled with the suspended processes before anything can fail, so that the
+    caller's `finally` resumes them. The journal's mark before the call."""
+    connect(session)
+    children += local_servers()  # the workshop's only: the brick is off
+    assert children
+    for child in children:
+        child.suspend()
+    mark = get_journal().last_seq()
+    session.mcp_lab_call("local", "define_term", {"term": "MCP"})
+    deadline = time.monotonic() + 10
+    while not _call_sent(mark):
+        assert time.monotonic() < deadline, "tools/call never left"
+        time.sleep(0.02)
+    assert session.state == "mcp_lab"
+    return mark
+
+
+def _resume(children: list[psutil.Process]) -> None:
+    for child in children:
+        try:
+            child.resume()
+        except psutil.Error:  # already closed by the session: what is expected
+            pass
+
+
+def test_stop_during_a_call_to_the_local_glossary_closes_its_process(loop):
+    """Restes du 2026-10-01 (story 6, IA3 and BH16): « Arrêter » while the stdio server
+    does not answer: the call ends `error` « arrêté », the connection is closed and no
+    child process is left."""
+    session = mcp_session(loop)
+    children: list[psutil.Process] = []
+    try:
+        mark = _hang_the_local_server(session, children)
+        assert session.stop() is True
+        wait_idle(session, timeout=30)
+        (ended,) = [e.payload for e in lab_events(mark) if e.kind == "mcp_lab_call_ended"]
+        assert ended["status"] == "error" and "arrêté" in ended["error_text"], ended
+        assert session._mcp_lab_conn is None
+        assert session.mcp_lab_state()["open_server"] is None
+        assert no_local_server_left()  # closed by « Arrêter », not by the session's end
+    finally:
+        _resume(children)
+        session.close()
+    assert no_local_server_left()
+
+
+def test_the_main_screens_intentions_are_refused_during_a_workshop_exchange(loop):
+    """Restes du 2026-10-01 (story 6, BH16): while the workshop waits for the glossary, the
+    class (b) intentions of the main screen and of the other workshops answer 409 with the
+    reason, and start nothing."""
+    session = mcp_session(loop)
+    client = _client(session)
+    children: list[psutil.Process] = []
+    sampling = {"temperature": 0.2, "top_k": 5, "top_p": 0.9, "min_p": 0.05}
+    intentions = {
+        "send": {"message": "Bonjour"},
+        "replay": {},
+        "scenario": {"scenario_id": "bare_llm"},
+        "clear_conversation": {},
+        "language": {"language": "en"},
+        "memory": {"op": "clear"},
+        "context_window": {"window": 8192},
+        "select_model": {"kind": "file", "path": "fake.gguf"},
+        "llm_tokenize": {"text": "Bonjour"},
+        "llm_generate": {"prompt": "Bonjour", "sampling": sampling},
+        "llm_compare": {"prompt": "Bonjour", "sampling_a": sampling, "sampling_b": sampling},
+        "rag_lab_run": {"question": "Combien de jours de télétravail ?"},
+        "mcp_lab_connect": {"server": "local"},
+        "mcp_lab_call": {"server": "local", "tool": "list_terms", "args": {}},
+        "set_api_key": {"id": "groq", "key": "gsk-e2e-not-a-key"},
+        "test_cloud_model": {"id": "groq"},
+        "reset": {},
+    }
+    # `download_model` and `build_rag_index` answer 404 first here: the RAG brick is off.
+    try:
+        _hang_the_local_server(session, children)
+        mark = get_journal().last_seq()
+        refused = {}
+        for name, body in intentions.items():
+            answer = client.post(f"/api/intentions/{name}", json=body, headers=HEADERS)
+            refused[name] = (answer.status_code, answer.json().get("detail", ""))
+        assert {n: code for n, (code, _) in refused.items()} == dict.fromkeys(intentions, 409)
+        for name, (_, detail) in refused.items():
+            assert "Atelier MCP" in detail, (name, detail)
+        # Nothing at all is emitted by the refusals: no event since the mark.
+        started = [(e.kind, e.payload) for e in get_journal().events_since(mark)]
+        assert started == [], started
+        assert session.state == "mcp_lab" and session.language == "fr"
+        assert session.stop() is True
+        wait_idle(session, timeout=30)
+    finally:
+        _resume(children)
+        session.close()
+    assert no_local_server_left()
 
 
 def test_a_server_gone_during_a_call_closes_the_workshops_connection(loop):

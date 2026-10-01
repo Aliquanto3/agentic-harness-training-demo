@@ -807,6 +807,87 @@ def test_bm25_keeps_codes_and_numbers_folds_accents_drops_stop_words():
     assert scores[0] > 0 and scores[1] > 0 and scores[2] == 0
 
 
+def test_bm25_drops_the_stop_words_of_the_sessions_language():
+    """Restes du 2026-10-01: each language its short words; acronyms and numbers kept
+    (« IT » and « US » are not English stop words: they name something)."""
+    assert rag_lab.bm25_terms("What is the HR policy for IT and US staff in 2024?", "en") == [
+        "hr",
+        "policy",
+        "it",
+        "us",
+        "staff",
+        "2024",
+    ]
+    assert rag_lab.bm25_terms("Wie viele Tage Homeoffice gibt es für die HR und IT?", "de") == [
+        "viele",
+        "tage",
+        "homeoffice",
+        "gibt",
+        "hr",
+        "it",
+    ]
+    # French by default, and for a language WaveStack does not know.
+    assert rag_lab.bm25_terms("le the der") == ["the", "der"]
+    assert rag_lab.bm25_terms("le the der", "xx") == ["the", "der"]
+    # The query's stop words never score: « the » alone finds nothing in English.
+    docs = ["The remote work policy", "The expense policy", "Other"]
+    assert rag_lab.bm25("the", docs, "en") == [0.0, 0.0, 0.0]
+    assert rag_lab.bm25("the", docs, "fr")[0] > 0
+
+
+LEXICAL_RUNS = {
+    # language: the question, the words searched for (its stop words left out), its stop words
+    "en": (
+        "How many days of remote work are there for the HR team?",
+        "(“many”, “days”, “remote”, “work”, “hr”, “team”)",
+        ("how", "of", "are", "there", "for", "the"),
+    ),
+    "de": (
+        "Wie viele Tage Homeoffice gibt es für das Team und die HR?",
+        "(„viele“, „tage“, „homeoffice“, „gibt“, „team“, „hr“)",
+        ("wie", "es", "fur", "das", "und", "die"),
+    ),
+}
+
+
+@pytest.mark.parametrize("lang", ["en", "de"])
+def test_a_lexical_search_drops_the_stop_words_of_its_language(index, lang):
+    """The words shown are the session's language's, and so is the ranking: every excerpt
+    found shares a content word with the question, never only « the » or « und »."""
+    question, words, stop = LEXICAL_RUNS[lang]
+    place_model()
+    place_reranker()
+    session, _ = lab_session(rerank_config(index) | {"language": lang})
+    _, a, _ = chains(session)
+    lexical = a.model_copy(deep=True)
+    remove(lexical, "vector_search")
+    remove(lexical, "rerank")
+    stage(lexical, "vector_store").option = "memory"  # the fixture's index is the French one
+    add(lexical, "lexical_search", "bm25", candidates=8)
+    events = run(session, question, [lexical])
+    searched = ended(events, "lexical_search")
+    assert searched["status"] == "ok", searched["error_text"]
+    assert words in searched["input_text"], searched["input_text"]
+    content = set(rag_lab.bm25_terms(question, lang))
+    assert not content & set(stop)
+    assert searched["items"]
+    for item in searched["items"]:  # BM25 reads the excerpt with its title (`passage_text`)
+        passage = f"{item['title_text']} {item['text']}"
+        assert content & set(rag_lab.bm25_terms(passage, lang)), passage[:200]
+
+
+def test_the_lexical_search_explanations_name_their_own_stop_words():
+    explain = {
+        lang: rag_lab.load_lab_content(lang).stages["lexical_search"].explain_text
+        for lang in ("fr", "en", "de")
+    }
+    assert "petits mots (le, de, et…)" in explain["fr"]
+    assert "English function words (the, of, and…)" in explain["en"]
+    assert "French" not in explain["en"]
+    assert "deutsche Füllwörter (der, und, von…)" in explain["de"]
+    assert "französisch" not in explain["de"]
+
+
 def test_a_nan_score_counts_as_zero_and_counts_agree():
     assert rag_lab.top([(float("nan"), 1), (0.5, 2)], 2) == [(2, 0.5), (1, 0.0)]
     assert rag_lab.count_fr(1, "extrait") == "1 extrait"

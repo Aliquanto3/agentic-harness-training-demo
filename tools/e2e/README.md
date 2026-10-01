@@ -489,6 +489,35 @@ Vérifications ajoutées aux scénarios existants :
   et un appel direct qui les demande reçoit 409 (l'affichage des candidats passe par pytest :
   aucun moteur en processus dans le parcours). (7) Retour au faux cloud A, puis `/llm` dit « aucune
   mémoire sur ce poste ».
+- Restes du 2026-10-01, dans `llm_screen` : sur le faux cloud A, une comparaison A/B sur
+  « Bonjour [lent] » (0,4 s par fragment) : deux requêtes au faux fournisseur, température 0,2
+  puis 1,2 ; « Arrêter » de la page pressé dès le premier fragment de B : A « Réponse
+  terminée. », B « Génération arrêtée. » dans sa colonne, « Générer » et « Comparer » de nouveau
+  actifs.
+- `llm_live` (restes du 2026-10-01), juste après `llm_screen`, sans moteur en processus : des
+  `page.route` remplacent `/api/llm_lab` (la vraie réponse, candidats disponibles, réglages tous
+  permis), `/api/llm_lab/distribution` (calculée par la vraie `candidates.distribution`) et
+  `/api/stream` (un `llm_generation_started` puis des `llm_token` avec leurs candidats, rejoués par
+  lots que le scénario libère un à un, validés par `Envelope`). Vérifie les barres du premier
+  token (largeurs = `p` et chance), le curseur top-k (lignes grisées « écarté », `p` inchangé),
+  trois mouvements rapides (le dernier gagne), la température (la chance bouge, pas `p`), le
+  schéma de la fenêtre (prompt à 250/1 000 de sa part, réponse à 1/500 puis 3/500 de la réserve)
+  et le clic sur une puce (ses candidats en section 2, la puce marquée). Capture
+  `65-llm-nu-distribution-vivante.jpg`.
+
+## Atelier MCP (story 6 du 2026-09-30)
+
+- `mcp_lab` : lien de la barre commune et de la carte MCP, trois serveurs, poignée de main avec
+  le glossaire local, appel valide puis terme inconnu ; captures 61 et 62.
+- `mcp_lab_page` (restes du 2026-10-01) : `/api/mcp_lab` coupé par `page.route` (alerte, puis la
+  page se rétablit seule) ; tour lent de l'atelier (bandeau « Occupé », « Se connecter » grisé,
+  appel direct 409) ; « Arrêter » pressé pendant la poignée de main du glossaire (jusqu'à trois
+  essais si la poignée de main gagne la course) ; préréglage « MCP », appel, rechargement
+  (`last_session` rejoué à l'identique) ; data.gouv.fr hors réseau (requête POST sortante
+  affichée, connexion en erreur) ; puis un `last_session` servi par `page.route` (serveur public,
+  outil à paramètres texte, entier, objet et booléen, appel borné) : note « servie … non
+  traduite », un champ par type, JSON invalide dit sans requête, arguments envoyés convertis
+  (requête interceptée), note « Borné ». Capture `66-atelier-mcp-serveur-public-hors-reseau.jpg`.
 
 ## Atelier RAG (story 30)
 

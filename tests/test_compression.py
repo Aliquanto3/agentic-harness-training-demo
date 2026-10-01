@@ -388,6 +388,21 @@ def test_budget_refusal_loads_nothing():
     assert session._load_registry.holder(COMPRESSOR) is None
 
 
+def test_budget_refusal_names_the_compressor_in_the_case_of_its_sentence():
+    """The factory without a label (Headroom always has one): the generic noun, in German
+    the object of « laden » (accusative), the schema's detail keeping the subject."""
+    session, _, _ = session_with(
+        ["OK"],
+        rss=4096 * 1024 * 1024,
+        bricks=("compression",),
+        values={"language": "de"},
+    )
+    reason = card(session)["reason_text"]
+    assert "um den Kompressor zu laden" in reason and "der Kompressor zu laden" not in reason
+    assert session._compressor_label() == "der Kompressor"
+    assert session._compressor_label(to_load=True) == "den Kompressor"
+
+
 def test_compressor_failure_keeps_the_original_and_the_turn_ends():
     session, _, _ = session_with(
         [call("read_file", path="journal_serveur.log"), "Je lis le journal."],

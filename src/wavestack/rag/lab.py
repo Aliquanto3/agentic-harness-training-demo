@@ -1711,7 +1711,8 @@ class LabRun:
         if not lane.chunks:
             raise StageFailed(Message("rag_lab.lexical_search.no_chunks"))
         k = param(stage, "candidates", self.deps.catalog)
-        scored = bm25(self.question, [rag_index.passage_text(c) for c in lane.chunks])
+        passages = [rag_index.passage_text(c) for c in lane.chunks]
+        scored = bm25(self.question, passages, self.deps.lang)
         found = sorted(
             ((score, i + 1) for i, score in enumerate(scored) if score > 0),
             key=lambda x: (-round(x[0], TIE_DIGITS), x[1]),
@@ -1727,7 +1728,8 @@ class LabRun:
         lane.lists.append(items)
         lane.list_kinds.append("lexical_search")
         text = self._text
-        words = ", ".join(self._quoted(w) for w in dict.fromkeys(bm25_terms(self.question)))
+        terms = bm25_terms(self.question, self.deps.lang)
+        words = ", ".join(self._quoted(w) for w in dict.fromkeys(terms))
         return _Result(
             input_text=text(
                 "lexical_search.input",
@@ -1851,30 +1853,51 @@ def _ms(seconds: float) -> int:
     return round(seconds * 1000)
 
 
-# Short French words that say nothing of a subject, accents folded (BM25 skips them).
-STOP_WORDS = frozenset(
-    "au aux avec ce ces cette dans de des du elle elles en est et il ils la le les leur leurs "
-    "lui mais me ne nous on ou par pas pour qu que qui sa se ses si son sont sur ta te tes "
-    "ton tu un une vos votre vous".split()
-)
+# Short words that say nothing of a subject, by language, accents folded (BM25 skips them;
+# the corpus, read from the session's language's index, and the question are in it). Words that
+# may be acronyms or times are kept: « it », « us », « who » (IT, US, WHO), « am » (9 am).
+STOP_WORDS_BY_LANG: dict[str, frozenset[str]] = {
+    "fr": frozenset(
+        "au aux avec ce ces cette dans de des du elle elles en est et il ils la le les leur "
+        "leurs lui mais me ne nous on ou par pas pour qu que qui sa se ses si son sont sur ta "
+        "te tes ton tu un une vos votre vous".split()
+    ),
+    "en": frozenset(
+        "a about after all also an and any are as at be been before being but by can "
+        "could did do does for from had has have he her here him his how if in into is its "
+        "me more most my no not of on or other our out over she should so some such than "
+        "that the their them then there these they this those to too under up was we were "
+        "what when where which while whom why will with would you your".split()
+    ),
+    "de": frozenset(
+        "aber alle als am an auch auf aus bei bin bis bist da damit dann das dass dem den "
+        "der des die dir doch du durch ein eine einem einen einer eines er es fur hat haben "
+        "hatte ich ihr ihre im in ist ja kann man mit nach nicht noch nur ob oder sich sie "
+        "sind so uber um und uns unter vom von vor war waren was wenn wer werden wie wir "
+        "wird wo zu zum zur".split()
+    ),
+}
 
 
 def fold(text: str) -> str:
-    """Lower case, accents dropped (« Télétravail » → « teletravail »)."""
+    """Lower case, accents dropped (« Télétravail » → « teletravail », « für » → « fur »)."""
     decomposed = unicodedata.normalize("NFKD", text.lower())
     return "".join(c for c in decomposed if not unicodedata.combining(c))
 
 
-def bm25_terms(text: str) -> list[str]:
+def bm25_terms(text: str, lang: str = config.DEFAULT_LANGUAGE) -> list[str]:
     """BM25's words: `\\w+` in lower case, accents folded, two characters or more (« IA »,
-    « RH », « 35 » kept), a short list of French stop words left out."""
-    return [w for w in _WORD.findall(fold(text)) if len(w) >= 2 and w not in STOP_WORDS]
+    « RH », « 35 » kept), the short stop words of `lang` (the session's) left out."""
+    stop = STOP_WORDS_BY_LANG.get(
+        config.as_language(lang), STOP_WORDS_BY_LANG[config.DEFAULT_LANGUAGE]
+    )
+    return [w for w in _WORD.findall(fold(text)) if len(w) >= 2 and w not in stop]
 
 
-def bm25(query: str, documents: Sequence[str]) -> list[float]:
+def bm25(query: str, documents: Sequence[str], lang: str = config.DEFAULT_LANGUAGE) -> list[float]:
     """Okapi BM25 of each document for the query, in pure Python: k1 = 1.5, b = 0.75, the
-    idf `ln(1 + (N − df + 0.5) / (df + 0.5))` (never negative)."""
-    docs = [bm25_terms(d) for d in documents]
+    idf `ln(1 + (N − df + 0.5) / (df + 0.5))` (never negative); `lang`: whose stop words."""
+    docs = [bm25_terms(d, lang) for d in documents]
     n = len(docs)
     if not n:
         return []
@@ -1883,7 +1906,7 @@ def bm25(query: str, documents: Sequence[str]) -> list[float]:
     for words in docs:
         for word in set(words):
             df[word] = df.get(word, 0) + 1
-    terms = list(dict.fromkeys(bm25_terms(query)))
+    terms = list(dict.fromkeys(bm25_terms(query, lang)))
     scores = []
     for words in docs:
         counts: dict[str, int] = {}
