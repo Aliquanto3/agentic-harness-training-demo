@@ -94,6 +94,7 @@ from wavestack.hooks import (
     host,
     load_hooks_content,
 )
+from wavestack.mcp import lab as mcp_lab
 from wavestack.mcp.connection import McpConnection, describe_error
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
 from wavestack.messages import (
@@ -320,6 +321,7 @@ _PREFIX_CAUSES = (
 _LAB_FR = Message("session.state.llm_lab")
 RAG_LAB_CATALOG_TTL_S = 5.0  # story 30: the validation's catalog, read again after this
 _RAG_LAB_FR = Message("session.state.rag_lab")
+_MCP_LAB_FR = Message("session.state.mcp_lab")  # story 6 of 2026-09-30
 CANDIDATES = 5  # story 29: the candidates read with each token, the one drawn added if apart
 # Lot A (AD-4): the segment kinds of the system message, for the `system` cause, and those
 # of the conversation, for `history`.
@@ -837,6 +839,14 @@ class AppSession:
         self._rag_lab_import_errors: dict[str, str] = {}
         # The catalog the validation of an edited chain reads (`_rag_lab_recent_catalog`).
         self._rag_lab_catalog_kept: tuple[float, Any, rag_lab.Catalog] | None = None
+        # Story 6 of 2026-09-30 (the MCP workshop): its exchanges, numbered (`mcp{n}`), the
+        # first of its last connection, its own connection (never the brick's) and the tools
+        # it listed, and its content error already traced.
+        self._mcp_labs = 0
+        self._mcp_lab_first = 0
+        self._mcp_lab_conn: mcp_lab.LabConnection | None = None
+        self._mcp_lab_tools: dict[str, Any] = {}
+        self._mcp_lab_error_traced: str | None = None
         self._load_content()
         self._registry = ToolRegistry(
             self._native_tools()
@@ -1569,6 +1579,7 @@ class AppSession:
             self._mcp_conns.clear()
         for conn in conns:  # AD-21: no local server outlives WaveStack
             conn.close(wait=not self._on_loop())
+        self._mcp_lab_drop(wait=not self._on_loop())  # story 6 of 2026-09-30: its own too
         self._executor.shutdown(wait=True, cancel_futures=True)
         self._release_embedder()  # story 15 (AD-8)
         self._release_reranker()  # story 16
@@ -3877,10 +3888,7 @@ class AppSession:
             tool = self._registry.get(name)
             if tool is None:
                 continue
-            first = next(iter((tool.description or "").strip().splitlines()), "").strip()
-            if len(first) > DOC_LINE_MAX:
-                first = first[:DOC_LINE_MAX].rstrip() + "…"
-            text = f"- {name} : {first}" if first else f"- {name}"
+            text = mcp_lab.catalog_line(name, tool.description, DOC_LINE_MAX)
             lines.append(Part(SegmentKind.TOOL_CATALOG, text, "mcp", tool.component, name))
         intro = Part(
             SegmentKind.TOOL_CATALOG, spec.description or "", "mcp", spec.component, LOAD_TOOL_DOC
@@ -5152,6 +5160,8 @@ class AppSession:
         with self._lock:
             conns = list(self._mcp_conns.values())
             self._mcp_conns.clear()
+            lab, self._mcp_lab_conn = self._mcp_lab_conn, None  # the MCP workshop's (story 6)
+        conns += [lab] if lab is not None else []
         await asyncio.gather(*(conn.aclose() for conn in conns), return_exceptions=True)
 
     def save_system_prompt(self, text: str | None) -> dict[str, Any]:
@@ -5273,6 +5283,7 @@ class AppSession:
             self._demo_memory_in(old_demo)
         self._journal().emit("language_changed", {"language": language})
         self._emit_state()  # `language` in the session's state
+        self._mcp_lab_drop(wait=False)  # story 6 of 2026-09-30: reconnected in the language
         for server_id in restart:  # the local server describes its tools in the language
             self._mcp_disconnect(server_id)
             self._mcp_connect(server_id)
@@ -5509,6 +5520,8 @@ class AppSession:
         """Intention class (c): arms the turn's `CancelToken`; no effect outside a turn. A
         pending human validation is resolved as `cancelled`. Story 15: stops a download or an
         index build. Lot E (E4): stops a model load at its next checkpoint."""
+        if self._mcp_lab_stop():  # story 6 of 2026-09-30: the MCP workshop's exchange
+            return True
         with self._lock:
             if self.state in ("download", "index_build") and self._download_cancel is not None:
                 self._download_cancel.cancel()

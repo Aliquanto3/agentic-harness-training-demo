@@ -1,8 +1,9 @@
----
+﻿---
 title: 'Atelier MCP (/mcp) : le protocole à manipuler'
 type: 'feature'
 created: '2026-10-01'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '1bc25bfcc85f6761ca38f9356bc315c4aad1f2a0'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
