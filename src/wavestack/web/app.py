@@ -27,7 +27,12 @@ from wavestack.messages import in_language, msg, render
 from wavestack.models import catalog
 from wavestack.models.engine import SAMPLING_BOUNDS, Sampling
 from wavestack.rag.lab import LANES_MAX, QUESTION_MAX, Pipeline
-from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
+from wavestack.session.app_session import (
+    AppSession,
+    ArmRefused,
+    DistributionMissing,
+    SendRefused,
+)
 from wavestack.session.diagnostic import DiagnosticSession, Refused
 from wavestack.trace.envelope import Envelope
 from wavestack.trace.journal import get_journal
@@ -181,6 +186,24 @@ class LlmGenerateIntention(BaseModel):
     sampling: SamplingIntention
     reasoning: bool = False  # refused (409) by a model that cannot reason
     candidates: bool = False  # the in-process engine only, else 409
+
+
+class LlmCompareIntention(BaseModel):
+    """Story 5 of 2026-09-30: the screen's prompt generated with two samplings, A then B."""
+
+    prompt: str = Field(min_length=1, max_length=2000)
+    sampling_a: SamplingIntention
+    sampling_b: SamplingIntention
+    reasoning: bool = False
+    candidates: bool = False  # A's live distribution; the in-process engine only, else 409
+
+
+class LlmDistributionRequest(BaseModel):
+    """Story 5 of 2026-09-30, read only: a token of the last generation (its `llm_token`
+    index) and the sampling to draw its candidates again with."""
+
+    index: int = Field(default=0, ge=0)
+    sampling: SamplingIntention
 
 
 class RagLabRunIntention(BaseModel):
@@ -380,6 +403,37 @@ def create_app(
         except SendRefused as refused:
             raise HTTPException(
                 status_code=409, detail=t("web.refused_now", reason=refused.reason_text)
+            ) from None
+
+    @app.post("/api/intentions/llm_compare")
+    def llm_compare(intention: LlmCompareIntention) -> dict[str, object]:
+        """Story 5 of 2026-09-30, class (b): accepted in `idle` only; `llm{n}.a` then
+        `llm{n}.b`, the session in `llm_lab` until B ends; « Arrêter » stops both."""
+        try:
+            request_id = app_session.llm_compare(
+                intention.prompt,
+                Sampling(**intention.sampling_a.model_dump()),
+                Sampling(**intention.sampling_b.model_dump()),
+                reasoning=intention.reasoning,
+                candidates=intention.candidates,
+            )
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=t("web.refused_now", reason=refused.reason_text)
+            ) from None
+        return {"request_id": request_id, "request_ids": [f"{request_id}.a", f"{request_id}.b"]}
+
+    @app.post("/api/llm_lab/distribution")
+    def llm_lab_distribution(request: LlmDistributionRequest) -> dict[str, object]:
+        """Story 5 of 2026-09-30, read only, in any state (AD-1: computed by the session):
+        the candidates of a token of the last local generation for a sampling; 404 when
+        none are kept."""
+        sampling = Sampling(**request.sampling.model_dump())
+        try:
+            return shown(app_session.llm_distribution(request.index, sampling))
+        except DistributionMissing as missing:
+            raise HTTPException(
+                status_code=404, detail=render(missing.reason_text, app_session.language)
             ) from None
 
     @app.get("/rag")

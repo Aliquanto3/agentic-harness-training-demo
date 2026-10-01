@@ -1,8 +1,9 @@
----
+﻿---
 title: 'LLM nu pédagogique : distribution vivante, comparaison A/B, schémas'
 type: 'feature'
 created: '2026-10-01'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '14353f65b9a95215aed95bf221698c0a57beb683'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:

@@ -22,6 +22,11 @@ sections:
       morceaux de mots pris dans un vocabulaire fixe. Chaque token a un identifiant, un
       simple numéro de ligne dans la table d'embedding, qui le transforme en vecteur de
       nombres.
+    questions_text:
+      - "Pourquoi le modèle ne lit-il pas des mots ?"
+      - "Combien de tokens pour une phrase en français, et pour un emoji ?"
+      - "Qu'est-ce qu'un token spécial, et pourquoi le gabarit en ajoute-t-il ?"
+      - "Que devient l'identifiant d'un token dans le modèle ?"
   sampling:
     title_text: "Réglages d'échantillonnage"
     intro_text: >-
@@ -29,26 +34,47 @@ sections:
       réglages décident comment le token suivant est tiré parmi eux. L'ordre décrit ici est
       celui de llama.cpp (moteur de WaveStack, llama-server, Ollama) : top-k, puis top-p, puis
       min-p, puis la température ; un fournisseur cloud peut appliquer les siens autrement.
+    questions_text:
+      - "Pourquoi la même invite donne-t-elle deux réponses différentes ?"
+      - "La température change-t-elle les probabilités du modèle, ou seulement le tirage ?"
+      - "Quelle différence entre top-k, top-p et min-p ?"
+      - "Comment obtenir toujours la même réponse ?"
   loading:
     title_text: "Chargement du modèle"
     intro_text: >-
       Avant de répondre, le modèle doit être en mémoire. Voici les étapes du dernier
       chargement, leur durée et la mémoire qu'il occupe.
+    questions_text:
+      - "Pourquoi le premier appel est-il plus lent ?"
+      - "Combien de mémoire le modèle occupe-t-il, et où ?"
+      - "Qu'est-ce qui change entre un fichier chargé, un serveur local et un modèle cloud ?"
   reading:
     title_text: "Lecture du prompt"
     intro_text: >-
       Le prompt est rendu avec le gabarit du modèle, puis lu d'un bloc : c'est le temps
       d'attente avant le premier token.
+    questions_text:
+      - "Qu'envoie-t-on vraiment au modèle ?"
+      - "Pourquoi attendre avant le premier token ?"
+      - "Pourquoi le prompt et la réponse doivent-ils tenir ensemble dans la fenêtre ?"
   generation:
     title_text: "Génération"
     intro_text: >-
       Le modèle produit sa réponse un token à la fois : chaque token tiré est relu pour
       tirer le suivant.
+    questions_text:
+      - "Pourquoi la réponse arrive-t-elle token par token ?"
+      - "Le modèle aurait-il pu choisir un autre token à cet endroit ?"
+      - "Deux réglages différents donnent-ils deux réponses différentes ?"
   reasoning:
     title_text: "Raisonnement"
     intro_text: >-
       Un modèle qui raisonne écrit d'abord une réflexion, puis sa réponse. Les deux sont des
       tokens produits de la même façon.
+    questions_text:
+      - "Où le modèle « réfléchit »-il ?"
+      - "La réflexion coûte-t-elle des tokens, comme la réponse ?"
+      - "Pourquoi le harnais peut-il couper la réflexion ?"
 
 tokenization:
   prompt_label_text: "Texte à découper"
@@ -181,3 +207,52 @@ candidates:
     La probabilité du modèle vient de ses logits (température 1). Dans l'ordre de llama.cpp,
     top-k, top-p et min-p écartent des candidats, puis la température redistribue la chance
     d'être tiré entre ceux qui restent.
+
+# Story 5 du 2026-09-30 : la distribution vivante (section 2), la comparaison A/B
+# (section 5), le schéma de la fenêtre (section 4).
+distribution:
+  title_text: "Ce que les réglages font aux candidats"
+  intro_text: >-
+    Les candidats d'un token déjà produit, tels que le modèle les a vus. Bougez un curseur :
+    WaveStack recalcule qui reste en lice et la chance de chacun d'être tiré, sans nouvelle
+    génération. La probabilité du modèle, elle, ne bouge pas.
+  empty_text: >-
+    Générez une réponse avec « Montrer les tokens candidats » coché (section 5) : les
+    candidats de son premier token apparaîtront ici.
+  token_text: "Token {index} de la dernière génération : {texte}. Cliquez sur une autre puce de la section 5 pour la choisir."
+  probability_text: "Probabilité du modèle"
+  chance_text: "Chance d'être tiré"
+  dropped_text: "écarté"
+  kept_text: "{gardes} candidats gardés parmi les {lus} plus probables : le tirage se fait entre eux."
+  more_text: "… et {reste} autres candidats lus, plus bas, non affichés."
+  tail_text: "Reste du vocabulaire"
+  tail_help_text: >-
+    WaveStack garde les 100 candidats les plus probables de chaque token ; le reste du
+    vocabulaire pèse {reste} de la probabilité. La chance d'être tiré est répartie entre les
+    candidats gardés seulement : une approximation, fidèle tant que ce reste est petit.
+
+compare:
+  title_text: "Comparer deux réglages"
+  intro_text: >-
+    La même invite, générée deux fois : A avec les réglages de la section 2, B avec ceux
+    ci-dessous. Un seul modèle tourne sur le processeur : B commence quand A a fini.
+    « Arrêter » arrête les deux.
+  b_settings_text: "Réglages B"
+  button_text: "Comparer"
+  running_text: "Comparaison en cours : A, puis B…"
+  lane_a_text: "A"
+  lane_b_text: "B"
+  waiting_text: "En attente de la fin de A."
+  empty_text: "Rien pour l'instant."
+
+window:
+  title_text: "La fenêtre, token après token"
+  prompt_text: "Prompt : {tokens}"
+  free_text: "Libre"
+  reserve_text: "Réserve de sortie : {reserve}"
+  output_text: "Réponse : {tokens} tokens"
+  caption_text: >-
+    La fenêtre compte {fenetre} tokens : {utilisables} pour le prompt, {reserve} gardés pour
+    la réponse. À chaque pas, le modèle relit toute la fenêtre remplie jusque-là (le cache lui
+    évite de tout recalculer) et le token tiré s'ajoute au bout : la tête de lecture glisse
+    d'un token. Un prompt plus long que sa part n'est pas envoyé.

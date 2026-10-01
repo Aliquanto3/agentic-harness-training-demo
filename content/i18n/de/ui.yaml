@@ -864,6 +864,8 @@ llm:
     ready: "Bereit"
   step_time: "{duration} · bei {elapsed}"
   unavailable: "Ansicht nicht verfügbar ({cause}): Laden Sie die Seite neu."
+  questions_title: "Die Fragen, die Sie sich stellen"
+  distribution_list: "Kandidaten des gewählten Tokens"
 
 rag:
   page_title: "WaveStack — RAG-Werkstatt"

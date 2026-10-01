@@ -864,6 +864,8 @@ llm:
     ready: "Ready"
   step_time: "{duration} · at {elapsed}"
   unavailable: "Screen unavailable ({cause}): reload the page."
+  questions_title: "The questions you are asking yourself"
+  distribution_list: "Candidates of the chosen token"
 
 rag:
   page_title: "WaveStack — RAG workshop"
