@@ -63,6 +63,7 @@ const store = {
   resetSeq: null,
   logFrom: 0,
   topStatus: null,
+  connectionLost: false, // E003: the live stream failed several times in a row
   serverInstance: null, // A1: the journal instance this page follows
   composerError: null,
   // Story 9b: the turn comparison open in Contexte LLM, UI state only: { left, right } turn ids.
@@ -197,13 +198,20 @@ function rangeText(low, high, unit) {
 // ---------- SSE: manual parsing, because the server names each event after
 // its `kind` and EventSource cannot listen for an unknown kind generically. ----------
 
-async function streamEvents(fromSeq, onEnvelope) {
+// Story 2 of the deferred leftovers (E003): after this many attempts in a row without a
+// single event, the top bar says the connection is lost; the first event received clears it.
+const STREAM_FAILURES_SHOWN = 3;
+
+async function streamEvents(fromSeq, onEnvelope, onConnection = () => {}) {
   let lastSeq = fromSeq;
+  let failures = 0;
   for (;;) {
+    let received = false;
     try {
       const response = await fetch("/api/stream", {
         headers: lastSeq ? { "Last-Event-ID": String(lastSeq) } : {},
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -216,6 +224,12 @@ async function streamEvents(fromSeq, onEnvelope) {
           const rawEvent = buffer.slice(0, sep);
           buffer = buffer.slice(sep + 2);
           const { event, data } = parseSseEvent(rawEvent);
+          if ((event || data) && !received) {
+            // The server always sends `server_instance` first: the connection is back.
+            received = true;
+            failures = 0;
+            onConnection(true);
+          }
           if (event === "server_instance") {
             // A1: another process's journal, where lastSeq means nothing: resync by reloading.
             if (!sameServerInstance(data?.instance_id)) return;
@@ -228,6 +242,8 @@ async function streamEvents(fromSeq, onEnvelope) {
     } catch {
       // Reconnection below picks up at lastSeq: no event lost or duplicated.
     }
+    // The retry keeps its pace (1 s); after a few in a row, the top bar says why nothing moves.
+    if (!received && ++failures >= STREAM_FAILURES_SHOWN) onConnection(false);
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 }
@@ -1227,6 +1243,15 @@ function renderBricks() {
       card.appendChild(why);
     }
     if (brick.note_text) card.appendChild(el("p", "brick-note", brick.note_text));
+    // AD-9 (E089): a public MCP server whose live tools drift from its snapshot, outside the
+    // folded options so that it is seen.
+    for (const option of brick.id === "mcp" ? brick.options || [] : []) {
+      if (!option.drift_text) continue;
+      const warning = el("p", "brick-drift", option.drift_text);
+      warning.setAttribute("role", "note");
+      warning.dataset.server = option.id;
+      card.appendChild(warning);
+    }
     // Story 23: what leaves the workstation and where to read it, outside the folded options.
     if (brick.outbound_text) card.appendChild(el("p", "brick-outbound", brick.outbound_text));
     // Story 6 (2026-09-30): the MCP card leads to the MCP workshop, the protocol laid bare.
@@ -3292,8 +3317,10 @@ function renderScenarioControls(state) {
   const reset = document.getElementById("reset-button");
   reset.disabled = !idle;
   reset.title = reason || t("main.top_bar.reset_title");
-  const topText = modelLoadText() ?? store.topStatus ?? "";
-  setTopStatus(topText, modelLoadTitle() ?? topText);
+  // E003: a lost connection first, whatever the page last heard (a load, a reset…).
+  const lost = store.connectionLost ? t("main.top_bar.connection_lost") : null;
+  const topText = lost ?? modelLoadText() ?? store.topStatus ?? "";
+  setTopStatus(topText, lost ?? modelLoadTitle() ?? topText);
 
   // Vue humain: the active scenario's instructions behind the « i » of the header, then one
   // chip per suggested prompt.
@@ -7466,7 +7493,7 @@ async function boot() {
     if (store.modelLoad) {
       renderChat();
       const loadText = modelLoadText();
-      setTopStatus(loadText, modelLoadTitle() ?? loadText);
+      if (!store.connectionLost) setTopStatus(loadText, modelLoadTitle() ?? loadText);
     }
   }, 250);
 
@@ -7533,10 +7560,21 @@ async function boot() {
   // reaches the snapshot's tip, the page says so (`data-journal-replayed`, read by the E2E run).
   const replayed = () => (document.body.dataset.journalReplayed = "true");
   if (store.liveFrom === 0) replayed();
-  streamEvents(0, (envelope) => {
-    applyEnvelope(envelope);
-    if (envelope.seq >= store.liveFrom) replayed();
-  });
+  streamEvents(
+    0,
+    (envelope) => {
+      applyEnvelope(envelope);
+      if (envelope.seq >= store.liveFrom) replayed();
+    },
+    (connected) => {
+      // E003: « Connexion au serveur perdue… » in the top bar, gone with the first event.
+      if (store.connectionLost === !connected) return;
+      store.connectionLost = !connected;
+      if (connected) delete document.body.dataset.connection;
+      else document.body.dataset.connection = "lost";
+      render();
+    }
+  );
 }
 
 boot();

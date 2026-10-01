@@ -681,9 +681,10 @@ class OpenAIChatEngine:
         if splitter is not None:
             for channel, text in splitter.flush():
                 yield channel, self.mask(text)
-        # By `index` when every call has one; else (Gemini sends none, calls keyed by `id`) in
-        # arrival order: ids do not sort (`call_99999` would follow `call_100002`).
-        indexed = all(isinstance(key, int) for key in calls)
+        # By `index` (then opening order) when every call has one; else (Gemini sends none,
+        # calls keyed by `id`) in arrival order: ids do not sort (`call_99999` would follow
+        # `call_100002`).
+        indexed = all(isinstance(key, int) for key, _ in calls)
         ordered = [
             {
                 k: self.mask(v) if isinstance(v, str) and k != "extra_content" else v
@@ -722,8 +723,18 @@ class OpenAIChatEngine:
                         if isinstance(text, str) and text:
                             yield "reasoning", text
         for call in delta.get("tool_calls") or []:
+            # Story 2 of the deferred leftovers (E048): keyed `(index or id, n)`. A fragment
+            # that starts a call (a `function.name`) under another `id` than the call open on
+            # its key opens a new call there: two parallel calls sent under the same `index`
+            # stay two calls. Without a name, it continues the open call (a server that sends
+            # a fresh `id` on each delta of one call).
             key = call.get("index", call.get("id"))
-            acc = calls.setdefault(key, {"provider_id": None, "name": "", "arguments": ""})
+            n = max((k[1] for k in calls if k[0] == key), default=None)
+            open_id = calls[(key, n)]["provider_id"] if n is not None else None
+            named = bool((call.get("function") or {}).get("name"))
+            if n is None or (named and call.get("id") and open_id and call["id"] != open_id):
+                n = 0 if n is None else n + 1
+            acc = calls.setdefault((key, n), {"provider_id": None, "name": "", "arguments": ""})
             if call.get("id"):
                 acc["provider_id"] = call["id"]
             if isinstance(call.get("extra_content"), dict):  # Gemini 3.x: thought signature

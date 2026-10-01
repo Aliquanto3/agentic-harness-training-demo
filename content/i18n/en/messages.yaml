@@ -179,6 +179,11 @@ session:
       and_previous: "{message} The previous model ({label}) could not be reloaded."
       window: "{window}-token window not applied ({cause}): {label} is active again with {current} tokens."
       restored: "{label} could not be loaded ({cause}): {previous} is active again."
+    # E119: a served model whose architecture its server cannot run, seen at the first turn.
+    unsupported:
+      back: "WaveStack goes back to the previous model, {label}."
+      none: "The turn is over; choose another model in the top bar."
+      restored: "{label} does not run under Ollama (architecture “{architecture}”): {previous} is active again."
     stopped:
       none: "Loading stopped: no model is active."
       previous_failed: "Loading stopped; the previous model ({label}) could not be reloaded."
@@ -297,6 +302,16 @@ session:
     connecting: "Connecting to the MCP server {server}"
     no_loop: "Connection impossible: WaveStack's asyncio loop has not started."
     abandoned: "Connection abandoned: the server was disabled."
+    # AD-9 (E089): the live tools/list against content/mcp_snapshots/, beyond the threshold.
+    drift:
+      message: "{server} drifts from its snapshot by {gap}% (threshold: {threshold}%): {changes}. The gauge planned for its scenarios may no longer hold; run scripts/snapshot_mcp.py again to update the snapshot."
+      added:
+        one: "{count} tool added ({names})"
+        other: "{count} tools added ({names})"
+      removed:
+        one: "{count} tool removed ({names})"
+        other: "{count} tools removed ({names})"
+      weight: "documentation of {before} characters in the snapshot, {after} live"
   language:
     not_saved: "The language could not be saved in {path} ({cause}): it stays unchanged."
     both_invalid:
@@ -1205,6 +1220,8 @@ models:
       message: "Ollama did not unload the model {name}."
       effect: "WaveStack goes on; Ollama will unload it by itself after its idle timeout."
     tokenizer_refused: "{lib} cannot read this model's tokenizer (some recent Ollama models): serve it with llama-server instead, which tokenises by itself."
+    # E119: Ollama read the model's tokenizer at its choice, but cannot run its architecture.
+    unsupported_architecture: "Ollama cannot run this model: its architecture “{architecture}” is unknown to this version of Ollama, which is probably too old. Update Ollama, or serve the model with llama-server."
     # Story 29: where a served model's sizes were read.
     dimensions:
       names:

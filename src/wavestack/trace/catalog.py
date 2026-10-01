@@ -482,6 +482,9 @@ class BrickOption(BaseModel):
     tools: list[str] = []
     # Lot K, MCP servers: the form of each tool's forced call (« Forcer l'appel »).
     calls: list[McpCallOption] = []
+    # AD-9 (E089), public MCP servers: the live tools drift from the versioned snapshot
+    # beyond `[mcp] snapshot_drift_threshold` (None: no snapshot, or within it).
+    drift_text: str | None = None
 
 
 class BrickForce(BaseModel):
@@ -651,6 +654,8 @@ class McpConnectEndedPayload(BaseModel):
     tools: list[str]
     error_text: str | None = None
     duration_ms: int
+    # AD-9 (E089): the same warning as the MCP card's, when the live tools drift.
+    drift_text: str | None = None
 
 
 # ---------- story 8: hooks (AD-13, AD-23) ----------

@@ -941,6 +941,22 @@ class Config:
         return self._seconds("mcp", "call_timeout_s", default=30.0)
 
     @property
+    def mcp_snapshot_drift_threshold(self) -> float:
+        """AD-9: `[mcp] snapshot_drift_threshold`, the relative gap (0,2 = 20 %) between a
+        public server's live `tools/list` and its snapshot above which a warning is shown:
+        tools added or removed against the snapshot's count, or the weight of their
+        documentation. Bounded to [0 ; 10]; a value that is not a finite number is 0,2."""
+        default = 0.2
+        raw = self.get("mcp", "snapshot_drift_threshold", default=default)
+        if isinstance(raw, bool):
+            return default
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return default
+        return min(10.0, max(0.0, value)) if math.isfinite(value) else default
+
+    @property
     def model_server_connect_timeout_s(self) -> float:
         """Story 18: connecting to an already-running local server, `[model_servers]`."""
         return self._seconds("model_servers", "connect_timeout_s", default=2.0)

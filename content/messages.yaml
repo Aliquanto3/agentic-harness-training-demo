@@ -182,6 +182,11 @@ session:
       and_previous: "{message} Le modèle précédent ({label}) n'a pas pu être rechargé."
       window: "Fenêtre de {window} tokens non appliquée ({cause}) : {label} est de nouveau actif avec {current} tokens."
       restored: "{label} n'a pas pu être chargé ({cause}) : {previous} est de nouveau actif."
+    # E119: a served model whose architecture its server cannot run, seen at the first turn.
+    unsupported:
+      back: "WaveStack revient au modèle précédent, {label}."
+      none: "Le tour est terminé ; choisissez un autre modèle dans la barre haute."
+      restored: "{label} ne tourne pas sous Ollama (architecture « {architecture} ») : {previous} est de nouveau actif."
     stopped:
       none: "Chargement arrêté : aucun modèle n'est actif."
       previous_failed: "Chargement arrêté ; le modèle précédent ({label}) n'a pas pu être rechargé."
@@ -300,6 +305,16 @@ session:
     connecting: "Connexion au serveur MCP {server}"
     no_loop: "Connexion impossible : la boucle asyncio de WaveStack n'est pas démarrée."
     abandoned: "Connexion abandonnée : le serveur a été désactivé."
+    # AD-9 (E089): the live tools/list against content/mcp_snapshots/, beyond the threshold.
+    drift:
+      message: "{server} s'écarte de son instantané de {gap} % (seuil : {threshold} %) : {changes}. La jauge prévue pour ses scénarios peut ne plus tenir ; relancez scripts/snapshot_mcp.py pour mettre l'instantané à jour."
+      added:
+        one: "{count} outil ajouté ({names})"
+        other: "{count} outils ajoutés ({names})"
+      removed:
+        one: "{count} outil retiré ({names})"
+        other: "{count} outils retirés ({names})"
+      weight: "documentation de {before} caractères dans l'instantané, {after} en direct"
   language:
     not_saved: "La langue n'a pas pu être enregistrée dans {path} ({cause}) : elle reste inchangée."
     both_invalid:
@@ -1209,6 +1224,8 @@ models:
       message: "Ollama n'a pas déchargé le modèle {name}."
       effect: "WaveStack continue ; Ollama le déchargera de lui-même après son délai d'inactivité."
     tokenizer_refused: "{lib} ne sait pas lire le tokenizer de ce modèle (certains modèles récents d'Ollama) : servez-le plutôt avec llama-server, qui tokenise lui-même."
+    # E119: Ollama read the model's tokenizer at its choice, but cannot run its architecture.
+    unsupported_architecture: "Ollama ne sait pas faire tourner ce modèle : son architecture « {architecture} » est inconnue de cette version d'Ollama, sans doute trop ancienne. Mettez Ollama à jour, ou servez le modèle avec llama-server."
     # Story 29: where a served model's sizes were read.
     dimensions:
       names:

@@ -6551,6 +6551,48 @@ def s_stream_resync(r: Run) -> None:
         r.page.remove_listener("framenavigated", on_nav)
 
 
+def s_stream_lost(r: Run) -> None:
+    """Story 2 of the deferred leftovers (E003): the live stream refused three times in a
+    row, the top bar says « Connexion au serveur perdue, nouvel essai… »; the stream back, the
+    first event clears it, without a reload (`Last-Event-ID` resumes)."""
+    lost_text = _ui_catalogue("fr")["main.top_bar.connection_lost"]
+    status = r.page.locator("#top-status")
+    try:
+        r.page.route("**/api/stream", lambda route: route.abort())
+        r.page.goto(f"{r.stack.app_url}/")
+        shown = r.page.wait_for_function(
+            "() => document.body.dataset.connection === 'lost'", timeout=15000
+        )
+        r.check(
+            bool(shown) and status.inner_text() == lost_text,
+            "flux refusé trois fois : « Connexion au serveur perdue, nouvel essai… » dans la "
+            "barre de l'atelier (#top-status)",
+            f"« {status.inner_text()} »",
+        )
+        navigations: list[str] = []
+
+        def on_nav(frame: Any) -> None:
+            if frame == r.page.main_frame:
+                navigations.append(frame.url)
+
+        r.page.on("framenavigated", on_nav)
+        r.page.unroute("**/api/stream")
+        r.page.wait_for_function(
+            "() => document.body.dataset.connection === undefined", timeout=15000
+        )
+        r.wait_idle()
+        r.page.remove_listener("framenavigated", on_nav)
+        r.check(
+            status.inner_text() != lost_text and navigations == [],
+            "flux revenu : l'indicateur s'efface au premier événement, sans rechargement",
+            f"« {status.inner_text()} » · {len(navigations)} navigation(s)",
+        )
+        ended = r.send("Bonjour")
+        r.check(ended["payload"]["status"] == "completed", "puis un tour aboutit")
+    finally:
+        r.page.unroute("**/api/stream")
+
+
 def _picker_options(r: Run) -> dict[str, bool]:
     """The model picker's options: label → disabled."""
     return dict(
@@ -9812,6 +9854,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("annex_language", s_annex_language),
     ("backend_language", s_backend_language),  # story 7 of 2026-09-30 (languages 5/5)
     ("stream_resync", s_stream_resync),
+    ("stream_lost", s_stream_lost),  # restes différés, story 2 (E003)
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),
     # GreenOps: the served model before the first priced call (the footprint alone).

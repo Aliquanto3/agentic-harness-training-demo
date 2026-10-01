@@ -220,7 +220,6 @@ class WindowText(_Strict):
 class LabContent(_Strict):
     title_text: str
     intro_text: str
-    back_text: str
     change_model_text: str
     active_model_text: str
     no_model_text: str

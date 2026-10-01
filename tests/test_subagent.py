@@ -890,3 +890,71 @@ def test_the_sub_agent_second_call_reads_its_first_one_again():
         s["text"] for s in main_first["segments"][:seen]
     ]
     session.close()
+
+
+# ---------- deferred leftovers, story 2 (E067): the sub-agent's context from the bricks ----------
+
+# Every brick a booted fake model offers without a server, a download or a child process.
+EVERY_BRICK = ("short_memory", "system_prompt", "global_memory", "skills", "tools", "subagent")
+
+
+def _sub_call(bricks: tuple[str, ...]) -> tuple[list[str], list[int]]:
+    """The first sub-agent call of a delegating turn: its segments' texts and the ids sent."""
+    engine, session = sub_session([delegation(), RESULT, "Voilà."], bricks=bricks)
+    events = run(session, "Quelles décisions ont été prises ?")
+    first = of(events, "context_rendered", "sub1")[0]
+    assert status(events) == "completed" and first.payload["segments"]
+    session.close()
+    return [s["text"] for s in first.payload["segments"]], engine.calls[1]
+
+
+def test_no_other_brick_enters_the_sub_agent_context():
+    """E067: the context `sub1` is derived from the bricks declaring `sub` (`subagent`,
+    `tools`); every other brick on leaves it byte for byte the same."""
+    alone = _sub_call(("tools", "subagent"))
+
+    assert _sub_call(EVERY_BRICK) == alone
+
+
+def test_sub_messages_are_the_ones_written_before_the_derivation():
+    """E067, a refactor without effect: the head of `_sub_messages` is the sub-agent's prompt
+    then the task, attributed to `subagent.agent`, as when it was written by hand."""
+    from wavestack.context.segments import Part, SegmentKind
+    from wavestack.session.app_session import _SubContext
+
+    _, session = sub_session([RESULT])
+    sub = _SubContext(context_id="sub1", task=TASK, prompt="Tu es un sous-agent.", tools=())
+    own = ("subagent", "subagent.agent")
+    written = [
+        {"role": "system", "content": [Part(SegmentKind.SYSTEM_PROMPT, sub.prompt, *own)]},
+        {"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, sub.task, *own)]},
+    ]
+
+    for effective in ({"tools", "subagent"}, set(EVERY_BRICK) | {"rag", "hooks", "mcp"}):
+        assert session._sub_messages(sub, [], frozenset(effective)) == written
+    session.close()
+
+
+def test_every_brick_declaring_sub_says_what_it_brings():
+    """E067: a brick that comes to declare `sub` (RAG, global memory…) must bring its part to
+    `_sub_contributions`; only `tools` brings none there (its tools go through `sub.tools`)."""
+    from wavestack.session.app_session import _SubContext
+
+    _, session = sub_session([RESULT])
+    sub = _SubContext(context_id="sub1", task=TASK, prompt="Tu es un sous-agent.", tools=())
+    declaring = {b.id for b in session._bricks.values() if "sub" in b.contributes_to}
+
+    assert declaring - {"tools"} == set(session._sub_contributions(sub))
+    session.close()
+
+
+def test_a_brick_that_does_not_declare_sub_adds_nothing_to_it(monkeypatch):
+    """E067: the head follows `contributes_to`: `subagent` without `sub` puts nothing there."""
+    from wavestack.session.app_session import _SubContext
+
+    _, session = sub_session([RESULT])
+    sub = _SubContext(context_id="sub1", task=TASK, prompt="Tu es un sous-agent.", tools=())
+    monkeypatch.setattr(session._bricks["subagent"], "contributes_to", ["main"])
+
+    assert session._sub_messages(sub, [], frozenset({"tools", "subagent"})) == []
+    session.close()

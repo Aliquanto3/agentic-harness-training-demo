@@ -2481,6 +2481,20 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   font-style: italic;
 }
 
+/* AD-9 (E089): an MCP server's live tools drift from its snapshot. */
+.brick-drift {
+  margin: 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink);
+  background: var(--color-warning-soft);
+  border-left: 3px solid var(--color-warning);
+}
+
+.brick-drift::before {
+  content: "⚠ ";
+}
+
 .brick-limits {
   margin: 0;
   font-size: var(--typography-body-sm-font-size);

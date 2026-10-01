@@ -128,6 +128,7 @@ class FakeServer:
         self.completions = 0
         self.down = False  # the server stopped: every request refused
         self.fail_status: int | None = None  # a 5xx on the next completion
+        self.generate_error: str | None = None  # Ollama's `/api/generate` answers 500 with it
         self.streams: list[Lines] = []
         self.on_line = None
         self.stream_override = None  # a stream of its own for the next completion
@@ -209,6 +210,8 @@ class FakeServer:
         if path == "/api/generate":
             if "prompt" not in body:  # `keep_alive: 0`: unload
                 return httpx.Response(200, json={"done": True, "done_reason": "unload"})
+            if self.generate_error is not None:
+                return httpx.Response(500, json={"error": self.generate_error})
             output = self._output()
             lines = []
             if self.thinking:
@@ -531,6 +534,125 @@ def test_vocab_only_failure_keeps_the_previous_model(monkeypatch, fake):
     assert "Failed to load model" not in ended["reason_text"]  # the reason, in French only
     assert "ne sait pas lire le tokenizer de ce modèle" in ended["reason_text"]
     assert "servez-le plutôt avec llama-server" in ended["reason_text"]  # the way out
+
+
+OLD_OLLAMA = (
+    "llama runner process has terminated: error loading model: error loading model "
+    "architecture: unknown model architecture: 'qwen35'"
+)
+
+
+def test_ollama_too_old_for_the_architecture_explains_and_goes_back(fake):
+    """E119: Ollama accepted the model at its choice (only its tokenizer is read), then
+    `/api/generate` answers 500 « unknown model architecture »: the reason is said in
+    French, with the ways out, and the previous model is active again, saved."""
+    session = _session()
+    assert session.boot("A.gguf").result() == "ok"
+    _, future = session.switch_model(ModelChoice.served(_candidate("ollama")))
+    assert future.result() == "ok" and session.active_model()["kind"] == "server"
+    fake.generate_error = OLD_OLLAMA
+
+    events = _run(session, "Bonjour")
+
+    assert events["turn_ended"][0]["status"] == "error"
+    [error] = events["harness_error"]
+    assert error["message_text"].startswith("Ollama ne sait pas faire tourner ce modèle")
+    assert "« qwen35 »" in error["message_text"] and "llama-server" in error["message_text"]
+    assert "Mettez Ollama à jour" in error["message_text"]
+    assert "unknown model architecture" in error["cause"]  # the server's text, a detail
+    assert error["effect_text"] == "WaveStack revient au modèle précédent, A."
+    [started] = events["model_load_started"]
+    assert started["model"]["label"] == "A"
+    [ended] = events["model_load_ended"]
+    assert ended["status"] == "ok"
+    assert ended["reason_text"] == (
+        f"{OLLAMA_NAME} ne tourne pas sous Ollama (architecture « qwen35 ») : "
+        "A est de nouveau actif."
+    )
+    assert session.active_model()["label"] == "A" and session.state == "idle"
+    assert config.read_settings()["selected_model"]["kind"] == "file"
+    assert fake.posts("/api/generate")[-1] == {"model": OLLAMA_NAME, "keep_alive": 0}
+    assert _run(session, "Encore")["turn_ended"][0]["status"] == "completed"
+    session.close()
+
+
+def test_ollama_too_old_without_a_previous_model_explains_only(fake):
+    """E119, launched on the served model: no model to go back to, the reason and the way
+    out are said, the turn ends in error and WaveStack stays usable."""
+    session = _booted("ollama")
+    fake.generate_error = "unsupported model architecture: qwen35"
+
+    events = _run(session, "Bonjour")
+
+    assert events["turn_ended"][0]["status"] == "error"
+    [error] = events["harness_error"]
+    assert "« qwen35 »" in error["message_text"]
+    assert error["effect_text"].startswith("Le tour est terminé ; choisissez un autre modèle")
+    assert "model_load_started" not in events
+    assert session.active_model()["kind"] == "server" and session.state == "idle"
+    fake.generate_error = None
+    assert _run(session, "Encore")["turn_ended"][0]["status"] == "completed"
+    session.close()
+
+
+def test_a_refusal_on_the_llm_screen_promises_nothing_and_leaves_no_way_back(fake):
+    """E119, review: the « LLM nu » screen says the reason, but neither promises nor leaves a
+    way back that a later, unrelated workshop turn would take."""
+    from wavestack.models.engine import Sampling
+
+    session = _session()
+    assert session.boot("A.gguf").result() == "ok"
+    session.switch_model(ModelChoice.served(_candidate("ollama")))[1].result()
+    fake.generate_error = OLD_OLLAMA
+    mark = get_journal().last_seq()
+
+    session.llm_generate("Bonjour", Sampling(temperature=0.2, top_k=5, top_p=0.9, min_p=0.05))
+    session.join()
+
+    errors = [e.payload for e in get_journal().events_since(mark) if e.kind == "harness_error"]
+    refusal = next(e for e in errors if "« qwen35 »" in e["message_text"])
+    assert "revient au modèle précédent" not in refusal["effect_text"]
+    assert session._unsupported is None and session.active_model()["kind"] == "server"
+    fake.generate_error = None
+    session.switch_model(ModelChoice.served(_candidate("llama_server")))[1].result()
+
+    events = _run(session, "Bonjour")
+
+    assert events["turn_ended"][0]["status"] == "completed"
+    assert "model_load_started" not in events  # no stale way back
+    assert session.active_model()["kind"] == "server"
+    session.close()
+
+
+def test_an_error_inside_ollamas_stream_is_read_too(fake):
+    """E119: the refusal sent inside the stream (`{"error": …}`), not as a 500."""
+    session = _session()
+    assert session.boot("A.gguf").result() == "ok"
+    session.switch_model(ModelChoice.served(_candidate("ollama")))[1].result()
+    fake.stream_override = Lines([json.dumps({"error": OLD_OLLAMA})])
+
+    events = _run(session, "Bonjour")
+
+    assert "« qwen35 »" in events["harness_error"][0]["message_text"]
+    assert events["model_load_ended"][0]["status"] == "ok"
+    assert session.active_model()["label"] == "A"
+    session.close()
+
+
+def test_another_ollama_500_stays_a_server_error(fake):
+    """Any other refusal keeps the story 18 message, and no model change."""
+    session = _session()
+    assert session.boot("A.gguf").result() == "ok"
+    session.switch_model(ModelChoice.served(_candidate("ollama")))[1].result()
+    fake.generate_error = "out of memory"
+
+    events = _run(session, "Bonjour")
+
+    [message] = _errors(events)
+    assert message.startswith(f"Serveur local injoignable ({OLLAMA_URL})")
+    assert "model_load_started" not in events
+    assert session.active_model()["kind"] == "server"
+    session.close()
 
 
 def test_budget_exceeded_keeps_the_previous_model(fake, tmp_path):

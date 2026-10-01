@@ -112,6 +112,7 @@ main:
     reset_done: "WaveStack réinitialisé : LLM nu."
     reset_title: "Retour au LLM nu, conversation vide."
     reset_no_answer: "WaveStack ne répond pas : rien n'a été réinitialisé."
+    connection_lost: "Connexion au serveur perdue, nouvel essai…"
     scenario: "Scénario"
     reset: "Réinitialiser"
   trigger:
