@@ -104,6 +104,14 @@ def test_a_keyed_error_is_french_as_a_string_and_rendered_on_demand():
     assert KeyedError.verbatim("Connection refused").render("de") == "Connection refused"
 
 
+def test_a_said_text_follows_a_change_of_language():
+    """A text said before a change of language (the startup diagnostic's) is rendered again
+    in the language asked; in its own language it is the same object."""
+    monday = messages.Said(Message("tools.datetime.weekdays.monday"), "fr")
+    assert messages.in_language({"checks": [monday]}, "en") == {"checks": ["Monday"]}
+    assert messages.in_language(monday, "fr") is monday
+
+
 @fresh
 def test_a_missing_translated_key_gives_the_french_text(tmp_path, monkeypatch):
     content = tmp_path / "content"

@@ -5194,12 +5194,41 @@ _VISIBLE_TEXTS_JS = """() => {
 }"""
 
 
+def _history_strings(r: Run) -> set[str]:
+    """The texts of the events emitted before the last change of language: the journal keeps
+    them as they were said (the last model load's steps, in the language of the time). Every
+    other text the session sends is in the current language (languages 5/5)."""
+    with r.ev._lock:
+        items = list(r.ev.items)
+    changes = [e["seq"] for e in items if e["kind"] == "language_changed"]
+    if not changes:
+        return set()
+    found: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            found.add(" ".join(value.split()))
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk([e.get("payload") for e in items if e["seq"] < changes[-1]])
+    return found
+
+
 def _french_left(r: Run, lang: str) -> list[str]:
     """The texts of the page that are a French value of the catalogue (whole texts), what
-    the session sent included (languages 5/5: its messages are translated)."""
+    the session sent included (languages 5/5: its messages are translated), the journal's
+    history before the change of language aside."""
     patterns = _french_patterns(lang)
+    history = _history_strings(r)
     found = []
     for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
+        if " ".join(text.split()).removeprefix("— ") in history:
+            continue
         for key, pattern in patterns:
             if pattern.fullmatch(text):
                 found.append(f"{where} « {text[:80]} » ({key})")
@@ -5651,11 +5680,14 @@ def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
 
 def _annex_french_left(r: Run, lang: str) -> list[str]:
     """As `_french_left`, on an annex page, with the annex catalogue (languages 5/5: what
-    the session sent is no longer set aside)."""
+    the session sent is no longer set aside, the journal's history excepted)."""
     patterns = _annex_patterns(lang)
+    history = _history_strings(r)
     found = []
     for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
         text = " ".join(text.split())
+        if text.removeprefix("— ") in history:  # a check's line: « — {its text} »
+            continue
         for key, pattern in patterns:
             if pattern.fullmatch(text):
                 found.append(f"{where} « {text[:80]} » ({key})")
