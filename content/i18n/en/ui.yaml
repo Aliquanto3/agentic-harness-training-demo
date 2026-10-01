@@ -159,6 +159,7 @@ main:
       subagent: "Delegate to the sub-agent"
     text_field: "Text"
     show: "Show the forced actions"
+    section_title: "Forced actions"
     doc_form_label: "Load the documentation of a {server} tool"
     tool_field: "Tool"
     task_form_label: "{action}: task and presets"
@@ -206,6 +207,7 @@ main:
     list_label: "Global memory entries"
     confirm_clear: "Yes, erase everything"
     clear: "Erase everything"
+    written_at: "When the entry was written (workstation time zone)"
   chat:
     awaiting_approval: "Awaiting approval"
     subagent_phase: "Sub-agent · {label}"
@@ -237,6 +239,8 @@ main:
     show_reasoning_title: "Shows or hides the model's reasoning in this view; LLM context always shows it."
     replay_last: "Replay the last prompt"
     clear: "Clear the conversation"
+    tools_used: "Tools consulted during this turn:"
+    tools_used_title: "See the “{tool}” step in Orchestration"
   composer:
     not_sent: "Message not sent: {reason}"
     not_ready: "WaveStack is not ready to receive a message."

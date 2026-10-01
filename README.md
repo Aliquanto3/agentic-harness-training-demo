@@ -859,6 +859,13 @@ avant la version multilingue reste lu : les anciennes clés `hosting_fr`, `notes
 (de `impacts`) et `label_fr` (de `[rag.embedding]`, `[rag.reranker]` ou `[rag_lab.fastembed]`)
 valent `hosting_text`, `notes_text`, `note_text` et `label_text`.
 
+`hosting_text` et `notes_text` sont saisis par l'opérateur, dans `wavestack.toml` ou
+`settings.json`, et affichés tels quels dans l'avertissement et le bandeau du modèle cloud,
+dans toutes les langues de l'interface, y compris après un changement de langue en cours de
+séance : ils n'ont pas de traduction. Ceux des préréglages sont
+en français ; pour une séance en anglais ou en allemand, redéclarez-les dans `settings.json`
+dans la langue de la séance (par exemple `{"id": "groq", "hosting_text": "United States (Groq)"}`).
+
 Quatre champs facultatifs :
 - `key_env` : nom de la variable d'environnement qui fournit la clé (lettres majuscules,
   chiffres et `_`), jamais la clé elle-même.

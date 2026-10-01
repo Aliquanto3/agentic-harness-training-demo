@@ -46,9 +46,12 @@ scenarios:
       zeigt die auf 1.536 Tokens erhöhte Ausgabereserve. Schalten Sie dann den Baustein aus,
       wiederholen Sie den Prompt und öffnen Sie „Vergleichen“: weniger Ausgabe-Tokens und
       eine kürzere Runde, aber eine oft weniger sichere Antwort. Beherrscht das Modell
-      keinen Denkprozess, nennt die Karte des Bausteins den Grund. Die folgenden Module
-      lassen den Denkprozess ausgeschaltet, um Platz zu sparen und die Runden kurz zu
-      halten: Schalten Sie ihn von Hand wieder ein, um ihn in Aktion zu zeigen.
+      keinen Denkprozess, nennt die Karte des Bausteins den Grund. Ein kleines lokales
+      Modell denkt selbst bei einer einfachen Nachricht wie „Hallo“ bis zum Ende seines
+      Budgets nach: Der Harness bricht den Denkprozess dann ab, und die Runde bleibt lang.
+      Die folgenden Module lassen den Denkprozess ausgeschaltet, um Platz zu sparen und die
+      Runden kurz zu halten: Schalten Sie ihn von Hand wieder ein, um ihn in Aktion zu
+      zeigen.
     bricks: [reasoning]
     prompts:
       - >-
@@ -169,7 +172,10 @@ scenarios:
       Auszüge über Exemplia hier nicht zum Thema passen würden: Der lokale MCP-Server und
       data.gouv.fr sind verbunden, und die vollständige Dokumentation jedes Tools kommt in
       den Kontext. Sehen Sie sich die Füllstandsanzeige an, bevor Sie den Prompt senden: Sie
-      ist schon fast voll. Der Prompt nennt das Tool des Glossars, local__define_term: Ein
+      ist schon fast voll. Bereiten Sie das Publikum vor: Mit dem lokalen Modell dauert die
+      Runde auf einem Arbeitsplatz ohne GPU etwa zwei Minuten, weil das Modell zuerst diesen
+      ganzen langen Kontext samt vollständiger Dokumentation liest; das ist der Preis, den
+      Lazy Loading vermeidet. Der Prompt nennt das Tool des Glossars, local__define_term: Ein
       kleines lokales Modell stellt nicht immer die Verbindung zwischen Frage und Tool her,
       ein größeres (Cloud-)Modell schon. Antwortet das Modell aus dem Kopf, klicken Sie
       „Aufruf erzwingen · local__define_term“ unter „WaveStack-Glossar“ auf der Karte MCP

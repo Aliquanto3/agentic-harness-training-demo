@@ -18,6 +18,7 @@ from starlette.testclient import TestClient
 
 from wavestack import config
 from wavestack.context.render import distribute
+from wavestack.messages import msg
 from wavestack.models import discovery
 from wavestack.models.openai_chat import OpenAIChatEngine, _quota_scope
 from wavestack.session.app_session import AppSession
@@ -867,6 +868,57 @@ def test_unknown_quota_names_the_three_scopes():
     assert harness["quota_scope"] == "unknown"
     assert "quota dépassé (par seconde, par minute ou par jour)" in harness["message_text"]
     assert not any("min_interval_s" in hint for hint in harness["hints_text"])
+
+
+# D6 (2026-10-01): Mistral's answer to a workspace without any active quota (probe of
+# 2026-09-26 on the target PC).
+_NO_QUOTA_BODY = {"message": "Rate limit exceeded", "type": "rate_limited", "code": "1300"}
+_NO_QUOTA_HEADERS = {
+    "x-ratelimit-limit-req-minute": "0",
+    "x-ratelimit-remaining-req-minute": "0",
+    "retry-after": "60",
+}
+
+
+def test_a_429_without_any_quota_says_so_and_asks_no_wait():
+    provider = Provider(httpx.Response(429, json=_NO_QUOTA_BODY, headers=_NO_QUOTA_HEADERS))
+    session = _cloud_session("mistral", provider)
+
+    harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
+
+    assert harness["message_text"].startswith(
+        "Mistral AI refuse l'appel. Aucun quota actif sur ce compte : vérifiez le plan dans la "
+        "console du fournisseur."
+    )
+    assert harness["message_text"].endswith("Message du fournisseur : Rate limit exceeded")
+    hints = " ".join(harness["hints_text"])
+    assert "Attendez" not in hints and "min_interval_s" not in hints  # neither wait nor spacing
+    assert "Revenez au modèle local" in hints
+    assert harness["http_status"] == 429
+    assert harness["retry_after_s"] is None and harness["quota_scope"] is None
+    assert len(provider.requests) == 1  # never retried
+
+
+def test_a_429_with_a_quota_keeps_the_quota_message():
+    headers = {**_NO_QUOTA_HEADERS, "x-ratelimit-limit-req-minute": "60"}
+    answer = httpx.Response(429, json=_NO_QUOTA_BODY, headers=headers)
+    session = _cloud_session("mistral", Provider(answer))
+
+    harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
+
+    assert "aucun quota actif" not in harness["message_text"]
+    assert "quota dépassé" in harness["message_text"] and harness["retry_after_s"] == 60
+
+
+@pytest.mark.parametrize(
+    ("lang", "said"),
+    [
+        ("en", "No active quota on this account: check the plan in the provider's console"),
+        ("de", "Kein aktives Kontingent auf diesem Konto: Prüfen Sie den Tarif in der Konsole"),
+    ],
+)
+def test_a_429_without_any_quota_in_english_and_german(lang, said):
+    assert said in msg("models.openai_chat.no_quota", lang, provider="Mistral")
 
 
 # ---------- story 11b: spacing of the sends (min_interval_s) ----------

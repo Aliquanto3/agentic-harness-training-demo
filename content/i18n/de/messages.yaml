@@ -1145,6 +1145,7 @@ models:
     redirect: "Umleitung abgelehnt: {provider} hat mit {status} nach {location} geantwortet. Der Schlüssel wird nie an eine andere Stelle gesendet."
     another_address: einer anderen Adresse
     quota_refused: "Der Anbieter lehnt den Aufruf ab: {quota}."
+    no_quota: "{provider} lehnt den Aufruf ab. Kein aktives Kontingent auf diesem Konto: Prüfen Sie den Tarif in der Konsole des Anbieters."
     quota:
       second: Kontingent pro Sekunde überschritten
       minute: Kontingent pro Minute überschritten

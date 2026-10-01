@@ -184,6 +184,12 @@ def _quota_scope(message: str) -> str:
     return "unknown"
 
 
+def _no_quota(response: httpx.Response) -> bool:
+    """D6 (2026-10-01): a 429 whose `x-ratelimit-limit-req-minute` is `0`, the account has no
+    active quota at all. Read for the explanation only, never to wait or retry."""
+    return response.headers.get("x-ratelimit-limit-req-minute", "").strip() == "0"
+
+
 _QUOTA_FR = {
     scope: Message(f"models.openai_chat.quota.{scope}") for scope in ("second", "minute", "day")
 }
@@ -198,7 +204,8 @@ _last_start: dict[str, float] = {}  # entry.id → the monotonic time of its las
 def pace(entry: CloudModel, cancel: CancelToken) -> bool:
     """Wait until `min_interval_s` has passed since the last send to `entry.id`, from any
     adapter instance (« Tester » builds its own). `False` when cancelled while waiting: the
-    call is then not sent. Never read from `x-ratelimit-*` headers."""
+    call is then not sent. Never read from `x-ratelimit-*` headers (`_no_quota` reads one, for
+    a message only)."""
     interval = entry.min_interval_s
     if not interval:
         return True
@@ -482,6 +489,17 @@ class OpenAIChatEngine:
                 ),
                 cause,
                 [Message("models.openai_chat.hint.check_base_url"), *local],
+                http_status=status,
+                **said,
+            )
+        if status == 429 and _no_quota(response):
+            # D6 of 2026-10-01: an account without any active quota (Mistral's workspace
+            # without a plan) refuses every call; waiting or spacing would not help. The one
+            # reading of an `x-ratelimit-*` header, for this message only (never a wait).
+            raise self._error(
+                self._text("no_quota", provider=provider),
+                cause,
+                local,
                 http_status=status,
                 **said,
             )

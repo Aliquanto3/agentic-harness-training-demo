@@ -61,6 +61,7 @@ context:
   - Deux envois au même `entry.id` (tour ou « Tester », toutes instances d'adaptateur confondues) sont séparés d'au moins `min_interval_s`, compté entre leurs départs.
   - L'attente se fait dans `run_call`, avant `model_call_started` et le chronomètre, donc elle n'entre ni dans `prompt_ms` ni dans `duration_ms`. Elle s'interrompt sur annulation : l'appel finit alors `cancelled`, sans envoi.
   - L'attente n'est jamais déduite des en-têtes `x-ratelimit-*`, et aucun appel n'est réessayé.
+  - Amendement du 2026-10-01 (décision D6 d'Anaël, `spec-restes-differes-2026-10`, story 3) : un 429 dont `x-ratelimit-limit-req-minute` vaut `0` donne « aucun quota actif sur ce compte : vérifiez le plan dans la console du fournisseur », sans piste d'attente ni d'espacement. C'est la seule lecture permise d'un en-tête `x-ratelimit-*`, pour ce message seul ; ni attente ni nouvel essai.
 - **429 « par seconde ».**
   - `_quota_scope` reconnaît aussi la seconde (`per second`, `/s`, `rps`, `(rps)`) et renvoie `second` ; le `Literal` de `quota_scope` du catalogue l'accepte.
   - Texte du 429 : « quota dépassé par seconde » quand la portée est `second`. Si elle est inconnue : « quota dépassé (par seconde, par minute ou par jour) ».
@@ -77,7 +78,7 @@ context:
   - Un poste utilisé avant cette story compte comme premier lancement une seule fois, par la seule clé `diagnostic_shown`.
   - La spec est gardée entière malgré ses ~5 000 tokens.
 
-**Never:** changement de modèle à chaud (CAP-34) ; espacement ou nouvel essai déduits de `x-ratelimit-*` ; valeur de clé dans `wavestack.toml`, `settings.json` ou une réponse ; modification du rendu local ou du préfixe en ajout seul ; nouvel événement de catalogue.
+**Never:** changement de modèle à chaud (CAP-34) ; espacement ou nouvel essai déduits de `x-ratelimit-*` (lecture de `x-ratelimit-limit-req-minute` permise pour le seul message « aucun quota actif », décision D6 du 2026-10-01) ; valeur de clé dans `wavestack.toml`, `settings.json` ou une réponse ; modification du rendu local ou du préfixe en ajout seul ; nouvel événement de catalogue.
 
 ## I/O & Edge-Case Matrix
 

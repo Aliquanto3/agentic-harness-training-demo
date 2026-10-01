@@ -2832,8 +2832,14 @@ def s_mcp_lazy(r: Run) -> None:
         "qualité de l'air sans data.gouv.fr : réponse sans outil",
         r.last_answer()[:160],
     )
-    # Story 9: force an MCP documentation.
+    # Story 9: force an MCP documentation. D3 (2026-10-01): the switch unfolds the MCP list.
+    r.show_forced(False)
+    mcp_options = r.card("MCP").locator("details.brick-options")
+    if mcp_options.get_attribute("open") is not None:
+        mcp_options.locator("summary").click()
     r.show_forced(True)
+    unfolded, _ = r.poll(lambda: mcp_options.get_attribute("open") is not None, 5)
+    r.check(unfolded, "D3 : « Afficher les actions forcées » déplie la liste des serveurs MCP")
     r.open_options("MCP")
     armed = r.arm("Charger la documentation : Glossaire WaveStack")
     r.check(armed["payload"]["actions"][0]["kind"] == "tool_doc", "documentation MCP armée")
@@ -3021,6 +3027,13 @@ def s_subagent(r: Run) -> None:
         "le modèle délègue (delegate, déclenché par le modèle)",
         str([(e["payload"]["tool"], e["trigger"]) for e in started]),
     )
+    # D5 (2026-10-01): the delegation is a consulted tool, named under the answer.
+    tools_line = page.locator("#chat .bubble-model").last.locator(".answer-tools")
+    named, _ = r.poll(
+        lambda: tools_line.count() == 1 and "Délégation au sous-agent" in tools_line.inner_text(),
+        5,
+    )
+    r.check(named, "D5 : la délégation est nommée sous la réponse")
     done = r.ev.since(seq, "subagent_ended")
     figures = done[0]["payload"] if done else {}
     r.check(
@@ -3698,9 +3711,69 @@ def s_sovereignty(r: Run) -> None:
         )
 
 
+def _forced_section(r: Run) -> None:
+    """D3 (2026-10-01): the switch in its titled section with the ✋; turned on, it unfolds the
+    option list of the bricks whose Forcer buttons are in it (here « Outils »)."""
+    r.show_forced(False)
+    details = r.card("Outils").locator("details.brick-options")
+    if details.get_attribute("open") is not None:
+        details.locator("summary").click()  # folded first: the switch must be what unfolds it
+    r.check(details.get_attribute("open") is None, "D3 : liste des outils repliée au départ")
+    section = r.page.locator("#bricks .force-section")
+    title = section.locator(".force-section-title").inner_text()
+    hand = section.locator(".force-toggle-icon").inner_text()
+    r.check(
+        title.strip().lower() == "actions forcées" and hand.strip() == "✋",
+        "D3 : l'interrupteur des actions forcées a son titre de section et l'icône ✋",
+        f"{title!r} · {hand!r}",
+    )
+    r.check(
+        section.locator(".brick-toggle").count() == 1
+        and r.page.locator("#bricks .force-section article.brick-card").count() == 0,
+        "D3 : la section ne porte que l'interrupteur des actions forcées",
+    )
+    r.show_forced(True)
+    opened, _ = r.poll(lambda: details.get_attribute("open") is not None, 5)
+    r.check(opened, "D3 : « Afficher les actions forcées » déplie la liste des outils")
+    r.check(
+        details.get_by_role("button", name="Forcer l'appel : Heure et date").is_visible(),
+        "D3 : le bouton « Forcer l'appel » est visible sans autre clic",
+    )
+
+
+def _consulted_tools(r: Run) -> None:
+    """D5 (2026-10-01): under the answer of a turn that called a tool, « Outils consultés
+    pendant ce tour : … », each name leading to its Orchestration step; none without tool."""
+    line = r.page.locator("#chat .bubble-model").last.locator(".answer-tools")
+    r.check(
+        line.count() == 1 and "Outils consultés pendant ce tour" in line.inner_text(),
+        "D5 : la réponse dit les outils consultés pendant le tour",
+        line.inner_text() if line.count() else "aucune ligne",
+    )
+    link = line.get_by_role("button", name="Calculatrice")
+    r.check(link.count() == 1, "D5 : « Calculatrice » nommée sous la réponse")
+    link.click()
+    step = _step(r, "Calculatrice")
+    opened, _ = r.poll(
+        lambda: (
+            step.locator(".turn-step-line").get_attribute("aria-expanded") == "true"
+            and "is-selected" in (step.get_attribute("class") or "").split()
+        ),
+        5,
+    )
+    r.check(
+        opened,
+        "D5 : un clic sur le nom déplie et sélectionne l'étape de l'outil dans Orchestration",
+        step.get_attribute("class") or "",
+    )
+    r.send("Bonjour")
+    after = r.page.locator("#chat .bubble-model").last.locator(".answer-tools")
+    r.check(after.count() == 0, "D5 : un tour sans outil n'affiche aucune ligne d'outils")
+
+
 def s_forced_native(r: Run) -> None:
     r.launch("native_tools")
-    r.show_forced(True)
+    _forced_section(r)
     r.open_options("Outils")
     r.arm("Forcer l'appel : Heure et date")
     expect(r.page.locator("#armed-chips")).to_be_visible(timeout=5000)
@@ -3724,6 +3797,7 @@ def s_forced_native(r: Run) -> None:
     # Story 34: the forced step's tile says the user acts.
     tile = _step(r, "Calculatrice").locator(".turn-step-tile").inner_text()
     r.check(tile == "U", "l'étape forcée porte la pastille « U »", tile)
+    _consulted_tools(r)
     r.show_forced(False)
 
 
@@ -3884,6 +3958,11 @@ def s_global_memory(r: Run) -> None:
         "étape « Écriture en mémoire » avec le badge « Forcé par l'utilisateur »",
     )
     r.check(_memory_file(r)[-1]["source"] == "user", "memory.json : entrée forcée, source user")
+    # D5 (2026-10-01): `remember`, a harness tool, is no source of the answer.
+    r.check(
+        r.page.locator("#chat .bubble-model").last.locator(".answer-tools").count() == 0,
+        "D5 : une écriture en mémoire forcée n'est pas listée parmi les outils consultés",
+    )
     r.show_forced(False)
     # Story 22: a sixth entry, so that the drawer's list is long.
     r.send("Retiens que j'anime aussi un atelier sur les hooks le mardi.")
@@ -3900,6 +3979,17 @@ def s_global_memory(r: Run) -> None:
         "le tiroir donne le chemin du fichier",
     )
     _memory_drawer_frame(r)
+    # D7 (2026-10-01): each entry says when it was written, `created_at` of memory.json.
+    dates = entries.evaluate_all(
+        "items => items.map(li => { const t = li.querySelector('time.memory-entry-date');"
+        " return t ? [t.dateTime, t.textContent] : null; })"
+    )
+    written = [e["created_at"] for e in _memory_file(r)]
+    r.check(
+        [d[0] if d else None for d in dates] == written and all(d and d[1].strip() for d in dates),
+        "D7 : chaque entrée du tiroir affiche sa date d'écriture (created_at)",
+        f"{dates} · {written}",
+    )
     r.shot("20-memoire-tiroir")
 
     seq = r.ev.mark()

@@ -809,6 +809,28 @@ body.is-resizing-y * {
   font-weight: 600;
 }
 
+/* D5 of 2026-10-01: the tools the turn consulted, each name a link to its step. */
+.answer-tools {
+  margin: var(--spacing-1) 0 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.answer-tool {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.answer-tool:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -2522,6 +2544,23 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   min-width: 0;
 }
 
+/* D3 of 2026-10-01: the forced actions' switch in its own titled section, a dashed ink frame
+   that no brick card has, so it is not taken for one more brick. */
+.force-section {
+  padding: var(--spacing-1) var(--spacing-2);
+  border: 1px dashed var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+}
+
+.force-section-title {
+  margin: 0;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .force-toggle {
   display: flex;
   align-items: center;
@@ -2529,6 +2568,11 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   min-height: var(--spacing-hit-target-min);
   font-size: var(--typography-body-sm-font-size);
   cursor: pointer;
+}
+
+.force-toggle-icon {
+  font-size: var(--typography-body-font-size);
+  line-height: 1;
 }
 
 /* DESIGN.md force-button: ink outline, hand icon, as the « Forcé par l'utilisateur » badge. */

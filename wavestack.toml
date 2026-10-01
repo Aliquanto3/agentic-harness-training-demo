@@ -240,6 +240,11 @@ codecarbon_cost_mb = 80
 # se saisit au diagnostic et reste dans api_keys.json, dans le dossier de données, ou vient
 # de la variable d'environnement que nomme key_env (jamais sa valeur ici). Une clé saisie
 # passe avant la variable.
+# hosting_text et notes_text d'une entrée [[cloud.models]] sont saisis par l'opérateur et
+# affichés tels quels dans l'avertissement et le bandeau du modèle, quelle que soit la langue
+# de l'interface (fr, en ou de), même après un changement de langue en cours de séance : ils
+# n'ont pas de traduction. Pour une séance dans une autre langue que le français, redéclarez-
+# les dans settings.json (même id) dans cette langue (décision d'Anaël du 2026-10-01).
 # Tokens estimés en mode chat : caractères / chars_per_token, puis corrigés par le ratio
 # réel usage.prompt_tokens / estimation (borné à [0,8 ; 1,5], initialisé à estimate_ratio).
 chars_per_token = 4

@@ -7,10 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from fake_engine import FakeEngine, booted_session
 from test_bricks import HEADERS, _client
 from test_turn import _run
 
+from wavestack import config
 from wavestack import scenarios as scenarios_module
 from wavestack.session.app_session import SendRefused
 from wavestack.trace.journal import get_journal
@@ -47,6 +49,28 @@ def test_real_content_loads_and_every_scenario_launches():
         assert {c["id"] for c in cards if c["wanted"]} == set(declared.bricks)
         assert _latest("scenario_changed")["active"] == scenario_id
     session.close()
+
+
+@pytest.mark.parametrize(
+    ("lang", "mcp_full_says", "reasoning_says"),
+    [
+        ("fr", ["environ deux", "minutes", "sans GPU"], ["jusqu'au bout de son budget", "Bonjour"]),
+        ("en", ["about two minutes", "without a GPU"], ["up to the end", "budget", "Hello"]),
+        ("de", ["etwa zwei Minuten", "ohne GPU"], ["bis zum Ende seines", "Budgets", "Hallo"]),
+    ],
+)
+def test_instructions_announce_the_long_turns(lang, mcp_full_says, reasoning_says):
+    """D4 and D17 of 2026-10-01: `mcp_full` warns of a turn of about two minutes on a CPU,
+    and why; the reasoning scenario, that a small model thinks to its budget even for
+    « Bonjour »."""
+    path = config.content_file("scenarios.yaml", lang)
+    content = scenarios_module.ScenariosContent.model_validate(
+        yaml.safe_load(path.read_text(encoding="utf-8"))
+    )
+    full = " ".join(content.scenarios["mcp_full"].description_text.split())
+    reasoning = " ".join(content.scenarios["reasoning"].description_text.split())
+    assert all(words in full for words in mcp_full_says), full
+    assert all(words in reasoning for words in reasoning_says), reasoning
 
 
 def test_launch_hooks_after_two_turns():
