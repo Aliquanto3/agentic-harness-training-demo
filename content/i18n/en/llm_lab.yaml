@@ -7,7 +7,6 @@ intro_text: >-
   model does by itself: split the text into tokens, turn them into vectors, then produce
   an answer, token by token. This screen works on the workshop's active model, without
   touching its conversation.
-back_text: "← Workshop"
 change_model_text: "Change model in the workshop"
 active_model_text: "Active model"
 no_model_text: "No active model: choose one in the workshop."

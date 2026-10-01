@@ -103,6 +103,7 @@ main:
     reset_done: "WaveStack zurückgesetzt: Nacktes LLM."
     reset_title: "Zurück zum nackten LLM, leere Unterhaltung."
     reset_no_answer: "WaveStack antwortet nicht: Es wurde nichts zurückgesetzt."
+    connection_lost: "Verbindung zum Server verloren, neuer Versuch…"
     scenario: "Szenario"
     reset: "Zurücksetzen"
   trigger:

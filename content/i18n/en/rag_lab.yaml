@@ -8,7 +8,6 @@ intro_text: >-
   find the useful excerpts, which a reranker can reorder before they enter the model's
   context. Run the pipeline on a question to see what each step receives, produces and
   costs. This is a sandbox: the workshop's RAG brick does not change.
-back_text: "← Workshop"
 busy_text: "Unavailable for now: {raison}"
 
 chain_title_text: "The pipeline"

@@ -8,7 +8,6 @@ intro_text: >-
   que fait le modèle lui-même : découper le texte en tokens, les transformer en vecteurs,
   puis produire une réponse, token par token. Cet écran travaille sur le modèle actif de
   l'atelier, sans toucher à sa conversation.
-back_text: "← Atelier"
 change_model_text: "Changer de modèle dans l'atelier"
 active_model_text: "Modèle actif"
 no_model_text: "Aucun modèle actif : choisissez-en un dans l'atelier."

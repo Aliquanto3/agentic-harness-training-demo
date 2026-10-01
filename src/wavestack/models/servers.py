@@ -76,6 +76,33 @@ class ServerError(KeyedError):
         self.message_text = self.message
 
 
+class UnsupportedArchitecture(ServerError):
+    """Story 2 of the deferred leftovers (E119): Ollama accepted the model (WaveStack only
+    reads its tokenizer when it is chosen) but cannot run its architecture, `qwen35` for an
+    Ollama too old: `/api/generate` answers 500 « unknown model architecture ». The message
+    names the cause and the ways out; `cause` keeps the server's own text, a detail."""
+
+    def __init__(self, url: str, architecture: str, cause: str) -> None:
+        self.url, self.cause, self.architecture = url, cause, architecture
+        KeyedError.__init__(
+            self, "models.servers.unsupported_architecture", architecture=architecture
+        )
+        self.message_text = self.message
+
+
+# llama.cpp's refusal, as Ollama relays it: « unknown model architecture: 'qwen35' »; its own
+# engine says « unsupported model architecture ».
+_ARCHITECTURE_REFUSED = re.compile(
+    r"(?:unknown|unsupported) model architecture\W*([A-Za-z0-9_.\-]+)", re.IGNORECASE
+)
+
+
+def _unsupported(url: str, cause: Any) -> UnsupportedArchitecture | None:
+    """The refusal of an architecture in a server's error text, else `None`."""
+    found = _ARCHITECTURE_REFUSED.search(cause if isinstance(cause, str) else "")
+    return UnsupportedArchitecture(url, found.group(1), cause) if found else None
+
+
 class Tokenizer(Protocol):
     def tokenize(self, text: str) -> list[int]: ...
 
@@ -522,6 +549,27 @@ class OllamaRawEngine:
         return self._tokenizer.token_pieces(ids)
 
     def complete(
+        self,
+        prompt_ids: Sequence[int],
+        stop: Sequence[str],
+        max_tokens: int,
+        cancel: CancelToken,
+        *,
+        sampling: Sampling | None = None,
+    ) -> Iterator[Fragment]:
+        """E119: an architecture Ollama cannot run (its 500, or an error in the stream)
+        becomes `UnsupportedArchitecture`, which names the cause and the ways out."""
+        try:
+            yield from self._complete(prompt_ids, stop, max_tokens, cancel, sampling=sampling)
+        except UnsupportedArchitecture:
+            raise
+        except ServerError as exc:
+            refused = _unsupported(self.url, exc.cause)
+            if refused is None:
+                raise
+            raise refused from exc
+
+    def _complete(
         self,
         prompt_ids: Sequence[int],
         stop: Sequence[str],

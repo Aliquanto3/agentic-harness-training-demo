@@ -1361,6 +1361,57 @@ def test_calls_without_index_keep_their_arrival_order():
     engine.close()
 
 
+def _tool_calls_of(*fragments: dict) -> list[dict]:
+    """The calls `openai_chat` reads from one streamed answer, a fragment per chunk."""
+    from wavestack.models.engine import CancelToken
+    from wavestack.models.openai_chat import ChatBody, ChatEnd
+
+    stream = sse(*(delta(tool_calls=[f]) for f in fragments), delta("tool_calls"))
+    entry = config.load_config().cloud_model("groq")
+    engine = Provider(stream).factory(entry, SecretStr(SENTINEL))
+    end = list(engine.complete(ChatBody(b"{}"), CancelToken()))[-1]
+    engine.close()
+    assert isinstance(end, ChatEnd)
+    return end.tool_calls
+
+
+def test_two_parallel_calls_under_one_index_stay_two_calls():
+    """E048: a provider that sends two calls under the same `index` (or none), each with its
+    own `id`: two calls, never one with the names glued together."""
+    first = {"index": 0, "id": "call_a", "function": {"name": "get_datetime", "arguments": "{}"}}
+    second = {"index": 0, "id": "call_b", "function": {"name": "calculator", "arguments": ""}}
+    rest = {"index": 0, "function": {"arguments": '{"expression": "2+2"}'}}
+
+    calls = _tool_calls_of(first, second, rest)
+
+    assert [(c["provider_id"], c["name"]) for c in calls] == [
+        ("call_a", "get_datetime"),
+        ("call_b", "calculator"),
+    ]
+    assert [c["arguments"] for c in calls] == ["{}", '{"expression": "2+2"}']
+    no_index = [{k: v for k, v in f.items() if k != "index"} for f in (first, second)]
+    assert [c["name"] for c in _tool_calls_of(*no_index)] == ["get_datetime", "calculator"]
+
+
+def test_fragments_of_one_call_stay_one_call():
+    """E048: the fragments that follow a call's first one (same `index`, no `id`, the same
+    `id` again, or a fresh `id` without a name) extend it: one call, its arguments put
+    together."""
+    head = {"index": 0, "id": "call_a", "function": {"name": "calculator", "arguments": '{"ex'}}
+    tail = {"index": 0, "function": {"arguments": 'pression": '}}
+    again = {"index": 0, "id": "call_a", "function": {"arguments": '"1'}}
+    fresh = {"index": 0, "id": "delta_3", "function": {"arguments": '+1"}'}}
+    other = {"index": 1, "id": "call_b", "function": {"name": "get_datetime", "arguments": "{}"}}
+
+    calls = _tool_calls_of(head, tail, again, fresh, other)
+
+    assert [(c["name"], c["arguments"]) for c in calls] == [
+        ("calculator", '{"expression": "1+1"}'),
+        ("get_datetime", "{}"),
+    ]
+    assert calls[1]["provider_id"] == "call_b"
+
+
 def test_a_sub_agent_on_gemini_replays_its_own_signature():
     """The sub-agent's context (`_sub_messages`) sends its call back signed, as the main one."""
     provider = GeminiProvider(

@@ -98,6 +98,7 @@ from wavestack.hooks import (
     load_hooks_content,
 )
 from wavestack.mcp import lab as mcp_lab
+from wavestack.mcp import snapshot as mcp_snapshot
 from wavestack.mcp.connection import (
     CLOSE_TIMEOUT_S,
     McpConnection,
@@ -172,6 +173,7 @@ from wavestack.models.reranker import RerankCancelled, Reranker
 from wavestack.models.servers import (
     ServerError,
     TokenizerRefused,
+    UnsupportedArchitecture,
     ollama_load_bytes,
     open_engine,
 )
@@ -742,6 +744,10 @@ class AppSession:
             self.cfg.memory_budget, self.cfg.load_margin_bytes, rss_fn or process_rss
         )
         self._active: ModelChoice | None = None  # the model loaded now (AD-3)
+        # E119: the model active before the last load, and a refusal of the active model's
+        # architecture seen in the running turn (the way back runs once the turn ends).
+        self._before_active: ModelChoice | None = None
+        self._unsupported: UnsupportedArchitecture | None = None
         self._call_ids: set[str] = set()  # the running turn's `tool_call_id`s (AD-4)
         self._cloud_content = None  # `content/cloud.yaml`, read when a cloud model boots
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="wavestack-worker")
@@ -894,6 +900,8 @@ class AppSession:
         self._mcp_enabled: set[str]
         self._mcp_conns: dict[str, McpConnection] = {}
         self._mcp_state: dict[str, tuple[str, str | None]] = {}  # contact, reason_text
+        # AD-9 (E089): a connected public server's gap to its snapshot, beyond the threshold.
+        self._mcp_drift: dict[str, mcp_snapshot.Drift] = {}
         # Story 6b: documentation complète by default; the documentations loaded belong to
         # the conversation (AD-17), and wait while their server is off.
         self._mcp_lazy: bool
@@ -1299,6 +1307,7 @@ class AppSession:
     def _mcp_options(self) -> list[dict[str, Any]]:
         with self._lock:
             enabled = set(self._mcp_enabled)
+            drifts = dict(self._mcp_drift)
         available = self._mcp_tool_names()
         tools = {s: [n for n in available if n.startswith(f"{s}__")] for s in self._mcp_servers}
         return [
@@ -1314,6 +1323,10 @@ class AppSession:
                 "tools": tools.get(server.id, []),
                 # Lot K: « Forcer l'appel » of each of them, its form and its presets.
                 "calls": [self._mcp_call_option(n) for n in tools.get(server.id, [])],
+                # AD-9 (E089): its live tools drift from its snapshot beyond the threshold.
+                "drift_text": self._drift_text(server.id, drifts[server.id])
+                if server.id in drifts
+                else None,
             }
             for server in self._mcp_servers.values()
         ]
@@ -1819,6 +1832,7 @@ class AppSession:
         probe: ProbeFn | None,
         save: bool,
         window: int | None = None,
+        ok_reason: str | None = None,
     ) -> str:
         """The single load path, on the worker, in `model_load` (AD-3, AD-8): release the
         active model, probe a GGUF never measured (AD-7) and check the budget again with the
@@ -1830,7 +1844,9 @@ class AppSession:
         saved (`save`) after a success only. Story 26, `window`: the active model reloaded
         with this window (`previous` is the same model): on success the window is the one
         configured and saved, on failure or « Arrêter » the model comes back with the window
-        it had. Returns `ok`, `restored`, `cancelled` or `error`."""
+        it had. E119, `ok_reason`: the `model_load_ended` reason of a success (the way
+        back from a model whose architecture the server cannot run). Returns `ok`,
+        `restored`, `cancelled` or `error`."""
         started = time.monotonic()
         model = self._model_payload(choice)
         journal = self._journal()
@@ -1907,6 +1923,9 @@ class AppSession:
                 self._last_checkpoint(cancel)
                 step("ready", Message("session.load.steps.ready", label=choice.label))
                 status, idle_text = "ok", None
+                if window is None:  # E119: the way back, should this model not run
+                    with self._lock:
+                        self._before_active = previous
             except _LoadCancelled:
                 self._last_checkpoint(None)
                 reason_text, idle_text, status = self._load_cancelled(previous, window is not None)
@@ -1915,6 +1934,8 @@ class AppSession:
                 reason_text, idle_text, status = self._load_failed(choice, previous, exc, window)
             if status == "ok" and save:
                 reason_text = self._save_choice(choice)
+            if status == "ok" and reason_text is None:
+                reason_text = ok_reason
             if status == "ok" and window is not None:  # story 26: applied, then saved
                 with self._lock:
                     self._configured_window = window
@@ -2125,6 +2146,46 @@ class AppSession:
             None,
             "restored",
         )
+
+    def _way_back(self) -> ModelChoice | None:
+        """E119, under the lock: the model to go back to (the one active before the last
+        load), `None` when there is none or it is the active one."""
+        back, active = self._before_active, self._active
+        if back is None or active is None or back.same_as(active):
+            return None
+        return back
+
+    def _start_way_back(
+        self,
+    ) -> tuple[UnsupportedArchitecture, ModelChoice, ModelChoice | None] | None:
+        """E119, on the worker, as a turn ends: the active model's architecture was refused
+        by its server (Ollama too old for `qwen35`). With a model to go back to, the session
+        goes from the turn's state straight to `model_load` (no turn can start on the refused
+        model meanwhile) and returns `(refusal, back, refused model)`; else `None`."""
+        with self._lock:
+            refused, self._unsupported = self._unsupported, None
+            back = self._way_back() if refused is not None else None
+            if refused is None or back is None:
+                return None
+            self.state, self.reason_text = "model_load", self._load_reason(back)
+            self._load_cancel = CancelToken()
+            return refused, back, self._active
+
+    def _run_way_back(
+        self, refused: UnsupportedArchitecture, back: ModelChoice, active: ModelChoice | None
+    ) -> None:
+        """E119: `back` loaded again by the single load path, and saved; its success says
+        why. Then no way back is left (never a back-and-forth between two models)."""
+        self._emit_state()
+        reason = Message(
+            "session.load.unsupported.restored",
+            label=active.label if active else "",
+            architecture=refused.architecture,
+            previous=back.label,
+        )
+        self._load(back, active, None, True, ok_reason=reason)
+        with self._lock:
+            self._before_active = None
 
     def _last_checkpoint(self, cancel: CancelToken | None) -> None:
         """Lot E (E4): past this point « Arrêter » acts on this load no longer (`stop()`
@@ -3936,15 +3997,39 @@ class AppSession:
         )
         return Joined((intro, *lines), sep="\n")
 
-    def _sub_messages(
-        self, sub: _SubContext, steps: list[dict[str, Any]], *, chat: bool = False
-    ) -> list[dict[str, Any]]:
-        """AD-11: the sub-agent's context, its prompt then the task, then its own steps;
-        nothing of the main context (history, main prompt, skills, H3)."""
+    def _sub_contributions(self, sub: _SubContext) -> dict[str, list[dict[str, Any]]]:
+        """AD-11, AD-12: what each brick declaring `sub` (`contributes_to`) puts at the head
+        of a sub-agent's messages. `subagent`: its prompt, then the task. A brick absent from
+        here adds no message (`tools`: its tools reach the sub-agent through `sub.tools`)."""
         own = ("subagent", "subagent.agent")
+        return {
+            "subagent": [
+                {"role": "system", "content": [Part(SegmentKind.SYSTEM_PROMPT, sub.prompt, *own)]},
+                {"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, sub.task, *own)]},
+            ],
+        }
+
+    def _sub_messages(
+        self,
+        sub: _SubContext,
+        steps: list[dict[str, Any]],
+        effective: frozenset[str] | set[str],
+        *,
+        chat: bool = False,
+    ) -> list[dict[str, Any]]:
+        """AD-11: the sub-agent's context, then its own steps; nothing of the main context
+        (history, main prompt, skills, H3). Story 2 of the deferred leftovers (E067): its
+        head is derived from the effective bricks that declare `sub`, in the registry's
+        order, each with its contribution (`_sub_contributions`)."""
+        contributions = self._sub_contributions(sub)
+        head = [
+            message
+            for brick in self._bricks.values()
+            if brick.id in effective and self._contributes(brick.id, "sub")
+            for message in contributions.get(brick.id, ())
+        ]
         return [
-            {"role": "system", "content": [Part(SegmentKind.SYSTEM_PROMPT, sub.prompt, *own)]},
-            {"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, sub.task, *own)]},
+            *head,
             *self._step_messages(
                 steps,
                 history=False,
@@ -3979,7 +4064,9 @@ class AppSession:
         rendered = render_context(
             self._engine,
             self._caps.chat_template or "",
-            self._sub_messages(sub, steps or []) if sub else self._messages(state, message, steps),
+            self._sub_messages(sub, steps or [], state.effective)
+            if sub
+            else self._messages(state, message, steps),
             call_id=call_id,
             special_tokens=meta.special_tokens,
             tools=self._tool_definitions(
@@ -4020,7 +4107,7 @@ class AppSession:
         assert entry is not None and content is not None
         reserve = self._reserve_of(state)
         messages = (
-            self._sub_messages(sub, steps or [], chat=True)
+            self._sub_messages(sub, steps or [], state.effective, chat=True)
             if sub
             else self._messages(state, message, steps, chat=True)
         )
@@ -5116,18 +5203,25 @@ class AppSession:
                 if conn is None
                 else describe_error(error, self.cfg.mcp_connect_timeout_s)
             )
+        drift = None
         if conn is not current_conn:  # disabled or closed meanwhile: nothing to apply
             error_text = Message("session.mcp.abandoned")
         elif error_text is not None:
             with self._lock:
                 self._mcp_conns.pop(server_id, None)
                 self._mcp_state[server_id] = ("unavailable", error_text)
+                self._mcp_drift.pop(server_id, None)
         else:
             specs = [self._mcp_spec(server, conn, tool) for tool in tools]
             self._registry.remove(f"{server_id}__")
             names = self._registry.add(specs)
+            drift = self._mcp_snapshot_drift(server, tools)
             with self._lock:
                 self._mcp_state[server_id] = ("available", None)
+                if drift is None:
+                    self._mcp_drift.pop(server_id, None)
+                else:
+                    self._mcp_drift[server_id] = drift
         with scoped(brick="mcp", component=server.component):
             self._journal().emit(
                 "mcp_connect_ended",
@@ -5137,11 +5231,67 @@ class AppSession:
                     "tools": names,
                     "error_text": error_text,
                     "duration_ms": _ms(ended - started),
-                },
+                }
+                | ({"drift_text": self._drift_text(server_id, drift)} if drift else {}),
             )
         self._emit_architecture()
         self._emit_bricks()
         self._emit_preview()
+
+    def _mcp_snapshot_drift(self, server, tools) -> mcp_snapshot.Drift | None:  # noqa: ANN001
+        """AD-9 (E089): a public server whose `tools/list` drifts from its snapshot beyond
+        `[mcp] snapshot_drift_threshold`; `None` for the local server, without a snapshot, or
+        within the threshold. Never blocks the connection."""
+        if not server.network:
+            return None
+        try:
+            snapshot = mcp_snapshot.load_snapshot(server.id)
+            if snapshot is None:
+                return None
+            live = [t.model_dump(by_alias=True, exclude_none=True) for t in tools]
+            drift = mcp_snapshot.drift(snapshot, live)
+        except Exception as exc:  # noqa: BLE001 - AD-16: a warning at most, never a failure
+            _log.warning("MCP snapshot of %s not compared: %s", server.id, exc)
+            return None
+        threshold = self.cfg.mcp_snapshot_drift_threshold
+        if drift.ratio <= threshold:
+            return None
+        _log.warning(
+            "MCP server %s drifts from its snapshot by %.0f %% (threshold %.0f %%): "
+            "added %s, removed %s, documentation %d -> %d characters",
+            server.id,
+            drift.ratio * 100,
+            threshold * 100,
+            list(drift.added),
+            list(drift.removed),
+            drift.weight_before,
+            drift.weight_after,
+        )
+        return drift
+
+    def _drift_text(self, server_id: str, drift: mcp_snapshot.Drift) -> str:
+        """The card's warning (E089), in the session's language."""
+        lang = self._language
+        changes = [
+            self._t(f"session.mcp.drift.{kind}", count=len(names), names=join(list(names), lang))
+            for kind, names in (("added", drift.added), ("removed", drift.removed))
+            if names
+        ]
+        changes.append(
+            self._t(
+                "session.mcp.drift.weight",
+                before=self._n(drift.weight_before),
+                after=self._n(drift.weight_after),
+            )
+        )
+        return self._t(
+            "session.mcp.drift.message",
+            server=self._mcp_label(server_id),
+            changes=join(changes, self._language),
+            # Rounded up: a gap just over the threshold never reads as equal to it.
+            gap=self._n(math.ceil(drift.ratio * 100)),
+            threshold=self._n(round(self.cfg.mcp_snapshot_drift_threshold * 100)),
+        )
 
     def _mcp_spec(self, server, conn: McpConnection, tool) -> ToolSpec:  # noqa: ANN001
         """A listed MCP tool as a registry entry, in documentation complète (AD-14)."""
@@ -5182,6 +5332,7 @@ class AppSession:
         with self._lock:
             conn = self._mcp_conns.pop(server_id, None)
             self._mcp_state.pop(server_id, None)  # drawn again as « non contacté »
+            self._mcp_drift.pop(server_id, None)
         if conn is not None:
             conn.close(wait=False)
         self._executor.submit(self._registry.remove, f"{server_id}__")
@@ -5193,6 +5344,7 @@ class AppSession:
             if conn is None:  # disabled during the call: it stays « non contacté »
                 return
             self._mcp_state[server_id] = ("unavailable", reason_text)
+            self._mcp_drift.pop(server_id, None)
         conn.close(wait=False)
         self._registry.remove(f"{server_id}__")
 
@@ -5888,6 +6040,7 @@ class AppSession:
         self._call_ids.clear()
         steps: list[dict[str, Any]] = []
         text = reasoning = ""
+        way_back: tuple[UnsupportedArchitecture, ModelChoice, ModelChoice | None] | None = None
         with scoped(turn_id=turn_id, context_id="main", trigger="user"):
             try:
                 self._turn_seq = journal.emit(
@@ -5943,8 +6096,12 @@ class AppSession:
                     self._cancel = None
                     if self._turn_called:  # lot A: `abandoned` only for a turn that
                         self._last_status = status  # left its output in the engine's cache
-                self._set_state("idle")
+                way_back = self._start_way_back()  # E119: straight to `model_load`
+                if way_back is None:
+                    self._set_state("idle")
                 self._emit_window_state()  # story 26: the read rate this turn measured
+        if way_back is not None:  # out of the turn's scope: a load of its own
+            self._run_way_back(*way_back)
 
     def _turn(
         self,
@@ -7364,11 +7521,19 @@ class AppSession:
         except ServerError as error:  # story 18: the local server stopped or refused
             flush()
             end("error")
-            self._error(
-                getattr(error, "message", None) or error.message_text,
-                error.cause,
-                Message("session.turn.over"),
-            )
+            effect = Message("session.turn.over")
+            # E119: back once the turn ends; only a workshop turn goes back (`_turn_ctx`), the
+            # « LLM nu » screen keeps the reason without a promise nor a pending way back.
+            if isinstance(error, UnsupportedArchitecture) and self._turn_ctx is not None:
+                with self._lock:
+                    self._unsupported = error
+                    back = self._way_back()
+                effect = (
+                    Message("session.load.unsupported.back", label=back.label)
+                    if back is not None
+                    else Message("session.load.unsupported.none")
+                )
+            self._error(getattr(error, "message", None) or error.message_text, error.cause, effect)
             return _ModelOutput("error")
         except Exception:
             flush()

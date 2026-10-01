@@ -9,7 +9,6 @@ intro_text: >-
   retrouver les extraits utiles, qu'un reranker peut réordonner avant qu'ils n'entrent dans le
   contexte du modèle. Lancez la chaîne sur une question pour voir ce que chaque étape reçoit,
   produit, et ce qu'elle coûte. C'est un bac à sable : la brique RAG de l'atelier ne change pas.
-back_text: "← Atelier"
 busy_text: "Indisponible pour l'instant : {raison}"
 
 chain_title_text: "La chaîne"

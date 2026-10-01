@@ -103,6 +103,7 @@ main:
     reset_done: "WaveStack reset: Bare LLM."
     reset_title: "Back to the Bare LLM, empty conversation."
     reset_no_answer: "WaveStack does not answer: nothing was reset."
+    connection_lost: "Connection to the server lost, trying again…"
     scenario: "Scenario"
     reset: "Reset"
   trigger:

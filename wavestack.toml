@@ -191,6 +191,14 @@ max_calls = 4
 # Délai de connexion (initialize puis tools/list) et délai d'un appel d'outil, en secondes.
 connect_timeout_s = 15
 call_timeout_s = 30
+# Écart à l'instantané (AD-9) : à la connexion d'un serveur public qui a un instantané dans
+# content/mcp_snapshots/ (scripts/snapshot_mcp.py), WaveStack compare sa liste d'outils
+# (tools/list) à l'instantané. Au-delà de ce seuil, un avertissement qui nomme le serveur
+# s'affiche sur la carte MCP : la jauge prévue pour les scénarios MCP peut ne plus tenir. Écart =
+# le plus grand de deux rapports : outils ajoutés ou retirés sur le nombre d'outils de
+# l'instantané, et variation du poids de leur documentation (description et schéma, en
+# caractères). 0.2 = 20 % (borné de 0 à 10) ; sans instantané, aucune comparaison.
+snapshot_drift_threshold = 0.2
 
 [mcp.urls]
 # Serveurs publics en Streamable HTTP ; leurs hôtes sont aussi dans [net] allowed_hosts.

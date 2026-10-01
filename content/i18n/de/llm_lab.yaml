@@ -7,7 +7,6 @@ intro_text: >-
   Gedächtnis. Wir sehen, was das Modell selbst tut: den Text in Tokens zerlegen, sie in
   Vektoren umwandeln und dann eine Antwort erzeugen, Token für Token. Diese Ansicht arbeitet
   mit dem aktiven Modell der Werkstatt, ohne deren Unterhaltung anzutasten.
-back_text: "← Werkstatt"
 change_model_text: "Modell in der Werkstatt wechseln"
 active_model_text: "Aktives Modell"
 no_model_text: "Kein aktives Modell: Wählen Sie eines in der Werkstatt."
