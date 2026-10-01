@@ -27,7 +27,12 @@ from wavestack.messages import in_language, msg, render
 from wavestack.models import catalog
 from wavestack.models.engine import SAMPLING_BOUNDS, Sampling
 from wavestack.rag.lab import LANES_MAX, QUESTION_MAX, Pipeline
-from wavestack.session.app_session import AppSession, ArmRefused, SendRefused
+from wavestack.session.app_session import (
+    AppSession,
+    ArmRefused,
+    DistributionMissing,
+    SendRefused,
+)
 from wavestack.session.diagnostic import DiagnosticSession, Refused
 from wavestack.trace.envelope import Envelope
 from wavestack.trace.journal import get_journal
@@ -183,6 +188,24 @@ class LlmGenerateIntention(BaseModel):
     candidates: bool = False  # the in-process engine only, else 409
 
 
+class LlmCompareIntention(BaseModel):
+    """Story 5 of 2026-09-30: the screen's prompt generated with two samplings, A then B."""
+
+    prompt: str = Field(min_length=1, max_length=2000)
+    sampling_a: SamplingIntention
+    sampling_b: SamplingIntention
+    reasoning: bool = False
+    candidates: bool = False  # A's live distribution; the in-process engine only, else 409
+
+
+class LlmDistributionRequest(BaseModel):
+    """Story 5 of 2026-09-30, read only: a token of the last generation (its `llm_token`
+    index) and the sampling to draw its candidates again with."""
+
+    index: int = Field(default=0, ge=0)
+    sampling: SamplingIntention
+
+
 class RagLabRunIntention(BaseModel):
     """Story 30: the question the RAG workshop's chains run on (500 characters at most), and
     the chain (the shipped one when absent)."""
@@ -202,6 +225,21 @@ class RagLabValidateRequest(BaseModel):
     """Story 30, increment 4: the chains the page is editing, checked without running them."""
 
     pipelines: list[Pipeline] = Field(min_length=1, max_length=LANES_MAX)
+
+
+class McpLabConnectIntention(BaseModel):
+    """Story 6 (2026-09-30): the server the MCP workshop connects to, with its own connection."""
+
+    server: str
+
+
+class McpLabCallIntention(BaseModel):
+    """Story 6 (2026-09-30): a tool of the server the workshop is connected to, as the server
+    names it, and its arguments (the page builds them from the tool's schema)."""
+
+    server: str
+    tool: str = Field(min_length=1)
+    args: dict[str, Any] = {}
 
 
 class SystemPromptIntention(BaseModel):
@@ -382,6 +420,37 @@ def create_app(
                 status_code=409, detail=t("web.refused_now", reason=refused.reason_text)
             ) from None
 
+    @app.post("/api/intentions/llm_compare")
+    def llm_compare(intention: LlmCompareIntention) -> dict[str, object]:
+        """Story 5 of 2026-09-30, class (b): accepted in `idle` only; `llm{n}.a` then
+        `llm{n}.b`, the session in `llm_lab` until B ends; « Arrêter » stops both."""
+        try:
+            request_id = app_session.llm_compare(
+                intention.prompt,
+                Sampling(**intention.sampling_a.model_dump()),
+                Sampling(**intention.sampling_b.model_dump()),
+                reasoning=intention.reasoning,
+                candidates=intention.candidates,
+            )
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=t("web.refused_now", reason=refused.reason_text)
+            ) from None
+        return {"request_id": request_id, "request_ids": [f"{request_id}.a", f"{request_id}.b"]}
+
+    @app.post("/api/llm_lab/distribution")
+    def llm_lab_distribution(request: LlmDistributionRequest) -> dict[str, object]:
+        """Story 5 of 2026-09-30, read only, in any state (AD-1: computed by the session):
+        the candidates of a token of the last local generation for a sampling; 404 when
+        none are kept."""
+        sampling = Sampling(**request.sampling.model_dump())
+        try:
+            return shown(app_session.llm_distribution(request.index, sampling))
+        except DistributionMissing as missing:
+            raise HTTPException(
+                status_code=404, detail=render(missing.reason_text, app_session.language)
+            ) from None
+
     @app.get("/rag")
     def rag_page() -> FileResponse:
         """Story 30: the RAG workshop, a RAG chain drawn and run apart from the brick."""
@@ -405,6 +474,47 @@ def create_app(
         ends; « Arrêter » (`stop`) stops it. A chain refused: 409 with the reason."""
         try:
             return {"run_id": app_session.run_rag_lab(intention.question, intention.pipelines)}
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
+
+    @app.get("/mcp")
+    def mcp_page() -> FileResponse:
+        """Story 6 (2026-09-30): the MCP workshop, the protocol between the harness and a
+        server, with connections of its own (never the brick's)."""
+        return FileResponse(STATIC_DIR / "mcp.html")
+
+    @app.get("/api/mcp_lab")
+    def api_mcp_lab() -> dict[str, object]:
+        """Story 6 (AD-1): the servers, the texts, the presets, the open connection, the last
+        connection's envelopes, the session's state and the journal's tip; the page then
+        streams from `seq`."""
+        return shown(app_session.mcp_lab_state())
+
+    @app.post("/api/intentions/mcp_lab_connect")
+    def mcp_lab_connect(intention: McpLabConnectIntention) -> dict[str, str]:
+        """Story 6, class (b): accepted in `idle` only, the session in `mcp_lab` until the
+        handshake ends; « Arrêter » (`stop`) closes the connection. Busy: 409 with the
+        reason."""
+        try:
+            return {"step_id": app_session.mcp_lab_connect(intention.server)}
+        except KeyError:
+            raise HTTPException(status_code=404, detail=t("web.unknown.mcp_server")) from None
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
+
+    @app.post("/api/intentions/mcp_lab_call")
+    def mcp_lab_call(intention: McpLabCallIntention) -> dict[str, str]:
+        """Story 6, class (b): a call through the workshop's connection, accepted in `idle`
+        only; without a connection to the server, or for a tool it did not list: 409."""
+        try:
+            step_id = app_session.mcp_lab_call(intention.server, intention.tool, intention.args)
+            return {"step_id": step_id}
+        except KeyError:
+            raise HTTPException(status_code=404, detail=t("web.unknown.mcp_server")) from None
         except SendRefused as refused:
             raise HTTPException(
                 status_code=409, detail=render(refused.reason_text, app_session.language)

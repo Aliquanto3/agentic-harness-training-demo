@@ -196,7 +196,10 @@ class Said(str):
 
 def said(value: Any, lang: str) -> Any:
     """`value` placed in `lang`: a `Message` or a `KeyedError` as a `Said`, a `Lazy`
-    rendered, anything else as it is."""
+    rendered, a `Said` of another language rendered again (a text kept since before a change
+    of language: the startup diagnostic's), anything else as it is."""
+    if isinstance(value, Said):
+        return value if value.lang == lang else Said(value.message, lang)
     if isinstance(value, Message):
         return Said(value, lang)
     if isinstance(value, KeyedError):
@@ -210,7 +213,7 @@ def in_language(value: Any, lang: str) -> Any:
     """`value` with every `Message`, `KeyedError` or `Lazy` it holds (in a dict, a list or a
     tuple, at any depth) placed in `lang` (`said`); the same object when it holds none. The
     session applies it to what it emits, the web to what it answers."""
-    if isinstance(value, Message | KeyedError | Lazy):
+    if isinstance(value, Said | Message | KeyedError | Lazy):
         return said(value, lang)
     if isinstance(value, dict):
         items = {k: in_language(v, lang) for k, v in value.items()}

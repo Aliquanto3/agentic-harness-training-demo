@@ -80,6 +80,7 @@ SessionState = Literal[
     "diagnostic",
     "llm_lab",  # story 29: the « LLM nu » screen generates
     "rag_lab",  # story 30: the RAG workshop runs its chains
+    "mcp_lab",  # story 6 (2026-09-30): the MCP workshop connects or calls
 ]
 
 
@@ -1074,6 +1075,9 @@ class LlmGenerationStartedPayload(BaseModel):
     exact: bool
     sampling: SamplingTrace
     reserve: int
+    # Story 5 of 2026-09-30: the window's share left to the prompt (window - reserve), for
+    # the page's diagram of the window (values received, the page computes nothing).
+    usable: int | None = None
     reasoning: bool = False
     phase_label: str
     # What one `llm_token` is: a token of the in-process engine, or a fragment of a server's
@@ -1254,6 +1258,60 @@ class RagLabRunEndedPayload(BaseModel):
     comparison: RagLabComparison | None = None
 
 
+# ---------- corrections of 2026-09-30, story 6: the MCP workshop, context `mcp_lab` ----------
+
+
+class McpLabMessagePayload(BaseModel):
+    """A JSON-RPC message as it passed the workshop's transport (captured, not rebuilt:
+    `reconstructed` stays false). `elapsed_ms`: for a response, its round trip from its
+    request; for a request or a notification, the time since the exchange started."""
+
+    direction: Literal["to_server", "from_server"]
+    method: str
+    jsonrpc: str
+    elapsed_ms: int
+    reconstructed: bool = False
+
+
+class McpLabTool(BaseModel):
+    """A listed tool and what its documentation weighs in the context (AD-4, AD-25)."""
+
+    name: str  # exposed: `{server}__{tool}`
+    tool: str  # as the server names it (`mcp_lab_call`'s)
+    description: str
+    schema_: dict = Field(alias="schema")
+    definition_text: str  # the definition `_tool_definitions` renders, as JSON
+    doc_tokens: int
+    line_text: str  # its line in `load_tool_doc`'s catalog (lazy loading)
+    line_tokens: int
+
+    model_config = {"populate_by_name": True, "serialize_by_alias": True}
+
+
+class McpLabConnectEndedPayload(BaseModel):
+    server: str
+    status: Literal["ok", "error"]
+    tools: list[McpLabTool] = []
+    full_tokens: int | None = None
+    lazy_tokens: int | None = None  # the lines, plus `load_tool_doc`'s definition
+    load_tool_doc_tokens: int | None = None
+    lazy_definition_text: str | None = None  # `load_tool_doc` with this server's lines
+    estimated: bool = False  # no engine loaded: `_count_tokens`'s estimate
+    error_text: str | None = None
+    duration_ms: int = 0
+
+
+class McpLabCallEndedPayload(BaseModel):
+    server: str
+    tool: str
+    status: Literal["ok", "error"]
+    raw: str | None = None  # the JSON-RPC answer, as received
+    text: str | None = None  # what the harness would reinject (bounded)
+    truncated: dict | None = None  # `{tokens, total_tokens, estimated}` when bounded
+    error_text: str | None = None
+    duration_ms: int
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -1318,4 +1376,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "rag_lab_stage_progress": RagLabStageProgressPayload,
     "rag_lab_stage_ended": RagLabStageEndedPayload,
     "rag_lab_run_ended": RagLabRunEndedPayload,
+    "mcp_lab_message": McpLabMessagePayload,
+    "mcp_lab_connect_ended": McpLabConnectEndedPayload,
+    "mcp_lab_call_ended": McpLabCallEndedPayload,
 }

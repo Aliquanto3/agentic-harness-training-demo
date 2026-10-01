@@ -20,6 +20,11 @@ sections:
       The model does not read letters: its tokenizer splits the text into tokens, pieces
       of words taken from a fixed vocabulary. Each token has an identifier, simply a row
       number in the embedding table, which turns it into a vector of numbers.
+    questions_text:
+      - "Why does the model not read words?"
+      - "How many tokens for a sentence in English, and for an emoji?"
+      - "What is a special token, and why does the template add some?"
+      - "What becomes of a token's identifier inside the model?"
   sampling:
     title_text: "Sampling settings"
     intro_text: >-
@@ -27,26 +32,47 @@ sections:
       settings decide how the next token is drawn from them. The order described here is
       llama.cpp's (the engine of WaveStack, llama-server and Ollama): top-k, then top-p, then
       min-p, then temperature; a cloud provider may apply its own differently.
+    questions_text:
+      - "Why does the same prompt give two different answers?"
+      - "Does the temperature change the model's probabilities, or only the draw?"
+      - "What is the difference between top-k, top-p and min-p?"
+      - "How do I always get the same answer?"
   loading:
     title_text: "Loading the model"
     intro_text: >-
       Before answering, the model must be in memory. Here are the steps of the last load,
       how long they took and the memory the model takes up.
+    questions_text:
+      - "Why is the first call slower?"
+      - "How much memory does the model take up, and where?"
+      - "What changes between a loaded file, a local server and a cloud model?"
   reading:
     title_text: "Reading the prompt"
     intro_text: >-
       The prompt is rendered with the model's template, then read in one block: this is the
       wait before the first token.
+    questions_text:
+      - "What is really sent to the model?"
+      - "Why wait before the first token?"
+      - "Why must the prompt and the answer fit in the window together?"
   generation:
     title_text: "Generation"
     intro_text: >-
       The model produces its answer one token at a time: each token drawn is read back to
       draw the next one.
+    questions_text:
+      - "Why does the answer come token by token?"
+      - "Could the model have chosen another token at this point?"
+      - "Do two different settings give two different answers?"
   reasoning:
     title_text: "Reasoning"
     intro_text: >-
       A reasoning model first writes out its thinking, then its answer. Both are tokens,
       produced in the same way.
+    questions_text:
+      - "Where does the model “think”?"
+      - "Does the thinking cost tokens, like the answer?"
+      - "Why can the harness cut the thinking short?"
 
 tokenization:
   prompt_label_text: "Text to split"
@@ -178,3 +204,52 @@ candidates:
     The model probability comes from its logits (temperature 1). In llama.cpp's order,
     top-k, top-p and min-p discard candidates, then the temperature redistributes the chance
     of being drawn among those that remain.
+
+# Story 5 of 2026-09-30: the live distribution (section 2), the A/B comparison (section 5),
+# the diagram of the window (section 4).
+distribution:
+  title_text: "What the settings do to the candidates"
+  intro_text: >-
+    The candidates of a token already produced, as the model saw them. Move a slider:
+    WaveStack works out again which ones stay in the running and each one's chance of being
+    drawn, without a new generation. The model probability does not move.
+  empty_text: >-
+    Generate an answer with “Show the candidate tokens” ticked (section 5): the candidates
+    of its first token will appear here.
+  token_text: "Token {index} of the last generation (A for a comparison): {texte}. Click another chip in section 5 to choose it."
+  probability_text: "Model probability"
+  chance_text: "Chance of being drawn"
+  dropped_text: "discarded"
+  kept_text: "{gardes} candidates kept among the {lus} most probable read."
+  more_text: "… and {reste} other candidates read, further down, not shown."
+  tail_text: "Rest of the vocabulary"
+  tail_help_text: >-
+    WaveStack keeps the {lus} most probable candidates of each token; the rest of the
+    vocabulary weighs {reste} of the probability. The chance of being drawn is shared among
+    the candidates kept only: an approximation, faithful as long as this rest is small.
+
+compare:
+  title_text: "Compare two settings"
+  intro_text: >-
+    The same prompt, generated twice: A with the settings of section 2, B with those below.
+    A single model runs on the processor: B starts once A has finished. “Stop” stops both.
+  b_settings_text: "Settings B"
+  button_text: "Compare"
+  running_text: "Comparison in progress: A, then B…"
+  lane_a_text: "A"
+  lane_b_text: "B"
+  waiting_text: "Waiting for A to finish."
+  empty_text: "Nothing yet."
+
+window:
+  title_text: "The window, token after token"
+  prompt_text: "Prompt: {tokens}"
+  free_text: "Free"
+  reserve_text: "Output reserve: {reserve}"
+  output_text: "Answer: {tokens} tokens"
+  output_fragments_text: "Answer: {tokens} fragments received"
+  caption_text: >-
+    The window holds {fenetre} tokens: {utilisables} for the prompt, {reserve} kept for the
+    answer. At each step, the model reads the whole window filled so far again (the cache
+    spares it from computing everything again) and the token drawn is added at the end: the
+    reading head slides by one token. A prompt longer than its share is not sent.

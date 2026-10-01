@@ -1,0 +1,69 @@
+# Atelier MCP (corrections du 2026-09-30, story 6, AD-19) : les textes pédagogiques de la page
+# /mcp, validés par pydantic (wavestack.mcp.lab.McpLabContent). Un fichier invalide : la page
+# reste servie et dit pourquoi. Les libellés d'interface sont dans ui.yaml, section `mcp`.
+# `{…}` : une valeur que la page place.
+
+title_text: "Atelier MCP : le protocole à manipuler"
+intro_text: >-
+  Un serveur MCP est un programme à part : le harnais le lance comme processus enfant (stdio) ou
+  le joint par HTTP, puis lui parle en JSON-RPC. Connectez-vous à un serveur pour voir la
+  poignée de main, la documentation de ses outils et ce qu'elle pèse dans le contexte du
+  modèle, puis appelez un outil à la main. C'est un bac à sable : l'atelier ouvre ses propres
+  connexions, la brique MCP de l'atelier principal ne change pas, et aucun modèle ne génère ici.
+busy_text: "Indisponible pour l'instant : {reason}"
+
+servers_title_text: "Les serveurs"
+servers_help_text: >-
+  Les trois serveurs de la brique MCP. Le glossaire est un processus Python que le harnais
+  lance sur ce poste et auquel il parle par l'entrée et la sortie standard ; les deux autres
+  sont des services publics joints en HTTP, avec la garde réseau de WaveStack.
+
+handshake_title_text: "La poignée de main"
+handshake_help_text: >-
+  Chaque message JSON-RPC tel qu'il passe sur le transport, avec son sens et sa durée :
+  initialize présente le harnais, le serveur répond par son nom, sa version et ses capacités,
+  puis tools/list demande la liste des outils et leur documentation.
+handshake_empty_text: "Connectez-vous à un serveur : ses messages s'afficheront ici, un par un."
+
+tools_title_text: "La documentation des outils"
+tools_help_text: >-
+  Ce que le serveur dit de chaque outil, et ce que cela coûte dans le contexte. En
+  documentation complète, chaque outil y entre en entier (nom, description, schéma) ; en lazy
+  loading, il n'y laisse qu'une ligne dans la description de load_tool_doc, et sa
+  documentation n'entre que si le modèle la demande.
+tools_empty_text: "Aucun outil listé pour l'instant : connectez-vous à un serveur."
+
+call_title_text: "L'appel"
+call_help_text: >-
+  Un champ par paramètre du schéma de l'outil. Le harnais envoie tools/call ; le serveur
+  répond par un résultat JSON-RPC, dont le harnais tire le texte qu'il réinjecterait au modèle.
+call_empty_text: "Connectez-vous à un serveur pour appeler un de ses outils."
+reinjected_help_text: >-
+  Le texte que le harnais remettrait au modèle : les blocs texte du résultat, borné au plafond
+  des résultats d'outils réseau et MCP.
+
+context_title_text: "Ce que le modèle voit"
+context_help_text: >-
+  Le bloc « outils » du contexte avec ce serveur, dans les deux modes : les définitions JSON
+  que le harnais envoie, sans l'habillage que le gabarit du modèle y ajoute (quelques tokens de
+  plus dans la jauge de l'atelier principal). Rien n'est généré : c'est ce que le modèle
+  lirait avant de choisir un outil.
+context_empty_text: "Connectez-vous à un serveur pour voir son bloc « outils »."
+
+transports:
+  stdio:
+    label_text: "stdio (processus enfant)"
+    explain_text: >-
+      Le harnais lance le serveur sur ce poste et échange avec lui par l'entrée et la sortie
+      standard : une ligne JSON par message. Rien ne sort du poste.
+  streamable_http:
+    label_text: "Streamable HTTP"
+    explain_text: >-
+      Le harnais envoie chaque message en POST à l'adresse du serveur, qui répond en JSON ou
+      en flux d'événements. La requête quitte le poste : elle est tracée comme donnée sortante.
+
+methods:
+  initialize: "Le harnais se présente : version du protocole, nom et capacités du client."
+  "notifications/initialized": "Une notification, sans réponse : le harnais confirme que la session est ouverte."
+  "tools/list": "Le harnais demande la liste des outils ; chaque outil vient avec sa description et son schéma d'arguments."
+  "tools/call": "Le harnais appelle un outil avec ses arguments ; le serveur répond par des blocs de contenu, ou par is_error."

@@ -19,10 +19,15 @@ from test_model_servers import GIB, LLAMA_URL, FakeServer, _booted
 from wavestack import config
 from wavestack.cloud import chat_fields
 from wavestack.models import gguf_meta, servers
-from wavestack.models.candidates import candidates_from_logits
+from wavestack.models.candidates import (
+    TOP,
+    candidates_from_logits,
+    distribution,
+    top_from_logits,
+)
 from wavestack.models.engine import EngineMetadata, Sampling
 from wavestack.session import llm_lab
-from wavestack.session.app_session import SendRefused
+from wavestack.session.app_session import CANDIDATES, DistributionMissing, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.journal import get_journal
 from wavestack.web.app import create_app
@@ -833,3 +838,278 @@ def test_sampling_intention_bounds_are_the_engine_bounds():
     schema = SamplingIntention.model_json_schema()["properties"]
     for name, (low, high) in SAMPLING_BOUNDS.items():
         assert (schema[name]["minimum"], schema[name]["maximum"]) == (low, high)
+
+
+# ---------- story 5 of 2026-09-30: the live distribution, the comparison A/B ----------
+
+# The oracle's samplings: those of the candidates' tests above, and a few combined.
+ORACLE_SAMPLINGS = [
+    Sampling(1.0, 100, 1.0, 0.0),
+    Sampling(0.5, 100, 1.0, 0.0),
+    Sampling(0.0, 100, 1.0, 0.0),
+    Sampling(1.0, 2, 1.0, 0.0),
+    Sampling(1.0, 100, 0.8, 0.0),
+    Sampling(1.0, 100, 1.0, 0.3),
+    Sampling(0.7, 3, 0.9, 0.05),
+    Sampling(1.0, 0, 0.8, 0.0),
+    Sampling(1.5, 5, 0.95, 0.1),
+]
+OPEN = {"temperature": 1.0, "top_k": 20, "top_p": 1.0, "min_p": 0.0}
+# One list of logits per token of the fake's output (a vocabulary of 8: the ids are the
+# positions); the second token's most probable is id 7.
+LOGITS_SCRIPT = [LOGITS, list(reversed(LOGITS)), LOGITS]
+
+
+@pytest.mark.parametrize("sampling", ORACLE_SAMPLINGS)
+def test_distribution_agrees_with_the_candidates_oracle(sampling):
+    """The same logits: `distribution`, from the probabilities kept, gives the same `kept`
+    and `p_sampled` as `candidates_from_logits` for the five first."""
+    rows = candidates_from_logits(LOGITS, sampling, chosen_id=0)
+    ids, probs, tail = top_from_logits(LOGITS)
+    drawn = distribution(probs, tail, sampling)
+    assert ids[:5] == [r["token_id"] for r in rows[:5]]
+    for row, again in zip(rows[:5], drawn[:5], strict=True):
+        assert again["kept"] == row["kept"], (sampling, row)
+        assert again["p"] == pytest.approx(row["p"])
+        assert again["p_sampled"] == pytest.approx(row["p_sampled"], abs=1e-9)
+
+
+def test_distribution_top_p_counts_the_tail_when_top_k_is_off():
+    """Top-k off: top-p cumulates over the whole vocabulary, the tail included (`base`). A
+    peaked head and a long flat tail: 300 tokens, the 200 past the `TOP` read weigh about
+    a fifth; at top-p 0.75 the cut falls among the 100 read, as the oracle's."""
+    logits = [6.0, 5.0, 4.0, 3.0, 2.0] + [0.0] * 295
+    sampling = Sampling(1.0, 0, 0.75, 0.0)
+    rows = candidates_from_logits(logits, sampling, chosen_id=0, n=TOP)
+    ids, probs, tail = top_from_logits(logits)
+    assert tail > 0.15
+    drawn = distribution(probs, tail, sampling)
+    kept = [r["kept"] for r in rows[:TOP]]
+    assert 5 < kept.count(True) < TOP  # the cut is among the tokens read
+    assert [r["kept"] for r in drawn] == kept
+    for row, again in zip(rows[:5], drawn[:5], strict=True):
+        assert again["p_sampled"] == pytest.approx(row["p_sampled"], abs=1e-9)
+    # Without the tail in the sum, the cut would fall among the five first.
+    assert distribution(probs, 0.0, sampling)[5]["kept"] is False
+
+
+def test_distribution_matrix_open_greedy_and_top_k():
+    probs, tail = [0.5, 0.2, 0.1, 0.05, 0.05], 0.1
+    # T = 1, filters open: p / (1 - tail), the tail never drawn here (the approximation).
+    opened = distribution(probs, tail, Sampling(1.0, 0, 1.0, 0.0))
+    assert all(r["kept"] for r in opened)
+    for r in opened:
+        assert r["p_sampled"] == pytest.approx(r["p"] / (1 - tail))
+    # T = 0: the first at 100 %, the others at 0.
+    greedy = distribution(probs, tail, Sampling(0.0, 0, 1.0, 0.0))
+    assert [r["p_sampled"] for r in greedy] == [1.0, 0.0, 0.0, 0.0, 0.0]
+    # top-k 3: three kept, renormalized among them; the model's probability does not move.
+    top3 = distribution(probs, tail, Sampling(1.0, 3, 1.0, 0.0))
+    assert [r["kept"] for r in top3] == [True, True, True, False, False]
+    assert sum(r["p_sampled"] for r in top3) == pytest.approx(1.0)
+    assert [r["p"] for r in top3] == probs
+    # min-p 0.5: p >= 0.25, the first one only (at least one always stays).
+    min_p = distribution(probs, tail, Sampling(1.0, 0, 1.0, 0.5))
+    assert [r["kept"] for r in min_p] == [True, False, False, False, False]
+    assert distribution([], 1.0, Sampling(1.0, 0, 1.0, 0.0)) == []
+
+
+def test_top_from_logits_keeps_the_most_probable_and_the_tail():
+    logits = [float(i % 7) for i in range(150)]
+    ids, probs, tail = top_from_logits(logits)
+    assert len(ids) == len(probs) == TOP
+    assert probs == sorted(probs, reverse=True)
+    assert tail == pytest.approx(1 - sum(probs)) and 0 < tail < 1
+    small_ids, _, small_tail = top_from_logits(LOGITS)
+    assert small_ids == list(range(len(LOGITS))) and small_tail == pytest.approx(0, abs=1e-9)
+
+
+def test_distribution_route_redraws_the_last_generation_without_generating():
+    engine = FakeEngine(output="abc", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    client = _web(session)
+
+    def post(body: dict):
+        return client.post("/api/llm_lab/distribution", json=body, headers=ORIGIN)
+
+    missing = post({"index": 0, "sampling": OPEN})
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "Générez d'abord un texte avec un modèle local."
+    assert client.get("/api/llm_lab").json()["distribution"] == {"tokens": 0}
+
+    events = _generate(session, candidates=True)
+    tokens = [e.payload for e in events if e.kind == "llm_token"]
+    assert len(tokens) == 3
+    assert all(len(t["candidates"]) <= 6 for t in tokens)  # never the 100 in the journal
+    assert client.get("/api/llm_lab").json()["distribution"] == {"tokens": 3}
+    calls = len(engine.calls)
+
+    wide = post({"index": 0, "sampling": OPEN}).json()
+    assert wide["index"] == 0 and wide["token_text"] == "a"
+    assert len(wide["candidates"]) == len(LOGITS)  # a vocabulary of 8: all read
+    assert all(c["kept"] for c in wide["candidates"]) and wide["kept_count"] == len(LOGITS)
+    assert set(wide["candidates"][0]) == {"text", "p", "kept", "p_sampled"}
+    # The acceptance criterion: top-k from 20 to 3, three kept, the chances renormalized.
+    narrow = post({"index": 0, "sampling": OPEN | {"top_k": 3}}).json()
+    assert [c["kept"] for c in narrow["candidates"]].count(True) == 3
+    assert narrow["kept_count"] == 3
+    assert [c["p"] for c in narrow["candidates"]] == [c["p"] for c in wide["candidates"]]
+    assert sum(c["p_sampled"] for c in narrow["candidates"]) == pytest.approx(1.0)
+    assert len(engine.calls) == calls  # no new generation
+
+    assert post({"sampling": OPEN}).json()["index"] == 0  # the first token by default
+    second = post({"index": 1, "sampling": OPEN}).json()
+    assert second["token_text"] == "b"
+    assert second["candidates"][0]["p"] == pytest.approx(wide["candidates"][0]["p"])
+    out = post({"index": 3, "sampling": OPEN})
+    assert out.status_code == 404 and "4" in out.json()["detail"] and "3" in out.json()["detail"]
+    for field, value in (("temperature", 2.5), ("top_k", -1), ("top_p", 0.01), ("min_p", 0.6)):
+        assert post({"index": 0, "sampling": OPEN | {field: value}}).status_code == 422, field
+    assert post({"index": -1, "sampling": OPEN}).status_code == 422
+    # A read: answered in any state.
+    session.state, session.reason_text = "turn", "Un tour est en cours."
+    assert post({"index": 0, "sampling": OPEN}).status_code == 200
+
+
+def test_a_new_generation_erases_the_kept_distribution():
+    engine = FakeEngine(output="ab", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    _generate(session, candidates=True)
+    assert session.lab_state()["distribution"]["tokens"] == 2
+    _generate(session)  # without the candidates: nothing kept any more
+    assert session.lab_state()["distribution"]["tokens"] == 0
+    with pytest.raises(DistributionMissing):
+        session.llm_distribution(0, SCREEN)
+    engine.output = "xyz"
+    _generate(session, candidates=True)
+    assert session.lab_state()["distribution"]["tokens"] == 3
+    assert session.llm_distribution(2, SCREEN)["token_text"] == "z"
+
+
+def test_a_switch_of_model_makes_the_kept_distribution_stale(tmp_path):
+    from test_model_switch import _booted, _record_probe, _switch
+
+    from wavestack.models.load_registry import ModelChoice
+
+    first = FakeEngine(output="ab", logits_script=LOGITS_SCRIPT)
+    session, tracker, paths = _booted(tmp_path, {"A": first, "B": FakeEngine()})
+    _generate(session, candidates=True)
+    assert session.lab_state()["distribution"] == {"tokens": 2}
+    _record_probe(paths["B"])
+    _, status = _switch(session, ModelChoice("file", paths["B"]), tracker.probe(paths["B"]))
+    assert status == "ok"
+    session.join()
+    assert session.lab_state()["distribution"] == {"tokens": 0}
+    with pytest.raises(DistributionMissing):
+        session.llm_distribution(0, SCREEN)
+
+
+def test_the_distribution_is_unavailable_with_the_cloud():
+    provider = Provider(sse(delta(content="ok"), delta("stop")))
+    cloud = _cloud_session("groq", provider)
+    _generate(cloud)
+    assert cloud.lab_state()["distribution"] == {"tokens": 0}
+    assert cloud.lab_state()["candidates"]["available"] is False
+    with pytest.raises(DistributionMissing):
+        cloud.llm_distribution(0, SCREEN)
+
+
+def test_compare_runs_a_then_b_under_one_state():
+    engine = FakeEngine(output="Oui", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    # A answers « Oui », B « Non! »: the distribution kept tells them apart.
+    engine.outputs = [engine.output] * len(engine.calls) + ["Oui", "Non!"]
+    asked = len(engine.candidates)
+    hot = Sampling(1.2, 20, 0.8, 0.0)
+    mark = get_journal().last_seq()
+    request_id = session.llm_compare("Bonjour", SCREEN, hot, candidates=True)
+    assert session.state == "llm_lab"
+    session.join()
+    events = get_journal().events_since(mark)
+    lab = [e for e in events if e.context_id == "llm"]
+    started = [e.payload["request_id"] for e in lab if e.kind == "llm_generation_started"]
+    ended = [e for e in lab if e.kind == "llm_generation_ended"]
+    assert started == [f"{request_id}.a", f"{request_id}.b"]
+    assert [e.payload["request_id"] for e in ended] == started
+    assert all(e.payload["status"] == "completed" for e in ended)
+    # B starts after A ended: one after the other, never in parallel.
+    first_b = next(e.seq for e in lab if e.step_id == f"{request_id}.b")
+    assert ended[0].seq < first_b
+    # The state held from A's start to B's end: back to idle once, after B.
+    idle = [e for e in events if e.kind == "session_state" and e.payload.get("state") == "idle"]
+    assert len(idle) == 1 and idle[0].seq > ended[-1].seq
+    assert engine.samplings[-2:] == [SCREEN, hot]
+    # The live distribution is A's (« Oui », 3 tokens; B's « Non! » has 4), and B ran
+    # without the candidates.
+    assert session.lab_state()["distribution"]["tokens"] == 3
+    assert session.llm_distribution(0, SCREEN)["token_text"] == "O"
+    assert session.llm_distribution(2, SCREEN)["token_text"] == "i"
+    assert engine.candidates[asked:] == [CANDIDATES]
+    b_tokens = [e.payload for e in lab if e.kind == "llm_token" and e.step_id == f"{request_id}.b"]
+    assert "".join(t["text"] for t in b_tokens) == "Non!"
+    assert not any(t.get("candidates") for t in b_tokens)
+    assert session.state == "idle"
+
+
+def test_compare_route_refused_outside_idle_validated_and_stopped_whole():
+    session = booted_session(FakeEngine())
+    client = _web(session)
+    good = {"temperature": 0.2, "top_k": 5, "top_p": 0.9, "min_p": 0.05}
+    body = {"prompt": "Bonjour", "sampling_a": good, "sampling_b": good | {"temperature": 1.2}}
+
+    def post(payload: dict):
+        return client.post("/api/intentions/llm_compare", json=payload, headers=ORIGIN)
+
+    answer = post(body)
+    assert answer.status_code == 200
+    request_id = answer.json()["request_id"]
+    assert answer.json()["request_ids"] == [f"{request_id}.a", f"{request_id}.b"]
+    session.join()
+    assert post(body | {"sampling_b": good | {"top_k": -1}}).status_code == 422
+    assert post(body | {"prompt": ""}).status_code == 422
+    session.state, session.reason_text = "turn", "Un tour est en cours."
+    mark = get_journal().last_seq()
+    busy = post(body)
+    assert busy.status_code == 409 and "Un tour est déjà en cours" in busy.json()["detail"]
+    assert not [e for e in get_journal().events_since(mark) if e.context_id == "llm"]
+
+    # « Arrêter » during A: neither A nor B goes on, back to idle.
+    gate = threading.Event()
+    engine = FakeEngine(output="x" * 200, delay=0.01, gate=gate)
+    stopped = booted_session(engine)
+    calls = len(engine.calls)
+    mark = get_journal().last_seq()
+    request_id = stopped.llm_compare("Bonjour", SCREEN, Sampling(1.2, 20, 0.8, 0.0))
+    assert stopped.state == "llm_lab"
+    with pytest.raises(SendRefused):
+        stopped.llm_generate("Pendant la comparaison", SCREEN)
+    assert stopped.stop() is True
+    gate.set()
+    stopped.join()
+    lab = [e for e in get_journal().events_since(mark) if e.context_id == "llm"]
+    ended = {
+        e.payload["request_id"]: e.payload["status"]
+        for e in lab
+        if e.kind == "llm_generation_ended"
+    }
+    assert ended == {f"{request_id}.a": "cancelled", f"{request_id}.b": "cancelled"}
+    started = [e.payload["request_id"] for e in lab if e.kind == "llm_generation_started"]
+    assert started == [f"{request_id}.a"]
+    assert len(engine.calls) <= calls + 1  # B never reached the engine
+    assert stopped.state == "idle"
+
+
+@pytest.mark.parametrize("lang", ["fr", "en", "de"])
+def test_every_section_asks_its_questions(lang):
+    content = llm_lab.load_lab_content(lang)
+    for name, section in content.sections:
+        assert section.questions_text, name
+        assert all(q.strip() for q in section.questions_text), name
+
+
+def test_generation_started_carries_the_window_shares():
+    session = booted_session(FakeEngine(output="ok"))
+    events = _generate(session)
+    started = next(e.payload for e in events if e.kind == "llm_generation_started")
+    assert started["usable"] == session._window - started["reserve"]
+    assert {"window", "usable", "reserve", "prompt_tokens"} <= set(started["figures_text"])

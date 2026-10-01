@@ -23,13 +23,14 @@ TRANSLATED = ("en", "de")
 _VARIABLE = re.compile(r"\{(\w+)\}")
 _KEY = r"[a-z0-9_.]+"
 # Languages (4/5): a section per page, and `common` for the shared texts.
-SECTIONS = {"common", "main", "llm", "rag", "diagnostic", "models"}
+SECTIONS = {"common", "main", "llm", "rag", "mcp", "diagnostic", "models"}  # story 6: mcp
 # Each page and its scripts (its inline `<script type="module">` included).
 # Story 2 (2026-09-30): each loads site-nav.js, the shared bar's menu.
 PAGES = {
     "index.html": ("main", ("app.js", "site-nav.js")),
     "llm.html": ("llm", ("llm.js", "site-nav.js")),
     "rag.html": ("rag", ("rag.js", "site-nav.js")),
+    "mcp.html": ("mcp", ("mcp.js", "site-nav.js")),  # story 6 (2026-09-30)
     "diagnostic.html": ("diagnostic", ("site-nav.js",)),
     "models.html": ("models", ("site-nav.js",)),
 }
@@ -167,7 +168,7 @@ def test_every_key_of_the_page_is_in_french_and_the_html_says_it(name):
 
 
 def test_every_page_loads_i18n_js_after_theme_js():
-    for name in ("index", "llm", "rag", "diagnostic", "models"):
+    for name in ("index", "llm", "rag", "mcp", "diagnostic", "models"):
         page = (STATIC / f"{name}.html").read_text(encoding="utf-8")
         theme = page.index('<script src="/static/theme.js"></script>')
         module = page.index('<script type="module" src="/static/i18n.js"></script>')
@@ -205,7 +206,9 @@ def test_each_page_awaits_the_texts_and_shares_the_navigation(name):
     links = re.findall(r'<a href="/(\w*)"( class="site-nav-brand")?[^>]*>([^<]+)</a>', nav)
     assert [(href, text) for href, brand, text in links if brand] == [("", "WaveStack")], name
     named = [(href or "home", text) for href, brand, text in links if not brand]
-    assert [href for href, _ in named] == ["home", "llm", "rag", "diagnostic", "models"], name
+    assert [href for href, _ in named] == ["home", "llm", "rag", "mcp", "diagnostic", "models"], (
+        name
+    )
     for link, text in named:
         assert FRENCH["common"]["links"][link] == text, (name, link)
 
@@ -219,6 +222,7 @@ def test_i18n_names_the_links_by_their_address_the_brand_aside():
         "/models": "models",
         "/llm": "llm",
         "/rag": "rag",
+        "/mcp": "mcp",
     }
     assert ":not(.site-nav-brand)" in script
     homes = {

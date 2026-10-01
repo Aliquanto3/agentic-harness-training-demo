@@ -7,7 +7,14 @@ import time
 from collections.abc import Iterator, Sequence
 
 from wavestack import config
-from wavestack.models.engine import CancelToken, EngineMetadata, EngineSnapshot, Fragment
+from wavestack.models.candidates import read_logits
+from wavestack.models.engine import (
+    DEFAULT_SAMPLING,
+    CancelToken,
+    EngineMetadata,
+    EngineSnapshot,
+    Fragment,
+)
 from wavestack.session.app_session import AppSession
 
 CHATML = (
@@ -33,6 +40,7 @@ class FakeEngine:
         fail_restore: bool = False,
         cache_lags: bool = False,
         candidates_script: list[list[dict]] | None = None,
+        logits_script: list[list[float]] | None = None,
     ) -> None:
         self.output = output
         self.outputs = outputs  # one per call, the last one repeated
@@ -58,6 +66,11 @@ class FakeEngine:
         # byte), given when the screen asks; `candidates` records how many were asked.
         self.candidates_script = candidates_script
         self.candidates: list[int] = []
+        # Story 5 of 2026-09-30: scripted logits, one list per token (a small vocabulary: the
+        # ids are their positions), read as the in-process engine reads its own
+        # (`candidates.read_logits`): the candidates and the most probable tokens (`top`); the
+        # token drawn is the most probable. Takes over `candidates_script` for those tokens.
+        self.logits_script = logits_script
         self.snapshots = 0
         self.restores = 0
 
@@ -135,13 +148,19 @@ class FakeEngine:
             else:
                 self.cache += list(char.encode("utf-8"))
             # Story 29: one character = one token, its bytes the piece.
-            read = None
-            if candidates and self.candidates_script and count <= len(self.candidates_script):
+            read, top = None, None
+            if candidates and self.logits_script and count <= len(self.logits_script):
+                logits = self.logits_script[count - 1]
+                chosen = max(range(len(logits)), key=logits.__getitem__)
+                read, top = read_logits(
+                    logits, sampling or DEFAULT_SAMPLING, chosen, candidates, self.token_pieces
+                )
+            elif candidates and self.candidates_script and count <= len(self.candidates_script):
                 read = tuple(
                     {"text": bytes([c["token_id"]]).decode("utf-8", "replace")} | c
                     for c in self.candidates_script[count - 1]
                 )
-            yield Fragment(char, count, piece=char.encode("utf-8"), candidates=read)
+            yield Fragment(char, count, piece=char.encode("utf-8"), candidates=read, top=top)
             if count >= max_tokens:
                 yield Fragment("", count, "length")
                 return

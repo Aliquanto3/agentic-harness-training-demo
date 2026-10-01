@@ -24,6 +24,7 @@ from wavestack.cloud import fill as cloud_fill
 from wavestack.compression.port import load_compression_content
 from wavestack.context.segments import SegmentKind, load_labels
 from wavestack.hooks import DEMO_HOOKS
+from wavestack.messages import msg
 from wavestack.models import catalog
 from wavestack.models.discovery import ModelCandidate
 from wavestack.scenarios import load_scenarios
@@ -37,7 +38,6 @@ LANGS = config.LANGUAGES
 TRANSLATED = ("en", "de")
 WINDOW = 16384
 SECRET = "confidentiel/budget_projet.txt"
-BLOCKED = "Bloqué par le hook garde-fou"  # H1's refusal stays French until story 5
 
 
 @pytest.fixture(autouse=True)
@@ -202,8 +202,13 @@ def test_the_local_models_speak_the_language_they_are_given(marked, tmp_path, la
 
 @pytest.mark.parametrize("lang", LANGS)
 def test_the_listing_is_the_french_folders_in_every_language(marked, lang):
-    """Matrix « Liste »: the same names in the three languages."""
-    assert read_file(".", lang) == read_file(".", "fr")
+    """Matrix « Liste »: the same names in the three languages (its heading in the
+    language, story 7 of 2026-09-30)."""
+    assert read_file(".", lang).splitlines()[1:] == read_file(".", "fr").splitlines()[1:]
+    assert (
+        read_file(".", lang).splitlines()[0]
+        == msg("tools.read_file.listing", lang, files="").splitlines()[0]
+    )
     assert "confidentiel/budget_projet.txt" in read_file(".", lang)
 
 
@@ -264,7 +269,8 @@ def test_h1_refuses_the_confidential_folder_in_every_language(marked, lang):
     session.set_brick("hooks", True)
     events = _run(session, "Quel est le budget ?")
     blocks = [d for d in events["hook_decided"] if d["decision"] == "block"]
-    assert blocks and blocks[0]["detail_text"].startswith(BLOCKED)
+    blocked = msg("hooks.h1.blocked", lang, path=SECRET)  # in the session's language
+    assert blocks and blocks[0]["detail_text"] == blocked
     assert "tool_ended" not in events
     session.close()
 

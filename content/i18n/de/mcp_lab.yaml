@@ -1,0 +1,70 @@
+# German translation of content/mcp_lab.yaml (story 6 of 2026-09-30, AD-19): same keys, same
+# transports and methods. Formal register (Sie).
+
+title_text: "MCP-Werkstatt: das Protokoll zum Ausprobieren"
+intro_text: >-
+  Ein MCP-Server ist ein eigenes Programm: Der Harness startet ihn als Kindprozess (stdio)
+  oder erreicht ihn über HTTP und spricht dann JSON-RPC mit ihm. Verbinden Sie sich mit einem
+  Server, um den Handshake, die Dokumentation seiner Tools und ihr Gewicht im Kontext des
+  Modells zu sehen, und rufen Sie dann ein Tool von Hand auf. Dies ist eine Sandbox: Die
+  Werkstatt öffnet eigene Verbindungen, der MCP-Baustein der Hauptwerkstatt bleibt unverändert, und
+  hier generiert kein Modell.
+busy_text: "Derzeit nicht verfügbar: {reason}"
+
+servers_title_text: "Die Server"
+servers_help_text: >-
+  Die drei Server des MCP-Bausteins. Das Glossar ist ein Python-Prozess, den der Harness auf
+  diesem Rechner startet und über Standardein- und -ausgabe anspricht; die beiden anderen sind
+  öffentliche Dienste, die über HTTP erreicht werden, hinter dem Netzwerkschutz von WaveStack.
+
+handshake_title_text: "Der Handshake"
+handshake_help_text: >-
+  Jede JSON-RPC-Nachricht, wie sie über den Transport läuft, mit Richtung und Dauer:
+  initialize stellt den Harness vor, der Server antwortet mit Name, Version und Fähigkeiten,
+  dann fragt tools/list nach den Tools und ihrer Dokumentation.
+handshake_empty_text: "Verbinden Sie sich mit einem Server: Seine Nachrichten erscheinen hier, eine nach der anderen."
+
+tools_title_text: "Die Dokumentation der Tools"
+tools_help_text: >-
+  Was der Server über jedes Tool sagt und was das im Kontext kostet. Mit vollständiger
+  Dokumentation kommt jedes Tool ganz hinein (Name, Beschreibung, Schema); mit Lazy Loading
+  hinterlässt es nur eine Zeile in der Beschreibung von load_tool_doc, und seine Dokumentation
+  kommt nur hinein, wenn das Modell sie anfordert.
+tools_empty_text: "Noch kein Tool aufgelistet: Verbinden Sie sich mit einem Server."
+
+call_title_text: "Der Aufruf"
+call_help_text: >-
+  Ein Feld pro Parameter des Tool-Schemas. Der Harness sendet tools/call; der Server
+  antwortet mit einem JSON-RPC-Ergebnis, aus dem der Harness den Text entnimmt, den er an das
+  Modell zurückgeben würde.
+call_empty_text: "Verbinden Sie sich mit einem Server, um eines seiner Tools aufzurufen."
+reinjected_help_text: >-
+  Der Text, den der Harness dem Modell zurückgeben würde: die Textblöcke des Ergebnisses,
+  begrenzt auf die Obergrenze für Ergebnisse von Netzwerk- und MCP-Tools.
+
+context_title_text: "Was das Modell sieht"
+context_help_text: >-
+  Der Block „Tools“ des Kontexts mit diesem Server, in beiden Modi: die JSON-Definitionen,
+  die der Harness sendet, ohne die Hülle, die die Vorlage des Modells hinzufügt (einige Tokens
+  mehr in der Anzeige der Hauptwerkstatt). Nichts wird generiert: Das liest das Modell, bevor
+  es ein Tool wählt.
+context_empty_text: "Verbinden Sie sich mit einem Server, um seinen Block „Tools“ zu sehen."
+
+transports:
+  stdio:
+    label_text: "stdio (Kindprozess)"
+    explain_text: >-
+      Der Harness startet den Server auf diesem Rechner und tauscht sich über Standardein- und
+      -ausgabe mit ihm aus: eine JSON-Zeile pro Nachricht. Nichts verlässt den Rechner.
+  streamable_http:
+    label_text: "Streamable HTTP"
+    explain_text: >-
+      Der Harness sendet jede Nachricht per POST an die Adresse des Servers, der in JSON oder
+      als Ereignisstrom antwortet. Die Anfrage verlässt den Rechner: Sie wird als ausgehende
+      Daten protokolliert.
+
+methods:
+  initialize: "Der Harness stellt sich vor: Protokollversion, Name und Fähigkeiten des Clients."
+  "notifications/initialized": "Eine Benachrichtigung ohne Antwort: Der Harness bestätigt, dass die Sitzung offen ist."
+  "tools/list": "Der Harness fragt nach der Liste der Tools; jedes Tool kommt mit Beschreibung und Argumentschema."
+  "tools/call": "Der Harness ruft ein Tool mit seinen Argumenten auf; der Server antwortet mit Inhaltsblöcken oder mit is_error."

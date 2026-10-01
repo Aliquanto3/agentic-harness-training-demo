@@ -27,6 +27,9 @@ from itertools import accumulate
 from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
 
+from mcp.shared.exceptions import MCPError
+from mcp_types.jsonrpc import CONNECTION_CLOSED
+
 from wavestack import config
 from wavestack import memory as memory_file
 from wavestack.bricks.contract import (
@@ -94,7 +97,13 @@ from wavestack.hooks import (
     host,
     load_hooks_content,
 )
-from wavestack.mcp.connection import McpConnection, describe_error
+from wavestack.mcp import lab as mcp_lab
+from wavestack.mcp.connection import (
+    CLOSE_TIMEOUT_S,
+    McpConnection,
+    describe_error,
+    result_text,
+)
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
 from wavestack.messages import (
     KeyedError,
@@ -113,6 +122,7 @@ from wavestack.models import embedding as embedding_module
 from wavestack.models import gguf_meta
 from wavestack.models import probe as probe_module
 from wavestack.models import reranker as reranker_module
+from wavestack.models.candidates import distribution
 from wavestack.models.capabilities import (
     NO_TOOL_PARSER_FR,
     TOOL_CALL_TAGS,
@@ -210,7 +220,7 @@ from wavestack.trace.catalog import (
     LlmTokenPayload,
 )
 from wavestack.trace.journal import get_journal
-from wavestack.trace.scope import current, scoped
+from wavestack.trace.scope import TraceScope, current, scoped
 from wavestack.ui_texts import UiTexts, load_ui_texts
 
 DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
@@ -320,6 +330,9 @@ _PREFIX_CAUSES = (
 _LAB_FR = Message("session.state.llm_lab")
 RAG_LAB_CATALOG_TTL_S = 5.0  # story 30: the validation's catalog, read again after this
 _RAG_LAB_FR = Message("session.state.rag_lab")
+_MCP_LAB_FR = Message("session.state.mcp_lab")  # story 6 of 2026-09-30
+# Story 6 of 2026-09-30: past the connection's own delay, what its closing may take.
+MCP_LAB_CLOSE_WAIT_S = CLOSE_TIMEOUT_S + 1
 CANDIDATES = 5  # story 29: the candidates read with each token, the one drawn added if apart
 # Lot A (AD-4): the segment kinds of the system message, for the `system` cause, and those
 # of the conversation, for `history`.
@@ -556,6 +569,14 @@ class _Approval:
 
 
 class SendRefused(Exception):
+    def __init__(self, reason_text: str) -> None:
+        super().__init__(reason_text)
+        self.reason_text = reason_text
+
+
+class DistributionMissing(Exception):
+    """Story 5 of 2026-09-30: no candidates kept in memory for the token asked (404)."""
+
     def __init__(self, reason_text: str) -> None:
         super().__init__(reason_text)
         self.reason_text = reason_text
@@ -831,6 +852,10 @@ class AppSession:
         # (`llm{n}`), and the content error already traced (once per message).
         self._labs = 0
         self._lab_error_traced: str | None = None
+        # Story 5 of 2026-09-30: the last generation's most probable tokens by token index,
+        # `{token_text, p, texts, tail}`, with the engine that read them (a switch of model
+        # makes them stale); in memory only, never in the journal. `None`: nothing kept.
+        self._lab_top: tuple[Any, dict[int, dict[str, Any]]] | None = None
         # Story 30 (the RAG workshop): its runs, numbered over the session's life (`lab{n}`),
         # and its content error already traced (once per message).
         self._rag_labs = 0
@@ -841,6 +866,15 @@ class AppSession:
         self._rag_lab_import_errors: dict[str, str] = {}
         # The catalog the validation of an edited chain reads (`_rag_lab_recent_catalog`).
         self._rag_lab_catalog_kept: tuple[float, Any, rag_lab.Catalog] | None = None
+        # Story 6 of 2026-09-30 (the MCP workshop): its exchanges, numbered (`mcp{n}`), the
+        # first of its last connection, its own connection (never the brick's) and the tools
+        # it listed, and its content error already traced.
+        self._mcp_labs = 0
+        self._mcp_lab_first = 0
+        self._mcp_lab_since = 0  # the journal's `seq` before the last connection
+        self._mcp_lab_conn: mcp_lab.LabConnection | None = None
+        self._mcp_lab_tools: dict[str, Any] = {}
+        self._mcp_lab_error_traced: str | None = None
         self._load_content()
         self._registry = ToolRegistry(
             self._native_tools()
@@ -1581,6 +1615,7 @@ class AppSession:
             self._mcp_conns.clear()
         for conn in conns:  # AD-21: no local server outlives WaveStack
             conn.close(wait=not self._on_loop())
+        self._mcp_lab_drop(wait=not self._on_loop())  # story 6 of 2026-09-30: its own too
         self._executor.shutdown(wait=True, cancel_futures=True)
         self._release_embedder()  # story 15 (AD-8)
         self._release_reranker()  # story 16
@@ -3889,10 +3924,7 @@ class AppSession:
             tool = self._registry.get(name)
             if tool is None:
                 continue
-            first = next(iter((tool.description or "").strip().splitlines()), "").strip()
-            if len(first) > DOC_LINE_MAX:
-                first = first[:DOC_LINE_MAX].rstrip() + "…"
-            text = f"- {name} : {first}" if first else f"- {name}"
+            text = mcp_lab.catalog_line(name, tool.description, DOC_LINE_MAX)
             lines.append(Part(SegmentKind.TOOL_CATALOG, text, "mcp", tool.component, name))
         intro = Part(
             SegmentKind.TOOL_CATALOG, spec.description or "", "mcp", spec.component, LOAD_TOOL_DOC
@@ -5164,6 +5196,8 @@ class AppSession:
         with self._lock:
             conns = list(self._mcp_conns.values())
             self._mcp_conns.clear()
+            lab, self._mcp_lab_conn = self._mcp_lab_conn, None  # the MCP workshop's (story 6)
+        conns += [lab] if lab is not None else []
         await asyncio.gather(*(conn.aclose() for conn in conns), return_exceptions=True)
 
     def save_system_prompt(self, text: str | None) -> dict[str, Any]:
@@ -5285,6 +5319,7 @@ class AppSession:
             self._demo_memory_in(old_demo)
         self._journal().emit("language_changed", {"language": language})
         self._emit_state()  # `language` in the session's state
+        self._mcp_lab_drop(wait=False)  # story 6 of 2026-09-30: reconnected in the language
         for server_id in restart:  # the local server describes its tools in the language
             self._mcp_disconnect(server_id)
             self._mcp_connect(server_id)
@@ -5521,6 +5556,8 @@ class AppSession:
         """Intention class (c): arms the turn's `CancelToken`; no effect outside a turn. A
         pending human validation is resolved as `cancelled`. Story 15: stops a download or an
         index build. Lot E (E4): stops a model load at its next checkpoint."""
+        if self._mcp_lab_stop():  # story 6 of 2026-09-30: the MCP workshop's exchange
+            return True
         with self._lock:
             if self.state in ("download", "index_build") and self._download_cancel is not None:
                 self._download_cancel.cancel()
@@ -7225,7 +7262,7 @@ class AppSession:
                     "usage_source": "engine",
                     "evaluated_tokens": evaluated,
                 }
-                | impact.fields(),
+                | impact.fields(self._language),
                 actor="model",
             )
             self._count_impact(impact)
@@ -7473,6 +7510,7 @@ class AppSession:
                     estimated_prompt=total,
                     chars_per_token=self.cfg.chars_per_token,
                     call_id=lambda index: self._new_call_id(step_id, index),
+                    lang=self._language,
                     sampling_trace=self._sampling_trace(None),
                     eur_per_usd=self.cfg.eur_per_usd,
                 )
@@ -7617,6 +7655,7 @@ class AppSession:
             "last_load": self._last_load(tip),
             "reasoning": self._lab_reasoning(),
             "candidates": self._lab_candidates(),
+            "distribution": {"tokens": self._lab_top_tokens()},
             "seq": tip,
         }
 
@@ -7870,29 +7909,160 @@ class AppSession:
         (class c). `reasoning`: refused when the model cannot reason (mode `never` or
         `unknown`), forced when it always does. Returns the request's id."""
         with self._memory_lock, self._lock:
-            if self.state != "idle" or self._engine is None or self.reason_text:
-                raise SendRefused(self._refusal_reason())
-            # Checked under the lock: no model switch can come in between.
-            lab = self._reasoning_info(self._caps, self._cloud, self._window)
-            if reasoning and lab["mode"] in ("never", "unknown"):
-                raise SendRefused(
-                    Message(
-                        "session.llm_lab.no_reasoning",
-                        reason=lab["reason_text"] or Message("session.llm_lab.cannot_reason"),
-                    )
-                )
-            offer = self._candidates_info(self._active, self._cloud, self._engine)
-            if candidates and not offer["available"]:
-                raise SendRefused(offer["reason_text"])
-            self._labs += 1
-            request_id = f"llm{self._labs}"
-            cancel = self._cancel = CancelToken()
-            self.state, self.reason_text = "llm_lab", _LAB_FR
+            request_id, cancel, memory = self._lab_begin(reasoning, candidates)
         self._emit_state()
         self._executor.submit(
-            self._run_lab, request_id, prompt, sampling, reasoning, cancel, candidates
+            self._run_lab, request_id, prompt, sampling, reasoning, cancel, candidates, memory
         )
         return request_id
+
+    def _lab_begin(
+        self, reasoning: bool, candidates: bool
+    ) -> tuple[str, CancelToken, dict[int, dict[str, Any]] | None]:
+        """Under `_memory_lock` and `_lock`: refused outside `idle` (`SendRefused`), else the
+        session switched to `llm_lab`, the request's id `llm{n}`, its `CancelToken`, and the
+        memory of the most probable tokens (story 5 of 2026-09-30), emptied: a new generation
+        erases the last one's (`None` without candidates)."""
+        if self.state != "idle" or self._engine is None or self.reason_text:
+            raise SendRefused(self._refusal_reason())
+        # Checked under the lock: no model switch can come in between.
+        lab = self._reasoning_info(self._caps, self._cloud, self._window)
+        if reasoning and lab["mode"] in ("never", "unknown"):
+            raise SendRefused(
+                Message(
+                    "session.llm_lab.no_reasoning",
+                    reason=lab["reason_text"] or Message("session.llm_lab.cannot_reason"),
+                )
+            )
+        offer = self._candidates_info(self._active, self._cloud, self._engine)
+        if candidates and not offer["available"]:
+            raise SendRefused(offer["reason_text"])
+        self._labs += 1
+        request_id = f"llm{self._labs}"
+        cancel = self._cancel = CancelToken()
+        self.state, self.reason_text = "llm_lab", _LAB_FR
+        memory: dict[int, dict[str, Any]] | None = {} if candidates else None
+        self._lab_top = (self._engine, memory) if memory is not None else None
+        return request_id, cancel, memory
+
+    def llm_compare(
+        self,
+        prompt: str,
+        sampling_a: Sampling,
+        sampling_b: Sampling,
+        reasoning: bool = False,
+        candidates: bool = False,
+    ) -> str:
+        """Intention `llm_compare` (story 5 of 2026-09-30, class b): the same prompt generated
+        with two samplings, `llm{n}.a` then `llm{n}.b`, one after the other (never in
+        parallel, local engine as cloud model), under one `llm_lab` state held from A's start
+        to B's end; accepted in `idle` only, as `llm_generate`. « Arrêter » stops the whole
+        comparison. The live distribution is A's. Returns `llm{n}`."""
+        with self._memory_lock, self._lock:
+            request_id, cancel, memory = self._lab_begin(reasoning, candidates)
+        self._emit_state()
+        self._executor.submit(
+            self._run_compare,
+            request_id,
+            prompt,
+            (sampling_a, sampling_b),
+            reasoning,
+            cancel,
+            candidates,
+            memory,
+        )
+        return request_id
+
+    def _run_compare(
+        self,
+        request_id: str,
+        prompt: str,
+        samplings: tuple[Sampling, Sampling],
+        reasoning: bool,
+        cancel: CancelToken,
+        candidates: bool,
+        memory: dict[int, dict[str, Any]] | None,
+    ) -> None:
+        """A, then B unless « Arrêter » came: then B ends `cancelled` without starting (the
+        page's column B says so). The session goes back to `idle` once, after both."""
+        first, second = f"{request_id}.a", f"{request_id}.b"
+        try:
+            self._run_lab(
+                first, prompt, samplings[0], reasoning, cancel, candidates, memory, release=False
+            )
+            if not cancel.cancelled:
+                # B without the candidates: the live distribution is A's, B's would only cost
+                # a softmax over the vocabulary per token and fill the journal.
+                self._run_lab(second, prompt, samplings[1], reasoning, cancel, False, release=False)
+                return
+            with scoped(**self._lab_scope(second)):
+                zero = self._n(0)
+                payload = LlmGenerationEndedPayload.model_validate(
+                    {
+                        "request_id": second,
+                        "status": "cancelled",
+                        "duration_ms": 0,
+                        "figures_text": {"reasoning_tokens": zero, "answer_tokens": zero},
+                    }
+                )
+                self._journal().emit("llm_generation_ended", payload.model_dump(mode="json"))
+        except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
+            self._error(
+                Message("session.llm_lab.end_untraced"),
+                exc,
+                Message("session.llm_lab.back_to_idle"),
+            )
+        finally:
+            self._lab_release(request_id)
+
+    def _lab_release(self, request_id: str) -> None:
+        """The screen's request is over: no `CancelToken`, the session back to `idle`."""
+        with self._lock:
+            self._cancel = None
+        # Out of the lab's scope: the workshop's projections read it (context `None`, as
+        # every session state out of a turn).
+        with scoped(**self._lab_scope(request_id) | {"context_id": None, "step_id": None}):
+            self._set_state("idle")
+
+    def _lab_top_tokens(self) -> int:
+        """The tokens of the last generation whose most probable tokens are kept (0: none,
+        or read by an engine no longer active)."""
+        with self._lock:
+            kept = self._lab_top
+            if kept is None or kept[0] is not self._engine:
+                return 0
+            return len(kept[1])
+
+    def llm_distribution(self, index: int, sampling: Sampling) -> dict[str, Any]:
+        """`POST /api/llm_lab/distribution` (story 5 of 2026-09-30), read only, in any state:
+        the candidates of the last generation's token `index` (its `llm_token.index`) drawn
+        again with `sampling` (`candidates.distribution`: AD-1, the server computes, never the
+        page). Raises `DistributionMissing` when nothing is kept for it."""
+        with self._lock:
+            kept = self._lab_top
+            if kept is None or kept[0] is not self._engine or not kept[1]:
+                raise DistributionMissing(Message("session.llm_lab.distribution.none"))
+            entry, count = kept[1].get(index), len(kept[1])
+        if entry is None:
+            raise DistributionMissing(
+                Message(
+                    "session.llm_lab.distribution.out_of_range",
+                    index=self._n(index + 1),
+                    count=self._n(count),
+                )
+            )
+        rows = distribution(entry["p"], entry["tail"], sampling)
+        return {
+            "index": index,
+            "token_text": entry["token_text"],
+            "candidates": [
+                {"text": text} | row for text, row in zip(entry["texts"], rows, strict=True)
+            ],
+            "tail": entry["tail"],
+            "sampling": asdict(sampling),
+            "kept_count": sum(1 for row in rows if row["kept"]),
+            "tokens": count,
+        }
 
     def _lab_candidates(self) -> dict[str, Any]:
         """`lab_state().candidates` (story 29, increment 4): the candidates' probabilities are
@@ -7922,12 +8092,16 @@ class AppSession:
         reasoning: bool,
         cancel: CancelToken,
         candidates: bool = False,
+        memory: dict[int, dict[str, Any]] | None = None,
+        release: bool = True,
     ) -> None:
         """One user message rendered by the model's template (AD-4), no brick, no history;
         the local call through `_call_model` (one `llm_token` per token), the cloud call
         through `run_call` directly (no `context_reconciled`, no `_ratio`). The main
         context's engine state is saved around it, else the next turn says why it reads
-        again (`llm`). The workshop's conversation is never touched."""
+        again (`llm`). The workshop's conversation is never touched. Story 5 of 2026-09-30:
+        `memory` receives each token's most probable tokens (the live distribution);
+        `release=False` leaves the session in `llm_lab` (A and B of a comparison)."""
         started = time.monotonic()
         journal = self._journal()
         ended: dict[str, Any] = {"request_id": request_id, "status": "error"}
@@ -7942,10 +8116,15 @@ class AppSession:
             channel: str,
             read: Any = None,
             parts: list[tuple[str, str]] | None = None,
+            top: dict[str, Any] | None = None,
         ) -> None:
             """One `llm_token`: `text` for its chip (its bytes when they are part of a
-            character), `parts` the decoded text by channel, tags dropped (the lanes)."""
+            character), `parts` the decoded text by channel, tags dropped (the lanes); `top`
+            kept in `memory` under its index before the event (the page may ask at once)."""
             nonlocal index
+            if top is not None and memory is not None:
+                with self._lock:
+                    memory[index] = {"token_text": text} | top
             counts[channel] = counts.get(channel, 0) + 1
             payload = LlmTokenPayload(
                 request_id=request_id,
@@ -7962,7 +8141,7 @@ class AppSession:
 
         def local_token(fragment: Fragment, channel: str, parts: list[tuple[str, str]]) -> None:
             text = llm_lab.piece_text(fragment.piece) if fragment.piece else fragment.text
-            token(text, fragment.token_id, channel, fragment.candidates, parts)
+            token(text, fragment.token_id, channel, fragment.candidates, parts, fragment.top)
 
         with scoped(**self._lab_scope(request_id, call=True), origin="model", trigger="user"):
             try:
@@ -8023,10 +8202,16 @@ class AppSession:
                     exact=exact,
                     sampling=trace,  # type: ignore[arg-type]
                     reserve=reserve,
+                    usable=usable,
                     reasoning=reasons,
                     phase_label=phase,
                     unit=unit,
-                    figures_text=figures | {"reserve": self._n(reserve), "usable": self._n(usable)},
+                    figures_text=figures
+                    | {
+                        "reserve": self._n(reserve),
+                        "usable": self._n(usable),
+                        "window": self._n(window),
+                    },
                 )
                 journal.emit("llm_generation_started", started_payload.model_dump(mode="json"))
                 if tokens > usable:
@@ -8108,14 +8293,8 @@ class AppSession:
                         Message("session.llm_lab.back_to_idle"),
                     )
                 finally:
-                    with self._lock:
-                        self._cancel = None
-                    # Out of the lab's scope: the workshop's projections read it (context
-                    # `None`, as every session state out of a turn).
-                    with scoped(
-                        **self._lab_scope(request_id) | {"context_id": None, "step_id": None}
-                    ):
-                        self._set_state("idle")
+                    if release:
+                        self._lab_release(request_id)
 
     def _lab_cloud_call(
         self,
@@ -8146,6 +8325,7 @@ class AppSession:
                 chars_per_token=self.cfg.chars_per_token,
                 call_id=lambda index: f"{request_id}.{index}",
                 sampling_trace=trace,
+                lang=self._language,
                 eur_per_usd=self.cfg.eur_per_usd,
             )
         except ProviderError as error:
@@ -8623,3 +8803,382 @@ class AppSession:
             open_model=open_model,
             soft=True,
         )
+
+    # ---------- corrections of 2026-09-30, story 6: the MCP workshop (context `mcp_lab`) ----
+
+    @staticmethod
+    def _mcp_lab_scope(step_id: str, server_id: str | None) -> dict[str, Any]:
+        """The workshop's trace scope: context `mcp_lab`, no turn, brick `mcp`, the
+        workshop's own component (`mcp_lab.{server}`), which the schema does not draw."""
+        return {
+            "turn_id": None,
+            "context_id": "mcp_lab",
+            "call_id": None,
+            "step_id": step_id,
+            "parent_step": None,
+            "brick": "mcp",
+            "component": f"mcp_lab.{server_id}" if server_id else "mcp_lab",
+            "edge": None,
+            "actor": "harness",
+            "trigger": "user",
+        }
+
+    def _mcp_lab_content(self) -> tuple[mcp_lab.McpLabContent | None, str | None]:
+        """`content/mcp_lab.yaml`, or why it cannot be read (AD-19): traced as `harness_error`
+        once per cause, the page staying served."""
+        try:
+            return self._localized(mcp_lab.load_lab_content), None
+        except Exception as exc:  # noqa: BLE001 - AD-16: an invalid file never breaks the page
+            error_text = self._t("session.mcp_lab.content_invalid")
+            cause = f"{type(exc).__name__}: {exc}"
+            if self._mcp_lab_error_traced != cause:
+                self._mcp_lab_error_traced = cause
+                with scoped(**self._mcp_lab_scope("mcp_lab", None)):
+                    self._error(
+                        error_text, cause, Message("session.mcp_lab.content_invalid_effect")
+                    )
+            mcp_lab.load_lab_content.cache_clear()  # type: ignore[attr-defined]
+            detail = (str(exc).splitlines() or [type(exc).__name__])[0][:200]
+            return None, self._t("session.detail", text=error_text, detail=detail)
+
+    def _mcp_lab_servers(self) -> list[dict[str, Any]]:
+        """The three servers of `content/mcp.yaml`, as section 1 draws them."""
+        content = self._mcp_content
+        servers = []
+        for server_id, server in self._mcp_servers.items():
+            text = content.servers.get(server_id) if content else None
+            servers.append(
+                {
+                    "id": server_id,
+                    "label_text": text.label_text if text else server_id,
+                    "transport": mcp_lab.transport_of(server),
+                    "url": server.url,
+                    "command": mcp_lab.launch_command(server, self._language),
+                    "network": server.network,
+                    "sends_text": text.sends_text if text else None,
+                }
+            )
+        return servers
+
+    def mcp_lab_state(self) -> dict[str, Any]:
+        """`GET /api/mcp_lab` (story 6, AD-1): what the page needs before the stream, from
+        `seq` on: the servers, the texts (or why not), the call presets, the server the
+        workshop's connection is open to, the last connection's envelopes and the state."""
+        journal = self._journal()
+        tip = journal.last_seq()
+        texts, error_text = self._mcp_lab_content()
+        with self._lock:
+            state, reason_text = self.state, self.reason_text
+            conn, first = self._mcp_lab_conn, self._mcp_lab_first
+            since = self._mcp_lab_since
+        # From the last connection on: an older `mcp{n}` of the same journal never comes back.
+        events = [e for e in journal.all_events() if since < e.seq <= tip]
+        presets = self._mcp_content.call_presets if self._mcp_content else {}
+        return {
+            "servers": self._mcp_lab_servers(),
+            "content": texts.model_dump() if texts is not None else None,
+            "content_error_text": error_text,
+            "call_presets": {
+                name: [p.model_dump() for p in entries] for name, entries in presets.items()
+            },
+            "open_server": conn.server.id if conn is not None and conn.alive else None,
+            "last_session": mcp_lab.last_session(events, first),
+            "session_state": {"state": state, "reason_text": reason_text},
+            "seq": tip,
+        }
+
+    def _mcp_lab_begin(self) -> tuple[str, CancelToken, str | None]:
+        """Under the lock: `idle` only (else `SendRefused` with the reason), then the state
+        `mcp_lab`, a new exchange `mcp{n}` and its `CancelToken`."""
+        if self.state != "idle":
+            raise SendRefused(self._refusal_reason())
+        previous = self.reason_text
+        self._mcp_labs += 1
+        cancel = self._cancel = CancelToken()
+        self.state, self.reason_text = "mcp_lab", _MCP_LAB_FR
+        return f"mcp{self._mcp_labs}", cancel, previous
+
+    def mcp_lab_connect(self, server_id: str) -> str:
+        """Intention `mcp_lab_connect` (story 6, class b): accepted in `idle` only, the
+        session in `mcp_lab` until the handshake ends; the workshop's own connection, never
+        the brick's (`_mcp_conns`, `_mcp_enabled` and `_mcp_lazy` untouched). `KeyError` for
+        an unknown server. Returns the exchange's id, `mcp{n}`."""
+        if server_id not in self._mcp_servers:
+            raise KeyError(server_id)
+        texts, error_text = self._mcp_lab_content()
+        if texts is None:
+            raise SendRefused(error_text or Message("session.mcp_lab.texts_unreadable"))
+        since = self._journal().last_seq()  # the connection's events come after it
+        with self._lock:
+            step_id, cancel, previous = self._mcp_lab_begin()
+            self._mcp_lab_first = self._mcp_labs
+            self._mcp_lab_since = since
+        self._emit_state()
+        self._executor.submit(self._run_mcp_lab_connect, step_id, server_id, cancel, previous)
+        return step_id
+
+    def _run_mcp_lab_connect(
+        self, step_id: str, server_id: str, cancel: CancelToken, previous: str | None
+    ) -> None:
+        """On the worker: the previous connection closed, the new one opened on the loop, its
+        handshake captured message by message (`mcp_lab_message`), then the tools and their
+        weight (`mcp_lab_connect_ended`); back to `idle` with the reason it had."""
+        server = self._mcp_servers[server_id]
+        started = time.monotonic()
+        tools: list[Any] | None = None
+        error_text: Any = None
+        conn: mcp_lab.LabConnection | None = None
+        try:
+            self._mcp_lab_drop(wait=True)
+            loop = self._loop
+            if loop is None:
+                error_text = Message("session.mcp.no_loop")
+            else:
+
+                def emit(payload: dict[str, Any], step: str) -> None:
+                    self._mcp_lab_emit("mcp_lab_message", payload, step, server_id)
+
+                scope = TraceScope(**self._mcp_lab_scope(step_id, server_id), origin="brick")
+                conn = mcp_lab.LabConnection(
+                    server,
+                    loop,
+                    capture=mcp_lab.Capture(emit),
+                    scope=scope,
+                    connect_timeout=self.cfg.mcp_connect_timeout_s,
+                    call_timeout=self.cfg.mcp_call_timeout_s,
+                    language=self._language,
+                )
+                conn.begin(step_id)
+                with self._lock:
+                    self._mcp_lab_conn = conn
+                if cancel.cancelled:  # stopped before the connection was known
+                    raise ConnectionError(step_id)
+                future = asyncio.run_coroutine_threadsafe(conn.start(), loop)
+                try:
+                    tools = future.result(self.cfg.mcp_connect_timeout_s + MCP_LAB_CLOSE_WAIT_S)
+                except BaseException:
+                    future.cancel()
+                    raise
+                if cancel.cancelled:  # stopped while `start` was on its way: closed below
+                    raise ConnectionError(step_id)
+        except Exception as exc:  # noqa: BLE001 - AD-16: a state, said in section 2
+            tools = None
+            if cancel.cancelled:
+                error_text = Message("session.mcp_lab.stopped")
+            elif isinstance(exc, ConnectionError):  # the brick's text says to tick it again
+                error_text = Message("session.mcp_lab.closed")
+            elif error_text is None:
+                error_text = describe_error(exc, self.cfg.mcp_connect_timeout_s)
+        try:
+            if tools is None:
+                self._mcp_lab_drop(conn, wait=True)
+                payload: dict[str, Any] = {
+                    "server": server_id,
+                    "status": "error",
+                    "error_text": error_text,
+                }
+            else:
+                assert conn is not None
+                with self._lock:
+                    self._mcp_lab_tools = {tool.name: tool for tool in tools}
+                payload = {"server": server_id, "status": "ok"} | self._mcp_lab_weights(
+                    server, conn, tools
+                )
+                if cancel.cancelled:  # « Arrêter » while the weights were counted
+                    self._mcp_lab_drop(conn, wait=True)
+                    payload = {
+                        "server": server_id,
+                        "status": "error",
+                        "error_text": Message("session.mcp_lab.stopped"),
+                    }
+            payload["duration_ms"] = _ms(time.monotonic() - started)
+            self._mcp_lab_emit("mcp_lab_connect_ended", payload, step_id, server_id)
+        except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
+            with scoped(**self._mcp_lab_scope(step_id, server_id)):
+                self._error(
+                    Message("session.mcp_lab.interrupted"),
+                    exc,
+                    Message("session.llm_lab.back_to_idle"),
+                )
+        finally:
+            with self._lock:
+                self._cancel = None
+            self._set_state("idle", previous)
+
+    def _mcp_lab_weights(
+        self, server: Any, conn: mcp_lab.LabConnection, tools: list[Any]
+    ) -> dict[str, Any]:
+        """Story 6: what the server's documentation weighs in the context. Each tool's
+        definition as `_tool_definitions` renders it (its exposed name `{server}__{tool}`, its
+        schema, its description: the brick's `_mcp_spec`, the registry's `definition`), in
+        documentation complète; in lazy loading, its line of `load_tool_doc`'s catalog
+        (`_doc_catalog`) plus `load_tool_doc`'s own definition. Counted by the engine when one
+        is loaded, else estimated (`_count_tokens`). Nothing is registered in the brick's
+        registry: a registry of the workshop's own computes the definitions."""
+        specs = [self._mcp_spec(server, conn, tool) for tool in tools]
+        load_spec = self._load_tool_doc_spec() if self._mcp_content is not None else None
+        registry = ToolRegistry([*specs, *([load_spec] if load_spec else [])])
+        estimated = False
+
+        def count(text: str) -> int:
+            nonlocal estimated
+            tokens, rough = self._count_tokens(text)
+            estimated = estimated or rough
+            return tokens
+
+        listed, lines = [], []
+        for spec, tool in zip(specs, tools, strict=True):
+            name = ToolRegistry.exposed_name(spec)
+            definition_text = json.dumps(registry.definition(name), ensure_ascii=False)
+            line_text = mcp_lab.catalog_line(name, spec.description, DOC_LINE_MAX)
+            lines.append(line_text)
+            listed.append(
+                {
+                    "name": name,
+                    "tool": tool.name,
+                    "description": spec.description or "",
+                    "schema": spec.schema or {},
+                    "definition_text": definition_text,
+                    "doc_tokens": count(definition_text),
+                    "line_text": line_text,
+                    "line_tokens": count(line_text),
+                }
+            )
+        figures: dict[str, Any] = {
+            "tools": listed,
+            "full_tokens": sum(t["doc_tokens"] for t in listed),
+        }
+        if load_spec is not None:
+            bare = registry.definition(LOAD_TOOL_DOC)
+            lazy = json.loads(json.dumps(bare))
+            lazy["function"]["description"] = "\n".join([load_spec.description or "", *lines])
+            lazy_text = json.dumps(lazy, ensure_ascii=False)
+            figures |= {
+                "load_tool_doc_tokens": count(json.dumps(bare, ensure_ascii=False)),
+                "lazy_definition_text": lazy_text,
+                "lazy_tokens": count(lazy_text),
+            }
+        figures["estimated"] = estimated
+        return figures
+
+    def mcp_lab_call(self, server_id: str, tool: str, args: dict[str, Any]) -> str:
+        """Intention `mcp_lab_call` (story 6, class b): a tool of the server the workshop is
+        connected to, called through the workshop's connection; accepted in `idle` only, the
+        session in `mcp_lab` until the answer. `KeyError` for an unknown server; `SendRefused`
+        without a connection to it or for a tool it did not list. Returns `mcp{n}`."""
+        if server_id not in self._mcp_servers:
+            raise KeyError(server_id)
+        label = self._mcp_label(server_id)
+        with self._lock:
+            if self.state != "idle":
+                raise SendRefused(self._refusal_reason())
+            conn = self._mcp_lab_conn
+            if conn is None or conn.server.id != server_id or not conn.alive:
+                raise SendRefused(Message("session.mcp_lab.not_connected", server=label))
+            if tool not in self._mcp_lab_tools:
+                raise SendRefused(Message("session.mcp_lab.unknown_tool", server=label, tool=tool))
+            step_id, cancel, previous = self._mcp_lab_begin()
+        self._emit_state()
+        self._executor.submit(
+            self._run_mcp_lab_call, step_id, conn, tool, dict(args), cancel, previous
+        )
+        return step_id
+
+    def _run_mcp_lab_call(
+        self,
+        step_id: str,
+        conn: mcp_lab.LabConnection,
+        tool: str,
+        args: dict[str, Any],
+        cancel: CancelToken,
+        previous: str | None,
+    ) -> None:
+        """On the worker: `tools/call` captured both ways, then its raw answer and the text
+        the harness would reinject (`result_text`, then `_bound_result`), or why not: an
+        `is_error` answer, a JSON-RPC error, an unreachable server, a delay exceeded."""
+        server_id = conn.server.id
+        started = time.monotonic()
+        payload: dict[str, Any] = {"server": server_id, "tool": tool, "status": "error"}
+        try:
+            conn.begin(step_id)
+            lost = False
+            try:
+                result = conn.call_result(tool, args)
+            except MCPError as exc:
+                payload["raw"] = conn.capture.received("tools/call")
+                if cancel.cancelled:
+                    payload["error_text"] = Message("session.mcp_lab.stopped")
+                elif exc.code == CONNECTION_CLOSED:  # the server is gone: so is the connection
+                    payload["error_text"] = Message("session.mcp_lab.closed")
+                    lost = True
+                else:  # a JSON-RPC error answer (invalid arguments): the server is there
+                    payload["error_text"] = Message("mcp.error.call_refused", cause=exc.message)
+            except Exception as exc:  # noqa: BLE001 - AD-16: said in section 4
+                if cancel.cancelled:
+                    payload["error_text"] = Message("session.mcp_lab.stopped")
+                elif isinstance(exc, ConnectionError):
+                    payload["error_text"] = Message("session.mcp_lab.closed")
+                else:
+                    payload["error_text"] = describe_error(exc, self.cfg.mcp_call_timeout_s)
+            else:
+                payload["raw"] = conn.capture.received("tools/call")
+                text = result_text(result, self._language)
+                if result.is_error:  # reinjected as the brick does (`executor.run_tool`)
+                    detail = text or self._t("mcp.error.no_detail")
+                    payload["text"] = self._t("tools.error", text=detail)
+                    payload["error_text"] = Message("session.mcp_lab.is_error")
+                else:
+                    payload["text"], payload["truncated"] = self._bound_result(text)
+                    payload["status"] = "ok"
+            if cancel.cancelled or lost or not conn.alive:  # stopped, or the server is gone
+                self._mcp_lab_drop(conn, wait=True)
+            payload["duration_ms"] = _ms(time.monotonic() - started)
+            self._mcp_lab_emit("mcp_lab_call_ended", payload, step_id, server_id)
+        except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
+            with scoped(**self._mcp_lab_scope(step_id, server_id)):
+                self._error(
+                    Message("session.mcp_lab.interrupted"),
+                    exc,
+                    Message("session.llm_lab.back_to_idle"),
+                )
+        finally:
+            with self._lock:
+                self._cancel = None
+            self._set_state("idle", previous)
+
+    def _mcp_lab_emit(
+        self, kind: str, payload: dict[str, Any], step_id: str, server_id: str
+    ) -> None:
+        """A `mcp_lab_*` event, validated by its model (`PAYLOAD_MODELS`), its texts in the
+        session's language. Also called on the loop, by the capture of the messages."""
+        model = PAYLOAD_MODELS[kind]
+        with scoped(**self._mcp_lab_scope(step_id, server_id)):
+            payload = in_language(payload, self._language)
+            self._journal().emit(kind, model.model_validate(payload).model_dump(mode="json"))
+
+    def _mcp_lab_drop(self, conn: Any = None, *, wait: bool = True) -> None:
+        """Close the workshop's connection (`conn`: that one, the open one or not): at the
+        next connection, at « Arrêter », at a change of language and at the session's close.
+        The local server's process ends with it (AD-21). `wait` never on the loop's thread."""
+        with self._lock:
+            if conn is not None and conn is not self._mcp_lab_conn:
+                closing = conn
+            else:
+                closing, self._mcp_lab_conn = self._mcp_lab_conn, None
+                self._mcp_lab_tools = {}
+        if closing is not None:
+            closing.close(wait=wait)
+
+    def _mcp_lab_stop(self) -> bool:
+        """`stop` (class c) in `mcp_lab`: the exchange's token armed and the connection
+        closed at once (the token alone cannot interrupt an await on the loop)."""
+        with self._lock:
+            if self.state != "mcp_lab":
+                return False
+            if self._cancel is None:  # the exchange is over, its state about to go: the
+                return True  # connection it leaves open stays so
+            self._cancel.cancel()
+            conn = self._mcp_lab_conn
+        if conn is not None:
+            conn.close(wait=False)
+        return True

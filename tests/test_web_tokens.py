@@ -534,6 +534,7 @@ def test_static_files_write_no_color_outside_the_tokens():
     assert {"app.css", "app.js", "theme.js", "diagnostic.html", "models.html"} <= names
     assert {"llm.html", "llm.css", "llm.js"} <= names  # story 29: the « LLM nu » screen
     assert {"rag.html", "rag.css", "rag.js"} <= names  # story 30: the RAG workshop
+    assert {"mcp.html", "mcp.css", "mcp.js"} <= names  # story 6 (2026-09-30): MCP workshop
     offenders = []
     for path in sources:
         text = _COMMENTS[path.suffix].sub("", path.read_text(encoding="utf-8"))
@@ -586,6 +587,7 @@ def test_every_page_loads_the_tokens_and_the_theme_script_first():
         "models.html",
         "llm.html",
         "rag.html",
+        "mcp.html",
     }
     for page in pages:
         text = page.read_text(encoding="utf-8")

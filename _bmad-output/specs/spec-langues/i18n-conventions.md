@@ -52,6 +52,9 @@ Règles communes aux stories 2 à 5. `SPEC.md` en porte les décisions ; ce fich
 - `msg(key, lang, **kw)` : la langue est toujours un argument, jamais relue de `settings.json`.
 - Les messages que lit le LLM (erreurs d'outils, troncature, refus H1 et H5, mémoire, `get_datetime`, glossaire du serveur MCP local) passent par le même catalogue.
 - Le serveur MCP local reçoit déjà la langue en argument (story 1).
+- Parité stricte (story 7 du 2026-09-30) : les surcouches ont toutes les clés du français, mêmes variables ; une clé nouvelle s'ajoute dans les trois langues dans le même commit.
+- Allemand : « Sie » pour l'utilisateur ; les messages lus par le modèle suivent le registre du prompt système traduit (« du »). Ordinaux : `1st`, `2nd`… en anglais, `{n}.` en allemand.
+- Terminal : toujours en anglais (`msg(key, "en")`).
 
 ## Tests et exécution
 

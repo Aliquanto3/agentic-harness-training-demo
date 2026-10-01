@@ -37,6 +37,8 @@ class _Strict(BaseModel):
 class LabSection(_Strict):
     title_text: str
     intro_text: str
+    # Story 5 of 2026-09-30: « Les questions que vous vous posez », the section answering them.
+    questions_text: list[str]
 
 
 class LabSections(_Strict):
@@ -173,6 +175,48 @@ class CandidatesText(_Strict):
     legend_text: str
 
 
+class DistributionText(_Strict):
+    """Story 5 of 2026-09-30: section 2's live distribution."""
+
+    title_text: str
+    intro_text: str
+    empty_text: str
+    token_text: str
+    probability_text: str
+    chance_text: str
+    dropped_text: str
+    kept_text: str
+    more_text: str
+    tail_text: str
+    tail_help_text: str
+
+
+class CompareText(_Strict):
+    """Story 5 of 2026-09-30: section 5's A/B comparison."""
+
+    title_text: str
+    intro_text: str
+    b_settings_text: str
+    button_text: str
+    running_text: str
+    lane_a_text: str
+    lane_b_text: str
+    waiting_text: str
+    empty_text: str
+
+
+class WindowText(_Strict):
+    """Story 5 of 2026-09-30: section 4's diagram of the context window."""
+
+    title_text: str
+    prompt_text: str
+    free_text: str
+    reserve_text: str
+    output_text: str
+    output_fragments_text: str  # a server or a cloud model: fragments, not tokens
+    caption_text: str
+
+
 class LabContent(_Strict):
     title_text: str
     intro_text: str
@@ -190,6 +234,9 @@ class LabContent(_Strict):
     loading: LoadingText  # story 29, increment 3
     reasoning: ReasoningText
     candidates: CandidatesText  # story 29, increment 4
+    distribution: DistributionText  # story 5 of 2026-09-30
+    compare: CompareText
+    window: WindowText
 
 
 @cache

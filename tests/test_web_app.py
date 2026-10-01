@@ -49,7 +49,7 @@ def test_diagnostic_route_still_works(monkeypatch, tmp_path):
 
 
 # Story 2 (2026-09-30): the bar shared by the five pages, in a fixed order.
-SITE_PAGES = ("/", "/llm", "/rag", "/diagnostic", "/models")
+SITE_PAGES = ("/", "/llm", "/rag", "/mcp", "/diagnostic", "/models")  # story 6: /mcp
 
 
 def _site_nav(page: str) -> str:

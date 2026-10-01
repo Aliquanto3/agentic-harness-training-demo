@@ -278,8 +278,9 @@ function applyEnvelope(envelope) {
   // FinOps: every paid call counts, the « LLM nu » screen's and the diagnostic's included.
   if (envelope.kind === "consumption_updated" && isLive(envelope)) store.consumption = envelope.payload;
   // Story 29: the « LLM nu » screen's events (context `llm`, no turn) go to the event log
-  // only; no pane of the workshop shows them.
-  if (envelope.context_id === "llm" && envelope.kind !== "session_state") {
+  // only; no pane of the workshop shows them. Story 6 (2026-09-30): so do the MCP
+  // workshop's (context `mcp_lab`), its outbound requests included: never the brick's.
+  if ((envelope.context_id === "llm" || envelope.context_id === "mcp_lab") && envelope.kind !== "session_state") {
     scheduleRender();
     return;
   }
@@ -1228,6 +1229,13 @@ function renderBricks() {
     if (brick.note_text) card.appendChild(el("p", "brick-note", brick.note_text));
     // Story 23: what leaves the workstation and where to read it, outside the folded options.
     if (brick.outbound_text) card.appendChild(el("p", "brick-outbound", brick.outbound_text));
+    // Story 6 (2026-09-30): the MCP card leads to the MCP workshop, the protocol laid bare.
+    if (brick.id === "mcp") {
+      const workshop = el("a", "brick-workshop-link", t("main.bricks.mcp_workshop"));
+      workshop.href = "/mcp";
+      workshop.title = t("common.links.mcp_title");
+      card.appendChild(workshop);
+    }
     if (brick.pending) card.appendChild(el("p", "brick-pending", t("main.bricks.pending")));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
@@ -3720,6 +3728,49 @@ function parseJson(text) {
   return undefined;
 }
 
+// Chat mode: the body is one JSON, cut into fragments that are not JSON on their own (a tool
+// definition: `name","parameters":{…},"description":"…`). Only the definitions of its
+// top-level `tools` array get a tree, as `jsonSpans` gives them; the messages keep theirs.
+function toolSpans(text) {
+  const range = topLevelValue(text, "tools");
+  if (!range) return [];
+  const [a, b] = range;
+  return jsonSpans(text.slice(a + 1, b - 1)).map(([x, y, value]) => [a + 1 + x, a + 1 + y, value]);
+}
+
+// `[start, end]` of the object or array under `key` in the top-level object of `text`
+// (a JSON written without blanks, as the body is), aware of strings; `null` when absent.
+function topLevelValue(text, key) {
+  const quoted = JSON.stringify(key);
+  let depth = 0;
+  let inString = false;
+  let from = -1; // where the current string opened
+  let isKey = false; // the last string closed at depth 1 is `key`, followed by `:`
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === "\\") i += 1;
+      else if (c === '"') {
+        inString = false;
+        isKey = depth === 1 && text[i + 1] === ":" && text.slice(from, i + 1) === quoted;
+      }
+    } else if (c === '"') {
+      inString = true;
+      from = i;
+    } else if (c === "{" || c === "[") {
+      if (depth === 1 && isKey) start = i;
+      depth += 1;
+    } else if (c === "}" || c === "]") {
+      depth -= 1;
+      if (depth === 1 && start >= 0) return [start, i + 1];
+    } else if (c === ",") {
+      isKey = false;
+    }
+  }
+  return null;
+}
+
 // Chat mode: a fragment of the body is inside a JSON string (sentinels, AD-4); decoded for the
 // display, raw text when it is not a whole string (a fragment spanning JSON syntax).
 function decodeFragment(text) {
@@ -3732,7 +3783,8 @@ function decodeFragment(text) {
 }
 
 // The rows of a context's grouped reading, computed once per payload: one per section, except
-// sections touched by one JSON of the exact text (locally), merged into one row whose margin
+// sections touched by one JSON of the exact text (locally; a tool definition in chat mode),
+// merged into one row whose margin
 // stacks their labels (Qwen3.5's `<tools>`: the JSON syntax falls in the template). Never a
 // merge across the « déjà lu » boundary, where the JSON stays text.
 const readingCache = new WeakMap();
@@ -3744,7 +3796,7 @@ function readingRows(p, chat) {
   const sections = (p.sections ?? []).length ? p.sections : fallbackSections(p);
   const text = p.segments.map((s) => s.text).join("");
   const seenAt = offsets[p.seen_segments ?? 0];
-  const spans = chat ? [] : jsonSpans(text).filter(([a, b]) => !(a < seenAt && seenAt < b));
+  const spans = (chat ? toolSpans(text) : jsonSpans(text)).filter(([a, b]) => !(a < seenAt && seenAt < b));
   const from = (s) => offsets[s.start];
   const to = (s) => offsets[s.end];
   const joined = new Array(sections.length).fill(false); // section k shares a row with k + 1
@@ -3914,12 +3966,30 @@ function appendLocalText(pre, p, reading, row, call) {
 
 // Chat mode: the JSON syntax (template) in ink-soft, each fragment decoded (a template piece
 // inside a string too, the `\n\n` between two parts; JSON syntax stays as sent), and a tree
-// when the fragment is itself JSON (a tool result, arguments).
+// when the fragment is itself JSON (a tool result, arguments). A tool definition found by
+// `toolSpans` is replaced by its tree, as locally.
 function appendChatText(pre, p, reading, row, call) {
+  const { text } = reading;
+  let at = row.from;
+  for (const [a, b, value] of row.json) {
+    appendChatPieces(pre, p, reading, row, call, at, a);
+    pre.appendChild(jsonBlock(value, text.slice(a, b), `${call.id}:${a}`));
+    at = b;
+  }
+  appendChatPieces(pre, p, reading, row, call, at, row.to);
+}
+
+// The row's segments between `from` and `to`, each decoded; a segment cut by a tree keeps
+// only its decoded piece.
+function appendChatPieces(pre, p, reading, row, call, from, to) {
+  const { offsets } = reading;
   for (let k = row.start; k < row.end; k++) {
     const segment = p.segments[k];
-    if (segment.kind === "template") {
-      if (segment.text) pre.appendChild(segmentSpan(segment, decodeFragment(segment.text)));
+    const x = Math.max(from, offsets[k]);
+    const y = Math.min(to, offsets[k + 1]);
+    if (x >= y) continue;
+    if (segment.kind === "template" || y - x < segment.text.length) {
+      pre.appendChild(segmentSpan(segment, decodeFragment(segment.text.slice(x - offsets[k], y - offsets[k]))));
       continue;
     }
     const decoded = decodeFragment(segment.text);
@@ -3999,9 +4069,18 @@ function jsonNode(value, name, path, last) {
     return node;
   }
   const leaf = el("span", "json-leaf");
-  const literal = typeof value === "string" ? el("span", "json-string", JSON.stringify(value)) : el("span", "json-literal", JSON.stringify(value));
+  const literal = typeof value === "string" ? el("span", "json-string", jsonString(value)) : el("span", "json-literal", JSON.stringify(value));
   leaf.append(...head, literal, ...comma());
   return leaf;
+}
+
+// A string of the tree, quoted and escaped, except its line breaks, shown as such (an MCP
+// tool's documentation spans lines); « Texte exact » keeps the `\n`.
+function jsonString(value) {
+  return `"${value
+    .split("\n")
+    .map((line) => JSON.stringify(line).slice(1, -1))
+    .join("\n")}"`;
 }
 
 // « Corps JSON » (chat mode): the body sent, as a tree.
@@ -6250,6 +6329,17 @@ function eventSummary(group) {
       return p.status === "ok"
         ? `${labelValue(mcpServerLabel(p.server), plural(p.tools.length, "tool"))} · ${seconds(p.duration_ms)}`
         : labelValue(mcpServerLabel(p.server), p.error_text);
+    // Story 6 (2026-09-30): the MCP workshop's exchanges, in the log only.
+    case "mcp_lab_message":
+      return `${t(p.direction === "to_server" ? "mcp.to_server" : "mcp.from_server")} · ${p.method || "—"} · ${seconds(p.elapsed_ms)}`;
+    case "mcp_lab_connect_ended":
+      return p.status === "ok"
+        ? `${labelValue(mcpServerLabel(p.server), plural(p.tools.length, "tool"))} · ${seconds(p.duration_ms)}`
+        : labelValue(mcpServerLabel(p.server), p.error_text);
+    case "mcp_lab_call_ended":
+      return [labelValue(mcpServerLabel(p.server), p.tool), seconds(p.duration_ms), p.error_text]
+        .filter(Boolean)
+        .join(" · ");
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":

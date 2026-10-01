@@ -1,0 +1,68 @@
+# English translation of content/mcp_lab.yaml (story 6 of 2026-09-30, AD-19): same keys, same
+# transports and methods.
+
+title_text: "MCP workshop: the protocol to handle"
+intro_text: >-
+  An MCP server is a program of its own: the harness starts it as a child process (stdio) or
+  reaches it over HTTP, then talks to it in JSON-RPC. Connect to a server to see the
+  handshake, the documentation of its tools and what it weighs in the model's context, then
+  call a tool by hand. This is a sandbox: the workshop opens its own connections, the
+  main workshop's MCP brick does not change, and no model generates here.
+busy_text: "Unavailable for now: {reason}"
+
+servers_title_text: "The servers"
+servers_help_text: >-
+  The three servers of the MCP brick. The glossary is a Python process the harness starts on
+  this workstation and talks to through standard input and output; the other two are public
+  services reached over HTTP, behind WaveStack's network guard.
+
+handshake_title_text: "The handshake"
+handshake_help_text: >-
+  Each JSON-RPC message as it passes the transport, with its direction and its duration:
+  initialize introduces the harness, the server answers with its name, version and
+  capabilities, then tools/list asks for the tools and their documentation.
+handshake_empty_text: "Connect to a server: its messages will show here, one by one."
+
+tools_title_text: "The tools' documentation"
+tools_help_text: >-
+  What the server says about each tool, and what it costs in the context. With full
+  documentation, each tool enters it whole (name, description, schema); with lazy loading, it
+  only leaves one line in load_tool_doc's description, and its documentation enters only if
+  the model asks for it.
+tools_empty_text: "No tool listed yet: connect to a server."
+
+call_title_text: "The call"
+call_help_text: >-
+  One field per parameter of the tool's schema. The harness sends tools/call; the server
+  answers with a JSON-RPC result, from which the harness takes the text it would reinject to
+  the model.
+call_empty_text: "Connect to a server to call one of its tools."
+reinjected_help_text: >-
+  The text the harness would hand back to the model: the result's text blocks, bounded by the
+  cap on network and MCP tool results.
+
+context_title_text: "What the model sees"
+context_help_text: >-
+  The context's “tools” block with this server, in both modes: the JSON definitions the
+  harness sends, without the wrapping the model's template adds (a few more tokens in the
+  main workshop's gauge). Nothing is generated: this is what the model would read before
+  choosing a tool.
+context_empty_text: "Connect to a server to see its “tools” block."
+
+transports:
+  stdio:
+    label_text: "stdio (child process)"
+    explain_text: >-
+      The harness starts the server on this workstation and exchanges with it through standard
+      input and output: one JSON line per message. Nothing leaves the workstation.
+  streamable_http:
+    label_text: "Streamable HTTP"
+    explain_text: >-
+      The harness POSTs each message to the server's address, which answers in JSON or as an
+      event stream. The request leaves the workstation: it is traced as outbound data.
+
+methods:
+  initialize: "The harness introduces itself: protocol version, client name and capabilities."
+  "notifications/initialized": "A notification, with no answer: the harness confirms the session is open."
+  "tools/list": "The harness asks for the list of tools; each tool comes with its description and its argument schema."
+  "tools/call": "The harness calls a tool with its arguments; the server answers with content blocks, or with is_error."

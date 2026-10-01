@@ -1607,7 +1607,7 @@ _SITE_NAV_PROBLEMS_JS = """() => {
   const items = [...nav.children].filter(e => e.checkVisibility());
   const links = items.filter(e => e.tagName === 'A').map(e => e.getAttribute('href'));
   const order = links.join(' ');
-  if (order !== '/ / /llm /rag /diagnostic /models') problems.push(`liens ${order}`);
+  if (order !== '/ / /llm /rag /mcp /diagnostic /models') problems.push(`liens ${order}`);
   if (!items.some(e => e.id === 'display-menu')) problems.push('« Affichage ▾ » absent');
   for (const e of [...items, document.getElementById('display-menu-toggle')]) {
     if (!e) continue;
@@ -2761,6 +2761,26 @@ def s_mcp_full(r: Run) -> None:
         "réponse issue du glossaire MCP",
         r.last_answer()[:200],
     )
+    # Chat mode: each tool definition of the body (native and MCP) shown as a tree, not as
+    # the fragments of JSON the sentinels cut.
+    tools_row = (
+        r.page.locator("#ctx .ctx-call")
+        .first.locator(".ctx-section")
+        .filter(has=r.page.locator(".ctx-section-label", has_text="Descriptions d'outils"))
+    )
+    names = (
+        tools_row.first.locator(".json-tree .json-string").all_inner_texts()
+        if tools_row.count()
+        else []
+    )
+    r.check(
+        tools_row.count() >= 1
+        and tools_row.first.locator(".json-tree .json-key", has_text='"parameters"').count() >= 1
+        and '"local__define_term"' in names,
+        "mode cloud : les descriptions d'outils, MCP compris, en arbres JSON",
+        str(names[:6]),
+    )
+    _ctx_focus_shot(r, "10b-contexte-outils-mcp-en-arbre")
     r.shot("10-mcp-documentation-complete")
     r.results.append((r.current, f"jauge avant envoi : {gauge}", True, ""))
     # Lot K: in full documentation too, each tool of the local server has its forced call.
@@ -4437,6 +4457,152 @@ def _compression_step(r: Run):
     return r.page.locator("#orch-scroll .turn-step", has=name).last
 
 
+def s_mcp_lab(r: Run) -> None:
+    """Story 6 of 2026-09-30: the MCP workshop (`/mcp`). The link of the shared bar and of the
+    MCP card, the three servers, a connection to the local glossary (its JSON-RPC messages with
+    direction and duration, its two tools and their weight), a valid call then an unknown term
+    (`is_error`), the brick left as it was. Captures 61 and 62. Back to `/`."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    try:
+        _mcp_lab(r, errors)
+    finally:
+        page.remove_listener("pageerror", listener)
+        if page.locator("#theme-picker").count():
+            _pick_theme(page, "system")
+        r.goto_app()
+
+
+def _mcp_lab(r: Run, errors: list[str]) -> None:
+    page = r.page
+    r.goto_app()
+    r.wait_idle()
+    brick_before = r.bricks()["mcp"]
+    # (1) The links: the shared bar's, whole, and the MCP card's.
+    link = page.locator('.site-nav a[href="/mcp"]')
+    r.check(
+        link.is_visible() and link.inner_text() == "Atelier MCP",
+        "barre commune : lien « Atelier MCP » visible, entier, vers /mcp",
+        link.inner_text() if link.count() else "absent",
+    )
+    ok, detail = _bar_fits(r)
+    r.check(ok, "barre commune entière avec six pages, sur une ligne, à 1600 × 1000", detail)
+    r.check(
+        page.locator('a.brick-workshop-link[href="/mcp"]').count() == 1,
+        "la carte de la brique MCP renvoie à l'atelier MCP",
+    )
+
+    # (2) The page: the shared bar, the three servers.
+    link.click()
+    page.wait_for_url("**/mcp")
+    expect(page.locator("body[data-mcp-ready]")).to_be_attached(timeout=10_000)
+    r.check(
+        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "Atelier MCP"
+        and not _site_nav_problems(r),
+        "/mcp : barre commune entière, « Atelier MCP » courant",
+        str(_site_nav_problems(r)),
+    )
+    servers = page.locator("#mcp-servers .mcp-server")
+    ids = [servers.nth(i).get_attribute("data-server") for i in range(servers.count())]
+    r.check(ids == ["local", "datagouv", "mslearn"], "/mcp : les trois serveurs", str(ids))
+    command = servers.nth(0).inner_text()
+    r.check(
+        "stdio" in command and "wavestack.mcp.local_server" in command,
+        "le glossaire : transport stdio et commande de lancement",
+        command[:200],
+    )
+
+    # (3) The handshake with the local glossary: its messages, its tools, their weight.
+    seq = r.ev.mark()
+    page.locator('button[data-connect="local"]').click()
+    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
+    r.check(ended["status"] == "ok", "connexion de l'atelier au glossaire local", str(ended)[:300])
+    expect(page.locator('#mcp-connect-summary[data-status="ok"]')).to_be_visible(timeout=10_000)
+    messages = page.locator("#mcp-messages .mcp-message")
+    shape = [
+        (
+            messages.nth(i).get_attribute("data-direction"),
+            messages.nth(i).get_attribute("data-method"),
+        )
+        for i in range(messages.count())
+    ]
+    r.check(
+        shape[:2] == [("to_server", "initialize"), ("from_server", "initialize")]
+        and ("to_server", "tools/list") in shape
+        and ("from_server", "tools/list") in shape,
+        "poignée de main : initialize, sa réponse, tools/list et sa réponse, avec leur sens",
+        str(shape),
+    )
+    timings = [messages.nth(i).locator(".mcp-timing").inner_text() for i in range(messages.count())]
+    r.check(
+        timings and all(re.search(r"\d+ ms", t) for t in timings),
+        "chaque message porte sa durée en ms",
+        str(timings),
+    )
+    tools = page.locator("#mcp-tools .mcp-tool")
+    names = [tools.nth(i).get_attribute("data-tool") for i in range(tools.count())]
+    total = page.locator("#mcp-weight-rows .mcp-total")
+    full = int(total.get_attribute("data-full") or 0)
+    lazy = int(total.get_attribute("data-lazy") or 0)
+    r.check(
+        names == ["local__list_terms", "local__define_term"] and full > 0 and lazy > 0,
+        "deux outils, leur poids en documentation complète et en lazy loading",
+        f"{names} · {full} · {lazy}",
+    )
+    r.check(
+        page.locator('#mcp-context [data-mode="full"]').count() == 1
+        and page.locator('#mcp-context [data-mode="lazy"]').count() == 1,
+        "ce que le modèle voit : le bloc « outils » dans les deux modes",
+    )
+    light = _contrast_sweep(r, ["main", "nav.site-nav"])
+    _pick_theme(page, "dark")
+    dark = _contrast_sweep(r, ["main", "nav.site-nav"])
+    _pick_theme(page, "system")
+    r.check(not light and not dark, "/mcp : contrastes AA en clair et en sombre", str(light + dark))
+    r.shot("61-atelier-mcp-poignee-de-main", full_page=True)
+
+    # (4) A valid call, then an unknown term: `is_error`, said, never a 500.
+    page.locator("#mcp-call-tool").select_option("local__define_term")
+    page.locator('#mcp-call-fields input[name="term"]').fill("harnais")
+    seq = r.ev.mark()
+    page.locator("#mcp-call-run").click()
+    call = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
+    expect(page.locator('#mcp-call-summary[data-status="ok"]')).to_be_visible(timeout=10_000)
+    reinjected = page.locator(".mcp-call-text pre").inner_text()
+    r.check(
+        call["status"] == "ok"
+        and "harnais" in reinjected.lower()
+        and page.locator(".mcp-call-request pre").count() == 1
+        and page.locator(".mcp-call-raw pre").count() == 1,
+        "appel valide : requête tools/call, réponse brute, texte réinjecté",
+        reinjected[:200],
+    )
+    r.shot("62-atelier-mcp-appel", full_page=True)
+    page.locator('#mcp-call-fields input[name="term"]').fill("zzz")
+    seq = r.ev.mark()
+    page.locator("#mcp-call-run").click()
+    unknown = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
+    expect(page.locator('#mcp-call-summary[data-status="error"]')).to_be_visible(timeout=10_000)
+    r.check(
+        unknown["status"] == "error" and "is_error" in (unknown.get("error_text") or ""),
+        "terme inconnu : réponse is_error montrée, statut erreur",
+        str(unknown)[:300],
+    )
+    r.check(not errors, "/mcp : aucune erreur JavaScript", str(errors)[:300])
+
+    # (5) The brick, untouched by the workshop.
+    r.goto_app()
+    after = r.bricks()["mcp"]
+    r.check(
+        (after.get("wanted"), after.get("options"))
+        == (brick_before.get("wanted"), brick_before.get("options")),
+        "la brique MCP de l'atelier est inchangée",
+    )
+
+
 def s_compression(r: Run) -> None:
     """Story 20: a turn without then with the compression (Headroom, the real library), the
     step with the tokens before and after, the compressed segment and the total without
@@ -4986,12 +5152,38 @@ def _ui_catalogue(lang: str) -> dict[str, str]:
     return _ui_leaves(yaml.safe_load((REPO / rel).read_text(encoding="utf-8")))
 
 
+def _message_catalogue(lang: str) -> dict[str, str]:
+    """`content/messages.yaml` in `lang`, flattened, both forms of a plural kept apart."""
+    import yaml
+
+    rel = "content/messages.yaml" if lang == "fr" else f"content/i18n/{lang}/messages.yaml"
+    tree = yaml.safe_load((REPO / rel).read_text(encoding="utf-8"))
+    return {f"messages:{k}": " ".join(str(v).split()) for k, v in _ui_leaves(tree).items()}
+
+
+def _value_patterns(
+    french: dict[str, str], translated: dict[str, str]
+) -> list[tuple[str, re.Pattern[str]]]:
+    """A French value whose translation differs: as itself, or with each variable any text,
+    kept only when its fixed words say something (six letters at least)."""
+    patterns = []
+    for key, value in french.items():
+        if translated.get(key) == value:
+            continue
+        if len(re.findall(r"[^\W\d_]", _UI_VAR.sub("", value))) < 6:
+            continue
+        parts = [re.escape(part) for part in _UI_VAR.split(value)]
+        patterns.append((key, re.compile(".+?".join(parts), re.S)))
+    return patterns
+
+
 def _french_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
     """The French values of `common` and `main` whose `lang` value differs: a text without
     variable as itself, a text with variables as a pattern (each variable any text), kept
-    only when its fixed words say something (six letters at least)."""
+    only when its fixed words say something (six letters at least). Languages 5/5 (story 7
+    of 2026-09-30): the backend's messages too (`messages.yaml`)."""
     french, translated = _ui_catalogue("fr"), _ui_catalogue(lang)
-    patterns = []
+    patterns = _value_patterns(_message_catalogue("fr"), _message_catalogue(lang))
     for key, value in french.items():
         if translated.get(key) == value:
             continue  # « Tokens », « RAG », « Skills »… : the same in both languages
@@ -5001,26 +5193,6 @@ def _french_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
         parts = [re.escape(part) for part in _UI_VAR.split(value)]
         patterns.append((key, re.compile(".+?".join(parts), re.S)))
     return patterns
-
-
-def _backend_strings(r: Run) -> set[str]:
-    """Every text the session sent (its `*_text` fields stay French until stories 3 and 5):
-    the state and the events seen, as whole strings."""
-    found: set[str] = set()
-
-    def walk(value: Any) -> None:
-        if isinstance(value, str):
-            found.add(value.strip())
-        elif isinstance(value, dict):
-            for item in value.values():
-                walk(item)
-        elif isinstance(value, list):
-            for item in value:
-                walk(item)
-
-    walk(r.state())
-    walk([e.get("payload") for e in r.ev.items])
-    return found
 
 
 _VISIBLE_TEXTS_JS = """() => {
@@ -5041,20 +5213,43 @@ _VISIBLE_TEXTS_JS = """() => {
 }"""
 
 
+def _history_strings(r: Run) -> set[str]:
+    """The texts of the history the pages replay from the journal, emitted before the last
+    change of language: the last model load's steps and the startup diagnostic's checks, kept
+    as they were said. Every other text the session sends is in the current language
+    (languages 5/5): a card's reason or a state is never set aside."""
+    with r.ev._lock:
+        items = list(r.ev.items)
+    changes = [e["seq"] for e in items if e["kind"] == "language_changed"]
+    if not changes:
+        return set()
+    found: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            found.add(" ".join(value.split()))
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    history = ("model_load_started", "model_load_step", "model_load_ended", "diagnostic_check")
+    walk([e.get("payload") for e in items if e["seq"] < changes[-1] and e["kind"] in history])
+    return found
+
+
 def _french_left(r: Run, lang: str) -> list[str]:
     """The texts of the page that are a French value of the catalogue (whole texts), what
-    the session sent aside."""
-    backend = _backend_strings(r)
-    # A text that quotes what the session sent (« Sous-agent brick ») is read without it.
-    quoted = sorted((b for b in backend if len(b) >= 4), key=len, reverse=True)
+    the session sent included (languages 5/5: its messages are translated), the journal's
+    history before the change of language aside."""
     patterns = _french_patterns(lang)
+    history = _history_strings(r)
     found = []
     for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
-        if text in backend:
+        if " ".join(text.split()).removeprefix("— ") in history:
             continue
-        for part in quoted:
-            if part in text:
-                text = text.replace(part, "§")
         for key, pattern in patterns:
             if pattern.fullmatch(text):
                 found.append(f"{where} « {text[:80]} » ({key})")
@@ -5495,52 +5690,25 @@ def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
             french[f"ui.{key}"] = " ".join(value.split())
     for key, value in _ui_catalogue(lang).items():
         translated[f"ui.{key}"] = " ".join(value.split())
-    for rel in ("llm_lab.yaml", "rag_lab.yaml"):
+    for rel in ("llm_lab.yaml", "rag_lab.yaml", "mcp_lab.yaml"):
         french |= {f"{rel}:{k}": v for k, v in _yaml_leaves(_content("fr", rel)).items()}
         translated |= {f"{rel}:{k}": v for k, v in _yaml_leaves(_content(lang, rel)).items()}
-    patterns = []
-    for key, value in french.items():
-        if translated.get(key) == value:
-            continue
-        if len(re.findall(r"[^\W\d_]", _UI_VAR.sub("", value))) < 6:
-            continue
-        parts = [re.escape(part) for part in _UI_VAR.split(value)]
-        patterns.append((key, re.compile(".+?".join(parts), re.S)))
-    return patterns
-
-
-def _annex_backend(r: Run) -> set[str]:
-    """What the session sent, as whole strings (its messages stay French until story 5):
-    the state, the events, and the pages' own routes."""
-    found = _backend_strings(r)
-
-    def walk(value: Any) -> None:
-        if isinstance(value, str):
-            found.add(" ".join(value.split()))
-        elif isinstance(value, dict):
-            for item in value.values():
-                walk(item)
-        elif isinstance(value, list):
-            for item in value:
-                walk(item)
-
-    for route in ("/api/llm_lab", "/api/rag_lab", "/api/diagnostic"):
-        walk(r.api("GET", route).json())
-    return found
+    # Languages 5/5 (story 7 of 2026-09-30): the backend's messages too.
+    french |= _message_catalogue("fr")
+    translated |= _message_catalogue(lang)
+    return _value_patterns(french, translated)
 
 
 def _annex_french_left(r: Run, lang: str) -> list[str]:
-    backend = _annex_backend(r)
-    quoted = sorted((b for b in backend if len(b) >= 4), key=len, reverse=True)
+    """As `_french_left`, on an annex page, with the annex catalogue (languages 5/5: what
+    the session sent is no longer set aside, the journal's history excepted)."""
     patterns = _annex_patterns(lang)
+    history = _history_strings(r)
     found = []
     for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
         text = " ".join(text.split())
-        if text in backend:
+        if text.removeprefix("— ") in history:  # a check's line: « — {its text} »
             continue
-        for part in quoted:
-            if part in text:
-                text = text.replace(part, "§")
         for key, pattern in patterns:
             if pattern.fullmatch(text):
                 found.append(f"{where} « {text[:80]} » ({key})")
@@ -5658,6 +5826,88 @@ def _annex_rag_lab(r: Run) -> None:
         f"{ended['payload']['status']} · {sorted(titles)}",
     )
     time.sleep(0.5)
+
+
+def _french_message_values(lang: str) -> list[str]:
+    """The French values of `messages.yaml` whose `lang` value differs, `{…}` cut out, the
+    pieces of twelve characters at least: none may reach the model in `lang`."""
+    french, translated = _message_catalogue("fr"), _message_catalogue(lang)
+    pieces = set()
+    for key, value in french.items():
+        if translated.get(key) != value:
+            pieces |= {p.strip() for p in _UI_VAR.split(value) if len(p.strip()) >= 12}
+    return sorted(pieces)
+
+
+def _backend_tool_error(r: Run, lang: str) -> None:
+    """A call to a tool that does not exist: the refusal the model reads (the tool message
+    of the fake's last request) in `lang`, without a French value of the catalogue."""
+    r.api("POST", "/api/intentions/brick", {"brick": "tools", "wanted": True})
+    r.send("[outil-inconnu] test")
+    r.wait_idle()
+    tool_messages = [
+        m.get("content") or ""
+        for call in r.fake_calls()
+        for m in call.get("messages") or []
+        if m.get("role") == "tool"
+    ]
+    last = tool_messages[-1] if tool_messages else ""
+    tail = _UI_VAR.split(_message_catalogue(lang)["messages:tools.reject"])[-1].strip()
+    left = [v for v in _french_message_values(lang) if v in last]
+    r.check(
+        bool(last) and tail in last and not left,
+        f"{lang} : le refus d'un outil inconnu lu par le modèle est dans la langue",
+        f"{last[:160]!r} · {left[:3]}",
+    )
+    _clear_conversation(r)
+
+
+def s_backend_language(r: Run) -> None:
+    """Languages (5/5), story 7 of 2026-09-30: in `en` then `de`, the backend's messages.
+    The refusal of an unknown tool as the model reads it; the main screen (cards, their
+    reasons, the log) and the diagnostic and models pages without a French value of
+    `messages.yaml` or `ui.yaml`; captures in German at 1280 and 1600 px, normal and
+    projection mode, on the main screen. Always ends in French, at rest."""
+    page = r.page
+    try:
+        for lang in ("en", "de"):
+            page.set_viewport_size({"width": 1600, "height": 1000})
+            r.goto_app()  # an annex page does not replay the journal
+            _switch_language(r, lang)
+            _backend_tool_error(r, lang)
+            r.goto_app()
+            r.wait_idle()
+            left = _french_left(r, lang)
+            r.check(
+                not left,
+                f"{lang} : écran principal sans message français du backend",
+                "; ".join(left[:10]),
+            )
+            for name in ("diagnostic", "models"):
+                _annex_page(r, lang, name)
+            if lang == "de":
+                r.goto_app()
+                r.wait_idle()
+                for projection in (False, True):
+                    if projection:
+                        _toggle_projection(page)
+                    for width, height in ((1280, 720), (1600, 1000)):
+                        page.set_viewport_size({"width": width, "height": height})
+                        time.sleep(0.4)
+                        mode = "projection" if projection else "normal"
+                        r.shot(f"backend-language-de-{mode}-{width}")
+                    if projection:
+                        _toggle_projection(page)
+                page.set_viewport_size({"width": 1600, "height": 1000})
+    finally:
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        r.goto_app()
+        if page.evaluate("() => document.documentElement.classList.contains('projection')"):
+            _toggle_projection(page)
+        if r.state().get("language") != "fr":
+            r.wait_idle()
+            _switch_language(r, "fr")
+        r.check(r.state()["language"] == "fr", "nettoyage : retour au français")
 
 
 def s_annex_language(r: Run) -> None:
@@ -7750,6 +8000,7 @@ def _llm_screen(r: Run) -> None:
         "cloud A : fragments reçus du fournisseur, dits comme tels",
     )
     _candidates_unavailable(r, "Faux fournisseur (e2e)", "cloud A")
+    _distribution_unavailable(r, "Faux fournisseur (e2e)", "cloud A")
 
     # (4) The fake llama-server, chosen in the workshop's picker.
     r.goto_app()
@@ -7854,11 +8105,14 @@ def _llm_screen(r: Run) -> None:
         and r.state()["session_state"]["state"] == "idle",
         "prompt rendu par le gabarit, session revenue en idle",
     )
+    _lab_questions_and_window(r)
     light = _contrast_sweep(r, ["main"])
     r.check(not dark and not light, "/llm : contrastes AA dans les deux thèmes", str(dark + light))
     r.shot("53-llm-nu-generation", full_page=True)
 
     _candidates_unavailable(r, "llama-server", "llama-server")
+    _distribution_unavailable(r, "llama-server", "llama-server")
+    _lab_compare(r)
 
     # Increment 3: the reasoning, on the fake llama-server (Qwen3.5's template).
     toggle = page.locator("#reasoning-toggle")
@@ -7920,6 +8174,97 @@ def _candidates_unavailable(r: Run, name: str, where: str) -> None:
         f"{where} : « Montrer les tokens candidats » grisé avec sa raison, appel direct 409",
         f"{reason} · {refused.status_code}",
     )
+
+
+def _distribution_unavailable(r: Run, name: str, where: str) -> None:
+    """Story 5 (2026-09-30): no model in process, no live distribution in section 2: the
+    candidates' reason (naming `name`) instead of the bars; a direct read answers 404."""
+    page = r.page
+    expect(page.locator("#distribution-empty")).to_contain_text(name, timeout=5000)
+    read = r.api("POST", "/api/llm_lab/distribution", {"index": 0, "sampling": _LAB_SAMPLING})
+    r.check(
+        page.locator("#distribution-body").is_hidden() and read.status_code == 404,
+        f"{where} : distribution vivante indisponible, sa raison en section 2, lecture 404",
+        f"{page.inner_text('#distribution-empty')} · {read.status_code}",
+    )
+
+
+def _lab_questions_and_window(r: Run) -> None:
+    """Story 5 (2026-09-30): each section lists its questions; after a generation, section 4
+    draws the window from `llm_generation_started` (its figures, as received)."""
+    page = r.page
+    counts = page.locator(".llm-questions-list").evaluate_all(
+        "ls => ls.map(l => l.querySelectorAll('li').length)"
+    )
+    r.check(
+        len(counts) == 6 and all(counts),
+        "chaque section liste « Les questions que vous vous posez »",
+        str(counts),
+    )
+    started = r.ev.since(0, "llm_generation_started")[-1]["payload"]
+    usable = page.inner_text("#window-usable-label")
+    caption = _plain(page.inner_text("#window-caption"))
+    r.check(
+        page.locator("#window-diagram").is_visible()
+        and usable.startswith("Prompt")
+        and _plain(started["figures_text"]["window"]) in caption
+        and _plain(started["figures_text"]["reserve"]) in caption,
+        "section 4 : schéma de la fenêtre (prompt, réserve) tiré de llm_generation_started",
+        f"{usable} · {caption[:160]}",
+    )
+
+
+def _lab_compare(r: Run) -> None:
+    """Story 5 (2026-09-30), on the fake llama-server: « Comparer » with two temperatures,
+    `llm{n}.a` then `llm{n}.b`, one after the other; the workshop refused meanwhile; both
+    columns filled, side by side."""
+    page = r.page
+    page.fill("#llm-prompt", "Explique " + "très longuement " * 14)
+    field = page.locator("#compare-temperature")
+    field.fill("1.2")
+    field.dispatch_event("change")
+    expect(page.locator("#compare-button")).to_be_enabled(timeout=10_000)
+    seq = r.ev.mark()
+    page.click("#compare-button")
+    first = r.ev.wait("llm_generation_started", seq, lambda p: p["request_id"].endswith(".a"), 20)
+    refused = r.api("POST", "/api/intentions/send", {"message": "Pendant la comparaison"})
+    expect(page.locator("#generate-button")).to_be_disabled(timeout=5000)
+    last = r.ev.wait("llm_generation_ended", seq, lambda p: p["request_id"].endswith(".b"), 60)
+    expect(page.locator("#compare-button")).to_be_enabled(timeout=10_000)
+    rid = first["payload"]["request_id"][: -len(".a")]
+    started = [e for e in r.ev.since(seq, "llm_generation_started") if e["context_id"] == "llm"]
+    ended = [e for e in r.ev.since(seq, "llm_generation_ended") if e["context_id"] == "llm"]
+    ids = [e["payload"]["request_id"] for e in started]
+    r.check(
+        ids == [f"{rid}.a", f"{rid}.b"]
+        and [e["payload"]["request_id"] for e in ended] == ids
+        and ended[0]["seq"] < started[1]["seq"]
+        and started[0]["payload"]["sampling"]["temperature"] == _LAB_SAMPLING["temperature"]
+        and started[1]["payload"]["sampling"]["temperature"] == 1.2
+        and last["payload"]["status"] == "completed",
+        "comparaison : llm{n}.a puis llm{n}.b, l'un après l'autre, deux températures",
+        f"{ids} · {[e['payload']['status'] for e in ended]}",
+    )
+    r.check(
+        refused.status_code == 409,
+        "comparaison en cours : l'atelier refuse un envoi (409)",
+        f"{refused.status_code} {refused.text[:120]}",
+    )
+    lanes = page.locator("#compare-lanes")
+    a_text = page.inner_text("#compare-a .compare-lane-text")
+    b_text = page.inner_text("#compare-b .compare-lane-text")
+    boxes = [page.locator(f"#compare-{x}").bounding_box() for x in ("a", "b")]
+    side = all(boxes) and abs(boxes[0]["y"] - boxes[1]["y"]) < 4 and boxes[0]["x"] < boxes[1]["x"]
+    r.check(
+        lanes.is_visible()
+        and a_text.strip()
+        and b_text.strip()
+        and side
+        and "T 1,2" in page.inner_text("#compare-b .compare-lane-sampling"),
+        "comparaison : deux colonnes côte à côte, remplies, réglages résumés en tête",
+        f"{a_text[:40]!r} · {b_text[:40]!r} · {boxes}",
+    )
+    r.shot("64-llm-nu-comparaison", full_page=True)
 
 
 def _set_lab_sampling(r: Run) -> None:
@@ -8515,6 +8860,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("rag", s_rag),
     ("rag_rerank", s_rag_rerank),
     ("rag_lab", s_rag_lab),
+    ("mcp_lab", s_mcp_lab),  # story 6 (2026-09-30): captures 61 and 62
     ("compression", s_compression),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),
@@ -8522,6 +8868,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("ui_language", s_ui_language),
     ("content_language", s_content_language),
     ("annex_language", s_annex_language),
+    ("backend_language", s_backend_language),  # story 7 of 2026-09-30 (languages 5/5)
     ("stream_resync", s_stream_resync),
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),

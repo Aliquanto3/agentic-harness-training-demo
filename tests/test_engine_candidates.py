@@ -48,3 +48,28 @@ def test_greedy_draws_the_most_probable(engine):
 def test_dimensions_of_the_loaded_model(engine):
     dims = engine.dimensions()
     assert dims["vocab_size"] and dims["embedding_length"] and dims["layer_count"]
+
+
+def test_fragments_carry_the_most_probable_tokens(engine):
+    """Story 5 of 2026-09-30: with the candidates, each token's `top` (the session's memory
+    of the live distribution): `{p, texts, tail}`, the most probable first, `tail` the rest;
+    the token that stops the generation carries it too."""
+    from wavestack.models.candidates import TOP
+
+    width = min(TOP, engine.dimensions()["vocab_size"])
+    ids = engine.tokenize("<|im_start|>user\nBonjour<|im_end|>\n")
+    fragments = list(
+        engine.complete(
+            ids, ["\n"], 8, CancelToken(), sampling=Sampling(1.0, 0, 1.0, 0.0), candidates=5
+        )
+    )
+    tokens = [f for f in fragments if f.token_id is not None]
+    assert tokens
+    for fragment in tokens:
+        top = fragment.top
+        assert top is not None and set(top) == {"p", "texts", "tail"}
+        assert len(top["p"]) == len(top["texts"]) == width
+        assert top["p"] == sorted(top["p"], reverse=True)
+        assert top["tail"] == pytest.approx(1 - sum(top["p"]), abs=1e-6)
+    without = list(engine.complete(ids, [], 2, CancelToken(), sampling=Sampling(1.0, 0, 1.0, 0.0)))
+    assert all(f.top is None for f in without)

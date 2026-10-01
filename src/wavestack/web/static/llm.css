@@ -748,3 +748,347 @@ body.llm-page {
 .llm-note:empty {
   display: none;
 }
+
+/* ---------- story 5 (2026-09-30): the questions of each section ---------- */
+
+.llm-questions {
+  margin: var(--spacing-2) 0 var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3);
+  max-width: 70rem;
+  background: var(--color-surface);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--rounded-sm);
+}
+
+.llm-questions[hidden] {
+  display: none;
+}
+
+.llm-questions-title {
+  margin: 0 0 var(--spacing-1);
+  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.llm-questions-list {
+  margin: 0;
+  padding-left: var(--spacing-4);
+}
+
+.llm-questions-list li + li {
+  margin-top: 2px;
+}
+
+/* ---------- story 5 (2026-09-30): distribution-bars (DESIGN.md), section 2 ----------
+   One hue (primary): the model probability as a soft bar, the chance of being drawn as a
+   full one; the candidates discarded greyed, their value replaced by the word discarded.
+   Labels beside each bar, no separate legend. */
+
+.distribution {
+  margin: var(--spacing-4) 0 0;
+  padding: var(--spacing-3) var(--spacing-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+}
+
+.distribution-title {
+  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.distribution-empty {
+  margin: var(--spacing-2) 0 0;
+  color: var(--color-ink-soft);
+}
+
+.distribution-empty:empty,
+.distribution-body[hidden] {
+  display: none;
+}
+
+.distribution-head,
+.dist-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 12rem) 1fr 1fr;
+  align-items: center;
+  gap: var(--spacing-1) var(--spacing-3);
+}
+
+.distribution-head {
+  margin-top: var(--spacing-2);
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.distribution-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  margin: var(--spacing-1) 0 var(--spacing-2);
+  padding: 0;
+  list-style: none;
+}
+
+.dist-row {
+  padding: 2px var(--spacing-1);
+  border-radius: var(--rounded-sm);
+}
+
+.dist-text {
+  font: var(--typography-code-font-weight) var(--typography-code-font-size) /
+    var(--typography-code-line-height) var(--typography-code-font-family);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dist-cell {
+  display: grid;
+  grid-template-columns: 1fr 5.5rem;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.dist-bar {
+  height: 0.8em;
+  background: var(--color-line);
+  border-radius: var(--rounded-full);
+  overflow: hidden;
+}
+
+.dist-bar span {
+  display: block;
+  height: 100%;
+  transition: width 120ms ease-out;
+}
+
+.dist-cell.is-model .dist-bar span {
+  background: var(--color-primary-soft);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.dist-cell.is-chance .dist-bar span {
+  background: var(--color-primary);
+}
+
+.dist-value {
+  text-align: right;
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+/* A value's name for screen readers only (the column heads above are aria-hidden). */
+.llm-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.dist-row.is-dropped {
+  color: var(--color-ink-soft);
+}
+
+.dist-row.is-dropped .dist-bar span {
+  background: var(--color-muted);
+  box-shadow: none;
+}
+
+.dist-row.is-tail {
+  border-top: 1px dashed var(--color-line);
+  color: var(--color-ink-soft);
+}
+
+.dist-row.is-tail .dist-text {
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+  white-space: normal;
+}
+
+.token-chip.is-dist-chosen {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dist-bar span {
+    transition: none;
+  }
+}
+
+/* ---------- story 5 (2026-09-30): compare-lanes (DESIGN.md), section 5 ---------- */
+
+.compare {
+  margin: var(--spacing-4) 0 0;
+  padding-top: var(--spacing-3);
+  border-top: 1px solid var(--color-line);
+}
+
+.compare-title {
+  margin: 0 0 var(--spacing-1);
+  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.compare-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--spacing-2) var(--spacing-3);
+  margin: var(--spacing-2) 0;
+  padding: var(--spacing-2) var(--spacing-3) var(--spacing-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+}
+
+.compare-settings legend {
+  padding: 0 var(--spacing-1);
+  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.compare-lanes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-3);
+  margin-top: var(--spacing-3);
+}
+
+.compare-lanes[hidden] {
+  display: none;
+}
+
+.compare-lane {
+  min-width: 0;
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-produced-soft);
+  border-left: 4px solid var(--color-ink);
+  border-radius: var(--rounded-md);
+}
+
+.compare-lane-title {
+  margin: 0 0 var(--spacing-1);
+  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.compare-lane-sampling {
+  color: var(--color-ink-soft);
+  font: var(--typography-number-font-weight) var(--typography-label-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+.compare-lane-thinking,
+.compare-lane-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 14rem;
+  overflow: auto;
+}
+
+.compare-lane-thinking {
+  margin-bottom: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--color-reasoning-soft);
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink-soft);
+}
+
+.compare-lane-thinking:empty,
+.compare-lane-text:empty,
+.compare-lane-status:empty {
+  display: none;
+}
+
+.compare-lane-status {
+  margin: var(--spacing-1) 0 0;
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.compare-lane-status.is-error {
+  color: var(--color-ink);
+}
+
+@media (max-width: 900px) {
+  .compare-lanes {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- story 5 (2026-09-30): window-diagram (DESIGN.md), section 4 ----------
+   The window as its two shares, in proportion (flex-grow: the values received): the share
+   of the prompt, filled by the prompt, then the output reserve, filled token after token. */
+
+.window-diagram {
+  margin: var(--spacing-3) 0;
+  padding: var(--spacing-3) var(--spacing-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+}
+
+.window-diagram[hidden] {
+  display: none;
+}
+
+.window-bar,
+.window-labels {
+  display: flex;
+  gap: 2px;
+}
+
+.window-bar {
+  height: 1.4em;
+  margin-top: var(--spacing-2);
+}
+
+.window-part {
+  flex: 1 1 0;
+  min-width: 2rem;
+  overflow: hidden;
+  background: var(--color-segment-free);
+  border: 1px solid var(--color-line);
+}
+
+.window-part.is-usable {
+  border-radius: var(--rounded-sm) 0 0 var(--rounded-sm);
+}
+
+.window-part.is-reserve {
+  border-style: dashed;
+  border-radius: 0 var(--rounded-sm) var(--rounded-sm) 0;
+}
+
+.window-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+}
+
+.window-fill.is-prompt {
+  background: var(--color-segment-message);
+}
+
+.window-fill.is-output {
+  background: var(--color-produced-soft);
+  box-shadow: inset -2px 0 0 var(--color-ink);
+}
+
+.window-labels {
+  margin-top: var(--spacing-1);
+  color: var(--color-ink-soft);
+  font: var(--typography-number-font-weight) var(--typography-label-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+}
+
+.window-labels span {
+  flex: 1 1 0;
+  min-width: 2rem;
+}
