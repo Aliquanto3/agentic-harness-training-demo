@@ -5851,6 +5851,7 @@ def s_backend_language(r: Run) -> None:
     try:
         for lang in ("en", "de"):
             page.set_viewport_size({"width": 1600, "height": 1000})
+            r.goto_app()  # an annex page does not replay the journal
             _switch_language(r, lang)
             _backend_tool_error(r, lang)
             r.goto_app()
@@ -5879,6 +5880,7 @@ def s_backend_language(r: Run) -> None:
                 page.set_viewport_size({"width": 1600, "height": 1000})
     finally:
         page.set_viewport_size({"width": 1600, "height": 1000})
+        r.goto_app()
         if page.evaluate("() => document.documentElement.classList.contains('projection')"):
             _toggle_projection(page)
         if r.state().get("language") != "fr":
