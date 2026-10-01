@@ -2761,6 +2761,26 @@ def s_mcp_full(r: Run) -> None:
         "réponse issue du glossaire MCP",
         r.last_answer()[:200],
     )
+    # Chat mode: each tool definition of the body (native and MCP) shown as a tree, not as
+    # the fragments of JSON the sentinels cut.
+    tools_row = (
+        r.page.locator("#ctx .ctx-call")
+        .first.locator(".ctx-section")
+        .filter(has=r.page.locator(".ctx-section-label", has_text="Descriptions d'outils"))
+    )
+    names = (
+        tools_row.first.locator(".json-tree .json-string").all_inner_texts()
+        if tools_row.count()
+        else []
+    )
+    r.check(
+        tools_row.count() >= 1
+        and tools_row.first.locator(".json-tree .json-key", has_text='"parameters"').count() >= 1
+        and '"local__define_term"' in names,
+        "mode cloud : les descriptions d'outils, MCP compris, en arbres JSON",
+        str(names[:6]),
+    )
+    _ctx_focus_shot(r, "10b-contexte-outils-mcp-en-arbre")
     r.shot("10-mcp-documentation-complete")
     r.results.append((r.current, f"jauge avant envoi : {gauge}", True, ""))
     # Lot K: in full documentation too, each tool of the local server has its forced call.
