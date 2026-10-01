@@ -429,7 +429,7 @@ l'atelier (ses serveurs cochés, son mode, ses connexions) ne change pas, et rie
   `load_tool_doc`). Compté par le modèle chargé, sinon estimé.
 - **L'appel.** Un champ par paramètre, des préréglages ; la requête `tools/call`, la réponse
   brute et le texte que le harnais réinjecterait au modèle (borné comme un résultat d'outil).
-  Un terme inconnu du glossaire montre une réponse `is_error`. « Arrêter » ferme la connexion.
+  Un terme inconnu du glossaire montre une réponse `is_error`. « Arrêter », pendant un échange, l'interrompt et ferme la connexion ; sinon, elle reste ouverte jusqu'à la connexion suivante, un changement de langue ou la fermeture de WaveStack.
 - **Ce que le modèle voit.** Le bloc « outils » du contexte avec ce serveur, dans les deux modes.
 
 Les textes de la page sont dans `content/mcp_lab.yaml`. Les événements `mcp_lab_*` sont tracés

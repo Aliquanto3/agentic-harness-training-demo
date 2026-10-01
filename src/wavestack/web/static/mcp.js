@@ -159,11 +159,11 @@ function applyEnvelope(envelope) {
       // A handshake's first message opens a new connection (another tab's included).
       if (p.method === "initialize" && p.direction === "to_server") startConnection(n);
       if (n < store.connectStep) return false;
-      step(n).messages.push(p);
+      step(n).messages.push({ ...p, seq: envelope.seq });
       return true;
     case "outbound_request":
       if (n < store.connectStep) return false;
-      step(n).outbound.push(p);
+      step(n).outbound.push({ ...p, seq: envelope.seq });
       return true;
     case "mcp_lab_connect_ended":
       // A connection that failed before any message has only its end.
@@ -262,18 +262,15 @@ function outboundItem(request) {
   return item;
 }
 
-// The messages of an exchange, the outbound requests in their place: each before the
-// message it carried (the order of the journal is kept by `seq`, which the payloads lack, so
-// a request goes before the next message sent to the server).
+// The messages of an exchange and its outbound requests, in the journal's order (`seq`):
+// each message as the session wrote or read it, each HTTP request (POST, the stream's GET,
+// the closing DELETE) as it left.
 function exchangeItems(exchange) {
-  const items = [];
-  const outbound = [...exchange.outbound];
-  for (const message of exchange.messages) {
-    if (message.direction === "to_server" && outbound.length) items.push(outboundItem(outbound.shift()));
-    items.push(messageItem(message));
-  }
-  for (const request of outbound) items.push(outboundItem(request));
-  return items;
+  const entries = [
+    ...exchange.messages.map((message) => [message.seq, () => messageItem(message)]),
+    ...exchange.outbound.map((request) => [request.seq, () => outboundItem(request)]),
+  ];
+  return entries.sort((a, b) => a[0] - b[0]).map(([, item]) => item());
 }
 
 function renderHandshake() {

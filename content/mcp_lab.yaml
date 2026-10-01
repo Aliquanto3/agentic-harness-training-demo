@@ -9,7 +9,7 @@ intro_text: >-
   le joint par HTTP, puis lui parle en JSON-RPC. Connectez-vous à un serveur pour voir la
   poignée de main, la documentation de ses outils et ce qu'elle pèse dans le contexte du
   modèle, puis appelez un outil à la main. C'est un bac à sable : l'atelier ouvre ses propres
-  connexions, la brique MCP de l'atelier ne change pas, et aucun modèle ne génère ici.
+  connexions, la brique MCP de l'atelier principal ne change pas, et aucun modèle ne génère ici.
 busy_text: "Indisponible pour l'instant : {reason}"
 
 servers_title_text: "Les serveurs"
@@ -44,8 +44,10 @@ reinjected_help_text: >-
 
 context_title_text: "Ce que le modèle voit"
 context_help_text: >-
-  Le bloc « outils » du contexte avec ce serveur, tel qu'il partirait au modèle, dans les deux
-  modes. Rien n'est généré : c'est ce que le modèle lirait avant de choisir un outil.
+  Le bloc « outils » du contexte avec ce serveur, dans les deux modes : les définitions JSON
+  que le harnais envoie, sans l'habillage que le gabarit du modèle y ajoute (quelques tokens de
+  plus dans la jauge de l'atelier principal). Rien n'est généré : c'est ce que le modèle
+  lirait avant de choisir un outil.
 context_empty_text: "Connectez-vous à un serveur pour voir son bloc « outils »."
 
 transports:

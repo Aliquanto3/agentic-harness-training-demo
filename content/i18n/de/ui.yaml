@@ -696,7 +696,7 @@ main:
       llm_token: "Nacktes LLM: Token erzeugt"
       llm_generation_ended: "Nacktes LLM: Generierung beendet"
       mcp_lab_message: "MCP-Werkstatt: JSON-RPC-Nachricht"
-      mcp_lab_connect_ended: "MCP-Werkstatt: Verbindung beendet"
+      mcp_lab_connect_ended: "MCP-Werkstatt: Handshake beendet"
       mcp_lab_call_ended: "MCP-Werkstatt: Aufruf beendet"
     model_load_status:
       ok: "geladen"

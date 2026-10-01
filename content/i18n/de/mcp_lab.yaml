@@ -7,7 +7,7 @@ intro_text: >-
   oder erreicht ihn über HTTP und spricht dann JSON-RPC mit ihm. Verbinden Sie sich mit einem
   Server, um den Handshake, die Dokumentation seiner Tools und ihr Gewicht im Kontext des
   Modells zu sehen, und rufen Sie dann ein Tool von Hand auf. Dies ist eine Sandbox: Die
-  Werkstatt öffnet eigene Verbindungen, der MCP-Baustein der Werkstatt bleibt unverändert, und
+  Werkstatt öffnet eigene Verbindungen, der MCP-Baustein der Hauptwerkstatt bleibt unverändert, und
   hier generiert kein Modell.
 busy_text: "Derzeit nicht verfügbar: {reason}"
 
@@ -44,8 +44,10 @@ reinjected_help_text: >-
 
 context_title_text: "Was das Modell sieht"
 context_help_text: >-
-  Der Block „Tools“ des Kontexts mit diesem Server, so wie er an das Modell ginge, in beiden
-  Modi. Nichts wird generiert: Das liest das Modell, bevor es ein Tool wählt.
+  Der Block „Tools“ des Kontexts mit diesem Server, in beiden Modi: die JSON-Definitionen,
+  die der Harness sendet, ohne die Hülle, die die Vorlage des Modells hinzufügt (einige Tokens
+  mehr in der Anzeige der Hauptwerkstatt). Nichts wird generiert: Das liest das Modell, bevor
+  es ein Tool wählt.
 context_empty_text: "Verbinden Sie sich mit einem Server, um seinen Block „Tools“ zu sehen."
 
 transports:

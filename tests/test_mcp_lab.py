@@ -112,13 +112,85 @@ def test_the_capture_times_a_response_from_its_request():
     assert len(seen) == 2
 
 
-def test_catalog_line_and_last_session_filter():
+def test_catalog_line_and_step_number():
     assert mcp_lab.catalog_line("local__x", "Première ligne\nseconde", 120) == (
         "- local__x : Première ligne"
     )
     assert mcp_lab.catalog_line("local__x", "", 120) == "- local__x"
     assert mcp_lab.catalog_line("a", "x" * 10, 4) == "- a : xxxx…"
     assert mcp_lab.step_number("mcp12") == 12 and mcp_lab.step_number("lab1") is None
+
+
+class _Envelope:
+    """What `last_session` reads of an envelope."""
+
+    def __init__(self, kind: str, step_id: str | None, context_id: str = "mcp_lab") -> None:
+        self.kind, self.step_id, self.context_id = kind, step_id, context_id
+
+    def model_dump(self, mode: str) -> dict:
+        return {"kind": self.kind, "step_id": self.step_id}
+
+
+def test_last_session_is_the_last_connection_and_its_calls():
+    journal = [
+        _Envelope("mcp_lab_message", "mcp3"),  # a first connection, then a call on it
+        _Envelope("mcp_lab_connect_ended", "mcp3"),
+        _Envelope("mcp_lab_message", "mcp4"),
+        _Envelope("outbound_request", "mcp4"),
+        _Envelope("mcp_lab_call_ended", "mcp4"),
+        _Envelope("tool_ended", "mcp4"),  # not a kind of the workshop
+        _Envelope("mcp_lab_message", "mcp4", context_id="main"),  # another context
+        _Envelope("session_state", None),
+        _Envelope("mcp_lab_message", "mcp5"),  # the connection after it
+        _Envelope("mcp_lab_connect_ended", "mcp5"),
+        _Envelope("mcp_lab_message", "mcp6"),
+        _Envelope("mcp_lab_call_ended", "mcp6"),
+    ]
+
+    def steps(first: int) -> list[tuple]:
+        return [(e["kind"], e["step_id"]) for e in mcp_lab.last_session(journal, first)]
+
+    assert steps(5) == [
+        ("mcp_lab_message", "mcp5"),
+        ("mcp_lab_connect_ended", "mcp5"),
+        ("mcp_lab_message", "mcp6"),
+        ("mcp_lab_call_ended", "mcp6"),
+    ]
+    assert steps(3)[:5] == [
+        ("mcp_lab_message", "mcp3"),
+        ("mcp_lab_connect_ended", "mcp3"),
+        ("mcp_lab_message", "mcp4"),
+        ("outbound_request", "mcp4"),
+        ("mcp_lab_call_ended", "mcp4"),
+    ]
+    assert steps(0) == []  # no connection yet
+
+
+def test_invalid_content_is_said_and_refuses_the_connection(monkeypatch):
+    from fake_engine import FakeEngine, booted_session
+
+    session = booted_session(FakeEngine())
+
+    def broken(*_, **__):  # noqa: ANN202
+        raise ValueError("fichier cassé")
+
+    broken.cache_clear = lambda: None  # type: ignore[attr-defined]
+    monkeypatch.setattr(mcp_lab, "load_lab_content", broken)
+    mark = get_journal().last_seq()
+    state = session.mcp_lab_state()
+    assert state["content"] is None and "content/mcp_lab.yaml" in state["content_error_text"]
+    assert session.mcp_lab_state()["content"] is None  # read twice, traced once
+    try:
+        session.mcp_lab_connect("local")
+    except SendRefused as refused:
+        assert "content/mcp_lab.yaml" in str(refused.reason_text)
+    else:
+        raise AssertionError("connection refused without the page's texts")
+    events = get_journal().events_since(mark)
+    assert [e for e in events if e.kind in KINDS] == []
+    errors = [e for e in events if e.kind == "harness_error" and e.context_id == "mcp_lab"]
+    assert len(errors) == 1
+    assert session.state == "idle"
 
 
 # ---------- the local server: a real child process ----------
@@ -212,6 +284,7 @@ def test_valid_call_and_unknown_term(loop):
     assert unknown["status"] == "error"
     assert json.loads(unknown["raw"])["result"]["isError"] is True
     assert "Terme inconnu" in unknown["text"]
+    assert unknown["text"].startswith("Erreur : ")  # reinjected as the brick does
     assert "is_error" in unknown["error_text"]
     assert session.mcp_lab_state()["open_server"] == "local"  # the server is still there
     session.close()
@@ -382,6 +455,61 @@ def test_stop_during_the_handshake(loop, web):
     assert ended["status"] == "error" and "arrêté" in ended["error_text"]
     assert session._mcp_lab_conn is None
     session.close()
+
+
+def test_a_server_gone_during_a_call_closes_the_workshops_connection(loop):
+    session = mcp_session(loop)
+    connect(session)
+    (child,) = local_servers()
+    child.kill()
+    child.wait(5)
+
+    try:
+        _, ended = lab_call(session, "local", "define_term", term="MCP")
+    except SendRefused:  # the connection's task saw the end first: refused before the call
+        ended = None
+    if ended is not None:
+        assert ended["status"] == "error"
+        assert "reconnectez-vous" in ended["error_text"]
+    assert session.mcp_lab_state()["open_server"] is None
+    try:
+        session.mcp_lab_call("local", "define_term", {"term": "MCP"})
+    except SendRefused as refused:
+        assert "Connectez-vous d'abord" in str(refused.reason_text)
+    else:
+        raise AssertionError("refused once the connection is gone")
+    session.close()
+    assert no_local_server_left()
+
+
+def test_lifespan_closes_the_workshops_connection():
+    from fake_engine import FakeEngine
+    from test_tools import QWEN
+
+    from wavestack import config
+
+    engine = FakeEngine(template=QWEN.decode("utf-8"), architecture="qwen35")
+    session = AppSession(
+        config.Config(values={"context": {"window": 4096, "near_limit_ratio": 0.8}}),
+        engine_factory=lambda path, n_ctx: engine,
+    )
+    session.boot("fake.gguf").result()
+    app = create_app(
+        DiagnosticSession(config.load_config(), port=8421),
+        port=8421,
+        version="test",
+        app_session=session,
+    )
+    with TestClient(app, base_url="http://127.0.0.1:8421") as client:  # enters the lifespan
+        answer = client.post(
+            "/api/intentions/mcp_lab_connect", json={"server": "local"}, headers=HEADERS
+        )
+        assert answer.status_code == 200
+        wait_idle(session)
+        assert session.mcp_lab_state()["open_server"] == "local"
+        assert local_servers()
+
+    assert no_local_server_left()
 
 
 # ---------- the brick keeps its own connections ----------

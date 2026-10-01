@@ -696,7 +696,7 @@ main:
       llm_token: "Bare LLM: token produced"
       llm_generation_ended: "Bare LLM: generation ended"
       mcp_lab_message: "MCP workshop: JSON-RPC message"
-      mcp_lab_connect_ended: "MCP workshop: connection ended"
+      mcp_lab_connect_ended: "MCP workshop: handshake ended"
       mcp_lab_call_ended: "MCP workshop: call ended"
     model_load_status:
       ok: "loaded"

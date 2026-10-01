@@ -2,16 +2,30 @@
 title: 'Atelier MCP (/mcp) : le protocole à manipuler'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '1bc25bfcc85f6761ca38f9356bc315c4aad1f2a0'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/SPEC.md'
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/atelier-mcp.md'
   - '{project-root}/_bmad-output/specs/spec-langues/i18n-conventions.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      Les lignes de la matrice et les fonctions de la page /mcp ne sont vérifiées que côté session : page hors ligne, bandeau « Occupé » d'un vrai tour, bouton « Arrêter » pressé, préréglages, champs JSON, troncature, requêtes sortantes, rejeu de last_session, note « servi non traduit ».
+    evidence: |-
+      Revue du 2026-10-01 (IA3, IA4, BH16) : tests/test_mcp_lab.py force l'état par `_set_state("turn")` et arrête par `session.stop()` ; l'E2E `s_mcp_lab` couvre connexion, appel valide et terme inconnu. À étendre dans l'E2E (`page.route` pour le hors ligne), avec l'accord d'Anaël.
+    location: >-
+      src/wavestack/web/static/mcp.js ; tools/e2e/run_e2e.py (s_mcp_lab)
+    severity: medium
+  - summary: >-
+      Arrêt pendant un appel au glossaire local (stdio) et refus des intentions de classe (b) de l'écran principal pendant un échange de l'atelier jamais testés.
+    evidence: |-
+      Revue du 2026-10-01 (IA3, BH16) : les arrêts sont testés sur le serveur public simulé (McpWeb, HTTP) ; le refus repose sur le contrôle générique `state != idle`. Tests à ajouter à tests/test_mcp_lab.py, qui lance le serveur local : accord requis.
+    location: >-
+      tests/test_mcp_lab.py
+    severity: medium
 ---
 
 <intent-contract>
@@ -115,3 +129,62 @@ Implémentation livrée en entier (incréments 1 et 2, sections 1 à 5), **non v
 - **Traductions** : en plus des clés nouvelles, `mcp.error.*` et `mcp.block_not_shown` sont traduits en `en` et `de` (montrés par la page) ; l'allemand vouvoie.
 - **Tests écrits, non lancés** : `tests/test_mcp_lab.py` (capture, connexion locale réelle, poids exacts au faux moteur, appel valide et terme inconnu, refus, serveur public tracé, hors ligne, erreur JSON-RPC, délai, arrêt pendant un appel et pendant la poignée de main, brique intacte pendant un tour, routes et 409, aucun processus restant) ; `test_web_app`, `test_ui_texts`, `test_web_tokens`, `test_i18n`, `test_backend_messages` (périmètre : `mcp/lab.py`) étendus ; E2E `s_mcp_lab` (captures 61 et 62) inscrit dans `SCENARIOS`, et l'ordre des liens de `_SITE_NAV_PROBLEMS_JS` passe à six pages.
 - **Risques connus** : la barre commune à six liens en `de` à 1 280 px en projection n'a pas été mesurée (`_bar_fits`) ; les durées des tests d'arrêt et de délai (`McpWeb.delay`) sont à confirmer sur le PC cible.
+
+## Review Triage Log
+
+### 2026-10-01 — Review pass
+- verdicts: 44 findings — high 0, medium 13, low 29, false 2, maybe-false 0
+- findings:
+  - `[false]` `[reject]` IA1 : les cinq sections faites, capture JSON-RPC réelle — un constat de conformité, aucun mauvais résultat.
+  - `[low]` `[patch]` IA2 : section 5 et poids comptés sur le JSON des définitions, pas sur le contexte rendu par le gabarit — c'est la définition de la spec (`doc_tokens` = la définition telle que `_tool_definitions` la rend) ; le texte de la section disait « tel qu'il partirait au modèle » : `context_help_text` (fr, en, de) dit maintenant « les définitions JSON, sans l'habillage du gabarit (quelques tokens de plus dans la jauge) ».
+  - `[medium]` `[defer]` IA3 : lignes de la matrice énoncées côté page mais testées côté session (hors ligne, « Occupé » forcé, arrêt testé sur le serveur HTTP, bouton « Arrêter » jamais pressé) — différé (voir `deferred`).
+  - `[medium]` `[defer]` IA4 : fonctions de page jamais exercées (préréglages, champs JSON, troncature, requêtes sortantes, rejeu de `last_session`, bandeau occupé, note « servi non traduit ») — groupé avec IA3, différé.
+  - `[low]` `[reject]` IA5 : aucun refus de la garde réseau exercé dans l'atelier — l'atelier passe par `create_async_client`, la fabrique partagée dont la garde est testée avec la brique ; rien de propre à l'atelier.
+  - `[medium]` `[patch]` VG1 : `content/mcp_lab.yaml` invalide jamais testé — `test_invalid_content_is_said_and_refuses_the_connection` (contenu `None` et raison, `SendRefused` sans événement, un seul `harness_error` sur deux lectures), lancé, passe.
+  - `[low]` `[patch]` VG2 : `last_session` non vérifié — `test_last_session_is_the_last_connection_and_its_calls` (enveloppes simulées : dernière connexion et ses appels, autres contextes et genres écartés, `first` 0), lancé, passe ; `test_catalog_line_and_last_session_filter` renommé `test_catalog_line_and_step_number`.
+  - `[medium]` `[patch]` VG3 : fermeture par le lifespan avec une connexion d'atelier ouverte jamais exercée — `test_lifespan_closes_the_workshops_connection` écrit, **non lancé** (serveur MCP local : accord d'Anaël requis).
+  - `[medium]` `[patch]` VG4 : connexion perdue pendant un appel non testée — `test_a_server_gone_during_a_call_closes_the_workshops_connection` écrit (enfant tué, erreur « reconnectez-vous », `open_server` nul, appel suivant refusé), **non lancé** (serveur local : accord requis).
+  - `[low]` `[reject]` VG5 : poids sans moteur jamais marqués « estimé » dans un test — `estimated` suit le drapeau de `_count_tokens`, le même que la jauge de l'atelier principal ; un test demande une connexion (serveur), pour un `or` de deux booléens.
+  - `[medium]` `[patch]` VG6 : `MCPError(CONNECTION_CLOSED)` disait « le serveur a refusé l'échange » — `_run_mcp_lab_call` : `session.mcp_lab.closed` et la connexion fermée (`lost`), comme la brique qui traite ce code en connexion perdue (`McpConnection.call`).
+  - `[medium]` `[patch]` BH1 : le texte réinjecté d'un résultat `is_error` était le texte brut — il est maintenant celui de la brique : `tools.error` (« Erreur : … », `mcp.error.no_detail` si vide) ; assertion ajoutée au test du terme inconnu.
+  - `[medium]` `[patch]` BH2 : « Arrêter » pendant un appel qui finit en `MCPError` disait « refusé » — groupé avec VG6 : la branche `MCPError` regarde d'abord `cancel.cancelled` (`session.mcp_lab.stopped`).
+  - `[low]` `[patch]` BH3 : `mcp.error.closed` conseille « décochez puis recochez », sans objet dans l'atelier — une `ConnectionError` à la connexion dit `session.mcp_lab.closed` (« reconnectez-vous au serveur ») ; à l'appel c'était déjà le cas.
+  - `[medium]` `[patch]` BH4 : arrêt entre la vérification de `cancel` et `conn.start()` laissait une connexion vivante — après `future.result(...)`, `cancel.cancelled` lève `ConnectionError`, et le `except` ferme la connexion et dit « arrêté ».
+  - `[low]` `[patch]` BH5 : README « Arrêter ferme la connexion » sans nuance — README : « pendant un échange, l'interrompt et ferme la connexion ; sinon elle reste ouverte jusqu'à la connexion suivante, un changement de langue ou la fermeture de WaveStack » ; un bouton « Se déconnecter » n'est pas demandé par la spec.
+  - `[low]` `[reject]` BH6 : réponses du serveur jamais expliquées — la spec demande sens et durée ; la réponse suit sa requête expliquée et son JSON se lit tel quel.
+  - `[low]` `[reject]` BH7 : `methods` exige exactement `METHODS` — l'égalité attrape une clé mal écrite ; expliquer une méthode de plus demande de toute façon du code.
+  - `[low]` `[reject]` BH8 : « aller-retour » pour tout message du serveur, notification comprise — les trois serveurs n'envoient pas de notification dans les échanges de l'atelier ; distinguer demande d'analyser le JSON-RPC dans la page.
+  - `[low]` `[patch]` BH9 : requêtes sortantes placées par position, mal pour le GET SSE et le DELETE — `mcp.js` garde le `seq` de chaque enveloppe et trie messages et requêtes par `seq`.
+  - `[low]` `[reject]` BH10 : JSON-RPC brut non borné et dupliqué (message puis `raw`) — quelques Ko par échange pour les trois serveurs fixes ; le journal garde tout par conception.
+  - `[low]` `[reject]` BH11 : `launch_command` écrit `python -m …` au lieu de `sys.executable` — forme lisible voulue pour le stagiaire ; le chemin complet du `.venv` n'apprend rien.
+  - `[low]` `[defer]` BH12 : `session.mcp.no_loop` et `session.llm_lab.back_to_idle` sans en/de — clés existantes déjà sans traduction : reportées à la story 7 (traductions restantes), qui les inclut.
+  - `[low]` `[patch]` BH13 : « Atelier MCP : connexion terminée » trompeur — « poignée de main terminée » (fr), « handshake ended » (en), « Handshake beendet » (de).
+  - `[low]` `[patch]` BH14 : `intro_text` « la brique MCP de l'atelier » ambigu sur la page « Atelier MCP » — « de l'atelier principal » (fr), « main workshop's » (en), « der Hauptwerkstatt » (de).
+  - `[low]` `[reject]` BH15 : booléens optionnels envoyés à `false`, entier qui accepte 1,5 — aucun outil des trois serveurs n'a de booléen dont le défaut est vrai ; un entier invalide revient du serveur en erreur, montrée ; un état « non touché » demande un champ à trois états.
+  - `[medium]` `[patch]` BH16 : tests manquants (YAML invalide, refus pendant un échange, arrêt pendant un appel stdio) — groupé avec VG1 (ajouté) ; refus et arrêt stdio différés avec IA3.
+  - `[false]` `[reject]` BH17 : DESIGN.md et EXPERIENCE.md « affirment » que la barre tient en `de` à 1 280 px — c'est l'exigence, pas une mesure ; elle est vérifiée par `_site_nav_problems` de l'E2E, à lancer avec accord.
+  - `[low]` `[patch]` BH18 : virgule perdue avant `rag_lab` dans ARCHITECTURE-SPINE — remise.
+  - `[low]` `[patch]` BH19 : statut brut « ok »/« error » dans le résumé du journal de `mcp_lab_call_ended` — retiré (l'erreur est dite par `error_text`).
+  - `[medium]` `[patch]` EC1 : = BH4, même correctif.
+  - `[low]` `[reject]` EC2 : exception après la liste des outils (poids, émission) — aucun chemin démontré ; la session revient en `idle` et trace `harness_error` ; garde pour un cas non démontré.
+  - `[low]` `[reject]` EC3 : exception hors du `try` interne de l'appel — même raison qu'EC2.
+  - `[low]` `[reject]` EC4 : serveur qui liste deux outils du même nom — aucun des trois serveurs fixes ne le fait.
+  - `[low]` `[reject]` EC5 : requête du serveur qui réutilise un id en attente — aucun des trois serveurs n'envoie de requête au client.
+  - `[low]` `[reject]` EC6 : réponse tardive d'un appel expiré pendant l'échange suivant — le `raw` du suivant reste juste (sa réponse arrive après et écrase) ; seule la liste des messages en montre un de trop, après un délai dépassé.
+  - `[medium]` `[patch]` EC7 : = VG6, même correctif (la connexion est fermée et `open_server` passe à `null`).
+  - `[low]` `[reject]` EC8 : `open_server` dit « connecté » pendant la poignée de main d'une page rechargée — état transitoire d'une seconde, les appels sont refusés en `mcp_lab`.
+  - `[low]` `[patch]` EC9 : = BH9, même correctif.
+  - `[low]` `[reject]` EC10 : = BH8, même raison.
+  - `[low]` `[reject]` EC11 : connexion fermée hors `mcp_lab` (langue changée dans un autre onglet), pastille périmée — l'appel suivant reçoit un 409 « Connectez-vous d'abord à … », qui dit quoi faire.
+  - `[low]` `[reject]` EC12 : = BH15, même raison.
+  - `[low]` `[reject]` EC13 : texte non numérique dans un champ nombre — le navigateur le marque invalide ; l'obligatoire est dit « manquant », assez pour corriger.
+  - `[medium]` `[patch]` EC14 : = EC1, même correctif.
+
+## Auto Run Result
+
+- **Changement** : page `/mcp` (cinq sections), connexions MCP propres à l'atelier avec capture réelle du JSON-RPC, intentions `mcp_lab_connect` et `mcp_lab_call` sous l'état `mcp_lab`, trois événements `mcp_lab_*`, sixième lien de la barre commune.
+- **Correctifs de revue** (2026-10-01, session de suite) : `app_session.py` (arrêt pendant le démarrage, `ConnectionError` à la connexion, `CONNECTION_CLOSED` et arrêt dans la branche `MCPError`, texte réinjecté d'`is_error` comme la brique) ; `mcp.js` (ordre par `seq`) ; `app.js` (résumé du journal) ; `mcp_lab.yaml` et `ui.yaml` fr/en/de ; README ; ARCHITECTURE-SPINE ; tests `test_mcp_lab.py` (VG1, VG2 lancés ; VG3, VG4 écrits, non lancés).
+- **Bilan** : 21 lignes corrigées (entrées `medium` : VG1/BH16, VG3, VG4, VG6/BH2/EC7, BH1, BH4/EC1/EC14), 3 différées (2 entrées `deferred`, plus BH12 renvoyé à la story 7), 20 rejetées (2 `false`, 18 `low` avec leur raison ci-dessus).
+- **Revue de suivi recommandée** : oui. Risque nommé : `tests/test_mcp_lab.py` (connexions réelles au glossaire, arrêts, délais) n'a jamais tourné, ni l'E2E `mcp_lab` ; les correctifs d'arrêt et de connexion perdue ne sont vérifiés qu'en lecture.
+- **Vérification** : `ruff check` et `ruff format --check` OK ; `node --check` sur `mcp.js` et `app.js` OK ; `pytest tests/test_web_app.py tests/test_ui_texts.py tests/test_web_tokens.py tests/test_i18n.py tests/test_backend_messages.py` : 3 324 passés ; `pytest tests/test_mcp_lab.py -k "capture or catalog_line or last_session or invalid_content or lab_scope"` : 5 passés. **Non lancés** (accord d'Anaël requis : serveur MCP local) : le reste de `tests/test_mcp_lab.py`, `tests/test_mcp.py`, `tests/test_mcp_lazy.py` et l'E2E `--only mcp_lab mcp_full mcp_lazy annex_language`.
+- **Risques résiduels** : barre à six liens en `de` à 1 280 px en projection non mesurée ; durées des tests d'arrêt et de délai à confirmer sur le PC cible ; statut laissé `in-review` jusqu'à ces tests.

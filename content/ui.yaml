@@ -705,7 +705,7 @@ main:
       llm_token: "LLM nu : token produit"
       llm_generation_ended: "LLM nu : génération terminée"
       mcp_lab_message: "Atelier MCP : message JSON-RPC"
-      mcp_lab_connect_ended: "Atelier MCP : connexion terminée"
+      mcp_lab_connect_ended: "Atelier MCP : poignée de main terminée"
       mcp_lab_call_ended: "Atelier MCP : appel terminé"
     model_load_status:
       ok: "chargé"

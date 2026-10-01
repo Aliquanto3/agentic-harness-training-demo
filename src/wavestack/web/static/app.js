@@ -6234,7 +6234,7 @@ function eventSummary(group) {
         ? `${labelValue(mcpServerLabel(p.server), plural(p.tools.length, "tool"))} · ${seconds(p.duration_ms)}`
         : labelValue(mcpServerLabel(p.server), p.error_text);
     case "mcp_lab_call_ended":
-      return [labelValue(mcpServerLabel(p.server), p.tool), p.status, seconds(p.duration_ms), p.error_text]
+      return [labelValue(mcpServerLabel(p.server), p.tool), seconds(p.duration_ms), p.error_text]
         .filter(Boolean)
         .join(" · ");
     case "hook_decided":

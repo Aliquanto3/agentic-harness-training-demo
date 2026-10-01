@@ -8952,10 +8952,14 @@ class AppSession:
                 except BaseException:
                     future.cancel()
                     raise
+                if cancel.cancelled:  # stopped while `start` was on its way: closed below
+                    raise ConnectionError(step_id)
         except Exception as exc:  # noqa: BLE001 - AD-16: a state, said in section 2
             tools = None
             if cancel.cancelled:
                 error_text = Message("session.mcp_lab.stopped")
+            elif isinstance(exc, ConnectionError):  # the brick's text says to tick it again
+                error_text = Message("session.mcp_lab.closed")
             elif error_text is None:
                 error_text = describe_error(exc, self.cfg.mcp_connect_timeout_s)
         try:
@@ -9083,12 +9087,16 @@ class AppSession:
         payload: dict[str, Any] = {"server": server_id, "tool": tool, "status": "error"}
         try:
             conn.begin(step_id)
+            lost = False
             try:
                 result = conn.call_result(tool, args)
             except MCPError as exc:
                 payload["raw"] = conn.capture.received("tools/call")
-                if exc.code == CONNECTION_CLOSED:
-                    payload["error_text"] = describe_error(exc, self.cfg.mcp_call_timeout_s)
+                if cancel.cancelled:
+                    payload["error_text"] = Message("session.mcp_lab.stopped")
+                elif exc.code == CONNECTION_CLOSED:  # the server is gone: so is the connection
+                    payload["error_text"] = Message("session.mcp_lab.closed")
+                    lost = True
                 else:  # a JSON-RPC error answer (invalid arguments): the server is there
                     payload["error_text"] = Message("mcp.error.call_refused", cause=exc.message)
             except Exception as exc:  # noqa: BLE001 - AD-16: said in section 4
@@ -9101,13 +9109,14 @@ class AppSession:
             else:
                 payload["raw"] = conn.capture.received("tools/call")
                 text = result_text(result, self._language)
-                if result.is_error:
-                    payload["text"] = text
+                if result.is_error:  # reinjected as the brick does (`executor.run_tool`)
+                    detail = text or self._t("mcp.error.no_detail")
+                    payload["text"] = self._t("tools.error", text=detail)
                     payload["error_text"] = Message("session.mcp_lab.is_error")
                 else:
                     payload["text"], payload["truncated"] = self._bound_result(text)
                     payload["status"] = "ok"
-            if cancel.cancelled or not conn.alive:  # stopped, or the server is gone
+            if cancel.cancelled or lost or not conn.alive:  # stopped, or the server is gone
                 self._mcp_lab_drop(conn, wait=True)
             payload["duration_ms"] = _ms(time.monotonic() - started)
             self._mcp_lab_emit("mcp_lab_call_ended", payload, step_id, server_id)
