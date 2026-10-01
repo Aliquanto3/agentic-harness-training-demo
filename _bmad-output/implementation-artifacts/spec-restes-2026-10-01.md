@@ -2,18 +2,39 @@
 title: 'Restes du 2026-10-01 : constats différés des stories 5 et 6, BM25 par langue, libellé allemand, statut Langues 5'
 type: 'chore'
 created: '2026-10-01'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '18c39782cb78d915dfebd38e2a4f63eb925f04e9'
 baseline_revision: '18c39782cb78d915dfebd38e2a4f63eb925f04e9'
 route: 'dispatch'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/stories/5-llm-nu-pedagogique-distribution-vivante-comparaison-a-b-schemas.md'
   - '{project-root}/_bmad-output/specs/spec-corrections-2026-09-30/stories/6-atelier-mcp-mcp-le-protocole-a-manipuler.md'
   - '{project-root}/_bmad-output/specs/spec-langues/i18n-conventions.md'
 warnings: ['multiple-goals']
-deferred: []
+deferred:
+  - summary: >-
+      La réponse simulée de `/api/llm_lab/distribution` dans l'E2E `llm_live` recopie à la main la forme de `AppSession.llm_distribution` (et renvoie `sampling` brut) : une dérive de la vraie route ne serait pas vue par l'E2E.
+    evidence: |-
+      Revue du 2026-10-01 du lot des restes (IA1, BH9) : `_LiveLab.distribution` (`tools/e2e/run_e2e.py`) construit son dict ; seule `candidates.distribution` est partagée. Piste : un constructeur de réponse partagé côté session, ou un test pytest qui compare clés et types des deux.
+    location: >-
+      tools/e2e/run_e2e.py (_LiveLab.distribution) ; src/wavestack/session/app_session.py (llm_distribution)
+    severity: low
+  - summary: >-
+      La garde du ticket de `fetchDistribution` (une réponse ancienne arrivée après une plus récente est ignorée) n'est éprouvée par aucun test : la route simulée répond dans l'ordre.
+    evidence: |-
+      Revue du 2026-10-01 du lot des restes (VG2) : supprimer `if (ticket !== store.dist.ticket) return;` (`llm.js`) laisse `llm_live` vert. Piste : `_LiveLab` retient la première réponse jusqu'à ce que la seconde soit servie, mouvements espacés de plus de 80 ms.
+    location: >-
+      src/wavestack/web/static/llm.js (fetchDistribution) ; tools/e2e/run_e2e.py (_llm_live)
+    severity: low
+  - summary: >-
+      Le refus de budget de l'atelier RAG insère « modèle d'embedding X » sans article dans `models.load_registry.component_refused` (« pour charger modèle d'embedding X », « um Embedding-Modell X zu laden »), en fr, en, de.
+    evidence: |-
+      Revue du 2026-10-01 du lot des restes (BH8) : `rag/lab.py:938` compose `f"{render(noun_text, lang)} {label_text}"`. Préexistant, hors du point du compresseur.
+    location: >-
+      src/wavestack/rag/lab.py:938 ; content/messages.yaml (session.rag.model_noun.*, models.load_registry.component_refused)
+    severity: low
 ---
 
 <intent-contract>
@@ -77,14 +98,14 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] 1 · `spec-langues/stories/5-messages-produits-par-le-backend.md` -- `status: done`, tâches cochées, ligne de clôture (story 7, PR #14 et #16, tranche `backend_language` 16/16).
-- [ ] 2 · `content/messages.yaml` et surcouches, `app_session.py`, `tests/test_compression.py` -- clé `session.compression.the_compressor_to_load` (accusatif : « den Kompressor ») pour le refus de budget, `the_compressor` gardée au nominatif pour le schéma ; test : refus de budget en `de` sans libellé de fabrique → « um den Kompressor zu laden ».
-- [ ] 3 · `src/wavestack/rag/lab.py`, `content/rag_lab.yaml` et surcouches, `tests/test_rag_lab.py` -- `STOP_WORDS_BY_LANG` (fr, en, de, accents pliés ; « it » et « us » gardés : sigles), `bm25_terms(text, lang)`, `bm25(query, docs, lang)`, `_lexical_search` passe `self.deps.lang` ; explications réécrites dans les trois langues ; tests : mots vides par langue, sigles gardés, une course en `en` dont l'entrée ne cite pas « the ».
-- [ ] 4 · `tests/test_llm_lab.py` -- arrêt pendant B (moteur local) ; comparaison cloud (`Provider` à deux réponses).
-- [ ] 5 · `tests/test_mcp_lab.py` -- arrêt pendant un appel au glossaire (enfant suspendu par psutil) ; refus des intentions de classe (b) de l'écran principal en `mcp_lab` (routes web, 409, aucun événement).
-- [ ] 6 · `tools/e2e/run_e2e.py` -- `llm_screen` : comparaison sur le faux cloud A lent arrêtée par « Arrêter » pendant B ; nouveau scénario `llm_live` (distribution et fenêtre par `page.route`).
-- [ ] 7 · `tools/e2e/run_e2e.py` -- nouveau scénario `mcp_lab_page` (matrice `/mcp` ci-dessus) ; `tools/e2e/README.md` si la liste des scénarios y est décrite.
-- [ ] 8 · specs des stories 5 et 6 (`deferred`), `deferred-work.md` -- clôtures avec preuve ; Implementation Notes de ce lot.
+- [x] 1 · `spec-langues/stories/5-messages-produits-par-le-backend.md` -- `status: done`, tâches cochées, ligne de clôture (story 7, PR #14 et #16, tranche `backend_language` 16/16).
+- [x] 2 · `content/messages.yaml` et surcouches, `app_session.py`, `tests/test_compression.py` -- clé `session.compression.the_compressor_to_load` (accusatif : « den Kompressor ») pour le refus de budget, `the_compressor` gardée au nominatif pour le schéma ; test : refus de budget en `de` sans libellé de fabrique → « um den Kompressor zu laden ».
+- [x] 3 · `src/wavestack/rag/lab.py`, `content/rag_lab.yaml` et surcouches, `tests/test_rag_lab.py` -- `STOP_WORDS_BY_LANG` (fr, en, de, accents pliés ; « it » et « us » gardés : sigles), `bm25_terms(text, lang)`, `bm25(query, docs, lang)`, `_lexical_search` passe `self.deps.lang` ; explications réécrites dans les trois langues ; tests : mots vides par langue, sigles gardés, une course en `en` dont l'entrée ne cite pas « the ».
+- [x] 4 · `tests/test_llm_lab.py` -- arrêt pendant B (moteur local) ; comparaison cloud (`Provider` à deux réponses).
+- [x] 5 · `tests/test_mcp_lab.py` -- arrêt pendant un appel au glossaire (enfant suspendu par psutil) ; refus des intentions de classe (b) de l'écran principal en `mcp_lab` (routes web, 409, aucun événement).
+- [x] 6 · `tools/e2e/run_e2e.py` -- `llm_screen` : comparaison sur le faux cloud A lent arrêtée par « Arrêter » pendant B ; nouveau scénario `llm_live` (distribution et fenêtre par `page.route`).
+- [x] 7 · `tools/e2e/run_e2e.py` -- nouveau scénario `mcp_lab_page` (matrice `/mcp` ci-dessus) ; `tools/e2e/README.md` si la liste des scénarios y est décrite.
+- [x] 8 · specs des stories 5 et 6 (`deferred`), `deferred-work.md` -- clôtures avec preuve ; Implementation Notes de ce lot.
 
 **Acceptance Criteria:**
 - Given la tête du lot, when on lance `ruff check`, `ruff format --check` sur les fichiers touchés et pytest en quatre quarts, then aucun échec qui ne soit expliqué et sans lien avec le lot.
@@ -92,9 +113,74 @@ deferred: []
 - Given la langue `de`, when un refus de budget nomme le compresseur sans libellé de fabrique, then la phrase est « …, um den Kompressor zu laden: … ».
 - Given l'atelier RAG en `en` ou `de`, when la recherche BM25 tourne, then les mots vides de la langue ne figurent pas dans les mots cherchés affichés et l'explication de l'étape le dit dans la langue.
 
+## Implementation Notes
+
+Commits sur `feat/restes-2026-10-01` (base `18c3978`) : `1fc4578` (spec), `c61770e` (1, statut Langues 5), `584163d` (2, compresseur à l'accusatif), `1ebc5bd` (3, BM25 par langue), `fe7ca10` (4, A/B), `8954576` (5, atelier MCP), `17f2748` (6, E2E `/llm`), `66971d8` (7, E2E `/mcp`), `e0e81fd` (8, clôtures), `87f6ac3` (correctifs de revue), puis le commit de clôture de cette spec.
+
+### Décisions prises seul (à relire par Anaël)
+
+- **Workflow BMAD.** `bmad-build-auto` exige des sous-agents synchrones ; ici ils tournent en arrière-plan : l'implémentation a été faite à la main, avec la même discipline (spec, code, tests, revue). La revue à quatre couches a été lancée en sous-agents (lecture seule) pendant que pytest tournait.
+- **Point 2.** Un seul cas ne suffit pas : `the_compressor` sert de sujet (détail du schéma, « der Kompressor, Bibliothek… ») et d'objet (« um {label} zu laden »). Nouvelle clé `session.compression.the_compressor_to_load` (fr et en identiques à `the_compressor`, de « den Kompressor »), prise par `_compressor_label(to_load=True)` dans `_load_compressor`. Chemin rare : la fabrique Headroom donne toujours son `label_text`.
+- **Point 3.** Listes courtes et prudentes ; en anglais « it » et « us » gardés (sigles « IT », « US »). Langue inconnue : le français. L'explication française n'a pas changé (elle était juste) ; en et de réécrites.
+- **Point 4.** Le test cloud utilise un `Provider` qui répond selon la température (A et B distingués sans dépendre du nombre de requêtes faites au démarrage).
+- **Point 5.** Arrêt stdio sans crochet : le processus du glossaire est suspendu par psutil (il ne lit plus rien), puis repris en `finally`. Les refus : 14 routes de classe (b) de l'écran principal et des ateliers, chacune 409 avec « Atelier MCP » dans la raison.
+- **Point 6.** Nouveau scénario `llm_live` plutôt qu'un ajout à `llm_screen` (il se lance seul, sur le faux cloud A dont `/api/llm_lab` est réécrit). L'arrêt de la comparaison est joué sur le faux cloud A (« [lent] ») : il couvre aussi la comparaison cloud dans l'E2E. La première entrée `deferred` de la story 5 (redessin des barres avec un moteur factice) est close par la même voie (`page.route`), pas par un moteur factice.
+- **Point 7.** Nouveau scénario `mcp_lab_page`. « Hors ligne » couvert de deux façons : `/api/mcp_lab` coupé par `page.route`, et data.gouv.fr hors réseau (pile E2E). « Arrêter » est pressé pendant la poignée de main du glossaire (seul échange assez long sans crochet), jusqu'à trois essais ; gagné au premier essai aux deux passages. Champs JSON, troncature et note « servi non traduit » sur un `last_session` simulé (aucun serveur public joignable ici).
+- **Constat nouveau, consigné dans `deferred-work.md`** : « 1 tokens produits » et « Réponse : 1 tokens » (comptes de `llm_lab.yaml` sans pluriel), vu sur la capture 65. Préexistant, hors périmètre.
+
+### Vérification
+
+- Itération : `test_compression -k budget_refusal` 3 passés (le nouveau test échoue sur l'ancien code) ; `test_i18n`, `test_backend_messages` 3 257 passés ; `test_rag_lab`, `test_rag_lab_alt`, `test_annex_language` 90 passés, 1 échec (`test_nothing_is_written_under_the_repository`, écritures concurrentes d'autres agents dans le dépôt pendant le test), vert rejoué seul ; `test_llm_lab` 62 passés (1 désélectionné, marqueur `model`) ; `test_mcp_lab` 21 passés.
+- E2E : `--only llm_screen llm_live bare_llm annex_language` 98/98 ; `--only mcp_lab mcp_lab_page mcp_full mcp_lazy` 51/52 au premier passage (attente fausse dans le test : la page formate « 2 048 »), corrigé, `--only mcp_lab_page` 19/19. Captures modifiées restaurées, nouvelles : 65 et 66.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-10-01 — Review pass
+- verdicts: 37 findings — high 0, medium 4, low 29, false 4, maybe-false 0
+- findings:
+  - Intent Alignment
+  - `[low]` `[defer]` IA1 : la réponse simulée de `/api/llm_lab/distribution` recopie à la main la forme de `AppSession.llm_distribution`, jamais comparée à elle — dérive possible sans que l'E2E la voie ; correctif = un constructeur partagé côté session (surface nouvelle), différé.
+  - `[low]` `[reject]` IA2 : « Arrêter » de la page jamais pressé pendant B sur un moteur local — l'intention demande le bouton dans la tranche `llm_screen` : pressé sur le faux cloud ; l'arrêt pendant B en local est couvert par pytest.
+  - `[low]` `[reject]` IA3 : champs JSON, troncature, note « servi non traduit » vérifiés sur un `last_session` fabriqué — voulu (aucun serveur public joignable dans la pile E2E) et validé par `Envelope`.
+  - `[medium]` `[patch]` IA4 : la liste des intentions refusées omettait `set_api_key`, `test_cloud_model`, `reset` (et `download_model`, `build_rag_index`) — les trois premières ajoutées (409 avec la raison) ; les deux dernières répondent 404 avant l'état quand la brique RAG est éteinte, dit en commentaire.
+  - `[false]` `[reject]` IA5 : passages français filtrés avec les mots vides anglais quand l'index de la brique sert — faux : l'index de la brique est par langue (`AppSession._rag_index_path` → `cfg.rag_index_path(self._language)`), seule la fixture des tests est française ; commentaire du code précisé.
+  - `[low]` `[reject]` IA6 : le libellé à l'accusatif n'est pris que sans libellé de fabrique (jamais avec Headroom) — c'est le point 4 tel que demandé.
+  - `[low]` `[patch]` IA7 : l'entrée Langues 5 de `deferred-work.md` disait encore « à jouer » pour `backend_language` — annotée (16/16, story close).
+  - `[low]` `[patch]` IA8 : tâches de la spec non cochées, pas d'Implementation Notes dans le diff relu — notes écrites (non commitées au moment de la revue), tâches cochées à la finalisation.
+  - `[false]` `[reject]` IA9 : chiffres de preuve non montrés par le diff — ce sont des comptes rendus d'exécution, consignés avec leurs commandes.
+  - Verification Gap
+  - `[medium]` `[patch]` VG1 : le score BM25 de `_lexical_search` n'était pas éprouvé dans la langue de la session (seuls les mots affichés l'étaient) — test paramétré `en`/`de` : chaque extrait trouvé partage un mot de contenu avec la question ; démontré : il échoue (2/2) quand le score reprend les mots vides français.
+  - `[low]` `[defer]` VG2 : « le dernier mouvement gagne » ne prouve pas la garde du ticket de `fetchDistribution` (la route simulée répond dans l'ordre) — formulations des preuves corrigées (story 5, `deferred-work.md`) ; une réponse retardée dans `_LiveLab` est différée.
+  - Blind Hunter
+  - `[low]` `[patch]` BH1 : spec sans preuve propre — même correctif qu'IA8.
+  - `[low]` `[patch]` BH2 : `STOP_WORDS` changeait de type sous le même nom (une ancienne utilisation filtrerait en silence sur les clés) et la spec annonçait `STOP_WORDS_BY_LANG` — renommé `STOP_WORDS_BY_LANG`.
+  - `[low]` `[patch]` BH3 : refus de classe (b) incomplets — même correctif qu'IA4.
+  - `[low]` `[patch]` BH4 : règle des sigles appliquée inégalement (« who »/WHO, « am »/9 am) — retirés de la liste anglaise ; « ce » (CE) français préexistant, laissé.
+  - `[false]` `[reject]` BH5 : commentaire « le corpus et la question sont dans la langue de la session » faux — même réfutation qu'IA5.
+  - `[medium]` `[patch]` BH6 : allemand moins couvert (pas de course `de`, « französische » non vérifié absent, français non vérifié) — course `de` ajoutée au test paramétré, test des trois explications.
+  - `[low]` `[reject]` BH7 : preuves manquantes (tranche `rag rag_rerank rag_lab`, `backend_language` rejouée ?) — la tranche RAG est jouée en vérification finale ; Langues 5 close sur la vérification avec processus du 2026-10-01, dite telle.
+  - `[low]` `[defer]` BH8a : la même phrase de refus reçoit « modèle d'embedding X » sans article (atelier RAG, `rag/lab.py:938`), fr, en, de — préexistant, hors de ce point.
+  - `[low]` `[reject]` BH8b : l'étiquette `[reject]` de la story 7 reste malgré la reprise — journal append-only, la sous-ligne dit la reprise.
+  - `[low]` `[defer]` BH9 : la route simulée renvoie `sampling` brut au lieu de `asdict` — même cause qu'IA1 (la page ne lit pas ce champ).
+  - `[low]` `[patch]` BH10a : `sent_at[before] < sent_at[before + 1]` toujours vrai — supprimé (l'ordre est prouvé par les `seq`).
+  - `[low]` `[reject]` BH10b : `engine.outputs` selon le nombre d'appels du démarrage, un token par caractère — motif des tests existants de `FakeEngine`, documenté par lui.
+  - `[low]` `[patch]` BH11 : course d'« Arrêter » perdue trois fois → délai Playwright au lieu d'une vérification lisible — `_mcp_stop_during_handshake` rend un échec dit et arrête le scénario.
+  - `[low]` `[patch]` BH12 : la réponse `tools/list` simulée était vide alors qu'un outil est listé — elle liste l'outil.
+  - `[low]` `[patch]` BH13 : guillemets français dans un commentaire du fichier anglais — remplacés.
+  - Edge Case Hunter
+  - `[medium]` `[patch]` EC1 : un `assert` après `suspend()` laissait la liste du `finally` vide (processus suspendus) — la liste de l'appelant est remplie avant la suspension.
+  - `[low]` `[patch]` EC2 : `assert session.state == "llm_lab"` après `llm_compare` cloud, course avec un faux fournisseur instantané — retiré (l'état synchrone est testé ailleurs).
+  - `[low]` `[patch]` EC3 : `KeyError` opaque dans `_ByTemperature` — réponse 500 qui montre le corps inattendu.
+  - `[low]` `[patch]` EC4 : un échec à l'étape « Occupé » laissait le tour lent tourner — `try/finally` qui l'arrête.
+  - `[low]` `[patch]` EC5 : course d'« Arrêter » — même correctif que BH11.
+  - `[low]` `[patch]` EC6 : tolérance égale à la valeur attendue (1/500 ± 0,002) — 0,0005.
+  - `[false]` `[reject]` EC7 : `_DIST_ROWS_JS` pourrait lire une ligne à moitié redessinée — `renderDistribution` vide puis remplit la liste dans la même tâche ; `evaluate` ne s'intercale pas.
+  - `[low]` `[reject]` EC8 : contractions anglaises (« don », « isn ») — rares dans un corpus formel, et « don », « won » sont aussi des mots.
+  - `[low]` `[patch]` EC9 : le filtre « aucun événement » des refus ne regardait que des démarrages — il exige désormais zéro événement depuis la marque.
+  - `[low]` `[patch]` EC10 : `STOP_WORDS_BY_LANG` annoncé, `STOP_WORDS` livré — même correctif que BH2.
+  - `[low]` `[reject]` EC11 : « explications réécrites dans les trois langues » alors que le français n'a pas changé — corriger reviendrait à éditer la spec ; les notes le disent.
 
 ## Design Notes
 
@@ -110,3 +196,14 @@ deferred: []
 - `uv run pytest -q tests/test_llm_lab.py tests/test_mcp_lab.py tests/test_rag_lab.py tests/test_compression.py tests/test_i18n.py` -- expected: tout passe
 - pytest en quatre quarts des `tests/test_*.py` triés, un à la fois -- expected: tout passe
 - `$env:PYTHONUTF8=1; uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py --only llm_screen llm_live bare_llm annex_language` puis `--only mcp_lab mcp_lab_page mcp_full mcp_lazy`, puis `--only rag rag_rerank rag_lab` -- expected: 0 FAIL
+
+## Auto Run Result
+
+Status: done
+
+- **Changement** : les cinq points du périmètre. (1) Story Langues 5 passée à `done`. (2) Refus de budget allemand à l'accusatif par une seconde clé `session.compression.the_compressor_to_load`. (3) Mots vides de BM25 par langue (`STOP_WORDS_BY_LANG`, `LabDeps.lang`), explications en et de réécrites. (4) Tests de la comparaison A/B (arrêt pendant B, modèle cloud) et E2E `llm_live` (distribution vivante et fenêtre par `page.route`) plus l'arrêt d'une comparaison par le bouton dans `llm_screen`. (5) Tests de l'atelier MCP (arrêt d'un appel stdio, refus pendant un échange) et E2E `mcp_lab_page`. Entrées `deferred` des stories 5 et 6 et de `deferred-work.md` closes avec leur preuve.
+- **Fichiers** : `content/messages.yaml` et surcouches (clé d'accusatif) ; `src/wavestack/session/app_session.py` (`_compressor_label(to_load=)`) ; `src/wavestack/rag/lab.py` (mots vides par langue) ; `content/i18n/{en,de}/rag_lab.yaml` (explications) ; `tests/test_compression.py`, `test_rag_lab.py`, `test_llm_lab.py`, `test_mcp_lab.py` (tests nouveaux) ; `tools/e2e/run_e2e.py` (`llm_live`, `mcp_lab_page`, `_lab_compare_stopped`), `tools/e2e/README.md`, captures 65 et 66 ; specs des stories 5, 6, 7 et Langues 5, `deferred-work.md`.
+- **Revue** : 37 constats (0 high, 4 medium, 29 low, 4 false) ; 22 lignes corrigées (dont les 4 medium : IA4, VG1, BH6, EC1) ; 4 différées (IA1, BH9, VG2, BH8a) ; 11 rejetées avec leur raison (journal ci-dessus).
+- **Revue de suivi recommandée** : oui (règle du premier passage : 4 entrées `medium` corrigées). Risque nommé : l'E2E `llm_live` ne compare pas la forme de sa réponse simulée à celle de la session, et la garde du ticket de `fetchDistribution` n'est pas éprouvée (entrées `deferred`).
+- **Vérification finale (tête `87f6ac3`)** : `ruff check` et `ruff format --check` sur `src tests tools` propres. pytest en quatre quarts, un à la fois : Q1 3 567 passés (avant les correctifs de revue, fichiers non touchés par eux) ; Q2 599 passés, 1 désélectionné ; Q3 365 passés, 3 sautés, 3 désélectionnés ; Q4 336 passés, 3 désélectionnés. Aucun échec. Fichiers touchés par la revue rejoués : `test_llm_lab`, `test_mcp_lab`, `test_rag_lab`, `test_compression`, `test_i18n` 308 passés. E2E (`PYTHONUTF8=1`) : `mcp_lab mcp_lab_page mcp_full mcp_lazy` 52/52 ; `llm_screen llm_live bare_llm annex_language` 98/98 ; `rag rag_rerank rag_lab compression` 116/116 ; `backend_language ui_language content_language language` 64/64. Captures restaurées, sauf les nouvelles 65 et 66.
+- **Risques résiduels** : la course d'« Arrêter » de `/mcp` (gagnée au premier essai sur ce poste, trois essais au plus) ; `test_nothing_is_written_under_the_repository` sensible aux écritures d'autres agents dans le dépôt pendant la suite.
