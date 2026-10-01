@@ -2,7 +2,7 @@
 title: 'Traductions restantes : messages du backend et textes de la nuit'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-review'
+status: 'done'
 baseline_revision: '27abdfd'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -52,3 +52,4 @@ deferred: []
 - **Choix de traduction à relire** (rapports des sous-agents) : anglais britannique (-ise), « workstation » pour « poste » mais « computer RAM » dans `config.budget.*` (déjà employé par le diagnostic) ; allemand : « Sie » pour l'utilisateur, « du » pour le modèle (prompt système), y compris là où le français vouvoie le modèle (`calculator.unreadable`, `network.year`) ; « Télécharger » rendu par „{noun}-Modell herunterladen“ (pas de libellé court en `de`) ; fragments réécrits pour la déclinaison (`session.load.memory.the_provider`, `llm_lab.tokenizer.*`, `rag_lab.chunking.source_*`, `config.budget.calc.*`) ; rangs „{n}.“ un peu raides dans `rag_lab.rerank.climb` et `compare.move`.
 - **Vérification** : `ruff check`, `ruff format --check` OK ; `pytest tests/test_i18n.py tests/test_backend_messages.py tests/test_ui_texts.py` : 3 295 passés. **Non lancé** (accord d'Anaël requis) : E2E `--only backend_language annex_language` (les tranches `ui_language` et `annex_language` deviennent plus strictes : elles ne mettent plus de côté les textes du backend).
 - **Revue** : pas encore faite (story de contenu ; revue de suivi recommandée sur les choix ci-dessus et sur la tranche E2E jamais jouée).
+- **Vérification avec processus** (2026-10-01, accord d'Anaël) : E2E `backend_language` 16/16 (après un correctif : retour à l'atelier avant chaque langue), `ui_language` sans échec, `annex_language` 29/29 après deux correctifs : un `Said` (texte rendu qui garde son `Message`, ceux du diagnostic de démarrage) est rendu de nouveau dans la langue demandée par `in_language` ; l'E2E met de côté les seuls textes des événements émis avant le dernier changement de langue (historique du journal : étapes du dernier chargement, contrôles du diagnostic de démarrage). `content_language language` 34/34. Six tests des stories Langues 3 et 4 attendaient encore du français en `en`/`de` : attentes passées au catalogue de la langue.

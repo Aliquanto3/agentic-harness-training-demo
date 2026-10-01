@@ -2,7 +2,7 @@
 title: 'Atelier MCP (/mcp) : le protocole à manipuler'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-review'
+status: 'done'
 baseline_revision: '1bc25bfcc85f6761ca38f9356bc315c4aad1f2a0'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -188,3 +188,4 @@ Implémentation livrée en entier (incréments 1 et 2, sections 1 à 5), **non v
 - **Revue de suivi recommandée** : oui. Risque nommé : `tests/test_mcp_lab.py` (connexions réelles au glossaire, arrêts, délais) n'a jamais tourné, ni l'E2E `mcp_lab` ; les correctifs d'arrêt et de connexion perdue ne sont vérifiés qu'en lecture.
 - **Vérification** : `ruff check` et `ruff format --check` OK ; `node --check` sur `mcp.js` et `app.js` OK ; `pytest tests/test_web_app.py tests/test_ui_texts.py tests/test_web_tokens.py tests/test_i18n.py tests/test_backend_messages.py` : 3 324 passés ; `pytest tests/test_mcp_lab.py -k "capture or catalog_line or last_session or invalid_content or lab_scope"` : 5 passés. **Non lancés** (accord d'Anaël requis : serveur MCP local) : le reste de `tests/test_mcp_lab.py`, `tests/test_mcp.py`, `tests/test_mcp_lazy.py` et l'E2E `--only mcp_lab mcp_full mcp_lazy annex_language`.
 - **Risques résiduels** : barre à six liens en `de` à 1 280 px en projection non mesurée ; durées des tests d'arrêt et de délai à confirmer sur le PC cible ; statut laissé `in-review` jusqu'à ces tests.
+- **Vérification avec processus** (2026-10-01, accord d'Anaël) : premier passage de `tests/test_mcp_lab.py` en échec, corrigé : `last_session` reprenait des `mcp{n}` d'une session antérieure du même journal (borné au `seq` du début de la dernière connexion), test VG4 qui prenait le serveur local de la brique pour celui de l'atelier, texte attendu faux ; puis `test_mcp_lab.py` 19/19, `test_mcp.py` et `test_mcp_lazy.py` 35/35. E2E `mcp_lab mcp_full mcp_lazy` 39/39 (captures 61 et 62) ; barre à six liens en `de` à 1 280 px en projection vérifiée par `ui_language`.

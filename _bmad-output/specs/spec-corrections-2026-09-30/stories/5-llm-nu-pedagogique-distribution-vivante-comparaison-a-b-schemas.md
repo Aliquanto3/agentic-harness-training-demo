@@ -2,7 +2,7 @@
 title: 'LLM nu pédagogique : distribution vivante, comparaison A/B, schémas'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-review'
+status: 'done'
 baseline_revision: '14353f65b9a95215aed95bf221698c0a57beb683'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -173,3 +173,4 @@ deferred:
 - **Revue de suivi recommandée** : oui. Risque nommé : la logique de page (barres redessinées, colonnes A/B, schéma) n'a jamais tourné dans un navigateur avec des données positives, et le test VG4 du vrai moteur n'a pas été lancé.
 - **Vérification** : `ruff check` et `ruff format --check` OK ; `node --check llm.js` OK ; `pytest tests/test_llm_lab.py tests/test_i18n.py tests/test_ui_texts.py tests/test_web_tokens.py tests/test_annex_language.py` : 284 passés, 1 désélectionné (marqueur `model`). **Non lancés** (accord d'Anaël requis) : `tests/test_engine_candidates.py` (modèle synthétique en processus) et l'E2E `--only llm_screen bare_llm annex_language`.
 - **Risques résiduels** : statut laissé `in-review` jusqu'à l'E2E ; course de l'E2E `_lab_compare` (EC6) jugée faible.
+- **Vérification avec processus** (2026-10-01, accord d'Anaël) : `tests/test_engine_candidates.py` 4/4 (dont VG4) ; E2E `llm_screen bare_llm` sans échec (84 vérifications avec `annex_language`, dont la comparaison A/B, capture `64-llm-nu-comparaison`).
