@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import shutil
 import threading
+import time
 
 import httpx
 import pytest
@@ -1097,6 +1098,115 @@ def test_compare_route_refused_outside_idle_validated_and_stopped_whole():
     assert started == [f"{request_id}.a"]
     assert len(engine.calls) <= calls + 1  # B never reached the engine
     assert stopped.state == "idle"
+
+
+def test_stop_during_b_keeps_a_completed_and_ends_b_cancelled():
+    """Restes du 2026-10-01 (story 5, IA3 and BH10): « Arrêter » while B runs, A done."""
+    engine = FakeEngine(output="Oui", delay=0.01)
+    session = booted_session(engine)
+    engine.outputs = [engine.output] * len(engine.calls) + ["Oui", "x" * 400]
+    hot = Sampling(1.2, 20, 0.8, 0.0)
+    mark = get_journal().last_seq()
+    request_id = session.llm_compare("Bonjour", SCREEN, hot)
+    first, second = f"{request_id}.a", f"{request_id}.b"
+
+    def b_tokens() -> list:
+        return [
+            e
+            for e in get_journal().events_since(mark)
+            if e.kind == "llm_token" and e.step_id == second
+        ]
+
+    deadline = time.monotonic() + 10
+    while not b_tokens():
+        assert time.monotonic() < deadline, "B never produced a token"
+        time.sleep(0.01)
+    assert session.state == "llm_lab"
+    with pytest.raises(SendRefused):
+        session.send("Pendant B")
+    assert session.stop() is True
+    session.join()
+
+    events = get_journal().events_since(mark)
+    lab = [e for e in events if e.context_id == "llm"]
+    ended = {
+        e.payload["request_id"]: e.payload["status"]
+        for e in lab
+        if e.kind == "llm_generation_ended"
+    }
+    assert ended == {first: "completed", second: "cancelled"}
+    started = [e.payload["request_id"] for e in lab if e.kind == "llm_generation_started"]
+    assert started == [first, second]
+    assert 0 < len(b_tokens()) < 400  # B began, then stopped
+    assert engine.samplings[-2:] == [SCREEN, hot]
+    idle = [e for e in events if e.kind == "session_state" and e.payload.get("state") == "idle"]
+    assert len(idle) == 1 and session.state == "idle"
+    assert session.stop() is False  # nothing left to stop
+
+
+class _ByTemperature(Provider):
+    """A provider whose answer depends on the temperature sent: A and B told apart."""
+
+    def __init__(self, answers: dict[float, bytes]) -> None:
+        super().__init__(b"")
+        self.answers = answers
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        self.sent_at.append(time.monotonic())
+        body = json.loads(request.content)
+        answer = self.answers[body["temperature"]]
+        return httpx.Response(200, content=answer, headers={"content-type": "text/event-stream"})
+
+
+def test_compare_with_a_cloud_model_calls_the_provider_twice_a_then_b():
+    """Restes du 2026-10-01 (story 5, IA3 and BH10): A/B with a cloud model, `_lab_cloud_call`
+    twice, one after the other, each with its own sampling (what the provider takes)."""
+    provider = _ByTemperature(
+        {
+            0.2: sse(delta(content="Sa"), delta(content="lut"), delta("stop")),
+            1.2: sse(delta(content="No"), delta(content="n"), delta("stop")),
+        }
+    )
+    session = _cloud_session("groq", provider)
+    before = len(provider.requests)
+    hot = Sampling(1.2, 20, 0.8, 0.0)
+    mark = get_journal().last_seq()
+    request_id = session.llm_compare("Bonjour", SCREEN, hot)
+    assert session.state == "llm_lab"
+    session.join()
+
+    bodies = [json.loads(r.content) for r in provider.requests[before:]]
+    assert [(b["temperature"], b["top_p"]) for b in bodies] == [(0.2, 0.9), (1.2, 0.8)]
+    assert all("top_k" not in b and "min_p" not in b for b in bodies)
+    assert all(b["messages"] == [{"role": "user", "content": "Bonjour"}] for b in bodies)
+    assert provider.sent_at[before] < provider.sent_at[before + 1]
+
+    events = get_journal().events_since(mark)
+    lab = [e for e in events if e.context_id == "llm"]
+    first, second = f"{request_id}.a", f"{request_id}.b"
+    started = [e for e in lab if e.kind == "llm_generation_started"]
+    ended = [e for e in lab if e.kind == "llm_generation_ended"]
+    assert [e.payload["request_id"] for e in started] == [first, second]
+    assert [e.payload["request_id"] for e in ended] == [first, second]
+    assert all(e.payload["status"] == "completed" for e in ended)
+    assert ended[0].seq < started[1].seq  # never in parallel
+    assert all(e.payload["unit"] == "fragment" and not e.payload["exact"] for e in started)
+    calls = [e.payload["sampling"] for e in lab if e.kind == "model_call_started"]
+    assert [(c["temperature"], c["source"]) for c in calls] == [(0.2, "screen"), (1.2, "screen")]
+
+    def text(step: str) -> str:
+        return "".join(
+            e.payload["text"] for e in lab if e.kind == "llm_token" and e.step_id == step
+        )
+
+    assert (text(first), text(second)) == ("Salut", "Non")
+    idle = [e for e in events if e.kind == "session_state" and e.payload.get("state") == "idle"]
+    assert len(idle) == 1 and idle[0].seq > ended[-1].seq
+    # No live distribution with a cloud model, after a comparison as after « Générer ».
+    assert session.lab_state()["distribution"] == {"tokens": 0}
+    with pytest.raises(DistributionMissing):
+        session.llm_distribution(0, SCREEN)
 
 
 @pytest.mark.parametrize("lang", ["fr", "en", "de"])
