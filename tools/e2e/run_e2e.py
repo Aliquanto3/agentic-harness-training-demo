@@ -1612,7 +1612,7 @@ _SITE_NAV_PROBLEMS_JS = """() => {
   const items = [...nav.children].filter(e => e.checkVisibility());
   const links = items.filter(e => e.tagName === 'A').map(e => e.getAttribute('href'));
   const order = links.join(' ');
-  if (order !== '/ / /llm /rag /diagnostic /models') problems.push(`liens ${order}`);
+  if (order !== '/ / /llm /rag /mcp /diagnostic /models') problems.push(`liens ${order}`);
   if (!items.some(e => e.id === 'display-menu')) problems.push('« Affichage ▾ » absent');
   for (const e of [...items, document.getElementById('display-menu-toggle')]) {
     if (!e) continue;
@@ -4406,6 +4406,152 @@ def _compression_step(r: Run):
     """The last « Compression (…) » step of Orchestration."""
     name = r.page.locator(".turn-step-name", has_text="Compression (")
     return r.page.locator("#orch-scroll .turn-step", has=name).last
+
+
+def s_mcp_lab(r: Run) -> None:
+    """Story 6 of 2026-09-30: the MCP workshop (`/mcp`). The link of the shared bar and of the
+    MCP card, the three servers, a connection to the local glossary (its JSON-RPC messages with
+    direction and duration, its two tools and their weight), a valid call then an unknown term
+    (`is_error`), the brick left as it was. Captures 61 and 62. Back to `/`."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    try:
+        _mcp_lab(r, errors)
+    finally:
+        page.remove_listener("pageerror", listener)
+        if page.locator("#theme-picker").count():
+            _pick_theme(page, "system")
+        r.goto_app()
+
+
+def _mcp_lab(r: Run, errors: list[str]) -> None:
+    page = r.page
+    r.goto_app()
+    r.wait_idle()
+    brick_before = r.bricks()["mcp"]
+    # (1) The links: the shared bar's, whole, and the MCP card's.
+    link = page.locator('.site-nav a[href="/mcp"]')
+    r.check(
+        link.is_visible() and link.inner_text() == "Atelier MCP",
+        "barre commune : lien « Atelier MCP » visible, entier, vers /mcp",
+        link.inner_text() if link.count() else "absent",
+    )
+    ok, detail = _bar_fits(r)
+    r.check(ok, "barre commune entière avec six pages, sur une ligne, à 1600 × 1000", detail)
+    r.check(
+        page.locator('a.brick-workshop-link[href="/mcp"]').count() == 1,
+        "la carte de la brique MCP renvoie à l'atelier MCP",
+    )
+
+    # (2) The page: the shared bar, the three servers.
+    link.click()
+    page.wait_for_url("**/mcp")
+    expect(page.locator("body[data-mcp-ready]")).to_be_attached(timeout=10_000)
+    r.check(
+        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "Atelier MCP"
+        and not _site_nav_problems(r),
+        "/mcp : barre commune entière, « Atelier MCP » courant",
+        str(_site_nav_problems(r)),
+    )
+    servers = page.locator("#mcp-servers .mcp-server")
+    ids = [servers.nth(i).get_attribute("data-server") for i in range(servers.count())]
+    r.check(ids == ["local", "datagouv", "mslearn"], "/mcp : les trois serveurs", str(ids))
+    command = servers.nth(0).inner_text()
+    r.check(
+        "stdio" in command and "wavestack.mcp.local_server" in command,
+        "le glossaire : transport stdio et commande de lancement",
+        command[:200],
+    )
+
+    # (3) The handshake with the local glossary: its messages, its tools, their weight.
+    seq = r.ev.mark()
+    page.locator('button[data-connect="local"]').click()
+    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
+    r.check(ended["status"] == "ok", "connexion de l'atelier au glossaire local", str(ended)[:300])
+    expect(page.locator('#mcp-connect-summary[data-status="ok"]')).to_be_visible(timeout=10_000)
+    messages = page.locator("#mcp-messages .mcp-message")
+    shape = [
+        (
+            messages.nth(i).get_attribute("data-direction"),
+            messages.nth(i).get_attribute("data-method"),
+        )
+        for i in range(messages.count())
+    ]
+    r.check(
+        shape[:2] == [("to_server", "initialize"), ("from_server", "initialize")]
+        and ("to_server", "tools/list") in shape
+        and ("from_server", "tools/list") in shape,
+        "poignée de main : initialize, sa réponse, tools/list et sa réponse, avec leur sens",
+        str(shape),
+    )
+    timings = [messages.nth(i).locator(".mcp-timing").inner_text() for i in range(messages.count())]
+    r.check(
+        timings and all(re.search(r"\d+ ms", t) for t in timings),
+        "chaque message porte sa durée en ms",
+        str(timings),
+    )
+    tools = page.locator("#mcp-tools .mcp-tool")
+    names = [tools.nth(i).get_attribute("data-tool") for i in range(tools.count())]
+    total = page.locator("#mcp-weight-rows .mcp-total")
+    full = int(total.get_attribute("data-full") or 0)
+    lazy = int(total.get_attribute("data-lazy") or 0)
+    r.check(
+        names == ["local__list_terms", "local__define_term"] and full > 0 and lazy > 0,
+        "deux outils, leur poids en documentation complète et en lazy loading",
+        f"{names} · {full} · {lazy}",
+    )
+    r.check(
+        page.locator('#mcp-context [data-mode="full"]').count() == 1
+        and page.locator('#mcp-context [data-mode="lazy"]').count() == 1,
+        "ce que le modèle voit : le bloc « outils » dans les deux modes",
+    )
+    light = _contrast_sweep(r, ["main", "nav.site-nav"])
+    _pick_theme(page, "dark")
+    dark = _contrast_sweep(r, ["main", "nav.site-nav"])
+    _pick_theme(page, "system")
+    r.check(not light and not dark, "/mcp : contrastes AA en clair et en sombre", str(light + dark))
+    r.shot("61-atelier-mcp-poignee-de-main", full_page=True)
+
+    # (4) A valid call, then an unknown term: `is_error`, said, never a 500.
+    page.locator("#mcp-call-tool").select_option("local__define_term")
+    page.locator('#mcp-call-fields input[name="term"]').fill("harnais")
+    seq = r.ev.mark()
+    page.locator("#mcp-call-run").click()
+    call = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
+    expect(page.locator('#mcp-call-summary[data-status="ok"]')).to_be_visible(timeout=10_000)
+    reinjected = page.locator(".mcp-call-text pre").inner_text()
+    r.check(
+        call["status"] == "ok"
+        and "harnais" in reinjected.lower()
+        and page.locator(".mcp-call-request pre").count() == 1
+        and page.locator(".mcp-call-raw pre").count() == 1,
+        "appel valide : requête tools/call, réponse brute, texte réinjecté",
+        reinjected[:200],
+    )
+    r.shot("62-atelier-mcp-appel", full_page=True)
+    page.locator('#mcp-call-fields input[name="term"]').fill("zzz")
+    seq = r.ev.mark()
+    page.locator("#mcp-call-run").click()
+    unknown = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
+    expect(page.locator('#mcp-call-summary[data-status="error"]')).to_be_visible(timeout=10_000)
+    r.check(
+        unknown["status"] == "error" and "is_error" in (unknown.get("error_text") or ""),
+        "terme inconnu : réponse is_error montrée, statut erreur",
+        str(unknown)[:300],
+    )
+    r.check(not errors, "/mcp : aucune erreur JavaScript", str(errors)[:300])
+
+    # (5) The brick, untouched by the workshop.
+    r.goto_app()
+    after = r.bricks()["mcp"]
+    r.check(
+        (after.get("wanted"), after.get("options"))
+        == (brick_before.get("wanted"), brick_before.get("options")),
+        "la brique MCP de l'atelier est inchangée",
+    )
 
 
 def s_compression(r: Run) -> None:
@@ -8199,6 +8345,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("rag", s_rag),
     ("rag_rerank", s_rag_rerank),
     ("rag_lab", s_rag_lab),
+    ("mcp_lab", s_mcp_lab),  # story 6 (2026-09-30): captures 61 and 62
     ("compression", s_compression),
     ("busy_and_stop", s_busy_and_stop),
     ("reload_and_reset", s_reload_and_reset),

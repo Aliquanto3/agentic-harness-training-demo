@@ -1,4 +1,4 @@
-﻿---
+---
 title: 'Atelier MCP (/mcp) : le protocole à manipuler'
 type: 'feature'
 created: '2026-10-01'
@@ -99,3 +99,19 @@ deferred: []
 - `node --check` sur `mcp.js`, `app.js`, `i18n.js` -- expected: aucune erreur.
 - `uv run pytest -q tests/test_mcp_lab.py tests/test_mcp.py tests/test_mcp_lazy.py tests/test_web_app.py tests/test_ui_texts.py tests/test_web_tokens.py tests/test_i18n.py` -- expected: tout passe.
 - E2E (orchestrateur) : `--only mcp_lab mcp_full mcp_lazy annex_language` -- expected: 0 échec.
+
+## Implementation Notes (2026-10-01)
+
+Implémentation livrée en entier (incréments 1 et 2, sections 1 à 5), **non vérifiée** : seuls `ruff check`, `ruff format --check` et `node --check` ont été passés ; ni `pytest` ni l'E2E n'ont été lancés (PC partagé avec une autre suite). Décisions prises sans question :
+
+- **JSON-RPC brut : capture réelle**, pas de reconstruction. `mcp.Client` (SDK 2.2) accepte tout `Transport` (`_connect_transport` entre le gestionnaire de contexte et rend `(read_stream, write_stream)`) : `mcp/lab.LabConnection` enveloppe les flux du transport stdio ou Streamable HTTP (`_ReadTap`, `_WriteTap`) ; chaque `SessionMessage` est sérialisé comme le transport (`model_dump_json(by_alias=True, exclude_unset=True)`). `reconstructed` reste `false` ; le champ est gardé pour le contrat. Écrit dans ARCHITECTURE-SPINE.
+- **Durée d'un message** (`elapsed_ms`) : aller-retour pour une réponse (depuis sa requête, apparié par `id`), temps depuis le début de l'échange pour une requête ou une notification.
+- **Échanges numérotés** `mcp{n}`, une connexion ou un appel chacun ; `last_session` = les enveloppes `mcp_lab_*` et `outbound_request` du contexte `mcp_lab` dont le numéro est ≥ celui de la dernière connexion (`_mcp_lab_first`).
+- **Snapshot** : en plus des clés imposées, `call_presets` (ceux de `content/mcp.yaml`, par nom exposé) et `open_server` (le serveur dont la connexion de l'atelier est vivante, `null` sinon). La page relit `open_server` quand la session quitte `mcp_lab`.
+- **Payloads** : `mcp_lab_connect_ended.tools[]` porte aussi `tool` (le nom côté serveur, celui de `mcp_lab_call`), `definition_text`, `line_text`, `line_tokens` ; l'événement porte aussi `load_tool_doc_tokens`, `lazy_definition_text`, `estimated` et `duration_ms`.
+- **Poids** : la définition d'un outil vient du `_mcp_spec` de la brique et d'un `ToolRegistry` propre à l'atelier (rien n'est inscrit dans le registre de la brique), comptée sur son JSON compact (`json.dumps(…, ensure_ascii=False)`) ; `lazy_tokens` = la définition de `load_tool_doc` dont la description est l'intro plus une ligne par outil (`catalog_line`, désormais partagé avec `_doc_catalog`). C'est une approximation du rendu par le gabarit du modèle, qui peut ajouter quelques tokens de structure.
+- **Appel** : `is_error` → statut `error`, `text` = le texte du serveur, `error_text` = `session.mcp_lab.is_error` ; réponse d'erreur JSON-RPC → `mcp.error.call_refused` ; connexion perdue → `session.mcp_lab.closed` ; délai → `describe_error` ; « Arrêter » → `session.mcp_lab.stopped`, et la connexion est fermée.
+- **Journal de l'atelier principal** : `app.js` range les événements du contexte `mcp_lab` au journal seulement (comme ceux de `llm`), pour qu'une `outbound_request` de l'atelier MCP ne s'accroche jamais à une étape de la brique.
+- **Traductions** : en plus des clés nouvelles, `mcp.error.*` et `mcp.block_not_shown` sont traduits en `en` et `de` (montrés par la page) ; l'allemand vouvoie.
+- **Tests écrits, non lancés** : `tests/test_mcp_lab.py` (capture, connexion locale réelle, poids exacts au faux moteur, appel valide et terme inconnu, refus, serveur public tracé, hors ligne, erreur JSON-RPC, délai, arrêt pendant un appel et pendant la poignée de main, brique intacte pendant un tour, routes et 409, aucun processus restant) ; `test_web_app`, `test_ui_texts`, `test_web_tokens`, `test_i18n`, `test_backend_messages` (périmètre : `mcp/lab.py`) étendus ; E2E `s_mcp_lab` (captures 61 et 62) inscrit dans `SCENARIOS`, et l'ordre des liens de `_SITE_NAV_PROBLEMS_JS` passe à six pages.
+- **Risques connus** : la barre commune à six liens en `de` à 1 280 px en projection n'a pas été mesurée (`_bar_fits`) ; les durées des tests d'arrêt et de délai (`McpWeb.delay`) sont à confirmer sur le PC cible.

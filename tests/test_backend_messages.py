@@ -240,6 +240,7 @@ PERIMETER = (
     "net/guard.py",
     "net/factory.py",
     "rag/lab.py",
+    "mcp/lab.py",  # story 6 (2026-09-30)
     "rag/index.py",
     "rag/retriever.py",
     "rag/corpus.py",

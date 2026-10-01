@@ -204,6 +204,21 @@ class RagLabValidateRequest(BaseModel):
     pipelines: list[Pipeline] = Field(min_length=1, max_length=LANES_MAX)
 
 
+class McpLabConnectIntention(BaseModel):
+    """Story 6 (2026-09-30): the server the MCP workshop connects to, with its own connection."""
+
+    server: str
+
+
+class McpLabCallIntention(BaseModel):
+    """Story 6 (2026-09-30): a tool of the server the workshop is connected to, as the server
+    names it, and its arguments (the page builds them from the tool's schema)."""
+
+    server: str
+    tool: str = Field(min_length=1)
+    args: dict[str, Any] = {}
+
+
 class SystemPromptIntention(BaseModel):
     text: str | None  # null: restore the default
 
@@ -405,6 +420,47 @@ def create_app(
         ends; « Arrêter » (`stop`) stops it. A chain refused: 409 with the reason."""
         try:
             return {"run_id": app_session.run_rag_lab(intention.question, intention.pipelines)}
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
+
+    @app.get("/mcp")
+    def mcp_page() -> FileResponse:
+        """Story 6 (2026-09-30): the MCP workshop, the protocol between the harness and a
+        server, with connections of its own (never the brick's)."""
+        return FileResponse(STATIC_DIR / "mcp.html")
+
+    @app.get("/api/mcp_lab")
+    def api_mcp_lab() -> dict[str, object]:
+        """Story 6 (AD-1): the servers, the texts, the presets, the open connection, the last
+        connection's envelopes, the session's state and the journal's tip; the page then
+        streams from `seq`."""
+        return shown(app_session.mcp_lab_state())
+
+    @app.post("/api/intentions/mcp_lab_connect")
+    def mcp_lab_connect(intention: McpLabConnectIntention) -> dict[str, str]:
+        """Story 6, class (b): accepted in `idle` only, the session in `mcp_lab` until the
+        handshake ends; « Arrêter » (`stop`) closes the connection. Busy: 409 with the
+        reason."""
+        try:
+            return {"step_id": app_session.mcp_lab_connect(intention.server)}
+        except KeyError:
+            raise HTTPException(status_code=404, detail=t("web.unknown.mcp_server")) from None
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
+
+    @app.post("/api/intentions/mcp_lab_call")
+    def mcp_lab_call(intention: McpLabCallIntention) -> dict[str, str]:
+        """Story 6, class (b): a call through the workshop's connection, accepted in `idle`
+        only; without a connection to the server, or for a tool it did not list: 409."""
+        try:
+            step_id = app_session.mcp_lab_call(intention.server, intention.tool, intention.args)
+            return {"step_id": step_id}
+        except KeyError:
+            raise HTTPException(status_code=404, detail=t("web.unknown.mcp_server")) from None
         except SendRefused as refused:
             raise HTTPException(
                 status_code=409, detail=render(refused.reason_text, app_session.language)

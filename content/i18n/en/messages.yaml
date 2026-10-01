@@ -8,6 +8,19 @@ session:
   translation_invalid:
     message: "A translated file ({lang}) under content/i18n/{lang}/ is invalid."
     effect: "The French text of this file replaces it; the rest of WaveStack works."
+  # Story 6 of 2026-09-30: the MCP workshop.
+  state:
+    mcp_lab: "MCP workshop: exchange in progress; wait for it to end or stop it."
+  mcp_lab:
+    content_invalid: "The MCP workshop's texts cannot be read (content/mcp_lab.yaml): fix the file, then reload the page."
+    content_invalid_effect: The “MCP workshop” page is still served without them.
+    texts_unreadable: The MCP workshop's texts cannot be read.
+    not_connected: "Connect to {server} first: the call goes through the MCP workshop's connection."
+    unknown_tool: "{server} did not list a tool “{tool}”."
+    stopped: "Exchange stopped: the MCP workshop's connection is closed."
+    closed: "The MCP workshop's connection is closed: connect to the server again."
+    is_error: "The server answered with is_error: the tool reports an error, which the harness would reinject to the model as it is."
+    interrupted: The MCP workshop stopped on an error.
 
 tools:
   datetime:
@@ -23,6 +36,17 @@ tools:
 mcp:
   glossary:
     unknown_term: "Term not in the glossary: “{term}”. Available terms: {known}."
+  # `mcp/connection.py` (story 6 of 2026-09-30: shown by the MCP workshop).
+  block_not_shown: "[{type} block not shown]"
+  error:
+    timeout: "The server did not answer in time ({timeout} s)."
+    http: "The server answered with an HTTP error {status}."
+    refused_exchange: "The server refused the MCP exchange ({cause})."
+    closed: "The connection to the server is closed: untick it, then tick it again to reopen it."
+    process: "The server's process could not be started ({cause})."
+    failed: "The connection to the server failed ({kind}: {cause})."
+    call_refused: "The MCP server refused the call: {cause}"
+    no_detail: "The server reports an error, without detail."
 
 rag:
   index:

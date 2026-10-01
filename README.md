@@ -408,6 +408,34 @@ Les textes de la page sont dans `content/rag_lab.yaml`. Les événements `rag_la
 dans le contexte `rag_lab` : le journal des événements de l'atelier les liste, aucun volet ne
 les montre. Après un rechargement, la page réaffiche la dernière exécution.
 
+## Atelier MCP
+
+Le lien **« Atelier MCP »** de la barre commune (ou « Voir le protocole dans l'atelier MCP → »
+sur la carte MCP) ouvre la page `/mcp` : le protocole MCP entre le harnais et un serveur, sans
+modèle. C'est un bac à sable : l'atelier ouvre ses propres connexions, la brique MCP de
+l'atelier (ses serveurs cochés, son mode, ses connexions) ne change pas, et rien n'est généré.
+
+- **Les serveurs.** Les trois de la brique : le glossaire local, un processus Python lancé sur
+  le poste et joint par stdio (sa commande de lancement est affichée), data.gouv.fr et
+  Microsoft Learn, joints en Streamable HTTP derrière la garde réseau (ce qui sort du poste est
+  dit). « Se connecter » ouvre la connexion de l'atelier ; une seule à la fois.
+- **La poignée de main.** Chaque message JSON-RPC tel qu'il passe sur le transport, capturé et
+  non reconstitué : `initialize`, la réponse du serveur (nom, version, capacités),
+  `notifications/initialized`, `tools/list` et sa réponse, avec leur sens et leur durée. Un
+  serveur public montre aussi ses requêtes HTTP sortantes ; hors ligne, la section dit l'erreur.
+- **La documentation des outils.** Pour chaque outil, son nom vu par le modèle
+  (`{serveur}__{outil}`), sa description et son schéma, et son poids en tokens dans le
+  contexte : en documentation complète, et en lazy loading (une ligne dans la description de
+  `load_tool_doc`). Compté par le modèle chargé, sinon estimé.
+- **L'appel.** Un champ par paramètre, des préréglages ; la requête `tools/call`, la réponse
+  brute et le texte que le harnais réinjecterait au modèle (borné comme un résultat d'outil).
+  Un terme inconnu du glossaire montre une réponse `is_error`. « Arrêter » ferme la connexion.
+- **Ce que le modèle voit.** Le bloc « outils » du contexte avec ce serveur, dans les deux modes.
+
+Les textes de la page sont dans `content/mcp_lab.yaml`. Les événements `mcp_lab_*` sont tracés
+dans le contexte `mcp_lab` : le journal des événements de l'atelier les liste, aucun volet ne
+les montre. Pendant un échange, l'atelier attend (état « Atelier MCP : échange en cours »).
+
 ## Atelier RAG : FAISS et LanceDB (extra optionnel)
 
 La base vectorielle de l'Atelier RAG peut aussi être [FAISS](https://pypi.org/project/faiss-cpu/)

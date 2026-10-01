@@ -278,8 +278,9 @@ function applyEnvelope(envelope) {
   // FinOps: every paid call counts, the « LLM nu » screen's and the diagnostic's included.
   if (envelope.kind === "consumption_updated" && isLive(envelope)) store.consumption = envelope.payload;
   // Story 29: the « LLM nu » screen's events (context `llm`, no turn) go to the event log
-  // only; no pane of the workshop shows them.
-  if (envelope.context_id === "llm" && envelope.kind !== "session_state") {
+  // only; no pane of the workshop shows them. Story 6 (2026-09-30): so do the MCP
+  // workshop's (context `mcp_lab`), its outbound requests included: never the brick's.
+  if ((envelope.context_id === "llm" || envelope.context_id === "mcp_lab") && envelope.kind !== "session_state") {
     scheduleRender();
     return;
   }
@@ -1228,6 +1229,13 @@ function renderBricks() {
     if (brick.note_text) card.appendChild(el("p", "brick-note", brick.note_text));
     // Story 23: what leaves the workstation and where to read it, outside the folded options.
     if (brick.outbound_text) card.appendChild(el("p", "brick-outbound", brick.outbound_text));
+    // Story 6 (2026-09-30): the MCP card leads to the MCP workshop, the protocol laid bare.
+    if (brick.id === "mcp") {
+      const workshop = el("a", "brick-workshop-link", t("main.bricks.mcp_workshop"));
+      workshop.href = "/mcp";
+      workshop.title = t("common.links.mcp_title");
+      card.appendChild(workshop);
+    }
     if (brick.pending) card.appendChild(el("p", "brick-pending", t("main.bricks.pending")));
     // Story 9: its armed actions, always visible (the Forcer buttons may be hidden).
     const armed = store.armed.filter((a) => a.brick === brick.id);
@@ -6218,6 +6226,17 @@ function eventSummary(group) {
       return p.status === "ok"
         ? `${labelValue(mcpServerLabel(p.server), plural(p.tools.length, "tool"))} · ${seconds(p.duration_ms)}`
         : labelValue(mcpServerLabel(p.server), p.error_text);
+    // Story 6 (2026-09-30): the MCP workshop's exchanges, in the log only.
+    case "mcp_lab_message":
+      return `${t(p.direction === "to_server" ? "mcp.to_server" : "mcp.from_server")} · ${p.method || "—"} · ${seconds(p.elapsed_ms)}`;
+    case "mcp_lab_connect_ended":
+      return p.status === "ok"
+        ? `${labelValue(mcpServerLabel(p.server), plural(p.tools.length, "tool"))} · ${seconds(p.duration_ms)}`
+        : labelValue(mcpServerLabel(p.server), p.error_text);
+    case "mcp_lab_call_ended":
+      return [labelValue(mcpServerLabel(p.server), p.tool), p.status, seconds(p.duration_ms), p.error_text]
+        .filter(Boolean)
+        .join(" · ");
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":

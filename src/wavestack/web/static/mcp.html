@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <script src="/static/theme.js"></script>
+  <script type="module" src="/static/i18n.js"></script>
+  <script type="module" src="/static/site-nav.js"></script>
+  <title data-i18n="mcp.page_title">WaveStack — Atelier MCP</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/fonts.css" />
+  <link rel="stylesheet" href="/static/tokens.css" />
+  <link rel="stylesheet" href="/static/pages.css" />
+  <link rel="stylesheet" href="/static/mcp.css" />
+</head>
+<body class="mcp-page">
+  <!-- Story 2 (2026-09-30): the bar shared by every page, the same HTML in each but for
+       `aria-current` and, on the main screen only, the projection mode (site-nav.js). -->
+  <nav class="site-nav" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
+    <a href="/" class="site-nav-brand">WaveStack</a>
+    <a href="/">Atelier</a>
+    <a href="/llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM nu</a>
+    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">Atelier RAG</a>
+    <a href="/mcp" title="Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)" data-i18n-title="common.links.mcp_title" aria-current="page">Atelier MCP</a>
+    <a href="/diagnostic">Diagnostic</a>
+    <a href="/models">Modèles</a>
+    <div class="display-menu" id="display-menu">
+      <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="common.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="common.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
+      <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="common.display.menu" hidden>
+        <label class="display-menu-row"><span class="display-menu-label" data-i18n="common.display.theme">Thème</span>
+          <span class="theme-picker-box" id="theme-picker-box">
+            <select id="theme-picker" class="theme-picker" data-theme-picker autocomplete="off" aria-label="Thème de l'interface" data-i18n-aria-label="common.theme.name" title="Thème de l'interface" data-i18n-title="common.theme.name">
+              <option value="system" data-i18n="common.theme.system">◐ Système</option>
+              <option value="light" data-i18n="common.theme.light">☀ Clair</option>
+              <option value="dark" data-i18n="common.theme.dark">☾ Sombre</option>
+            </select>
+          </span>
+        </label>
+        <label class="display-menu-row"><span class="display-menu-label" data-i18n="common.language.name">Langue</span>
+          <span class="language-picker-box" id="language-picker-box">
+            <select id="language-picker" class="language-picker" autocomplete="off" aria-label="Langue" data-i18n-aria-label="common.language.name">
+              <option value="fr" lang="fr">Français</option>
+              <option value="en" lang="en">English</option>
+              <option value="de" lang="de">Deutsch</option>
+            </select>
+          </span>
+        </label>
+        <p class="display-menu-alert" id="display-menu-alert" role="alert" hidden></p>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Story 6 (2026-09-30): the MCP workshop, its five sections in the order of a real
+       exchange (atelier-mcp.md). Every text comes from content/mcp_lab.yaml (`data-text`) or
+       ui.yaml, section `mcp` (`data-i18n`); everything shown from `GET /api/mcp_lab` and the
+       `mcp_lab_*` events (AD-1). -->
+  <main class="mcp-main">
+    <header class="mcp-header">
+      <h1 id="mcp-title" data-text="title_text">Atelier MCP : le protocole à manipuler</h1>
+      <p class="mcp-intro" data-text="intro_text"></p>
+      <p class="mcp-error" id="mcp-content-error" role="alert" hidden></p>
+      <p class="mcp-busy" id="mcp-busy" role="status" hidden></p>
+    </header>
+
+    <section class="mcp-section" id="sec-servers" aria-labelledby="sec-servers-title">
+      <h2 class="mcp-section-title" id="sec-servers-title"><span class="mcp-step" aria-hidden="true">1</span> <span data-text="servers_title_text">Les serveurs</span></h2>
+      <p class="mcp-note" data-text="servers_help_text"></p>
+      <ul class="mcp-servers" id="mcp-servers" aria-label="Serveurs MCP" data-i18n-aria-label="mcp.servers_label"></ul>
+      <div class="mcp-actions">
+        <button type="button" id="mcp-stop" class="mcp-button-secondary" data-i18n="mcp.stop" disabled>Arrêter</button>
+        <span class="mcp-status" id="mcp-status" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section class="mcp-section" id="sec-handshake" aria-labelledby="sec-handshake-title">
+      <h2 class="mcp-section-title" id="sec-handshake-title"><span class="mcp-step" aria-hidden="true">2</span> <span data-text="handshake_title_text">La poignée de main</span></h2>
+      <p class="mcp-note" data-text="handshake_help_text"></p>
+      <p class="mcp-note" id="mcp-handshake-empty" data-text="handshake_empty_text"></p>
+      <p class="mcp-summary" id="mcp-connect-summary" role="status" hidden></p>
+      <ol class="mcp-messages" id="mcp-messages" aria-label="Messages JSON-RPC de la poignée de main" data-i18n-aria-label="mcp.messages_label"></ol>
+    </section>
+
+    <section class="mcp-section" id="sec-tools" aria-labelledby="sec-tools-title">
+      <h2 class="mcp-section-title" id="sec-tools-title"><span class="mcp-step" aria-hidden="true">3</span> <span data-text="tools_title_text">La documentation des outils</span></h2>
+      <p class="mcp-note" data-text="tools_help_text"></p>
+      <p class="mcp-note" id="mcp-tools-empty" data-text="tools_empty_text"></p>
+      <div class="mcp-tools-layout">
+        <div class="mcp-tools" id="mcp-tools"></div>
+        <div class="mcp-weights" id="mcp-weights" hidden>
+          <h3 class="mcp-subtitle" data-i18n="mcp.weight_title">Poids dans le contexte</h3>
+          <table class="mcp-weight-table" id="mcp-weight-table">
+            <thead>
+              <tr>
+                <th scope="col" data-i18n="mcp.weight_tool">Outil</th>
+                <th scope="col" data-i18n="mcp.weight_full">Documentation complète</th>
+                <th scope="col" data-i18n="mcp.weight_lazy">Lazy loading</th>
+              </tr>
+            </thead>
+            <tbody id="mcp-weight-rows"></tbody>
+          </table>
+          <p class="mcp-note" id="mcp-weight-source"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mcp-section" id="sec-call" aria-labelledby="sec-call-title">
+      <h2 class="mcp-section-title" id="sec-call-title"><span class="mcp-step" aria-hidden="true">4</span> <span data-text="call_title_text">L'appel</span></h2>
+      <p class="mcp-note" data-text="call_help_text"></p>
+      <p class="mcp-note" id="mcp-call-empty" data-text="call_empty_text"></p>
+      <form class="mcp-call-form" id="mcp-call-form" aria-label="Appel d'un outil" data-i18n-aria-label="mcp.call_form" hidden>
+        <div class="mcp-call-pickers">
+          <label class="mcp-label"><span data-i18n="mcp.call_tool">Outil</span>
+            <select id="mcp-call-tool" autocomplete="off"></select>
+          </label>
+          <label class="mcp-label"><span data-i18n="mcp.call_preset">Préréglage</span>
+            <select id="mcp-call-preset" autocomplete="off"></select>
+          </label>
+        </div>
+        <div class="mcp-call-fields" id="mcp-call-fields"></div>
+        <div class="mcp-actions">
+          <button type="submit" id="mcp-call-run" class="mcp-button-primary" data-i18n="mcp.call_run">Appeler</button>
+          <span class="mcp-status" id="mcp-call-status" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+      <p class="mcp-summary" id="mcp-call-summary" role="status" hidden></p>
+      <div class="mcp-call-result" id="mcp-call-result"></div>
+    </section>
+
+    <section class="mcp-section" id="sec-context" aria-labelledby="sec-context-title">
+      <h2 class="mcp-section-title" id="sec-context-title"><span class="mcp-step" aria-hidden="true">5</span> <span data-text="context_title_text">Ce que le modèle voit</span></h2>
+      <p class="mcp-note" data-text="context_help_text"></p>
+      <p class="mcp-note" id="mcp-context-empty" data-text="context_empty_text"></p>
+      <div class="mcp-context" id="mcp-context"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/static/mcp.js"></script>
+</body>
+</html>

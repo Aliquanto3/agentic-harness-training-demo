@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import replace
 from typing import Any
@@ -313,3 +313,33 @@ class LabConnection(McpConnection):
         except BaseException:
             submitted.cancel()
             raise
+
+
+# ---------- the last session, rebuilt by the page (AD-1) ----------
+
+KINDS = ("mcp_lab_message", "mcp_lab_connect_ended", "mcp_lab_call_ended")
+
+
+def step_number(step_id: str | None) -> int | None:
+    """`mcp{n}` -> n; anything else -> None."""
+    if not step_id or not step_id.startswith("mcp") or not step_id[3:].isdigit():
+        return None
+    return int(step_id[3:])
+
+
+def last_session(envelopes: Sequence[Any], first: int) -> list[dict[str, Any]]:
+    """The envelopes of the workshop's last connection and of the calls made on it, from its
+    exchange `mcp{first}` on: its JSON-RPC messages, the ends of its exchanges and the
+    requests a public server received (`outbound_request` in the context `mcp_lab`)."""
+    if first <= 0:
+        return []
+    kept = []
+    for envelope in envelopes:
+        if envelope.context_id != "mcp_lab":
+            continue
+        if envelope.kind not in KINDS and envelope.kind != "outbound_request":
+            continue
+        number = step_number(envelope.step_id)
+        if number is not None and number >= first:
+            kept.append(envelope.model_dump(mode="json"))
+    return kept
